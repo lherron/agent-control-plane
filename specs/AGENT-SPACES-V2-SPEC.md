@@ -441,8 +441,8 @@ Top-level commands optimized for day-to-day:
 - `asp build <target> [--output <path>]` - Materialize plugins without launching Claude
 
 **Management Commands:**
-- `asp add <target> <spaceRef>` - Add space ref to target in asp-targets.toml
-- `asp remove <target> <spaceRef>` - Remove space from target
+- `asp add <spaceRef> --target <name>` - Add space ref to target in asp-targets.toml
+- `asp remove <spaceId> --target <name>` - Remove space from target
 - `asp upgrade [spaceIds...]` - Update lock pins per selectors
 - `asp diff` - Show pending lock changes without writing
 
