@@ -402,11 +402,15 @@ Namespacing is the intended mechanism for resolving conflicts.  [oai_citation:18
 
 W202 `agent-command-namespace`: an agent doc references an unqualified `/command` that appears to be provided by a plugin Space; recommend using `/space:command` due to known agent discovery issues.  [oai_citation:19‡GitHub](https://github.com/anthropics/claude-code/issues/11328)
 
-W203 `hook-path-no-plugin-root`: hook command path doesn’t include `${CLAUDE_PLUGIN_ROOT}`.
+W203 `hook-path-no-plugin-root`: hook command path doesn't include `${CLAUDE_PLUGIN_ROOT}`.
 
-W204 `invalid-plugin-structure`: component directories nested incorrectly (e.g. `commands/` inside `.claude-plugin/`).  [oai_citation:20‡Claude Code](https://code.claude.com/docs/en/plugins)
+W204 `invalid-hooks-config`: hooks/ directory exists but hooks.json is missing or invalid.
 
 W205 `duplicate-plugin-name`: two Spaces resolve to same plugin `name` (will create ambiguous namespaces); advise changing `claude.plugin_name`.
+
+W206 `non-executable-hook-script`: hook script file is not executable (missing +x permission).
+
+W207 `invalid-plugin-structure`: component directories nested incorrectly (e.g. `commands/` inside `.claude-plugin/`).  [oai_citation:20‡Claude Code](https://code.claude.com/docs/en/plugins)
 
 W301 `lock-missing`: project has targets but no lock; `asp run` will generate lock (or require `asp install` if we decide stricter).
 
