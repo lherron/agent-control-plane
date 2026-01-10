@@ -148,10 +148,12 @@ agent-spaces-v2/
 │       │   ├── index.ts
 │       │   ├── rules/
 │       │   │   ├── W201-command-collision.ts
+│       │   │   ├── W202-agent-command-namespace.ts
 │       │   │   ├── W203-hook-path-no-plugin-root.ts
 │       │   │   ├── W204-invalid-hooks-config.ts
 │       │   │   ├── W205-plugin-name-collision.ts
-│       │   │   └── W206-non-executable-hook-script.ts
+│       │   │   ├── W206-non-executable-hook-script.ts
+│       │   │   └── W207-invalid-plugin-structure.ts
 │       │   └── reporter.ts
 │       └── tests/
 │
@@ -417,10 +419,12 @@ return loadOrder
 **Goal**: Implement all warning rules (SINGLE source of truth for warnings)
 
 1. **W201 command-name-collision**: Same command in multiple spaces
-2. **W203 hook-path-no-plugin-root**: Hook path missing `${CLAUDE_PLUGIN_ROOT}`
-3. **W204 invalid-hooks-config**: hooks/ exists but hooks/hooks.json missing/invalid or references missing scripts
-4. **W205 plugin-name-collision**: Two spaces produce same plugin name
-5. **W206 non-executable-hook-script**: Referenced hook script is not executable and not wrapped
+2. **W202 agent-command-namespace**: Agent doc references unqualified `/command` provided by plugin Space
+3. **W203 hook-path-no-plugin-root**: Hook path missing `${CLAUDE_PLUGIN_ROOT}`
+4. **W204 invalid-hooks-config**: hooks/ exists but hooks/hooks.json missing/invalid or references missing scripts
+5. **W205 plugin-name-collision**: Two spaces produce same plugin name
+6. **W206 non-executable-hook-script**: Referenced hook script is not executable and not wrapped
+7. **W207 invalid-plugin-structure**: Component directories nested inside `.claude-plugin/`
 
 ### Phase 7: Manager Space (spaces/agent-spaces-manager)
 
