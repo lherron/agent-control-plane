@@ -348,7 +348,57 @@ The lock is the reproducibility anchor. It pins Space selection to concrete comm
 }
 ```
 
-This intentionally mirrors “package-lock” conventions: the manifest expresses intent (`@stable`, ranges), the lock stores resolved commits + integrity and a normalized load order.
+This intentionally mirrors "package-lock" conventions: the manifest expresses intent (`@stable`, ranges), the lock stores resolved commits + integrity and a normalized load order.
+
+---
+
+## 1.4 `registry/dist-tags.json`
+
+Dist-tags are stored as committed metadata in the registry repository (not as moving git tags). This makes channel promotions PR-reviewable.
+
+### `dist-tags.json` schema (JSON Schema)
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-spaces/spec/v2/dist-tags.schema.json",
+  "title": "Agent Spaces v2 - dist-tags.json",
+  "type": "object",
+  "description": "Maps space IDs to dist-tag → version mappings",
+  "additionalProperties": {
+    "type": "object",
+    "description": "Dist-tag → version mapping for a space",
+    "additionalProperties": {
+      "type": "string",
+      "description": "Version string (e.g., 'v1.2.0') corresponding to a git tag",
+      "pattern": "^v?(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    }
+  }
+}
+```
+
+Example:
+```json
+{
+  "todo-frontend": {
+    "stable": "v1.2.0",
+    "latest": "v1.3.0-beta.1",
+    "beta": "v1.3.0-beta.1"
+  },
+  "shared-quality": {
+    "stable": "v1.3.2",
+    "latest": "v1.3.2"
+  }
+}
+```
+
+Notes:
+- The file is committed to `registry/dist-tags.json` in the registry repository.
+- Each key is a space ID (kebab-case).
+- Each value is an object mapping dist-tag names to version strings.
+- Version strings should correspond to existing git tags (e.g., `stable: "v1.2.0"` means there should be a tag `space/<id>/v1.2.0`).
+- Common dist-tags: `stable`, `latest`, `beta`, `alpha`, `canary`.
+- `asp repo publish` is responsible for updating this file atomically with git tag creation.
 
 ---
 
@@ -381,9 +431,10 @@ Any selector that doesn’t parse into the above is an error.
 
 ## 2.4 Dist-tag + semver resolution against a git monorepo
 
-Registry is a git repo clone under `$ASP_HOME/repo` (mono). Resolution uses git tags for mapping selectors to commits:
+Registry is a git repo clone under `$ASP_HOME/repo` (mono). Resolution uses committed metadata and git tags for mapping selectors to commits:
 
-- Dist-tag: resolve git tag `space/<id>/<tag>` → commit
+- Dist-tag: look up version from `registry/dist-tags.json`, then resolve git tag `space/<id>/<version>` → commit
+  - Example: `stable` → read `dist-tags.json["my-space"]["stable"]` → `"v1.2.0"` → resolve tag `space/my-space/v1.2.0` → commit
 - Semver:
   - enumerate tags `space/<id>/v*`
   - parse `vX.Y.Z`

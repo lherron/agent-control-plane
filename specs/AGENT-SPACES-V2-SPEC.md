@@ -350,9 +350,9 @@ $ASP_HOME/cache/<pluginCacheKey>/
   commands/...
   agents/...
   skills/...
-    hooks/...
-    scripts/...
-    .asp/cache-metadata.json
+  hooks/...
+  scripts/...
+  .asp/cache-metadata.json
 ```
 
 `plugin.json` generation:
@@ -423,7 +423,7 @@ W202 `agent-command-namespace`: an agent doc references an unqualified `/command
 
 W203 `hook-path-no-plugin-root`: hook command path doesn't include `${CLAUDE_PLUGIN_ROOT}`.
 
-W204 `invalid-hooks-config`: hooks/ directory exists but hooks.json is missing or invalid.
+W204 `invalid-hooks-config`: hooks/ directory exists but hooks.json is missing, invalid, or references missing scripts.
 
 W205 `plugin-name-collision`: two Spaces resolve to same plugin `name` (will create ambiguous namespaces); advise changing `plugin.name` in space.toml.
 
@@ -431,7 +431,7 @@ W206 `non-executable-hook-script`: hook script file is not executable (missing +
 
 W207 `invalid-plugin-structure`: component directories nested incorrectly (e.g. `commands/` inside `.claude-plugin/`).  [oai_citation:20‡Claude Code](https://code.claude.com/docs/en/plugins)
 
-W301 `lock-missing`: project has targets but no lock; `asp run` will generate lock (or require `asp install` if we decide stricter).
+W301 `lock-missing` (info severity): project has targets but no lock; `asp run` will generate lock (or require `asp install` if we decide stricter).
 
 ## 8.3 Integration with Claude validation (optional but recommended)
 
@@ -444,18 +444,18 @@ If `claude plugin validate` exists, `asp lint` can call it against materialized 
 Top-level commands optimized for day-to-day:
 
 **Core Commands:**
-- `asp run <target|spaceRef|path> [prompt]` - Execute a Run Target or Space
+- `asp run <target|spaceRef|path>` - Execute a Run Target or Space
 - `asp install` - Generate/update lock file and fetch into store
-- `asp build <target> --output <path>` - Materialize plugins without launching Claude
+- `asp build <target|spaceRef|path> --output <path>` - Materialize plugins without launching Claude
 
 **Management Commands:**
 - `asp add <spaceRef> --target <name>` - Add space ref to target in asp-targets.toml
 - `asp remove <spaceId> --target <name>` - Remove space from target
 - `asp upgrade [spaceIds...]` - Update lock pins per selectors
-- `asp diff` - Show pending lock changes without writing
+- `asp diff [--target <name>] [--json]` - Show pending lock changes without writing
 
 **Diagnostic Commands:**
-- `asp explain <target> [--json]` - Print resolved graph, pins, load order, warnings
+- `asp explain <target|spaceRef|path> [--json]` - Print resolved graph, pins, load order, warnings
 - `asp lint` - Validate project + spaces, emit warnings
 - `asp list` - Show targets, resolved spaces, cached envs
 - `asp doctor` - Check claude binary, registry remote reachability, cache permissions
