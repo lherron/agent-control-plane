@@ -463,21 +463,28 @@ Each resolved Space entry gets `integrity = sha256:<hex>` computed from the Spac
 - any file matched by an optional `.aspignore` in the space root (future; not required for v2.0)
 
 **Canonical hash algorithm:**
-- Walk included files without following symlinks.
-- Normalize paths to forward slashes.
-- Sort file entries lexicographically by path.
-- For each entry:
-  - if regular file: compute `fileHash = sha256(fileBytes)`
-  - if symlink: compute `linkHash = sha256(linkTargetStringBytes)`
-- Compute overall integrity as sha256 of the concatenation:
+
+The implementation uses **git-tree-based hashing** for performance (no file I/O required when computing from git). This leverages git's pre-computed blob OIDs.
+
+- Use `git ls-tree -r <commit>:spaces/<id>` to list all entries.
+- Filter out excluded paths (`.git/`, `.asp/`, `node_modules/`, `dist/`).
+- Sort entries lexicographically by path.
+- For each entry, use the **git blob OID** directly:
+  - Git blob OID = SHA-1(`"blob " + contentLength + "\0" + contentBytes`)
+  - This is what git stores internally for each file.
+- Compute overall integrity as SHA-256 of the concatenation:
 
 ```
 "v1\0" +
 for each entry:
-  path + "\0" + kind + "\0" + perEntryHash + "\0" + modeOctal + "\n"
+  path + "\0" + type + "\0" + gitBlobOid + "\0" + modeOctal + "\n"
 ```
 
-This avoids tar metadata nondeterminism and gives portable integrity.
+Where `type` is "blob" for files.
+
+**Note:** When verifying snapshots on disk (outside git), compute git-style blob OIDs from file contents to match. This ensures compatibility between registry-based computation and filesystem-based verification.
+
+This avoids tar metadata nondeterminism and gives portable integrity while being fast (leverages git's existing hashes).
 
 Store placement:
 - `$ASP_HOME/store/spaces/sha256/<integrityHex>/...` contains an extracted snapshot directory plus a small metadata file (id, commit, path, generatedAt).
