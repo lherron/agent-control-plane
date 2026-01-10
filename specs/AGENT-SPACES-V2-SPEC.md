@@ -93,6 +93,7 @@ Default: `~/.asp` (override with `ASP_HOME`)
   store/<hash>/         # content-addressed space snapshots (keyed by integrity hash)
   cache/<cacheKey>/     # materialized plugin dirs (keyed by plugin cache key)
   tmp/                  # temporary files during operations
+  global-lock.json      # pins for global-mode runs (outside project context)
   config.json           # optional global config (claude path, default registry remote)
 ```
 
@@ -198,6 +199,16 @@ compose = [
 # optional defaults applied to all targets unless overridden
 model = "sonnet"
 permission_mode = "default"
+args = ["--strict-mcp-config"]  # pass-through CLI args to claude (stable escape hatch)
+
+# Per-target overrides are also supported:
+[targets.backend.claude]
+model = "opus"
+
+# Optional resolver options per target:
+[targets.backend.resolver]
+locked = true        # require lock file (default: true)
+allow_dirty = true   # allow uncommitted registry changes (default: true)
 ```
 
 ### Space reference syntax
@@ -300,11 +311,13 @@ Resolution policy:
 - If `<name>` matches a Run Target in `asp-targets.toml`: run that target using `asp-lock.json` pins.
 - Else: interpret as a Space reference (`space:<name>@stable` by default, unless explicit `@…`).
 
-### Outside a project
+### Outside a project (global mode)
 
 `asp run <spaceRefOrPath>`:
 - If argument is a filesystem path to a Space directory: run that Space (dev-mode).
 - Else: resolve it from registry (`space:<id>@stable` default).
+
+**Global lock persistence:** When running spaces outside a project context, resolved pins are stored in `$ASP_HOME/global-lock.json`. This enables reproducible global runs and supports garbage collection of orphaned store/cache entries.
 
 ### Runtime contract
 

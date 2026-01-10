@@ -49,7 +49,8 @@ agent-spaces-v2/
 │   │   │           ├── init.ts
 │   │   │           ├── status.ts
 │   │   │           ├── publish.ts
-│   │   │           └── tags.ts
+│   │   │           ├── tags.ts
+│   │   │           └── gc.ts
 │   │   └── tests/
 │   │
 │   ├── engine/               # Orchestration (resolve → store → materialize → run/build/explain)
@@ -414,6 +415,11 @@ return loadOrder
 15. **`asp repo status`**, **`asp repo tags`**
     - Supporting repo management commands
 
+16. **`asp repo gc`**
+    - Repository-level garbage collection
+    - Run `git gc` on the registry repository
+    - Prune orphaned store/cache entries not reachable from any lock file
+
 ### Phase 6: Linting Rules (packages/lint)
 
 **Goal**: Implement all warning rules (SINGLE source of truth for warnings)
@@ -425,6 +431,7 @@ return loadOrder
 5. **W205 plugin-name-collision**: Two spaces produce same plugin name
 6. **W206 non-executable-hook-script**: Referenced hook script is not executable and not wrapped
 7. **W207 invalid-plugin-structure**: Component directories nested inside `.claude-plugin/`
+8. **W301 lock-missing**: Lock file does not exist when expected (info severity)
 
 ### Phase 7: Manager Space (spaces/agent-spaces-manager)
 
