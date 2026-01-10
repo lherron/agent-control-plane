@@ -90,20 +90,16 @@ Default: `~/.asp` (override with `ASP_HOME`)
 ```
 ~/.asp/
   repo/                 # the registry git clone (mono repo)
-  store/
-    spaces/             # content-addressed space snapshots
-    plugins/            # (future) imported plugin snapshots
-  cache/
-    materialized/       # plugin dirs built from snapshots (by env hash)
-    mcp/                # generated mcp-config files (by env hash)
-  logs/
+  store/<hash>/         # content-addressed space snapshots (keyed by integrity hash)
+  cache/<cacheKey>/     # materialized plugin dirs (keyed by plugin cache key)
+  tmp/                  # temporary files during operations
   config.json           # optional global config (claude path, default registry remote)
 ```
 
 Notes:
 - `repo/` is a working clone to enable fast authoring, publishing, and local-dev overlays.
-- `store/` is immutable content-addressed snapshots (safe for caching and verification).
-- `cache/` is disposable; can be GC’d.
+- `store/` contains immutable content-addressed snapshots (keyed by integrity hash without `sha256:` prefix).
+- `cache/` contains materialized plugin directories (keyed by plugin cache key, disposable, can be GC'd).
 
 ## 4.2 Project layout
 
