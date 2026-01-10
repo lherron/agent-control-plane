@@ -437,7 +437,7 @@ Top-level commands optimized for day-to-day:
 **Core Commands:**
 - `asp run <target|spaceRef|path> [prompt]` - Execute a Run Target or Space
 - `asp install` - Generate/update lock file and fetch into store
-- `asp build <target> [--output <path>]` - Materialize plugins without launching Claude
+- `asp build <target> --output <path>` - Materialize plugins without launching Claude
 
 **Management Commands:**
 - `asp add <spaceRef> --target <name>` - Add space ref to target in asp-targets.toml
