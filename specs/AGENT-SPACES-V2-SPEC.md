@@ -289,7 +289,7 @@ This aligns with your requirement: ship an agent that builds skills/tools/hooks 
 
 ## 6.2 `asp install` (project)
 
-Reads `asp-targets.toml`, resolves each target’s composed spaces to commits, writes/updates `asp-lock.json`, and populates `$ASP_HOME/store/spaces`.
+Reads `asp-targets.toml`, resolves each target's composed spaces to commits, writes/updates `asp-lock.json`, and populates `$ASP_HOME/store`.
 
 Resolution policy:
 - If a lock exists: do not change versions unless `--update` or explicit flags.
@@ -336,12 +336,11 @@ pluginCacheKey = sha256("materializer-v1\0" + spaceIntegrity + "\0" + pluginName
 The cache path structure is:
 
 ```
-$ASP_HOME/cache/materialized/<pluginCacheKey>/
-  <pluginName>/
-    .claude-plugin/plugin.json
-    commands/...
-    agents/...
-    skills/...
+$ASP_HOME/cache/<pluginCacheKey>/
+  .claude-plugin/plugin.json
+  commands/...
+  agents/...
+  skills/...
     hooks/...
     scripts/...
     .asp/cache-metadata.json

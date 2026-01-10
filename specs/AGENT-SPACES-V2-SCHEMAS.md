@@ -487,7 +487,7 @@ Where `type` is "blob" for files.
 This avoids tar metadata nondeterminism and gives portable integrity while being fast (leverages git's existing hashes).
 
 Store placement:
-- `$ASP_HOME/store/spaces/sha256/<integrityHex>/...` contains an extracted snapshot directory plus a small metadata file (id, commit, path, generatedAt).
+- `$ASP_HOME/store/<integrityHex>/...` contains an extracted snapshot directory plus a small metadata file (id, commit, path, generatedAt). The integrity hash (without the `sha256:` prefix) is used directly as the directory name for simplicity.
 
 Verification:
 - When reading from store, recompute integrity and require match before use.
@@ -499,7 +499,7 @@ A Space’s materialized plugin dir is cacheable across targets/projects.
 `pluginCacheKey = sha256("materializer-v1\0" + spaceIntegrity + "\0" + pluginName + "\0" + pluginVersion + "\n")`
 
 Materialized dir path:
-- `$ASP_HOME/cache/materialized/<pluginCacheKey>/<pluginName>/...`
+- `$ASP_HOME/cache/<pluginCacheKey>/...` contains the materialized plugin with `.claude-plugin/plugin.json` and component directories at root.
 
 This avoids regenerating `.claude-plugin/plugin.json` and copying files on every run.
 

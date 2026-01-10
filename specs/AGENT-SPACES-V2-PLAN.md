@@ -301,7 +301,7 @@ return loadOrder
    - Fallback to file-walk hashing only for dev-mode filesystem paths
 4. **snapshot.ts**:
    - Extract space directory at commit into store
-   - Store at `$ASP_HOME/store/spaces/sha256/<hash>/`
+   - Store at `$ASP_HOME/store/<hash>/` (hash without sha256: prefix)
 5. **env-hash.ts**:
    - Compute `envHash` from loadOrder + integrities
 
@@ -338,7 +338,7 @@ return loadOrder
 
 6. **cache.ts**:
    - Cache lookup by `pluginCacheKey`
-   - Store at `$ASP_HOME/cache/materialized/<key>/<pluginName>/`
+   - Store at `$ASP_HOME/cache/<key>/` (plugin at root with .claude-plugin/)
 
 ### Phase 5: CLI Commands (packages/cli)
 
