@@ -623,4 +623,19 @@ Minimum warning set for v2.0:
 
 ---
 
-If you want the next iteration to be even more “drop into implementation,” I can follow this with: (a) concrete `asp install`/`asp run` pseudocode (resolver + git tag lookup + dep closure + cache lookup), and (b) an explicit “registry tagging spec” for `asp repo publish` (tag naming, atomic updates, and what gets validated before tagging).  [oai_citation:13‡AS2-SPEC.md](sediment://file_00000000d12871f88e7148e5b46d7e9d)
+# 6. Manager Space
+
+Agent Spaces v2 ships with a built-in `agent-spaces-manager` space that provides authoring commands and guidance. The manager space is automatically installed during `asp repo init` (unless `--no-manager` is passed).
+
+**Components:**
+- **Commands**: `create-space`, `add-command`, `add-skill`, `add-hook`, `bump-version`, `publish`, `update-project-targets`, `help`
+- **Skills**: `space-authoring` - comprehensive guide for creating spaces
+- **Agents**: `manager` - coordinator agent for repo + project workflows
+
+**Key Design Decision**: All commands use fully-qualified names (`/agent-spaces-manager:command`) to avoid agent namespace discovery issues with unqualified `/command` references in agent documentation.
+
+For full details on the manager space responsibilities and layout, see AGENT-SPACES-V2-SPEC.md section 9.
+
+---
+
+If you want the next iteration to be even more "drop into implementation," I can follow this with: (a) concrete `asp install`/`asp run` pseudocode (resolver + git tag lookup + dep closure + cache lookup), and (b) an explicit "registry tagging spec" for `asp repo publish` (tag naming, atomic updates, and what gets validated before tagging).  [oai_citation:13‡AS2-SPEC.md](sediment://file_00000000d12871f88e7148e5b46d7e9d)
