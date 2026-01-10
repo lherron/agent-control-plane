@@ -385,11 +385,11 @@ return loadOrder
 8. **`asp diff [--target <name>] [--json]`**
    - Show pending lock changes without writing (useful in CI and review)
 
-9. **`asp repo init [--clone <url>]`**
+9. **`asp repo init [--clone <url>] [--no-manager]`**
    - Create/clone registry at $ASP_HOME/repo
    - Initialize skeleton structure with `registry/dist-tags.json`
-   - Install agent-spaces-manager space
-   - Final step: `asp run agent-spaces-manager`
+   - Install agent-spaces-manager space (skip with `--no-manager`)
+   - Final step: `asp run agent-spaces-manager` (unless `--no-manager`)
 
 10. **`asp repo publish <spaceId> --tag vX.Y.Z [--dist-tag stable]`**
     - Validate space passes lint

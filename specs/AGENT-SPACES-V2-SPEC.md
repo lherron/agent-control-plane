@@ -462,7 +462,7 @@ Top-level commands optimized for day-to-day:
 - `asp gc` - Garbage collect store and cache based on lock file reachability
 
 **Lower-visibility repo management namespace:**
-- `asp repo init [--clone <url>]` - Create/clone registry, install manager space
+- `asp repo init [--clone <url>] [--no-manager]` - Create/clone registry, install manager space (skip with `--no-manager`)
 - `asp repo status` - Show registry repo status
 - `asp repo publish <spaceId> --tag vX.Y.Z [--dist-tag stable]` - Create git tag, update dist-tags.json
 - `asp repo tags <spaceId>` - List tags for a space
@@ -480,7 +480,23 @@ Responsibilities:
 - Scaffold new Spaces in the registry repo with correct layout.
 - Add skills/hooks/commands and ensure required files exist.
 - Propose and apply tagging/version updates.
-- Generate/modify `asp-targets.toml` in projects (the “capability surface”), keeping the user in Claude for composition rather than bouncing to ASP.
+- Generate/modify `asp-targets.toml` in projects (the "capability surface"), keeping the user in Claude for composition rather than bouncing to ASP.
+
+**Commands:**
+- `/agent-spaces-manager:help` - Show available asp commands and manager space commands
+- `/agent-spaces-manager:create-space` - Scaffold new space with correct layout
+- `/agent-spaces-manager:add-skill` - Add skill with best-practice template
+- `/agent-spaces-manager:add-command` - Add command with template
+- `/agent-spaces-manager:add-hook` - Add hook with validation and `${CLAUDE_PLUGIN_ROOT}` guidance
+- `/agent-spaces-manager:bump-version` - Update version in space.toml (major/minor/patch)
+- `/agent-spaces-manager:publish` - Run asp repo publish with dist-tag support
+- `/agent-spaces-manager:update-project-targets` - Help update project asp-targets.toml
+
+**Skills:**
+- `space-authoring` - Comprehensive guide for creating spaces
+
+**Agents:**
+- `manager` - Coordinator agent for repo + project workflows
 
 Critical: any documentation or instructions it generates that reference slash commands should prefer fully-qualified `/space:command` forms to avoid the known agent namespace discovery issue.  [oai_citation:22‡GitHub](https://github.com/anthropics/claude-code/issues/11328)
 
