@@ -150,26 +150,24 @@ spaces/todo-frontend/
 Single-file metadata + deps to minimize config sprawl.
 
 ```toml
+schema = 1
 id = "todo-frontend"
 version = "1.2.0"
 description = "Frontend dev workflows for the todo project"
 
-[claude]
-plugin_name = "todo-frontend"   # defaults to id if omitted
+[plugin]
+name = "todo-frontend"   # defaults to id if omitted
 
 [deps]
 spaces = [
   "space:shared-base@^1.0.0"
 ]
-
-[exports]
-# purely informational for tooling/lint; Claude discovers from directories
-commands = true
-agents = true
-skills = true
-hooks = true
-mcp = true
 ```
+
+Notes:
+- `schema = 1` is required (version of manifest format)
+- `[plugin]` section allows overriding plugin name, version, description, author, etc.
+- Component discovery is file-structure-driven (Claude discovers from directories)
 
 ---
 
@@ -180,7 +178,7 @@ mcp = true
 Spaces-only composition.
 
 ```toml
-version = 1
+schema = 1
 
 [targets.architect]
 description = "High-level system design + coordination"
@@ -222,38 +220,39 @@ The lock must be sufficient for a fresh machine to reproduce the same resolution
 ```json
 {
   "lockfileVersion": 1,
+  "resolverVersion": 1,
   "generatedAt": "2026-01-09T00:00:00Z",
   "registry": {
     "type": "git",
     "url": "ssh://git.example.com/agent-spaces-registry.git"
   },
+  "spaces": {
+    "todo-frontend@abcdef1": {
+      "id": "todo-frontend",
+      "commit": "abcdef1234567890",
+      "path": "spaces/todo-frontend",
+      "integrity": "sha256:...",
+      "plugin": { "name": "todo-frontend", "version": "1.2.0" },
+      "deps": { "spaces": [] },
+      "resolvedFrom": { "selector": "stable", "tag": "space/todo-frontend/stable" }
+    },
+    "shared-quality@0123dead": {
+      "id": "shared-quality",
+      "commit": "0123deadbeef1234",
+      "path": "spaces/shared-quality",
+      "integrity": "sha256:...",
+      "plugin": { "name": "shared-quality", "version": "1.3.2" },
+      "deps": { "spaces": [] },
+      "resolvedFrom": { "selector": "^1.3.0", "tag": "space/shared-quality/v1.3.2", "semver": "1.3.2" }
+    }
+  },
   "targets": {
     "frontend": {
-      "envHash": "sha256:…",
-      "spaces": [
-        {
-          "id": "todo-frontend",
-          "selector": "stable",
-          "resolved": {
-            "commit": "abcdef1234…",
-            "path": "spaces/todo-frontend",
-            "tag": "space/todo-frontend/stable"
-          },
-          "integrity": "sha256:…",
-          "transitive": false
-        },
-        {
-          "id": "shared-quality",
-          "selector": "^1.3.0",
-          "resolved": {
-            "commit": "0123deadbeef…",
-            "path": "spaces/shared-quality",
-            "tag": "space/shared-quality/v1.3.2"
-          },
-          "integrity": "sha256:…",
-          "transitive": false
-        }
-      ]
+      "compose": ["space:todo-frontend@stable", "space:shared-quality@^1.3.0"],
+      "roots": ["todo-frontend@abcdef1", "shared-quality@0123dead"],
+      "loadOrder": ["todo-frontend@abcdef1", "shared-quality@0123dead"],
+      "envHash": "sha256:...",
+      "warnings": []
     }
   }
 }
@@ -262,10 +261,15 @@ The lock must be sufficient for a fresh machine to reproduce the same resolution
 ### Versioning model in the registry
 
 - Concrete pin is always a commit SHA.
-- Human-readable versions/tags are git tags (recommended):
-  - `space/<id>/vX.Y.Z`
-  - `space/<id>/stable`, `space/<id>/latest`, etc.
-- `asp repo publish` is responsible for creating/updating tags consistently (and validating that the Space is in a good state to tag).
+- Human-readable versions are git tags with format `space/<id>/vX.Y.Z`.
+- **Dist-tags** (stable, latest, beta, etc.) are stored in a committed `registry/dist-tags.json` file that maps space IDs to channel→version mappings:
+  ```json
+  {
+    "todo-frontend": { "stable": "v1.2.0", "latest": "v1.3.0-beta.1" }
+  }
+  ```
+  This approach makes channel promotions PR-reviewable (unlike moving git tags).
+- `asp repo publish` is responsible for creating git tags and updating dist-tags.json consistently.
 
 ---
 
@@ -323,21 +327,28 @@ Resolution policy:
 
 ## 7.1 Space → plugin directory
 
-For each Space, materialize a plugin directory:
+For each Space, materialize a plugin directory. The cache key is computed as:
 
 ```
-<cache>/materialized/<envHash>/<spaceId>/
-  .claude-plugin/plugin.json
-  commands/...
-  agents/...
-  skills/...
-  hooks/...
-  scripts/...
-  .asp/manifest.json
+pluginCacheKey = sha256("materializer-v1\0" + spaceIntegrity + "\0" + pluginName + "\0" + pluginVersion + "\n")
+```
+
+The cache path structure is:
+
+```
+$ASP_HOME/cache/materialized/<pluginCacheKey>/
+  <pluginName>/
+    .claude-plugin/plugin.json
+    commands/...
+    agents/...
+    skills/...
+    hooks/...
+    scripts/...
+    .asp/cache-metadata.json
 ```
 
 `plugin.json` generation:
-- `name`: `space.toml` `claude.plugin_name` else `space id`
+- `name`: `space.toml` `plugin.name` else `space id`
 - `version`: `space.toml` `version` (semver string)
 - `description`: from space manifest
 - `commands/agents/skills/hooks`: default directories if present, else omitted
@@ -406,7 +417,7 @@ W203 `hook-path-no-plugin-root`: hook command path doesn't include `${CLAUDE_PLU
 
 W204 `invalid-hooks-config`: hooks/ directory exists but hooks.json is missing or invalid.
 
-W205 `duplicate-plugin-name`: two Spaces resolve to same plugin `name` (will create ambiguous namespaces); advise changing `claude.plugin_name`.
+W205 `plugin-name-collision`: two Spaces resolve to same plugin `name` (will create ambiguous namespaces); advise changing `plugin.name` in space.toml.
 
 W206 `non-executable-hook-script`: hook script file is not executable (missing +x permission).
 
@@ -424,22 +435,32 @@ If `claude plugin validate` exists, `asp lint` can call it against materialized 
 
 Top-level commands optimized for day-to-day:
 
-- `asp run <target|spaceRef|path> [prompt]`
-- `asp install` (generate/update lock; fetch into store)
-- `asp lint` (project + spaces)
-- `asp list` (targets, resolved spaces, cached envs)
-- `asp doctor` (checks claude binary, registry remote reachability, cache permissions)
-- `asp ui` (optional; repo management UI only)
+**Core Commands:**
+- `asp run <target|spaceRef|path> [prompt]` - Execute a Run Target or Space
+- `asp install` - Generate/update lock file and fetch into store
+- `asp build <target> [--output <path>]` - Materialize plugins without launching Claude
 
-Lower-visibility repo management namespace:
+**Management Commands:**
+- `asp add <target> <spaceRef>` - Add space ref to target in asp-targets.toml
+- `asp remove <target> <spaceRef>` - Remove space from target
+- `asp upgrade [spaceIds...]` - Update lock pins per selectors
+- `asp diff` - Show pending lock changes without writing
 
-- `asp repo init [--clone <url>]`
-- `asp repo status`
-- `asp repo publish <spaceId> --tag vX.Y.Z [--dist-tag stable]`
-- `asp repo tags <spaceId>`
-- `asp repo gc`
+**Diagnostic Commands:**
+- `asp explain <target> [--json]` - Print resolved graph, pins, load order, warnings
+- `asp lint` - Validate project + spaces, emit warnings
+- `asp list` - Show targets, resolved spaces, cached envs
+- `asp doctor` - Check claude binary, registry remote reachability, cache permissions
+- `asp gc` - Garbage collect store and cache based on lock file reachability
 
-Optional (can be postponed): authoring helpers under `asp space …` (new, bump, validate, etc.), but the primary authoring flow is expected to be via the shipped `agent-spaces-manager` Space.
+**Lower-visibility repo management namespace:**
+- `asp repo init [--clone <url>]` - Create/clone registry, install manager space
+- `asp repo status` - Show registry repo status
+- `asp repo publish <spaceId> --tag vX.Y.Z [--dist-tag stable]` - Create git tag, update dist-tags.json
+- `asp repo tags <spaceId>` - List tags for a space
+- `asp repo gc` - Repository-level garbage collection
+
+Optional: `asp ui` (repo management UI), `asp space ...` (authoring helpers). The primary authoring flow is via the shipped `agent-spaces-manager` Space.
 
 ---
 
