@@ -617,6 +617,10 @@ Claude docs explicitly support local testing via `--plugin-dir` and loading mult
 Because collisions aren’t fatal by default, `asp` must always emit explicit warnings during `asp install` and before `asp run`.
 
 Warning set for v2.0:
+**System Warnings (W1xx):**
+- `W101 lock-missing` (info severity): project has targets but no lock; `asp run` will generate lock.
+
+**Space/Plugin Warnings (W2xx):**
 - `W201 command-name-collision`: same command name appears in multiple Spaces. Suggest disambiguated invocations using Claude's `/plugin-name:command` namespacing. (Claude supports plugin namespacing for commands.  [oai_citation:12‡Claude Code](https://code.claude.com/docs/en/plugins-reference))
 - `W202 agent-command-namespace`: an agent doc references an unqualified `/command` that appears to be provided by a plugin Space; recommend using `/space:command` due to known agent discovery issues.
 - `W203 hook-path-no-plugin-root`: hook command path doesn't include `${CLAUDE_PLUGIN_ROOT}`.
@@ -624,7 +628,11 @@ Warning set for v2.0:
 - `W205 plugin-name-collision`: two Spaces produce the same plugin `name` (bad because namespacing becomes ambiguous; user should override `plugin.name` in one Space).
 - `W206 non-executable-hook-script`: hook script file is not executable (missing +x permission).
 - `W207 invalid-plugin-structure`: component directories nested incorrectly (e.g. `commands/` inside `.claude-plugin/`).
-- `W301 lock-missing` (info severity): project has targets but no lock; `asp run` will generate lock.
+
+**Harness-Specific Warnings (W3xx - Pi):**
+- `W301 pi-hook-cannot-block`: Pi hook marked blocking but Pi cannot block this event.
+- `W302 pi-unnamespaced-tool`: Pi extension registers un-namespaced tool.
+- `W303 pi-tool-collision`: Pi tool name collision after namespacing.
 
 ---
 

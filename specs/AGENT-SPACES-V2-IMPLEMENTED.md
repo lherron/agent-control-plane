@@ -695,11 +695,19 @@ Always emits explicit warnings with codes and explanations.
 | W206 | `non-executable-hook-script` | warning | Hook script missing +x permission |
 | W207 | `invalid-plugin-structure` | warning | Components nested inside `.claude-plugin/` |
 
-### Project Warnings (W3xx)
+### System Warnings (W1xx)
 
 | Code | Name | Severity | Description |
 |------|------|----------|-------------|
-| W301 | `lock-missing` | info | Project has targets but no lock file |
+| W101 | `lock-missing` | info | Project has targets but no lock file |
+
+### Harness-Specific Warnings (W3xx)
+
+| Code | Name | Severity | Description |
+|------|------|----------|-------------|
+| W301 | `pi-hook-cannot-block` | warning | Pi: Hook marked blocking but Pi cannot block this event |
+| W302 | `pi-unnamespaced-tool` | warning | Pi: Extension registers un-namespaced tool |
+| W303 | `pi-tool-collision` | warning | Pi: Tool name collision after namespacing |
 
 W201 example message:
 ```
