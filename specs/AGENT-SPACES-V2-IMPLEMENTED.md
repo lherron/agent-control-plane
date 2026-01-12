@@ -932,7 +932,7 @@ packages/
 - Warning reporter
 - Space validation
 
-### `@agent-spaces/cli`
+### `@lherron/agent-spaces`
 - Commander.js CLI setup
 - Command implementations
 - User interaction
