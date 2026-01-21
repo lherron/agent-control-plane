@@ -343,7 +343,7 @@ Stdio:
   - store `thread.id` as `harnessSessionId`
 
 - Resume:
-  - call `thread/resume` with `{ thread_id: <prior> }` plus optional overrides.
+  - call `thread/resume` with `{ threadId: <prior> }` plus optional overrides.
 
 Emit:
 - `agent_start` unified event as soon as thread id is known (so `agent-spaces` record gets updated).
@@ -364,12 +364,12 @@ Wait until a `turn/completed` notification is received.
 
 ### 7.4 Attachments handling
 
-Codex v2 user input supports text and images (including `local_image`). (From attached types.)
+Codex v2 user input supports text and images (including `localImage`). (From attached types.)
 
 Mapping from agent-spaces attachments:
 - If `attachment.kind === "url"` → `{ type: "image", url }` (only if it looks like an image URL; else treat as text reference)
 - If `attachment.kind === "file"`:
-  - If extension in `{png,jpg,jpeg,webp,gif}` → `{ type: "local_image", path }`
+  - If extension in `{png,jpg,jpeg,webp,gif}` → `{ type: "localImage", path }`
   - Else: include as text line `Attached file: <path>` (Codex can read from filesystem anyway)
 
 Hard cap:
@@ -392,10 +392,10 @@ Alternate:
 Initial behavior (to match current agent-spaces `buildAutoPermissionHandler` semantics):
 - Always accept, but do it through the approval requests so the system can evolve.
 
-For each `turn/commandExecution/requestApproval`:
+For each `item/commandExecution/requestApproval`:
 - respond with decision `"acceptForSession"`
 
-For each `turn/fileChange/requestApproval`:
+For each `item/fileChange/requestApproval`:
 - respond with decision `"acceptForSession"`
 
 ### 8.3 Best-effort integration with existing `permissions.toml` (optional but recommended)
@@ -628,7 +628,7 @@ Client → server:
 ### Approvals (server → client request, client → server response)
 Server:
 ```json
-{"jsonrpc":"2.0","id":42,"method":"turn/commandExecution/requestApproval","params":{...}}
+{"jsonrpc":"2.0","id":42,"method":"item/commandExecution/requestApproval","params":{...}}
 ```
 Client:
 ```json
@@ -640,4 +640,3 @@ Server:
 ```json
 {"jsonrpc":"2.0","method":"turn/completed","params":{"turnId":"...","status":"completed"}}
 ```
-
