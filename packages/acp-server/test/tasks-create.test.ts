@@ -50,6 +50,28 @@ describe('POST /v1/tasks', () => {
     })
   })
 
+  test('allows medium-risk fastlane tasks without a tester assignment', async () => {
+    await withWiredServer(async (fixture) => {
+      const response = await fixture.request({
+        method: 'POST',
+        path: '/v1/tasks',
+        body: {
+          projectId: fixture.seed.projectId,
+          workflowPreset: 'code_defect_fastlane',
+          presetVersion: 1,
+          riskClass: 'medium',
+          roleMap: { implementer: 'larry' },
+          actor: { agentId: 'tracy' },
+        },
+      })
+      const payload = await fixture.json<{ task: Record<string, unknown> }>(response)
+
+      expect(response.status).toBe(201)
+      expect(payload.task['riskClass']).toBe('medium')
+      expect(payload.task['roleMap']).toEqual({ implementer: 'larry' })
+    })
+  })
+
   test('rejects malformed bodies', async () => {
     await withWiredServer(async (fixture) => {
       const response = await fixture.request({

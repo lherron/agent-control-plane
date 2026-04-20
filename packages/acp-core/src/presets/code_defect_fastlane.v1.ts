@@ -56,7 +56,10 @@ const codeDefectFastlanePreset = {
   guidance: {
     open: {
       objective: 'Capture a deterministic repro before changing code.',
-      doneWhen: ['the failing behavior is pinned', 'the base build or version is recorded'],
+      doneWhen: [
+        'the failing behavior is pinned',
+        'the base build or version is recorded when readily available',
+      ],
       suggestedEvidence: ['tdd_red_bundle'],
       agentHints: [
         'Prefer the smallest reproducible case',
@@ -81,26 +84,33 @@ const codeDefectFastlanePreset = {
       suggestedEvidence: ['tdd_green_bundle'],
       agentHints: [
         'Prefer a minimal, local fix',
-        'Queue an independent tester when risk is medium or high',
+        'Queue an independent verifier when risk is medium or high',
       ],
     },
     verified: {
       objective: 'Confirm the fix on the build under test.',
       doneWhen: [
         'smoke or replay proof passes',
-        'verification evidence points at the tested build',
+        'verification evidence captures what was actually checked',
       ],
       suggestedEvidence: ['qa_bundle'],
       agentHints: [
-        'Use a distinct tester when risk is not low',
+        'Use an independent verifier when risk is not low',
+        'Prefer the assigned tester when one exists, but independence matters more than exact assignee matching',
         'Keep the QA bundle lightweight but auditable',
       ],
     },
     completed: {
-      objective: 'Close the task with merge or deploy provenance.',
-      doneWhen: ['merge or deploy refs are captured', 'the task can be audited end to end'],
+      objective: 'Close the task with a short, auditable close-out note.',
+      doneWhen: [
+        'the task can be audited end to end',
+        'merge or deploy provenance is attached when it exists',
+      ],
       suggestedEvidence: [],
-      agentHints: ['Keep the close-out note short and specific'],
+      agentHints: [
+        'Keep the close-out note short and specific',
+        'Attach a provenance ref when it is cheap and useful',
+      ],
     },
   },
 } satisfies Preset

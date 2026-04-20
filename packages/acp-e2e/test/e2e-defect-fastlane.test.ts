@@ -637,6 +637,32 @@ describe('ACP MVP defect fastlane e2e', () => {
     })
   })
 
+  test('independent tester-role verifier can drive medium-risk green → verified', async () => {
+    await withSeedStack(async (stack) => {
+      const { taskId } = await createTaskAtGreen((args) => stack.cli.run(args))
+      await addEvidence((args) => stack.cli.run(args), {
+        taskId,
+        kind: 'qa_bundle',
+        ref: 'recording://qa-independent',
+        actor: 'mallory',
+        producerRole: 'tester',
+      })
+
+      const payload = await transitionTask((args) => stack.cli.run(args), {
+        taskId,
+        to: 'verified',
+        actor: 'mallory',
+        actorRole: 'tester',
+        expectedVersion: 2,
+        evidence: 'recording://qa-independent',
+      })
+
+      expect(payload.task.version).toBe(3)
+      expect(payload.task.phase).toBe('verified')
+      expect(payload.transition.actor.agentId).toBe('mallory')
+    })
+  })
+
   test('verified → completed closes the task', async () => {
     await withSeedStack(async (stack) => {
       const { taskId } = await createTaskAtVerified((args) => stack.cli.run(args))

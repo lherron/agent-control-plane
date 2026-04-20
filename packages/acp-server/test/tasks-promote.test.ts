@@ -180,4 +180,29 @@ describe('POST /v1/tasks/:taskId/promote', () => {
       expect(payload.transition.to.phase).toBe('red')
     })
   })
+
+  test('allows medium-risk promotion without a tester assignment', async () => {
+    await withWiredServer(async (fixture) => {
+      fixture.wrkqStore.taskRepo.createTask(
+        createBareWrkqBugTask(fixture.seed.projectId, 'T-61005')
+      )
+
+      const response = await fixture.request({
+        method: 'POST',
+        path: '/v1/tasks/T-61005/promote',
+        body: {
+          workflowPreset: 'code_defect_fastlane',
+          presetVersion: 1,
+          riskClass: 'medium',
+          roleMap: { implementer: 'larry' },
+          actor: { agentId: 'tracy' },
+        },
+      })
+      const payload = await fixture.json<{ task: Task }>(response)
+
+      expect(response.status).toBe(200)
+      expect(payload.task.riskClass).toBe('medium')
+      expect(payload.task.roleMap).toEqual({ implementer: 'larry' })
+    })
+  })
 })

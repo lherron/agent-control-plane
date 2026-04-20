@@ -65,6 +65,25 @@ describe('validateTransition', () => {
     }
   })
 
+  test('allows medium-risk verification by an independent tester-role actor', () => {
+    const preset = getPreset('code_defect_fastlane', 1)
+    const task = createTestTask({ phase: 'green', riskClass: 'medium' })
+
+    const result = validateTransition({
+      task,
+      preset,
+      actor: { agentId: 'mallory', role: 'tester' },
+      toPhase: 'verified',
+      evidence: [createEvidence('qa_bundle')],
+      expectedVersion: 0,
+    })
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.transition.phase).toBe('verified')
+    }
+  })
+
   test('rejects missing evidence when no waiver is supplied', () => {
     const preset = getPreset('code_defect_fastlane', 1)
     const task = createTestTask({ phase: 'red' })
@@ -174,6 +193,25 @@ describe('validateTransition', () => {
     expect(result.ok).toBe(true)
     if (result.ok) {
       expect(result.transition.phase).toBe('verified')
+    }
+  })
+
+  test('allows verified -> completed without additional evidence', () => {
+    const preset = getPreset('code_defect_fastlane', 1)
+    const task = createTestTask({ phase: 'verified', riskClass: 'medium' })
+
+    const result = validateTransition({
+      task,
+      preset,
+      actor: { agentId: 'larry', role: 'implementer' },
+      toPhase: 'completed',
+      evidence: [],
+      expectedVersion: 0,
+    })
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.transition.phase).toBe('completed')
     }
   })
 })
