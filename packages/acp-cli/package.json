@@ -1,0 +1,35 @@
+{
+  "name": "acp-cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ACP operator CLI: thin wrapper over acp-server",
+  "type": "module",
+  "bin": {
+    "acp": "./src/cli.ts"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "acp-core": "*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "acp-server": "*",
+    "coordination-substrate": "*",
+    "typescript": "^5.8.3",
+    "wrkq-lib": "*"
+  }
+}

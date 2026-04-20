@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "../..",
+    "outDir": "./dist",
+    "composite": true,
+    "emitDeclarationOnly": true,
+    "noEmit": false
+  },
+  "include": ["test/**/*.ts", "../wrkq-lib/test/fixtures/seed-wrkq-db.ts"],
+  "exclude": ["node_modules", "dist"]
+}
