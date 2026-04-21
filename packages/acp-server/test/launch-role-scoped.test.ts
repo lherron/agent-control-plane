@@ -28,6 +28,7 @@ describe('launchRoleScopedTaskRun', () => {
       const deps = resolveAcpServerDeps({
         wrkqStore: fixture.wrkqStore,
         coordStore: fixture.coordStore,
+        interfaceStore: fixture.interfaceStore,
         inputAttemptStore: fixture.inputAttemptStore,
         runStore: fixture.runStore,
         runtimeResolver: async () => ({
@@ -75,6 +76,7 @@ describe('launchRoleScopedTaskRun', () => {
       const deps = resolveAcpServerDeps({
         wrkqStore: fixture.wrkqStore,
         coordStore: fixture.coordStore,
+        interfaceStore: fixture.interfaceStore,
         inputAttemptStore: fixture.inputAttemptStore,
         runStore: fixture.runStore,
         runtimeResolver: async () => ({ agentRoot: '/tmp/agents/curly' }),

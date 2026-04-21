@@ -23,13 +23,14 @@
     "test": "bun test"
   },
   "dependencies": {
-    "acp-core": "*"
+    "acp-core": "*",
+    "acp-server": "*",
+    "gateway-discord": "*",
+    "wrkq-lib": "*"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "acp-server": "*",
     "coordination-substrate": "*",
-    "typescript": "^5.8.3",
-    "wrkq-lib": "*"
+    "typescript": "^5.8.3"
   }
 }

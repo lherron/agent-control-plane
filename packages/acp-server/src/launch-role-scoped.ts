@@ -94,13 +94,7 @@ export async function launchRoleScopedTaskRun(
     hintsText: computedContext.hintsText,
   }
 
-  const placement = await resolveLaunchPlacement(deps, input.sessionRef)
-  const harness = readLaunchHarness(placement)
-  const intent = {
-    placement,
-    ...(harness !== undefined ? { harness } : {}),
-    taskContext,
-  } as HrcRuntimeIntent
+  const intent = await resolveLaunchIntent(deps, input.sessionRef, { taskContext })
 
   const launched = await deps.launchRoleScopedRun({
     sessionRef: input.sessionRef,
@@ -111,6 +105,25 @@ export async function launchRoleScopedTaskRun(
     ...launched,
     intent,
   }
+}
+
+export async function resolveLaunchIntent(
+  deps: ResolvedAcpServerDeps,
+  sessionRef: SessionRef,
+  options: {
+    initialPrompt?: string | undefined
+    taskContext?: HrcTaskContext | undefined
+  } = {}
+): Promise<HrcRuntimeIntent> {
+  const placement = await resolveLaunchPlacement(deps, sessionRef)
+  const harness = readLaunchHarness(placement)
+
+  return {
+    placement,
+    ...(harness !== undefined ? { harness } : {}),
+    ...(options.initialPrompt !== undefined ? { initialPrompt: options.initialPrompt } : {}),
+    ...(options.taskContext !== undefined ? { taskContext: options.taskContext } : {}),
+  } as HrcRuntimeIntent
 }
 
 export const handleLaunchSession: RouteHandler = async ({ request, deps }) => {

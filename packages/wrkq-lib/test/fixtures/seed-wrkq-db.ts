@@ -3,9 +3,16 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import Database from 'better-sqlite3'
+import { Database as BunDatabase } from 'bun:sqlite'
+import BetterSqliteDatabase from 'better-sqlite3'
 
 const schemaDumpPath = '/Users/lherron/praesidium/wrkq/schema_dump.sql'
+
+type SqliteLike = {
+  exec(sql: string): unknown
+  prepare(sql: string): { run(...params: unknown[]): unknown }
+  close(): unknown
+}
 
 function readSchemaDump(): string {
   return readFileSync(schemaDumpPath, 'utf8').replace(
@@ -32,7 +39,9 @@ export type SeededWrkqFixture = {
 export function createSeededWrkqDb(): SeededWrkqFixture {
   const directory = mkdtempSync(join(tmpdir(), 'wrkq-lib-'))
   const dbPath = join(directory, 'wrkq.db')
-  const sqlite = new Database(dbPath)
+  const sqlite: SqliteLike = (
+    typeof Bun !== 'undefined' ? new BunDatabase(dbPath) : new BetterSqliteDatabase(dbPath)
+  ) as SqliteLike
   let closed = false
   sqlite.exec(readSchemaDump())
 

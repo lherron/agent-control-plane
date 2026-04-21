@@ -1,12 +1,19 @@
 #!/usr/bin/env bun
 
+import { existsSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 
+import { openInterfaceStore } from 'acp-interface-store'
+import { type SessionRef, parseScopeRef } from 'agent-scope'
 import { openCoordinationStore } from 'coordination-substrate'
+import { buildRuntimeBundleRef, getAgentsRoot, resolveAgentPlacementPaths } from 'spaces-config'
 import { WrkqSchemaMissingError, openWrkqStore } from 'wrkq-lib'
 
 import { createAcpServer } from './create-acp-server.js'
+import { type AcpRuntimePlacement, DEFAULT_INTERFACE_DB_PATH } from './deps.js'
+import { createEchoLauncher } from './echo-launcher.js'
+import { createRealLauncher } from './real-launcher.js'
 
 const DEFAULT_COORD_DB_PATH = '/Users/lherron/praesidium/var/db/acp-coordination.db'
 const DEFAULT_PORT = 18470
@@ -16,6 +23,7 @@ const DEFAULT_ACTOR = 'acp-server'
 export interface AcpServerCliOptions {
   wrkqDbPath: string
   coordDbPath: string
+  interfaceDbPath: string
   host: string
   port: number
   actor: string
@@ -55,6 +63,9 @@ export function parseCliArgs(args: readonly string[]): ParsedCliArgs {
       case '--host':
         options.host = requireValue(arg)
         break
+      case '--interface-db-path':
+        options.interfaceDbPath = requireValue(arg)
+        break
       case '--port': {
         const port = Number.parseInt(requireValue(arg), 10)
         if (!Number.isFinite(port) || port <= 0) {
@@ -91,6 +102,8 @@ export function resolveCliOptions(
     options: {
       wrkqDbPath: wrkqDbPath?.trim() ?? '',
       coordDbPath: parsed.options.coordDbPath ?? env['ACP_COORD_DB_PATH'] ?? DEFAULT_COORD_DB_PATH,
+      interfaceDbPath:
+        parsed.options.interfaceDbPath ?? env['ACP_INTERFACE_DB_PATH'] ?? DEFAULT_INTERFACE_DB_PATH,
       host: parsed.options.host ?? env['ACP_HOST'] ?? DEFAULT_HOST,
       port: parsed.options.port ?? (Number.isFinite(envPort) ? envPort : DEFAULT_PORT),
       actor: parsed.options.actor ?? env['ACP_ACTOR'] ?? env['WRKQ_ACTOR'] ?? DEFAULT_ACTOR,
@@ -99,7 +112,7 @@ export function resolveCliOptions(
 }
 
 export function formatStartupLine(options: AcpServerCliOptions): string {
-  return `acp-server listening on http://${options.host}:${options.port} wrkq.db = ${options.wrkqDbPath} coord.db = ${options.coordDbPath}`
+  return `acp-server listening on http://${options.host}:${options.port} wrkq.db = ${options.wrkqDbPath} coord.db = ${options.coordDbPath} interface.db = ${options.interfaceDbPath}`
 }
 
 export function renderHelp(): string {
@@ -107,15 +120,102 @@ export function renderHelp(): string {
     'acp-server — Bun.serve wrapper around packages/acp-server',
     '',
     'Usage:',
-    '  acp-server [--wrkq-db-path <path>] [--coord-db-path <path>] [--host <host>] [--port <port>] [--actor <agentId>]',
+    '  acp-server [--wrkq-db-path <path>] [--coord-db-path <path>] [--interface-db-path <path>] [--host <host>] [--port <port>] [--actor <agentId>]',
     '',
     'Environment:',
     '  ACP_WRKQ_DB_PATH  Defaults to WRKQ_DB_PATH',
     `  ACP_COORD_DB_PATH Defaults to ${DEFAULT_COORD_DB_PATH}`,
+    `  ACP_INTERFACE_DB_PATH Defaults to ${DEFAULT_INTERFACE_DB_PATH}`,
     `  ACP_HOST          Defaults to ${DEFAULT_HOST}`,
     `  ACP_PORT          Defaults to ${DEFAULT_PORT}`,
     `  ACP_ACTOR         Defaults to WRKQ_ACTOR or ${DEFAULT_ACTOR}`,
   ].join('\n')
+}
+
+export function resolveRealLauncherAgentRoot(
+  agentId: string,
+  input: { cwd?: string | undefined; env?: NodeJS.ProcessEnv | undefined } = {}
+): string | undefined {
+  const cwd = input.cwd ?? process.cwd()
+  const env = input.env ?? process.env
+  const agentsRoot = getAgentsRoot({ env })
+  const canonicalAgentRoot = agentsRoot ? join(agentsRoot, agentId) : undefined
+
+  if (canonicalAgentRoot !== undefined && existsSync(canonicalAgentRoot)) {
+    return canonicalAgentRoot
+  }
+
+  const materializedClaudeRoot = join(cwd, 'asp_modules', agentId, 'claude')
+  if (existsSync(materializedClaudeRoot)) {
+    return materializedClaudeRoot
+  }
+
+  return canonicalAgentRoot
+}
+
+export function resolveRealLauncherPlacement(
+  sessionRef: SessionRef,
+  input: { cwd?: string | undefined; env?: NodeJS.ProcessEnv | undefined } = {}
+): AcpRuntimePlacement | undefined {
+  const env = input.env ?? process.env
+  const parsedScope = parseScopeRef(sessionRef.scopeRef)
+  const agentRoot = resolveRealLauncherAgentRoot(parsedScope.agentId, {
+    cwd: input.cwd,
+    env,
+  })
+  if (agentRoot === undefined) {
+    return undefined
+  }
+
+  const paths = resolveAgentPlacementPaths({
+    agentId: parsedScope.agentId,
+    ...(parsedScope.projectId !== undefined ? { projectId: parsedScope.projectId } : {}),
+    agentRoot,
+    env,
+  })
+  const projectRoot = paths.projectRoot
+  const cwd = paths.cwd ?? projectRoot ?? agentRoot
+  const bundle = buildRuntimeBundleRef({
+    agentName: parsedScope.agentId,
+    agentRoot,
+    ...(projectRoot !== undefined ? { projectRoot } : {}),
+  })
+
+  return {
+    agentRoot,
+    ...(projectRoot !== undefined ? { projectRoot } : {}),
+    cwd,
+    runMode: 'task',
+    bundle,
+  }
+}
+
+export function resolveLauncherDeps(
+  env: NodeJS.ProcessEnv = process.env,
+  cwd = process.cwd()
+): Partial<Parameters<typeof createAcpServer>[0]> {
+  const useRealLauncher = env['ACP_REAL_HRC_LAUNCHER'] === '1'
+  const useEchoLauncher = env['ACP_DEV_ECHO_LAUNCHER'] === '1'
+
+  if (useRealLauncher) {
+    if (useEchoLauncher) {
+      console.warn('ACP_REAL_HRC_LAUNCHER=1 set; ignoring ACP_DEV_ECHO_LAUNCHER=1')
+    }
+    return {
+      launchRoleScopedRun: createRealLauncher(),
+      runtimeResolver: (sessionRef) => resolveRealLauncherPlacement(sessionRef, { cwd, env }),
+      agentRootResolver: ({ agentId }) => resolveRealLauncherAgentRoot(agentId, { cwd, env }),
+    }
+  }
+
+  if (useEchoLauncher) {
+    return {
+      launchRoleScopedRun: createEchoLauncher(),
+      agentRootResolver: ({ agentId }) => `/tmp/acp-dev-echo/${agentId}`,
+    }
+  }
+
+  return {}
 }
 
 export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
@@ -123,15 +223,22 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
   startupLine: string
 }> {
   await mkdir(dirname(options.coordDbPath), { recursive: true })
+  await mkdir(dirname(options.interfaceDbPath), { recursive: true })
 
   const wrkqStore = openWrkqStore({
     dbPath: options.wrkqDbPath,
     actor: { agentId: options.actor },
   })
   const coordStore = openCoordinationStore(options.coordDbPath)
+  const interfaceStore = openInterfaceStore({
+    dbPath: options.interfaceDbPath,
+    actor: { agentId: options.actor },
+  })
   const acpServer = createAcpServer({
     wrkqStore,
     coordStore,
+    interfaceStore,
+    ...resolveLauncherDeps(process.env, process.cwd()),
   })
   const bunServer = Bun.serve({
     hostname: options.host,
@@ -151,6 +258,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
       bunServer.stop(true)
       wrkqStore.close()
       coordStore.close()
+      interfaceStore.close()
     },
   }
 }

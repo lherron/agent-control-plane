@@ -13,6 +13,10 @@ function createClientDouble(overrides: Partial<AcpClient>): AcpClient {
       overrides.transitionTask ?? (() => Promise.reject(new Error('not implemented'))),
     listTransitions:
       overrides.listTransitions ?? (() => Promise.reject(new Error('not implemented'))),
+    listInterfaceBindings:
+      overrides.listInterfaceBindings ?? (() => Promise.reject(new Error('not implemented'))),
+    upsertInterfaceBinding:
+      overrides.upsertInterfaceBinding ?? (() => Promise.reject(new Error('not implemented'))),
   }
 }
 

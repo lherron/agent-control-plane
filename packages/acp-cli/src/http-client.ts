@@ -1,4 +1,4 @@
-import type { EvidenceItem, LoggedTransitionRecord, Task } from 'acp-core'
+import type { EvidenceItem, InterfaceBinding, LoggedTransitionRecord, Task } from 'acp-core'
 
 export const DEFAULT_ACP_SERVER_URL = 'http://127.0.0.1:18470'
 
@@ -33,6 +33,14 @@ export type TaskTransitionResponse = {
 
 export type ListTaskTransitionsResponse = {
   transitions: readonly LoggedTransitionRecord[]
+}
+
+export type ListInterfaceBindingsResponse = {
+  bindings: readonly InterfaceBinding[]
+}
+
+export type UpsertInterfaceBindingResponse = {
+  binding: InterfaceBinding
 }
 
 export type AcpErrorBody = {
@@ -85,6 +93,24 @@ export interface AcpClient {
     waivers?: EvidenceItem[] | undefined
   }): Promise<TaskTransitionResponse>
   listTransitions(input: { taskId: string }): Promise<ListTaskTransitionsResponse>
+  listInterfaceBindings(input: {
+    gatewayId?: string | undefined
+    conversationRef?: string | undefined
+    threadRef?: string | undefined
+    projectId?: string | undefined
+  }): Promise<ListInterfaceBindingsResponse>
+  upsertInterfaceBinding(input: {
+    actorAgentId?: string | undefined
+    gatewayId: string
+    conversationRef: string
+    threadRef?: string | undefined
+    projectId?: string | undefined
+    sessionRef: {
+      scopeRef: string
+      laneRef?: string | undefined
+    }
+    status?: 'active' | 'disabled' | undefined
+  }): Promise<UpsertInterfaceBindingResponse>
 }
 
 export class AcpClientHttpError extends Error {
@@ -271,6 +297,49 @@ export function createHttpClient(
       return request<ListTaskTransitionsResponse>({
         method: 'GET',
         path: `/v1/tasks/${encodeURIComponent(input.taskId)}/transitions`,
+      })
+    },
+
+    listInterfaceBindings(input) {
+      const query = new URLSearchParams()
+      if (input.gatewayId !== undefined) {
+        query.set('gatewayId', input.gatewayId)
+      }
+      if (input.conversationRef !== undefined) {
+        query.set('conversationRef', input.conversationRef)
+      }
+      if (input.threadRef !== undefined) {
+        query.set('threadRef', input.threadRef)
+      }
+      if (input.projectId !== undefined) {
+        query.set('projectId', input.projectId)
+      }
+
+      const suffix = query.size > 0 ? `?${query.toString()}` : ''
+      return request<ListInterfaceBindingsResponse>({
+        method: 'GET',
+        path: `/v1/interface/bindings${suffix}`,
+      })
+    },
+
+    upsertInterfaceBinding(input) {
+      return request<UpsertInterfaceBindingResponse>({
+        method: 'POST',
+        path: '/v1/interface/bindings',
+        ...(input.actorAgentId !== undefined ? { actorAgentId: input.actorAgentId } : {}),
+        body: {
+          gatewayId: input.gatewayId,
+          conversationRef: input.conversationRef,
+          ...(input.threadRef !== undefined ? { threadRef: input.threadRef } : {}),
+          ...(input.projectId !== undefined ? { projectId: input.projectId } : {}),
+          sessionRef: {
+            scopeRef: input.sessionRef.scopeRef,
+            ...(input.sessionRef.laneRef !== undefined
+              ? { laneRef: input.sessionRef.laneRef }
+              : {}),
+          },
+          ...(input.status !== undefined ? { status: input.status } : {}),
+        },
       })
     },
   }

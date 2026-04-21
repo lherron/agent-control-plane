@@ -51,6 +51,22 @@ export type { InputAttempt } from './models/input-attempt.js'
 export type { Run } from './models/run.js'
 export type { Session } from './models/session.js'
 
+export { canAck, canFail, isTerminal } from './interface/delivery-request.js'
+export { resolveBinding } from './interface/binding.js'
+export type {
+  DeliveryFailure,
+  DeliveryRequest,
+  DeliveryRequestBody,
+  DeliveryRequestStatus,
+} from './interface/delivery-request.js'
+export type {
+  InterfaceBinding,
+  InterfaceBindingLookup,
+  InterfaceBindingStatus,
+  InterfaceSessionRef,
+} from './interface/binding.js'
+export type { InterfaceMessageSource } from './interface/message-source.js'
+
 export { codeDefectFastlaneV1 } from './presets/code_defect_fastlane.v1.js'
 export { getPreset, listPresets } from './presets/registry.js'
 export { validateTransition } from './validators/transition-policy.js'

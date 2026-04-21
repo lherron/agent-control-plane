@@ -1,6 +1,9 @@
 #!/usr/bin/env bun
 
 import { CliUsageError, exitWithError, writeCommandOutput } from './cli-runtime.js'
+import { runAdminInterfaceBindingDisableCommand } from './commands/admin-interface-binding-disable.js'
+import { runAdminInterfaceBindingListCommand } from './commands/admin-interface-binding-list.js'
+import { runAdminInterfaceBindingSetCommand } from './commands/admin-interface-binding-set.js'
 import type { CommandDependencies } from './commands/shared.js'
 import { runTaskCreateCommand } from './commands/task-create.js'
 import { runTaskEvidenceAddCommand } from './commands/task-evidence-add.js'
@@ -8,13 +11,18 @@ import { runTaskPromoteCommand } from './commands/task-promote.js'
 import { runTaskShowCommand } from './commands/task-show.js'
 import { runTaskTransitionCommand } from './commands/task-transition.js'
 import { runTaskTransitionsCommand } from './commands/task-transitions.js'
+import { runServerCommand } from './server-runtime.js'
 
 function renderTopLevelHelp(): string {
   return [
     'Usage:',
     '  acp task <subcommand> [options]',
+    '  acp admin <subcommand> [options]',
+    '  acp server <subcommand> [options]',
     '',
     'Subcommands:',
+    '  admin interface binding  Manage ACP interface bindings',
+    '  server               Manage the ACP HTTP server and Discord gateway process',
     '  task create           Create a workflow task',
     '  task promote          Promote an existing wrkq task into ACP workflow control',
     '  task show             Show task state and role context',
@@ -88,6 +96,43 @@ function renderTaskTransitionHelp(): string {
 
 function renderTaskTransitionsHelp(): string {
   return ['Usage:', '  acp task transitions --task <T-XXXXX> [--server <url>] [--json]'].join('\n')
+}
+
+function renderAdminHelp(): string {
+  return ['Usage:', '  acp admin interface binding <list|set|disable> [options]'].join('\n')
+}
+
+function renderAdminInterfaceHelp(): string {
+  return ['Usage:', '  acp admin interface binding <list|set|disable> [options]'].join('\n')
+}
+
+function renderAdminInterfaceBindingListHelp(): string {
+  return [
+    'Usage:',
+    '  acp admin interface binding list [--gateway <id>] [--conversation-ref <ref>] [--thread-ref <ref>] [--project <projectId>] [--server <url>] [--json]',
+  ].join('\n')
+}
+
+function renderAdminInterfaceBindingSetHelp(): string {
+  return [
+    'Usage:',
+    '  acp admin interface binding set --gateway <id> --conversation-ref <ref> (--session <handle> | --scope-ref <scopeRef>) [options]',
+    '',
+    'Options:',
+    '  --thread-ref <ref>',
+    '  --project <projectId>',
+    '  --lane-ref <laneRef>      Used with --scope-ref; defaults to main if omitted',
+    '  --actor <agentId>         Actor id (or ACP_ACTOR_AGENT_ID)',
+    '  --server <url>',
+    '  --json',
+  ].join('\n')
+}
+
+function renderAdminInterfaceBindingDisableHelp(): string {
+  return [
+    'Usage:',
+    '  acp admin interface binding disable --gateway <id> --conversation-ref <ref> [--thread-ref <ref>] [--server <url>] [--json]',
+  ].join('\n')
 }
 
 async function runTaskCommand(args: string[], deps: CommandDependencies): Promise<void> {
@@ -169,6 +214,79 @@ async function runTaskCommand(args: string[], deps: CommandDependencies): Promis
   throw new CliUsageError(`unknown task subcommand: ${subcommand}`)
 }
 
+async function runAdminInterfaceBindingCommand(
+  args: string[],
+  deps: CommandDependencies
+): Promise<void> {
+  const subcommand = args[0]
+  const rest = args.slice(1)
+
+  if (subcommand === undefined || subcommand === '--help' || subcommand === '-h') {
+    process.stdout.write(`${renderAdminInterfaceHelp()}\n`)
+    return
+  }
+
+  if (subcommand === 'list') {
+    if (rest.includes('--help') || rest.includes('-h')) {
+      process.stdout.write(`${renderAdminInterfaceBindingListHelp()}\n`)
+      return
+    }
+    writeCommandOutput(await runAdminInterfaceBindingListCommand(rest, deps))
+    return
+  }
+
+  if (subcommand === 'set') {
+    if (rest.includes('--help') || rest.includes('-h')) {
+      process.stdout.write(`${renderAdminInterfaceBindingSetHelp()}\n`)
+      return
+    }
+    writeCommandOutput(await runAdminInterfaceBindingSetCommand(rest, deps))
+    return
+  }
+
+  if (subcommand === 'disable') {
+    if (rest.includes('--help') || rest.includes('-h')) {
+      process.stdout.write(`${renderAdminInterfaceBindingDisableHelp()}\n`)
+      return
+    }
+    writeCommandOutput(await runAdminInterfaceBindingDisableCommand(rest, deps))
+    return
+  }
+
+  throw new CliUsageError(`unknown admin interface binding subcommand: ${subcommand}`)
+}
+
+async function runAdminCommand(args: string[], deps: CommandDependencies): Promise<void> {
+  const subcommand = args[0]
+  const rest = args.slice(1)
+
+  if (subcommand === undefined || subcommand === '--help' || subcommand === '-h') {
+    process.stdout.write(`${renderAdminHelp()}\n`)
+    return
+  }
+
+  if (subcommand !== 'interface') {
+    throw new CliUsageError(`unknown admin subcommand: ${subcommand}`)
+  }
+
+  const nestedSubcommand = rest[0]
+  const nestedArgs = rest.slice(1)
+  if (
+    nestedSubcommand === undefined ||
+    nestedSubcommand === '--help' ||
+    nestedSubcommand === '-h'
+  ) {
+    process.stdout.write(`${renderAdminInterfaceHelp()}\n`)
+    return
+  }
+
+  if (nestedSubcommand !== 'binding') {
+    throw new CliUsageError(`unknown admin interface subcommand: ${nestedSubcommand}`)
+  }
+
+  await runAdminInterfaceBindingCommand(nestedArgs, deps)
+}
+
 export async function main(
   args = process.argv.slice(2),
   deps: CommandDependencies = {}
@@ -187,11 +305,22 @@ export async function main(
       return
     }
 
-    if (command !== 'task') {
-      throw new CliUsageError(`unknown subcommand: ${command}`)
+    if (command === 'task') {
+      await runTaskCommand(args.slice(1), deps)
+      return
     }
 
-    await runTaskCommand(args.slice(1), deps)
+    if (command === 'admin') {
+      await runAdminCommand(args.slice(1), deps)
+      return
+    }
+
+    if (command === 'server') {
+      await runServerCommand(args.slice(1))
+      return
+    }
+
+    throw new CliUsageError(`unknown subcommand: ${command}`)
   } catch (error) {
     exitWithError(error, { json: jsonRequested })
   }

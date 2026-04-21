@@ -1,8 +1,9 @@
+import { Database as BunDatabase } from 'bun:sqlite'
 import { randomUUID } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import Database from 'better-sqlite3'
+import BetterSqliteDatabase from 'better-sqlite3'
 const schemaDumpPath = '/Users/lherron/praesidium/wrkq/schema_dump.sql'
 function readSchemaDump() {
   return readFileSync(schemaDumpPath, 'utf8').replace(
@@ -13,7 +14,8 @@ function readSchemaDump() {
 export function createSeededWrkqDb() {
   const directory = mkdtempSync(join(tmpdir(), 'wrkq-lib-'))
   const dbPath = join(directory, 'wrkq.db')
-  const sqlite = new Database(dbPath)
+  const sqlite =
+    typeof Bun !== 'undefined' ? new BunDatabase(dbPath) : new BetterSqliteDatabase(dbPath)
   let closed = false
   sqlite.exec(readSchemaDump())
   const bootstrapActorUuid = randomUUID()

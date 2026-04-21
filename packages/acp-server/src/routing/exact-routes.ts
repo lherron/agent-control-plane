@@ -1,4 +1,7 @@
 import { handleCreateInput } from '../handlers/inputs.js'
+import { handleCreateInterfaceBinding } from '../handlers/interface-bindings-create.js'
+import { handleListInterfaceBindings } from '../handlers/interface-bindings-list.js'
+import { handleCreateInterfaceMessage } from '../handlers/interface-messages.js'
 import { handleCreateMessage } from '../handlers/messages.js'
 import { handleResolveRuntime } from '../handlers/runtime-resolve.js'
 import { handleResolveSession } from '../handlers/sessions-resolve.js'
@@ -16,6 +19,9 @@ export function exactRouteKey(method: string, pathname: string): string {
 
 export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRouteHandlers {
   return {
+    [exactRouteKey('POST', '/v1/interface/bindings')]: handleCreateInterfaceBinding,
+    [exactRouteKey('GET', '/v1/interface/bindings')]: handleListInterfaceBindings,
+    [exactRouteKey('POST', '/v1/interface/messages')]: handleCreateInterfaceMessage,
     [exactRouteKey('POST', '/v1/tasks')]: handleCreateTask,
     [exactRouteKey('POST', '/v1/inputs')]: handleCreateInput,
     [exactRouteKey('POST', '/v1/messages')]: handleCreateMessage,

@@ -184,6 +184,181 @@ describe('real launcher helpers', () => {
     expect(calls).toEqual(['resolveSession'])
   })
 
+  test('uses live tmux runtime as the default transport for interface turns', async () => {
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-real-launcher-tmux-db-'))
+    const hrcDbPath = join(fixtureDir, 'hrc.sqlite')
+    const db = new Database(hrcDbPath)
+    db.exec(`
+      CREATE TABLE continuities (
+        scope_ref TEXT NOT NULL,
+        lane_ref TEXT NOT NULL,
+        active_host_session_id TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (scope_ref, lane_ref)
+      );
+      CREATE TABLE runtimes (
+        runtime_id TEXT PRIMARY KEY,
+        host_session_id TEXT NOT NULL,
+        transport TEXT NOT NULL,
+        status TEXT NOT NULL,
+        tmux_json TEXT,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE hrc_events (
+        hrc_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        host_session_id TEXT NOT NULL,
+        scope_ref TEXT NOT NULL,
+        lane_ref TEXT NOT NULL,
+        event_kind TEXT NOT NULL,
+        payload_json TEXT NOT NULL
+      );
+    `)
+    db.run(
+      `INSERT INTO continuities (scope_ref, lane_ref, active_host_session_id, updated_at)
+        VALUES (?, ?, ?, ?)`,
+      'agent:cody:project:agent-spaces:task:discord',
+      'main',
+      'hsid-discord',
+      '2026-04-21T17:00:00.000Z'
+    )
+    db.run(
+      `INSERT INTO runtimes (runtime_id, host_session_id, transport, status, tmux_json, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)`,
+      'rt-tmux',
+      'hsid-discord',
+      'tmux',
+      'busy',
+      '{"paneId":"%1"}',
+      '2026-04-21T17:00:01.000Z'
+    )
+    db.run(
+      `INSERT INTO hrc_events (host_session_id, scope_ref, lane_ref, event_kind, payload_json)
+        VALUES (?, ?, ?, ?, ?)`,
+      'hsid-discord',
+      'agent:cody:project:agent-spaces:task:discord',
+      'main',
+      'turn.message',
+      JSON.stringify({
+        type: 'message_end',
+        message: { role: 'assistant', content: 'old response' },
+      })
+    )
+
+    const calls: string[] = []
+    const seenEvents: unknown[] = []
+    const launcher = createRealLauncher({
+      hrcDbPath,
+      pollIntervalMs: 1,
+      watchTimeoutMs: 250,
+      createClient: () =>
+        ({
+          resolveSession: async (input: unknown) => {
+            calls.push('resolveSession')
+            expect(input).toEqual({
+              sessionRef: 'agent:cody:project:agent-spaces:task:discord/lane:main',
+              runtimeIntent: {
+                placement: {
+                  agentRoot: '/tmp/cody',
+                  runMode: 'task',
+                  bundle: { kind: 'agent-default' },
+                  dryRun: false,
+                },
+                harness: {
+                  provider: 'openai',
+                  interactive: true,
+                },
+                execution: {
+                  preferredMode: 'interactive',
+                },
+                initialPrompt: 'What is 2+2?',
+              },
+            })
+            return { hostSessionId: 'hsid-discord' }
+          },
+          dispatchTurn: async () => {
+            throw new Error('dispatchTurn should not be called when live tmux exists')
+          },
+          deliverLiteralBySelector: async (input: unknown) => {
+            calls.push('deliverLiteralBySelector')
+            if (calls.length === 1) {
+              expect(input).toEqual({
+                selector: { sessionRef: 'agent:cody:project:agent-spaces:task:discord/lane:main' },
+                text: 'What is 2+2?',
+                enter: false,
+              })
+            } else {
+              expect(input).toEqual({
+                selector: { sessionRef: 'agent:cody:project:agent-spaces:task:discord/lane:main' },
+                text: '',
+                enter: true,
+              })
+              db.run(
+                `INSERT INTO hrc_events (host_session_id, scope_ref, lane_ref, event_kind, payload_json)
+                  VALUES (?, ?, ?, ?, ?)`,
+                'hsid-discord',
+                'agent:cody:project:agent-spaces:task:discord',
+                'main',
+                'turn.message',
+                JSON.stringify({
+                  type: 'message_end',
+                  message: { role: 'assistant', content: '4' },
+                })
+              )
+            }
+            return {
+              delivered: true,
+              sessionRef: 'agent:cody:project:agent-spaces:task:discord/lane:main',
+              hostSessionId: 'hsid-discord',
+              generation: 1,
+              runtimeId: 'rt-tmux',
+            }
+          },
+        }) as unknown as any,
+    })
+
+    try {
+      const result = await launcher({
+        onEvent: async (event) => {
+          seenEvents.push(event)
+        },
+        sessionRef: {
+          scopeRef: 'agent:cody:project:agent-spaces:task:discord',
+          laneRef: 'main',
+        },
+        intent: {
+          placement: {
+            agentRoot: '/tmp/cody',
+            runMode: 'task',
+            bundle: { kind: 'agent-default' },
+          },
+          harness: {
+            provider: 'openai',
+            interactive: false,
+          },
+          initialPrompt: 'What is 2+2?',
+        },
+      })
+
+      expect(result).toEqual({
+        runId: 'hsid-discord',
+        sessionId: 'hsid-discord',
+      })
+      expect(calls).toEqual(['deliverLiteralBySelector', 'deliverLiteralBySelector'])
+      expect(seenEvents).toEqual([
+        {
+          type: 'message_end',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: '4' }],
+          },
+        },
+      ])
+    } finally {
+      db.close()
+      rmSync(fixtureDir, { recursive: true, force: true })
+    }
+  })
+
   test('throws the persisted run failure details when the HRC run fails', async () => {
     const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-real-launcher-failed-db-'))
     const hrcDbPath = join(fixtureDir, 'hrc.sqlite')
@@ -335,7 +510,7 @@ describe('real launcher helpers', () => {
 
       expect(normalized.harness).toEqual({
         provider: 'anthropic',
-        interactive: false,
+        interactive: true,
       })
       expect(normalized.execution).toEqual({ preferredMode: 'headless' })
       expect(normalized.placement.dryRun).toBe(false)
@@ -344,7 +519,7 @@ describe('real launcher helpers', () => {
     }
   })
 
-  test('defaults openai launches to sdk transport by leaving preferredMode unset', () => {
+  test('preserves an explicit harness and defaults openai execution to headless', () => {
     const normalized = normalizeRealLauncherIntent({
       sessionRef: {
         scopeRef: 'agent:cody:project:agent-spaces',
@@ -369,8 +544,37 @@ describe('real launcher helpers', () => {
       provider: 'openai',
       interactive: false,
     })
-    expect(normalized.execution).toBeUndefined()
+    expect(normalized.execution).toEqual({ preferredMode: 'headless' })
     expect(normalized.placement.dryRun).toBe(false)
+  })
+
+  test('honors explicit interactive preferredMode when no live tmux runtime exists', () => {
+    const normalized = normalizeRealLauncherIntent({
+      sessionRef: {
+        scopeRef: 'agent:cody:project:agent-spaces',
+        laneRef: 'main',
+      },
+      intent: {
+        placement: {
+          agentRoot: '/tmp/cody',
+          runMode: 'task',
+          bundle: { kind: 'agent-default' },
+        },
+        harness: {
+          provider: 'openai',
+          interactive: false,
+        },
+        execution: {
+          preferredMode: 'interactive',
+        },
+      },
+    })
+
+    expect(normalized.harness).toEqual({
+      provider: 'openai',
+      interactive: true,
+    })
+    expect(normalized.execution).toEqual({ preferredMode: 'interactive' })
   })
 
   test('passes through explicit message_end assistant events', () => {

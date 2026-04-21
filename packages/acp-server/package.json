@@ -24,9 +24,13 @@
   },
   "dependencies": {
     "acp-core": "*",
+    "acp-interface-store": "*",
     "agent-scope": "*",
     "coordination-substrate": "*",
     "hrc-core": "*",
+    "hrc-sdk": "*",
+    "spaces-config": "*",
+    "spaces-runtime": "*",
     "wrkq-lib": "*"
   },
   "devDependencies": {

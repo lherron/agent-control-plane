@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { main as runAcpCli } from 'acp-cli'
+import { type InterfaceStore, openInterfaceStore } from 'acp-interface-store'
 import { type AcpServer, type AcpServerDeps, createAcpServer } from 'acp-server'
 import type { SessionRef } from 'agent-scope'
 import { type CoordinationStore, openCoordinationStore } from 'coordination-substrate'
@@ -40,6 +41,7 @@ type SeedStackOptions = {
 export type SeedStack = {
   cli: CliAdapter
   coordStore: CoordinationStore
+  interfaceStore: InterfaceStore
   seed: SeededWrkqFixture['seed']
   seededWrkq: SeededWrkqFixture
   server: AcpServer
@@ -166,7 +168,9 @@ export function createSeedStack(options: SeedStackOptions = {}): SeedStack {
   const seededWrkq = createSeededWrkqDb()
   const coordDirectory = mkdtempSync(join(tmpdir(), 'acp-e2e-'))
   const coordDbPath = join(coordDirectory, 'coordination.db')
+  const interfaceDbPath = join(coordDirectory, 'interface.db')
   const coordStore = openCoordinationStore(coordDbPath)
+  const interfaceStore = openInterfaceStore({ dbPath: interfaceDbPath })
   const wrkqStore = openWrkqStore({
     dbPath: seededWrkq.dbPath,
     actor: { agentId: 'acp-e2e' },
@@ -177,6 +181,7 @@ export function createSeedStack(options: SeedStackOptions = {}): SeedStack {
   const server = createAcpServer({
     wrkqStore,
     coordStore,
+    interfaceStore,
     ...(options.launchRoleScopedRun !== undefined
       ? { launchRoleScopedRun: options.launchRoleScopedRun }
       : {}),
@@ -209,6 +214,7 @@ export function createSeedStack(options: SeedStackOptions = {}): SeedStack {
   return {
     cli,
     coordStore,
+    interfaceStore,
     seed: seededWrkq.seed,
     seededWrkq,
     server,
@@ -216,6 +222,7 @@ export function createSeedStack(options: SeedStackOptions = {}): SeedStack {
     cleanup() {
       wrkqStore.close()
       coordStore.close()
+      interfaceStore.close()
       seededWrkq.cleanup()
       rmSync(coordDirectory, { recursive: true, force: true })
     },

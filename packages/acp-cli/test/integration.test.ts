@@ -297,4 +297,117 @@ describe('acp-cli integration', () => {
       },
     })
   })
+
+  test('manages interface bindings through admin commands', async () => {
+    const seededWrkq = createSeededWrkqDb()
+    const coordDir = mkdtempSync(join(tmpdir(), 'acp-cli-'))
+    const coordDbPath = join(coordDir, 'coordination.db')
+    const coordStore = openCoordinationStore(coordDbPath)
+    const wrkqStore = openWrkqStore({
+      dbPath: seededWrkq.dbPath,
+      actor: { agentId: 'acp-cli-test' },
+    })
+    const server = createAcpServer({ wrkqStore, coordStore })
+
+    cleanup = () => {
+      wrkqStore.close()
+      coordStore.close()
+      seededWrkq.cleanup()
+      rmSync(coordDir, { recursive: true, force: true })
+    }
+
+    const fetchImpl = async (
+      input: Request | string | URL,
+      init?: RequestInit
+    ): Promise<Response> => {
+      const request = input instanceof Request ? input : new Request(input, init)
+      return server.handler(request)
+    }
+
+    const setResult = await runCli(
+      [
+        'admin',
+        'interface',
+        'binding',
+        'set',
+        '--gateway',
+        'acp-discord-smoke',
+        '--conversation-ref',
+        'channel:123',
+        '--project',
+        seededWrkq.seed.projectId,
+        '--session',
+        'cody@agent-spaces:discord',
+        '--json',
+      ],
+      { fetchImpl }
+    )
+
+    expect(setResult.exitCode).toBe(0)
+    expect(JSON.parse(setResult.stdout)).toMatchObject({
+      binding: {
+        gatewayId: 'acp-discord-smoke',
+        conversationRef: 'channel:123',
+        sessionRef: {
+          scopeRef: 'agent:cody:project:agent-spaces:task:discord',
+          laneRef: 'main',
+        },
+        projectId: seededWrkq.seed.projectId,
+        status: 'active',
+      },
+    })
+
+    const listResult = await runCli(
+      [
+        'admin',
+        'interface',
+        'binding',
+        'list',
+        '--gateway',
+        'acp-discord-smoke',
+        '--conversation-ref',
+        'channel:123',
+        '--json',
+      ],
+      { fetchImpl }
+    )
+
+    expect(listResult.exitCode).toBe(0)
+    expect(JSON.parse(listResult.stdout)).toMatchObject({
+      bindings: [
+        {
+          gatewayId: 'acp-discord-smoke',
+          conversationRef: 'channel:123',
+          sessionRef: {
+            scopeRef: 'agent:cody:project:agent-spaces:task:discord',
+            laneRef: 'main',
+          },
+        },
+      ],
+    })
+
+    const disableResult = await runCli(
+      [
+        'admin',
+        'interface',
+        'binding',
+        'disable',
+        '--gateway',
+        'acp-discord-smoke',
+        '--conversation-ref',
+        'channel:123',
+        '--json',
+      ],
+      { fetchImpl }
+    )
+
+    expect(disableResult.exitCode).toBe(0)
+    expect(JSON.parse(disableResult.stdout)).toMatchObject({
+      binding: {
+        gatewayId: 'acp-discord-smoke',
+        conversationRef: 'channel:123',
+        status: 'disabled',
+      },
+    })
+  })
 })

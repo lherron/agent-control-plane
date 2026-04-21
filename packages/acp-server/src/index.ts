@@ -1,4 +1,12 @@
 export { createAcpServer, type AcpServer } from './create-acp-server.js'
+export {
+  formatStartupLine,
+  parseCliArgs,
+  renderHelp as renderAcpServerHelp,
+  resolveCliOptions,
+  startAcpServeBin,
+  type AcpServerCliOptions,
+} from './cli.js'
 export type {
   AcpRuntimePlacement,
   AcpServerDeps,
@@ -16,6 +24,7 @@ export { InMemoryRunStore, type RunStore } from './domain/run-store.js'
 export {
   handleLaunchSession,
   launchRoleScopedTaskRun,
+  resolveLaunchIntent,
   type LaunchRoleScopedTaskRunInput,
 } from './launch-role-scoped.js'
 export { exactRouteKey } from './routing/exact-routes.js'

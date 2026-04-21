@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.praesidium.acp-server</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/lherron/.bun/bin/acp</string>
+    <string>server</string>
+    <string>serve</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/lherron/.local/bin:/Users/lherron/.bun/bin:/Users/lherron/.tooling/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>HOME</key>
+    <string>/Users/lherron</string>
+    <key>LANG</key>
+    <string>en_US.UTF-8</string>
+    <key>ASP_HOME</key>
+    <string>/Users/lherron/praesidium/var/spaces-repo</string>
+    <key>ASP_AGENTS_ROOT</key>
+    <string>/Users/lherron/praesidium/var/agents</string>
+    <key>ASP_PROJECT</key>
+    <string>agent-spaces</string>
+    <key>ACP_WRKQ_DB_PATH</key>
+    <string>/Users/lherron/praesidium/var/db/wrkq.db</string>
+    <key>WRKQ_DB_PATH</key>
+    <string>/Users/lherron/praesidium/var/db/wrkq.db</string>
+    <key>ACP_COORD_DB_PATH</key>
+    <string>/Users/lherron/praesidium/var/db/acp-coordination.db</string>
+    <key>ACP_INTERFACE_DB_PATH</key>
+    <string>/Users/lherron/praesidium/var/db/acp-interface.db</string>
+    <key>ACP_RUNTIME_DIR</key>
+    <string>/Users/lherron/praesidium/var/run/acp</string>
+    <key>ACP_LOG_PATH</key>
+    <string>/Users/lherron/praesidium/var/logs/acp-server.log</string>
+    <key>ACP_DISCORD_TOKEN_KV</key>
+    <string>cfg/dev/_global/discord/master_token</string>
+    <key>DISCORD_VIRTU_BOT_ID</key>
+    <string>1165644636807778414</string>
+    <key>ACP_HOST</key>
+    <string>127.0.0.1</string>
+    <key>ACP_PORT</key>
+    <string>18470</string>
+    <key>ACP_GATEWAY_ID</key>
+    <string>acp-discord-smoke</string>
+    <key>ACP_REAL_HRC_LAUNCHER</key>
+    <string>1</string>
+    <key>HRC_RUNTIME_DIR</key>
+    <string>/Users/lherron/praesidium/var/run/hrc</string>
+    <key>HRC_STATE_DIR</key>
+    <string>/Users/lherron/praesidium/var/state/hrc</string>
+  </dict>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/lherron/praesidium/agent-spaces</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+
+  <key>StandardOutPath</key>
+  <string>/Users/lherron/praesidium/var/logs/acp-server.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/lherron/praesidium/var/logs/acp-server.err.log</string>
+</dict>
+</plist>

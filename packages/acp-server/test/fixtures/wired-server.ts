@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { type InterfaceStore, openInterfaceStore } from 'acp-interface-store'
 
 import { type CoordinationStore, openCoordinationStore } from 'coordination-substrate'
 import { type WrkqStore, openWrkqStore } from 'wrkq-lib'
@@ -29,6 +30,7 @@ export type WiredServerFixture = {
   json<T>(response: Response): Promise<T>
   wrkqStore: WrkqStore
   coordStore: CoordinationStore
+  interfaceStore: InterfaceStore
   runStore: InMemoryRunStore
   inputAttemptStore: InMemoryInputAttemptStore
   seed: SeededWrkqFixture['seed']
@@ -41,7 +43,9 @@ export async function withWiredServer<T>(
   const seededWrkq = createSeededWrkqDb()
   const coordDirectory = mkdtempSync(join(tmpdir(), 'acp-server-'))
   const coordDbPath = join(coordDirectory, 'coordination.db')
+  const interfaceDbPath = join(coordDirectory, 'acp-interface.db')
   const coordStore = openCoordinationStore(coordDbPath)
+  const interfaceStore = openInterfaceStore({ dbPath: interfaceDbPath })
   const wrkqStore = openWrkqStore({
     dbPath: seededWrkq.dbPath,
     actor: { agentId: 'acp-server' },
@@ -51,6 +55,7 @@ export async function withWiredServer<T>(
   const server = createAcpServer({
     wrkqStore,
     coordStore,
+    interfaceStore,
     runStore,
     inputAttemptStore,
     ...overrides,
@@ -77,6 +82,7 @@ export async function withWiredServer<T>(
     },
     wrkqStore,
     coordStore,
+    interfaceStore,
     runStore,
     inputAttemptStore,
     seed: seededWrkq.seed,
@@ -87,6 +93,7 @@ export async function withWiredServer<T>(
   } finally {
     wrkqStore.close()
     coordStore.close()
+    interfaceStore.close()
     rmSync(coordDirectory, { recursive: true, force: true })
     seededWrkq.cleanup()
   }

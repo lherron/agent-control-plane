@@ -1,3 +1,6 @@
+import { handleAckGatewayDelivery } from '../handlers/gateway-deliveries-ack.js'
+import { handleFailGatewayDelivery } from '../handlers/gateway-deliveries-fail.js'
+import { handleStreamGatewayDeliveries } from '../handlers/gateway-deliveries-stream.js'
 import { handleGetRun } from '../handlers/runs-get.js'
 import { handleAttachTaskEvidence } from '../handlers/tasks-evidence.js'
 import { handleGetTask } from '../handlers/tasks-get.js'
@@ -58,6 +61,21 @@ export function createParamRoute(
 
 export function buildParamRoutes(): ParamRoute[] {
   return [
+    createParamRoute(
+      'GET',
+      '/v1/gateway/:gatewayId/deliveries/stream',
+      handleStreamGatewayDeliveries
+    ),
+    createParamRoute(
+      'POST',
+      '/v1/gateway/deliveries/:deliveryRequestId/ack',
+      handleAckGatewayDelivery
+    ),
+    createParamRoute(
+      'POST',
+      '/v1/gateway/deliveries/:deliveryRequestId/fail',
+      handleFailGatewayDelivery
+    ),
     createParamRoute('GET', '/v1/tasks/:taskId', handleGetTask),
     createParamRoute('POST', '/v1/tasks/:taskId/evidence', handleAttachTaskEvidence),
     createParamRoute('POST', '/v1/tasks/:taskId/promote', handlePromoteTask),
