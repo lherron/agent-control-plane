@@ -1,5 +1,4 @@
-import { appendEvent } from 'coordination-substrate'
-
+import { appendRawCoordinationMessage } from '../coordination/raw-append.js'
 import { json } from '../http.js'
 import { parseJsonBody, requireRecord, requireTrimmedStringField } from '../parsers/body.js'
 
@@ -7,7 +6,7 @@ import type { RouteHandler } from '../routing/route-context.js'
 
 export const handleCreateMessage: RouteHandler = async ({ request, deps }) => {
   const body = requireRecord(await parseJsonBody(request))
-  const result = appendEvent(deps.coordStore, {
+  const result = appendRawCoordinationMessage(deps.coordStore, {
     projectId: requireTrimmedStringField(body, 'projectId'),
     ...(typeof body['idempotencyKey'] === 'string' && body['idempotencyKey'].trim().length > 0
       ? { idempotencyKey: body['idempotencyKey'].trim() }
