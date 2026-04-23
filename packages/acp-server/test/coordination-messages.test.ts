@@ -56,7 +56,7 @@ describe('POST /v1/coordination/messages', () => {
       expect(events[0]).toMatchObject({
         eventId: payload.coordinationEventId,
         kind: 'message.posted',
-        actor: { kind: 'agent', agentId: 'clod' },
+        actor: { kind: 'system', id: 'acp-local' },
         participants: [{ kind: 'agent', agentId: 'curly' }],
         content: { kind: 'text', body: 'hi' },
       })
@@ -99,6 +99,32 @@ describe('POST /v1/coordination/messages', () => {
       expect(payload.wakeRequestId).toBeTruthy()
       expect(wakes).toHaveLength(1)
       expect(wakes[0]?.wakeId).toBe(payload.wakeRequestId)
+    })
+  })
+
+  test('returns 400 when options.wake targets a non-session recipient', async () => {
+    await withWiredServer(async (fixture) => {
+      const response = await fixture.request({
+        method: 'POST',
+        path: '/v1/coordination/messages',
+        body: {
+          projectId: fixture.seed.projectId,
+          from: { kind: 'human', displayName: 'Operator' },
+          to: { kind: 'agent', agentId: 'curly' },
+          body: 'please review the latest patch',
+          options: { wake: true },
+        },
+      })
+
+      expect(response.status).toBe(400)
+      expect(await fixture.json<{ error: { code: string; message: string } }>(response)).toEqual({
+        error: {
+          code: 'malformed_request',
+          message: 'wake requires a sessionRef recipient (to.kind must be "sessionRef")',
+        },
+      })
+      expect(listEvents(fixture.coordStore, { projectId: fixture.seed.projectId })).toHaveLength(0)
+      expect(listPendingWakes(fixture.coordStore, { projectId: fixture.seed.projectId })).toHaveLength(0)
     })
   })
 
