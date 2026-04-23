@@ -86,7 +86,7 @@ export const handleCreateInput: RouteHandler = async (context) => {
               runStore: deps.runStore,
               runId: result.runId,
               inputAttemptId: result.inputAttempt.inputAttemptId,
-            }),
+            }).handler,
           }
         : {}),
     })

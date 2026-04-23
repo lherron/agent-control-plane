@@ -2,7 +2,7 @@ import type { Actor } from 'acp-core'
 import { type SessionRef, normalizeSessionRef, parseScopeRef } from 'agent-scope'
 
 import {
-  type InterfaceResponseCaptureHandler,
+  type InterfaceResponseCapture,
   createInterfaceResponseCapture,
 } from '../delivery/interface-response-capture.js'
 import { toCompletedVisibleAssistantMessage } from '../delivery/visible-assistant-messages.js'
@@ -45,7 +45,7 @@ function toSessionRef(scopeRef: string, laneRef: string): SessionRef {
 }
 
 function wrapOnEventWithConversationHook(
-  baseHandler: InterfaceResponseCaptureHandler,
+  capture: InterfaceResponseCapture,
   conversationStore: ConversationStore,
   threadId: string,
   runId: string,
@@ -54,7 +54,7 @@ function wrapOnEventWithConversationHook(
   const deliveredMessageIds = new Set<string>()
 
   return async (event: UnifiedSessionEvent): Promise<void> => {
-    await baseHandler(event)
+    await capture.handler(event)
 
     const visible = toCompletedVisibleAssistantMessage(event)
     if (visible === undefined) {
@@ -67,7 +67,7 @@ function wrapOnEventWithConversationHook(
       deliveredMessageIds.add(visible.messageId)
     }
 
-    conversationStore.createTurn({
+    const turnId = conversationStore.createTurn({
       threadId,
       role: 'assistant',
       body: visible.text,
@@ -76,6 +76,12 @@ function wrapOnEventWithConversationHook(
       actor,
       sentAt: new Date().toISOString(),
     })
+
+    // Back-link the delivery request onto the assistant turn so the ack/fail
+    // handlers can find it via findTurnByLink('linksDeliveryRequestId', …).
+    if (capture.lastDeliveryRequestId !== undefined) {
+      conversationStore.attachLinks(turnId, { deliveryRequestId: capture.lastDeliveryRequestId })
+    }
   }
 }
 
@@ -163,7 +169,7 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
   if (createdAttempt.created && deps.launchRoleScopedRun !== undefined) {
     const intent = await resolveLaunchIntent(deps, sessionRef, { initialPrompt: content })
 
-    const baseOnEvent = createInterfaceResponseCapture({
+    const capture = createInterfaceResponseCapture({
       interfaceStore: deps.interfaceStore,
       runStore: deps.runStore,
       runId: createdAttempt.runId,
@@ -174,13 +180,13 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
     const onEvent =
       deps.conversationStore !== undefined && conversationThreadId !== undefined
         ? wrapOnEventWithConversationHook(
-            baseOnEvent,
+            capture,
             deps.conversationStore,
             conversationThreadId,
             createdAttempt.runId,
             actor
           )
-        : baseOnEvent
+        : capture.handler
 
     await deps.launchRoleScopedRun({
       sessionRef,

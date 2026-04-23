@@ -72,7 +72,7 @@ describe('interface response capture', () => {
         inputAttemptId: 'ia_123',
       })
 
-      await capture(assistantMessageEnd('Hello from ACP.'))
+      await capture.handler(assistantMessageEnd('Hello from ACP.'))
 
       const deliveries = temp.interfaceStore.deliveries.listQueuedForGateway('discord_prod')
       expect(deliveries).toHaveLength(1)
@@ -107,13 +107,13 @@ describe('interface response capture', () => {
         runId: run.runId,
       })
 
-      await capture({
+      await capture.handler({
         type: 'tool_execution_end',
         toolUseId: 'tool-1',
         toolName: 'Bash',
         result: { content: [{ type: 'text', text: 'tool output' }] },
       })
-      await capture({
+      await capture.handler({
         type: 'message_update',
         messageId: 'msg-1',
         textDelta: 'partial only',
@@ -137,8 +137,8 @@ describe('interface response capture', () => {
         runId: run.runId,
       })
 
-      await capture(assistantMessageEnd('First reply', 'msg-1'))
-      await capture({
+      await capture.handler(assistantMessageEnd('First reply', 'msg-1'))
+      await capture.handler({
         type: 'message_end',
         messageId: 'msg-2',
         message: {
@@ -179,7 +179,7 @@ describe('interface response capture', () => {
         runId: run.runId,
       })
 
-      await capture(assistantMessageEnd('Should not deliver.'))
+      await capture.handler(assistantMessageEnd('Should not deliver.'))
 
       expect(temp.interfaceStore.deliveries.listQueuedForGateway('discord_prod')).toEqual([])
     } finally {
@@ -209,12 +209,12 @@ describe('interface response capture', () => {
         runId: run.runId,
       })
 
-      await capture({
+      await capture.handler({
         type: 'message_end',
         messageId: 'msg-bad',
         message: { role: 'assistant', content: { nope: true } as unknown as string },
       })
-      await capture(assistantMessageEnd('enqueue fails', 'msg-good'))
+      await capture.handler(assistantMessageEnd('enqueue fails', 'msg-good'))
 
       expect(consoleError).toHaveBeenCalledTimes(2)
       expect(originalEnqueue).toBeDefined()

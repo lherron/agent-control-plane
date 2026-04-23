@@ -34,6 +34,8 @@ function createConversationStoreSpy(): {
   const createTurnCalls: TurnInput[] = []
   let threadOrdinal = 0
 
+  const turnsById = new Map<string, TurnInput & { turnId: string }>()
+
   const store = Object.assign(baseStore, {
     createOrGetThread() {
       threadOrdinal += 1
@@ -41,7 +43,25 @@ function createConversationStoreSpy(): {
     },
     createTurn(input: TurnInput) {
       createTurnCalls.push(structuredClone(input))
-      return `turn_${createTurnCalls.length.toString().padStart(4, '0')}`
+      const turnId = `turn_${createTurnCalls.length.toString().padStart(4, '0')}`
+      turnsById.set(turnId, { turnId, ...structuredClone(input) })
+      return turnId
+    },
+    attachLinks(turnId: string, links: TurnInput['links']) {
+      const existing = turnsById.get(turnId)
+      if (existing !== undefined) {
+        existing.links = { ...(existing.links ?? {}), ...structuredClone(links) }
+      }
+      return (
+        existing ?? {
+          turnId,
+          threadId: '',
+          role: 'assistant' as const,
+          body: '',
+          renderState: 'pending' as const,
+          sentAt: '',
+        }
+      )
     },
   }) as ConversationStore
 
