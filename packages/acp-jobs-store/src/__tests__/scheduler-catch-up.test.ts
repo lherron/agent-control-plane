@@ -26,14 +26,15 @@ function resolveTick(
     moduleExports['schedulerTick']
   if (typeof rootTick === 'function') {
     return async (input) =>
-      (await Promise.resolve((rootTick as (input: { store: unknown; now: string }) => unknown)(input))) as Record<
-        string,
-        unknown
-      >[]
+      (await Promise.resolve(
+        (rootTick as (input: { store: unknown; now: string }) => unknown)(input)
+      )) as Record<string, unknown>[]
   }
 
   const createScheduler =
-    moduleExports['createJobsScheduler'] ?? moduleExports['createScheduler'] ?? store['createScheduler']
+    moduleExports['createJobsScheduler'] ??
+    moduleExports['createScheduler'] ??
+    store['createScheduler']
   if (typeof createScheduler === 'function') {
     return async (input) => {
       const scheduler = (await Promise.resolve(
@@ -46,9 +47,7 @@ function resolveTick(
     }
   }
 
-  expect(Object.keys(moduleExports)).toEqual(
-    expect.arrayContaining(['tickJobsScheduler'])
-  )
+  expect(Object.keys(moduleExports)).toEqual(expect.arrayContaining(['tickJobsScheduler']))
   return async () => []
 }
 

@@ -15,7 +15,10 @@ function listUserTables(store: ReturnType<typeof createInMemoryJobsStore>): stri
   ).map((row) => row.name)
 }
 
-function listColumns(store: ReturnType<typeof createInMemoryJobsStore>, tableName: string): string[] {
+function listColumns(
+  store: ReturnType<typeof createInMemoryJobsStore>,
+  tableName: string
+): string[] {
   const escapedTableName = tableName.replaceAll('"', '""')
   return (
     store.sqlite.prepare(`PRAGMA table_info("${escapedTableName}")`).all() as SqliteColumnRow[]

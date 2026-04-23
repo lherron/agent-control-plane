@@ -15,7 +15,10 @@ function listUserTables(store: ReturnType<typeof createInMemoryJobsStore>): stri
   ).map((row) => row.name)
 }
 
-function listColumns(store: ReturnType<typeof createInMemoryJobsStore>, tableName: string): string[] {
+function listColumns(
+  store: ReturnType<typeof createInMemoryJobsStore>,
+  tableName: string
+): string[] {
   const escapedTableName = tableName.replaceAll('"', '""')
   return (
     store.sqlite.prepare(`PRAGMA table_info("${escapedTableName}")`).all() as SqliteColumnRow[]
@@ -186,7 +189,9 @@ describe('jobs store contract', () => {
       )
 
       await Promise.resolve(jobs.archive(jobId))
-      const afterArchive = unwrapJobList(await Promise.resolve(jobs.list({ projectId: 'demo-project' })))
+      const afterArchive = unwrapJobList(
+        await Promise.resolve(jobs.list({ projectId: 'demo-project' }))
+      )
       expect(afterArchive.map((job) => job['jobId'])).not.toContain(jobId)
     } finally {
       store.close()

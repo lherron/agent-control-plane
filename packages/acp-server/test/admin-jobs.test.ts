@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 
 import { createInMemoryJobsStore } from 'acp-jobs-store'
 
-import { InMemoryInputAttemptStore, type AcpServerDeps } from '../src/index.js'
+import { type AcpServerDeps, InMemoryInputAttemptStore } from '../src/index.js'
 
 import { withWiredServer } from './fixtures/wired-server.js'
 
@@ -77,41 +77,44 @@ describe('admin jobs routes', () => {
     const jobsStore = createInMemoryJobsStore()
 
     try {
-      await withWiredServer(async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: '/v1/admin/jobs',
-          body: {
-            agentId: 'larry',
-            projectId: fixture.seed.projectId,
-            scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:T-01175:role:implementer`,
-            laneRef: 'main',
-            schedule: { cron: '*/5 * * * *' },
-            input: { content: 'run the jobs workflow' },
-            disabled: false,
-          },
-        })
-        const payload = await fixture.json<{
-          job: {
-            jobId: string
-            projectId: string
-            schedule: { cron: string }
-            input: { content: string }
-            disabled: boolean
-          }
-        }>(response)
-
-        expect(response.status).toBe(201)
-        expect(payload.job).toEqual(
-          expect.objectContaining({
-            jobId: expect.stringMatching(/^job_/),
-            projectId: fixture.seed.projectId,
-            schedule: expect.objectContaining({ cron: '*/5 * * * *' }),
-            input: expect.objectContaining({ content: 'run the jobs workflow' }),
-            disabled: false,
+      await withWiredServer(
+        async (fixture) => {
+          const response = await fixture.request({
+            method: 'POST',
+            path: '/v1/admin/jobs',
+            body: {
+              agentId: 'larry',
+              projectId: fixture.seed.projectId,
+              scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:T-01175:role:implementer`,
+              laneRef: 'main',
+              schedule: { cron: '*/5 * * * *' },
+              input: { content: 'run the jobs workflow' },
+              disabled: false,
+            },
           })
-        )
-      }, { jobsStore })
+          const payload = await fixture.json<{
+            job: {
+              jobId: string
+              projectId: string
+              schedule: { cron: string }
+              input: { content: string }
+              disabled: boolean
+            }
+          }>(response)
+
+          expect(response.status).toBe(201)
+          expect(payload.job).toEqual(
+            expect.objectContaining({
+              jobId: expect.stringMatching(/^job_/),
+              projectId: fixture.seed.projectId,
+              schedule: expect.objectContaining({ cron: '*/5 * * * *' }),
+              input: expect.objectContaining({ content: 'run the jobs workflow' }),
+              disabled: false,
+            })
+          )
+        },
+        { jobsStore }
+      )
     } finally {
       jobsStore.close()
     }
@@ -121,19 +124,22 @@ describe('admin jobs routes', () => {
     const jobsStore = createInMemoryJobsStore()
 
     try {
-      await withWiredServer(async (fixture) => {
-        await createJob(fixture)
+      await withWiredServer(
+        async (fixture) => {
+          await createJob(fixture)
 
-        const response = await fixture.request({
-          method: 'GET',
-          path: `/v1/admin/jobs?projectId=${fixture.seed.projectId}`,
-        })
-        const payload = await fixture.json<{ jobs: Array<{ projectId: string }> }>(response)
+          const response = await fixture.request({
+            method: 'GET',
+            path: `/v1/admin/jobs?projectId=${fixture.seed.projectId}`,
+          })
+          const payload = await fixture.json<{ jobs: Array<{ projectId: string }> }>(response)
 
-        expect(response.status).toBe(200)
-        expect(payload.jobs).not.toHaveLength(0)
-        expect(payload.jobs.every((job) => job.projectId === fixture.seed.projectId)).toBe(true)
-      }, { jobsStore })
+          expect(response.status).toBe(200)
+          expect(payload.jobs).not.toHaveLength(0)
+          expect(payload.jobs.every((job) => job.projectId === fixture.seed.projectId)).toBe(true)
+        },
+        { jobsStore }
+      )
     } finally {
       jobsStore.close()
     }
@@ -143,30 +149,33 @@ describe('admin jobs routes', () => {
     const jobsStore = createInMemoryJobsStore()
 
     try {
-      await withWiredServer(async (fixture) => {
-        const created = await createJob(fixture)
+      await withWiredServer(
+        async (fixture) => {
+          const created = await createJob(fixture)
 
-        const response = await fixture.request({
-          method: 'PATCH',
-          path: `/v1/admin/jobs/${created.job.jobId}`,
-          body: {
-            schedule: { cron: '0 * * * *' },
-            disabled: true,
-          },
-        })
-        const payload = await fixture.json<{
-          job: { jobId: string; schedule: { cron: string }; disabled: boolean }
-        }>(response)
-
-        expect(response.status).toBe(200)
-        expect(payload.job).toEqual(
-          expect.objectContaining({
-            jobId: created.job.jobId,
-            schedule: expect.objectContaining({ cron: '0 * * * *' }),
-            disabled: true,
+          const response = await fixture.request({
+            method: 'PATCH',
+            path: `/v1/admin/jobs/${created.job.jobId}`,
+            body: {
+              schedule: { cron: '0 * * * *' },
+              disabled: true,
+            },
           })
-        )
-      }, { jobsStore })
+          const payload = await fixture.json<{
+            job: { jobId: string; schedule: { cron: string }; disabled: boolean }
+          }>(response)
+
+          expect(response.status).toBe(200)
+          expect(payload.job).toEqual(
+            expect.objectContaining({
+              jobId: created.job.jobId,
+              schedule: expect.objectContaining({ cron: '0 * * * *' }),
+              disabled: true,
+            })
+          )
+        },
+        { jobsStore }
+      )
     } finally {
       jobsStore.close()
     }
@@ -229,20 +238,23 @@ describe('admin jobs routes', () => {
     const jobsStore = createInMemoryJobsStore()
 
     try {
-      await withWiredServer(async (fixture) => {
-        const created = await createJob(fixture)
-        await createJobRun(fixture, created.job.jobId)
+      await withWiredServer(
+        async (fixture) => {
+          const created = await createJob(fixture)
+          await createJobRun(fixture, created.job.jobId)
 
-        const response = await fixture.request({
-          method: 'GET',
-          path: `/v1/jobs/${created.job.jobId}/runs`,
-        })
-        const payload = await fixture.json<{ jobRuns: Array<{ jobId: string }> }>(response)
+          const response = await fixture.request({
+            method: 'GET',
+            path: `/v1/jobs/${created.job.jobId}/runs`,
+          })
+          const payload = await fixture.json<{ jobRuns: Array<{ jobId: string }> }>(response)
 
-        expect(response.status).toBe(200)
-        expect(payload.jobRuns).not.toHaveLength(0)
-        expect(payload.jobRuns.every((jobRun) => jobRun.jobId === created.job.jobId)).toBe(true)
-      }, { jobsStore })
+          expect(response.status).toBe(200)
+          expect(payload.jobRuns).not.toHaveLength(0)
+          expect(payload.jobRuns.every((jobRun) => jobRun.jobId === created.job.jobId)).toBe(true)
+        },
+        { jobsStore }
+      )
     } finally {
       jobsStore.close()
     }
@@ -252,28 +264,31 @@ describe('admin jobs routes', () => {
     const jobsStore = createInMemoryJobsStore()
 
     try {
-      await withWiredServer(async (fixture) => {
-        const created = await createJob(fixture)
-        const createdRun = await createJobRun(fixture, created.job.jobId)
+      await withWiredServer(
+        async (fixture) => {
+          const created = await createJob(fixture)
+          const createdRun = await createJobRun(fixture, created.job.jobId)
 
-        const response = await fixture.request({
-          method: 'GET',
-          path: `/v1/job-runs/${createdRun.jobRun.jobRunId}`,
-        })
-        const payload = await fixture.json<{
-          jobRun: { jobRunId: string; jobId: string; inputAttemptId: string; runId: string }
-        }>(response)
-
-        expect(response.status).toBe(200)
-        expect(payload.jobRun).toEqual(
-          expect.objectContaining({
-            jobRunId: createdRun.jobRun.jobRunId,
-            jobId: created.job.jobId,
-            inputAttemptId: createdRun.jobRun.inputAttemptId,
-            runId: createdRun.jobRun.runId,
+          const response = await fixture.request({
+            method: 'GET',
+            path: `/v1/job-runs/${createdRun.jobRun.jobRunId}`,
           })
-        )
-      }, { jobsStore })
+          const payload = await fixture.json<{
+            jobRun: { jobRunId: string; jobId: string; inputAttemptId: string; runId: string }
+          }>(response)
+
+          expect(response.status).toBe(200)
+          expect(payload.jobRun).toEqual(
+            expect.objectContaining({
+              jobRunId: createdRun.jobRun.jobRunId,
+              jobId: created.job.jobId,
+              inputAttemptId: createdRun.jobRun.inputAttemptId,
+              runId: createdRun.jobRun.runId,
+            })
+          )
+        },
+        { jobsStore }
+      )
     } finally {
       jobsStore.close()
     }
