@@ -65,6 +65,20 @@ describe('admin memberships endpoints', () => {
       ).toEqual({
         memberships: [expect.objectContaining({ agentId: 'smokey', role: 'tester' })],
       })
+
+      const adminListResponse = await fixture.request({
+        method: 'GET',
+        path: '/v1/admin/memberships?projectId=agent-spaces',
+      })
+
+      expect(adminListResponse.status).toBe(200)
+      expect(
+        await fixture.json<{ memberships: Array<{ agentId: string; role: string }> }>(
+          adminListResponse
+        )
+      ).toEqual({
+        memberships: [expect.objectContaining({ agentId: 'smokey', role: 'tester' })],
+      })
     })
   })
 
@@ -84,6 +98,23 @@ describe('admin memberships endpoints', () => {
       expect(response.status).toBe(404)
       expect(await fixture.json<{ error: { code: string } }>(response)).toEqual({
         error: expect.objectContaining({ code: 'not_found' }),
+      })
+    })
+  })
+
+  test('returns 400 when GET /v1/admin/memberships omits projectId', async () => {
+    await withWiredServer(async (fixture) => {
+      const response = await fixture.request({
+        method: 'GET',
+        path: '/v1/admin/memberships',
+      })
+
+      expect(response.status).toBe(400)
+      expect(await fixture.json<{ error: { code: string; details?: { field?: string } } }>(response)).toEqual({
+        error: expect.objectContaining({
+          code: 'malformed_request',
+          details: expect.objectContaining({ field: 'projectId' }),
+        }),
       })
     })
   })

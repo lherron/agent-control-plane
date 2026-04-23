@@ -19,6 +19,10 @@ type InterfaceIdentitiesStore = {
     linkedAgentId?: string | undefined
     now: string
   }): InterfaceIdentityRecord
+  list(filters?: {
+    gatewayId?: string | undefined
+    externalId?: string | undefined
+  }): InterfaceIdentityRecord[]
   getByCompositeKey(input: { gatewayId: string; externalId: string }):
     | InterfaceIdentityRecord
     | undefined
@@ -111,6 +115,42 @@ describe('admin interface identities store acceptance', () => {
           linkedAgentId: 'larry',
         })
       )
+    } finally {
+      store.close()
+    }
+  })
+
+  test('lists identities with optional gateway and externalId filters', () => {
+    const store = createInMemoryAdminStore()
+
+    try {
+      const identities = expectInterfaceIdentitiesStore(store)
+      identities.register({
+        gatewayId: 'discord_prod',
+        externalId: 'user:123',
+        displayName: 'Smokey Bot',
+        now: '2026-04-23T03:30:00.000Z',
+      })
+      identities.register({
+        gatewayId: 'discord_prod',
+        externalId: 'user:456',
+        displayName: 'Riley Bot',
+        now: '2026-04-23T03:31:00.000Z',
+      })
+      identities.register({
+        gatewayId: 'slack_prod',
+        externalId: 'U123',
+        displayName: 'Slack Riley',
+        now: '2026-04-23T03:32:00.000Z',
+      })
+
+      expect(identities.list({ gatewayId: 'discord_prod' })).toEqual([
+        expect.objectContaining({ gatewayId: 'discord_prod', externalId: 'user:123' }),
+        expect.objectContaining({ gatewayId: 'discord_prod', externalId: 'user:456' }),
+      ])
+      expect(identities.list({ gatewayId: 'discord_prod', externalId: 'user:456' })).toEqual([
+        expect.objectContaining({ gatewayId: 'discord_prod', externalId: 'user:456' }),
+      ])
     } finally {
       store.close()
     }
