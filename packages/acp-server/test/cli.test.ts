@@ -5,6 +5,7 @@ import { join } from 'node:path'
 
 import {
   formatStartupLine,
+  isEnabledEnvFlag,
   renderHelp,
   resolveCliOptions,
   resolveLauncherDeps,
@@ -24,6 +25,7 @@ describe('acp-server cli helpers', () => {
       wrkqDbPath: '/tmp/wrkq.db',
       coordDbPath: '/Users/lherron/praesidium/var/db/acp-coordination.db',
       interfaceDbPath: '/Users/lherron/praesidium/var/db/acp-interface.db',
+      stateDbPath: '/Users/lherron/praesidium/var/db/acp-state.db',
       host: '127.0.0.1',
       port: 18470,
       actor: 'wrkq-default',
@@ -39,6 +41,8 @@ describe('acp-server cli helpers', () => {
         '/tmp/coord.db',
         '--interface-db-path',
         '/tmp/interface.db',
+        '--state-db-path',
+        '/tmp/state.db',
         '--host',
         '0.0.0.0',
         '--port',
@@ -50,6 +54,7 @@ describe('acp-server cli helpers', () => {
         WRKQ_DB_PATH: '/tmp/wrkq.db',
         ACP_COORD_DB_PATH: '/tmp/env-coord.db',
         ACP_INTERFACE_DB_PATH: '/tmp/env-interface.db',
+        ACP_STATE_DB_PATH: '/tmp/env-state.db',
         ACP_HOST: '127.0.0.9',
         ACP_PORT: '18000',
         ACP_ACTOR: 'env-actor',
@@ -60,6 +65,7 @@ describe('acp-server cli helpers', () => {
       wrkqDbPath: '/tmp/override-wrkq.db',
       coordDbPath: '/tmp/coord.db',
       interfaceDbPath: '/tmp/interface.db',
+      stateDbPath: '/tmp/state.db',
       host: '0.0.0.0',
       port: 19000,
       actor: 'cli-actor',
@@ -72,6 +78,7 @@ describe('acp-server cli helpers', () => {
         wrkqDbPath: '/tmp/wrkq.db',
         coordDbPath: '/tmp/coord.db',
         interfaceDbPath: '/tmp/interface.db',
+        stateDbPath: '/tmp/state.db',
         host: '127.0.0.1',
         port: 18470,
         actor: 'acp-server',
@@ -80,6 +87,16 @@ describe('acp-server cli helpers', () => {
     expect(renderHelp()).toContain('acp-server')
     expect(renderHelp()).toContain('ACP_WRKQ_DB_PATH')
     expect(renderHelp()).toContain('ACP_INTERFACE_DB_PATH')
+    expect(renderHelp()).toContain('ACP_STATE_DB_PATH')
+    expect(renderHelp()).toContain('ACP_SCHEDULER_ENABLED')
+  })
+
+  test('treats 1 and true as enabled scheduler flags', () => {
+    expect(isEnabledEnvFlag('1')).toBe(true)
+    expect(isEnabledEnvFlag('true')).toBe(true)
+    expect(isEnabledEnvFlag('TRUE')).toBe(true)
+    expect(isEnabledEnvFlag('0')).toBe(false)
+    expect(isEnabledEnvFlag(undefined)).toBe(false)
   })
 
   test('real launcher resolves canonical agents root before asp_modules fallback', () => {
@@ -144,7 +161,7 @@ describe('acp-server cli helpers', () => {
         {
           env: {
             ASP_AGENTS_ROOT: agentsRoot,
-            ASP_PROJECTS_ROOT: projectsRoot,
+            ASP_PROJECT_ROOT_OVERRIDE: projectRoot,
           },
         }
       )

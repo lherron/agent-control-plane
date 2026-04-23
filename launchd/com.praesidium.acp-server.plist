@@ -34,6 +34,16 @@
     <string>/Users/lherron/praesidium/var/db/acp-coordination.db</string>
     <key>ACP_INTERFACE_DB_PATH</key>
     <string>/Users/lherron/praesidium/var/db/acp-interface.db</string>
+    <key>ACP_STATE_DB_PATH</key>
+    <string>/Users/lherron/praesidium/var/db/acp-state.db</string>
+    <key>ACP_ADMIN_DB_PATH</key>
+    <string></string>
+    <key>ACP_JOBS_DB_PATH</key>
+    <string></string>
+    <key>ACP_CONVERSATION_DB_PATH</key>
+    <string></string>
+    <key>ACP_SCHEDULER_ENABLED</key>
+    <string>1</string>
     <key>ACP_RUNTIME_DIR</key>
     <string>/Users/lherron/praesidium/var/run/acp</string>
     <key>ACP_LOG_PATH</key>
