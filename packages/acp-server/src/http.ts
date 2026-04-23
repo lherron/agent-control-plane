@@ -1,3 +1,5 @@
+import { ActorValidationError } from 'acp-core'
+import { InputAttemptConflictError } from 'acp-state-store'
 import {
   VersionConflictError,
   WrkqProjectNotFoundError,
@@ -66,9 +68,27 @@ export function unprocessable(
   throw new AcpHttpError(422, code, message, details)
 }
 
+export function forbidden(code: string, message: string, details?: Record<string, unknown>): never {
+  throw new AcpHttpError(403, code, message, details)
+}
+
 export function errorResponse(error: unknown): Response {
   if (error instanceof AcpHttpError) {
     return json(error.toResponseBody(), error.status)
+  }
+
+  if (error instanceof ActorValidationError) {
+    const validationError = error
+    return json(
+      {
+        error: {
+          code: 'malformed_request',
+          message: validationError.message,
+          details: { field: validationError.field },
+        },
+      } satisfies AcpErrorBody,
+      400
+    )
   }
 
   if (error instanceof WrkqTaskNotFoundError || error instanceof WrkqProjectNotFoundError) {
@@ -92,6 +112,19 @@ export function errorResponse(error: unknown): Response {
         },
       } satisfies AcpErrorBody,
       422
+    )
+  }
+
+  if (error instanceof InputAttemptConflictError) {
+    return json(
+      {
+        error: {
+          code: 'idempotency_conflict',
+          message: error.message,
+          details: { idempotencyKey: error.idempotencyKey },
+        },
+      } satisfies AcpErrorBody,
+      409
     )
   }
 

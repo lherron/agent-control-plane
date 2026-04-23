@@ -3,12 +3,18 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { type SessionRef, parseScopeRef } from 'agent-scope'
-import { type HrcEventEnvelope, type HrcRuntimeIntent, resolveDatabasePath } from 'hrc-core'
+import {
+  HrcConflictError,
+  type HrcEventEnvelope,
+  type HrcRuntimeIntent,
+  resolveDatabasePath,
+} from 'hrc-core'
 import { HrcClient, discoverSocket } from 'hrc-sdk'
 import { parseAgentProfile, resolveHarnessProvider } from 'spaces-config'
 import type { UnifiedSessionEvent } from 'spaces-runtime'
 
-import type { LaunchRoleScopedRun } from './deps.js'
+import type { LaunchRoleScopedRun, RunStore } from './deps.js'
+import type { DispatchFence, UpdateRunInput } from './domain/run-store.js'
 
 const DEFAULT_WAIT_TIMEOUT_MS = 180_000
 const DEFAULT_POLL_INTERVAL_MS = 500
@@ -39,7 +45,7 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
   const waitTimeoutMs = options.watchTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
 
-  return async ({ sessionRef, intent, onEvent }) => {
+  return async ({ sessionRef, intent, acpRunId, inputAttemptId, runStore, onEvent }) => {
     const client = createClient(socketPath)
     const liveTmuxRuntime = findLiveTmuxRuntimeForSessionRef(hrcDbPath, sessionRef)
     const normalizedIntent = normalizeRealLauncherIntent({
@@ -47,11 +53,22 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
       intent,
       liveTmuxRuntime: liveTmuxRuntime !== undefined,
     })
+    const acpCorrelationId = acpRunId ?? inputAttemptId
     const prompt = normalizedIntent.initialPrompt?.trim()
     if (!prompt) {
       const resolved = await client.resolveSession({
         sessionRef: toHrcSessionRef(sessionRef),
         runtimeIntent: normalizedIntent,
+      })
+      updateAcpRun(runStore, acpRunId, {
+        hostSessionId: resolved.hostSessionId,
+        generation: resolved.generation,
+        ...(liveTmuxRuntime !== undefined
+          ? {
+              runtimeId: liveTmuxRuntime.runtimeId,
+              transport: 'tmux',
+            }
+          : {}),
       })
       return {
         runId: resolved.hostSessionId,
@@ -59,21 +76,65 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
       }
     }
 
+    const resolved = await client.resolveSession({
+      sessionRef: toHrcSessionRef(sessionRef),
+      runtimeIntent: normalizedIntent,
+    })
+    const dispatchFence = resolveDispatchFence({
+      acpRunId,
+      runStore,
+      hostSessionId: resolved.hostSessionId,
+      generation: resolved.generation,
+    })
+
+    updateAcpRun(runStore, acpRunId, {
+      hostSessionId: resolved.hostSessionId,
+      generation: resolved.generation,
+      ...(liveTmuxRuntime !== undefined
+        ? {
+            runtimeId: liveTmuxRuntime.runtimeId,
+            transport: 'tmux',
+          }
+        : {}),
+    })
+    setAcpDispatchFence(runStore, acpRunId, dispatchFence)
+
     if (liveTmuxRuntime !== undefined) {
       const latestAssistantSeq = readLatestAssistantMessageSeq(hrcDbPath, {
         hostSessionId: liveTmuxRuntime.hostSessionId,
         sessionRef,
       })
-      await client.deliverLiteralBySelector({
-        selector: { sessionRef: toHrcSessionRef(sessionRef) },
-        text: prompt,
-        enter: false,
-      })
+      try {
+        await client.deliverLiteralBySelector({
+          selector: { sessionRef: toHrcSessionRef(sessionRef) },
+          text: prompt,
+          enter: false,
+          fences: dispatchFence,
+        })
+      } catch (error) {
+        persistFenceDispatchError(runStore, acpRunId, error)
+        throw error
+      }
       await Bun.sleep(200)
-      const delivered = await client.deliverLiteralBySelector({
-        selector: { sessionRef: toHrcSessionRef(sessionRef) },
-        text: '',
-        enter: true,
+      let delivered: Awaited<ReturnType<typeof client.deliverLiteralBySelector>>
+      try {
+        delivered = await client.deliverLiteralBySelector({
+          selector: { sessionRef: toHrcSessionRef(sessionRef) },
+          text: '',
+          enter: true,
+          fences: dispatchFence,
+        })
+      } catch (error) {
+        persistFenceDispatchError(runStore, acpRunId, error)
+        throw error
+      }
+
+      updateAcpRun(runStore, acpRunId, {
+        status: onEvent !== undefined ? 'running' : 'completed',
+        hostSessionId: delivered.hostSessionId,
+        generation: delivered.generation,
+        runtimeId: delivered.runtimeId ?? liveTmuxRuntime.runtimeId,
+        transport: 'tmux',
       })
 
       if (onEvent !== undefined) {
@@ -86,10 +147,11 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
         })
         if (assistantMessage === undefined) {
           throw new Error(
-            `HRC tmux runtime ${delivered.runtimeId ?? liveTmuxRuntime.runtimeId} did not produce an assistant reply event`
+            `HRC tmux runtime ${delivered.runtimeId ?? liveTmuxRuntime.runtimeId} did not produce an assistant reply event${acpCorrelationId !== undefined ? ` for ${acpCorrelationId}` : ''}`
           )
         }
         await onEvent(assistantMessage)
+        updateAcpRun(runStore, acpRunId, { status: 'completed' })
       }
 
       return {
@@ -98,32 +160,64 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
       }
     }
 
-    const resolved = await client.resolveSession({
-      sessionRef: toHrcSessionRef(sessionRef),
-      runtimeIntent: normalizedIntent,
-    })
     const targetSession = resolved
-    const dispatched = await client.dispatchTurn({
-      hostSessionId: targetSession.hostSessionId,
-      prompt,
-      runtimeIntent: normalizedIntent,
+    let dispatched: Awaited<ReturnType<typeof client.dispatchTurn>>
+    try {
+      dispatched = await client.dispatchTurn({
+        hostSessionId: targetSession.hostSessionId,
+        prompt,
+        fences: dispatchFence,
+        runtimeIntent: normalizedIntent,
+      })
+    } catch (error) {
+      persistFenceDispatchError(runStore, acpRunId, error)
+      throw error
+    }
+
+    updateAcpRun(runStore, acpRunId, {
+      hrcRunId: dispatched.runId,
+      status: dispatched.status === 'completed' ? 'completed' : 'running',
+      hostSessionId: dispatched.hostSessionId,
+      generation: dispatched.generation,
+      runtimeId: dispatched.runtimeId,
+      transport: dispatched.transport,
     })
 
-    if (onEvent !== undefined) {
-      await waitForRunCompletion({
-        hrcDbPath,
-        runId: dispatched.runId,
-        timeoutMs: waitTimeoutMs,
-        pollIntervalMs,
+    const shouldWaitForCompletion =
+      onEvent !== undefined || (runStore !== undefined && acpRunId !== undefined)
+    if (shouldWaitForCompletion) {
+      const completedRun =
+        dispatched.status === 'completed'
+          ? (readRunStatus(hrcDbPath, dispatched.runId) ?? { status: 'completed' })
+          : await waitForRunCompletion({
+              hrcDbPath,
+              runId: dispatched.runId,
+              timeoutMs: waitTimeoutMs,
+              pollIntervalMs,
+            })
+
+      updateAcpRun(runStore, acpRunId, {
+        hrcRunId: dispatched.runId,
+        status: toAcpRunStatus(completedRun.status),
+        errorCode: completedRun.errorCode,
+        errorMessage: completedRun.errorMessage,
       })
 
+      if (completedRun.status !== 'completed') {
+        throw createHrcRunTerminalError(dispatched.runId, completedRun)
+      }
+    }
+
+    if (onEvent !== undefined) {
       const completedAssistantMessage = await pollCompletedAssistantMessage({
         hrcDbPath,
         runId: dispatched.runId,
         timeoutMs: RAW_EVENT_POLL_GRACE_MS,
       })
       if (completedAssistantMessage === undefined) {
-        throw new Error(`HRC run ${dispatched.runId} completed without an assistant reply event`)
+        throw new Error(
+          `HRC run ${dispatched.runId} completed without an assistant reply event${acpCorrelationId !== undefined ? ` for ${acpCorrelationId}` : ''}`
+        )
       }
       await onEvent(completedAssistantMessage)
     }
@@ -246,27 +340,107 @@ async function waitForRunCompletion(options: {
   runId: string
   timeoutMs: number
   pollIntervalMs: number
-}): Promise<void> {
+}): Promise<{
+  status: string
+  errorCode?: string | undefined
+  errorMessage?: string | undefined
+}> {
   const deadline = Date.now() + options.timeoutMs
 
   while (Date.now() <= deadline) {
     const run = readRunStatus(options.hrcDbPath, options.runId)
     if (run !== undefined && TERMINAL_RUN_STATUSES.has(run.status)) {
-      if (run.status === 'completed') {
-        return
-      }
-
-      const details = [run.errorCode, run.errorMessage].filter(Boolean).join(': ')
-      throw new Error(
-        details.length > 0
-          ? `HRC run ${options.runId} ended with status ${run.status}: ${details}`
-          : `HRC run ${options.runId} ended with status ${run.status}`
-      )
+      return run
     }
     await Bun.sleep(options.pollIntervalMs)
   }
 
   throw new Error(`timed out waiting for HRC run ${options.runId} to complete`)
+}
+
+function updateAcpRun(
+  runStore: RunStore | undefined,
+  acpRunId: string | undefined,
+  patch: UpdateRunInput
+): void {
+  if (runStore === undefined || acpRunId === undefined) {
+    return
+  }
+
+  runStore.updateRun(acpRunId, patch)
+}
+
+function setAcpDispatchFence(
+  runStore: RunStore | undefined,
+  acpRunId: string | undefined,
+  dispatchFence: DispatchFence
+): void {
+  if (runStore === undefined || acpRunId === undefined) {
+    return
+  }
+
+  runStore.setDispatchFence(acpRunId, dispatchFence)
+}
+
+function resolveDispatchFence(input: {
+  runStore?: RunStore | undefined
+  acpRunId?: string | undefined
+  hostSessionId: string
+  generation: number
+}): DispatchFence {
+  const existingFence =
+    input.runStore !== undefined && input.acpRunId !== undefined
+      ? input.runStore.getRun(input.acpRunId)?.dispatchFence
+      : undefined
+
+  if (existingFence?.followLatest === true) {
+    return { followLatest: true }
+  }
+
+  return {
+    expectedHostSessionId: input.hostSessionId,
+    ...(input.generation !== undefined ? { expectedGeneration: input.generation } : {}),
+  }
+}
+
+function persistFenceDispatchError(
+  runStore: RunStore | undefined,
+  acpRunId: string | undefined,
+  error: unknown
+): void {
+  if (!(error instanceof HrcConflictError)) {
+    return
+  }
+
+  updateAcpRun(runStore, acpRunId, {
+    status: 'failed',
+    errorCode: error.code,
+    errorMessage: error.message,
+  })
+}
+
+function toAcpRunStatus(status: string): 'completed' | 'failed' | 'cancelled' {
+  if (status === 'completed' || status === 'failed' || status === 'cancelled') {
+    return status
+  }
+
+  return 'failed'
+}
+
+function createHrcRunTerminalError(
+  runId: string,
+  run: {
+    status: string
+    errorCode?: string | undefined
+    errorMessage?: string | undefined
+  }
+): Error {
+  const details = [run.errorCode, run.errorMessage].filter(Boolean).join(': ')
+  return new Error(
+    details.length > 0
+      ? `HRC run ${runId} ended with status ${run.status}: ${details}`
+      : `HRC run ${runId} ended with status ${run.status}`
+  )
 }
 
 async function pollCompletedAssistantMessage(options: {

@@ -73,6 +73,9 @@ export function toApiDeliveryRequest(delivery: StoredDeliveryRequest): ApiDelive
 
   return {
     deliveryRequestId: delivery.deliveryRequestId,
+    ...(delivery.linkedFailureId !== undefined
+      ? { linkedFailureId: delivery.linkedFailureId }
+      : {}),
     gatewayId: delivery.gatewayId,
     bindingId: delivery.bindingId,
     sessionRef: {

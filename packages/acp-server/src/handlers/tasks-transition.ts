@@ -1,12 +1,15 @@
 import { randomUUID } from 'node:crypto'
 
 import { type LoggedTransitionRecord, applyTransitionDecision, validateTransition } from 'acp-core'
+import { appendEvent } from 'coordination-substrate'
 
 import { json, unprocessable } from '../http.js'
 import {
-  appendTesterHandoffOnTransition,
+  buildTesterHandoffAppendEventCommand,
+  buildTesterTransitionOutboxPayload,
   shouldDeclareTesterHandoff,
 } from '../integration/handoff-on-transition.js'
+import { reconcileTransitionOutbox } from '../integration/transition-outbox-reconciler.js'
 import { extractActor } from '../parsers/actor.js'
 import { parseJsonBody, requireRecord } from '../parsers/body.js'
 import { parseTransitionRequestBody, requireTask, requireTaskId } from './shared.js'
@@ -79,22 +82,62 @@ export const handleApplyTaskTransition: RouteHandler = async ({ request, params,
   })
 
   const handoffResult = shouldHandoff
-    ? appendTesterHandoffOnTransition({
-        coordStore: deps.coordStore,
-        projectId: task.projectId,
-        taskId,
-        fromPhase: task.phase,
-        toPhase: parsed.toPhase,
-        actor: { agentId: actor?.agentId ?? '', role: actor?.role ?? '' },
-        roleMap,
-        ...(parsed.idempotencyKey !== undefined ? { idempotencyKey: parsed.idempotencyKey } : {}),
-      })
+    ? (() => {
+        const payload = buildTesterTransitionOutboxPayload({
+          transitionTimestamp: timestamp,
+          actor: { agentId: actor?.agentId ?? '', role: actor?.role ?? '' },
+          roleMap,
+        })
+
+        if (deps.stateStore === undefined) {
+          return appendEvent(
+            deps.coordStore,
+            buildTesterHandoffAppendEventCommand({
+              projectId: task.projectId,
+              taskId,
+              fromPhase: task.phase,
+              toPhase: parsed.toPhase,
+              payload,
+              idempotencyKey: loggedTransition.transitionEventId,
+            })
+          )
+        }
+
+        deps.stateStore.transitionOutbox.append({
+          transitionEventId: loggedTransition.transitionEventId,
+          taskId,
+          projectId: task.projectId,
+          fromPhase: task.phase,
+          toPhase: parsed.toPhase,
+          actor:
+            actor?.agentId !== undefined && actor.agentId.length > 0
+              ? { kind: 'agent', id: actor.agentId }
+              : deps.defaultActor,
+          payload,
+        })
+
+        return reconcileTransitionOutbox({
+          wrkqStore: deps.wrkqStore,
+          stateStore: deps.stateStore,
+          coordStore: deps.coordStore,
+        }).then(
+          (result) =>
+            result.delivered.find(
+              (delivery) => delivery.transitionEventId === loggedTransition.transitionEventId
+            )?.result
+        )
+      })()
     : undefined
+
+  const resolvedHandoffResult =
+    handoffResult instanceof Promise ? await handoffResult : handoffResult
 
   return json({
     task: committedTask,
     transition: loggedTransition,
-    ...(handoffResult?.handoff !== undefined ? { handoff: handoffResult.handoff } : {}),
-    ...(handoffResult?.wake !== undefined ? { wake: handoffResult.wake } : {}),
+    ...(resolvedHandoffResult?.handoff !== undefined
+      ? { handoff: resolvedHandoffResult.handoff }
+      : {}),
+    ...(resolvedHandoffResult?.wake !== undefined ? { wake: resolvedHandoffResult.wake } : {}),
   })
 }

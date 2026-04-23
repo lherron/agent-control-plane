@@ -1,9 +1,5 @@
 import { badRequest, conflict, json, notFound } from '../http.js'
-import {
-  parseJsonBody,
-  requireRecord,
-  requireTrimmedStringField,
-} from '../parsers/body.js'
+import { parseJsonBody, requireRecord, requireTrimmedStringField } from '../parsers/body.js'
 
 import type { RouteContext, RouteHandler } from '../routing/route-context.js'
 
@@ -16,7 +12,9 @@ function requireActor(context: RouteContext) {
   return actor
 }
 
-function parseMembershipRole(value: unknown): 'coordinator' | 'implementer' | 'tester' | 'observer' {
+function parseMembershipRole(
+  value: unknown
+): 'coordinator' | 'implementer' | 'tester' | 'observer' {
   if (
     value !== 'coordinator' &&
     value !== 'implementer' &&

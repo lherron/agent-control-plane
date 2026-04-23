@@ -8,9 +8,12 @@ export {
   type AcpServerCliOptions,
 } from './cli.js'
 export type {
+  AcpHrcClient,
   AcpRuntimePlacement,
   AcpServerDeps,
   AgentRootResolver,
+  AuthorizeFn,
+  DeliveryTargetResolver,
   LaunchRoleScopedRun,
   PresetRegistry,
   RuntimeResolver,
@@ -20,7 +23,13 @@ export {
   InMemoryInputAttemptStore,
   type InputAttemptStore,
 } from './domain/input-attempt-store.js'
-export { InMemoryRunStore, type RunStore } from './domain/run-store.js'
+export {
+  InMemoryRunStore,
+  type DispatchFence,
+  type RunStore,
+  type StoredRun,
+  type UpdateRunInput,
+} from './domain/run-store.js'
 export {
   handleLaunchSession,
   launchRoleScopedTaskRun,

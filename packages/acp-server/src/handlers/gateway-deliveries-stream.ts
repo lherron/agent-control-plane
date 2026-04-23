@@ -24,8 +24,8 @@ export const handleStreamGatewayDeliveries: RouteHandler = async ({ url, params,
     .listQueuedForGateway(gatewayId)
     .sort(compareDeliveriesForStream)
     .filter((delivery) => (cursor === undefined ? true : isDeliveryAfterCursor(delivery, cursor)))
-  const nextCursor =
-    deliveries.length > 0 ? encodeDeliveryCursor(deliveries[deliveries.length - 1]!) : rawCursor
+  const lastDelivery = deliveries.at(-1)
+  const nextCursor = lastDelivery !== undefined ? encodeDeliveryCursor(lastDelivery) : rawCursor
 
   return json({
     deliveries: deliveries.map(toApiDeliveryRequest),

@@ -6,6 +6,20 @@ export {
 } from './models/task.js'
 export type { RiskClass, Task, TaskLifecycleState, TaskStateRef } from './models/task.js'
 
+export { ActorValidationError, parseActorFromHeaders } from './models/actor.js'
+export type { Actor, ActorStamp } from './models/actor.js'
+export type {
+  AdminAgent,
+  AdminAgentStatus,
+  AdminMembership,
+  AdminProject,
+  AgentHeartbeat,
+  AgentHeartbeatStatus,
+  InterfaceIdentity,
+  MembershipRole,
+  SystemEvent,
+} from './admin.js'
+
 export {
   findMissingEvidenceKinds,
   getWaiverDetails,
@@ -59,6 +73,7 @@ export type {
   DeliveryRequestBody,
   DeliveryRequestStatus,
 } from './interface/delivery-request.js'
+export type { DeliveryTarget } from './interface/delivery-target.js'
 export type {
   InterfaceBinding,
   InterfaceBindingLookup,
@@ -66,6 +81,12 @@ export type {
   InterfaceSessionRef,
 } from './interface/binding.js'
 export type { InterfaceMessageSource } from './interface/message-source.js'
+export { conversationTurnRenderStates } from './conversation/turn.js'
+export type {
+  ConversationTurn,
+  ConversationTurnRenderState,
+} from './conversation/turn.js'
+export type { Job, JobRun, JobRunStatus } from './models/job.js'
 
 export { codeDefectFastlaneV1 } from './presets/code_defect_fastlane.v1.js'
 export { getPreset, listPresets } from './presets/registry.js'
@@ -78,3 +99,14 @@ export type {
   TaskStore,
   TransitionLogStore,
 } from './store/task-store.js'
+
+export { messageParticipantKinds } from './coordination-messages.js'
+export type {
+  CoordinationMessageInput,
+  CoordinationMessageOptions,
+  MessageParticipant,
+  MessageParticipantAgent,
+  MessageParticipantHuman,
+  MessageParticipantSessionRef,
+  MessageParticipantSystem,
+} from './coordination-messages.js'

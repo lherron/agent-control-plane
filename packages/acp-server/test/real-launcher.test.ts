@@ -41,7 +41,7 @@ describe('real launcher helpers', () => {
         ({
           resolveSession: async () => {
             calls.push('resolveSession')
-            return { hostSessionId: 'hsid-123' }
+            return { hostSessionId: 'hsid-123', generation: 3 }
           },
           ensureRuntime: async () => {
             throw new Error('ensureRuntime should not be called for headless real-launcher turns')
@@ -51,6 +51,10 @@ describe('real launcher helpers', () => {
             expect(input).toEqual({
               hostSessionId: 'hsid-123',
               prompt: 'remember chartreuse',
+              fences: {
+                expectedHostSessionId: 'hsid-123',
+                expectedGeneration: 3,
+              },
               runtimeIntent: {
                 placement: {
                   agentRoot: '/tmp/rex',
@@ -85,7 +89,15 @@ describe('real launcher helpers', () => {
                 },
               })
             )
-            return { runId: 'run-123' }
+            return {
+              runId: 'run-123',
+              hostSessionId: 'hsid-123',
+              generation: 3,
+              runtimeId: 'rt-123',
+              transport: 'headless',
+              status: 'completed',
+              supportsInFlightInput: false,
+            }
           },
         }) as unknown as any,
     })
@@ -273,24 +285,32 @@ describe('real launcher helpers', () => {
                 initialPrompt: 'What is 2+2?',
               },
             })
-            return { hostSessionId: 'hsid-discord' }
+            return { hostSessionId: 'hsid-discord', generation: 1 }
           },
           dispatchTurn: async () => {
             throw new Error('dispatchTurn should not be called when live tmux exists')
           },
           deliverLiteralBySelector: async (input: unknown) => {
             calls.push('deliverLiteralBySelector')
-            if (calls.length === 1) {
+            if (calls.filter((call) => call === 'deliverLiteralBySelector').length === 1) {
               expect(input).toEqual({
                 selector: { sessionRef: 'agent:cody:project:agent-spaces:task:discord/lane:main' },
                 text: 'What is 2+2?',
                 enter: false,
+                fences: {
+                  expectedHostSessionId: 'hsid-discord',
+                  expectedGeneration: 1,
+                },
               })
             } else {
               expect(input).toEqual({
                 selector: { sessionRef: 'agent:cody:project:agent-spaces:task:discord/lane:main' },
                 text: '',
                 enter: true,
+                fences: {
+                  expectedHostSessionId: 'hsid-discord',
+                  expectedGeneration: 1,
+                },
               })
               db.run(
                 `INSERT INTO hrc_events (host_session_id, scope_ref, lane_ref, event_kind, payload_json)
@@ -343,7 +363,11 @@ describe('real launcher helpers', () => {
         runId: 'hsid-discord',
         sessionId: 'hsid-discord',
       })
-      expect(calls).toEqual(['deliverLiteralBySelector', 'deliverLiteralBySelector'])
+      expect(calls).toEqual([
+        'resolveSession',
+        'deliverLiteralBySelector',
+        'deliverLiteralBySelector',
+      ])
       expect(seenEvents).toEqual([
         {
           type: 'message_end',

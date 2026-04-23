@@ -47,8 +47,12 @@ describe('POST /v1/interface/messages', () => {
 
         const run = fixture.runStore.getRun(firstPayload.runId)
         expect(run?.metadata).toMatchObject({
-          actorAgentId: 'discord:user:999',
           content: 'Please summarize the status of T-01144.',
+          meta: {
+            interfaceSource: {
+              authorRef: 'discord:user:999',
+            },
+          },
         })
         expect(
           (run?.metadata?.meta as Record<string, unknown> | undefined)?.['interfaceSource']

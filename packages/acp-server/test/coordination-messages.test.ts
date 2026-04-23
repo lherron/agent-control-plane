@@ -124,7 +124,9 @@ describe('POST /v1/coordination/messages', () => {
         },
       })
       expect(listEvents(fixture.coordStore, { projectId: fixture.seed.projectId })).toHaveLength(0)
-      expect(listPendingWakes(fixture.coordStore, { projectId: fixture.seed.projectId })).toHaveLength(0)
+      expect(
+        listPendingWakes(fixture.coordStore, { projectId: fixture.seed.projectId })
+      ).toHaveLength(0)
     })
   })
 

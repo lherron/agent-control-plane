@@ -1,9 +1,23 @@
+import { Database as BunDatabase } from 'bun:sqlite'
 import { describe, expect, test } from 'bun:test'
 
 import { WrkqTaskNotFoundError, openWrkqStore } from '../src/index.js'
 import { withSeededWrkqDb } from './fixtures/seed-wrkq-db.js'
 
-import Database from 'better-sqlite3'
+import BetterSqliteDatabase from 'better-sqlite3'
+
+type TestDatabase = {
+  prepare(sql: string): {
+    get(...params: unknown[]): unknown
+  }
+  close(): unknown
+}
+
+function openTestDatabase(dbPath: string): TestDatabase {
+  return (
+    typeof Bun !== 'undefined' ? new BunDatabase(dbPath) : new BetterSqliteDatabase(dbPath)
+  ) as TestDatabase
+}
 
 describe('TransitionLogRepo', () => {
   test('appends and lists transition records with actor metadata', () => {
@@ -92,7 +106,7 @@ describe('TransitionLogRepo', () => {
         nextVersion: 2,
       })
 
-      const sqlite = new Database(fixture.dbPath)
+      const sqlite = openTestDatabase(fixture.dbPath)
       const row = sqlite
         .prepare('SELECT evidence_item_uuids FROM task_transitions WHERE id = ?')
         .get('TR-90002') as { evidence_item_uuids: string | null }

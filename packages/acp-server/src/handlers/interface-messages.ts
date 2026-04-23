@@ -1,6 +1,11 @@
+import type { Actor } from 'acp-core'
 import { type SessionRef, normalizeSessionRef, parseScopeRef } from 'agent-scope'
 
-import { createInterfaceResponseCapture } from '../delivery/interface-response-capture.js'
+import {
+  type InterfaceResponseCaptureHandler,
+  createInterfaceResponseCapture,
+} from '../delivery/interface-response-capture.js'
+import { toCompletedVisibleAssistantMessage } from '../delivery/visible-assistant-messages.js'
 import { AcpHttpError, json } from '../http.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
 import {
@@ -10,6 +15,8 @@ import {
   requireTrimmedStringField,
 } from '../parsers/body.js'
 
+import type { UnifiedSessionEvent } from 'spaces-runtime'
+import type { ConversationStore } from '../deps.js'
 import type { RouteHandler } from '../routing/route-context.js'
 
 type ParsedInterfaceSource = {
@@ -37,7 +44,43 @@ function toSessionRef(scopeRef: string, laneRef: string): SessionRef {
   return normalizeSessionRef({ scopeRef, laneRef })
 }
 
-export const handleCreateInterfaceMessage: RouteHandler = async ({ request, deps }) => {
+function wrapOnEventWithConversationHook(
+  baseHandler: InterfaceResponseCaptureHandler,
+  conversationStore: ConversationStore,
+  threadId: string,
+  runId: string,
+  actor: Actor
+): (event: UnifiedSessionEvent) => void | Promise<void> {
+  const deliveredMessageIds = new Set<string>()
+
+  return async (event: UnifiedSessionEvent): Promise<void> => {
+    await baseHandler(event)
+
+    const visible = toCompletedVisibleAssistantMessage(event)
+    if (visible === undefined) {
+      return
+    }
+    if (visible.messageId !== undefined) {
+      if (deliveredMessageIds.has(visible.messageId)) {
+        return
+      }
+      deliveredMessageIds.add(visible.messageId)
+    }
+
+    conversationStore.createTurn({
+      threadId,
+      role: 'assistant',
+      body: visible.text,
+      renderState: 'pending',
+      links: { runId },
+      actor,
+      sentAt: new Date().toISOString(),
+    })
+  }
+}
+
+export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
+  const { request, deps } = context
   const body = requireRecord(await parseJsonBody(request))
   const source = parseInterfaceSource(body)
   const content = requireTrimmedStringField(body, 'content')
@@ -56,6 +99,7 @@ export const handleCreateInterfaceMessage: RouteHandler = async ({ request, deps
   }
 
   const sessionRef = toSessionRef(binding.scopeRef, binding.laneRef)
+  const actor = context.actor ?? deps.defaultActor
   const timestamp = new Date().toISOString()
   const parsedScope = parseScopeRef(sessionRef.scopeRef)
   const inputMetadata = {
@@ -88,22 +132,63 @@ export const handleCreateInterfaceMessage: RouteHandler = async ({ request, deps
     ...(parsedScope.taskId !== undefined ? { taskId: parsedScope.taskId } : {}),
     idempotencyKey: `interface:${source.gatewayId}:${source.messageRef}`,
     content,
-    actor: { agentId: source.authorRef },
+    actor,
     metadata: inputMetadata,
     runStore: deps.runStore,
   })
 
+  // Conversation hook: create human turn after input attempt creation
+  let conversationThreadId: string | undefined
+  if (createdAttempt.created && deps.conversationStore !== undefined) {
+    const thread = deps.conversationStore.createOrGetThread({
+      gatewayId: source.gatewayId,
+      conversationRef: source.conversationRef,
+      ...(source.threadRef !== undefined ? { threadRef: source.threadRef } : {}),
+      sessionRef,
+      audience: 'human',
+    })
+    conversationThreadId = thread.threadId
+
+    deps.conversationStore.createTurn({
+      threadId: thread.threadId,
+      role: 'human',
+      body: content,
+      renderState: 'delivered',
+      links: { inputAttemptId: createdAttempt.inputAttempt.inputAttemptId },
+      actor: { kind: 'human', id: source.authorRef },
+      sentAt: timestamp,
+    })
+  }
+
   if (createdAttempt.created && deps.launchRoleScopedRun !== undefined) {
     const intent = await resolveLaunchIntent(deps, sessionRef, { initialPrompt: content })
+
+    const baseOnEvent = createInterfaceResponseCapture({
+      interfaceStore: deps.interfaceStore,
+      runStore: deps.runStore,
+      runId: createdAttempt.runId,
+      inputAttemptId: createdAttempt.inputAttempt.inputAttemptId,
+    })
+
+    // Wrap the onEvent handler to also create assistant turns
+    const onEvent =
+      deps.conversationStore !== undefined && conversationThreadId !== undefined
+        ? wrapOnEventWithConversationHook(
+            baseOnEvent,
+            deps.conversationStore,
+            conversationThreadId,
+            createdAttempt.runId,
+            actor
+          )
+        : baseOnEvent
+
     await deps.launchRoleScopedRun({
       sessionRef,
       intent,
-      onEvent: createInterfaceResponseCapture({
-        interfaceStore: deps.interfaceStore,
-        runStore: deps.runStore,
-        runId: createdAttempt.runId,
-        inputAttemptId: createdAttempt.inputAttempt.inputAttemptId,
-      }),
+      acpRunId: createdAttempt.runId,
+      inputAttemptId: createdAttempt.inputAttempt.inputAttemptId,
+      runStore: deps.runStore,
+      onEvent,
     })
   }
 

@@ -2,8 +2,8 @@ import { describe, expect, test } from 'bun:test'
 
 import { runDeliveryCommand } from '../../src/commands/delivery.js'
 import { runHeartbeatCommand } from '../../src/commands/heartbeat.js'
-import { runJobCommand } from '../../src/commands/job.js'
 import { runJobRunCommand } from '../../src/commands/job-run.js'
+import { runJobCommand } from '../../src/commands/job.js'
 import { runMessageCommand } from '../../src/commands/message.js'
 import { runRenderCommand } from '../../src/commands/render.js'
 import { runTailCommand } from '../../src/commands/tail.js'
@@ -28,7 +28,17 @@ describe('coordination and observability CLI commands', () => {
     ])
 
     const output = await runMessageCommand(
-      ['send', '--project', 'agent-spaces', '--from-agent', 'larry', '--to-agent', 'clod', '--text', 'ready'],
+      [
+        'send',
+        '--project',
+        'agent-spaces',
+        '--from-agent',
+        'larry',
+        '--to-agent',
+        'clod',
+        '--text',
+        'ready',
+      ],
       { fetchImpl: queue.fetchImpl }
     )
 
@@ -70,7 +80,9 @@ describe('coordination and observability CLI commands', () => {
     )
 
     expect(output.format).toBe('json')
-    expect(output).toMatchObject({ body: { results: [{ messageId: 'msg_1' }, { messageId: 'msg_2' }] } })
+    expect(output).toMatchObject({
+      body: { results: [{ messageId: 'msg_1' }, { messageId: 'msg_2' }] },
+    })
   })
 
   test('job, job-run, delivery, and thread commands hit the expected routes', async () => {
@@ -145,25 +157,36 @@ describe('coordination and observability CLI commands', () => {
     )
     expect(createOutput).toMatchObject({ body: { job: { jobId: 'job_daily' } } })
 
-    const listOutput = await runJobCommand(['list', '--project', 'agent-spaces'], { fetchImpl: queue.fetchImpl })
+    const listOutput = await runJobCommand(['list', '--project', 'agent-spaces'], {
+      fetchImpl: queue.fetchImpl,
+    })
     expect(listOutput).toMatchObject({ body: { jobs: [{ jobId: 'job_daily' }] } })
 
-    const runOutput = await runJobCommand(['run', '--job', 'job_daily'], { fetchImpl: queue.fetchImpl })
+    const runOutput = await runJobCommand(['run', '--job', 'job_daily'], {
+      fetchImpl: queue.fetchImpl,
+    })
     expect(runOutput).toMatchObject({ body: { jobRun: { jobRunId: 'jr_123' } } })
 
-    const jobRunsOutput = await runJobRunCommand(['list', '--job', 'job_daily'], { fetchImpl: queue.fetchImpl })
+    const jobRunsOutput = await runJobRunCommand(['list', '--job', 'job_daily'], {
+      fetchImpl: queue.fetchImpl,
+    })
     expect(jobRunsOutput).toMatchObject({ body: { jobRuns: [{ jobRunId: 'jr_123' }] } })
 
     const failedOutput = await runDeliveryCommand(['list-failed'], { fetchImpl: queue.fetchImpl })
     expect(failedOutput).toMatchObject({ body: { deliveries: [{ deliveryRequestId: 'dr_123' }] } })
 
-    const retryOutput = await runDeliveryCommand(['retry', '--delivery', 'dr_123', '--requeued-by', 'larry'], { fetchImpl: queue.fetchImpl })
+    const retryOutput = await runDeliveryCommand(
+      ['retry', '--delivery', 'dr_123', '--requeued-by', 'larry'],
+      { fetchImpl: queue.fetchImpl }
+    )
     expect(retryOutput).toMatchObject({ body: { delivery: { deliveryRequestId: 'dr_123' } } })
 
     const threadListOutput = await runThreadCommand(['list'], { fetchImpl: queue.fetchImpl })
     expect(threadListOutput).toMatchObject({ body: { threads: [{ threadId: 'thread_123' }] } })
 
-    const turnsOutput = await runThreadCommand(['turns', '--thread', 'thread_123'], { fetchImpl: queue.fetchImpl })
+    const turnsOutput = await runThreadCommand(['turns', '--thread', 'thread_123'], {
+      fetchImpl: queue.fetchImpl,
+    })
     expect(turnsOutput).toMatchObject({ body: { turns: [{ turnId: 'turn_123' }] } })
   })
 
@@ -211,10 +234,14 @@ describe('coordination and observability CLI commands', () => {
       },
     ])
 
-    const tailOutput = await runTailCommand(['--session', 'hsid-1', '--json'], { fetchImpl: queue.fetchImpl })
+    const tailOutput = await runTailCommand(['--session', 'hsid-1', '--json'], {
+      fetchImpl: queue.fetchImpl,
+    })
     expect(tailOutput).toMatchObject({ body: [{ hrcSeq: 41, eventKind: 'turn.message' }] })
 
-    const renderOutput = await runRenderCommand(['--session', 'hsid-1'], { fetchImpl: queue.fetchImpl })
+    const renderOutput = await runRenderCommand(['--session', 'hsid-1'], {
+      fetchImpl: queue.fetchImpl,
+    })
     expect(renderOutput).toMatchObject({ body: { frame: { text: 'recent pane output' } } })
 
     const heartbeatSetOutput = await runHeartbeatCommand(

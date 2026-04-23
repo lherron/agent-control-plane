@@ -1,3 +1,5 @@
+import type { Actor } from 'acp-core'
+
 export type InterfaceStoreActorIdentity = {
   agentId: string
   displayName?: string | undefined
@@ -45,6 +47,8 @@ export type InterfaceMessageSource = {
 
 export type DeliveryRequest = {
   deliveryRequestId: string
+  linkedFailureId?: string | undefined
+  actor: Actor
   gatewayId: string
   bindingId: string
   scopeRef: string
@@ -65,6 +69,7 @@ export type DeliveryRequest = {
 
 export type EnqueueDeliveryRequestInput = {
   deliveryRequestId: string
+  actor?: Actor | undefined
   gatewayId: string
   bindingId: string
   scopeRef: string
@@ -89,3 +94,44 @@ export type DeliveryFailureInput = {
   failureCode: string
   failureMessage: string
 }
+
+export type ListFailedDeliveryRequestsInput = {
+  gatewayId?: string | undefined
+  since?: string | undefined
+  limit?: number | undefined
+}
+
+export type RequeuedDeliveryRequest = DeliveryRequest & {
+  linkedFailureId: string
+  status: 'queued'
+}
+
+export type RequeueDeliveryRequestResult =
+  | { ok: true; delivery: RequeuedDeliveryRequest }
+  | { ok: false; code: 'wrong_state' | 'not_found' }
+
+export type LastDeliveryRecord = {
+  gatewayId: string
+  conversationRef: string
+  threadRef?: string | undefined
+  deliveryRequestId: string
+  ackedAt: string
+}
+
+export type FailedDeliveryRecord = {
+  gatewayId: string
+  conversationRef: string
+  threadRef?: string | undefined
+  deliveryRequestId: string
+  failedAt: string
+}
+
+export type ResolvedDeliveryDestination = {
+  gatewayId: string
+  conversationRef: string
+  threadRef?: string | undefined
+}
+
+export type ResolveDeliveryTargetResult =
+  | { ok: true; destination: ResolvedDeliveryDestination }
+  | { ok: false; code: 'not_found' | 'no_last_context' | 'invalid_target' }

@@ -1,7 +1,9 @@
-import { parseJsonObject, readStringFlag } from '../cli-args.js'
+import { type ParsedArgs, hasFlag, parseJsonObject, readStringFlag } from '../cli-args.js'
 import { CliUsageError, type CommandOutput } from '../cli-runtime.js'
 import {
   type AcpClient,
+  AcpClientHttpError,
+  AcpClientTransportError,
   DEFAULT_ACP_SERVER_URL,
   type FetchLike,
   createHttpClient,
@@ -19,6 +21,19 @@ export type CommandDependencies = {
 }
 
 export type { CommandOutput }
+
+export type RawAcpRequestInput = {
+  method: string
+  path: string
+  body?: unknown
+  actorAgentId?: string | undefined
+  headers?: Readonly<Record<string, string>> | undefined
+}
+
+export type RawAcpRequester = {
+  requestJson<T>(input: RawAcpRequestInput): Promise<T>
+  requestText(input: RawAcpRequestInput): Promise<string>
+}
 
 export function resolveEnv(deps: CommandDependencies): NodeJS.ProcessEnv {
   return deps.env ?? process.env
@@ -71,6 +86,105 @@ export function getClientFactory(
         fetchImpl: deps.fetchImpl,
       }))
   )
+}
+
+function trimTrailingSlashes(url: string): string {
+  return url.replace(/\/+$/, '')
+}
+
+function parseResponseText(text: string): unknown {
+  if (text.length === 0) {
+    return null
+  }
+
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    return text
+  }
+}
+
+export function createRawAcpRequester(options: {
+  serverUrl: string
+  actorAgentId?: string | undefined
+  fetchImpl?: FetchLike | undefined
+}): RawAcpRequester {
+  const baseUrl = trimTrailingSlashes(options.serverUrl)
+  const fetchImpl = options.fetchImpl ?? fetch
+
+  async function doFetch(input: RawAcpRequestInput): Promise<Response> {
+    const headers = new Headers(input.headers)
+    if (input.body !== undefined) {
+      headers.set('content-type', 'application/json')
+    }
+
+    const actorAgentId = input.actorAgentId ?? options.actorAgentId
+    if (actorAgentId !== undefined) {
+      headers.set('x-acp-actor-agent-id', actorAgentId)
+    }
+
+    try {
+      return await fetchImpl(`${baseUrl}${input.path}`, {
+        method: input.method,
+        headers,
+        ...(input.body !== undefined ? { body: JSON.stringify(input.body) } : {}),
+      })
+    } catch (error) {
+      throw new AcpClientTransportError(`failed to reach ACP server at ${baseUrl}`, {
+        cause: error,
+      })
+    }
+  }
+
+  return {
+    async requestJson<T>(input: RawAcpRequestInput) {
+      const response = await doFetch(input)
+      const text = await response.text()
+      const body = parseResponseText(text)
+      if (!response.ok) {
+        throw new AcpClientHttpError(response.status, body)
+      }
+      return body as T
+    },
+
+    async requestText(input: RawAcpRequestInput) {
+      const response = await doFetch(input)
+      const text = await response.text()
+      if (!response.ok) {
+        throw new AcpClientHttpError(response.status, parseResponseText(text))
+      }
+      return text
+    },
+  }
+}
+
+export function createRawRequesterFromParsed(
+  parsed: ParsedArgs,
+  deps: CommandDependencies,
+  options: { requireActor?: boolean | undefined } = {}
+): RawAcpRequester {
+  const env = resolveEnv(deps)
+  const actorAgentId = options.requireActor
+    ? requireActorAgentId(readStringFlag(parsed, '--actor'), env)
+    : resolveOptionalActorAgentId(readStringFlag(parsed, '--actor'), env)
+
+  return createRawAcpRequester({
+    serverUrl: resolveServerUrl(readStringFlag(parsed, '--server'), env),
+    ...(actorAgentId !== undefined ? { actorAgentId } : {}),
+    fetchImpl: deps.fetchImpl,
+  })
+}
+
+export function renderJsonOrTable(
+  parsed: ParsedArgs,
+  body: unknown,
+  renderTableText: () => string
+): CommandOutput {
+  if (hasFlag(parsed, '--table') && !hasFlag(parsed, '--json')) {
+    return asText(renderTableText())
+  }
+
+  return asJson(body)
 }
 
 export function asJson(body: unknown): CommandOutput {

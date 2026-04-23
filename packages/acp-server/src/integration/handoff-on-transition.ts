@@ -1,7 +1,17 @@
 import { type SessionRef, normalizeSessionRef } from 'agent-scope'
-import { type AppendEventResult, appendEvent } from 'coordination-substrate'
+import type { AppendEventCommand } from 'coordination-substrate'
 
 import { AcpHttpError } from '../http.js'
+
+export type TesterTransitionOutboxPayload = {
+  transitionTimestamp: string
+  actor: {
+    agentId: string
+    role: string
+    scopeRef?: string | undefined
+  }
+  testerAgentId: string
+}
 
 export function shouldDeclareTesterHandoff(input: {
   fromPhase: string
@@ -34,20 +44,32 @@ export function buildTesterSessionRef(input: {
   })
 }
 
-export function appendTesterHandoffOnTransition(input: {
-  coordStore: Parameters<typeof appendEvent>[0]
-  projectId: string
-  taskId: string
-  fromPhase: string
-  toPhase: string
+export function buildTesterTransitionOutboxPayload(input: {
+  transitionTimestamp: string
   actor: { agentId: string; role: string }
   roleMap: Record<string, string>
-  idempotencyKey?: string | undefined
-}): AppendEventResult {
+}): TesterTransitionOutboxPayload {
   const testerAgentId = input.roleMap['tester']?.trim()
   if (!testerAgentId) {
     throw new AcpHttpError(422, 'handoff_target_missing', 'tester role assignment is required')
   }
+
+  return {
+    transitionTimestamp: input.transitionTimestamp,
+    actor: input.actor,
+    testerAgentId,
+  }
+}
+
+export function buildTesterHandoffAppendEventCommand(input: {
+  projectId: string
+  taskId: string
+  fromPhase: string
+  toPhase: string
+  payload: TesterTransitionOutboxPayload
+  idempotencyKey?: string | undefined
+}): AppendEventCommand {
+  const { actor, testerAgentId } = input.payload
 
   const testerSessionRef = buildTesterSessionRef({
     testerAgentId,
@@ -55,16 +77,16 @@ export function appendTesterHandoffOnTransition(input: {
     taskId: input.taskId,
   })
 
-  return appendEvent(input.coordStore, {
+  return {
     projectId: input.projectId,
     ...(input.idempotencyKey !== undefined ? { idempotencyKey: input.idempotencyKey } : {}),
     event: {
-      ts: new Date().toISOString(),
+      ts: input.payload.transitionTimestamp,
       kind: 'handoff.declared',
-      actor: { kind: 'agent', agentId: input.actor.agentId },
+      actor: { kind: 'agent', agentId: actor.agentId },
       semanticSession: testerSessionRef,
       participants: [
-        { kind: 'agent', agentId: input.actor.agentId },
+        { kind: 'agent', agentId: actor.agentId },
         { kind: 'session', sessionRef: testerSessionRef },
       ],
       content: {
@@ -78,12 +100,12 @@ export function appendTesterHandoffOnTransition(input: {
         fromPhase: input.fromPhase,
         toPhase: input.toPhase,
         handoffRole: 'tester',
-        actorRole: input.actor.role,
+        actorRole: actor.role,
       },
     },
     handoff: {
       taskId: input.taskId,
-      from: { kind: 'agent', agentId: input.actor.agentId },
+      from: { kind: 'agent', agentId: actor.agentId },
       to: { kind: 'session', sessionRef: testerSessionRef },
       targetSession: testerSessionRef,
       kind: 'review',
@@ -94,5 +116,5 @@ export function appendTesterHandoffOnTransition(input: {
       reason: `Task ${input.taskId} is ready for tester verification`,
       ...(input.idempotencyKey !== undefined ? { dedupeKey: input.idempotencyKey } : {}),
     },
-  })
+  }
 }

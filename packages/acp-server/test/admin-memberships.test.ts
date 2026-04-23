@@ -110,7 +110,9 @@ describe('admin memberships endpoints', () => {
       })
 
       expect(response.status).toBe(400)
-      expect(await fixture.json<{ error: { code: string; details?: { field?: string } } }>(response)).toEqual({
+      expect(
+        await fixture.json<{ error: { code: string; details?: { field?: string } } }>(response)
+      ).toEqual({
         error: expect.objectContaining({
           code: 'malformed_request',
           details: expect.objectContaining({ field: 'projectId' }),

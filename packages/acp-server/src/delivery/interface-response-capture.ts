@@ -62,6 +62,7 @@ export function createInterfaceResponseCapture(
       deliveryOrdinal += 1
       deps.interfaceStore.deliveries.enqueue({
         deliveryRequestId: createDeliveryRequestId(deps.runId, deliveryOrdinal),
+        actor: context.run.actor,
         gatewayId: context.source.gatewayId,
         bindingId: context.source.bindingId,
         scopeRef: context.run.scopeRef,

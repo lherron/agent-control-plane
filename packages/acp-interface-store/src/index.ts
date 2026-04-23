@@ -1,11 +1,14 @@
 export { openInterfaceStore } from './open-store.js'
 export type { InterfaceStore, OpenInterfaceStoreOptions } from './open-store.js'
+export { DeliveryTargetResolver } from './delivery-target-resolver.js'
 export { BindingRepo } from './repos/binding-repo.js'
 export { DeliveryRequestRepo } from './repos/delivery-request-repo.js'
+export { LastDeliveryContextRepo } from './repos/last-delivery-context-repo.js'
 export { MessageSourceRepo } from './repos/message-source-repo.js'
 export type {
   DeliveryBodyKind,
   DeliveryFailureInput,
+  FailedDeliveryRecord,
   DeliveryRequest,
   DeliveryRequestStatus,
   EnqueueDeliveryRequestInput,
@@ -15,5 +18,9 @@ export type {
   InterfaceBindingStatus,
   InterfaceMessageSource,
   InterfaceStoreActorIdentity,
+  LastDeliveryRecord,
+  ListFailedDeliveryRequestsInput,
   RecordIfNewMessageSourceResult,
+  RequeueDeliveryRequestResult,
+  ResolveDeliveryTargetResult,
 } from './types.js'

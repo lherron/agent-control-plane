@@ -1,3 +1,4 @@
+import { Database as BunDatabase } from 'bun:sqlite'
 import { describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -7,7 +8,22 @@ import { VersionConflictError, WrkqSchemaMissingError, openWrkqStore } from '../
 import { withSeededWrkqDb } from './fixtures/seed-wrkq-db.js'
 
 import type { Task } from 'acp-core'
-import Database from 'better-sqlite3'
+import BetterSqliteDatabase from 'better-sqlite3'
+
+type TestDatabase = {
+  exec(sql: string): unknown
+  prepare(sql: string): {
+    run(...params: unknown[]): unknown
+    get(...params: unknown[]): unknown
+  }
+  close(): unknown
+}
+
+function openTestDatabase(dbPath: string): TestDatabase {
+  return (
+    typeof Bun !== 'undefined' ? new BunDatabase(dbPath) : new BetterSqliteDatabase(dbPath)
+  ) as TestDatabase
+}
 
 function createTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -106,7 +122,7 @@ describe('TaskRepo', () => {
 
   test('passes through non-ACP wrkq task states when reading', () => {
     withSeededWrkqDb((fixture) => {
-      const sqlite = new Database(fixture.dbPath)
+      const sqlite = openTestDatabase(fixture.dbPath)
       sqlite
         .prepare(
           `INSERT INTO tasks (
@@ -174,7 +190,7 @@ describe('TaskRepo', () => {
   test('fails fast when the wrkq schema is missing', () => {
     const directory = mkdtempSync(join(tmpdir(), 'wrkq-lib-missing-schema-'))
     const dbPath = join(directory, 'wrkq.db')
-    const blank = new Database(dbPath)
+    const blank = openTestDatabase(dbPath)
     blank.exec('CREATE TABLE placeholder (id INTEGER PRIMARY KEY)')
     blank.close()
 

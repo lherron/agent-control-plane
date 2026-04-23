@@ -159,9 +159,7 @@ export interface InterfaceIdentitiesStore {
     gatewayId?: string | undefined
     externalId?: string | undefined
   }): InterfaceIdentity[]
-  getByCompositeKey(input: { gatewayId: string; externalId: string }):
-    | InterfaceIdentity
-    | undefined
+  getByCompositeKey(input: { gatewayId: string; externalId: string }): InterfaceIdentity | undefined
 }
 
 export interface SystemEventsStore {
@@ -499,13 +497,15 @@ function createAgentsStore(sqlite: SqliteDatabase): AgentsStore {
     },
 
     list() {
-      return (sqlite
-        .prepare(
-          `SELECT agent_id, display_name, status, created_at, updated_at, actor_stamp
+      return (
+        sqlite
+          .prepare(
+            `SELECT agent_id, display_name, status, created_at, updated_at, actor_stamp
            FROM agents
            ORDER BY created_at ASC, agent_id ASC`
-        )
-        .all() as AgentRow[]).map(toAdminAgent)
+          )
+          .all() as AgentRow[]
+      ).map(toAdminAgent)
     },
 
     get(agentId) {
@@ -560,7 +560,10 @@ function createProjectsStore(sqlite: SqliteDatabase): ProjectsStore {
     create(input) {
       const existing = this.get(input.projectId)
       if (existing !== undefined) {
-        if (existing.displayName === input.displayName && sameActor(existing.createdBy, input.actor)) {
+        if (
+          existing.displayName === input.displayName &&
+          sameActor(existing.createdBy, input.actor)
+        ) {
           return existing
         }
 
@@ -590,13 +593,15 @@ function createProjectsStore(sqlite: SqliteDatabase): ProjectsStore {
     },
 
     list() {
-      return (sqlite
-        .prepare(
-          `SELECT project_id, display_name, default_agent_id, created_at, updated_at, actor_stamp
+      return (
+        sqlite
+          .prepare(
+            `SELECT project_id, display_name, default_agent_id, created_at, updated_at, actor_stamp
            FROM projects
            ORDER BY created_at ASC, project_id ASC`
-        )
-        .all() as ProjectRow[]).map(toAdminProject)
+          )
+          .all() as ProjectRow[]
+      ).map(toAdminProject)
     },
 
     get(projectId) {
@@ -692,14 +697,16 @@ function createMembershipsStore(sqlite: SqliteDatabase): MembershipsStore {
     },
 
     listByProject(projectId) {
-      return (sqlite
-        .prepare(
-          `SELECT project_id, agent_id, role, created_at, actor_stamp
+      return (
+        sqlite
+          .prepare(
+            `SELECT project_id, agent_id, role, created_at, actor_stamp
            FROM memberships
            WHERE project_id = ?
            ORDER BY created_at ASC, agent_id ASC`
-        )
-        .all(projectId) as MembershipRow[]).map(toAdminMembership)
+          )
+          .all(projectId) as MembershipRow[]
+      ).map(toAdminMembership)
     },
   }
 }
@@ -741,7 +748,10 @@ function createInterfaceIdentitiesStore(sqlite: SqliteDatabase): InterfaceIdenti
             serializeMutableActorStamp(DEFAULT_SYSTEM_ACTOR, DEFAULT_SYSTEM_ACTOR)
           )
 
-        return this.getByCompositeKey({ gatewayId: input.gatewayId, externalId: input.externalId }) as InterfaceIdentity
+        return this.getByCompositeKey({
+          gatewayId: input.gatewayId,
+          externalId: input.externalId,
+        }) as InterfaceIdentity
       }
 
       const current = toInterfaceIdentity(existing)
@@ -768,7 +778,10 @@ function createInterfaceIdentitiesStore(sqlite: SqliteDatabase): InterfaceIdenti
           existing.identity_id
         )
 
-      return this.getByCompositeKey({ gatewayId: input.gatewayId, externalId: input.externalId }) as InterfaceIdentity
+      return this.getByCompositeKey({
+        gatewayId: input.gatewayId,
+        externalId: input.externalId,
+      }) as InterfaceIdentity
     },
 
     list(filters = {}) {
@@ -785,14 +798,16 @@ function createInterfaceIdentitiesStore(sqlite: SqliteDatabase): InterfaceIdenti
       }
 
       const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : ''
-      return (sqlite
-        .prepare(
-          `SELECT identity_id, gateway_id, external_id, display_name, linked_agent_id, created_at, updated_at, actor_stamp
+      return (
+        sqlite
+          .prepare(
+            `SELECT identity_id, gateway_id, external_id, display_name, linked_agent_id, created_at, updated_at, actor_stamp
            FROM interface_identities
            ${whereClause}
            ORDER BY created_at ASC, gateway_id ASC, external_id ASC`
-        )
-        .all(...values) as InterfaceIdentityRow[]).map(toInterfaceIdentity)
+          )
+          .all(...values) as InterfaceIdentityRow[]
+      ).map(toInterfaceIdentity)
     },
 
     getByCompositeKey(input) {
@@ -869,14 +884,16 @@ function createSystemEventsStore(sqlite: SqliteDatabase): SystemEventsStore {
       }
 
       const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : ''
-      return (sqlite
-        .prepare(
-          `SELECT event_id, project_id, kind, payload, occurred_at, recorded_at, actor_stamp
+      return (
+        sqlite
+          .prepare(
+            `SELECT event_id, project_id, kind, payload, occurred_at, recorded_at, actor_stamp
            FROM system_events
            ${whereClause}
            ORDER BY occurred_at ASC, event_id ASC`
-        )
-        .all(...params) as SystemEventRow[]).map(toSystemEvent)
+          )
+          .all(...params) as SystemEventRow[]
+      ).map(toSystemEvent)
     },
   }
 }
@@ -923,29 +940,36 @@ function createHeartbeatsStore(sqlite: SqliteDatabase): HeartbeatsStore {
     },
 
     list() {
-      return (sqlite
-        .prepare(
-          `SELECT agent_id, last_heartbeat_at, source, last_note, status
+      return (
+        sqlite
+          .prepare(
+            `SELECT agent_id, last_heartbeat_at, source, last_note, status
            FROM agent_heartbeats
            ORDER BY last_heartbeat_at DESC, agent_id ASC`
-        )
-        .all() as HeartbeatRow[]).map(toAgentHeartbeat)
+          )
+          .all() as HeartbeatRow[]
+      ).map(toAgentHeartbeat)
     },
 
     listStale(thresholdIso) {
-      return (sqlite
-        .prepare(
-          `SELECT agent_id, last_heartbeat_at, source, last_note, status
+      return (
+        sqlite
+          .prepare(
+            `SELECT agent_id, last_heartbeat_at, source, last_note, status
            FROM agent_heartbeats
            WHERE last_heartbeat_at < ?
            ORDER BY last_heartbeat_at ASC, agent_id ASC`
-        )
-        .all(thresholdIso) as HeartbeatRow[]).map(toAgentHeartbeat)
+          )
+          .all(thresholdIso) as HeartbeatRow[]
+      ).map(toAgentHeartbeat)
     },
   }
 }
 
-function createStoreHandle<TStore extends object>(store: AdminStore, section: TStore): StoreHandle<TStore> {
+function createStoreHandle<TStore extends object>(
+  store: AdminStore,
+  section: TStore
+): StoreHandle<TStore> {
   return {
     ...section,
     sqlite: store.sqlite,

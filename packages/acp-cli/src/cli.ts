@@ -1,33 +1,33 @@
 #!/usr/bin/env bun
 
 import { CliUsageError, exitWithError, writeCommandOutput } from './cli-runtime.js'
-import { runAgentCommand } from './commands/agent.js'
 import { runAdminInterfaceBindingDisableCommand } from './commands/admin-interface-binding-disable.js'
 import { runAdminInterfaceBindingListCommand } from './commands/admin-interface-binding-list.js'
 import { runAdminInterfaceBindingSetCommand } from './commands/admin-interface-binding-set.js'
+import { runAgentCommand } from './commands/agent.js'
 import { runDeliveryCommand } from './commands/delivery.js'
 import { runHeartbeatCommand } from './commands/heartbeat.js'
-import { runJobCommand } from './commands/job.js'
+import { runInterfaceIdentityCommand } from './commands/interface-identity.js'
 import { runJobRunCommand } from './commands/job-run.js'
+import { runJobCommand } from './commands/job.js'
+import { runMembershipCommand } from './commands/membership.js'
 import { runMessageCommand } from './commands/message.js'
-import { runRuntimeCommand } from './commands/runtime.js'
-import { runRunCommand } from './commands/run.js'
+import { runProjectCommand } from './commands/project.js'
 import { runRenderCommand } from './commands/render.js'
+import { runRunCommand } from './commands/run.js'
+import { runRuntimeCommand } from './commands/runtime.js'
 import { runSendCommand } from './commands/send.js'
 import { runSessionCommand } from './commands/session.js'
-import { runTailCommand } from './commands/tail.js'
-import { runThreadCommand } from './commands/thread.js'
 import type { CommandDependencies } from './commands/shared.js'
-import { runInterfaceIdentityCommand } from './commands/interface-identity.js'
-import { runMembershipCommand } from './commands/membership.js'
-import { runProjectCommand } from './commands/project.js'
 import { runSystemEventCommand } from './commands/system-event.js'
+import { runTailCommand } from './commands/tail.js'
 import { runTaskCreateCommand } from './commands/task-create.js'
 import { runTaskEvidenceAddCommand } from './commands/task-evidence-add.js'
 import { runTaskPromoteCommand } from './commands/task-promote.js'
 import { runTaskShowCommand } from './commands/task-show.js'
 import { runTaskTransitionCommand } from './commands/task-transition.js'
 import { runTaskTransitionsCommand } from './commands/task-transitions.js'
+import { runThreadCommand } from './commands/thread.js'
 import { runServerCommand } from './server-runtime.js'
 
 function renderTopLevelHelp(): string {
@@ -96,13 +96,21 @@ function renderTaskCreateHelp(): string {
     summary: 'Create a preset-driven ACP workflow task.',
     example:
       'acp task create --preset code_defect_fastlane --preset-version 1 --risk-class medium --project agent-spaces --role implementer:larry --actor clod',
-    options: ['--role <role>:<agentId>   Repeatable role assignment', '--actor <agentId>', '--kind <task|bug|spike|chore>', '--meta <json>', '--server <url>', '--json'],
+    options: [
+      '--role <role>:<agentId>   Repeatable role assignment',
+      '--actor <agentId>',
+      '--kind <task|bug|spike|chore>',
+      '--meta <json>',
+      '--server <url>',
+      '--json',
+    ],
   })
 }
 
 function renderTaskShowHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp task show --task <T-XXXXX> [--role <role>] [--actor <agentId>] [--server <url>] [--json]',
+    usage:
+      'acp task show --task <T-XXXXX> [--role <role>] [--actor <agentId>] [--server <url>] [--json]',
     summary: 'Show task state and role-scoped task context.',
     example: 'acp task show --task T-01186 --role implementer --json',
   })
@@ -115,23 +123,34 @@ function renderTaskPromoteHelp(): string {
     summary: 'Promote a wrkq task into ACP workflow control.',
     example:
       'acp task promote --task T-01186 --preset code_defect_fastlane --preset-version 1 --risk-class medium --role implementer:larry --actor clod',
-    options: ['--role <role>:<agentId>   Repeatable role assignment', '--actor <agentId>', '--actor-role <role>', '--initial-phase <phase>', '--server <url>', '--json'],
+    options: [
+      '--role <role>:<agentId>   Repeatable role assignment',
+      '--actor <agentId>',
+      '--actor-role <role>',
+      '--initial-phase <phase>',
+      '--server <url>',
+      '--json',
+    ],
   })
 }
 
 function renderTaskEvidenceHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp task evidence add --task <T-XXXXX> --kind <kind> --ref <ref> --producer-role <role> [options]',
+    usage:
+      'acp task evidence add --task <T-XXXXX> --kind <kind> --ref <ref> --producer-role <role> [options]',
     summary: 'Attach evidence items to a task.',
-    example: 'acp task evidence add --task T-01186 --kind test_log --ref file://results.txt --producer-role tester --actor larry',
+    example:
+      'acp task evidence add --task T-01186 --kind test_log --ref file://results.txt --producer-role tester --actor larry',
   })
 }
 
 function renderTaskTransitionHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp task transition --task <T-XXXXX> --to <phase> --actor-role <role> --expected-version <n> [options]',
+    usage:
+      'acp task transition --task <T-XXXXX> --to <phase> --actor-role <role> --expected-version <n> [options]',
     summary: 'Apply one ACP task phase transition.',
-    example: 'acp task transition --task T-01186 --to red --actor-role implementer --expected-version 1 --actor larry',
+    example:
+      'acp task transition --task T-01186 --to red --actor-role implementer --expected-version 1 --actor larry',
   })
 }
 
@@ -155,32 +174,46 @@ function renderAdminInterfaceHelp(): string {
   return renderSimpleHelp({
     usage: 'acp admin interface binding <list|set|disable> [options]',
     summary: 'List, set, or disable interface bindings.',
-    example: 'acp admin interface binding set --gateway discord --conversation-ref channel:123 --scope-ref agent:larry:project:agent-spaces',
+    example:
+      'acp admin interface binding set --gateway discord --conversation-ref channel:123 --scope-ref agent:larry:project:agent-spaces',
   })
 }
 
 function renderAdminInterfaceBindingListHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp admin interface binding list [--gateway <id>] [--conversation-ref <ref>] [--thread-ref <ref>] [--project <projectId>] [--server <url>] [--json]',
+    usage:
+      'acp admin interface binding list [--gateway <id>] [--conversation-ref <ref>] [--thread-ref <ref>] [--project <projectId>] [--server <url>] [--json]',
     summary: 'List interface bindings by gateway, conversation, or project.',
-    example: 'acp admin interface binding list --gateway acp-discord-smoke --conversation-ref channel:123 --json',
+    example:
+      'acp admin interface binding list --gateway acp-discord-smoke --conversation-ref channel:123 --json',
   })
 }
 
 function renderAdminInterfaceBindingSetHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp admin interface binding set --gateway <id> --conversation-ref <ref> (--session <handle> | --scope-ref <scopeRef>) [options]',
+    usage:
+      'acp admin interface binding set --gateway <id> --conversation-ref <ref> (--session <handle> | --scope-ref <scopeRef>) [options]',
     summary: 'Upsert one ACP interface binding.',
-    example: 'acp admin interface binding set --gateway discord --conversation-ref channel:123 --scope-ref agent:larry:project:agent-spaces --project agent-spaces',
-    options: ['--thread-ref <ref>', '--project <projectId>', '--lane-ref <laneRef>', '--actor <agentId>', '--server <url>', '--json'],
+    example:
+      'acp admin interface binding set --gateway discord --conversation-ref channel:123 --scope-ref agent:larry:project:agent-spaces --project agent-spaces',
+    options: [
+      '--thread-ref <ref>',
+      '--project <projectId>',
+      '--lane-ref <laneRef>',
+      '--actor <agentId>',
+      '--server <url>',
+      '--json',
+    ],
   })
 }
 
 function renderAdminInterfaceBindingDisableHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp admin interface binding disable --gateway <id> --conversation-ref <ref> [--thread-ref <ref>] [--server <url>] [--json]',
+    usage:
+      'acp admin interface binding disable --gateway <id> --conversation-ref <ref> [--thread-ref <ref>] [--server <url>] [--json]',
     summary: 'Disable one ACP interface binding.',
-    example: 'acp admin interface binding disable --gateway discord --conversation-ref channel:123 --json',
+    example:
+      'acp admin interface binding disable --gateway discord --conversation-ref channel:123 --json',
   })
 }
 
@@ -194,9 +227,11 @@ function renderAgentHelp(): string {
 
 function renderAgentCreateHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp agent create --agent <agentId> --status <active|disabled> [--display-name <name>] --actor <agentId> [options]',
+    usage:
+      'acp agent create --agent <agentId> --status <active|disabled> [--display-name <name>] --actor <agentId> [options]',
     summary: 'Create one admin agent record.',
-    example: 'acp agent create --agent larry --display-name Larry --status active --actor clod --json',
+    example:
+      'acp agent create --agent larry --display-name Larry --status active --actor clod --json',
   })
 }
 
@@ -218,7 +253,8 @@ function renderAgentShowHelp(): string {
 
 function renderAgentPatchHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp agent patch --agent <agentId> [--display-name <name>] [--status <active|disabled>] --actor <agentId> [options]',
+    usage:
+      'acp agent patch --agent <agentId> [--display-name <name>] [--status <active|disabled>] --actor <agentId> [options]',
     summary: 'Patch an ACP admin agent.',
     example: 'acp agent patch --agent larry --display-name Larry --actor clod --json',
   })
@@ -234,9 +270,11 @@ function renderProjectHelp(): string {
 
 function renderProjectCreateHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp project create --project <projectId> --display-name <name> --actor <agentId> [options]',
+    usage:
+      'acp project create --project <projectId> --display-name <name> --actor <agentId> [options]',
     summary: 'Create one ACP project.',
-    example: 'acp project create --project agent-spaces --display-name "Agent Spaces" --actor clod --json',
+    example:
+      'acp project create --project agent-spaces --display-name "Agent Spaces" --actor clod --json',
   })
 }
 
@@ -258,7 +296,8 @@ function renderProjectShowHelp(): string {
 
 function renderProjectDefaultAgentHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp project default-agent --project <projectId> --agent <agentId> --actor <agentId> [options]',
+    usage:
+      'acp project default-agent --project <projectId> --agent <agentId> --actor <agentId> [options]',
     summary: 'Set the default agent for a project.',
     example: 'acp project default-agent --project agent-spaces --agent larry --actor clod --json',
   })
@@ -274,9 +313,11 @@ function renderMembershipHelp(): string {
 
 function renderMembershipAddHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp membership add --project <projectId> --agent <agentId> --role <role> --actor <agentId> [options]',
+    usage:
+      'acp membership add --project <projectId> --agent <agentId> --role <role> --actor <agentId> [options]',
     summary: 'Add one project membership.',
-    example: 'acp membership add --project agent-spaces --agent larry --role implementer --actor clod --json',
+    example:
+      'acp membership add --project agent-spaces --agent larry --role implementer --actor clod --json',
   })
 }
 
@@ -298,9 +339,11 @@ function renderInterfaceHelp(): string {
 
 function renderInterfaceIdentityRegisterHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp interface identity register --gateway <id> --external-id <ref> [--display-name <name>] [--linked-agent <agentId>] [options]',
+    usage:
+      'acp interface identity register --gateway <id> --external-id <ref> [--display-name <name>] [--linked-agent <agentId>] [options]',
     summary: 'Register one external interface identity.',
-    example: 'acp interface identity register --gateway discord --external-id user:123 --display-name Larry --json',
+    example:
+      'acp interface identity register --gateway discord --external-id user:123 --display-name Larry --json',
   })
 }
 
@@ -308,21 +351,25 @@ function renderSystemEventHelp(): string {
   return renderSimpleHelp({
     usage: 'acp system-event <push|list> [options]',
     summary: 'Append or list admin system events.',
-    example: 'acp system-event push --project agent-spaces --kind task.updated --payload {"taskId":"T-01186"} --occurred-at 2026-04-23T00:00:00Z --json',
+    example:
+      'acp system-event push --project agent-spaces --kind task.updated --payload {"taskId":"T-01186"} --occurred-at 2026-04-23T00:00:00Z --json',
   })
 }
 
 function renderSystemEventPushHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp system-event push --project <projectId> --kind <kind> --payload <json> --occurred-at <iso8601> [options]',
+    usage:
+      'acp system-event push --project <projectId> --kind <kind> --payload <json> --occurred-at <iso8601> [options]',
     summary: 'Append one admin system event.',
-    example: 'acp system-event push --project agent-spaces --kind workflow.updated --payload {"taskId":"T-01186"} --occurred-at 2026-04-23T00:00:00Z --json',
+    example:
+      'acp system-event push --project agent-spaces --kind workflow.updated --payload {"taskId":"T-01186"} --occurred-at 2026-04-23T00:00:00Z --json',
   })
 }
 
 function renderSystemEventListHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp system-event list [--project <projectId>] [--kind <kind>] [--occurred-after <iso8601>] [--occurred-before <iso8601>] [options]',
+    usage:
+      'acp system-event list [--project <projectId>] [--kind <kind>] [--occurred-after <iso8601>] [--occurred-before <iso8601>] [options]',
     summary: 'List admin system events with optional filters.',
     example: 'acp system-event list --project agent-spaces --kind workflow.updated --json',
   })
@@ -363,7 +410,8 @@ function renderSessionListHelp(): string {
 
 function renderSessionShowHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp session show (--session <sessionId> | --scope-ref <scopeRef> [--lane-ref <laneRef>]) [options]',
+    usage:
+      'acp session show (--session <sessionId> | --scope-ref <scopeRef> [--lane-ref <laneRef>]) [options]',
     summary: 'Show one ACP session.',
     example: 'acp session show --session hsid-123 --json',
   })
@@ -371,7 +419,8 @@ function renderSessionShowHelp(): string {
 
 function renderSessionRunsHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp session runs (--session <sessionId> | --scope-ref <scopeRef> [--lane-ref <laneRef>]) [options]',
+    usage:
+      'acp session runs (--session <sessionId> | --scope-ref <scopeRef> [--lane-ref <laneRef>]) [options]',
     summary: 'List runs associated with one session.',
     example: 'acp session runs --session hsid-123 --table',
   })
@@ -387,7 +436,8 @@ function renderSessionResetHelp(): string {
 
 function renderSessionInterruptHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp session interrupt (--session <sessionId> | --scope-ref <scopeRef> [--lane-ref <laneRef>]) [options]',
+    usage:
+      'acp session interrupt (--session <sessionId> | --scope-ref <scopeRef> [--lane-ref <laneRef>]) [options]',
     summary: 'Interrupt the latest runtime for a session.',
     example: 'acp session interrupt --session hsid-123 --json',
   })
@@ -395,7 +445,8 @@ function renderSessionInterruptHelp(): string {
 
 function renderSessionCaptureHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp session capture (--session <sessionId> | --scope-ref <scopeRef> [--lane-ref <laneRef>]) [options]',
+    usage:
+      'acp session capture (--session <sessionId> | --scope-ref <scopeRef> [--lane-ref <laneRef>]) [options]',
     summary: 'Capture recent runtime output for a session.',
     example: 'acp session capture --session hsid-123 --table',
   })
@@ -403,7 +454,8 @@ function renderSessionCaptureHelp(): string {
 
 function renderSessionAttachCommandHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp session attach-command (--session <sessionId> | --scope-ref <scopeRef> [--lane-ref <laneRef>]) [options]',
+    usage:
+      'acp session attach-command (--session <sessionId> | --scope-ref <scopeRef> [--lane-ref <laneRef>]) [options]',
     summary: 'Get the live attach command for a session runtime.',
     example: 'acp session attach-command --session hsid-123 --json',
   })
@@ -438,13 +490,25 @@ function renderSendHelp(): string {
     usage: 'acp send --scope-ref <scopeRef> [--lane-ref <laneRef>] --text <text> [options]',
     summary: 'Create an input attempt and ACP run for one session reference.',
     example: 'acp send --scope-ref agent:larry:project:agent-spaces --text "Proceed" --wait --json',
-    options: ['--idempotency-key <key>', '--meta <json>', '--wait', '--wait-timeout-ms <ms>', '--wait-interval-ms <ms>', '--no-dispatch', '--server <url>', '--actor <agentId>', '--json', '--table'],
+    options: [
+      '--idempotency-key <key>',
+      '--meta <json>',
+      '--wait',
+      '--wait-timeout-ms <ms>',
+      '--wait-interval-ms <ms>',
+      '--no-dispatch',
+      '--server <url>',
+      '--actor <agentId>',
+      '--json',
+      '--table',
+    ],
   })
 }
 
 function renderTailHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp tail (--session <sessionId> | --scope-ref <scopeRef> [--lane-ref <laneRef>]) [--from-seq <n>] [options]',
+    usage:
+      'acp tail (--session <sessionId> | --scope-ref <scopeRef> [--lane-ref <laneRef>]) [--from-seq <n>] [options]',
     summary: 'Stream session events as NDJSON or a compact table.',
     example: 'acp tail --session hsid-123 --from-seq 41',
   })
@@ -452,7 +516,8 @@ function renderTailHelp(): string {
 
 function renderRenderHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp render (--session <sessionId> | --scope-ref <scopeRef> [--lane-ref <laneRef>]) [options]',
+    usage:
+      'acp render (--session <sessionId> | --scope-ref <scopeRef> [--lane-ref <laneRef>]) [options]',
     summary: 'Render the latest available session output snapshot.',
     example: 'acp render --scope-ref agent:larry:project:agent-spaces --table',
   })
@@ -462,24 +527,39 @@ function renderMessageHelp(): string {
   return renderSimpleHelp({
     usage: 'acp message <send|broadcast> [options]',
     summary: 'Send coordination messages.',
-    example: 'acp message send --project agent-spaces --from-agent larry --to-agent clod --text "ready" --json',
+    example:
+      'acp message send --project agent-spaces --from-agent larry --to-agent clod --text "ready" --json',
   })
 }
 
 function renderMessageSendHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp message send --project <projectId> --text <text> (--to-agent <agentId> | --to-human <humanId> | --to-session <scopeRef> | --to-system) [options]',
+    usage:
+      'acp message send --project <projectId> --text <text> (--to-agent <agentId> | --to-human <humanId> | --to-session <scopeRef> | --to-system) [options]',
     summary: 'Send one coordination message to one recipient.',
-    example: 'acp message send --project agent-spaces --from-agent larry --to-agent clod --text "Please review" --json',
-    options: ['--from-agent <agentId> | --from-human <humanId> | --from-session <scopeRef> | --from-system', '--to-lane-ref <laneRef>   Used with --to-session', '--wake', '--dispatch', '--coordination-only', '--server <url>', '--actor <agentId>', '--json', '--table'],
+    example:
+      'acp message send --project agent-spaces --from-agent larry --to-agent clod --text "Please review" --json',
+    options: [
+      '--from-agent <agentId> | --from-human <humanId> | --from-session <scopeRef> | --from-system',
+      '--to-lane-ref <laneRef>   Used with --to-session',
+      '--wake',
+      '--dispatch',
+      '--coordination-only',
+      '--server <url>',
+      '--actor <agentId>',
+      '--json',
+      '--table',
+    ],
   })
 }
 
 function renderMessageBroadcastHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp message broadcast --project <projectId> --text <text> [--to-agent <agentId>]... [options]',
+    usage:
+      'acp message broadcast --project <projectId> --text <text> [--to-agent <agentId>]... [options]',
     summary: 'Broadcast one coordination message to repeated explicit recipients.',
-    example: 'acp message broadcast --project agent-spaces --from-agent larry --to-agent clod --to-agent rex --text "deploy starts now" --json',
+    example:
+      'acp message broadcast --project agent-spaces --from-agent larry --to-agent clod --to-agent rex --text "deploy starts now" --json',
   })
 }
 
@@ -493,9 +573,11 @@ function renderJobHelp(): string {
 
 function renderJobCreateHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp job create --project <projectId> --agent <agentId> --scope-ref <scopeRef> --cron <expr> --input <json> [--job <jobId>] [options]',
+    usage:
+      'acp job create --project <projectId> --agent <agentId> --scope-ref <scopeRef> --cron <expr> --input <json> [--job <jobId>] [options]',
     summary: 'Create one ACP job.',
-    example: 'acp job create --project agent-spaces --agent larry --scope-ref agent:larry:project:agent-spaces --cron "0 * * * *" --input {"content":"status"} --json',
+    example:
+      'acp job create --project agent-spaces --agent larry --scope-ref agent:larry:project:agent-spaces --cron "0 * * * *" --input {"content":"status"} --json',
     options: ['--lane-ref <laneRef>', '--disabled', '--server <url>', '--json', '--table'],
   })
 }
@@ -518,7 +600,8 @@ function renderJobShowHelp(): string {
 
 function renderJobPatchHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp job patch --job <jobId> [--cron <expr>] [--input <json>] [--enabled|--disabled] [options]',
+    usage:
+      'acp job patch --job <jobId> [--cron <expr>] [--input <json>] [--enabled|--disabled] [options]',
     summary: 'Patch one ACP job.',
     example: 'acp job patch --job job_daily_status --disabled --json',
   })
@@ -598,7 +681,8 @@ function renderDeliveryRetryHelp(): string {
 
 function renderDeliveryListFailedHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp delivery list-failed [--gateway <gatewayId>] [--since <cursor>] [--limit <n>] [options]',
+    usage:
+      'acp delivery list-failed [--gateway <gatewayId>] [--since <cursor>] [--limit <n>] [options]',
     summary: 'List failed gateway deliveries.',
     example: 'acp delivery list-failed --limit 20 --table',
   })
@@ -614,7 +698,8 @@ function renderThreadHelp(): string {
 
 function renderThreadListHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp thread list [--project <projectId>] [--scope-ref <scopeRef> [--lane-ref <laneRef>]] [options]',
+    usage:
+      'acp thread list [--project <projectId>] [--scope-ref <scopeRef> [--lane-ref <laneRef>]] [options]',
     summary: 'List conversation threads.',
     example: 'acp thread list --project agent-spaces --table',
   })
@@ -675,7 +760,11 @@ async function runTaskCommand(args: string[], deps: CommandDependencies): Promis
   if (subcommand === 'evidence') {
     const nestedSubcommand = rest[0]
     const nestedArgs = rest.slice(1)
-    if (nestedSubcommand === undefined || nestedSubcommand === '--help' || nestedSubcommand === '-h') {
+    if (
+      nestedSubcommand === undefined ||
+      nestedSubcommand === '--help' ||
+      nestedSubcommand === '-h'
+    ) {
       process.stdout.write(`${renderTaskEvidenceHelp()}\n`)
       return
     }
@@ -711,7 +800,10 @@ async function runTaskCommand(args: string[], deps: CommandDependencies): Promis
   throw new CliUsageError(`unknown task subcommand: ${subcommand}`)
 }
 
-async function runAdminInterfaceBindingCommand(args: string[], deps: CommandDependencies): Promise<void> {
+async function runAdminInterfaceBindingCommand(
+  args: string[],
+  deps: CommandDependencies
+): Promise<void> {
   const subcommand = args[0]
   const rest = args.slice(1)
 
@@ -765,7 +857,11 @@ async function runAdminCommand(args: string[], deps: CommandDependencies): Promi
 
   const nestedSubcommand = rest[0]
   const nestedArgs = rest.slice(1)
-  if (nestedSubcommand === undefined || nestedSubcommand === '--help' || nestedSubcommand === '-h') {
+  if (
+    nestedSubcommand === undefined ||
+    nestedSubcommand === '--help' ||
+    nestedSubcommand === '-h'
+  ) {
     process.stdout.write(`${renderAdminInterfaceHelp()}\n`)
     return
   }

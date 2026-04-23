@@ -53,11 +53,12 @@ describe('delivery requeue', () => {
         requeuedBy: 'smokey',
       })
 
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         ok: true,
         delivery: {
           deliveryRequestId: expect.not.stringMatching(/^dr-failed$/),
           linkedFailureId: 'dr-failed',
+          actor: { kind: 'system', id: 'acp-local' },
           gatewayId: 'discord_prod',
           bindingId: 'ifb_1',
           scopeRef: 'agent:smokey:project:test',

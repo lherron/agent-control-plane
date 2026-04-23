@@ -24,6 +24,14 @@ export const handleFailGatewayDelivery: RouteHandler = async ({ request, params,
     failureMessage: requireTrimmedStringField(body, 'message'),
   })
 
+  // Conversation hook: advance linked assistant turn to failed
+  if (deps.conversationStore !== undefined) {
+    const turn = deps.conversationStore.findTurnByLink('linksDeliveryRequestId', deliveryRequestId)
+    if (turn !== undefined) {
+      deps.conversationStore.updateRenderState(turn.turnId, 'failed')
+    }
+  }
+
   return json({
     delivery: toApiDeliveryRequest(
       requireDeliveryForTransition(updatedDelivery, deliveryRequestId)

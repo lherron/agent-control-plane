@@ -23,8 +23,12 @@
     "test": "bun test"
   },
   "dependencies": {
+    "acp-admin-store": "*",
+    "acp-conversation": "*",
     "acp-core": "*",
     "acp-interface-store": "*",
+    "acp-jobs-store": "*",
+    "acp-state-store": "*",
     "agent-scope": "*",
     "coordination-substrate": "*",
     "hrc-core": "*",

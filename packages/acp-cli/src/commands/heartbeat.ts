@@ -1,10 +1,7 @@
 import { parseArgs, requireNoPositionals, requireStringFlag } from '../cli-args.js'
 import { CliUsageError } from '../cli-runtime.js'
 
-import {
-  createGovernanceClient,
-  renderGovernanceResponse,
-} from './admin-governance-shared.js'
+import { createGovernanceClient, renderGovernanceResponse } from './admin-governance-shared.js'
 import type { CommandDependencies, CommandOutput } from './shared.js'
 
 export async function runHeartbeatCommand(

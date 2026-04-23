@@ -1,7 +1,13 @@
+import type { Actor } from 'acp-core'
+
+import { randomUUID } from 'node:crypto'
+
 import type {
   DeliveryFailureInput,
   DeliveryRequest,
   EnqueueDeliveryRequestInput,
+  ListFailedDeliveryRequestsInput,
+  RequeueDeliveryRequestResult,
 } from '../types.js'
 
 import type { RepoContext } from './shared.js'
@@ -9,6 +15,10 @@ import { toOptionalString } from './shared.js'
 
 type DeliveryRequestRow = {
   delivery_request_id: string
+  linked_failure_id: string | null
+  actor_kind: Actor['kind'] | null
+  actor_id: string | null
+  actor_display_name: string | null
   gateway_id: string
   binding_id: string
   scope_ref: string
@@ -30,6 +40,14 @@ type DeliveryRequestRow = {
 function mapDeliveryRequestRow(row: DeliveryRequestRow): DeliveryRequest {
   return {
     deliveryRequestId: row.delivery_request_id,
+    linkedFailureId: toOptionalString(row.linked_failure_id),
+    actor: {
+      kind: (row.actor_kind ?? 'system') as Actor['kind'],
+      id: row.actor_id ?? 'acp-local',
+      ...(toOptionalString(row.actor_display_name) !== undefined
+        ? { displayName: toOptionalString(row.actor_display_name) }
+        : {}),
+    },
     gatewayId: row.gateway_id,
     bindingId: row.binding_id,
     scopeRef: row.scope_ref,
@@ -53,10 +71,15 @@ export class DeliveryRequestRepo {
   constructor(private readonly context: RepoContext) {}
 
   enqueue(input: EnqueueDeliveryRequestInput): DeliveryRequest {
+    const actor = input.actor ?? { kind: 'system', id: 'acp-local' }
     this.context.sqlite
       .prepare(
         `INSERT INTO delivery_requests (
            delivery_request_id,
+           linked_failure_id,
+           actor_kind,
+           actor_id,
+           actor_display_name,
            gateway_id,
            binding_id,
            scope_ref,
@@ -73,10 +96,13 @@ export class DeliveryRequestRepo {
            delivered_at,
            failure_code,
            failure_message
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)`
+         ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)`
       )
       .run(
         input.deliveryRequestId,
+        actor.kind,
+        actor.id,
+        actor.displayName ?? null,
         input.gatewayId,
         input.bindingId,
         input.scopeRef,
@@ -98,6 +124,10 @@ export class DeliveryRequestRepo {
     const rows = this.context.sqlite
       .prepare(
         `SELECT delivery_request_id,
+                linked_failure_id,
+                actor_kind,
+                actor_id,
+                actor_display_name,
                 gateway_id,
                 binding_id,
                 scope_ref,
@@ -198,6 +228,10 @@ export class DeliveryRequestRepo {
     const row = this.context.sqlite
       .prepare(
         `SELECT delivery_request_id,
+                linked_failure_id,
+                actor_kind,
+                actor_id,
+                actor_display_name,
                 gateway_id,
                 binding_id,
                 scope_ref,
@@ -220,6 +254,127 @@ export class DeliveryRequestRepo {
       .get(deliveryRequestId) as DeliveryRequestRow | undefined
 
     return row === undefined ? undefined : mapDeliveryRequestRow(row)
+  }
+
+  listFailed(input: ListFailedDeliveryRequestsInput = {}): DeliveryRequest[] {
+    const where = [`status = 'failed'`]
+    const params: unknown[] = []
+
+    if (input.gatewayId !== undefined) {
+      where.push('gateway_id = ?')
+      params.push(input.gatewayId)
+    }
+
+    if (input.since !== undefined) {
+      where.push('created_at > ?')
+      params.push(input.since)
+    }
+
+    const limit = input.limit ?? 50
+
+    const rows = this.context.sqlite
+      .prepare(
+        `SELECT delivery_request_id,
+                linked_failure_id,
+                actor_kind,
+                actor_id,
+                actor_display_name,
+                gateway_id,
+                binding_id,
+                scope_ref,
+                lane_ref,
+                run_id,
+                input_attempt_id,
+                conversation_ref,
+                thread_ref,
+                reply_to_message_ref,
+                body_kind,
+                body_text,
+                status,
+                created_at,
+                delivered_at,
+                failure_code,
+                failure_message
+           FROM delivery_requests
+          WHERE ${where.join(' AND ')}
+          ORDER BY created_at ASC, delivery_request_id ASC
+          LIMIT ?`
+      )
+      .all(...params, limit) as DeliveryRequestRow[]
+
+    return rows.map(mapDeliveryRequestRow)
+  }
+
+  requeue(deliveryRequestId: string, input: { requeuedBy: string }): RequeueDeliveryRequestResult {
+    void input.requeuedBy
+
+    return this.context.sqlite.transaction(() => {
+      const source = this.get(deliveryRequestId)
+      if (source === undefined) {
+        return { ok: false, code: 'not_found' } satisfies RequeueDeliveryRequestResult
+      }
+
+      if (source.status !== 'failed') {
+        return { ok: false, code: 'wrong_state' } satisfies RequeueDeliveryRequestResult
+      }
+
+      const requeuedDeliveryRequestId = `dr_${randomUUID().replace(/-/g, '').slice(0, 12)}`
+      const createdAt = new Date().toISOString()
+
+      this.context.sqlite
+        .prepare(
+          `INSERT INTO delivery_requests (
+             delivery_request_id,
+             linked_failure_id,
+             actor_kind,
+             actor_id,
+             actor_display_name,
+             gateway_id,
+             binding_id,
+             scope_ref,
+             lane_ref,
+             run_id,
+             input_attempt_id,
+             conversation_ref,
+             thread_ref,
+             reply_to_message_ref,
+             body_kind,
+             body_text,
+             status,
+             created_at,
+             delivered_at,
+             failure_code,
+             failure_message
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)`
+        )
+        .run(
+          requeuedDeliveryRequestId,
+          source.deliveryRequestId,
+          source.actor.kind,
+          source.actor.id,
+          source.actor.displayName ?? null,
+          source.gatewayId,
+          source.bindingId,
+          source.scopeRef,
+          source.laneRef,
+          source.runId ?? null,
+          source.inputAttemptId ?? null,
+          source.conversationRef,
+          source.threadRef ?? null,
+          source.replyToMessageRef ?? null,
+          source.bodyKind,
+          source.bodyText,
+          createdAt
+        )
+
+      return {
+        ok: true,
+        delivery: this.require(requeuedDeliveryRequestId) as DeliveryRequest & {
+          linkedFailureId: string
+          status: 'queued'
+        },
+      } satisfies RequeueDeliveryRequestResult
+    })()
   }
 
   private require(deliveryRequestId: string): DeliveryRequest {

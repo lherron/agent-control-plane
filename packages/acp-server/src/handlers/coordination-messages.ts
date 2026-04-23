@@ -22,10 +22,7 @@ import type { RouteHandler } from '../routing/route-context.js'
 
 const VALID_KINDS = messageParticipantKinds as readonly string[]
 
-function parseParticipant(
-  raw: unknown,
-  prefix: 'from' | 'to'
-): MessageParticipant {
+function parseParticipant(raw: unknown, prefix: 'from' | 'to'): MessageParticipant {
   if (!isRecord(raw)) {
     badRequest(`${prefix} must be an object`)
   }
@@ -161,7 +158,7 @@ export const handleCreateCoordinationMessage: RouteHandler = async (context) => 
   const { request, deps } = context
   const body = requireRecord(await parseJsonBody(request))
   const projectId = requireTrimmedStringField(body, 'projectId')
-  const from = parseParticipant(body['from'], 'from')
+  const _from = parseParticipant(body['from'], 'from')
   const to = parseParticipant(body['to'], 'to')
   const rawBody = body['body']
   if (rawBody === undefined) {

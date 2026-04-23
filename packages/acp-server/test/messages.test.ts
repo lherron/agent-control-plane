@@ -1,11 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 
-import { listEvents, listOpenHandoffs, listPendingWakes } from 'coordination-substrate'
-
 import { withWiredServer } from './fixtures/wired-server.js'
 
-describe('POST /v1/messages', () => {
-  test('appends a coordination event', async () => {
+describe('POST /v1/messages (deprecated — 410 Gone)', () => {
+  test('returns 410 for raw coordination append body', async () => {
     await withWiredServer(async (fixture) => {
       const response = await fixture.request({
         method: 'POST',
@@ -20,12 +18,14 @@ describe('POST /v1/messages', () => {
         },
       })
 
-      expect(response.status).toBe(201)
-      expect(listEvents(fixture.coordStore, { projectId: fixture.seed.projectId })).toHaveLength(1)
+      expect(response.status).toBe(410)
+      expect(await fixture.json<{ error: { code: string } }>(response)).toMatchObject({
+        error: { code: 'route_moved' },
+      })
     })
   })
 
-  test('appends an event with handoff and wake', async () => {
+  test('returns 410 for raw coordination append with handoff and wake', async () => {
     await withWiredServer(async (fixture) => {
       const sessionRef = {
         scopeRef: 'agent:curly:project:demo:task:T-70002:role:tester',
@@ -55,40 +55,10 @@ describe('POST /v1/messages', () => {
         },
       })
 
-      expect(response.status).toBe(201)
-      expect(
-        listOpenHandoffs(fixture.coordStore, {
-          projectId: fixture.seed.projectId,
-          taskId: 'T-70002',
-        })
-      ).toHaveLength(1)
-      expect(
-        listPendingWakes(fixture.coordStore, { projectId: fixture.seed.projectId, sessionRef })
-      ).toHaveLength(1)
-    })
-  })
-
-  test('returns 422 for non-canonical wake targets', async () => {
-    await withWiredServer(async (fixture) => {
-      const response = await fixture.request({
-        method: 'POST',
-        path: '/v1/messages',
-        body: {
-          projectId: fixture.seed.projectId,
-          event: {
-            ts: '2026-04-19T00:00:02.000Z',
-            kind: 'attention.requested',
-          },
-          wake: {
-            sessionRef: {
-              scopeRef: 'agent:curly:project:demo:task:T-70003:role:tester',
-            },
-            reason: 'bad wake',
-          },
-        },
+      expect(response.status).toBe(410)
+      expect(await fixture.json<{ error: { code: string } }>(response)).toMatchObject({
+        error: { code: 'route_moved' },
       })
-
-      expect(response.status).toBe(422)
     })
   })
 })

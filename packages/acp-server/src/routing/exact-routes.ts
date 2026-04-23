@@ -1,23 +1,14 @@
-import { handleCreateAdminJob, handleListAdminJobs } from '../handlers/admin-jobs.js'
 import { handleCreateAdminAgent, handleListAdminAgents } from '../handlers/admin-agents.js'
 import {
   handleListInterfaceIdentities,
   handleRegisterInterfaceIdentity,
 } from '../handlers/admin-interface-identities.js'
-import {
-  handleCreateMembership,
-  handleListMemberships,
-} from '../handlers/admin-memberships.js'
-import {
-  handleCreateAdminProject,
-  handleListAdminProjects,
-} from '../handlers/admin-projects.js'
-import {
-  handleAppendSystemEvent,
-  handleListSystemEvents,
-} from '../handlers/admin-system-events.js'
-import { handleCreateCoordinationMessage } from '../handlers/coordination-messages.js'
+import { handleCreateAdminJob, handleListAdminJobs } from '../handlers/admin-jobs.js'
+import { handleCreateMembership, handleListMemberships } from '../handlers/admin-memberships.js'
+import { handleCreateAdminProject, handleListAdminProjects } from '../handlers/admin-projects.js'
+import { handleAppendSystemEvent, handleListSystemEvents } from '../handlers/admin-system-events.js'
 import { handleListConversationThreads } from '../handlers/conversation-threads.js'
+import { handleCreateCoordinationMessage } from '../handlers/coordination-messages.js'
 import { handleListFailedDeliveries } from '../handlers/delivery-list-failed.js'
 import { handleCreateInput } from '../handlers/inputs.js'
 import { handleCreateInterfaceBinding } from '../handlers/interface-bindings-create.js'
@@ -42,7 +33,11 @@ export function exactRouteKey(method: string, pathname: string): string {
   return `${method} ${pathname}`
 }
 
-function maybeWrapMutatingRoute(method: string, pathname: string, handler: RouteHandler): RouteHandler {
+function maybeWrapMutatingRoute(
+  method: string,
+  pathname: string,
+  handler: RouteHandler
+): RouteHandler {
   const spec = mutatingRouteSpecs[exactRouteKey(method, pathname)]
   return spec === undefined ? handler : withActorAndAuthz(spec, handler)
 }

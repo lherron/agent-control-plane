@@ -63,7 +63,11 @@ describe('admin interface identity endpoints', () => {
       expect(listResponse.status).toBe(200)
       expect(
         await fixture.json<{
-          interfaceIdentities: Array<{ gatewayId: string; externalId: string; linkedAgentId?: string | undefined }>
+          interfaceIdentities: Array<{
+            gatewayId: string
+            externalId: string
+            linkedAgentId?: string | undefined
+          }>
         }>(listResponse)
       ).toEqual({
         interfaceIdentities: [
@@ -101,7 +105,9 @@ describe('admin interface identity endpoints', () => {
       })
 
       expect(response.status).toBe(400)
-      expect(await fixture.json<{ error: { code: string; details?: { field?: string } } }>(response)).toEqual({
+      expect(
+        await fixture.json<{ error: { code: string; details?: { field?: string } } }>(response)
+      ).toEqual({
         error: expect.objectContaining({
           code: 'malformed_request',
           details: expect.objectContaining({ field: 'gateway' }),

@@ -127,6 +127,36 @@ function createConversationStoreSpy(): {
     attachLinksCalls,
     seedTurn(turn) {
       turnsById.set(turn.turnId, structuredClone(turn))
+      // Also index in SQLite so findTurnByLink can discover seeded turns
+      try {
+        baseStore.sqlite
+          .prepare(
+            `INSERT OR REPLACE INTO conversation_turns
+              (turnId, threadId, role, body, renderState, actorKind, actorId, sentAt,
+               linksInputAttemptId, linksRunId, linksTaskId, linksHandoffId,
+               linksDeliveryRequestId, linksCoordinationEventId, failureReason)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .run(
+            turn.turnId,
+            turn.threadId,
+            turn.role,
+            turn.body,
+            turn.renderState,
+            turn.actor?.kind ?? null,
+            turn.actor?.id ?? null,
+            turn.sentAt,
+            turn.links?.inputAttemptId ?? null,
+            turn.links?.runId ?? null,
+            turn.links?.taskId ?? null,
+            turn.links?.handoffId ?? null,
+            turn.links?.deliveryRequestId ?? null,
+            turn.links?.coordinationEventId ?? null,
+            null
+          )
+      } catch {
+        // Ignore if SQLite table not ready
+      }
     },
     close() {
       baseStore.close()
@@ -244,7 +274,7 @@ describe('conversation write-points', () => {
                 body: 'Visible response',
                 renderState: 'pending',
                 links: { runId: payload.runId },
-                actor: { kind: 'agent', id: 'curly' },
+                actor: { kind: 'system', id: 'acp-local' },
                 sentAt: expect.any(String),
               },
             ])
@@ -454,51 +484,23 @@ describe('conversation write-points', () => {
     }
   })
 
-  test('coordination append does not create a turn, but attaches the event id onto an existing linked turn', async () => {
-    const conversation = createConversationStoreSpy()
-
-    try {
-      await withWiredServer(
-        async (fixture) => {
-          conversation.seedTurn({
-            turnId: 'turn_existing',
-            threadId: 'thread_0001',
-            role: 'assistant',
-            body: 'Existing assistant turn',
-            renderState: 'pending',
+  test('POST /v1/messages returns 410 after P1.8 rename', async () => {
+    await withWiredServer(async (fixture) => {
+      const response = await fixture.request({
+        method: 'POST',
+        path: '/v1/messages',
+        body: {
+          projectId: fixture.seed.projectId,
+          event: {
+            ts: '2026-04-23T12:20:01.000Z',
+            kind: 'message.posted',
+            content: { kind: 'text', body: 'coordination note' },
             links: { runId: 'run_existing' },
-            actor: { kind: 'agent', id: 'curly' },
-            sentAt: '2026-04-23T12:20:00.000Z',
-          })
-
-          const response = await fixture.request({
-            method: 'POST',
-            path: '/v1/messages',
-            body: {
-              projectId: fixture.seed.projectId,
-              event: {
-                ts: '2026-04-23T12:20:01.000Z',
-                kind: 'message.posted',
-                content: { kind: 'text', body: 'coordination note' },
-                links: { runId: 'run_existing' },
-              },
-            },
-          })
-          const payload = await fixture.json<{ event: { eventId: string } }>(response)
-
-          expect(response.status).toBe(201)
-          expect(conversation.createTurnCalls).toEqual([])
-          expect(conversation.attachLinksCalls).toEqual([
-            {
-              turnId: 'turn_existing',
-              links: { coordinationEventId: payload.event.eventId },
-            },
-          ])
+          },
         },
-        { conversationStore: conversation.store }
-      )
-    } finally {
-      conversation.close()
-    }
+      })
+
+      expect(response.status).toBe(410)
+    })
   })
 })
