@@ -23,7 +23,7 @@ describe('POST /v1/tasks', () => {
 
       expect(response.status).toBe(201)
       expect(payload.task['taskId']).toMatch(/^T-/)
-      expect(payload.task['phase']).toBe('open')
+      expect(payload.task['phase']).toBe('red')
       expect(payload.task['lifecycleState']).toBe('open')
       expect(payload.task['version']).toBe(0)
       expect(payload.task['workflowPreset']).toBe('code_defect_fastlane')
@@ -69,6 +69,46 @@ describe('POST /v1/tasks', () => {
       expect(response.status).toBe(201)
       expect(payload.task['riskClass']).toBe('medium')
       expect(payload.task['roleMap']).toEqual({ implementer: 'larry' })
+    })
+  })
+
+  test('creates a task without workflowPreset — phase is null', async () => {
+    await withWiredServer(async (fixture) => {
+      const response = await fixture.request({
+        method: 'POST',
+        path: '/v1/tasks',
+        body: {
+          projectId: fixture.seed.projectId,
+          roleMap: { implementer: 'larry' },
+          actor: { agentId: 'tracy' },
+        },
+      })
+
+      const payload = await fixture.json<{ task: Record<string, unknown> }>(response)
+
+      expect(response.status).toBe(201)
+      expect(payload.task['phase']).toBeNull()
+      expect(payload.task['lifecycleState']).toBe('open')
+      expect(payload.task['workflowPreset']).toBeUndefined()
+    })
+  })
+
+  test('rejects phase when workflowPreset is absent', async () => {
+    await withWiredServer(async (fixture) => {
+      const response = await fixture.request({
+        method: 'POST',
+        path: '/v1/tasks',
+        body: {
+          projectId: fixture.seed.projectId,
+          phase: 'red',
+          roleMap: { implementer: 'larry' },
+          actor: { agentId: 'tracy' },
+        },
+      })
+
+      const payload = await fixture.json<{ error: { code: string } }>(response)
+      expect(response.status).toBe(422)
+      expect(payload.error.code).toBe('phase_requires_preset')
     })
   })
 

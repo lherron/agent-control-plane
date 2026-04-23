@@ -11,15 +11,17 @@ describe('POST /v1/tasks/:taskId/transitions', () => {
   test('applies a valid transition', async () => {
     await withWiredServer(async (fixture) => {
       const task = fixture.wrkqStore.taskRepo.createTask(
-        createTestTask({ taskId: 'T-40001', projectId: fixture.seed.projectId, phase: 'open' })
+        createTestTask({ taskId: 'T-40001', projectId: fixture.seed.projectId, phase: 'red' })
       )
-      fixture.wrkqStore.evidenceRepo.appendEvidence(task.taskId, [createEvidence('tdd_red_bundle')])
+      fixture.wrkqStore.evidenceRepo.appendEvidence(task.taskId, [
+        createEvidence('tdd_green_bundle'),
+      ])
 
       const response = await fixture.request({
         method: 'POST',
         path: `/v1/tasks/${task.taskId}/transitions`,
         body: {
-          toPhase: 'red',
+          toPhase: 'green',
           actor: { agentId: 'larry', role: 'implementer' },
           expectedVersion: 0,
         },
@@ -30,24 +32,26 @@ describe('POST /v1/tasks/:taskId/transitions', () => {
       }>(response)
 
       expect(response.status).toBe(200)
-      expect(payload.task.phase).toBe('red')
+      expect(payload.task.phase).toBe('green')
       expect(payload.task.version).toBe(1)
-      expect(payload.transition.to.phase).toBe('red')
+      expect(payload.transition.to.phase).toBe('green')
     })
   })
 
   test('returns role_not_allowed', async () => {
     await withWiredServer(async (fixture) => {
       const task = fixture.wrkqStore.taskRepo.createTask(
-        createTestTask({ taskId: 'T-40002', projectId: fixture.seed.projectId, phase: 'open' })
+        createTestTask({ taskId: 'T-40002', projectId: fixture.seed.projectId, phase: 'red' })
       )
-      fixture.wrkqStore.evidenceRepo.appendEvidence(task.taskId, [createEvidence('tdd_red_bundle')])
+      fixture.wrkqStore.evidenceRepo.appendEvidence(task.taskId, [
+        createEvidence('tdd_green_bundle'),
+      ])
 
       const response = await fixture.request({
         method: 'POST',
         path: `/v1/tasks/${task.taskId}/transitions`,
         body: {
-          toPhase: 'red',
+          toPhase: 'green',
           actor: { agentId: 'curly', role: 'tester' },
           expectedVersion: 0,
         },
@@ -202,7 +206,7 @@ describe('POST /v1/tasks/:taskId/transitions', () => {
   test('returns unknown_transition', async () => {
     await withWiredServer(async (fixture) => {
       const task = fixture.wrkqStore.taskRepo.createTask(
-        createTestTask({ taskId: 'T-40007', projectId: fixture.seed.projectId, phase: 'open' })
+        createTestTask({ taskId: 'T-40007', projectId: fixture.seed.projectId, phase: 'red' })
       )
 
       const response = await fixture.request({
@@ -241,9 +245,42 @@ describe('POST /v1/tasks/:taskId/transitions', () => {
       }>(response)
 
       expect(response.status).toBe(200)
-      expect(payload.task.phase).toBe('completed')
+      expect(payload.task.phase).toBe('verified')
       expect(payload.task.lifecycleState).toBe('completed')
       expect(payload.task.version).toBe(1)
+    })
+  })
+
+  test('phase transition from open lifecycle activates the task', async () => {
+    await withWiredServer(async (fixture) => {
+      const task = fixture.wrkqStore.taskRepo.createTask(
+        createTestTask({
+          taskId: 'T-40009',
+          projectId: fixture.seed.projectId,
+          phase: 'red',
+          lifecycleState: 'open',
+        })
+      )
+      fixture.wrkqStore.evidenceRepo.appendEvidence(task.taskId, [
+        createEvidence('tdd_green_bundle'),
+      ])
+
+      const response = await fixture.request({
+        method: 'POST',
+        path: `/v1/tasks/${task.taskId}/transitions`,
+        body: {
+          toPhase: 'green',
+          actor: { agentId: 'larry', role: 'implementer' },
+          expectedVersion: 0,
+        },
+      })
+      const payload = await fixture.json<{
+        task: { phase: string; lifecycleState: string }
+      }>(response)
+
+      expect(response.status).toBe(200)
+      expect(payload.task.phase).toBe('green')
+      expect(payload.task.lifecycleState).toBe('active')
     })
   })
 

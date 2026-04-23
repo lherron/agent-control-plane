@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 
 import type { Task } from 'acp-core'
 
-import { json } from '../http.js'
+import { json, unprocessable } from '../http.js'
 import { extractActor } from '../parsers/actor.js'
 import {
   parseJsonBody,
@@ -34,6 +34,14 @@ export const handleCreateTask: RouteHandler = async ({ request, deps }) => {
       ? deps.presetRegistry.getPreset(workflowPreset, presetVersion)
       : undefined
 
+  // Reject phase when workflowPreset is absent
+  const explicitPhase = readOptionalTrimmedStringField(body, 'phase')
+  if (explicitPhase !== undefined && preset === undefined) {
+    unprocessable('phase_requires_preset', 'phase is only valid when workflowPreset is set', {
+      field: 'phase',
+    })
+  }
+
   const task: Task = {
     taskId: readOptionalTrimmedStringField(body, 'taskId') ?? createTaskId(),
     projectId: requireTrimmedStringField(body, 'projectId'),
@@ -41,7 +49,7 @@ export const handleCreateTask: RouteHandler = async ({ request, deps }) => {
     ...(workflowPreset !== undefined ? { workflowPreset } : {}),
     ...(presetVersion !== undefined ? { presetVersion } : {}),
     lifecycleState: 'open',
-    phase: preset?.phaseGraph[0] ?? '',
+    phase: preset !== undefined ? (preset.phaseGraph[0] ?? null) : null,
     ...(readOptionalTrimmedStringField(body, 'riskClass') !== undefined
       ? { riskClass: readOptionalTrimmedStringField(body, 'riskClass') }
       : {}),

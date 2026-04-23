@@ -173,6 +173,7 @@ export interface AcpClient {
     actorAgentId: string
     agentId: string
     displayName?: string | undefined
+    homeDir?: string | undefined
     status: 'active' | 'disabled'
   }): Promise<CreateAgentResponse>
   listAgents(): Promise<ListAgentsResponse>
@@ -181,12 +182,14 @@ export interface AcpClient {
     actorAgentId: string
     agentId: string
     displayName?: string | undefined
+    homeDir?: string | undefined
     status?: 'active' | 'disabled' | undefined
   }): Promise<CreateAgentResponse>
   createProject(input: {
     actorAgentId: string
     projectId: string
     displayName: string
+    rootDir?: string | undefined
   }): Promise<CreateProjectResponse>
   listProjects(): Promise<ListProjectsResponse>
   getProject(input: { projectId: string }): Promise<CreateProjectResponse>
@@ -224,9 +227,13 @@ export interface AcpClient {
     agentId: string
     source?: string | undefined
     note?: string | undefined
+    scopeRef?: string | undefined
+    laneRef?: string | undefined
   }): Promise<PutHeartbeatResponse>
   postHeartbeatWake(input: {
     agentId: string
+    scopeRef?: string | undefined
+    laneRef?: string | undefined
   }): Promise<PostHeartbeatWakeResponse>
 }
 
@@ -468,6 +475,7 @@ export function createHttpClient(
         body: {
           agentId: input.agentId,
           ...(input.displayName !== undefined ? { displayName: input.displayName } : {}),
+          ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
           status: input.status,
           actor: { kind: 'agent', id: input.actorAgentId },
         },
@@ -495,6 +503,7 @@ export function createHttpClient(
         actorAgentId: input.actorAgentId,
         body: {
           ...(input.displayName !== undefined ? { displayName: input.displayName } : {}),
+          ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
           ...(input.status !== undefined ? { status: input.status } : {}),
           actor: { kind: 'agent', id: input.actorAgentId },
         },
@@ -509,6 +518,7 @@ export function createHttpClient(
         body: {
           projectId: input.projectId,
           displayName: input.displayName,
+          ...(input.rootDir !== undefined ? { rootDir: input.rootDir } : {}),
           actor: { kind: 'agent', id: input.actorAgentId },
         },
       })
@@ -616,6 +626,8 @@ export function createHttpClient(
         body: {
           ...(input.source !== undefined ? { source: input.source } : {}),
           ...(input.note !== undefined ? { note: input.note } : {}),
+          ...(input.scopeRef !== undefined ? { scopeRef: input.scopeRef } : {}),
+          ...(input.laneRef !== undefined ? { laneRef: input.laneRef } : {}),
         },
       })
     },
@@ -624,7 +636,10 @@ export function createHttpClient(
       return request<PostHeartbeatWakeResponse>({
         method: 'POST',
         path: `/v1/admin/agents/${encodeURIComponent(input.agentId)}/heartbeat/wake`,
-        body: {},
+        body: {
+          ...(input.scopeRef !== undefined ? { scopeRef: input.scopeRef } : {}),
+          ...(input.laneRef !== undefined ? { laneRef: input.laneRef } : {}),
+        },
       })
     },
   }

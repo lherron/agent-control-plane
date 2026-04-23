@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 
-import { getPreset, validateTransition } from '../src/index.js'
+import {
+  deriveLifecycleStateAfterTransition,
+  getPreset,
+  isLifecycleTarget,
+  validateTransition,
+} from '../src/index.js'
 import { createEvidence, createTestTask, createWaiver } from './fixtures/in-memory-stores.js'
 
 describe('validateTransition', () => {
@@ -50,9 +55,9 @@ describe('validateTransition', () => {
       task,
       preset,
       actor: {
-        agentId: task.roleMap.implementer ?? 'larry',
+        agentId: task.roleMap['implementer'] ?? 'larry',
         role: 'tester',
-        scopeRef: `agent:${task.roleMap.implementer ?? 'larry'}:project:${task.projectId}:task:${task.taskId}:role:tester`,
+        scopeRef: `agent:${task.roleMap['implementer'] ?? 'larry'}:project:${task.projectId}:task:${task.taskId}:role:tester`,
       },
       toPhase: 'verified',
       evidence: [createEvidence('qa_bundle')],
@@ -196,7 +201,7 @@ describe('validateTransition', () => {
     }
   })
 
-  test('allows verified -> completed without additional evidence', () => {
+  test('allows verified -> completed as lifecycle-only (phase stays verified)', () => {
     const preset = getPreset('code_defect_fastlane', 1)
     const task = createTestTask({ phase: 'verified', riskClass: 'medium' })
 
@@ -211,7 +216,134 @@ describe('validateTransition', () => {
 
     expect(result.ok).toBe(true)
     if (result.ok) {
-      expect(result.transition.phase).toBe('completed')
+      expect(result.transition.phase).toBe('verified')
+      expect(result.transition.lifecycleState).toBe('completed')
+    }
+  })
+})
+
+describe('lifecycle/phase separation', () => {
+  test('isLifecycleTarget identifies completed and active as lifecycle targets', () => {
+    expect(isLifecycleTarget('completed')).toBe(true)
+    expect(isLifecycleTarget('active')).toBe(true)
+    expect(isLifecycleTarget('red')).toBe(false)
+    expect(isLifecycleTarget('green')).toBe(false)
+    expect(isLifecycleTarget('verified')).toBe(false)
+  })
+
+  test('phase transition while lifecycle is open activates the task', () => {
+    const task = createTestTask({ lifecycleState: 'open', phase: 'red' })
+    const lifecycle = deriveLifecycleStateAfterTransition(task, 'green')
+    expect(lifecycle).toBe('active')
+  })
+
+  test('phase transition while lifecycle is active keeps it active', () => {
+    const task = createTestTask({ lifecycleState: 'active', phase: 'green' })
+    const lifecycle = deriveLifecycleStateAfterTransition(task, 'verified')
+    expect(lifecycle).toBe('active')
+  })
+
+  test('lifecycle-only completed transition changes lifecycle but not phase', () => {
+    const preset = getPreset('code_defect_fastlane', 1)
+    const task = createTestTask({
+      phase: 'verified',
+      lifecycleState: 'active',
+      riskClass: 'low',
+    })
+
+    const result = validateTransition({
+      task,
+      preset,
+      actor: { agentId: 'olivia', role: 'owner' },
+      toPhase: 'completed',
+      evidence: [],
+      expectedVersion: 0,
+    })
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.transition.phase).toBe('verified')
+      expect(result.transition.lifecycleState).toBe('completed')
+      expect(result.transition.record.from.phase).toBe('verified')
+      expect(result.transition.record.to.phase).toBe('verified')
+    }
+  })
+
+  test('phaseGraph contains only real phases, not lifecycle labels', () => {
+    const preset = getPreset('code_defect_fastlane', 1)
+    expect(preset.phaseGraph).toEqual(['red', 'green', 'verified'])
+    expect(preset.phaseGraph).not.toContain('open')
+    expect(preset.phaseGraph).not.toContain('completed')
+  })
+
+  test('full lifecycle red -> green -> verified -> completed proceeds independently', () => {
+    const preset = getPreset('code_defect_fastlane', 1)
+
+    // Start at red, lifecycle open
+    const taskAtRed = createTestTask({
+      phase: 'red',
+      lifecycleState: 'open',
+      riskClass: 'low',
+    })
+
+    // Transition red -> green
+    const redToGreen = validateTransition({
+      task: taskAtRed,
+      preset,
+      actor: { agentId: 'larry', role: 'implementer' },
+      toPhase: 'green',
+      evidence: [createEvidence('tdd_green_bundle')],
+      expectedVersion: 0,
+    })
+
+    expect(redToGreen.ok).toBe(true)
+    if (redToGreen.ok) {
+      expect(redToGreen.transition.phase).toBe('green')
+      expect(redToGreen.transition.lifecycleState).toBe('active')
+    }
+
+    // Transition green -> verified
+    const taskAtGreen = createTestTask({
+      phase: 'green',
+      lifecycleState: 'active',
+      riskClass: 'low',
+      version: 1,
+    })
+    const greenToVerified = validateTransition({
+      task: taskAtGreen,
+      preset,
+      actor: { agentId: 'larry', role: 'implementer' },
+      toPhase: 'verified',
+      evidence: [createEvidence('qa_bundle')],
+      expectedVersion: 1,
+    })
+
+    expect(greenToVerified.ok).toBe(true)
+    if (greenToVerified.ok) {
+      expect(greenToVerified.transition.phase).toBe('verified')
+      expect(greenToVerified.transition.lifecycleState).toBe('active')
+    }
+
+    // Transition verified -> completed (lifecycle-only)
+    const taskAtVerified = createTestTask({
+      phase: 'verified',
+      lifecycleState: 'active',
+      riskClass: 'low',
+      version: 2,
+    })
+    const verifiedToCompleted = validateTransition({
+      task: taskAtVerified,
+      preset,
+      actor: { agentId: 'olivia', role: 'owner' },
+      toPhase: 'completed',
+      evidence: [],
+      expectedVersion: 2,
+    })
+
+    expect(verifiedToCompleted.ok).toBe(true)
+    if (verifiedToCompleted.ok) {
+      expect(verifiedToCompleted.transition.phase).toBe('verified')
+      expect(verifiedToCompleted.transition.lifecycleState).toBe('completed')
     }
   })
 })

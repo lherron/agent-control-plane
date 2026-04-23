@@ -1,5 +1,10 @@
 import { badRequest, conflict, json, notFound } from '../http.js'
-import { parseJsonBody, requireRecord, requireTrimmedStringField } from '../parsers/body.js'
+import {
+  parseJsonBody,
+  readOptionalTrimmedStringField,
+  requireRecord,
+  requireTrimmedStringField,
+} from '../parsers/body.js'
 
 import type { RouteContext, RouteHandler } from '../routing/route-context.js'
 
@@ -26,6 +31,7 @@ export const handleCreateAdminProject: RouteHandler = async (context) => {
   const body = requireRecord(await parseJsonBody(request))
   const projectId = requireTrimmedStringField(body, 'projectId')
   const displayName = requireTrimmedStringField(body, 'displayName')
+  const rootDir = readOptionalTrimmedStringField(body, 'rootDir')
   const actor = requireActor(context)
   const existing = deps.adminStore.projects.get(projectId)
 
@@ -40,6 +46,7 @@ export const handleCreateAdminProject: RouteHandler = async (context) => {
   const project = deps.adminStore.projects.create({
     projectId,
     displayName,
+    ...(rootDir !== undefined ? { rootDir } : {}),
     actor,
     now: new Date().toISOString(),
   })
@@ -73,6 +80,13 @@ export const handleSetProjectDefaultAgent: RouteHandler = async (context) => {
   const actor = requireActor(context)
   if (deps.adminStore.agents.get(agentId) === undefined) {
     notFound('agent not found', { agentId })
+  }
+
+  // Validate that the agent is a member of this project
+  const memberships = deps.adminStore.memberships.listByProject(projectId)
+  const isMember = memberships.some((m) => m.agentId === agentId)
+  if (!isMember) {
+    badRequest('agent is not a member of this project', { agentId, projectId })
   }
 
   const updated = deps.adminStore.projects.setDefaultAgent({

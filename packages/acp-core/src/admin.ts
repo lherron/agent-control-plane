@@ -7,6 +7,7 @@ export type MembershipRole = 'coordinator' | 'implementer' | 'tester' | 'observe
 export type AdminAgent = {
   agentId: string
   displayName?: string | undefined
+  homeDir?: string | undefined
   status: AdminAgentStatus
   createdAt: string
   updatedAt: string
@@ -18,6 +19,7 @@ export type AdminProject = {
   projectId: string
   displayName: string
   defaultAgentId?: string | undefined
+  rootDir?: string | undefined
   createdAt: string
   updatedAt: string
   createdBy: Actor
@@ -58,4 +60,6 @@ export type AgentHeartbeat = {
   source?: string | undefined
   lastNote?: string | undefined
   status: AgentHeartbeatStatus
+  targetScopeRef?: string | undefined
+  targetLaneRef?: string | undefined
 }

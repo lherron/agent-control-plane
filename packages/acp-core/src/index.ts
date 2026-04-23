@@ -1,6 +1,7 @@
 export {
   applyTransitionDecision,
   deriveLifecycleStateAfterTransition,
+  isLifecycleTarget,
   isPresetDrivenTask,
   toTaskStateRef,
 } from './models/task.js'

@@ -14,7 +14,7 @@ export type TesterTransitionOutboxPayload = {
 }
 
 export function shouldDeclareTesterHandoff(input: {
-  fromPhase: string
+  fromPhase: string | null
   toPhase: string
   roleMap: Record<string, string>
   riskClass?: string | undefined
@@ -64,7 +64,7 @@ export function buildTesterTransitionOutboxPayload(input: {
 export function buildTesterHandoffAppendEventCommand(input: {
   projectId: string
   taskId: string
-  fromPhase: string
+  fromPhase: string | null
   toPhase: string
   payload: TesterTransitionOutboxPayload
   idempotencyKey?: string | undefined

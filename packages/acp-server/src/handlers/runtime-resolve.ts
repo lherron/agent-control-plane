@@ -28,12 +28,25 @@ export const handleResolveRuntime: RouteHandler = async ({ request, deps }) => {
     })
   }
 
+  // Surface persisted placement metadata from admin store when available
+  const agent = deps.adminStore.agents.get(parsedScope.agentId)
+  const agentHomeDir = agent?.homeDir ?? null
+
+  let projectRootDir: string | null = null
+  if (parsedScope.projectId !== undefined) {
+    const project = deps.adminStore.projects.get(parsedScope.projectId)
+    projectRootDir = project?.rootDir ?? null
+  }
+
   return json({
     placement: {
       agentRoot,
       runMode: 'task',
       bundle: { kind: 'agent-default' },
       correlation: { sessionRef },
+      homeDir: agentHomeDir,
+      projectRootDir: projectRootDir,
+      delegated: agentHomeDir === null || projectRootDir === null,
     },
   })
 }

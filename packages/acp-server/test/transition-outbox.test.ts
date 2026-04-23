@@ -147,8 +147,8 @@ function appendOutboxRow(
     transitionEventId: transition.transitionEventId,
     taskId: transition.taskId,
     projectId: fixture.seed.projectId,
-    fromPhase: transition.from.phase,
-    toPhase: transition.to.phase,
+    fromPhase: transition.from.phase ?? '',
+    toPhase: transition.to.phase ?? '',
     payload: {
       transitionTimestamp: transition.timestamp,
       actor: transition.actor,

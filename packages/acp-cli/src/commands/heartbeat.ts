@@ -12,7 +12,7 @@ export async function runHeartbeatCommand(
   const rest = args.slice(1)
   const parsed = parseArgs(rest, {
     booleanFlags: ['--json'],
-    stringFlags: ['--agent', '--source', '--note', '--reason', '--server'],
+    stringFlags: ['--agent', '--source', '--note', '--scope', '--lane', '--reason', '--server'],
   })
 
   requireNoPositionals(parsed)
@@ -27,6 +27,12 @@ export async function runHeartbeatCommand(
       ...(parsed.stringFlags['--note'] !== undefined
         ? { note: requireStringFlag(parsed, '--note') }
         : {}),
+      ...(parsed.stringFlags['--scope'] !== undefined
+        ? { scopeRef: requireStringFlag(parsed, '--scope') }
+        : {}),
+      ...(parsed.stringFlags['--lane'] !== undefined
+        ? { laneRef: requireStringFlag(parsed, '--lane') }
+        : {}),
     })
     return renderGovernanceResponse(parsed, response)
   }
@@ -38,6 +44,12 @@ export async function runHeartbeatCommand(
 
     const response = await client.postHeartbeatWake({
       agentId: requireStringFlag(parsed, '--agent'),
+      ...(parsed.stringFlags['--scope'] !== undefined
+        ? { scopeRef: requireStringFlag(parsed, '--scope') }
+        : {}),
+      ...(parsed.stringFlags['--lane'] !== undefined
+        ? { laneRef: requireStringFlag(parsed, '--lane') }
+        : {}),
     })
     return renderGovernanceResponse(parsed, response)
   }

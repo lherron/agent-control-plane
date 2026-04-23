@@ -41,18 +41,27 @@ export function computeTaskContext(input: {
   preset: Preset
   task: Task
   role: string
-}): { phase: string; requiredEvidenceKinds: string[]; hintsText: string } {
+}): { phase: string | null; requiredEvidenceKinds: string[]; hintsText: string } {
+  const phase = input.task.phase
+  if (phase === null) {
+    return {
+      phase: null,
+      requiredEvidenceKinds: [],
+      hintsText: 'Phase: none (lifecycle-only)',
+    }
+  }
+
   const requiredEvidenceKinds = Array.from(
     new Set(
-      listOutboundTransitionRules(input.preset, input.task.phase, input.task.riskClass)
+      listOutboundTransitionRules(input.preset, phase, input.task.riskClass)
         .filter((rule) => rule.allowedRoles.includes(input.role))
         .flatMap((rule) => rule.requiredEvidenceKinds)
     )
   )
 
   return {
-    phase: input.task.phase,
+    phase,
     requiredEvidenceKinds,
-    hintsText: renderHintsText({ phase: input.task.phase, preset: input.preset }),
+    hintsText: renderHintsText({ phase, preset: input.preset }),
   }
 }

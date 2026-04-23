@@ -12,6 +12,7 @@ type ConversationTurnLinks = {
   taskId?: string | undefined
   handoffId?: string | undefined
   deliveryRequestId?: string | undefined
+  coordinationEventId?: string | undefined
 }
 
 type StoredConversationTurn = {
@@ -23,6 +24,7 @@ type StoredConversationTurn = {
   links?: ConversationTurnLinks | undefined
   actor?: Actor | undefined
   sentAt: string
+  failureReason?: string | undefined
 }
 
 type TurnStoreApi = {

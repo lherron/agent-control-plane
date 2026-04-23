@@ -27,7 +27,7 @@ export interface LoggedTransitionRecord extends TransitionRecord {
 }
 
 export interface TransitionDecision {
-  phase: string
+  phase: string | null
   lifecycleState: Task['lifecycleState']
   version: number
   record: TransitionRecord

@@ -199,9 +199,9 @@ describe('coordination and observability CLI commands', () => {
         },
       },
       {
-        body: { text: 'recent pane output' },
+        text: `${JSON.stringify({ hrcSeq: 1, eventKind: 'turn.message', text: 'rendered content' })}\n`,
         assert(request) {
-          expect(new URL(request.url).pathname).toBe('/v1/sessions/hsid-1/capture')
+          expect(new URL(request.url).pathname).toBe('/v1/sessions/hsid-1/events')
         },
       },
       {
@@ -242,7 +242,12 @@ describe('coordination and observability CLI commands', () => {
     const renderOutput = await runRenderCommand(['--session', 'hsid-1'], {
       fetchImpl: queue.fetchImpl,
     })
-    expect(renderOutput).toMatchObject({ body: { frame: { text: 'recent pane output' } } })
+    expect(renderOutput).toMatchObject({
+      body: {
+        source: 'replay',
+        frame: { kind: 'replay', text: 'rendered content', eventCount: 1, lastSeq: 1 },
+      },
+    })
 
     const heartbeatSetOutput = await runHeartbeatCommand(
       ['set', '--agent', 'larry', '--source', 'cli-test', '--json'],

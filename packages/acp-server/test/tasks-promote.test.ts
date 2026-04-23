@@ -10,7 +10,7 @@ function createBareWrkqBugTask(projectId: string, taskId = 'T-61001'): Task {
     projectId,
     kind: 'bug',
     lifecycleState: 'open',
-    phase: '',
+    phase: null,
     roleMap: {},
     version: 0,
   }
@@ -49,7 +49,7 @@ describe('POST /v1/tasks/:taskId/promote', () => {
         kind: 'bug',
         workflowPreset: 'code_defect_fastlane',
         presetVersion: 1,
-        phase: 'open',
+        phase: 'red',
         riskClass: 'medium',
         version: 1,
         roleMap: { triager: 'tracy', implementer: 'larry', tester: 'curly' },
@@ -57,8 +57,8 @@ describe('POST /v1/tasks/:taskId/promote', () => {
       })
       expect(payload.transition).toMatchObject({
         actor: { agentId: 'tracy', role: 'triager' },
-        from: { phase: '' },
-        to: { phase: 'open' },
+        from: { phase: null },
+        to: { phase: 'red' },
         expectedVersion: 0,
         nextVersion: 1,
       })
@@ -70,8 +70,8 @@ describe('POST /v1/tasks/:taskId/promote', () => {
       expect(fixture.wrkqStore.transitionLogRepo.listTransitions('T-61001')).toMatchObject([
         {
           taskId: 'T-61001',
-          from: { phase: '' },
-          to: { phase: 'open' },
+          from: { phase: null },
+          to: { phase: 'red' },
           actor: { agentId: 'tracy', role: 'triager' },
           expectedVersion: 0,
           nextVersion: 1,
@@ -104,7 +104,7 @@ describe('POST /v1/tasks/:taskId/promote', () => {
         ...createBareWrkqBugTask(fixture.seed.projectId, 'T-61002'),
         workflowPreset: 'code_defect_fastlane',
         presetVersion: 1,
-        phase: 'open',
+        phase: 'red',
         riskClass: 'medium',
         roleMap: { implementer: 'larry' },
       })

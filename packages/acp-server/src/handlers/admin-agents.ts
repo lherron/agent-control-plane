@@ -39,6 +39,7 @@ export const handleCreateAdminAgent: RouteHandler = async (context) => {
   const body = requireRecord(await parseJsonBody(request))
   const agentId = requireTrimmedStringField(body, 'agentId')
   const displayName = readOptionalTrimmedStringField(body, 'displayName')
+  const homeDir = readOptionalTrimmedStringField(body, 'homeDir')
   const status = parseAgentStatus(body['status'])
   const actor = requireActor(context)
   const existing = deps.adminStore.agents.get(agentId)
@@ -54,6 +55,7 @@ export const handleCreateAdminAgent: RouteHandler = async (context) => {
   const agent = deps.adminStore.agents.create({
     agentId,
     ...(displayName !== undefined ? { displayName } : {}),
+    ...(homeDir !== undefined ? { homeDir } : {}),
     status,
     actor,
     now: new Date().toISOString(),
@@ -84,11 +86,15 @@ export const handlePatchAdminAgent: RouteHandler = async (context) => {
 
   const body = requireRecord(await parseJsonBody(request))
   const displayName = readOptionalTrimmedStringField(body, 'displayName')
+  const homeDir = readOptionalTrimmedStringField(body, 'homeDir')
+  // Allow explicit null to clear homeDir
+  const homeDirIsNull = body['homeDir'] === null
   const status = body['status'] === undefined ? undefined : parseAgentStatus(body['status'])
   const actor = requireActor(context)
   const agent = deps.adminStore.agents.patch({
     agentId,
     ...(displayName !== undefined ? { displayName } : {}),
+    ...(homeDir !== undefined ? { homeDir } : homeDirIsNull ? { homeDir: null } : {}),
     ...(status !== undefined ? { status } : {}),
     actor,
     now: new Date().toISOString(),

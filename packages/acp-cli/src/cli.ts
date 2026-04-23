@@ -46,14 +46,14 @@ function renderTopLevelHelp(): string {
     '  membership    Manage project memberships',
     '  message       Send coordination messages',
     '  project       Manage ACP projects',
-    '  render        Render the latest session output snapshot',
+    '  render        Replay-derived render (or capture snapshot with --source capture)',
     '  run           Inspect or cancel ACP runs',
     '  runtime       Resolve runtime placement',
     '  send          Send an input into a session',
     '  server        Manage the ACP HTTP server and Discord gateway process',
     '  session       Resolve and control sessions',
     '  system-event  Append or list system events',
-    '  tail          Stream session events',
+    '  tail          Live-stream session events incrementally',
     '  task          Manage ACP workflow tasks',
     '  thread        Inspect conversation threads',
     '',
@@ -509,7 +509,8 @@ function renderTailHelp(): string {
   return renderSimpleHelp({
     usage:
       'acp tail (--session <sessionId> | --scope-ref <scopeRef> [--lane-ref <laneRef>]) [--from-seq <n>] [options]',
-    summary: 'Stream session events as NDJSON or a compact table.',
+    summary:
+      'Live tail of /sessions/{id}/events. Streams NDJSON records incrementally as they arrive (does not buffer the full response). Use --json or --table for structured output.',
     example: 'acp tail --session hsid-123 --from-seq 41',
   })
 }
@@ -517,8 +518,9 @@ function renderTailHelp(): string {
 function renderRenderHelp(): string {
   return renderSimpleHelp({
     usage:
-      'acp render (--session <sessionId> | --scope-ref <scopeRef> [--lane-ref <laneRef>]) [options]',
-    summary: 'Render the latest available session output snapshot.',
+      'acp render (--session <sessionId> | --scope-ref <scopeRef> [--lane-ref <laneRef>]) [--source replay|capture] [options]',
+    summary:
+      'Replay-derived render: reduces the /events stream into a text view (default). Use --source capture for a point-in-time capture snapshot.',
     example: 'acp render --scope-ref agent:larry:project:agent-spaces --table',
   })
 }

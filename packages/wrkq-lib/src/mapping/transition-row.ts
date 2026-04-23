@@ -77,7 +77,7 @@ export function mapTransitionRow(taskId: string, row: TransitionRow): LoggedTran
     timestamp: row.transitioned_at,
     from: {
       lifecycleState: row.from_lifecycle_state ?? 'open',
-      phase: row.from_phase ?? '',
+      phase: row.from_phase,
     },
     to: {
       lifecycleState: row.to_lifecycle_state ?? 'open',
@@ -116,7 +116,7 @@ export function mapTransitionToWriteRecord(input: {
   return {
     id: input.transition.transitionEventId,
     fromPhase: input.transition.from.phase === '' ? null : input.transition.from.phase,
-    toPhase: input.transition.to.phase,
+    toPhase: input.transition.to.phase ?? '',
     fromLifecycleState:
       input.transition.from.lifecycleState === '' ? null : input.transition.from.lifecycleState,
     toLifecycleState:

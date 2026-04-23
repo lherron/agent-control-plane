@@ -1,3 +1,5 @@
+import type { LaneRef } from 'agent-scope'
+
 import { badRequest, json, notFound } from '../http.js'
 import { parseJsonBody, readOptionalTrimmedStringField, requireRecord } from '../parsers/body.js'
 
@@ -16,7 +18,9 @@ function requireAgentId(params: Record<string, string>): string {
  * PUT /v1/admin/agents/:agentId/heartbeat
  *
  * Upserts a heartbeat for the given agent. Body may include:
- *   { source?: string, note?: string }
+ *   { source?: string, note?: string, scopeRef?: string, laneRef?: string }
+ *
+ * When scopeRef is provided, it is persisted as the agent's explicit wake target.
  *
  * Returns 200 with the heartbeat record.
  */
@@ -31,11 +35,15 @@ export const handlePutHeartbeat: RouteHandler = async ({ request, params, deps }
   const body = requireRecord(await parseJsonBody(request))
   const source = readOptionalTrimmedStringField(body, 'source')
   const note = readOptionalTrimmedStringField(body, 'note')
+  const scopeRef = readOptionalTrimmedStringField(body, 'scopeRef')
+  const laneRef = readOptionalTrimmedStringField(body, 'laneRef')
 
   const heartbeat = deps.adminStore.heartbeats.upsert({
     agentId,
     ...(source !== undefined ? { source } : {}),
     ...(note !== undefined ? { note } : {}),
+    ...(scopeRef !== undefined ? { scopeRef } : {}),
+    ...(laneRef !== undefined ? { laneRef } : {}),
     now: new Date().toISOString(),
   })
 
@@ -43,15 +51,29 @@ export const handlePutHeartbeat: RouteHandler = async ({ request, params, deps }
 }
 
 /**
+ * Extract the project ID segment from a scopeRef string.
+ * Expected format: `agent:<agentId>:project:<projectId>[:...]`
+ */
+function extractProjectIdFromScopeRef(scopeRef: string): string | undefined {
+  const parts = scopeRef.split(':')
+  const projectIndex = parts.indexOf('project')
+  if (projectIndex !== -1 && projectIndex + 1 < parts.length) {
+    return parts[projectIndex + 1]
+  }
+  return undefined
+}
+
+/**
  * POST /v1/admin/agents/:agentId/heartbeat/wake
  *
  * Triggers a wake request for the given agent via the coordination substrate.
- * Looks up the agent's default project membership and issues a wake through
- * appendEvent with a wake request attached.
+ * Uses the persisted heartbeat target (scopeRef/laneRef) or an explicit
+ * override from the request body. Rejects when neither exists — does NOT
+ * guess from project membership.
  *
  * Returns 202 Accepted with the wake result.
  */
-export const handlePostHeartbeatWake: RouteHandler = async ({ params, deps }) => {
+export const handlePostHeartbeatWake: RouteHandler = async ({ request, params, deps }) => {
   const agentId = requireAgentId(params)
 
   const agent = deps.adminStore.agents.get(agentId)
@@ -63,23 +85,32 @@ export const handlePostHeartbeatWake: RouteHandler = async ({ params, deps }) =>
     badRequest('coordination store is not available')
   }
 
-  // Find the first project where this agent has membership
-  const projects = deps.adminStore.projects.list()
-  let targetProjectId: string | undefined
-  let scopeRef: string | undefined
+  const body = requireRecord(await parseJsonBody(request))
 
-  for (const project of projects) {
-    const memberships = deps.adminStore.memberships.listByProject(project.projectId)
-    const agentMembership = memberships.find((m) => m.agentId === agentId)
-    if (agentMembership !== undefined) {
-      targetProjectId = project.projectId
-      scopeRef = `agent:${agentId}:project:${project.projectId}`
-      break
-    }
+  // Accept explicit target override from body
+  const overrideScopeRef = readOptionalTrimmedStringField(body, 'scopeRef')
+  const overrideLaneRef = readOptionalTrimmedStringField(body, 'laneRef')
+
+  // Look up persisted target from heartbeat record
+  const heartbeat = deps.adminStore.heartbeats.get(agentId)
+  const persistedScopeRef = heartbeat?.targetScopeRef
+  const persistedLaneRef = heartbeat?.targetLaneRef
+
+  // Resolve effective target: override > persisted. No fallback to membership.
+  const scopeRef = overrideScopeRef ?? persistedScopeRef
+  const laneRef = overrideLaneRef ?? persistedLaneRef ?? 'main'
+
+  if (scopeRef === undefined) {
+    badRequest(
+      'no explicit wake target: set a target via heartbeat scopeRef or provide an override in the wake request',
+      { agentId }
+    )
   }
 
-  if (targetProjectId === undefined || scopeRef === undefined) {
-    badRequest('agent has no project membership; cannot determine wake target', { agentId })
+  // Extract projectId from scopeRef for coordination event routing
+  const targetProjectId = extractProjectIdFromScopeRef(scopeRef)
+  if (targetProjectId === undefined) {
+    badRequest('could not extract projectId from scopeRef', { scopeRef })
   }
 
   // Import and use appendEvent from coordination-substrate
@@ -94,7 +125,7 @@ export const handlePostHeartbeatWake: RouteHandler = async ({ params, deps }) =>
       meta: { source: 'heartbeat-wake' },
     },
     wake: {
-      sessionRef: { scopeRef, laneRef: 'main' },
+      sessionRef: { scopeRef, laneRef: laneRef as LaneRef },
       reason: `operator wake for ${agentId}`,
       dedupeKey: `heartbeat-wake:${agentId}`,
     },

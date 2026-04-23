@@ -402,12 +402,15 @@ export function openSqliteConversationStore(
       }
 
       if (filters?.projectId !== undefined) {
-        const pattern = `%:project:${filters.projectId}:%`
+        // Match both base scopes (ending with :project:<id>) and deeper scopes
+        // (containing :project:<id>: followed by additional segments).
+        const deepPattern = `%:project:${filters.projectId}:%`
+        const exactPattern = `%:project:${filters.projectId}`
         const rows = sqlite
           .prepare(
-            'SELECT * FROM conversation_threads WHERE sessionRefScopeRef LIKE ? ORDER BY createdAt ASC'
+            'SELECT * FROM conversation_threads WHERE (sessionRefScopeRef LIKE ? OR sessionRefScopeRef LIKE ?) ORDER BY createdAt ASC'
           )
-          .all(pattern) as ThreadRow[]
+          .all(deepPattern, exactPattern) as ThreadRow[]
         return rows.map(threadRowToThread)
       }
 

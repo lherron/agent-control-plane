@@ -16,7 +16,7 @@ export interface Task {
   workflowPreset?: string | undefined
   presetVersion?: number | undefined
   lifecycleState: TaskLifecycleState
-  phase: string
+  phase: string | null
   riskClass?: RiskClass | undefined
   roleMap: RoleMap
   version: number
@@ -25,7 +25,7 @@ export interface Task {
 
 export interface TaskStateRef {
   lifecycleState: TaskLifecycleState
-  phase: string
+  phase: string | null
 }
 
 export function isPresetDrivenTask(task: Task): boolean {
@@ -39,16 +39,29 @@ export function toTaskStateRef(task: Task): TaskStateRef {
   }
 }
 
+export function isLifecycleTarget(toPhase: string): boolean {
+  return toPhase === 'completed' || toPhase === 'active'
+}
+
 export function deriveLifecycleStateAfterTransition(
   task: Task,
   toPhase: string
 ): TaskLifecycleState {
-  return toPhase === 'completed' ? 'completed' : task.lifecycleState
+  if (isLifecycleTarget(toPhase)) {
+    return toPhase as TaskLifecycleState
+  }
+
+  // Entering any real phase while still 'open' activates the task
+  if (task.lifecycleState === 'open') {
+    return 'active'
+  }
+
+  return task.lifecycleState
 }
 
 export function applyTransitionDecision(
   task: Task,
-  decision: { phase: string; lifecycleState: TaskLifecycleState; version: number }
+  decision: { phase: string | null; lifecycleState: TaskLifecycleState; version: number }
 ): Task {
   return {
     ...task,

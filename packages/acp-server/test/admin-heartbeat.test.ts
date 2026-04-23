@@ -126,7 +126,7 @@ describe('admin heartbeat endpoints', () => {
     })
   })
 
-  test('POST wake returns 400 when agent has no project membership', async () => {
+  test('POST wake returns 400 when agent has no explicit target', async () => {
     await withWiredServer(async (fixture) => {
       await fixture.request({
         method: 'POST',
@@ -150,7 +150,7 @@ describe('admin heartbeat endpoints', () => {
     })
   })
 
-  test('POST wake returns 202 with wake details when agent has membership', async () => {
+  test('POST wake returns 202 with wake details when agent has persisted target', async () => {
     await withWiredServer(async (fixture) => {
       // Create agent, project, and membership
       await fixture.request({
@@ -179,6 +179,16 @@ describe('admin heartbeat endpoints', () => {
           agentId: 'cody',
           role: 'implementer',
           actor: { kind: 'agent', id: 'operator' },
+        },
+      })
+
+      // Set heartbeat with explicit target (required now — no more membership inference)
+      await fixture.request({
+        method: 'PUT',
+        path: '/v1/admin/agents/cody/heartbeat',
+        body: {
+          scopeRef: 'agent:cody:project:agent-spaces',
+          laneRef: 'main',
         },
       })
 

@@ -5,18 +5,9 @@ const codeDefectFastlanePreset = {
   presetId: 'code_defect_fastlane',
   version: 1,
   kind: 'code_change',
-  phaseGraph: ['open', 'red', 'green', 'verified', 'completed'],
+  phaseGraph: ['red', 'green', 'verified'],
   defaultRoles: ['triager', 'implementer', 'tester', 'owner'],
   transitionPolicy: [
-    {
-      fromPhase: 'open',
-      toPhase: 'red',
-      allowedRoles: ['triager', 'implementer'],
-      disallowSameAgentAsRoles: [],
-      requiredEvidenceKinds: ['tdd_red_bundle'],
-      waiverKinds: ['evidence_override'],
-      riskClasses: ['low', 'medium', 'high'],
-    },
     {
       fromPhase: 'red',
       toPhase: 'green',
@@ -54,18 +45,6 @@ const codeDefectFastlanePreset = {
     },
   ],
   guidance: {
-    open: {
-      objective: 'Capture a deterministic repro before changing code.',
-      doneWhen: [
-        'the failing behavior is pinned',
-        'the base build or version is recorded when readily available',
-      ],
-      suggestedEvidence: ['tdd_red_bundle'],
-      agentHints: [
-        'Prefer the smallest reproducible case',
-        'Escalate if the defect touches security, billing, or migrations',
-      ],
-    },
     red: {
       objective: 'Turn the repro into a stable failing proof.',
       doneWhen: [
@@ -98,18 +77,6 @@ const codeDefectFastlanePreset = {
         'Use an independent verifier when risk is not low',
         'Prefer the assigned tester when one exists, but independence matters more than exact assignee matching',
         'Keep the QA bundle lightweight but auditable',
-      ],
-    },
-    completed: {
-      objective: 'Close the task with a short, auditable close-out note.',
-      doneWhen: [
-        'the task can be audited end to end',
-        'merge or deploy provenance is attached when it exists',
-      ],
-      suggestedEvidence: [],
-      agentHints: [
-        'Keep the close-out note short and specific',
-        'Attach a provenance ref when it is cheap and useful',
       ],
     },
   },

@@ -3,9 +3,9 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { openWrkqStore } from 'wrkq-lib'
 import { createAcpServer } from '../../acp-server/src/index.js'
 import { openCoordinationStore } from '../../coordination-substrate/src/index.js'
-import { openWrkqStore } from '../../wrkq-lib/src/index.js'
 
 import { createSeededWrkqDb } from '../../wrkq-lib/test/fixtures/seed-wrkq-db.js'
 import { main } from '../src/cli.js'
@@ -28,7 +28,8 @@ function captureChunk(chunk: string | ArrayBufferView | ArrayBuffer, target: str
     return
   }
 
-  target.push(Buffer.from(chunk as ArrayBufferView).toString('utf8'))
+  const view = chunk as ArrayBufferView
+  target.push(Buffer.from(view.buffer, view.byteOffset, view.byteLength).toString('utf8'))
 }
 
 let cleanup: (() => void) | undefined
@@ -123,7 +124,10 @@ describe('acp-cli integration', () => {
       input: Request | string | URL,
       init?: RequestInit
     ): Promise<Response> => {
-      const request = input instanceof Request ? input : new Request(input, init)
+      const request =
+        input instanceof Request
+          ? input
+          : new Request(typeof input === 'string' ? input : input.toString(), init)
       return server.handler(request)
     }
 
@@ -161,7 +165,7 @@ describe('acp-cli integration', () => {
     expect(showResult.exitCode).toBe(0)
     expect(JSON.parse(showResult.stdout)).toMatchObject({
       task: { taskId },
-      context: { phase: 'open', requiredEvidenceKinds: ['tdd_red_bundle'] },
+      context: { phase: 'red', requiredEvidenceKinds: ['tdd_green_bundle'] },
     })
 
     const evidenceResult = await runCli(
@@ -172,9 +176,9 @@ describe('acp-cli integration', () => {
         '--task',
         taskId,
         '--kind',
-        'tdd_red_bundle',
+        'tdd_green_bundle',
         '--ref',
-        'artifact://red/1',
+        'artifact://green/1',
         '--actor',
         'larry',
         '--producer-role',
@@ -193,7 +197,7 @@ describe('acp-cli integration', () => {
         '--task',
         taskId,
         '--to',
-        'red',
+        'green',
         '--actor',
         'larry',
         '--actor-role',
@@ -206,8 +210,8 @@ describe('acp-cli integration', () => {
     )
     expect(transitionResult.exitCode).toBe(0)
     expect(JSON.parse(transitionResult.stdout)).toMatchObject({
-      task: { taskId, phase: 'red', version: 1 },
-      transition: { to: { phase: 'red' } },
+      task: { taskId, phase: 'green', version: 1 },
+      transition: { to: { phase: 'green' } },
     })
 
     const transitionsResult = await runCli(['task', 'transitions', '--task', taskId, '--json'], {
@@ -218,7 +222,7 @@ describe('acp-cli integration', () => {
       transitions: [
         {
           taskId,
-          to: { phase: 'red' },
+          to: { phase: 'green' },
         },
       ],
     })
@@ -256,7 +260,10 @@ describe('acp-cli integration', () => {
       input: Request | string | URL,
       init?: RequestInit
     ): Promise<Response> => {
-      const request = input instanceof Request ? input : new Request(input, init)
+      const request =
+        input instanceof Request
+          ? input
+          : new Request(typeof input === 'string' ? input : input.toString(), init)
       return server.handler(request)
     }
 
@@ -288,12 +295,12 @@ describe('acp-cli integration', () => {
       task: {
         taskId: 'T-70001',
         workflowPreset: 'code_defect_fastlane',
-        phase: 'open',
+        phase: 'red',
         version: 1,
       },
       transition: {
-        from: { phase: '' },
-        to: { phase: 'open' },
+        from: { phase: null },
+        to: { phase: 'red' },
       },
     })
   })
@@ -320,7 +327,10 @@ describe('acp-cli integration', () => {
       input: Request | string | URL,
       init?: RequestInit
     ): Promise<Response> => {
-      const request = input instanceof Request ? input : new Request(input, init)
+      const request =
+        input instanceof Request
+          ? input
+          : new Request(typeof input === 'string' ? input : input.toString(), init)
       return server.handler(request)
     }
 

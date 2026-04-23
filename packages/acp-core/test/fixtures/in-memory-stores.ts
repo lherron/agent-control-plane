@@ -25,7 +25,7 @@ export function createTestTask(overrides: Partial<Task> = {}): Task {
     workflowPreset: overrides.workflowPreset ?? 'code_defect_fastlane',
     presetVersion: overrides.presetVersion ?? 1,
     lifecycleState: overrides.lifecycleState ?? 'active',
-    phase: overrides.phase ?? 'open',
+    phase: overrides.phase !== undefined ? overrides.phase : 'red',
     riskClass: overrides.riskClass ?? 'medium',
     roleMap:
       overrides.roleMap ??

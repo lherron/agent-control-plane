@@ -49,6 +49,19 @@ describe('admin projects endpoints', () => {
       })
       expect(getResponse.status).toBe(200)
 
+      // Add agent as project member before setting as default
+      const membershipResponse = await fixture.request({
+        method: 'POST',
+        path: '/v1/admin/memberships',
+        body: {
+          projectId: 'agent-spaces',
+          agentId: 'smokey',
+          role: 'coordinator',
+          actor: { kind: 'agent', id: 'operator' },
+        },
+      })
+      expect(membershipResponse.status).toBe(201)
+
       const setDefaultAgentResponse = await fixture.request({
         method: 'POST',
         path: '/v1/admin/projects/agent-spaces/default-agent',

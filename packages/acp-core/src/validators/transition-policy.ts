@@ -7,7 +7,11 @@ import type { EvidenceItem } from '../models/evidence.js'
 import { findTransitionPolicyRule } from '../models/preset.js'
 import type { Preset, TransitionPolicyRule } from '../models/preset.js'
 import { getRoleAgentId } from '../models/role-map.js'
-import { deriveLifecycleStateAfterTransition, toTaskStateRef } from '../models/task.js'
+import {
+  deriveLifecycleStateAfterTransition,
+  isLifecycleTarget,
+  toTaskStateRef,
+} from '../models/task.js'
 import type { Task } from '../models/task.js'
 import { normalizeTransitionActor } from '../models/transition.js'
 import type {
@@ -23,7 +27,7 @@ function reject(error: TransitionRejection): TransitionResult {
 function isWaiverValidForMissingEvidence(input: {
   waivers: readonly EvidenceItem[]
   requiredEvidenceKind: string
-  fromPhase: string
+  fromPhase: string | null
   toPhase: string
   rule: TransitionPolicyRule
 }): boolean {
@@ -71,9 +75,10 @@ export function validateTransition(input: {
 }): { ok: true; transition: TransitionDecision } | { ok: false; error: TransitionRejection } {
   const taskRoleMap = input.task.roleMap
   const actor = normalizeTransitionActor(input.actor)
+  const currentPhase = input.task.phase ?? ''
   const rule = findTransitionPolicyRule(
     input.preset,
-    input.task.phase,
+    currentPhase,
     input.toPhase,
     input.task.riskClass
   )
@@ -81,8 +86,8 @@ export function validateTransition(input: {
   if (rule === undefined) {
     return reject({
       code: 'unknown_transition',
-      message: `No transition rule matches ${input.task.phase} -> ${input.toPhase}`,
-      fromPhase: input.task.phase,
+      message: `No transition rule matches ${currentPhase} -> ${input.toPhase}`,
+      fromPhase: currentPhase,
       toPhase: input.toPhase,
     })
   }
@@ -90,8 +95,8 @@ export function validateTransition(input: {
   if (!rule.allowedRoles.includes(actor.role)) {
     return reject({
       code: 'role_not_allowed',
-      message: `Role "${actor.role}" is not allowed for ${input.task.phase} -> ${input.toPhase}`,
-      fromPhase: input.task.phase,
+      message: `Role "${actor.role}" is not allowed for ${currentPhase} -> ${input.toPhase}`,
+      fromPhase: currentPhase,
       toPhase: input.toPhase,
     })
   }
@@ -102,8 +107,8 @@ export function validateTransition(input: {
   if (conflictingRole !== undefined) {
     return reject({
       code: 'sod_violation',
-      message: `Actor "${actor.agentId}" conflicts with role "${conflictingRole}" for ${input.task.phase} -> ${input.toPhase}`,
-      fromPhase: input.task.phase,
+      message: `Actor "${actor.agentId}" conflicts with role "${conflictingRole}" for ${currentPhase} -> ${input.toPhase}`,
+      fromPhase: currentPhase,
       toPhase: input.toPhase,
     })
   }
@@ -114,8 +119,8 @@ export function validateTransition(input: {
     if (waivers.length === 0) {
       return reject({
         code: 'missing_evidence',
-        message: `Missing required evidence for ${input.task.phase} -> ${input.toPhase}`,
-        fromPhase: input.task.phase,
+        message: `Missing required evidence for ${currentPhase} -> ${input.toPhase}`,
+        fromPhase: currentPhase,
         toPhase: input.toPhase,
         missingEvidenceKinds,
       })
@@ -126,7 +131,7 @@ export function validateTransition(input: {
         !isWaiverValidForMissingEvidence({
           waivers,
           requiredEvidenceKind,
-          fromPhase: input.task.phase,
+          fromPhase: currentPhase,
           toPhase: input.toPhase,
           rule,
         })
@@ -135,8 +140,8 @@ export function validateTransition(input: {
     if (stillMissingEvidenceKinds.length > 0) {
       return reject({
         code: 'no_waiver',
-        message: `No valid waiver covers ${input.task.phase} -> ${input.toPhase}`,
-        fromPhase: input.task.phase,
+        message: `No valid waiver covers ${currentPhase} -> ${input.toPhase}`,
+        fromPhase: currentPhase,
         toPhase: input.toPhase,
         missingEvidenceKinds: stillMissingEvidenceKinds,
       })
@@ -147,7 +152,7 @@ export function validateTransition(input: {
     return reject({
       code: 'version_conflict',
       message: `Task version ${input.task.version} does not match expectedVersion ${input.expectedVersion}`,
-      fromPhase: input.task.phase,
+      fromPhase: currentPhase,
       toPhase: input.toPhase,
     })
   }
@@ -157,23 +162,26 @@ export function validateTransition(input: {
     isWaiverValidForMissingEvidence({
       waivers: input.waivers ?? [],
       requiredEvidenceKind,
-      fromPhase: input.task.phase,
+      fromPhase: currentPhase,
       toPhase: input.toPhase,
       rule,
     })
   )
 
+  // For lifecycle-only transitions (e.g. verified -> completed), phase stays unchanged
+  const resultPhase = isLifecycleTarget(input.toPhase) ? input.task.phase : input.toPhase
+
   return {
     ok: true,
     transition: {
-      phase: input.toPhase,
+      phase: resultPhase,
       lifecycleState,
       version: input.task.version + 1,
       record: {
         from: toTaskStateRef(input.task),
         to: {
           lifecycleState,
-          phase: input.toPhase,
+          phase: resultPhase,
         },
         actor,
         requiredEvidenceKinds: [...rule.requiredEvidenceKinds],

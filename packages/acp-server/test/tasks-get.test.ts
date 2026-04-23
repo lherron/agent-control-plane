@@ -32,7 +32,7 @@ describe('GET /v1/tasks/:taskId', () => {
   test('derives context role from actor header when the task role is unique', async () => {
     await withWiredServer(async (fixture) => {
       fixture.wrkqStore.taskRepo.createTask(
-        createTestTask({ taskId: 'T-20002', projectId: fixture.seed.projectId, phase: 'open' })
+        createTestTask({ taskId: 'T-20002', projectId: fixture.seed.projectId, phase: 'red' })
       )
 
       const response = await fixture.request({
@@ -45,7 +45,7 @@ describe('GET /v1/tasks/:taskId', () => {
       }>(response)
 
       expect(response.status).toBe(200)
-      expect(payload.context?.requiredEvidenceKinds).toEqual(['tdd_red_bundle'])
+      expect(payload.context?.requiredEvidenceKinds).toEqual(['tdd_green_bundle'])
     })
   })
 

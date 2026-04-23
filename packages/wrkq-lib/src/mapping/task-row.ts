@@ -52,8 +52,8 @@ function normalizePresetColumns(task: Task): {
   phase: string | null
 } {
   if (task.workflowPreset === undefined && task.presetVersion === undefined) {
-    if (task.phase !== '') {
-      throw new Error('Non-preset ACP tasks must use an empty phase so wrkq phase can remain NULL')
+    if (task.phase !== null && task.phase !== '') {
+      throw new Error('Non-preset ACP tasks must have phase=null')
     }
 
     return {
@@ -63,10 +63,8 @@ function normalizePresetColumns(task: Task): {
     }
   }
 
-  if (task.workflowPreset === undefined || task.presetVersion === undefined || task.phase === '') {
-    throw new Error(
-      'workflowPreset, presetVersion, and phase must either all be set or all be unset'
-    )
+  if (task.workflowPreset === undefined || task.presetVersion === undefined) {
+    throw new Error('workflowPreset and presetVersion must either both be set or both be unset')
   }
 
   return {
@@ -122,7 +120,7 @@ export function mapTaskRow(row: TaskRow, roleMap: RoleMap): Task {
     ...(row.workflow_preset !== null ? { workflowPreset: row.workflow_preset } : {}),
     ...(row.preset_version !== null ? { presetVersion: row.preset_version } : {}),
     lifecycleState: mapWrkqStateToLifecycleState(row.state),
-    phase: row.phase ?? '',
+    phase: row.phase,
     ...(row.risk_class !== null ? { riskClass: row.risk_class } : {}),
     roleMap,
     version: row.etag,

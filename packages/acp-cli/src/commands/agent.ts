@@ -26,7 +26,7 @@ export async function runAgentCommand(
   if (subcommand === 'create') {
     const parsed = parseArgs(rest, {
       booleanFlags: ['--json'],
-      stringFlags: ['--agent', '--display-name', '--status', '--actor', '--server'],
+      stringFlags: ['--agent', '--display-name', '--home-dir', '--status', '--actor', '--server'],
     })
     requireNoPositionals(parsed)
     const client = createGovernanceClient(parsed, deps, { requireActor: true })
@@ -36,6 +36,9 @@ export async function runAgentCommand(
       agentId: requireStringFlag(parsed, '--agent'),
       ...(parsed.stringFlags['--display-name'] !== undefined
         ? { displayName: requireStringFlag(parsed, '--display-name') }
+        : {}),
+      ...(parsed.stringFlags['--home-dir'] !== undefined
+        ? { homeDir: requireStringFlag(parsed, '--home-dir') }
         : {}),
       status: parseStatus(requireStringFlag(parsed, '--status')),
     })
@@ -68,14 +71,15 @@ export async function runAgentCommand(
   if (subcommand === 'patch') {
     const parsed = parseArgs(rest, {
       booleanFlags: ['--json'],
-      stringFlags: ['--agent', '--display-name', '--status', '--actor', '--server'],
+      stringFlags: ['--agent', '--display-name', '--home-dir', '--status', '--actor', '--server'],
     })
     requireNoPositionals(parsed)
     if (
       parsed.stringFlags['--display-name'] === undefined &&
+      parsed.stringFlags['--home-dir'] === undefined &&
       parsed.stringFlags['--status'] === undefined
     ) {
-      throw new CliUsageError('agent patch requires --display-name and/or --status')
+      throw new CliUsageError('agent patch requires --display-name, --home-dir, and/or --status')
     }
 
     const client = createGovernanceClient(parsed, deps, { requireActor: true })
@@ -85,6 +89,9 @@ export async function runAgentCommand(
       agentId: requireStringFlag(parsed, '--agent'),
       ...(parsed.stringFlags['--display-name'] !== undefined
         ? { displayName: requireStringFlag(parsed, '--display-name') }
+        : {}),
+      ...(parsed.stringFlags['--home-dir'] !== undefined
+        ? { homeDir: requireStringFlag(parsed, '--home-dir') }
         : {}),
       ...(parsed.stringFlags['--status'] !== undefined
         ? { status: parseStatus(requireStringFlag(parsed, '--status')) }

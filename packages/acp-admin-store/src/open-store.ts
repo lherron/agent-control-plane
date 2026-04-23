@@ -24,6 +24,7 @@ type MigrationRow = {
 type AgentRow = {
   agent_id: string
   display_name: string | null
+  home_dir: string | null
   status: AdminAgentStatus
   created_at: string
   updated_at: string
@@ -34,6 +35,7 @@ type ProjectRow = {
   project_id: string
   display_name: string
   default_agent_id: string | null
+  root_dir: string | null
   created_at: string
   updated_at: string
   actor_stamp: string
@@ -74,6 +76,8 @@ type HeartbeatRow = {
   source: string | null
   last_note: string | null
   status: AgentHeartbeatStatus
+  target_scope_ref: string | null
+  target_lane_ref: string | null
 }
 
 type MutableActorStamp = {
@@ -97,6 +101,7 @@ export type AdminStoreMigration = {
 export interface CreateAgentInput {
   agentId: string
   displayName?: string | undefined
+  homeDir?: string | undefined
   status: AdminAgentStatus
   actor: Actor
   now: string
@@ -105,6 +110,7 @@ export interface CreateAgentInput {
 export interface PatchAgentInput {
   agentId: string
   displayName?: string | undefined
+  homeDir?: string | null | undefined
   status?: AdminAgentStatus | undefined
   actor: Actor
   now: string
@@ -120,6 +126,7 @@ export interface AgentsStore {
 export interface CreateProjectInput {
   projectId: string
   displayName: string
+  rootDir?: string | undefined
   actor: Actor
   now: string
 }
@@ -182,6 +189,8 @@ export interface UpsertHeartbeatInput {
   agentId: string
   source?: string | undefined
   note?: string | undefined
+  scopeRef?: string | undefined
+  laneRef?: string | undefined
   now: string
 }
 
@@ -277,6 +286,20 @@ export const adminStoreMigrations: readonly AdminStoreMigration[] = [
       );
     `,
   },
+  {
+    id: '003_placement_metadata',
+    sql: `
+      ALTER TABLE agents ADD COLUMN home_dir TEXT;
+      ALTER TABLE projects ADD COLUMN root_dir TEXT;
+    `,
+  },
+  {
+    id: '004_heartbeat_target',
+    sql: `
+      ALTER TABLE agent_heartbeats ADD COLUMN target_scope_ref TEXT;
+      ALTER TABLE agent_heartbeats ADD COLUMN target_lane_ref TEXT;
+    `,
+  },
 ]
 
 export interface OpenSqliteAdminStoreOptions {
@@ -364,12 +387,28 @@ function parseJsonValue<T>(value: string): T {
   return JSON.parse(value) as T
 }
 
+function validateOptionalPath(value: string | null | undefined, fieldName: string): string | null {
+  if (value === undefined || value === null) return null
+  if (typeof value === 'string' && value.trim().length === 0) {
+    throw new Error(`${fieldName} must not be empty when provided`)
+  }
+  return value
+}
+
 function maybeDisplayName(value: string | null): { displayName: string } | undefined {
   return value === null ? undefined : { displayName: value }
 }
 
+function maybeHomeDir(value: string | null): { homeDir: string } | undefined {
+  return value === null ? undefined : { homeDir: value }
+}
+
 function maybeDefaultAgentId(value: string | null): { defaultAgentId: string } | undefined {
   return value === null ? undefined : { defaultAgentId: value }
+}
+
+function maybeRootDir(value: string | null): { rootDir: string } | undefined {
+  return value === null ? undefined : { rootDir: value }
 }
 
 function maybeLinkedAgentId(value: string | null): { linkedAgentId: string } | undefined {
@@ -381,6 +420,7 @@ function toAdminAgent(row: AgentRow): AdminAgent {
   return {
     agentId: row.agent_id,
     ...(maybeDisplayName(row.display_name) ?? {}),
+    ...(maybeHomeDir(row.home_dir) ?? {}),
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -395,6 +435,7 @@ function toAdminProject(row: ProjectRow): AdminProject {
     projectId: row.project_id,
     displayName: row.display_name,
     ...(maybeDefaultAgentId(row.default_agent_id) ?? {}),
+    ...(maybeRootDir(row.root_dir) ?? {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     createdBy: stamp.createdBy,
@@ -442,6 +483,8 @@ function toAgentHeartbeat(row: HeartbeatRow): AgentHeartbeat {
     ...(row.source !== null ? { source: row.source } : {}),
     ...(row.last_note !== null ? { lastNote: row.last_note } : {}),
     status: row.status,
+    ...(row.target_scope_ref !== null ? { targetScopeRef: row.target_scope_ref } : {}),
+    ...(row.target_lane_ref !== null ? { targetLaneRef: row.target_lane_ref } : {}),
   }
 }
 
@@ -460,6 +503,7 @@ function sameOptionalString(left: string | undefined, right: string | undefined)
 function createAgentsStore(sqlite: SqliteDatabase): AgentsStore {
   return {
     create(input) {
+      const homeDir = validateOptionalPath(input.homeDir, 'homeDir')
       const existing = this.get(input.agentId)
       if (existing !== undefined) {
         if (
@@ -478,15 +522,17 @@ function createAgentsStore(sqlite: SqliteDatabase): AgentsStore {
           `INSERT INTO agents (
             agent_id,
             display_name,
+            home_dir,
             status,
             created_at,
             updated_at,
             actor_stamp
-          ) VALUES (?, ?, ?, ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           input.agentId,
           input.displayName ?? null,
+          homeDir,
           input.status,
           input.now,
           input.now,
@@ -500,7 +546,7 @@ function createAgentsStore(sqlite: SqliteDatabase): AgentsStore {
       return (
         sqlite
           .prepare(
-            `SELECT agent_id, display_name, status, created_at, updated_at, actor_stamp
+            `SELECT agent_id, display_name, home_dir, status, created_at, updated_at, actor_stamp
            FROM agents
            ORDER BY created_at ASC, agent_id ASC`
           )
@@ -511,7 +557,7 @@ function createAgentsStore(sqlite: SqliteDatabase): AgentsStore {
     get(agentId) {
       const row = sqlite
         .prepare(
-          `SELECT agent_id, display_name, status, created_at, updated_at, actor_stamp
+          `SELECT agent_id, display_name, home_dir, status, created_at, updated_at, actor_stamp
            FROM agents
            WHERE agent_id = ?`
         )
@@ -526,27 +572,26 @@ function createAgentsStore(sqlite: SqliteDatabase): AgentsStore {
         return undefined
       }
 
-      const next = {
-        agentId: existing.agentId,
-        displayName: input.displayName ?? existing.displayName,
-        status: input.status ?? existing.status,
-        createdAt: existing.createdAt,
-        updatedAt: input.now,
-        createdBy: existing.createdBy,
-        updatedBy: input.actor,
-      } satisfies AdminAgent
+      // homeDir: undefined means no change, null means clear, string means set
+      const resolvedHomeDir =
+        input.homeDir === undefined
+          ? (existing.homeDir ?? null)
+          : input.homeDir === null
+            ? null
+            : validateOptionalPath(input.homeDir, 'homeDir')
 
       sqlite
         .prepare(
           `UPDATE agents
-           SET display_name = ?, status = ?, updated_at = ?, actor_stamp = ?
+           SET display_name = ?, home_dir = ?, status = ?, updated_at = ?, actor_stamp = ?
            WHERE agent_id = ?`
         )
         .run(
-          next.displayName ?? null,
-          next.status,
-          next.updatedAt,
-          serializeMutableActorStamp(next.createdBy, next.updatedBy),
+          input.displayName ?? existing.displayName ?? null,
+          resolvedHomeDir,
+          input.status ?? existing.status,
+          input.now,
+          serializeMutableActorStamp(existing.createdBy, input.actor),
           input.agentId
         )
 
@@ -558,6 +603,7 @@ function createAgentsStore(sqlite: SqliteDatabase): AgentsStore {
 function createProjectsStore(sqlite: SqliteDatabase): ProjectsStore {
   return {
     create(input) {
+      const rootDir = validateOptionalPath(input.rootDir, 'rootDir')
       const existing = this.get(input.projectId)
       if (existing !== undefined) {
         if (
@@ -576,14 +622,16 @@ function createProjectsStore(sqlite: SqliteDatabase): ProjectsStore {
             project_id,
             display_name,
             default_agent_id,
+            root_dir,
             created_at,
             updated_at,
             actor_stamp
-          ) VALUES (?, ?, NULL, ?, ?, ?)`
+          ) VALUES (?, ?, NULL, ?, ?, ?, ?)`
         )
         .run(
           input.projectId,
           input.displayName,
+          rootDir,
           input.now,
           input.now,
           serializeMutableActorStamp(input.actor, input.actor)
@@ -596,7 +644,7 @@ function createProjectsStore(sqlite: SqliteDatabase): ProjectsStore {
       return (
         sqlite
           .prepare(
-            `SELECT project_id, display_name, default_agent_id, created_at, updated_at, actor_stamp
+            `SELECT project_id, display_name, default_agent_id, root_dir, created_at, updated_at, actor_stamp
            FROM projects
            ORDER BY created_at ASC, project_id ASC`
           )
@@ -607,7 +655,7 @@ function createProjectsStore(sqlite: SqliteDatabase): ProjectsStore {
     get(projectId) {
       const row = sqlite
         .prepare(
-          `SELECT project_id, display_name, default_agent_id, created_at, updated_at, actor_stamp
+          `SELECT project_id, display_name, default_agent_id, root_dir, created_at, updated_at, actor_stamp
            FROM projects
            WHERE project_id = ?`
         )
@@ -901,28 +949,66 @@ function createSystemEventsStore(sqlite: SqliteDatabase): SystemEventsStore {
 function createHeartbeatsStore(sqlite: SqliteDatabase): HeartbeatsStore {
   return {
     upsert(input) {
-      sqlite
-        .prepare(
-          `INSERT INTO agent_heartbeats (
-            agent_id,
-            last_heartbeat_at,
-            source,
-            last_note,
-            status
-          ) VALUES (?, ?, ?, ?, ?)
-          ON CONFLICT (agent_id) DO UPDATE SET
-            last_heartbeat_at = excluded.last_heartbeat_at,
-            source = excluded.source,
-            last_note = excluded.last_note,
-            status = excluded.status`
-        )
-        .run(
-          input.agentId,
-          input.now,
-          input.source ?? null,
-          input.note ?? null,
-          'alive' satisfies AgentHeartbeatStatus
-        )
+      // When scopeRef/laneRef are provided, persist them.
+      // When not provided, preserve existing values on update.
+      const hasScopeRef = input.scopeRef !== undefined
+      const hasLaneRef = input.laneRef !== undefined
+
+      if (hasScopeRef || hasLaneRef) {
+        // When scopeRef is set and laneRef is not, default laneRef to 'main'
+        const effectiveLaneRef = input.laneRef ?? (hasScopeRef ? 'main' : null)
+        sqlite
+          .prepare(
+            `INSERT INTO agent_heartbeats (
+              agent_id,
+              last_heartbeat_at,
+              source,
+              last_note,
+              status,
+              target_scope_ref,
+              target_lane_ref
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (agent_id) DO UPDATE SET
+              last_heartbeat_at = excluded.last_heartbeat_at,
+              source = excluded.source,
+              last_note = excluded.last_note,
+              status = excluded.status,
+              target_scope_ref = COALESCE(excluded.target_scope_ref, agent_heartbeats.target_scope_ref),
+              target_lane_ref = COALESCE(excluded.target_lane_ref, agent_heartbeats.target_lane_ref)`
+          )
+          .run(
+            input.agentId,
+            input.now,
+            input.source ?? null,
+            input.note ?? null,
+            'alive' satisfies AgentHeartbeatStatus,
+            input.scopeRef ?? null,
+            effectiveLaneRef
+          )
+      } else {
+        sqlite
+          .prepare(
+            `INSERT INTO agent_heartbeats (
+              agent_id,
+              last_heartbeat_at,
+              source,
+              last_note,
+              status
+            ) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT (agent_id) DO UPDATE SET
+              last_heartbeat_at = excluded.last_heartbeat_at,
+              source = excluded.source,
+              last_note = excluded.last_note,
+              status = excluded.status`
+          )
+          .run(
+            input.agentId,
+            input.now,
+            input.source ?? null,
+            input.note ?? null,
+            'alive' satisfies AgentHeartbeatStatus
+          )
+      }
 
       return this.get(input.agentId) as AgentHeartbeat
     },
@@ -930,7 +1016,7 @@ function createHeartbeatsStore(sqlite: SqliteDatabase): HeartbeatsStore {
     get(agentId) {
       const row = sqlite
         .prepare(
-          `SELECT agent_id, last_heartbeat_at, source, last_note, status
+          `SELECT agent_id, last_heartbeat_at, source, last_note, status, target_scope_ref, target_lane_ref
            FROM agent_heartbeats
            WHERE agent_id = ?`
         )
@@ -943,7 +1029,7 @@ function createHeartbeatsStore(sqlite: SqliteDatabase): HeartbeatsStore {
       return (
         sqlite
           .prepare(
-            `SELECT agent_id, last_heartbeat_at, source, last_note, status
+            `SELECT agent_id, last_heartbeat_at, source, last_note, status, target_scope_ref, target_lane_ref
            FROM agent_heartbeats
            ORDER BY last_heartbeat_at DESC, agent_id ASC`
           )
@@ -955,7 +1041,7 @@ function createHeartbeatsStore(sqlite: SqliteDatabase): HeartbeatsStore {
       return (
         sqlite
           .prepare(
-            `SELECT agent_id, last_heartbeat_at, source, last_note, status
+            `SELECT agent_id, last_heartbeat_at, source, last_note, status, target_scope_ref, target_lane_ref
            FROM agent_heartbeats
            WHERE last_heartbeat_at < ?
            ORDER BY last_heartbeat_at ASC, agent_id ASC`

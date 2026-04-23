@@ -107,7 +107,7 @@ export const handleApplyTaskTransition: RouteHandler = async ({ request, params,
           transitionEventId: loggedTransition.transitionEventId,
           taskId,
           projectId: task.projectId,
-          fromPhase: task.phase,
+          fromPhase: task.phase ?? '',
           toPhase: parsed.toPhase,
           actor:
             actor?.agentId !== undefined && actor.agentId.length > 0
