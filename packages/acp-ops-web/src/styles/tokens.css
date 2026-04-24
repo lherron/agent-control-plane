@@ -1,0 +1,55 @@
+:root {
+  color-scheme: dark;
+  background: #020608;
+  color: #eaf7ff;
+  font-family: "Avenir Next", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  font-synthesis: none;
+  --bg: #020608;
+  --panel: rgba(6, 18, 26, 0.94);
+  --panel-2: rgba(8, 25, 35, 0.96);
+  --line: rgba(72, 125, 154, 0.32);
+  --line-hot: rgba(0, 216, 255, 0.72);
+  --text: #eaf7ff;
+  --muted: #7e98a8;
+  --cyan: #1ce0e0;
+  --blue: #2b85ff;
+  --amber: #f5ac2a;
+  --violet: #b559ff;
+  --green: #54db40;
+  --pink: #ff2d8b;
+  --red: #ff3868;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: linear-gradient(rgba(0, 229, 255, 0.035) 1px, transparent 1px) 0 0 / 32px 32px,
+    linear-gradient(90deg, rgba(0, 229, 255, 0.028) 1px, transparent 1px) 0 0 / 32px 32px, var(--bg);
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button,
+select,
+input {
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}

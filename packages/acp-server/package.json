@@ -26,6 +26,7 @@
     "acp-admin-store": "*",
     "acp-conversation": "*",
     "acp-core": "*",
+    "acp-ops-projection": "*",
     "acp-interface-store": "*",
     "acp-jobs-store": "*",
     "acp-state-store": "*",

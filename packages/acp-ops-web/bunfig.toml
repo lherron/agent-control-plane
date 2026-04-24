@@ -1,0 +1,3 @@
+[test]
+root = "./tests/bun"
+timeout = 120000

@@ -15,6 +15,8 @@ import { handleCreateInterfaceBinding } from '../handlers/interface-bindings-cre
 import { handleListInterfaceBindings } from '../handlers/interface-bindings-list.js'
 import { handleCreateInterfaceMessage } from '../handlers/interface-messages.js'
 import { handleCreateMessage } from '../handlers/messages.js'
+import { handleOpsDashboardEvents } from '../handlers/ops-dashboard-events.js'
+import { handleOpsDashboardSnapshot } from '../handlers/ops-dashboard-snapshot.js'
 import { handleResolveRuntime } from '../handlers/runtime-resolve.js'
 import { handleListSessions } from '../handlers/sessions-list.js'
 import { handleResetSession } from '../handlers/sessions-reset.js'
@@ -105,6 +107,8 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
       handleCreateCoordinationMessage
     ),
     [exactRouteKey('GET', '/v1/gateway/deliveries')]: handleListFailedDeliveries,
+    [exactRouteKey('GET', '/v1/ops/session-dashboard/snapshot')]: handleOpsDashboardSnapshot,
+    [exactRouteKey('GET', '/v1/ops/session-dashboard/events')]: handleOpsDashboardEvents,
     [exactRouteKey('POST', '/v1/runtime/resolve')]: handleResolveRuntime,
     [exactRouteKey('POST', '/v1/sessions/launch')]: handleLaunchSession,
     [exactRouteKey('POST', '/v1/sessions/resolve')]: handleResolveSession,
