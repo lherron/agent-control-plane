@@ -41,6 +41,16 @@ describe('delivery requeue', () => {
         replyToMessageRef: 'discord:message:1',
         bodyKind: 'text/markdown',
         bodyText: 'retry me',
+        bodyAttachments: [
+          {
+            kind: 'file',
+            path: '/tmp/retry.png',
+            filename: 'retry.png',
+            contentType: 'image/png',
+            sizeBytes: 10,
+            alt: 'Retry alt',
+          },
+        ],
         createdAt: '2026-04-23T02:00:00.000Z',
       })
       store.deliveries.fail({
@@ -70,6 +80,16 @@ describe('delivery requeue', () => {
           replyToMessageRef: 'discord:message:1',
           bodyKind: 'text/markdown',
           bodyText: 'retry me',
+          bodyAttachments: [
+            {
+              kind: 'file',
+              path: '/tmp/retry.png',
+              filename: 'retry.png',
+              contentType: 'image/png',
+              sizeBytes: 10,
+              alt: 'Retry alt',
+            },
+          ],
           status: 'queued',
           createdAt: expect.any(String),
         },

@@ -166,6 +166,9 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
       dispatched = await client.dispatchTurn({
         hostSessionId: targetSession.hostSessionId,
         prompt,
+        ...(normalizedIntent.attachments !== undefined
+          ? { attachments: normalizedIntent.attachments }
+          : {}),
         fences: dispatchFence,
         runtimeIntent: normalizedIntent,
       })

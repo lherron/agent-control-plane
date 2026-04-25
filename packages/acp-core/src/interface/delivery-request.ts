@@ -1,3 +1,4 @@
+import type { AttachmentRef } from './attachment.js'
 import type { InterfaceSessionRef } from './binding.js'
 
 export type DeliveryRequestStatus = 'queued' | 'delivering' | 'delivered' | 'failed'
@@ -5,6 +6,7 @@ export type DeliveryRequestStatus = 'queued' | 'delivering' | 'delivered' | 'fai
 export interface DeliveryRequestBody {
   kind: 'text/markdown'
   text: string
+  attachments?: AttachmentRef[] | undefined
 }
 
 export interface DeliveryFailure {

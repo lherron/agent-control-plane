@@ -1,4 +1,4 @@
-import type { Actor } from 'acp-core'
+import type { Actor, AttachmentRef } from 'acp-core'
 
 export type InterfaceStoreActorIdentity = {
   agentId: string
@@ -8,6 +8,7 @@ export type InterfaceStoreActorIdentity = {
 export type InterfaceBindingStatus = 'active' | 'disabled'
 export type DeliveryRequestStatus = 'queued' | 'delivering' | 'delivered' | 'failed'
 export type DeliveryBodyKind = 'text/markdown'
+export type OutboundAttachmentState = 'pending' | 'consumed' | 'delivered' | 'failed'
 
 export type InterfaceBinding = {
   bindingId: string
@@ -60,11 +61,37 @@ export type DeliveryRequest = {
   replyToMessageRef?: string | undefined
   bodyKind: DeliveryBodyKind
   bodyText: string
+  bodyAttachments?: AttachmentRef[] | undefined
   status: DeliveryRequestStatus
   createdAt: string
   deliveredAt?: string | undefined
   failureCode?: string | undefined
   failureMessage?: string | undefined
+}
+
+export type OutboundAttachment = {
+  outboundAttachmentId: string
+  runId: string
+  state: OutboundAttachmentState
+  consumedByDeliveryRequestId?: string | undefined
+  path: string
+  filename: string
+  contentType: string
+  sizeBytes: number
+  alt?: string | undefined
+  createdAt: string
+  updatedAt: string
+}
+
+export type CreateOutboundAttachmentInput = {
+  outboundAttachmentId?: string | undefined
+  runId: string
+  path: string
+  filename: string
+  contentType: string
+  sizeBytes: number
+  alt?: string | undefined
+  createdAt?: string | undefined
 }
 
 export type EnqueueDeliveryRequestInput = {
@@ -81,6 +108,7 @@ export type EnqueueDeliveryRequestInput = {
   replyToMessageRef?: string | undefined
   bodyKind: DeliveryBodyKind
   bodyText: string
+  bodyAttachments?: AttachmentRef[] | undefined
   createdAt: string
 }
 

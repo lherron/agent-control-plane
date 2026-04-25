@@ -1,6 +1,7 @@
-import type { Actor } from 'acp-core'
+import type { Actor, InterfaceMessageAttachment } from 'acp-core'
 import { type SessionRef, normalizeSessionRef, parseScopeRef } from 'agent-scope'
 
+import { resolveAttachmentRefs } from '../attachments.js'
 import {
   type InterfaceResponseCapture,
   createInterfaceResponseCapture,
@@ -10,6 +11,7 @@ import { AcpHttpError, json } from '../http.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
 import {
   parseJsonBody,
+  readOptionalArrayField,
   readOptionalTrimmedStringField,
   requireRecord,
   requireTrimmedStringField,
@@ -38,6 +40,70 @@ function parseInterfaceSource(input: Record<string, unknown>): ParsedInterfaceSo
     messageRef: requireTrimmedStringField(source, 'messageRef'),
     authorRef: requireTrimmedStringField(source, 'authorRef'),
   }
+}
+
+function parseOptionalInterfaceMessageAttachments(
+  input: Record<string, unknown>
+): InterfaceMessageAttachment[] | undefined {
+  const entries = readOptionalArrayField(input, 'attachments')
+  if (entries === undefined) {
+    return undefined
+  }
+
+  return entries.map((entry, index) => parseInterfaceMessageAttachment(entry, index))
+}
+
+function parseInterfaceMessageAttachment(
+  input: unknown,
+  index: number
+): InterfaceMessageAttachment {
+  const field = `attachments[${index}]`
+  const attachment = requireRecord(input, field)
+  const kind = attachment['kind']
+  if (kind !== 'url' && kind !== 'file') {
+    throw new AcpHttpError(400, 'bad_request', `${field}.kind must be "url" or "file"`, {
+      field: `${field}.kind`,
+    })
+  }
+
+  const url = readOptionalTrimmedStringField(attachment, 'url')
+  const path = readOptionalTrimmedStringField(attachment, 'path')
+  if (kind === 'url' && url === undefined) {
+    throw new AcpHttpError(400, 'bad_request', `${field}.url is required for url attachments`, {
+      field: `${field}.url`,
+    })
+  }
+  if (kind === 'file' && path === undefined) {
+    throw new AcpHttpError(400, 'bad_request', `${field}.path is required for file attachments`, {
+      field: `${field}.path`,
+    })
+  }
+
+  const filename = readOptionalTrimmedStringField(attachment, 'filename')
+  const contentType = readOptionalTrimmedStringField(attachment, 'contentType')
+  const sizeBytes = readOptionalSizeBytes(attachment, `${field}.sizeBytes`)
+
+  return {
+    kind,
+    ...(url !== undefined ? { url } : {}),
+    ...(path !== undefined ? { path } : {}),
+    ...(filename !== undefined ? { filename } : {}),
+    ...(contentType !== undefined ? { contentType } : {}),
+    ...(sizeBytes !== undefined ? { sizeBytes } : {}),
+  }
+}
+
+function readOptionalSizeBytes(input: Record<string, unknown>, field: string): number | undefined {
+  const value = input['sizeBytes']
+  if (value === undefined) {
+    return undefined
+  }
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw new AcpHttpError(400, 'bad_request', `${field} must be a non-negative safe integer`, {
+      field,
+    })
+  }
+  return value
 }
 
 function toSessionRef(scopeRef: string, laneRef: string): SessionRef {
@@ -90,6 +156,7 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
   const body = requireRecord(await parseJsonBody(request))
   const source = parseInterfaceSource(body)
   const content = requireTrimmedStringField(body, 'content')
+  const attachments = parseOptionalInterfaceMessageAttachments(body)
   const binding = deps.interfaceStore.bindings.resolve({
     gatewayId: source.gatewayId,
     conversationRef: source.conversationRef,
@@ -121,6 +188,7 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
         ? { clientIdempotencyKey: readOptionalTrimmedStringField(body, 'idempotencyKey') }
         : {}),
     },
+    ...(attachments !== undefined ? { attachments } : {}),
   } satisfies Readonly<Record<string, unknown>>
 
   deps.interfaceStore.messageSources.recordIfNew({
@@ -167,7 +235,31 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
   }
 
   if (createdAttempt.created && deps.launchRoleScopedRun !== undefined) {
-    const intent = await resolveLaunchIntent(deps, sessionRef, { initialPrompt: content })
+    const resolvedAttachments = await resolveAttachmentRefs(attachments, {
+      runId: createdAttempt.runId,
+      stateDir: deps.mediaStateDir,
+      maxBytes: deps.attachmentMaxBytes,
+      fetchImpl: deps.attachmentFetchImpl,
+    })
+    if (resolvedAttachments !== undefined) {
+      const run = deps.runStore.getRun(createdAttempt.runId)
+      if (run?.metadata !== undefined) {
+        deps.runStore.updateRun(createdAttempt.runId, {
+          metadata: {
+            ...run.metadata,
+            meta: {
+              ...readRecord(run.metadata['meta']),
+              resolvedAttachments,
+            },
+          },
+        })
+      }
+    }
+
+    const intent = await resolveLaunchIntent(deps, sessionRef, {
+      initialPrompt: content,
+      ...(resolvedAttachments !== undefined ? { attachments: resolvedAttachments } : {}),
+    })
 
     const capture = createInterfaceResponseCapture({
       interfaceStore: deps.interfaceStore,
@@ -205,4 +297,10 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
     },
     createdAttempt.created ? 201 : 200
   )
+}
+
+function readRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
 }

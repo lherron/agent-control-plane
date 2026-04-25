@@ -463,9 +463,9 @@ function renderSessionAttachCommandHelp(): string {
 
 function renderRunHelp(): string {
   return renderSimpleHelp({
-    usage: 'acp run <show|cancel> --run <runId> [options]',
-    summary: 'Inspect or cancel ACP runs.',
-    example: 'acp run show --run run_123 --json',
+    usage: 'acp run <show|cancel|attachment> [options]',
+    summary: 'Inspect or cancel ACP runs, or register outbound attachments.',
+    example: 'acp run attachment add ./diagram.png --alt "Architecture diagram"',
   })
 }
 
@@ -482,6 +482,39 @@ function renderRunCancelHelp(): string {
     usage: 'acp run cancel --run <runId> [options]',
     summary: 'Cancel one ACP run.',
     example: 'acp run cancel --run run_123 --json',
+  })
+}
+
+function renderRunAttachmentHelp(): string {
+  return renderSimpleHelp({
+    usage: 'acp run attachment <add|list|clear> [options]',
+    summary: 'Register or inspect pending outbound attachments for a run.',
+    example: 'acp run attachment add ./diagram.png --alt "Architecture diagram"',
+  })
+}
+
+function renderRunAttachmentAddHelp(): string {
+  return renderSimpleHelp({
+    usage:
+      'acp run attachment add <path> [--run <runId>] [--alt <text>] [--filename <name>] [--content-type <mime>] [--json]',
+    summary: 'Upload one file as a pending outbound attachment for a run.',
+    example: 'acp run attachment add ./diagram.png --run run_123 --alt "Architecture diagram"',
+  })
+}
+
+function renderRunAttachmentListHelp(): string {
+  return renderSimpleHelp({
+    usage: 'acp run attachment list [--run <runId>] [--json]',
+    summary: 'List pending outbound attachments for a run.',
+    example: 'acp run attachment list --run run_123',
+  })
+}
+
+function renderRunAttachmentClearHelp(): string {
+  return renderSimpleHelp({
+    usage: 'acp run attachment clear [--run <runId>] [--json]',
+    summary: 'Clear pending outbound attachments when the server supports the debug endpoint.',
+    example: 'acp run attachment clear --run run_123',
   })
 }
 
@@ -1041,6 +1074,39 @@ async function runRunCliCommand(args: string[], deps: CommandDependencies): Prom
   if (subcommand === 'cancel' && (rest.includes('--help') || rest.includes('-h'))) {
     process.stdout.write(`${renderRunCancelHelp()}\n`)
     return
+  }
+  if (subcommand === 'attachment') {
+    const attachmentSubcommand = rest[0]
+    const attachmentRest = rest.slice(1)
+    if (
+      attachmentSubcommand === undefined ||
+      attachmentSubcommand === '--help' ||
+      attachmentSubcommand === '-h'
+    ) {
+      process.stdout.write(`${renderRunAttachmentHelp()}\n`)
+      return
+    }
+    if (
+      attachmentSubcommand === 'add' &&
+      (attachmentRest.includes('--help') || attachmentRest.includes('-h'))
+    ) {
+      process.stdout.write(`${renderRunAttachmentAddHelp()}\n`)
+      return
+    }
+    if (
+      attachmentSubcommand === 'list' &&
+      (attachmentRest.includes('--help') || attachmentRest.includes('-h'))
+    ) {
+      process.stdout.write(`${renderRunAttachmentListHelp()}\n`)
+      return
+    }
+    if (
+      attachmentSubcommand === 'clear' &&
+      (attachmentRest.includes('--help') || attachmentRest.includes('-h'))
+    ) {
+      process.stdout.write(`${renderRunAttachmentClearHelp()}\n`)
+      return
+    }
   }
   writeCommandOutput(await runRunCommand(args, deps))
 }

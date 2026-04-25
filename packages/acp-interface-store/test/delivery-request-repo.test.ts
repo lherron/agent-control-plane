@@ -18,6 +18,16 @@ describe('DeliveryRequestRepo', () => {
         replyToMessageRef: 'discord:message:1',
         bodyKind: 'text/markdown',
         bodyText: 'First reply',
+        bodyAttachments: [
+          {
+            kind: 'file',
+            path: '/tmp/generated.png',
+            filename: 'generated.png',
+            contentType: 'image/png',
+            sizeBytes: 42,
+            alt: 'Generated preview',
+          },
+        ],
         createdAt: '2026-04-20T15:10:00.000Z',
       })
       store.deliveries.enqueue({
@@ -44,6 +54,16 @@ describe('DeliveryRequestRepo', () => {
       const leased = store.deliveries.leaseNext('discord_prod')
       expect(leased?.deliveryRequestId).toBe('dr-1')
       expect(leased?.status).toBe('delivering')
+      expect(leased?.bodyAttachments).toEqual([
+        {
+          kind: 'file',
+          path: '/tmp/generated.png',
+          filename: 'generated.png',
+          contentType: 'image/png',
+          sizeBytes: 42,
+          alt: 'Generated preview',
+        },
+      ])
 
       const acked = store.deliveries.ack('dr-1', '2026-04-20T15:11:00.000Z')
       expect(acked?.status).toBe('delivered')

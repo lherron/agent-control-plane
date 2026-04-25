@@ -16,6 +16,10 @@ import { handleStreamGatewayDeliveries } from '../handlers/gateway-deliveries-st
 import { handleGetJobRun, handleListJobRuns } from '../handlers/job-runs.js'
 import { handleCancelRun } from '../handlers/runs-cancel.js'
 import { handleGetRun } from '../handlers/runs-get.js'
+import {
+  handleListRunOutboundAttachments,
+  handlePostRunOutboundAttachment,
+} from '../handlers/runs-outbound-attachments.js'
 import { handleAttachCommand } from '../handlers/sessions-attach-command.js'
 import { handleCaptureSession } from '../handlers/sessions-capture.js'
 import { handleSessionEvents } from '../handlers/sessions-events.js'
@@ -156,6 +160,16 @@ export function buildParamRoutes(): ParamRoute[] {
     createParamRoute('POST', '/v1/tasks/:taskId/transitions', handleApplyTaskTransition),
     createParamRoute('GET', '/v1/tasks/:taskId/transitions', handleListTaskTransitions),
     createParamRoute('GET', '/v1/runs/:runId', handleGetRun),
+    createParamRoute(
+      'GET',
+      '/v1/runs/:runId/outbound-attachments',
+      handleListRunOutboundAttachments
+    ),
+    createParamRoute(
+      'POST',
+      '/v1/runs/:runId/outbound-attachments',
+      handlePostRunOutboundAttachment
+    ),
     createParamRoute('POST', '/v1/runs/:runId/cancel', handleCancelRun),
     createParamRoute('GET', '/v1/sessions/:sessionId', handleGetSession),
     createParamRoute('GET', '/v1/sessions/:sessionId/runs', handleListSessionRuns),

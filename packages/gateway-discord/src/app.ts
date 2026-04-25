@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto'
 import type { DeliveryRequest } from 'acp-core'
 import { Client, Events, GatewayIntentBits, type Message } from 'discord.js'
 
+import { mapDiscordMessageAttachments, resolveDiscordIngressContent } from './attachment-ingress.js'
+import { createDiscordAttachments, fetchMediaAttachments } from './attachments.js'
 import {
   BindingIndex,
   conversationRefToChannelId,
@@ -21,10 +23,17 @@ import {
 import { classifyDiscordError } from './discord-errors.js'
 import { renderToDiscord } from './discord-render.js'
 import { createLogger } from './logger.js'
-import { type RenderOptions, renderFrameToDiscordContent, splitIntoChunks } from './render.js'
+import {
+  type RenderOptions,
+  extractImagesFromFrame,
+  extractMediaRefsFromFrame,
+  renderFrameToDiscordContent,
+  splitIntoChunks,
+} from './render.js'
 import type {
   DeliveryStreamResponse,
   DiscordInterfaceBinding,
+  RenderBlock,
   RenderFrame,
   UiHandle,
 } from './types.js'
@@ -73,11 +82,28 @@ function buildFinalFrame(
   delivery: DeliveryRequest,
   binding?: DiscordInterfaceBinding
 ): RenderFrame {
+  const blocks: RenderBlock[] = [{ t: 'markdown', md: delivery.body.text }]
+
+  // Convert delivery attachments into media_ref render blocks
+  if (delivery.body.attachments) {
+    for (const attachment of delivery.body.attachments) {
+      const url = attachment.url ?? attachment.path
+      if (!url) continue
+      blocks.push({
+        t: 'media_ref',
+        url,
+        ...(attachment.contentType ? { mimeType: attachment.contentType } : {}),
+        ...(attachment.filename ? { filename: attachment.filename } : {}),
+        ...(attachment.alt ? { alt: attachment.alt } : {}),
+      })
+    }
+  }
+
   return {
     runId: delivery.runId ?? delivery.deliveryRequestId,
     projectId: binding?.projectId ?? delivery.sessionRef.scopeRef,
     phase: 'final',
-    blocks: [{ t: 'markdown', md: delivery.body.text }],
+    blocks,
     updatedAt: Date.now(),
   }
 }
@@ -134,7 +160,17 @@ export class GatewayDiscordApp {
     this.deliveryIdleMs = options.deliveryIdleMs ?? DEFAULT_DELIVERY_IDLE_MS
     this.discordToken = options.discordToken
     this.createdClient = options.client === undefined
-    this.onMessageCreateBound = async (message) => this.handleMessageCreate(message)
+    this.onMessageCreateBound = async (message) => {
+      try {
+        await this.handleMessageCreate(message)
+      } catch (error) {
+        log.error('gw.messageCreate.failed', {
+          message: 'handleMessageCreate threw; keeping gateway alive',
+          trace: { gatewayId: this.gatewayId },
+          err: { message: error instanceof Error ? error.message : String(error) },
+        })
+      }
+    }
   }
 
   async start(): Promise<void> {
@@ -247,6 +283,8 @@ export class GatewayDiscordApp {
     }
 
     const placeholder = await this.createPlaceholder(message)
+    const content = resolveDiscordIngressContent(message)
+    const attachments = mapDiscordMessageAttachments(message)
     let response: Response
     try {
       response = await this.fetchImpl(`${this.acpBaseUrl}/v1/interface/messages`, {
@@ -263,7 +301,8 @@ export class GatewayDiscordApp {
             messageRef: `discord:message:${message.id}`,
             authorRef: `discord:user:${message.author.id}`,
           },
-          content: message.content,
+          content,
+          ...(attachments.length > 0 ? { attachments } : {}),
         }),
       })
     } catch (error) {
@@ -357,7 +396,16 @@ export class GatewayDiscordApp {
     const chunks = splitIntoChunks(content, this.maxChars, this.renderOptions)
     const replyToMessageId = parseDiscordMessageRef(delivery.replyToMessageRef)
 
+    // Extract image and media attachments from the frame
+    const imageAttachments = extractImagesFromFrame(frame)
+    const mediaRefs = extractMediaRefsFromFrame(frame)
+    const mediaFiles = await fetchMediaAttachments(mediaRefs, undefined)
+    const discordFiles = [...createDiscordAttachments(imageAttachments), ...mediaFiles]
+    const filesPayload = discordFiles.length > 0 ? { files: discordFiles } : {}
+
     for (let index = 0; index < chunks.length; index += 1) {
+      const isLastChunk = index === chunks.length - 1
+      const chunkFiles = isLastChunk ? filesPayload : {}
       try {
         await channel.send({
           content: chunks[index],
@@ -368,6 +416,7 @@ export class GatewayDiscordApp {
                 },
               }
             : {}),
+          ...chunkFiles,
         })
       } catch (error) {
         classifyDiscordError(error, 'send', { channelId: targetChannelId })

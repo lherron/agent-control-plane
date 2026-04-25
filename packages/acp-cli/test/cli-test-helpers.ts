@@ -25,6 +25,7 @@ export async function runCli(
   args: string[],
   options: {
     fetchImpl?: (input: Request | string | URL, init?: RequestInit) => Promise<Response>
+    env?: NodeJS.ProcessEnv | undefined
   } = {}
 ): Promise<CliResult> {
   const stdout: string[] = []
@@ -54,6 +55,7 @@ export async function runCli(
   try {
     await main(args, {
       ...(options.fetchImpl !== undefined ? { fetchImpl: options.fetchImpl } : {}),
+      ...(options.env !== undefined ? { env: options.env } : {}),
     })
     return { stdout: stdout.join(''), stderr: stderr.join(''), exitCode: 0 }
   } catch (error) {

@@ -1,4 +1,4 @@
-import type { Actor } from 'acp-core'
+import type { Actor, AttachmentRef } from 'acp-core'
 
 import { randomUUID } from 'node:crypto'
 
@@ -30,6 +30,7 @@ type DeliveryRequestRow = {
   reply_to_message_ref: string | null
   body_kind: DeliveryRequest['bodyKind']
   body_text: string
+  body_attachments_json: string | null
   status: DeliveryRequest['status']
   created_at: string
   delivered_at: string | null
@@ -38,6 +39,8 @@ type DeliveryRequestRow = {
 }
 
 function mapDeliveryRequestRow(row: DeliveryRequestRow): DeliveryRequest {
+  const bodyAttachments = parseBodyAttachments(row.body_attachments_json, row.delivery_request_id)
+
   return {
     deliveryRequestId: row.delivery_request_id,
     linkedFailureId: toOptionalString(row.linked_failure_id),
@@ -59,12 +62,37 @@ function mapDeliveryRequestRow(row: DeliveryRequestRow): DeliveryRequest {
     replyToMessageRef: toOptionalString(row.reply_to_message_ref),
     bodyKind: row.body_kind,
     bodyText: row.body_text,
+    ...(bodyAttachments !== undefined ? { bodyAttachments } : {}),
     status: row.status,
     createdAt: row.created_at,
     deliveredAt: toOptionalString(row.delivered_at),
     failureCode: toOptionalString(row.failure_code),
     failureMessage: toOptionalString(row.failure_message),
   }
+}
+
+function parseBodyAttachments(
+  value: string | null,
+  deliveryRequestId: string
+): AttachmentRef[] | undefined {
+  if (value === null || value.trim().length === 0) {
+    return undefined
+  }
+
+  const parsed = JSON.parse(value) as unknown
+  if (!Array.isArray(parsed)) {
+    throw new Error(`delivery request ${deliveryRequestId} has malformed body attachments`)
+  }
+
+  return parsed as AttachmentRef[]
+}
+
+function serializeBodyAttachments(attachments: AttachmentRef[] | undefined): string | null {
+  if (attachments === undefined || attachments.length === 0) {
+    return null
+  }
+
+  return JSON.stringify(attachments)
 }
 
 export class DeliveryRequestRepo {
@@ -91,12 +119,13 @@ export class DeliveryRequestRepo {
            reply_to_message_ref,
            body_kind,
            body_text,
+           body_attachments_json,
            status,
            created_at,
            delivered_at,
            failure_code,
            failure_message
-         ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)`
+         ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)`
       )
       .run(
         input.deliveryRequestId,
@@ -114,6 +143,7 @@ export class DeliveryRequestRepo {
         input.replyToMessageRef ?? null,
         input.bodyKind,
         input.bodyText,
+        serializeBodyAttachments(input.bodyAttachments),
         input.createdAt
       )
 
@@ -139,6 +169,7 @@ export class DeliveryRequestRepo {
                 reply_to_message_ref,
                 body_kind,
                 body_text,
+                body_attachments_json,
                 status,
                 created_at,
                 delivered_at,
@@ -202,6 +233,16 @@ export class DeliveryRequestRepo {
         )
         .run(deliveredAt, deliveryRequestId)
 
+      this.context.sqlite
+        .prepare(
+          `UPDATE outbound_attachments
+              SET state = 'delivered',
+                  updatedAt = ?
+            WHERE consumedByDeliveryRequestId = ?
+              AND state = 'consumed'`
+        )
+        .run(deliveredAt, deliveryRequestId)
+
       return this.get(deliveryRequestId)
     })()
   }
@@ -243,6 +284,7 @@ export class DeliveryRequestRepo {
                 reply_to_message_ref,
                 body_kind,
                 body_text,
+                body_attachments_json,
                 status,
                 created_at,
                 delivered_at,
@@ -290,6 +332,7 @@ export class DeliveryRequestRepo {
                 reply_to_message_ref,
                 body_kind,
                 body_text,
+                body_attachments_json,
                 status,
                 created_at,
                 delivered_at,
@@ -340,12 +383,13 @@ export class DeliveryRequestRepo {
              reply_to_message_ref,
              body_kind,
              body_text,
+             body_attachments_json,
              status,
              created_at,
              delivered_at,
              failure_code,
              failure_message
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)`
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)`
         )
         .run(
           requeuedDeliveryRequestId,
@@ -364,6 +408,7 @@ export class DeliveryRequestRepo {
           source.replyToMessageRef ?? null,
           source.bodyKind,
           source.bodyText,
+          serializeBodyAttachments(source.bodyAttachments),
           createdAt
         )
 

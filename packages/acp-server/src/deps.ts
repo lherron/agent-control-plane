@@ -91,6 +91,9 @@ export interface AcpServerDeps {
   hrcClient?: AcpHrcClient | undefined
   inputAttemptStore?: InputAttemptStore | undefined
   runStore?: RunStore | undefined
+  mediaStateDir?: string | undefined
+  attachmentMaxBytes?: number | undefined
+  attachmentFetchImpl?: typeof fetch | undefined
   deliveryTargetResolver?: DeliveryTargetResolver | undefined
   authorize?: AuthorizeFn | undefined
 }

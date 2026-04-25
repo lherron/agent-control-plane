@@ -6,6 +6,7 @@ import { BindingRepo } from './repos/binding-repo.js'
 import { DeliveryRequestRepo } from './repos/delivery-request-repo.js'
 import { LastDeliveryContextRepo } from './repos/last-delivery-context-repo.js'
 import { MessageSourceRepo } from './repos/message-source-repo.js'
+import { OutboundAttachmentRepo } from './repos/outbound-attachment-repo.js'
 import type { RepoContext } from './repos/shared.js'
 import Database, { type SqliteDatabase } from './sqlite.js'
 import type { InterfaceStoreActorIdentity } from './types.js'
@@ -22,6 +23,7 @@ export interface InterfaceStore {
   readonly lastDeliveryContext: LastDeliveryContextRepo
   readonly deliveryTargets: DeliveryTargetResolver
   readonly messageSources: MessageSourceRepo
+  readonly outboundAttachments: OutboundAttachmentRepo
   runInTransaction<T>(fn: (store: InterfaceStore) => T): T
   close(): void
 }
@@ -85,6 +87,7 @@ function initializeSchema(sqlite: SqliteDatabase): void {
       reply_to_message_ref TEXT,
       body_kind TEXT NOT NULL CHECK (body_kind IN ('text/markdown')),
       body_text TEXT NOT NULL,
+      body_attachments_json TEXT,
       actor_kind TEXT,
       actor_id TEXT,
       actor_display_name TEXT,
@@ -121,6 +124,23 @@ function initializeSchema(sqlite: SqliteDatabase): void {
       updated_at TEXT NOT NULL,
       PRIMARY KEY (scope_ref, lane_ref)
     );
+
+    CREATE TABLE IF NOT EXISTS outbound_attachments (
+      outboundAttachmentId TEXT PRIMARY KEY,
+      runId TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('pending', 'consumed', 'delivered', 'failed')),
+      consumedByDeliveryRequestId TEXT NULL,
+      path TEXT NOT NULL,
+      filename TEXT NOT NULL,
+      contentType TEXT NOT NULL,
+      sizeBytes INTEGER NOT NULL,
+      alt TEXT NULL,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS outbound_attachments_run_state_idx
+      ON outbound_attachments (runId, state);
   `)
 
   const linkedFailureIdColumn = sqlite
@@ -166,6 +186,21 @@ function initializeSchema(sqlite: SqliteDatabase): void {
       sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${columnDef};`)
     }
   }
+
+  const bodyAttachmentsColumn = sqlite
+    .prepare(
+      `SELECT name
+         FROM pragma_table_info('delivery_requests')
+        WHERE name = 'body_attachments_json'`
+    )
+    .get()
+
+  if (bodyAttachmentsColumn === undefined) {
+    sqlite.exec(`
+      ALTER TABLE delivery_requests
+      ADD COLUMN body_attachments_json TEXT;
+    `)
+  }
 }
 
 function createSqliteDatabase(dbPath: string): SqliteDatabase {
@@ -202,6 +237,7 @@ export function openInterfaceStore(options: OpenInterfaceStoreOptions): Interfac
       lastDeliveryContext,
     }),
     messageSources: new MessageSourceRepo(context),
+    outboundAttachments: new OutboundAttachmentRepo(context),
     runInTransaction<T>(fn: (activeStore: InterfaceStore) => T): T {
       return sqlite.transaction(() => fn(store))()
     },

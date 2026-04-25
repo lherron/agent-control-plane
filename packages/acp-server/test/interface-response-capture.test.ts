@@ -164,6 +164,87 @@ describe('interface response capture', () => {
     }
   })
 
+  test('consumes pending outbound attachments on the next visible assistant delivery', async () => {
+    const temp = createTempInterfaceStore()
+    const runStore = new InMemoryRunStore()
+    const run = createInterfaceRun(runStore)
+
+    try {
+      const pending = temp.interfaceStore.outboundAttachments.create({
+        runId: run.runId,
+        path: '/tmp/generated.png',
+        filename: 'generated.png',
+        contentType: 'image/png',
+        sizeBytes: 42,
+        alt: 'Generated preview',
+        createdAt: '2026-04-24T20:00:00.000Z',
+      })
+      const capture = createInterfaceResponseCapture({
+        interfaceStore: temp.interfaceStore,
+        runStore,
+        runId: run.runId,
+      })
+
+      await capture.handler(assistantMessageEnd('Image is ready.'))
+
+      const deliveries = temp.interfaceStore.deliveries.listQueuedForGateway('discord_prod')
+      expect(deliveries).toHaveLength(1)
+      expect(deliveries[0]?.bodyAttachments).toEqual([
+        {
+          kind: 'file',
+          path: '/tmp/generated.png',
+          filename: 'generated.png',
+          contentType: 'image/png',
+          sizeBytes: 42,
+          alt: 'Generated preview',
+        },
+      ])
+      expect(
+        temp.interfaceStore.outboundAttachments.get(pending.outboundAttachmentId)
+      ).toMatchObject({
+        state: 'consumed',
+        consumedByDeliveryRequestId: deliveries[0]?.deliveryRequestId,
+      })
+    } finally {
+      temp.cleanup()
+    }
+  })
+
+  test('marks pending outbound attachments failed when the run ends without a visible reply', async () => {
+    const temp = createTempInterfaceStore()
+    const runStore = new InMemoryRunStore()
+    const run = createInterfaceRun(runStore)
+    const consoleWarn = mock(() => {})
+    const originalConsoleWarn = console.warn
+
+    try {
+      console.warn = consoleWarn as typeof console.warn
+      const pending = temp.interfaceStore.outboundAttachments.create({
+        runId: run.runId,
+        path: '/tmp/orphan.png',
+        filename: 'orphan.png',
+        contentType: 'image/png',
+        sizeBytes: 12,
+      })
+      const capture = createInterfaceResponseCapture({
+        interfaceStore: temp.interfaceStore,
+        runStore,
+        runId: run.runId,
+      })
+
+      await capture.handler({ type: 'agent_end', reason: 'completed' })
+
+      expect(temp.interfaceStore.deliveries.listQueuedForGateway('discord_prod')).toEqual([])
+      expect(temp.interfaceStore.outboundAttachments.get(pending.outboundAttachmentId)?.state).toBe(
+        'failed'
+      )
+      expect(consoleWarn).toHaveBeenCalledTimes(1)
+    } finally {
+      console.warn = originalConsoleWarn
+      temp.cleanup()
+    }
+  })
+
   test('skips non-interface runs', async () => {
     const temp = createTempInterfaceStore()
     const runStore = new InMemoryRunStore()

@@ -1,4 +1,4 @@
-import { computeTaskContext } from 'acp-core'
+import { type AttachmentRef, computeTaskContext } from 'acp-core'
 import { type SessionRef, parseScopeRef } from 'agent-scope'
 import type { HrcHarnessIntent, HrcRuntimeIntent, HrcTaskContext } from 'hrc-core'
 
@@ -112,6 +112,7 @@ export async function resolveLaunchIntent(
   sessionRef: SessionRef,
   options: {
     initialPrompt?: string | undefined
+    attachments?: AttachmentRef[] | undefined
     taskContext?: HrcTaskContext | undefined
   } = {}
 ): Promise<HrcRuntimeIntent> {
@@ -122,6 +123,7 @@ export async function resolveLaunchIntent(
     placement,
     ...(harness !== undefined ? { harness } : {}),
     ...(options.initialPrompt !== undefined ? { initialPrompt: options.initialPrompt } : {}),
+    ...(options.attachments !== undefined ? { attachments: options.attachments } : {}),
     ...(options.taskContext !== undefined ? { taskContext: options.taskContext } : {}),
   } as HrcRuntimeIntent
 }

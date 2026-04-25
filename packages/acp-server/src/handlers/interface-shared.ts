@@ -92,6 +92,7 @@ export function toApiDeliveryRequest(delivery: StoredDeliveryRequest): ApiDelive
     body: {
       kind: delivery.bodyKind,
       text: delivery.bodyText,
+      ...(delivery.bodyAttachments !== undefined ? { attachments: delivery.bodyAttachments } : {}),
     },
     status: delivery.status,
     createdAt: delivery.createdAt,

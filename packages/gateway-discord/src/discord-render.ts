@@ -1,6 +1,16 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, type Client, type Message } from 'discord.js'
+import {
+  ActionRowBuilder,
+  type AttachmentBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  type Client,
+  type Message,
+} from 'discord.js'
+import { createDiscordAttachments, fetchMediaAttachments } from './attachments.js'
 import {
   type RenderOptions,
+  extractImagesFromFrame,
+  extractMediaRefsFromFrame,
   renderActionsToCustomIds,
   renderFrameToDiscordContent,
   splitIntoChunks,
@@ -51,18 +61,37 @@ export async function renderToDiscord(
         ]
       : []
 
+  // Extract image and media attachments from the frame
+  const imageAttachments = extractImagesFromFrame(frame)
+  const mediaRefs = extractMediaRefsFromFrame(frame)
+  const mediaFiles = await fetchMediaAttachments(mediaRefs, undefined)
+  const discordFiles: AttachmentBuilder[] = [
+    ...createDiscordAttachments(imageAttachments),
+    ...mediaFiles,
+  ]
+
+  const filesPayload = discordFiles.length > 0 ? { files: discordFiles } : {}
+
   if (frame.phase === 'permission') {
     const content = renderFrameToDiscordContent(frame, maxChars)
     const truncatedContent =
       content.length > maxChars ? `${content.slice(0, maxChars - 3)}...` : content
 
     if (message) {
-      // biome-ignore lint/suspicious/noExplicitAny: discord.js type incompatibility workaround
-      await message.edit({ content: truncatedContent, components: buildComponents() as any })
+      await message.edit({
+        content: truncatedContent,
+        // biome-ignore lint/suspicious/noExplicitAny: discord.js type incompatibility workaround
+        components: buildComponents() as any,
+        ...filesPayload,
+      })
       return { chunks: 1, edited: true, sentExtraCount: 0 }
     }
-    // biome-ignore lint/suspicious/noExplicitAny: discord.js type incompatibility workaround
-    await channel.send({ content: truncatedContent, components: buildComponents() as any })
+    await channel.send({
+      content: truncatedContent,
+      // biome-ignore lint/suspicious/noExplicitAny: discord.js type incompatibility workaround
+      components: buildComponents() as any,
+      ...filesPayload,
+    })
     return { chunks: 1, edited: false, sentExtraCount: 0 }
   }
 
@@ -73,13 +102,20 @@ export async function renderToDiscord(
 
   if (message) {
     const firstChunk = chunks[0] || ''
-    // biome-ignore lint/suspicious/noExplicitAny: discord.js type incompatibility workaround
-    await message.edit({ content: firstChunk, components: buildChunkComponents(true) as any })
+    const primaryFiles = chunks.length === 1 ? filesPayload : {}
+    await message.edit({
+      content: firstChunk,
+      // biome-ignore lint/suspicious/noExplicitAny: discord.js type incompatibility workaround
+      components: buildChunkComponents(true) as any,
+      ...primaryFiles,
+    })
 
     for (let i = 1; i < chunks.length; i++) {
       const chunk = chunks[i]
       if (chunk) {
-        await channel.send({ content: chunk })
+        const isLastChunk = i === chunks.length - 1
+        const chunkFiles = isLastChunk ? filesPayload : {}
+        await channel.send({ content: chunk, ...chunkFiles })
       }
     }
     return { chunks: chunks.length, edited: true, sentExtraCount: chunks.length - 1 }
@@ -88,8 +124,14 @@ export async function renderToDiscord(
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i]
     if (!chunk) continue
-    // biome-ignore lint/suspicious/noExplicitAny: discord.js type incompatibility workaround
-    await channel.send({ content: chunk, components: buildChunkComponents(i === 0) as any })
+    const isLastChunk = i === chunks.length - 1
+    const chunkFiles = isLastChunk ? filesPayload : {}
+    await channel.send({
+      content: chunk,
+      // biome-ignore lint/suspicious/noExplicitAny: discord.js type incompatibility workaround
+      components: buildChunkComponents(i === 0) as any,
+      ...chunkFiles,
+    })
   }
   return { chunks: chunks.length, edited: false, sentExtraCount: chunks.length - 1 }
 }

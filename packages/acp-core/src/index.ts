@@ -69,6 +69,12 @@ export type { Session } from './models/session.js'
 export { canAck, canFail, isTerminal } from './interface/delivery-request.js'
 export { resolveBinding } from './interface/binding.js'
 export type {
+  AttachmentKind,
+  AttachmentRef,
+  InterfaceMessageAttachment,
+  InterfaceMessagePayload,
+} from './interface/attachment.js'
+export type {
   DeliveryFailure,
   DeliveryRequest,
   DeliveryRequestBody,

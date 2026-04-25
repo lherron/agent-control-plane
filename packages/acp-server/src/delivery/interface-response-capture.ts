@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
-import type { Run } from 'acp-core'
-import type { InterfaceStore } from 'acp-interface-store'
+import type { AttachmentRef, Run } from 'acp-core'
+import type { InterfaceStore, OutboundAttachment } from 'acp-interface-store'
 import type { UnifiedSessionEvent } from 'spaces-runtime'
 
 import type { RunStore } from '../domain/run-store.js'
@@ -52,6 +52,11 @@ export function createInterfaceResponseCapture(
       try {
         result.lastDeliveryRequestId = undefined
 
+        if (event.type === 'agent_end') {
+          failPendingOutboundAttachments(deps)
+          return
+        }
+
         const visibleMessage = toCompletedVisibleAssistantMessage(event)
         if (visibleMessage === undefined) {
           return
@@ -72,27 +77,38 @@ export function createInterfaceResponseCapture(
 
         deliveryOrdinal += 1
         const deliveryRequestId = createDeliveryRequestId(deps.runId, deliveryOrdinal)
-        deps.interfaceStore.deliveries.enqueue({
-          deliveryRequestId,
-          actor: context.run.actor,
-          gatewayId: context.source.gatewayId,
-          bindingId: context.source.bindingId,
-          scopeRef: context.run.scopeRef,
-          laneRef: context.run.laneRef,
-          runId: context.run.runId,
-          ...(deps.inputAttemptId !== undefined ? { inputAttemptId: deps.inputAttemptId } : {}),
-          conversationRef: context.source.conversationRef,
-          ...(context.source.threadRef !== undefined
-            ? { threadRef: context.source.threadRef }
-            : {}),
-          ...(!replyAnchorConsumed
-            ? {
-                replyToMessageRef: context.source.replyToMessageRef ?? context.source.messageRef,
-              }
-            : {}),
-          bodyKind: 'text/markdown',
-          bodyText: visibleMessage.text,
-          createdAt: new Date().toISOString(),
+        const createdAt = new Date().toISOString()
+        deps.interfaceStore.runInTransaction((store) => {
+          const pendingAttachments = store.outboundAttachments.listPendingForRun(deps.runId)
+          const bodyAttachments = toDeliveryAttachments(pendingAttachments)
+
+          store.deliveries.enqueue({
+            deliveryRequestId,
+            actor: context.run.actor,
+            gatewayId: context.source.gatewayId,
+            bindingId: context.source.bindingId,
+            scopeRef: context.run.scopeRef,
+            laneRef: context.run.laneRef,
+            runId: context.run.runId,
+            ...(deps.inputAttemptId !== undefined ? { inputAttemptId: deps.inputAttemptId } : {}),
+            conversationRef: context.source.conversationRef,
+            ...(context.source.threadRef !== undefined
+              ? { threadRef: context.source.threadRef }
+              : {}),
+            ...(!replyAnchorConsumed
+              ? {
+                  replyToMessageRef: context.source.replyToMessageRef ?? context.source.messageRef,
+                }
+              : {}),
+            bodyKind: 'text/markdown',
+            bodyText: visibleMessage.text,
+            ...(bodyAttachments.length > 0 ? { bodyAttachments } : {}),
+            createdAt,
+          })
+
+          if (pendingAttachments.length > 0) {
+            store.outboundAttachments.markConsumedForRun(deps.runId, deliveryRequestId, createdAt)
+          }
         })
 
         replyAnchorConsumed = true
@@ -107,6 +123,30 @@ export function createInterfaceResponseCapture(
   }
 
   return result
+}
+
+function toDeliveryAttachments(attachments: OutboundAttachment[]): AttachmentRef[] {
+  return attachments.map((attachment) => ({
+    kind: 'file',
+    path: attachment.path,
+    filename: attachment.filename,
+    contentType: attachment.contentType,
+    sizeBytes: attachment.sizeBytes,
+    ...(attachment.alt !== undefined ? { alt: attachment.alt } : {}),
+  }))
+}
+
+function failPendingOutboundAttachments(deps: InterfaceResponseCaptureDeps): void {
+  const pendingAttachments = deps.interfaceStore.outboundAttachments.listPendingForRun(deps.runId)
+  if (pendingAttachments.length === 0) {
+    return
+  }
+
+  const updatedAt = new Date().toISOString()
+  deps.interfaceStore.outboundAttachments.markPendingFailedForRun(deps.runId, updatedAt)
+  console.warn(
+    `[acp-server] marked ${pendingAttachments.length} pending outbound attachment(s) failed for completed run ${deps.runId}`
+  )
 }
 
 function createDeliveryRequestId(runId: string, ordinal: number): string {

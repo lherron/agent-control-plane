@@ -5,7 +5,9 @@ export { BindingRepo } from './repos/binding-repo.js'
 export { DeliveryRequestRepo } from './repos/delivery-request-repo.js'
 export { LastDeliveryContextRepo } from './repos/last-delivery-context-repo.js'
 export { MessageSourceRepo } from './repos/message-source-repo.js'
+export { OutboundAttachmentRepo } from './repos/outbound-attachment-repo.js'
 export type {
+  CreateOutboundAttachmentInput,
   DeliveryBodyKind,
   DeliveryFailureInput,
   FailedDeliveryRecord,
@@ -20,6 +22,8 @@ export type {
   InterfaceStoreActorIdentity,
   LastDeliveryRecord,
   ListFailedDeliveryRequestsInput,
+  OutboundAttachment,
+  OutboundAttachmentState,
   RecordIfNewMessageSourceResult,
   RequeueDeliveryRequestResult,
   ResolveDeliveryTargetResult,
