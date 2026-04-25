@@ -237,14 +237,6 @@ async function createTaskAtRed(
     buildVersion: '1.0',
     buildEnv: 'staging',
   })
-  await transitionTask(run, {
-    taskId,
-    to: 'red',
-    actor: 'larry',
-    actorRole: 'implementer',
-    expectedVersion: 0,
-    evidence: 'artifact://repro',
-  })
 
   return { taskId }
 }
@@ -268,7 +260,7 @@ async function createTaskAtGreen(
     to: 'green',
     actor: 'larry',
     actorRole: 'implementer',
-    expectedVersion: 1,
+    expectedVersion: 0,
     evidence: 'pr:42',
   })
 
@@ -301,7 +293,7 @@ async function createTaskAtVerified(
     to: 'verified',
     actor: 'curly',
     actorRole: 'tester',
-    expectedVersion: 2,
+    expectedVersion: 1,
     evidence: 'recording://qa-1',
   })
 
@@ -334,13 +326,13 @@ describe('ACP MVP defect fastlane e2e', () => {
       const storedTask = stack.wrkqStore.taskRepo.getTask(taskId)
 
       expect(task.lifecycleState).toBe('open')
-      expect(task.phase).toBe('open')
+      expect(task.phase).toBe('red')
       expect(task.workflowPreset).toBe('code_defect_fastlane')
       expect(task.riskClass).toBe('medium')
       expect(storedTask).toMatchObject({
         taskId,
         lifecycleState: 'open',
-        phase: 'open',
+        phase: 'red',
         workflowPreset: 'code_defect_fastlane',
         riskClass: 'medium',
       })
@@ -368,13 +360,13 @@ describe('ACP MVP defect fastlane e2e', () => {
         context: { phase: string; requiredEvidenceKinds: string[]; hintsText: string }
       }>(result)
 
-      expect(payload.context.phase).toBe('open')
-      expect(payload.context.requiredEvidenceKinds).toContain('tdd_red_bundle')
+      expect(payload.context.phase).toBe('red')
+      expect(payload.context.requiredEvidenceKinds).toContain('tdd_green_bundle')
       expect(payload.context.hintsText.length).toBeGreaterThan(0)
     })
   })
 
-  test('open → red transition succeeds with tdd_red_bundle', async () => {
+  test('created red task accepts tdd_red_bundle evidence', async () => {
     await withSeedStack(async (stack) => {
       const { taskId } = await createDefectFastlaneTask((args) => stack.cli.run(args))
 
@@ -389,25 +381,16 @@ describe('ACP MVP defect fastlane e2e', () => {
         buildEnv: 'staging',
       })
 
-      const payload = await transitionTask((args) => stack.cli.run(args), {
-        taskId,
-        to: 'red',
-        actor: 'larry',
-        actorRole: 'implementer',
-        expectedVersion: 0,
-        evidence: 'artifact://repro',
-      })
+      const task = stack.wrkqStore.taskRepo.getTask(taskId)
+      const evidence = stack.wrkqStore.evidenceRepo.listEvidence(taskId)
 
-      expect(payload.task.version).toBe(1)
-      expect(payload.task.phase).toBe('red')
-      expect(stack.wrkqStore.transitionLogRepo.listTransitions(taskId)).toMatchObject([
-        {
-          taskId,
-          from: { phase: 'open' },
-          to: { phase: 'red' },
-          actor: { agentId: 'larry', role: 'implementer' },
-        },
-      ])
+      expect(task).toMatchObject({ phase: 'red', version: 0 })
+      expect(evidence).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ kind: 'tdd_red_bundle', ref: 'artifact://repro' }),
+        ])
+      )
+      expect(stack.wrkqStore.transitionLogRepo.listTransitions(taskId)).toHaveLength(0)
     })
   })
 
@@ -420,7 +403,7 @@ describe('ACP MVP defect fastlane e2e', () => {
         kind: 'bug',
         workflowPreset: 'code_defect_fastlane',
         presetVersion: 1,
-        phase: 'open',
+        phase: 'red',
         riskClass: 'medium',
         version: 1,
       })
@@ -435,16 +418,6 @@ describe('ACP MVP defect fastlane e2e', () => {
         buildVersion: '1.0',
         buildEnv: 'staging',
       })
-      const redPayload = await transitionTask((args) => stack.cli.run(args), {
-        taskId,
-        to: 'red',
-        actor: 'larry',
-        actorRole: 'implementer',
-        expectedVersion: 1,
-        evidence: 'artifact://repro-promoted',
-      })
-      expect(redPayload.task.version).toBe(2)
-
       await addEvidence((args) => stack.cli.run(args), {
         taskId,
         kind: 'tdd_green_bundle',
@@ -457,10 +430,10 @@ describe('ACP MVP defect fastlane e2e', () => {
         to: 'green',
         actor: 'larry',
         actorRole: 'implementer',
-        expectedVersion: 2,
+        expectedVersion: 1,
         evidence: 'artifact://green-promoted',
       })
-      expect(greenPayload.task.version).toBe(3)
+      expect(greenPayload.task.version).toBe(2)
 
       await attachQaEvidence((args) => stack.cli.run(args), taskId)
       const verifiedPayload = await transitionTask((args) => stack.cli.run(args), {
@@ -468,10 +441,10 @@ describe('ACP MVP defect fastlane e2e', () => {
         to: 'verified',
         actor: 'curly',
         actorRole: 'tester',
-        expectedVersion: 3,
+        expectedVersion: 2,
         evidence: 'recording://qa-1',
       })
-      expect(verifiedPayload.task.version).toBe(4)
+      expect(verifiedPayload.task.version).toBe(3)
 
       await addEvidence((args) => stack.cli.run(args), {
         taskId,
@@ -485,7 +458,7 @@ describe('ACP MVP defect fastlane e2e', () => {
         to: 'completed',
         actor: 'larry',
         actorRole: 'implementer',
-        expectedVersion: 4,
+        expectedVersion: 3,
         evidence: 'deploy:promoted-r-789',
       })
       const transitionsResult = await stack.cli.run([
@@ -500,8 +473,8 @@ describe('ACP MVP defect fastlane e2e', () => {
       )
 
       expect(completionPayload.task.lifecycleState).toBe('completed')
-      expect(completionPayload.task.phase).toBe('completed')
-      expect(transitionsPayload.transitions).toHaveLength(5)
+      expect(completionPayload.task.phase).toBe('verified')
+      expect(transitionsPayload.transitions).toHaveLength(4)
       expect(
         transitionsPayload.transitions.map((entry) => ({
           from: entry.from.phase,
@@ -511,11 +484,10 @@ describe('ACP MVP defect fastlane e2e', () => {
         }))
       ).toEqual(
         expect.arrayContaining([
-          { from: '', to: 'open', actor: 'tracy', role: 'triager' },
-          { from: 'open', to: 'red', actor: 'larry', role: 'implementer' },
+          { from: null, to: 'red', actor: 'tracy', role: 'triager' },
           { from: 'red', to: 'green', actor: 'larry', role: 'implementer' },
           { from: 'green', to: 'verified', actor: 'curly', role: 'tester' },
-          { from: 'verified', to: 'completed', actor: 'larry', role: 'implementer' },
+          { from: 'verified', to: 'verified', actor: 'larry', role: 'implementer' },
         ])
       )
     })
@@ -541,7 +513,7 @@ describe('ACP MVP defect fastlane e2e', () => {
         to: 'green',
         actor: 'larry',
         actorRole: 'implementer',
-        expectedVersion: 1,
+        expectedVersion: 0,
         evidence: 'pr:42',
       })
       const task = stack.wrkqStore.taskRepo.getTask(taskId)
@@ -600,7 +572,7 @@ describe('ACP MVP defect fastlane e2e', () => {
         '--actor-role',
         'tester',
         '--expected-version',
-        '2',
+        '1',
         '--evidence',
         'recording://qa-1',
         '--json',
@@ -628,11 +600,11 @@ describe('ACP MVP defect fastlane e2e', () => {
         to: 'verified',
         actor: 'curly',
         actorRole: 'tester',
-        expectedVersion: 2,
+        expectedVersion: 1,
         evidence: 'recording://qa-1',
       })
 
-      expect(payload.task.version).toBe(3)
+      expect(payload.task.version).toBe(2)
       expect(payload.task.phase).toBe('verified')
     })
   })
@@ -653,11 +625,11 @@ describe('ACP MVP defect fastlane e2e', () => {
         to: 'verified',
         actor: 'mallory',
         actorRole: 'tester',
-        expectedVersion: 2,
+        expectedVersion: 1,
         evidence: 'recording://qa-independent',
       })
 
-      expect(payload.task.version).toBe(3)
+      expect(payload.task.version).toBe(2)
       expect(payload.task.phase).toBe('verified')
       expect(payload.transition.actor.agentId).toBe('mallory')
     })
@@ -680,7 +652,7 @@ describe('ACP MVP defect fastlane e2e', () => {
         to: 'completed',
         actor: 'larry',
         actorRole: 'implementer',
-        expectedVersion: 3,
+        expectedVersion: 2,
         evidence: 'deploy:r-789',
       })
       const transitionsResult = await stack.cli.run([
@@ -701,14 +673,13 @@ describe('ACP MVP defect fastlane e2e', () => {
       }))
 
       expect(completionPayload.task.lifecycleState).toBe('completed')
-      expect(completionPayload.task.phase).toBe('completed')
-      expect(transitionsPayload.transitions).toHaveLength(4)
+      expect(completionPayload.task.phase).toBe('verified')
+      expect(transitionsPayload.transitions).toHaveLength(3)
       expect(transitionSummary).toEqual(
         expect.arrayContaining([
-          { from: 'open', to: 'red', actor: 'larry', role: 'implementer' },
           { from: 'red', to: 'green', actor: 'larry', role: 'implementer' },
           { from: 'green', to: 'verified', actor: 'curly', role: 'tester' },
-          { from: 'verified', to: 'completed', actor: 'larry', role: 'implementer' },
+          { from: 'verified', to: 'verified', actor: 'larry', role: 'implementer' },
         ])
       )
     })
