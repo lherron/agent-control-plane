@@ -456,19 +456,11 @@ function createNextFireAt(input: {
   disabled: boolean
   anchor: string
 }): string | null {
-  void input.schedule
-  void input.anchor
   if (input.disabled) {
     return null
   }
 
-  return null
-}
-
-function startOfUtcHourIso(now: string): string {
-  const value = new Date(now)
-  value.setUTCMinutes(0, 0, 0)
-  return value.toISOString()
+  return nextFireAfter(input.schedule.cron, input.anchor)
 }
 
 export function listAppliedJobsStoreMigrations(sqlite: SqliteDatabase): string[] {
@@ -894,7 +886,8 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
 
       const claimed: ClaimedDueJob[] = []
       for (const row of dueJobs) {
-        const dueAt = row.next_fire_at ?? nextFireAfter(row.schedule_cron, startOfUtcHourIso(now))
+        const dueAt =
+          row.next_fire_at ?? nextFireAfter(row.schedule_cron, row.last_fire_at ?? row.created_at)
         if (dueAt === null || dueAt > now) {
           continue
         }

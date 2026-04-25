@@ -68,6 +68,7 @@ describe('scheduler catch-up policy', () => {
           schedule: { cron: '*/5 * * * *' },
           input: { content: 'catch up once after downtime' },
           disabled: false,
+          createdAt: '2026-04-23T12:00:00.000Z',
         })
       )) as Record<string, unknown>
       const job = (created['job'] as Record<string, unknown> | undefined) ?? created
