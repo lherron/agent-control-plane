@@ -4,7 +4,7 @@ import {
   listEvidenceKinds,
 } from '../models/evidence.js'
 import type { EvidenceItem } from '../models/evidence.js'
-import { findTransitionPolicyRule } from '../models/preset.js'
+import { matchesRiskClass } from '../models/preset.js'
 import type { Preset, TransitionPolicyRule } from '../models/preset.js'
 import { getRoleAgentId } from '../models/role-map.js'
 import {
@@ -22,6 +22,10 @@ import type {
 
 function reject(error: TransitionRejection): TransitionResult {
   return { ok: false, error }
+}
+
+function dedupe(values: readonly string[]): string[] {
+  return Array.from(new Set(values))
 }
 
 function isWaiverValidForMissingEvidence(input: {
@@ -76,14 +80,14 @@ export function validateTransition(input: {
   const taskRoleMap = input.task.roleMap
   const actor = normalizeTransitionActor(input.actor)
   const currentPhase = input.task.phase ?? ''
-  const rule = findTransitionPolicyRule(
-    input.preset,
-    currentPhase,
-    input.toPhase,
-    input.task.riskClass
+  const matchingRules = input.preset.transitionPolicy.filter(
+    (rule) =>
+      rule.fromPhase === currentPhase &&
+      rule.toPhase === input.toPhase &&
+      matchesRiskClass(rule, input.task.riskClass)
   )
 
-  if (rule === undefined) {
+  if (matchingRules.length === 0) {
     return reject({
       code: 'unknown_transition',
       message: `No transition rule matches ${currentPhase} -> ${input.toPhase}`,
@@ -92,7 +96,8 @@ export function validateTransition(input: {
     })
   }
 
-  if (!rule.allowedRoles.includes(actor.role)) {
+  const roleAllowedRules = matchingRules.filter((rule) => rule.allowedRoles.includes(actor.role))
+  if (roleAllowedRules.length === 0) {
     return reject({
       code: 'role_not_allowed',
       message: `Role "${actor.role}" is not allowed for ${currentPhase} -> ${input.toPhase}`,
@@ -101,10 +106,16 @@ export function validateTransition(input: {
     })
   }
 
-  const conflictingRole = rule.disallowSameAgentAsRoles.find(
-    (role) => getRoleAgentId(taskRoleMap, role) === actor.agentId
+  const rulesWithoutSodViolation = roleAllowedRules.filter(
+    (rule) =>
+      rule.disallowSameAgentAsRoles.find(
+        (role) => getRoleAgentId(taskRoleMap, role) === actor.agentId
+      ) === undefined
   )
-  if (conflictingRole !== undefined) {
+  if (rulesWithoutSodViolation.length === 0) {
+    const conflictingRole = roleAllowedRules
+      .flatMap((rule) => [...rule.disallowSameAgentAsRoles])
+      .find((role) => getRoleAgentId(taskRoleMap, role) === actor.agentId)
     return reject({
       code: 'sod_violation',
       message: `Actor "${actor.agentId}" conflicts with role "${conflictingRole}" for ${currentPhase} -> ${input.toPhase}`,
@@ -113,9 +124,32 @@ export function validateTransition(input: {
     })
   }
 
-  const missingEvidenceKinds = findMissingEvidenceKinds(input.evidence, rule.requiredEvidenceKinds)
-  if (missingEvidenceKinds.length > 0) {
-    const waivers = input.waivers ?? []
+  const rulesWithMissingEvidence = rulesWithoutSodViolation.map((rule) => ({
+    rule,
+    missingEvidenceKinds: findMissingEvidenceKinds(input.evidence, rule.requiredEvidenceKinds),
+  }))
+  const satisfiedRule = rulesWithMissingEvidence.find(
+    ({ missingEvidenceKinds }) => missingEvidenceKinds.length === 0
+  )
+  const waivers = input.waivers ?? []
+  const waivedRule =
+    satisfiedRule ??
+    rulesWithMissingEvidence.find(({ rule, missingEvidenceKinds }) =>
+      missingEvidenceKinds.every((requiredEvidenceKind) =>
+        isWaiverValidForMissingEvidence({
+          waivers,
+          requiredEvidenceKind,
+          fromPhase: currentPhase,
+          toPhase: input.toPhase,
+          rule,
+        })
+      )
+    )
+
+  if (waivedRule === undefined) {
+    const missingEvidenceKinds = dedupe(
+      rulesWithMissingEvidence.flatMap((entry) => entry.missingEvidenceKinds)
+    )
     if (waivers.length === 0) {
       return reject({
         code: 'missing_evidence',
@@ -126,27 +160,16 @@ export function validateTransition(input: {
       })
     }
 
-    const stillMissingEvidenceKinds = missingEvidenceKinds.filter(
-      (requiredEvidenceKind) =>
-        !isWaiverValidForMissingEvidence({
-          waivers,
-          requiredEvidenceKind,
-          fromPhase: currentPhase,
-          toPhase: input.toPhase,
-          rule,
-        })
-    )
-
-    if (stillMissingEvidenceKinds.length > 0) {
-      return reject({
-        code: 'no_waiver',
-        message: `No valid waiver covers ${currentPhase} -> ${input.toPhase}`,
-        fromPhase: currentPhase,
-        toPhase: input.toPhase,
-        missingEvidenceKinds: stillMissingEvidenceKinds,
-      })
-    }
+    return reject({
+      code: 'no_waiver',
+      message: `No valid waiver covers ${currentPhase} -> ${input.toPhase}`,
+      fromPhase: currentPhase,
+      toPhase: input.toPhase,
+      missingEvidenceKinds,
+    })
   }
+  const rule = waivedRule.rule
+  const missingEvidenceKinds = waivedRule.missingEvidenceKinds
 
   if (input.expectedVersion !== input.task.version) {
     return reject({

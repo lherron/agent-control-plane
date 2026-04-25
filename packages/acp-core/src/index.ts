@@ -90,6 +90,7 @@ export type {
 export type { Job, JobRun, JobRunStatus } from './models/job.js'
 
 export { codeDefectFastlaneV1 } from './presets/code_defect_fastlane.v1.js'
+export { codeFeatureTddV1 } from './presets/code_feature_tdd.v1.js'
 export { getPreset, listPresets } from './presets/registry.js'
 export { validateTransition } from './validators/transition-policy.js'
 export { computeTaskContext } from './task-context.js'

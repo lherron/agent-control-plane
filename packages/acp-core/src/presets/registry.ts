@@ -1,4 +1,5 @@
 import { codeDefectFastlaneV1 } from './code_defect_fastlane.v1.js'
+import { codeFeatureTddV1 } from './code_feature_tdd.v1.js'
 
 import type { Preset } from '../models/preset.js'
 
@@ -11,6 +12,7 @@ const presetRegistry = new Map<string, Preset>([
     presetRegistryKey(codeDefectFastlaneV1.presetId, codeDefectFastlaneV1.version),
     codeDefectFastlaneV1,
   ],
+  [presetRegistryKey(codeFeatureTddV1.presetId, codeFeatureTddV1.version), codeFeatureTddV1],
 ])
 
 export function getPreset(presetId: string, version: number): Preset {
