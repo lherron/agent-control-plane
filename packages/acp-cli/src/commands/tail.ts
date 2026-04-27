@@ -1,14 +1,14 @@
+import { CliUsageError } from '../cli-runtime.js'
+import { AcpClientHttpError, AcpClientTransportError } from '../http-client.js'
+import { type TailEvent, parseNdjsonText, streamNdjsonEvents } from '../output/replay-reducer.js'
+import { renderTable } from '../output/table.js'
 import {
   hasFlag,
   parseArgs,
   parseIntegerValue,
   readStringFlag,
   requireNoPositionals,
-} from '../cli-args.js'
-import { CliUsageError } from '../cli-runtime.js'
-import { AcpClientHttpError, AcpClientTransportError } from '../http-client.js'
-import { type TailEvent, parseNdjsonText, streamNdjsonEvents } from '../output/replay-reducer.js'
-import { renderTable } from '../output/table.js'
+} from './options.js'
 
 import { resolveConcreteSessionId } from './session-shared.js'
 import {

@@ -1,5 +1,8 @@
 import type { EvidenceItem } from 'acp-core'
 
+import { CliUsageError } from '../cli-runtime.js'
+import { renderTransitionApplied } from '../output/transitions-render.js'
+import { normalizeRoleName } from '../roles.js'
 import {
   hasFlag,
   parseArgs,
@@ -9,10 +12,7 @@ import {
   readStringFlag,
   requireNoPositionals,
   requireStringFlag,
-} from '../cli-args.js'
-import { CliUsageError } from '../cli-runtime.js'
-import { renderTransitionApplied } from '../output/transitions-render.js'
-import { normalizeRoleName } from '../roles.js'
+} from './options.js'
 import {
   type CommandDependencies,
   type CommandOutput,

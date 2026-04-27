@@ -72,7 +72,7 @@ describe('POST /v1/tasks', () => {
     })
   })
 
-  test('creates a task without workflowPreset — phase is null', async () => {
+  test('creates a task without workflowPreset — phase is empty', async () => {
     await withWiredServer(async (fixture) => {
       const response = await fixture.request({
         method: 'POST',
@@ -87,7 +87,7 @@ describe('POST /v1/tasks', () => {
       const payload = await fixture.json<{ task: Record<string, unknown> }>(response)
 
       expect(response.status).toBe(201)
-      expect(payload.task['phase']).toBeNull()
+      expect(payload.task['phase']).toBe('')
       expect(payload.task['lifecycleState']).toBe('open')
       expect(payload.task['workflowPreset']).toBeUndefined()
     })

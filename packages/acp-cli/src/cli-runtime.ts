@@ -1,5 +1,6 @@
 import { AcpClientHttpError, AcpClientTransportError, isAcpErrorBody } from './http-client.js'
 import { renderError } from './output/error-render.js'
+import { printJson } from './print.js'
 
 export type CommandOutput =
   | {
@@ -12,7 +13,7 @@ export type CommandOutput =
     }
 
 export class CliUsageError extends Error {
-  readonly exitCode = 1
+  readonly exitCode = 2
 
   constructor(message: string) {
     super(message)
@@ -21,16 +22,12 @@ export class CliUsageError extends Error {
 }
 
 export class CliServerError extends Error {
-  readonly exitCode = 2
+  readonly exitCode = 1
 
   constructor(message: string) {
     super(message)
     this.name = 'CliServerError'
   }
-}
-
-export function printJson(value: unknown): void {
-  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
 }
 
 export function printText(text: string): void {
@@ -58,7 +55,7 @@ export function exitWithError(error: unknown, options: { json: boolean }): never
 
   if (error instanceof AcpClientTransportError || error instanceof CliServerError) {
     printError(`acp: ${error.message}`)
-    process.exit(2)
+    process.exit(1)
   }
 
   if (error instanceof AcpClientHttpError) {
@@ -70,14 +67,14 @@ export function exitWithError(error: unknown, options: { json: boolean }): never
       printError(`acp: ${error.message}`)
     }
 
-    process.exit(error.status >= 500 ? 2 : 1)
+    process.exit(1)
   }
 
   if (error instanceof Error) {
     printError(`acp: ${error.message}`)
-    process.exit(2)
+    process.exit(1)
   }
 
   printError(`acp: ${String(error)}`)
-  process.exit(2)
+  process.exit(1)
 }

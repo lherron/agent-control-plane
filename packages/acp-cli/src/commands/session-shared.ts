@@ -1,6 +1,6 @@
-import { type ParsedArgs, readStringFlag, requireStringFlag } from '../cli-args.js'
 import { CliUsageError } from '../cli-runtime.js'
 import { normalizeScopeInput } from '../scope-input.js'
+import { type ParsedArgs, readStringFlag, requireStringFlag } from './options.js'
 
 import { type CommandDependencies, createRawRequesterFromParsed } from './shared.js'
 

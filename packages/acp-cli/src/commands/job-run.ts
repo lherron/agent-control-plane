@@ -1,6 +1,6 @@
-import { hasFlag, parseArgs, requireNoPositionals, requireStringFlag } from '../cli-args.js'
 import { CliUsageError } from '../cli-runtime.js'
 import { renderKeyValueTable, renderTable } from '../output/table.js'
+import { hasFlag, parseArgs, requireNoPositionals, requireStringFlag } from './options.js'
 
 import {
   type CommandDependencies,

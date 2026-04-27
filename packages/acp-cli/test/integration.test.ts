@@ -299,7 +299,7 @@ describe('acp-cli integration', () => {
         version: 1,
       },
       transition: {
-        from: { phase: null },
+        from: { phase: '' },
         to: { phase: 'red' },
       },
     })

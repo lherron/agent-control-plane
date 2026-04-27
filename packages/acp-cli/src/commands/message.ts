@@ -1,12 +1,12 @@
+import { CliUsageError } from '../cli-runtime.js'
+import { renderTable } from '../output/table.js'
 import {
   type ParsedArgs,
   hasFlag,
   parseArgs,
   requireNoPositionals,
   requireStringFlag,
-} from '../cli-args.js'
-import { CliUsageError } from '../cli-runtime.js'
-import { renderTable } from '../output/table.js'
+} from './options.js'
 
 import { normalizeScopeInput } from '../scope-input.js'
 import { requireMessageText } from './session-shared.js'

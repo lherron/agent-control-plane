@@ -1,14 +1,14 @@
 import type { EvidenceItem } from 'acp-core'
 
+import { renderAttachedEvidence } from '../output/evidence-render.js'
+import { normalizeRoleName } from '../roles.js'
 import {
   hasFlag,
   parseArgs,
   readStringFlag,
   requireNoPositionals,
   requireStringFlag,
-} from '../cli-args.js'
-import { renderAttachedEvidence } from '../output/evidence-render.js'
-import { normalizeRoleName } from '../roles.js'
+} from './options.js'
 import {
   type CommandDependencies,
   type CommandOutput,

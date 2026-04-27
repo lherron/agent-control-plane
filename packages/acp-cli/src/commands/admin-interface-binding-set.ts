@@ -1,4 +1,4 @@
-import { hasFlag, parseArgs, requireNoPositionals, requireStringFlag } from '../cli-args.js'
+import { hasFlag, parseArgs, requireNoPositionals, requireStringFlag } from './options.js'
 
 import { createAdminClient, resolveSessionInput } from './admin-interface-binding-shared.js'
 import { type CommandDependencies, type CommandOutput, asJson, asText } from './shared.js'

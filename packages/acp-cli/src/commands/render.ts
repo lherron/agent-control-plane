@@ -1,4 +1,3 @@
-import { hasFlag, parseArgs, readStringFlag, requireNoPositionals } from '../cli-args.js'
 import { CliUsageError } from '../cli-runtime.js'
 import { AcpClientHttpError, AcpClientTransportError } from '../http-client.js'
 import {
@@ -8,6 +7,7 @@ import {
   reduceEvents,
   streamNdjsonEvents,
 } from '../output/replay-reducer.js'
+import { hasFlag, parseArgs, readStringFlag, requireNoPositionals } from './options.js'
 
 import { resolveConcreteSessionId } from './session-shared.js'
 import {

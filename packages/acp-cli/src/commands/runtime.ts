@@ -1,4 +1,4 @@
-import { hasFlag, parseArgs, requireNoPositionals } from '../cli-args.js'
+import { hasFlag, parseArgs, requireNoPositionals } from './options.js'
 
 import { CliUsageError } from '../cli-runtime.js'
 import { renderKeyValueTable } from '../output/table.js'

@@ -25,6 +25,8 @@
   "dependencies": {
     "acp-core": "*",
     "acp-server": "*",
+    "cli-kit": "*",
+    "commander": "^14.0.0",
     "gateway-discord": "*",
     "wrkq-lib": "*"
   },

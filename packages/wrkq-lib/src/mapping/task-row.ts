@@ -120,7 +120,7 @@ export function mapTaskRow(row: TaskRow, roleMap: RoleMap): Task {
     ...(row.workflow_preset !== null ? { workflowPreset: row.workflow_preset } : {}),
     ...(row.preset_version !== null ? { presetVersion: row.preset_version } : {}),
     lifecycleState: mapWrkqStateToLifecycleState(row.state),
-    phase: row.phase,
+    phase: row.phase ?? '',
     ...(row.risk_class !== null ? { riskClass: row.risk_class } : {}),
     roleMap,
     version: row.etag,

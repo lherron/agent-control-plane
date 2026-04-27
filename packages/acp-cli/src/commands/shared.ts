@@ -1,4 +1,3 @@
-import { type ParsedArgs, hasFlag, parseJsonObject, readStringFlag } from '../cli-args.js'
 import { CliUsageError, type CommandOutput } from '../cli-runtime.js'
 import {
   type AcpClient,
@@ -8,6 +7,7 @@ import {
   type FetchLike,
   createHttpClient,
 } from '../http-client.js'
+import { type ParsedArgs, hasFlag, parseJsonObject, readStringFlag } from './options.js'
 
 export type CommandDependencies = {
   env?: NodeJS.ProcessEnv | undefined

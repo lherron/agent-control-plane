@@ -1,5 +1,5 @@
-import { parseArgs, parseJsonObject, requireNoPositionals, requireStringFlag } from '../cli-args.js'
 import { CliUsageError, type CommandOutput } from '../cli-runtime.js'
+import { parseArgs, parseJsonObject, requireNoPositionals, requireStringFlag } from './options.js'
 
 import { createGovernanceClient, renderGovernanceResponse } from './admin-governance-shared.js'
 import type { CommandDependencies } from './shared.js'

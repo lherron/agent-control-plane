@@ -1,5 +1,5 @@
-import { parseArgs, requireNoPositionals, requireStringFlag } from '../cli-args.js'
 import { CliUsageError, type CommandOutput } from '../cli-runtime.js'
+import { parseArgs, requireNoPositionals, requireStringFlag } from './options.js'
 
 import {
   createGovernanceClient,

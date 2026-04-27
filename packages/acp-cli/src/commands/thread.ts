@@ -1,12 +1,12 @@
+import { CliUsageError } from '../cli-runtime.js'
+import { renderKeyValueTable, renderTable } from '../output/table.js'
 import {
   hasFlag,
   parseArgs,
   parseIntegerValue,
   requireNoPositionals,
   requireStringFlag,
-} from '../cli-args.js'
-import { CliUsageError } from '../cli-runtime.js'
-import { renderKeyValueTable, renderTable } from '../output/table.js'
+} from './options.js'
 
 import { readSessionRefFlags } from './session-shared.js'
 import {

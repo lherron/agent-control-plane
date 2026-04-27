@@ -199,7 +199,7 @@ describe('runtime-oriented CLI commands', () => {
         env: {},
       })
 
-      expect(result.exitCode).toBe(1)
+      expect(result.exitCode).toBe(2)
       expect(result.stderr).toContain('--run is required (or set HRC_RUN_ID)')
     } finally {
       rmSync(fixture.dir, { recursive: true, force: true })
@@ -211,7 +211,7 @@ describe('runtime-oriented CLI commands', () => {
       env: { HRC_RUN_ID: 'run_123' },
     })
 
-    expect(result.exitCode).toBe(1)
+    expect(result.exitCode).toBe(2)
     expect(result.stderr).toContain('file does not exist: /tmp/acp-cli-missing-file.png')
   })
 

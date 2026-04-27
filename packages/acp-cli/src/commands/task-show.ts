@@ -1,12 +1,12 @@
+import { renderTask } from '../output/task-render.js'
+import { normalizeRoleName } from '../roles.js'
 import {
   hasFlag,
   parseArgs,
   readStringFlag,
   requireNoPositionals,
   requireStringFlag,
-} from '../cli-args.js'
-import { renderTask } from '../output/task-render.js'
-import { normalizeRoleName } from '../roles.js'
+} from './options.js'
 import {
   type CommandDependencies,
   type CommandOutput,

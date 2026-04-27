@@ -1,4 +1,4 @@
-import { type ParsedArgs, hasFlag, readStringFlag } from '../cli-args.js'
+import { type ParsedArgs, hasFlag, readStringFlag } from './options.js'
 
 import { type CommandDependencies, type CommandOutput, asJson, asText } from './shared.js'
 import {

@@ -1,16 +1,16 @@
 import { stat } from 'node:fs/promises'
 import { basename } from 'node:path'
 
+import { CliUsageError } from '../cli-runtime.js'
+import { AcpClientHttpError, AcpClientTransportError } from '../http-client.js'
+import { renderKeyValueTable, renderTable } from '../output/table.js'
 import {
   hasFlag,
   parseArgs,
   readStringFlag,
   requireNoPositionals,
   requireStringFlag,
-} from '../cli-args.js'
-import { CliUsageError } from '../cli-runtime.js'
-import { AcpClientHttpError, AcpClientTransportError } from '../http-client.js'
-import { renderKeyValueTable, renderTable } from '../output/table.js'
+} from './options.js'
 
 import {
   type CommandDependencies,

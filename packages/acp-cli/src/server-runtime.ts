@@ -15,7 +15,8 @@ import {
 } from 'gateway-discord'
 import { WrkqSchemaMissingError } from 'wrkq-lib'
 
-import { CliServerError, CliUsageError, printJson, printText } from './cli-runtime.js'
+import { CliServerError, CliUsageError, printText } from './cli-runtime.js'
+import { printJson } from './print.js'
 
 const DEFAULT_RUNTIME_ROOT = '/Users/lherron/praesidium/var/run/acp'
 const DEFAULT_LOG_PATH = '/Users/lherron/praesidium/var/logs/acp-server.log'

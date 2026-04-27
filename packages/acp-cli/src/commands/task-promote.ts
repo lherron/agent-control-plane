@@ -1,5 +1,8 @@
 import type { RiskClass } from 'acp-core'
 
+import { CliUsageError } from '../cli-runtime.js'
+import { renderPromotedTask } from '../output/task-render.js'
+import { normalizeRoleName, parseRoleAssignment } from '../roles.js'
 import {
   hasFlag,
   parseArgs,
@@ -8,10 +11,7 @@ import {
   readStringFlag,
   requireNoPositionals,
   requireStringFlag,
-} from '../cli-args.js'
-import { CliUsageError } from '../cli-runtime.js'
-import { renderPromotedTask } from '../output/task-render.js'
-import { normalizeRoleName, parseRoleAssignment } from '../roles.js'
+} from './options.js'
 import {
   type CommandDependencies,
   type CommandOutput,

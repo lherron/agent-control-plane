@@ -57,7 +57,7 @@ describe('POST /v1/tasks/:taskId/promote', () => {
       })
       expect(payload.transition).toMatchObject({
         actor: { agentId: 'tracy', role: 'triager' },
-        from: { phase: null },
+        from: { phase: '' },
         to: { phase: 'red' },
         expectedVersion: 0,
         nextVersion: 1,

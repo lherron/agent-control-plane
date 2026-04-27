@@ -22,15 +22,14 @@ describe('acp CLI help', () => {
   test('nested help is usable for new commands', async () => {
     const sessionHelp = await runCli(['session', 'attach-command', '--help'])
     expect(sessionHelp.exitCode).toBe(0)
-    expect(sessionHelp.stdout).toContain('Get the live attach command')
-    expect(sessionHelp.stdout).toContain('Example:')
+    expect(sessionHelp.stdout).toContain('get a session attach command')
 
     const messageHelp = await runCli(['message', 'send', '--help'])
     expect(messageHelp.exitCode).toBe(0)
-    expect(messageHelp.stdout).toContain('Send one coordination message')
+    expect(messageHelp.stdout).toContain('send coordination message')
 
     const heartbeatHelp = await runCli(['heartbeat', 'wake', '--help'])
     expect(heartbeatHelp.exitCode).toBe(0)
-    expect(heartbeatHelp.stdout).toContain('Trigger one agent heartbeat wake request')
+    expect(heartbeatHelp.stdout).toContain('trigger one wake request')
   })
 })

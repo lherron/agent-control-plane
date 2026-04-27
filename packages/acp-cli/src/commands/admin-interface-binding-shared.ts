@@ -1,6 +1,6 @@
-import { readStringFlag } from '../cli-args.js'
 import { CliUsageError } from '../cli-runtime.js'
 import { normalizeScopeInput } from '../scope-input.js'
+import { readStringFlag } from './options.js'
 
 import {
   type CommandDependencies,

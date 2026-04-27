@@ -1,4 +1,4 @@
-import { CliUsageError } from './cli-runtime.js'
+import { CliUsageError } from '../cli-runtime.js'
 
 export type ArgSpec = {
   booleanFlags?: readonly string[] | undefined

@@ -1,11 +1,11 @@
+import { renderTransitions } from '../output/transitions-render.js'
 import {
   hasFlag,
   parseArgs,
   readStringFlag,
   requireNoPositionals,
   requireStringFlag,
-} from '../cli-args.js'
-import { renderTransitions } from '../output/transitions-render.js'
+} from './options.js'
 import {
   type CommandDependencies,
   type CommandOutput,
