@@ -138,6 +138,43 @@ export function parseIntegerValue(flag: string, raw: string, options: { min: num
   return value
 }
 
+const DURATION_SUFFIXES: Readonly<Record<string, number>> = {
+  ms: 1,
+  s: 1_000,
+  m: 60_000,
+}
+
+/**
+ * Parse a duration value in milliseconds.
+ *
+ * Accepts a bare integer (treated as milliseconds) or an integer with a
+ * supported suffix: `ms`, `s`, `m`.  Examples: `500`, `500ms`, `5s`, `2m`.
+ */
+export function parseDurationMs(
+  flag: string,
+  raw: string,
+  options: { min: number } = { min: 1 }
+): number {
+  const trimmed = raw.trim()
+  const match = /^(\d+)(ms|s|m)?$/.exec(trimmed)
+  if (match === null) {
+    throw new CliUsageError(`${flag} must be a duration like 500, 500ms, 5s, or 2m (got "${raw}")`)
+  }
+
+  const digits = match[1]
+  if (digits === undefined) {
+    throw new CliUsageError(`${flag} must be a duration like 500, 500ms, 5s, or 2m (got "${raw}")`)
+  }
+  const n = Number.parseInt(digits, 10)
+  const suffix = match[2] ?? 'ms'
+  const factor = DURATION_SUFFIXES[suffix] ?? 1
+  const value = n * factor
+  if (!Number.isFinite(value) || value < options.min) {
+    throw new CliUsageError(`${flag} must resolve to >= ${options.min}ms`)
+  }
+  return value
+}
+
 export function parseJsonObject(flag: string, raw: string): Record<string, unknown> {
   let value: unknown
   try {

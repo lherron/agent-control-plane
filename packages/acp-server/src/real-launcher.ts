@@ -23,7 +23,7 @@ const RAW_EVENT_POLL_GRACE_MS = 2_000
 const TERMINAL_RUN_STATUSES = new Set(['completed', 'failed', 'cancelled'])
 const UNAVAILABLE_TMUX_STATUSES = new Set(['terminated', 'stale', 'failed', 'exited'])
 
-type RawRunEventRecord = Pick<HrcEventEnvelope, 'eventKind' | 'eventJson'>
+export type RawRunEventRecord = Pick<HrcEventEnvelope, 'eventKind' | 'eventJson'>
 
 type LiveTmuxRuntime = {
   hostSessionId: string
@@ -500,7 +500,7 @@ function readRunStatus(
   }
 }
 
-function listRawRunEvents(hrcDbPath: string, runId: string): RawRunEventRecord[] {
+export function listRawRunEvents(hrcDbPath: string, runId: string): RawRunEventRecord[] {
   const db = new Database(hrcDbPath, { readonly: true })
   try {
     const rows = db
@@ -563,7 +563,7 @@ function findLiveTmuxRuntimeForSessionRef(
   }
 }
 
-function readLatestAssistantMessageSeq(
+export function readLatestAssistantMessageSeq(
   hrcDbPath: string,
   input: {
     hostSessionId: string
@@ -610,7 +610,7 @@ async function pollAssistantMessageAfterSeq(options: {
   return readAssistantMessageAfterSeq(options)
 }
 
-function readAssistantMessageAfterSeq(options: {
+export function readAssistantMessageAfterSeq(options: {
   hrcDbPath: string
   hostSessionId: string
   sessionRef: SessionRef

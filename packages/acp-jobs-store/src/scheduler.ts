@@ -1,4 +1,4 @@
-import type { ClaimDueJobsInput, JobRunRecord, JobsStore } from './open-store.js'
+import type { ClaimDueJobsInput, ClaimedDueJob, JobRunRecord, JobsStore } from './open-store.js'
 
 export type DispatchThroughInputs = (input: {
   jobId: string
@@ -8,10 +8,13 @@ export type DispatchThroughInputs = (input: {
   content: string
 }) => Promise<{ inputAttemptId: string; runId: string }>
 
+export type AdvanceFlowJobRun = (entry: ClaimedDueJob) => Promise<JobRunRecord>
+
 export type TickJobsSchedulerInput = {
   store: JobsStore
   now: string | Date
   dispatchThroughInputs?: DispatchThroughInputs | undefined
+  advanceFlowJobRun?: AdvanceFlowJobRun | undefined
   claimLimit?: number | undefined
 }
 
@@ -29,12 +32,40 @@ export async function tickJobsScheduler(input: TickJobsSchedulerInput): Promise<
   } satisfies ClaimDueJobsInput)
 
   const scheduledRuns = claimed.map((entry) => entry.jobRun)
-  if (input.dispatchThroughInputs === undefined) {
+  if (input.dispatchThroughInputs === undefined && input.advanceFlowJobRun === undefined) {
     return scheduledRuns
   }
 
   const results: ScheduledRun[] = []
   for (const entry of claimed) {
+    if (entry.job.flow !== undefined) {
+      if (input.advanceFlowJobRun === undefined) {
+        results.push(entry.jobRun)
+        continue
+      }
+
+      try {
+        results.push(await input.advanceFlowJobRun(entry))
+      } catch (error) {
+        results.push(
+          input.store.updateJobRun(entry.jobRun.jobRunId, {
+            status: 'failed',
+            errorCode: 'flow_advance_failed',
+            errorMessage: error instanceof Error ? error.message : String(error),
+            completedAt: now,
+            leaseOwner: null,
+            leaseExpiresAt: null,
+          }).jobRun
+        )
+      }
+      continue
+    }
+
+    if (input.dispatchThroughInputs === undefined) {
+      results.push(entry.jobRun)
+      continue
+    }
+
     try {
       const content = entry.job.input['content']
       if (typeof content !== 'string' || content.trim().length === 0) {
@@ -72,12 +103,40 @@ export async function tickJobsScheduler(input: TickJobsSchedulerInput): Promise<
     }
   }
 
+  if (input.advanceFlowJobRun !== undefined) {
+    const inflight = input.store.listInflightFlowJobRuns({
+      ...(input.claimLimit !== undefined ? { limit: input.claimLimit } : {}),
+    })
+    const claimedIds = new Set(claimed.map((entry) => entry.jobRun.jobRunId))
+    for (const entry of inflight) {
+      if (claimedIds.has(entry.jobRun.jobRunId)) {
+        continue
+      }
+
+      try {
+        results.push(await input.advanceFlowJobRun(entry))
+      } catch (error) {
+        results.push(
+          input.store.updateJobRun(entry.jobRun.jobRunId, {
+            status: 'failed',
+            errorCode: 'flow_advance_failed',
+            errorMessage: error instanceof Error ? error.message : String(error),
+            completedAt: now,
+            leaseOwner: null,
+            leaseExpiresAt: null,
+          }).jobRun
+        )
+      }
+    }
+  }
+
   return results
 }
 
 export function createJobsScheduler(input: {
   store: JobsStore
   dispatchThroughInputs?: DispatchThroughInputs | undefined
+  advanceFlowJobRun?: AdvanceFlowJobRun | undefined
 }) {
   return {
     tick(now: string | Date): Promise<ScheduledRun[]> {
@@ -86,6 +145,9 @@ export function createJobsScheduler(input: {
         now,
         ...(input.dispatchThroughInputs !== undefined
           ? { dispatchThroughInputs: input.dispatchThroughInputs }
+          : {}),
+        ...(input.advanceFlowJobRun !== undefined
+          ? { advanceFlowJobRun: input.advanceFlowJobRun }
           : {}),
       })
     },

@@ -3,7 +3,11 @@ import {
   handleListInterfaceIdentities,
   handleRegisterInterfaceIdentity,
 } from '../handlers/admin-interface-identities.js'
-import { handleCreateAdminJob, handleListAdminJobs } from '../handlers/admin-jobs.js'
+import {
+  handleCreateAdminJob,
+  handleListAdminJobs,
+  handleValidateAdminJob,
+} from '../handlers/admin-jobs.js'
 import { handleCreateMembership, handleListMemberships } from '../handlers/admin-memberships.js'
 import { handleCreateAdminProject, handleListAdminProjects } from '../handlers/admin-projects.js'
 import { handleAppendSystemEvent, handleListSystemEvents } from '../handlers/admin-system-events.js'
@@ -98,6 +102,11 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
       'POST',
       '/v1/admin/jobs',
       handleCreateAdminJob
+    ),
+    [exactRouteKey('POST', '/v1/admin/jobs/validate')]: maybeWrapMutatingRoute(
+      'POST',
+      '/v1/admin/jobs/validate',
+      handleValidateAdminJob
     ),
     [exactRouteKey('GET', '/v1/admin/jobs')]: handleListAdminJobs,
     [exactRouteKey('GET', '/v1/conversation/threads')]: handleListConversationThreads,

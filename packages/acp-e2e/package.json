@@ -12,6 +12,7 @@
   "dependencies": {
     "acp-cli": "*",
     "acp-core": "*",
+    "acp-jobs-store": "*",
     "acp-server": "*",
     "agent-scope": "*",
     "coordination-substrate": "*",

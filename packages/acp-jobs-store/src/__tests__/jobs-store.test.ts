@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
+import { validateJobFlow } from '../flow-validation.js'
 import { createInMemoryJobsStore } from '../index.js'
 
 type SqliteTableRow = { name: string }
@@ -121,12 +122,14 @@ describe('jobs store contract', () => {
       const jobsTable = findJobsTable(store)
 
       expect(jobsTable).not.toBeNull()
+      expect(store.migrations.applied).toContain('003_job_flow')
       expect(jobsTable?.columns ?? []).toEqual(
         expect.arrayContaining([
           expect.stringMatching(/job/i),
           expect.stringMatching(/scope/i),
           expect.stringMatching(/schedule|cron/i),
           expect.stringMatching(/input/i),
+          'flow_json',
         ])
       )
     } finally {
@@ -195,6 +198,63 @@ describe('jobs store contract', () => {
       expect(afterArchive.map((job) => job['jobId'])).not.toContain(jobId)
     } finally {
       store.close()
+    }
+  })
+
+  test('round-trips flow definitions without changing legacy input content', () => {
+    const store = createInMemoryJobsStore()
+
+    try {
+      const legacy = store.createJob({
+        agentId: 'larry',
+        projectId: 'demo-project',
+        scopeRef: 'agent:larry:project:demo-project',
+        schedule: { cron: '0 * * * *' },
+        input: { content: 'legacy prompt' },
+      }).job
+
+      expect(legacy.input).toEqual({ content: 'legacy prompt' })
+      expect('flow' in legacy).toBe(false)
+
+      const flow = {
+        sequence: [{ id: 'work', input: 'Do the work.' }],
+      }
+      const created = store.createJob({
+        agentId: 'larry',
+        projectId: 'demo-project',
+        scopeRef: 'agent:larry:project:demo-project',
+        schedule: { cron: '0 * * * *' },
+        input: { content: 'legacy compatibility prompt' },
+        flow,
+      }).job
+
+      expect(created.flow).toEqual(flow)
+      expect(created.input).toEqual({ content: 'legacy compatibility prompt' })
+      expect(store.getJob(created.jobId).job?.flow).toEqual(flow)
+      expect(
+        store.listJobs({ projectId: 'demo-project' }).jobs.map((job) => job.flow)
+      ).toContainEqual(flow)
+    } finally {
+      store.close()
+    }
+  })
+
+  test('exposes validator failures for invalid flow definitions', () => {
+    const result = validateJobFlow({
+      sequence: [
+        { id: 'work', input: 'Do the work.' },
+        { id: 'work', input: 'Do it again.' },
+      ],
+    })
+
+    expect(result.valid).toBe(false)
+    if (!result.valid) {
+      expect(result.errors).toEqual([
+        expect.objectContaining({
+          code: 'duplicate_step_id',
+          path: 'flow.sequence[1].id',
+        }),
+      ])
     }
   })
 })

@@ -1,13 +1,17 @@
 import { CliUsageError } from '../cli-runtime.js'
 import { renderKeyValueTable, renderTable } from '../output/table.js'
+import { loadJobFile } from './job-file-loader.js'
 import {
   hasFlag,
   parseArgs,
+  parseDurationMs,
   parseJsonObject,
+  readStringFlag,
   requireNoPositionals,
   requireStringFlag,
 } from './options.js'
 
+import { pollJobRun } from './poll.js'
 import {
   type CommandDependencies,
   type CommandOutput,
@@ -19,6 +23,34 @@ type JobRecord = Record<string, unknown>
 type JobListResponse = { jobs: JobRecord[] }
 type JobShowResponse = { job: JobRecord }
 type JobRunResponse = { jobRun: Record<string, unknown> }
+type ValidateResponse = { valid: boolean; errors?: unknown[] }
+
+/** Legacy inline flags that conflict with --in. */
+const INLINE_FLAGS = [
+  '--input',
+  '--cron',
+  '--project',
+  '--agent',
+  '--scope-ref',
+  '--lane-ref',
+  '--disabled',
+  '--enabled',
+] as const
+
+function assertMutuallyExclusive(parsed: {
+  stringFlags: Readonly<Record<string, string>>
+  booleanFlags: Set<string>
+}): void {
+  for (const flag of INLINE_FLAGS) {
+    if (flag === '--disabled' || flag === '--enabled') {
+      if (parsed.booleanFlags.has(flag)) {
+        throw new CliUsageError(`--in cannot be combined with ${flag}`)
+      }
+    } else if (parsed.stringFlags[flag] !== undefined) {
+      throw new CliUsageError(`--in cannot be combined with ${flag}`)
+    }
+  }
+}
 
 function renderJobsTable(response: JobListResponse): string {
   return renderTable(
@@ -40,7 +72,7 @@ export async function runJobCommand(
   const subcommand = args[0]
   const rest = args.slice(1)
   const parsed = parseArgs(rest, {
-    booleanFlags: ['--json', '--table', '--disabled', '--enabled'],
+    booleanFlags: ['--json', '--table', '--disabled', '--enabled', '--wait'],
     stringFlags: [
       '--job',
       '--project',
@@ -49,8 +81,11 @@ export async function runJobCommand(
       '--lane-ref',
       '--cron',
       '--input',
+      '--in',
       '--server',
       '--actor',
+      '--poll-interval',
+      '--timeout',
     ],
   })
 
@@ -60,7 +95,39 @@ export async function runJobCommand(
   requireNoPositionals(parsed)
   const requester = createRawRequesterFromParsed(parsed, deps)
 
+  if (subcommand === 'validate') {
+    const inFile = readStringFlag(parsed, '--in')
+    if (inFile === undefined) {
+      throw new CliUsageError('job validate requires --in <file.json>')
+    }
+    assertMutuallyExclusive(parsed)
+    const { body } = loadJobFile(inFile)
+    const response = await requester.requestJson<ValidateResponse>({
+      method: 'POST',
+      path: '/v1/admin/jobs/validate',
+      body,
+    })
+    return renderJsonOrTable(parsed, response, () => renderKeyValueTable(response as JobRecord))
+  }
+
   if (subcommand === 'create') {
+    const inFile = readStringFlag(parsed, '--in')
+    if (inFile !== undefined) {
+      assertMutuallyExclusive(parsed)
+      const { body } = loadJobFile(inFile)
+      // Allow --job to override jobId from file
+      const jobIdOverride = readStringFlag(parsed, '--job')
+      if (jobIdOverride !== undefined) {
+        body['jobId'] = jobIdOverride
+      }
+      const response = await requester.requestJson<JobShowResponse>({
+        method: 'POST',
+        path: '/v1/admin/jobs',
+        body,
+      })
+      return renderJsonOrTable(parsed, response, () => renderKeyValueTable(response.job))
+    }
+
     const body = {
       ...(parsed.stringFlags['--job'] !== undefined
         ? { jobId: requireStringFlag(parsed, '--job') }
@@ -105,6 +172,18 @@ export async function runJobCommand(
   }
 
   if (subcommand === 'patch') {
+    const inFile = readStringFlag(parsed, '--in')
+    if (inFile !== undefined) {
+      assertMutuallyExclusive(parsed)
+      const { body } = loadJobFile(inFile)
+      const response = await requester.requestJson<JobShowResponse>({
+        method: 'PATCH',
+        path: `/v1/admin/jobs/${encodeURIComponent(requireStringFlag(parsed, '--job'))}`,
+        body,
+      })
+      return renderJsonOrTable(parsed, response, () => renderKeyValueTable(response.job))
+    }
+
     const patch: Record<string, unknown> = {}
     if (parsed.stringFlags['--cron'] !== undefined) {
       patch['schedule'] = { cron: requireStringFlag(parsed, '--cron') }
@@ -138,7 +217,41 @@ export async function runJobCommand(
       method: 'POST',
       path: `/v1/admin/jobs/${encodeURIComponent(requireStringFlag(parsed, '--job'))}/run`,
     })
-    return renderJsonOrTable(parsed, response, () => renderKeyValueTable(response.jobRun))
+
+    if (!hasFlag(parsed, '--wait')) {
+      return renderJsonOrTable(parsed, response, () => renderKeyValueTable(response.jobRun))
+    }
+
+    const jobRunId = String(response.jobRun['jobRunId'] ?? '')
+    if (jobRunId.length === 0) {
+      throw new CliUsageError('job run --wait requires the server to return jobRun.jobRunId')
+    }
+
+    const rawInterval = parsed.stringFlags['--poll-interval']
+    const rawTimeout = parsed.stringFlags['--timeout']
+    const intervalMs =
+      rawInterval !== undefined
+        ? parseDurationMs('--poll-interval', rawInterval, { min: 1 })
+        : 1_000
+    const timeoutMs =
+      rawTimeout !== undefined
+        ? parseDurationMs('--timeout', rawTimeout, { min: 1 })
+        : 10 * 60 * 1_000
+
+    const result = await pollJobRun(requester, jobRunId, { intervalMs, timeoutMs })
+
+    const body = {
+      jobRun: result.latest,
+      ...(result.timedOut ? { timedOut: true } : {}),
+    }
+
+    return renderJsonOrTable(parsed, body, () => {
+      return renderKeyValueTable({
+        jobRunId: String(result.latest['jobRunId'] ?? ''),
+        status: String(result.latest['status'] ?? ''),
+        ...(result.timedOut ? { timedOut: 'true' } : {}),
+      })
+    })
   }
 
   throw new CliUsageError(`unknown job subcommand: ${subcommand}`)

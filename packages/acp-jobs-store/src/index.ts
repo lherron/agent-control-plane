@@ -15,16 +15,34 @@ export {
   type JobRunStatus,
   type JobRunTrigger,
   type JobSchedule,
+  type JobStepRunRecord,
   type JobsStore,
   type JobsStoreMigration,
+  type InsertJobStepRunInput,
   type OpenSqliteJobsStoreOptions,
+  type UpdateJobStepRunInput,
   type UpdateJobInput,
   type UpdateJobRunInput,
 } from './open-store.js'
+export {
+  mapJobRunStatusForFlowResponse,
+  type FlowJobRunResponseStatus,
+} from './flow-status.js'
+export {
+  assertValidJobFlow,
+  validateJobFlow,
+  validateJobFlowJob,
+  type JobFlowValidationError,
+  type JobFlowValidationErrorCode,
+  type JobFlowValidationResult,
+  type ValidateJobFlowJobInput,
+  type ValidateJobFlowOptions,
+} from './flow-validation.js'
 export { isValidCron, nextFireAfter } from './cron.js'
 export {
   createJobsScheduler,
   tickJobsScheduler,
+  type AdvanceFlowJobRun,
   type DispatchThroughInputs,
   type ScheduledRun,
 } from './scheduler.js'

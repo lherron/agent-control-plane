@@ -49,6 +49,10 @@ export const mutatingRouteSpecs: Record<string, ActorAndAuthzSpec> = {
     operation: 'admin.jobs.create',
     resource: ({ body }) => ({ kind: 'job', id: readBodyString(body, 'jobId') }),
   },
+  'POST /v1/admin/jobs/validate': {
+    operation: 'admin.jobs.validate',
+    resource: ({ body }) => ({ kind: 'project', id: readBodyString(body, 'projectId') }),
+  },
   'PATCH /v1/admin/jobs/:jobId': {
     operation: 'admin.jobs.patch',
     resource: ({ params }) => ({ kind: 'job', id: params['jobId'] }),

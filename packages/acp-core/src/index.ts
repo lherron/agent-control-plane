@@ -93,7 +93,17 @@ export type {
   ConversationTurn,
   ConversationTurnRenderState,
 } from './conversation/turn.js'
-export type { Job, JobRun, JobRunStatus } from './models/job.js'
+export type {
+  Job,
+  JobFlow,
+  JobFlowStep,
+  JobRun,
+  JobRunStatus,
+  JobStepRun,
+  JobStepRunPhase,
+  JobStepRunStatus,
+  StepExpectation,
+} from './models/job.js'
 
 export { codeDefectFastlaneV1 } from './presets/code_defect_fastlane.v1.js'
 export { codeFeatureTddV1 } from './presets/code_feature_tdd.v1.js'

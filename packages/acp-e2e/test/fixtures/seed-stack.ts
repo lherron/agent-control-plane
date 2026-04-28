@@ -36,6 +36,10 @@ type CliAdapter = {
 type SeedStackOptions = {
   launchRoleScopedRun?: AcpServerDeps['launchRoleScopedRun'] | undefined
   runtimeResolver?: AcpServerDeps['runtimeResolver'] | undefined
+  jobsStore?: AcpServerDeps['jobsStore'] | undefined
+  inputAttemptStore?: AcpServerDeps['inputAttemptStore'] | undefined
+  runStore?: AcpServerDeps['runStore'] | undefined
+  hrcDbPath?: string | undefined
 }
 
 export type SeedStack = {
@@ -178,7 +182,7 @@ export function createSeedStack(options: SeedStackOptions = {}): SeedStack {
 
   ensureDemoActors(wrkqStore)
 
-  const server = createAcpServer({
+  const serverDeps: AcpServerDeps & { hrcDbPath?: string | undefined } = {
     wrkqStore,
     coordStore,
     interfaceStore,
@@ -186,7 +190,14 @@ export function createSeedStack(options: SeedStackOptions = {}): SeedStack {
       ? { launchRoleScopedRun: options.launchRoleScopedRun }
       : {}),
     runtimeResolver: options.runtimeResolver ?? defaultRuntimeResolver(),
-  })
+    ...(options.jobsStore !== undefined ? { jobsStore: options.jobsStore } : {}),
+    ...(options.inputAttemptStore !== undefined
+      ? { inputAttemptStore: options.inputAttemptStore }
+      : {}),
+    ...(options.runStore !== undefined ? { runStore: options.runStore } : {}),
+    ...(options.hrcDbPath !== undefined ? { hrcDbPath: options.hrcDbPath } : {}),
+  }
+  const server = createAcpServer(serverDeps)
   const fetchImpl = createInProcessFetch(server)
 
   const cli: CliAdapter = {

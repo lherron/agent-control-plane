@@ -427,14 +427,18 @@ function addCoordinationCommands(program: Command, deps: CommandDependencies): v
   }
 
   const job = program.command('job').description('manage scheduled jobs')
+  tabular(job.command('validate').description('validate a job file'))
+    .requiredOption('--in <file>', 'JSON job file to validate')
+    .action(runLeaf(deps, ['validate'], runJobCommand))
   tabular(job.command('create').description('create one job'))
     .option('--job <jobId>')
-    .requiredOption('--project <projectId>')
-    .requiredOption('--agent <agentId>')
-    .requiredOption('--scope-ref <scopeRef>')
+    .option('--in <file>', 'JSON job file to import')
+    .option('--project <projectId>')
+    .option('--agent <agentId>')
+    .option('--scope-ref <scopeRef>')
     .option('--lane-ref <laneRef>')
-    .requiredOption('--cron <expr>')
-    .requiredOption('--input <json>')
+    .option('--cron <expr>')
+    .option('--input <json>')
     .option('--disabled')
     .action(runLeaf(deps, ['create'], runJobCommand))
   tabular(job.command('list').description('list jobs'))
@@ -445,6 +449,7 @@ function addCoordinationCommands(program: Command, deps: CommandDependencies): v
     .action(runLeaf(deps, ['show'], runJobCommand))
   tabular(job.command('patch').description('patch one job'))
     .requiredOption('--job <jobId>')
+    .option('--in <file>', 'JSON job file to import')
     .option('--cron <expr>')
     .option('--input <json>')
     .option('--enabled')
@@ -452,6 +457,9 @@ function addCoordinationCommands(program: Command, deps: CommandDependencies): v
     .action(runLeaf(deps, ['patch'], runJobCommand))
   tabular(job.command('run').description('trigger one job'))
     .requiredOption('--job <jobId>')
+    .option('--wait', 'poll until job run reaches terminal status')
+    .option('--poll-interval <ms>', 'poll interval in ms (default: 1000)')
+    .option('--timeout <ms>', 'timeout in ms (default: 600000)')
     .action(runLeaf(deps, ['run'], runJobCommand))
 
   const jobRun = program.command('job-run').description('inspect job runs')
@@ -462,7 +470,15 @@ function addCoordinationCommands(program: Command, deps: CommandDependencies): v
   tabular(jobRun.command('show').description('show one job run'))
     .requiredOption('--job-run <jobRunId>')
     .option('--project <projectId>')
+    .option('--steps', 'render steps table')
+    .option('--results', 'render step results table')
     .action(runLeaf(deps, ['show'], runJobRunCommand))
+  tabular(jobRun.command('wait').description('poll a job run until terminal'))
+    .requiredOption('--job-run <jobRunId>')
+    .option('--project <projectId>')
+    .option('--poll-interval <ms>', 'poll interval in ms (default: 1000)')
+    .option('--timeout <ms>', 'timeout in ms (default: 600000)')
+    .action(runLeaf(deps, ['wait'], runJobRunCommand))
 
   const heartbeat = program.command('heartbeat').description('set heartbeats or trigger wakes')
   common(heartbeat.command('set').description('set one heartbeat'))
@@ -573,8 +589,9 @@ export async function main(
 
 if (import.meta.main) {
   try {
-    const program = buildProgram()
-    if (process.argv.slice(2).length === 0) {
+    const cliArgs = process.argv.slice(2)
+    const program = buildProgram({}, cliArgs)
+    if (cliArgs.length === 0) {
       program.outputHelp({ error: true })
       throw new CliUsageError('missing command')
     }

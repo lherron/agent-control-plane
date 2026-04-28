@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-import type { Actor } from 'acp-core'
+import type { Actor, JobFlow, JobStepRunPhase, JobStepRunStatus } from 'acp-core'
 
 import { isValidCron, nextFireAfter } from './cron.js'
 import Database, { type SqliteDatabase } from './sqlite.js'
@@ -22,6 +22,7 @@ type JobRow = {
   schedule_window_end: string | null
   schedule_json: string
   input_json: string
+  flow_json: string | null
   disabled: number
   last_fire_at: string | null
   next_fire_at: string | null
@@ -57,6 +58,24 @@ type JobRunRow = {
   updated_at: string
 }
 
+type JobStepRunRow = {
+  job_run_id: string
+  phase: JobStepRunPhase
+  step_id: string
+  status: JobStepRunStatus
+  attempt: number
+  input_attempt_id: string | null
+  run_id: string | null
+  result_block: string | null
+  result_json: string | null
+  error_code: string | null
+  error_message: string | null
+  started_at: string | null
+  completed_at: string | null
+  created_at: string
+  updated_at: string
+}
+
 export type JobsStoreMigration = {
   id: string
   sql: string
@@ -84,11 +103,29 @@ export type JobRecord = {
   laneRef: string
   schedule: JobSchedule
   input: JobInputTemplate
+  flow?: JobFlow | undefined
   disabled: boolean
   lastFireAt?: string | undefined
   nextFireAt?: string | undefined
   actor: Actor
   actorStamp?: string | undefined
+  createdAt: string
+  updatedAt: string
+}
+
+export type JobStepRunRecord = {
+  jobRunId: string
+  stepId: string
+  phase: JobStepRunPhase
+  status: JobStepRunStatus
+  attempt: number
+  inputAttemptId?: string | undefined
+  runId?: string | undefined
+  resultBlock?: string | undefined
+  result?: Readonly<Record<string, unknown>> | undefined
+  error?: { code: string; message: string } | undefined
+  startedAt?: string | undefined
+  completedAt?: string | undefined
   createdAt: string
   updatedAt: string
 }
@@ -122,6 +159,7 @@ export type CreateJobInput = {
   laneRef?: string | undefined
   schedule: JobSchedule
   input: JobInputTemplate
+  flow?: JobFlow | undefined
   disabled?: boolean | undefined
   actor?: Actor | undefined
   actorStamp?: string | undefined
@@ -131,9 +169,34 @@ export type CreateJobInput = {
 export type UpdateJobInput = {
   schedule?: JobSchedule | undefined
   input?: JobInputTemplate | undefined
+  flow?: JobFlow | undefined
   disabled?: boolean | undefined
   actor?: Actor | undefined
   actorStamp?: string | undefined
+}
+
+export type InsertJobStepRunInput = {
+  stepId: string
+  status?: JobStepRunStatus | undefined
+  attempt?: number | undefined
+  inputAttemptId?: string | undefined
+  runId?: string | undefined
+  resultBlock?: string | undefined
+  result?: Readonly<Record<string, unknown>> | undefined
+  error?: { code: string; message: string } | undefined
+  startedAt?: string | undefined
+  completedAt?: string | undefined
+}
+
+export type UpdateJobStepRunInput = {
+  status?: JobStepRunStatus | undefined
+  inputAttemptId?: string | null | undefined
+  runId?: string | null | undefined
+  resultBlock?: string | null | undefined
+  result?: Readonly<Record<string, unknown>> | null | undefined
+  error?: { code: string; message: string } | null | undefined
+  startedAt?: string | null | undefined
+  completedAt?: string | null | undefined
 }
 
 export type ListJobsInput = {
@@ -265,6 +328,39 @@ export const jobsStoreMigrations: readonly JobsStoreMigration[] = [
        WHERE actor_kind IS NULL OR actor_id IS NULL;
     `,
   },
+  {
+    id: '003_job_flow',
+    sql: `
+      ALTER TABLE jobs ADD COLUMN flow_json TEXT;
+
+      CREATE TABLE IF NOT EXISTS job_step_runs (
+        job_run_id TEXT NOT NULL,
+        phase TEXT NOT NULL,
+        step_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        attempt INTEGER NOT NULL,
+        input_attempt_id TEXT,
+        run_id TEXT,
+        result_block TEXT,
+        result_json TEXT,
+        error_code TEXT,
+        error_message TEXT,
+        started_at TEXT,
+        completed_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (job_run_id, phase, step_id, attempt),
+        FOREIGN KEY (job_run_id) REFERENCES job_runs(job_run_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS job_step_runs_job_run_idx
+        ON job_step_runs (job_run_id, phase, created_at, step_id);
+
+      CREATE INDEX IF NOT EXISTS job_step_runs_run_id_idx
+        ON job_step_runs (run_id)
+        WHERE run_id IS NOT NULL;
+    `,
+  },
 ]
 
 export interface OpenSqliteJobsStoreOptions {
@@ -290,6 +386,27 @@ export interface JobsStore {
     update(jobRunId: string, patch: UpdateJobRunInput): { jobRun: JobRunRecord }
     claimDueRuns(input: ClaimDueJobRunsInput): { jobRuns: JobRunRecord[] }
   }
+  readonly jobStepRuns: {
+    insertMany(
+      jobRunId: string,
+      phase: JobStepRunPhase,
+      steps: readonly InsertJobStepRunInput[]
+    ): { jobStepRuns: JobStepRunRecord[] }
+    updateStep(
+      jobRunId: string,
+      phase: JobStepRunPhase,
+      stepId: string,
+      attempt: number,
+      patch: UpdateJobStepRunInput
+    ): { jobStepRun: JobStepRunRecord }
+    listByJobRun(jobRunId: string): { jobStepRuns: JobStepRunRecord[] }
+    getById(
+      jobRunId: string,
+      phase: JobStepRunPhase,
+      stepId: string,
+      attempt: number
+    ): { jobStepRun: JobStepRunRecord | undefined }
+  }
   createJob(input: CreateJobInput): { job: JobRecord }
   listJobs(input?: ListJobsInput | undefined): { jobs: JobRecord[] }
   getJob(jobId: string): { job: JobRecord | undefined }
@@ -300,11 +417,31 @@ export interface JobsStore {
   getJobRun(jobRunId: string): { jobRun: JobRunRecord | undefined }
   updateJobRun(jobRunId: string, patch: UpdateJobRunInput): { jobRun: JobRunRecord }
   claimDueJobRuns(input: ClaimDueJobRunsInput): { jobRuns: JobRunRecord[] }
+  insertJobStepRuns(
+    jobRunId: string,
+    phase: JobStepRunPhase,
+    steps: readonly InsertJobStepRunInput[]
+  ): { jobStepRuns: JobStepRunRecord[] }
+  updateJobStepRun(
+    jobRunId: string,
+    phase: JobStepRunPhase,
+    stepId: string,
+    attempt: number,
+    patch: UpdateJobStepRunInput
+  ): { jobStepRun: JobStepRunRecord }
+  listJobStepRuns(jobRunId: string): { jobStepRuns: JobStepRunRecord[] }
+  getJobStepRun(
+    jobRunId: string,
+    phase: JobStepRunPhase,
+    stepId: string,
+    attempt: number
+  ): { jobStepRun: JobStepRunRecord | undefined }
   createJobRun(
     jobId: string,
     input: Omit<AppendJobRunInput, 'jobId'>
   ): { job: JobRecord; jobRun: JobRunRecord }
   claimDueJobs(input: ClaimDueJobsInput): ClaimedDueJob[]
+  listInflightFlowJobRuns(input?: { limit?: number | undefined } | undefined): ClaimedDueJob[]
   runInTransaction<T>(fn: (store: JobsStore) => T): T
   close(): void
 }
@@ -348,6 +485,13 @@ function parseJsonRecord(value: string, field: string): Readonly<Record<string, 
   return parsed as Readonly<Record<string, unknown>>
 }
 
+function parseOptionalJsonRecord(
+  value: string | null,
+  field: string
+): Readonly<Record<string, unknown>> | undefined {
+  return value === null ? undefined : parseJsonRecord(value, field)
+}
+
 function actorToStamp(actor: Actor): string {
   return `${actor.kind}:${actor.id}`
 }
@@ -371,6 +515,7 @@ function rowToActor(row: {
 }
 
 function toJobRecord(row: JobRow): JobRecord {
+  const flow = parseOptionalJsonRecord(row.flow_json, 'flow') as JobFlow | undefined
   return {
     jobId: row.job_id,
     projectId: row.project_id,
@@ -379,6 +524,7 @@ function toJobRecord(row: JobRow): JobRecord {
     laneRef: row.lane_ref,
     schedule: parseJsonRecord(row.schedule_json, 'schedule') as JobSchedule,
     input: parseJsonRecord(row.input_json, 'input'),
+    ...(flow !== undefined ? { flow } : {}),
     disabled: row.disabled !== 0,
     ...(row.last_fire_at !== null ? { lastFireAt: row.last_fire_at } : {}),
     ...(row.next_fire_at !== null ? { nextFireAt: row.next_fire_at } : {}),
@@ -412,6 +558,28 @@ function toJobRunRecord(row: JobRunRow): JobRunRecord {
   }
 }
 
+function toJobStepRunRecord(row: JobStepRunRow): JobStepRunRecord {
+  const result = parseOptionalJsonRecord(row.result_json, 'result')
+  return {
+    jobRunId: row.job_run_id,
+    stepId: row.step_id,
+    phase: row.phase,
+    status: row.status,
+    attempt: row.attempt,
+    ...(row.input_attempt_id !== null ? { inputAttemptId: row.input_attempt_id } : {}),
+    ...(row.run_id !== null ? { runId: row.run_id } : {}),
+    ...(row.result_block !== null ? { resultBlock: row.result_block } : {}),
+    ...(result !== undefined ? { result } : {}),
+    ...(row.error_code !== null && row.error_message !== null
+      ? { error: { code: row.error_code, message: row.error_message } }
+      : {}),
+    ...(row.started_at !== null ? { startedAt: row.started_at } : {}),
+    ...(row.completed_at !== null ? { completedAt: row.completed_at } : {}),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
 function requireJobRow(sqlite: SqliteDatabase, jobId: string): JobRow {
   const row = sqlite
     .prepare('SELECT * FROM jobs WHERE job_id = ? AND archived_at IS NULL')
@@ -433,6 +601,24 @@ function getJobRunRow(sqlite: SqliteDatabase, jobRunId: string): JobRunRow | und
   return sqlite.prepare('SELECT * FROM job_runs WHERE job_run_id = ?').get(jobRunId) as
     | JobRunRow
     | undefined
+}
+
+function getJobStepRunRow(
+  sqlite: SqliteDatabase,
+  jobRunId: string,
+  phase: JobStepRunPhase,
+  stepId: string,
+  attempt: number
+): JobStepRunRow | undefined {
+  return sqlite
+    .prepare(
+      `
+        SELECT *
+        FROM job_step_runs
+        WHERE job_run_id = ? AND phase = ? AND step_id = ? AND attempt = ?
+      `
+    )
+    .get(jobRunId, phase, stepId, attempt) as JobStepRunRow | undefined
 }
 
 function getScheduleWindowValue(
@@ -518,6 +704,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
             schedule_window_end,
             schedule_json,
             input_json,
+            flow_json,
             disabled,
             last_fire_at,
             next_fire_at,
@@ -528,7 +715,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
             created_at,
             updated_at,
             archived_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
         `
       )
       .run(
@@ -542,6 +729,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
         getScheduleWindowValue(schedule, 'windowEnd'),
         JSON.stringify(schedule),
         JSON.stringify(input.input),
+        input.flow !== undefined ? JSON.stringify(input.flow) : null,
         disabled ? 1 : 0,
         null,
         nextFireAt,
@@ -598,6 +786,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
     const schedule =
       patch.schedule !== undefined ? requireSchedule(patch.schedule) : existingJob.schedule
     const disabled = patch.disabled ?? existingJob.disabled
+    const flow = patch.flow ?? existingJob.flow
     const now = new Date().toISOString()
     const nextFireAt =
       patch.schedule !== undefined || patch.disabled !== undefined
@@ -613,6 +802,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
               schedule_window_end = ?,
               schedule_json = ?,
               input_json = ?,
+              flow_json = ?,
               disabled = ?,
               next_fire_at = ?,
               actor_kind = ?,
@@ -629,6 +819,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
         getScheduleWindowValue(schedule, 'windowEnd'),
         JSON.stringify(schedule),
         JSON.stringify(patch.input ?? existingJob.input),
+        flow !== undefined ? JSON.stringify(flow) : null,
         disabled ? 1 : 0,
         nextFireAt,
         patch.actor?.kind ?? existing.actor_kind,
@@ -793,6 +984,169 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
     return { jobRun: toJobRunRecord(row) }
   }
 
+  const insertJobStepRuns = (
+    jobRunId: string,
+    phase: JobStepRunPhase,
+    steps: readonly InsertJobStepRunInput[]
+  ): { jobStepRuns: JobStepRunRecord[] } => {
+    const baseTime = Date.now()
+    sqlite.transaction(() => {
+      steps.forEach((step, index) => {
+        const now = new Date(baseTime + index).toISOString()
+        const error = step.error
+        sqlite
+          .prepare(
+            `
+              INSERT INTO job_step_runs (
+                job_run_id,
+                phase,
+                step_id,
+                status,
+                attempt,
+                input_attempt_id,
+                run_id,
+                result_block,
+                result_json,
+                error_code,
+                error_message,
+                started_at,
+                completed_at,
+                created_at,
+                updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `
+          )
+          .run(
+            jobRunId,
+            phase,
+            step.stepId,
+            step.status ?? 'pending',
+            step.attempt ?? 1,
+            step.inputAttemptId ?? null,
+            step.runId ?? null,
+            step.resultBlock ?? null,
+            step.result !== undefined ? JSON.stringify(step.result) : null,
+            error?.code ?? null,
+            error?.message ?? null,
+            step.startedAt ?? null,
+            step.completedAt ?? null,
+            now,
+            now
+          )
+      })
+    })()
+
+    return {
+      jobStepRuns: steps.map((step) => {
+        const row = getJobStepRunRow(sqlite, jobRunId, phase, step.stepId, step.attempt ?? 1)
+        if (row === undefined) {
+          throw new Error(
+            `job step run not found after insert: ${jobRunId}/${phase}/${step.stepId}`
+          )
+        }
+        return toJobStepRunRecord(row)
+      }),
+    }
+  }
+
+  const updateJobStepRun = (
+    jobRunId: string,
+    phase: JobStepRunPhase,
+    stepId: string,
+    attempt: number,
+    patch: UpdateJobStepRunInput
+  ): { jobStepRun: JobStepRunRecord } => {
+    const existing = getJobStepRunRow(sqlite, jobRunId, phase, stepId, attempt)
+    if (existing === undefined) {
+      throw new Error(`job step run not found: ${jobRunId}/${phase}/${stepId}/${attempt}`)
+    }
+
+    const nextInputAttemptId =
+      'inputAttemptId' in patch ? (patch.inputAttemptId ?? null) : existing.input_attempt_id
+    const nextRunId = 'runId' in patch ? (patch.runId ?? null) : existing.run_id
+    const nextResultBlock =
+      'resultBlock' in patch ? (patch.resultBlock ?? null) : existing.result_block
+    const nextResultJson =
+      'result' in patch
+        ? patch.result === null || patch.result === undefined
+          ? null
+          : JSON.stringify(patch.result)
+        : existing.result_json
+    const nextErrorCode = 'error' in patch ? (patch.error?.code ?? null) : existing.error_code
+    const nextErrorMessage =
+      'error' in patch ? (patch.error?.message ?? null) : existing.error_message
+    const nextStartedAt = 'startedAt' in patch ? (patch.startedAt ?? null) : existing.started_at
+    const nextCompletedAt =
+      'completedAt' in patch ? (patch.completedAt ?? null) : existing.completed_at
+    const now = new Date().toISOString()
+
+    sqlite
+      .prepare(
+        `
+          UPDATE job_step_runs
+          SET status = ?,
+              input_attempt_id = ?,
+              run_id = ?,
+              result_block = ?,
+              result_json = ?,
+              error_code = ?,
+              error_message = ?,
+              started_at = ?,
+              completed_at = ?,
+              updated_at = ?
+          WHERE job_run_id = ? AND phase = ? AND step_id = ? AND attempt = ?
+        `
+      )
+      .run(
+        patch.status ?? existing.status,
+        nextInputAttemptId,
+        nextRunId,
+        nextResultBlock,
+        nextResultJson,
+        nextErrorCode,
+        nextErrorMessage,
+        nextStartedAt,
+        nextCompletedAt,
+        now,
+        jobRunId,
+        phase,
+        stepId,
+        attempt
+      )
+
+    const row = getJobStepRunRow(sqlite, jobRunId, phase, stepId, attempt)
+    if (row === undefined) {
+      throw new Error(`job step run not found after update: ${jobRunId}/${phase}/${stepId}`)
+    }
+
+    return { jobStepRun: toJobStepRunRecord(row) }
+  }
+
+  const listJobStepRuns = (jobRunId: string): { jobStepRuns: JobStepRunRecord[] } => ({
+    jobStepRuns: (
+      sqlite
+        .prepare(
+          `
+            SELECT *
+            FROM job_step_runs
+            WHERE job_run_id = ?
+            ORDER BY CASE phase WHEN 'sequence' THEN 0 ELSE 1 END ASC, created_at ASC, step_id ASC
+          `
+        )
+        .all(jobRunId) as JobStepRunRow[]
+    ).map((row) => toJobStepRunRecord(row)),
+  })
+
+  const getJobStepRun = (
+    jobRunId: string,
+    phase: JobStepRunPhase,
+    stepId: string,
+    attempt: number
+  ): { jobStepRun: JobStepRunRecord | undefined } => {
+    const row = getJobStepRunRow(sqlite, jobRunId, phase, stepId, attempt)
+    return { jobStepRun: row === undefined ? undefined : toJobStepRunRecord(row) }
+  }
+
   const claimDueJobRuns = (input: ClaimDueJobRunsInput): { jobRuns: JobRunRecord[] } => {
     const claimed = sqlite.transaction(() => {
       const candidates = sqlite
@@ -863,6 +1217,31 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
     const job = toJobRecord(requireJobRow(sqlite, jobId))
     const jobRun = appendJobRun({ ...input, jobId }).jobRun
     return { job, jobRun }
+  }
+
+  const listInflightFlowJobRuns = (input: { limit?: number | undefined } = {}): ClaimedDueJob[] => {
+    const limit = input.limit ?? 100
+    const rows = sqlite
+      .prepare(
+        `
+          SELECT jr.*
+          FROM job_runs jr
+          JOIN jobs j ON j.job_id = jr.job_id
+          WHERE jr.status IN ('claimed', 'dispatched')
+            AND j.archived_at IS NULL
+            AND j.flow_json IS NOT NULL
+          ORDER BY jr.triggered_at ASC, jr.job_run_id ASC
+          LIMIT ?
+        `
+      )
+      .all(limit) as JobRunRow[]
+
+    const results: ClaimedDueJob[] = []
+    for (const row of rows) {
+      const job = toJobRecord(requireJobRow(sqlite, row.job_id))
+      results.push({ job, jobRun: toJobRunRecord(row) })
+    }
+    return results
   }
 
   const claimDueJobs = (input: ClaimDueJobsInput): ClaimedDueJob[] => {
@@ -960,6 +1339,12 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
       update: updateJobRun,
       claimDueRuns: claimDueJobRuns,
     },
+    jobStepRuns: {
+      insertMany: insertJobStepRuns,
+      updateStep: updateJobStepRun,
+      listByJobRun: listJobStepRuns,
+      getById: getJobStepRun,
+    },
     createJob,
     listJobs,
     getJob,
@@ -970,8 +1355,13 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
     getJobRun,
     updateJobRun,
     claimDueJobRuns,
+    insertJobStepRuns,
+    updateJobStepRun,
+    listJobStepRuns,
+    getJobStepRun,
     createJobRun,
     claimDueJobs,
+    listInflightFlowJobRuns,
     runInTransaction<T>(fn: (innerStore: JobsStore) => T): T {
       const transaction = sqlite.transaction(() => fn(store as JobsStore))
       return transaction()

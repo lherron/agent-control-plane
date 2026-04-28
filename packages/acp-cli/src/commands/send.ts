@@ -7,6 +7,7 @@ import {
   requireNoPositionals,
   requireStringFlag,
 } from './options.js'
+import { TERMINAL_STATUSES, pollUntilTerminal } from './poll.js'
 
 import { requireMessageText, requireSessionRefFlags } from './session-shared.js'
 import {
@@ -22,18 +23,12 @@ type InputResponse = {
   run: Record<string, unknown>
 }
 
-const TERMINAL_RUN_STATUSES = new Set(['completed', 'failed', 'cancelled'])
-
 function readOptionalInteger(
   parsed: ReturnType<typeof parseArgs>,
   flag: '--wait-timeout-ms' | '--wait-interval-ms'
 ): number | undefined {
   const raw = parsed.stringFlags[flag]
   return raw === undefined ? undefined : parseIntegerValue(flag, raw, { min: 1 })
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 export async function runSendCommand(
@@ -93,27 +88,24 @@ export async function runSendCommand(
     throw new CliUsageError('send --wait requires the server to return run.runId')
   }
 
-  const deadline = Date.now() + waitTimeoutMs
-  let latestRun = response.run
-  let timedOut = false
-  while (!TERMINAL_RUN_STATUSES.has(String(latestRun['status'] ?? ''))) {
-    if (Date.now() >= deadline) {
-      timedOut = true
-      break
-    }
-
-    await sleep(waitIntervalMs)
-    const polled = await requester.requestJson<{ run: Record<string, unknown> }>({
-      method: 'GET',
-      path: `/v1/runs/${encodeURIComponent(runId)}`,
-    })
-    latestRun = polled.run
-  }
+  const result = await pollUntilTerminal({
+    initial: response.run,
+    isTerminal: (run) => TERMINAL_STATUSES.has(String(run['status'] ?? '')),
+    pollFn: async () => {
+      const polled = await requester.requestJson<{ run: Record<string, unknown> }>({
+        method: 'GET',
+        path: `/v1/runs/${encodeURIComponent(runId)}`,
+      })
+      return polled.run
+    },
+    intervalMs: waitIntervalMs,
+    timeoutMs: waitTimeoutMs,
+  })
 
   const body = {
     ...response,
-    run: latestRun,
-    ...(timedOut ? { timedOut: true } : {}),
+    run: result.latest,
+    ...(result.timedOut ? { timedOut: true } : {}),
   }
 
   return renderJsonOrTable(parsed, body, () => {
@@ -121,7 +113,7 @@ export async function runSendCommand(
       inputAttemptId: body.inputAttempt['inputAttemptId'],
       runId: body.run['runId'],
       status: body.run['status'],
-      ...(timedOut ? { timedOut: true } : {}),
+      ...(result.timedOut ? { timedOut: true } : {}),
     })
   })
 }

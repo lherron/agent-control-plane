@@ -24,9 +24,11 @@ import {
   DEFAULT_STATE_DB_PATH,
   resolveAcpServerDeps,
 } from './deps.js'
+import { createDevFlowLauncher } from './dev-flow-launcher.js'
 import { createEchoLauncher } from './echo-launcher.js'
 import { dispatchJobRunThroughInputs } from './handlers/admin-jobs.js'
 import { createWakeDispatcher } from './integration/wake-dispatcher.js'
+import { advanceJobFlow } from './jobs/flow-engine.js'
 import { createRealLauncher } from './real-launcher.js'
 
 const DEFAULT_COORD_DB_PATH = '/Users/lherron/praesidium/var/db/acp-coordination.db'
@@ -298,10 +300,14 @@ export function resolveLauncherDeps(
 ): Partial<Parameters<typeof createAcpServer>[0]> {
   const useRealLauncher = env['ACP_REAL_HRC_LAUNCHER'] === '1'
   const useEchoLauncher = env['ACP_DEV_ECHO_LAUNCHER'] === '1'
+  const useDevFlowLauncher = env['ACP_DEV_FLOW_LAUNCHER'] === '1'
 
   if (useRealLauncher) {
     if (useEchoLauncher) {
       console.warn('ACP_REAL_HRC_LAUNCHER=1 set; ignoring ACP_DEV_ECHO_LAUNCHER=1')
+    }
+    if (useDevFlowLauncher) {
+      console.warn('ACP_REAL_HRC_LAUNCHER=1 set; ignoring ACP_DEV_FLOW_LAUNCHER=1')
     }
 
     const createHrcClient =
@@ -320,6 +326,13 @@ export function resolveLauncherDeps(
         })
         return result.hostSessionId
       },
+    }
+  }
+
+  if (useDevFlowLauncher) {
+    return {
+      launchRoleScopedRun: createDevFlowLauncher(),
+      agentRootResolver: ({ agentId }) => `/tmp/acp-dev-flow/${agentId}`,
     }
   }
 
@@ -411,6 +424,12 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
       ? createJobsScheduler({
           store: jobsStore,
           dispatchThroughInputs: (input) => dispatchJobRunThroughInputs(resolvedDeps, input),
+          advanceFlowJobRun: (entry) =>
+            advanceJobFlow({
+              deps: resolvedDeps,
+              job: entry.job,
+              jobRun: entry.jobRun,
+            }),
         })
       : undefined
   const jobsSchedulerTimer =
