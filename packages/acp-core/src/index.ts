@@ -94,6 +94,11 @@ export type {
   ConversationTurnRenderState,
 } from './conversation/turn.js'
 export type {
+  AgentFlowStep,
+  BaseFlowStep,
+  ExecFlowStep,
+  ExecStepResult,
+  FlowNext,
   Job,
   JobFlow,
   JobFlowStep,

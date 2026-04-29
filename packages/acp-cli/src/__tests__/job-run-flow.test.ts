@@ -291,6 +291,10 @@ describe('job-run show --steps', () => {
     expect(result.stdout).toContain('StepId')
     expect(result.stdout).toContain('Phase')
     expect(result.stdout).toContain('Status')
+    expect(result.stdout).toContain('ExitCode')
+    expect(result.stdout).toContain('DurationMs')
+    expect(result.stdout).toContain('StdoutTrunc')
+    expect(result.stdout).toContain('StderrTrunc')
     expect(result.stdout).toContain('RunId')
     expect(result.stdout).toContain('Error')
     expect(result.stdout).toContain('s1')
@@ -298,6 +302,54 @@ describe('job-run show --steps', () => {
     expect(result.stdout).toContain('dispatch')
     expect(result.stdout).toContain('verify')
     expect(result.stdout).toContain('timeout')
+  })
+
+  test('renders exec result summary columns without dumping stdout/stderr', async () => {
+    const fetchQueue = createFetchQueue([
+      {
+        body: {
+          jobRun: {
+            jobRunId: 'jr-13',
+            status: 'succeeded',
+            steps: [
+              {
+                stepId: 'exec-probe',
+                phase: 'sequence',
+                status: 'succeeded',
+                result: {
+                  kind: 'exec',
+                  argv: ['bun', '--version'],
+                  cwd: '/tmp/work',
+                  exitCode: 0,
+                  stdout: 'full stdout should stay hidden in the summary table',
+                  stderr: '',
+                  stdoutTruncated: false,
+                  stderrTruncated: true,
+                  timedOut: false,
+                  durationMs: 37,
+                  startedAt: '2026-04-28T12:00:00.000Z',
+                  completedAt: '2026-04-28T12:00:00.037Z',
+                },
+              },
+            ],
+          },
+        },
+        assert() {},
+      },
+    ])
+
+    const result = await runCli(['job-run', 'show', '--job-run', 'jr-13', '--steps', '--table'], {
+      fetchImpl: fetchQueue.fetchImpl,
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain('exec-probe')
+    expect(result.stdout).toContain('ExitCode')
+    expect(result.stdout).toContain('DurationMs')
+    expect(result.stdout).toContain('0')
+    expect(result.stdout).toContain('37')
+    expect(result.stdout).toContain('true')
+    expect(result.stdout).not.toContain('full stdout should stay hidden')
   })
 
   test('--steps with --json preserves full payload', async () => {
@@ -411,6 +463,101 @@ describe('job-run show --results', () => {
     expect(result.exitCode).toBe(0)
     const output = JSON.parse(result.stdout)
     expect(output.jobRun.steps[0].result).toEqual({ answer: 42 })
+  })
+
+  test('--steps --results with --json preserves full exec stdout/stderr', async () => {
+    const fullStdout = `full-${'stdout-'.repeat(30)}`
+    const fetchQueue = createFetchQueue([
+      {
+        body: {
+          jobRun: {
+            jobRunId: 'jr-23',
+            status: 'succeeded',
+            steps: [
+              {
+                stepId: 'exec-json',
+                result: {
+                  kind: 'exec',
+                  argv: ['node', '-e', 'process.stdout.write("x")'],
+                  cwd: '/tmp/work',
+                  exitCode: 0,
+                  stdout: fullStdout,
+                  stderr: 'full-stderr',
+                  stdoutTruncated: false,
+                  stderrTruncated: false,
+                  timedOut: false,
+                  durationMs: 12,
+                  startedAt: '2026-04-28T12:00:00.000Z',
+                  completedAt: '2026-04-28T12:00:00.012Z',
+                },
+              },
+            ],
+          },
+        },
+        assert() {},
+      },
+    ])
+
+    const result = await runCli(
+      ['job-run', 'show', '--job-run', 'jr-23', '--steps', '--results', '--json'],
+      { fetchImpl: fetchQueue.fetchImpl }
+    )
+
+    expect(result.exitCode).toBe(0)
+    const output = JSON.parse(result.stdout)
+    expect(output.jobRun.steps[0].result.stdout).toBe(fullStdout)
+    expect(output.jobRun.steps[0].result.stderr).toBe('full-stderr')
+  })
+
+  test('--steps --results renders compact exec stdout/stderr with truncation notes', async () => {
+    const longStdout = `prefix-${'x'.repeat(120)}`
+    const fetchQueue = createFetchQueue([
+      {
+        body: {
+          jobRun: {
+            jobRunId: 'jr-22',
+            status: 'succeeded',
+            steps: [
+              {
+                stepId: 'exec-output',
+                phase: 'sequence',
+                status: 'succeeded',
+                result: {
+                  kind: 'exec',
+                  argv: ['node', '-e', 'process.stdout.write("x")'],
+                  cwd: '/tmp/work',
+                  exitCode: 0,
+                  stdout: longStdout,
+                  stderr: 'line one\nline two',
+                  stdoutTruncated: true,
+                  stderrTruncated: false,
+                  timedOut: false,
+                  durationMs: 12,
+                  startedAt: '2026-04-28T12:00:00.000Z',
+                  completedAt: '2026-04-28T12:00:00.012Z',
+                },
+              },
+            ],
+          },
+        },
+        assert() {},
+      },
+    ])
+
+    const result = await runCli(
+      ['job-run', 'show', '--job-run', 'jr-22', '--steps', '--results', '--table'],
+      { fetchImpl: fetchQueue.fetchImpl }
+    )
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain('Stdout')
+    expect(result.stdout).toContain('Stderr')
+    expect(result.stdout).toContain('prefix-')
+    expect(result.stdout).toContain('line one\\nline two')
+    expect(result.stdout).toContain('display truncated')
+    expect(result.stdout).toContain('use --json for full captured stdout/stderr')
+    expect(result.stdout).toContain('StdoutTrunc/StderrTrunc=true')
+    expect(result.stdout).not.toContain(longStdout)
   })
 })
 

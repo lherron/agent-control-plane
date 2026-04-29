@@ -566,8 +566,8 @@ function toJobStepRunRecord(row: JobStepRunRow): JobStepRunRecord {
     phase: row.phase,
     status: row.status,
     attempt: row.attempt,
-    ...(row.input_attempt_id !== null ? { inputAttemptId: row.input_attempt_id } : {}),
-    ...(row.run_id !== null ? { runId: row.run_id } : {}),
+    inputAttemptId: row.input_attempt_id ?? undefined,
+    runId: row.run_id ?? undefined,
     ...(row.result_block !== null ? { resultBlock: row.result_block } : {}),
     ...(result !== undefined ? { result } : {}),
     ...(row.error_code !== null && row.error_message !== null

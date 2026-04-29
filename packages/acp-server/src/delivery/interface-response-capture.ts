@@ -95,9 +95,9 @@ export function createInterfaceResponseCapture(
             ...(context.source.threadRef !== undefined
               ? { threadRef: context.source.threadRef }
               : {}),
-            ...(!replyAnchorConsumed
+            ...(!replyAnchorConsumed && context.source.replyToMessageRef !== undefined
               ? {
-                  replyToMessageRef: context.source.replyToMessageRef ?? context.source.messageRef,
+                  replyToMessageRef: context.source.replyToMessageRef,
                 }
               : {}),
             bodyKind: 'text/markdown',

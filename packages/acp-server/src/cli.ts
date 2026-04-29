@@ -400,6 +400,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
   const bunServer = Bun.serve({
     hostname: options.host,
     port: options.port,
+    idleTimeout: 255,
     fetch: acpServer.handler,
   })
 
@@ -432,15 +433,25 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
             }),
         })
       : undefined
+  let jobsTickInProgress = false
   const jobsSchedulerTimer =
     jobsScheduler !== undefined
       ? setInterval(() => {
-          void jobsScheduler.tick(new Date()).catch((error) => {
-            console.error(
-              'acp-server jobs scheduler tick failed:',
-              error instanceof Error ? error.message : String(error)
-            )
-          })
+          if (jobsTickInProgress) {
+            return
+          }
+          jobsTickInProgress = true
+          void jobsScheduler
+            .tick(new Date())
+            .catch((error) => {
+              console.error(
+                'acp-server jobs scheduler tick failed:',
+                error instanceof Error ? error.message : String(error)
+              )
+            })
+            .finally(() => {
+              jobsTickInProgress = false
+            })
         }, DEFAULT_JOBS_SCHEDULER_INTERVAL_MS)
       : undefined
 

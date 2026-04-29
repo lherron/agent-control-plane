@@ -1,5 +1,8 @@
 import type {
   Actor,
+  ExecFlowStep,
+  ExecStepResult,
+  FlowNext,
   JobFlowStep,
   JobStepRunPhase,
   JobStepRunStatus,
@@ -12,10 +15,13 @@ import {
   type JobStepRunRecord,
   validateJobFlow,
 } from 'acp-jobs-store'
+import type { LaneRef } from 'agent-scope'
 import { formatCanonicalSessionRef, resolveDatabasePath } from 'hrc-core'
 
 import type { ResolvedAcpServerDeps } from '../deps.js'
 import { dispatchStepThroughInputs } from './dispatch-step.js'
+import { resolveJobExecPolicy } from './exec-policy.js'
+import { ExecStepError, runExecStep } from './exec-step.js'
 import {
   type RunOutcome,
   evaluateExpectation,
@@ -167,66 +173,260 @@ async function advancePhase(input: {
   now: string
 }): Promise<PhaseAdvanceResult> {
   const jobsStore = requireJobsStore(input.deps)
+  const firstStep = input.steps[0]
+  if (firstStep === undefined) {
+    return { state: 'succeeded' }
+  }
 
-  for (const step of input.steps) {
+  const stepById = new Map(input.steps.map((step, index) => [step.id, { step, index }]))
+  let currentStep: JobFlowStep | undefined = firstStep
+
+  while (currentStep !== undefined) {
+    const step = currentStep
     let stepRun = requireStepRun(jobsStore, input.jobRun.jobRunId, input.phase, step.id)
-    if (TERMINAL_STEP_STATUSES.has(stepRun.status)) {
-      if (stepRun.status === 'succeeded') {
-        continue
+
+    if (!TERMINAL_STEP_STATUSES.has(stepRun.status)) {
+      const advanced = isExecStep(step)
+        ? await advanceExecStep({ ...input, step, stepRun })
+        : await advanceAgentStep({ ...input, step, stepRun })
+
+      if (advanced.state === 'blocked') {
+        return { state: 'blocked' }
       }
-      return { state: 'failed' }
+
+      stepRun = advanced.stepRun
     }
 
-    if (stepRun.runId === undefined) {
-      const content = requireStepInput(step)
-      await rotateFreshStepContext(input.deps, input.job, step)
-      const dispatched = await dispatchStepThroughInputs(input.deps, {
-        jobId: input.job.jobId,
-        jobRunId: input.jobRun.jobRunId,
-        phase: input.phase,
-        stepId: step.id,
-        attempt: stepRun.attempt,
-        scopeRef: input.job.scopeRef,
-        laneRef: input.job.laneRef,
-        content,
-        actor: input.actor,
-      })
-
-      stepRun = jobsStore.jobStepRuns.updateStep(
-        input.jobRun.jobRunId,
-        input.phase,
-        step.id,
-        stepRun.attempt,
-        {
-          status: 'running',
-          inputAttemptId: dispatched.inputAttemptId,
-          runId: dispatched.runId,
-          startedAt: stepRun.startedAt ?? input.now,
-        }
-      ).jobStepRun
+    const transition = resolveTerminalStepTransition(step, stepRun)
+    const next = resolvePhaseTransition(input.steps, stepById, step, transition)
+    if (next.state !== 'advance') {
+      return next
     }
+    currentStep = next.step
+  }
 
-    const terminal = getTerminalRunOutcome(input.deps, stepRun.runId)
-    if (terminal === undefined) {
-      return { state: 'blocked' }
-    }
+  return { state: 'succeeded' }
+}
 
-    stepRun = reconcileTerminalStepRun({
+type StepAdvanceResult = { state: 'terminal'; stepRun: JobStepRunRecord } | { state: 'blocked' }
+
+async function advanceAgentStep(input: {
+  deps: ResolvedAcpServerDeps
+  job: JobRecord
+  jobRun: JobRunRecord
+  phase: JobStepRunPhase
+  step: JobFlowStep
+  stepRun: JobStepRunRecord
+  actor: Actor
+  now: string
+}): Promise<StepAdvanceResult> {
+  const jobsStore = requireJobsStore(input.deps)
+  let stepRun = input.stepRun
+
+  if (stepRun.runId === undefined) {
+    const content = requireStepInput(input.step)
+    await rotateFreshStepContext(input.deps, input.job, input.step)
+    const dispatched = await dispatchStepThroughInputs(input.deps, {
+      jobId: input.job.jobId,
+      jobRunId: input.jobRun.jobRunId,
+      phase: input.phase,
+      stepId: input.step.id,
+      attempt: stepRun.attempt,
+      scopeRef: input.job.scopeRef,
+      laneRef: input.job.laneRef,
+      content,
+      actor: input.actor,
+    })
+
+    stepRun = jobsStore.jobStepRuns.updateStep(
+      input.jobRun.jobRunId,
+      input.phase,
+      input.step.id,
+      stepRun.attempt,
+      {
+        status: 'running',
+        inputAttemptId: dispatched.inputAttemptId,
+        runId: dispatched.runId,
+        startedAt: stepRun.startedAt ?? input.now,
+      }
+    ).jobStepRun
+  }
+
+  const terminal = getTerminalRunOutcome(input.deps, stepRun.runId)
+  if (terminal === undefined) {
+    return { state: 'blocked' }
+  }
+
+  return {
+    state: 'terminal',
+    stepRun: reconcileTerminalStepRun({
       deps: input.deps,
       jobRunId: input.jobRun.jobRunId,
       phase: input.phase,
       stepRun,
-      step,
+      step: input.step,
       runOutcome: terminal,
       now: input.now,
-    })
+    }),
+  }
+}
 
-    if (stepRun.status !== 'succeeded') {
-      return { state: 'failed' }
+async function advanceExecStep(input: {
+  deps: ResolvedAcpServerDeps
+  job: JobRecord
+  jobRun: JobRunRecord
+  phase: JobStepRunPhase
+  step: ExecFlowStep
+  stepRun: JobStepRunRecord
+  now: string
+}): Promise<StepAdvanceResult> {
+  const jobsStore = requireJobsStore(input.deps)
+  const startedStepRun = jobsStore.jobStepRuns.updateStep(
+    input.jobRun.jobRunId,
+    input.phase,
+    input.step.id,
+    input.stepRun.attempt,
+    {
+      status: 'running',
+      inputAttemptId: null,
+      runId: null,
+      startedAt: input.stepRun.startedAt ?? input.now,
+      error: null,
+    }
+  ).jobStepRun
+
+  try {
+    const result = await runExecStep({
+      step: input.step,
+      defaultCwd: await resolveExecDefaultCwd(input.deps, input.job),
+      policy: input.deps.jobExecPolicy ?? resolveJobExecPolicy(),
+    })
+    const status = result.exitCode === 0 && !result.timedOut ? 'succeeded' : 'failed'
+
+    return {
+      state: 'terminal',
+      stepRun: jobsStore.jobStepRuns.updateStep(
+        input.jobRun.jobRunId,
+        input.phase,
+        input.step.id,
+        startedStepRun.attempt,
+        {
+          status,
+          result: result as unknown as Readonly<Record<string, unknown>>,
+          error: result.timedOut ? { code: 'exec_timeout', message: 'exec step timed out' } : null,
+          completedAt: result.completedAt,
+        }
+      ).jobStepRun,
+    }
+  } catch (error) {
+    const code = error instanceof ExecStepError ? error.code : 'exec_spawn_failed'
+    const message = error instanceof Error ? error.message : 'exec step failed'
+
+    return {
+      state: 'terminal',
+      stepRun: jobsStore.jobStepRuns.updateStep(
+        input.jobRun.jobRunId,
+        input.phase,
+        input.step.id,
+        startedStepRun.attempt,
+        {
+          status: 'failed',
+          error: { code, message },
+          completedAt: input.now,
+        }
+      ).jobStepRun,
+    }
+  }
+}
+
+type PhaseTransition = FlowNext | 'continue'
+
+type ResolvedPhaseTransition =
+  | { state: 'advance'; step: JobFlowStep | undefined }
+  | { state: 'succeeded' }
+  | { state: 'failed' }
+
+function resolveTerminalStepTransition(
+  step: JobFlowStep,
+  stepRun: JobStepRunRecord
+): PhaseTransition {
+  if (isExecStep(step)) {
+    const result = readExecStepResult(stepRun)
+    if (result?.exitCode !== null && result?.exitCode !== undefined) {
+      const exitCodeTarget = step.branches?.exitCode?.[String(result.exitCode)]
+      if (exitCodeTarget !== undefined) {
+        return exitCodeTarget
+      }
+    }
+
+    if (step.branches?.default !== undefined) {
+      return step.branches.default
     }
   }
 
-  return { state: 'succeeded' }
+  if (step.next !== undefined) {
+    return step.next
+  }
+
+  if (isExecStep(step)) {
+    const result = readExecStepResult(stepRun)
+    return result?.exitCode === 0 && result.timedOut !== true ? 'continue' : 'fail'
+  }
+
+  return stepRun.status === 'succeeded' ? 'continue' : 'fail'
+}
+
+function resolvePhaseTransition(
+  steps: readonly JobFlowStep[],
+  stepById: ReadonlyMap<string, { step: JobFlowStep; index: number }>,
+  step: JobFlowStep,
+  transition: PhaseTransition
+): ResolvedPhaseTransition {
+  if (transition === 'succeed') {
+    return { state: 'succeeded' }
+  }
+  if (transition === 'fail') {
+    return { state: 'failed' }
+  }
+  if (transition === 'continue') {
+    const current = stepById.get(step.id)
+    if (current === undefined) {
+      throw new Error(`flow step not found in phase: ${step.id}`)
+    }
+    return { state: 'advance', step: steps[current.index + 1] }
+  }
+
+  const target = stepById.get(transition)
+  if (target === undefined) {
+    throw new Error(`flow transition target not found in phase: ${transition}`)
+  }
+
+  return { state: 'advance', step: target.step }
+}
+
+function isExecStep(step: JobFlowStep): step is ExecFlowStep {
+  return step.kind === 'exec'
+}
+
+function readExecStepResult(stepRun: JobStepRunRecord): ExecStepResult | undefined {
+  const result = stepRun.result
+  if (
+    result?.['kind'] !== 'exec' ||
+    (typeof result['exitCode'] !== 'number' && result['exitCode'] !== null) ||
+    typeof result['timedOut'] !== 'boolean'
+  ) {
+    return undefined
+  }
+
+  return result as unknown as ExecStepResult
+}
+
+async function resolveExecDefaultCwd(deps: ResolvedAcpServerDeps, job: JobRecord): Promise<string> {
+  const placement = deps.runtimeResolver
+    ? await deps.runtimeResolver({ scopeRef: job.scopeRef, laneRef: job.laneRef as LaneRef })
+    : undefined
+
+  return placement?.cwd ?? placement?.projectRoot ?? process.cwd()
 }
 
 function requireStepInput(step: JobFlowStep): string {

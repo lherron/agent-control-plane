@@ -298,4 +298,55 @@ describe('GET /v1/job-runs/:jobRunId', () => {
       jobsStore.close()
     }
   })
+
+  test('flow job-run preserves full exec result in steps[]', async () => {
+    const jobsStore = createInMemoryJobsStore()
+
+    try {
+      await withWiredServer(
+        async (fixture) => {
+          const { jobRunId } = createFlowJobAndRun(jobsStore, fixture.seed.projectId)
+          const execResult = {
+            kind: 'exec',
+            argv: ['node', '-e', 'process.stdout.write("ok")'],
+            cwd: '/tmp/work',
+            exitCode: 0,
+            stdout: `stdout-${'x'.repeat(120)}`,
+            stderr: 'stderr-line',
+            stdoutTruncated: false,
+            stderrTruncated: true,
+            timedOut: false,
+            durationMs: 42,
+            startedAt: '2026-04-28T12:00:00.000Z',
+            completedAt: '2026-04-28T12:00:00.042Z',
+          }
+
+          jobsStore.insertJobStepRuns(jobRunId, 'sequence', [{ stepId: 'collect', attempt: 1 }])
+          jobsStore.updateJobStepRun(jobRunId, 'sequence', 'collect', 1, {
+            status: 'succeeded',
+            result: execResult,
+          })
+
+          const response = await fixture.request({
+            method: 'GET',
+            path: `/v1/job-runs/${jobRunId}`,
+          })
+          const payload = await fixture.json<{
+            jobRun: { steps: Array<{ stepId: string; result?: unknown }> }
+          }>(response)
+
+          expect(response.status).toBe(200)
+          expect(payload.jobRun.steps[0]).toEqual(
+            expect.objectContaining({
+              stepId: 'collect',
+              result: execResult,
+            })
+          )
+        },
+        { jobsStore }
+      )
+    } finally {
+      jobsStore.close()
+    }
+  })
 })

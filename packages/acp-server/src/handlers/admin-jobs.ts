@@ -8,7 +8,6 @@ import {
 } from 'acp-jobs-store'
 
 import { json, notFound } from '../http.js'
-import { advanceJobFlow } from '../jobs/flow-engine.js'
 import {
   isRecord,
   parseJsonBody,
@@ -251,20 +250,13 @@ export const handleRunAdminJob: RouteHandler = async ({ params, deps, actor }) =
       claimedAt: now,
       actor: actor ?? deps.defaultActor,
     })
-    const advanced = await advanceJobFlow({
-      deps,
-      job,
-      jobRun: created.jobRun,
-      now,
-      actor: actor ?? deps.defaultActor,
-    })
     const steps = jobsStore.jobStepRuns.listByJobRun(created.jobRun.jobRunId).jobStepRuns
 
     return json(
       {
         jobRun: {
-          ...advanced,
-          status: mapJobRunStatusForFlowResponse(advanced),
+          ...created.jobRun,
+          status: mapJobRunStatusForFlowResponse(created.jobRun),
         },
         steps,
       },

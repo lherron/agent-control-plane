@@ -33,13 +33,43 @@ export type JobFlow = {
   onFailure?: JobFlowStep[] | undefined
 }
 
-export type JobFlowStep = {
+export type JobFlowStep = AgentFlowStep | ExecFlowStep
+
+export type FlowNext = string | 'continue' | 'succeed' | 'fail'
+
+export type BaseFlowStep = {
   id: string
+  kind?: 'agent' | 'exec' | undefined
+  timeout?: string | undefined
+  fresh?: boolean | undefined
+  next?: FlowNext | undefined
+}
+
+export type AgentFlowStep = BaseFlowStep & {
+  kind?: 'agent' | undefined
   input?: string | undefined
   inputFile?: string | undefined
-  fresh?: boolean | undefined
-  timeout?: string | undefined
   expect?: StepExpectation | undefined
+}
+
+export type ExecFlowStep = BaseFlowStep & {
+  kind: 'exec'
+  input?: undefined
+  inputFile?: undefined
+  expect?: undefined
+  exec: {
+    argv: string[]
+    cwd?: string | undefined
+    env?: Readonly<Record<string, string>> | undefined
+    timeout?: string | undefined
+    maxOutputBytes?: number | undefined
+  }
+  branches?:
+    | {
+        exitCode?: Readonly<Record<string, FlowNext>> | undefined
+        default?: FlowNext | undefined
+      }
+    | undefined
 }
 
 export type StepExpectation = {
@@ -72,4 +102,20 @@ export type JobStepRun = {
   error?: { code: string; message: string } | undefined
   startedAt?: string | undefined
   completedAt?: string | undefined
+}
+
+export type ExecStepResult = {
+  kind: 'exec'
+  argv: string[]
+  cwd: string
+  exitCode: number | null
+  signal?: string | undefined
+  stdout: string
+  stderr: string
+  stdoutTruncated: boolean
+  stderrTruncated: boolean
+  timedOut: boolean
+  durationMs: number
+  startedAt: string
+  completedAt: string
 }
