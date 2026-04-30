@@ -57,6 +57,7 @@ type FakeHrcClientOptions = {
   events: HrcLifecycleEvent[]
   messages: HrcMessageRecord[]
   watchCalls?: Array<{
+    fromSeq?: number | undefined
     hostSessionId?: string | undefined
     generation?: number | undefined
   }>
@@ -82,6 +83,7 @@ function createFakeHrcClient(options: FakeHrcClientOptions): EventPumpHrcClient 
     async *watch(opts) {
       try {
         options.watchCalls?.push({
+          ...(opts?.fromSeq !== undefined ? { fromSeq: opts.fromSeq } : {}),
           hostSessionId: opts?.hostSessionId,
           generation: opts?.generation,
         })
@@ -148,6 +150,34 @@ const SESSION_REF = 'agent:cody:project:agent-spaces/lane:main'
 // ---------------------------------------------------------------------------
 
 describe('event-pump', () => {
+  test('fresh HRC cursor does not forward fromSeq=0 to lifecycle watch', async () => {
+    const watchCalls: FakeHrcClientOptions['watchCalls'] = []
+    const abortController = new AbortController()
+    const client = createFakeHrcClient({ events: [], messages: [], watchCalls })
+
+    const pumpPromise = runEventPump({
+      hrcClient: client,
+      sessionRef: SESSION_REF,
+      fromHrcSeq: 0,
+      fromMessageSeq: 0,
+      signal: abortController.signal,
+
+      async buildSnapshot() {
+        return { hrcSeq: 0, messageSeq: 0 }
+      },
+
+      onEvent() {},
+      onMessage() {},
+    })
+
+    await new Promise((r) => setTimeout(r, 50))
+    abortController.abort()
+    await pumpPromise
+
+    expect(watchCalls).toHaveLength(1)
+    expect(watchCalls[0]?.fromSeq).toBeUndefined()
+  })
+
   test('snapshot arrives before any live events', async () => {
     const events = [makeEvent(1), makeEvent(2), makeEvent(3)]
     const messages: HrcMessageRecord[] = []

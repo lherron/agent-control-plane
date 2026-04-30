@@ -210,7 +210,7 @@ export async function runEventPump(options: EventPumpOptions): Promise<EventPump
   const runEventPumpAsync = async (): Promise<void> => {
     try {
       const iter = hrcClient.watch({
-        fromSeq: fromHrcSeq,
+        ...(fromHrcSeq > 0 ? { fromSeq: fromHrcSeq } : {}),
         hostSessionId,
         generation,
         follow: true,
