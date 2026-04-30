@@ -1,0 +1,34 @@
+{
+  "name": "gateway-ios",
+  "version": "0.1.0",
+  "private": true,
+  "description": "iOS gateway for HRC — exposes a TCP HTTP+WS API for SwiftUI mobile clients",
+  "type": "module",
+  "bin": {
+    "gateway-ios": "./src/main.ts"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "hrc-core": "*",
+    "hrc-sdk": "*",
+    "agent-scope": "*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.8.3"
+  }
+}
