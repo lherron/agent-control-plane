@@ -19,6 +19,7 @@ export type StoredRun = Run & {
   errorCode?: string | undefined
   errorMessage?: string | undefined
   dispatchFence?: DispatchFence | undefined
+  afterHrcSeq?: number | undefined
 }
 
 export type UpdateRunInput = {
@@ -31,6 +32,7 @@ export type UpdateRunInput = {
   errorCode?: string | undefined
   errorMessage?: string | undefined
   metadata?: Readonly<Record<string, unknown>> | undefined
+  afterHrcSeq?: number | undefined
 }
 
 export interface RunStore {
@@ -43,6 +45,7 @@ export interface RunStore {
   getRun(runId: string): StoredRun | undefined
   listRuns(): readonly StoredRun[]
   listRunsForSession(sessionRef: SessionRef): readonly StoredRun[]
+  listRunsByStatus(status: Run['status']): readonly StoredRun[]
   updateRun(runId: string, patch: UpdateRunInput): StoredRun
   setDispatchFence(runId: string, dispatchFence: DispatchFence): StoredRun
 }
@@ -86,6 +89,12 @@ export class InMemoryRunStore implements RunStore {
   listRunsForSession(sessionRef: SessionRef): readonly StoredRun[] {
     return [...this.runs.values()]
       .filter((run) => run.scopeRef === sessionRef.scopeRef && run.laneRef === sessionRef.laneRef)
+      .map((run) => structuredClone(run))
+  }
+
+  listRunsByStatus(status: Run['status']): readonly StoredRun[] {
+    return [...this.runs.values()]
+      .filter((run) => run.status === status)
       .map((run) => structuredClone(run))
   }
 
@@ -137,6 +146,11 @@ export class InMemoryRunStore implements RunStore {
         ? patch.metadata === undefined
           ? {}
           : { metadata: patch.metadata }
+        : {}),
+      ...('afterHrcSeq' in patch
+        ? patch.afterHrcSeq === undefined
+          ? {}
+          : { afterHrcSeq: patch.afterHrcSeq }
         : {}),
       updatedAt: new Date().toISOString(),
     }

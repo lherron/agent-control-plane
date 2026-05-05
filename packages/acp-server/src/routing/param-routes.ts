@@ -19,6 +19,7 @@ import { handleGetRun } from '../handlers/runs-get.js'
 import {
   handleListRunOutboundAttachments,
   handlePostRunOutboundAttachment,
+  handlePostRunOutboundMessage,
 } from '../handlers/runs-outbound-attachments.js'
 import { handleAttachCommand } from '../handlers/sessions-attach-command.js'
 import { handleCaptureSession } from '../handlers/sessions-capture.js'
@@ -169,6 +170,11 @@ export function buildParamRoutes(): ParamRoute[] {
       'POST',
       '/v1/runs/:runId/outbound-attachments',
       handlePostRunOutboundAttachment
+    ),
+    createParamRoute(
+      'POST',
+      '/v1/runs/:runId/outbound-messages',
+      withSpec('POST', '/v1/runs/:runId/outbound-messages', handlePostRunOutboundMessage)
     ),
     createParamRoute('POST', '/v1/runs/:runId/cancel', handleCancelRun),
     createParamRoute('GET', '/v1/sessions/:sessionId', handleGetSession),

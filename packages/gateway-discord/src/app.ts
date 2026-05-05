@@ -22,6 +22,12 @@ import {
 } from './config.js'
 import { classifyDiscordError } from './discord-errors.js'
 import { renderToDiscord } from './discord-render.js'
+import {
+  type KeywordRoute,
+  buildDiscordThreadLaneRef,
+  buildDiscordThreadName,
+  parseDiscordKeyword,
+} from './keywords.js'
 import { createLogger } from './logger.js'
 import {
   type RenderOptions,
@@ -45,6 +51,8 @@ type FetchLike = typeof fetch
 type PendingPlaceholder = {
   ui: UiHandle & { kind: 'message' }
 }
+
+type IngressRoute = KeywordRoute
 
 export type GatewayDiscordAppOptions = {
   acpBaseUrl: string
@@ -130,6 +138,7 @@ export class GatewayDiscordApp {
   private readonly discordToken?: string | undefined
   private readonly bindings = new BindingIndex()
   private readonly placeholdersByRunId = new Map<string, PendingPlaceholder>()
+  private readonly keywordRoutesByMessageId = new Map<string, IngressRoute>()
   private readonly createdClient: boolean
   private readonly onMessageCreateBound: (message: Message) => Promise<void>
 
@@ -282,8 +291,17 @@ export class GatewayDiscordApp {
       return
     }
 
-    const placeholder = await this.createPlaceholder(message)
-    const content = resolveDiscordIngressContent(message)
+    const route = await this.resolveIngressRoute(message, binding, conversation)
+    if (route === undefined) {
+      return
+    }
+
+    const placeholder = await this.createPlaceholder({
+      message,
+      channelId: route.targetChannelId,
+      content: route.content,
+      ...(route.targetThreadId !== undefined ? { threadId: route.targetThreadId } : {}),
+    })
     const attachments = mapDiscordMessageAttachments(message)
     let response: Response
     try {
@@ -296,12 +314,12 @@ export class GatewayDiscordApp {
           idempotencyKey: `discord:message:${message.id}`,
           source: {
             gatewayId: this.gatewayId,
-            conversationRef: conversation.conversationRef,
-            ...(conversation.threadRef ? { threadRef: conversation.threadRef } : {}),
+            conversationRef: route.conversation.conversationRef,
+            ...(route.conversation.threadRef ? { threadRef: route.conversation.threadRef } : {}),
             messageRef: `discord:message:${message.id}`,
             authorRef: `discord:user:${message.author.id}`,
           },
-          content,
+          content: route.content,
           ...(attachments.length > 0 ? { attachments } : {}),
         }),
       })
@@ -330,6 +348,88 @@ export class GatewayDiscordApp {
         ui: placeholder,
       })
     }
+  }
+
+  private async resolveIngressRoute(
+    message: Message,
+    parentBinding: DiscordInterfaceBinding,
+    conversation: {
+      conversationRef: string
+      threadRef?: string | undefined
+    }
+  ): Promise<IngressRoute | undefined> {
+    const keyword = parseDiscordKeyword(message.content)
+    if (keyword === undefined) {
+      return {
+        content: resolveDiscordIngressContent(message),
+        conversation,
+        targetChannelId: message.channelId,
+        ...(message.channel.isThread() ? { targetThreadId: message.channelId } : {}),
+      }
+    }
+
+    if (keyword.canonicalKeyword !== 'nt') {
+      return undefined
+    }
+
+    if (keyword.content.length === 0) {
+      await message.reply('Usage: `nt <prompt>`')
+      return undefined
+    }
+
+    if (message.channel.isThread()) {
+      await message.reply('`nt` can only start a thread from a bound channel.')
+      return undefined
+    }
+
+    const existing = this.keywordRoutesByMessageId.get(message.id)
+    if (existing !== undefined) {
+      await this.ensureKeywordThreadBinding(parentBinding, conversation.conversationRef, existing)
+      return existing
+    }
+
+    const thread = await message.startThread({
+      name: buildDiscordThreadName(keyword.content),
+    })
+    const threadRef = `thread:${thread.id}`
+    const route: IngressRoute = {
+      content: keyword.content,
+      conversation: {
+        conversationRef: conversation.conversationRef,
+        threadRef,
+      },
+      targetChannelId: thread.id,
+      targetThreadId: thread.id,
+    }
+
+    this.keywordRoutesByMessageId.set(message.id, route)
+
+    await this.ensureKeywordThreadBinding(parentBinding, conversation.conversationRef, route)
+
+    return route
+  }
+
+  private async ensureKeywordThreadBinding(
+    parentBinding: DiscordInterfaceBinding,
+    conversationRef: string,
+    route: IngressRoute
+  ): Promise<void> {
+    if (route.targetThreadId === undefined || route.conversation.threadRef === undefined) {
+      return
+    }
+
+    await this.postJson('/v1/interface/bindings', {
+      gatewayId: this.gatewayId,
+      conversationRef,
+      threadRef: route.conversation.threadRef,
+      sessionRef: {
+        scopeRef: parentBinding.sessionRef.scopeRef,
+        laneRef: buildDiscordThreadLaneRef(route.targetThreadId),
+      },
+      ...(parentBinding.projectId !== undefined ? { projectId: parentBinding.projectId } : {}),
+      status: 'active',
+    })
+    await this.refreshBindings()
   }
 
   private async runDeliveryLoop(): Promise<void> {
@@ -425,17 +525,20 @@ export class GatewayDiscordApp {
     }
   }
 
-  private async createPlaceholder(
+  private async createPlaceholder(input: {
     message: Message
-  ): Promise<(UiHandle & { kind: 'message' }) | undefined> {
+    channelId: string
+    threadId?: string | undefined
+    content: string
+  }): Promise<(UiHandle & { kind: 'message' }) | undefined> {
     try {
-      const channel = await this.client.channels.fetch(message.channelId)
+      const channel = await this.client.channels.fetch(input.channelId)
       if (!isSendableChannel(channel)) {
         return undefined
       }
 
       const promptPreview =
-        message.content.length > 100 ? `${message.content.slice(0, 100)}…` : message.content
+        input.content.length > 100 ? `${input.content.slice(0, 100)}…` : input.content
       const initialMessage = await channel.send(`⏳ **Processing:** ${promptPreview}`)
 
       return {
@@ -443,13 +546,13 @@ export class GatewayDiscordApp {
         kind: 'message',
         id: initialMessage.id,
         channelId: initialMessage.channelId,
-        ...(message.channel.isThread() ? { threadId: message.channelId } : {}),
+        ...(input.threadId !== undefined ? { threadId: input.threadId } : {}),
       }
     } catch (error) {
       log.warn('gw.discord.placeholder.failed', {
         message: 'Failed to send placeholder',
         trace: { gatewayId: this.gatewayId },
-        data: { channelId: message.channelId },
+        data: { channelId: input.channelId },
         err: { message: error instanceof Error ? error.message : String(error) },
       })
       return undefined

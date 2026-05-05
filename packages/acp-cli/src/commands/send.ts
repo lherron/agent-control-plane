@@ -16,11 +16,21 @@ import {
   createRawRequesterFromParsed,
   maybeParseMetaFlag,
   renderJsonOrTable,
+  resolveEnv,
 } from './shared.js'
 
 type InputResponse = {
   inputAttempt: Record<string, unknown>
   run: Record<string, unknown>
+}
+
+type OutboundMessageResponse = {
+  deliveryRequestId: string
+  status: string
+  body: {
+    kind: string
+    text: string
+  }
 }
 
 function readOptionalInteger(
@@ -56,13 +66,39 @@ export async function runSendCommand(
   }
   requireNoPositionals(parsed)
 
+  const env = resolveEnv(deps)
   const requester = createRawRequesterFromParsed(parsed, deps)
+  const text = requireMessageText(parsed)
+  const scopeRef = parsed.stringFlags['--scope-ref']
+
+  if (scopeRef === undefined) {
+    const acpRunId = env['ACP_RUN_ID']
+    const currentRunId = acpRunId ?? env['HRC_RUN_ID']
+    if (currentRunId === undefined || currentRunId.trim().length === 0) {
+      throw new CliUsageError('--scope-ref is required outside an active ACP/HRC run')
+    }
+
+    const response = await requester.requestJson<OutboundMessageResponse>({
+      method: 'POST',
+      path: `/v1/runs/${encodeURIComponent(currentRunId.trim())}/outbound-messages`,
+      headers: correlationHeadersFromEnv(env, { includeHrcRunId: acpRunId === undefined }),
+      body: { text },
+    })
+
+    return renderJsonOrTable(parsed, response, () => {
+      return renderKeyValueTable({
+        deliveryRequestId: response.deliveryRequestId,
+        status: response.status,
+      })
+    })
+  }
+
   const response = await requester.requestJson<InputResponse>({
     method: 'POST',
     path: '/v1/inputs',
     body: {
       sessionRef: requireSessionRefFlags(parsed),
-      content: requireMessageText(parsed),
+      content: text,
       ...(parsed.stringFlags['--idempotency-key'] !== undefined
         ? { idempotencyKey: requireStringFlag(parsed, '--idempotency-key') }
         : {}),
@@ -116,4 +152,24 @@ export async function runSendCommand(
       ...(result.timedOut ? { timedOut: true } : {}),
     })
   })
+}
+
+function correlationHeadersFromEnv(
+  env: NodeJS.ProcessEnv,
+  options: { includeHrcRunId: boolean }
+): Record<string, string> {
+  const headers: Record<string, string> = {}
+  const add = (header: string, value: string | undefined): void => {
+    const trimmed = value?.trim()
+    if (trimmed !== undefined && trimmed.length > 0) {
+      headers[header] = trimmed
+    }
+  }
+
+  if (options.includeHrcRunId) {
+    add('HRC_RUN_ID', env['HRC_RUN_ID'])
+  }
+  add('HRC_HOST_SESSION_ID', env['HRC_HOST_SESSION_ID'])
+  add('HRC_GENERATION', env['HRC_GENERATION'])
+  return headers
 }

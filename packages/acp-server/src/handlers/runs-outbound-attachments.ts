@@ -1,6 +1,9 @@
 import { Buffer } from 'node:buffer'
+import { randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
+
+import { normalizeSessionRef } from 'agent-scope'
 
 import {
   DEFAULT_INTERFACE_MEDIA_STATE_DIR,
@@ -11,6 +14,7 @@ import {
   uniqueStoredAttachmentPath,
 } from '../attachments.js'
 import { AcpHttpError, json } from '../http.js'
+import { parseJsonBody, requireRecord, requireTrimmedStringField } from '../parsers/body.js'
 import type { RouteHandler } from '../routing/route-context.js'
 
 const ACTIVE_RUN_STATUSES = new Set(['pending', 'started', 'running'])
@@ -34,6 +38,15 @@ type CorrelationFields = {
   hrcRunId?: string | undefined
   hrcHostSessionId?: string | undefined
   hrcGeneration?: string | undefined
+}
+
+type InterfaceRunSource = {
+  gatewayId: string
+  bindingId: string
+  conversationRef: string
+  threadRef?: string | undefined
+  messageRef: string
+  replyToMessageRef?: string | undefined
 }
 
 function getSingleFormString(form: MultipartFormData, name: string): string | undefined {
@@ -206,6 +219,70 @@ function assertCorrelation(
   }
 }
 
+function readInterfaceRunSource(run: ReturnType<typeof requireRun>): InterfaceRunSource {
+  const metadata = isRecord(run.metadata) ? run.metadata : undefined
+  const meta = isRecord(metadata?.['meta']) ? metadata['meta'] : undefined
+  const source = isRecord(meta?.['interfaceSource']) ? meta['interfaceSource'] : undefined
+  if (source === undefined) {
+    throw new AcpHttpError(
+      409,
+      'run_missing_interface_source',
+      `run has no interface source: ${run.runId}`,
+      { runId: run.runId }
+    )
+  }
+
+  const threadRef = readOptionalString(source, 'threadRef')
+  const replyToMessageRef = readOptionalString(source, 'replyToMessageRef')
+  return {
+    gatewayId: readRequiredString(source, 'gatewayId'),
+    bindingId: readRequiredString(source, 'bindingId'),
+    conversationRef: readRequiredString(source, 'conversationRef'),
+    ...(threadRef !== undefined ? { threadRef } : {}),
+    messageRef: readRequiredString(source, 'messageRef'),
+    ...(replyToMessageRef !== undefined ? { replyToMessageRef } : {}),
+  }
+}
+
+function readRequiredString(record: Record<string, unknown>, field: string): string {
+  const value = record[field]
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new AcpHttpError(
+      409,
+      'run_invalid_interface_source',
+      `interface source missing ${field}`,
+      {
+        field,
+      }
+    )
+  }
+  return value.trim()
+}
+
+function readOptionalString(record: Record<string, unknown>, field: string): string | undefined {
+  const value = record[field]
+  if (value === undefined) {
+    return undefined
+  }
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new AcpHttpError(
+      409,
+      'run_invalid_interface_source',
+      `interface source has invalid ${field}`,
+      { field }
+    )
+  }
+  return value.trim()
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function createDeliveryRequestId(runId: string): string {
+  return `dr_${runId}_oob_${randomUUID().replace(/-/g, '').slice(0, 8)}`
+}
+
 function resolveOutboundFilename(
   form: MultipartFormData,
   file: UploadedFile,
@@ -302,6 +379,81 @@ export const handlePostRunOutboundAttachment: RouteHandler = async ({
       contentType: attachment.contentType,
       sizeBytes: attachment.sizeBytes,
       ...(attachment.alt !== undefined ? { alt: attachment.alt } : {}),
+    },
+    201
+  )
+}
+
+export const handlePostRunOutboundMessage: RouteHandler = async ({
+  request,
+  url,
+  params,
+  deps,
+}) => {
+  const requestedRunId = requireRunId(params)
+  const run = requireRun(deps, requestedRunId)
+  assertRunAcceptsOutbound(run)
+  assertCorrelation(run, requestedRunId, getCorrelationFields(request, url, undefined))
+
+  const body = requireRecord(await parseJsonBody(request))
+  const text = requireTrimmedStringField(body, 'text')
+  const source = readInterfaceRunSource(run)
+  const deliveryRequestId = createDeliveryRequestId(run.runId)
+  const createdAt = new Date().toISOString()
+
+  deps.interfaceStore.deliveries.enqueue({
+    deliveryRequestId,
+    actor: run.actor,
+    gatewayId: source.gatewayId,
+    bindingId: source.bindingId,
+    scopeRef: run.scopeRef,
+    laneRef: run.laneRef,
+    runId: run.runId,
+    conversationRef: source.conversationRef,
+    ...(source.threadRef !== undefined ? { threadRef: source.threadRef } : {}),
+    ...(source.replyToMessageRef !== undefined
+      ? { replyToMessageRef: source.replyToMessageRef }
+      : {}),
+    bodyKind: 'text/markdown',
+    bodyText: text,
+    createdAt,
+  })
+
+  if (deps.conversationStore !== undefined) {
+    try {
+      const thread = deps.conversationStore.createOrGetThread({
+        gatewayId: source.gatewayId,
+        conversationRef: source.conversationRef,
+        ...(source.threadRef !== undefined ? { threadRef: source.threadRef } : {}),
+        sessionRef: normalizeSessionRef({ scopeRef: run.scopeRef, laneRef: run.laneRef }),
+        audience: 'human',
+      })
+      const turnId = deps.conversationStore.createTurn({
+        threadId: thread.threadId,
+        role: 'assistant',
+        body: text,
+        renderState: 'pending',
+        links: { runId: run.runId },
+        actor: run.actor,
+        sentAt: createdAt,
+      })
+      deps.conversationStore.attachLinks(turnId, { deliveryRequestId })
+    } catch (error) {
+      console.error(
+        `[acp-server] conversation turn creation failed for outbound message ${deliveryRequestId}:`,
+        error instanceof Error ? error.message : String(error)
+      )
+    }
+  }
+
+  return json(
+    {
+      deliveryRequestId,
+      status: 'queued',
+      body: {
+        kind: 'text/markdown',
+        text,
+      },
     },
     201
   )

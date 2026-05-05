@@ -19,6 +19,15 @@ import { handleCreateInterfaceBinding } from '../handlers/interface-bindings-cre
 import { handleListInterfaceBindings } from '../handlers/interface-bindings-list.js'
 import { handleCreateInterfaceMessage } from '../handlers/interface-messages.js'
 import { handleCreateMessage } from '../handlers/messages.js'
+import {
+  handleMobileHealth,
+  handleMobileHistory,
+  handleMobileInput,
+  handleMobileInterrupt,
+  handleMobilePair,
+  handleMobilePairing,
+  handleMobileSessions,
+} from '../handlers/mobile.js'
 import { handleOpsDashboardEvents } from '../handlers/ops-dashboard-events.js'
 import { handleOpsDashboardSnapshot } from '../handlers/ops-dashboard-snapshot.js'
 import { handleResolveRuntime } from '../handlers/runtime-resolve.js'
@@ -123,5 +132,13 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
     [exactRouteKey('POST', '/v1/sessions/resolve')]: handleResolveSession,
     [exactRouteKey('GET', '/v1/sessions')]: handleListSessions,
     [exactRouteKey('POST', '/v1/sessions/reset')]: handleResetSession,
+    [exactRouteKey('GET', '/v1/mobile/health')]: handleMobileHealth,
+    [exactRouteKey('GET', '/v1/mobile/pairing')]: handleMobilePairing,
+    [exactRouteKey('POST', '/v1/mobile/pair')]: handleMobilePair,
+    [exactRouteKey('GET', '/v1/mobile/sessions')]: handleMobileSessions,
+    [exactRouteKey('POST', '/v1/mobile/sessions/refresh')]: handleMobileSessions,
+    [exactRouteKey('GET', '/v1/mobile/history')]: handleMobileHistory,
+    [exactRouteKey('POST', '/v1/mobile/input')]: handleMobileInput,
+    [exactRouteKey('POST', '/v1/mobile/interrupt')]: handleMobileInterrupt,
   }
 }

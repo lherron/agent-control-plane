@@ -1,6 +1,7 @@
 import { type AttachmentRef, computeTaskContext } from 'acp-core'
 import { type SessionRef, parseScopeRef } from 'agent-scope'
 import type { HrcHarnessIntent, HrcRuntimeIntent, HrcTaskContext } from 'hrc-core'
+import { buildRuntimeBundleRef } from 'spaces-config'
 
 import type { ResolvedAcpServerDeps } from './deps.js'
 import { parseSessionRefField, requireTask } from './handlers/shared.js'
@@ -164,18 +165,56 @@ async function resolveLaunchPlacement(
   }
 
   const rawCorrelation = readOptionalRecord(resolvedPlacement, 'correlation')
-  const bundle = readOptionalBundle(resolvedPlacement)
+  const resolvedBundle = readOptionalBundle(resolvedPlacement)
+  const resolvedProjectRoot = readOptionalString(resolvedPlacement, 'projectRoot')
+  const adminProjectRoot = readAdminProjectRoot(deps, parsedScope.projectId)
+  const projectRoot = adminProjectRoot ?? resolvedProjectRoot
+  const resolvedCwd = readOptionalString(resolvedPlacement, 'cwd')
+  const cwd =
+    adminProjectRoot !== undefined ? adminProjectRoot : (resolvedCwd ?? projectRoot ?? agentRoot)
+  const bundle = shouldRebuildDefaultBundle(resolvedBundle, adminProjectRoot)
+    ? buildRuntimeBundleRef({
+        agentName: parsedScope.agentId,
+        agentRoot,
+        projectRoot: adminProjectRoot,
+      })
+    : (resolvedBundle ?? { kind: 'agent-default' })
 
   return {
     ...(resolvedPlacement ?? {}),
     agentRoot,
+    ...(projectRoot !== undefined ? { projectRoot } : {}),
+    cwd,
     runMode: readOptionalString(resolvedPlacement, 'runMode') ?? 'task',
-    bundle: bundle ?? { kind: 'agent-default' },
+    bundle,
     correlation: {
       ...(rawCorrelation ?? {}),
       sessionRef,
     },
   } as HrcRuntimeIntent['placement']
+}
+
+function readAdminProjectRoot(
+  deps: ResolvedAcpServerDeps,
+  projectId: string | undefined
+): string | undefined {
+  if (projectId === undefined) {
+    return undefined
+  }
+
+  const rootDir = deps.adminStore.projects.get(projectId)?.rootDir
+  return typeof rootDir === 'string' && rootDir.length > 0 ? rootDir : undefined
+}
+
+function shouldRebuildDefaultBundle(
+  bundle: HrcRuntimeIntent['placement']['bundle'] | undefined,
+  adminProjectRoot: string | undefined
+): boolean {
+  if (adminProjectRoot === undefined) {
+    return false
+  }
+
+  return bundle === undefined || bundle.kind === 'agent-default'
 }
 
 function readLaunchHarness(placement: unknown): HrcHarnessIntent | undefined {

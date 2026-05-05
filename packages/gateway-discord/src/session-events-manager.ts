@@ -75,6 +75,49 @@ function isSessionMetadataEvent(event: GatewaySessionEvent): boolean {
   ].includes(event.type)
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function extractTextContent(content: unknown): string {
+  if (typeof content === 'string') {
+    return content
+  }
+
+  if (!Array.isArray(content)) {
+    return ''
+  }
+
+  return content
+    .filter(
+      (block): block is { type: 'text'; text: string } =>
+        isRecord(block) && block['type'] === 'text' && typeof block['text'] === 'string'
+    )
+    .map((block) => block.text)
+    .join('')
+}
+
+function extractTurnEndAssistantMessage(payload: unknown): string | undefined {
+  const record = isRecord(payload) ? payload : {}
+  const finalOutput = record['finalOutput']
+  if (typeof finalOutput === 'string' && finalOutput.trim().length > 0) {
+    return finalOutput
+  }
+
+  const content = record['content']
+  if (typeof content === 'string' && content.trim().length > 0) {
+    return content
+  }
+
+  const message = record['message']
+  if (!isRecord(message) || message['role'] !== 'assistant') {
+    return undefined
+  }
+
+  const text = extractTextContent(message['content'])
+  return text.trim().length > 0 ? text : undefined
+}
+
 function processEvent(
   state: ProjectState,
   event: GatewaySessionEvent,
@@ -196,6 +239,22 @@ function processEvent(
         }
       }
 
+      newState.runs.set(runId, run)
+      break
+    }
+
+    case 'turn_end': {
+      if (!runId) {
+        break
+      }
+
+      const run = getOrCreateRun(runId)
+      run.status = 'completed'
+      run.completedAt = Date.now()
+      const completedMessage = extractTurnEndAssistantMessage(event.payload)
+      if (completedMessage !== undefined) {
+        run.assistantMessage = completedMessage
+      }
       newState.runs.set(runId, run)
       break
     }

@@ -48,9 +48,10 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
   return async ({ sessionRef, intent, acpRunId, inputAttemptId, runStore, onEvent }) => {
     const client = createClient(socketPath)
     const liveTmuxRuntime = findLiveTmuxRuntimeForSessionRef(hrcDbPath, sessionRef)
+    const launchIntent = withAcpLaunchContextEnv(intent, { acpRunId, inputAttemptId, runStore })
     const normalizedIntent = normalizeRealLauncherIntent({
       sessionRef,
-      intent,
+      intent: launchIntent,
       liveTmuxRuntime: liveTmuxRuntime !== undefined,
     })
     const acpCorrelationId = acpRunId ?? inputAttemptId
@@ -130,11 +131,12 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
       }
 
       updateAcpRun(runStore, acpRunId, {
-        status: onEvent !== undefined ? 'running' : 'completed',
+        status: 'running',
         hostSessionId: delivered.hostSessionId,
         generation: delivered.generation,
         runtimeId: delivered.runtimeId ?? liveTmuxRuntime.runtimeId,
         transport: 'tmux',
+        afterHrcSeq: latestAssistantSeq,
       })
 
       if (onEvent !== undefined) {
@@ -186,8 +188,7 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
       transport: dispatched.transport,
     })
 
-    const shouldWaitForCompletion =
-      onEvent !== undefined || (runStore !== undefined && acpRunId !== undefined)
+    const shouldWaitForCompletion = onEvent !== undefined
     if (shouldWaitForCompletion) {
       const completedRun =
         dispatched.status === 'completed'
@@ -230,6 +231,58 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
       sessionId: targetSession.hostSessionId,
     }
   }
+}
+
+function withAcpLaunchContextEnv(
+  intent: HrcRuntimeIntent,
+  input: {
+    acpRunId?: string | undefined
+    inputAttemptId?: string | undefined
+    runStore?: RunStore | undefined
+  }
+): HrcRuntimeIntent {
+  const env: Record<string, string> = {}
+  if (input.acpRunId !== undefined) {
+    env['ACP_RUN_ID'] = input.acpRunId
+  }
+  if (input.inputAttemptId !== undefined) {
+    env['ACP_INPUT_ATTEMPT_ID'] = input.inputAttemptId
+  }
+
+  const run =
+    input.acpRunId !== undefined && input.runStore !== undefined
+      ? input.runStore.getRun(input.acpRunId)
+      : undefined
+  const interfaceSource = readInterfaceSourceFromRun(run)
+  if (interfaceSource !== undefined) {
+    env['ACP_INTERFACE_SOURCE'] = JSON.stringify(interfaceSource)
+  }
+
+  if (Object.keys(env).length === 0) {
+    return intent
+  }
+
+  return {
+    ...intent,
+    launch: {
+      ...intent.launch,
+      env: {
+        ...intent.launch?.env,
+        ...env,
+      },
+    },
+  }
+}
+
+function readInterfaceSourceFromRun(run: ReturnType<RunStore['getRun']>): unknown | undefined {
+  const metadata = asRecord(run?.metadata)
+  const meta = asRecord(metadata['meta'])
+  const interfaceSource = meta['interfaceSource']
+  return typeof interfaceSource === 'object' &&
+    interfaceSource !== null &&
+    !Array.isArray(interfaceSource)
+    ? interfaceSource
+    : undefined
 }
 
 export function normalizeRealLauncherIntent(input: {
@@ -454,21 +507,22 @@ async function pollCompletedAssistantMessage(options: {
   const deadline = Date.now() + options.timeoutMs
 
   while (Date.now() <= deadline) {
-    const message = toUnifiedAssistantMessageEndFromRawEvents(
-      listRawRunEvents(options.hrcDbPath, options.runId)
-    )
+    const message =
+      readCompletedAssistantMessageFromHrcEvents(options.hrcDbPath, options.runId) ??
+      toUnifiedAssistantMessageEndFromRawEvents(listRawRunEvents(options.hrcDbPath, options.runId))
     if (message !== undefined) {
       return message
     }
     await Bun.sleep(RAW_EVENT_POLL_INTERVAL_MS)
   }
 
-  return toUnifiedAssistantMessageEndFromRawEvents(
-    listRawRunEvents(options.hrcDbPath, options.runId)
+  return (
+    readCompletedAssistantMessageFromHrcEvents(options.hrcDbPath, options.runId) ??
+    toUnifiedAssistantMessageEndFromRawEvents(listRawRunEvents(options.hrcDbPath, options.runId))
   )
 }
 
-function readRunStatus(
+export function readRunStatus(
   hrcDbPath: string,
   runId: string
 ):
@@ -667,6 +721,79 @@ function assistantMessagePayloadToUnifiedEvent(payload: unknown): UnifiedSession
     message: {
       role: 'assistant',
       content: [{ type: 'text', text }],
+    },
+  }
+}
+
+export function readCompletedAssistantMessageFromHrcEvents(
+  hrcDbPath: string,
+  runId: string
+): UnifiedSessionEvent | undefined {
+  const db = new Database(hrcDbPath, { readonly: true })
+  try {
+    const rows = db
+      .query<{ eventKind: string; payloadJson: string }, [string]>(
+        `SELECT event_kind AS eventKind, payload_json AS payloadJson
+          FROM hrc_events
+          WHERE run_id = ?
+            AND event_kind IN ('turn.message', 'turn.completed')
+          ORDER BY hrc_seq ASC`
+      )
+      .all(runId)
+
+    for (let index = rows.length - 1; index >= 0; index -= 1) {
+      const row = rows[index]
+      if (row?.eventKind !== 'turn.completed') {
+        continue
+      }
+      const event = assistantCompletionPayloadToUnifiedEvent(parseJson(row.payloadJson))
+      if (event !== undefined) {
+        return event
+      }
+    }
+
+    for (let index = rows.length - 1; index >= 0; index -= 1) {
+      const row = rows[index]
+      if (row?.eventKind !== 'turn.message') {
+        continue
+      }
+      const event = assistantMessagePayloadToUnifiedEvent(parseJson(row.payloadJson))
+      if (event !== undefined) {
+        return event
+      }
+    }
+
+    return undefined
+  } catch {
+    return undefined
+  } finally {
+    db.close()
+  }
+}
+
+function assistantCompletionPayloadToUnifiedEvent(
+  payload: unknown
+): UnifiedSessionEvent | undefined {
+  const record = asRecord(payload)
+
+  const fromMessage = assistantMessagePayloadToUnifiedEvent({
+    type: 'message_end',
+    message: record['message'],
+  })
+  if (fromMessage !== undefined) {
+    return fromMessage
+  }
+
+  const finalOutput = readString(record, 'finalOutput') ?? readString(record, 'content')
+  if (finalOutput === undefined || finalOutput.trim().length === 0) {
+    return undefined
+  }
+
+  return {
+    type: 'message_end',
+    message: {
+      role: 'assistant',
+      content: [{ type: 'text', text: finalOutput }],
     },
   }
 }

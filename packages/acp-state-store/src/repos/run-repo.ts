@@ -281,6 +281,40 @@ export class RunRepo {
     return rows.map((row) => mapRunRow(row))
   }
 
+  listRunsByStatus(status: string): readonly StoredRun[] {
+    const rows = this.context.sqlite
+      .prepare(
+        `SELECT run_id,
+                scope_ref,
+                lane_ref,
+                task_id,
+                actor_kind,
+                actor_id,
+                actor_display_name,
+                status,
+                hrc_run_id,
+                host_session_id,
+                generation,
+                runtime_id,
+                transport,
+                error_code,
+                error_message,
+                dispatch_fence_json,
+                expected_host_session_id,
+                expected_generation,
+                follow_latest,
+                metadata_json,
+                created_at,
+                updated_at
+           FROM runs
+          WHERE status = ?
+       ORDER BY created_at ASC, run_id ASC`
+      )
+      .all(status) as RunRow[]
+
+    return rows.map((row) => mapRunRow(row))
+  }
+
   listRunsForSession(sessionRef: SessionRef): readonly StoredRun[] {
     const rows = this.context.sqlite
       .prepare(
@@ -361,6 +395,11 @@ export class RunRepo {
           ? patch.metadata === undefined
             ? {}
             : { metadata: patch.metadata }
+          : {}),
+        ...('afterHrcSeq' in patch
+          ? patch.afterHrcSeq === undefined
+            ? {}
+            : { afterHrcSeq: patch.afterHrcSeq }
           : {}),
         updatedAt: new Date().toISOString(),
       }

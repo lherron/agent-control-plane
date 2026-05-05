@@ -374,8 +374,8 @@ function addRuntimeCommands(program: Command, deps: CommandDependencies): void {
     .option('--project <projectId>')
     .action(runLeaf(deps, ['attachment', 'clear'], runRunCommand))
 
-  tabular(program.command('send').description('send an input into a session'))
-    .requiredOption('--scope-ref <scopeRef>')
+  tabular(program.command('send').description('send an input or active-run outbound message'))
+    .option('--scope-ref <scopeRef>')
     .option('--lane-ref <laneRef>')
     .requiredOption('--text <text>')
     .option('--idempotency-key <key>')

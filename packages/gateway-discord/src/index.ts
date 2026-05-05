@@ -12,6 +12,15 @@ export { createDiscordAttachments, fetchMediaAttachments } from './attachments.j
 export { renderToDiscord } from './discord-render.js'
 export { classifyDiscordError } from './discord-errors.js'
 export {
+  buildDiscordThreadLaneRef,
+  buildDiscordThreadName,
+  defaultDiscordKeywordDefinitions,
+  parseDiscordKeyword,
+  type DiscordKeywordDefinition,
+  type KeywordRoute,
+  type ParsedDiscordKeyword,
+} from './keywords.js'
+export {
   extractImagesFromFrame,
   extractMediaRefsFromFrame,
   renderActionsToCustomIds,

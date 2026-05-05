@@ -1,12 +1,104 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { createInMemoryAdminStore } from 'acp-admin-store'
+import type { HrcRuntimeIntent } from 'hrc-core'
 
 import { withWiredServer } from './fixtures/wired-server.js'
 
 describe('POST /v1/interface/messages', () => {
+  test('uses the registered project root for project-scoped interface dispatch', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'acp-interface-placement-'))
+    const adminStore = createInMemoryAdminStore()
+    const agentRoot = join(tmp, 'agents', 'rex')
+    const projectRoot = join(tmp, 'projects', 'dnd-friends')
+    const launches: Array<{
+      sessionRef: { scopeRef: string; laneRef: string }
+      intent: HrcRuntimeIntent
+    }> = []
+
+    try {
+      mkdirSync(agentRoot, { recursive: true })
+      mkdirSync(projectRoot, { recursive: true })
+      writeFileSync(join(agentRoot, 'agent-profile.toml'), 'schemaVersion = 2\n')
+      adminStore.projects.create({
+        projectId: 'dnd-friends',
+        displayName: 'DND Friends',
+        rootDir: projectRoot,
+        actor: { kind: 'agent', id: 'acp-server', displayName: 'ACP Server' },
+        now: '2026-05-05T00:00:00.000Z',
+      })
+
+      await withWiredServer(
+        async (fixture) => {
+          fixture.interfaceStore.bindings.create({
+            bindingId: 'ifb_rex_dnd',
+            gatewayId: 'discord_prod',
+            conversationRef: 'channel:1452036862813409310',
+            scopeRef: 'agent:rex:project:dnd-friends',
+            laneRef: 'main',
+            projectId: 'dnd-friends',
+            status: 'active',
+            createdAt: '2026-05-05T00:00:00.000Z',
+            updatedAt: '2026-05-05T00:00:00.000Z',
+          })
+
+          const response = await fixture.request({
+            method: 'POST',
+            path: '/v1/interface/messages',
+            body: {
+              idempotencyKey: 'discord:message:placement',
+              source: {
+                gatewayId: 'discord_prod',
+                conversationRef: 'channel:1452036862813409310',
+                messageRef: 'discord:message:placement',
+                authorRef: 'discord:user:999',
+              },
+              content: 'placement smoke',
+            },
+          })
+
+          expect(response.status).toBe(201)
+          expect(launches).toHaveLength(1)
+          expect(launches[0]?.sessionRef).toEqual({
+            scopeRef: 'agent:rex:project:dnd-friends',
+            laneRef: 'main',
+          })
+          expect(launches[0]?.intent.placement).toMatchObject({
+            agentRoot,
+            projectRoot,
+            cwd: projectRoot,
+            bundle: {
+              kind: 'agent-project',
+              agentName: 'rex',
+              projectRoot,
+            },
+          })
+        },
+        {
+          adminStore,
+          runtimeResolver: async () => ({
+            agentRoot,
+            projectRoot: agentRoot,
+            cwd: agentRoot,
+            runMode: 'task',
+            bundle: { kind: 'agent-default' },
+            harness: { provider: 'openai', interactive: true },
+          }),
+          launchRoleScopedRun: async (input) => {
+            launches.push(input)
+            return { runId: 'launch-run-placement', sessionId: 'session-placement' }
+          },
+        }
+      )
+    } finally {
+      adminStore.close()
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
   test('creates an input attempt, records the source, and dispatches once', async () => {
     const launches: Array<{
       sessionRef: { scopeRef: string; laneRef: string }

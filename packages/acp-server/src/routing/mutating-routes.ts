@@ -89,4 +89,8 @@ export const mutatingRouteSpecs: Record<string, ActorAndAuthzSpec> = {
     operation: 'gateway.deliveries.requeue',
     resource: ({ params }) => ({ kind: 'delivery-request', id: params['deliveryRequestId'] }),
   },
+  'POST /v1/runs/:runId/outbound-messages': {
+    operation: 'runs.outbound-messages.create',
+    resource: ({ params }) => ({ kind: 'run', id: params['runId'] }),
+  },
 } as const

@@ -108,6 +108,40 @@ function correlationHeaders(runId: string): HeadersInit {
 }
 
 describe('run outbound attachments', () => {
+  test('POST outbound message enqueues a delivery from the active interface run', async () => {
+    await withWiredServer(async (fixture) => {
+      const run = createRunningInterfaceRun(fixture)
+      const response = await fixture.request({
+        method: 'POST',
+        path: `/v1/runs/${run.hrcRunId}/outbound-messages`,
+        headers: correlationHeaders(run.hrcRunId ?? run.runId),
+        body: {
+          text: 'Out-of-band visible update',
+        },
+      })
+      const payload = await fixture.json<{
+        deliveryRequestId: string
+        status: string
+        body: { text: string }
+      }>(response)
+
+      expect(response.status).toBe(201)
+      expect(payload).toMatchObject({
+        status: 'queued',
+        body: { text: 'Out-of-band visible update' },
+      })
+
+      const [delivery] = fixture.interfaceStore.deliveries.listQueuedForGateway('discord_prod')
+      expect(delivery).toMatchObject({
+        deliveryRequestId: payload.deliveryRequestId,
+        runId: run.runId,
+        bindingId: 'ifb_outbound',
+        conversationRef: 'channel:123',
+        bodyText: 'Out-of-band visible update',
+      })
+    })
+  })
+
   test('POST accepts a small image, stores it on disk, and GET lists it', async () => {
     const mediaStateDir = mkdtempSync(join(tmpdir(), 'acp-outbound-media-'))
 

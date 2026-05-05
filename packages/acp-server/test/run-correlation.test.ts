@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { createInterfaceRunDispatcher } from '../src/integration/interface-run-dispatcher.js'
 import { createRealLauncher } from '../src/real-launcher.js'
 
 import { type WiredServerFixture, withWiredServer } from './fixtures/wired-server.js'
@@ -188,14 +189,27 @@ describe('ACP run correlation', () => {
           const response = await postInterfaceMessage(fixture)
           const [storedRun] = fixture.runStore.listRuns()
 
-          expect(response.status).toBe(500)
+          expect(response.status).toBe(201)
           expect(storedRun).toMatchObject({
             hrcRunId: 'hrc-run-failed',
             hostSessionId: 'hsid-failed',
             generation: 11,
             runtimeId: 'rt-failed',
             transport: 'headless',
-            errorCode: 'runtime_unavailable',
+          })
+
+          const dispatcher = createInterfaceRunDispatcher({
+            runStore: fixture.runStore,
+            interfaceStore: fixture.interfaceStore,
+            conversationStore: fixture.conversationStore,
+            hrcDbPath: hrc.hrcDbPath,
+            config: { intervalMs: 1, staleTimeoutMs: 1_000 },
+          })
+          await dispatcher.runOnce()
+
+          expect(fixture.runStore.getRun(storedRun?.runId ?? '')).toMatchObject({
+            status: 'failed',
+            errorCode: 'turn_failed',
             errorMessage: 'sandbox missing',
           })
         },
@@ -274,6 +288,95 @@ describe('ACP run correlation', () => {
           expect(storedRun).toMatchObject({
             runId: payload.runId,
             hrcRunId: 'hrc-run-456',
+          })
+        },
+        {
+          runtimeResolver: async () => ({
+            agentRoot: '/tmp/agents/curly',
+            projectRoot: '/tmp/project',
+            cwd: '/tmp/project',
+            runMode: 'task',
+            bundle: { kind: 'agent-default' },
+            harness: { provider: 'openai', interactive: true },
+          }),
+          launchRoleScopedRun: launcher,
+        }
+      )
+    } finally {
+      hrc.cleanup()
+    }
+  })
+
+  test('dispatcher delivers final output for completed interface runs with no delivery yet', async () => {
+    const hrc = createHeadlessHrcDb()
+    hrc.db.exec(`
+      CREATE TABLE hrc_events (
+        hrc_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id TEXT,
+        event_kind TEXT NOT NULL,
+        payload_json TEXT NOT NULL
+      );
+    `)
+    const launcher = createRealLauncher({
+      hrcDbPath: hrc.hrcDbPath,
+      pollIntervalMs: 1,
+      watchTimeoutMs: 250,
+      createClient: () =>
+        ({
+          resolveSession: async () => ({ hostSessionId: 'hsid-fast', generation: 5 }),
+          dispatchTurn: async () => {
+            hrc.db.run(
+              'INSERT INTO runs (run_id, status, error_code, error_message) VALUES (?, ?, NULL, NULL)',
+              'hrc-run-fast',
+              'completed'
+            )
+            hrc.db.run(
+              'INSERT INTO hrc_events (run_id, event_kind, payload_json) VALUES (?, ?, ?)',
+              'hrc-run-fast',
+              'turn.completed',
+              JSON.stringify({
+                success: true,
+                transport: 'headless',
+                finalOutput: 'Fast final output.',
+              })
+            )
+
+            return {
+              runId: 'hrc-run-fast',
+              hostSessionId: 'hsid-fast',
+              generation: 5,
+              runtimeId: 'rt-fast',
+              transport: 'headless',
+              status: 'completed',
+              supportsInFlightInput: false,
+            }
+          },
+        }) as unknown as any,
+    })
+
+    try {
+      await withWiredServer(
+        async (fixture) => {
+          addInterfaceBinding(fixture)
+
+          const response = await postInterfaceMessage(fixture)
+          const payload = await fixture.json<{ runId: string }>(response)
+          expect(response.status).toBe(201)
+          expect(fixture.runStore.getRun(payload.runId)?.status).toBe('completed')
+
+          const dispatcher = createInterfaceRunDispatcher({
+            runStore: fixture.runStore,
+            interfaceStore: fixture.interfaceStore,
+            conversationStore: fixture.conversationStore,
+            hrcDbPath: hrc.hrcDbPath,
+            config: { intervalMs: 1, staleTimeoutMs: 1_000 },
+          })
+          await dispatcher.runOnce()
+
+          const [delivery] = fixture.interfaceStore.deliveries.listQueuedForGateway('discord_prod')
+          expect(delivery).toMatchObject({
+            runId: payload.runId,
+            bodyText: 'Fast final output.',
           })
         },
         {

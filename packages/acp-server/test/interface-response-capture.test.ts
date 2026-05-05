@@ -95,6 +95,46 @@ describe('interface response capture', () => {
     }
   })
 
+  test('enqueues turn_end final output as a visible assistant delivery', async () => {
+    const temp = createTempInterfaceStore()
+    const runStore = new InMemoryRunStore()
+    const run = createInterfaceRun(runStore)
+
+    try {
+      const capture = createInterfaceResponseCapture({
+        interfaceStore: temp.interfaceStore,
+        runStore,
+        runId: run.runId,
+        inputAttemptId: 'ia_456',
+      })
+
+      await capture.handler({
+        type: 'turn_end',
+        payload: {
+          finalOutput: 'Final answer from turn.completed.',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'fallback should not be used' }],
+          },
+        },
+      })
+
+      const deliveries = temp.interfaceStore.deliveries.listQueuedForGateway('discord_prod')
+      expect(deliveries).toHaveLength(1)
+      expect(deliveries[0]).toMatchObject({
+        runId: run.runId,
+        inputAttemptId: 'ia_456',
+        conversationRef: 'channel:123',
+        threadRef: 'thread:456',
+        bodyKind: 'text/markdown',
+        bodyText: 'Final answer from turn.completed.',
+        status: 'queued',
+      })
+    } finally {
+      temp.cleanup()
+    }
+  })
+
   test('ignores tool and partial events', async () => {
     const temp = createTempInterfaceStore()
     const runStore = new InMemoryRunStore()

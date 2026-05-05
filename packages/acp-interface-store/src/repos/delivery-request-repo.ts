@@ -298,6 +298,40 @@ export class DeliveryRequestRepo {
     return row === undefined ? undefined : mapDeliveryRequestRow(row)
   }
 
+  listByRun(runId: string): DeliveryRequest[] {
+    const rows = this.context.sqlite
+      .prepare(
+        `SELECT delivery_request_id,
+                linked_failure_id,
+                actor_kind,
+                actor_id,
+                actor_display_name,
+                gateway_id,
+                binding_id,
+                scope_ref,
+                lane_ref,
+                run_id,
+                input_attempt_id,
+                conversation_ref,
+                thread_ref,
+                reply_to_message_ref,
+                body_kind,
+                body_text,
+                body_attachments_json,
+                status,
+                created_at,
+                delivered_at,
+                failure_code,
+                failure_message
+           FROM delivery_requests
+          WHERE run_id = ?
+          ORDER BY created_at ASC, delivery_request_id ASC`
+      )
+      .all(runId) as DeliveryRequestRow[]
+
+    return rows.map(mapDeliveryRequestRow)
+  }
+
   listFailed(input: ListFailedDeliveryRequestsInput = {}): DeliveryRequest[] {
     const where = [`status = 'failed'`]
     const params: unknown[] = []

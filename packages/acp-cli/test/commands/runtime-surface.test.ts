@@ -356,4 +356,40 @@ describe('runtime-oriented CLI commands', () => {
       body: { inputAttempt: { inputAttemptId: 'ia_123' }, run: { status: 'completed' } },
     })
   })
+
+  test('send without scope posts an outbound message for the active run', async () => {
+    const queue = createFetchQueue([
+      {
+        body: {
+          deliveryRequestId: 'dr_run_123_oob',
+          status: 'queued',
+          body: { kind: 'text/markdown', text: 'OOB update' },
+        },
+        assert(request) {
+          expect(request.method).toBe('POST')
+          expect(new URL(request.url).pathname).toBe('/v1/runs/hrc-run-123/outbound-messages')
+          expect(request.headers.get('HRC_RUN_ID')).toBe('hrc-run-123')
+          expect(request.headers.get('HRC_HOST_SESSION_ID')).toBe('hsid-123')
+          expect(request.headers.get('HRC_GENERATION')).toBe('4')
+          expect(request.body).toEqual({ text: 'OOB update' })
+        },
+      },
+    ])
+
+    const output = await runSendCommand(['--text', 'OOB update'], {
+      fetchImpl: queue.fetchImpl,
+      env: {
+        HRC_RUN_ID: 'hrc-run-123',
+        HRC_HOST_SESSION_ID: 'hsid-123',
+        HRC_GENERATION: '4',
+      } as NodeJS.ProcessEnv,
+    })
+
+    expect(output).toMatchObject({
+      body: {
+        deliveryRequestId: 'dr_run_123_oob',
+        status: 'queued',
+      },
+    })
+  })
 })

@@ -65,14 +65,19 @@ export type AcpHrcClient = Pick<
   HrcClient,
   | 'capture'
   | 'clearContext'
+  | 'deliverLiteralBySelector'
+  | 'getHealth'
   | 'getAttachDescriptor'
   | 'getSession'
   | 'interrupt'
+  | 'listMessages'
   | 'listRuntimes'
   | 'listSessions'
   | 'resolveSession'
+  | 'sendInFlightInput'
   | 'terminate'
   | 'watch'
+  | 'watchMessages'
 >
 
 export interface AcpServerDeps {

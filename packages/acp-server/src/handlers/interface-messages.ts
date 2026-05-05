@@ -1,12 +1,7 @@
-import type { Actor, InterfaceMessageAttachment } from 'acp-core'
+import type { InterfaceMessageAttachment } from 'acp-core'
 import { type SessionRef, normalizeSessionRef, parseScopeRef } from 'agent-scope'
 
 import { resolveAttachmentRefs } from '../attachments.js'
-import {
-  type InterfaceResponseCapture,
-  createInterfaceResponseCapture,
-} from '../delivery/interface-response-capture.js'
-import { toCompletedVisibleAssistantMessage } from '../delivery/visible-assistant-messages.js'
 import { AcpHttpError, json } from '../http.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
 import {
@@ -17,8 +12,6 @@ import {
   requireTrimmedStringField,
 } from '../parsers/body.js'
 
-import type { UnifiedSessionEvent } from 'spaces-runtime'
-import type { ConversationStore } from '../deps.js'
 import type { RouteHandler } from '../routing/route-context.js'
 
 type ParsedInterfaceSource = {
@@ -110,47 +103,6 @@ function toSessionRef(scopeRef: string, laneRef: string): SessionRef {
   return normalizeSessionRef({ scopeRef, laneRef })
 }
 
-function wrapOnEventWithConversationHook(
-  capture: InterfaceResponseCapture,
-  conversationStore: ConversationStore,
-  threadId: string,
-  runId: string,
-  actor: Actor
-): (event: UnifiedSessionEvent) => void | Promise<void> {
-  const deliveredMessageIds = new Set<string>()
-
-  return async (event: UnifiedSessionEvent): Promise<void> => {
-    await capture.handler(event)
-
-    const visible = toCompletedVisibleAssistantMessage(event)
-    if (visible === undefined) {
-      return
-    }
-    if (visible.messageId !== undefined) {
-      if (deliveredMessageIds.has(visible.messageId)) {
-        return
-      }
-      deliveredMessageIds.add(visible.messageId)
-    }
-
-    const turnId = conversationStore.createTurn({
-      threadId,
-      role: 'assistant',
-      body: visible.text,
-      renderState: 'pending',
-      links: { runId },
-      actor,
-      sentAt: new Date().toISOString(),
-    })
-
-    // Back-link the delivery request onto the assistant turn so the ack/fail
-    // handlers can find it via findTurnByLink('linksDeliveryRequestId', …).
-    if (capture.lastDeliveryRequestId !== undefined) {
-      conversationStore.attachLinks(turnId, { deliveryRequestId: capture.lastDeliveryRequestId })
-    }
-  }
-}
-
 export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
   const { request, deps } = context
   const body = requireRecord(await parseJsonBody(request))
@@ -212,7 +164,6 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
   })
 
   // Conversation hook: create human turn after input attempt creation
-  let conversationThreadId: string | undefined
   if (createdAttempt.created && deps.conversationStore !== undefined) {
     const thread = deps.conversationStore.createOrGetThread({
       gatewayId: source.gatewayId,
@@ -221,7 +172,6 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
       sessionRef,
       audience: 'human',
     })
-    conversationThreadId = thread.threadId
 
     deps.conversationStore.createTurn({
       threadId: thread.threadId,
@@ -261,32 +211,12 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
       ...(resolvedAttachments !== undefined ? { attachments: resolvedAttachments } : {}),
     })
 
-    const capture = createInterfaceResponseCapture({
-      interfaceStore: deps.interfaceStore,
-      runStore: deps.runStore,
-      runId: createdAttempt.runId,
-      inputAttemptId: createdAttempt.inputAttempt.inputAttemptId,
-    })
-
-    // Wrap the onEvent handler to also create assistant turns
-    const onEvent =
-      deps.conversationStore !== undefined && conversationThreadId !== undefined
-        ? wrapOnEventWithConversationHook(
-            capture,
-            deps.conversationStore,
-            conversationThreadId,
-            createdAttempt.runId,
-            actor
-          )
-        : capture.handler
-
     await deps.launchRoleScopedRun({
       sessionRef,
       intent,
       acpRunId: createdAttempt.runId,
       inputAttemptId: createdAttempt.inputAttempt.inputAttemptId,
       runStore: deps.runStore,
-      onEvent,
     })
   }
 

@@ -257,6 +257,205 @@ describe('GatewayDiscordApp local e2e', () => {
     })
   })
 
+  test('nt creates a Discord thread, binds it to a lane-scoped session, and dispatches stripped content', async () => {
+    await withWiredServer(async (fixture) => {
+      fixture.interfaceStore.bindings.create({
+        bindingId: 'ifb_nt_parent',
+        gatewayId: 'discord_prod',
+        conversationRef: 'channel:chan_nt',
+        scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
+        laneRef: 'main',
+        projectId: fixture.seed.projectId,
+        status: 'active',
+        createdAt: '2026-04-20T15:00:00.000Z',
+        updatedAt: '2026-04-20T15:00:00.000Z',
+      })
+
+      const parentChannel = new FakeChannel('chan_nt')
+      const threadChannel = new FakeChannel('thread_nt_1')
+      const client = new FakeClient()
+      client.addChannel(parentChannel)
+      client.addChannel(threadChannel)
+      const startThreadCalls: Array<{ name: string }> = []
+
+      const app = new GatewayDiscordApp({
+        acpBaseUrl: 'http://acp.test',
+        gatewayId: 'discord_prod',
+        client: client as never,
+        fetchImpl: createFetch(fixture.handler),
+      })
+
+      await app.refreshBindings()
+
+      const inboundMessage = {
+        guildId: 'guild_1',
+        author: { id: 'user_1', bot: false },
+        content: 'nt implement a new feature XTZ',
+        attachments: { size: 0 },
+        channelId: 'chan_nt',
+        id: 'msg_nt_1',
+        channel: {
+          isThread: () => false,
+        },
+        reply: async () => undefined,
+        startThread: async (options: { name: string }) => {
+          startThreadCalls.push(options)
+          return { id: 'thread_nt_1' }
+        },
+      } as never
+
+      await app.handleMessageCreate(inboundMessage)
+
+      expect(startThreadCalls).toEqual([{ name: 'implement a new feature XTZ' }])
+      expect(parentChannel.sent).toHaveLength(0)
+      expect(threadChannel.sent).toHaveLength(1)
+      expect(threadChannel.sent[0]?.content).toContain('⏳ **Processing:**')
+      expect(threadChannel.sent[0]?.content).toContain('implement a new feature XTZ')
+      expect(threadChannel.sent[0]?.content).not.toContain('nt implement')
+
+      const threadBinding = fixture.interfaceStore.bindings.resolve({
+        gatewayId: 'discord_prod',
+        conversationRef: 'channel:chan_nt',
+        threadRef: 'thread:thread_nt_1',
+      })
+      expect(threadBinding).toMatchObject({
+        gatewayId: 'discord_prod',
+        conversationRef: 'channel:chan_nt',
+        threadRef: 'thread:thread_nt_1',
+        scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
+        laneRef: 'lane:discord-thread_nt_1',
+        projectId: fixture.seed.projectId,
+        status: 'active',
+      })
+
+      const runs = fixture.runStore.listRuns()
+      expect(runs).toHaveLength(1)
+      expect(runs[0]).toMatchObject({
+        scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
+        laneRef: 'lane:discord-thread_nt_1',
+        metadata: { content: 'implement a new feature XTZ' },
+      })
+    })
+  })
+
+  test('nt rejects attempts to create a new thread from inside a thread', async () => {
+    await withWiredServer(async (fixture) => {
+      fixture.interfaceStore.bindings.create({
+        bindingId: 'ifb_nt_existing_thread',
+        gatewayId: 'discord_prod',
+        conversationRef: 'channel:chan_nt_parent',
+        threadRef: 'thread:thread_existing',
+        scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
+        laneRef: 'lane:discord-thread_existing',
+        projectId: fixture.seed.projectId,
+        status: 'active',
+        createdAt: '2026-04-20T15:00:00.000Z',
+        updatedAt: '2026-04-20T15:00:00.000Z',
+      })
+
+      const threadChannel = new FakeChannel('thread_existing')
+      const client = new FakeClient()
+      client.addChannel(threadChannel)
+      const replies: string[] = []
+
+      const app = new GatewayDiscordApp({
+        acpBaseUrl: 'http://acp.test',
+        gatewayId: 'discord_prod',
+        client: client as never,
+        fetchImpl: createFetch(fixture.handler),
+      })
+
+      await app.refreshBindings()
+
+      const inboundMessage = {
+        guildId: 'guild_1',
+        author: { id: 'user_1', bot: false },
+        content: 'nt nested work should not dispatch',
+        attachments: { size: 0 },
+        channelId: 'thread_existing',
+        id: 'msg_nt_thread',
+        channel: {
+          isThread: () => true,
+          parentId: 'chan_nt_parent',
+        },
+        reply: async (content: string) => {
+          replies.push(content)
+        },
+        startThread: async () => {
+          throw new Error('startThread should not be called')
+        },
+      } as never
+
+      await app.handleMessageCreate(inboundMessage)
+
+      expect(replies).toEqual(['`nt` can only start a thread from a bound channel.'])
+      expect(threadChannel.sent).toHaveLength(0)
+      expect(fixture.runStore.listRuns()).toHaveLength(0)
+    })
+  })
+
+  test('nt duplicate handling reuses the created thread within the gateway process', async () => {
+    await withWiredServer(async (fixture) => {
+      fixture.interfaceStore.bindings.create({
+        bindingId: 'ifb_nt_duplicate_parent',
+        gatewayId: 'discord_prod',
+        conversationRef: 'channel:chan_nt_dup',
+        scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
+        laneRef: 'main',
+        projectId: fixture.seed.projectId,
+        status: 'active',
+        createdAt: '2026-04-20T15:00:00.000Z',
+        updatedAt: '2026-04-20T15:00:00.000Z',
+      })
+
+      const parentChannel = new FakeChannel('chan_nt_dup')
+      const threadChannel = new FakeChannel('thread_nt_dup')
+      const client = new FakeClient()
+      client.addChannel(parentChannel)
+      client.addChannel(threadChannel)
+      let startThreadCount = 0
+
+      const app = new GatewayDiscordApp({
+        acpBaseUrl: 'http://acp.test',
+        gatewayId: 'discord_prod',
+        client: client as never,
+        fetchImpl: createFetch(fixture.handler),
+      })
+
+      await app.refreshBindings()
+
+      const inboundMessage = {
+        guildId: 'guild_1',
+        author: { id: 'user_1', bot: false },
+        content: 'nt duplicate-safe prompt',
+        attachments: { size: 0 },
+        channelId: 'chan_nt_dup',
+        id: 'msg_nt_dup',
+        channel: {
+          isThread: () => false,
+        },
+        reply: async () => undefined,
+        startThread: async () => {
+          startThreadCount += 1
+          return { id: 'thread_nt_dup' }
+        },
+      } as never
+
+      await app.handleMessageCreate(inboundMessage)
+      await app.handleMessageCreate(inboundMessage)
+
+      expect(startThreadCount).toBe(1)
+      expect(
+        fixture.interfaceStore.bindings.list({
+          gatewayId: 'discord_prod',
+          conversationRef: 'channel:chan_nt_dup',
+          threadRef: 'thread:thread_nt_dup',
+        })
+      ).toHaveLength(1)
+      expect(fixture.runStore.listRuns()).toHaveLength(1)
+    })
+  })
+
   test('ingresses image-only Discord message through ACP and dispatches local image attachment', async () => {
     const mediaStateDir = mkdtempSync(join(tmpdir(), 'gateway-discord-image-ingress-'))
     const launches: Array<{

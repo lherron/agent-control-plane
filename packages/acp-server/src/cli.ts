@@ -11,7 +11,7 @@ import { createJobsScheduler, openSqliteJobsStore } from 'acp-jobs-store'
 import { openAcpStateStore } from 'acp-state-store'
 import { type SessionRef, parseScopeRef } from 'agent-scope'
 import { openCoordinationStore } from 'coordination-substrate'
-import { resolveControlSocketPath } from 'hrc-core'
+import { resolveControlSocketPath, resolveDatabasePath } from 'hrc-core'
 import { HrcClient } from 'hrc-sdk'
 import { buildRuntimeBundleRef, getAgentsRoot, resolveAgentPlacementPaths } from 'spaces-config'
 import { WrkqSchemaMissingError, openWrkqStore } from 'wrkq-lib'
@@ -27,6 +27,8 @@ import {
 import { createDevFlowLauncher } from './dev-flow-launcher.js'
 import { createEchoLauncher } from './echo-launcher.js'
 import { dispatchJobRunThroughInputs } from './handlers/admin-jobs.js'
+import { closeMobileWebSocket, openMobileWebSocket } from './handlers/mobile.js'
+import { createInterfaceRunDispatcher } from './integration/interface-run-dispatcher.js'
 import { createWakeDispatcher } from './integration/wake-dispatcher.js'
 import { advanceJobFlow } from './jobs/flow-engine.js'
 import { createRealLauncher } from './real-launcher.js'
@@ -36,6 +38,8 @@ const DEFAULT_PORT = 18470
 const DEFAULT_HOST = '127.0.0.1'
 const DEFAULT_ACTOR = 'acp-server'
 const DEFAULT_JOBS_SCHEDULER_INTERVAL_MS = 5_000
+const DEFAULT_INTERFACE_DISPATCHER_INTERVAL_MS = 2_000
+const DEFAULT_INTERFACE_DISPATCHER_STALE_TIMEOUT_MS = 600_000 // 10 minutes
 
 export function isEnabledEnvFlag(value: string | undefined): boolean {
   const normalized = value?.trim().toLowerCase()
@@ -397,14 +401,56 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     ...launcherDeps,
   }
   const acpServer = createAcpServer(serverDeps)
+  const resolvedDeps = resolveAcpServerDeps(serverDeps)
   const bunServer = Bun.serve({
     hostname: options.host,
     port: options.port,
     idleTimeout: 255,
-    fetch: acpServer.handler,
-  })
+    fetch(request, server) {
+      const url = new URL(request.url)
+      if (
+        request.headers.get('upgrade')?.toLowerCase() === 'websocket' &&
+        (url.pathname === '/v1/mobile/timeline' || url.pathname === '/v1/mobile/diagnostics')
+      ) {
+        const upgraded = (
+          server as never as { upgrade(request: Request, options: unknown): boolean }
+        ).upgrade(request, {
+          data: {
+            deps: resolvedDeps,
+            url: request.url,
+            kind: url.pathname.endsWith('/diagnostics') ? 'diagnostics' : 'timeline',
+            abortController: new AbortController(),
+          },
+        })
+        return upgraded ? undefined : new Response('WebSocket upgrade failed', { status: 400 })
+      }
 
-  const resolvedDeps = resolveAcpServerDeps(serverDeps)
+      return acpServer.handler(request)
+    },
+    websocket: {
+      open(ws) {
+        void openMobileWebSocket(ws as never).catch((error) => {
+          try {
+            ws.send(
+              JSON.stringify({
+                type: 'error',
+                code: 'mobile_stream_failed',
+                message: error instanceof Error ? error.message : String(error),
+              })
+            )
+          } catch {
+            // Socket may already be closed.
+          }
+        })
+      },
+      message() {
+        // Mobile streams are server-push only in this first facade slice.
+      },
+      close(ws) {
+        closeMobileWebSocket(ws as never)
+      },
+    },
+  })
   const wakeDispatcher =
     resolvedDeps.launchRoleScopedRun !== undefined && resolvedDeps.runtimeResolver !== undefined
       ? createWakeDispatcher({
@@ -418,6 +464,31 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
 
   if (wakeDispatcher !== undefined) {
     wakeDispatcher.start({ intervalMs: 2_000 })
+  }
+
+  const interfaceDispatcherIntervalMs = Number(
+    process.env['ACP_INTERFACE_DISPATCHER_INTERVAL_MS'] || DEFAULT_INTERFACE_DISPATCHER_INTERVAL_MS
+  )
+  const interfaceDispatcherStaleTimeoutMs = Number(
+    process.env['ACP_INTERFACE_DISPATCHER_STALE_TIMEOUT_MS'] ||
+      DEFAULT_INTERFACE_DISPATCHER_STALE_TIMEOUT_MS
+  )
+  const interfaceRunDispatcher =
+    resolvedDeps.launchRoleScopedRun !== undefined
+      ? createInterfaceRunDispatcher({
+          runStore: resolvedDeps.runStore,
+          interfaceStore,
+          conversationStore,
+          hrcDbPath: resolveDatabasePath(),
+          config: {
+            intervalMs: interfaceDispatcherIntervalMs,
+            staleTimeoutMs: interfaceDispatcherStaleTimeoutMs,
+          },
+        })
+      : undefined
+
+  if (interfaceRunDispatcher !== undefined) {
+    interfaceRunDispatcher.start()
   }
 
   const jobsScheduler =
@@ -466,6 +537,9 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
       closed = true
       if (wakeDispatcher !== undefined) {
         await wakeDispatcher.stop()
+      }
+      if (interfaceRunDispatcher !== undefined) {
+        await interfaceRunDispatcher.stop()
       }
       if (jobsSchedulerTimer !== undefined) {
         clearInterval(jobsSchedulerTimer)
