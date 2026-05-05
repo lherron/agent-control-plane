@@ -1,7 +1,7 @@
 # Agent-Spaces Spec: Provider-Typed Continuity + CP-Orchestrated Interactive Processes
 
-**Status:** Draft spec for a breaking-change rewrite (agent-spaces first).  
-**Scope:** Changes required in the `agent-spaces` monorepo to realize the canonical model in the reference doc, with CP owning “sessions”, runtime attachments, and terminal/mux orchestration.
+**Status:** Living spec for the current provider-typed continuity model.
+**Scope:** The `agent-spaces` monorepo contract for CP/HRC-owned sessions, provider-typed continuity, placement-based materialization, and CLI invocation preparation.
 
 ---
 
@@ -21,13 +21,15 @@ Agent-spaces participates as:
 
 ## 1) Terminology in agent-spaces (public + internal)
 
-**Provider domain**: `anthropic | openai` (plus `unknown` only for non-ASP/testing contexts)  
-**HarnessContinuationKey**: provider-native opaque string used to resume a conversation (typed to provider; untyped within provider)  
-**ProcessInvocationSpec**: structured `{argv,cwd,env,...}` for CP to spawn a CLI harness process (no shell parsing)  
-**NonInteractive turn**: agent-spaces executes a “turn” via SDK-style harness (no PTY attach semantics)  
-**CLI harness process**: spawned by CP; agent-spaces only prepares invocation + materialization
+- **Provider domain**: `anthropic | openai`
+- **HarnessContinuationKey**: provider-native opaque string used to resume a conversation (typed to provider; untyped within provider)
+- **ProcessInvocationSpec**: structured `{argv,cwd,env,...}` for CP to spawn a CLI harness process (no shell parsing)
+- **NonInteractive turn**: agent-spaces executes a “turn” via SDK-style harness (no PTY attach semantics)
+- **CLI harness process**: spawned by CP; agent-spaces only prepares invocation + materialization
+- **RuntimePlacement**: host-provided placement packet describing agent root, project root, run mode, bundle selection, scaffold packets, and optional correlation metadata.
+- **hostSessionId**: CP/HRC-owned host session identifier used only for correlation and active runtime addressing. It is not a provider continuation key.
 
-> Naming: allow `cpSessionId` in request structs; avoid “session” elsewhere.
+> Naming: `hostSessionId` is canonical in public request/event shapes. `cpSessionId` may remain only as a deprecated compatibility alias at the boundary.
 
 ---
 
@@ -40,19 +42,33 @@ Agent-spaces participates as:
 
 Rationale: CP session is the only “session” primitive; continuity belongs to CP session, and is typed by provider.
 
-### 2.2 Rename “external” identifiers to CP terminology
+### 2.2 Rename “external” identifiers to host correlation terminology
 
 **Old** (agent-spaces `RunTurnRequest`):
 - `externalSessionId`
 - `externalRunId`
 
 **New**:
-- `cpSessionId`
+- `hostSessionId`
 - `runId`
 
 These are correlation ids for events/logs, not continuity.
 
-### 2.3 Split responsibilities: `runTurn` vs `buildProcessInvocationSpec`
+`cpSessionId` is a legacy alias accepted for compatibility only. New callers must send `hostSessionId`, either as a top-level compatibility field or in `placement.correlation.hostSessionId`.
+
+### 2.3 Prefer placement-based requests
+
+New host-facing calls should pass `placement: RuntimePlacement`.
+
+Placement owns:
+- `agentRoot`, optional `projectRoot`, and effective `cwd`
+- run mode and bundle selection
+- scaffold packets
+- optional correlation metadata: `hostSessionId`, `runId`, and `sessionRef`
+
+Legacy `aspHome + SpaceSpec + cwd` request fields remain supported for compatibility, but placement-based requests are the forward contract and should not require legacy fields.
+
+### 2.4 Split responsibilities: `runTurnNonInteractive` vs `buildProcessInvocationSpec`
 
 Agent-spaces exposes two distinct operations:
 
@@ -67,7 +83,7 @@ This is the critical enabling change for tmux/ghostty integration: CP gets a ful
 
 ---
 
-## 3) Proposed agent-spaces API surface (TypeScript)
+## 3) Current agent-spaces API surface (TypeScript)
 
 ### 3.1 Core types
 
@@ -84,7 +100,12 @@ export type HarnessContinuationRef = {
 export type InteractionMode = 'interactive' | 'headless' | 'nonInteractive';
 export type IoMode = 'pty' | 'pipes' | 'inherit';
 
-export type HarnessFrontend = 'agent-sdk' | 'pi-sdk' | 'claude-code' | 'codex-cli';
+export type HarnessFrontend =
+  | 'agent-sdk'
+  | 'pi-sdk'
+  | 'claude-code'
+  | 'codex-cli'
+  | 'pi-cli';
 
 export type ProcessInvocationSpec = {
   provider: ProviderDomain;
@@ -101,32 +122,51 @@ export type ProcessInvocationSpec = {
 
   // Optional UX-only string (copy/paste)
   displayCommand?: string;
+
+  // Optional audit/inspection path when the invocation materializes a system prompt file.
+  systemPromptFile?: string;
 };
 ```
 
 ### 3.2 NonInteractive turn execution
 
 ```ts
-export type RunTurnNonInteractiveRequest = {
-  cpSessionId: string;
-  runId: string;
-
-  aspHome: string;
-  spec: SpaceSpec;
+export type PlacementRunTurnNonInteractiveRequest = {
+  placement: RuntimePlacement;
+  hostSessionId?: string;
+  runId?: string;
 
   frontend: 'agent-sdk' | 'pi-sdk';
   model?: string;
-
   continuation?: HarnessContinuationRef;
-
-  cwd: string;
   env?: Record<string,string>;
-
   prompt: string;
-  attachments?: string[];
-
+  attachments?: Array<string | AttachmentRef>;
+  yolo?: boolean;
   callbacks: SessionCallbacks;
 };
+
+export type LegacyRunTurnNonInteractiveRequest = {
+  hostSessionId: string;
+  /** @deprecated Use hostSessionId */
+  cpSessionId?: string;
+  runId: string;
+  aspHome: string;
+  spec: SpaceSpec;
+  frontend: 'agent-sdk' | 'pi-sdk';
+  model?: string;
+  continuation?: HarnessContinuationRef;
+  cwd: string;
+  env?: Record<string,string>;
+  prompt: string;
+  attachments?: Array<string | AttachmentRef>;
+  yolo?: boolean;
+  callbacks: SessionCallbacks;
+};
+
+export type RunTurnNonInteractiveRequest =
+  | PlacementRunTurnNonInteractiveRequest
+  | LegacyRunTurnNonInteractiveRequest;
 
 export type RunTurnNonInteractiveResponse = {
   continuation?: HarnessContinuationRef; // set when discovered/updated
@@ -134,38 +174,77 @@ export type RunTurnNonInteractiveResponse = {
   frontend: 'agent-sdk' | 'pi-sdk';
   model?: string;
   result: RunResult;
+  resolvedBundle?: ResolvedRuntimeBundle;
 };
 ```
 
 ### 3.3 CLI invocation preparation
 
 ```ts
-export type BuildProcessInvocationSpecRequest = {
-  cpSessionId: string;
-  aspHome: string;
-  spec: SpaceSpec;
+export type PlacementBuildProcessInvocationSpecRequest = {
+  placement: RuntimePlacement;
+  hostSessionId?: string;
 
   provider: ProviderDomain;
-  frontend: 'claude-code' | 'codex-cli';
+  frontend: 'claude-code' | 'codex-cli' | 'pi-cli';
   model?: string;
 
   interactionMode: 'interactive' | 'headless';
   ioMode: 'pty' | 'inherit' | 'pipes'; // CP chooses based on hosting strategy
 
   continuation?: HarnessContinuationRef; // if key present, build resume args
-  cwd: string;
   env?: Record<string,string>;
 
   // Optional: CP can request emission paths for logs/events
   artifactDir?: string;
+
+  // Prompt and file attachments to encode into CLI argv when supported.
+  prompt?: string;
+  attachments?: AttachmentRef[];
+  yolo?: boolean;
 };
+
+export type LegacyBuildProcessInvocationSpecRequest = {
+  hostSessionId?: string;
+  /** @deprecated Use hostSessionId */
+  cpSessionId?: string;
+  aspHome: string;
+  spec: SpaceSpec;
+  provider: ProviderDomain;
+  frontend: 'claude-code' | 'codex-cli' | 'pi-cli';
+  model?: string;
+  interactionMode: 'interactive' | 'headless';
+  ioMode: 'pty' | 'inherit' | 'pipes';
+  continuation?: HarnessContinuationRef;
+  cwd: string;
+  env?: Record<string,string>;
+  artifactDir?: string;
+  prompt?: string;
+  attachments?: AttachmentRef[];
+  yolo?: boolean;
+};
+
+export type BuildProcessInvocationSpecRequest =
+  | PlacementBuildProcessInvocationSpecRequest
+  | LegacyBuildProcessInvocationSpecRequest;
 
 export type BuildProcessInvocationSpecResponse = {
   spec: ProcessInvocationSpec;
-  // Optional: materialization outputs useful for CP/UI
+  // Optional: materialization/audit outputs useful for CP/UI
+  resolvedBundle?: ResolvedRuntimeBundle;
   warnings?: string[];
 };
 ```
+
+### 3.4 Active SDK turn control
+
+Agent-spaces may expose in-flight controls for SDK-backed nonInteractive turns:
+
+- `runTurnInFlight(req)` starts an SDK turn that can accept queued input while active.
+- `queueInFlightInput(req)` appends input to the active SDK turn.
+- `interruptInFlightTurn(req)` asks the active SDK turn to stop or interrupt.
+
+These controls are scoped to active SDK execution only. They do not make agent-spaces the owner of CP sessions, tmux panes, ghostty surfaces, or CLI process lifecycle.
 
 ---
 
@@ -176,13 +255,15 @@ Agent-spaces events remain “turn scoped” events for nonInteractive execution
 ### 4.1 Base event fields
 
 **Old**: `{ externalSessionId, externalRunId, harnessSessionId? }`  
-**New**: `{ cpSessionId, runId, continuation? }`
+**New**: `{ hostSessionId, runId, continuation? }`
 
 ```ts
 export interface BaseEvent {
   ts: string;
   seq: number;
-  cpSessionId: string;
+  hostSessionId: string;
+  /** @deprecated Use hostSessionId */
+  cpSessionId?: string;
   runId: string;
   continuation?: HarnessContinuationRef; // optional; set after first observed key
   payload?: unknown;
@@ -200,7 +281,7 @@ Agent-spaces does **not** introduce “session runtime events” (process start/
 Update harness registry / capabilities so each harness frontend is explicitly typed:
 
 - `agent-sdk`, `claude-code` ⇒ `provider=anthropic`
-- `pi-sdk`, `codex-cli` ⇒ `provider=openai`
+- `pi-sdk`, `codex-cli`, `pi-cli` ⇒ `provider=openai`
 
 This typing is used to:
 - validate that a continuation key is only reused within the same provider domain
@@ -242,7 +323,11 @@ But it must not attempt to manage tmux panes, ghostty surfaces, or process lifec
 - Must be provided as a flat key/value map.
 - Agent-spaces may include only the delta it requires; CP merges it into the process environment.
 - Agent-spaces must not set Ghostty/tmux environment variables (those are CP-owned).
-- Any required “session correlation” env vars should be namespaced and optional (e.g., `CP_SESSION_ID`, `CP_PROJECT_ID`) — CP decides whether to include them.
+- Correlation env vars are advisory and derived only from explicit host placement/correlation input.
+- `placement.correlation.sessionRef` produces `AGENT_SCOPE_REF`, `AGENT_LANE_REF`, and `HRC_SESSION_REF`.
+- `placement.correlation.hostSessionId` produces `AGENT_HOST_SESSION_ID`.
+- Placement-based CLI invocations may also derive `AGENTCHAT_ID` from `agentRoot` and `ASP_PROJECT` from `projectRoot`.
+- HRC-specific launcher paths may additionally provide `HRC_HOST_SESSION_ID`, `HRC_RUN_ID`, `HRC_GENERATION`, or task context vars. Those are CP/HRC-owned and should not be invented from provider state.
 
 ### 6.3 `cwd`
 - Must be absolute.
@@ -252,33 +337,40 @@ But it must not attempt to manage tmux panes, ghostty surfaces, or process lifec
 
 ## 7) Phased rewrite plan (agent-spaces executed first)
 
-### Phase ASP-1 — Terminology + type rewrite (mechanical, repo-wide)
+### Phase ASP-1 — Terminology + type rewrite (completed)
 - Rename `harnessSessionId` → `HarnessContinuationRef` in all exported types.
-- Rename `externalSessionId` → `cpSessionId`, `externalRunId` → `runId`.
+- Rename `externalSessionId` → `hostSessionId`, `externalRunId` → `runId`.
 - Update all internal propagation and tests.
 
 **Exit criteria:** Typecheck + unit tests pass; no remaining `harnessSessionId` in public API.
 
-### Phase ASP-2 — Provider-typed harness registry
+### Phase ASP-2 — Provider-typed harness registry (completed)
 - Annotate harnesses with provider domain.
 - Update `getHarnessCapabilities()` to expose `{provider,frontends,models}` (breaking).
 - Enforce provider match when `continuation` is provided.
 
 **Exit criteria:** capability output contains provider; mismatch returns deterministic error.
 
-### Phase ASP-3 — Add `buildProcessInvocationSpec`
-- Implement CLI invocation builder for `claude-code` and `codex-cli`.
+### Phase ASP-3 — Add `buildProcessInvocationSpec` (completed)
+- Implement CLI invocation builder for `claude-code`, `codex-cli`, and `pi-cli`.
 - Ensure materialization paths are stable/deterministic for CP-managed spawns.
 - Confirm `displayCommand` is only UX aid; `argv` is authoritative.
 
 **Exit criteria:** CP can spawn a CLI harness using only `{argv,cwd,env}`.
 
-### Phase ASP-4 — NonInteractive turn execution alignment
+### Phase ASP-4 — NonInteractive turn execution alignment (completed)
 - Rename `runTurn` → `runTurnNonInteractive` (or keep `runTurn` but restrict semantics).
 - Ensure response includes `continuation` when first discovered.
 - Ensure events carry `continuation` after it is known.
 
 **Exit criteria:** CP can create a CP session with no key, run 1st turn, and receive typed `continuation`.
+
+### Phase ASP-5 — Placement cutover (in progress)
+- Make placement-based request types first-class and avoid requiring legacy `aspHome/spec/cwd` fields when `placement` is present.
+- Keep deprecated compatibility aliases (`cpSessionId`, legacy `SpaceSpec`) at the boundary only.
+- Ensure placement helper exports are generated from the same harness catalog and request types as the primary client.
+
+**Exit criteria:** TypeScript callers can use placement requests without `as any`; helper exports accept the same supported frontends as `AgentSpacesClient`.
 
 ---
 
@@ -286,8 +378,10 @@ But it must not attempt to manage tmux panes, ghostty surfaces, or process lifec
 
 - Unit tests for:
   - provider typing + mismatch errors
-  - argv/env/cwd generation for both CLI harnesses
+  - argv/env/cwd generation for CLI harnesses
   - continuation key propagation through events and responses
+  - placement correlation env generation
+  - placement request typing without legacy-field requirements
 - Integration tests:
   - nonInteractive: start new conversation (no key) → key observed
   - resume: run with key → conversation continues
