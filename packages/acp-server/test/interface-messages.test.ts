@@ -314,7 +314,7 @@ describe('POST /v1/interface/messages', () => {
           expect(readFileSync(resolved.path, 'utf8')).toBe('png-bytes')
           expect(launches).toHaveLength(1)
           expect(launches[0]?.intent).toMatchObject({
-            initialPrompt: '<media:image> (1 image)',
+            initialPrompt: `<media:image> (1 image)\n\n[attached file: ${resolved.path}]`,
             attachments: [
               {
                 kind: 'file',
@@ -410,7 +410,7 @@ describe('POST /v1/interface/messages', () => {
           expect(response.status).toBe(201)
           expect(launches).toHaveLength(1)
           expect(launches[0]?.intent).toMatchObject({
-            initialPrompt: 'files attached',
+            initialPrompt: `files attached\n\n[attached file: ${existingPath}]`,
             attachments: [
               {
                 kind: 'file',

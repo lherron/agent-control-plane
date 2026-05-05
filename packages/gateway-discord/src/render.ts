@@ -324,7 +324,9 @@ function wrapAsBlockQuote(content: string): string {
 
 /**
  * Split content into chunks that fit within Discord's message limit.
- * Prose sections are wrapped in code blocks (default) or block-quotes; existing code blocks are preserved.
+ * Prose sections render as raw markdown by default; pass useBlockQuotes to
+ * wrap them in `> ` block-quotes instead. Agent-emitted fenced code blocks
+ * are always preserved verbatim.
  */
 export function splitIntoChunks(
   content: string,
@@ -375,13 +377,13 @@ export function splitIntoChunks(
         chunks.push(wrapAsBlockQuote(proseChunk))
       }
     } else {
-      // Prose: wrap in plain code block for monospace display
-      const fenceOverhead = 4 + 4 // ```\n + \n```
-      const maxProseContent = maxChars - fenceOverhead
-
-      const proseChunks = splitTextBlock(segment.content, maxProseContent)
+      // Prose: emit as-is so Discord renders markdown (bold, inline code,
+      // lists, links). Agent-emitted fenced code blocks are already
+      // preserved as separate `code` segments by splitByCodeFences, so this
+      // branch only ever runs for actual prose.
+      const proseChunks = splitTextBlock(segment.content, maxChars)
       for (const proseChunk of proseChunks) {
-        chunks.push(`\`\`\`\n${proseChunk}\n\`\`\``)
+        chunks.push(proseChunk)
       }
     }
   }

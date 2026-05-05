@@ -41,13 +41,27 @@ test('gateway-discord renderer maps actions to stable customIds', () => {
   expect(actions[0]?.customId).toBe('run:proj1:run1:perm:req:allow')
 })
 
-test('splitIntoChunks wraps prose in code blocks by default', () => {
+test('splitIntoChunks emits prose as raw markdown by default', () => {
   const chunks = splitIntoChunks('Hello world\nThis is some text', 2000)
 
   expect(chunks).toHaveLength(1)
-  expect(chunks[0]?.startsWith('```\n')).toBe(true)
-  expect(chunks[0]?.endsWith('\n```')).toBe(true)
-  expect(chunks[0]).toContain('Hello world')
+  expect(chunks[0]).toBe('Hello world\nThis is some text')
+})
+
+test('splitIntoChunks preserves agent-emitted code fences with default prose mode', () => {
+  const chunks = splitIntoChunks(
+    'Some prose\n\n```javascript\nconst x = 1;\n```\n\nMore prose',
+    2000
+  )
+
+  const joined = chunks.join('\n')
+  expect(joined).toContain('Some prose')
+  expect(joined).toContain('```javascript')
+  expect(joined).toContain('const x = 1')
+  expect(joined).toContain('More prose')
+  // Prose segments should not be wrapped in their own code fences
+  expect(joined).not.toContain('```\nSome prose')
+  expect(joined).not.toContain('More prose\n```')
 })
 
 test('splitIntoChunks wraps prose in block quotes when enabled', () => {

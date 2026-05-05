@@ -509,8 +509,6 @@ describe('GatewayDiscordApp local e2e', () => {
 
           expect(channel.sent[0]?.content).toContain('⏳ **Processing:**')
           expect(launches).toHaveLength(1)
-          expect(launches[0]?.intent.initialPrompt).toBe('<media:image> (1 image)')
-
           const attachment = launches[0]?.intent.attachments?.[0]
           expect(attachment).toMatchObject({
             kind: 'file',
@@ -520,6 +518,11 @@ describe('GatewayDiscordApp local e2e', () => {
           })
           expect(String(attachment?.['path'])).toContain(
             join(mediaStateDir, 'media', 'attachments')
+          )
+          // ACP appends `[attached file: <path>]` so harnesses without native
+          // image-block injection (claude-agent-sdk) can Read the file.
+          expect(launches[0]?.intent.initialPrompt).toBe(
+            `<media:image> (1 image)\n\n[attached file: ${attachment?.['path']}]`
           )
           expect(readFileSync(String(attachment?.['path']), 'utf8')).toBe('jpeg-bytes')
 

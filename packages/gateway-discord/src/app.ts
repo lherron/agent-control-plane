@@ -46,6 +46,49 @@ import type {
 
 const VIRTU_BOT_ID = optionalEnv('DISCORD_VIRTU_BOT_ID') ?? '1165644636807778414'
 
+const MAX_INGRESS_FAILURE_REASON_CHARS = 400
+
+/**
+ * Pull a human-readable cause out of the ACP error envelope so we can show it
+ * to the Discord user. The server returns
+ *   {"error":{"code":"...","message":"...","details":{"cause":"..."}}}
+ * Prefer `details.cause` (most specific), fall back to `error.message`. If the
+ * body isn't JSON or doesn't fit the shape, return the raw text trimmed so we
+ * never surface nothing.
+ */
+function extractIngressFailureReason(body: string): string | undefined {
+  const trimmed = body.trim()
+  if (!trimmed) return undefined
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(trimmed)
+  } catch {
+    return truncateReason(trimmed)
+  }
+  if (typeof parsed === 'object' && parsed !== null) {
+    const err = (parsed as { error?: unknown }).error
+    if (typeof err === 'object' && err !== null) {
+      const details = (err as { details?: unknown }).details
+      if (typeof details === 'object' && details !== null) {
+        const cause = (details as { cause?: unknown }).cause
+        if (typeof cause === 'string' && cause.trim()) {
+          return truncateReason(cause.trim())
+        }
+      }
+      const message = (err as { message?: unknown }).message
+      if (typeof message === 'string' && message.trim()) {
+        return truncateReason(message.trim())
+      }
+    }
+  }
+  return truncateReason(trimmed)
+}
+
+function truncateReason(reason: string): string {
+  if (reason.length <= MAX_INGRESS_FAILURE_REASON_CHARS) return reason
+  return `${reason.slice(0, MAX_INGRESS_FAILURE_REASON_CHARS - 1)}…`
+}
+
 type FetchLike = typeof fetch
 
 type PendingPlaceholder = {
@@ -336,10 +379,14 @@ export class GatewayDiscordApp {
     }
 
     if (!response.ok) {
+      const rawBody = await response.text()
+      const reason = extractIngressFailureReason(rawBody) ?? `HTTP ${response.status}`
       if (placeholder) {
-        await this.deletePlaceholder(placeholder)
+        await this.failPlaceholder(placeholder, `Agent invocation failed: ${reason}`)
+      } else {
+        await this.replyIngressFailure(message, `Agent invocation failed: ${reason}`)
       }
-      throw new Error(`Interface ingress failed: ${response.status} ${await response.text()}`)
+      throw new Error(`Interface ingress failed: ${response.status} ${rawBody}`)
     }
 
     const payload = (await response.json()) as { inputAttemptId: string; runId: string }
@@ -579,9 +626,23 @@ export class GatewayDiscordApp {
   }
 
   /**
+   * Fallback when ACP ingress fails and no placeholder exists to edit
+   * (e.g. createPlaceholder returned undefined). Replies to the original
+   * inbound message so the user sees the failure inline. Best-effort.
+   */
+  private async replyIngressFailure(message: Message, reason: string): Promise<void> {
+    try {
+      await message.reply(`⚠️ ${reason}`)
+    } catch {
+      // best-effort: never surface a secondary failure
+    }
+  }
+
+  /**
    * Replace a `⏳ Processing` placeholder in-place with a visible `⚠️` failure
-   * notice. Used when ACP ingress fails with a thrown exception (the
-   * `!response.ok` branch already handles HTTP errors via `deletePlaceholder`).
+   * notice. Used both when ACP ingress throws and when ingress returns a
+   * non-2xx response, so the user sees the failure at the same location they
+   * were watching instead of getting silence.
    */
   private async failPlaceholder(ui: UiHandle & { kind: 'message' }, reason: string): Promise<void> {
     if (!ui.channelId) {

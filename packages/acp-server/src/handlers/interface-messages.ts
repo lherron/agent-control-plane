@@ -1,4 +1,4 @@
-import type { InterfaceMessageAttachment } from 'acp-core'
+import type { AttachmentRef, InterfaceMessageAttachment } from 'acp-core'
 import { type SessionRef, normalizeSessionRef, parseScopeRef } from 'agent-scope'
 
 import { resolveAttachmentRefs } from '../attachments.js'
@@ -101,6 +101,23 @@ function readOptionalSizeBytes(input: Record<string, unknown>, field: string): n
 
 function toSessionRef(scopeRef: string, laneRef: string): SessionRef {
   return normalizeSessionRef({ scopeRef, laneRef })
+}
+
+/**
+ * Append a footer to the prompt listing each resolved attachment's local file
+ * path so non-image-aware harnesses can read the file with their tool surface.
+ * No-op when there are no file-kind attachments.
+ */
+function appendAttachmentPathsToPrompt(
+  prompt: string,
+  resolved: AttachmentRef[] | undefined
+): string {
+  if (resolved === undefined || resolved.length === 0) return prompt
+  const filePaths = resolved
+    .filter((a): a is AttachmentRef & { path: string } => a.kind === 'file' && !!a.path)
+    .map((a) => `[attached file: ${a.path}]`)
+  if (filePaths.length === 0) return prompt
+  return `${prompt}\n\n${filePaths.join('\n')}`
 }
 
 export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
@@ -206,8 +223,14 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
       }
     }
 
+    // Augment the prompt with resolved file paths so agents on harnesses that
+    // don't natively inject image content blocks (claude-agent-sdk today) can
+    // still see attached files via their Read tool. Codex agents get images
+    // through the `-i` CLI flag separately and are unaffected by this hint.
+    const promptWithAttachmentPaths = appendAttachmentPathsToPrompt(content, resolvedAttachments)
+
     const intent = await resolveLaunchIntent(deps, sessionRef, {
-      initialPrompt: content,
+      initialPrompt: promptWithAttachmentPaths,
       ...(resolvedAttachments !== undefined ? { attachments: resolvedAttachments } : {}),
     })
 
