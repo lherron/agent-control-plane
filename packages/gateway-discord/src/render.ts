@@ -315,6 +315,41 @@ export function renderFrameToDiscordContent(
 const DEFAULT_MAX_LINES = 12
 const DEFAULT_MAX_CHARS = 1900
 
+function groupConsecutiveLines(lines: string[]): string[] {
+  const grouped: string[] = []
+  let previous: string | undefined
+  let count = 0
+
+  const flush = () => {
+    if (previous === undefined) {
+      return
+    }
+    if (count <= 1) {
+      grouped.push(previous)
+      return
+    }
+    const suffix = ` (×${count})`
+    grouped.push(
+      previous.length + suffix.length > MAX_LINE_CHARS
+        ? `${previous.slice(0, MAX_LINE_CHARS - suffix.length - 3)}...${suffix}`
+        : `${previous}${suffix}`
+    )
+  }
+
+  for (const line of lines) {
+    if (line === previous) {
+      count += 1
+      continue
+    }
+    flush()
+    previous = line
+    count = 1
+  }
+  flush()
+
+  return grouped
+}
+
 /**
  * Build compact progress content for a live-progress Discord message edit.
  *
@@ -363,7 +398,7 @@ export function buildProgressBubble(
   }
 
   // Apply line cap: collapse oldest lines when exceeding maxLines
-  let visibleLines = toolNoticeLines
+  let visibleLines = groupConsecutiveLines(toolNoticeLines)
   let collapsedCount = 0
   if (visibleLines.length > maxLines) {
     collapsedCount = visibleLines.length - maxLines
@@ -384,6 +419,21 @@ export function buildProgressBubble(
   }
 
   let content = buildContent(visibleLines, collapsedCount, assistantText)
+
+  // Prefer preserving the visible 12-line history by shaving older previews
+  // before dropping whole lines. The final answer remains untouched.
+  while (content.length > maxChars && visibleLines.some((line) => line.length > 40)) {
+    const overBy = content.length - maxChars
+    const lineIndex = visibleLines.findIndex((line) => line.length > 40)
+    if (lineIndex < 0) {
+      break
+    }
+    const line = visibleLines[lineIndex] ?? ''
+    const targetLength = Math.max(40, line.length - overBy)
+    visibleLines[lineIndex] =
+      targetLength >= line.length ? line : `${line.slice(0, Math.max(0, targetLength - 3))}...`
+    content = buildContent(visibleLines, collapsedCount, assistantText)
+  }
 
   // If over budget, drop more tool/notice lines from oldest
   while (content.length > maxChars && visibleLines.length > 0) {

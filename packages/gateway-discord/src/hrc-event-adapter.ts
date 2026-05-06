@@ -172,15 +172,19 @@ export function adaptHrcLifecycleEvent(
   } else {
     switch (event.eventKind) {
       case 'turn.tool_call':
+      case 'tool_execution_start':
         sessionEvent = adaptToolCall(event.payload)
         break
       case 'turn.tool_result':
+      case 'tool_execution_end':
         sessionEvent = adaptToolResult(event.payload)
         break
       case 'turn.message':
+      case 'message_end':
         sessionEvent = adaptAssistantMessage(event.payload)
         break
       case 'turn.completed':
+      case 'turn_end':
         sessionEvent = adaptTurnCompleted(event.payload)
         break
     }

@@ -72,6 +72,7 @@ export type RenderBlock =
       t: 'tool'
       toolName: string
       summary: string
+      input?: Record<string, unknown> | undefined
       output?: string | undefined
       images?: Array<{ data: string; mimeType: string }> | undefined
       approved?: boolean | undefined

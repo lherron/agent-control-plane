@@ -504,6 +504,7 @@ export function runStateToFrame(run: RunState): RenderFrame {
         t: 'tool',
         toolName: tool.toolName,
         summary: formatToolSummary(tool.toolName, tool.input),
+        input: tool.input,
         output: tool.output,
         images: tool.images,
         approved: tool.status === 'completed' ? true : tool.status === 'failed' ? false : undefined,

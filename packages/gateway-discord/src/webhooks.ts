@@ -70,6 +70,12 @@ export type WebhookManager = {
     messageId: string,
     payload: WebhookPayload
   ): Promise<WebhookMessage>
+  editMessageOnce(
+    channelId: string,
+    messageId: string,
+    webhookId: string,
+    payload: WebhookPayload
+  ): Promise<WebhookMessage>
 }
 
 const DEFAULT_WEBHOOK_NAME = 'agent-pulpit'
@@ -404,6 +410,48 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
         })
         return message
       } catch (error) {
+        log.warn('gw.discord.webhook.edit', {
+          data: {
+            channelId,
+            ...(resolvedWebhookId !== undefined ? { webhookId: resolvedWebhookId } : {}),
+            messageId,
+            outcome: 'error',
+          },
+          err: { message: error instanceof Error ? error.message : String(error) },
+        })
+        throw error
+      }
+    },
+    async editMessageOnce(channelId, messageId, webhookId, payload) {
+      const baseEditPayload = normalizeEditPayload(payload)
+      let resolvedWebhookId: string | undefined = webhookId
+      try {
+        const threadId = await resolveThreadIdForPost(channelId)
+        const editPayload = {
+          ...baseEditPayload,
+          ...(threadId !== undefined ? { threadId } : {}),
+        }
+        const message = await enqueue(channelId, async () => {
+          const webhook = await findWebhookById(channelId, webhookId)
+          resolvedWebhookId = webhook.id
+          return webhook.editMessage(messageId, editPayload)
+        })
+        log.info('gw.discord.webhook.edit', {
+          data: {
+            channelId,
+            webhookId: resolvedWebhookId,
+            messageId,
+            outcome: 'edited',
+          },
+        })
+        return message
+      } catch (error) {
+        if (isInvalidWebhookError(error)) {
+          const cached = cache.get(channelId)
+          if (cached?.id === webhookId) {
+            cache.delete(channelId)
+          }
+        }
         log.warn('gw.discord.webhook.edit', {
           data: {
             channelId,
