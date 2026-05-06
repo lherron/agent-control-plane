@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-import type { DeliveryRequest } from 'acp-core'
+import type { DeliveryRequest, InterfaceSessionRef } from 'acp-core'
 import { Client, Events, GatewayIntentBits, type Message } from 'discord.js'
 
 import { mapDiscordMessageAttachments, resolveDiscordIngressContent } from './attachment-ingress.js'
@@ -23,6 +23,12 @@ import {
 import { classifyDiscordError } from './discord-errors.js'
 import { renderToDiscord } from './discord-render.js'
 import {
+  type DiscordAgentMessageIdentity,
+  avatarFor,
+  formatSessionSubtext,
+  identityFromSessionRef,
+} from './identity.js'
+import {
   type KeywordRoute,
   buildDiscordThreadLaneRef,
   buildDiscordThreadName,
@@ -43,6 +49,7 @@ import type {
   RenderFrame,
   UiHandle,
 } from './types.js'
+import { createWebhookManager } from './webhooks.js'
 
 const VIRTU_BOT_ID = optionalEnv('DISCORD_VIRTU_BOT_ID') ?? '1165644636807778414'
 
@@ -89,10 +96,20 @@ function truncateReason(reason: string): string {
   return `${reason.slice(0, MAX_INGRESS_FAILURE_REASON_CHARS - 1)}…`
 }
 
+function resolveMessageIdentity(sessionRef: InterfaceSessionRef): DiscordAgentMessageIdentity {
+  const identity = identityFromSessionRef(sessionRef)
+  return {
+    agentId: identity.agentId,
+    subtext: formatSessionSubtext(sessionRef),
+    avatarUrl: avatarFor(identity.agentId),
+  }
+}
+
 type FetchLike = typeof fetch
 
 type PendingPlaceholder = {
   ui: UiHandle & { kind: 'message' }
+  identity?: DiscordAgentMessageIdentity | undefined
 }
 
 type IngressRoute = KeywordRoute
@@ -118,15 +135,6 @@ async function sleep(ms: number): Promise<void> {
 
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
-}
-
-function parseDiscordMessageRef(value: string | undefined): string | undefined {
-  if (!value) {
-    return undefined
-  }
-
-  const parts = value.split(':')
-  return parts.length > 0 ? parts[parts.length - 1] : undefined
 }
 
 function buildFinalFrame(
@@ -184,6 +192,7 @@ export class GatewayDiscordApp {
   private readonly keywordRoutesByMessageId = new Map<string, IngressRoute>()
   private readonly createdClient: boolean
   private readonly onMessageCreateBound: (message: Message) => Promise<void>
+  private readonly webhooks: ReturnType<typeof createWebhookManager>
 
   private bindingsTimer: ReturnType<typeof setInterval> | undefined
   private deliveryLoopPromise: Promise<void> | undefined
@@ -212,6 +221,9 @@ export class GatewayDiscordApp {
     this.deliveryIdleMs = options.deliveryIdleMs ?? DEFAULT_DELIVERY_IDLE_MS
     this.discordToken = options.discordToken
     this.createdClient = options.client === undefined
+    this.webhooks = createWebhookManager({
+      client: this.client as unknown as Parameters<typeof createWebhookManager>[0]['client'],
+    })
     this.onMessageCreateBound = async (message) => {
       try {
         await this.handleMessageCreate(message)
@@ -344,6 +356,7 @@ export class GatewayDiscordApp {
       channelId: route.targetChannelId,
       content: route.content,
       ...(route.targetThreadId !== undefined ? { threadId: route.targetThreadId } : {}),
+      sessionRef: binding.sessionRef,
     })
     const attachments = mapDiscordMessageAttachments(message)
     let response: Response
@@ -393,6 +406,7 @@ export class GatewayDiscordApp {
     if (placeholder) {
       this.placeholdersByRunId.set(payload.runId, {
         ui: placeholder,
+        identity: placeholder.identity,
       })
     }
   }
@@ -517,9 +531,24 @@ export class GatewayDiscordApp {
     const frame = buildFinalFrame(delivery, binding)
     const placeholder = delivery.runId ? this.placeholdersByRunId.get(delivery.runId) : undefined
 
+    // Resolve agent identity from the delivery's sessionRef
+    const identity = resolveMessageIdentity(delivery.sessionRef)
+
     if (placeholder) {
       try {
-        await renderToDiscord(this.client, placeholder.ui, frame, this.maxChars, this.renderOptions)
+        if (placeholder.ui.webhookId) {
+          // Webhook-created placeholder: edit + overflow via the same webhook
+          await this.renderViaWebhook(placeholder.ui, frame, placeholder.identity ?? identity)
+        } else {
+          // Bot-created placeholder (legacy / system): edit via bot client
+          await renderToDiscord(
+            this.client,
+            placeholder.ui,
+            frame,
+            this.maxChars,
+            this.renderOptions
+          )
+        }
       } finally {
         if (delivery.runId) {
           this.placeholdersByRunId.delete(delivery.runId)
@@ -528,20 +557,16 @@ export class GatewayDiscordApp {
       return
     }
 
+    // Fresh delivery (no placeholder): send via webhook with agent identity
     const targetChannelId =
       threadRefToThreadId(delivery.threadRef) ??
       conversationRefToChannelId(delivery.conversationRef)
     if (!targetChannelId) {
       throw new Error(`Unsupported Discord conversationRef: ${delivery.conversationRef}`)
     }
-    const channel = await this.client.channels.fetch(targetChannelId)
-    if (!isSendableChannel(channel)) {
-      throw new Error(`Discord target channel is not sendable: ${targetChannelId}`)
-    }
 
     const content = renderFrameToDiscordContent(frame, this.maxChars)
     const chunks = splitIntoChunks(content, this.maxChars, this.renderOptions)
-    const replyToMessageId = parseDiscordMessageRef(delivery.replyToMessageRef)
 
     // Extract image and media attachments from the frame
     const imageAttachments = extractImagesFromFrame(frame)
@@ -553,16 +578,13 @@ export class GatewayDiscordApp {
     for (let index = 0; index < chunks.length; index += 1) {
       const isLastChunk = index === chunks.length - 1
       const chunkFiles = isLastChunk ? filesPayload : {}
+      const rawChunk = chunks[index] ?? ''
+      const chunkContent = index === 0 ? `-# ${identity.subtext}\n${rawChunk}` : rawChunk
       try {
-        await channel.send({
-          content: chunks[index],
-          ...(index === 0 && replyToMessageId
-            ? {
-                reply: {
-                  messageReference: replyToMessageId,
-                },
-              }
-            : {}),
+        await this.webhooks.send(targetChannelId, {
+          content: chunkContent,
+          username: identity.agentId,
+          avatar_url: identity.avatarUrl,
           ...chunkFiles,
         })
       } catch (error) {
@@ -572,22 +594,94 @@ export class GatewayDiscordApp {
     }
   }
 
+  /**
+   * Render a final frame by editing a webhook-created placeholder in place,
+   * and sending overflow chunks via the same webhook with the same identity.
+   */
+  private async renderViaWebhook(
+    ui: UiHandle & { kind: 'message' },
+    frame: RenderFrame,
+    identity: DiscordAgentMessageIdentity
+  ): Promise<void> {
+    if (!ui.channelId) return
+
+    const fullContent = renderFrameToDiscordContent(frame, this.maxChars)
+    const chunks = splitIntoChunks(fullContent, this.maxChars, this.renderOptions)
+
+    // Extract image and media attachments from the frame
+    const imageAttachments = extractImagesFromFrame(frame)
+    const mediaRefs = extractMediaRefsFromFrame(frame)
+    const mediaFiles = await fetchMediaAttachments(mediaRefs, undefined)
+    const discordFiles = [...createDiscordAttachments(imageAttachments), ...mediaFiles]
+    const filesPayload = discordFiles.length > 0 ? { files: discordFiles } : {}
+
+    // Edit the placeholder message with the first chunk
+    const firstChunk = chunks[0] || ''
+    const primaryFiles = chunks.length === 1 ? filesPayload : {}
+    await this.webhooks.editMessage(ui.channelId, ui.id, {
+      content: `-# ${identity.subtext}\n${firstChunk}`,
+      username: identity.agentId,
+      avatar_url: identity.avatarUrl,
+      ...primaryFiles,
+    })
+
+    // Send overflow chunks via the same webhook with the same identity
+    for (let i = 1; i < chunks.length; i++) {
+      const chunk = chunks[i]
+      if (!chunk) continue
+      const isLastChunk = i === chunks.length - 1
+      const chunkFiles = isLastChunk ? filesPayload : {}
+      await this.webhooks.send(ui.channelId, {
+        content: chunk,
+        username: identity.agentId,
+        avatar_url: identity.avatarUrl,
+        ...chunkFiles,
+      })
+    }
+  }
+
   private async createPlaceholder(input: {
     message: Message
     channelId: string
     threadId?: string | undefined
     content: string
-  }): Promise<(UiHandle & { kind: 'message' }) | undefined> {
+    sessionRef?: InterfaceSessionRef | undefined
+  }): Promise<
+    | (UiHandle & { kind: 'message'; webhookId?: string; identity?: DiscordAgentMessageIdentity })
+    | undefined
+  > {
     try {
+      const promptPreview =
+        input.content.length > 100 ? `${input.content.slice(0, 100)}…` : input.content
+
+      if (input.sessionRef) {
+        // Agent-originated: post via webhook with agent identity
+        const identity = resolveMessageIdentity(input.sessionRef)
+        const sent = await this.webhooks.send(input.channelId, {
+          content: `-# ${identity.subtext}\n⏳ **Processing:** ${promptPreview}`,
+          username: identity.agentId,
+          avatar_url: identity.avatarUrl,
+        })
+
+        const webhook = await this.webhooks.getOrCreateWebhook(input.channelId)
+
+        return {
+          gatewayId: this.gatewayId,
+          kind: 'message',
+          id: sent.id,
+          channelId: input.channelId,
+          ...(input.threadId !== undefined ? { threadId: input.threadId } : {}),
+          webhookId: webhook.id,
+          identity,
+        }
+      }
+
+      // Fallback: bot-originated placeholder (no binding/sessionRef)
       const channel = await this.client.channels.fetch(input.channelId)
       if (!isSendableChannel(channel)) {
         return undefined
       }
-
-      const promptPreview =
-        input.content.length > 100 ? `${input.content.slice(0, 100)}…` : input.content
       const initialMessage = await channel.send(`⏳ **Processing:** ${promptPreview}`)
-
       return {
         gatewayId: this.gatewayId,
         kind: 'message',
@@ -644,12 +738,23 @@ export class GatewayDiscordApp {
    * non-2xx response, so the user sees the failure at the same location they
    * were watching instead of getting silence.
    */
-  private async failPlaceholder(ui: UiHandle & { kind: 'message' }, reason: string): Promise<void> {
+  private async failPlaceholder(
+    ui: UiHandle & { kind: 'message'; webhookId?: string },
+    reason: string
+  ): Promise<void> {
     if (!ui.channelId) {
       return
     }
 
     try {
+      if (ui.webhookId) {
+        // Webhook-created placeholder: edit via the same webhook
+        await this.webhooks.editMessage(ui.channelId, ui.id, {
+          content: `⚠️ ${reason}`,
+        })
+        return
+      }
+
       const channel = await this.client.channels.fetch(ui.channelId)
       if (!channel || !channel.isTextBased() || !('messages' in channel)) {
         return

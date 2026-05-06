@@ -279,8 +279,12 @@ describe('GatewayDiscordApp local e2e', () => {
 
       await app.handleMessageCreate(inboundMessage)
 
-      expect(threadChannel.sent).toHaveLength(1)
-      expect(threadChannel.sent[0]?.content).toContain('⏳ **Processing:**')
+      // Placeholder now routes through the agent webhook, not channel.send
+      expect(threadChannel.sent).toHaveLength(0)
+      const webhook = [...threadChannel.webhooks.values()].find((w) => w.name === 'agent-pulpit')
+      expect(webhook).toBeDefined()
+      expect(webhook?.sent).toHaveLength(1)
+      expect(webhook?.sent[0]?.content).toContain('⏳ **Processing:**')
 
       const runId = fixture.runStore.listRuns()[0]?.runId
       expect(runId).toBeDefined()
@@ -302,8 +306,9 @@ describe('GatewayDiscordApp local e2e', () => {
 
       await app.pollDeliveriesOnce()
 
-      expect(threadChannel.sent).toHaveLength(1)
-      expect(threadChannel.sent[0]?.message.edits.at(-1)?.content).toContain('Final answer')
+      // Finalization edits via the same webhook, not bot client
+      expect(webhook?.edits).toHaveLength(1)
+      expect(webhook?.edits[0]?.payload.content).toContain('Final answer')
       expect(fixture.interfaceStore.deliveries.get('dr_123')?.status).toBe('delivered')
     })
   })
@@ -359,10 +364,14 @@ describe('GatewayDiscordApp local e2e', () => {
 
       expect(startThreadCalls).toEqual([{ name: 'implement a new feature XTZ' }])
       expect(parentChannel.sent).toHaveLength(0)
-      expect(threadChannel.sent).toHaveLength(1)
-      expect(threadChannel.sent[0]?.content).toContain('⏳ **Processing:**')
-      expect(threadChannel.sent[0]?.content).toContain('implement a new feature XTZ')
-      expect(threadChannel.sent[0]?.content).not.toContain('nt implement')
+      // Placeholder now routes through the agent webhook
+      expect(threadChannel.sent).toHaveLength(0)
+      const webhook = [...threadChannel.webhooks.values()].find((w) => w.name === 'agent-pulpit')
+      expect(webhook).toBeDefined()
+      expect(webhook?.sent).toHaveLength(1)
+      expect(webhook?.sent[0]?.content).toContain('⏳ **Processing:**')
+      expect(webhook?.sent[0]?.content).toContain('implement a new feature XTZ')
+      expect(webhook?.sent[0]?.content).not.toContain('nt implement')
 
       const threadBinding = fixture.interfaceStore.bindings.resolve({
         gatewayId: 'discord_prod',
@@ -558,7 +567,11 @@ describe('GatewayDiscordApp local e2e', () => {
             })
           )
 
-          expect(channel.sent[0]?.content).toContain('⏳ **Processing:**')
+          // Placeholder now routes through the agent webhook
+          expect(channel.sent).toHaveLength(0)
+          const webhook = [...channel.webhooks.values()].find((w) => w.name === 'agent-pulpit')
+          expect(webhook).toBeDefined()
+          expect(webhook?.sent[0]?.content).toContain('⏳ **Processing:**')
           expect(launches).toHaveLength(1)
           const attachment = launches[0]?.intent.attachments?.[0]
           expect(attachment).toMatchObject({
@@ -1163,16 +1176,18 @@ describe('GatewayDiscordApp local e2e', () => {
       expect(thrown).toBeInstanceOf(Error)
       expect((thrown as Error).message).toContain('ECONNREFUSED')
 
-      // Placeholder was sent once (the `⏳ Processing` frame).
-      expect(channel.sent).toHaveLength(1)
-      const placeholderMessage = channel.sent[0]?.message
-      expect(placeholderMessage).toBeDefined()
-      // And it was edited in place to a visible `⚠️` failure — not deleted, not orphaned.
-      expect(placeholderMessage?.deleted).toBe(false)
-      expect(placeholderMessage?.edits).toHaveLength(1)
-      expect(placeholderMessage?.content).toContain('⚠️')
-      expect(placeholderMessage?.content).toContain('Could not reach ACP')
-      expect(placeholderMessage?.content).toContain('ECONNREFUSED')
+      // Placeholder now routes through the agent webhook
+      expect(channel.sent).toHaveLength(0)
+      const webhook = [...channel.webhooks.values()].find((w) => w.name === 'agent-pulpit')
+      expect(webhook).toBeDefined()
+      expect(webhook?.sent).toHaveLength(1)
+      expect(webhook?.sent[0]?.content).toContain('⏳ **Processing:**')
+
+      // failPlaceholder edits via the same webhook — not deleted, not orphaned.
+      expect(webhook?.edits).toHaveLength(1)
+      expect(webhook?.edits[0]?.payload.content).toContain('⚠️')
+      expect(webhook?.edits[0]?.payload.content).toContain('Could not reach ACP')
+      expect(webhook?.edits[0]?.payload.content).toContain('ECONNREFUSED')
     })
   })
 })

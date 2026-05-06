@@ -16,6 +16,7 @@ export interface UiHandleMessage {
   id: string
   channelId?: string | undefined
   threadId?: string | undefined
+  webhookId?: string | undefined
 }
 
 export interface UiHandleThread {
