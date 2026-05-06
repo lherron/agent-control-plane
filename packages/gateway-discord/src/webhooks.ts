@@ -1,3 +1,5 @@
+import { createLogger } from './logger.js'
+
 export type WebhookPayload = {
   content: string
   username?: string | undefined
@@ -11,6 +13,12 @@ export type WebhookMessage = {
   id: string
 }
 
+type DiscordWebhookSendPayload = Omit<WebhookPayload, 'avatar_url' | 'avatarURL'> & {
+  avatarURL?: string | undefined
+}
+
+type DiscordWebhookEditPayload = Omit<WebhookPayload, 'avatar_url' | 'avatarURL' | 'username'>
+
 type WebhookCollection =
   | Iterable<ManagedWebhook>
   | {
@@ -21,8 +29,8 @@ export type ManagedWebhook = {
   id: string
   token?: string | null | undefined
   name?: string | null | undefined
-  send(payload: WebhookPayload): Promise<WebhookMessage>
-  editMessage(messageId: string, payload: WebhookPayload): Promise<WebhookMessage>
+  send(payload: DiscordWebhookSendPayload): Promise<WebhookMessage>
+  editMessage(messageId: string, payload: DiscordWebhookEditPayload): Promise<WebhookMessage>
 }
 
 export type WebhookChannel = {
@@ -49,11 +57,18 @@ export type WebhookManager = {
   editMessage(
     channelId: string,
     messageId: string,
+    webhookId: string,
+    payload: WebhookPayload
+  ): Promise<WebhookMessage>
+  editMessage(
+    channelId: string,
+    messageId: string,
     payload: WebhookPayload
   ): Promise<WebhookMessage>
 }
 
 const DEFAULT_WEBHOOK_NAME = 'agent-pulpit'
+const log = createLogger({ component: 'gateway-discord' })
 
 function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -64,6 +79,21 @@ function webhookValues(collection: WebhookCollection): Iterable<ManagedWebhook> 
     return collection.values()
   }
   return collection as Iterable<ManagedWebhook>
+}
+
+function normalizeSendPayload(payload: WebhookPayload): DiscordWebhookSendPayload {
+  const { avatar_url: avatarUrl, avatarURL, ...rest } = payload
+  const normalized: DiscordWebhookSendPayload = { ...rest }
+  const resolvedAvatarURL = avatarURL ?? avatarUrl
+  if (resolvedAvatarURL !== undefined) {
+    normalized.avatarURL = resolvedAvatarURL
+  }
+  return normalized
+}
+
+function normalizeEditPayload(payload: WebhookPayload): DiscordWebhookEditPayload {
+  const { username: _username, avatar_url: _avatarUrl, avatarURL: _avatarURL, ...rest } = payload
+  return rest
 }
 
 function errorValue(error: unknown, key: 'status' | 'code'): unknown {
@@ -120,26 +150,82 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
   const cache = new Map<string, ManagedWebhook>()
   const queues = new Map<string, Promise<void>>()
 
-  async function getOrCreateWebhook(channelId: string): Promise<ManagedWebhook> {
-    const cached = cache.get(channelId)
-    if (cached !== undefined) return cached
-
+  async function fetchTextChannel(channelId: string): Promise<WebhookChannel> {
     const channel = await options.client.channels.fetch(channelId)
     if (!channel || !channel.isTextBased()) {
       throw new Error(`Discord channel ${channelId} is not a text channel`)
     }
+    return channel
+  }
 
-    const webhooks = await channel.fetchWebhooks()
-    for (const webhook of webhookValues(webhooks)) {
-      if (webhook.name === webhookName) {
-        cache.set(channelId, webhook)
-        return webhook
+  async function getOrCreateWebhook(channelId: string): Promise<ManagedWebhook> {
+    try {
+      const cached = cache.get(channelId)
+      if (cached !== undefined) {
+        log.debug('gw.discord.webhook.resolve', {
+          data: { channelId, webhookId: cached.id, outcome: 'cached' },
+        })
+        return cached
       }
-    }
 
-    const webhook = await channel.createWebhook({ name: webhookName })
-    cache.set(channelId, webhook)
-    return webhook
+      const channel = await fetchTextChannel(channelId)
+
+      const webhooks = await channel.fetchWebhooks()
+      for (const webhook of webhookValues(webhooks)) {
+        if (webhook.name === webhookName) {
+          cache.set(channelId, webhook)
+          log.info('gw.discord.webhook.resolve', {
+            data: { channelId, webhookId: webhook.id, outcome: 'existing' },
+          })
+          return webhook
+        }
+      }
+
+      const webhook = await channel.createWebhook({ name: webhookName })
+      cache.set(channelId, webhook)
+      log.info('gw.discord.webhook.resolve', {
+        data: { channelId, webhookId: webhook.id, outcome: 'created' },
+      })
+      return webhook
+    } catch (error) {
+      log.warn('gw.discord.webhook.resolve', {
+        data: { channelId, outcome: 'error' },
+        err: { message: error instanceof Error ? error.message : String(error) },
+      })
+      throw error
+    }
+  }
+
+  async function findWebhookById(channelId: string, webhookId: string): Promise<ManagedWebhook> {
+    try {
+      const cached = cache.get(channelId)
+      if (cached?.id === webhookId) {
+        log.debug('gw.discord.webhook.resolve', {
+          data: { channelId, webhookId, outcome: 'cached' },
+        })
+        return cached
+      }
+
+      const channel = await fetchTextChannel(channelId)
+      const webhooks = await channel.fetchWebhooks()
+      for (const webhook of webhookValues(webhooks)) {
+        if (webhook.id === webhookId) {
+          cache.set(channelId, webhook)
+          log.info('gw.discord.webhook.resolve', {
+            data: { channelId, webhookId, outcome: 'by_id' },
+          })
+          return webhook
+        }
+      }
+
+      throw new Error(`Discord webhook ${webhookId} was not found in channel ${channelId}`)
+    } catch (error) {
+      log.warn('gw.discord.webhook.resolve', {
+        data: { channelId, webhookId, outcome: 'error' },
+        err: { message: error instanceof Error ? error.message : String(error) },
+      })
+      throw error
+    }
   }
 
   async function enqueue<T>(channelId: string, operation: () => Promise<T>): Promise<T> {
@@ -162,17 +248,26 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
 
   async function runWebhookOperation<T>(
     channelId: string,
+    webhookId: string | undefined,
     operation: (webhook: ManagedWebhook) => Promise<T>
   ): Promise<T> {
     return enqueue(channelId, async () => {
       try {
         return await withRateLimitRetry(
-          async () => operation(await getOrCreateWebhook(channelId)),
+          async () =>
+            operation(
+              webhookId === undefined
+                ? await getOrCreateWebhook(channelId)
+                : await findWebhookById(channelId, webhookId)
+            ),
           sleep
         )
       } catch (error) {
         if (isInvalidWebhookError(error)) {
-          cache.delete(channelId)
+          const cached = cache.get(channelId)
+          if (webhookId === undefined || cached?.id === webhookId) {
+            cache.delete(channelId)
+          }
         }
         throw error
       }
@@ -181,11 +276,76 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
 
   return {
     getOrCreateWebhook,
-    send(channelId, payload) {
-      return runWebhookOperation(channelId, (webhook) => webhook.send(payload))
+    async send(channelId, payload) {
+      let resolvedWebhookId: string | undefined
+      try {
+        const message = await runWebhookOperation(channelId, undefined, (webhook) => {
+          resolvedWebhookId = webhook.id
+          return webhook.send(normalizeSendPayload(payload))
+        })
+        log.info('gw.discord.webhook.send', {
+          data: {
+            channelId,
+            webhookId: resolvedWebhookId,
+            messageId: message.id,
+            outcome: 'sent',
+          },
+        })
+        return message
+      } catch (error) {
+        log.warn('gw.discord.webhook.send', {
+          data: {
+            channelId,
+            ...(resolvedWebhookId !== undefined ? { webhookId: resolvedWebhookId } : {}),
+            outcome: 'error',
+          },
+          err: { message: error instanceof Error ? error.message : String(error) },
+        })
+        throw error
+      }
     },
-    editMessage(channelId, messageId, payload) {
-      return runWebhookOperation(channelId, (webhook) => webhook.editMessage(messageId, payload))
+    async editMessage(
+      channelId: string,
+      messageId: string,
+      webhookIdOrPayload: string | WebhookPayload,
+      maybePayload?: WebhookPayload
+    ) {
+      const webhookId = typeof webhookIdOrPayload === 'string' ? webhookIdOrPayload : undefined
+      const payload = typeof webhookIdOrPayload === 'string' ? maybePayload : webhookIdOrPayload
+      if (payload === undefined) {
+        throw new Error('Webhook edit payload is required')
+      }
+
+      // Discord edit options do not support username/avatar overrides; the
+      // placeholder must be created with the right identity before this edit.
+      const editPayload = normalizeEditPayload(payload)
+      let resolvedWebhookId: string | undefined = webhookId
+      try {
+        const message = await runWebhookOperation(channelId, webhookId, (webhook) => {
+          resolvedWebhookId = webhook.id
+          return webhook.editMessage(messageId, editPayload)
+        })
+        log.info('gw.discord.webhook.edit', {
+          data: {
+            channelId,
+            webhookId: resolvedWebhookId,
+            messageId,
+            outcome: 'edited',
+          },
+        })
+        return message
+      } catch (error) {
+        log.warn('gw.discord.webhook.edit', {
+          data: {
+            channelId,
+            ...(resolvedWebhookId !== undefined ? { webhookId: resolvedWebhookId } : {}),
+            messageId,
+            outcome: 'error',
+          },
+          err: { message: error instanceof Error ? error.message : String(error) },
+        })
+        throw error
+      }
     },
   }
 }

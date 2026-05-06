@@ -1091,13 +1091,11 @@ describe('GatewayDiscordApp local e2e', () => {
     expect(webhook.edits).toHaveLength(1)
     expect(webhook.edits[0]).toMatchObject({
       messageId: 'wh_placeholder_1',
-      payload: {
-        username: 'cody',
-      },
+      payload: {},
     })
-    expect(webhook.edits[0]?.payload.avatar_url ?? webhook.edits[0]?.payload.avatarURL).toBe(
-      'https://api.dicebear.com/7.x/bottts/png?seed=cody'
-    )
+    expect(webhook.edits[0]?.payload.username).toBeUndefined()
+    expect(webhook.edits[0]?.payload.avatar_url).toBeUndefined()
+    expect(webhook.edits[0]?.payload.avatarURL).toBeUndefined()
     expect(webhook.edits[0]?.payload.content).toContain(
       '-# cody@agent-spaces:T-04321~main\nFinal answer'
     )

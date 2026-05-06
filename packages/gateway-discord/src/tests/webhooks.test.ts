@@ -82,6 +82,12 @@ async function loadWebhooksModule(): Promise<{
     editMessage: (
       channelId: string,
       messageId: string,
+      webhookId: string,
+      payload: WebhookPayload
+    ) => Promise<{ id: string }>
+    editMessage: (
+      channelId: string,
+      messageId: string,
       payload: WebhookPayload
     ) => Promise<{ id: string }>
   }
@@ -161,6 +167,97 @@ describe('Discord webhook provisioning', () => {
     const active = [...channel.webhooks.values()].at(-1)
     expect(active).not.toBe(stale)
     expect(active?.sends.map((payload) => payload.content)).toEqual(['second attempt'])
+  })
+})
+
+describe('Discord webhook payloads', () => {
+  test('passes avatarURL through to discord.js using camelCase', async () => {
+    const { createWebhookManager } = await loadWebhooksModule()
+    const client = new FakeClient()
+    const channel = new FakeChannel('chan_avatar_camel')
+    client.addChannel(channel)
+    const manager = createWebhookManager({ client, webhookName: 'agent-pulpit' })
+
+    await manager.send(channel.id, {
+      content: 'agent message',
+      username: 'cody',
+      avatarURL: 'https://example.test/cody.png',
+    })
+
+    const webhook = await manager.getOrCreateWebhook(channel.id)
+    expect(webhook.sends).toEqual([
+      {
+        content: 'agent message',
+        username: 'cody',
+        avatarURL: 'https://example.test/cody.png',
+      },
+    ])
+  })
+
+  test('maps legacy avatar_url to discord.js avatarURL and strips snake_case', async () => {
+    const { createWebhookManager } = await loadWebhooksModule()
+    const client = new FakeClient()
+    const channel = new FakeChannel('chan_avatar_snake')
+    client.addChannel(channel)
+    const manager = createWebhookManager({ client, webhookName: 'agent-pulpit' })
+
+    await manager.send(channel.id, {
+      content: 'legacy agent message',
+      username: 'larry',
+      avatar_url: 'https://example.test/larry.png',
+    })
+
+    const webhook = await manager.getOrCreateWebhook(channel.id)
+    expect(webhook.sends).toEqual([
+      {
+        content: 'legacy agent message',
+        username: 'larry',
+        avatarURL: 'https://example.test/larry.png',
+      },
+    ])
+  })
+})
+
+describe('Discord webhook edits', () => {
+  test('edits through the explicit webhook id that created the placeholder', async () => {
+    const { createWebhookManager } = await loadWebhooksModule()
+    const client = new FakeClient()
+    const channel = new FakeChannel('chan_edit_by_id')
+    const firstWebhook = await channel.createWebhook({ name: 'agent-pulpit' })
+    const placeholderWebhook = await channel.createWebhook({ name: 'agent-pulpit' })
+    client.addChannel(channel)
+    const manager = createWebhookManager({ client, webhookName: 'agent-pulpit' })
+
+    await manager.getOrCreateWebhook(channel.id)
+    await manager.editMessage(channel.id, 'placeholder_message', placeholderWebhook.id, {
+      content: 'final content',
+      username: 'cody',
+      avatarURL: 'https://example.test/cody.png',
+      avatar_url: 'https://example.test/legacy.png',
+    })
+
+    expect(firstWebhook.edits).toEqual([])
+    expect(placeholderWebhook.edits).toEqual([
+      {
+        messageId: 'placeholder_message',
+        payload: { content: 'final content' },
+      },
+    ])
+  })
+
+  test('fails an explicit edit when the requested webhook id is missing', async () => {
+    const { createWebhookManager } = await loadWebhooksModule()
+    const client = new FakeClient()
+    const channel = new FakeChannel('chan_missing_edit_webhook')
+    await channel.createWebhook({ name: 'agent-pulpit' })
+    client.addChannel(channel)
+    const manager = createWebhookManager({ client, webhookName: 'agent-pulpit' })
+
+    await expect(
+      manager.editMessage(channel.id, 'placeholder_message', 'missing_webhook', {
+        content: 'final content',
+      })
+    ).rejects.toThrow('Discord webhook missing_webhook was not found')
   })
 })
 
