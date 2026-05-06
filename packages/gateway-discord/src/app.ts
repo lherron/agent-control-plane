@@ -60,6 +60,9 @@ const LIVE_PROGRESS_EDIT_THROTTLE_MS = 1500
 const LIVE_PROGRESS_INITIAL_FLUSH_MS = 150
 const LIVE_PROGRESS_RATE_LIMIT_BACKOFF_MS = 60_000
 const DEFAULT_LIVE_PROGRESS_TIMEOUT_MS = 60 * 60 * 1000
+const PENDING_PLACEHOLDER_TIMEOUT_MS = 60_000
+const LIVE_SUBSCRIPTION_INITIAL_RECONNECT_MS = 1000
+const LIVE_SUBSCRIPTION_MAX_RECONNECT_MS = 5000
 
 /**
  * Pull a human-readable cause out of the ACP error envelope so we can show it
@@ -117,6 +120,56 @@ function projectIdFromScopeRef(scopeRef: string): string {
   return parts[projectIndex + 1] ?? scopeRef
 }
 
+function laneIdFromRef(laneRef: string): string {
+  return laneRef.startsWith('lane:') ? laneRef.slice('lane:'.length) : laneRef
+}
+
+function canonicalSessionRefString(sessionRef: InterfaceSessionRef): string {
+  return `${sessionRef.scopeRef}/lane:${laneIdFromRef(sessionRef.laneRef)}`
+}
+
+function sessionRefFromBinding(binding: DiscordInterfaceBinding): InterfaceSessionRef | undefined {
+  if (binding.sessionRef !== undefined) {
+    return binding.sessionRef
+  }
+
+  const legacy = binding as DiscordInterfaceBinding & {
+    scopeRef?: string | undefined
+    laneRef?: string | undefined
+  }
+  if (legacy.scopeRef !== undefined && legacy.laneRef !== undefined) {
+    return { scopeRef: legacy.scopeRef, laneRef: legacy.laneRef }
+  }
+
+  return undefined
+}
+
+function canonicalSessionRefFromEvent(event: {
+  scopeRef?: string | undefined
+  laneRef?: string | undefined
+}): string | undefined {
+  if (!event.scopeRef || !event.laneRef) {
+    return undefined
+  }
+  return `${event.scopeRef}/lane:${laneIdFromRef(event.laneRef)}`
+}
+
+export function eventTimestampIsClaimable(input: {
+  pendingSince: number
+  eventTs?: string | undefined
+}): boolean {
+  if (input.eventTs === undefined || input.eventTs.trim().length === 0) {
+    return false
+  }
+
+  const eventMs = Date.parse(input.eventTs)
+  if (!Number.isFinite(eventMs)) {
+    return false
+  }
+
+  return input.pendingSince <= eventMs
+}
+
 function formatToolSummary(toolInput: Record<string, unknown>): string {
   const truncate = (value: string, max: number) =>
     value.length > max ? `${value.slice(0, max)}...` : value
@@ -154,18 +207,15 @@ type FetchLike = typeof fetch
 
 type PendingPlaceholder = {
   ui: UiHandle & { kind: 'message' }
+  sessionRef: string
+  projectId: string
+  pendingSince: number
+  acpRunId?: string | undefined
+  claimedHrcRunId?: string | undefined
   identity?: DiscordAgentMessageIdentity | undefined
   promptPreview?: string | undefined
-}
-
-type LiveSubscription = {
-  runId: string
-  eventRunId: string
-  projectId: string
-  hostSessionId: string
-  generation: number
-  abortController: AbortController
-  timeout: ReturnType<typeof setTimeout>
+  pendingTimeout: ReturnType<typeof setTimeout>
+  runTimeout: ReturnType<typeof setTimeout>
   flushTimer?: ReturnType<typeof setTimeout> | undefined
   disableTimer?: ReturnType<typeof setTimeout> | undefined
   pendingFrame?: RenderFrame | undefined
@@ -173,7 +223,15 @@ type LiveSubscription = {
   editDisabled: boolean
   webhookGone: boolean
   lastSuccessfulEditAt: number
-  promptPreview: string
+}
+
+type LiveSubscription = {
+  sessionRef: string
+  projectId: string
+  claimedHrcRunIds: Set<string>
+  abortController: AbortController
+  lastHrcSeq: number
+  reconnectDelayMs: number
 }
 
 type IngressRoute = KeywordRoute
@@ -305,7 +363,8 @@ export class GatewayDiscordApp {
   private readonly discordToken?: string | undefined
   private readonly bindings = new BindingIndex()
   private readonly placeholdersByRunId = new Map<string, PendingPlaceholder>()
-  private readonly liveSubscriptionsByRunId = new Map<string, LiveSubscription>()
+  private readonly liveSubscriptionsBySessionRef = new Map<string, LiveSubscription>()
+  private readonly pendingPlaceholdersBySessionRef = new Map<string, PendingPlaceholder[]>()
   private readonly sessionEventsManager: SessionEventsManager
   private readonly keywordRoutesByMessageId = new Map<string, IngressRoute>()
   private readonly createdClient: boolean
@@ -396,6 +455,16 @@ export class GatewayDiscordApp {
   async stop(): Promise<void> {
     this.deliveryLoopStopped = true
     this.stopAllLiveSubscriptions('app_stop')
+    for (const placeholder of this.placeholdersByRunId.values()) {
+      this.clearPlaceholderTimers(placeholder)
+    }
+    for (const placeholders of this.pendingPlaceholdersBySessionRef.values()) {
+      for (const placeholder of placeholders) {
+        this.clearPlaceholderTimers(placeholder)
+      }
+    }
+    this.placeholdersByRunId.clear()
+    this.pendingPlaceholdersBySessionRef.clear()
     if (this.bindingsTimer) {
       clearInterval(this.bindingsTimer)
       this.bindingsTimer = undefined
@@ -417,6 +486,7 @@ export class GatewayDiscordApp {
       `/v1/interface/bindings?gatewayId=${encodeURIComponent(this.gatewayId)}`
     )
     this.bindings.replaceAll(payload.bindings)
+    this.reconcileLiveSubscriptions(payload.bindings)
     return payload.bindings
   }
 
@@ -495,6 +565,16 @@ export class GatewayDiscordApp {
       ...(route.targetThreadId !== undefined ? { threadId: route.targetThreadId } : {}),
       sessionRef: effectiveSessionRef,
     })
+    const pendingPlaceholder =
+      placeholder !== undefined
+        ? this.registerPendingPlaceholder({
+            placeholder,
+            sessionRef: effectiveSessionRef,
+            projectId: binding.projectId ?? projectIdFromScopeRef(effectiveSessionRef.scopeRef),
+            promptPreview:
+              route.content.length > 100 ? `${route.content.slice(0, 100)}…` : route.content,
+          })
+        : undefined
     const attachments = mapDiscordMessageAttachments(message)
     let response: Response
     try {
@@ -522,6 +602,9 @@ export class GatewayDiscordApp {
       // stale `⏳ Processing` forever. Replace it with a visible error frame so
       // the user sees the failure at the same location they were watching.
       const reason = error instanceof Error ? error.message : String(error)
+      if (pendingPlaceholder) {
+        this.removePendingPlaceholder(pendingPlaceholder, 'post_failed')
+      }
       if (placeholder) {
         await this.failPlaceholder(placeholder, `Could not reach ACP: ${reason}`)
       }
@@ -531,6 +614,9 @@ export class GatewayDiscordApp {
     if (!response.ok) {
       const rawBody = await response.text()
       const reason = extractIngressFailureReason(rawBody) ?? `HTTP ${response.status}`
+      if (pendingPlaceholder) {
+        this.removePendingPlaceholder(pendingPlaceholder, 'post_failed')
+      }
       if (placeholder) {
         await this.failPlaceholder(placeholder, `Agent invocation failed: ${reason}`)
       } else {
@@ -545,27 +631,9 @@ export class GatewayDiscordApp {
       hostSessionId?: string | undefined
       generation?: number | undefined
     }
-    if (placeholder) {
-      const pendingPlaceholder = {
-        ui: placeholder,
-        identity: placeholder.identity,
-        promptPreview:
-          route.content.length > 100 ? `${route.content.slice(0, 100)}…` : route.content,
-      }
-      this.placeholdersByRunId.set(payload.runId, {
-        ...pendingPlaceholder,
-      })
-      if (payload.hostSessionId !== undefined && payload.generation !== undefined) {
-        const eventRunId = await this.resolveLiveEventRunId(payload.runId)
-        this.startLiveSubscription({
-          runId: payload.runId,
-          eventRunId,
-          hostSessionId: payload.hostSessionId,
-          generation: payload.generation,
-          projectId: binding.projectId ?? projectIdFromScopeRef(effectiveSessionRef.scopeRef),
-          promptPreview: pendingPlaceholder.promptPreview,
-        })
-      }
+    if (pendingPlaceholder) {
+      pendingPlaceholder.acpRunId = payload.runId
+      this.placeholdersByRunId.set(payload.runId, pendingPlaceholder)
     }
   }
 
@@ -667,139 +735,132 @@ export class GatewayDiscordApp {
     }
   }
 
-  private startLiveSubscription(input: {
-    runId: string
-    projectId: string
-    hostSessionId: string
-    generation: number
-    eventRunId: string
-    promptPreview: string
-  }): void {
-    this.stopLiveSubscription(input.runId, 'replaced')
-
-    const abortController = new AbortController()
-    const subscription: LiveSubscription = {
-      runId: input.runId,
-      eventRunId: input.eventRunId,
-      projectId: input.projectId,
-      hostSessionId: input.hostSessionId,
-      generation: input.generation,
-      abortController,
-      timeout: setTimeout(() => {
-        log.warn('gw.live_progress.timeout', {
-          message: 'Live progress subscription timed out',
-          trace: { gatewayId: this.gatewayId, projectId: input.projectId, runId: input.runId },
-          data: { timeoutMs: this.liveProgressTimeoutMs },
-        })
-        this.stopLiveSubscription(input.runId, 'timeout')
-      }, this.liveProgressTimeoutMs),
-      editDisabled: false,
-      webhookGone: false,
-      lastSuccessfulEditAt: 0,
-      promptPreview: input.promptPreview,
+  private reconcileLiveSubscriptions(bindings: DiscordInterfaceBinding[]): void {
+    const desired = new Map<string, { sessionRef: string; projectId: string }>()
+    for (const binding of bindings) {
+      if (binding.status !== 'active') {
+        continue
+      }
+      const bindingSessionRef = sessionRefFromBinding(binding)
+      if (bindingSessionRef === undefined) {
+        continue
+      }
+      const sessionRef = canonicalSessionRefString(bindingSessionRef)
+      desired.set(sessionRef, {
+        sessionRef,
+        projectId: binding.projectId ?? projectIdFromScopeRef(bindingSessionRef.scopeRef),
+      })
     }
 
-    this.liveSubscriptionsByRunId.set(input.runId, subscription)
+    for (const entry of desired.values()) {
+      if (!this.liveSubscriptionsBySessionRef.has(entry.sessionRef)) {
+        this.startLiveSubscription(entry)
+      }
+    }
+
+    for (const sessionRef of [...this.liveSubscriptionsBySessionRef.keys()]) {
+      if (!desired.has(sessionRef)) {
+        this.stopLiveSubscription(sessionRef, 'binding_removed')
+      }
+    }
+  }
+
+  private startLiveSubscription(input: { sessionRef: string; projectId: string }): void {
+    this.stopLiveSubscription(input.sessionRef, 'replaced')
+
+    const subscription: LiveSubscription = {
+      sessionRef: input.sessionRef,
+      projectId: input.projectId,
+      claimedHrcRunIds: new Set(),
+      abortController: new AbortController(),
+      lastHrcSeq: 0,
+      reconnectDelayMs: LIVE_SUBSCRIPTION_INITIAL_RECONNECT_MS,
+    }
+
+    this.liveSubscriptionsBySessionRef.set(input.sessionRef, subscription)
     this.sessionEventsManager.subscribe(input.projectId)
     void this.runLiveSubscription(subscription)
   }
 
-  private async resolveLiveEventRunId(runId: string): Promise<string> {
-    const deadline = Date.now() + 5000
-    for (;;) {
-      try {
-        const response = await this.fetchImpl(
-          `${this.acpBaseUrl}/v1/runs/${encodeURIComponent(runId)}`
-        )
-        if (!response.ok) {
-          return runId
-        }
-
-        const payload = (await response.json()) as {
-          run?: { hrcRunId?: string | undefined } | undefined
-        }
-        if (payload.run?.hrcRunId !== undefined) {
-          return payload.run.hrcRunId
-        }
-      } catch {
-        return runId
-      }
-
-      if (Date.now() >= deadline) {
-        return runId
-      }
-      await sleep(250)
-    }
-  }
-
   private async runLiveSubscription(subscription: LiveSubscription): Promise<void> {
-    const url = new URL(
-      `${this.acpBaseUrl}/v1/sessions/${encodeURIComponent(subscription.hostSessionId)}/events`
-    )
-    url.searchParams.set('follow', 'true')
-    url.searchParams.set('runId', subscription.eventRunId)
-    url.searchParams.set('generation', String(subscription.generation))
-    url.searchParams.set('fromSeq', '1')
+    while (!subscription.abortController.signal.aborted) {
+      let reader:
+        | {
+            read(): Promise<{ done: boolean; value?: Uint8Array | undefined }>
+            releaseLock(): void
+          }
+        | undefined
+      try {
+        const url = new URL(`${this.acpBaseUrl}/v1/session-refs/events`)
+        url.searchParams.set('sessionRef', subscription.sessionRef)
+        url.searchParams.set('follow', 'true')
+        url.searchParams.set('fromSeq', String(subscription.lastHrcSeq + 1 || 1))
 
-    let reader:
-      | {
+        log.debug('gw.live_progress.subscribe', {
+          trace: { gatewayId: this.gatewayId, projectId: subscription.projectId },
+          data: { sessionRef: subscription.sessionRef, fromSeq: subscription.lastHrcSeq + 1 || 1 },
+        })
+
+        const response = await this.fetchImpl(url, {
+          headers: { accept: 'application/x-ndjson' },
+          signal: subscription.abortController.signal,
+        })
+        if (!response.ok) {
+          throw new Error(
+            `Live event subscription failed: ${response.status} ${await response.text()}`
+          )
+        }
+        if (!response.body) {
+          throw new Error('Live event subscription response did not include a body')
+        }
+
+        subscription.reconnectDelayMs = LIVE_SUBSCRIPTION_INITIAL_RECONNECT_MS
+        const decoder = new TextDecoder()
+        const streamReader = response.body.getReader() as {
           read(): Promise<{ done: boolean; value?: Uint8Array | undefined }>
           releaseLock(): void
         }
-      | undefined
-    try {
-      const response = await this.fetchImpl(url, {
-        headers: { accept: 'application/x-ndjson' },
-        signal: subscription.abortController.signal,
-      })
-      if (!response.ok) {
-        throw new Error(
-          `Live event subscription failed: ${response.status} ${await response.text()}`
-        )
-      }
-      if (!response.body) {
-        throw new Error('Live event subscription response did not include a body')
-      }
-
-      const decoder = new TextDecoder()
-      const streamReader = response.body.getReader() as {
-        read(): Promise<{ done: boolean; value?: Uint8Array | undefined }>
-        releaseLock(): void
-      }
-      reader = streamReader
-      let buffer = ''
-      for (;;) {
-        const { done, value } = await streamReader.read()
-        if (done) {
-          break
+        reader = streamReader
+        let buffer = ''
+        for (;;) {
+          const { done, value } = await streamReader.read()
+          if (done) {
+            break
+          }
+          buffer += decoder.decode(value, { stream: true })
+          buffer = this.processLiveEventBuffer(buffer, subscription)
         }
-        buffer += decoder.decode(value, { stream: true })
-        buffer = this.processLiveEventBuffer(buffer, subscription)
-      }
 
-      buffer += decoder.decode()
-      this.processLiveEventBuffer(`${buffer}\n`, subscription)
-    } catch (error) {
-      if (!subscription.abortController.signal.aborted) {
-        log.warn('gw.live_progress.subscription_failed', {
-          message: 'Live progress subscription failed',
-          trace: {
-            gatewayId: this.gatewayId,
-            projectId: subscription.projectId,
-            runId: subscription.runId,
-          },
-          err: { message: error instanceof Error ? error.message : String(error) },
-        })
-      }
-    } finally {
-      try {
-        reader?.releaseLock()
-      } catch {
-        // best-effort cleanup only
-      }
-      if (this.liveSubscriptionsByRunId.get(subscription.runId) === subscription) {
-        this.clearLiveSubscription(subscription)
-        this.liveSubscriptionsByRunId.delete(subscription.runId)
+        buffer += decoder.decode()
+        this.processLiveEventBuffer(`${buffer}\n`, subscription)
+        throw new Error('Live event subscription stream closed')
+      } catch (error) {
+        if (!subscription.abortController.signal.aborted) {
+          log.warn('gw.live_progress.subscription_reconnect', {
+            message: 'Live progress subscription will reconnect',
+            trace: {
+              gatewayId: this.gatewayId,
+              projectId: subscription.projectId,
+            },
+            data: {
+              sessionRef: subscription.sessionRef,
+              nextFromSeq: subscription.lastHrcSeq + 1,
+              backoffMs: subscription.reconnectDelayMs,
+            },
+            err: { message: error instanceof Error ? error.message : String(error) },
+          })
+          await sleep(subscription.reconnectDelayMs)
+          subscription.reconnectDelayMs = Math.min(
+            subscription.reconnectDelayMs * 2,
+            LIVE_SUBSCRIPTION_MAX_RECONNECT_MS
+          )
+        }
+      } finally {
+        try {
+          reader?.releaseLock()
+        } catch {
+          // best-effort cleanup only
+        }
       }
     }
   }
@@ -827,24 +888,44 @@ export class GatewayDiscordApp {
         trace: {
           gatewayId: this.gatewayId,
           projectId: subscription.projectId,
-          runId: subscription.runId,
+          sessionRef: subscription.sessionRef,
         },
         err: { message: error instanceof Error ? error.message : String(error) },
       })
       return
     }
 
-    const envelope = adaptHrcLifecycleEvent(
-      parsed as Parameters<typeof adaptHrcLifecycleEvent>[0],
-      { runId: subscription.runId }
-    )
+    const event = parsed as Parameters<typeof adaptHrcLifecycleEvent>[0] & {
+      ts?: string | undefined
+      laneRef?: string | undefined
+    }
+    if (typeof event.hrcSeq === 'number' && event.hrcSeq > subscription.lastHrcSeq) {
+      subscription.lastHrcSeq = event.hrcSeq
+    }
+
+    const hrcRunId = event.runId?.trim()
+    if (!hrcRunId) {
+      return
+    }
+
+    if (!subscription.claimedHrcRunIds.has(hrcRunId)) {
+      const claimed = this.claimPendingPlaceholder(subscription, event)
+      if (!claimed) {
+        return
+      }
+    }
+
+    const envelope = adaptHrcLifecycleEvent(event)
     if (!envelope) {
       return
     }
 
     this.sessionEventsManager.receive(envelope)
     if (envelope.event.type === 'turn_end') {
-      this.stopLiveSubscription(subscription.runId, 'turn_end')
+      const placeholder = this.findPlaceholderByHrcRunId(hrcRunId)
+      if (placeholder?.runTimeout) {
+        clearTimeout(placeholder.runTimeout)
+      }
     }
   }
 
@@ -854,45 +935,43 @@ export class GatewayDiscordApp {
     frame: RenderFrame,
     run: RunState
   ): void {
-    const subscription = this.liveSubscriptionsByRunId.get(runId)
-    if (!subscription || subscription.projectId !== projectId || subscription.webhookGone) {
+    const placeholder = this.findPlaceholderByHrcRunId(runId)
+    if (!placeholder || placeholder.projectId !== projectId || placeholder.webhookGone) {
       return
     }
 
-    subscription.pendingFrame = {
+    placeholder.pendingFrame = {
       ...frame,
-      title: subscription.promptPreview || frame.title,
+      title: placeholder.promptPreview || frame.title,
     }
-    subscription.pendingRun = run
-    if (subscription.editDisabled) {
+    placeholder.pendingRun = run
+    if (placeholder.editDisabled) {
       return
     }
 
-    if (subscription.flushTimer) {
-      clearTimeout(subscription.flushTimer)
+    if (placeholder.flushTimer) {
+      clearTimeout(placeholder.flushTimer)
     }
     const now = Date.now()
     const delay =
-      subscription.lastSuccessfulEditAt === 0
+      placeholder.lastSuccessfulEditAt === 0
         ? LIVE_PROGRESS_INITIAL_FLUSH_MS
-        : Math.max(LIVE_PROGRESS_EDIT_THROTTLE_MS - (now - subscription.lastSuccessfulEditAt), 0)
-    subscription.flushTimer = setTimeout(() => {
-      subscription.flushTimer = undefined
+        : Math.max(LIVE_PROGRESS_EDIT_THROTTLE_MS - (now - placeholder.lastSuccessfulEditAt), 0)
+    placeholder.flushTimer = setTimeout(() => {
+      placeholder.flushTimer = undefined
       void this.flushProgressEdit(runId)
     }, delay)
   }
 
   private async flushProgressEdit(runId: string): Promise<void> {
-    const subscription = this.liveSubscriptionsByRunId.get(runId)
-    const placeholder = this.placeholdersByRunId.get(runId)
+    const placeholder = this.findPlaceholderByHrcRunId(runId)
     if (
-      !subscription ||
       !placeholder ||
       !placeholder.ui.channelId ||
       !placeholder.ui.webhookId ||
-      subscription.editDisabled ||
-      subscription.webhookGone ||
-      !subscription.pendingFrame
+      placeholder.editDisabled ||
+      placeholder.webhookGone ||
+      !placeholder.pendingFrame
     ) {
       return
     }
@@ -904,58 +983,58 @@ export class GatewayDiscordApp {
 
     const result = await this.editPlaceholderProgress(
       placeholder.ui as UiHandle & { kind: 'message'; webhookId: string },
-      subscription.pendingFrame,
+      placeholder.pendingFrame,
       identity
     )
 
     if (result.ok) {
-      subscription.lastSuccessfulEditAt = Date.now()
-      subscription.pendingFrame = undefined
-      subscription.pendingRun = undefined
+      placeholder.lastSuccessfulEditAt = Date.now()
+      placeholder.pendingFrame = undefined
+      placeholder.pendingRun = undefined
       return
     }
 
     if (result.rateLimited) {
-      this.disableProgressEditsTemporarily(subscription)
+      this.disableProgressEditsTemporarily(placeholder)
     } else if (result.webhookGone) {
-      subscription.webhookGone = true
-      subscription.editDisabled = true
-      if (subscription.flushTimer) {
-        clearTimeout(subscription.flushTimer)
-        subscription.flushTimer = undefined
+      placeholder.webhookGone = true
+      placeholder.editDisabled = true
+      if (placeholder.flushTimer) {
+        clearTimeout(placeholder.flushTimer)
+        placeholder.flushTimer = undefined
       }
     }
   }
 
-  private disableProgressEditsTemporarily(subscription: LiveSubscription): void {
-    subscription.editDisabled = true
-    if (subscription.flushTimer) {
-      clearTimeout(subscription.flushTimer)
-      subscription.flushTimer = undefined
+  private disableProgressEditsTemporarily(placeholder: PendingPlaceholder): void {
+    placeholder.editDisabled = true
+    if (placeholder.flushTimer) {
+      clearTimeout(placeholder.flushTimer)
+      placeholder.flushTimer = undefined
     }
-    if (subscription.disableTimer) {
-      clearTimeout(subscription.disableTimer)
+    if (placeholder.disableTimer) {
+      clearTimeout(placeholder.disableTimer)
     }
-    subscription.disableTimer = setTimeout(() => {
-      subscription.disableTimer = undefined
-      subscription.editDisabled = false
-      if (subscription.pendingFrame && !subscription.webhookGone) {
+    placeholder.disableTimer = setTimeout(() => {
+      placeholder.disableTimer = undefined
+      placeholder.editDisabled = false
+      if (placeholder.pendingFrame && !placeholder.webhookGone && placeholder.claimedHrcRunId) {
         this.scheduleProgressEdit(
-          subscription.projectId,
-          subscription.runId,
-          subscription.pendingFrame,
-          subscription.pendingRun ??
+          placeholder.projectId,
+          placeholder.claimedHrcRunId,
+          placeholder.pendingFrame,
+          placeholder.pendingRun ??
             ({
-              runId: subscription.runId,
-              projectId: subscription.projectId,
+              runId: placeholder.claimedHrcRunId,
+              projectId: placeholder.projectId,
             } as RunState)
         )
       }
     }, LIVE_PROGRESS_RATE_LIMIT_BACKOFF_MS)
   }
 
-  private stopLiveSubscription(runId: string, reason: string): void {
-    const subscription = this.liveSubscriptionsByRunId.get(runId)
+  private stopLiveSubscription(sessionRef: string, reason: string): void {
+    const subscription = this.liveSubscriptionsBySessionRef.get(sessionRef)
     if (!subscription) {
       return
     }
@@ -963,33 +1042,178 @@ export class GatewayDiscordApp {
       trace: {
         gatewayId: this.gatewayId,
         projectId: subscription.projectId,
-        runId,
       },
-      data: { reason },
+      data: { reason, sessionRef },
     })
     this.clearLiveSubscription(subscription)
-    this.liveSubscriptionsByRunId.delete(runId)
+    this.liveSubscriptionsBySessionRef.delete(sessionRef)
   }
 
   private stopAllLiveSubscriptions(reason: string): void {
-    for (const runId of [...this.liveSubscriptionsByRunId.keys()]) {
-      this.stopLiveSubscription(runId, reason)
+    for (const sessionRef of [...this.liveSubscriptionsBySessionRef.keys()]) {
+      this.stopLiveSubscription(sessionRef, reason)
     }
   }
 
   private clearLiveSubscription(subscription: LiveSubscription): void {
-    if (subscription.flushTimer) {
-      clearTimeout(subscription.flushTimer)
-      subscription.flushTimer = undefined
-    }
-    if (subscription.disableTimer) {
-      clearTimeout(subscription.disableTimer)
-      subscription.disableTimer = undefined
-    }
-    clearTimeout(subscription.timeout)
     if (!subscription.abortController.signal.aborted) {
       subscription.abortController.abort()
     }
+  }
+
+  private registerPendingPlaceholder(input: {
+    placeholder: UiHandle & {
+      kind: 'message'
+      webhookId?: string
+      identity?: DiscordAgentMessageIdentity
+    }
+    sessionRef: InterfaceSessionRef
+    projectId: string
+    promptPreview: string
+  }): PendingPlaceholder {
+    const sessionRef = canonicalSessionRefString(input.sessionRef)
+    const pending: PendingPlaceholder = {
+      ui: input.placeholder,
+      sessionRef,
+      projectId: input.projectId,
+      pendingSince: Date.now(),
+      identity: input.placeholder.identity,
+      promptPreview: input.promptPreview,
+      pendingTimeout: setTimeout(() => {
+        log.warn('gw.live_progress.pending_timeout', {
+          message: 'Pending placeholder was not claimed by any HRC run',
+          trace: { gatewayId: this.gatewayId, projectId: input.projectId },
+          data: { sessionRef, timeoutMs: PENDING_PLACEHOLDER_TIMEOUT_MS },
+        })
+        this.removePendingPlaceholder(pending, 'pending_timeout')
+        void this.failPlaceholder(pending.ui, 'Agent invocation did not start producing progress.')
+      }, PENDING_PLACEHOLDER_TIMEOUT_MS),
+      runTimeout: setTimeout(() => {
+        log.warn('gw.live_progress.run_timeout', {
+          message: 'Live progress run timed out before turn_end',
+          trace: { gatewayId: this.gatewayId, projectId: input.projectId },
+          data: {
+            sessionRef,
+            acpRunId: pending.acpRunId,
+            claimedHrcRunId: pending.claimedHrcRunId,
+            timeoutMs: this.liveProgressTimeoutMs,
+          },
+        })
+        this.removePendingPlaceholder(pending, 'run_timeout')
+      }, this.liveProgressTimeoutMs),
+      editDisabled: false,
+      webhookGone: false,
+      lastSuccessfulEditAt: 0,
+    }
+
+    const list = this.pendingPlaceholdersBySessionRef.get(sessionRef) ?? []
+    list.push(pending)
+    this.pendingPlaceholdersBySessionRef.set(sessionRef, list)
+    this.ensureLiveSubscriptionForSessionRef(sessionRef, input.projectId)
+    return pending
+  }
+
+  private ensureLiveSubscriptionForSessionRef(sessionRef: string, projectId: string): void {
+    if (this.liveSubscriptionsBySessionRef.has(sessionRef)) {
+      return
+    }
+    this.startLiveSubscription({ sessionRef, projectId })
+  }
+
+  private removePendingPlaceholder(placeholder: PendingPlaceholder, reason: string): void {
+    const list = this.pendingPlaceholdersBySessionRef.get(placeholder.sessionRef)
+    if (list !== undefined) {
+      const next = list.filter((item) => item !== placeholder)
+      if (next.length > 0) {
+        this.pendingPlaceholdersBySessionRef.set(placeholder.sessionRef, next)
+      } else {
+        this.pendingPlaceholdersBySessionRef.delete(placeholder.sessionRef)
+      }
+    }
+
+    if (placeholder.acpRunId !== undefined) {
+      this.placeholdersByRunId.delete(placeholder.acpRunId)
+    }
+
+    if (placeholder.claimedHrcRunId !== undefined) {
+      this.liveSubscriptionsBySessionRef
+        .get(placeholder.sessionRef)
+        ?.claimedHrcRunIds.delete(placeholder.claimedHrcRunId)
+    }
+
+    this.clearPlaceholderTimers(placeholder)
+    log.debug('gw.live_progress.placeholder_removed', {
+      trace: { gatewayId: this.gatewayId, projectId: placeholder.projectId },
+      data: {
+        reason,
+        sessionRef: placeholder.sessionRef,
+        acpRunId: placeholder.acpRunId,
+        claimedHrcRunId: placeholder.claimedHrcRunId,
+      },
+    })
+  }
+
+  private clearPlaceholderTimers(placeholder: PendingPlaceholder): void {
+    clearTimeout(placeholder.pendingTimeout)
+    clearTimeout(placeholder.runTimeout)
+    if (placeholder.flushTimer) {
+      clearTimeout(placeholder.flushTimer)
+      placeholder.flushTimer = undefined
+    }
+    if (placeholder.disableTimer) {
+      clearTimeout(placeholder.disableTimer)
+      placeholder.disableTimer = undefined
+    }
+  }
+
+  private claimPendingPlaceholder(
+    subscription: LiveSubscription,
+    event: Parameters<typeof adaptHrcLifecycleEvent>[0] & {
+      ts?: string | undefined
+      laneRef?: string | undefined
+    }
+  ): PendingPlaceholder | undefined {
+    const hrcRunId = event.runId?.trim()
+    const eventSessionRef = canonicalSessionRefFromEvent(event)
+    if (!hrcRunId || eventSessionRef !== subscription.sessionRef) {
+      return undefined
+    }
+
+    const pending = this.pendingPlaceholdersBySessionRef.get(subscription.sessionRef) ?? []
+    const placeholder = pending.find(
+      (candidate) =>
+        candidate.claimedHrcRunId === undefined &&
+        eventTimestampIsClaimable({ pendingSince: candidate.pendingSince, eventTs: event.ts })
+    )
+    if (placeholder === undefined) {
+      return undefined
+    }
+
+    placeholder.claimedHrcRunId = hrcRunId
+    subscription.claimedHrcRunIds.add(hrcRunId)
+    clearTimeout(placeholder.pendingTimeout)
+    log.debug('gw.live_progress.run_claimed', {
+      trace: { gatewayId: this.gatewayId, projectId: placeholder.projectId, runId: hrcRunId },
+      data: { sessionRef: subscription.sessionRef, acpRunId: placeholder.acpRunId },
+    })
+    return placeholder
+  }
+
+  private findPlaceholderByHrcRunId(hrcRunId: string): PendingPlaceholder | undefined {
+    for (const placeholder of this.placeholdersByRunId.values()) {
+      if (placeholder.claimedHrcRunId === hrcRunId) {
+        return placeholder
+      }
+    }
+
+    for (const placeholders of this.pendingPlaceholdersBySessionRef.values()) {
+      const found = placeholders.find((placeholder) => placeholder.claimedHrcRunId === hrcRunId)
+      if (found !== undefined) {
+        return found
+      }
+    }
+
+    return undefined
   }
 
   private async processDelivery(delivery: DeliveryRequest): Promise<void> {
@@ -1012,14 +1236,12 @@ export class GatewayDiscordApp {
       ...(delivery.threadRef ? { threadRef: delivery.threadRef } : {}),
     })
     const projectId = binding?.projectId ?? projectIdFromScopeRef(delivery.sessionRef.scopeRef)
-    const liveRunState =
-      delivery.runId !== undefined
-        ? this.sessionEventsManager.getRunState(projectId, delivery.runId)
-        : undefined
-    if (delivery.runId !== undefined) {
-      this.stopLiveSubscription(delivery.runId, 'final_delivery')
-    }
     const placeholder = delivery.runId ? this.placeholdersByRunId.get(delivery.runId) : undefined
+    const hrcRunId = placeholder?.claimedHrcRunId ?? delivery.runId
+    const liveRunState =
+      hrcRunId !== undefined
+        ? this.sessionEventsManager.getRunState(projectId, hrcRunId)
+        : undefined
 
     // Resolve agent identity from the delivery's sessionRef
     const identity = resolveMessageIdentity(delivery.sessionRef)
@@ -1047,9 +1269,7 @@ export class GatewayDiscordApp {
           // Fall through to fresh webhook delivery below
         }
       } finally {
-        if (delivery.runId) {
-          this.placeholdersByRunId.delete(delivery.runId)
-        }
+        this.removePendingPlaceholder(placeholder, 'final_delivery')
       }
       // If we edited via webhook, we're done. If we fell through (no webhookId),
       // continue to fresh delivery below.
@@ -1284,7 +1504,7 @@ export class GatewayDiscordApp {
    * were watching instead of getting silence.
    */
   private async failPlaceholder(
-    ui: UiHandle & { kind: 'message'; webhookId?: string },
+    ui: UiHandle & { kind: 'message'; webhookId?: string | undefined },
     reason: string
   ): Promise<void> {
     if (!ui.channelId) {

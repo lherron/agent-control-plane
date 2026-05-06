@@ -31,6 +31,10 @@ describe('GatewayDiscordApp live tool progress e2e', () => {
     expect(harness.eventRequests).toHaveLength(1)
     expect(harness.eventRequests[0]?.searchParams.get('follow')).toBe('true')
     expect(harness.eventRequests[0]?.searchParams.get('fromSeq')).toBe('1')
+    expect(harness.eventRequests[0]?.searchParams.get('sessionRef')).toBe(
+      'agent:smokey:project:agent-spaces/lane:main'
+    )
+    expect(harness.eventRequests[0]?.searchParams.has('runId')).toBe(false)
 
     const content = webhook.edits.at(-1)?.payload.content ?? ''
     expect(content).toContain('💻 Bash: "bun test"')

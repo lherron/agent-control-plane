@@ -165,6 +165,7 @@ export function createLiveProgressHarness(): LiveProgressHarness {
   const pendingEvents: string[] = []
   const deliveries: unknown[] = []
   const eventRequests: URL[] = []
+  let ingressCount = 0
 
   const enqueue = (line: string) => {
     if (streamController) {
@@ -205,18 +206,17 @@ export function createLiveProgressHarness(): LiveProgressHarness {
 
     if (url.pathname === '/v1/interface/messages') {
       expect(request.method).toBe('POST')
+      ingressCount += 1
       return Response.json(
         {
           inputAttemptId: 'ia_live_progress',
-          runId: 'run_live_progress',
-          hostSessionId: 'hsid_live_progress',
-          generation: 7,
+          runId: ingressCount === 1 ? 'run_live_progress' : `run_live_progress_${ingressCount}`,
         },
         { status: 201 }
       )
     }
 
-    if (url.pathname === '/v1/sessions/hsid_live_progress/events') {
+    if (url.pathname === '/v1/session-refs/events') {
       eventRequests.push(url)
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
@@ -299,13 +299,13 @@ export function hrcEvent(seq: number, payload: Record<string, unknown>): Record<
   return {
     hrcSeq: seq,
     streamSeq: seq,
-    ts: `2026-05-06T19:00:${String(seq).padStart(2, '0')}.000Z`,
+    ts: new Date(Date.now() + seq * 1000).toISOString(),
     hostSessionId: 'hsid_live_progress',
     scopeRef: 'agent:smokey:project:agent-spaces',
     laneRef: 'main',
     generation: 7,
     runtimeId: 'rt_live_progress',
-    runId: 'run_live_progress',
+    runId: 'hrc_run_live_progress',
     category: 'turn',
     eventKind: String(payload['type'] ?? 'unknown'),
     replayed: false,
