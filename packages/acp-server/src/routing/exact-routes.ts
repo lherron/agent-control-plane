@@ -31,6 +31,7 @@ import {
 import { handleOpsDashboardEvents } from '../handlers/ops-dashboard-events.js'
 import { handleOpsDashboardSnapshot } from '../handlers/ops-dashboard-snapshot.js'
 import { handleResolveRuntime } from '../handlers/runtime-resolve.js'
+import { handleSessionRefEvents } from '../handlers/session-refs-events.js'
 import { handleListSessions } from '../handlers/sessions-list.js'
 import { handleResetSession } from '../handlers/sessions-reset.js'
 import { handleResolveSession } from '../handlers/sessions-resolve.js'
@@ -130,6 +131,7 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
     [exactRouteKey('POST', '/v1/runtime/resolve')]: handleResolveRuntime,
     [exactRouteKey('POST', '/v1/sessions/launch')]: handleLaunchSession,
     [exactRouteKey('POST', '/v1/sessions/resolve')]: handleResolveSession,
+    [exactRouteKey('GET', '/v1/session-refs/events')]: handleSessionRefEvents,
     [exactRouteKey('GET', '/v1/sessions')]: handleListSessions,
     [exactRouteKey('POST', '/v1/sessions/reset')]: handleResetSession,
     [exactRouteKey('GET', '/v1/mobile/health')]: handleMobileHealth,
