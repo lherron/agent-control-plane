@@ -104,4 +104,63 @@ describe('SessionEventsManager internal run suppression', () => {
       content: 'Final answer from turn.completed',
     })
   })
+
+  test('tracks event dedupe on RunState instead of ProjectState across resumed subscriptions', () => {
+    const renders: Array<{ seq: number | undefined; content: string }> = []
+    const manager = new SessionEventsManager('gateway-test', (_projectId, _runId, frame, run) => {
+      const markdown = frame.blocks.find((block) => block.t === 'markdown')
+      renders.push({
+        seq: (run as unknown as { lastSeq?: number }).lastSeq,
+        content: markdown?.md ?? '',
+      })
+    })
+
+    manager.subscribe('agent-spaces')
+    manager.receive({
+      projectId: 'agent-spaces',
+      runId: 'run-resumed',
+      seq: 1,
+      event: {
+        type: 'run_started',
+        runId: 'run-resumed',
+        projectId: 'agent-spaces',
+        startedAt: 1,
+      },
+    })
+
+    manager.subscribe('agent-spaces')
+    manager.receive({
+      projectId: 'agent-spaces',
+      runId: 'run-resumed',
+      seq: 1,
+      event: {
+        type: 'message_update',
+        textDelta: 'duplicate should not render',
+      },
+    })
+    manager.receive({
+      projectId: 'agent-spaces',
+      runId: 'run-resumed',
+      seq: 2,
+      event: {
+        type: 'message_update',
+        textDelta: 'fresh update renders',
+      },
+    })
+
+    expect(renders).toHaveLength(2)
+    expect(renders.at(-1)).toEqual({ seq: 2, content: 'fresh update renders' })
+    expect(
+      manager.getRunState('agent-spaces', 'run-resumed') as unknown as { lastSeq?: number }
+    ).toMatchObject({ lastSeq: 2 })
+
+    const projectState = (
+      manager as unknown as {
+        projects: Map<string, Record<string, unknown>>
+      }
+    ).projects.get('agent-spaces')
+    expect(projectState).toBeDefined()
+    expect(projectState).not.toHaveProperty('lastSeq')
+    expect(projectState).not.toHaveProperty('internalRunIds')
+  })
 })
