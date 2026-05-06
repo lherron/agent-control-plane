@@ -29,12 +29,11 @@ describe('adaptHrcLifecycleEvent', () => {
             toolName: 'Bash',
             input: { command: 'bun test' },
           },
-        }),
-        { runId: 'run-filtered' }
+        })
       )
     ).toEqual({
       projectId: 'agent-spaces',
-      runId: 'run-filtered',
+      runId: 'hrc-run-ignored',
       seq: 7,
       event: {
         type: 'tool_execution_start',
@@ -57,8 +56,7 @@ describe('adaptHrcLifecycleEvent', () => {
             result: { content: [{ type: 'text', text: 'ok' }] },
             isError: false,
           },
-        }),
-        { runId: 'run-filtered' }
+        })
       )?.event
     ).toEqual({
       type: 'tool_execution_end',
@@ -70,7 +68,7 @@ describe('adaptHrcLifecycleEvent', () => {
   })
 
   test('maps assistant turn.message to message_end and drops non-assistant messages', () => {
-    expect(adaptHrcLifecycleEvent(hrcEvent(), { runId: 'run-filtered' })?.event).toMatchObject({
+    expect(adaptHrcLifecycleEvent(hrcEvent())?.event).toMatchObject({
       type: 'message_end',
       message: { role: 'assistant', content: 'hello from hrc' },
     })
@@ -82,8 +80,7 @@ describe('adaptHrcLifecycleEvent', () => {
             type: 'message_end',
             message: { role: 'user', content: 'not for progress bubble' },
           },
-        }),
-        { runId: 'run-filtered' }
+        })
       )
     ).toBeUndefined()
   })
@@ -94,8 +91,7 @@ describe('adaptHrcLifecycleEvent', () => {
         hrcEvent({
           eventKind: 'turn.completed',
           payload: { finalOutput: 'done' },
-        }),
-        { runId: 'run-filtered' }
+        })
       )?.event
     ).toEqual({
       type: 'turn_end',
@@ -110,21 +106,24 @@ describe('adaptHrcLifecycleEvent', () => {
           hrcSeq: 9,
           eventKind: 'notice',
           payload: { type: 'notice', level: 'warn', message: 'stream compacted' },
-        }),
-        { runId: 'run-filtered' }
+        })
       )
     ).toEqual({
       projectId: 'agent-spaces',
-      runId: 'run-filtered',
+      runId: 'hrc-run-ignored',
       seq: 9,
       event: { type: 'notice', level: 'warn', message: 'stream compacted' },
     })
 
     expect(
       adaptHrcLifecycleEvent(
-        hrcEvent({ eventKind: 'runtime.created', payload: { runtimeId: 'rt_1' } }),
-        { runId: 'run-filtered' }
+        hrcEvent({ eventKind: 'runtime.created', payload: { runtimeId: 'rt_1' } })
       )
     ).toBeUndefined()
+  })
+
+  test('drops events without runId', () => {
+    expect(adaptHrcLifecycleEvent(hrcEvent({ runId: undefined }))).toBeUndefined()
+    expect(adaptHrcLifecycleEvent(hrcEvent({ runId: '' }))).toBeUndefined()
   })
 })

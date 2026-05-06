@@ -12,10 +12,6 @@ export type HrcLifecycleEventPayload = {
   payload: unknown
 }
 
-export type HrcEventAdapterOptions = {
-  runId: string
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -151,12 +147,16 @@ function adaptTurnCompleted(payload: unknown): GatewaySessionEvent {
 }
 
 export function adaptHrcLifecycleEvent(
-  event: HrcLifecycleEventPayload,
-  options: HrcEventAdapterOptions
+  event: HrcLifecycleEventPayload
 ): SessionEventEnvelope | undefined {
   const projectId = deriveProjectId(event.scopeRef)
-  const runId = options.runId
+  const runId = event.runId?.trim()
   let sessionEvent: GatewaySessionEvent | undefined
+
+  if (!runId) {
+    log.debug('adapter.event.dropped', { data: { eventKind: event.eventKind } })
+    return undefined
+  }
 
   if (projectId === undefined) {
     log.debug('adapter.event.dropped', { data: { eventKind: event.eventKind, runId } })
