@@ -546,7 +546,8 @@ export class GatewayDiscordApp {
           // NEVER fall back to Rex — best-effort delete the stale placeholder and fall
           // through to the fresh webhook delivery path below.
           log.warn('gw.delivery.placeholder_missing_webhook', {
-            message: 'Placeholder has no webhookId; deleting stale placeholder and sending fresh webhook message',
+            message:
+              'Placeholder has no webhookId; deleting stale placeholder and sending fresh webhook message',
             trace: { gatewayId: this.gatewayId },
             data: { runId: delivery.runId, placeholderMessageId: placeholder.ui.id },
           })
