@@ -21,6 +21,12 @@ type FakeSendPayload = {
   files?: FakeDiscordFile[] | undefined
 }
 
+type FakeWebhookSendPayload = FakeSendPayload & {
+  username?: string | undefined
+  avatarURL?: string | undefined
+  avatar_url?: string | undefined
+}
+
 class FakeSentMessage {
   constructor(
     readonly id: string,
@@ -44,10 +50,40 @@ class FakeSentMessage {
   }
 }
 
+class FakeWebhook {
+  readonly sent: Array<FakeWebhookSendPayload & { message: FakeSentMessage }> = []
+  readonly edits: Array<{ messageId: string; payload: FakeWebhookSendPayload }> = []
+  private nextId = 1
+
+  constructor(
+    readonly id: string,
+    readonly token: string,
+    readonly name: string,
+    readonly channelId: string
+  ) {}
+
+  async send(input: string | FakeWebhookSendPayload): Promise<FakeSentMessage> {
+    const payload = typeof input === 'string' ? { content: input } : input
+    const message = new FakeSentMessage(`wh_${this.nextId++}`, this.channelId, payload.content)
+    this.sent.push({ ...payload, message })
+    return message
+  }
+
+  async editMessage(
+    messageId: string,
+    input: string | FakeWebhookSendPayload
+  ): Promise<FakeSentMessage> {
+    const payload = typeof input === 'string' ? { content: input } : input
+    this.edits.push({ messageId, payload })
+    return new FakeSentMessage(messageId, this.channelId, payload.content)
+  }
+}
+
 class FakeChannel {
   readonly sent: Array<
     FakeSendPayload & { replyTo?: string | undefined; message: FakeSentMessage }
   > = []
+  readonly webhooks = new Map<string, FakeWebhook>()
   readonly messages = {
     fetch: async (id: string) => this.messageById.get(id) ?? null,
   }
@@ -72,6 +108,21 @@ class FakeChannel {
     })
     this.messageById.set(message.id, message)
     return message
+  }
+
+  async fetchWebhooks(): Promise<Map<string, FakeWebhook>> {
+    return this.webhooks
+  }
+
+  async createWebhook(options: { name: string }): Promise<FakeWebhook> {
+    const webhook = new FakeWebhook(
+      `webhook_${this.webhooks.size + 1}`,
+      `token_${this.webhooks.size + 1}`,
+      options.name,
+      this.id
+    )
+    this.webhooks.set(webhook.id, webhook)
+    return webhook
   }
 }
 
@@ -695,7 +746,7 @@ describe('GatewayDiscordApp local e2e', () => {
     ])
   })
 
-  test('sends a fresh Discord reply when no placeholder exists', async () => {
+  test('sends a fresh webhook message without Discord reply references when no placeholder exists', async () => {
     await withWiredServer(async (fixture) => {
       fixture.interfaceStore.bindings.create({
         bindingId: 'ifb_234',
@@ -755,9 +806,18 @@ describe('GatewayDiscordApp local e2e', () => {
 
       await app.pollDeliveriesOnce()
 
-      expect(channel.sent).toHaveLength(1)
-      expect(channel.sent[0]?.content).toContain('Fresh reply')
-      expect(channel.sent[0]?.replyTo).toBe('orig_1')
+      expect(channel.sent).toHaveLength(0)
+      const webhook = [...channel.webhooks.values()].find(
+        (candidate) => candidate.name === 'agent-pulpit'
+      )
+      expect(webhook).toBeDefined()
+      expect(webhook?.sent).toHaveLength(1)
+      expect(webhook?.sent[0]?.content).toBe(`-# curly@${fixture.seed.projectId}~main\nFresh reply`)
+      expect(webhook?.sent[0]?.reply).toBeUndefined()
+      expect(webhook?.sent[0]?.username).toBe('curly')
+      expect(webhook?.sent[0]?.avatar_url ?? webhook?.sent[0]?.avatarURL).toBe(
+        'https://api.dicebear.com/7.x/bottts/png?seed=curly'
+      )
       expect(fixture.interfaceStore.deliveries.get('dr_234')?.status).toBe('delivered')
     })
   })
@@ -821,7 +881,7 @@ describe('GatewayDiscordApp local e2e', () => {
     }
   })
 
-  test('sends delivery body attachments as Discord files on a fresh reply', async () => {
+  test('sends delivery body attachments through the agent webhook without reply references', async () => {
     const priorFetch = globalThis.fetch
     globalThis.fetch = (async () =>
       new Response('delivered-bytes', {
@@ -874,14 +934,169 @@ describe('GatewayDiscordApp local e2e', () => {
         app as unknown as { deliverToDiscord(delivery: DeliveryRequest): Promise<void> }
       ).deliverToDiscord(delivery)
 
-      expect(channel.sent).toHaveLength(1)
-      expect(channel.sent[0]?.content).toContain('Here is the generated image.')
-      expect(channel.sent[0]?.replyTo).toBe('origin')
-      expect(channel.sent[0]?.files?.map((file) => file.name)).toEqual(['generated.png'])
-      expect(channel.sent[0]?.files?.[0]?.description).toBe('Generated image alt text')
+      expect(channel.sent).toHaveLength(0)
+      const webhook = [...channel.webhooks.values()].find(
+        (candidate) => candidate.name === 'agent-pulpit'
+      )
+      expect(webhook).toBeDefined()
+      expect(webhook?.sent).toHaveLength(1)
+      expect(webhook?.sent[0]?.content).toContain(
+        '-# curly@project_media~main\nHere is the generated image.'
+      )
+      expect(webhook?.sent[0]?.reply).toBeUndefined()
+      expect(webhook?.sent[0]?.username).toBe('curly')
+      expect(webhook?.sent[0]?.avatar_url ?? webhook?.sent[0]?.avatarURL).toBe(
+        'https://api.dicebear.com/7.x/bottts/png?seed=curly'
+      )
+      expect(webhook?.sent[0]?.files?.map((file) => file.name)).toEqual(['generated.png'])
+      expect(webhook?.sent[0]?.files?.[0]?.description).toBe('Generated image alt text')
     } finally {
       globalThis.fetch = priorFetch
     }
+  })
+
+  test('creates placeholders through the agent webhook with editable webhook metadata', async () => {
+    const channel = new FakeChannel('chan_placeholder_identity')
+    const client = new FakeClient()
+    client.addChannel(channel)
+
+    const app = new GatewayDiscordApp({
+      acpBaseUrl: 'http://acp.test',
+      gatewayId: 'discord_prod',
+      client: client as never,
+      fetchImpl: createFetch(async () => Response.json({ bindings: [] })),
+    })
+
+    const placeholder = await (
+      app as unknown as {
+        createPlaceholder(input: {
+          message: unknown
+          channelId: string
+          content: string
+          sessionRef: { scopeRef: string; laneRef: string }
+        }): Promise<
+          | (Record<string, unknown> & {
+              id: string
+              channelId: string
+              webhookId: string
+              identity: { agentId: string; subtext: string; avatarUrl: string }
+            })
+          | undefined
+        >
+      }
+    ).createPlaceholder({
+      message: { id: 'incoming_placeholder' },
+      channelId: channel.id,
+      content: 'Please do the work',
+      sessionRef: {
+        scopeRef: 'agent:cody:project:agent-spaces:task:T-04321',
+        laneRef: 'main',
+      },
+    })
+
+    expect(channel.sent).toHaveLength(0)
+    const webhook = [...channel.webhooks.values()].find(
+      (candidate) => candidate.name === 'agent-pulpit'
+    )
+    expect(webhook).toBeDefined()
+    expect(webhook?.sent).toHaveLength(1)
+    expect(webhook?.sent[0]?.username).toBe('cody')
+    expect(webhook?.sent[0]?.avatar_url ?? webhook?.sent[0]?.avatarURL).toBe(
+      'https://api.dicebear.com/7.x/bottts/png?seed=cody'
+    )
+    expect(webhook?.sent[0]?.content).toBe(
+      '-# cody@agent-spaces:T-04321~main\n⏳ **Processing:** Please do the work'
+    )
+    expect(placeholder).toMatchObject({
+      kind: 'message',
+      id: webhook?.sent[0]?.message.id,
+      channelId: channel.id,
+      webhookId: webhook?.id,
+      identity: {
+        agentId: 'cody',
+        subtext: 'cody@agent-spaces:T-04321~main',
+        avatarUrl: 'https://api.dicebear.com/7.x/bottts/png?seed=cody',
+      },
+    })
+  })
+
+  test('finalizes webhook placeholders by editing via the same webhook identity', async () => {
+    const channel = new FakeChannel('chan_placeholder_final')
+    const webhook = await channel.createWebhook({ name: 'agent-pulpit' })
+    const client = new FakeClient()
+    client.addChannel(channel)
+
+    const app = new GatewayDiscordApp({
+      acpBaseUrl: 'http://acp.test',
+      gatewayId: 'discord_prod',
+      client: client as never,
+      fetchImpl: createFetch(async () => Response.json({ bindings: [] })),
+      maxChars: 80,
+    })
+    ;(
+      app as unknown as {
+        placeholdersByRunId: Map<string, unknown>
+      }
+    ).placeholdersByRunId.set('run_webhook_final', {
+      ui: {
+        gatewayId: 'discord_prod',
+        kind: 'message',
+        id: 'wh_placeholder_1',
+        channelId: channel.id,
+        webhookId: webhook.id,
+      },
+      identity: {
+        agentId: 'cody',
+        subtext: 'cody@agent-spaces:T-04321~main',
+        avatarUrl: 'https://api.dicebear.com/7.x/bottts/png?seed=cody',
+      },
+    })
+
+    const delivery: DeliveryRequest = {
+      deliveryRequestId: 'dr_webhook_final',
+      gatewayId: 'discord_prod',
+      bindingId: 'ifb_webhook_final',
+      sessionRef: {
+        scopeRef: 'agent:cody:project:agent-spaces:task:T-04321',
+        laneRef: 'main',
+      },
+      runId: 'run_webhook_final',
+      conversationRef: `channel:${channel.id}`,
+      body: {
+        kind: 'text/markdown',
+        text: `Final answer\n\n${'overflow '.repeat(30)}`,
+      },
+      status: 'queued',
+      createdAt: '2026-05-06T14:00:00.000Z',
+    }
+
+    await (
+      app as unknown as { deliverToDiscord(delivery: DeliveryRequest): Promise<void> }
+    ).deliverToDiscord(delivery)
+
+    expect(channel.sent).toHaveLength(0)
+    expect(webhook.edits).toHaveLength(1)
+    expect(webhook.edits[0]).toMatchObject({
+      messageId: 'wh_placeholder_1',
+      payload: {
+        username: 'cody',
+      },
+    })
+    expect(webhook.edits[0]?.payload.avatar_url ?? webhook.edits[0]?.payload.avatarURL).toBe(
+      'https://api.dicebear.com/7.x/bottts/png?seed=cody'
+    )
+    expect(webhook.edits[0]?.payload.content).toContain(
+      '-# cody@agent-spaces:T-04321~main\nFinal answer'
+    )
+    expect(webhook.sent.length).toBeGreaterThan(0)
+    expect(webhook.sent.every((payload) => payload.username === 'cody')).toBe(true)
+    expect(
+      webhook.sent.every(
+        (payload) =>
+          (payload.avatar_url ?? payload.avatarURL) ===
+          'https://api.dicebear.com/7.x/bottts/png?seed=cody'
+      )
+    ).toBe(true)
   })
 
   test('replaces the placeholder with a visible error when ACP fetch throws', async () => {
