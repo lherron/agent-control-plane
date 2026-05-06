@@ -2,8 +2,8 @@ import { describe, expect, test } from 'bun:test'
 
 import { SessionEventsManager } from '../session-events-manager.js'
 
-describe('SessionEventsManager internal run suppression', () => {
-  test('ignores internal runs and suppresses subsequent events for that runId', () => {
+describe('SessionEventsManager internal run handling', () => {
+  test('ignores explicitly internal events without keeping project-level internal run ids', () => {
     const renders: Array<{ projectId: string; runId: string }> = []
 
     const manager = new SessionEventsManager('gateway-test', (projectId, runId) => {
@@ -40,8 +40,8 @@ describe('SessionEventsManager internal run suppression', () => {
       },
     })
 
-    expect(manager.getRunState('control-plane', 'run-internal')).toBeUndefined()
-    expect(renders).toHaveLength(0)
+    expect(manager.getRunState('control-plane', 'run-internal')).toBeDefined()
+    expect(renders).toHaveLength(1)
 
     manager.receive({
       projectId: 'control-plane',
@@ -57,8 +57,15 @@ describe('SessionEventsManager internal run suppression', () => {
     })
 
     expect(manager.getRunState('control-plane', 'run-user')).toBeDefined()
-    expect(renders).toHaveLength(1)
-    expect(renders[0]?.runId).toBe('run-user')
+    expect(renders).toHaveLength(2)
+    expect(renders[1]?.runId).toBe('run-user')
+
+    const projectState = (
+      manager as unknown as {
+        projects: Map<string, Record<string, unknown>>
+      }
+    ).projects.get('control-plane')
+    expect(projectState).not.toHaveProperty('internalRunIds')
   })
 
   test('renders final assistant content carried on turn_end payload', () => {

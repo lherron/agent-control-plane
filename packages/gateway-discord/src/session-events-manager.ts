@@ -13,6 +13,7 @@ interface ToolExecution {
   toolName: string
   input: Record<string, unknown>
   status: 'running' | 'completed' | 'failed'
+  seq: number
   output?: string | undefined
   images?: Array<{ data: string; mimeType: string }> | undefined
   mediaRefs?:
@@ -28,6 +29,7 @@ interface ToolExecution {
 export interface RunState {
   runId: string
   projectId: string
+  lastSeq: number
   status: 'queued' | 'running' | 'awaiting_permission' | 'completed' | 'failed' | 'cancelled'
   inputContent: string
   startedAt?: number | undefined
@@ -35,6 +37,12 @@ export interface RunState {
   userMessage?: string | undefined
   assistantMessage?: string | undefined
   toolExecutions: ToolExecution[]
+  noticeEntries: Array<{
+    id: string
+    level: 'info' | 'warn' | 'error'
+    message: string
+    seq: number
+  }>
   permissionRequest?:
     | {
         requestId: string
@@ -50,9 +58,7 @@ export interface RunState {
 
 interface ProjectState {
   projectId: string
-  lastSeq: number
   runs: Map<string, RunState>
-  internalRunIds: Set<string>
   focusedRunId?: string | undefined
 }
 
@@ -124,7 +130,7 @@ function processEvent(
   runId: string | undefined,
   seq: number
 ): ProjectState {
-  const newState = { ...state, lastSeq: seq, runs: new Map(state.runs) }
+  const newState = { ...state, runs: new Map(state.runs) }
 
   const getOrCreateRun = (rid: string): RunState => {
     const existing = newState.runs.get(rid)
@@ -136,21 +142,25 @@ function processEvent(
           ...(tool.images ? { images: [...tool.images] } : {}),
           ...(tool.mediaRefs ? { mediaRefs: [...tool.mediaRefs] } : {}),
         })),
+        noticeEntries: existing.noticeEntries.map((notice) => ({ ...notice })),
       }
     }
 
     return {
       runId: rid,
       projectId: state.projectId,
+      lastSeq: 0,
       status: 'queued',
       inputContent: '',
       toolExecutions: [],
+      noticeEntries: [],
     }
   }
 
   switch (event.type) {
     case 'run_queued': {
       const run = getOrCreateRun(event.runId)
+      run.lastSeq = seq
       run.projectId = event.projectId
       run.status = 'queued'
       run.inputContent = event.input.content
@@ -161,6 +171,7 @@ function processEvent(
 
     case 'run_started': {
       const run = getOrCreateRun(event.runId)
+      run.lastSeq = seq
       run.status = 'running'
       run.startedAt = event.startedAt
       newState.runs.set(event.runId, run)
@@ -170,6 +181,7 @@ function processEvent(
 
     case 'run_completed': {
       const run = getOrCreateRun(event.runId)
+      run.lastSeq = seq
       run.status = 'completed'
       run.completedAt = event.completedAt
       if (event.finalOutput) {
@@ -181,6 +193,7 @@ function processEvent(
 
     case 'run_failed': {
       const run = getOrCreateRun(event.runId)
+      run.lastSeq = seq
       run.status = 'failed'
       newState.runs.set(event.runId, run)
       break
@@ -188,6 +201,7 @@ function processEvent(
 
     case 'run_cancelled': {
       const run = getOrCreateRun(event.runId)
+      run.lastSeq = seq
       run.status = 'cancelled'
       newState.runs.set(event.runId, run)
       break
@@ -200,6 +214,7 @@ function processEvent(
       }
 
       const run = getOrCreateRun(runId)
+      run.lastSeq = seq
       const message = event.message
       if (message) {
         const content =
@@ -224,6 +239,7 @@ function processEvent(
       }
 
       const run = getOrCreateRun(runId)
+      run.lastSeq = seq
       if (event.textDelta) {
         run.assistantMessage = (run.assistantMessage ?? '') + event.textDelta
       }
@@ -249,6 +265,7 @@ function processEvent(
       }
 
       const run = getOrCreateRun(runId)
+      run.lastSeq = seq
       run.status = 'completed'
       run.completedAt = Date.now()
       const completedMessage = extractTurnEndAssistantMessage(event.payload)
@@ -265,6 +282,7 @@ function processEvent(
       }
 
       const run = getOrCreateRun(runId)
+      run.lastSeq = seq
       const existingIndex = run.toolExecutions.findIndex(
         (tool) => tool.toolUseId === event.toolUseId
       )
@@ -284,6 +302,7 @@ function processEvent(
           toolUseId: event.toolUseId,
           toolName: event.toolName,
           input: event.input,
+          seq,
           status: 'running',
         })
       }
@@ -298,6 +317,7 @@ function processEvent(
       }
 
       const run = getOrCreateRun(runId)
+      run.lastSeq = seq
       const toolIndex = run.toolExecutions.findIndex((tool) => tool.toolUseId === event.toolUseId)
       let output = ''
       const images: Array<{ data: string; mimeType: string }> = []
@@ -376,6 +396,7 @@ function processEvent(
           toolUseId: event.toolUseId,
           toolName: event.toolName,
           input: {},
+          seq,
           status: event.isError ? 'failed' : 'completed',
           output: finalOutput,
           images: finalImages,
@@ -389,6 +410,7 @@ function processEvent(
 
     case 'permission_request': {
       const run = getOrCreateRun(event.runId)
+      run.lastSeq = seq
       run.status = 'awaiting_permission'
       run.permissionRequest = {
         requestId: event.requestId,
@@ -403,11 +425,29 @@ function processEvent(
 
     case 'permission_decision': {
       const run = getOrCreateRun(event.runId)
+      run.lastSeq = seq
       run.permissionRequest = undefined
       if (run.status === 'awaiting_permission') {
         run.status = 'running'
       }
       newState.runs.set(event.runId, run)
+      break
+    }
+
+    case 'notice': {
+      if (!runId) {
+        break
+      }
+
+      const run = getOrCreateRun(runId)
+      run.lastSeq = seq
+      run.noticeEntries.push({
+        id: String(seq),
+        level: event.level,
+        message: event.message,
+        seq,
+      })
+      newState.runs.set(runId, run)
       break
     }
 
@@ -447,7 +487,7 @@ export function runStateToFrame(run: RunState): RenderFrame {
             ? 'final'
             : 'error'
 
-  const blocks: RenderFrame['blocks'] = []
+  const timelineBlocks: Array<{ seq: number; block: RenderFrame['blocks'][number] }> = []
   const truncate = (value: string, max: number) =>
     value.length > max ? `${value.slice(0, max)}...` : value
   const allMediaRefs: Array<{
@@ -458,19 +498,38 @@ export function runStateToFrame(run: RunState): RenderFrame {
   }> = []
 
   for (const tool of run.toolExecutions) {
-    blocks.push({
-      t: 'tool',
-      toolName: tool.toolName,
-      summary: formatToolSummary(tool.toolName, tool.input),
-      output: tool.output,
-      images: tool.images,
-      approved: tool.status === 'completed' ? true : tool.status === 'failed' ? false : undefined,
+    timelineBlocks.push({
+      seq: tool.seq,
+      block: {
+        t: 'tool',
+        toolName: tool.toolName,
+        summary: formatToolSummary(tool.toolName, tool.input),
+        output: tool.output,
+        images: tool.images,
+        approved: tool.status === 'completed' ? true : tool.status === 'failed' ? false : undefined,
+      },
     })
 
     if (tool.mediaRefs && tool.mediaRefs.length > 0) {
       allMediaRefs.push(...tool.mediaRefs)
     }
   }
+
+  for (const notice of run.noticeEntries) {
+    timelineBlocks.push({
+      seq: notice.seq,
+      block: {
+        t: 'notice',
+        level: notice.level,
+        message: notice.message,
+      },
+    })
+  }
+
+  const blocks: RenderFrame['blocks'] = timelineBlocks
+    .sort((left, right) => left.seq - right.seq)
+    .slice(0, 12)
+    .map((entry) => entry.block)
 
   if (run.permissionRequest) {
     const { toolName, toolInput } = run.permissionRequest
@@ -554,9 +613,7 @@ export class SessionEventsManager {
     if (!this.projects.has(projectId)) {
       this.projects.set(projectId, {
         projectId,
-        lastSeq: 0,
         runs: new Map(),
-        internalRunIds: new Set(),
       })
     }
   }
@@ -567,23 +624,21 @@ export class SessionEventsManager {
 
   receive(envelope: SessionEventEnvelope): void {
     const state = this.ensureProject(envelope.projectId)
-    const seq = envelope.seq ?? state.lastSeq + 1
+    const affectedRunId = this.getAffectedRunId(envelope.event, envelope.runId)
+    const existingRun = affectedRunId ? state.runs.get(affectedRunId) : undefined
+    const seq = envelope.seq ?? (existingRun?.lastSeq ?? 0) + 1
     const isInternal = envelope.run?.visibility === 'internal'
 
-    if (seq <= state.lastSeq) {
+    if (existingRun && seq <= existingRun.lastSeq) {
       log.debug('session.event.dedupe', {
         message: `Ignoring duplicate event: ${envelope.event.type}`,
         trace: { gatewayId: this.gatewayId, projectId: envelope.projectId, runId: envelope.runId },
-        data: { eventType: envelope.event.type, seq, lastSeq: state.lastSeq },
+        data: { eventType: envelope.event.type, seq, lastSeq: existingRun.lastSeq },
       })
       return
     }
 
-    if (envelope.runId && (isInternal || state.internalRunIds.has(envelope.runId))) {
-      state.lastSeq = seq
-      if (isInternal) {
-        state.internalRunIds.add(envelope.runId)
-      }
+    if (isInternal) {
       return
     }
 
@@ -619,9 +674,7 @@ export class SessionEventsManager {
 
     const created: ProjectState = {
       projectId,
-      lastSeq: 0,
       runs: new Map(),
-      internalRunIds: new Set(),
     }
     this.projects.set(projectId, created)
     return created

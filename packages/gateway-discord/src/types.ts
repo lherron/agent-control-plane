@@ -77,6 +77,7 @@ export type RenderBlock =
       approved?: boolean | undefined
       approvalSource?: string | undefined
     }
+  | { t: 'notice'; level: 'info' | 'warn' | 'error'; message: string }
 
 export type RenderAction = {
   id: string
@@ -177,6 +178,12 @@ export type GatewaySessionMetadataEvent = {
     | 'sdk_session_id'
 }
 
+export type GatewayNoticeEvent = {
+  type: 'notice'
+  level: 'info' | 'warn' | 'error'
+  message: string
+}
+
 export type GatewaySessionEvent =
   | import('spaces-runtime').UnifiedSessionEvent
   | GatewayRunQueuedEvent
@@ -187,6 +194,7 @@ export type GatewaySessionEvent =
   | GatewayPermissionRequestEvent
   | GatewayPermissionDecisionEvent
   | GatewaySessionMetadataEvent
+  | GatewayNoticeEvent
 
 export type SessionEventEnvelope = {
   projectId: string
