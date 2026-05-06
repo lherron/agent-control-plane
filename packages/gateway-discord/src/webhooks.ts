@@ -15,9 +15,12 @@ export type WebhookMessage = {
 
 type DiscordWebhookSendPayload = Omit<WebhookPayload, 'avatar_url' | 'avatarURL'> & {
   avatarURL?: string | undefined
+  threadId?: string | undefined
 }
 
-type DiscordWebhookEditPayload = Omit<WebhookPayload, 'avatar_url' | 'avatarURL' | 'username'>
+type DiscordWebhookEditPayload = Omit<WebhookPayload, 'avatar_url' | 'avatarURL' | 'username'> & {
+  threadId?: string | undefined
+}
 
 type WebhookCollection =
   | Iterable<ManagedWebhook>
@@ -35,8 +38,10 @@ export type ManagedWebhook = {
 
 export type WebhookChannel = {
   isTextBased(): boolean
-  fetchWebhooks(): Promise<WebhookCollection>
-  createWebhook(options: { name: string }): Promise<ManagedWebhook>
+  fetchWebhooks?(): Promise<WebhookCollection>
+  createWebhook?(options: { name: string }): Promise<ManagedWebhook>
+  isThread?(): boolean
+  parentId?: string | null
 }
 
 export type WebhookClientLike = {
@@ -158,9 +163,33 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
     return channel
   }
 
+  /**
+   * Resolve a channelId to the channel that owns webhooks. For thread channels,
+   * webhooks live on the parent text channel; we fetch and cache against the
+   * parent. Returns `{ webhookChannelId, threadId }` where `threadId` is set
+   * iff the input channelId was a thread (so callers can pass it on send/edit).
+   */
+  async function resolveWebhookContainer(channelId: string): Promise<{
+    webhookChannelId: string
+    threadId?: string
+    container: WebhookChannel
+  }> {
+    const channel = await fetchTextChannel(channelId)
+    const isThread = typeof channel.isThread === 'function' && channel.isThread()
+    if (isThread && channel.parentId) {
+      const parent = await fetchTextChannel(channel.parentId)
+      return { webhookChannelId: channel.parentId, threadId: channelId, container: parent }
+    }
+    return { webhookChannelId: channelId, container: channel }
+  }
+
   async function getOrCreateWebhook(channelId: string): Promise<ManagedWebhook> {
     try {
-      const cached = cache.get(channelId)
+      // Resolve thread → parent so webhook lookup/cache uses the channel that
+      // actually owns webhooks. Threads inherit webhooks from their parent.
+      const { webhookChannelId, container } = await resolveWebhookContainer(channelId)
+
+      const cached = cache.get(webhookChannelId)
       if (cached !== undefined) {
         log.debug('gw.discord.webhook.resolve', {
           data: { channelId, webhookId: cached.id, outcome: 'cached' },
@@ -168,12 +197,15 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
         return cached
       }
 
-      const channel = await fetchTextChannel(channelId)
-
-      const webhooks = await channel.fetchWebhooks()
+      if (typeof container.fetchWebhooks !== 'function') {
+        throw new Error(
+          `Discord channel ${webhookChannelId} does not support fetchWebhooks (resolved from ${channelId})`
+        )
+      }
+      const webhooks = await container.fetchWebhooks()
       for (const webhook of webhookValues(webhooks)) {
         if (webhook.name === webhookName) {
-          cache.set(channelId, webhook)
+          cache.set(webhookChannelId, webhook)
           log.info('gw.discord.webhook.resolve', {
             data: { channelId, webhookId: webhook.id, outcome: 'existing' },
           })
@@ -181,8 +213,13 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
         }
       }
 
-      const webhook = await channel.createWebhook({ name: webhookName })
-      cache.set(channelId, webhook)
+      if (typeof container.createWebhook !== 'function') {
+        throw new Error(
+          `Discord channel ${webhookChannelId} does not support createWebhook (resolved from ${channelId})`
+        )
+      }
+      const webhook = await container.createWebhook({ name: webhookName })
+      cache.set(webhookChannelId, webhook)
       log.info('gw.discord.webhook.resolve', {
         data: { channelId, webhookId: webhook.id, outcome: 'created' },
       })
@@ -198,7 +235,11 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
 
   async function findWebhookById(channelId: string, webhookId: string): Promise<ManagedWebhook> {
     try {
-      const cached = cache.get(channelId)
+      // Resolve thread → parent so we look up the webhook on the channel that
+      // owns it.
+      const { webhookChannelId, container } = await resolveWebhookContainer(channelId)
+
+      const cached = cache.get(webhookChannelId)
       if (cached?.id === webhookId) {
         log.debug('gw.discord.webhook.resolve', {
           data: { channelId, webhookId, outcome: 'cached' },
@@ -206,11 +247,15 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
         return cached
       }
 
-      const channel = await fetchTextChannel(channelId)
-      const webhooks = await channel.fetchWebhooks()
+      if (typeof container.fetchWebhooks !== 'function') {
+        throw new Error(
+          `Discord channel ${webhookChannelId} does not support fetchWebhooks (resolved from ${channelId})`
+        )
+      }
+      const webhooks = await container.fetchWebhooks()
       for (const webhook of webhookValues(webhooks)) {
         if (webhook.id === webhookId) {
-          cache.set(channelId, webhook)
+          cache.set(webhookChannelId, webhook)
           log.info('gw.discord.webhook.resolve', {
             data: { channelId, webhookId, outcome: 'by_id' },
           })
@@ -225,6 +270,20 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
         err: { message: error instanceof Error ? error.message : String(error) },
       })
       throw error
+    }
+  }
+
+  /**
+   * If the input channelId is a thread, return its id so callers can pass
+   * `threadId` on send/edit (so the webhook posts INTO the thread, not the
+   * parent channel). Returns undefined for non-thread channels.
+   */
+  async function resolveThreadIdForPost(channelId: string): Promise<string | undefined> {
+    try {
+      const { threadId } = await resolveWebhookContainer(channelId)
+      return threadId
+    } catch {
+      return undefined
     }
   }
 
@@ -279,9 +338,14 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
     async send(channelId, payload) {
       let resolvedWebhookId: string | undefined
       try {
+        const threadId = await resolveThreadIdForPost(channelId)
+        const sendPayload = {
+          ...normalizeSendPayload(payload),
+          ...(threadId !== undefined ? { threadId } : {}),
+        }
         const message = await runWebhookOperation(channelId, undefined, (webhook) => {
           resolvedWebhookId = webhook.id
-          return webhook.send(normalizeSendPayload(payload))
+          return webhook.send(sendPayload)
         })
         log.info('gw.discord.webhook.send', {
           data: {
@@ -318,9 +382,14 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
 
       // Discord edit options do not support username/avatar overrides; the
       // placeholder must be created with the right identity before this edit.
-      const editPayload = normalizeEditPayload(payload)
+      const baseEditPayload = normalizeEditPayload(payload)
       let resolvedWebhookId: string | undefined = webhookId
       try {
+        const threadId = await resolveThreadIdForPost(channelId)
+        const editPayload = {
+          ...baseEditPayload,
+          ...(threadId !== undefined ? { threadId } : {}),
+        }
         const message = await runWebhookOperation(channelId, webhookId, (webhook) => {
           resolvedWebhookId = webhook.id
           return webhook.editMessage(messageId, editPayload)
