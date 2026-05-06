@@ -21,7 +21,6 @@ import {
   requiredEnv,
 } from './config.js'
 import { classifyDiscordError } from './discord-errors.js'
-import { renderToDiscord } from './discord-render.js'
 import {
   type DiscordAgentMessageIdentity,
   avatarFor,
@@ -165,15 +164,6 @@ function buildFinalFrame(
     blocks,
     updatedAt: Date.now(),
   }
-}
-
-function isSendableChannel(
-  channel: Awaited<ReturnType<Client['channels']['fetch']>>
-): channel is Awaited<ReturnType<Client['channels']['fetch']>> & {
-  send: (options: unknown) => Promise<{ id: string; channelId: string }>
-  isTextBased(): true
-} {
-  return Boolean(channel?.isTextBased() && 'send' in channel)
 }
 
 export class GatewayDiscordApp {
@@ -351,12 +341,23 @@ export class GatewayDiscordApp {
       return
     }
 
+    // For `nt` keyword routes, ensureKeywordThreadBinding creates a child binding
+    // with a thread-scoped laneRef. Use that effective sessionRef so the placeholder
+    // subtext shows the child thread lane, not the parent's `main` lane.
+    const effectiveSessionRef: InterfaceSessionRef =
+      route.targetThreadId !== undefined
+        ? {
+            scopeRef: binding.sessionRef.scopeRef,
+            laneRef: buildDiscordThreadLaneRef(route.targetThreadId),
+          }
+        : binding.sessionRef
+
     const placeholder = await this.createPlaceholder({
       message,
       channelId: route.targetChannelId,
       content: route.content,
       ...(route.targetThreadId !== undefined ? { threadId: route.targetThreadId } : {}),
-      sessionRef: binding.sessionRef,
+      sessionRef: effectiveSessionRef,
     })
     const attachments = mapDiscordMessageAttachments(message)
     let response: Response
@@ -540,24 +541,35 @@ export class GatewayDiscordApp {
           // Webhook-created placeholder: edit + overflow via the same webhook
           await this.renderViaWebhook(placeholder.ui, frame, placeholder.identity ?? identity)
         } else {
-          // Bot-created placeholder (legacy / system): edit via bot client
-          await renderToDiscord(
-            this.client,
-            placeholder.ui,
-            frame,
-            this.maxChars,
-            this.renderOptions
-          )
+          // Placeholder exists but has no webhookId (should not happen for agent-originated
+          // content, but can occur if placeholder was created before webhook support).
+          // NEVER fall back to Rex — best-effort delete the stale placeholder and fall
+          // through to the fresh webhook delivery path below.
+          log.warn('gw.delivery.placeholder_missing_webhook', {
+            message: 'Placeholder has no webhookId; deleting stale placeholder and sending fresh webhook message',
+            trace: { gatewayId: this.gatewayId },
+            data: { runId: delivery.runId, placeholderMessageId: placeholder.ui.id },
+          })
+          await this.deletePlaceholder(placeholder.ui)
+          // Fall through to fresh webhook delivery below
         }
       } finally {
         if (delivery.runId) {
           this.placeholdersByRunId.delete(delivery.runId)
         }
       }
-      return
+      // If we edited via webhook, we're done. If we fell through (no webhookId),
+      // continue to fresh delivery below.
+      if (placeholder.ui.webhookId) {
+        return
+      }
     }
 
-    // Fresh delivery (no placeholder): send via webhook with agent identity
+    // Fresh delivery (no placeholder) OR restart fallback (placeholder lost from
+    // in-memory placeholdersByRunId after gateway restart, or placeholder had no
+    // webhookId). In all cases, send via webhook with the agent's identity.
+    // Accept degraded UX: the stale placeholder stays (if it existed) and a new
+    // message appears. NEVER fall back to Rex for agent-originated content.
     const targetChannelId =
       threadRefToThreadId(delivery.threadRef) ??
       conversationRefToChannelId(delivery.conversationRef)
@@ -565,8 +577,11 @@ export class GatewayDiscordApp {
       throw new Error(`Unsupported Discord conversationRef: ${delivery.conversationRef}`)
     }
 
-    const content = renderFrameToDiscordContent(frame, this.maxChars)
-    const chunks = splitIntoChunks(content, this.maxChars, this.renderOptions)
+    const rawContent = renderFrameToDiscordContent(frame, this.maxChars)
+    // Build full prefixed content FIRST so the subtext prefix is budgeted into
+    // chunk sizes, preventing BASE_TYPE_MAX_LENGTH overflow (smoke issue 4).
+    const prefixedContent = `-# ${identity.subtext}\n${rawContent}`
+    const chunks = splitIntoChunks(prefixedContent, this.maxChars, this.renderOptions)
 
     // Extract image and media attachments from the frame
     const imageAttachments = extractImagesFromFrame(frame)
@@ -578,13 +593,12 @@ export class GatewayDiscordApp {
     for (let index = 0; index < chunks.length; index += 1) {
       const isLastChunk = index === chunks.length - 1
       const chunkFiles = isLastChunk ? filesPayload : {}
-      const rawChunk = chunks[index] ?? ''
-      const chunkContent = index === 0 ? `-# ${identity.subtext}\n${rawChunk}` : rawChunk
+      const chunkContent = chunks[index] ?? ''
       try {
         await this.webhooks.send(targetChannelId, {
           content: chunkContent,
           username: identity.agentId,
-          avatar_url: identity.avatarUrl,
+          avatarURL: identity.avatarUrl,
           ...chunkFiles,
         })
       } catch (error) {
@@ -605,8 +619,11 @@ export class GatewayDiscordApp {
   ): Promise<void> {
     if (!ui.channelId) return
 
-    const fullContent = renderFrameToDiscordContent(frame, this.maxChars)
-    const chunks = splitIntoChunks(fullContent, this.maxChars, this.renderOptions)
+    const rawContent = renderFrameToDiscordContent(frame, this.maxChars)
+    // Build full prefixed content FIRST so the subtext prefix is budgeted into
+    // chunk sizes, preventing BASE_TYPE_MAX_LENGTH overflow (smoke issue 4).
+    const prefixedContent = `-# ${identity.subtext}\n${rawContent}`
+    const chunks = splitIntoChunks(prefixedContent, this.maxChars, this.renderOptions)
 
     // Extract image and media attachments from the frame
     const imageAttachments = extractImagesFromFrame(frame)
@@ -615,13 +632,15 @@ export class GatewayDiscordApp {
     const discordFiles = [...createDiscordAttachments(imageAttachments), ...mediaFiles]
     const filesPayload = discordFiles.length > 0 ? { files: discordFiles } : {}
 
-    // Edit the placeholder message with the first chunk
+    // Edit the placeholder message with the first chunk (prefix already included).
+    // Use the explicit 4-arg editMessage(channelId, messageId, webhookId, payload)
+    // so the webhook manager resolves the exact webhook that created the placeholder.
     const firstChunk = chunks[0] || ''
     const primaryFiles = chunks.length === 1 ? filesPayload : {}
-    await this.webhooks.editMessage(ui.channelId, ui.id, {
-      content: `-# ${identity.subtext}\n${firstChunk}`,
+    await this.webhooks.editMessage(ui.channelId, ui.id, ui.webhookId ?? '', {
+      content: firstChunk,
       username: identity.agentId,
-      avatar_url: identity.avatarUrl,
+      avatarURL: identity.avatarUrl,
       ...primaryFiles,
     })
 
@@ -634,7 +653,7 @@ export class GatewayDiscordApp {
       await this.webhooks.send(ui.channelId, {
         content: chunk,
         username: identity.agentId,
-        avatar_url: identity.avatarUrl,
+        avatarURL: identity.avatarUrl,
         ...chunkFiles,
       })
     }
@@ -660,7 +679,7 @@ export class GatewayDiscordApp {
         const sent = await this.webhooks.send(input.channelId, {
           content: `-# ${identity.subtext}\n⏳ **Processing:** ${promptPreview}`,
           username: identity.agentId,
-          avatar_url: identity.avatarUrl,
+          avatarURL: identity.avatarUrl,
         })
 
         const webhook = await this.webhooks.getOrCreateWebhook(input.channelId)
@@ -676,19 +695,16 @@ export class GatewayDiscordApp {
         }
       }
 
-      // Fallback: bot-originated placeholder (no binding/sessionRef)
-      const channel = await this.client.channels.fetch(input.channelId)
-      if (!isSendableChannel(channel)) {
-        return undefined
-      }
-      const initialMessage = await channel.send(`⏳ **Processing:** ${promptPreview}`)
-      return {
-        gatewayId: this.gatewayId,
-        kind: 'message',
-        id: initialMessage.id,
-        channelId: initialMessage.channelId,
-        ...(input.threadId !== undefined ? { threadId: input.threadId } : {}),
-      }
+      // No sessionRef means no agent identity. For bound channels this should
+      // never happen (handleMessageCreate always passes binding.sessionRef).
+      // Do NOT fall back to Rex — log and skip so we never post agent content
+      // under the bot identity.
+      log.warn('gw.discord.placeholder.no_session_ref', {
+        message: 'createPlaceholder called without sessionRef; skipping to avoid Rex identity leak',
+        trace: { gatewayId: this.gatewayId },
+        data: { channelId: input.channelId },
+      })
+      return undefined
     } catch (error) {
       log.warn('gw.discord.placeholder.failed', {
         message: 'Failed to send placeholder',
@@ -748,8 +764,8 @@ export class GatewayDiscordApp {
 
     try {
       if (ui.webhookId) {
-        // Webhook-created placeholder: edit via the same webhook
-        await this.webhooks.editMessage(ui.channelId, ui.id, {
+        // Webhook-created placeholder: edit via the same webhook (4-arg form)
+        await this.webhooks.editMessage(ui.channelId, ui.id, ui.webhookId, {
           content: `⚠️ ${reason}`,
         })
         return

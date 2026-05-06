@@ -372,6 +372,9 @@ describe('GatewayDiscordApp local e2e', () => {
       expect(webhook?.sent[0]?.content).toContain('⏳ **Processing:**')
       expect(webhook?.sent[0]?.content).toContain('implement a new feature XTZ')
       expect(webhook?.sent[0]?.content).not.toContain('nt implement')
+      // Subtext must reflect the CHILD thread laneRef, not the parent's `main` lane.
+      expect(webhook?.sent[0]?.content).toContain('lane:discord-thread_nt_1')
+      expect(webhook?.sent[0]?.content).not.toMatch(/^-# .*~main\n/)
 
       const threadBinding = fixture.interfaceStore.bindings.resolve({
         gatewayId: 'discord_prod',
@@ -1108,6 +1111,117 @@ describe('GatewayDiscordApp local e2e', () => {
           'https://api.dicebear.com/7.x/bottts/png?seed=cody'
       )
     ).toBe(true)
+  })
+
+  test('webhook placeholder without webhookId falls through to fresh webhook send (never Rex)', async () => {
+    // Restart-fallback / legacy-state regression guard. If a placeholder entry
+    // somehow has no `webhookId` (e.g. created by a pre-refactor process before
+    // restart, or legacy/test entry), deliverToDiscord MUST NOT fall back to
+    // `renderToDiscord` (bot/Rex). It must send the final via the agent
+    // webhook so the visible identity stays correct.
+    const channel = new FakeChannel('chan_no_webhook_id')
+    await channel.createWebhook({ name: 'agent-pulpit' })
+    const client = new FakeClient()
+    client.addChannel(channel)
+
+    const app = new GatewayDiscordApp({
+      acpBaseUrl: 'http://acp.test',
+      gatewayId: 'discord_prod',
+      client: client as never,
+      fetchImpl: createFetch(async () => Response.json({ bindings: [] })),
+    })
+    ;(
+      app as unknown as {
+        placeholdersByRunId: Map<string, unknown>
+      }
+    ).placeholdersByRunId.set('run_legacy_no_webhook', {
+      ui: {
+        gatewayId: 'discord_prod',
+        kind: 'message',
+        id: 'legacy_placeholder_msg',
+        channelId: channel.id,
+        // webhookId intentionally omitted
+      },
+      // identity intentionally omitted; deliverToDiscord must derive from sessionRef
+    })
+
+    const delivery: DeliveryRequest = {
+      deliveryRequestId: 'dr_legacy_no_webhook',
+      gatewayId: 'discord_prod',
+      bindingId: 'ifb_legacy',
+      sessionRef: {
+        scopeRef: 'agent:cody:project:agent-spaces:task:T-04321',
+        laneRef: 'main',
+      },
+      runId: 'run_legacy_no_webhook',
+      conversationRef: `channel:${channel.id}`,
+      body: { kind: 'text/markdown', text: 'Legacy fallback final.' },
+      status: 'queued',
+      createdAt: '2026-05-06T15:00:00.000Z',
+    }
+
+    await (
+      app as unknown as { deliverToDiscord(delivery: DeliveryRequest): Promise<void> }
+    ).deliverToDiscord(delivery)
+
+    // Bot path must not be used — channel.sent contains no agent finals.
+    expect(channel.sent).toHaveLength(0)
+
+    // Fresh webhook send must have happened with cody identity + subtext.
+    const webhook = [...channel.webhooks.values()].find((w) => w.name === 'agent-pulpit')
+    expect(webhook).toBeDefined()
+    expect(webhook?.sent).toHaveLength(1)
+    expect(webhook?.sent[0]?.content).toContain('-# cody@agent-spaces:T-04321~main\n')
+    expect(webhook?.sent[0]?.content).toContain('Legacy fallback final.')
+    expect(webhook?.sent[0]?.username).toBe('cody')
+  })
+
+  test('agent webhook chunks never exceed maxChars even with subtext prefix', async () => {
+    // Smoke issue 4 regression guard: the `-# {subtext}\n` prefix must be
+    // budgeted into the chunk size. Previously, a body at exactly maxChars
+    // produced a first chunk of `2000 + prefix.length` and Discord rejected
+    // it with BASE_TYPE_MAX_LENGTH.
+    const channel = new FakeChannel('chan_chunk_budget')
+    await channel.createWebhook({ name: 'agent-pulpit' })
+    const client = new FakeClient()
+    client.addChannel(channel)
+
+    const maxChars = 100
+    const app = new GatewayDiscordApp({
+      acpBaseUrl: 'http://acp.test',
+      gatewayId: 'discord_prod',
+      client: client as never,
+      fetchImpl: createFetch(async () => Response.json({ bindings: [] })),
+      maxChars,
+    })
+
+    // Body sized so that subtext + body would push the first chunk over
+    // maxChars unless the prefix is budgeted in.
+    const longBody = 'x '.repeat(150)
+    const delivery: DeliveryRequest = {
+      deliveryRequestId: 'dr_chunk_budget',
+      gatewayId: 'discord_prod',
+      bindingId: 'ifb_chunk_budget',
+      sessionRef: {
+        scopeRef: 'agent:cody:project:agent-spaces:task:T-04321',
+        laneRef: 'main',
+      },
+      conversationRef: `channel:${channel.id}`,
+      body: { kind: 'text/markdown', text: longBody },
+      status: 'queued',
+      createdAt: '2026-05-06T15:00:00.000Z',
+    }
+
+    await (
+      app as unknown as { deliverToDiscord(delivery: DeliveryRequest): Promise<void> }
+    ).deliverToDiscord(delivery)
+
+    const webhook = [...channel.webhooks.values()].find((w) => w.name === 'agent-pulpit')
+    expect(webhook).toBeDefined()
+    expect(webhook?.sent.length).toBeGreaterThan(1)
+    for (const sent of webhook?.sent ?? []) {
+      expect(sent.content.length).toBeLessThanOrEqual(maxChars)
+    }
   })
 
   test('replaces the placeholder with a visible error when ACP fetch throws', async () => {
