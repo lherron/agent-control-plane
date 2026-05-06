@@ -59,7 +59,13 @@ export type LaunchRoleScopedRun = (input: {
   inputAttemptId?: string | undefined
   runStore?: RunStore | undefined
   onEvent?: ((event: UnifiedSessionEvent) => void | Promise<void>) | undefined
-}) => Promise<{ runId: string; sessionId: string }>
+  waitForCompletion?: boolean | undefined
+}) => Promise<{
+  runId: string
+  sessionId: string
+  hostSessionId?: string | undefined
+  generation?: number | undefined
+}>
 
 export type AcpHrcClient = Pick<
   HrcClient,

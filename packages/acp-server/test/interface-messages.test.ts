@@ -230,6 +230,80 @@ describe('POST /v1/interface/messages', () => {
     )
   })
 
+  test('returns hostSessionId and generation after launch resolves', async () => {
+    await withWiredServer(
+      async (fixture) => {
+        fixture.interfaceStore.bindings.create({
+          bindingId: 'ifb_live_events',
+          gatewayId: 'discord_prod',
+          conversationRef: 'channel:live-events',
+          scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
+          laneRef: 'main',
+          projectId: fixture.seed.projectId,
+          status: 'active',
+          createdAt: '2026-04-20T15:00:00.000Z',
+          updatedAt: '2026-04-20T15:00:00.000Z',
+        })
+
+        const response = await fixture.request({
+          method: 'POST',
+          path: '/v1/interface/messages',
+          body: {
+            idempotencyKey: 'discord:message:live-events',
+            source: {
+              gatewayId: 'discord_prod',
+              conversationRef: 'channel:live-events',
+              messageRef: 'discord:message:live-events',
+              authorRef: 'discord:user:999',
+            },
+            content: 'start live stream',
+          },
+        })
+        const payload = await fixture.json<{
+          inputAttemptId: string
+          runId: string
+          hostSessionId: string
+          generation: number
+        }>(response)
+
+        expect(response.status).toBe(201)
+        expect(payload.inputAttemptId).toMatch(/^ia_/)
+        expect(payload.runId).toMatch(/^run_/)
+        expect(payload.hostSessionId).toBe('hsid-interface-live')
+        expect(payload.generation).toBe(6)
+      },
+      {
+        runtimeResolver: async () => ({
+          agentRoot: '/tmp/agents/curly',
+          projectRoot: '/tmp/project',
+          cwd: '/tmp/project',
+          runMode: 'task',
+          bundle: { kind: 'agent-default' },
+          harness: { provider: 'openai', interactive: true },
+        }),
+        launchRoleScopedRun: async ({ acpRunId, runStore }) => {
+          if (acpRunId !== undefined && runStore !== undefined) {
+            runStore.updateRun(acpRunId, {
+              hrcRunId: 'hrc-run-interface-live',
+              hostSessionId: 'hsid-interface-live',
+              generation: 6,
+              runtimeId: 'rt-interface-live',
+              transport: 'headless',
+              status: 'running',
+            })
+          }
+
+          return {
+            runId: 'hrc-run-interface-live',
+            sessionId: 'hsid-interface-live',
+            hostSessionId: 'hsid-interface-live',
+            generation: 6,
+          }
+        },
+      }
+    )
+  })
+
   test('accepts attachment refs, preserves metadata, and threads them into launch intent', async () => {
     const mediaStateDir = mkdtempSync(join(tmpdir(), 'acp-interface-media-'))
     const launches: Array<{

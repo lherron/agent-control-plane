@@ -2,6 +2,8 @@ import type { AttachmentRef, InterfaceMessageAttachment } from 'acp-core'
 import { type SessionRef, normalizeSessionRef, parseScopeRef } from 'agent-scope'
 
 import { resolveAttachmentRefs } from '../attachments.js'
+import { createInterfaceResponseCapture } from '../delivery/interface-response-capture.js'
+import { toCompletedVisibleAssistantMessage } from '../delivery/visible-assistant-messages.js'
 import { AcpHttpError, json } from '../http.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
 import {
@@ -170,6 +172,8 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
     receivedAt: timestamp,
   })
 
+  let conversationThreadId: string | undefined
+
   const createdAttempt = deps.inputAttemptStore.createAttempt({
     sessionRef,
     ...(parsedScope.taskId !== undefined ? { taskId: parsedScope.taskId } : {}),
@@ -189,6 +193,7 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
       sessionRef,
       audience: 'human',
     })
+    conversationThreadId = thread.threadId
 
     deps.conversationStore.createTurn({
       threadId: thread.threadId,
@@ -200,6 +205,8 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
       sentAt: timestamp,
     })
   }
+
+  let launched: Awaited<ReturnType<NonNullable<typeof deps.launchRoleScopedRun>>> | undefined
 
   if (createdAttempt.created && deps.launchRoleScopedRun !== undefined) {
     const resolvedAttachments = await resolveAttachmentRefs(attachments, {
@@ -233,20 +240,68 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
       initialPrompt: promptWithAttachmentPaths,
       ...(resolvedAttachments !== undefined ? { attachments: resolvedAttachments } : {}),
     })
+    const responseCapture = createInterfaceResponseCapture({
+      interfaceStore: deps.interfaceStore,
+      runStore: deps.runStore,
+      runId: createdAttempt.runId,
+      inputAttemptId: createdAttempt.inputAttempt.inputAttemptId,
+    })
 
-    await deps.launchRoleScopedRun({
+    launched = await deps.launchRoleScopedRun({
       sessionRef,
       intent,
       acpRunId: createdAttempt.runId,
       inputAttemptId: createdAttempt.inputAttempt.inputAttemptId,
       runStore: deps.runStore,
+      waitForCompletion: false,
+      onEvent: async (event) => {
+        await responseCapture.handler(event)
+
+        const deliveryRequestId = responseCapture.lastDeliveryRequestId
+        if (deliveryRequestId === undefined || deps.conversationStore === undefined) {
+          return
+        }
+
+        const visible = toCompletedVisibleAssistantMessage(event)
+        if (visible === undefined) {
+          return
+        }
+
+        const threadId =
+          conversationThreadId ??
+          deps.conversationStore.createOrGetThread({
+            gatewayId: source.gatewayId,
+            conversationRef: source.conversationRef,
+            ...(source.threadRef !== undefined ? { threadRef: source.threadRef } : {}),
+            sessionRef,
+            audience: 'human',
+          }).threadId
+        const run = deps.runStore.getRun(createdAttempt.runId)
+        const turnId = deps.conversationStore.createTurn({
+          threadId,
+          role: 'assistant',
+          body: visible.text,
+          renderState: 'pending',
+          links: { runId: createdAttempt.runId },
+          actor: run?.actor ?? actor,
+          sentAt: new Date().toISOString(),
+        })
+
+        deps.conversationStore.attachLinks(turnId, { deliveryRequestId })
+      },
     })
   }
+
+  const run = deps.runStore.getRun(createdAttempt.runId)
+  const hostSessionId = run?.hostSessionId ?? launched?.hostSessionId
+  const generation = run?.generation ?? launched?.generation
 
   return json(
     {
       inputAttemptId: createdAttempt.inputAttempt.inputAttemptId,
       runId: createdAttempt.runId,
+      ...(hostSessionId !== undefined ? { hostSessionId } : {}),
+      ...(generation !== undefined ? { generation } : {}),
     },
     createdAttempt.created ? 201 : 200
   )

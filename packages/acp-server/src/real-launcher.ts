@@ -45,7 +45,15 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
   const waitTimeoutMs = options.watchTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
 
-  return async ({ sessionRef, intent, acpRunId, inputAttemptId, runStore, onEvent }) => {
+  return async ({
+    sessionRef,
+    intent,
+    acpRunId,
+    inputAttemptId,
+    runStore,
+    onEvent,
+    waitForCompletion,
+  }) => {
     const client = createClient(socketPath)
     const liveTmuxRuntime = findLiveTmuxRuntimeForSessionRef(hrcDbPath, sessionRef)
     const launchIntent = withAcpLaunchContextEnv(intent, { acpRunId, inputAttemptId, runStore })
@@ -55,6 +63,7 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
       liveTmuxRuntime: liveTmuxRuntime !== undefined,
     })
     const acpCorrelationId = acpRunId ?? inputAttemptId
+    const shouldWaitForCompletion = onEvent !== undefined && waitForCompletion !== false
     const prompt = normalizedIntent.initialPrompt?.trim()
     if (!prompt) {
       const resolved = await client.resolveSession({
@@ -139,7 +148,7 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
         afterHrcSeq: latestAssistantSeq,
       })
 
-      if (onEvent !== undefined) {
+      if (shouldWaitForCompletion && onEvent !== undefined) {
         const assistantMessage = await pollAssistantMessageAfterSeq({
           hrcDbPath,
           hostSessionId: delivered.hostSessionId,
@@ -188,7 +197,6 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
       transport: dispatched.transport,
     })
 
-    const shouldWaitForCompletion = onEvent !== undefined
     if (shouldWaitForCompletion) {
       const completedRun =
         dispatched.status === 'completed'
@@ -212,7 +220,7 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
       }
     }
 
-    if (onEvent !== undefined) {
+    if (shouldWaitForCompletion && onEvent !== undefined) {
       const completedAssistantMessage = await pollCompletedAssistantMessage({
         hrcDbPath,
         runId: dispatched.runId,

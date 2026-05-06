@@ -522,14 +522,18 @@ describe('ACP session/control endpoints', () => {
     }
   })
 
-  test('GET /v1/sessions/:sessionId/events replays only matching HRC events and forwards fromSeq', async () => {
+  test('GET /v1/sessions/:sessionId/events passes native HRC filters and streams NDJSON', async () => {
     const calls: unknown[] = []
     const hrcClient = createHrcClientDouble({
       watch: (options) => {
         calls.push(options)
         return (async function* () {
-          yield createLifecycleEvent({ hrcSeq: 41, hostSessionId: 'hsid-events-001' })
-          yield createLifecycleEvent({ hrcSeq: 42, hostSessionId: 'hsid-other-001' })
+          yield createLifecycleEvent({
+            hrcSeq: 41,
+            hostSessionId: 'hsid-events-001',
+            runId: 'hrc-run-001',
+            generation: 2,
+          })
         })()
       },
     })
@@ -538,15 +542,67 @@ describe('ACP session/control endpoints', () => {
       async (fixture) => {
         const response = await fixture.request({
           method: 'GET',
-          path: '/v1/sessions/hsid-events-001/events?fromSeq=41',
+          path: '/v1/sessions/hsid-events-001/events?fromSeq=41&follow=false&runId=hrc-run-001&generation=2',
         })
         const text = await response.text()
 
         expect(response.status).toBe(200)
         expect(text).toContain('"hostSessionId":"hsid-events-001"')
-        expect(text).not.toContain('"hostSessionId":"hsid-other-001"')
         expect(calls).toHaveLength(1)
-        expect(calls[0]).toEqual(expect.objectContaining({ fromSeq: 41 }))
+        expect(calls[0]).toEqual(
+          expect.objectContaining({
+            fromSeq: 41,
+            follow: false,
+            hostSessionId: 'hsid-events-001',
+            runId: 'hrc-run-001',
+            generation: 2,
+            signal: expect.any(AbortSignal),
+          })
+        )
+      },
+      { hrcClient }
+    )
+  })
+
+  test('GET /v1/sessions/:sessionId/events defaults follow and aborts upstream on cancel', async () => {
+    let signal: AbortSignal | undefined
+    let returned = false
+    const hrcClient = createHrcClientDouble({
+      watch: (options) => {
+        signal = options?.signal
+        return (async function* () {
+          try {
+            yield createLifecycleEvent({ hrcSeq: 1, hostSessionId: 'hsid-events-002' })
+            await new Promise<void>((resolve) => {
+              options?.signal?.addEventListener('abort', () => resolve(), { once: true })
+            })
+          } finally {
+            returned = true
+          }
+        })()
+      },
+    })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'GET',
+          path: '/v1/sessions/hsid-events-002/events',
+        })
+        const reader = response.body?.getReader()
+        expect(reader).toBeDefined()
+
+        const first = await reader?.read()
+        expect(first?.done).toBe(false)
+        expect(new TextDecoder().decode(first?.value)).toContain(
+          '"hostSessionId":"hsid-events-002"'
+        )
+
+        await reader?.cancel()
+        await Bun.sleep(0)
+
+        expect(signal?.aborted).toBe(true)
+        expect(returned).toBe(true)
       },
       { hrcClient }
     )

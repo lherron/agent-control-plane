@@ -202,7 +202,7 @@ function readAdminProjectRoot(
     return undefined
   }
 
-  const rootDir = deps.adminStore.projects.get(projectId)?.rootDir
+  const rootDir = deps.adminStore?.projects.get(projectId)?.rootDir
   return typeof rootDir === 'string' && rootDir.length > 0 ? rootDir : undefined
 }
 
