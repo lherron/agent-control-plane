@@ -1,6 +1,74 @@
 import { padMarkdownTables } from './markdown.js'
 import type { RenderAction, RenderBlock, RenderFrame } from './types.js'
 
+// ---------------------------------------------------------------------------
+// Local stub: notice block type. Phase 2 (T-01372) adds this to types.ts as
+// part of the RenderBlock union. Once that lands, remove this stub and use the
+// upstream type directly.
+// ---------------------------------------------------------------------------
+/** @internal notice block stub — consumed from types.ts once Phase 2 ships */
+export interface NoticeBlock {
+  t: 'notice'
+  level: 'info' | 'warn' | 'error'
+  message: string
+}
+
+/** Extended block type that includes notice (until types.ts ships it). */
+type ExtendedRenderBlock = RenderBlock | NoticeBlock
+
+// ---------------------------------------------------------------------------
+// Per-tool emoji map
+// ---------------------------------------------------------------------------
+
+const TOOL_EMOJI: Record<string, string> = {
+  Bash: '💻',
+  Read: '📖',
+  Write: '✍️',
+  Edit: '🔧',
+  Grep: '🔎',
+  Glob: '📁',
+  Task: '🤖',
+  WebFetch: '📄',
+  WebSearch: '🔍',
+  TodoWrite: '📋',
+  NotebookEdit: '📓',
+}
+const DEFAULT_TOOL_EMOJI = '⚙️'
+
+// ---------------------------------------------------------------------------
+// Primary-arg key map (which input key to preview for each tool)
+// ---------------------------------------------------------------------------
+
+const PRIMARY_ARG_KEY: Record<string, string> = {
+  Bash: 'command',
+  Read: 'file_path',
+  Write: 'file_path',
+  Edit: 'file_path',
+  Grep: 'pattern',
+  Glob: 'pattern',
+  Task: 'description',
+  WebFetch: 'url',
+  WebSearch: 'query',
+  NotebookEdit: 'notebook_path',
+}
+
+// ---------------------------------------------------------------------------
+// Notice-level icons
+// ---------------------------------------------------------------------------
+
+const NOTICE_ICON: Record<string, string> = {
+  info: 'ℹ️',
+  warn: '⚠️',
+  error: '❌',
+}
+
+// ---------------------------------------------------------------------------
+// Shared constants
+// ---------------------------------------------------------------------------
+
+const MAX_LINE_CHARS = 80
+const MAX_PREVIEW_CHARS = 60
+
 /**
  * Options for controlling Discord rendering behavior.
  */
@@ -10,6 +78,12 @@ export interface RenderOptions {
    * This provides a different visual style in Discord.
    */
   useBlockQuotes?: boolean
+
+  /**
+   * When true, suppress tool output snippets and image attachment placeholders.
+   * Used during live-progress rendering where only the tool line matters.
+   */
+  compact?: boolean
 }
 
 /**
@@ -34,7 +108,107 @@ export interface MediaRefAttachment {
   alt?: string
 }
 
-function renderBlock(block: RenderBlock): string {
+// ---------------------------------------------------------------------------
+// Tool-line formatting helpers (exported for tests)
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the primary preview value from a tool block.
+ * Uses the per-tool arg key map when `input` is present, otherwise falls back
+ * to the legacy `summary` field.
+ */
+export function extractToolPreview(
+  toolName: string,
+  input: Record<string, unknown> | undefined,
+  summary: string
+): string {
+  if (!input) {
+    // Legacy path: strip backtick wrapping that formatToolSummary added
+    return summary.replace(/^`|`$/g, '')
+  }
+
+  // Special case: TodoWrite shows count of todos
+  if (toolName === 'TodoWrite') {
+    const todos = input['todos']
+    if (Array.isArray(todos)) {
+      return `${todos.length} todo${todos.length === 1 ? '' : 's'}`
+    }
+    return summary.replace(/^`|`$/g, '')
+  }
+
+  const argKey = PRIMARY_ARG_KEY[toolName]
+  if (argKey) {
+    const value = input[argKey]
+    if (typeof value === 'string' && value.length > 0) {
+      return value
+    }
+  }
+
+  // Fallback: first string-valued arg
+  for (const value of Object.values(input)) {
+    if (typeof value === 'string' && value.length > 0) {
+      return value
+    }
+  }
+
+  return summary.replace(/^`|`$/g, '')
+}
+
+/**
+ * Get the emoji for a tool, or the default gear emoji.
+ */
+export function getToolEmoji(toolName: string): string {
+  return TOOL_EMOJI[toolName] ?? DEFAULT_TOOL_EMOJI
+}
+
+/**
+ * Format a single tool line for progress display.
+ *
+ * - Running/Completed: `{toolEmoji} {toolName}: "{preview}"`
+ * - Failed: `❌ {toolName}: "{preview}"`
+ *
+ * Per-line cap: 80 chars. Preview is truncated with `...` to fit.
+ */
+export function formatToolLine(
+  toolName: string,
+  input: Record<string, unknown> | undefined,
+  summary: string,
+  failed: boolean
+): string {
+  const emoji = failed ? '❌' : getToolEmoji(toolName)
+  const prefix = `${emoji} ${toolName}: "`
+  const suffix = '"'
+  // Budget for the preview text: total line cap minus prefix and suffix
+  const previewBudget = Math.min(MAX_PREVIEW_CHARS, MAX_LINE_CHARS - prefix.length - suffix.length)
+
+  let preview = extractToolPreview(toolName, input, summary)
+  if (preview.length > previewBudget) {
+    preview = `${preview.slice(0, previewBudget - 3)}...`
+  }
+
+  const line = `${prefix}${preview}${suffix}`
+  // Final safety truncation (shouldn't be needed but guards edge cases)
+  return line.length > MAX_LINE_CHARS ? `${line.slice(0, MAX_LINE_CHARS - 3)}...` : line
+}
+
+/**
+ * Format a notice line: `{icon} {message}`, truncated to 80 chars.
+ */
+export function formatNoticeLine(level: string, message: string): string {
+  const icon = NOTICE_ICON[level] ?? 'ℹ️'
+  const prefix = `${icon} `
+  const budget = MAX_LINE_CHARS - prefix.length
+  const truncated = message.length > budget ? `${message.slice(0, budget - 3)}...` : message
+  return `${prefix}${truncated}`
+}
+
+// ---------------------------------------------------------------------------
+// renderBlock — core block-to-string conversion
+// ---------------------------------------------------------------------------
+
+function renderBlock(block: ExtendedRenderBlock, options: RenderOptions = {}): string {
+  const { compact = false } = options
+
   switch (block.t) {
     case 'markdown':
       return block.md
@@ -59,10 +233,18 @@ function renderBlock(block: RenderBlock): string {
         })
         .join('\n')
     case 'tool': {
-      const icon = block.approved === false ? '❌' : block.approved === true ? '✅' : '⏳'
-      const truncatedSummary =
-        block.summary.length > 60 ? `${block.summary.slice(0, 60)}...` : block.summary
-      let result = `${icon} **${block.toolName}**(${truncatedSummary})`
+      const failed = block.approved === false
+      const toolBlock = block as Extract<RenderBlock, { t: 'tool' }> & {
+        input?: Record<string, unknown>
+      }
+      const line = formatToolLine(block.toolName, toolBlock.input, block.summary, failed)
+
+      if (compact) {
+        return line
+      }
+
+      // Full rendering: include output and images
+      let result = line
       if (block.output) {
         const lines = block.output.split('\n')
         const maxLines = 3
@@ -81,17 +263,149 @@ function renderBlock(block: RenderBlock): string {
       }
       return result
     }
+    case 'notice': {
+      return formatNoticeLine(block.level, block.message)
+    }
   }
+
+  // Exhaustiveness fallback (future block types added to RenderBlock union)
+  return ''
 }
 
-export function renderFrameToDiscordContent(frame: RenderFrame, _maxChars: number): string {
+export function renderFrameToDiscordContent(
+  frame: RenderFrame,
+  _maxChars: number,
+  options: RenderOptions = {}
+): string {
   const parts: string[] = []
   if (frame.title) parts.push(`**${frame.title}**`)
   if (frame.statusLine) parts.push(`_${frame.statusLine}_`)
-  for (const block of frame.blocks) parts.push(renderBlock(block))
+
+  // Count tool/notice blocks for the 12-line cap
+  const blocks = frame.blocks as ExtendedRenderBlock[]
+  const toolNoticeCount = blocks.filter((b) => b.t === 'tool' || b.t === 'notice').length
+  const collapsed = toolNoticeCount > DEFAULT_MAX_LINES ? toolNoticeCount - DEFAULT_MAX_LINES : 0
+  let toolNoticeIndex = 0
+  let collapseLineEmitted = false
+
+  for (const block of blocks) {
+    if (block.t === 'tool' || block.t === 'notice') {
+      toolNoticeIndex += 1
+      if (toolNoticeIndex <= collapsed) {
+        // Skip oldest tool/notice blocks
+        if (!collapseLineEmitted && collapsed > 0) {
+          parts.push(`_... +${collapsed} earlier tools_`)
+          collapseLineEmitted = true
+        }
+        continue
+      }
+      parts.push(renderBlock(block, options))
+    } else {
+      parts.push(renderBlock(block, options))
+    }
+  }
 
   return parts.filter(Boolean).join('\n\n')
 }
+
+// ---------------------------------------------------------------------------
+// buildProgressBubble — live-progress edit helper
+// ---------------------------------------------------------------------------
+
+const DEFAULT_MAX_LINES = 12
+const DEFAULT_MAX_CHARS = 1900
+
+/**
+ * Build compact progress content for a live-progress Discord message edit.
+ *
+ * Rules:
+ * - Max 12 visible tool/notice lines (combined). Excess collapses oldest into
+ *   `_... +N earlier tools_`.
+ * - Per-line cap: 80 chars.
+ * - Total bubble cap: 1900 chars (leaves 100-char headroom under Discord 2000).
+ * - Title and identity subtext are added by the caller (~170 chars reserved).
+ * - Final assistant text (when present) is appended after the tool/notice list.
+ *   If compact_history + assistant_text > 1900, oldest tool/notice lines are
+ *   dropped first. `assistant_text` is NEVER truncated by this helper.
+ */
+export function buildProgressBubble(
+  frame: RenderFrame,
+  options: { maxChars?: number; maxLines?: number } = {}
+): string {
+  const maxLines = options.maxLines ?? DEFAULT_MAX_LINES
+  const maxChars = options.maxChars ?? DEFAULT_MAX_CHARS
+
+  // Separate tool/notice blocks from other blocks (e.g. final markdown text)
+  const toolNoticeLines: string[] = []
+  let assistantText = ''
+
+  for (const block of frame.blocks as ExtendedRenderBlock[]) {
+    if (block.t === 'tool') {
+      const failed = (block as Extract<RenderBlock, { t: 'tool' }>).approved === false
+      const toolBlock = block as Extract<RenderBlock, { t: 'tool' }> & {
+        input?: Record<string, unknown>
+      }
+      toolNoticeLines.push(
+        formatToolLine(
+          (block as Extract<RenderBlock, { t: 'tool' }>).toolName,
+          toolBlock.input,
+          (block as Extract<RenderBlock, { t: 'tool' }>).summary,
+          failed
+        )
+      )
+    } else if (block.t === 'notice') {
+      toolNoticeLines.push(formatNoticeLine(block.level, block.message))
+    } else if (block.t === 'markdown') {
+      // Accumulate assistant text (typically the final answer)
+      assistantText += (assistantText ? '\n\n' : '') + block.md
+    }
+    // Other block types (code, image, etc.) are skipped in compact progress
+  }
+
+  // Apply line cap: collapse oldest lines when exceeding maxLines
+  let visibleLines = toolNoticeLines
+  let collapsedCount = 0
+  if (visibleLines.length > maxLines) {
+    collapsedCount = visibleLines.length - maxLines
+    visibleLines = visibleLines.slice(collapsedCount)
+  }
+
+  // Build the bubble content
+  const buildContent = (lines: string[], collapsed: number, text: string): string => {
+    const parts: string[] = []
+    if (collapsed > 0) {
+      parts.push(`_... +${collapsed} earlier tools_`)
+    }
+    parts.push(...lines)
+    if (text) {
+      parts.push(text)
+    }
+    return parts.join('\n')
+  }
+
+  let content = buildContent(visibleLines, collapsedCount, assistantText)
+
+  // If over budget, drop more tool/notice lines from oldest
+  while (content.length > maxChars && visibleLines.length > 0) {
+    collapsedCount += 1
+    visibleLines = visibleLines.slice(1)
+    content = buildContent(visibleLines, collapsedCount, assistantText)
+  }
+
+  // If still over budget (assistant text alone exceeds maxChars), return
+  // title + collapse-line + truncated assistant text for caller to handle.
+  if (content.length > maxChars && assistantText) {
+    const collapseLine = collapsedCount > 0 ? `_... +${collapsedCount} earlier tools_\n` : ''
+    const remaining = maxChars - collapseLine.length
+    content = `${collapseLine}${assistantText.slice(0, remaining)}`
+  }
+
+  return content
+}
+
+// ---------------------------------------------------------------------------
+// Image / media extraction
+// ---------------------------------------------------------------------------
 
 /**
  * Get file extension from MIME type.
@@ -157,6 +471,10 @@ export function extractMediaRefsFromFrame(frame: RenderFrame): MediaRefAttachmen
 
   return mediaRefs
 }
+
+// ---------------------------------------------------------------------------
+// Content chunking
+// ---------------------------------------------------------------------------
 
 /**
  * A segment of content: prose (to be wrapped), code block (already fenced), or table (fixed-width).
