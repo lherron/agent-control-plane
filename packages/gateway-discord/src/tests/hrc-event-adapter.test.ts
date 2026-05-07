@@ -122,6 +122,27 @@ describe('adaptHrcLifecycleEvent', () => {
     ).toBeUndefined()
   })
 
+  test('renders accepted in-flight admission as contribution accepted without steered or applied', () => {
+    const envelope = adaptHrcLifecycleEvent(
+      hrcEvent({
+        eventKind: 'input.application.accepted',
+        payload: {
+          admissionKind: 'accepted_in_flight',
+          applicationStatus: 'accepted',
+          ackSemantics: 'accepted_only',
+        },
+      })
+    )
+
+    expect(envelope?.event).toEqual({
+      type: 'notice',
+      level: 'info',
+      message: 'Contribution accepted',
+    })
+    expect(JSON.stringify(envelope)).not.toMatch(/\bsteered\b/i)
+    expect(JSON.stringify(envelope)).not.toMatch(/\bapplied\b/i)
+  })
+
   test('drops events without runId', () => {
     expect(adaptHrcLifecycleEvent(hrcEvent({ runId: undefined }))).toBeUndefined()
     expect(adaptHrcLifecycleEvent(hrcEvent({ runId: '' }))).toBeUndefined()

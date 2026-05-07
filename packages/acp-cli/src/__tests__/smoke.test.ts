@@ -331,6 +331,79 @@ describe('acp CLI smoke fixtures', () => {
     })
   })
 
+  test.each([
+    [
+      'accepted contribution',
+      {
+        admission: { kind: 'accepted_in_flight' },
+        inputApplication: { inputApplicationId: 'iap-accepted', status: 'accepted' },
+        currentState: { applicationStatus: 'accepted' },
+      },
+      'Contribution accepted',
+    ],
+    [
+      'pending contribution',
+      {
+        admission: { kind: 'admission_pending' },
+        inputApplication: { inputApplicationId: 'iap-pending', status: 'pending' },
+        currentState: { applicationStatus: 'pending' },
+      },
+      'Contribution pending',
+    ],
+    [
+      'ambiguous contribution',
+      {
+        admission: { kind: 'admission_pending' },
+        inputApplication: { inputApplicationId: 'iap-ambiguous', status: 'ambiguous' },
+        currentState: { applicationStatus: 'ambiguous' },
+      },
+      'Contribution ambiguous',
+    ],
+    [
+      'unsupported contribution queue fallback',
+      {
+        admission: { kind: 'queued_run' },
+        inputApplication: { inputApplicationId: 'iap-fallback', status: 'failed' },
+        currentState: {
+          applicationStatus: 'failed',
+          reason: 'contribution_unsupported_fallback_queued',
+        },
+      },
+      'Unsupported contribution fallback queued',
+    ],
+    [
+      'ordinary queued work',
+      {
+        admission: { kind: 'queued_run' },
+        currentState: { queueStatus: 'queued' },
+      },
+      'Queued',
+    ],
+  ])('send table output labels %s without applied-only wording', async (_name, payload, label) => {
+    const fetchQueue = createFetchQueue([
+      {
+        body: {
+          inputAttempt: { inputAttemptId: 'input-label' },
+          ...payload,
+        },
+        assert(request) {
+          expect(request.method).toBe('POST')
+          expect(new URL(request.url).pathname).toBe('/v1/inputs')
+        },
+      },
+    ])
+
+    const result = await runCli(
+      ['send', '--scope-ref', 'agent:larry:project:agent-spaces', '--text', 'Proceed', '--table'],
+      { fetchImpl: fetchQueue.fetchImpl }
+    )
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain(label)
+    expect(result.stdout).not.toMatch(/\bsteered\b/i)
+    expect(result.stdout).not.toMatch(/\bapplied\b/i)
+  })
+
   test('task transition parses comma-list evidence refs', async () => {
     const fetchQueue = createFetchQueue([
       {
