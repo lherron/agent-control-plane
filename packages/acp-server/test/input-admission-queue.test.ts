@@ -618,6 +618,122 @@ describe('input admission queue', () => {
     )
   })
 
+  test('transport-error active-run contribution remains admission_pending and replays without queue fallback', async () => {
+    const stores = createAdmissionStores()
+    let contributionCalls = 0
+
+    await withWiredServer(
+      async (fixture) => {
+        const sessionRef = {
+          scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:T-transport-pending:role:implementer`,
+          laneRef: 'main',
+        }
+
+        await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body: {
+            idempotencyKey: 'transport-pending-first',
+            sessionRef,
+            content: 'start active run',
+          },
+        })
+
+        const contributionBody = {
+          idempotencyKey: 'transport-pending-second',
+          sessionRef,
+          content: 'recover this later',
+          intent: { kind: 'contribute_to_active_run', fallback: 'pending_only' },
+        }
+        const contribution = await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body: contributionBody,
+        })
+        const replay = await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body: contributionBody,
+        })
+        const payload = await fixture.json<{
+          inputAttempt: { inputAttemptId: string }
+          targetRun: { runId: string; status: string }
+          inputApplication: { inputApplicationId: string; status: string }
+          admission: { kind: string; inputApplicationId: string }
+          currentState: { applicationStatus: string; reason: string }
+        }>(contribution)
+        const replayPayload = await fixture.json<{
+          admission: { kind: string; inputApplicationId: string }
+          currentState: { applicationStatus: string; reason: string }
+        }>(replay)
+        const attempt = await fixture.request({
+          method: 'GET',
+          path: `/v1/input-attempts/${payload.inputAttempt.inputAttemptId}`,
+        })
+        const attemptPayload = await fixture.json<{
+          admission: { kind: string; inputApplicationId: string }
+          currentState: { applicationStatus: string; reason: string }
+        }>(attempt)
+
+        expect(contribution.status).toBe(201)
+        expect(replay.status).toBe(200)
+        expect(attempt.status).toBe(200)
+        expect(payload.admission.kind).toBe('admission_pending')
+        expect(payload.inputApplication.status).toBe('pending')
+        expect(payload.currentState).toEqual(
+          expect.objectContaining({
+            applicationStatus: 'pending',
+            reason: 'delivery_transport_error',
+          })
+        )
+        expect(attemptPayload.admission).toEqual(payload.admission)
+        expect(attemptPayload.currentState).toEqual(
+          expect.objectContaining({
+            applicationStatus: 'pending',
+            reason: 'delivery_transport_error',
+          })
+        )
+        expect(replayPayload.admission).toEqual(payload.admission)
+        expect(replayPayload.currentState).toEqual(payload.currentState)
+        expect(
+          stores.inputQueueStore.listForSession(sessionRef.scopeRef, sessionRef.laneRef)
+        ).toEqual([])
+        expect(contributionCalls).toBe(1)
+      },
+      {
+        ...stores,
+        runtimeResolver: async () => ({
+          agentRoot: '/tmp/agents/larry',
+          projectRoot: '/tmp/project',
+          cwd: '/tmp/project',
+          runMode: 'task',
+          bundle: { kind: 'agent-default' },
+          harness: { provider: 'openai', interactive: true },
+        }),
+        launchRoleScopedRun: async (input) => {
+          if (input.acpRunId !== undefined) {
+            input.runStore?.updateRun(input.acpRunId, {
+              status: 'running',
+              hrcRunId: 'hrc-transport-pending',
+              hostSessionId: 'hsid-transport-pending',
+              generation: 7,
+              runtimeId: 'rt-transport-pending',
+            })
+          }
+          return { runId: 'hrc-transport-pending', sessionId: 'hsid-transport-pending' }
+        },
+        hrcClient: {
+          submitActiveRunContribution: async () => {
+            contributionCalls += 1
+            const error: Error & { code?: string } = new Error('HRC transport unavailable')
+            error.code = 'transport_error'
+            throw error
+          },
+        } as never,
+      }
+    )
+  })
+
   test('control intent interrupts the active runtime without creating queued work', async () => {
     const stores = createAdmissionStores()
     const interrupts: string[] = []
