@@ -5,6 +5,7 @@ import {
   type HrcLifecycleEvent as ProjectionHrcLifecycleEvent,
   type SessionTimelineRow,
   buildSummary,
+  admissionLabel as centralAdmissionLabel,
   deriveSessionRow,
   projectHrcToDashboardEvent,
 } from 'acp-ops-projection'
@@ -137,31 +138,13 @@ export function projectCoreHrcEvent(
   return projectHrcToDashboardEvent(event)
 }
 
-function admissionLabel(kind: string): string {
-  switch (kind) {
-    case 'input.admitted':
-      return 'Input admitted'
-    case 'input.queued':
-      return 'Queued work'
-    case 'input.dispatching':
-      return 'Dispatching queued work'
-    case 'input.started':
-      return 'Input started'
-    case 'input.rejected':
-      return 'Input rejected'
-    case 'input.application.pending':
-      return 'Contribution pending'
-    case 'input.application.accepted':
-      return 'Contribution accepted'
-    case 'input.application.failed':
-      return 'Contribution failed'
-    case 'input.application.ambiguous':
-      return 'Contribution ambiguous'
-    case 'input.queue.expired':
-      return 'Queued input expired'
-    default:
-      return kind
-  }
+function admissionLabel(kind: string, payload?: ObjectRecord): string {
+  return centralAdmissionLabel({
+    eventKind: kind,
+    admissionKind: payload !== undefined ? readString(payload, 'admissionKind') : undefined,
+    applicationStatus: payload !== undefined ? readString(payload, 'applicationStatus') : undefined,
+    reason: payload !== undefined ? readString(payload, 'reason') : undefined,
+  })
 }
 
 function admissionSeverity(kind: string): DashboardEvent['severity'] {
@@ -224,7 +207,7 @@ export function projectInputAdmissionSystemEvent(event: SystemEvent): DashboardE
     category: 'input',
     family: 'input',
     severity: admissionSeverity(event.kind),
-    label: admissionLabel(event.kind),
+    label: admissionLabel(event.kind, payload),
     ...(admissionShortDetail(payload) !== undefined
       ? { shortDetail: admissionShortDetail(payload) }
       : {}),

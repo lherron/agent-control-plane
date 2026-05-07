@@ -1,3 +1,4 @@
+import { admissionLabelFromResponse } from 'acp-ops-projection'
 import { CliUsageError } from '../cli-runtime.js'
 import { renderKeyValueTable } from '../output/table.js'
 import {
@@ -117,14 +118,17 @@ export async function runSendCommand(
 
   if (!hasFlag(parsed, '--wait')) {
     return renderJsonOrTable(parsed, response, () => {
+      const label = admissionLabelFromResponse({
+        admission: response.admission as { kind?: string } | undefined,
+        inputApplication: response.inputApplication as { status?: string } | undefined,
+        currentState: response.currentState as
+          | { applicationStatus?: string; queueStatus?: string; reason?: string }
+          | undefined,
+      })
       return renderKeyValueTable({
         inputAttemptId: response.inputAttempt['inputAttemptId'],
         runId: response.run?.['runId'] ?? response.targetRun?.['runId'] ?? '',
-        status:
-          response.run?.['status'] ??
-          response.currentState?.['applicationStatus'] ??
-          response.admission?.['kind'] ??
-          '',
+        status: label || response.run?.['status'] || '',
         admission: response.admission?.['kind'] ?? '',
       })
     })

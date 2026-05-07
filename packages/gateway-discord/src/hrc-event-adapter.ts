@@ -1,3 +1,4 @@
+import { admissionLabel } from 'acp-ops-projection'
 import type { Message, ToolResult } from 'spaces-runtime'
 import { createLogger } from './logger.js'
 import type { GatewaySessionEvent, SessionEventEnvelope } from './types.js'
@@ -186,6 +187,21 @@ export function adaptHrcLifecycleEvent(
       case 'turn.completed':
       case 'turn_end':
         sessionEvent = adaptTurnCompleted(event.payload)
+        break
+      default:
+        if (event.eventKind.startsWith('input.')) {
+          const pr = isRecord(event.payload) ? event.payload : {}
+          sessionEvent = {
+            type: 'notice',
+            level: 'info',
+            message: admissionLabel({
+              eventKind: event.eventKind,
+              admissionKind: getString(pr, 'admissionKind'),
+              applicationStatus: getString(pr, 'applicationStatus'),
+              reason: getString(pr, 'reason'),
+            }),
+          }
+        }
         break
     }
   }

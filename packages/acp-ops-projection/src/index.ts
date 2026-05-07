@@ -1,3 +1,7 @@
+export { admissionLabel, admissionLabelFromResponse } from './admission-labels.js'
+export type { AdmissionLabelInput } from './admission-labels.js'
+import { admissionLabel } from './admission-labels.js'
+
 export type DashboardEventFamily =
   | 'runtime'
   | 'agent_message'
@@ -308,19 +312,14 @@ function deriveSeverity(event: HrcLifecycleEvent): DashboardEventSeverity {
 }
 
 function eventLabel(event: HrcLifecycleEvent): string {
-  switch (event.eventKind) {
-    case 'input.queued':
-      return 'Queued work'
-    case 'input.application.pending':
-      return 'Contribution pending'
-    case 'input.application.accepted':
-      return 'Contribution accepted'
-    case 'input.application.ambiguous':
-      return 'Contribution ambiguous'
-    case 'input.rejected':
-      return 'Input rejected'
-    default:
-      break
+  if (event.eventKind.startsWith('input.')) {
+    const pr = payloadRecord(event)
+    return admissionLabel({
+      eventKind: event.eventKind,
+      admissionKind: readString(pr?.['admissionKind']),
+      applicationStatus: readString(pr?.['applicationStatus']),
+      reason: readString(pr?.['reason']),
+    })
   }
   return payloadType(event) ?? event.eventKind
 }

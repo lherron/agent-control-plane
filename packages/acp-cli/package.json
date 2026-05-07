@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "acp-core": "*",
+    "acp-ops-projection": "*",
     "acp-server": "*",
     "cli-kit": "*",
     "commander": "^14.0.0",

@@ -197,8 +197,8 @@ function demoEvents(row: SessionTimelineRow, rowIndex: number): DashboardEvent[]
     ['agent_message', 'message_update', 'info', 'message_update'],
     ['tool', 'tool_execution_start', 'info', 'tool_execution_start'],
     ['tool', 'tool_execution_end', 'success', 'tool_execution_end'],
-    ['input', 'user_input_queued_in_flight', 'info', 'user_input_queued_in_flight'],
-    ['input', 'user_input_applied_in_flight', 'success', 'user_input_applied_in_flight'],
+    ['input', 'input.application.pending', 'info', 'Contribution pending'],
+    ['input', 'input.application.accepted', 'success', 'Contribution accepted'],
     ['delivery', 'delivery.pending', 'info', 'delivery.pending'],
     rowIndex === 1
       ? ['handoff', 'handoff.complete', 'success', 'handoff.complete']
