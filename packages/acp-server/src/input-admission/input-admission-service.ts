@@ -2,6 +2,7 @@ import type {
   AttachmentRef,
   InputAdmissionRecord,
   InputApplication,
+  InputApplicationStatus,
   InputIntent,
   InputResetPolicy,
   Run,
@@ -263,6 +264,25 @@ function isContributionAmbiguousError(error: unknown): boolean {
     (error instanceof Error && error.message.toLowerCase().includes('timeout')) ||
     (error instanceof Error && error.message.toLowerCase().includes('aborted'))
   )
+}
+
+function isContributionTransportError(error: unknown): boolean {
+  const candidate = error as Record<string, unknown>
+  return candidate?.['code'] === 'transport_error' || candidate?.['errorCode'] === 'transport_error'
+}
+
+function classifyContributionDeliveryError(error: unknown): {
+  status: InputApplicationStatus
+  errorCode: string
+  pendingAdmission: boolean
+} {
+  if (isContributionAmbiguousError(error)) {
+    return { status: 'ambiguous', errorCode: 'delivery_ambiguous', pendingAdmission: true }
+  }
+  if (isContributionTransportError(error)) {
+    return { status: 'pending', errorCode: 'delivery_transport_error', pendingAdmission: true }
+  }
+  return { status: 'failed', errorCode: 'delivery_failed', pendingAdmission: false }
 }
 
 export class InputAdmissionService {
@@ -565,7 +585,8 @@ export class InputAdmissionService {
         ...(run !== undefined ? { run } : {}),
         ...(application !== undefined ? { inputApplication: application } : {}),
         admission: existingAdmission,
-        currentState: currentStateForAdmission(this.deps, existingAdmission),
+        currentState:
+          existingAdmission.currentState ?? currentStateForAdmission(this.deps, existingAdmission),
         created: false,
       }
     }
@@ -671,20 +692,19 @@ export class InputAdmissionService {
         inputApplication: application,
       })
     } catch (error) {
+      const deliveryError = classifyContributionDeliveryError(error)
       application = this.deps.inputApplicationStore.update(application.inputApplicationId, {
-        status: isContributionAmbiguousError(error) ? 'ambiguous' : 'failed',
+        status: deliveryError.status,
         deliveryAttempts: application.deliveryAttempts + 1,
-        lastErrorCode: isContributionAmbiguousError(error)
-          ? 'delivery_ambiguous'
-          : 'delivery_failed',
+        lastErrorCode: deliveryError.errorCode,
         lastErrorMessage: error instanceof Error ? error.message : String(error),
       })
-      if (isContributionAmbiguousError(error) || input.intent.fallback === 'pending_only') {
+      if (deliveryError.pendingAdmission || input.intent.fallback === 'pending_only') {
         return this.createPendingContributionAdmission({
           attempt,
           intent: input.intent,
           application,
-          reason: application.lastErrorCode ?? 'delivery_ambiguous',
+          reason: application.lastErrorCode ?? deliveryError.errorCode,
           ...(targetRun !== undefined ? { targetRun } : {}),
         })
       }
