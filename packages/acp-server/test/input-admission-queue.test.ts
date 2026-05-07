@@ -534,6 +534,235 @@ describe('input admission queue', () => {
     )
   })
 
+  test('accepted active-run contribution does not consume ordinary busy FIFO sequence', async () => {
+    const stores = createAdmissionStores()
+    const contributionCalls: unknown[] = []
+
+    await withWiredServer(
+      async (fixture) => {
+        const sessionRef = {
+          scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:T-mixed-fifo:role:implementer`,
+          laneRef: 'main',
+        }
+
+        await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body: {
+            idempotencyKey: 'mixed-active',
+            sessionRef,
+            content: 'start active run',
+          },
+        })
+
+        const ordinaryOne = await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body: {
+            idempotencyKey: 'mixed-ordinary-1',
+            sessionRef,
+            content: 'ordinary one',
+          },
+        })
+        const ordinaryTwo = await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body: {
+            idempotencyKey: 'mixed-ordinary-2',
+            sessionRef,
+            content: 'ordinary two',
+          },
+        })
+        const contribution = await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body: {
+            idempotencyKey: 'mixed-contribution',
+            sessionRef,
+            content: 'contribution follows active run',
+            intent: { kind: 'contribute_to_active_run', fallback: 'reject' },
+          },
+        })
+        const ordinaryThree = await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body: {
+            idempotencyKey: 'mixed-ordinary-3',
+            sessionRef,
+            content: 'ordinary three',
+          },
+        })
+
+        const ordinaryOnePayload = await fixture.json<{
+          admission: { kind: string }
+          currentState: { seq: number }
+        }>(ordinaryOne)
+        const ordinaryTwoPayload = await fixture.json<{
+          admission: { kind: string }
+          currentState: { seq: number }
+        }>(ordinaryTwo)
+        const contributionPayload = await fixture.json<{
+          inputApplication: { inputApplicationId: string; status: string }
+          admission: { kind: string; inputApplicationId: string }
+          currentState: { applicationStatus: string; seq?: number | undefined }
+        }>(contribution)
+        const ordinaryThreePayload = await fixture.json<{
+          admission: { kind: string }
+          currentState: { seq: number }
+        }>(ordinaryThree)
+
+        expect(ordinaryOnePayload.admission.kind).toBe('queued_run')
+        expect(ordinaryTwoPayload.admission.kind).toBe('queued_run')
+        expect(contributionPayload.admission.kind).toBe('accepted_in_flight')
+        expect(contributionPayload.currentState).toEqual(
+          expect.objectContaining({ applicationStatus: 'accepted' })
+        )
+        expect(contributionPayload.currentState.seq).toBeUndefined()
+        expect(ordinaryThreePayload.admission.kind).toBe('queued_run')
+        expect([
+          ordinaryOnePayload.currentState.seq,
+          ordinaryTwoPayload.currentState.seq,
+          ordinaryThreePayload.currentState.seq,
+        ]).toEqual([
+          ordinaryOnePayload.currentState.seq,
+          ordinaryOnePayload.currentState.seq + 1,
+          ordinaryOnePayload.currentState.seq + 2,
+        ])
+        expect(
+          stores.inputQueueStore
+            .listForSession(sessionRef.scopeRef, sessionRef.laneRef)
+            .map((item) => item.seq)
+        ).toEqual([
+          ordinaryOnePayload.currentState.seq,
+          ordinaryTwoPayload.currentState.seq,
+          ordinaryThreePayload.currentState.seq,
+        ])
+        expect(contributionCalls).toHaveLength(1)
+      },
+      {
+        ...stores,
+        runtimeResolver: async () => ({
+          agentRoot: '/tmp/agents/larry',
+          projectRoot: '/tmp/project',
+          cwd: '/tmp/project',
+          runMode: 'task',
+          bundle: { kind: 'agent-default' },
+          harness: { provider: 'openai', interactive: true },
+        }),
+        launchRoleScopedRun: async (input) => {
+          if (input.acpRunId !== undefined) {
+            input.runStore?.updateRun(input.acpRunId, {
+              status: 'running',
+              hrcRunId: 'hrc-mixed-fifo',
+              hostSessionId: 'hsid-mixed-fifo',
+              generation: 5,
+              runtimeId: 'rt-mixed-fifo',
+            })
+          }
+          return { runId: 'hrc-mixed-fifo', sessionId: 'hsid-mixed-fifo' }
+        },
+        hrcClient: {
+          submitActiveRunContribution: async (request: unknown) => {
+            contributionCalls.push(request)
+            const inputApplicationId = (request as { inputApplicationId: string })
+              .inputApplicationId
+            return {
+              status: 'accepted',
+              inputApplicationId,
+              hostSessionId: 'hsid-mixed-fifo',
+              generation: 5,
+              runtimeId: 'rt-mixed-fifo',
+              runId: 'hrc-mixed-fifo',
+              capability: {
+                supported: true,
+                deliverySemantics: 'sequential_followup',
+                ackSemantics: 'accepted_only',
+                ordering: 'fifo',
+                supportsAttachments: false,
+              },
+            }
+          },
+        } as never,
+      }
+    )
+  })
+
+  test('ordinary busy input still defaults to queued_run FIFO without contribution intent', async () => {
+    const stores = createAdmissionStores()
+
+    await withWiredServer(
+      async (fixture) => {
+        const sessionRef = {
+          scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:T-busy-default:role:implementer`,
+          laneRef: 'main',
+        }
+
+        await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body: {
+            idempotencyKey: 'busy-default-active',
+            sessionRef,
+            content: 'start active run',
+          },
+        })
+        const firstBusy = await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body: {
+            idempotencyKey: 'ordinary-queue-one',
+            sessionRef,
+            content: 'ordinary busy one',
+          },
+        })
+        const secondBusy = await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body: {
+            idempotencyKey: 'ordinary-queue-two',
+            sessionRef,
+            content: 'ordinary busy two',
+          },
+        })
+
+        const firstPayload = await fixture.json<{
+          admission: { kind: string }
+          currentState: { seq: number }
+        }>(firstBusy)
+        const secondPayload = await fixture.json<{
+          admission: { kind: string }
+          currentState: { seq: number }
+        }>(secondBusy)
+
+        expect(firstPayload.admission.kind).toBe('queued_run')
+        expect(secondPayload.admission.kind).toBe('queued_run')
+        expect(secondPayload.currentState.seq).toBe(firstPayload.currentState.seq + 1)
+        expect(
+          stores.inputQueueStore
+            .listForSession(sessionRef.scopeRef, sessionRef.laneRef)
+            .map((item) => item.seq)
+        ).toEqual([firstPayload.currentState.seq, secondPayload.currentState.seq])
+      },
+      {
+        ...stores,
+        runtimeResolver: async () => ({
+          agentRoot: '/tmp/agents/larry',
+          projectRoot: '/tmp/project',
+          cwd: '/tmp/project',
+          runMode: 'task',
+          bundle: { kind: 'agent-default' },
+          harness: { provider: 'openai', interactive: true },
+        }),
+        launchRoleScopedRun: async (input) => {
+          if (input.acpRunId !== undefined) {
+            input.runStore?.updateRun(input.acpRunId, { status: 'running' })
+          }
+          return { runId: input.acpRunId ?? 'hrc-busy-default', sessionId: 'hsid-busy-default' }
+        },
+      }
+    )
+  })
+
   test('ambiguous active-run contribution remains admission_pending and does not queue', async () => {
     const stores = createAdmissionStores()
 
