@@ -9,6 +9,7 @@ import type {
   InputQueueStatus,
   InputResetPolicy,
 } from 'acp-core'
+import type { HrcActiveRunContributionResponse } from 'hrc-core'
 
 export type InputAdmissionCreateInput = {
   inputAttemptId: string
@@ -23,6 +24,7 @@ export type InputAdmissionCreateInput = {
 }
 
 export type InputAdmissionUpdateInput = {
+  admissionKind?: InputAdmissionRecord['admissionKind'] | undefined
   currentState?: Readonly<Record<string, unknown>> | undefined
   status?: string | undefined
   runId?: string | undefined
@@ -97,7 +99,16 @@ export type InputApplicationUpdateInput = {
 export interface InputApplicationStore {
   create(input: InputApplicationCreateInput): InputApplication
   getById(inputApplicationId: string): InputApplication | undefined
+  listPending(): readonly InputApplication[]
   update(inputApplicationId: string, patch: InputApplicationUpdateInput): InputApplication
+  reconcileFromHrcLedger(input: {
+    inputApplicationId: string
+    ledger: HrcActiveRunContributionResponse
+    inputAdmissionStore: InputAdmissionStore
+  }): {
+    inputApplication: InputApplication
+    inputAdmission?: InputAdmissionRecord | undefined
+  }
 }
 
 export class InMemoryInputAdmissionStore implements InputAdmissionStore {
@@ -136,6 +147,7 @@ export class InMemoryInputAdmissionStore implements InputAdmissionStore {
     }
     const next: InputAdmissionRecord = {
       ...current,
+      admissionKind: patch.admissionKind ?? current.admissionKind,
       ...(patch.currentState !== undefined ? { currentState: patch.currentState } : {}),
       ...(patch.runId !== undefined ? { runId: patch.runId } : {}),
       ...(patch.inputApplicationId !== undefined
@@ -285,6 +297,12 @@ export class InMemoryInputApplicationStore implements InputApplicationStore {
     return application === undefined ? undefined : structuredClone(application)
   }
 
+  listPending(): readonly InputApplication[] {
+    return [...this.applications.values()]
+      .filter((application) => application.status === 'pending')
+      .map((application) => structuredClone(application))
+  }
+
   update(inputApplicationId: string, patch: InputApplicationUpdateInput): InputApplication {
     const current = this.applications.get(inputApplicationId)
     if (current === undefined) {
@@ -305,4 +323,137 @@ export class InMemoryInputApplicationStore implements InputApplicationStore {
     this.applications.set(inputApplicationId, next)
     return structuredClone(next)
   }
+
+  reconcileFromHrcLedger(input: {
+    inputApplicationId: string
+    ledger: HrcActiveRunContributionResponse
+    inputAdmissionStore: InputAdmissionStore
+  }): {
+    inputApplication: InputApplication
+    inputAdmission?: InputAdmissionRecord | undefined
+  } {
+    return reconcileInputApplicationFromHrcLedger({
+      inputApplicationStore: this,
+      inputAdmissionStore: input.inputAdmissionStore,
+      inputApplicationId: input.inputApplicationId,
+      ledger: input.ledger,
+    })
+  }
+}
+
+export function reconcileInputApplicationFromHrcLedger(input: {
+  inputApplicationStore: Pick<InputApplicationStore, 'getById' | 'update'>
+  inputAdmissionStore: InputAdmissionStore
+  inputApplicationId: string
+  ledger: HrcActiveRunContributionResponse
+}): {
+  inputApplication: InputApplication
+  inputAdmission?: InputAdmissionRecord | undefined
+} {
+  const current = input.inputApplicationStore.getById(input.inputApplicationId)
+  if (current === undefined) {
+    throw new Error(`input application not found: ${input.inputApplicationId}`)
+  }
+
+  const ledgerStatus = input.ledger.status as string
+  if (ledgerStatus === 'accepted' || ledgerStatus === 'duplicate') {
+    const inputApplication = input.inputApplicationStore.update(input.inputApplicationId, {
+      status: 'accepted',
+      ...(input.ledger.runId !== undefined ? { hrcRunId: input.ledger.runId } : {}),
+      ...(input.ledger.hostSessionId !== undefined
+        ? { hostSessionId: input.ledger.hostSessionId }
+        : {}),
+      ...(input.ledger.generation !== undefined ? { generation: input.ledger.generation } : {}),
+      ...(input.ledger.runtimeId !== undefined ? { runtimeId: input.ledger.runtimeId } : {}),
+    })
+    return {
+      inputApplication,
+      inputAdmission: reconcileAdmissionForApplication({
+        inputAdmissionStore: input.inputAdmissionStore,
+        inputApplication,
+        admissionKind: 'accepted_in_flight',
+        admissionStatus: 'accepted',
+        applicationStatus: 'accepted',
+      }),
+    }
+  }
+
+  if (ledgerStatus === 'rejected' || ledgerStatus === 'failed') {
+    const inputApplication = input.inputApplicationStore.update(input.inputApplicationId, {
+      status: 'failed',
+      ...(input.ledger.errorCode !== undefined ? { lastErrorCode: input.ledger.errorCode } : {}),
+      ...(input.ledger.errorMessage !== undefined
+        ? { lastErrorMessage: input.ledger.errorMessage }
+        : {}),
+    })
+    return {
+      inputApplication,
+      inputAdmission: reconcileAdmissionForApplication({
+        inputAdmissionStore: input.inputAdmissionStore,
+        inputApplication,
+        admissionKind: 'rejected',
+        admissionStatus: 'rejected',
+        applicationStatus: 'failed',
+        ...(input.ledger.errorCode !== undefined ? { errorCode: input.ledger.errorCode } : {}),
+        ...(input.ledger.errorMessage !== undefined
+          ? { errorMessage: input.ledger.errorMessage }
+          : {}),
+      }),
+    }
+  }
+
+  const inputApplication = input.inputApplicationStore.update(input.inputApplicationId, {
+    status: 'pending',
+    ...(input.ledger.runId !== undefined ? { hrcRunId: input.ledger.runId } : {}),
+    ...(input.ledger.hostSessionId !== undefined
+      ? { hostSessionId: input.ledger.hostSessionId }
+      : {}),
+    ...(input.ledger.generation !== undefined ? { generation: input.ledger.generation } : {}),
+    ...(input.ledger.runtimeId !== undefined ? { runtimeId: input.ledger.runtimeId } : {}),
+  })
+  return {
+    inputApplication,
+    inputAdmission: reconcileAdmissionForApplication({
+      inputAdmissionStore: input.inputAdmissionStore,
+      inputApplication,
+      admissionKind: 'admission_pending',
+      admissionStatus: 'pending',
+      applicationStatus: 'pending',
+    }),
+  }
+}
+
+function reconcileAdmissionForApplication(input: {
+  inputAdmissionStore: InputAdmissionStore
+  inputApplication: InputApplication
+  admissionKind: InputAdmissionRecord['admissionKind']
+  admissionStatus: string
+  applicationStatus: InputApplicationStatus
+  errorCode?: string | undefined
+  errorMessage?: string | undefined
+}): InputAdmissionRecord | undefined {
+  const admission = input.inputAdmissionStore.getByInputAttemptId(
+    input.inputApplication.inputAttemptId
+  )
+  if (admission === undefined) {
+    return undefined
+  }
+
+  const currentState = {
+    ...(admission.currentState ?? {}),
+    applicationStatus: input.applicationStatus,
+    inputApplicationId: input.inputApplication.inputApplicationId,
+    ...(input.errorCode !== undefined ? { errorCode: input.errorCode } : {}),
+    ...(input.errorMessage !== undefined ? { errorMessage: input.errorMessage } : {}),
+  }
+
+  return input.inputAdmissionStore.update(admission.inputAttemptId, {
+    admissionKind:
+      admission.admissionKind === 'admission_pending'
+        ? input.admissionKind
+        : admission.admissionKind,
+    currentState,
+    status: input.admissionStatus,
+    inputApplicationId: input.inputApplication.inputApplicationId,
+  })
 }

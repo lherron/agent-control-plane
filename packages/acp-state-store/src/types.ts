@@ -11,6 +11,7 @@ import type {
   InputResetPolicy,
   Run,
 } from 'acp-core'
+import type { HrcActiveRunContributionResponse } from 'hrc-core'
 
 export type DispatchFence = {
   expectedHostSessionId?: string | undefined
@@ -83,6 +84,7 @@ export type InputAdmissionCreateInput = {
 }
 
 export type InputAdmissionUpdateInput = {
+  admissionKind?: InputAdmissionKind | undefined
   currentState?: Readonly<Record<string, unknown>> | undefined
   status?: string | undefined
   runId?: string | undefined
@@ -135,6 +137,7 @@ export type InputApplicationUpdateInput = {
 }
 
 export type {
+  HrcActiveRunContributionResponse,
   InputAdmissionRecord,
   InputApplication,
   InputQueueItem,

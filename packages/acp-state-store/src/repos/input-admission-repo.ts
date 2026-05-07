@@ -101,7 +101,8 @@ export class InputAdmissionRepo {
     this.context.sqlite
       .prepare(
         `UPDATE input_admissions
-            SET current_state_json = ?,
+            SET admission_kind = ?,
+                current_state_json = ?,
                 run_id = ?,
                 input_application_id = ?,
                 queue_item_id = ?,
@@ -110,6 +111,7 @@ export class InputAdmissionRepo {
           WHERE input_attempt_id = ?`
       )
       .run(
+        patch.admissionKind ?? current.admissionKind,
         patch.currentState === undefined
           ? current.currentState === undefined
             ? null

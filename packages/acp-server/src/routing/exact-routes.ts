@@ -1,4 +1,5 @@
 import { handleCreateAdminAgent, handleListAdminAgents } from '../handlers/admin-agents.js'
+import { handleReconcileAdminContributions } from '../handlers/admin-contributions-reconcile.js'
 import {
   handleListInterfaceIdentities,
   handleRegisterInterfaceIdentity,
@@ -117,6 +118,11 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
       'POST',
       '/v1/admin/jobs/validate',
       handleValidateAdminJob
+    ),
+    [exactRouteKey('POST', '/v1/admin/contributions/reconcile')]: maybeWrapMutatingRoute(
+      'POST',
+      '/v1/admin/contributions/reconcile',
+      handleReconcileAdminContributions
     ),
     [exactRouteKey('GET', '/v1/admin/jobs')]: handleListAdminJobs,
     [exactRouteKey('GET', '/v1/conversation/threads')]: handleListConversationThreads,

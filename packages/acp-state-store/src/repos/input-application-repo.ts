@@ -1,9 +1,24 @@
 import { randomUUID } from 'node:crypto'
 
-import type { InputApplication, InputApplicationStatus } from 'acp-core'
+import type {
+  InputAdmissionKind,
+  InputAdmissionRecord,
+  InputApplication,
+  InputApplicationStatus,
+} from 'acp-core'
 
-import type { InputApplicationCreateInput, InputApplicationUpdateInput } from '../types.js'
+import type {
+  HrcActiveRunContributionResponse,
+  InputAdmissionUpdateInput,
+  InputApplicationCreateInput,
+  InputApplicationUpdateInput,
+} from '../types.js'
 import type { RepoContext } from './shared.js'
+
+type InputAdmissionStoreLike = {
+  getByInputAttemptId(inputAttemptId: string): InputAdmissionRecord | undefined
+  update(inputAttemptId: string, patch: InputAdmissionUpdateInput): InputAdmissionRecord
+}
 
 type InputApplicationRow = {
   input_application_id: string
@@ -86,6 +101,14 @@ export class InputApplicationRepo {
     return row === undefined ? undefined : mapRow(row)
   }
 
+  listPending(): readonly InputApplication[] {
+    const rows = this.context.sqlite
+      .prepare(`${this.selectSql()} WHERE status = ? ORDER BY created_at, input_application_id`)
+      .all('pending') as InputApplicationRow[]
+
+    return rows.map(mapRow)
+  }
+
   update(inputApplicationId: string, patch: InputApplicationUpdateInput): InputApplication {
     const current = this.require(inputApplicationId)
     const now = new Date().toISOString()
@@ -119,6 +142,22 @@ export class InputApplicationRepo {
     return this.require(inputApplicationId)
   }
 
+  reconcileFromHrcLedger(input: {
+    inputApplicationId: string
+    ledger: HrcActiveRunContributionResponse
+    inputAdmissionStore: InputAdmissionStoreLike
+  }): {
+    inputApplication: InputApplication
+    inputAdmission?: InputAdmissionRecord | undefined
+  } {
+    return reconcileInputApplicationFromHrcLedger({
+      inputApplicationStore: this,
+      inputAdmissionStore: input.inputAdmissionStore,
+      inputApplicationId: input.inputApplicationId,
+      ledger: input.ledger,
+    })
+  }
+
   private require(inputApplicationId: string): InputApplication {
     const application = this.getById(inputApplicationId)
     if (application === undefined) {
@@ -143,4 +182,121 @@ export class InputApplicationRepo {
                    updated_at
               FROM input_applications`
   }
+}
+
+function reconcileInputApplicationFromHrcLedger(input: {
+  inputApplicationStore: Pick<InputApplicationRepo, 'getById' | 'update'>
+  inputAdmissionStore: InputAdmissionStoreLike
+  inputApplicationId: string
+  ledger: HrcActiveRunContributionResponse
+}): {
+  inputApplication: InputApplication
+  inputAdmission?: InputAdmissionRecord | undefined
+} {
+  const current = input.inputApplicationStore.getById(input.inputApplicationId)
+  if (current === undefined) {
+    throw new Error(`input application not found: ${input.inputApplicationId}`)
+  }
+
+  const ledgerStatus = input.ledger.status as string
+  if (ledgerStatus === 'accepted' || ledgerStatus === 'duplicate') {
+    const inputApplication = input.inputApplicationStore.update(input.inputApplicationId, {
+      status: 'accepted',
+      ...(input.ledger.runId !== undefined ? { hrcRunId: input.ledger.runId } : {}),
+      ...(input.ledger.hostSessionId !== undefined
+        ? { hostSessionId: input.ledger.hostSessionId }
+        : {}),
+      ...(input.ledger.generation !== undefined ? { generation: input.ledger.generation } : {}),
+      ...(input.ledger.runtimeId !== undefined ? { runtimeId: input.ledger.runtimeId } : {}),
+    })
+    return {
+      inputApplication,
+      inputAdmission: reconcileAdmissionForApplication({
+        inputAdmissionStore: input.inputAdmissionStore,
+        inputApplication,
+        admissionKind: 'accepted_in_flight',
+        admissionStatus: 'accepted',
+        applicationStatus: 'accepted',
+      }),
+    }
+  }
+
+  if (ledgerStatus === 'rejected' || ledgerStatus === 'failed') {
+    const inputApplication = input.inputApplicationStore.update(input.inputApplicationId, {
+      status: 'failed',
+      ...(input.ledger.errorCode !== undefined ? { lastErrorCode: input.ledger.errorCode } : {}),
+      ...(input.ledger.errorMessage !== undefined
+        ? { lastErrorMessage: input.ledger.errorMessage }
+        : {}),
+    })
+    return {
+      inputApplication,
+      inputAdmission: reconcileAdmissionForApplication({
+        inputAdmissionStore: input.inputAdmissionStore,
+        inputApplication,
+        admissionKind: 'rejected',
+        admissionStatus: 'rejected',
+        applicationStatus: 'failed',
+        ...(input.ledger.errorCode !== undefined ? { errorCode: input.ledger.errorCode } : {}),
+        ...(input.ledger.errorMessage !== undefined
+          ? { errorMessage: input.ledger.errorMessage }
+          : {}),
+      }),
+    }
+  }
+
+  const inputApplication = input.inputApplicationStore.update(input.inputApplicationId, {
+    status: 'pending',
+    ...(input.ledger.runId !== undefined ? { hrcRunId: input.ledger.runId } : {}),
+    ...(input.ledger.hostSessionId !== undefined
+      ? { hostSessionId: input.ledger.hostSessionId }
+      : {}),
+    ...(input.ledger.generation !== undefined ? { generation: input.ledger.generation } : {}),
+    ...(input.ledger.runtimeId !== undefined ? { runtimeId: input.ledger.runtimeId } : {}),
+  })
+  return {
+    inputApplication,
+    inputAdmission: reconcileAdmissionForApplication({
+      inputAdmissionStore: input.inputAdmissionStore,
+      inputApplication,
+      admissionKind: 'admission_pending',
+      admissionStatus: 'pending',
+      applicationStatus: 'pending',
+    }),
+  }
+}
+
+function reconcileAdmissionForApplication(input: {
+  inputAdmissionStore: InputAdmissionStoreLike
+  inputApplication: InputApplication
+  admissionKind: InputAdmissionKind
+  admissionStatus: string
+  applicationStatus: InputApplicationStatus
+  errorCode?: string | undefined
+  errorMessage?: string | undefined
+}): InputAdmissionRecord | undefined {
+  const admission = input.inputAdmissionStore.getByInputAttemptId(
+    input.inputApplication.inputAttemptId
+  )
+  if (admission === undefined) {
+    return undefined
+  }
+
+  const currentState = {
+    ...(admission.currentState ?? {}),
+    applicationStatus: input.applicationStatus,
+    inputApplicationId: input.inputApplication.inputApplicationId,
+    ...(input.errorCode !== undefined ? { errorCode: input.errorCode } : {}),
+    ...(input.errorMessage !== undefined ? { errorMessage: input.errorMessage } : {}),
+  }
+
+  return input.inputAdmissionStore.update(admission.inputAttemptId, {
+    admissionKind:
+      admission.admissionKind === 'admission_pending'
+        ? input.admissionKind
+        : admission.admissionKind,
+    currentState,
+    status: input.admissionStatus,
+    inputApplicationId: input.inputApplication.inputApplicationId,
+  })
 }

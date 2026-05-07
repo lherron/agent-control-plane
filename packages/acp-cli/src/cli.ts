@@ -4,6 +4,7 @@ import { repeatable } from 'cli-kit'
 import { Command, CommanderError } from 'commander'
 
 import { CliUsageError, exitWithError, writeCommandOutput } from './cli-runtime.js'
+import { runAdminContributionsReconcileCommand } from './commands/admin-contributions-reconcile.js'
 import { runAdminInterfaceBindingDisableCommand } from './commands/admin-interface-binding-disable.js'
 import { runAdminInterfaceBindingListCommand } from './commands/admin-interface-binding-list.js'
 import { runAdminInterfaceBindingSetCommand } from './commands/admin-interface-binding-set.js'
@@ -215,9 +216,9 @@ function addTaskCommands(program: Command, deps: CommandDependencies): void {
 }
 
 function addAdminCommands(program: Command, deps: CommandDependencies): void {
-  const binding = program
-    .command('admin')
-    .description('manage ACP admin bindings')
+  const admin = program.command('admin').description('manage ACP admin resources')
+
+  const binding = admin
     .command('interface')
     .description('manage interface admin resources')
     .command('binding')
@@ -245,6 +246,12 @@ function addAdminCommands(program: Command, deps: CommandDependencies): void {
     .requiredOption('--conversation-ref <ref>')
     .option('--thread-ref <ref>')
     .action(runLeaf(deps, [], runAdminInterfaceBindingDisableCommand))
+
+  const contributions = admin.command('contributions').description('manage input contributions')
+  common(contributions.command('reconcile').description('reconcile input contributions from HRC'))
+    .option('--input-application-id <id>')
+    .option('--all-pending')
+    .action(runLeaf(deps, [], runAdminContributionsReconcileCommand))
 }
 
 function addGovernanceCommands(program: Command, deps: CommandDependencies): void {
