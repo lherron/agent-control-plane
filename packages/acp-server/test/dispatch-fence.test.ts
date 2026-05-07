@@ -6,7 +6,6 @@ import { join } from 'node:path'
 
 import { HrcConflictError, HrcErrorCode } from 'hrc-core'
 
-import { InMemoryInputAttemptStore } from '../src/domain/input-attempt-store.js'
 import { createRealLauncher } from '../src/real-launcher.js'
 
 import { type WiredServerFixture, withWiredServer } from './fixtures/wired-server.js'
@@ -111,14 +110,6 @@ function createTmuxHrcDb(): { db: Database; hrcDbPath: string; cleanup(): void }
       db.close()
       rmSync(fixtureDir, { recursive: true, force: true })
     },
-  }
-}
-
-class FollowLatestInputAttemptStore extends InMemoryInputAttemptStore {
-  override createAttempt(input: Parameters<InMemoryInputAttemptStore['createAttempt']>[0]) {
-    const created = super.createAttempt(input)
-    input.runStore.setDispatchFence(created.runId, { followLatest: true })
-    return created
   }
 }
 
@@ -405,8 +396,12 @@ describe('ACP dispatch fences', () => {
             bundle: { kind: 'agent-default' },
             harness: { provider: 'openai', interactive: true },
           }),
-          inputAttemptStore: new FollowLatestInputAttemptStore(),
-          launchRoleScopedRun: launcher,
+          launchRoleScopedRun: async (input) => {
+            if (input.runStore !== undefined && input.acpRunId !== undefined) {
+              input.runStore.setDispatchFence(input.acpRunId, { followLatest: true })
+            }
+            return await launcher(input)
+          },
         }
       )
     } finally {

@@ -1,8 +1,12 @@
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 
+import { InputAdmissionRepo } from './repos/input-admission-repo.js'
+import { InputApplicationRepo } from './repos/input-application-repo.js'
 import { InputAttemptRepo } from './repos/input-attempt-repo.js'
+import { InputQueueRepo } from './repos/input-queue-repo.js'
 import { RunRepo } from './repos/run-repo.js'
+import { SessionAdmissionSequenceRepo } from './repos/session-admission-sequence-repo.js'
 import type { RepoContext } from './repos/shared.js'
 import { TransitionOutboxRepo } from './repos/transition-outbox-repo.js'
 import Database, { type SqliteDatabase } from './sqlite.js'
@@ -15,6 +19,10 @@ export interface AcpStateStore {
   readonly sqlite: SqliteDatabase
   readonly runs: RunRepo
   readonly inputAttempts: InputAttemptRepo
+  readonly inputAdmissions: InputAdmissionRepo
+  readonly inputApplications: InputApplicationRepo
+  readonly inputQueue: InputQueueRepo
+  readonly sessionAdmissionSequences: SessionAdmissionSequenceRepo
   readonly transitionOutbox: TransitionOutboxRepo
   runInTransaction<T>(fn: (store: AcpStateStore) => T): T
   close(): void
@@ -34,7 +42,7 @@ function initializeSchema(sqlite: SqliteDatabase): void {
       actor_kind TEXT NOT NULL,
       actor_id TEXT NOT NULL,
       actor_display_name TEXT,
-      status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled')),
+      status TEXT NOT NULL CHECK (status IN ('queued', 'pending', 'running', 'completed', 'failed', 'cancelled')),
       hrc_run_id TEXT,
       host_session_id TEXT,
       generation INTEGER,
@@ -56,7 +64,7 @@ function initializeSchema(sqlite: SqliteDatabase): void {
 
     CREATE TABLE IF NOT EXISTS input_attempts (
       input_attempt_id TEXT PRIMARY KEY,
-      run_id TEXT NOT NULL,
+      run_id TEXT,
       scope_ref TEXT NOT NULL,
       lane_ref TEXT NOT NULL,
       task_id TEXT,
@@ -77,6 +85,75 @@ function initializeSchema(sqlite: SqliteDatabase): void {
 
     CREATE INDEX IF NOT EXISTS input_attempts_run_idx
       ON input_attempts (run_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS input_admissions (
+      input_attempt_id TEXT PRIMARY KEY,
+      admission_kind TEXT NOT NULL,
+      intent_json TEXT NOT NULL,
+      original_response_json TEXT NOT NULL,
+      current_state_json TEXT,
+      run_id TEXT,
+      input_application_id TEXT,
+      queue_item_id TEXT,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (input_attempt_id) REFERENCES input_attempts(input_attempt_id),
+      FOREIGN KEY (run_id) REFERENCES runs(run_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS input_applications (
+      input_application_id TEXT PRIMARY KEY,
+      input_attempt_id TEXT NOT NULL,
+      target_run_id TEXT,
+      hrc_run_id TEXT,
+      host_session_id TEXT,
+      generation INTEGER,
+      runtime_id TEXT,
+      status TEXT NOT NULL,
+      delivery_attempts INTEGER NOT NULL DEFAULT 0,
+      last_error_code TEXT,
+      last_error_message TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (input_attempt_id) REFERENCES input_attempts(input_attempt_id),
+      FOREIGN KEY (target_run_id) REFERENCES runs(run_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS input_queue (
+      queue_item_id TEXT PRIMARY KEY,
+      input_attempt_id TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      scope_ref TEXT NOT NULL,
+      lane_ref TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      reset_policy TEXT NOT NULL,
+      expected_host_session_id TEXT,
+      expected_generation INTEGER,
+      not_before_at TEXT,
+      leased_at TEXT,
+      lease_owner TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error_code TEXT,
+      last_error_message TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (scope_ref, lane_ref, seq),
+      FOREIGN KEY (input_attempt_id) REFERENCES input_attempts(input_attempt_id),
+      FOREIGN KEY (run_id) REFERENCES runs(run_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS input_queue_dispatch_idx
+      ON input_queue (status, not_before_at, scope_ref, lane_ref, seq);
+
+    CREATE TABLE IF NOT EXISTS session_admission_sequence (
+      scope_ref TEXT NOT NULL,
+      lane_ref TEXT NOT NULL,
+      next_seq INTEGER NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (scope_ref, lane_ref)
+    );
 
     CREATE TABLE IF NOT EXISTS transition_outbox (
       transition_event_id TEXT PRIMARY KEY,
@@ -103,6 +180,11 @@ function initializeSchema(sqlite: SqliteDatabase): void {
 
 type TableInfoRow = {
   name: string
+  notnull?: number
+}
+
+type SqlMasterRow = {
+  sql: string | null
 }
 
 function listTableColumns(sqlite: SqliteDatabase, tableName: string): Set<string> {
@@ -193,12 +275,206 @@ function migrateTransitionOutboxActorColumns(sqlite: SqliteDatabase): void {
   `)
 }
 
+function getCreateTableSql(sqlite: SqliteDatabase, tableName: string): string {
+  const row = sqlite
+    .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`)
+    .get(tableName) as SqlMasterRow | undefined
+
+  return row?.sql ?? ''
+}
+
+function rebuildRunsForQueuedStatus(sqlite: SqliteDatabase): void {
+  const createSql = getCreateTableSql(sqlite, 'runs')
+  if (createSql.includes("'queued'")) {
+    return
+  }
+
+  sqlite.exec(`
+    PRAGMA foreign_keys = OFF;
+
+    ALTER TABLE runs RENAME TO runs_legacy_input_admission;
+
+    CREATE TABLE runs (
+      run_id TEXT PRIMARY KEY,
+      scope_ref TEXT NOT NULL,
+      lane_ref TEXT NOT NULL,
+      task_id TEXT,
+      actor_kind TEXT NOT NULL,
+      actor_id TEXT NOT NULL,
+      actor_display_name TEXT,
+      status TEXT NOT NULL CHECK (status IN ('queued', 'pending', 'running', 'completed', 'failed', 'cancelled')),
+      hrc_run_id TEXT,
+      host_session_id TEXT,
+      generation INTEGER,
+      runtime_id TEXT,
+      transport TEXT,
+      error_code TEXT,
+      error_message TEXT,
+      dispatch_fence_json TEXT,
+      expected_host_session_id TEXT,
+      expected_generation INTEGER,
+      follow_latest INTEGER CHECK (follow_latest IN (0, 1) OR follow_latest IS NULL),
+      metadata_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    INSERT INTO runs (
+      run_id,
+      scope_ref,
+      lane_ref,
+      task_id,
+      actor_kind,
+      actor_id,
+      actor_display_name,
+      status,
+      hrc_run_id,
+      host_session_id,
+      generation,
+      runtime_id,
+      transport,
+      error_code,
+      error_message,
+      dispatch_fence_json,
+      expected_host_session_id,
+      expected_generation,
+      follow_latest,
+      metadata_json,
+      created_at,
+      updated_at
+    )
+    SELECT run_id,
+           scope_ref,
+           lane_ref,
+           task_id,
+           actor_kind,
+           actor_id,
+           actor_display_name,
+           status,
+           hrc_run_id,
+           host_session_id,
+           generation,
+           runtime_id,
+           transport,
+           error_code,
+           error_message,
+           dispatch_fence_json,
+           expected_host_session_id,
+           expected_generation,
+           follow_latest,
+           metadata_json,
+           created_at,
+           updated_at
+      FROM runs_legacy_input_admission;
+
+    DROP TABLE runs_legacy_input_admission;
+
+    CREATE INDEX IF NOT EXISTS runs_session_idx
+      ON runs (scope_ref, lane_ref, created_at);
+
+    PRAGMA foreign_keys = ON;
+  `)
+}
+
+function rebuildInputAttemptsForNullableRun(sqlite: SqliteDatabase): void {
+  const columns = sqlite.prepare('PRAGMA table_info(input_attempts)').all() as TableInfoRow[]
+  const runIdColumn = columns.find((row) => row.name === 'run_id')
+  if (runIdColumn?.notnull === 0) {
+    return
+  }
+
+  const hasLegacyActorAgentId = columns.some((row) => row.name === 'actor_agent_id')
+  const actorKindExpr = hasLegacyActorAgentId
+    ? `CASE
+         WHEN actor_kind IS NOT NULL AND actor_kind != '' THEN actor_kind
+         WHEN actor_agent_id IS NOT NULL AND actor_agent_id != '' THEN 'agent'
+         ELSE 'system'
+       END`
+    : `CASE WHEN actor_kind IS NOT NULL AND actor_kind != '' THEN actor_kind ELSE 'system' END`
+  const actorIdExpr = hasLegacyActorAgentId
+    ? `CASE
+         WHEN actor_id IS NOT NULL AND actor_id != '' THEN actor_id
+         WHEN actor_agent_id IS NOT NULL AND actor_agent_id != '' THEN actor_agent_id
+         ELSE 'acp-local'
+       END`
+    : `CASE WHEN actor_id IS NOT NULL AND actor_id != '' THEN actor_id ELSE 'acp-local' END`
+
+  sqlite.exec(`
+    PRAGMA foreign_keys = OFF;
+
+    ALTER TABLE input_attempts RENAME TO input_attempts_legacy_input_admission;
+
+    CREATE TABLE input_attempts (
+      input_attempt_id TEXT PRIMARY KEY,
+      run_id TEXT,
+      scope_ref TEXT NOT NULL,
+      lane_ref TEXT NOT NULL,
+      task_id TEXT,
+      idempotency_key TEXT,
+      fingerprint TEXT NOT NULL,
+      content TEXT NOT NULL,
+      actor_kind TEXT NOT NULL,
+      actor_id TEXT NOT NULL,
+      actor_display_name TEXT,
+      ${hasLegacyActorAgentId ? 'actor_agent_id TEXT,' : ''}
+      metadata_json TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (run_id) REFERENCES runs(run_id)
+    );
+
+    INSERT INTO input_attempts (
+      input_attempt_id,
+      run_id,
+      scope_ref,
+      lane_ref,
+      task_id,
+      idempotency_key,
+      fingerprint,
+      content,
+      actor_kind,
+      actor_id,
+      actor_display_name,
+      ${hasLegacyActorAgentId ? 'actor_agent_id,' : ''}
+      metadata_json,
+      created_at
+    )
+    SELECT input_attempt_id,
+           run_id,
+           scope_ref,
+           lane_ref,
+           task_id,
+           idempotency_key,
+           fingerprint,
+           content,
+           ${actorKindExpr},
+           ${actorIdExpr},
+           actor_display_name,
+           ${hasLegacyActorAgentId ? 'actor_agent_id,' : ''}
+           metadata_json,
+           created_at
+      FROM input_attempts_legacy_input_admission;
+
+    DROP TABLE input_attempts_legacy_input_admission;
+
+    CREATE UNIQUE INDEX IF NOT EXISTS input_attempts_idempotency_unique
+      ON input_attempts (scope_ref, lane_ref, idempotency_key)
+      WHERE idempotency_key IS NOT NULL;
+
+    CREATE INDEX IF NOT EXISTS input_attempts_run_idx
+      ON input_attempts (run_id, created_at);
+
+    PRAGMA foreign_keys = ON;
+  `)
+}
+
 function migrateLegacySchema(sqlite: SqliteDatabase): void {
   sqlite.transaction(() => {
     migrateRunsActorColumns(sqlite)
     migrateInputAttemptsActorColumns(sqlite)
     migrateTransitionOutboxActorColumns(sqlite)
   })()
+  rebuildRunsForQueuedStatus(sqlite)
+  rebuildInputAttemptsForNullableRun(sqlite)
 }
 
 function createSqliteDatabase(dbPath: string): SqliteDatabase {
@@ -226,6 +502,10 @@ export function openAcpStateStore(options: OpenAcpStateStoreOptions): AcpStateSt
     sqlite,
     runs: new RunRepo(context),
     inputAttempts: new InputAttemptRepo(context),
+    inputAdmissions: new InputAdmissionRepo(context),
+    inputApplications: new InputApplicationRepo(context),
+    inputQueue: new InputQueueRepo(context),
+    sessionAdmissionSequences: new SessionAdmissionSequenceRepo(context),
     transitionOutbox: new TransitionOutboxRepo(context),
     runInTransaction<T>(fn: (activeStore: AcpStateStore) => T): T {
       return sqlite.transaction(() => fn(store))()

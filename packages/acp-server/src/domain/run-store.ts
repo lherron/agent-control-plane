@@ -40,6 +40,7 @@ export interface RunStore {
     sessionRef: SessionRef
     taskId?: string | undefined
     actor?: Actor | undefined
+    status?: Run['status'] | undefined
     metadata?: Readonly<Record<string, unknown>> | undefined
   }): StoredRun
   getRun(runId: string): StoredRun | undefined
@@ -57,6 +58,7 @@ export class InMemoryRunStore implements RunStore {
     sessionRef: SessionRef
     taskId?: string | undefined
     actor?: Actor | undefined
+    status?: Run['status'] | undefined
     metadata?: Readonly<Record<string, unknown>> | undefined
   }): StoredRun {
     const actor = input.actor ?? { kind: 'system', id: 'acp-local' }
@@ -66,7 +68,7 @@ export class InMemoryRunStore implements RunStore {
       scopeRef: input.sessionRef.scopeRef,
       laneRef: input.sessionRef.laneRef,
       actor: structuredClone(actor),
-      status: 'pending',
+      status: input.status ?? 'pending',
       createdAt: timestamp,
       updatedAt: timestamp,
       ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),

@@ -384,6 +384,9 @@ function addRuntimeCommands(program: Command, deps: CommandDependencies): void {
     .option('--wait')
     .option('--wait-timeout-ms <ms>')
     .option('--wait-interval-ms <ms>')
+    .option('--intent <new-work|contribute|interrupt|cancel|pause>')
+    .option('--contribution-fallback <queue|reject|pending_only>')
+    .option('--contribution-semantics <append_context|interrupt_and_continue>')
     .option('--no-dispatch')
     .action(runLeaf(deps, [], runSendCommand))
 

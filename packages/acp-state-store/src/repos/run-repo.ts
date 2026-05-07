@@ -143,6 +143,7 @@ export class RunRepo {
     sessionRef: SessionRef
     taskId?: string | undefined
     actor?: Actor | undefined
+    status?: StoredRun['status'] | undefined
     metadata?: Readonly<Record<string, unknown>> | undefined
   }): StoredRun {
     const actor = input.actor ?? { kind: 'system', id: 'acp-local' }
@@ -153,7 +154,7 @@ export class RunRepo {
       laneRef: input.sessionRef.laneRef,
       ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
       actor,
-      status: 'pending',
+      status: input.status ?? 'pending',
       createdAt: timestamp,
       updatedAt: timestamp,
       ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),

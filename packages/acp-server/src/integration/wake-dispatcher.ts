@@ -16,6 +16,15 @@ export type WakeDispatcherInput = {
   runStore: RunStore
   runtimeResolver: NonNullable<RuntimeResolver>
   launchRoleScopedRun: NonNullable<LaunchRoleScopedRun>
+  admitInput?:
+    | ((input: {
+        sessionRef: { scopeRef: string; laneRef: string }
+        taskId?: string | undefined
+        idempotencyKey?: string | undefined
+        content: string
+        actor: { kind: 'agent'; id: string }
+      }) => Promise<{ inputAttemptId: string; runId: string; created: boolean }>)
+    | undefined
 }
 
 export type WakeDispatcher = {
@@ -53,6 +62,20 @@ export function createWakeDispatcher(input: WakeDispatcherInput): WakeDispatcher
     const parsedScope = parseScopeRef(sessionRef.scopeRef)
     const idempotencyKey = leased.dedupeKey ?? leased.wakeId
 
+    if (input.admitInput !== undefined) {
+      const admitted = await input.admitInput({
+        sessionRef,
+        ...(parsedScope.taskId !== undefined ? { taskId: parsedScope.taskId } : {}),
+        idempotencyKey,
+        content: leased.reason ?? 'wake dispatch',
+        actor: { kind: 'agent', id: parsedScope.agentId },
+      })
+      if (admitted.created) {
+        consumeWake(coordStore, { wakeId: leased.wakeId })
+      }
+      return
+    }
+
     const result = inputAttemptStore.createAttempt({
       sessionRef,
       ...(parsedScope.taskId !== undefined ? { taskId: parsedScope.taskId } : {}),
@@ -64,6 +87,11 @@ export function createWakeDispatcher(input: WakeDispatcherInput): WakeDispatcher
 
     if (!result.created) {
       return
+    }
+    if (result.runId === undefined) {
+      throw new Error(
+        `wake input attempt did not create a run: ${result.inputAttempt.inputAttemptId}`
+      )
     }
 
     try {

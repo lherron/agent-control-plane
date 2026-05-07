@@ -5,6 +5,7 @@ import { resolveAttachmentRefs } from '../attachments.js'
 import { createInterfaceResponseCapture } from '../delivery/interface-response-capture.js'
 import { toCompletedVisibleAssistantMessage } from '../delivery/visible-assistant-messages.js'
 import { AcpHttpError, json } from '../http.js'
+import { InputAdmissionService } from '../input-admission/input-admission-service.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
 import {
   parseJsonBody,
@@ -174,15 +175,26 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
 
   let conversationThreadId: string | undefined
 
-  const createdAttempt = deps.inputAttemptStore.createAttempt({
+  const admissionResult = await new InputAdmissionService(deps).admit({
     sessionRef,
     ...(parsedScope.taskId !== undefined ? { taskId: parsedScope.taskId } : {}),
     idempotencyKey: `interface:${source.gatewayId}:${source.messageRef}`,
     content,
     actor,
     metadata: inputMetadata,
-    runStore: deps.runStore,
+    dispatch: false,
   })
+  const createdAttempt = {
+    inputAttempt: admissionResult.inputAttempt,
+    runId: admissionResult.run?.runId,
+    created: admissionResult.created,
+  }
+  if (createdAttempt.runId === undefined) {
+    throw new Error(
+      `interface admission did not create a run: ${createdAttempt.inputAttempt.inputAttemptId}`
+    )
+  }
+  const admittedRunId = createdAttempt.runId
 
   // Conversation hook: create human turn after input attempt creation
   if (createdAttempt.created && deps.conversationStore !== undefined) {
@@ -208,9 +220,9 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
 
   let launched: Awaited<ReturnType<NonNullable<typeof deps.launchRoleScopedRun>>> | undefined
 
-  if (createdAttempt.created && deps.launchRoleScopedRun !== undefined) {
+  if (createdAttempt.created) {
     const resolvedAttachments = await resolveAttachmentRefs(attachments, {
-      runId: createdAttempt.runId,
+      runId: admittedRunId,
       stateDir: deps.mediaStateDir,
       maxBytes: deps.attachmentMaxBytes,
       fetchImpl: deps.attachmentFetchImpl,
@@ -218,7 +230,7 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
     if (resolvedAttachments !== undefined) {
       const run = deps.runStore.getRun(createdAttempt.runId)
       if (run?.metadata !== undefined) {
-        deps.runStore.updateRun(createdAttempt.runId, {
+        deps.runStore.updateRun(admittedRunId, {
           metadata: {
             ...run.metadata,
             meta: {
@@ -229,6 +241,18 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
         })
       }
     }
+  }
+
+  if (
+    createdAttempt.created &&
+    admissionResult.admission.admissionKind === 'started_run' &&
+    deps.launchRoleScopedRun !== undefined
+  ) {
+    const run = deps.runStore.getRun(admittedRunId)
+    const resolvedAttachments =
+      ((run?.metadata?.['meta'] as Record<string, unknown> | undefined)?.['resolvedAttachments'] as
+        | AttachmentRef[]
+        | undefined) ?? undefined
 
     // Augment the prompt with resolved file paths so agents on harnesses that
     // don't natively inject image content blocks (claude-agent-sdk today) can
@@ -243,14 +267,14 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
     const responseCapture = createInterfaceResponseCapture({
       interfaceStore: deps.interfaceStore,
       runStore: deps.runStore,
-      runId: createdAttempt.runId,
+      runId: admittedRunId,
       inputAttemptId: createdAttempt.inputAttempt.inputAttemptId,
     })
 
     launched = await deps.launchRoleScopedRun({
       sessionRef,
       intent,
-      acpRunId: createdAttempt.runId,
+      acpRunId: admittedRunId,
       inputAttemptId: createdAttempt.inputAttempt.inputAttemptId,
       runStore: deps.runStore,
       waitForCompletion: false,
@@ -276,13 +300,13 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
             sessionRef,
             audience: 'human',
           }).threadId
-        const run = deps.runStore.getRun(createdAttempt.runId)
+        const run = deps.runStore.getRun(admittedRunId)
         const turnId = deps.conversationStore.createTurn({
           threadId,
           role: 'assistant',
           body: visible.text,
           renderState: 'pending',
-          links: { runId: createdAttempt.runId },
+          links: { runId: admittedRunId },
           actor: run?.actor ?? actor,
           sentAt: new Date().toISOString(),
         })
@@ -292,14 +316,14 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
     })
   }
 
-  const run = deps.runStore.getRun(createdAttempt.runId)
+  const run = deps.runStore.getRun(admittedRunId)
   const hostSessionId = run?.hostSessionId ?? launched?.hostSessionId
   const generation = run?.generation ?? launched?.generation
 
   return json(
     {
       inputAttemptId: createdAttempt.inputAttempt.inputAttemptId,
-      runId: createdAttempt.runId,
+      runId: admittedRunId,
       ...(hostSessionId !== undefined ? { hostSessionId } : {}),
       ...(generation !== undefined ? { generation } : {}),
     },

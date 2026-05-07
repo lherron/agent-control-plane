@@ -13,11 +13,25 @@ import type { JobsStore } from 'acp-jobs-store'
 import type { AcpStateStore } from 'acp-state-store'
 import type { SessionRef } from 'agent-scope'
 import type { CoordinationStore } from 'coordination-substrate'
-import type { HrcRuntimeIntent } from 'hrc-core'
+import type {
+  HrcActiveRunContributionRequest,
+  HrcActiveRunContributionResponse,
+  HrcRuntimeIntent,
+} from 'hrc-core'
 import type { HrcClient } from 'hrc-sdk'
 import type { UnifiedSessionEvent } from 'spaces-runtime'
 import type { WrkqStore } from 'wrkq-lib'
 
+import {
+  InMemoryInputAdmissionStore,
+  InMemoryInputApplicationStore,
+  InMemoryInputQueueStore,
+  InMemorySessionAdmissionSequenceStore,
+  type InputAdmissionStore,
+  type InputApplicationStore,
+  type InputQueueStore,
+  type SessionAdmissionSequenceStore,
+} from './domain/input-admission-stores.js'
 import { InMemoryInputAttemptStore, type InputAttemptStore } from './domain/input-attempt-store.js'
 import { InMemoryRunStore, type RunStore } from './domain/run-store.js'
 import type { JobExecPolicy } from './jobs/exec-policy.js'
@@ -37,6 +51,11 @@ export interface AcpRuntimePlacement {
   bundle?: { kind: string; [key: string]: unknown } | undefined
   correlation?: { sessionRef: SessionRef } | undefined
   [key: string]: unknown
+}
+
+export type InputQueuePolicy = {
+  maxDepth?: number | undefined
+  ttlMs?: number | undefined
 }
 
 export type SessionResolver = (
@@ -84,7 +103,12 @@ export type AcpHrcClient = Pick<
   | 'terminate'
   | 'watch'
   | 'watchMessages'
->
+> & {
+  submitActiveRunContribution(
+    request: HrcActiveRunContributionRequest
+  ): Promise<HrcActiveRunContributionResponse>
+  getActiveRunContribution(inputApplicationId: string): Promise<HrcActiveRunContributionResponse>
+}
 
 export interface AcpServerDeps {
   wrkqStore: WrkqStore
@@ -102,6 +126,10 @@ export interface AcpServerDeps {
   launchRoleScopedRun?: LaunchRoleScopedRun | undefined
   hrcClient?: AcpHrcClient | undefined
   inputAttemptStore?: InputAttemptStore | undefined
+  inputAdmissionStore?: InputAdmissionStore | undefined
+  inputApplicationStore?: InputApplicationStore | undefined
+  inputQueueStore?: InputQueueStore | undefined
+  sessionAdmissionSequenceStore?: SessionAdmissionSequenceStore | undefined
   runStore?: RunStore | undefined
   mediaStateDir?: string | undefined
   attachmentMaxBytes?: number | undefined
@@ -109,6 +137,7 @@ export interface AcpServerDeps {
   deliveryTargetResolver?: DeliveryTargetResolver | undefined
   authorize?: AuthorizeFn | undefined
   jobExecPolicy?: JobExecPolicy | undefined
+  inputQueuePolicy?: InputQueuePolicy | undefined
 }
 
 export interface ResolvedAcpServerDeps extends AcpServerDeps {
@@ -117,9 +146,14 @@ export interface ResolvedAcpServerDeps extends AcpServerDeps {
   presetRegistry: PresetRegistry
   stateStore?: AcpStateStore | undefined
   inputAttemptStore: InputAttemptStore
+  inputAdmissionStore: InputAdmissionStore
+  inputApplicationStore: InputApplicationStore
+  inputQueueStore: InputQueueStore
+  sessionAdmissionSequenceStore: SessionAdmissionSequenceStore
   runStore: RunStore
   authorize: AuthorizeFn
   defaultActor: Actor
+  inputQueuePolicy: InputQueuePolicy
 }
 
 export type DeliveryTargetResolver = (input: {
@@ -136,6 +170,7 @@ export type AuthorizeFn = (
 
 export function resolveAcpServerDeps(deps: AcpServerDeps): ResolvedAcpServerDeps {
   const stateStore = deps.stateStore
+  const useStateInputStores = deps.inputAttemptStore === undefined && deps.runStore === undefined
 
   return {
     ...deps,
@@ -149,9 +184,26 @@ export function resolveAcpServerDeps(deps: AcpServerDeps): ResolvedAcpServerDeps
     presetRegistry: deps.presetRegistry ?? { getPreset },
     inputAttemptStore:
       deps.inputAttemptStore ?? stateStore?.inputAttempts ?? new InMemoryInputAttemptStore(),
+    inputAdmissionStore:
+      deps.inputAdmissionStore ??
+      (useStateInputStores ? stateStore?.inputAdmissions : undefined) ??
+      new InMemoryInputAdmissionStore(),
+    inputApplicationStore:
+      deps.inputApplicationStore ??
+      (useStateInputStores ? stateStore?.inputApplications : undefined) ??
+      new InMemoryInputApplicationStore(),
+    inputQueueStore:
+      deps.inputQueueStore ??
+      (useStateInputStores ? stateStore?.inputQueue : undefined) ??
+      new InMemoryInputQueueStore(),
+    sessionAdmissionSequenceStore:
+      deps.sessionAdmissionSequenceStore ??
+      (useStateInputStores ? stateStore?.sessionAdmissionSequences : undefined) ??
+      new InMemorySessionAdmissionSequenceStore(),
     runStore: deps.runStore ?? stateStore?.runs ?? new InMemoryRunStore(),
     authorize: deps.authorize ?? (() => 'allow'),
     defaultActor: deps.defaultActor ?? { kind: 'system', id: 'acp-local' },
+    inputQueuePolicy: deps.inputQueuePolicy ?? {},
   }
 }
 

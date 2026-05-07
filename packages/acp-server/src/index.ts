@@ -24,6 +24,16 @@ export {
   type InputAttemptStore,
 } from './domain/input-attempt-store.js'
 export {
+  InMemoryInputAdmissionStore,
+  InMemoryInputApplicationStore,
+  InMemoryInputQueueStore,
+  InMemorySessionAdmissionSequenceStore,
+  type InputAdmissionStore,
+  type InputApplicationStore,
+  type InputQueueStore,
+  type SessionAdmissionSequenceStore,
+} from './domain/input-admission-stores.js'
+export {
   InMemoryRunStore,
   type DispatchFence,
   type RunStore,

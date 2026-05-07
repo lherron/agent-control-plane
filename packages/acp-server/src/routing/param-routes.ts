@@ -13,6 +13,7 @@ import { handleRequeueDelivery } from '../handlers/delivery-requeue.js'
 import { handleAckGatewayDelivery } from '../handlers/gateway-deliveries-ack.js'
 import { handleFailGatewayDelivery } from '../handlers/gateway-deliveries-fail.js'
 import { handleStreamGatewayDeliveries } from '../handlers/gateway-deliveries-stream.js'
+import { handleGetInputAttempt } from '../handlers/input-attempts-get.js'
 import { handleGetJobRun, handleListJobRuns } from '../handlers/job-runs.js'
 import { handleCancelRun } from '../handlers/runs-cancel.js'
 import { handleGetRun } from '../handlers/runs-get.js'
@@ -144,6 +145,7 @@ export function buildParamRoutes(): ParamRoute[] {
     ),
     createParamRoute('GET', '/v1/jobs/:jobId/runs', handleListJobRuns),
     createParamRoute('GET', '/v1/job-runs/:jobRunId', handleGetJobRun),
+    createParamRoute('GET', '/v1/input-attempts/:inputAttemptId', handleGetInputAttempt),
     createParamRoute('GET', '/v1/conversation/threads/:threadId', handleGetConversationThread),
     createParamRoute(
       'GET',

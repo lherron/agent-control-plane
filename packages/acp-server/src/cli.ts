@@ -9,7 +9,7 @@ import { openSqliteConversationStore } from 'acp-conversation'
 import { openInterfaceStore } from 'acp-interface-store'
 import { createJobsScheduler, openSqliteJobsStore } from 'acp-jobs-store'
 import { openAcpStateStore } from 'acp-state-store'
-import { type SessionRef, parseScopeRef } from 'agent-scope'
+import { type SessionRef, normalizeSessionRef, parseScopeRef } from 'agent-scope'
 import { openCoordinationStore } from 'coordination-substrate'
 import { resolveControlSocketPath, resolveDatabasePath } from 'hrc-core'
 import { HrcClient } from 'hrc-sdk'
@@ -28,6 +28,8 @@ import { createDevFlowLauncher } from './dev-flow-launcher.js'
 import { createEchoLauncher } from './echo-launcher.js'
 import { dispatchJobRunThroughInputs } from './handlers/admin-jobs.js'
 import { closeMobileWebSocket, openMobileWebSocket } from './handlers/mobile.js'
+import { InputAdmissionService } from './input-admission/input-admission-service.js'
+import { createInputQueueDispatcher } from './integration/input-queue-dispatcher.js'
 import { createInterfaceRunDispatcher } from './integration/interface-run-dispatcher.js'
 import { createWakeDispatcher } from './integration/wake-dispatcher.js'
 import { advanceJobFlow } from './jobs/flow-engine.js'
@@ -40,10 +42,20 @@ const DEFAULT_ACTOR = 'acp-server'
 const DEFAULT_JOBS_SCHEDULER_INTERVAL_MS = 5_000
 const DEFAULT_INTERFACE_DISPATCHER_INTERVAL_MS = 2_000
 const DEFAULT_INTERFACE_DISPATCHER_STALE_TIMEOUT_MS = 600_000 // 10 minutes
+const DEFAULT_INPUT_QUEUE_DISPATCHER_INTERVAL_MS = 2_000
 
 export function isEnabledEnvFlag(value: string | undefined): boolean {
   const normalized = value?.trim().toLowerCase()
   return normalized === '1' || normalized === 'true'
+}
+
+function readPositiveIntegerEnv(name: string): number | undefined {
+  const raw = process.env[name]?.trim()
+  if (raw === undefined || raw.length === 0) {
+    return undefined
+  }
+  const parsed = Number(raw)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
 }
 
 export interface ResolveLauncherDepsOptions {
@@ -315,7 +327,8 @@ export function resolveLauncherDeps(
     }
 
     const createHrcClient =
-      _options.createHrcClient ?? ((socketPath: string) => new HrcClient(socketPath))
+      _options.createHrcClient ??
+      ((socketPath: string) => new HrcClient(socketPath) as unknown as AcpHrcClient)
     const socketPath = resolveControlSocketPath()
     const hrcClient: AcpHrcClient = createHrcClient(socketPath)
 
@@ -390,6 +403,8 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
       ? openSqliteConversationStore({ dbPath: options.conversationDbPath })
       : undefined
   const launcherDeps = resolveLauncherDeps(process.env, process.cwd())
+  const inputQueueMaxDepth = readPositiveIntegerEnv('ACP_INPUT_QUEUE_MAX_DEPTH')
+  const inputQueueTtlMs = readPositiveIntegerEnv('ACP_INPUT_QUEUE_TTL_MS')
   const serverDeps = {
     wrkqStore,
     coordStore,
@@ -399,6 +414,14 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     interfaceStore,
     stateStore,
     ...launcherDeps,
+    ...(inputQueueMaxDepth !== undefined || inputQueueTtlMs !== undefined
+      ? {
+          inputQueuePolicy: {
+            ...(inputQueueMaxDepth !== undefined ? { maxDepth: inputQueueMaxDepth } : {}),
+            ...(inputQueueTtlMs !== undefined ? { ttlMs: inputQueueTtlMs } : {}),
+          },
+        }
+      : {}),
   }
   const acpServer = createAcpServer(serverDeps)
   const resolvedDeps = resolveAcpServerDeps(serverDeps)
@@ -459,6 +482,28 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
           runStore: resolvedDeps.runStore,
           runtimeResolver: resolvedDeps.runtimeResolver,
           launchRoleScopedRun: resolvedDeps.launchRoleScopedRun,
+          admitInput: async (input) => {
+            const admitted = await new InputAdmissionService(resolvedDeps).admit({
+              sessionRef: normalizeSessionRef(input.sessionRef),
+              ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
+              ...(input.idempotencyKey !== undefined
+                ? { idempotencyKey: input.idempotencyKey }
+                : {}),
+              content: input.content,
+              actor: input.actor,
+              dispatch: true,
+            })
+            if (admitted.run === undefined) {
+              throw new Error(
+                `wake admission did not create a run: ${admitted.inputAttempt.inputAttemptId}`
+              )
+            }
+            return {
+              inputAttemptId: admitted.inputAttempt.inputAttemptId,
+              runId: admitted.run.runId,
+              created: admitted.created,
+            }
+          },
         })
       : undefined
 
@@ -489,6 +534,31 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
 
   if (interfaceRunDispatcher !== undefined) {
     interfaceRunDispatcher.start()
+  }
+
+  const inputQueueDispatcherIntervalMs = Number(
+    process.env['ACP_INPUT_QUEUE_DISPATCHER_INTERVAL_MS'] ||
+      DEFAULT_INPUT_QUEUE_DISPATCHER_INTERVAL_MS
+  )
+  const inputQueueDispatcher =
+    resolvedDeps.launchRoleScopedRun !== undefined
+      ? createInputQueueDispatcher({
+          adminStore: resolvedDeps.adminStore,
+          hrcClient: resolvedDeps.hrcClient,
+          inputAdmissionStore: resolvedDeps.inputAdmissionStore,
+          inputQueueStore: resolvedDeps.inputQueueStore,
+          runStore: resolvedDeps.runStore,
+          runtimeResolver: resolvedDeps.runtimeResolver,
+          inputQueuePolicy: resolvedDeps.inputQueuePolicy,
+          launchRoleScopedRun: resolvedDeps.launchRoleScopedRun,
+          config: {
+            intervalMs: inputQueueDispatcherIntervalMs,
+          },
+        })
+      : undefined
+
+  if (inputQueueDispatcher !== undefined) {
+    inputQueueDispatcher.start()
   }
 
   const jobsScheduler =
@@ -540,6 +610,9 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
       }
       if (interfaceRunDispatcher !== undefined) {
         await interfaceRunDispatcher.stop()
+      }
+      if (inputQueueDispatcher !== undefined) {
+        await inputQueueDispatcher.stop()
       }
       if (jobsSchedulerTimer !== undefined) {
         clearInterval(jobsSchedulerTimer)

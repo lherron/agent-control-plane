@@ -16,6 +16,15 @@ export const handleCancelRun: RouteHandler = async ({ params, deps }) => {
     return json({ run })
   }
 
+  const queueItem = deps.inputQueueStore.getByRunId(runId)
+  if (queueItem !== undefined) {
+    deps.inputQueueStore.update(queueItem.queueItemId, { status: 'cancelled' })
+    deps.inputAdmissionStore.update(queueItem.inputAttemptId, {
+      status: 'cancelled',
+      currentState: { queueStatus: 'cancelled', runStatus: 'cancelled', seq: queueItem.seq },
+    })
+  }
+
   const updated = deps.runStore.updateRun(runId, {
     status: 'cancelled',
     errorCode: 'cancelled',

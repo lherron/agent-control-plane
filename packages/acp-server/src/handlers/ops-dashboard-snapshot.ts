@@ -14,6 +14,7 @@ import {
   parseBoolean,
   parsePositiveInteger,
   projectCoreHrcEvent,
+  projectInputAdmissionSystemEvent,
   rowMatchesFilters,
   sessionRecordToRow,
   sortRows,
@@ -84,6 +85,18 @@ export const handleOpsDashboardSnapshot: RouteHandler = async ({ url, deps }) =>
 
       events.push(event)
     }
+  }
+
+  for (const systemEvent of deps.adminStore.systemEvents.list({
+    occurredAfter: fromTs,
+    occurredBefore: toTs,
+    ...(filters.projectId !== undefined ? { projectId: filters.projectId } : {}),
+  })) {
+    const event = projectInputAdmissionSystemEvent(systemEvent)
+    if (event === undefined || !eventMatchesFilters(event, filters)) {
+      continue
+    }
+    events.push(event)
   }
 
   const sortedEvents = events.sort(compareDashboardEvents)

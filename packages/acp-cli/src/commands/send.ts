@@ -21,7 +21,11 @@ import {
 
 type InputResponse = {
   inputAttempt: Record<string, unknown>
-  run: Record<string, unknown>
+  run?: Record<string, unknown> | undefined
+  targetRun?: Record<string, unknown> | undefined
+  inputApplication?: Record<string, unknown> | undefined
+  admission?: Record<string, unknown> | undefined
+  currentState?: Record<string, unknown> | undefined
 }
 
 type OutboundMessageResponse = {
@@ -58,6 +62,9 @@ export async function runSendCommand(
       '--project',
       '--wait-timeout-ms',
       '--wait-interval-ms',
+      '--intent',
+      '--contribution-fallback',
+      '--contribution-semantics',
     ],
   })
 
@@ -103,6 +110,7 @@ export async function runSendCommand(
         ? { idempotencyKey: requireStringFlag(parsed, '--idempotency-key') }
         : {}),
       ...(maybeParseMetaFlag(parsed) !== undefined ? { meta: maybeParseMetaFlag(parsed) } : {}),
+      ...(readInputIntent(parsed) !== undefined ? { intent: readInputIntent(parsed) } : {}),
       ...(hasFlag(parsed, '--no-dispatch') ? { dispatch: false } : {}),
     },
   })
@@ -111,21 +119,26 @@ export async function runSendCommand(
     return renderJsonOrTable(parsed, response, () => {
       return renderKeyValueTable({
         inputAttemptId: response.inputAttempt['inputAttemptId'],
-        runId: response.run['runId'],
-        status: response.run['status'],
+        runId: response.run?.['runId'] ?? response.targetRun?.['runId'] ?? '',
+        status:
+          response.run?.['status'] ??
+          response.currentState?.['applicationStatus'] ??
+          response.admission?.['kind'] ??
+          '',
+        admission: response.admission?.['kind'] ?? '',
       })
     })
   }
 
   const waitTimeoutMs = readOptionalInteger(parsed, '--wait-timeout-ms') ?? 30_000
   const waitIntervalMs = readOptionalInteger(parsed, '--wait-interval-ms') ?? 500
-  const runId = String(response.run['runId'] ?? '')
+  const runId = String(response.run?.['runId'] ?? '')
   if (runId.length === 0) {
     throw new CliUsageError('send --wait requires the server to return run.runId')
   }
 
   const result = await pollUntilTerminal({
-    initial: response.run,
+    initial: response.run ?? {},
     isTerminal: (run) => TERMINAL_STATUSES.has(String(run['status'] ?? '')),
     pollFn: async () => {
       const polled = await requester.requestJson<{ run: Record<string, unknown> }>({
@@ -147,11 +160,46 @@ export async function runSendCommand(
   return renderJsonOrTable(parsed, body, () => {
     return renderKeyValueTable({
       inputAttemptId: body.inputAttempt['inputAttemptId'],
-      runId: body.run['runId'],
-      status: body.run['status'],
+      runId: body.run?.['runId'],
+      status: body.run?.['status'],
       ...(result.timedOut ? { timedOut: true } : {}),
     })
   })
+}
+
+function readInputIntent(
+  parsed: ReturnType<typeof parseArgs>
+): Record<string, unknown> | undefined {
+  const intent = parsed.stringFlags['--intent']
+  if (intent === undefined) return undefined
+  if (intent === 'new-work' || intent === 'new_work') {
+    return { kind: 'new_work' }
+  }
+  if (intent === 'contribute' || intent === 'contribute-to-active-run') {
+    const fallback = parsed.stringFlags['--contribution-fallback'] ?? 'queue'
+    if (fallback !== 'queue' && fallback !== 'reject' && fallback !== 'pending_only') {
+      throw new CliUsageError('--contribution-fallback must be queue, reject, or pending_only')
+    }
+    const semantics = parsed.stringFlags['--contribution-semantics']
+    if (
+      semantics !== undefined &&
+      semantics !== 'append_context' &&
+      semantics !== 'interrupt_and_continue'
+    ) {
+      throw new CliUsageError(
+        '--contribution-semantics must be append_context or interrupt_and_continue'
+      )
+    }
+    return {
+      kind: 'contribute_to_active_run',
+      fallback,
+      ...(semantics !== undefined ? { contributionSemantics: semantics } : {}),
+    }
+  }
+  if (intent === 'interrupt' || intent === 'cancel' || intent === 'pause') {
+    return { kind: 'control_active_run', action: intent }
+  }
+  throw new CliUsageError('--intent must be new-work, contribute, interrupt, cancel, or pause')
 }
 
 function correlationHeadersFromEnv(

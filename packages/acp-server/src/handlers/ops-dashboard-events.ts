@@ -1,11 +1,14 @@
+import type { DashboardEvent } from 'acp-ops-projection'
 import { badRequest } from '../http.js'
 import type { RouteHandler } from '../routing/route-context.js'
 import {
   type DashboardFilters,
+  compareDashboardEvents,
   eventMatchesFilters,
   parseBoolean,
   parsePositiveInteger,
   projectCoreHrcEvent,
+  projectInputAdmissionSystemEvent,
 } from './ops-dashboard-shared.js'
 
 const NDJSON_HEADERS = {
@@ -14,7 +17,11 @@ const NDJSON_HEADERS = {
 }
 const HEARTBEAT_MS = 100
 
-export const handleOpsDashboardEvents: RouteHandler = ({ request, url, deps }) => {
+function isDashboardEvent(value: DashboardEvent | undefined): value is DashboardEvent {
+  return value !== undefined
+}
+
+export const handleOpsDashboardEvents: RouteHandler = async ({ request, url, deps }) => {
   const hrcClient = deps.hrcClient
   const fromSeq = parsePositiveInteger(url.searchParams.get('fromSeq'), 1)
   const follow = parseBoolean(url.searchParams.get('follow'), false)
@@ -35,10 +42,36 @@ export const handleOpsDashboardEvents: RouteHandler = ({ request, url, deps }) =
   }
 
   if (hrcClient === undefined) {
-    return new Response('', {
+    const admissionEvents = deps.adminStore.systemEvents
+      .list({
+        ...(filters.projectId !== undefined ? { projectId: filters.projectId } : {}),
+      })
+      .map(projectInputAdmissionSystemEvent)
+      .filter(isDashboardEvent)
+      .filter((event) => eventMatchesFilters(event, filters))
+      .sort(compareDashboardEvents)
+      .slice(0, limit)
+
+    return new Response(admissionEvents.map((event) => JSON.stringify(event)).join('\n'), {
       status: 200,
       headers: NDJSON_HEADERS,
     })
+  }
+
+  if (!follow) {
+    return new Response(
+      await collectFiniteDashboardEvents({
+        hrcClient,
+        fromSeq,
+        filters,
+        limit,
+        deps,
+      }),
+      {
+        status: 200,
+        headers: NDJSON_HEADERS,
+      }
+    )
   }
 
   const abortController = new AbortController()
@@ -126,4 +159,33 @@ export const handleOpsDashboardEvents: RouteHandler = ({ request, url, deps }) =
     status: 200,
     headers: NDJSON_HEADERS,
   })
+}
+
+async function collectFiniteDashboardEvents(input: {
+  hrcClient: NonNullable<Parameters<typeof handleOpsDashboardEvents>[0]['deps']['hrcClient']>
+  fromSeq: number
+  filters: DashboardFilters
+  limit?: number | undefined
+  deps: Parameters<typeof handleOpsDashboardEvents>[0]['deps']
+}): Promise<string> {
+  const events = []
+  for await (const rawEvent of input.hrcClient.watch({ fromSeq: input.fromSeq, follow: false })) {
+    const event = projectCoreHrcEvent(rawEvent)
+    if (event !== undefined && eventMatchesFilters(event, input.filters)) {
+      events.push(event)
+    }
+  }
+
+  for (const systemEvent of input.deps.adminStore.systemEvents.list({
+    ...(input.filters.projectId !== undefined ? { projectId: input.filters.projectId } : {}),
+  })) {
+    const event = projectInputAdmissionSystemEvent(systemEvent)
+    if (event !== undefined && eventMatchesFilters(event, input.filters)) {
+      events.push(event)
+    }
+  }
+
+  const sorted = events.sort(compareDashboardEvents)
+  const limited = input.limit === undefined ? sorted : sorted.slice(0, input.limit)
+  return limited.map((event) => JSON.stringify(event)).join('\n')
 }

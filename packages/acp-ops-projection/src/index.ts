@@ -260,6 +260,10 @@ function deriveFamily(event: HrcLifecycleEvent): DashboardEventFamily {
     return 'input'
   }
 
+  if (event.eventKind.startsWith('input.')) {
+    return 'input'
+  }
+
   if (eventKindIncludes(event, 'delivery')) {
     return 'delivery'
   }
@@ -304,6 +308,20 @@ function deriveSeverity(event: HrcLifecycleEvent): DashboardEventSeverity {
 }
 
 function eventLabel(event: HrcLifecycleEvent): string {
+  switch (event.eventKind) {
+    case 'input.queued':
+      return 'Queued work'
+    case 'input.application.pending':
+      return 'Contribution pending'
+    case 'input.application.accepted':
+      return 'Contribution accepted'
+    case 'input.application.ambiguous':
+      return 'Contribution ambiguous'
+    case 'input.rejected':
+      return 'Input rejected'
+    default:
+      break
+  }
   return payloadType(event) ?? event.eventKind
 }
 

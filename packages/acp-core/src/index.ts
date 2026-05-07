@@ -63,7 +63,17 @@ export type {
 } from './models/transition.js'
 
 export type { InputAttempt } from './models/input-attempt.js'
-export type { Run } from './models/run.js'
+export type {
+  InputAdmissionKind,
+  InputAdmissionRecord,
+  InputApplication,
+  InputApplicationStatus,
+  InputIntent,
+  InputQueueItem,
+  InputQueueStatus,
+  InputResetPolicy,
+} from './models/input-admission.js'
+export type { Run, RunStatus } from './models/run.js'
 export type { Session } from './models/session.js'
 
 export { canAck, canFail, isTerminal } from './interface/delivery-request.js'

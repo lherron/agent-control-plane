@@ -21,6 +21,7 @@ import { handleCreateInput } from './inputs.js'
 
 import type { Actor, JobFlow } from 'acp-core'
 import type { ResolvedAcpServerDeps } from '../deps.js'
+import { advanceJobFlow } from '../jobs/flow-engine.js'
 import type { RouteHandler } from '../routing/route-context.js'
 
 function requireJobsStore(deps: ResolvedAcpServerDeps) {
@@ -250,13 +251,20 @@ export const handleRunAdminJob: RouteHandler = async ({ params, deps, actor }) =
       claimedAt: now,
       actor: actor ?? deps.defaultActor,
     })
+    const advanced = await advanceJobFlow({
+      deps,
+      job,
+      jobRun: created.jobRun,
+      actor: actor ?? deps.defaultActor,
+      now,
+    })
     const steps = jobsStore.jobStepRuns.listByJobRun(created.jobRun.jobRunId).jobStepRuns
 
     return json(
       {
         jobRun: {
-          ...created.jobRun,
-          status: mapJobRunStatusForFlowResponse(created.jobRun),
+          ...advanced,
+          status: mapJobRunStatusForFlowResponse(advanced),
         },
         steps,
       },

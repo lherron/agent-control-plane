@@ -1,3 +1,4 @@
+import type { SystemEvent } from 'acp-core'
 import {
   type DashboardEvent,
   type DashboardEventFamily,
@@ -41,6 +42,14 @@ function readString(record: ObjectRecord, key: string): string | undefined {
 function readNumber(record: ObjectRecord, key: string): number | undefined {
   const value = record[key]
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function readIntegerLike(record: ObjectRecord, key: string): number | undefined {
+  const value = record[key]
+  if (typeof value === 'number' && Number.isInteger(value)) return value
+  if (typeof value !== 'string' || value.trim().length === 0) return undefined
+  const parsed = Number.parseInt(value, 10)
+  return Number.isInteger(parsed) ? parsed : undefined
 }
 
 export function parsePositiveInteger(raw: string | null, fallback: number, min = 1): number {
@@ -126,6 +135,102 @@ export function projectCoreHrcEvent(
   }
 
   return projectHrcToDashboardEvent(event)
+}
+
+function admissionLabel(kind: string): string {
+  switch (kind) {
+    case 'input.admitted':
+      return 'Input admitted'
+    case 'input.queued':
+      return 'Queued work'
+    case 'input.dispatching':
+      return 'Dispatching queued work'
+    case 'input.started':
+      return 'Input started'
+    case 'input.rejected':
+      return 'Input rejected'
+    case 'input.application.pending':
+      return 'Contribution pending'
+    case 'input.application.accepted':
+      return 'Contribution accepted'
+    case 'input.application.failed':
+      return 'Contribution failed'
+    case 'input.application.ambiguous':
+      return 'Contribution ambiguous'
+    case 'input.queue.expired':
+      return 'Queued input expired'
+    default:
+      return kind
+  }
+}
+
+function admissionSeverity(kind: string): DashboardEvent['severity'] {
+  if (
+    kind.includes('rejected') ||
+    kind.includes('failed') ||
+    kind.includes('ambiguous') ||
+    kind.includes('expired')
+  ) {
+    return 'warning'
+  }
+  if (kind.includes('accepted') || kind.includes('started') || kind.includes('completed')) {
+    return 'success'
+  }
+  return 'info'
+}
+
+function admissionShortDetail(payload: ObjectRecord): string | undefined {
+  return (
+    readString(payload, 'reason') ??
+    readString(payload, 'queueStatus') ??
+    readString(payload, 'applicationStatus') ??
+    readString(payload, 'admissionKind')
+  )
+}
+
+export function projectInputAdmissionSystemEvent(event: SystemEvent): DashboardEvent | undefined {
+  if (!event.kind.startsWith('input.')) {
+    return undefined
+  }
+
+  const payload = event.payload
+  const scopeRef = readString(payload, 'scopeRef')
+  const laneRef = readString(payload, 'laneRef')
+  if (scopeRef === undefined || laneRef === undefined) {
+    return undefined
+  }
+
+  const eventIdNumber = Number.parseInt(event.eventId, 10)
+  const syntheticSeq = Number.isFinite(eventIdNumber) ? -eventIdNumber : 0
+  const hostSessionId =
+    readString(payload, 'hostSessionId') ??
+    readString(payload, 'expectedHostSessionId') ??
+    `acp:${scopeRef}:${laneRef}`
+  const generation =
+    readIntegerLike(payload, 'generation') ?? readIntegerLike(payload, 'expectedGeneration') ?? 0
+
+  return {
+    id: `acp:${event.eventId}`,
+    hrcSeq: syntheticSeq,
+    ts: event.occurredAt,
+    sessionRef: { scopeRef, laneRef },
+    hostSessionId,
+    generation,
+    ...(readString(payload, 'runtimeId') !== undefined
+      ? { runtimeId: readString(payload, 'runtimeId') }
+      : {}),
+    ...(readString(payload, 'runId') !== undefined ? { runId: readString(payload, 'runId') } : {}),
+    eventKind: event.kind,
+    category: 'input',
+    family: 'input',
+    severity: admissionSeverity(event.kind),
+    label: admissionLabel(event.kind),
+    ...(admissionShortDetail(payload) !== undefined
+      ? { shortDetail: admissionShortDetail(payload) }
+      : {}),
+    payloadPreview: payload,
+    redacted: false,
+  }
 }
 
 export function compareDashboardEvents(left: DashboardEvent, right: DashboardEvent): number {

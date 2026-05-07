@@ -9,7 +9,7 @@ import type { RunStore } from './run-store.js'
 type StoredAttemptRecord = {
   fingerprint: string
   inputAttempt: InputAttempt
-  runId: string
+  runId?: string | undefined
 }
 
 function normalizeActorInput(actor: Actor | { agentId: string } | undefined): Actor {
@@ -32,8 +32,13 @@ export interface InputAttemptStore {
     content: string
     actor?: Actor | undefined
     metadata?: Readonly<Record<string, unknown>> | undefined
-    runStore: RunStore
-  }): { inputAttempt: InputAttempt; runId: string; created: boolean }
+    associatedRunId?: string | undefined
+    runStore?: RunStore | undefined
+  }): { inputAttempt: InputAttempt; runId?: string | undefined; created: boolean }
+  getById(
+    inputAttemptId: string
+  ): { inputAttempt: InputAttempt; runId?: string | undefined } | undefined
+  associateRun(inputAttemptId: string, runId: string): InputAttempt
 }
 
 function stableStringify(value: unknown): string {
@@ -55,8 +60,12 @@ function stableStringify(value: unknown): string {
 
 export class InMemoryInputAttemptStore implements InputAttemptStore {
   private readonly attemptsByIdempotencyKey = new Map<string, StoredAttemptRecord>()
+  private readonly attemptsById = new Map<string, StoredAttemptRecord>()
 
-  private getAttemptKey(sessionRef: SessionRef, idempotencyKey: string): string {
+  private getAttemptKey(
+    sessionRef: { scopeRef: string; laneRef: string },
+    idempotencyKey: string
+  ): string {
     return `${sessionRef.scopeRef}\u0000${sessionRef.laneRef}\u0000${idempotencyKey}`
   }
 
@@ -67,8 +76,9 @@ export class InMemoryInputAttemptStore implements InputAttemptStore {
     content: string
     actor?: Actor | undefined
     metadata?: Readonly<Record<string, unknown>> | undefined
-    runStore: RunStore
-  }): { inputAttempt: InputAttempt; runId: string; created: boolean } {
+    associatedRunId?: string | undefined
+    runStore?: RunStore | undefined
+  }): { inputAttempt: InputAttempt; runId?: string | undefined; created: boolean } {
     const actor = normalizeActorInput(input.actor as Actor | { agentId: string } | undefined)
     const fingerprint = stableStringify({
       sessionRef: input.sessionRef,
@@ -97,15 +107,17 @@ export class InMemoryInputAttemptStore implements InputAttemptStore {
       }
     }
 
-    const run = input.runStore.createRun({
-      sessionRef: input.sessionRef,
-      ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
-      actor,
-      metadata: {
-        content: input.content,
-        ...(input.metadata !== undefined ? { meta: input.metadata } : {}),
-      },
-    })
+    const associatedRunId =
+      input.associatedRunId ??
+      input.runStore?.createRun({
+        sessionRef: input.sessionRef,
+        ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
+        actor,
+        metadata: {
+          content: input.content,
+          ...(input.metadata !== undefined ? { meta: input.metadata } : {}),
+        },
+      }).runId
     const inputAttempt: InputAttempt = {
       inputAttemptId: `ia_${randomUUID().replace(/-/g, '').slice(0, 12)}`,
       scopeRef: input.sessionRef.scopeRef,
@@ -123,15 +135,63 @@ export class InMemoryInputAttemptStore implements InputAttemptStore {
         {
           fingerprint,
           inputAttempt,
-          runId: run.runId,
+          ...(associatedRunId !== undefined ? { runId: associatedRunId } : {}),
         }
       )
     }
+    this.attemptsById.set(inputAttempt.inputAttemptId, {
+      fingerprint,
+      inputAttempt,
+      ...(associatedRunId !== undefined ? { runId: associatedRunId } : {}),
+    })
 
     return {
       inputAttempt: structuredClone(inputAttempt),
-      runId: run.runId,
+      ...(associatedRunId !== undefined ? { runId: associatedRunId } : {}),
       created: true,
     }
+  }
+
+  getById(
+    inputAttemptId: string
+  ): { inputAttempt: InputAttempt; runId?: string | undefined } | undefined {
+    const record = this.attemptsById.get(inputAttemptId)
+    if (record === undefined) {
+      return undefined
+    }
+    return {
+      inputAttempt: structuredClone(record.inputAttempt),
+      ...(record.runId !== undefined ? { runId: record.runId } : {}),
+    }
+  }
+
+  associateRun(inputAttemptId: string, runId: string): InputAttempt {
+    const byId = this.attemptsById.get(inputAttemptId)
+    if (byId !== undefined) {
+      const next = { ...byId, runId }
+      this.attemptsById.set(inputAttemptId, next)
+      if (byId.inputAttempt.idempotencyKey !== undefined) {
+        this.attemptsByIdempotencyKey.set(
+          this.getAttemptKey(
+            { scopeRef: byId.inputAttempt.scopeRef, laneRef: byId.inputAttempt.laneRef },
+            byId.inputAttempt.idempotencyKey
+          ),
+          next
+        )
+      }
+      return structuredClone(byId.inputAttempt)
+    }
+
+    for (const [key, record] of this.attemptsByIdempotencyKey) {
+      if (record.inputAttempt.inputAttemptId === inputAttemptId) {
+        this.attemptsByIdempotencyKey.set(key, {
+          ...record,
+          runId,
+        })
+        return structuredClone(record.inputAttempt)
+      }
+    }
+
+    throw new Error(`input attempt not found: ${inputAttemptId}`)
   }
 }

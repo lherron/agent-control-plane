@@ -281,6 +281,56 @@ describe('acp CLI smoke fixtures', () => {
     })
   })
 
+  test('send can request active-run contribution intent', async () => {
+    const fetchQueue = createFetchQueue([
+      {
+        body: {
+          inputAttempt: { inputAttemptId: 'input-1' },
+          admission: { kind: 'accepted_in_flight' },
+          inputApplication: { inputApplicationId: 'iap-1', status: 'accepted' },
+          currentState: { applicationStatus: 'accepted' },
+        },
+        assert(request) {
+          expect(request.method).toBe('POST')
+          expect(new URL(request.url).pathname).toBe('/v1/inputs')
+          expect(request.body).toMatchObject({
+            sessionRef: { scopeRef: 'agent:larry:project:agent-spaces' },
+            content: 'Proceed',
+            intent: {
+              kind: 'contribute_to_active_run',
+              fallback: 'pending_only',
+              contributionSemantics: 'interrupt_and_continue',
+            },
+          })
+        },
+      },
+    ])
+
+    const result = await runCli(
+      [
+        'send',
+        '--scope-ref',
+        'agent:larry:project:agent-spaces',
+        '--text',
+        'Proceed',
+        '--intent',
+        'contribute',
+        '--contribution-fallback',
+        'pending_only',
+        '--contribution-semantics',
+        'interrupt_and_continue',
+        '--json',
+      ],
+      { fetchImpl: fetchQueue.fetchImpl }
+    )
+
+    expect(result.exitCode).toBe(0)
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      admission: { kind: 'accepted_in_flight' },
+      inputApplication: { inputApplicationId: 'iap-1' },
+    })
+  })
+
   test('task transition parses comma-list evidence refs', async () => {
     const fetchQueue = createFetchQueue([
       {

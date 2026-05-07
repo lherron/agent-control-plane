@@ -1,9 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
-import type { Actor } from 'acp-core'
-import type { SessionRef } from 'agent-scope'
-
 import {
+  type CreateInputAttemptInput,
   InputAttemptConflictError,
   type InputAttemptCreateResult,
   type StoredInputAttempt,
@@ -11,26 +9,11 @@ import {
 import type { RepoContext } from './shared.js'
 import { parseJsonRecord } from './shared.js'
 
-type CreateInputAttemptInput = {
-  sessionRef: SessionRef
-  taskId?: string | undefined
-  idempotencyKey?: string | undefined
-  content: string
-  actor?: Actor | undefined
-  metadata?: Readonly<Record<string, unknown>> | undefined
-  runStore: {
-    createRun(input: {
-      sessionRef: SessionRef
-      taskId?: string | undefined
-      actor?: Actor | undefined
-      metadata?: Readonly<Record<string, unknown>> | undefined
-    }): { runId: string }
-  }
-}
+import type { Actor } from 'acp-core'
 
 type InputAttemptRow = {
   input_attempt_id: string
-  run_id: string
+  run_id: string | null
   scope_ref: string
   lane_ref: string
   task_id: string | null
@@ -46,7 +29,7 @@ type InputAttemptRow = {
 
 type StoredAttemptRecord = {
   inputAttempt: StoredInputAttempt
-  runId: string
+  runId?: string | undefined
   fingerprint: string
 }
 
@@ -101,7 +84,7 @@ function mapInputAttemptRow(row: InputAttemptRow): StoredAttemptRecord {
         ? { metadata: parseJsonRecord(row.metadata_json) }
         : {}),
     },
-    runId: row.run_id,
+    ...(row.run_id !== null ? { runId: row.run_id } : {}),
     fingerprint: row.fingerprint,
   }
 }
@@ -141,15 +124,17 @@ export class InputAttemptRepo {
         }
       }
 
-      const run = input.runStore.createRun({
-        sessionRef: input.sessionRef,
-        ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
-        actor,
-        metadata: {
-          content: input.content,
-          ...(input.metadata !== undefined ? { meta: input.metadata } : {}),
-        },
-      })
+      const associatedRunId =
+        input.associatedRunId ??
+        input.runStore?.createRun({
+          sessionRef: input.sessionRef,
+          ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
+          actor,
+          metadata: {
+            content: input.content,
+            ...(input.metadata !== undefined ? { meta: input.metadata } : {}),
+          },
+        }).runId
 
       const inputAttempt: StoredInputAttempt = {
         inputAttemptId: `ia_${randomUUID().replace(/-/g, '').slice(0, 12)}`,
@@ -184,7 +169,7 @@ export class InputAttemptRepo {
           )
           .run(
             inputAttempt.inputAttemptId,
-            run.runId,
+            associatedRunId ?? null,
             inputAttempt.scopeRef,
             inputAttempt.laneRef,
             inputAttempt.taskId ?? null,
@@ -219,7 +204,7 @@ export class InputAttemptRepo {
           )
           .run(
             inputAttempt.inputAttemptId,
-            run.runId,
+            associatedRunId ?? null,
             inputAttempt.scopeRef,
             inputAttempt.laneRef,
             inputAttempt.taskId ?? null,
@@ -236,14 +221,50 @@ export class InputAttemptRepo {
 
       return {
         inputAttempt,
-        runId: run.runId,
+        ...(associatedRunId !== undefined ? { runId: associatedRunId } : {}),
         created: true,
       }
     })()
   }
 
+  associateRun(inputAttemptId: string, runId: string): StoredInputAttempt {
+    this.context.sqlite
+      .prepare('UPDATE input_attempts SET run_id = ? WHERE input_attempt_id = ?')
+      .run(runId, inputAttemptId)
+
+    const stored = this.getById(inputAttemptId)
+    if (stored === undefined) {
+      throw new Error(`input attempt not found: ${inputAttemptId}`)
+    }
+    return stored.inputAttempt
+  }
+
+  getById(inputAttemptId: string): StoredAttemptRecord | undefined {
+    const row = this.context.sqlite
+      .prepare(
+        `SELECT input_attempt_id,
+                run_id,
+                scope_ref,
+                lane_ref,
+                task_id,
+                idempotency_key,
+                fingerprint,
+                content,
+                actor_kind,
+                actor_id,
+                actor_display_name,
+                metadata_json,
+                created_at
+           FROM input_attempts
+          WHERE input_attempt_id = ?`
+      )
+      .get(inputAttemptId) as InputAttemptRow | undefined
+
+    return row === undefined ? undefined : mapInputAttemptRow(row)
+  }
+
   private getByIdempotencyKey(
-    sessionRef: SessionRef,
+    sessionRef: { scopeRef: string; laneRef: string },
     idempotencyKey: string
   ): StoredAttemptRecord | undefined {
     const row = this.context.sqlite

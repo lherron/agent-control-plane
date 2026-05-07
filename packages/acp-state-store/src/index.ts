@@ -1,12 +1,28 @@
 export { openAcpStateStore } from './open-store.js'
 export type { AcpStateStore, OpenAcpStateStoreOptions } from './open-store.js'
 export { InputAttemptRepo } from './repos/input-attempt-repo.js'
+export { InputAdmissionRepo } from './repos/input-admission-repo.js'
+export { InputApplicationRepo } from './repos/input-application-repo.js'
+export { InputQueueRepo } from './repos/input-queue-repo.js'
 export { RunRepo } from './repos/run-repo.js'
+export { SessionAdmissionSequenceRepo } from './repos/session-admission-sequence-repo.js'
 export { TransitionOutboxRepo } from './repos/transition-outbox-repo.js'
 export { InputAttemptConflictError } from './types.js'
 export type {
   AppendTransitionOutboxInput,
+  CreateInputAttemptInput,
   DispatchFence,
+  InputAdmissionCreateInput,
+  InputAdmissionRecord,
+  InputAdmissionUpdateInput,
+  InputApplication,
+  InputApplicationCreateInput,
+  InputApplicationUpdateInput,
+  InputQueueCreateInput,
+  InputQueueItem,
+  InputQueueStatus,
+  InputQueueUpdateInput,
+  InputResetPolicy,
   InputAttemptCreateResult,
   StoredInputAttempt,
   StoredRun,

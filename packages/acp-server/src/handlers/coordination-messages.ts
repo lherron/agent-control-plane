@@ -4,7 +4,7 @@ import type { ParticipantRef } from 'coordination-substrate'
 
 import { appendRawCoordinationMessage } from '../coordination/raw-append.js'
 import { badRequest, json } from '../http.js'
-import { resolveLaunchIntent } from '../launch-role-scoped.js'
+import { InputAdmissionService } from '../input-admission/input-admission-service.js'
 import {
   isRecord,
   parseJsonBody,
@@ -224,28 +224,22 @@ export const handleCreateCoordinationMessage: RouteHandler = async (context) => 
 
     const contentText = bodyAsString(rawBody)
 
-    const attemptResult = deps.inputAttemptStore.createAttempt({
+    const admissionResult = await new InputAdmissionService(deps).admit({
       sessionRef: toSessionRef,
       content: contentText,
       actor: resolvedActor,
-      runStore: deps.runStore,
+      dispatch: true,
     })
 
-    if (attemptResult.created && deps.launchRoleScopedRun !== undefined) {
-      const intent = await resolveLaunchIntent(deps, toSessionRef, {
-        initialPrompt: contentText,
-      })
-      await deps.launchRoleScopedRun({
-        sessionRef: toSessionRef,
-        intent,
-        acpRunId: attemptResult.runId,
-        inputAttemptId: attemptResult.inputAttempt.inputAttemptId,
-        runStore: deps.runStore,
-      })
+    if (admissionResult.run === undefined) {
+      throw new Error(
+        `coordination dispatch admission did not create a run: ${admissionResult.inputAttempt.inputAttemptId}`
+      )
     }
 
-    result['inputAttemptId'] = attemptResult.inputAttempt.inputAttemptId
-    result['runId'] = attemptResult.runId
+    result['inputAttemptId'] = admissionResult.inputAttempt.inputAttemptId
+    result['runId'] = admissionResult.run.runId
+    result['admission'] = admissionResult.admission.originalResponse
   }
 
   return json(result, 201)

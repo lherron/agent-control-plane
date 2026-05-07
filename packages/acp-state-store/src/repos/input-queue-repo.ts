@@ -1,0 +1,218 @@
+import { randomUUID } from 'node:crypto'
+
+import type { InputQueueItem, InputQueueStatus } from 'acp-core'
+
+import type { InputQueueCreateInput, InputQueueUpdateInput } from '../types.js'
+import type { RepoContext } from './shared.js'
+
+type InputQueueRow = {
+  queue_item_id: string
+  input_attempt_id: string
+  run_id: string
+  scope_ref: string
+  lane_ref: string
+  seq: number
+  status: InputQueueStatus
+  reset_policy: InputQueueItem['resetPolicy']
+  expected_host_session_id: string | null
+  expected_generation: number | null
+  not_before_at: string | null
+  leased_at: string | null
+  lease_owner: string | null
+  attempts: number
+  last_error_code: string | null
+  last_error_message: string | null
+  created_at: string
+  updated_at: string
+}
+
+function mapRow(row: InputQueueRow): InputQueueItem {
+  return {
+    queueItemId: row.queue_item_id,
+    inputAttemptId: row.input_attempt_id,
+    runId: row.run_id,
+    scopeRef: row.scope_ref,
+    laneRef: row.lane_ref,
+    seq: row.seq,
+    status: row.status,
+    resetPolicy: row.reset_policy,
+    ...(row.expected_host_session_id !== null
+      ? { expectedHostSessionId: row.expected_host_session_id }
+      : {}),
+    ...(row.expected_generation !== null ? { expectedGeneration: row.expected_generation } : {}),
+    ...(row.not_before_at !== null ? { notBeforeAt: row.not_before_at } : {}),
+    ...(row.leased_at !== null ? { leasedAt: row.leased_at } : {}),
+    ...(row.lease_owner !== null ? { leaseOwner: row.lease_owner } : {}),
+    attempts: row.attempts,
+    ...(row.last_error_code !== null ? { lastErrorCode: row.last_error_code } : {}),
+    ...(row.last_error_message !== null ? { lastErrorMessage: row.last_error_message } : {}),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+export class InputQueueRepo {
+  constructor(private readonly context: RepoContext) {}
+
+  create(input: InputQueueCreateInput): InputQueueItem {
+    const now = new Date().toISOString()
+    const queueItemId = `iq_${randomUUID().replace(/-/g, '').slice(0, 12)}`
+    this.context.sqlite
+      .prepare(
+        `INSERT INTO input_queue (
+           queue_item_id,
+           input_attempt_id,
+           run_id,
+           scope_ref,
+           lane_ref,
+           seq,
+           status,
+           reset_policy,
+           expected_host_session_id,
+           expected_generation,
+           not_before_at,
+           attempts,
+           created_at,
+           updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        queueItemId,
+        input.inputAttemptId,
+        input.runId,
+        input.scopeRef,
+        input.laneRef,
+        input.seq,
+        input.status ?? 'queued',
+        input.resetPolicy ?? 'follow_latest',
+        input.expectedHostSessionId ?? null,
+        input.expectedGeneration ?? null,
+        input.notBeforeAt ?? null,
+        0,
+        now,
+        now
+      )
+
+    return this.require(queueItemId)
+  }
+
+  getById(queueItemId: string): InputQueueItem | undefined {
+    const row = this.context.sqlite
+      .prepare(`${this.selectSql()} WHERE queue_item_id = ?`)
+      .get(queueItemId) as InputQueueRow | undefined
+
+    return row === undefined ? undefined : mapRow(row)
+  }
+
+  getByRunId(runId: string): InputQueueItem | undefined {
+    const row = this.context.sqlite.prepare(`${this.selectSql()} WHERE run_id = ?`).get(runId) as
+      | InputQueueRow
+      | undefined
+
+    return row === undefined ? undefined : mapRow(row)
+  }
+
+  listDispatchable(limit = 50): readonly InputQueueItem[] {
+    const now = new Date().toISOString()
+    const rows = this.context.sqlite
+      .prepare(
+        `${this.selectSql()}
+          WHERE status = 'queued'
+            AND (not_before_at IS NULL OR not_before_at <= ?)
+       ORDER BY scope_ref ASC, lane_ref ASC, seq ASC
+          LIMIT ?`
+      )
+      .all(now, limit) as InputQueueRow[]
+
+    return rows.map((row) => mapRow(row))
+  }
+
+  getHead(scopeRef: string, laneRef: string): InputQueueItem | undefined {
+    const row = this.context.sqlite
+      .prepare(
+        `${this.selectSql()}
+          WHERE scope_ref = ?
+            AND lane_ref = ?
+            AND status IN ('queued', 'leased', 'dispatching')
+       ORDER BY seq ASC
+          LIMIT 1`
+      )
+      .get(scopeRef, laneRef) as InputQueueRow | undefined
+
+    return row === undefined ? undefined : mapRow(row)
+  }
+
+  listForSession(scopeRef: string, laneRef: string): readonly InputQueueItem[] {
+    const rows = this.context.sqlite
+      .prepare(
+        `${this.selectSql()}
+          WHERE scope_ref = ?
+            AND lane_ref = ?
+       ORDER BY seq ASC`
+      )
+      .all(scopeRef, laneRef) as InputQueueRow[]
+
+    return rows.map((row) => mapRow(row))
+  }
+
+  update(queueItemId: string, patch: InputQueueUpdateInput): InputQueueItem {
+    const current = this.require(queueItemId)
+    const now = new Date().toISOString()
+    this.context.sqlite
+      .prepare(
+        `UPDATE input_queue
+            SET status = ?,
+                not_before_at = ?,
+                leased_at = ?,
+                lease_owner = ?,
+                attempts = ?,
+                last_error_code = ?,
+                last_error_message = ?,
+                updated_at = ?
+          WHERE queue_item_id = ?`
+      )
+      .run(
+        patch.status ?? current.status,
+        patch.notBeforeAt ?? current.notBeforeAt ?? null,
+        patch.leasedAt ?? current.leasedAt ?? null,
+        patch.leaseOwner ?? current.leaseOwner ?? null,
+        patch.attempts ?? current.attempts,
+        patch.lastErrorCode ?? current.lastErrorCode ?? null,
+        patch.lastErrorMessage ?? current.lastErrorMessage ?? null,
+        now,
+        queueItemId
+      )
+
+    return this.require(queueItemId)
+  }
+
+  private require(queueItemId: string): InputQueueItem {
+    const item = this.getById(queueItemId)
+    if (item === undefined) {
+      throw new Error(`input queue item not found: ${queueItemId}`)
+    }
+    return item
+  }
+
+  private selectSql(): string {
+    return `SELECT queue_item_id,
+                   input_attempt_id,
+                   run_id,
+                   scope_ref,
+                   lane_ref,
+                   seq,
+                   status,
+                   reset_policy,
+                   expected_host_session_id,
+                   expected_generation,
+                   not_before_at,
+                   leased_at,
+                   lease_owner,
+                   attempts,
+                   last_error_code,
+                   last_error_message,
+                   created_at,
+                   updated_at
+              FROM input_queue`
+  }
+}
