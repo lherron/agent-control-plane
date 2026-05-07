@@ -6,11 +6,12 @@ import { type SessionRef, parseScopeRef } from 'agent-scope'
 import {
   HrcConflictError,
   type HrcEventEnvelope,
+  type HrcHarnessIntent,
   type HrcRuntimeIntent,
   resolveDatabasePath,
 } from 'hrc-core'
 import { HrcClient, discoverSocket } from 'hrc-sdk'
-import { parseAgentProfile, resolveHarnessProvider } from 'spaces-config'
+import { parseAgentProfile, resolveHarnessCatalogEntry } from 'spaces-config'
 import type { UnifiedSessionEvent } from 'spaces-runtime'
 
 import type { LaunchRoleScopedRun, RunStore } from './deps.js'
@@ -298,20 +299,21 @@ export function normalizeRealLauncherIntent(input: {
   intent: HrcRuntimeIntent
   liveTmuxRuntime?: boolean | undefined
 }): HrcRuntimeIntent {
-  const provider = input.intent.harness?.provider ?? inferHarnessProvider(input)
+  const inferredHarness = input.intent.harness ?? inferHarnessIntent(input)
   const preferredMode = input.liveTmuxRuntime
     ? ('interactive' as const)
-    : (input.intent.execution?.preferredMode ?? ('headless' as const))
-  const normalizedExecution = {
-    ...input.intent.execution,
-    preferredMode,
-  }
-  const harness =
-    input.intent.harness ??
-    ({
-      provider,
-      interactive: true,
-    } satisfies HrcRuntimeIntent['harness'])
+    : (input.intent.execution?.preferredMode ??
+      (input.intent.harness !== undefined || inferredHarness.interactive
+        ? ('headless' as const)
+        : undefined))
+  const normalizedExecution =
+    preferredMode === undefined
+      ? input.intent.execution
+      : {
+          ...input.intent.execution,
+          preferredMode,
+        }
+  const harness = inferredHarness
   const normalizedHarness =
     preferredMode === 'interactive' ? { ...harness, interactive: true } : harness
 
@@ -322,7 +324,7 @@ export function normalizeRealLauncherIntent(input: {
       ...(input.intent.placement.dryRun === undefined ? { dryRun: false } : {}),
     },
     harness: normalizedHarness,
-    execution: normalizedExecution,
+    ...(normalizedExecution !== undefined ? { execution: normalizedExecution } : {}),
   }
 }
 
@@ -806,20 +808,23 @@ function assistantCompletionPayloadToUnifiedEvent(
   }
 }
 
-function inferHarnessProvider(input: {
+function inferHarnessIntent(input: {
   sessionRef: SessionRef
   intent: HrcRuntimeIntent
-}): 'anthropic' | 'openai' {
+}): HrcHarnessIntent {
   const placement = input.intent.placement
   const agentRoot = placement.agentRoot
-  const fromProfile = readHarnessProviderFromAgentProfile(agentRoot)
+  const fromProfile = readHarnessIntentFromAgentProfile(agentRoot)
   if (fromProfile !== undefined) {
     return fromProfile
   }
 
   const fromAgentRootPath = readHarnessProviderFromPath(agentRoot)
   if (fromAgentRootPath !== undefined) {
-    return fromAgentRootPath
+    return {
+      provider: fromAgentRootPath,
+      interactive: true,
+    }
   }
 
   const parsedScope = parseScopeRef(input.sessionRef.scopeRef)
@@ -828,15 +833,19 @@ function inferHarnessProvider(input: {
     agentId: parsedScope.agentId,
   })
   if (fromProjectModules !== undefined) {
-    return fromProjectModules
+    return {
+      provider: fromProjectModules,
+      interactive: true,
+    }
   }
 
-  return 'anthropic'
+  return {
+    provider: 'anthropic',
+    interactive: true,
+  }
 }
 
-function readHarnessProviderFromAgentProfile(
-  agentRoot: string
-): 'anthropic' | 'openai' | undefined {
+function readHarnessIntentFromAgentProfile(agentRoot: string): HrcHarnessIntent | undefined {
   const profilePath = join(agentRoot, 'agent-profile.toml')
   if (!existsSync(profilePath)) {
     return undefined
@@ -844,8 +853,15 @@ function readHarnessProviderFromAgentProfile(
 
   try {
     const profile = parseAgentProfile(readFileSync(profilePath, 'utf8'), profilePath)
-    const provider = resolveHarnessProvider(profile.identity?.harness)
-    return provider === 'anthropic' || provider === 'openai' ? provider : undefined
+    const entry = resolveHarnessCatalogEntry(profile.identity?.harness)
+    if (entry === undefined) {
+      return undefined
+    }
+    return {
+      provider: entry.provider,
+      interactive: entry.transport !== 'sdk',
+      ...(entry.frontend !== undefined ? { id: entry.frontend } : {}),
+    }
   } catch {
     return undefined
   }

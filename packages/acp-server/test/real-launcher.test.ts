@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite'
 import { describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -540,6 +540,49 @@ describe('real launcher helpers', () => {
       expect(normalized.placement.dryRun).toBe(false)
     } finally {
       rmSync(projectRoot, { recursive: true, force: true })
+    }
+  })
+
+  test('normalizes agent-sdk profile harness to SDK execution', () => {
+    const agentRoot = mkdtempSync(join(tmpdir(), 'acp-real-launcher-sdk-agent-'))
+
+    try {
+      writeFileSync(
+        join(agentRoot, 'agent-profile.toml'),
+        [
+          'schemaVersion = 2',
+          '',
+          '[identity]',
+          'display = "Sparky"',
+          'role = "smoke"',
+          'harness = "agent-sdk"',
+          '',
+        ].join('\n')
+      )
+
+      const normalized = normalizeRealLauncherIntent({
+        sessionRef: {
+          scopeRef: 'agent:sparky:project:agent-spaces',
+          laneRef: 'main',
+        },
+        intent: {
+          placement: {
+            agentRoot,
+            runMode: 'task',
+            bundle: { kind: 'agent-default' },
+          },
+        } as HrcRuntimeIntent,
+      })
+
+      expect(normalized.harness).toEqual({
+        provider: 'anthropic',
+        interactive: false,
+        id: 'agent-sdk',
+      })
+      expect(normalized.execution).toBeUndefined()
+      expect(normalized.placement.dryRun).toBe(false)
+    } finally {
+      rmSync(agentRoot, { recursive: true, force: true })
     }
   })
 
