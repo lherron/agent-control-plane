@@ -43,7 +43,10 @@ const DEFAULT_ACTOR = 'acp-server'
 const DEFAULT_JOBS_SCHEDULER_INTERVAL_MS = 5_000
 const DEFAULT_INTERFACE_DISPATCHER_INTERVAL_MS = 2_000
 const DEFAULT_INTERFACE_DISPATCHER_STALE_TIMEOUT_MS = 600_000 // 10 minutes
+const DEFAULT_INTERFACE_DISPATCHER_DISPATCH_STALE_TIMEOUT_MS = 45_000
 const DEFAULT_INPUT_QUEUE_DISPATCHER_INTERVAL_MS = 2_000
+const DEFAULT_INPUT_QUEUE_STALE_PENDING_RUN_TIMEOUT_MS = 45_000
+const DEFAULT_INPUT_QUEUE_LEASE_TIMEOUT_MS = 600_000
 
 export function isEnabledEnvFlag(value: string | undefined): boolean {
   const normalized = value?.trim().toLowerCase()
@@ -225,6 +228,9 @@ export function renderHelp(): string {
     '  ACP_JOBS_DB_PATH Opens optional jobs store when set; blank uses sibling acp-jobs.db',
     '  ACP_SCHEDULER_ENABLED Set to 1 or true to enable the in-process jobs scheduler',
     '  ACP_CONVERSATION_DB_PATH Opens optional conversation store when set; blank uses sibling acp-conversation.db',
+    `  ACP_INTERFACE_DISPATCHER_DISPATCH_STALE_TIMEOUT_MS Defaults to ${DEFAULT_INTERFACE_DISPATCHER_DISPATCH_STALE_TIMEOUT_MS}`,
+    `  ACP_INPUT_QUEUE_STALE_PENDING_RUN_TIMEOUT_MS Defaults to ${DEFAULT_INPUT_QUEUE_STALE_PENDING_RUN_TIMEOUT_MS}`,
+    `  ACP_INPUT_QUEUE_LEASE_TIMEOUT_MS Defaults to ${DEFAULT_INPUT_QUEUE_LEASE_TIMEOUT_MS}`,
     `  ACP_HOST          Defaults to ${DEFAULT_HOST}`,
     `  ACP_PORT          Defaults to ${DEFAULT_PORT}`,
     `  ACP_ACTOR         Defaults to WRKQ_ACTOR or ${DEFAULT_ACTOR}`,
@@ -530,6 +536,10 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     process.env['ACP_INTERFACE_DISPATCHER_STALE_TIMEOUT_MS'] ||
       DEFAULT_INTERFACE_DISPATCHER_STALE_TIMEOUT_MS
   )
+  const interfaceDispatcherDispatchStaleTimeoutMs = Number(
+    process.env['ACP_INTERFACE_DISPATCHER_DISPATCH_STALE_TIMEOUT_MS'] ||
+      DEFAULT_INTERFACE_DISPATCHER_DISPATCH_STALE_TIMEOUT_MS
+  )
   const interfaceRunDispatcher =
     resolvedDeps.launchRoleScopedRun !== undefined
       ? createInterfaceRunDispatcher({
@@ -540,6 +550,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
           config: {
             intervalMs: interfaceDispatcherIntervalMs,
             staleTimeoutMs: interfaceDispatcherStaleTimeoutMs,
+            dispatchStaleTimeoutMs: interfaceDispatcherDispatchStaleTimeoutMs,
           },
         })
       : undefined
@@ -551,6 +562,13 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
   const inputQueueDispatcherIntervalMs = Number(
     process.env['ACP_INPUT_QUEUE_DISPATCHER_INTERVAL_MS'] ||
       DEFAULT_INPUT_QUEUE_DISPATCHER_INTERVAL_MS
+  )
+  const inputQueueStalePendingRunTimeoutMs = Number(
+    process.env['ACP_INPUT_QUEUE_STALE_PENDING_RUN_TIMEOUT_MS'] ||
+      DEFAULT_INPUT_QUEUE_STALE_PENDING_RUN_TIMEOUT_MS
+  )
+  const inputQueueLeaseTimeoutMs = Number(
+    process.env['ACP_INPUT_QUEUE_LEASE_TIMEOUT_MS'] || DEFAULT_INPUT_QUEUE_LEASE_TIMEOUT_MS
   )
   const inputQueueDispatcher =
     resolvedDeps.launchRoleScopedRun !== undefined
@@ -565,6 +583,8 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
           launchRoleScopedRun: resolvedDeps.launchRoleScopedRun,
           config: {
             intervalMs: inputQueueDispatcherIntervalMs,
+            stalePendingRunTimeoutMs: inputQueueStalePendingRunTimeoutMs,
+            leaseTimeoutMs: inputQueueLeaseTimeoutMs,
           },
         })
       : undefined

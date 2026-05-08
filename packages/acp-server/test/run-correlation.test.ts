@@ -230,6 +230,62 @@ describe('ACP run correlation', () => {
     }
   })
 
+  test('dispatcher fails stale pending interface runs with no HRC correlation', async () => {
+    const hrc = createHeadlessHrcDb()
+
+    try {
+      await withWiredServer(
+        async (fixture) => {
+          addInterfaceBinding(fixture)
+
+          const response = await postInterfaceMessage(fixture)
+          const payload = await fixture.json<{ runId: string }>(response)
+          expect(response.status).toBe(201)
+          const pendingRun = fixture.runStore.getRun(payload.runId)
+          expect(pendingRun?.status).toBe('pending')
+          expect(pendingRun?.hrcRunId).toBeUndefined()
+          expect(pendingRun?.hostSessionId).toBeUndefined()
+
+          await Bun.sleep(2)
+          const dispatcher = createInterfaceRunDispatcher({
+            runStore: fixture.runStore,
+            interfaceStore: fixture.interfaceStore,
+            conversationStore: fixture.conversationStore,
+            hrcDbPath: hrc.hrcDbPath,
+            config: { intervalMs: 1, staleTimeoutMs: 1_000, dispatchStaleTimeoutMs: 1 },
+          })
+          await dispatcher.runOnce()
+
+          expect(fixture.runStore.getRun(payload.runId)).toMatchObject({
+            status: 'failed',
+            errorCode: 'dispatch_timeout',
+          })
+          const [delivery] = fixture.interfaceStore.deliveries.listQueuedForGateway('discord_prod')
+          expect(delivery).toMatchObject({
+            runId: payload.runId,
+            bodyText: expect.stringContaining('no agent run started before dispatch timeout'),
+          })
+        },
+        {
+          runtimeResolver: async () => ({
+            agentRoot: '/tmp/agents/curly',
+            projectRoot: '/tmp/project',
+            cwd: '/tmp/project',
+            runMode: 'task',
+            bundle: { kind: 'agent-default' },
+            harness: { provider: 'openai', interactive: true },
+          }),
+          launchRoleScopedRun: async () => ({
+            runId: 'hrc-run-never-recorded',
+            sessionId: 'session-never-recorded',
+          }),
+        }
+      )
+    } finally {
+      hrc.cleanup()
+    }
+  })
+
   test('correlates the returned ACP runId with the HRC run launched by interface messages', async () => {
     const hrc = createHeadlessHrcDb()
     const dispatchCalls: Array<Record<string, unknown>> = []

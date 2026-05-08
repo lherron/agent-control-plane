@@ -67,6 +67,7 @@ export interface InputQueueStore {
   getByRunId(runId: string): InputQueueItem | undefined
   getHead(scopeRef: string, laneRef: string): InputQueueItem | undefined
   listDispatchable(limit?: number): readonly InputQueueItem[]
+  listDispatchableSessionHeads(limit?: number): readonly InputQueueItem[]
   listForSession(scopeRef: string, laneRef: string): readonly InputQueueItem[]
   update(queueItemId: string, patch: InputQueueUpdateInput): InputQueueItem
 }
@@ -234,6 +235,28 @@ export class InMemoryInputQueueStore implements InputQueueStore {
           ? left.laneRef === right.laneRef
             ? left.seq - right.seq
             : left.laneRef.localeCompare(right.laneRef)
+          : left.scopeRef.localeCompare(right.scopeRef)
+      )
+      .slice(0, limit)
+  }
+
+  listDispatchableSessionHeads(limit = 200): readonly InputQueueItem[] {
+    const now = new Date().toISOString()
+    const sessionHeads = new Map<string, InputQueueItem>()
+    for (const item of this.listAll()) {
+      if (item.status !== 'queued' || (item.notBeforeAt !== undefined && item.notBeforeAt > now)) {
+        continue
+      }
+      const key = `${item.scopeRef} ${item.laneRef}`
+      const existing = sessionHeads.get(key)
+      if (existing === undefined || item.seq < existing.seq) {
+        sessionHeads.set(key, item)
+      }
+    }
+    return [...sessionHeads.values()]
+      .sort((left, right) =>
+        left.scopeRef === right.scopeRef
+          ? left.laneRef.localeCompare(right.laneRef)
           : left.scopeRef.localeCompare(right.scopeRef)
       )
       .slice(0, limit)

@@ -248,6 +248,21 @@ type InterfaceMessageResponse = {
   currentState?: Record<string, unknown> | undefined
 }
 
+type AcpRunLookupResponse = {
+  run?: {
+    status?: string | undefined
+    hrcRunId?: string | undefined
+    hostSessionId?: string | undefined
+    runtimeId?: string | undefined
+    errorCode?: string | undefined
+    errorMessage?: string | undefined
+  }
+  queue?: {
+    status?: string | undefined
+    seq?: number | undefined
+  }
+}
+
 type MobileSessionSummary = {
   sessionRef?: string | undefined
   status?: string | undefined
@@ -1194,7 +1209,9 @@ export class GatewayDiscordApp {
           data: { sessionRef, timeoutMs: PENDING_PLACEHOLDER_TIMEOUT_MS },
         })
         this.removePendingPlaceholder(pending, 'pending_timeout')
-        void this.failPlaceholder(pending.ui, 'Agent invocation did not start producing progress.')
+        void this.describePendingPlaceholderTimeout(pending).then((reason) =>
+          this.failPlaceholder(pending.ui, reason)
+        )
       }, PENDING_PLACEHOLDER_TIMEOUT_MS),
       runTimeout: setTimeout(() => {
         log.warn('gw.live_progress.run_timeout', {
@@ -1219,6 +1236,67 @@ export class GatewayDiscordApp {
     this.pendingPlaceholdersBySessionRef.set(sessionRef, list)
     this.ensureLiveSubscriptionForSessionRef(sessionRef, input.projectId)
     return pending
+  }
+
+  private async describePendingPlaceholderTimeout(pending: PendingPlaceholder): Promise<string> {
+    const elapsedSeconds = Math.round((Date.now() - pending.pendingSince) / 1000)
+    const runId = pending.acpRunId
+    if (runId === undefined) {
+      return `ACP did not return a run id within ${elapsedSeconds}s, and no HRC progress events reached Discord.`
+    }
+
+    let payload: AcpRunLookupResponse | undefined
+    try {
+      const response = await this.fetchImpl(
+        `${this.acpBaseUrl}/v1/runs/${encodeURIComponent(runId)}`
+      )
+      if (!response.ok) {
+        return `ACP run ${runId} produced no HRC progress within ${elapsedSeconds}s, and status lookup returned HTTP ${response.status}.`
+      }
+      payload = (await response.json()) as AcpRunLookupResponse
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      return truncateReason(
+        `ACP run ${runId} produced no HRC progress within ${elapsedSeconds}s, and status lookup failed: ${reason}`
+      )
+    }
+
+    const status = payload.run?.status
+    const queueStatus = payload.queue?.status
+    const queueSuffix =
+      queueStatus !== undefined
+        ? ` (queue ${queueStatus}${payload.queue?.seq !== undefined ? `, seq ${payload.queue.seq}` : ''})`
+        : ''
+
+    if (status === 'queued') {
+      return `ACP queued run ${runId}${queueSuffix}, but it was not dispatched to HRC within ${elapsedSeconds}s. Another active or stale run is likely blocking this session.`
+    }
+
+    if (
+      status === 'pending' &&
+      payload.run?.hrcRunId === undefined &&
+      payload.run?.hostSessionId === undefined
+    ) {
+      return `ACP accepted run ${runId}, but HRC launch did not record a session or run within ${elapsedSeconds}s.`
+    }
+
+    if (status === 'pending') {
+      return `ACP run ${runId} is still pending after ${elapsedSeconds}s with partial HRC correlation; no progress events reached Discord.`
+    }
+
+    if (status === 'running') {
+      const hrcSuffix =
+        payload.run?.hrcRunId !== undefined ? ` (HRC run ${payload.run.hrcRunId})` : ''
+      return `ACP run ${runId}${hrcSuffix} is running, but no HRC progress events reached Discord within ${elapsedSeconds}s.`
+    }
+
+    if (status === 'failed' || status === 'cancelled') {
+      const error =
+        payload.run?.errorMessage ?? payload.run?.errorCode ?? `run ended with status ${status}`
+      return truncateReason(`ACP run ${runId} ended as ${status}: ${error}`)
+    }
+
+    return `ACP run ${runId} produced no HRC progress within ${elapsedSeconds}s; current ACP status is ${status ?? 'unknown'}.`
   }
 
   private ensureLiveSubscriptionForSessionRef(sessionRef: string, projectId: string): void {

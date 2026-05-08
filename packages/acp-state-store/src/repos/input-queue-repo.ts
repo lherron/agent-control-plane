@@ -127,6 +127,29 @@ export class InputQueueRepo {
     return rows.map((row) => mapRow(row))
   }
 
+  listDispatchableSessionHeads(limit = 200): readonly InputQueueItem[] {
+    const now = new Date().toISOString()
+    const rows = this.context.sqlite
+      .prepare(
+        `${this.selectSql()}
+          WHERE status = 'queued'
+            AND (not_before_at IS NULL OR not_before_at <= ?)
+            AND seq = (
+              SELECT MIN(iq_inner.seq)
+                FROM input_queue iq_inner
+                WHERE iq_inner.scope_ref = input_queue.scope_ref
+                  AND iq_inner.lane_ref = input_queue.lane_ref
+                  AND iq_inner.status = 'queued'
+                  AND (iq_inner.not_before_at IS NULL OR iq_inner.not_before_at <= ?)
+            )
+       ORDER BY scope_ref ASC, lane_ref ASC
+          LIMIT ?`
+      )
+      .all(now, now, limit) as InputQueueRow[]
+
+    return rows.map((row) => mapRow(row))
+  }
+
   getHead(scopeRef: string, laneRef: string): InputQueueItem | undefined {
     const row = this.context.sqlite
       .prepare(

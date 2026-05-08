@@ -1,7 +1,8 @@
-import type { AttachmentRef, InputQueueItem } from 'acp-core'
+import type { AttachmentRef, InputQueueItem, InputQueueStatus } from 'acp-core'
 import { normalizeSessionRef } from 'agent-scope'
 
 import type { LaunchRoleScopedRun, ResolvedAcpServerDeps } from '../deps.js'
+import type { StoredRun } from '../domain/run-store.js'
 import { recordInputAdmissionEvent } from '../input-admission/input-admission-events.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
 
@@ -14,6 +15,8 @@ export type InputQueueDispatcher = {
 export type InputQueueDispatcherConfig = {
   intervalMs: number
   leaseOwner?: string | undefined
+  stalePendingRunTimeoutMs?: number | undefined
+  leaseTimeoutMs?: number | undefined
 }
 
 export type InputQueueDispatcherDeps = Pick<
@@ -40,8 +43,201 @@ function isRuntimeBusyError(error: unknown): boolean {
   )
 }
 
+function stalePendingRunTimeoutMs(deps: InputQueueDispatcherDeps): number {
+  return deps.config.stalePendingRunTimeoutMs ?? 45_000
+}
+
+function leaseTimeoutMs(deps: InputQueueDispatcherDeps): number {
+  return deps.config.leaseTimeoutMs ?? 600_000
+}
+
+type StaleBlockerKind = 'no_correlation' | 'partial_correlation'
+
+function classifyStalePendingRunBlocker(
+  run: StoredRun,
+  timeoutMs: number
+): StaleBlockerKind | undefined {
+  if (run.status !== 'pending') {
+    return undefined
+  }
+  if (run.hrcRunId !== undefined || run.runtimeId !== undefined) {
+    return undefined
+  }
+  if (Date.now() - new Date(run.updatedAt).getTime() <= timeoutMs) {
+    return undefined
+  }
+  return run.hostSessionId === undefined ? 'no_correlation' : 'partial_correlation'
+}
+
+function failStalePendingRunBlockers(deps: InputQueueDispatcherDeps, item: InputQueueItem): void {
+  const sessionRef = normalizeSessionRef({ scopeRef: item.scopeRef, laneRef: item.laneRef })
+  const timeoutMs = stalePendingRunTimeoutMs(deps)
+  for (const run of deps.runStore.listRunsForSession(sessionRef)) {
+    if (run.runId === item.runId) {
+      continue
+    }
+    const blockerKind = classifyStalePendingRunBlocker(run, timeoutMs)
+    if (blockerKind === undefined) {
+      continue
+    }
+
+    const errorMessage =
+      blockerKind === 'no_correlation'
+        ? `Run was blocking input queue dispatch, but no HRC launch correlation was recorded within ${Math.round(timeoutMs / 1000)}s`
+        : `Run was blocking input queue dispatch with partial HRC session correlation but no turn/runtime correlation within ${Math.round(timeoutMs / 1000)}s`
+    deps.runStore.updateRun(run.runId, {
+      status: 'failed',
+      errorCode: 'dispatch_timeout',
+      errorMessage,
+    })
+
+    const queueItem = deps.inputQueueStore.getByRunId(run.runId)
+    if (
+      queueItem !== undefined &&
+      (queueItem.status === 'queued' ||
+        queueItem.status === 'leased' ||
+        queueItem.status === 'dispatching')
+    ) {
+      deps.inputQueueStore.update(queueItem.queueItemId, {
+        status: 'failed',
+        lastErrorCode: 'dispatch_timeout',
+        lastErrorMessage: errorMessage,
+      })
+    }
+  }
+}
+
+function isExpiredLeasedHead(item: InputQueueItem, timeoutMs: number): boolean {
+  if (item.status !== 'leased' && item.status !== 'dispatching') {
+    return false
+  }
+  if (item.leasedAt === undefined) {
+    return false
+  }
+  return Date.now() - new Date(item.leasedAt).getTime() > timeoutMs
+}
+
+function failExpiredLeasedHead(deps: InputQueueDispatcherDeps, head: InputQueueItem): boolean {
+  const timeoutMs = leaseTimeoutMs(deps)
+  if (!isExpiredLeasedHead(head, timeoutMs)) {
+    return false
+  }
+
+  const errorMessage = `Queue item lease expired: leased at ${head.leasedAt} exceeded ${Math.round(timeoutMs / 1000)}s with no terminal run state`
+  const failedQueueItem = deps.inputQueueStore.update(head.queueItemId, {
+    status: 'failed',
+    lastErrorCode: 'lease_timeout',
+    lastErrorMessage: errorMessage,
+  })
+
+  const run = deps.runStore.getRun(head.runId)
+  let updatedRun = run
+  if (
+    run !== undefined &&
+    run.status !== 'completed' &&
+    run.status !== 'failed' &&
+    run.status !== 'cancelled'
+  ) {
+    updatedRun = deps.runStore.updateRun(head.runId, {
+      status: 'failed',
+      errorCode: 'lease_timeout',
+      errorMessage,
+    })
+  }
+
+  const admission = deps.inputAdmissionStore.getByInputAttemptId(head.inputAttemptId)
+  const updatedAdmission =
+    admission !== undefined
+      ? deps.inputAdmissionStore.update(head.inputAttemptId, {
+          status: 'failed',
+          currentState: {
+            ...(admission.currentState ?? {}),
+            queueStatus: 'failed',
+            errorCode: 'lease_timeout',
+            seq: head.seq,
+          },
+        })
+      : undefined
+
+  recordInputAdmissionEvent(deps, {
+    eventKind: 'input.queue.lease_expired',
+    scopeRef: head.scopeRef,
+    laneRef: head.laneRef,
+    inputAttemptId: head.inputAttemptId,
+    ...(updatedAdmission !== undefined ? { admission: updatedAdmission } : {}),
+    ...(updatedRun !== undefined ? { run: updatedRun } : {}),
+    queueItem: failedQueueItem,
+    payload: {
+      queueItemId: head.queueItemId,
+      runId: head.runId,
+      leasedAt: head.leasedAt,
+      leaseOwner: head.leaseOwner,
+      timeoutMs,
+    },
+  })
+  return true
+}
+
+function terminalQueueStatusForRun(run: StoredRun): InputQueueStatus | undefined {
+  if (run.status === 'completed') {
+    return 'completed'
+  }
+  if (run.status === 'failed') {
+    return 'failed'
+  }
+  if (run.status === 'cancelled') {
+    return 'cancelled'
+  }
+  return undefined
+}
+
+function reconcileTerminalQueueItem(deps: InputQueueDispatcherDeps, item: InputQueueItem): boolean {
+  const run = deps.runStore.getRun(item.runId)
+  if (run === undefined) {
+    return false
+  }
+
+  const queueStatus = terminalQueueStatusForRun(run)
+  if (queueStatus === undefined) {
+    return false
+  }
+
+  const queueItem = deps.inputQueueStore.update(item.queueItemId, {
+    status: queueStatus,
+    ...(run.errorCode !== undefined ? { lastErrorCode: run.errorCode } : {}),
+    ...(run.errorMessage !== undefined ? { lastErrorMessage: run.errorMessage } : {}),
+  })
+  const admission = deps.inputAdmissionStore.getByInputAttemptId(item.inputAttemptId)
+  const updatedAdmission =
+    admission !== undefined
+      ? deps.inputAdmissionStore.update(item.inputAttemptId, {
+          status: run.status,
+          currentState: {
+            ...(admission.currentState ?? {}),
+            queueStatus,
+            runStatus: run.status,
+            seq: item.seq,
+            ...(run.errorCode !== undefined ? { errorCode: run.errorCode } : {}),
+            ...(run.errorMessage !== undefined ? { errorMessage: run.errorMessage } : {}),
+          },
+        })
+      : undefined
+
+  recordInputAdmissionEvent(deps, {
+    eventKind: 'input.queue.reconciled_terminal',
+    scopeRef: item.scopeRef,
+    laneRef: item.laneRef,
+    inputAttemptId: item.inputAttemptId,
+    ...(updatedAdmission !== undefined ? { admission: updatedAdmission } : {}),
+    run,
+    queueItem,
+  })
+  return true
+}
+
 function sameSessionHasActiveRun(deps: InputQueueDispatcherDeps, item: InputQueueItem): boolean {
   const sessionRef = normalizeSessionRef({ scopeRef: item.scopeRef, laneRef: item.laneRef })
+  failStalePendingRunBlockers(deps, item)
   return deps.runStore
     .listRunsForSession(sessionRef)
     .some(
@@ -153,7 +349,18 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
       return
     }
 
-    const head = deps.inputQueueStore.getHead(item.scopeRef, item.laneRef)
+    let head = deps.inputQueueStore.getHead(item.scopeRef, item.laneRef)
+    while (head !== undefined && head.queueItemId !== item.queueItemId) {
+      if (reconcileTerminalQueueItem(deps, head)) {
+        head = deps.inputQueueStore.getHead(item.scopeRef, item.laneRef)
+        continue
+      }
+      if (failExpiredLeasedHead(deps, head)) {
+        head = deps.inputQueueStore.getHead(item.scopeRef, item.laneRef)
+        continue
+      }
+      break
+    }
     if (head?.queueItemId !== item.queueItemId) {
       return
     }
@@ -268,16 +475,19 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
   }
 
   async function runOnce(): Promise<void> {
-    const items = deps.inputQueueStore.listDispatchable()
-    const seenSessions = new Set<string>()
+    // Fair-by-session: scan one queued head per (scopeRef, laneRef) so blocked sessions
+    // never starve later ones, even when total queued items exceed the global page limit.
+    const items = deps.inputQueueStore.listDispatchableSessionHeads()
 
     for (const item of items) {
-      const key = `${item.scopeRef}\u0000${item.laneRef}`
-      if (seenSessions.has(key)) {
-        continue
+      try {
+        await dispatchItem(item)
+      } catch (error) {
+        console.error(
+          `[input-queue-dispatcher] error dispatching queue item ${item.queueItemId} for run ${item.runId}:`,
+          error instanceof Error ? error.message : String(error)
+        )
       }
-      seenSessions.add(key)
-      await dispatchItem(item)
     }
   }
 
@@ -289,7 +499,12 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
       const pass = runOnce()
       inflight = pass
       void pass
-        .catch(() => {})
+        .catch((error) => {
+          console.error(
+            '[input-queue-dispatcher] loop error:',
+            error instanceof Error ? error.message : String(error)
+          )
+        })
         .then(() => {
           inflight = undefined
           scheduleNext()
@@ -303,7 +518,12 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
       const pass = runOnce()
       inflight = pass
       void pass
-        .catch(() => {})
+        .catch((error) => {
+          console.error(
+            '[input-queue-dispatcher] startup sweep error:',
+            error instanceof Error ? error.message : String(error)
+          )
+        })
         .then(() => {
           inflight = undefined
           scheduleNext()

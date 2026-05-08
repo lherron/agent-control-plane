@@ -142,6 +142,723 @@ describe('input admission queue', () => {
     )
   })
 
+  test('stale pending runs without HRC correlation do not block queued dispatch forever', async () => {
+    const stores = createAdmissionStores()
+    const initialLaunchCalls: LaunchCall[] = []
+    const queuedLaunchCalls: LaunchCall[] = []
+
+    await withWiredServer(
+      async (fixture) => {
+        const sessionRef = {
+          scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:T-stale-pending:role:implementer`,
+          laneRef: 'main',
+        }
+
+        const first = await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body: {
+            idempotencyKey: 'stale-pending-first',
+            sessionRef,
+            content: 'first input never records HRC correlation',
+          },
+        })
+        const firstPayload = await fixture.json<{ run: { runId: string; status: string } }>(first)
+        expect(firstPayload.run.status).toBe('pending')
+
+        const second = await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body: {
+            idempotencyKey: 'stale-pending-second',
+            sessionRef,
+            content: 'second input should dispatch after stale blocker fails',
+          },
+        })
+        const secondPayload = await fixture.json<{
+          run: { runId: string; status: string }
+          admission: { queueItemId: string }
+        }>(second)
+        expect(secondPayload.run.status).toBe('queued')
+
+        await Bun.sleep(2)
+        const dispatcher = createInputQueueDispatcher({
+          adminStore: stores.adminStore,
+          hrcClient: undefined,
+          inputAdmissionStore: stores.inputAdmissionStore,
+          inputQueueStore: stores.inputQueueStore,
+          runStore: fixture.runStore,
+          runtimeResolver: async () => ({
+            agentRoot: '/tmp/agents/larry',
+            projectRoot: '/tmp/project',
+            cwd: '/tmp/project',
+            runMode: 'task',
+            bundle: { kind: 'agent-default' },
+            harness: { provider: 'openai', interactive: true },
+          }),
+          launchRoleScopedRun: async (input) => {
+            queuedLaunchCalls.push(input)
+            if (input.acpRunId !== undefined) {
+              input.runStore?.updateRun(input.acpRunId, {
+                status: 'running',
+                hrcRunId: 'hrc-stale-pending-second',
+                hostSessionId: 'hsid-stale-pending-second',
+                runtimeId: 'rt-stale-pending-second',
+              })
+            }
+            return {
+              runId: 'hrc-stale-pending-second',
+              sessionId: 'hsid-stale-pending-second',
+            }
+          },
+          inputQueuePolicy: {},
+          config: { intervalMs: 60_000, stalePendingRunTimeoutMs: 1 },
+        })
+        await dispatcher.runOnce()
+
+        expect(fixture.runStore.getRun(firstPayload.run.runId)).toMatchObject({
+          status: 'failed',
+          errorCode: 'dispatch_timeout',
+        })
+        expect(fixture.runStore.getRun(secondPayload.run.runId)?.status).toBe('running')
+        expect(stores.inputQueueStore.getById(secondPayload.admission.queueItemId)?.status).toBe(
+          'running'
+        )
+        expect(initialLaunchCalls).toHaveLength(1)
+        expect(queuedLaunchCalls).toHaveLength(1)
+      },
+      {
+        ...stores,
+        runtimeResolver: async () => ({
+          agentRoot: '/tmp/agents/larry',
+          projectRoot: '/tmp/project',
+          cwd: '/tmp/project',
+          runMode: 'task',
+          bundle: { kind: 'agent-default' },
+          harness: { provider: 'openai', interactive: true },
+        }),
+        launchRoleScopedRun: async (input) => {
+          initialLaunchCalls.push(input)
+          return { runId: 'hrc-stale-pending-first', sessionId: 'session-stale-pending-first' }
+        },
+      }
+    )
+  })
+
+  test('terminal dispatching queue head is reconciled before dispatching the next queued item', async () => {
+    const stores = createAdmissionStores()
+    const queuedLaunchCalls: LaunchCall[] = []
+
+    await withWiredServer(
+      async (fixture) => {
+        const sessionRef = {
+          scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:T-terminal-head:role:implementer`,
+          laneRef: 'main',
+        }
+
+        const first = await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body: {
+            idempotencyKey: 'terminal-head-first',
+            sessionRef,
+            content: 'active input',
+          },
+        })
+        const firstPayload = await fixture.json<{ run: { runId: string } }>(first)
+
+        const second = await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body: {
+            idempotencyKey: 'terminal-head-second',
+            sessionRef,
+            content: 'queued item that completes while dispatching',
+          },
+        })
+        const secondPayload = await fixture.json<{
+          run: { runId: string }
+          admission: { queueItemId: string }
+        }>(second)
+
+        const third = await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body: {
+            idempotencyKey: 'terminal-head-third',
+            sessionRef,
+            content: 'next queued item',
+          },
+        })
+        const thirdPayload = await fixture.json<{
+          run: { runId: string }
+          admission: { queueItemId: string }
+        }>(third)
+
+        fixture.runStore.updateRun(firstPayload.run.runId, { status: 'completed' })
+        fixture.runStore.updateRun(secondPayload.run.runId, { status: 'completed' })
+        stores.inputQueueStore.update(secondPayload.admission.queueItemId, {
+          status: 'dispatching',
+        })
+
+        const dispatcher = createInputQueueDispatcher({
+          adminStore: stores.adminStore,
+          hrcClient: undefined,
+          inputAdmissionStore: stores.inputAdmissionStore,
+          inputQueueStore: stores.inputQueueStore,
+          runStore: fixture.runStore,
+          runtimeResolver: async () => ({
+            agentRoot: '/tmp/agents/larry',
+            projectRoot: '/tmp/project',
+            cwd: '/tmp/project',
+            runMode: 'task',
+            bundle: { kind: 'agent-default' },
+            harness: { provider: 'openai', interactive: true },
+          }),
+          launchRoleScopedRun: async (input) => {
+            queuedLaunchCalls.push(input)
+            if (input.acpRunId !== undefined) {
+              input.runStore?.updateRun(input.acpRunId, { status: 'running' })
+            }
+            return { runId: input.acpRunId ?? 'run-fallback', sessionId: 'session-terminal-head' }
+          },
+          inputQueuePolicy: {},
+          config: { intervalMs: 60_000 },
+        })
+        await dispatcher.runOnce()
+
+        expect(stores.inputQueueStore.getById(secondPayload.admission.queueItemId)?.status).toBe(
+          'completed'
+        )
+        expect(fixture.runStore.getRun(thirdPayload.run.runId)?.status).toBe('running')
+        expect(stores.inputQueueStore.getById(thirdPayload.admission.queueItemId)?.status).toBe(
+          'running'
+        )
+        expect(queuedLaunchCalls).toHaveLength(1)
+        expect(queuedLaunchCalls[0]?.acpRunId).toBe(thirdPayload.run.runId)
+      },
+      {
+        ...stores,
+        runtimeResolver: async () => ({
+          agentRoot: '/tmp/agents/larry',
+          projectRoot: '/tmp/project',
+          cwd: '/tmp/project',
+          runMode: 'task',
+          bundle: { kind: 'agent-default' },
+          harness: { provider: 'openai', interactive: true },
+        }),
+        launchRoleScopedRun: async (input) => {
+          if (input.acpRunId !== undefined) {
+            input.runStore?.updateRun(input.acpRunId, { status: 'running' })
+          }
+          return { runId: input.acpRunId ?? 'hrc-terminal-head', sessionId: 'hsid-terminal-head' }
+        },
+      }
+    )
+  })
+
+  test('stale pending runs with partial HRC correlation no longer block queued dispatch', async () => {
+    const stores = createAdmissionStores()
+    const initialLaunchCalls: LaunchCall[] = []
+    const queuedLaunchCalls: LaunchCall[] = []
+
+    await withWiredServer(
+      async (fixture) => {
+        const sessionRef = {
+          scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:T-partial-corr:role:implementer`,
+          laneRef: 'main',
+        }
+
+        const first = await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body: {
+            idempotencyKey: 'partial-corr-first',
+            sessionRef,
+            content: 'first input wedges with partial HRC correlation',
+          },
+        })
+        const firstPayload = await fixture.json<{ run: { runId: string; status: string } }>(first)
+        expect(firstPayload.run.status).toBe('pending')
+
+        // Simulate real-launcher writing hostSessionId after resolveSession but before
+        // dispatchTurn completes — leaves the run with partial correlation only.
+        fixture.runStore.updateRun(firstPayload.run.runId, {
+          hostSessionId: 'hsid-partial-corr-first',
+        })
+
+        const second = await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body: {
+            idempotencyKey: 'partial-corr-second',
+            sessionRef,
+            content: 'second input should dispatch after partial blocker is failed',
+          },
+        })
+        const secondPayload = await fixture.json<{
+          run: { runId: string; status: string }
+          admission: { queueItemId: string }
+        }>(second)
+        expect(secondPayload.run.status).toBe('queued')
+
+        await Bun.sleep(2)
+        const dispatcher = createInputQueueDispatcher({
+          adminStore: stores.adminStore,
+          hrcClient: undefined,
+          inputAdmissionStore: stores.inputAdmissionStore,
+          inputQueueStore: stores.inputQueueStore,
+          runStore: fixture.runStore,
+          runtimeResolver: async () => ({
+            agentRoot: '/tmp/agents/larry',
+            projectRoot: '/tmp/project',
+            cwd: '/tmp/project',
+            runMode: 'task',
+            bundle: { kind: 'agent-default' },
+            harness: { provider: 'openai', interactive: true },
+          }),
+          launchRoleScopedRun: async (input) => {
+            queuedLaunchCalls.push(input)
+            if (input.acpRunId !== undefined) {
+              input.runStore?.updateRun(input.acpRunId, {
+                status: 'running',
+                hrcRunId: 'hrc-partial-corr-second',
+                hostSessionId: 'hsid-partial-corr-second',
+                runtimeId: 'rt-partial-corr-second',
+              })
+            }
+            return {
+              runId: 'hrc-partial-corr-second',
+              sessionId: 'hsid-partial-corr-second',
+            }
+          },
+          inputQueuePolicy: {},
+          config: { intervalMs: 60_000, stalePendingRunTimeoutMs: 1 },
+        })
+        await dispatcher.runOnce()
+
+        const failedFirst = fixture.runStore.getRun(firstPayload.run.runId)
+        expect(failedFirst?.status).toBe('failed')
+        expect(failedFirst?.errorCode).toBe('dispatch_timeout')
+        expect(failedFirst?.errorMessage).toContain('partial HRC session correlation')
+        expect(fixture.runStore.getRun(secondPayload.run.runId)?.status).toBe('running')
+        expect(stores.inputQueueStore.getById(secondPayload.admission.queueItemId)?.status).toBe(
+          'running'
+        )
+        expect(initialLaunchCalls).toHaveLength(1)
+        expect(queuedLaunchCalls).toHaveLength(1)
+      },
+      {
+        ...stores,
+        runtimeResolver: async () => ({
+          agentRoot: '/tmp/agents/larry',
+          projectRoot: '/tmp/project',
+          cwd: '/tmp/project',
+          runMode: 'task',
+          bundle: { kind: 'agent-default' },
+          harness: { provider: 'openai', interactive: true },
+        }),
+        launchRoleScopedRun: async (input) => {
+          initialLaunchCalls.push(input)
+          return { runId: 'hrc-partial-corr-first', sessionId: 'hsid-partial-corr-first' }
+        },
+      }
+    )
+  })
+
+  test('expired-lease dispatching head is failed and the next queued item dispatches', async () => {
+    const stores = createAdmissionStores()
+    const queuedLaunchCalls: LaunchCall[] = []
+
+    await withWiredServer(
+      async (fixture) => {
+        const sessionRef = {
+          scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:T-lease:role:implementer`,
+          laneRef: 'main',
+        }
+
+        // First input launches directly; no queue item is created for it.
+        const first = await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body: {
+            idempotencyKey: 'lease-first',
+            sessionRef,
+            content: 'first input launches and stays running',
+          },
+        })
+        const firstPayload = await fixture.json<{ run: { runId: string } }>(first)
+
+        // Second input enters the queue; we'll wedge this one as a stuck dispatching head.
+        const second = await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body: {
+            idempotencyKey: 'lease-second',
+            sessionRef,
+            content: 'second input wedges as a stuck dispatching head',
+          },
+        })
+        const secondPayload = await fixture.json<{
+          run: { runId: string }
+          admission: { queueItemId: string }
+        }>(second)
+
+        // Third input enters the queue behind the wedged head.
+        const third = await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body: {
+            idempotencyKey: 'lease-third',
+            sessionRef,
+            content: 'third input should dispatch once the stuck head is reaped',
+          },
+        })
+        const thirdPayload = await fixture.json<{
+          run: { runId: string }
+          admission: { queueItemId: string }
+        }>(third)
+
+        // Mark the first run as completed so it does not block dispatch on its own merits.
+        fixture.runStore.updateRun(firstPayload.run.runId, { status: 'completed' })
+
+        // Simulate a wedged dispatcher: queued head was leased but never reached terminal state.
+        // Leave the run in a non-terminal state to verify the lease-timeout path fails it.
+        const oldLease = new Date(Date.now() - 60_000).toISOString()
+        stores.inputQueueStore.update(secondPayload.admission.queueItemId, {
+          status: 'dispatching',
+          leasedAt: oldLease,
+          leaseOwner: 'wedged-dispatcher',
+        })
+        fixture.runStore.updateRun(secondPayload.run.runId, { status: 'pending' })
+
+        await Bun.sleep(2)
+        const dispatcher = createInputQueueDispatcher({
+          adminStore: stores.adminStore,
+          hrcClient: undefined,
+          inputAdmissionStore: stores.inputAdmissionStore,
+          inputQueueStore: stores.inputQueueStore,
+          runStore: fixture.runStore,
+          runtimeResolver: async () => ({
+            agentRoot: '/tmp/agents/larry',
+            projectRoot: '/tmp/project',
+            cwd: '/tmp/project',
+            runMode: 'task',
+            bundle: { kind: 'agent-default' },
+            harness: { provider: 'openai', interactive: true },
+          }),
+          launchRoleScopedRun: async (input) => {
+            queuedLaunchCalls.push(input)
+            if (input.acpRunId !== undefined) {
+              input.runStore?.updateRun(input.acpRunId, { status: 'running' })
+            }
+            return { runId: input.acpRunId ?? 'run-lease', sessionId: 'session-lease' }
+          },
+          inputQueuePolicy: {},
+          config: { intervalMs: 60_000, leaseTimeoutMs: 1 },
+        })
+        await dispatcher.runOnce()
+
+        const reapedQueueItem = stores.inputQueueStore.getById(secondPayload.admission.queueItemId)
+        expect(reapedQueueItem?.status).toBe('failed')
+        expect(reapedQueueItem?.lastErrorCode).toBe('lease_timeout')
+        const reapedRun = fixture.runStore.getRun(secondPayload.run.runId)
+        expect(reapedRun?.status).toBe('failed')
+        expect(reapedRun?.errorCode).toBe('lease_timeout')
+
+        expect(fixture.runStore.getRun(thirdPayload.run.runId)?.status).toBe('running')
+        expect(stores.inputQueueStore.getById(thirdPayload.admission.queueItemId)?.status).toBe(
+          'running'
+        )
+        expect(queuedLaunchCalls).toHaveLength(1)
+        expect(queuedLaunchCalls[0]?.acpRunId).toBe(thirdPayload.run.runId)
+        const events = stores.adminStore.systemEvents.list({ projectId: fixture.seed.projectId })
+        const leaseExpiredEvent = events.find((e) => e.kind === 'input.queue.lease_expired')
+        expect(leaseExpiredEvent).toBeDefined()
+        expect(leaseExpiredEvent?.payload).toMatchObject({
+          queueItemId: secondPayload.admission.queueItemId,
+          runId: secondPayload.run.runId,
+          leasedAt: oldLease,
+          leaseOwner: 'wedged-dispatcher',
+          timeoutMs: 1,
+        })
+      },
+      {
+        ...stores,
+        runtimeResolver: async () => ({
+          agentRoot: '/tmp/agents/larry',
+          projectRoot: '/tmp/project',
+          cwd: '/tmp/project',
+          runMode: 'task',
+          bundle: { kind: 'agent-default' },
+          harness: { provider: 'openai', interactive: true },
+        }),
+        launchRoleScopedRun: async (input) => {
+          if (input.acpRunId !== undefined) {
+            input.runStore?.updateRun(input.acpRunId, { status: 'running' })
+          }
+          return { runId: input.acpRunId ?? 'hrc-lease-first', sessionId: 'hsid-lease-first' }
+        },
+      }
+    )
+  })
+
+  test('per-session-head iteration prevents page-50 starvation across many sessions', async () => {
+    const stores = createAdmissionStores()
+    const launchedRunIds: string[] = []
+
+    await withWiredServer(
+      async (fixture) => {
+        // Create 60 distinct sessions, each with one queued item.
+        const sessionRefs = Array.from({ length: 60 }, (_, i) => ({
+          scopeRef: `agent:bulk-${i.toString().padStart(3, '0')}:project:${fixture.seed.projectId}:task:T-bulk:role:implementer`,
+          laneRef: 'main',
+        }))
+
+        const firstRunIds: string[] = []
+        const queuedRunIds: string[] = []
+        for (let i = 0; i < sessionRefs.length; i++) {
+          const sessionRef = sessionRefs[i]!
+          const first = await fixture.request({
+            method: 'POST',
+            path: '/v1/inputs',
+            body: {
+              idempotencyKey: `bulk-${i}-first`,
+              sessionRef,
+              content: `session ${i} first input`,
+            },
+          })
+          const firstPayload = await fixture.json<{ run: { runId: string } }>(first)
+          firstRunIds.push(firstPayload.run.runId)
+
+          // Submit second WHILE first is running so the second is admitted as queued.
+          const second = await fixture.request({
+            method: 'POST',
+            path: '/v1/inputs',
+            body: {
+              idempotencyKey: `bulk-${i}-second`,
+              sessionRef,
+              content: `session ${i} queued`,
+            },
+          })
+          const secondPayload = await fixture.json<{ run: { runId: string } }>(second)
+          queuedRunIds.push(secondPayload.run.runId)
+        }
+
+        // Now mark each first run completed so the queued items are eligible for dispatch.
+        for (const runId of firstRunIds) {
+          fixture.runStore.updateRun(runId, { status: 'completed' })
+        }
+
+        // Sanity: all 60 sessions have a queued item.
+        const totalQueued = queuedRunIds.filter(
+          (id) => fixture.runStore.getRun(id)?.status === 'queued'
+        ).length
+        expect(totalQueued).toBe(60)
+
+        const dispatcher = createInputQueueDispatcher({
+          adminStore: stores.adminStore,
+          hrcClient: undefined,
+          inputAdmissionStore: stores.inputAdmissionStore,
+          inputQueueStore: stores.inputQueueStore,
+          runStore: fixture.runStore,
+          runtimeResolver: async () => ({
+            agentRoot: '/tmp/agents/bulk',
+            projectRoot: '/tmp/project',
+            cwd: '/tmp/project',
+            runMode: 'task',
+            bundle: { kind: 'agent-default' },
+            harness: { provider: 'openai', interactive: true },
+          }),
+          launchRoleScopedRun: async (input) => {
+            if (input.acpRunId !== undefined) {
+              launchedRunIds.push(input.acpRunId)
+              input.runStore?.updateRun(input.acpRunId, { status: 'running' })
+            }
+            return { runId: input.acpRunId ?? 'run-bulk', sessionId: 'session-bulk' }
+          },
+          inputQueuePolicy: {},
+          config: { intervalMs: 60_000 },
+        })
+        await dispatcher.runOnce()
+
+        // All 60 queued items must be dispatched in a single tick — none starved by the
+        // legacy first-page-of-50 cap.
+        expect(launchedRunIds).toHaveLength(60)
+        for (const runId of queuedRunIds) {
+          expect(launchedRunIds).toContain(runId)
+          expect(fixture.runStore.getRun(runId)?.status).toBe('running')
+        }
+      },
+      {
+        ...stores,
+        runtimeResolver: async () => ({
+          agentRoot: '/tmp/agents/bulk',
+          projectRoot: '/tmp/project',
+          cwd: '/tmp/project',
+          runMode: 'task',
+          bundle: { kind: 'agent-default' },
+          harness: { provider: 'openai', interactive: true },
+        }),
+        launchRoleScopedRun: async (input) => {
+          if (input.acpRunId !== undefined) {
+            input.runStore?.updateRun(input.acpRunId, { status: 'running' })
+          }
+          return { runId: input.acpRunId ?? 'hrc-bulk-first', sessionId: 'hsid-bulk-first' }
+        },
+      }
+    )
+  })
+
+  test('a pre-launcher dispatchItem throw is logged and other sessions still get a chance', async () => {
+    const stores = createAdmissionStores()
+    const launchCalls: LaunchCall[] = []
+    const consoleErrors: string[] = []
+    const originalConsoleError = console.error
+    console.error = ((...args: unknown[]) => {
+      consoleErrors.push(args.map((a) => String(a)).join(' '))
+    }) as typeof console.error
+
+    try {
+      await withWiredServer(
+        async (fixture) => {
+          const sessionA = {
+            scopeRef: `agent:alice:project:${fixture.seed.projectId}:task:T-throw:role:implementer`,
+            laneRef: 'main',
+          }
+          const sessionB = {
+            scopeRef: `agent:bob:project:${fixture.seed.projectId}:task:T-throw:role:implementer`,
+            laneRef: 'main',
+          }
+
+          const a1 = await fixture.request({
+            method: 'POST',
+            path: '/v1/inputs',
+            body: {
+              idempotencyKey: 'throw-a1',
+              sessionRef: sessionA,
+              content: 'session A first input',
+            },
+          })
+          const a1Payload = await fixture.json<{ run: { runId: string } }>(a1)
+          const a2 = await fixture.request({
+            method: 'POST',
+            path: '/v1/inputs',
+            body: {
+              idempotencyKey: 'throw-a2',
+              sessionRef: sessionA,
+              content: 'session A queued',
+            },
+          })
+          const a2Payload = await fixture.json<{
+            run: { runId: string }
+            admission: { queueItemId: string }
+          }>(a2)
+
+          const b1 = await fixture.request({
+            method: 'POST',
+            path: '/v1/inputs',
+            body: {
+              idempotencyKey: 'throw-b1',
+              sessionRef: sessionB,
+              content: 'session B first input',
+            },
+          })
+          const b1Payload = await fixture.json<{ run: { runId: string } }>(b1)
+          const b2 = await fixture.request({
+            method: 'POST',
+            path: '/v1/inputs',
+            body: {
+              idempotencyKey: 'throw-b2',
+              sessionRef: sessionB,
+              content: 'session B queued',
+            },
+          })
+          const b2Payload = await fixture.json<{
+            run: { runId: string }
+            admission: { queueItemId: string }
+          }>(b2)
+
+          fixture.runStore.updateRun(a1Payload.run.runId, { status: 'completed' })
+          fixture.runStore.updateRun(b1Payload.run.runId, { status: 'completed' })
+
+          // runtimeResolver runs BEFORE the launcher try/catch in dispatchItem, so a throw
+          // here surfaces from dispatchItem itself — exercising the new runOnce-level
+          // try/catch fairness guard rather than the existing in-dispatch launch_failed path.
+          const dispatcher = createInputQueueDispatcher({
+            adminStore: stores.adminStore,
+            hrcClient: undefined,
+            inputAdmissionStore: stores.inputAdmissionStore,
+            inputQueueStore: stores.inputQueueStore,
+            runStore: fixture.runStore,
+            runtimeResolver: async (sessionRef) => {
+              if (sessionRef.scopeRef.startsWith('agent:alice:')) {
+                throw new Error('boom: simulated runtimeResolver failure for session A')
+              }
+              return {
+                agentRoot: '/tmp/agents/bob',
+                projectRoot: '/tmp/project',
+                cwd: '/tmp/project',
+                runMode: 'task',
+                bundle: { kind: 'agent-default' },
+                harness: { provider: 'openai', interactive: true },
+              }
+            },
+            launchRoleScopedRun: async (input) => {
+              launchCalls.push(input)
+              if (input.acpRunId !== undefined) {
+                input.runStore?.updateRun(input.acpRunId, { status: 'running' })
+              }
+              return { runId: input.acpRunId ?? 'run-throw', sessionId: 'session-throw' }
+            },
+            inputQueuePolicy: {},
+            config: { intervalMs: 60_000 },
+          })
+          await dispatcher.runOnce()
+
+          // Session A's pre-launcher throw bubbles through dispatchItem; the queue item is
+          // left transitioned (run=pending, queue=dispatching) but the runOnce loop must
+          // still proceed to session B and dispatch it.
+          expect(stores.inputQueueStore.getById(b2Payload.admission.queueItemId)?.status).toBe(
+            'running'
+          )
+          expect(fixture.runStore.getRun(b2Payload.run.runId)?.status).toBe('running')
+          expect(launchCalls.map((c) => c.acpRunId)).toContain(b2Payload.run.runId)
+
+          // Session A never reached the launcher.
+          expect(launchCalls.map((c) => c.acpRunId)).not.toContain(a2Payload.run.runId)
+
+          // The thrown error was surfaced via the new runOnce try/catch.
+          const dispatcherErrors = consoleErrors.filter((line) =>
+            line.includes('[input-queue-dispatcher] error dispatching queue item')
+          )
+          expect(dispatcherErrors.length).toBeGreaterThan(0)
+          expect(dispatcherErrors[0]).toContain(a2Payload.admission.queueItemId)
+          expect(dispatcherErrors[0]).toContain('boom: simulated runtimeResolver failure')
+        },
+        {
+          ...stores,
+          runtimeResolver: async () => ({
+            agentRoot: '/tmp/agents/alice',
+            projectRoot: '/tmp/project',
+            cwd: '/tmp/project',
+            runMode: 'task',
+            bundle: { kind: 'agent-default' },
+            harness: { provider: 'openai', interactive: true },
+          }),
+          launchRoleScopedRun: async (input) => {
+            if (input.acpRunId !== undefined) {
+              input.runStore?.updateRun(input.acpRunId, { status: 'running' })
+            }
+            return { runId: input.acpRunId ?? 'hrc-throw-first', sessionId: 'hsid-throw-first' }
+          },
+        }
+      )
+    } finally {
+      console.error = originalConsoleError
+    }
+  })
+
   test('queue max depth rejects additional queued work', async () => {
     const stores = createAdmissionStores()
 

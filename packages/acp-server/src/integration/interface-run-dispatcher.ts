@@ -14,6 +14,7 @@ import {
 export type InterfaceRunDispatcherConfig = {
   intervalMs: number
   staleTimeoutMs: number
+  dispatchStaleTimeoutMs?: number | undefined
 }
 
 export type InterfaceRunDispatcherInput = {
@@ -49,11 +50,12 @@ export function createInterfaceRunDispatcher(
   let timer: ReturnType<typeof setTimeout> | undefined
 
   async function runOnce(): Promise<void> {
+    const pendingRuns = runStore.listRunsByStatus('pending')
     const runningRuns = runStore.listRunsByStatus('running')
     const completedRunsMissingFinalDelivery = runStore
       .listRunsByStatus('completed')
       .filter((run) => readInterfaceRunSource(run) !== undefined && !hasFinalDelivery(run.runId))
-    const runs = [...runningRuns, ...completedRunsMissingFinalDelivery]
+    const runs = [...pendingRuns, ...runningRuns, ...completedRunsMissingFinalDelivery]
 
     for (const run of runs) {
       try {
@@ -78,6 +80,17 @@ export function createInterfaceRunDispatcher(
     let runFailed = false
     let errorCode: string | undefined
     let errorMessage: string | undefined
+
+    if (run.status === 'pending' && run.hrcRunId === undefined && run.hostSessionId === undefined) {
+      const dispatchStaleTimeoutMs =
+        config.dispatchStaleTimeoutMs ?? Math.min(config.staleTimeoutMs, 45_000)
+      if (isStale(run, dispatchStaleTimeoutMs)) {
+        runFailed = true
+        errorCode = 'dispatch_timeout'
+        errorMessage = `Run was accepted by ACP but no HRC launch correlation was recorded within ${Math.round(dispatchStaleTimeoutMs / 1000)}s`
+      }
+      return handleFailureOrSkip(run, source, runFailed, errorCode, errorMessage)
+    }
 
     if (run.hrcRunId !== undefined) {
       // Headless path: check HRC run status via turn.completed events
@@ -262,9 +275,11 @@ export function createInterfaceRunDispatcher(
       const deliveryRequestId = createDeliveryRequestId(run.runId, 1)
       const createdAt = new Date().toISOString()
       const bodyText =
-        errorCode === 'turn_timeout'
-          ? 'The agent timed out processing this request. The response may still be in progress — check back shortly.'
-          : `The agent encountered an error: ${errorMessage ?? 'unknown failure'}`
+        errorCode === 'dispatch_timeout'
+          ? `The request was accepted by ACP, but no agent run started before dispatch timeout. ACP run ${run.runId} is stuck before HRC launch${errorMessage !== undefined ? `: ${errorMessage}` : '.'}`
+          : errorCode === 'turn_timeout'
+            ? 'The agent timed out processing this request. The response may still be in progress — check back shortly.'
+            : `The agent encountered an error: ${errorMessage ?? 'unknown failure'}`
 
       try {
         interfaceStore.deliveries.enqueue({
