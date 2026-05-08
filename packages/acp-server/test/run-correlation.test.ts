@@ -33,7 +33,9 @@ function createHeadlessHrcDb(): { db: Database; hrcDbPath: string; cleanup(): vo
       run_id TEXT PRIMARY KEY,
       status TEXT NOT NULL,
       error_code TEXT,
-      error_message TEXT
+      error_message TEXT,
+      host_session_id TEXT,
+      accepted_at TEXT
     );
     CREATE TABLE events (
       seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -278,6 +280,75 @@ describe('ACP run correlation', () => {
           launchRoleScopedRun: async () => ({
             runId: 'hrc-run-never-recorded',
             sessionId: 'session-never-recorded',
+          }),
+        }
+      )
+    } finally {
+      hrc.cleanup()
+    }
+  })
+
+  test('dispatcher does not fail stale pending runs when HRC accepted a run on the host session', async () => {
+    const hrc = createHeadlessHrcDb()
+
+    try {
+      await withWiredServer(
+        async (fixture) => {
+          addInterfaceBinding(fixture)
+
+          const response = await postInterfaceMessage(fixture)
+          const payload = await fixture.json<{ runId: string }>(response)
+          expect(response.status).toBe(201)
+
+          const hostSessionId = 'hsid-slow-dispatch'
+          fixture.runStore.updateRun(payload.runId, { hostSessionId })
+
+          const acpRun = fixture.runStore.getRun(payload.runId)
+          expect(acpRun?.status).toBe('pending')
+          expect(acpRun?.hrcRunId).toBeUndefined()
+          expect(acpRun?.hostSessionId).toBe(hostSessionId)
+
+          const acceptedAt = new Date(
+            new Date(acpRun?.createdAt ?? '').getTime() + 100
+          ).toISOString()
+          hrc.db.run(
+            'INSERT INTO runs (run_id, status, host_session_id, accepted_at) VALUES (?, ?, ?, ?)',
+            'hrc-run-in-flight',
+            'running',
+            hostSessionId,
+            acceptedAt
+          )
+
+          await Bun.sleep(2)
+          const dispatcher = createInterfaceRunDispatcher({
+            runStore: fixture.runStore,
+            interfaceStore: fixture.interfaceStore,
+            conversationStore: fixture.conversationStore,
+            hrcDbPath: hrc.hrcDbPath,
+            config: { intervalMs: 1, staleTimeoutMs: 1_000, dispatchStaleTimeoutMs: 1 },
+          })
+          await dispatcher.runOnce()
+
+          expect(fixture.runStore.getRun(payload.runId)).toMatchObject({
+            status: 'pending',
+          })
+          const queued = fixture.interfaceStore.deliveries.listQueuedForGateway('discord_prod')
+          expect(queued.some((delivery) => delivery.bodyText.includes('dispatch timeout'))).toBe(
+            false
+          )
+        },
+        {
+          runtimeResolver: async () => ({
+            agentRoot: '/tmp/agents/curly',
+            projectRoot: '/tmp/project',
+            cwd: '/tmp/project',
+            runMode: 'task',
+            bundle: { kind: 'agent-default' },
+            harness: { provider: 'openai', interactive: true },
+          }),
+          launchRoleScopedRun: async () => ({
+            runId: 'hrc-run-pending-correlation',
+            sessionId: 'session-pending-correlation',
           }),
         }
       )

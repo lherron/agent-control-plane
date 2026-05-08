@@ -580,9 +580,6 @@ export class GatewayDiscordApp {
     }
 
     if (!binding) {
-      await message.reply(
-        'No project is bound to this channel/thread. Use ACP interface bindings to create one.'
-      )
       return
     }
 

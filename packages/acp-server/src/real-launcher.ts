@@ -532,6 +532,31 @@ async function pollCompletedAssistantMessage(options: {
   )
 }
 
+export function hasHrcAcceptedRunSince(
+  hrcDbPath: string,
+  hostSessionId: string,
+  sinceIso: string
+): boolean {
+  const db = new Database(hrcDbPath, { readonly: true })
+  try {
+    const row = db
+      .query<{ runId: string }, [string, string]>(
+        `SELECT run_id AS runId
+          FROM runs
+          WHERE host_session_id = ?
+            AND accepted_at IS NOT NULL
+            AND accepted_at >= ?
+          LIMIT 1`
+      )
+      .get(hostSessionId, sinceIso)
+    return row !== null && row !== undefined
+  } catch {
+    return false
+  } finally {
+    db.close()
+  }
+}
+
 export function readRunStatus(
   hrcDbPath: string,
   runId: string

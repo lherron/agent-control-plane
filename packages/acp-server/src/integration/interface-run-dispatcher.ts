@@ -6,6 +6,7 @@ import { toCompletedVisibleAssistantMessage } from '../delivery/visible-assistan
 import type { ConversationStore } from '../deps.js'
 import type { RunStore, StoredRun } from '../domain/run-store.js'
 import {
+  hasHrcAcceptedRunSince,
   readAssistantMessageAfterSeq,
   readCompletedAssistantMessageFromHrcEvents,
   readRunStatus,
@@ -86,14 +87,25 @@ export function createInterfaceRunDispatcher(
     // writes it before HRC accepts the turn), readAssistantMessageAfterSeq with
     // afterHrcSeq=0 would return the oldest message in the session — typically
     // a leftover preamble from a prior run. Either fail with dispatch_timeout
-    // (if stale) or wait for the next tick when hrcRunId arrives.
+    // (if stale and HRC has no evidence the launch happened) or wait for the
+    // next tick when hrcRunId arrives.
     if (run.status === 'pending' && run.hrcRunId === undefined) {
       const dispatchStaleTimeoutMs =
         config.dispatchStaleTimeoutMs ?? Math.min(config.staleTimeoutMs, 45_000)
       if (isStale(run, dispatchStaleTimeoutMs)) {
-        runFailed = true
-        errorCode = 'dispatch_timeout'
-        errorMessage = `Run was accepted by ACP but no HRC launch correlation was recorded within ${Math.round(dispatchStaleTimeoutMs / 1000)}s`
+        // SDK-headless dispatchTurn blocks until the HRC turn completes, so a
+        // long-running turn can leave the ACP run pending+no-hrcRunId well past
+        // the dispatch timeout even though HRC accepted and is actively
+        // processing it. Treat any HRC run accepted on the same host session
+        // since this ACP run was created as evidence the launch succeeded.
+        const launchObserved =
+          run.hostSessionId !== undefined &&
+          hasHrcAcceptedRunSince(hrcDbPath, run.hostSessionId, run.createdAt)
+        if (!launchObserved) {
+          runFailed = true
+          errorCode = 'dispatch_timeout'
+          errorMessage = `Run was accepted by ACP but no HRC launch correlation was recorded within ${Math.round(dispatchStaleTimeoutMs / 1000)}s`
+        }
       }
       return handleFailureOrSkip(run, source, runFailed, errorCode, errorMessage)
     }
