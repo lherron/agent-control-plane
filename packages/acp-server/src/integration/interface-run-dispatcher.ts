@@ -81,7 +81,13 @@ export function createInterfaceRunDispatcher(
     let errorCode: string | undefined
     let errorMessage: string | undefined
 
-    if (run.status === 'pending' && run.hrcRunId === undefined && run.hostSessionId === undefined) {
+    // Pending runs that have not yet recorded an hrcRunId are too early to
+    // extract assistant content from. Even if hostSessionId is set (real-launcher
+    // writes it before HRC accepts the turn), readAssistantMessageAfterSeq with
+    // afterHrcSeq=0 would return the oldest message in the session — typically
+    // a leftover preamble from a prior run. Either fail with dispatch_timeout
+    // (if stale) or wait for the next tick when hrcRunId arrives.
+    if (run.status === 'pending' && run.hrcRunId === undefined) {
       const dispatchStaleTimeoutMs =
         config.dispatchStaleTimeoutMs ?? Math.min(config.staleTimeoutMs, 45_000)
       if (isStale(run, dispatchStaleTimeoutMs)) {

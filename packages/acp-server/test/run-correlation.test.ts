@@ -363,6 +363,138 @@ describe('ACP run correlation', () => {
     }
   })
 
+  test('pending interface runs with partial HRC correlation do not leak old session content', async () => {
+    const hrc = createHeadlessHrcDb()
+    hrc.db.exec(`
+      CREATE TABLE hrc_events (
+        hrc_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        host_session_id TEXT NOT NULL,
+        scope_ref TEXT NOT NULL,
+        lane_ref TEXT NOT NULL,
+        run_id TEXT,
+        event_kind TEXT NOT NULL,
+        payload_json TEXT NOT NULL
+      );
+    `)
+
+    try {
+      await withWiredServer(
+        async (fixture) => {
+          addInterfaceBinding(fixture)
+
+          const sharedScopeRef = `agent:curly:project:${fixture.seed.projectId}`
+          const sharedLaneRef = 'main'
+          const sharedHostSessionId = 'hsid-shared-session'
+
+          // Seed an OLD assistant message in this host session — represents leftover
+          // content from a prior run that previously leaked into new deliveries.
+          hrc.db.run(
+            `INSERT INTO hrc_events (host_session_id, scope_ref, lane_ref, run_id, event_kind, payload_json)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            sharedHostSessionId,
+            sharedScopeRef,
+            sharedLaneRef,
+            'old-hrc-run-id',
+            'turn.message',
+            JSON.stringify({
+              type: 'message_end',
+              message: {
+                role: 'assistant',
+                content: [
+                  { type: 'text', text: 'Old preamble from a prior run that must NOT leak.' },
+                ],
+              },
+            })
+          )
+
+          const response = await postInterfaceMessage(fixture)
+          const payload = await fixture.json<{ runId: string }>(response)
+          expect(response.status).toBe(201)
+
+          // Simulate the partial-correlation pending window real-launcher passes through:
+          // hostSessionId is set after resolveSession but before HRC accepts the turn,
+          // so hrcRunId/runtimeId/afterHrcSeq are still undefined.
+          fixture.runStore.updateRun(payload.runId, {
+            status: 'pending',
+            hostSessionId: sharedHostSessionId,
+          })
+          const partialRun = fixture.runStore.getRun(payload.runId)
+          expect(partialRun?.status).toBe('pending')
+          expect(partialRun?.hostSessionId).toBe(sharedHostSessionId)
+          expect(partialRun?.hrcRunId).toBeUndefined()
+
+          const dispatcher = createInterfaceRunDispatcher({
+            runStore: fixture.runStore,
+            interfaceStore: fixture.interfaceStore,
+            conversationStore: fixture.conversationStore,
+            hrcDbPath: hrc.hrcDbPath,
+            config: { intervalMs: 1, staleTimeoutMs: 60_000, dispatchStaleTimeoutMs: 60_000 },
+          })
+          await dispatcher.runOnce()
+
+          // Run must remain pending (not stale yet) and NO delivery should be enqueued
+          // with the old session content.
+          const stillPendingRun = fixture.runStore.getRun(payload.runId)
+          expect(stillPendingRun?.status).toBe('pending')
+          expect(
+            fixture.interfaceStore.deliveries.listQueuedForGateway('discord_prod')
+          ).toHaveLength(0)
+
+          // When the run progresses to completed with hrcRunId set, the dispatcher should
+          // deliver the correct content from the new run's events, not the old leakage.
+          const correctHrcRunId = 'hrc-run-new'
+          hrc.db.run(
+            'INSERT INTO runs (run_id, status, error_code, error_message) VALUES (?, ?, NULL, NULL)',
+            correctHrcRunId,
+            'completed'
+          )
+          hrc.db.run(
+            `INSERT INTO hrc_events (host_session_id, scope_ref, lane_ref, run_id, event_kind, payload_json)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            sharedHostSessionId,
+            sharedScopeRef,
+            sharedLaneRef,
+            correctHrcRunId,
+            'turn.completed',
+            JSON.stringify({
+              success: true,
+              transport: 'headless',
+              finalOutput: 'Fresh correct output for the new run.',
+            })
+          )
+          fixture.runStore.updateRun(payload.runId, {
+            status: 'completed',
+            hrcRunId: correctHrcRunId,
+          })
+
+          await dispatcher.runOnce()
+
+          const [delivery] = fixture.interfaceStore.deliveries.listQueuedForGateway('discord_prod')
+          expect(delivery).toMatchObject({
+            runId: payload.runId,
+            bodyText: 'Fresh correct output for the new run.',
+          })
+        },
+        {
+          runtimeResolver: async () => ({
+            agentRoot: '/tmp/agents/curly',
+            projectRoot: '/tmp/project',
+            cwd: '/tmp/project',
+            runMode: 'task',
+            bundle: { kind: 'agent-default' },
+            harness: { provider: 'openai', interactive: true },
+          }),
+          launchRoleScopedRun: async () => ({
+            runId: 'irrelevant-launcher-output',
+            sessionId: 'irrelevant-launcher-output',
+          }),
+        }
+      )
+    } finally {
+      hrc.cleanup()
+    }
+  })
+
   test('dispatcher delivers final output for completed interface runs with no delivery yet', async () => {
     const hrc = createHeadlessHrcDb()
     hrc.db.exec(`
