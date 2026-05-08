@@ -1,15 +1,16 @@
-import type { AttachmentRef, InterfaceMessageAttachment } from 'acp-core'
+import type { AttachmentRef, InputIntent, InterfaceMessageAttachment } from 'acp-core'
 import { type SessionRef, normalizeSessionRef, parseScopeRef } from 'agent-scope'
 
 import { resolveAttachmentRefs } from '../attachments.js'
 import { createInterfaceResponseCapture } from '../delivery/interface-response-capture.js'
 import { toCompletedVisibleAssistantMessage } from '../delivery/visible-assistant-messages.js'
-import { AcpHttpError, json } from '../http.js'
+import { AcpHttpError, badRequest, json } from '../http.js'
 import { InputAdmissionService } from '../input-admission/input-admission-service.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
 import {
   parseJsonBody,
   readOptionalArrayField,
+  readOptionalRecordField,
   readOptionalTrimmedStringField,
   requireRecord,
   requireTrimmedStringField,
@@ -102,6 +103,80 @@ function readOptionalSizeBytes(input: Record<string, unknown>, field: string): n
   return value
 }
 
+function readIntent(body: Record<string, unknown>): InputIntent | undefined {
+  const intent = readOptionalRecordField(body, 'intent')
+  if (intent === undefined) {
+    return undefined
+  }
+
+  const kind = intent['kind']
+  switch (kind) {
+    case 'new_work': {
+      const resetPolicy = intent['resetPolicy']
+      if (
+        resetPolicy !== undefined &&
+        resetPolicy !== 'follow_latest' &&
+        resetPolicy !== 'expire_on_generation_change' &&
+        resetPolicy !== 'pin_generation'
+      ) {
+        badRequest(
+          'intent.resetPolicy must be follow_latest, expire_on_generation_change, or pin_generation',
+          { field: 'intent.resetPolicy' }
+        )
+      }
+      return {
+        kind,
+        ...(resetPolicy !== undefined ? { resetPolicy } : {}),
+      }
+    }
+    case 'contribute_to_active_run': {
+      const fallback = intent['fallback'] ?? 'queue'
+      if (fallback !== 'queue' && fallback !== 'reject' && fallback !== 'pending_only') {
+        badRequest('intent.fallback must be queue, reject, or pending_only', {
+          field: 'intent.fallback',
+        })
+      }
+      const semantics = intent['contributionSemantics']
+      if (
+        semantics !== undefined &&
+        semantics !== 'append_context' &&
+        semantics !== 'interrupt_and_continue'
+      ) {
+        badRequest(
+          'intent.contributionSemantics must be append_context or interrupt_and_continue',
+          {
+            field: 'intent.contributionSemantics',
+          }
+        )
+      }
+      return {
+        kind,
+        fallback,
+        ...(semantics !== undefined ? { contributionSemantics: semantics } : {}),
+      }
+    }
+    case 'control_active_run': {
+      const action = intent['action']
+      if (action !== 'interrupt' && action !== 'cancel' && action !== 'pause') {
+        badRequest('intent.action must be interrupt, cancel, or pause', { field: 'intent.action' })
+      }
+      const fallback = intent['fallback']
+      if (fallback !== undefined && fallback !== 'reject') {
+        badRequest('intent.fallback must be reject when provided', { field: 'intent.fallback' })
+      }
+      return {
+        kind,
+        action,
+        ...(fallback !== undefined ? { fallback } : {}),
+      }
+    }
+    default:
+      badRequest('intent.kind must be new_work, contribute_to_active_run, or control_active_run', {
+        field: 'intent.kind',
+      })
+  }
+}
+
 function toSessionRef(scopeRef: string, laneRef: string): SessionRef {
   return normalizeSessionRef({ scopeRef, laneRef })
 }
@@ -129,6 +204,7 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
   const source = parseInterfaceSource(body)
   const content = requireTrimmedStringField(body, 'content')
   const attachments = parseOptionalInterfaceMessageAttachments(body)
+  const intent = readIntent(body)
   const binding = deps.interfaceStore.bindings.resolve({
     gatewayId: source.gatewayId,
     conversationRef: source.conversationRef,
@@ -145,6 +221,7 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
 
   const sessionRef = toSessionRef(binding.scopeRef, binding.laneRef)
   const actor = context.actor ?? deps.defaultActor
+  const inputActor = { kind: 'human' as const, id: source.authorRef }
   const timestamp = new Date().toISOString()
   const parsedScope = parseScopeRef(sessionRef.scopeRef)
   const inputMetadata = {
@@ -180,16 +257,23 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
     ...(parsedScope.taskId !== undefined ? { taskId: parsedScope.taskId } : {}),
     idempotencyKey: `interface:${source.gatewayId}:${source.messageRef}`,
     content,
-    actor,
+    actor: inputActor,
     metadata: inputMetadata,
+    ...(intent !== undefined ? { intent } : {}),
     dispatch: false,
   })
   const createdAttempt = {
     inputAttempt: admissionResult.inputAttempt,
     runId: admissionResult.run?.runId,
+    targetRunId: admissionResult.targetRun?.runId,
     created: admissionResult.created,
   }
-  if (createdAttempt.runId === undefined) {
+  if (
+    createdAttempt.runId === undefined &&
+    admissionResult.admission.admissionKind !== 'accepted_in_flight' &&
+    admissionResult.admission.admissionKind !== 'admission_pending' &&
+    admissionResult.admission.admissionKind !== 'rejected'
+  ) {
     throw new Error(
       `interface admission did not create a run: ${createdAttempt.inputAttempt.inputAttemptId}`
     )
@@ -220,7 +304,7 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
 
   let launched: Awaited<ReturnType<NonNullable<typeof deps.launchRoleScopedRun>>> | undefined
 
-  if (createdAttempt.created) {
+  if (createdAttempt.created && admittedRunId !== undefined) {
     const resolvedAttachments = await resolveAttachmentRefs(attachments, {
       runId: admittedRunId,
       stateDir: deps.mediaStateDir,
@@ -228,7 +312,7 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
       fetchImpl: deps.attachmentFetchImpl,
     })
     if (resolvedAttachments !== undefined) {
-      const run = deps.runStore.getRun(createdAttempt.runId)
+      const run = deps.runStore.getRun(admittedRunId)
       if (run?.metadata !== undefined) {
         deps.runStore.updateRun(admittedRunId, {
           metadata: {
@@ -245,6 +329,7 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
 
   if (
     createdAttempt.created &&
+    admittedRunId !== undefined &&
     admissionResult.admission.admissionKind === 'started_run' &&
     deps.launchRoleScopedRun !== undefined
   ) {
@@ -300,14 +385,13 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
             sessionRef,
             audience: 'human',
           }).threadId
-        const run = deps.runStore.getRun(admittedRunId)
         const turnId = deps.conversationStore.createTurn({
           threadId,
           role: 'assistant',
           body: visible.text,
           renderState: 'pending',
           links: { runId: admittedRunId },
-          actor: run?.actor ?? actor,
+          actor,
           sentAt: new Date().toISOString(),
         })
 
@@ -316,14 +400,28 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
     })
   }
 
-  const run = deps.runStore.getRun(admittedRunId)
+  const run = admittedRunId !== undefined ? deps.runStore.getRun(admittedRunId) : undefined
   const hostSessionId = run?.hostSessionId ?? launched?.hostSessionId
   const generation = run?.generation ?? launched?.generation
+  const includeAdmissionDetails =
+    admittedRunId === undefined ||
+    admissionResult.admission.admissionKind === 'accepted_in_flight' ||
+    admissionResult.admission.admissionKind === 'admission_pending' ||
+    admissionResult.admission.admissionKind === 'rejected'
 
   return json(
     {
       inputAttemptId: createdAttempt.inputAttempt.inputAttemptId,
-      runId: admittedRunId,
+      ...(admittedRunId !== undefined ? { runId: admittedRunId } : {}),
+      ...(createdAttempt.targetRunId !== undefined
+        ? { targetRunId: createdAttempt.targetRunId }
+        : {}),
+      ...(includeAdmissionDetails
+        ? {
+            admission: admissionResult.admission.originalResponse,
+            currentState: admissionResult.currentState,
+          }
+        : {}),
       ...(hostSessionId !== undefined ? { hostSessionId } : {}),
       ...(generation !== undefined ? { generation } : {}),
     },

@@ -235,6 +235,272 @@ async function captureIngressPostForMessage(
 }
 
 describe('GatewayDiscordApp local e2e', () => {
+  test('steers ordinary Discord messages by default when active contribution is available', async () => {
+    const channel = new FakeChannel('chan_steer_default')
+    const client = new FakeClient()
+    client.addChannel(channel)
+    const paths: string[] = []
+    const captured: CapturedInterfaceMessage[] = []
+
+    const app = new GatewayDiscordApp({
+      acpBaseUrl: 'http://acp.test',
+      gatewayId: 'discord_prod',
+      client: client as never,
+      fetchImpl: createFetch(async (request) => {
+        const url = new URL(request.url)
+        paths.push(url.pathname)
+
+        if (url.pathname === '/v1/interface/bindings') {
+          return Response.json({
+            bindings: [
+              {
+                bindingId: 'ifb_steer_default',
+                gatewayId: 'discord_prod',
+                conversationRef: 'channel:chan_steer_default',
+                scopeRef: 'agent:cody:project:agent-spaces',
+                laneRef: 'main',
+                sessionRef: {
+                  scopeRef: 'agent:cody:project:agent-spaces',
+                  laneRef: 'main',
+                },
+                projectId: 'agent-spaces',
+                status: 'active',
+                createdAt: '2026-05-07T10:00:00.000Z',
+                updatedAt: '2026-05-07T10:00:00.000Z',
+              },
+            ],
+          })
+        }
+
+        if (url.pathname === '/v1/mobile/sessions') {
+          expect(url.searchParams.get('scopeRef')).toBe('agent:cody:project:agent-spaces')
+          expect(url.searchParams.get('laneRef')).toBe('main')
+          return Response.json({
+            sessions: [
+              {
+                sessionRef: 'agent:cody:project:agent-spaces/lane:main',
+                status: 'active',
+                activeTurnId: 'hrc_run_active',
+                capabilities: { input: true },
+              },
+            ],
+          })
+        }
+
+        if (url.pathname === '/v1/interface/messages') {
+          captured.push((await request.json()) as CapturedInterfaceMessage)
+          return Response.json(
+            {
+              inputAttemptId: 'ia_steered',
+              targetRunId: 'run_active',
+              admission: {
+                kind: 'accepted_in_flight',
+                inputAttemptId: 'ia_steered',
+                inputApplicationId: 'iap_steered',
+              },
+              currentState: {
+                applicationStatus: 'accepted',
+                inputApplicationId: 'iap_steered',
+              },
+            },
+            { status: 201 }
+          )
+        }
+
+        if (url.pathname === '/v1/session-refs/events') {
+          return new Response(new ReadableStream())
+        }
+
+        return new Response('not found', { status: 404 })
+      }),
+    })
+
+    await app.refreshBindings()
+    await app.handleMessageCreate({
+      guildId: 'guild_1',
+      author: { id: 'user_1', bot: false },
+      content: 'fold the new context into the active task',
+      attachments: { size: 0 },
+      channelId: 'chan_steer_default',
+      id: 'msg_steer_default',
+      channel: {
+        isThread: () => false,
+      },
+      reply: async () => undefined,
+    } as never)
+
+    expect(paths).not.toContain('/v1/inputs')
+    expect(captured).toHaveLength(1)
+    expect(captured[0]).toMatchObject({
+      content: 'fold the new context into the active task',
+      intent: {
+        kind: 'contribute_to_active_run',
+        fallback: 'queue',
+        contributionSemantics: 'interrupt_and_continue',
+      },
+      source: {
+        gatewayId: 'discord_prod',
+        conversationRef: 'channel:chan_steer_default',
+        messageRef: 'discord:message:msg_steer_default',
+      },
+    })
+
+    const webhook = [...channel.webhooks.values()].find((w) => w.name === 'agent-pulpit')
+    expect(webhook?.edits.at(-1)?.payload.content).toContain('↪️ **Steered active run:**')
+  })
+
+  test('ordinary Discord messages fall back to normal queueing when contribution is unavailable', async () => {
+    await withWiredServer(async (fixture) => {
+      fixture.interfaceStore.bindings.create({
+        bindingId: 'ifb_contribution_unavailable',
+        gatewayId: 'discord_prod',
+        conversationRef: 'channel:chan_contribution_unavailable',
+        scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
+        laneRef: 'main',
+        projectId: fixture.seed.projectId,
+        status: 'active',
+        createdAt: '2026-05-07T10:00:00.000Z',
+        updatedAt: '2026-05-07T10:00:00.000Z',
+      })
+
+      const channel = new FakeChannel('chan_contribution_unavailable')
+      const client = new FakeClient()
+      client.addChannel(channel)
+      const paths: string[] = []
+
+      const app = new GatewayDiscordApp({
+        acpBaseUrl: 'http://acp.test',
+        gatewayId: 'discord_prod',
+        client: client as never,
+        fetchImpl: createFetch(async (request) => {
+          const url = new URL(request.url)
+          paths.push(url.pathname)
+          if (url.pathname === '/v1/mobile/sessions') {
+            return Response.json({ sessions: [] })
+          }
+          return fixture.handler(request)
+        }),
+      })
+
+      await app.refreshBindings()
+      await app.handleMessageCreate({
+        guildId: 'guild_1',
+        author: { id: 'user_1', bot: false },
+        content: 'add this as queued follow-up if steering is unavailable',
+        attachments: { size: 0 },
+        channelId: 'chan_contribution_unavailable',
+        id: 'msg_contribution_unavailable',
+        channel: {
+          isThread: () => false,
+        },
+        reply: async () => undefined,
+      } as never)
+
+      expect(paths).not.toContain('/v1/inputs')
+      const run = fixture.runStore.listRuns()[0]
+      expect(run?.metadata.content).toBe('add this as queued follow-up if steering is unavailable')
+      expect(run?.metadata.meta).toMatchObject({
+        interfaceSource: {
+          gatewayId: 'discord_prod',
+          bindingId: 'ifb_contribution_unavailable',
+          conversationRef: 'channel:chan_contribution_unavailable',
+          messageRef: 'discord:message:msg_contribution_unavailable',
+        },
+      })
+    })
+  })
+
+  test('refreshes a parent-channel fallback before routing a thread with a new exact binding', async () => {
+    const threadChannel = new FakeChannel('thread_exact_late')
+    const client = new FakeClient()
+    client.addChannel(threadChannel)
+    const captured: CapturedInterfaceMessage[] = []
+    let bindingListCalls = 0
+
+    const parentBinding = {
+      bindingId: 'ifb_parent_cached',
+      gatewayId: 'discord_prod',
+      conversationRef: 'channel:chan_parent_cached',
+      scopeRef: 'agent:sparky:project:agent-spaces:task:parent',
+      laneRef: 'main',
+      projectId: 'agent-spaces',
+      status: 'active',
+      createdAt: '2026-05-07T10:00:00.000Z',
+      updatedAt: '2026-05-07T10:00:00.000Z',
+    }
+    const exactThreadBinding = {
+      bindingId: 'ifb_thread_exact_late',
+      gatewayId: 'discord_prod',
+      conversationRef: 'channel:chan_parent_cached',
+      threadRef: 'thread:thread_exact_late',
+      scopeRef: 'agent:cody:project:agent-spaces:task:thread-exact',
+      laneRef: 'main',
+      projectId: 'agent-spaces',
+      status: 'active',
+      createdAt: '2026-05-07T10:01:00.000Z',
+      updatedAt: '2026-05-07T10:01:00.000Z',
+    }
+
+    const app = new GatewayDiscordApp({
+      acpBaseUrl: 'http://acp.test',
+      gatewayId: 'discord_prod',
+      client: client as never,
+      fetchImpl: createFetch(async (request) => {
+        const url = new URL(request.url)
+
+        if (url.pathname === '/v1/interface/bindings') {
+          bindingListCalls += 1
+          return Response.json({
+            bindings:
+              bindingListCalls === 1 ? [parentBinding] : [parentBinding, exactThreadBinding],
+          })
+        }
+
+        if (url.pathname === '/v1/mobile/sessions') {
+          return Response.json({ sessions: [] })
+        }
+
+        if (url.pathname === '/v1/interface/messages') {
+          captured.push((await request.json()) as CapturedInterfaceMessage)
+          return Response.json({ inputAttemptId: 'ia_thread_exact', runId: 'run_thread_exact' })
+        }
+
+        if (url.pathname === '/v1/session-refs/events') {
+          return new Response(new ReadableStream())
+        }
+
+        return new Response('not found', { status: 404 })
+      }),
+    })
+
+    await app.refreshBindings()
+    await app.handleMessageCreate({
+      guildId: 'guild_1',
+      author: { id: 'user_1', bot: false },
+      content: 'route this exact thread binding',
+      attachments: { size: 0 },
+      channelId: 'thread_exact_late',
+      id: 'msg_thread_exact',
+      channel: {
+        isThread: () => true,
+        parentId: 'chan_parent_cached',
+      },
+      reply: async () => undefined,
+    } as never)
+
+    expect(bindingListCalls).toBe(2)
+    expect(captured[0]?.source).toMatchObject({
+      gatewayId: 'discord_prod',
+      conversationRef: 'channel:chan_parent_cached',
+      threadRef: 'thread:thread_exact_late',
+      messageRef: 'discord:message:msg_thread_exact',
+    })
+
+    const webhook = [...threadChannel.webhooks.values()].find((w) => w.name === 'agent-pulpit')
+    expect(webhook?.sent[0]?.content).toContain('cody@agent-spaces:thread-exact~main')
+    expect(webhook?.sent[0]?.content).not.toContain('sparky@agent-spaces:parent')
+  })
+
   test('ingresses a Discord message, reuses the placeholder, and acks delivery', async () => {
     await withWiredServer(async (fixture) => {
       fixture.interfaceStore.bindings.create({

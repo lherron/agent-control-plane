@@ -68,6 +68,7 @@ export function renderServerHelp(): string {
     'Environment:',
     '  ACP_RUNTIME_DIR           Runtime files (default: /Users/lherron/praesidium/var/run/acp)',
     '  ACP_LOG_PATH              Daemon fallback log (default: /Users/lherron/praesidium/var/logs/acp-server.log)',
+    '  ACP_ACCESS_LOG_PATH       Apache combined access log (unset = disabled)',
     '  ACP_REAL_HRC_LAUNCHER     Defaults to 1 for acp server',
     '  ACP_DISABLE_DISCORD_GATEWAY=1 disables the in-process Discord gateway',
     '  DISCORD_TOKEN             Discord bot token; falls back to DISCORD_BLASTER_TOKEN, then Consul',

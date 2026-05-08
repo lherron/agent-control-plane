@@ -16,6 +16,7 @@ import { HrcClient } from 'hrc-sdk'
 import { buildRuntimeBundleRef, getAgentsRoot, resolveAgentPlacementPaths } from 'spaces-config'
 import { WrkqSchemaMissingError, openWrkqStore } from 'wrkq-lib'
 
+import { createAccessLogger } from './access-log.js'
 import { createAcpServer } from './create-acp-server.js'
 import {
   type AcpHrcClient,
@@ -425,11 +426,12 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
   }
   const acpServer = createAcpServer(serverDeps)
   const resolvedDeps = resolveAcpServerDeps(serverDeps)
+  const accessLogger = await createAccessLogger(process.env['ACP_ACCESS_LOG_PATH'])
   const bunServer = Bun.serve({
     hostname: options.host,
     port: options.port,
     idleTimeout: 255,
-    fetch(request, server) {
+    async fetch(request, server) {
       const url = new URL(request.url)
       if (
         request.headers.get('upgrade')?.toLowerCase() === 'websocket' &&
@@ -448,7 +450,17 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
         return upgraded ? undefined : new Response('WebSocket upgrade failed', { status: 400 })
       }
 
-      return acpServer.handler(request)
+      const start = performance.now()
+      const response = await acpServer.handler(request)
+      if (accessLogger !== null) {
+        accessLogger.log({
+          request,
+          response,
+          durationMs: Math.round(performance.now() - start),
+          clientIp: server.requestIP(request)?.address,
+        })
+      }
+      return response
     },
     websocket: {
       open(ws) {

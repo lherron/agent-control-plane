@@ -100,7 +100,8 @@ function adaptToolResult(payload: unknown): GatewaySessionEvent | undefined {
     return undefined
   }
 
-  const result = payload['result']
+  // turn.tool_result uses `result`; sdk.tool_result uses `output` — accept either
+  const result = payload['result'] ?? payload['output']
   const isError = getBoolean(payload, 'isError')
   return {
     type: 'tool_execution_end',
@@ -173,14 +174,17 @@ export function adaptHrcLifecycleEvent(
   } else {
     switch (event.eventKind) {
       case 'turn.tool_call':
+      case 'sdk.tool_call':
       case 'tool_execution_start':
         sessionEvent = adaptToolCall(event.payload)
         break
       case 'turn.tool_result':
+      case 'sdk.tool_result':
       case 'tool_execution_end':
         sessionEvent = adaptToolResult(event.payload)
         break
       case 'turn.message':
+      case 'sdk.message':
       case 'message_end':
         sessionEvent = adaptAssistantMessage(event.payload)
         break

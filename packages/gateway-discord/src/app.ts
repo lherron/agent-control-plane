@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-import type { DeliveryRequest, InterfaceSessionRef } from 'acp-core'
+import type { DeliveryRequest, InputIntent, InterfaceSessionRef } from 'acp-core'
 import { Client, Events, GatewayIntentBits, type Message } from 'discord.js'
 
 import { mapDiscordMessageAttachments, resolveDiscordIngressContent } from './attachment-ingress.js'
@@ -235,6 +235,31 @@ type LiveSubscription = {
 }
 
 type IngressRoute = KeywordRoute
+
+type InterfaceMessageResponse = {
+  inputAttemptId: string
+  runId?: string | undefined
+  targetRunId?: string | undefined
+  hostSessionId?: string | undefined
+  generation?: number | undefined
+  admission?: {
+    kind?: string | undefined
+  }
+  currentState?: Record<string, unknown> | undefined
+}
+
+type MobileSessionSummary = {
+  sessionRef?: string | undefined
+  status?: string | undefined
+  activeTurnId?: string | undefined
+  capabilities?: {
+    input?: boolean | undefined
+  }
+}
+
+type MobileSessionsResponse = {
+  sessions?: MobileSessionSummary[] | undefined
+}
 
 export type GatewayDiscordAppOptions = {
   acpBaseUrl: string
@@ -534,6 +559,10 @@ export class GatewayDiscordApp {
       await this.refreshBindings()
       binding = this.bindings.getBindingFor(conversation)
     }
+    if (binding && conversation.threadRef !== undefined && binding.threadRef === undefined) {
+      await this.refreshBindings()
+      binding = this.bindings.getBindingFor(conversation)
+    }
 
     if (!binding) {
       await message.reply(
@@ -547,21 +576,35 @@ export class GatewayDiscordApp {
       return
     }
 
-    // For `nt` keyword routes, ensureKeywordThreadBinding creates a child binding
-    // with a thread-scoped laneRef. Use that effective sessionRef so the placeholder
-    // subtext shows the child thread lane, not the parent's `main` lane.
+    const routeBinding =
+      route.conversation.threadRef !== undefined
+        ? (this.bindings.getBindingFor(route.conversation) ?? binding)
+        : binding
+    const bindingSessionRef = sessionRefFromBinding(routeBinding)
+    if (bindingSessionRef === undefined) {
+      await message.reply('The bound project is missing a session reference.')
+      return
+    }
+
+    const ingressContent = route.content
+
+    // Exact thread bindings own their sessionRef. Parent fallback threads keep
+    // the historical synthetic Discord lane so independent thread work does
+    // not collapse into the parent channel lane.
+    const hasExactThreadBinding =
+      route.conversation.threadRef !== undefined && routeBinding.threadRef !== undefined
     const effectiveSessionRef: InterfaceSessionRef =
-      route.targetThreadId !== undefined
+      route.targetThreadId !== undefined && !hasExactThreadBinding
         ? {
-            scopeRef: binding.sessionRef.scopeRef,
+            scopeRef: bindingSessionRef.scopeRef,
             laneRef: buildDiscordThreadLaneRef(route.targetThreadId),
           }
-        : binding.sessionRef
+        : bindingSessionRef
 
     const placeholder = await this.createPlaceholder({
       message,
       channelId: route.targetChannelId,
-      content: route.content,
+      content: ingressContent,
       ...(route.targetThreadId !== undefined ? { threadId: route.targetThreadId } : {}),
       sessionRef: effectiveSessionRef,
     })
@@ -570,14 +613,24 @@ export class GatewayDiscordApp {
         ? this.registerPendingPlaceholder({
             placeholder,
             sessionRef: effectiveSessionRef,
-            projectId: binding.projectId ?? projectIdFromScopeRef(effectiveSessionRef.scopeRef),
+            projectId:
+              routeBinding.projectId ?? projectIdFromScopeRef(effectiveSessionRef.scopeRef),
             promptPreview:
-              route.content.length > 100 ? `${route.content.slice(0, 100)}…` : route.content,
+              ingressContent.length > 100 ? `${ingressContent.slice(0, 100)}…` : ingressContent,
           })
         : undefined
     const attachments = mapDiscordMessageAttachments(message)
     let response: Response
     try {
+      const shouldSteer = await this.shouldSteerInput(effectiveSessionRef)
+      const intent: InputIntent | undefined = shouldSteer
+        ? {
+            kind: 'contribute_to_active_run',
+            fallback: 'queue',
+            contributionSemantics: 'interrupt_and_continue',
+          }
+        : undefined
+
       response = await this.fetchImpl(`${this.acpBaseUrl}/v1/interface/messages`, {
         method: 'POST',
         headers: {
@@ -592,7 +645,8 @@ export class GatewayDiscordApp {
             messageRef: `discord:message:${message.id}`,
             authorRef: `discord:user:${message.author.id}`,
           },
-          content: route.content,
+          content: ingressContent,
+          ...(intent !== undefined ? { intent } : {}),
           ...(attachments.length > 0 ? { attachments } : {}),
         }),
       })
@@ -625,15 +679,65 @@ export class GatewayDiscordApp {
       throw new Error(`Interface ingress failed: ${response.status} ${rawBody}`)
     }
 
-    const payload = (await response.json()) as {
-      inputAttemptId: string
-      runId: string
-      hostSessionId?: string | undefined
-      generation?: number | undefined
-    }
+    const payload = (await response.json()) as InterfaceMessageResponse
     if (pendingPlaceholder) {
-      pendingPlaceholder.acpRunId = payload.runId
-      this.placeholdersByRunId.set(payload.runId, pendingPlaceholder)
+      if (payload.runId !== undefined) {
+        pendingPlaceholder.acpRunId = payload.runId
+        this.placeholdersByRunId.set(payload.runId, pendingPlaceholder)
+      } else if (
+        payload.admission?.kind === 'accepted_in_flight' ||
+        payload.admission?.kind === 'admission_pending'
+      ) {
+        this.removePendingPlaceholder(pendingPlaceholder, payload.admission.kind)
+        await this.noticePlaceholder(
+          pendingPlaceholder.ui,
+          payload.admission.kind === 'accepted_in_flight'
+            ? `↪️ **Steered active run:** ${pendingPlaceholder.promptPreview ?? 'Input accepted'}`
+            : `⏳ **Steering pending:** ${pendingPlaceholder.promptPreview ?? 'Input pending'}`
+        )
+      } else if (payload.admission?.kind === 'rejected') {
+        this.removePendingPlaceholder(pendingPlaceholder, 'admission_rejected')
+        await this.failPlaceholder(
+          pendingPlaceholder.ui,
+          String(payload.currentState?.['reason'] ?? 'Input was rejected')
+        )
+      }
+    }
+  }
+
+  private async shouldSteerInput(sessionRef: InterfaceSessionRef): Promise<boolean> {
+    return this.resolveSteeringAvailability(sessionRef)
+  }
+
+  private async resolveSteeringAvailability(sessionRef: InterfaceSessionRef): Promise<boolean> {
+    const params = new URLSearchParams({
+      scopeRef: sessionRef.scopeRef,
+      laneRef: sessionRef.laneRef,
+    })
+
+    try {
+      const response = await this.fetchImpl(`${this.acpBaseUrl}/v1/mobile/sessions?${params}`)
+      if (!response.ok) {
+        return false
+      }
+      const payload = (await response.json()) as MobileSessionsResponse
+      return (
+        payload.sessions?.some(
+          (session) =>
+            session.capabilities?.input === true &&
+            typeof session.activeTurnId === 'string' &&
+            session.activeTurnId.trim().length > 0 &&
+            session.status !== 'inactive'
+        ) ?? false
+      )
+    } catch (error) {
+      log.debug('gw.discord.steer_detection_failed', {
+        message: 'Could not determine steering capability; using standard queueing',
+        trace: { gatewayId: this.gatewayId, projectId: projectIdFromScopeRef(sessionRef.scopeRef) },
+        data: { sessionRef: canonicalSessionRefString(sessionRef) },
+        err: { message: error instanceof Error ? error.message : String(error) },
+      })
+      return false
     }
   }
 
@@ -704,13 +808,17 @@ export class GatewayDiscordApp {
     if (route.targetThreadId === undefined || route.conversation.threadRef === undefined) {
       return
     }
+    const parentSessionRef = sessionRefFromBinding(parentBinding)
+    if (parentSessionRef === undefined) {
+      return
+    }
 
     await this.postJson('/v1/interface/bindings', {
       gatewayId: this.gatewayId,
       conversationRef,
       threadRef: route.conversation.threadRef,
       sessionRef: {
-        scopeRef: parentBinding.sessionRef.scopeRef,
+        scopeRef: parentSessionRef.scopeRef,
         laneRef: buildDiscordThreadLaneRef(route.targetThreadId),
       },
       ...(parentBinding.projectId !== undefined ? { projectId: parentBinding.projectId } : {}),
@@ -1527,6 +1635,41 @@ export class GatewayDiscordApp {
       const message = await channel.messages.fetch(ui.id)
       if (message) {
         await message.edit({ content: `⚠️ ${reason}` })
+      }
+    } catch {
+      // best-effort cleanup only
+    }
+  }
+
+  private async noticePlaceholder(
+    ui: UiHandle & {
+      kind: 'message'
+      webhookId?: string | undefined
+      identity?: DiscordAgentMessageIdentity | undefined
+    },
+    content: string
+  ): Promise<void> {
+    if (!ui.channelId) {
+      return
+    }
+
+    const rendered = ui.identity !== undefined ? `-# ${ui.identity.subtext}\n${content}` : content
+
+    try {
+      if (ui.webhookId) {
+        await this.webhooks.editMessage(ui.channelId, ui.id, ui.webhookId, {
+          content: rendered,
+        })
+        return
+      }
+
+      const channel = await this.client.channels.fetch(ui.channelId)
+      if (!channel || !channel.isTextBased() || !('messages' in channel)) {
+        return
+      }
+      const message = await channel.messages.fetch(ui.id)
+      if (message) {
+        await message.edit({ content: rendered })
       }
     } catch {
       // best-effort cleanup only
