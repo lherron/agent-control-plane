@@ -1,0 +1,83 @@
+# Flow presets — end-to-end scenarios
+
+Three end-to-end scenarios for the new ACP workflow kernel
+(`packages/acp-core/src/workflow/index.ts`). Each scenario folder is
+self-contained:
+
+- `workflow.json` — `WorkflowDefinition` fixture (same shape used by
+  `tests/conformance/acp-workflow/fixtures/workflows.ts`). Loadable directly
+  by `kernel.publishWorkflowDefinition(...)`.
+- `scenario.json` — machine-readable plan: actors, role bindings, task seed,
+  ordered steps (with `kernel.op`/`controlAction`/`evidence`/`transitionId`),
+  expected state-after, expected effect intents, and negative checks.
+- `runbook.md` — human-readable walkthrough showing the canonical kernel
+  calls and, where applicable, the equivalent `acp task` CLI invocation.
+
+## Scenarios
+
+| Folder | Workflow id @ version | Kind | Highlights |
+| --- | --- | --- | --- |
+| `hotfix-implementer-tester/` | `hotfix_fastlane@1` | `code_change` | Implementer/tester SoD, `declare_handoff` + `wake_role_session` effects on red→green at risk≥medium. CLI-driven via the existing `code_defect_fastlane@1` preset. |
+| `support-escalation-customer-response/` | `support_escalation@1` | `support` | Non-code. Blocking obligation `customer_response_pending` parks the task in `waiting/awaiting_customer` until the customer replies. 72h timer effect. |
+| `procurement-legal-approval/` | `procurement_legal_approval@1` | `approval` | Non-code. Two cascading blocking obligations (`vendor_response_pending` then `legal_review_pending`) and a three-way SoD enforced by explicit `sod` requirements on `resume_legal_review` and `approve`/`reject` (legal_reviewer ≠ requester, procurement_lead; procurement_lead ≠ requester, legal_reviewer). |
+
+## Source-of-truth alignment
+
+All three workflow definitions conform to the kernel types in
+`packages/acp-core/src/workflow/index.ts`:
+
+- `initial: { status, phase? }` with `status ∈ {open, active, waiting, closed}`
+- `roles` with `binding: required | optional | autoBindOnFirstRun` and
+  `mustDifferFrom`
+- `evidenceKinds` and (for the non-code scenarios) `obligationKinds`
+- `transitions` with `from`/`to` state patches, `by` role allow-list,
+  `requires` (`evidence`, `sod`, `obligation_satisfied`) and `effects`
+  (`declare_handoff`, `wake_role_session`, `create_obligation`,
+  `start_timer`, `create_child_task`)
+
+> **Note on SoD enforcement.** `RoleSpec.mustDifferFrom` is metadata in
+> the current kernel and is not auto-enforced; only explicit `sod`
+> requirements on transitions are checked. Scenarios that need SoD
+> guarantees (procurement, hotfix verify) declare them explicitly on the
+> relevant transitions.
+- `supervisor.recovery` hints for missing-evidence / no-legal-transition
+  remediation
+
+The hotfix scenario is intentionally a near-clone of
+`codeDefectFastlaneWorkflowV1` from `tests/conformance/acp-workflow/fixtures/workflows.ts`,
+re-keyed under a new id so the conformance fixtures and the scenario
+artifacts don't collide.
+
+## CLI surface notes
+
+The live `acp task` CLI (`packages/acp-cli`) currently talks to the
+**legacy** preset model (`packages/acp-core/src/presets/registry.ts` —
+`code_defect_fastlane@1`, `code_feature_tdd@1`). The new workflow kernel is
+in-memory and exposed only through the conformance suite today.
+
+- The **hotfix** scenario maps cleanly onto the registered
+  `code_defect_fastlane@1` preset: same phase graph, same SoD rule, same
+  evidence shape. The runbook gives concrete `acp task create` /
+  `acp task evidence add` / `acp task transition` commands that exercise the
+  equivalent legacy lifecycle end-to-end.
+- The **support escalation** and **procurement** scenarios use kernel
+  features (`waiting` status, `obligation_satisfied` requirements,
+  `create_obligation` effects, `start_timer`) that the legacy CLI does not
+  yet model. Their runbooks are kernel-driven (load the JSON, call
+  `createTask` / `applyTransition` / `submitControlAction`). When the new
+  workflow kernel is wired through `acp task` the same step sequences will
+  become CLI commands without re-authoring.
+
+## Validating a scenario
+
+Each `workflow.json` should round-trip through:
+
+```ts
+import workflowJson from './<folder>/workflow.json'
+kernel.publishWorkflowDefinition(workflowJson as WorkflowDefinition)
+```
+
+without throwing. Then the steps in `scenario.json` should drive the task
+from `initial` to the documented terminal `state`. The negative checks at
+the bottom of each `scenario.json` are the rejection codes the kernel must
+emit when their preconditions are violated.

@@ -1,0 +1,105 @@
+{
+  "allowedTransitions": [],
+  "assignedObligations": [
+    {
+      "blocking": true,
+      "createdAt": "2026-05-09T12:00:00.000Z",
+      "kind": "missing_evidence",
+      "obligationId": "obl_0003",
+      "ownerRole": "implementer",
+      "status": "open",
+      "summary": "Need implementation artifacts",
+      "taskId": "task-code-1",
+      "updatedAt": "2026-05-09T12:00:00.000Z"
+    }
+  ],
+  "commands": {
+    "applyTransition": {
+      "args": {
+        "expectedTaskVersion": 2,
+        "idempotencyKey": "idem:participant:transition:<transitionId>:v2",
+        "role": "implementer",
+        "taskId": "task-code-1",
+        "transitionId": "<transitionId>"
+      },
+      "name": "acp.workflow.applyTransition"
+    },
+    "attachEvidence": {
+      "args": {
+        "expectedTaskVersion": 2,
+        "idempotencyKey": "idem:participant:evidence:v2",
+        "taskId": "task-code-1"
+      },
+      "name": "acp.workflow.attachEvidence"
+    },
+    "refreshContext": {
+      "args": {
+        "role": "implementer",
+        "runId": "run-implementer-1",
+        "taskId": "task-code-1"
+      },
+      "name": "acp.workflow.participantContext"
+    },
+    "reportBlocker": {
+      "args": {
+        "idempotencyKey": "idem:participant:blocker:v2",
+        "role": "implementer",
+        "taskId": "task-code-1"
+      },
+      "name": "acp.workflow.reportBlocker"
+    }
+  },
+  "contextHash": "sha256:663f6360495be6fa51aa3f218c1a2d872d929a9d98cab1508bc338c939fc0f46",
+  "relevantEvidence": [],
+  "roleObjective": {
+    "current": "Act as implementer for the current workflow state.",
+    "doneWhen": []
+  },
+  "run": {
+    "actor": {
+      "id": "larry",
+      "kind": "agent"
+    },
+    "id": "run-implementer-1",
+    "idempotencyPrefix": "idem:participant",
+    "role": "implementer",
+    "sessionRef": {
+      "laneRef": "main",
+      "scopeRef": "agent:larry:project:demo:task:task-code-1:role:implementer"
+    }
+  },
+  "schemaVersion": 1,
+  "task": {
+    "goal": "Fix checkout regression",
+    "id": "task-code-1",
+    "projectId": "demo",
+    "risk": "medium",
+    "state": {
+      "phase": "red",
+      "status": "waiting"
+    },
+    "version": 2,
+    "workflow": {
+      "hash": "sha256:b1ba4c742aa6201276fc21269f061decee1625e4f940a671cf6bf12b21980701",
+      "id": "code_defect_fastlane",
+      "version": 1
+    }
+  },
+  "unavailableTransitions": [
+    {
+      "id": "start",
+      "reason": "Transition \"start\" is not legal from the current state",
+      "reasonCode": "state_mismatch"
+    },
+    {
+      "id": "implement_fix",
+      "reason": "Transition \"implement_fix\" is not legal from the current state",
+      "reasonCode": "state_mismatch"
+    },
+    {
+      "id": "close_success",
+      "reason": "Transition \"close_success\" is not legal from the current state",
+      "reasonCode": "state_mismatch"
+    }
+  ]
+}

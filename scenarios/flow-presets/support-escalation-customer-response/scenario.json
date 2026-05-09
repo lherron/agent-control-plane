@@ -1,0 +1,173 @@
+{
+  "scenarioId": "support-escalation-customer-response",
+  "title": "Support escalation waiting on customer response",
+  "summary": "Drives a customer support ticket through triage, outbound contact, a blocking waiting state pending the customer's reply, and final resolution. Demonstrates the kernel's blocking-obligation pattern: the workflow sits in `status=waiting` until the obligation is satisfied with `customer_response` evidence.",
+  "workflow": {
+    "id": "support_escalation",
+    "version": 1,
+    "definitionFile": "./workflow.json"
+  },
+  "task": {
+    "taskId": "T-SUPP-DEMO",
+    "projectId": "agent-spaces",
+    "goal": "Customer cannot complete checkout when paying via stored card on file.",
+    "risk": "low",
+    "initialFacts": {
+      "ticketRef": "zd-198432",
+      "customerRef": "acct-7821",
+      "channel": "email"
+    }
+  },
+  "actors": [
+    { "binding": "support_agent", "actor": { "kind": "human", "id": "morgan" } },
+    { "binding": "supervisor", "actor": { "kind": "agent", "id": "rex" } }
+  ],
+  "supervisor": {
+    "actor": { "kind": "agent", "id": "rex" },
+    "autonomy": "managed",
+    "capabilities": {
+      "launchRuns": false,
+      "createObligations": true,
+      "satisfyObligations": true,
+      "requestHumanInput": true,
+      "applySupervisorTransitions": true,
+      "proposeWorkflowPatches": true
+    }
+  },
+  "steps": [
+    {
+      "stepId": "01-create-task",
+      "summary": "Supervisor creates the workflow task pinned to support_escalation@1 and binds the support agent.",
+      "actorBinding": "supervisor",
+      "expectedStateAfter": { "status": "open", "phase": "triage" },
+      "kernel": {
+        "op": "createTask",
+        "args": {
+          "taskId": "T-SUPP-DEMO",
+          "projectId": "agent-spaces",
+          "workflow": { "id": "support_escalation", "version": 1 },
+          "goal": "Customer cannot complete checkout when paying via stored card on file.",
+          "risk": "low",
+          "roleBindings": {
+            "support_agent": { "kind": "human", "id": "morgan" }
+          },
+          "idempotencyKey": "scenario:support:create:v1"
+        }
+      }
+    },
+    {
+      "stepId": "02-attach-triage-summary",
+      "summary": "Support agent attaches their triage summary.",
+      "actorBinding": "support_agent",
+      "evidence": [
+        {
+          "kind": "triage_summary",
+          "ref": "doc:triage-zd-198432",
+          "summary": "Failure surfaces only with stored cards; raw card flow works. Suspect tokenization edge case."
+        }
+      ]
+    },
+    {
+      "stepId": "03-start-triage",
+      "summary": "Apply transition `start_triage`: open/triage -> active/triage.",
+      "actorBinding": "support_agent",
+      "transitionId": "start_triage",
+      "expectedStateAfter": { "status": "active", "phase": "triage" }
+    },
+    {
+      "stepId": "04-attach-outreach",
+      "summary": "Support agent records the customer outreach (email asking for the failing card token reference).",
+      "actorBinding": "support_agent",
+      "evidence": [
+        {
+          "kind": "customer_outreach_record",
+          "ref": "email:zd-198432:1",
+          "summary": "Asked customer for masked card token + timestamps of last 3 attempts."
+        }
+      ]
+    },
+    {
+      "stepId": "05-reach-out",
+      "summary": "Apply transition `reach_out`.",
+      "actorBinding": "support_agent",
+      "transitionId": "reach_out",
+      "expectedStateAfter": { "status": "active", "phase": "contact_customer" }
+    },
+    {
+      "stepId": "06-wait-for-customer",
+      "summary": "Apply transition `wait_for_customer`: active/contact_customer -> waiting/awaiting_customer. Effects: create blocking obligation `customer_response_pending` (owner=customer_proxy), start 72h timer.",
+      "actorBinding": "support_agent",
+      "transitionId": "wait_for_customer",
+      "expectedStateAfter": { "status": "waiting", "phase": "awaiting_customer" },
+      "expectedEffects": [
+        { "kind": "create_obligation", "payload": { "kind": "customer_response_pending", "ownerRole": "customer_proxy", "blocking": true } },
+        { "kind": "start_timer", "payload": { "duration": "PT72H" } }
+      ]
+    },
+    {
+      "stepId": "07-customer-replies",
+      "summary": "Customer replies. Supervisor satisfies the blocking obligation by attaching `customer_response` evidence. Note: the kernel does not auto-bind `customer_proxy` during `satisfy_obligation`; the role stays unbound for this scenario. The role exists primarily as the obligation's `ownerRole` declaration. To exercise `autoBindOnFirstRun`, a transition `by: ['customer_proxy']` would be required (not part of the happy path here).",
+      "actorBinding": "supervisor",
+      "controlAction": {
+        "type": "satisfy_obligation",
+        "obligationKind": "customer_response_pending",
+        "evidence": [
+          {
+            "kind": "customer_response",
+            "ref": "email:zd-198432:2",
+            "summary": "Customer supplied masked card token tok_***4242 and timestamps."
+          }
+        ]
+      },
+      "expectedStateAfter": { "status": "waiting", "phase": "awaiting_customer", "note": "status remains waiting until resume_resolution is applied; obligation is now satisfied." }
+    },
+    {
+      "stepId": "08-resume-resolution",
+      "summary": "Apply transition `resume_resolution`: waiting/awaiting_customer -> active/resolution.",
+      "actorBinding": "support_agent",
+      "transitionId": "resume_resolution",
+      "expectedStateAfter": { "status": "active", "phase": "resolution" }
+    },
+    {
+      "stepId": "09-attach-resolution-note",
+      "summary": "Support agent attaches the resolution note and closes the ticket as resolved.",
+      "actorBinding": "support_agent",
+      "evidence": [
+        {
+          "kind": "resolution_note",
+          "ref": "doc:resolution-zd-198432",
+          "summary": "Reset stored token; reissued via processor; customer confirmed checkout works."
+        }
+      ]
+    },
+    {
+      "stepId": "10-resolve",
+      "summary": "Apply transition `resolve` to close.",
+      "actorBinding": "support_agent",
+      "transitionId": "resolve",
+      "expectedStateAfter": { "status": "closed", "outcome": "resolved" }
+    }
+  ],
+  "alternateBranches": [
+    {
+      "name": "no-reply-abandon",
+      "summary": "If customer never replies and the 72h timer elapses, supervisor applies `abandon_no_reply` (supervisorBypass) -> closed/abandoned."
+    },
+    {
+      "name": "escalate-to-engineering",
+      "summary": "After step 09 the support agent may apply `escalate_to_engineering` instead of `resolve`, attaching `escalation_packet`. This emits a `create_child_task` effect targeting `hotfix_fastlane@1`."
+    }
+  ],
+  "negativeChecks": [
+    {
+      "name": "resume-without-obligation",
+      "summary": "Skip step 07 and try `resume_resolution`: the kernel rejects with `obligation_not_satisfied` (the open blocking `customer_response_pending` obligation has not been satisfied). The transition's evidence requirement also fails for `customer_response`, but the obligation check fires first.",
+      "expectedRejection": "obligation_not_satisfied"
+    },
+    {
+      "name": "wait-prevents-direct-resolve",
+      "summary": "From `waiting/awaiting_customer` attempt `resolve` directly. `resolve.from = active/resolution`, so the kernel rejects with `state_mismatch` before evaluating any other requirement.",
+      "expectedRejection": "state_mismatch"
+    }
+  ]
+}
