@@ -85,6 +85,49 @@ describe('adaptHrcLifecycleEvent', () => {
     ).toBeUndefined()
   })
 
+  test('passes raw app-server assistant streaming events through', () => {
+    expect(
+      adaptHrcLifecycleEvent(
+        hrcEvent({
+          hrcSeq: 11,
+          eventKind: 'message_start',
+          payload: {
+            type: 'message_start',
+            messageId: 'msg-1',
+            message: { role: 'assistant', content: '' },
+          },
+        })
+      )
+    ).toEqual({
+      projectId: 'agent-spaces',
+      runId: 'hrc-run-ignored',
+      seq: 11,
+      event: {
+        type: 'message_start',
+        messageId: 'msg-1',
+        message: { role: 'assistant', content: '' },
+      },
+    })
+
+    expect(
+      adaptHrcLifecycleEvent(
+        hrcEvent({
+          hrcSeq: 12,
+          eventKind: 'message_update',
+          payload: {
+            type: 'message_update',
+            messageId: 'msg-1',
+            textDelta: 'before tool',
+          },
+        })
+      )?.event
+    ).toEqual({
+      type: 'message_update',
+      messageId: 'msg-1',
+      textDelta: 'before tool',
+    })
+  })
+
   test('maps turn.completed to turn_end with payload intact', () => {
     expect(
       adaptHrcLifecycleEvent(

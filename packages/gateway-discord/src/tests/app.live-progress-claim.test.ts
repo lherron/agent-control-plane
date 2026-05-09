@@ -95,6 +95,30 @@ describe('GatewayDiscordApp live progress run claiming', () => {
     expect(new Set(editedIds)).toEqual(new Set(['wh_1', 'wh_2']))
   })
 
+  test('queued placeholders do not claim an already-running HRC run on the same sessionRef', async () => {
+    const harness = createLiveProgressHarness({
+      interfaceMessageResponse: () => ({
+        inputAttemptId: 'ia_queued',
+        runId: 'run_queued_future',
+      }),
+    })
+    await harness.app.refreshBindings()
+    await harness.app.handleMessageCreate(harness.inboundMessage())
+
+    harness.emit(
+      hrcEvent(1, {
+        type: 'tool_execution_start',
+        toolUseId: 'tool_active_other',
+        toolName: 'Bash',
+        input: { command: 'ssh mini ./unrelated-active-run' },
+      })
+    )
+
+    await new Promise((resolve) => setTimeout(resolve, 25))
+
+    expect(harness.webhook().edits).toHaveLength(0)
+  })
+
   test('deduplicates live subscriptions for bindings that share a sessionRef', async () => {
     const client = new FakeClient()
     client.addChannel(new FakeChannel('chan_a'))

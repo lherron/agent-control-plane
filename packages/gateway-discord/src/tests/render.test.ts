@@ -507,4 +507,103 @@ describe('buildProgressBubble', () => {
     const bubble = buildProgressBubble(frame)
     expect(bubble).toBe('')
   })
+
+  test('preserves arrival order: text → tool → notice → text', () => {
+    const frame: RenderFrame = {
+      runId: 'r1',
+      projectId: 'p1',
+      phase: 'progress',
+      blocks: [
+        { t: 'markdown', md: 'before-tool' },
+        {
+          t: 'tool',
+          toolName: 'Read',
+          summary: '',
+          approved: true,
+          input: { file_path: '/x.ts' },
+        },
+        { t: 'notice', level: 'warn', message: 'heads up' },
+        { t: 'markdown', md: 'after-tool' },
+      ] as never,
+      updatedAt: Date.now(),
+    }
+
+    const bubble = buildProgressBubble(frame)
+    const lines = bubble.split('\n')
+    const beforeIdx = lines.findIndex((l) => l === 'before-tool')
+    const toolIdx = lines.findIndex((l) => l.includes('📖 Read:'))
+    const noticeIdx = lines.findIndex((l) => l.includes('heads up'))
+    const afterIdx = lines.findIndex((l) => l === 'after-tool')
+
+    expect(beforeIdx).toBeGreaterThanOrEqual(0)
+    expect(toolIdx).toBeGreaterThan(beforeIdx)
+    expect(noticeIdx).toBeGreaterThan(toolIdx)
+    expect(afterIdx).toBeGreaterThan(noticeIdx)
+  })
+
+  test('assistant text segments do not count toward 12-line tool/notice cap', () => {
+    const blocks = [
+      { t: 'markdown' as const, md: 'opening text' },
+      ...Array.from({ length: 12 }, (_, i) => ({
+        t: 'tool' as const,
+        toolName: 'Read',
+        summary: '',
+        approved: true,
+        input: { file_path: `/f${i}.ts` },
+      })),
+      { t: 'markdown' as const, md: 'closing text' },
+    ]
+
+    const frame: RenderFrame = {
+      runId: 'r1',
+      projectId: 'p1',
+      phase: 'progress',
+      blocks: blocks as never,
+      updatedAt: Date.now(),
+    }
+
+    const bubble = buildProgressBubble(frame)
+    expect(bubble).toContain('opening text')
+    expect(bubble).toContain('closing text')
+    // 12 tools fits exactly under the cap; no collapse marker
+    expect(bubble).not.toContain('earlier tools')
+    const toolLines = bubble.split('\n').filter((l) => l.includes('📖 Read:'))
+    expect(toolLines).toHaveLength(12)
+  })
+})
+
+describe('renderFrameToDiscordContent ordering', () => {
+  test('preserves arrival order: text → tool → notice → text', () => {
+    const content = renderFrameToDiscordContent(
+      {
+        runId: 'r1',
+        projectId: 'p1',
+        phase: 'progress',
+        blocks: [
+          { t: 'markdown', md: 'before-tool' },
+          {
+            t: 'tool',
+            toolName: 'Read',
+            summary: '',
+            approved: true,
+            input: { file_path: '/x.ts' },
+          },
+          { t: 'notice', level: 'warn', message: 'heads up' },
+          { t: 'markdown', md: 'after-tool' },
+        ] as never,
+        updatedAt: Date.now(),
+      },
+      2000
+    )
+
+    const beforeIdx = content.indexOf('before-tool')
+    const toolIdx = content.indexOf('📖 Read:')
+    const noticeIdx = content.indexOf('heads up')
+    const afterIdx = content.indexOf('after-tool')
+
+    expect(beforeIdx).toBeGreaterThanOrEqual(0)
+    expect(toolIdx).toBeGreaterThan(beforeIdx)
+    expect(noticeIdx).toBeGreaterThan(toolIdx)
+    expect(afterIdx).toBeGreaterThan(noticeIdx)
+  })
 })

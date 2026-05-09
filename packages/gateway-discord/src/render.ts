@@ -363,6 +363,8 @@ function groupConsecutiveLines(lines: string[]): string[] {
  *   If compact_history + assistant_text > 1900, oldest tool/notice lines are
  *   dropped first. `assistant_text` is NEVER truncated by this helper.
  */
+type BubbleEntry = { kind: 'tool' | 'notice'; line: string } | { kind: 'text'; text: string }
+
 export function buildProgressBubble(
   frame: RenderFrame,
   options: { maxChars?: number; maxLines?: number } = {}
@@ -370,84 +372,132 @@ export function buildProgressBubble(
   const maxLines = options.maxLines ?? DEFAULT_MAX_LINES
   const maxChars = options.maxChars ?? DEFAULT_MAX_CHARS
 
-  // Separate tool/notice blocks from other blocks (e.g. final markdown text)
-  const toolNoticeLines: string[] = []
-  let assistantText = ''
-
+  const entries: BubbleEntry[] = []
   for (const block of frame.blocks as ExtendedRenderBlock[]) {
     if (block.t === 'tool') {
       const failed = (block as Extract<RenderBlock, { t: 'tool' }>).approved === false
       const toolBlock = block as Extract<RenderBlock, { t: 'tool' }> & {
         input?: Record<string, unknown>
       }
-      toolNoticeLines.push(
-        formatToolLine(
+      entries.push({
+        kind: 'tool',
+        line: formatToolLine(
           (block as Extract<RenderBlock, { t: 'tool' }>).toolName,
           toolBlock.input,
           (block as Extract<RenderBlock, { t: 'tool' }>).summary,
           failed
-        )
-      )
+        ),
+      })
     } else if (block.t === 'notice') {
-      toolNoticeLines.push(formatNoticeLine(block.level, block.message))
+      entries.push({ kind: 'notice', line: formatNoticeLine(block.level, block.message) })
     } else if (block.t === 'markdown') {
-      // Accumulate assistant text (typically the final answer)
-      assistantText += (assistantText ? '\n\n' : '') + block.md
+      entries.push({ kind: 'text', text: block.md })
     }
     // Other block types (code, image, etc.) are skipped in compact progress
   }
 
-  // Apply line cap: collapse oldest lines when exceeding maxLines
-  let visibleLines = groupConsecutiveLines(toolNoticeLines)
+  const collapseConsecutiveToolNotice = (input: BubbleEntry[]): BubbleEntry[] => {
+    const out: BubbleEntry[] = []
+    let runStart = -1
+    const flush = (endExclusive: number) => {
+      if (runStart < 0) return
+      const runLines = input.slice(runStart, endExclusive).map((e) => {
+        if (e.kind === 'text') throw new Error('unreachable')
+        return e.line
+      })
+      const grouped = groupConsecutiveLines(runLines)
+      for (let i = 0; i < grouped.length; i++) {
+        const original = input[runStart + i]
+        const kind = original?.kind === 'notice' ? 'notice' : 'tool'
+        out.push({ kind, line: grouped[i] ?? '' })
+      }
+      runStart = -1
+    }
+    for (let i = 0; i < input.length; i++) {
+      const e = input[i]
+      if (!e) continue
+      if (e.kind === 'tool' || e.kind === 'notice') {
+        if (runStart < 0) runStart = i
+      } else {
+        flush(i)
+        out.push(e)
+      }
+    }
+    flush(input.length)
+    return out
+  }
+
+  let visible = collapseConsecutiveToolNotice(entries)
+
   let collapsedCount = 0
-  if (visibleLines.length > maxLines) {
-    collapsedCount = visibleLines.length - maxLines
-    visibleLines = visibleLines.slice(collapsedCount)
+  const dropOldestToolNotice = (count: number): void => {
+    let dropped = 0
+    const next: BubbleEntry[] = []
+    for (const e of visible) {
+      if (dropped < count && (e.kind === 'tool' || e.kind === 'notice')) {
+        dropped += 1
+        continue
+      }
+      next.push(e)
+    }
+    collapsedCount += dropped
+    visible = next
   }
 
-  // Build the bubble content
-  const buildContent = (lines: string[], collapsed: number, text: string): string => {
-    const parts: string[] = []
+  const toolNoticeCount = visible.filter((e) => e.kind !== 'text').length
+  if (toolNoticeCount > maxLines) {
+    dropOldestToolNotice(toolNoticeCount - maxLines)
+  }
+
+  const buildContent = (parts: BubbleEntry[], collapsed: number): string => {
+    const lines: string[] = []
     if (collapsed > 0) {
-      parts.push(`_... +${collapsed} earlier tools_`)
+      lines.push(`_... +${collapsed} earlier tools_`)
     }
-    parts.push(...lines)
-    if (text) {
-      parts.push(text)
+    for (const p of parts) {
+      lines.push(p.kind === 'text' ? p.text : p.line)
     }
-    return parts.join('\n')
+    return lines.join('\n')
   }
 
-  let content = buildContent(visibleLines, collapsedCount, assistantText)
+  let content = buildContent(visible, collapsedCount)
 
-  // Prefer preserving the visible 12-line history by shaving older previews
-  // before dropping whole lines. The final answer remains untouched.
-  while (content.length > maxChars && visibleLines.some((line) => line.length > 40)) {
+  // Shave tool/notice line previews first; never touch text entries.
+  while (content.length > maxChars) {
+    const lineIndex = visible.findIndex(
+      (e) => e.kind !== 'text' && (e as { line: string }).line.length > 40
+    )
+    if (lineIndex < 0) break
+    const entry = visible[lineIndex]
+    if (!entry || entry.kind === 'text') break
     const overBy = content.length - maxChars
-    const lineIndex = visibleLines.findIndex((line) => line.length > 40)
-    if (lineIndex < 0) {
-      break
+    const targetLength = Math.max(40, entry.line.length - overBy)
+    visible[lineIndex] = {
+      kind: entry.kind,
+      line:
+        targetLength >= entry.line.length
+          ? entry.line
+          : `${entry.line.slice(0, Math.max(0, targetLength - 3))}...`,
     }
-    const line = visibleLines[lineIndex] ?? ''
-    const targetLength = Math.max(40, line.length - overBy)
-    visibleLines[lineIndex] =
-      targetLength >= line.length ? line : `${line.slice(0, Math.max(0, targetLength - 3))}...`
-    content = buildContent(visibleLines, collapsedCount, assistantText)
+    content = buildContent(visible, collapsedCount)
   }
 
-  // If over budget, drop more tool/notice lines from oldest
-  while (content.length > maxChars && visibleLines.length > 0) {
-    collapsedCount += 1
-    visibleLines = visibleLines.slice(1)
-    content = buildContent(visibleLines, collapsedCount, assistantText)
+  // Drop more oldest tool/notice entries if still over budget.
+  while (content.length > maxChars && visible.some((e) => e.kind !== 'text')) {
+    dropOldestToolNotice(1)
+    content = buildContent(visible, collapsedCount)
   }
 
-  // If still over budget (assistant text alone exceeds maxChars), return
-  // title + collapse-line + truncated assistant text for caller to handle.
-  if (content.length > maxChars && assistantText) {
+  // If still over budget, only text entries remain — concatenate and truncate
+  // the trailing text so the bubble fits Discord's hard limit.
+  if (content.length > maxChars) {
     const collapseLine = collapsedCount > 0 ? `_... +${collapsedCount} earlier tools_\n` : ''
+    const allText = visible
+      .filter((e): e is { kind: 'text'; text: string } => e.kind === 'text')
+      .map((e) => e.text)
+      .join('\n')
     const remaining = maxChars - collapseLine.length
-    content = `${collapseLine}${assistantText.slice(0, remaining)}`
+    content = `${collapseLine}${allText.slice(0, Math.max(0, remaining))}`
   }
 
   return content

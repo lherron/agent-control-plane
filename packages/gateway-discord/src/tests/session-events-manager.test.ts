@@ -170,4 +170,344 @@ describe('SessionEventsManager internal run handling', () => {
     expect(projectState).not.toHaveProperty('lastSeq')
     expect(projectState).not.toHaveProperty('internalRunIds')
   })
+
+  test('interleaves assistant segments between tool and notice blocks by arrival seq', () => {
+    let lastFrame:
+      | { blocks: Array<{ t: string; md?: string; toolName?: string; message?: string }> }
+      | undefined
+    const manager = new SessionEventsManager('gateway-test', (_pid, _rid, frame) => {
+      lastFrame = frame as never
+    })
+
+    manager.subscribe('agent-spaces')
+    manager.receive({
+      projectId: 'agent-spaces',
+      runId: 'run-mix',
+      seq: 1,
+      event: {
+        type: 'run_started',
+        runId: 'run-mix',
+        projectId: 'agent-spaces',
+        startedAt: 1,
+      },
+    })
+
+    // text segment A
+    manager.receive({
+      projectId: 'agent-spaces',
+      runId: 'run-mix',
+      seq: 2,
+      event: {
+        type: 'message_start',
+        messageId: 'msg-A',
+        message: { role: 'assistant', content: '' },
+      },
+    })
+    manager.receive({
+      projectId: 'agent-spaces',
+      runId: 'run-mix',
+      seq: 3,
+      event: { type: 'message_update', messageId: 'msg-A', textDelta: 'before-tool' },
+    })
+
+    // tool 1
+    manager.receive({
+      projectId: 'agent-spaces',
+      runId: 'run-mix',
+      seq: 4,
+      event: {
+        type: 'tool_execution_start',
+        toolUseId: 'tu1',
+        toolName: 'Read',
+        input: { file_path: '/x' },
+      },
+    })
+    manager.receive({
+      projectId: 'agent-spaces',
+      runId: 'run-mix',
+      seq: 5,
+      event: {
+        type: 'tool_execution_end',
+        toolUseId: 'tu1',
+        toolName: 'Read',
+        result: { content: [{ type: 'text', text: 'ok' }] },
+      },
+    })
+
+    // notice
+    manager.receive({
+      projectId: 'agent-spaces',
+      runId: 'run-mix',
+      seq: 6,
+      event: { type: 'notice', level: 'warn', message: 'heads up' },
+    })
+
+    // text segment B (after tool/notice — new messageId)
+    manager.receive({
+      projectId: 'agent-spaces',
+      runId: 'run-mix',
+      seq: 7,
+      event: { type: 'message_update', messageId: 'msg-B', textDelta: 'after-tool' },
+    })
+
+    // tool 2
+    manager.receive({
+      projectId: 'agent-spaces',
+      runId: 'run-mix',
+      seq: 8,
+      event: {
+        type: 'tool_execution_start',
+        toolUseId: 'tu2',
+        toolName: 'Bash',
+        input: { command: 'ls' },
+      },
+    })
+
+    // text segment C
+    manager.receive({
+      projectId: 'agent-spaces',
+      runId: 'run-mix',
+      seq: 9,
+      event: { type: 'message_update', messageId: 'msg-C', textDelta: 'final' },
+    })
+    manager.receive({
+      projectId: 'agent-spaces',
+      runId: 'run-mix',
+      seq: 10,
+      event: { type: 'message_end', messageId: 'msg-C' },
+    })
+
+    expect(lastFrame).toBeDefined()
+    const order = lastFrame!.blocks.map((b) =>
+      b.t === 'markdown'
+        ? `text:${b.md}`
+        : b.t === 'tool'
+          ? `tool:${b.toolName}`
+          : b.t === 'notice'
+            ? `notice:${b.message}`
+            : b.t
+    )
+    expect(order).toEqual([
+      'text:before-tool',
+      'tool:Read',
+      'notice:heads up',
+      'text:after-tool',
+      'tool:Bash',
+      'text:final',
+    ])
+  })
+
+  test('no-messageId stream does not duplicate the segment after a tool boundary closes it', () => {
+    let lastFrame: { blocks: Array<{ t: string; md?: string; toolName?: string }> } | undefined
+    const manager = new SessionEventsManager('gateway-test', (_pid, _rid, frame) => {
+      lastFrame = frame as never
+    })
+
+    manager.subscribe('agent-spaces')
+    manager.receive({
+      projectId: 'agent-spaces',
+      runId: 'run-noid',
+      seq: 1,
+      event: {
+        type: 'run_started',
+        runId: 'run-noid',
+        projectId: 'agent-spaces',
+        startedAt: 1,
+      },
+    })
+
+    // message_start with no messageId, no content
+    manager.receive({
+      projectId: 'agent-spaces',
+      runId: 'run-noid',
+      seq: 2,
+      event: { type: 'message_start', message: { role: 'assistant', content: '' } },
+    })
+
+    // streaming delta, no messageId
+    manager.receive({
+      projectId: 'agent-spaces',
+      runId: 'run-noid',
+      seq: 3,
+      event: { type: 'message_update', textDelta: 'before' },
+    })
+
+    // tool fires mid-message — closes active append, but the message itself isn't done
+    manager.receive({
+      projectId: 'agent-spaces',
+      runId: 'run-noid',
+      seq: 4,
+      event: {
+        type: 'tool_execution_start',
+        toolUseId: 'tu1',
+        toolName: 'Read',
+        input: { file_path: '/x' },
+      },
+    })
+    manager.receive({
+      projectId: 'agent-spaces',
+      runId: 'run-noid',
+      seq: 5,
+      event: {
+        type: 'tool_execution_end',
+        toolUseId: 'tu1',
+        toolName: 'Read',
+        result: { content: [{ type: 'text', text: 'ok' }] },
+      },
+    })
+
+    // message_end carries the full final assistant message — STILL no messageId
+    manager.receive({
+      projectId: 'agent-spaces',
+      runId: 'run-noid',
+      seq: 6,
+      event: {
+        type: 'message_end',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'before' }] },
+      },
+    })
+
+    expect(lastFrame).toBeDefined()
+    const order = lastFrame!.blocks.map((b) =>
+      b.t === 'markdown' ? `text:${b.md}` : b.t === 'tool' ? `tool:${b.toolName}` : b.t
+    )
+    expect(order).toEqual(['text:before', 'tool:Read'])
+    const markdownBlocks = lastFrame!.blocks.filter((b) => b.t === 'markdown')
+    expect(markdownBlocks).toHaveLength(1)
+  })
+
+  test('Codex-style message_end-only assistant turn creates a segment instead of falling through to finalOutput', () => {
+    let lastFrame: { blocks: Array<{ t: string; md?: string; toolName?: string }> } | undefined
+    const manager = new SessionEventsManager('gateway-test', (_pid, _rid, frame) => {
+      lastFrame = frame as never
+    })
+
+    manager.subscribe('codex-proj')
+    manager.receive({
+      projectId: 'codex-proj',
+      runId: 'run-codex',
+      seq: 1,
+      event: {
+        type: 'run_started',
+        runId: 'run-codex',
+        projectId: 'codex-proj',
+        startedAt: 1,
+      },
+    })
+
+    // tool first
+    manager.receive({
+      projectId: 'codex-proj',
+      runId: 'run-codex',
+      seq: 2,
+      event: {
+        type: 'tool_execution_start',
+        toolUseId: 'tc1',
+        toolName: 'Read',
+        input: { file_path: '/c' },
+      },
+    })
+    manager.receive({
+      projectId: 'codex-proj',
+      runId: 'run-codex',
+      seq: 3,
+      event: {
+        type: 'tool_execution_end',
+        toolUseId: 'tc1',
+        toolName: 'Read',
+        result: { content: [{ type: 'text', text: 'ok' }] },
+      },
+    })
+
+    // ONLY message_end for the assistant text — no message_start, no message_update
+    manager.receive({
+      projectId: 'codex-proj',
+      runId: 'run-codex',
+      seq: 4,
+      event: {
+        type: 'message_end',
+        messageId: 'msg-codex',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'codex final' }] },
+      },
+    })
+
+    // Then turn_end with the same finalOutput — should NOT add a duplicate segment
+    manager.receive({
+      projectId: 'codex-proj',
+      runId: 'run-codex',
+      seq: 5,
+      event: { type: 'turn_end', payload: { finalOutput: 'codex final' } },
+    })
+
+    expect(lastFrame).toBeDefined()
+    const markdownBlocks = lastFrame!.blocks.filter((b) => b.t === 'markdown')
+    expect(markdownBlocks).toHaveLength(1)
+    expect(markdownBlocks[0]?.md).toBe('codex final')
+
+    const order = lastFrame!.blocks.map((b) =>
+      b.t === 'markdown' ? 'text' : b.t === 'tool' ? 'tool' : b.t
+    )
+    expect(order).toEqual(['tool', 'text'])
+  })
+
+  test('derived cumulative message_end does not duplicate existing streamed segments', () => {
+    let lastFrame: { blocks: Array<{ t: string; md?: string; toolName?: string }> } | undefined
+    const manager = new SessionEventsManager('gateway-test', (_pid, _rid, frame) => {
+      lastFrame = frame as never
+    })
+
+    manager.subscribe('codex-proj')
+    manager.receive({
+      projectId: 'codex-proj',
+      runId: 'run-streamed',
+      seq: 1,
+      event: {
+        type: 'run_started',
+        runId: 'run-streamed',
+        projectId: 'codex-proj',
+        startedAt: 1,
+      },
+    })
+    manager.receive({
+      projectId: 'codex-proj',
+      runId: 'run-streamed',
+      seq: 2,
+      event: {
+        type: 'message_start',
+        messageId: 'msg-streamed',
+        message: { role: 'assistant', content: '' },
+      },
+    })
+    manager.receive({
+      projectId: 'codex-proj',
+      runId: 'run-streamed',
+      seq: 3,
+      event: { type: 'message_update', messageId: 'msg-streamed', textDelta: 'before' },
+    })
+    manager.receive({
+      projectId: 'codex-proj',
+      runId: 'run-streamed',
+      seq: 4,
+      event: {
+        type: 'message_end',
+        messageId: 'msg-streamed',
+        message: { role: 'assistant', content: 'before' },
+      },
+    })
+
+    manager.receive({
+      projectId: 'codex-proj',
+      runId: 'run-streamed',
+      seq: 5,
+      event: {
+        type: 'message_end',
+        message: { role: 'assistant', content: 'before' },
+      },
+    })
+
+    expect(lastFrame).toBeDefined()
+    const markdownBlocks = lastFrame!.blocks.filter((b) => b.t === 'markdown')
+    expect(markdownBlocks).toHaveLength(1)
+    expect(markdownBlocks[0]?.md).toBe('before')
+  })
 })

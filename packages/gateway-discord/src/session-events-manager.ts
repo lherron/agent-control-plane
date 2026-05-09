@@ -26,6 +26,12 @@ interface ToolExecution {
     | undefined
 }
 
+export interface AssistantSegment {
+  id: string
+  seq: number
+  text: string
+}
+
 export interface RunState {
   runId: string
   projectId: string
@@ -35,7 +41,9 @@ export interface RunState {
   startedAt?: number | undefined
   completedAt?: number | undefined
   userMessage?: string | undefined
-  assistantMessage?: string | undefined
+  assistantSegments: AssistantSegment[]
+  activeAssistantSegmentId?: string | undefined
+  currentAssistantMessageRef?: string | undefined
   toolExecutions: ToolExecution[]
   noticeEntries: Array<{
     id: string
@@ -143,6 +151,7 @@ function processEvent(
           ...(tool.mediaRefs ? { mediaRefs: [...tool.mediaRefs] } : {}),
         })),
         noticeEntries: existing.noticeEntries.map((notice) => ({ ...notice })),
+        assistantSegments: existing.assistantSegments.map((seg) => ({ ...seg })),
       }
     }
 
@@ -154,7 +163,63 @@ function processEvent(
       inputContent: '',
       toolExecutions: [],
       noticeEntries: [],
+      assistantSegments: [],
     }
+  }
+
+  const closeActiveSegment = (run: RunState): void => {
+    run.activeAssistantSegmentId = undefined
+  }
+
+  const upsertAssistantSegment = (
+    run: RunState,
+    options: {
+      id: string | undefined
+      seq: number
+      text: string
+      mode: 'append' | 'replace' | 'set'
+      close?: boolean
+    }
+  ): void => {
+    const { id: rawId, seq: segSeq, text, mode, close = false } = options
+    if (rawId !== undefined) {
+      const idx = run.assistantSegments.findIndex((s) => s.id === rawId)
+      if (idx >= 0) {
+        const existing = run.assistantSegments[idx]
+        if (existing) {
+          run.assistantSegments[idx] = {
+            ...existing,
+            text: mode === 'append' ? existing.text + text : text,
+          }
+        }
+        run.activeAssistantSegmentId = close ? undefined : rawId
+        return
+      }
+    }
+
+    if (mode === 'append' && run.activeAssistantSegmentId !== undefined && rawId === undefined) {
+      const idx = run.assistantSegments.findIndex((s) => s.id === run.activeAssistantSegmentId)
+      const existing = idx >= 0 ? run.assistantSegments[idx] : undefined
+      if (existing) {
+        run.assistantSegments[idx] = { ...existing, text: existing.text + text }
+        if (close) run.activeAssistantSegmentId = undefined
+        return
+      }
+    }
+
+    if (mode === 'replace' && rawId === undefined && run.activeAssistantSegmentId !== undefined) {
+      const idx = run.assistantSegments.findIndex((s) => s.id === run.activeAssistantSegmentId)
+      const existing = idx >= 0 ? run.assistantSegments[idx] : undefined
+      if (existing) {
+        run.assistantSegments[idx] = { ...existing, text }
+        if (close) run.activeAssistantSegmentId = undefined
+        return
+      }
+    }
+
+    const newId = rawId ?? `seg-${segSeq}`
+    run.assistantSegments.push({ id: newId, seq: segSeq, text })
+    run.activeAssistantSegmentId = close ? undefined : newId
   }
 
   switch (event.type) {
@@ -184,9 +249,16 @@ function processEvent(
       run.lastSeq = seq
       run.status = 'completed'
       run.completedAt = event.completedAt
-      if (event.finalOutput) {
-        run.assistantMessage = event.finalOutput
+      if (event.finalOutput && run.assistantSegments.length === 0) {
+        upsertAssistantSegment(run, {
+          id: undefined,
+          seq,
+          text: event.finalOutput,
+          mode: 'set',
+          close: true,
+        })
       }
+      run.currentAssistantMessageRef = undefined
       newState.runs.set(event.runId, run)
       break
     }
@@ -207,8 +279,7 @@ function processEvent(
       break
     }
 
-    case 'message_start':
-    case 'message_end': {
+    case 'message_start': {
       if (!runId) {
         break
       }
@@ -216,6 +287,7 @@ function processEvent(
       const run = getOrCreateRun(runId)
       run.lastSeq = seq
       const message = event.message
+      const messageId = event.messageId
       if (message) {
         const content =
           typeof message.content === 'string'
@@ -224,9 +296,71 @@ function processEvent(
 
         if (message.role === 'user') {
           run.userMessage = content
-        } else if (message.role === 'assistant' && content) {
-          run.assistantMessage = content
+        } else if (message.role === 'assistant') {
+          closeActiveSegment(run)
+          const ref = messageId ?? `seg-${seq}`
+          run.currentAssistantMessageRef = ref
+          upsertAssistantSegment(run, {
+            id: ref,
+            seq,
+            text: content,
+            mode: 'set',
+          })
         }
+      } else if (messageId !== undefined) {
+        closeActiveSegment(run)
+        run.currentAssistantMessageRef = messageId
+        upsertAssistantSegment(run, {
+          id: messageId,
+          seq,
+          text: '',
+          mode: 'set',
+        })
+      }
+
+      newState.runs.set(runId, run)
+      break
+    }
+
+    case 'message_end': {
+      if (!runId) {
+        break
+      }
+
+      const run = getOrCreateRun(runId)
+      run.lastSeq = seq
+      const message = event.message
+      const messageId = event.messageId
+      const targetRef = messageId ?? run.currentAssistantMessageRef
+      if (message) {
+        const content =
+          typeof message.content === 'string'
+            ? message.content
+            : message.content.map((block) => (block.type === 'text' ? block.text : '')).join('')
+
+        if (message.role === 'user') {
+          run.userMessage = content
+        } else if (message.role === 'assistant') {
+          if (targetRef === undefined && run.assistantSegments.length > 0) {
+            closeActiveSegment(run)
+          } else {
+            upsertAssistantSegment(run, {
+              id: targetRef,
+              seq,
+              text: content,
+              mode: 'replace',
+              close: true,
+            })
+          }
+        }
+      } else if (targetRef !== undefined) {
+        const idx = run.assistantSegments.findIndex((s) => s.id === targetRef)
+        if (idx >= 0) {
+          run.activeAssistantSegmentId = undefined
+        }
+      }
+      if (targetRef !== undefined && targetRef === run.currentAssistantMessageRef) {
+        run.currentAssistantMessageRef = undefined
       }
 
       newState.runs.set(runId, run)
@@ -240,8 +374,18 @@ function processEvent(
 
       const run = getOrCreateRun(runId)
       run.lastSeq = seq
+      const targetRef = event.messageId ?? run.currentAssistantMessageRef
+
       if (event.textDelta) {
-        run.assistantMessage = (run.assistantMessage ?? '') + event.textDelta
+        upsertAssistantSegment(run, {
+          id: targetRef,
+          seq,
+          text: event.textDelta,
+          mode: 'append',
+        })
+        if (targetRef === undefined && run.activeAssistantSegmentId !== undefined) {
+          run.currentAssistantMessageRef = run.activeAssistantSegmentId
+        }
       }
 
       if (event.contentBlocks) {
@@ -251,7 +395,15 @@ function processEvent(
           .join('')
 
         if (textContent) {
-          run.assistantMessage = textContent
+          upsertAssistantSegment(run, {
+            id: targetRef,
+            seq,
+            text: textContent,
+            mode: 'replace',
+          })
+          if (targetRef === undefined && run.activeAssistantSegmentId !== undefined) {
+            run.currentAssistantMessageRef = run.activeAssistantSegmentId
+          }
         }
       }
 
@@ -269,9 +421,18 @@ function processEvent(
       run.status = 'completed'
       run.completedAt = Date.now()
       const completedMessage = extractTurnEndAssistantMessage(event.payload)
-      if (completedMessage !== undefined) {
-        run.assistantMessage = completedMessage
+      if (completedMessage !== undefined && run.assistantSegments.length === 0) {
+        upsertAssistantSegment(run, {
+          id: undefined,
+          seq,
+          text: completedMessage,
+          mode: 'set',
+          close: true,
+        })
+      } else {
+        closeActiveSegment(run)
       }
+      run.currentAssistantMessageRef = undefined
       newState.runs.set(runId, run)
       break
     }
@@ -283,6 +444,7 @@ function processEvent(
 
       const run = getOrCreateRun(runId)
       run.lastSeq = seq
+      closeActiveSegment(run)
       const existingIndex = run.toolExecutions.findIndex(
         (tool) => tool.toolUseId === event.toolUseId
       )
@@ -527,9 +689,17 @@ export function runStateToFrame(run: RunState): RenderFrame {
     })
   }
 
-  const blocks: RenderFrame['blocks'] = timelineBlocks
+  const segmentBlocks: Array<{ seq: number; block: RenderFrame['blocks'][number] }> = []
+  for (const seg of run.assistantSegments) {
+    if (seg.text.length === 0) continue
+    segmentBlocks.push({
+      seq: seg.seq,
+      block: { t: 'markdown', md: seg.text },
+    })
+  }
+
+  const blocks: RenderFrame['blocks'] = [...timelineBlocks, ...segmentBlocks]
     .sort((left, right) => left.seq - right.seq)
-    .slice(0, 12)
     .map((entry) => entry.block)
 
   if (run.permissionRequest) {
@@ -546,9 +716,7 @@ export function runStateToFrame(run: RunState): RenderFrame {
     }
   }
 
-  if (run.assistantMessage) {
-    blocks.push({ t: 'markdown', md: run.assistantMessage })
-  } else if (phase === 'progress') {
+  if (segmentBlocks.length === 0 && phase === 'progress') {
     const runningTool = run.toolExecutions.find((tool) => tool.status === 'running')
     if (runningTool) {
       blocks.push({

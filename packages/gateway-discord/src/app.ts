@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
 import type { DeliveryRequest, InputIntent, InterfaceSessionRef } from 'acp-core'
-import { Client, Events, GatewayIntentBits, type Message } from 'discord.js'
+import { Client, Events, GatewayIntentBits, type Message, MessageType } from 'discord.js'
 
 import { mapDiscordMessageAttachments, resolveDiscordIngressContent } from './attachment-ingress.js'
 import { createDiscordAttachments, fetchMediaAttachments } from './attachments.js'
@@ -35,23 +35,20 @@ import {
   parseDiscordKeyword,
 } from './keywords.js'
 import { createLogger } from './logger.js'
-import {
-  type RenderOptions,
-  buildProgressBubble,
-  extractImagesFromFrame,
-  extractMediaRefsFromFrame,
-  renderFrameToDiscordContent,
-  splitIntoChunks,
-} from './render.js'
+import { type RenderOptions, extractImagesFromFrame, extractMediaRefsFromFrame } from './render.js'
 import { type RunState, SessionEventsManager } from './session-events-manager.js'
 import type {
   DeliveryStreamResponse,
   DiscordInterfaceBinding,
-  RenderBlock,
   RenderFrame,
   UiHandle,
 } from './types.js'
 import { createWebhookManager } from './webhooks.js'
+import {
+  type FinalDeliveryWritePlan,
+  buildProgressEditContent,
+  planFinalDeliveryWrite,
+} from './write-plan.js'
 
 const VIRTU_BOT_ID = optionalEnv('DISCORD_VIRTU_BOT_ID') ?? '1165644636807778414'
 
@@ -170,20 +167,6 @@ export function eventTimestampIsClaimable(input: {
   return input.pendingSince <= eventMs
 }
 
-function formatToolSummary(toolInput: Record<string, unknown>): string {
-  const truncate = (value: string, max: number) =>
-    value.length > max ? `${value.slice(0, max)}...` : value
-
-  for (const value of Object.values(toolInput)) {
-    if (typeof value === 'string' && value.length > 0) {
-      return `\`${truncate(value, 80)}\``
-    }
-  }
-
-  const json = JSON.stringify(toolInput)
-  return json.length > 2 ? truncate(json, 80) : ''
-}
-
 function errorField(error: unknown, key: 'status' | 'code'): unknown {
   return typeof error === 'object' && error !== null
     ? (error as Record<string, unknown>)[key]
@@ -212,6 +195,9 @@ type PendingPlaceholder = {
   pendingSince: number
   acpRunId?: string | undefined
   claimedHrcRunId?: string | undefined
+  expectedHrcRunId?: string | undefined
+  expectedHostSessionId?: string | undefined
+  expectedGeneration?: number | undefined
   identity?: DiscordAgentMessageIdentity | undefined
   promptPreview?: string | undefined
   pendingTimeout: ReturnType<typeof setTimeout>
@@ -254,6 +240,7 @@ type AcpRunLookupResponse = {
     hrcRunId?: string | undefined
     hostSessionId?: string | undefined
     runtimeId?: string | undefined
+    generation?: number | undefined
     errorCode?: string | undefined
     errorMessage?: string | undefined
   }
@@ -298,95 +285,6 @@ async function sleep(ms: number): Promise<void> {
 
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
-}
-
-function buildFinalFrame(
-  delivery: DeliveryRequest,
-  binding?: DiscordInterfaceBinding,
-  run?: RunState | undefined
-): RenderFrame {
-  const blocks: RenderBlock[] = []
-
-  if (run) {
-    const timelineBlocks: Array<{ seq: number; block: RenderBlock }> = []
-    for (const tool of run.toolExecutions) {
-      timelineBlocks.push({
-        seq: tool.seq,
-        block: {
-          t: 'tool',
-          toolName: tool.toolName,
-          summary: formatToolSummary(tool.input),
-          input: tool.input,
-          approved:
-            tool.status === 'completed' ? true : tool.status === 'failed' ? false : undefined,
-        },
-      })
-    }
-    for (const notice of run.noticeEntries) {
-      timelineBlocks.push({
-        seq: notice.seq,
-        block: {
-          t: 'notice',
-          level: notice.level,
-          message: notice.message,
-        },
-      })
-    }
-    blocks.push(
-      ...timelineBlocks.sort((left, right) => left.seq - right.seq).map((item) => item.block)
-    )
-  }
-
-  blocks.push({ t: 'markdown', md: delivery.body.text })
-
-  appendDeliveryAttachments(blocks, delivery)
-
-  return {
-    runId: delivery.runId ?? delivery.deliveryRequestId,
-    projectId: binding?.projectId ?? delivery.sessionRef.scopeRef,
-    phase: 'final',
-    blocks,
-    updatedAt: Date.now(),
-  }
-}
-
-function buildCompactCompositeFinalFrame(
-  delivery: DeliveryRequest,
-  binding: DiscordInterfaceBinding | undefined,
-  run: RunState,
-  identity: DiscordAgentMessageIdentity,
-  maxChars: number
-): RenderFrame {
-  const historyFrame = buildFinalFrame(delivery, binding, run)
-  const prefixBudget = `-# ${identity.subtext}\n`.length
-  const content = buildProgressBubble(historyFrame, {
-    maxChars: Math.max(1, Math.min(maxChars, 1900) - prefixBudget),
-    maxLines: 12,
-  })
-  const blocks: RenderBlock[] = [{ t: 'markdown', md: content }]
-  appendDeliveryAttachments(blocks, delivery)
-  return {
-    ...historyFrame,
-    blocks,
-  }
-}
-
-function appendDeliveryAttachments(blocks: RenderBlock[], delivery: DeliveryRequest): void {
-  if (!delivery.body.attachments) {
-    return
-  }
-
-  for (const attachment of delivery.body.attachments) {
-    const url = attachment.url ?? attachment.path
-    if (!url) continue
-    blocks.push({
-      t: 'media_ref',
-      url,
-      ...(attachment.contentType ? { mimeType: attachment.contentType } : {}),
-      ...(attachment.filename ? { filename: attachment.filename } : {}),
-      ...(attachment.alt ? { alt: attachment.alt } : {}),
-    })
-  }
 }
 
 export class GatewayDiscordApp {
@@ -552,6 +450,13 @@ export class GatewayDiscordApp {
       return
     }
 
+    if (
+      message.type === MessageType.ThreadCreated ||
+      message.type === MessageType.ThreadStarterMessage
+    ) {
+      return
+    }
+
     if (message.author.bot) {
       if (message.author.id === VIRTU_BOT_ID) {
         // test bot allowed through
@@ -695,6 +600,7 @@ export class GatewayDiscordApp {
     if (pendingPlaceholder) {
       if (payload.runId !== undefined) {
         pendingPlaceholder.acpRunId = payload.runId
+        await this.refreshPendingPlaceholderCorrelation(pendingPlaceholder)
         this.placeholdersByRunId.set(payload.runId, pendingPlaceholder)
       } else if (
         payload.admission?.kind === 'accepted_in_flight' ||
@@ -1296,6 +1202,53 @@ export class GatewayDiscordApp {
     return `ACP run ${runId} produced no HRC progress within ${elapsedSeconds}s; current ACP status is ${status ?? 'unknown'}.`
   }
 
+  private async refreshPendingPlaceholderCorrelation(
+    placeholder: PendingPlaceholder
+  ): Promise<void> {
+    if (placeholder.acpRunId === undefined) {
+      return
+    }
+
+    let payload: AcpRunLookupResponse | undefined
+    try {
+      const response = await this.fetchImpl(
+        `${this.acpBaseUrl}/v1/runs/${encodeURIComponent(placeholder.acpRunId)}`
+      )
+      if (!response.ok) {
+        return
+      }
+      payload = (await response.json()) as AcpRunLookupResponse
+    } catch {
+      return
+    }
+
+    const run = payload.run
+    const queueStatus = payload.queue?.status
+    if (run?.status === 'queued' || queueStatus === 'queued' || queueStatus === 'dispatching') {
+      placeholder.expectedHrcRunId = undefined
+      placeholder.expectedHostSessionId = undefined
+      placeholder.expectedGeneration = undefined
+      return
+    }
+
+    if (typeof run?.hrcRunId === 'string' && run.hrcRunId.trim().length > 0) {
+      placeholder.expectedHrcRunId = run.hrcRunId
+      return
+    }
+
+    if (
+      typeof run?.hostSessionId === 'string' &&
+      run.hostSessionId.trim().length > 0 &&
+      typeof run.runtimeId === 'string' &&
+      run.runtimeId.trim().length > 0
+    ) {
+      placeholder.expectedHostSessionId = run.hostSessionId
+      if (typeof run.generation === 'number' && Number.isFinite(run.generation)) {
+        placeholder.expectedGeneration = run.generation
+      }
+    }
+  }
+
   private ensureLiveSubscriptionForSessionRef(sessionRef: string, projectId: string): void {
     if (this.liveSubscriptionsBySessionRef.has(sessionRef)) {
       return
@@ -1366,6 +1319,7 @@ export class GatewayDiscordApp {
     const placeholder = pending.find(
       (candidate) =>
         candidate.claimedHrcRunId === undefined &&
+        this.eventMatchesPendingPlaceholder(candidate, event, hrcRunId) &&
         eventTimestampIsClaimable({ pendingSince: candidate.pendingSince, eventTs: event.ts })
     )
     if (placeholder === undefined) {
@@ -1380,6 +1334,39 @@ export class GatewayDiscordApp {
       data: { sessionRef: subscription.sessionRef, acpRunId: placeholder.acpRunId },
     })
     return placeholder
+  }
+
+  private eventMatchesPendingPlaceholder(
+    placeholder: PendingPlaceholder,
+    event: Parameters<typeof adaptHrcLifecycleEvent>[0] & {
+      hostSessionId?: string | undefined
+      generation?: number | undefined
+    },
+    hrcRunId: string
+  ): boolean {
+    if (placeholder.expectedHrcRunId !== undefined) {
+      return placeholder.expectedHrcRunId === hrcRunId
+    }
+
+    if (placeholder.expectedHostSessionId !== undefined) {
+      if (event.hostSessionId !== placeholder.expectedHostSessionId) {
+        return false
+      }
+      return (
+        placeholder.expectedGeneration === undefined ||
+        event.generation === placeholder.expectedGeneration
+      )
+    }
+
+    // Once ACP has admitted an input as a concrete run, do not let the
+    // placeholder attach to arbitrary later events from an already-active
+    // runtime. Queued runs have no HRC correlation yet and will be finalized by
+    // the delivery path when their own run completes.
+    if (placeholder.acpRunId !== undefined) {
+      return false
+    }
+
+    return true
   }
 
   private findPlaceholderByHrcRunId(hrcRunId: string): PendingPlaceholder | undefined {
@@ -1428,15 +1415,21 @@ export class GatewayDiscordApp {
 
     // Resolve agent identity from the delivery's sessionRef
     const identity = resolveMessageIdentity(delivery.sessionRef)
-    const frame = liveRunState
-      ? buildCompactCompositeFinalFrame(delivery, binding, liveRunState, identity, this.maxChars)
-      : buildFinalFrame(delivery, binding)
+    const messageIdentity = placeholder?.identity ?? identity
+    const plan = planFinalDeliveryWrite({
+      delivery,
+      binding,
+      run: liveRunState,
+      identity: messageIdentity,
+      maxChars: this.maxChars,
+      renderOptions: this.renderOptions,
+    })
 
     if (placeholder) {
       try {
         if (placeholder.ui.webhookId) {
           // Webhook-created placeholder: edit + overflow via the same webhook
-          await this.renderViaWebhook(placeholder.ui, frame, placeholder.identity ?? identity)
+          await this.renderViaWebhook(placeholder.ui, plan, messageIdentity)
         } else {
           // Placeholder exists but has no webhookId (should not happen for agent-originated
           // content, but can occur if placeholder was created before webhook support).
@@ -1473,28 +1466,22 @@ export class GatewayDiscordApp {
       throw new Error(`Unsupported Discord conversationRef: ${delivery.conversationRef}`)
     }
 
-    const rawContent = renderFrameToDiscordContent(frame, this.maxChars)
-    // Build full prefixed content FIRST so the subtext prefix is budgeted into
-    // chunk sizes, preventing BASE_TYPE_MAX_LENGTH overflow (smoke issue 4).
-    const prefixedContent = `-# ${identity.subtext}\n${rawContent}`
-    const chunks = splitIntoChunks(prefixedContent, this.maxChars, this.renderOptions)
-
     // Extract image and media attachments from the frame
-    const imageAttachments = extractImagesFromFrame(frame)
-    const mediaRefs = extractMediaRefsFromFrame(frame)
+    const imageAttachments = extractImagesFromFrame(plan.frame)
+    const mediaRefs = extractMediaRefsFromFrame(plan.frame)
     const mediaFiles = await fetchMediaAttachments(mediaRefs, undefined)
     const discordFiles = [...createDiscordAttachments(imageAttachments), ...mediaFiles]
     const filesPayload = discordFiles.length > 0 ? { files: discordFiles } : {}
 
-    for (let index = 0; index < chunks.length; index += 1) {
-      const isLastChunk = index === chunks.length - 1
+    for (let index = 0; index < plan.chunks.length; index += 1) {
+      const isLastChunk = index === plan.chunks.length - 1
       const chunkFiles = isLastChunk ? filesPayload : {}
-      const chunkContent = chunks[index] ?? ''
+      const chunkContent = plan.chunks[index] ?? ''
       try {
         await this.webhooks.send(targetChannelId, {
           content: chunkContent,
-          username: identity.agentId,
-          avatarURL: identity.avatarUrl,
+          username: messageIdentity.agentId,
+          avatarURL: messageIdentity.avatarUrl,
           ...chunkFiles,
         })
       } catch (error) {
@@ -1517,17 +1504,12 @@ export class GatewayDiscordApp {
       return { ok: false, rateLimited: false, webhookGone: false }
     }
 
-    const promptPreview = frame.title ?? 'Progress'
-    const phaseEmoji =
-      frame.phase === 'final'
-        ? '✅'
-        : frame.phase === 'error'
-          ? '❌'
-          : frame.phase === 'permission'
-            ? '🔐'
-            : '⏳'
-    const bubble = buildProgressBubble(frame, { maxChars: 1900, maxLines: 12 })
-    const content = `-# ${identity.subtext}\n${phaseEmoji} ${promptPreview}\n${bubble}`
+    const content = buildProgressEditContent({
+      frame,
+      identity,
+      maxChars: Math.min(this.maxChars, 2000),
+      maxLines: 12,
+    })
 
     try {
       await this.webhooks.editMessageOnce(ui.channelId, ui.id, ui.webhookId, {
@@ -1546,20 +1528,14 @@ export class GatewayDiscordApp {
 
   private async renderViaWebhook(
     ui: UiHandle & { kind: 'message' },
-    frame: RenderFrame,
+    plan: FinalDeliveryWritePlan,
     identity: DiscordAgentMessageIdentity
   ): Promise<void> {
     if (!ui.channelId) return
 
-    const rawContent = renderFrameToDiscordContent(frame, this.maxChars)
-    // Build full prefixed content FIRST so the subtext prefix is budgeted into
-    // chunk sizes, preventing BASE_TYPE_MAX_LENGTH overflow (smoke issue 4).
-    const prefixedContent = `-# ${identity.subtext}\n${rawContent}`
-    const chunks = splitIntoChunks(prefixedContent, this.maxChars, this.renderOptions)
-
     // Extract image and media attachments from the frame
-    const imageAttachments = extractImagesFromFrame(frame)
-    const mediaRefs = extractMediaRefsFromFrame(frame)
+    const imageAttachments = extractImagesFromFrame(plan.frame)
+    const mediaRefs = extractMediaRefsFromFrame(plan.frame)
     const mediaFiles = await fetchMediaAttachments(mediaRefs, undefined)
     const discordFiles = [...createDiscordAttachments(imageAttachments), ...mediaFiles]
     const filesPayload = discordFiles.length > 0 ? { files: discordFiles } : {}
@@ -1567,8 +1543,8 @@ export class GatewayDiscordApp {
     // Edit the placeholder message with the first chunk (prefix already included).
     // Use the explicit 4-arg editMessage(channelId, messageId, webhookId, payload)
     // so the webhook manager resolves the exact webhook that created the placeholder.
-    const firstChunk = chunks[0] || ''
-    const primaryFiles = chunks.length === 1 ? filesPayload : {}
+    const firstChunk = plan.chunks[0] || ''
+    const primaryFiles = plan.chunks.length === 1 ? filesPayload : {}
     await this.webhooks.editMessage(ui.channelId, ui.id, ui.webhookId ?? '', {
       content: firstChunk,
       username: identity.agentId,
@@ -1577,10 +1553,10 @@ export class GatewayDiscordApp {
     })
 
     // Send overflow chunks via the same webhook with the same identity
-    for (let i = 1; i < chunks.length; i++) {
-      const chunk = chunks[i]
+    for (let i = 1; i < plan.chunks.length; i++) {
+      const chunk = plan.chunks[i]
       if (!chunk) continue
-      const isLastChunk = i === chunks.length - 1
+      const isLastChunk = i === plan.chunks.length - 1
       const chunkFiles = isLastChunk ? filesPayload : {}
       await this.webhooks.send(ui.channelId, {
         content: chunk,

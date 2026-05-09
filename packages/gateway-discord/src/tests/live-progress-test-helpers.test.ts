@@ -156,7 +156,11 @@ export function createRateLimitError(): Error & { status: number; retryAfter: nu
   return error
 }
 
-export function createLiveProgressHarness(): LiveProgressHarness {
+export function createLiveProgressHarness(
+  options: {
+    interfaceMessageResponse?: (ingressCount: number) => Record<string, unknown>
+  } = {}
+): LiveProgressHarness {
   const channel = new FakeChannel('chan_live_progress')
   const client = new FakeClient()
   client.addChannel(channel)
@@ -208,12 +212,47 @@ export function createLiveProgressHarness(): LiveProgressHarness {
       expect(request.method).toBe('POST')
       ingressCount += 1
       return Response.json(
-        {
+        options.interfaceMessageResponse?.(ingressCount) ?? {
           inputAttemptId: 'ia_live_progress',
           runId: ingressCount === 1 ? 'run_live_progress' : `run_live_progress_${ingressCount}`,
+          hostSessionId: 'hsid_live_progress',
+          generation: 7,
         },
         { status: 201 }
       )
+    }
+
+    if (url.pathname.startsWith('/v1/runs/')) {
+      const runId = decodeURIComponent(url.pathname.slice('/v1/runs/'.length))
+      const hrcRunId =
+        runId === 'run_live_progress'
+          ? 'hrc_run_live_progress'
+          : `hrc_${runId.replace(/^run_/, 'run_')}`
+
+      if (runId === 'run_queued_future') {
+        return Response.json({
+          run: {
+            runId,
+            status: 'queued',
+            hrcRunId: null,
+            hostSessionId: 'hsid_live_progress',
+            runtimeId: null,
+            generation: 7,
+          },
+          queue: { status: 'queued', seq: 1 },
+        })
+      }
+
+      return Response.json({
+        run: {
+          runId,
+          status: 'running',
+          hrcRunId,
+          hostSessionId: 'hsid_live_progress',
+          runtimeId: 'rt_live_progress',
+          generation: 7,
+        },
+      })
     }
 
     if (url.pathname === '/v1/session-refs/events') {

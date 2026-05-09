@@ -18,7 +18,7 @@ function noticeEnvelope(seq: number, level: 'info' | 'warn' | 'error', message: 
 }
 
 describe('SessionEventsManager notice rendering', () => {
-  test('renders info/warn/error notices inline with icons and counts them in the 12-line cap', () => {
+  test('renders the latest notices inline and counts them in the 12-line cap', () => {
     const frames: RenderFrame[] = []
     const manager = new SessionEventsManager('gateway-test', (_projectId, _runId, frame) => {
       frames.push(frame)
@@ -44,9 +44,12 @@ describe('SessionEventsManager notice rendering', () => {
     }
 
     const content = renderFrameToDiscordContent(frames.at(-1) as RenderFrame, 2000)
-    expect(content).toContain('ℹ️ connected to live session stream')
-    expect(content).toContain('⚠️ tool output was compacted')
-    expect(content).toContain('❌ tool progress edit failed')
+    expect(content).toContain('_... +3 earlier tools_')
+    expect(content).not.toContain('ℹ️ connected to live session stream')
+    expect(content).not.toContain('⚠️ tool output was compacted')
+    expect(content).not.toContain('❌ tool progress edit failed')
+    expect(content).toContain('ℹ️ extra notice 0')
+    expect(content).toContain('ℹ️ extra notice 11')
 
     const visibleNoticeLines = content
       .split('\n')

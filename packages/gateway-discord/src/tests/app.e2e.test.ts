@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { MessageType } from 'discord.js'
 
 import type { DeliveryRequest } from 'acp-core'
 
@@ -499,6 +500,66 @@ describe('GatewayDiscordApp local e2e', () => {
     const webhook = [...threadChannel.webhooks.values()].find((w) => w.name === 'agent-pulpit')
     expect(webhook?.sent[0]?.content).toContain('cody@agent-spaces:thread-exact~main')
     expect(webhook?.sent[0]?.content).not.toContain('sparky@agent-spaces:parent')
+  })
+
+  test('ignores Discord thread-created system messages in bound parent channels', async () => {
+    const client = new FakeClient()
+    const captured: CapturedInterfaceMessage[] = []
+
+    const app = new GatewayDiscordApp({
+      acpBaseUrl: 'http://acp.test',
+      gatewayId: 'discord_prod',
+      client: client as never,
+      fetchImpl: createFetch(async (request) => {
+        const url = new URL(request.url)
+
+        if (url.pathname === '/v1/interface/bindings') {
+          return Response.json({
+            bindings: [
+              {
+                bindingId: 'ifb_parent_thread_created',
+                gatewayId: 'discord_prod',
+                conversationRef: 'channel:chan_parent',
+                scopeRef: 'agent:cody:project:agent-spaces:task:parent',
+                laneRef: 'main',
+                projectId: 'agent-spaces',
+                status: 'active',
+                createdAt: '2026-05-09T02:00:00.000Z',
+                updatedAt: '2026-05-09T02:00:00.000Z',
+              },
+            ],
+          })
+        }
+
+        if (url.pathname === '/v1/interface/messages') {
+          captured.push((await request.json()) as CapturedInterfaceMessage)
+          return Response.json({ inputAttemptId: 'ia_unexpected', runId: 'run_unexpected' })
+        }
+
+        if (url.pathname === '/v1/mobile/sessions') {
+          return Response.json({ sessions: [] })
+        }
+
+        return new Response('not found', { status: 404 })
+      }),
+    })
+
+    await app.refreshBindings()
+    await app.handleMessageCreate({
+      guildId: 'guild_1',
+      type: MessageType.ThreadCreated,
+      author: { id: '1165644636807778414', bot: true },
+      content: 'T-01389 app-server smoke',
+      attachments: { size: 0 },
+      channelId: 'chan_parent',
+      id: 'msg_thread_created',
+      channel: {
+        isThread: () => false,
+      },
+      reply: async () => undefined,
+    } as never)
+
+    expect(captured).toHaveLength(0)
   })
 
   test('ingresses a Discord message, reuses the placeholder, and acks delivery', async () => {

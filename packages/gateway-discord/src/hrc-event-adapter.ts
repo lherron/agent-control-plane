@@ -1,5 +1,5 @@
 import { admissionLabel } from 'acp-ops-projection'
-import type { Message, ToolResult } from 'spaces-runtime'
+import type { ContentBlock, Message, ToolResult } from 'spaces-runtime'
 import { createLogger } from './logger.js'
 import type { GatewaySessionEvent, SessionEventEnvelope } from './types.js'
 
@@ -122,6 +122,7 @@ function adaptAssistantMessage(payload: unknown): GatewaySessionEvent | undefine
   }
 
   const message = isRecord(payload['message']) ? payload['message'] : payload
+  const messageId = getString(payload, 'messageId')
   if (message['role'] !== 'assistant') {
     return undefined
   }
@@ -133,11 +134,61 @@ function adaptAssistantMessage(payload: unknown): GatewaySessionEvent | undefine
 
   return {
     type: 'message_end',
+    ...(messageId !== undefined ? { messageId } : {}),
     message: {
       role: 'assistant',
       content: content as Message['content'],
     },
     ...(getBoolean(payload, 'truncated') === true ? { truncated: true } : {}),
+  }
+}
+
+function adaptAssistantMessageStart(payload: unknown): GatewaySessionEvent | undefined {
+  if (!isRecord(payload)) {
+    return undefined
+  }
+
+  const message = isRecord(payload['message']) ? payload['message'] : undefined
+  if (message === undefined || message['role'] !== 'assistant') {
+    return undefined
+  }
+
+  const content = message['content']
+  if (typeof content !== 'string' && !Array.isArray(content)) {
+    return undefined
+  }
+
+  const messageId = getString(payload, 'messageId')
+  return {
+    type: 'message_start',
+    ...(messageId !== undefined ? { messageId } : {}),
+    message: {
+      role: 'assistant',
+      content: content as Message['content'],
+    },
+  }
+}
+
+function adaptAssistantMessageUpdate(payload: unknown): GatewaySessionEvent | undefined {
+  if (!isRecord(payload)) {
+    return undefined
+  }
+
+  const messageId = getString(payload, 'messageId')
+  const textDelta = getString(payload, 'textDelta')
+  const contentBlocks = Array.isArray(payload['contentBlocks'])
+    ? (payload['contentBlocks'] as ContentBlock[])
+    : undefined
+
+  if (textDelta === undefined && contentBlocks === undefined) {
+    return undefined
+  }
+
+  return {
+    type: 'message_update',
+    ...(messageId !== undefined ? { messageId } : {}),
+    ...(textDelta !== undefined ? { textDelta } : {}),
+    ...(contentBlocks !== undefined ? { contentBlocks } : {}),
   }
 }
 
@@ -173,6 +224,12 @@ export function adaptHrcLifecycleEvent(
     }
   } else {
     switch (event.eventKind) {
+      case 'message_start':
+        sessionEvent = adaptAssistantMessageStart(event.payload)
+        break
+      case 'message_update':
+        sessionEvent = adaptAssistantMessageUpdate(event.payload)
+        break
       case 'turn.tool_call':
       case 'sdk.tool_call':
       case 'tool_execution_start':
