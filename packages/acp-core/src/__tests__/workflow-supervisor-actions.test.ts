@@ -505,6 +505,23 @@ describe('workflow supervisor control actions', () => {
     )
   })
 
+  test('standalone AttachEvidence rejects supervisor runs without persisted attachEvidence capability', () => {
+    const { kernel, task } = createKernel()
+    startSupervisorRun(kernel, { launchRuns: true }, 'supervisor-run-attach-no-capability')
+
+    expectReject(
+      kernel.attachEvidence({
+        taskId: task.taskId,
+        actor: supervisor,
+        supervisorRunId: 'supervisor-run-attach-no-capability',
+        evidence: [{ kind: 'completion_note', ref: 'artifact://supervisor-note', summary: 'done' }],
+        idempotencyKey: 'supervisor-actions:evidence-provenance:no-attach-capability',
+      }),
+      'capability_not_granted'
+    )
+    expect(kernel.listEvidence(task.taskId)).toHaveLength(0)
+  })
+
   test('Escalate records an event and creates a canonical human review obligation effect', () => {
     const { kernel, task } = createKernel()
     startSupervisorRun(kernel, { escalate: true })

@@ -65,6 +65,39 @@ describe('standalone workflow evidence attach route', () => {
     })
   })
 
+  test('rejects supervisorRunId provenance when persisted run lacks attachEvidence capability', async () => {
+    await withWiredServer(async (fixture) => {
+      const { task } = await createEvidenceTask(fixture)
+      const startRun = await fixture.request({
+        method: 'POST',
+        path: '/v1/workflow-supervisor-runs',
+        body: {
+          taskId: task.taskId,
+          runId: 'supervisor-run-rex-no-attach',
+          supervisor: { kind: 'agent', id: 'rex' },
+          autonomy: 'managed',
+          capabilities: { launchRuns: true },
+          idempotencyKey: 'evidence-attach:no-attach-capability:start',
+          actor: { agentId: 'rex' },
+        },
+      })
+      expect(startRun.status).toBe(200)
+
+      const response = await attachEvidence(fixture, task.taskId, {
+        actor: { kind: 'agent', id: 'rex' },
+        supervisorRunId: 'supervisor-run-rex-no-attach',
+        evidence: [{ kind: 'completion_note', ref: 'artifact://supervisor', summary: 'done' }],
+        expectedTaskVersion: 0,
+        idempotencyKey: 'evidence-attach:no-attach-capability',
+      })
+      const body = await fixture.json<{ error: { code: string } }>(response)
+
+      expect(response.status).toBe(403)
+      expect(body.error.code).toBe('capability_not_granted')
+      expect(fixture.stateStore.workflowRuntime.loadSnapshot().evidence).toHaveLength(0)
+    })
+  })
+
   test('role-bound actor attaches evidence with role and run provenance', async () => {
     await withWiredServer(async (fixture) => {
       const { task } = await createEvidenceTask(fixture)
