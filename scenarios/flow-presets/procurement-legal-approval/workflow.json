@@ -1,0 +1,156 @@
+{
+  "id": "procurement_legal_approval",
+  "version": 1,
+  "kind": "approval",
+  "initial": { "status": "open", "phase": "intake" },
+  "phases": {
+    "intake": { "objective": "Capture the request packet and route to procurement." },
+    "vendor_outreach": { "objective": "Procurement contacts the vendor for the response packet." },
+    "awaiting_vendor": { "objective": "Holding state while waiting on the vendor's response." },
+    "legal_review": { "objective": "Legal reviews the vendor response and produces a legal_review record." },
+    "final_approval": { "objective": "Procurement issues the final approval decision." }
+  },
+  "outcomes": {
+    "approved": {},
+    "rejected": {},
+    "cancelled": {}
+  },
+  "roles": {
+    "requester": {
+      "description": "Submits the request and the request_packet.",
+      "binding": "required"
+    },
+    "procurement_lead": {
+      "description": "Drives vendor outreach and final approval.",
+      "binding": "required",
+      "mustDifferFrom": ["requester"]
+    },
+    "legal_reviewer": {
+      "description": "Independent legal sign-off.",
+      "binding": "required",
+      "mustDifferFrom": ["requester", "procurement_lead"]
+    },
+    "vendor_proxy": {
+      "description": "Represents the vendor's response on the platform side.",
+      "binding": "optional"
+    }
+  },
+  "evidenceKinds": {
+    "request_packet": { "requiredFields": ["summary"] },
+    "vendor_response": { "requiredFields": ["summary"] },
+    "legal_review": { "requiredFields": ["summary"] },
+    "approval_record": { "requiredFields": ["summary"] }
+  },
+  "obligationKinds": {
+    "vendor_response_pending": {
+      "description": "Holds workflow until vendor returns the response packet.",
+      "blockingDefault": true,
+      "ownerRoles": ["vendor_proxy"],
+      "allowedSatisfactionEvidence": ["vendor_response"]
+    },
+    "legal_review_pending": {
+      "description": "Holds workflow until legal completes its review.",
+      "blockingDefault": true,
+      "ownerRoles": ["legal_reviewer"],
+      "allowedSatisfactionEvidence": ["legal_review"]
+    }
+  },
+  "transitions": {
+    "submit_request": {
+      "id": "submit_request",
+      "label": "Submit request",
+      "from": { "status": "open", "phase": "intake" },
+      "to": { "status": "active", "phase": "intake" },
+      "by": ["requester"],
+      "requires": [{ "type": "evidence", "kinds": ["request_packet"], "mode": "all" }]
+    },
+    "route_to_vendor": {
+      "id": "route_to_vendor",
+      "label": "Route to vendor outreach",
+      "from": { "status": "active", "phase": "intake" },
+      "to": { "status": "active", "phase": "vendor_outreach" },
+      "by": ["procurement_lead"]
+    },
+    "wait_for_vendor": {
+      "id": "wait_for_vendor",
+      "label": "Wait for vendor response",
+      "from": { "status": "active", "phase": "vendor_outreach" },
+      "to": { "status": "waiting", "phase": "awaiting_vendor" },
+      "by": ["procurement_lead"],
+      "effects": [
+        {
+          "type": "create_obligation",
+          "kind": "vendor_response_pending",
+          "ownerRole": "vendor_proxy",
+          "blocking": true
+        },
+        {
+          "type": "start_timer",
+          "duration": "P5D",
+          "reason": "Escalate procurement if vendor has not responded in 5 business days"
+        }
+      ]
+    },
+    "resume_legal_review": {
+      "id": "resume_legal_review",
+      "label": "Resume into legal review",
+      "from": { "status": "waiting", "phase": "awaiting_vendor" },
+      "to": { "status": "active", "phase": "legal_review" },
+      "by": ["legal_reviewer"],
+      "requires": [
+        { "type": "obligation_satisfied", "kind": "vendor_response_pending" },
+        { "type": "evidence", "kinds": ["vendor_response"], "mode": "all" },
+        { "type": "sod", "actingRole": "legal_reviewer", "notSameAs": ["requester", "procurement_lead"] }
+      ],
+      "effects": [
+        {
+          "type": "create_obligation",
+          "kind": "legal_review_pending",
+          "ownerRole": "legal_reviewer",
+          "blocking": true
+        }
+      ]
+    },
+    "complete_legal_review": {
+      "id": "complete_legal_review",
+      "label": "Complete legal review",
+      "from": { "status": "active", "phase": "legal_review" },
+      "to": { "status": "active", "phase": "final_approval" },
+      "by": ["procurement_lead"],
+      "requires": [
+        { "type": "obligation_satisfied", "kind": "legal_review_pending" },
+        { "type": "evidence", "kinds": ["legal_review"], "mode": "all" },
+        { "type": "sod", "actingRole": "procurement_lead", "notSameAs": ["requester", "legal_reviewer"] }
+      ]
+    },
+    "approve": {
+      "id": "approve",
+      "label": "Approve",
+      "from": { "status": "active", "phase": "final_approval" },
+      "to": { "status": "closed", "outcome": "approved" },
+      "by": ["procurement_lead"],
+      "requires": [
+        { "type": "evidence", "kinds": ["approval_record"], "mode": "all" },
+        { "type": "sod", "actingRole": "procurement_lead", "notSameAs": ["requester", "legal_reviewer"] }
+      ]
+    },
+    "reject": {
+      "id": "reject",
+      "label": "Reject",
+      "from": { "status": "active", "phase": "final_approval" },
+      "to": { "status": "closed", "outcome": "rejected" },
+      "by": ["procurement_lead"],
+      "requires": [
+        { "type": "evidence", "kinds": ["approval_record"], "mode": "all" },
+        { "type": "sod", "actingRole": "procurement_lead", "notSameAs": ["requester", "legal_reviewer"] }
+      ],
+      "supervisorBypass": true
+    }
+  },
+  "supervisor": {
+    "recovery": {
+      "onMissingEvidence": { "prefer": ["create_obligation", "request_human_input"] },
+      "onTimerElapsed": { "prefer": ["request_human_input", "propose_workflow_patch"] }
+    }
+  }
+}

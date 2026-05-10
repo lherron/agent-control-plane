@@ -9,6 +9,7 @@ import { RunRepo } from './repos/run-repo.js'
 import { SessionAdmissionSequenceRepo } from './repos/session-admission-sequence-repo.js'
 import type { RepoContext } from './repos/shared.js'
 import { TransitionOutboxRepo } from './repos/transition-outbox-repo.js'
+import { WorkflowRuntimeRepo } from './repos/workflow-runtime-repo.js'
 import Database, { type SqliteDatabase } from './sqlite.js'
 
 export interface OpenAcpStateStoreOptions {
@@ -24,6 +25,7 @@ export interface AcpStateStore {
   readonly inputQueue: InputQueueRepo
   readonly sessionAdmissionSequences: SessionAdmissionSequenceRepo
   readonly transitionOutbox: TransitionOutboxRepo
+  readonly workflowRuntime: WorkflowRuntimeRepo
   runInTransaction<T>(fn: (store: AcpStateStore) => T): T
   close(): void
 }
@@ -175,6 +177,172 @@ function initializeSchema(sqlite: SqliteDatabase): void {
 
     CREATE INDEX IF NOT EXISTS transition_outbox_status_idx
       ON transition_outbox (status, created_at);
+
+    CREATE TABLE IF NOT EXISTS workflow_definitions (
+      id TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      hash TEXT NOT NULL,
+      definition_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (id, version)
+    );
+
+    CREATE TABLE IF NOT EXISTS workflow_tasks (
+      task_id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      workflow_id TEXT NOT NULL,
+      workflow_version INTEGER NOT NULL,
+      workflow_hash TEXT NOT NULL,
+      state_json TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      goal TEXT NOT NULL,
+      risk TEXT,
+      facts_json TEXT,
+      role_bindings_json TEXT NOT NULL,
+      supervisor_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS workflow_evidence (
+      evidence_id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      ref TEXT NOT NULL,
+      summary TEXT,
+      data_json TEXT,
+      actor_json TEXT,
+      role TEXT,
+      run_id TEXT,
+      participant_run_id TEXT,
+      supervisor_run_id TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS workflow_obligations (
+      obligation_id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      owner_role TEXT,
+      summary TEXT NOT NULL,
+      blocking INTEGER NOT NULL CHECK (blocking IN (0, 1)),
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      satisfied_at TEXT,
+      satisfaction_evidence_ids_json TEXT,
+      waived_at TEXT,
+      waiver_reason TEXT,
+      waiver_evidence_refs_json TEXT,
+      cancelled_at TEXT,
+      cancel_reason TEXT,
+      expired_at TEXT,
+      expire_reason TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS workflow_events (
+      event_id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      workflow_id TEXT NOT NULL,
+      workflow_version INTEGER NOT NULL,
+      workflow_hash TEXT NOT NULL,
+      type TEXT NOT NULL,
+      actor_json TEXT NOT NULL,
+      run_id TEXT,
+      supervisor_run_id TEXT,
+      participant_run_id TEXT,
+      observed_task_version INTEGER NOT NULL,
+      next_task_version INTEGER,
+      context_hash TEXT,
+      idempotency_key TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS workflow_effect_intents (
+      effect_id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      source_event_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL UNIQUE,
+      state TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS workflow_participant_runs (
+      run_id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      workflow_json TEXT NOT NULL,
+      actor_json TEXT NOT NULL,
+      role TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'launched',
+      parent_supervisor_run_id TEXT,
+      task_version_at_start INTEGER NOT NULL,
+      context_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS workflow_supervisor_runs (
+      run_id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      workflow_json TEXT NOT NULL,
+      supervisor_json TEXT NOT NULL,
+      autonomy TEXT NOT NULL,
+      capabilities_json TEXT NOT NULL,
+      harness_json TEXT,
+      task_version_at_start INTEGER NOT NULL,
+      context_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      paused INTEGER NOT NULL DEFAULT 0,
+      paused_reason TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS workflow_anomalies (
+      anomaly_id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      workflow_json TEXT NOT NULL,
+      supervisor_run_id TEXT,
+      category TEXT NOT NULL,
+      state_at_observation_json TEXT NOT NULL,
+      task_version INTEGER NOT NULL,
+      summary TEXT NOT NULL,
+      proposed_recovery TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS workflow_patch_proposals (
+      proposal_id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      base_workflow_json TEXT NOT NULL,
+      proposed_version INTEGER,
+      source_anomaly_ids_json TEXT NOT NULL,
+      patch_kind TEXT NOT NULL,
+      patch_json TEXT NOT NULL,
+      rationale_summary TEXT NOT NULL,
+      status TEXT NOT NULL,
+      created_by_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS workflow_idempotency_records (
+      idempotency_key TEXT PRIMARY KEY,
+      fingerprint TEXT NOT NULL,
+      result_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS workflow_context_hashes (
+      task_id TEXT NOT NULL,
+      context_hash TEXT NOT NULL,
+      PRIMARY KEY (task_id, context_hash)
+    );
+
+    CREATE TABLE IF NOT EXISTS workflow_runtime_meta (
+      key TEXT PRIMARY KEY,
+      value_json TEXT NOT NULL
+    );
   `)
 }
 
@@ -273,6 +441,17 @@ function migrateTransitionOutboxActorColumns(sqlite: SqliteDatabase): void {
            actor_id = CASE WHEN actor_id = '' THEN 'acp-local' ELSE actor_id END
      WHERE actor_kind = '' OR actor_id = ''
   `)
+}
+
+function migrateWorkflowObligationLifecycleColumns(sqlite: SqliteDatabase): void {
+  const columns = listTableColumns(sqlite, 'workflow_obligations')
+  addColumnIfMissing(sqlite, 'workflow_obligations', columns, 'waived_at', 'TEXT')
+  addColumnIfMissing(sqlite, 'workflow_obligations', columns, 'waiver_reason', 'TEXT')
+  addColumnIfMissing(sqlite, 'workflow_obligations', columns, 'waiver_evidence_refs_json', 'TEXT')
+  addColumnIfMissing(sqlite, 'workflow_obligations', columns, 'cancelled_at', 'TEXT')
+  addColumnIfMissing(sqlite, 'workflow_obligations', columns, 'cancel_reason', 'TEXT')
+  addColumnIfMissing(sqlite, 'workflow_obligations', columns, 'expired_at', 'TEXT')
+  addColumnIfMissing(sqlite, 'workflow_obligations', columns, 'expire_reason', 'TEXT')
 }
 
 function getCreateTableSql(sqlite: SqliteDatabase, tableName: string): string {
@@ -472,6 +651,7 @@ function migrateLegacySchema(sqlite: SqliteDatabase): void {
     migrateRunsActorColumns(sqlite)
     migrateInputAttemptsActorColumns(sqlite)
     migrateTransitionOutboxActorColumns(sqlite)
+    migrateWorkflowObligationLifecycleColumns(sqlite)
   })()
   rebuildRunsForQueuedStatus(sqlite)
   rebuildInputAttemptsForNullableRun(sqlite)
@@ -507,6 +687,7 @@ export function openAcpStateStore(options: OpenAcpStateStoreOptions): AcpStateSt
     inputQueue: new InputQueueRepo(context),
     sessionAdmissionSequences: new SessionAdmissionSequenceRepo(context),
     transitionOutbox: new TransitionOutboxRepo(context),
+    workflowRuntime: new WorkflowRuntimeRepo(context),
     runInTransaction<T>(fn: (activeStore: AcpStateStore) => T): T {
       return sqlite.transaction(() => fn(store))()
     },

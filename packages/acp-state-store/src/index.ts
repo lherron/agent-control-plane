@@ -7,6 +7,7 @@ export { InputQueueRepo } from './repos/input-queue-repo.js'
 export { RunRepo } from './repos/run-repo.js'
 export { SessionAdmissionSequenceRepo } from './repos/session-admission-sequence-repo.js'
 export { TransitionOutboxRepo } from './repos/transition-outbox-repo.js'
+export { WorkflowRuntimeRepo } from './repos/workflow-runtime-repo.js'
 export { InputAttemptConflictError } from './types.js'
 export type {
   AppendTransitionOutboxInput,

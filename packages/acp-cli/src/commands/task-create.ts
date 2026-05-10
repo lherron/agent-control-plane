@@ -1,11 +1,12 @@
-import type { RiskClass } from 'acp-core'
+import type { ActorRef } from 'acp-core'
 
 import { CliUsageError } from '../cli-runtime.js'
-import { renderCreatedTask } from '../output/task-render.js'
+import { renderCreatedWorkflowTask } from '../output/task-render.js'
 import { parseRoleAssignment } from '../roles.js'
 import {
   hasFlag,
   parseArgs,
+  parseCommaList,
   parseIntegerValue,
   readMultiStringFlag,
   readStringFlag,
@@ -24,24 +25,68 @@ import {
   resolveServerUrl,
 } from './shared.js'
 
-const ALLOWED_RISK_CLASSES = new Set<RiskClass>(['low', 'medium', 'high'])
-const ALLOWED_KINDS = new Set(['task', 'bug', 'spike', 'chore'])
+function normalizeActorId(raw: string): string {
+  const trimmed = raw.trim()
+  if (trimmed.startsWith('agent:')) {
+    return trimmed.slice('agent:'.length)
+  }
+  return trimmed
+}
 
-function parseRoleMap(values: string[]): Record<string, string> {
-  const roleMap: Record<string, string> = {}
-  for (const value of values) {
+function parseWorkflowRef(value: string): { id: string; version: number } {
+  const at = value.lastIndexOf('@')
+  if (at <= 0 || at === value.length - 1) {
+    throw new CliUsageError('--workflow must use id@version, for example basic@1')
+  }
+  return {
+    id: value.slice(0, at),
+    version: parseIntegerValue('--workflow', value.slice(at + 1), { min: 1 }),
+  }
+}
+
+function parseBindAssignment(raw: string): { role: string; actor: ActorRef } {
+  const separator = raw.indexOf('=')
+  if (separator <= 0 || separator === raw.length - 1) {
+    throw new CliUsageError(`invalid --bind assignment: ${raw}`)
+  }
+  const role = raw.slice(0, separator).trim().toLowerCase().replaceAll('-', '_')
+  const actorRaw = raw.slice(separator + 1).trim()
+  if (actorRaw.length === 0) {
+    throw new CliUsageError(`invalid --bind assignment: ${raw}`)
+  }
+  const colonIndex = actorRaw.indexOf(':')
+  if (colonIndex > 0 && colonIndex < actorRaw.length - 1) {
+    return {
+      role,
+      actor: {
+        kind: actorRaw.slice(0, colonIndex) as ActorRef['kind'],
+        id: actorRaw.slice(colonIndex + 1),
+      },
+    }
+  }
+  return { role, actor: { kind: 'agent', id: actorRaw } }
+}
+
+function parseRoleBindings(
+  roleValues: string[],
+  bindValues: string[]
+): Record<string, ActorRef | null> {
+  const bindings: Record<string, ActorRef | null> = {}
+  for (const value of roleValues) {
     const assignment = parseRoleAssignment(value)
-    if (roleMap[assignment.role] !== undefined) {
+    if (bindings[assignment.role] !== undefined) {
       throw new CliUsageError(`duplicate role assignment for ${assignment.role}`)
     }
-    roleMap[assignment.role] = assignment.agentId
+    bindings[assignment.role] = { kind: 'agent', id: assignment.agentId }
   }
-
-  if (roleMap['implementer'] === undefined) {
-    throw new CliUsageError('create requires --role implementer:<agentId>')
+  for (const value of bindValues) {
+    const assignment = parseBindAssignment(value)
+    if (bindings[assignment.role] !== undefined) {
+      throw new CliUsageError(`duplicate role assignment for ${assignment.role}`)
+    }
+    bindings[assignment.role] = assignment.actor
   }
-
-  return roleMap
+  return bindings
 }
 
 export async function runTaskCreateCommand(
@@ -51,49 +96,75 @@ export async function runTaskCreateCommand(
   const parsed = parseArgs(args, {
     booleanFlags: ['--json'],
     stringFlags: [
-      '--preset',
-      '--preset-version',
-      '--risk-class',
+      '--workflow',
+      '--risk',
       '--project',
       '--actor',
-      '--kind',
+      '--as',
+      '--goal',
+      '--idempotency-key',
       '--meta',
       '--server',
+      '--task-id',
+      '--supervisor',
+      '--supervisor-autonomy',
+      '--supervisor-capability',
     ],
-    multiStringFlags: ['--role'],
+    multiStringFlags: ['--role', '--bind'],
   })
   requireNoPositionals(parsed)
 
   const env = resolveEnv(deps)
-  const actorAgentId = requireActorAgentId(readStringFlag(parsed, '--actor'), env)
-  const serverUrl = resolveServerUrl(readStringFlag(parsed, '--server'), env)
-  const workflowPreset = requireStringFlag(parsed, '--preset')
-  const presetVersion = parseIntegerValue(
-    '--preset-version',
-    requireStringFlag(parsed, '--preset-version'),
-    { min: 1 }
+  const asValue = readStringFlag(parsed, '--as')
+  const actorValue = readStringFlag(parsed, '--actor')
+  const rawActor = asValue ?? actorValue
+  const actorAgentId = requireActorAgentId(
+    rawActor !== undefined ? normalizeActorId(rawActor) : undefined,
+    env
   )
-  const riskClass = requireStringFlag(parsed, '--risk-class') as RiskClass
-  if (!ALLOWED_RISK_CLASSES.has(riskClass)) {
-    throw new CliUsageError('--risk-class must be one of: low, medium, high')
-  }
-
-  const kind = readStringFlag(parsed, '--kind') ?? 'task'
-  if (!ALLOWED_KINDS.has(kind)) {
-    throw new CliUsageError('--kind must be one of: task, bug, spike, chore')
-  }
-
+  const serverUrl = resolveServerUrl(readStringFlag(parsed, '--server'), env)
   const client = getClientFactory(deps)({ serverUrl, actorAgentId })
+
+  const supervisorValue = readStringFlag(parsed, '--supervisor')
+  const supervisorAutonomy = readStringFlag(parsed, '--supervisor-autonomy')
+  const supervisorCapabilityCsv = readStringFlag(parsed, '--supervisor-capability')
+
   const response = await client.createTask({
     actorAgentId,
     projectId: requireStringFlag(parsed, '--project'),
-    workflowPreset,
-    presetVersion,
-    riskClass,
-    kind,
-    roleMap: parseRoleMap(readMultiStringFlag(parsed, '--role')),
+    workflow: parseWorkflowRef(requireStringFlag(parsed, '--workflow')),
+    goal: requireStringFlag(parsed, '--goal'),
+    ...(readStringFlag(parsed, '--risk') !== undefined
+      ? { risk: readStringFlag(parsed, '--risk') }
+      : {}),
+    roleBindings: parseRoleBindings(
+      readMultiStringFlag(parsed, '--role'),
+      readMultiStringFlag(parsed, '--bind')
+    ),
+    idempotencyKey: requireStringFlag(parsed, '--idempotency-key'),
     ...(maybeParseMetaFlag(parsed) !== undefined ? { meta: maybeParseMetaFlag(parsed) } : {}),
+    ...(readStringFlag(parsed, '--task-id') !== undefined
+      ? { taskId: readStringFlag(parsed, '--task-id') }
+      : {}),
+    ...(supervisorValue !== undefined
+      ? {
+          supervisor: {
+            actor: { kind: 'agent' as const, id: normalizeActorId(supervisorValue) },
+            autonomy: supervisorAutonomy ?? 'managed',
+            capabilities:
+              supervisorCapabilityCsv !== undefined
+                ? Object.fromEntries(
+                    parseCommaList(supervisorCapabilityCsv, '--supervisor-capability').map(
+                      (cap) => [cap, true]
+                    )
+                  )
+                : {},
+          },
+        }
+      : {}),
   })
 
-  return hasFlag(parsed, '--json') ? asJson(response) : asText(renderCreatedTask(response.task))
+  return hasFlag(parsed, '--json')
+    ? asJson(response)
+    : asText(renderCreatedWorkflowTask(response.task))
 }

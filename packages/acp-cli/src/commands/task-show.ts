@@ -1,5 +1,4 @@
-import { renderTask } from '../output/task-render.js'
-import { normalizeRoleName } from '../roles.js'
+import { renderWorkflowTask } from '../output/task-render.js'
 import {
   hasFlag,
   parseArgs,
@@ -31,15 +30,13 @@ export async function runTaskShowCommand(
   const env = resolveEnv(deps)
   const actorAgentId = resolveOptionalActorAgentId(readStringFlag(parsed, '--actor'), env)
   const serverUrl = resolveServerUrl(readStringFlag(parsed, '--server'), env)
-  const role = readStringFlag(parsed, '--role')
   const client = getClientFactory(deps)({
     serverUrl,
     ...(actorAgentId !== undefined ? { actorAgentId } : {}),
   })
   const response = await client.getTask({
     taskId: requireStringFlag(parsed, '--task'),
-    ...(role !== undefined ? { role: normalizeRoleName(role, '--role') } : {}),
   })
 
-  return hasFlag(parsed, '--json') ? asJson(response) : asText(renderTask(response))
+  return hasFlag(parsed, '--json') ? asJson(response) : asText(renderWorkflowTask(response.task))
 }

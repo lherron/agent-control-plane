@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { main as runAcpCli } from 'acp-cli'
 import { type InterfaceStore, openInterfaceStore } from 'acp-interface-store'
 import { type AcpServer, type AcpServerDeps, createAcpServer } from 'acp-server'
+import { type AcpStateStore, openAcpStateStore } from 'acp-state-store'
 import type { SessionRef } from 'agent-scope'
 import { type CoordinationStore, openCoordinationStore } from 'coordination-substrate'
 import { ActorResolver, type WrkqStore, openWrkqStore } from 'wrkq-lib'
@@ -46,6 +47,7 @@ export type SeedStack = {
   cli: CliAdapter
   coordStore: CoordinationStore
   interfaceStore: InterfaceStore
+  stateStore: AcpStateStore
   seed: SeededWrkqFixture['seed']
   seededWrkq: SeededWrkqFixture
   server: AcpServer
@@ -173,8 +175,10 @@ export function createSeedStack(options: SeedStackOptions = {}): SeedStack {
   const coordDirectory = mkdtempSync(join(tmpdir(), 'acp-e2e-'))
   const coordDbPath = join(coordDirectory, 'coordination.db')
   const interfaceDbPath = join(coordDirectory, 'interface.db')
+  const stateDbPath = join(coordDirectory, 'state.db')
   const coordStore = openCoordinationStore(coordDbPath)
   const interfaceStore = openInterfaceStore({ dbPath: interfaceDbPath })
+  const stateStore = openAcpStateStore({ dbPath: stateDbPath })
   const wrkqStore = openWrkqStore({
     dbPath: seededWrkq.dbPath,
     actor: { agentId: 'acp-e2e' },
@@ -186,6 +190,7 @@ export function createSeedStack(options: SeedStackOptions = {}): SeedStack {
     wrkqStore,
     coordStore,
     interfaceStore,
+    stateStore,
     ...(options.launchRoleScopedRun !== undefined
       ? { launchRoleScopedRun: options.launchRoleScopedRun }
       : {}),
@@ -226,6 +231,7 @@ export function createSeedStack(options: SeedStackOptions = {}): SeedStack {
     cli,
     coordStore,
     interfaceStore,
+    stateStore,
     seed: seededWrkq.seed,
     seededWrkq,
     server,
@@ -234,6 +240,7 @@ export function createSeedStack(options: SeedStackOptions = {}): SeedStack {
       wrkqStore.close()
       coordStore.close()
       interfaceStore.close()
+      stateStore.close()
       seededWrkq.cleanup()
       rmSync(coordDirectory, { recursive: true, force: true })
     },

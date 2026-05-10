@@ -1,0 +1,213 @@
+{
+  "scenarioId": "procurement-legal-approval",
+  "title": "Procurement and legal approval waiting on vendor + legal review",
+  "summary": "Drives a procurement request through intake, vendor outreach, a vendor-response wait state, legal review, and final approval. Demonstrates two cascading blocking obligations (vendor_response_pending then legal_review_pending) and a three-way SoD enforced by explicit `sod` requirements on `resume_legal_review` (legal_reviewer notSameAs [requester, procurement_lead]) and on `approve`/`reject` (procurement_lead notSameAs [requester, legal_reviewer]).",
+  "workflow": {
+    "id": "procurement_legal_approval",
+    "version": 1,
+    "definitionFile": "./workflow.json"
+  },
+  "task": {
+    "taskId": "T-PROC-DEMO",
+    "projectId": "agent-spaces",
+    "goal": "Procure 50 seat licenses for VendorX analytics; needs legal sign-off on revised DPA.",
+    "risk": "medium",
+    "initialFacts": {
+      "vendorRef": "vendor:vendorx",
+      "estimatedAnnualSpendUsd": 84000,
+      "dpaVersion": "v3"
+    }
+  },
+  "actors": [
+    { "binding": "requester", "actor": { "kind": "human", "id": "alex" } },
+    { "binding": "procurement_lead", "actor": { "kind": "human", "id": "pat" } },
+    { "binding": "legal_reviewer", "actor": { "kind": "human", "id": "robin" } },
+    { "binding": "supervisor", "actor": { "kind": "agent", "id": "rex" } }
+  ],
+  "supervisor": {
+    "actor": { "kind": "agent", "id": "rex" },
+    "autonomy": "managed",
+    "capabilities": {
+      "launchRuns": false,
+      "createObligations": true,
+      "satisfyObligations": true,
+      "requestHumanInput": true,
+      "applySupervisorTransitions": true,
+      "proposeWorkflowPatches": true
+    }
+  },
+  "steps": [
+    {
+      "stepId": "01-create-task",
+      "summary": "Supervisor creates the workflow task pinned to procurement_legal_approval@1, binds requester / procurement_lead / legal_reviewer.",
+      "actorBinding": "supervisor",
+      "expectedStateAfter": { "status": "open", "phase": "intake" },
+      "kernel": {
+        "op": "createTask",
+        "args": {
+          "taskId": "T-PROC-DEMO",
+          "projectId": "agent-spaces",
+          "workflow": { "id": "procurement_legal_approval", "version": 1 },
+          "goal": "Procure 50 seat licenses for VendorX analytics; needs legal sign-off on revised DPA.",
+          "risk": "medium",
+          "roleBindings": {
+            "requester": { "kind": "human", "id": "alex" },
+            "procurement_lead": { "kind": "human", "id": "pat" },
+            "legal_reviewer": { "kind": "human", "id": "robin" }
+          },
+          "idempotencyKey": "scenario:procurement:create:v1"
+        }
+      }
+    },
+    {
+      "stepId": "02-attach-request-packet",
+      "summary": "Requester attaches the request packet (scope, vendor, DPA version, estimated spend).",
+      "actorBinding": "requester",
+      "evidence": [
+        {
+          "kind": "request_packet",
+          "ref": "doc:procurement-vendorx-2026-q2",
+          "summary": "VendorX seat licenses x50, DPA v3, $84k/yr, 12mo term."
+        }
+      ]
+    },
+    {
+      "stepId": "03-submit-request",
+      "summary": "Apply transition `submit_request`.",
+      "actorBinding": "requester",
+      "transitionId": "submit_request",
+      "expectedStateAfter": { "status": "active", "phase": "intake" }
+    },
+    {
+      "stepId": "04-route-to-vendor",
+      "summary": "Procurement lead applies `route_to_vendor`.",
+      "actorBinding": "procurement_lead",
+      "transitionId": "route_to_vendor",
+      "expectedStateAfter": { "status": "active", "phase": "vendor_outreach" }
+    },
+    {
+      "stepId": "05-wait-for-vendor",
+      "summary": "Procurement lead applies `wait_for_vendor`. Effects: blocking obligation vendor_response_pending + 5d timer.",
+      "actorBinding": "procurement_lead",
+      "transitionId": "wait_for_vendor",
+      "expectedStateAfter": { "status": "waiting", "phase": "awaiting_vendor" },
+      "expectedEffects": [
+        { "kind": "create_obligation", "payload": { "kind": "vendor_response_pending", "ownerRole": "vendor_proxy", "blocking": true } },
+        { "kind": "start_timer", "payload": { "duration": "P5D" } }
+      ]
+    },
+    {
+      "stepId": "06-vendor-responds",
+      "summary": "Supervisor satisfies vendor_response_pending with a vendor_response evidence record.",
+      "actorBinding": "supervisor",
+      "controlAction": {
+        "type": "satisfy_obligation",
+        "obligationKind": "vendor_response_pending",
+        "evidence": [
+          {
+            "kind": "vendor_response",
+            "ref": "doc:vendorx-response-2026-05-08",
+            "summary": "VendorX returned signed DPA v3 with redlines on §7.2; quote confirmed."
+          }
+        ]
+      },
+      "expectedStateAfter": { "status": "waiting", "phase": "awaiting_vendor", "note": "obligation satisfied; status remains waiting until resume_legal_review." }
+    },
+    {
+      "stepId": "07-resume-legal-review",
+      "summary": "Legal reviewer applies `resume_legal_review`. Requires obligation_satisfied + vendor_response evidence. Effect: open new blocking obligation legal_review_pending owned by legal_reviewer.",
+      "actorBinding": "legal_reviewer",
+      "transitionId": "resume_legal_review",
+      "expectedStateAfter": { "status": "active", "phase": "legal_review" },
+      "expectedEffects": [
+        { "kind": "create_obligation", "payload": { "kind": "legal_review_pending", "ownerRole": "legal_reviewer", "blocking": true } }
+      ]
+    },
+    {
+      "stepId": "08-legal-completes-review",
+      "summary": "Legal reviewer attaches their legal_review record. Supervisor satisfies legal_review_pending obligation.",
+      "actorBinding": "legal_reviewer",
+      "evidence": [
+        {
+          "kind": "legal_review",
+          "ref": "doc:legal-review-vendorx-2026-05-09",
+          "summary": "DPA v3 redlines accepted; standard MSA clauses unchanged. Approve."
+        }
+      ],
+      "controlAction": {
+        "type": "satisfy_obligation",
+        "obligationKind": "legal_review_pending",
+        "supervisorActor": "supervisor"
+      }
+    },
+    {
+      "stepId": "09-complete-legal-review",
+      "summary": "Procurement lead applies `complete_legal_review`.",
+      "actorBinding": "procurement_lead",
+      "transitionId": "complete_legal_review",
+      "expectedStateAfter": { "status": "active", "phase": "final_approval" }
+    },
+    {
+      "stepId": "10-attach-approval-record",
+      "summary": "Procurement lead attaches the approval_record.",
+      "actorBinding": "procurement_lead",
+      "evidence": [
+        {
+          "kind": "approval_record",
+          "ref": "doc:approval-vendorx-2026-05-09",
+          "summary": "Approved: 50 seats VendorX analytics, $84k/yr, DPA v3."
+        }
+      ]
+    },
+    {
+      "stepId": "11-approve",
+      "summary": "Procurement lead applies `approve`. SoD ensures procurement_lead != requester.",
+      "actorBinding": "procurement_lead",
+      "transitionId": "approve",
+      "expectedStateAfter": { "status": "closed", "outcome": "approved" }
+    }
+  ],
+  "alternateBranches": [
+    {
+      "name": "reject-instead-of-approve",
+      "summary": "From active/final_approval, procurement_lead may apply `reject` (supervisorBypass) -> closed/rejected with the same evidence + SoD requirements."
+    }
+  ],
+  "negativeChecks": [
+    {
+      "name": "approver-cannot-be-requester",
+      "summary": "Create a separate task binding requester AND procurement_lead to the same actor (e.g. both=alex). After legal review is satisfied, applying `complete_legal_review` rejects with `sod_violation` from the explicit procurement lead SoD requirement; the workflow prevents reaching `final_approval` with this conflicting binding.",
+      "expectedRejection": "sod_violation"
+    },
+    {
+      "name": "approver-cannot-be-legal-reviewer",
+      "summary": "Create a separate task binding procurement_lead AND legal_reviewer to the same actor. After the vendor obligation is satisfied, applying `resume_legal_review` rejects with `sod_violation` from the explicit `sod` requirement on `resume_legal_review`; the workflow prevents reaching `final_approval` with this conflicting binding.",
+      "expectedRejection": "sod_violation"
+    },
+    {
+      "name": "legal-reviewer-cannot-be-requester",
+      "summary": "Create a separate task binding requester AND legal_reviewer to the same actor (e.g. both=alex). After the vendor obligation is satisfied, apply `resume_legal_review`. Kernel rejects with `sod_violation` from the explicit `sod` requirement on `resume_legal_review` (`notSameAs: [requester, procurement_lead]`).",
+      "expectedRejection": "sod_violation"
+    },
+    {
+      "name": "legal-reviewer-cannot-be-procurement-lead",
+      "summary": "Create a separate task binding procurement_lead AND legal_reviewer to the same actor. After the vendor obligation is satisfied, apply `resume_legal_review`. Kernel rejects with `sod_violation`.",
+      "expectedRejection": "sod_violation"
+    },
+    {
+      "name": "requester-actor-cannot-act-as-procurement-lead",
+      "summary": "In the happy-path task, attempt `approve` with actor=alex claiming role=procurement_lead. Since alex is bound to requester (not procurement_lead), kernel rejects with `role_not_bound` (the binding check fires before the SoD check).",
+      "expectedRejection": "role_not_bound"
+    },
+    {
+      "name": "resume-legal-review-without-vendor",
+      "summary": "Skip step 06: applying `resume_legal_review` rejects with `obligation_not_satisfied` (vendor_response_pending is still open and blocking).",
+      "expectedRejection": "obligation_not_satisfied"
+    },
+    {
+      "name": "complete-legal-without-legal-review",
+      "summary": "Skip the legal_review evidence + obligation satisfaction in step 08: applying `complete_legal_review` rejects with `obligation_not_satisfied` (legal_review_pending is still open and blocking).",
+      "expectedRejection": "obligation_not_satisfied"
+    }
+  ]
+}

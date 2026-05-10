@@ -1,7 +1,3 @@
-import type { EvidenceItem } from 'acp-core'
-
-import { renderAttachedEvidence } from '../output/evidence-render.js'
-import { normalizeRoleName } from '../roles.js'
 import {
   hasFlag,
   parseArgs,
@@ -14,45 +10,19 @@ import {
   type CommandOutput,
   asJson,
   asText,
+  createRawAcpRequester,
   getClientFactory,
-  maybeParseMetaFlag,
   requireActorAgentId,
   resolveEnv,
   resolveServerUrl,
 } from './shared.js'
 
-function buildEvidence(input: {
-  actorAgentId: string
-  producerRole: string
-  kind: string
-  ref: string
-  contentHash?: string | undefined
-  buildId?: string | undefined
-  buildVersion?: string | undefined
-  buildEnv?: string | undefined
-  meta?: Record<string, unknown> | undefined
-}): EvidenceItem {
-  return {
-    kind: input.kind,
-    ref: input.ref,
-    producedBy: {
-      agentId: input.actorAgentId,
-      role: input.producerRole,
-    },
-    ...(input.contentHash !== undefined ? { contentHash: input.contentHash } : {}),
-    ...(input.buildId !== undefined ||
-    input.buildVersion !== undefined ||
-    input.buildEnv !== undefined
-      ? {
-          build: {
-            ...(input.buildId !== undefined ? { id: input.buildId } : {}),
-            ...(input.buildVersion !== undefined ? { version: input.buildVersion } : {}),
-            ...(input.buildEnv !== undefined ? { env: input.buildEnv } : {}),
-          },
-        }
-      : {}),
-    ...(input.meta !== undefined ? { details: input.meta } : {}),
+function normalizeActorId(raw: string): string {
+  const trimmed = raw.trim()
+  if (trimmed.startsWith('agent:')) {
+    return trimmed.slice('agent:'.length)
   }
+  return trimmed
 }
 
 export async function runTaskEvidenceAddCommand(
@@ -65,54 +35,89 @@ export async function runTaskEvidenceAddCommand(
       '--task',
       '--kind',
       '--ref',
+      '--role',
+      '--run-id',
+      '--supervisor-run-id',
+      '--supervisor-run',
+      '--participant-run-id',
+      '--idempotency-key',
       '--actor',
-      '--producer-role',
-      '--build-id',
-      '--build-version',
-      '--build-env',
-      '--content-hash',
-      '--meta',
+      '--as',
       '--server',
+      '--summary',
+      '--from-run',
     ],
+    multiStringFlags: [],
   })
   requireNoPositionals(parsed)
 
   const env = resolveEnv(deps)
-  const actorAgentId = requireActorAgentId(readStringFlag(parsed, '--actor'), env)
-  const serverUrl = resolveServerUrl(readStringFlag(parsed, '--server'), env)
-  const producerRole = normalizeRoleName(
-    requireStringFlag(parsed, '--producer-role'),
-    '--producer-role'
+  const asValue = readStringFlag(parsed, '--as')
+  const actorValue = readStringFlag(parsed, '--actor')
+  const rawActor = asValue ?? actorValue
+  const actorAgentId = requireActorAgentId(
+    rawActor !== undefined ? normalizeActorId(rawActor) : undefined,
+    env
   )
+  const serverUrl = resolveServerUrl(readStringFlag(parsed, '--server'), env)
   const taskId = requireStringFlag(parsed, '--task')
-  const evidence = buildEvidence({
-    actorAgentId,
-    producerRole,
-    kind: requireStringFlag(parsed, '--kind'),
-    ref: requireStringFlag(parsed, '--ref'),
-    ...(readStringFlag(parsed, '--content-hash') !== undefined
-      ? { contentHash: readStringFlag(parsed, '--content-hash') }
-      : {}),
-    ...(readStringFlag(parsed, '--build-id') !== undefined
-      ? { buildId: readStringFlag(parsed, '--build-id') }
-      : {}),
-    ...(readStringFlag(parsed, '--build-version') !== undefined
-      ? { buildVersion: readStringFlag(parsed, '--build-version') }
-      : {}),
-    ...(readStringFlag(parsed, '--build-env') !== undefined
-      ? { buildEnv: readStringFlag(parsed, '--build-env') }
-      : {}),
-    ...(maybeParseMetaFlag(parsed) !== undefined ? { meta: maybeParseMetaFlag(parsed) } : {}),
-  })
+  const kind = requireStringFlag(parsed, '--kind')
+  const ref = requireStringFlag(parsed, '--ref')
+  const idempotencyKey = requireStringFlag(parsed, '--idempotency-key')
+  const summary = readStringFlag(parsed, '--summary')
+  const fromRun = readStringFlag(parsed, '--from-run')
+
+  let role = readStringFlag(parsed, '--role')
+  let runId = readStringFlag(parsed, '--run-id')
+  const supervisorRunId =
+    readStringFlag(parsed, '--supervisor-run-id') ?? readStringFlag(parsed, '--supervisor-run')
+  let participantRunId = readStringFlag(parsed, '--participant-run-id')
+
+  // --from-run: lookup the participant run from the task snapshot
+  if (fromRun !== undefined) {
+    const requester = createRawAcpRequester({
+      serverUrl,
+      actorAgentId,
+      fetchImpl: deps.fetchImpl,
+    })
+    const taskSnapshot = await requester.requestJson<{
+      task: { taskId: string; version: number }
+      participantRuns: Array<{
+        runId: string
+        role: string
+        actor: { kind: string; id: string }
+      }>
+    }>({
+      method: 'GET',
+      path: `/v1/tasks/${encodeURIComponent(taskId)}`,
+    })
+    const participantRun = taskSnapshot.participantRuns.find((r) => r.runId === fromRun)
+    if (participantRun !== undefined) {
+      role = role ?? participantRun.role
+      runId = runId ?? participantRun.runId
+      participantRunId = participantRunId ?? participantRun.runId
+    }
+  }
 
   const client = getClientFactory(deps)({ serverUrl, actorAgentId })
+  const evidence: Array<{ kind: string; ref: string; summary?: string }> = [
+    {
+      kind,
+      ref,
+      ...(summary !== undefined ? { summary } : {}),
+    },
+  ]
+
   const response = await client.addEvidence({
     actorAgentId,
     taskId,
-    evidence: [evidence],
+    ...(role !== undefined ? { role } : {}),
+    ...(runId !== undefined ? { runId } : {}),
+    ...(supervisorRunId !== undefined ? { supervisorRunId } : {}),
+    ...(participantRunId !== undefined ? { participantRunId } : {}),
+    evidence,
+    idempotencyKey,
   })
 
-  return hasFlag(parsed, '--json')
-    ? asJson(response)
-    : asText(renderAttachedEvidence({ taskId, evidence }))
+  return hasFlag(parsed, '--json') ? asJson(response) : asText(JSON.stringify(response, null, 2))
 }

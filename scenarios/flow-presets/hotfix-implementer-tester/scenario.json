@@ -1,0 +1,151 @@
+{
+  "scenarioId": "hotfix-implementer-tester",
+  "title": "Code hotfix with implementer/tester separation of duties",
+  "summary": "Drives a medium-risk code defect from a failing reproduction through a fix, an independent verification, and a successful close. The tester role must be a different actor than the implementer (SoD).",
+  "workflow": {
+    "id": "hotfix_fastlane",
+    "version": 1,
+    "definitionFile": "./workflow.json"
+  },
+  "task": {
+    "taskId": "T-HOTFIX-DEMO",
+    "projectId": "agent-spaces",
+    "goal": "Fix /api/orders 500 regression introduced after deploy 2026-05-08",
+    "risk": "medium",
+    "initialFacts": {
+      "incidentRef": "incident-2026-05-08-orders",
+      "buildUnderTest": "build-2026-05-08T22:14Z"
+    }
+  },
+  "actors": [
+    { "binding": "implementer", "actor": { "kind": "agent", "id": "clod" } },
+    { "binding": "tester", "actor": { "kind": "agent", "id": "cody" } },
+    { "binding": "supervisor", "actor": { "kind": "agent", "id": "rex" } }
+  ],
+  "supervisor": {
+    "actor": { "kind": "agent", "id": "rex" },
+    "autonomy": "managed",
+    "capabilities": {
+      "launchRuns": true,
+      "createObligations": true,
+      "satisfyObligations": true,
+      "requestHumanInput": true,
+      "proposeWorkflowPatches": true
+    }
+  },
+  "steps": [
+    {
+      "stepId": "01-create-task",
+      "summary": "Supervisor creates the workflow task pinned to hotfix_fastlane@1, binds implementer + tester, sets risk=medium.",
+      "actorBinding": "supervisor",
+      "expectedStateAfter": { "status": "open", "phase": "red" },
+      "kernel": {
+        "op": "createTask",
+        "args": {
+          "taskId": "T-HOTFIX-DEMO",
+          "projectId": "agent-spaces",
+          "workflow": { "id": "hotfix_fastlane", "version": 1 },
+          "goal": "Fix /api/orders 500 regression introduced after deploy 2026-05-08",
+          "risk": "medium",
+          "roleBindings": {
+            "implementer": { "kind": "agent", "id": "clod" },
+            "tester": { "kind": "agent", "id": "cody" }
+          },
+          "idempotencyKey": "scenario:hotfix:create:v1"
+        }
+      }
+    },
+    {
+      "stepId": "02-attach-failing-test",
+      "summary": "Implementer attaches the failing reproduction.",
+      "actorBinding": "implementer",
+      "expectedStateAfter": { "status": "open", "phase": "red" },
+      "evidence": [
+        {
+          "kind": "failing_test",
+          "ref": "test:integration/orders.checkout.repro",
+          "summary": "Failing reproduction for the 500 on /api/orders"
+        }
+      ]
+    },
+    {
+      "stepId": "03-start",
+      "summary": "Implementer applies the start transition (open -> active, still in red).",
+      "actorBinding": "implementer",
+      "transitionId": "start",
+      "expectedStateAfter": { "status": "active", "phase": "red" }
+    },
+    {
+      "stepId": "04-attach-fix-evidence",
+      "summary": "Implementer attaches commit_ref + regression_test (now passing).",
+      "actorBinding": "implementer",
+      "evidence": [
+        {
+          "kind": "commit_ref",
+          "ref": "git:agent-spaces@a1b2c3d",
+          "summary": "fix: guard nil order id"
+        },
+        {
+          "kind": "regression_test",
+          "ref": "test:integration/orders.checkout.repro",
+          "summary": "Same case now passes after fix"
+        }
+      ]
+    },
+    {
+      "stepId": "05-implement-fix",
+      "summary": "Implementer transitions red -> green. Effects fire: declare_handoff(toRole=tester) + wake_role_session(role=tester) because risk>=medium and tester is bound.",
+      "actorBinding": "implementer",
+      "transitionId": "implement_fix",
+      "expectedStateAfter": { "status": "active", "phase": "green" },
+      "expectedEffects": [
+        { "kind": "declare_handoff", "payload": { "toRole": "tester", "kind": "review" } },
+        { "kind": "wake_role_session", "payload": { "role": "tester" } }
+      ]
+    },
+    {
+      "stepId": "06-attach-verification",
+      "summary": "Tester attaches verification_report after replay on the build under test.",
+      "actorBinding": "tester",
+      "evidence": [
+        {
+          "kind": "verification_report",
+          "ref": "report:qa-2026-05-09-orders",
+          "summary": "Replay clean against build-2026-05-08T22:14Z; smoke green"
+        }
+      ]
+    },
+    {
+      "stepId": "07-verify",
+      "summary": "Tester transitions green -> verified. SoD requires acting actor != implementer binding.",
+      "actorBinding": "tester",
+      "transitionId": "verify",
+      "expectedStateAfter": { "status": "active", "phase": "verified" }
+    },
+    {
+      "stepId": "08-close-success",
+      "summary": "Implementer closes the task as success.",
+      "actorBinding": "implementer",
+      "transitionId": "close_success",
+      "expectedStateAfter": { "status": "closed", "outcome": "success" }
+    }
+  ],
+  "negativeChecks": [
+    {
+      "name": "implementer-actor-cannot-act-as-tester",
+      "summary": "After step 05, attempt to apply 'verify' with actor=clod claiming role=tester. Since clod is not bound to the tester role, expect rejection code 'role_not_bound'. The kernel rejects role-binding mismatch before evaluating SoD.",
+      "expectedRejection": "role_not_bound"
+    },
+    {
+      "name": "sod-same-actor-both-roles",
+      "summary": "Create a separate task where the SAME actor is bound to both implementer AND tester (e.g. roleBindings.implementer=clod, roleBindings.tester=clod). After reaching green phase, apply 'verify' as tester. Expect rejection code 'sod_violation' because mustDifferFrom check fires.",
+      "expectedRejection": "sod_violation",
+      "note": "Requires a separate task creation with same-actor bindings to reach the SoD check path."
+    },
+    {
+      "name": "missing-evidence-blocks-fix",
+      "summary": "If step 04 is skipped, applying 'implement_fix' must reject with 'missing_evidence' listing commit_ref and regression_test.",
+      "expectedRejection": "missing_evidence"
+    }
+  ]
+}

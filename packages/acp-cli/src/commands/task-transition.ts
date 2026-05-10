@@ -1,12 +1,9 @@
-import type { EvidenceItem } from 'acp-core'
+import type { EvidenceInput } from 'acp-core'
 
 import { CliUsageError } from '../cli-runtime.js'
-import { renderTransitionApplied } from '../output/transitions-render.js'
-import { normalizeRoleName } from '../roles.js'
 import {
   hasFlag,
   parseArgs,
-  parseCommaList,
   parseIntegerValue,
   readMultiStringFlag,
   readStringFlag,
@@ -18,37 +15,34 @@ import {
   type CommandOutput,
   asJson,
   asText,
+  createRawAcpRequester,
   getClientFactory,
   requireActorAgentId,
   resolveEnv,
   resolveServerUrl,
 } from './shared.js'
 
-function parseWaiverValues(values: string[]): EvidenceItem[] {
-  const waivers: EvidenceItem[] = []
-  for (const rawValue of values) {
-    for (const entry of rawValue.split(',')) {
-      const trimmed = entry.trim()
-      if (trimmed.length === 0) {
-        continue
-      }
-
-      const separator = trimmed.indexOf(':')
-      if (separator <= 0 || separator === trimmed.length - 1) {
-        throw new CliUsageError(`invalid --waiver value: ${trimmed}`)
-      }
-
-      waivers.push({
-        kind: 'waiver',
-        ref: trimmed.slice(separator + 1),
-        details: {
-          waiverKind: trimmed.slice(0, separator),
-        },
-      })
-    }
+function normalizeActorId(raw: string): string {
+  const trimmed = raw.trim()
+  if (trimmed.startsWith('agent:')) {
+    return trimmed.slice('agent:'.length)
   }
+  return trimmed
+}
 
-  return waivers.length > 0 ? waivers : []
+function parseEvidence(values: string[]): EvidenceInput[] | undefined {
+  const evidence: EvidenceInput[] = []
+  for (const raw of values) {
+    const separator = raw.indexOf('=')
+    if (separator <= 0 || separator === raw.length - 1) {
+      throw new CliUsageError('--evidence must use kind=ref')
+    }
+    evidence.push({
+      kind: raw.slice(0, separator),
+      ref: raw.slice(separator + 1),
+    })
+  }
+  return evidence.length === 0 ? undefined : evidence
 }
 
 export async function runTaskTransitionCommand(
@@ -56,59 +50,84 @@ export async function runTaskTransitionCommand(
   deps: CommandDependencies = {}
 ): Promise<CommandOutput> {
   const parsed = parseArgs(args, {
-    booleanFlags: ['--json', '--request-handoff'],
+    booleanFlags: ['--json'],
     stringFlags: [
       '--task',
-      '--to',
+      '--transition',
       '--actor',
-      '--actor-role',
+      '--as',
+      '--role',
       '--expected-version',
-      '--evidence',
+      '--context-hash',
       '--idempotency-key',
+      '--run',
       '--server',
     ],
-    multiStringFlags: ['--waiver'],
+    multiStringFlags: ['--evidence', '--evidence-ref', '--waiver-ref'],
   })
   requireNoPositionals(parsed)
 
   const env = resolveEnv(deps)
-  const actorAgentId = requireActorAgentId(readStringFlag(parsed, '--actor'), env)
+  const asValue = readStringFlag(parsed, '--as')
+  const actorValue = readStringFlag(parsed, '--actor')
+  const rawActor = asValue ?? actorValue
+  const actorAgentId = requireActorAgentId(
+    rawActor !== undefined ? normalizeActorId(rawActor) : undefined,
+    env
+  )
   const serverUrl = resolveServerUrl(readStringFlag(parsed, '--server'), env)
-  const actorRole = normalizeRoleName(requireStringFlag(parsed, '--actor-role'), '--actor-role')
-  const evidenceRefs =
-    readStringFlag(parsed, '--evidence') !== undefined
-      ? parseCommaList(requireStringFlag(parsed, '--evidence'), '--evidence')
-      : undefined
-  const waiverValues = parseWaiverValues(readMultiStringFlag(parsed, '--waiver'))
+  const taskId = requireStringFlag(parsed, '--task')
+
+  // If --expected-version is omitted, fetch task to get current version
+  let expectedTaskVersion: number
+  const expectedVersionRaw = readStringFlag(parsed, '--expected-version')
+  if (expectedVersionRaw !== undefined) {
+    expectedTaskVersion = parseIntegerValue('--expected-version', expectedVersionRaw, { min: 0 })
+  } else {
+    const requester = createRawAcpRequester({
+      serverUrl,
+      actorAgentId,
+      fetchImpl: deps.fetchImpl,
+    })
+    const taskSnapshot = await requester.requestJson<{
+      task: { taskId: string; version: number }
+    }>({
+      method: 'GET',
+      path: `/v1/tasks/${encodeURIComponent(taskId)}`,
+    })
+    expectedTaskVersion = taskSnapshot.task.version
+  }
 
   const client = getClientFactory(deps)({ serverUrl, actorAgentId })
   const response = await client.transitionTask({
     actorAgentId,
-    actorRole,
-    taskId: requireStringFlag(parsed, '--task'),
-    toPhase: requireStringFlag(parsed, '--to'),
-    expectedVersion: parseIntegerValue(
-      '--expected-version',
-      requireStringFlag(parsed, '--expected-version'),
-      { min: 0 }
-    ),
-    ...(evidenceRefs !== undefined ? { evidenceRefs } : {}),
-    ...(readStringFlag(parsed, '--idempotency-key') !== undefined
-      ? { idempotencyKey: readStringFlag(parsed, '--idempotency-key') }
+    taskId,
+    transitionId: requireStringFlag(parsed, '--transition'),
+    role: requireStringFlag(parsed, '--role'),
+    expectedTaskVersion,
+    idempotencyKey: requireStringFlag(parsed, '--idempotency-key'),
+    ...(readStringFlag(parsed, '--context-hash') !== undefined
+      ? { contextHash: readStringFlag(parsed, '--context-hash') }
       : {}),
-    ...(hasFlag(parsed, '--request-handoff') ? { requestHandoff: true } : {}),
-    ...(waiverValues.length > 0 ? { waivers: waiverValues } : {}),
+    ...(parseEvidence(readMultiStringFlag(parsed, '--evidence')) !== undefined
+      ? { inlineEvidence: parseEvidence(readMultiStringFlag(parsed, '--evidence')) }
+      : {}),
+    ...(readMultiStringFlag(parsed, '--evidence-ref').length > 0
+      ? { evidenceRefs: readMultiStringFlag(parsed, '--evidence-ref') }
+      : {}),
+    ...(readMultiStringFlag(parsed, '--waiver-ref').length > 0
+      ? { waiverRefs: readMultiStringFlag(parsed, '--waiver-ref') }
+      : {}),
+    ...(readStringFlag(parsed, '--run') !== undefined
+      ? { runId: readStringFlag(parsed, '--run') }
+      : {}),
   })
 
-  return hasFlag(parsed, '--json')
-    ? asJson(response)
-    : asText(
-        renderTransitionApplied({
-          taskId: response.task.taskId,
-          transition: response.transition,
-          version: response.task.version,
-          handoff: response.handoff,
-          wake: response.wake,
-        })
-      )
+  if (hasFlag(parsed, '--json')) {
+    return asJson(response)
+  }
+
+  return asText(
+    `Transitioned ${response.task.taskId} via ${response.event.payload['transitionId']} to ${response.task.state.status}${response.task.state.phase === undefined ? '' : `/${response.task.state.phase}`}`
+  )
 }

@@ -1,0 +1,112 @@
+{
+  "id": "hotfix_fastlane",
+  "version": 1,
+  "kind": "code_change",
+  "initial": { "status": "open", "phase": "red" },
+  "phases": {
+    "red": { "objective": "Reproduce the defect with a deterministic failing test." },
+    "green": { "objective": "Land the smallest fix that flips the failing proof to passing." },
+    "verified": { "objective": "Independent verification on the build under test." }
+  },
+  "outcomes": {
+    "success": {},
+    "cancelled": {},
+    "failed": {}
+  },
+  "roles": {
+    "implementer": {
+      "description": "Owns reproduction and the fix.",
+      "binding": "required"
+    },
+    "tester": {
+      "description": "Independent verifier; must differ from implementer.",
+      "binding": "optional",
+      "mustDifferFrom": ["implementer"]
+    }
+  },
+  "evidenceKinds": {
+    "failing_test": { "requiredFields": ["ref"] },
+    "commit_ref": { "requiredFields": ["ref"] },
+    "regression_test": { "requiredFields": ["ref"] },
+    "verification_report": { "requiredFields": ["summary"] },
+    "blocker_report": { "requiredFields": ["summary"] }
+  },
+  "obligationKinds": {
+    "missing_evidence": {
+      "blockingDefault": true,
+      "ownerRoles": ["implementer", "tester"],
+      "allowedSatisfactionEvidence": ["commit_ref", "regression_test", "verification_report"]
+    }
+  },
+  "transitions": {
+    "start": {
+      "id": "start",
+      "label": "Start reproduction",
+      "from": { "status": "open", "phase": "red" },
+      "to": { "status": "active", "phase": "red" },
+      "by": ["implementer"]
+    },
+    "implement_fix": {
+      "id": "implement_fix",
+      "label": "Land the fix and hand off",
+      "from": { "status": "active", "phase": "red" },
+      "to": { "status": "active", "phase": "green" },
+      "by": ["implementer"],
+      "requires": [
+        { "type": "evidence", "kinds": ["commit_ref", "regression_test"], "mode": "all" }
+      ],
+      "effects": [
+        {
+          "type": "declare_handoff",
+          "toRole": "tester",
+          "kind": "review",
+          "when": [
+            { "type": "risk_at_least", "level": "medium" },
+            { "type": "role_bound", "role": "tester" }
+          ]
+        },
+        {
+          "type": "wake_role_session",
+          "role": "tester",
+          "reason": "Independent verification required at risk >= medium",
+          "when": [
+            { "type": "risk_at_least", "level": "medium" },
+            { "type": "role_bound", "role": "tester" }
+          ]
+        }
+      ]
+    },
+    "verify": {
+      "id": "verify",
+      "label": "Tester verification",
+      "from": { "status": "active", "phase": "green" },
+      "to": { "status": "active", "phase": "verified" },
+      "by": ["tester"],
+      "requires": [
+        { "type": "evidence", "kinds": ["verification_report"], "mode": "all" },
+        { "type": "sod", "actingRole": "tester", "notSameAs": ["implementer"] }
+      ]
+    },
+    "close_success": {
+      "id": "close_success",
+      "label": "Close as success",
+      "from": { "status": "active", "phase": "verified" },
+      "to": { "status": "closed", "outcome": "success" },
+      "by": ["implementer"]
+    },
+    "cancel": {
+      "id": "cancel",
+      "label": "Supervisor cancel",
+      "from": { "status": "active" },
+      "to": { "status": "closed", "outcome": "cancelled" },
+      "by": ["implementer"],
+      "supervisorBypass": true
+    }
+  },
+  "supervisor": {
+    "recovery": {
+      "onMissingEvidence": { "prefer": ["create_obligation", "launch_participant_run"] },
+      "onNoLegalTransition": { "prefer": ["classify_anomaly", "propose_workflow_patch"] }
+    }
+  }
+}

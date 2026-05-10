@@ -1,18 +1,9 @@
 import { CliUsageError } from './cli-runtime.js'
 
-const CANONICAL_ROLES = new Set([
-  'triager',
-  'owner',
-  'implementer',
-  'tester',
-  'reviewer',
-  'release_manager',
-])
-
-export function normalizeRoleName(value: string, flagLabel = 'role'): string {
+export function normalizeRoleName(value: string, _flagLabel = 'role'): string {
   const normalized = value.trim().toLowerCase().replaceAll('-', '_')
-  if (!CANONICAL_ROLES.has(normalized)) {
-    throw new CliUsageError(`invalid ${flagLabel}: ${value}`)
+  if (normalized.length === 0) {
+    throw new CliUsageError('role name cannot be empty')
   }
   return normalized
 }

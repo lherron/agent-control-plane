@@ -28,11 +28,24 @@ import { handleSessionEvents } from '../handlers/sessions-events.js'
 import { handleGetSession } from '../handlers/sessions-get.js'
 import { handleInterruptSession } from '../handlers/sessions-interrupt.js'
 import { handleListSessionRuns } from '../handlers/sessions-runs.js'
-import { handleAttachTaskEvidence } from '../handlers/tasks-evidence.js'
-import { handleGetTask } from '../handlers/tasks-get.js'
-import { handlePromoteTask } from '../handlers/tasks-promote.js'
-import { handleApplyTaskTransition } from '../handlers/tasks-transition.js'
-import { handleListTaskTransitions } from '../handlers/tasks-transitions.js'
+import {
+  handleCompleteWorkflowParticipantRun,
+  handleFailWorkflowParticipantRun,
+} from '../handlers/workflow-participant-runs.js'
+import {
+  handleListWorkflowPatchProposals,
+  handleShowWorkflowPatchProposal,
+} from '../handlers/workflow-patch-proposals-read.js'
+import {
+  handleApplyWorkflowTransition,
+  handleAttachWorkflowEvidence,
+  handleCancelWorkflowObligation,
+  handleGetWorkflowTask,
+  handleWaiveWorkflowObligation,
+  handleWorkflowControlAction,
+  handleWorkflowParticipantContext,
+  handleWorkflowSupervisorContext,
+} from '../handlers/workflow-tasks.js'
 import { withActorAndAuthz } from '../middleware/actor-and-authz.js'
 
 import { mutatingRouteSpecs } from './mutating-routes.js'
@@ -157,11 +170,40 @@ export function buildParamRoutes(): ParamRoute[] {
       '/v1/gateway/deliveries/:deliveryRequestId/requeue',
       withSpec('POST', '/v1/gateway/deliveries/:deliveryRequestId/requeue', handleRequeueDelivery)
     ),
-    createParamRoute('GET', '/v1/tasks/:taskId', handleGetTask),
-    createParamRoute('POST', '/v1/tasks/:taskId/evidence', handleAttachTaskEvidence),
-    createParamRoute('POST', '/v1/tasks/:taskId/promote', handlePromoteTask),
-    createParamRoute('POST', '/v1/tasks/:taskId/transitions', handleApplyTaskTransition),
-    createParamRoute('GET', '/v1/tasks/:taskId/transitions', handleListTaskTransitions),
+    createParamRoute('GET', '/v1/tasks/:taskId', handleGetWorkflowTask),
+    createParamRoute(
+      'GET',
+      '/v1/tasks/:taskId/workflow-patch-proposals',
+      handleListWorkflowPatchProposals
+    ),
+    createParamRoute(
+      'GET',
+      '/v1/workflow-patch-proposals/:proposalId',
+      handleShowWorkflowPatchProposal
+    ),
+    createParamRoute('POST', '/v1/tasks/:taskId/evidence', handleAttachWorkflowEvidence),
+    createParamRoute('POST', '/v1/tasks/:taskId/transitions', handleApplyWorkflowTransition),
+    createParamRoute('POST', '/v1/tasks/:taskId/actions', handleWorkflowControlAction),
+    createParamRoute(
+      'POST',
+      '/v1/tasks/:taskId/obligations/:obligationId/waive',
+      handleWaiveWorkflowObligation
+    ),
+    createParamRoute(
+      'POST',
+      '/v1/tasks/:taskId/obligations/:obligationId/cancel',
+      handleCancelWorkflowObligation
+    ),
+    createParamRoute(
+      'POST',
+      '/v1/tasks/:taskId/participant-context',
+      handleWorkflowParticipantContext
+    ),
+    createParamRoute(
+      'POST',
+      '/v1/tasks/:taskId/supervisor-context',
+      handleWorkflowSupervisorContext
+    ),
     createParamRoute('GET', '/v1/runs/:runId', handleGetRun),
     createParamRoute(
       'GET',
@@ -185,6 +227,16 @@ export function buildParamRoutes(): ParamRoute[] {
     createParamRoute('GET', '/v1/sessions/:sessionId/capture', handleCaptureSession),
     createParamRoute('GET', '/v1/sessions/:sessionId/attach-command', handleAttachCommand),
     createParamRoute('GET', '/v1/sessions/:sessionId/events', handleSessionEvents),
+    createParamRoute(
+      'POST',
+      '/v1/workflow-participant-runs/:runId/complete',
+      handleCompleteWorkflowParticipantRun
+    ),
+    createParamRoute(
+      'POST',
+      '/v1/workflow-participant-runs/:runId/fail',
+      handleFailWorkflowParticipantRun
+    ),
   ]
 }
 

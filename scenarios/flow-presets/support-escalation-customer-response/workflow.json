@@ -1,0 +1,129 @@
+{
+  "id": "support_escalation",
+  "version": 1,
+  "kind": "support",
+  "initial": { "status": "open", "phase": "triage" },
+  "phases": {
+    "triage": { "objective": "Classify the ticket and capture the reproduction context." },
+    "contact_customer": { "objective": "Reach out to the customer with a focused question or repro request." },
+    "awaiting_customer": { "objective": "Holding state while waiting on the customer's reply." },
+    "resolution": { "objective": "Apply the fix or workaround once the customer's data lands." }
+  },
+  "outcomes": {
+    "resolved": {},
+    "abandoned": {},
+    "escalated_to_engineering": {},
+    "cancelled": {}
+  },
+  "roles": {
+    "support_agent": {
+      "description": "Owns the ticket end-to-end.",
+      "binding": "required"
+    },
+    "customer_proxy": {
+      "description": "Represents the customer's response on the platform side. Auto-bound on the first inbound reply.",
+      "binding": "autoBindOnFirstRun"
+    }
+  },
+  "evidenceKinds": {
+    "triage_summary": { "requiredFields": ["summary"] },
+    "customer_outreach_record": { "requiredFields": ["ref"] },
+    "customer_response": { "requiredFields": ["ref"] },
+    "resolution_note": { "requiredFields": ["summary"] },
+    "escalation_packet": { "requiredFields": ["ref", "summary"] }
+  },
+  "obligationKinds": {
+    "customer_response_pending": {
+      "description": "Holds the workflow in waiting until the customer replies.",
+      "blockingDefault": true,
+      "ownerRoles": ["customer_proxy"],
+      "allowedSatisfactionEvidence": ["customer_response"]
+    }
+  },
+  "transitions": {
+    "start_triage": {
+      "id": "start_triage",
+      "label": "Start triage",
+      "from": { "status": "open", "phase": "triage" },
+      "to": { "status": "active", "phase": "triage" },
+      "by": ["support_agent"],
+      "requires": [{ "type": "evidence", "kinds": ["triage_summary"], "mode": "all" }]
+    },
+    "reach_out": {
+      "id": "reach_out",
+      "label": "Send customer outreach",
+      "from": { "status": "active", "phase": "triage" },
+      "to": { "status": "active", "phase": "contact_customer" },
+      "by": ["support_agent"],
+      "requires": [{ "type": "evidence", "kinds": ["customer_outreach_record"], "mode": "all" }]
+    },
+    "wait_for_customer": {
+      "id": "wait_for_customer",
+      "label": "Wait for customer response",
+      "from": { "status": "active", "phase": "contact_customer" },
+      "to": { "status": "waiting", "phase": "awaiting_customer" },
+      "by": ["support_agent"],
+      "effects": [
+        {
+          "type": "create_obligation",
+          "kind": "customer_response_pending",
+          "ownerRole": "customer_proxy",
+          "blocking": true
+        },
+        {
+          "type": "start_timer",
+          "duration": "PT72H",
+          "reason": "Auto-escalate if customer has not replied in 72h"
+        }
+      ]
+    },
+    "resume_resolution": {
+      "id": "resume_resolution",
+      "label": "Resume after customer reply",
+      "from": { "status": "waiting", "phase": "awaiting_customer" },
+      "to": { "status": "active", "phase": "resolution" },
+      "by": ["support_agent"],
+      "requires": [
+        { "type": "obligation_satisfied", "kind": "customer_response_pending" },
+        { "type": "evidence", "kinds": ["customer_response"], "mode": "all" }
+      ]
+    },
+    "resolve": {
+      "id": "resolve",
+      "label": "Resolve ticket",
+      "from": { "status": "active", "phase": "resolution" },
+      "to": { "status": "closed", "outcome": "resolved" },
+      "by": ["support_agent"],
+      "requires": [{ "type": "evidence", "kinds": ["resolution_note"], "mode": "all" }]
+    },
+    "escalate_to_engineering": {
+      "id": "escalate_to_engineering",
+      "label": "Escalate to engineering",
+      "from": { "status": "active", "phase": "resolution" },
+      "to": { "status": "closed", "outcome": "escalated_to_engineering" },
+      "by": ["support_agent"],
+      "requires": [{ "type": "evidence", "kinds": ["escalation_packet"], "mode": "all" }],
+      "effects": [
+        {
+          "type": "create_child_task",
+          "workflow": "hotfix_fastlane@1",
+          "relation": "escalation"
+        }
+      ]
+    },
+    "abandon_no_reply": {
+      "id": "abandon_no_reply",
+      "label": "Close as abandoned (no reply)",
+      "from": { "status": "waiting", "phase": "awaiting_customer" },
+      "to": { "status": "closed", "outcome": "abandoned" },
+      "by": ["support_agent"],
+      "supervisorBypass": true
+    }
+  },
+  "supervisor": {
+    "recovery": {
+      "onMissingEvidence": { "prefer": ["create_obligation", "request_human_input"] },
+      "onTimerElapsed": { "prefer": ["abandon_no_reply", "request_human_input"] }
+    }
+  }
+}

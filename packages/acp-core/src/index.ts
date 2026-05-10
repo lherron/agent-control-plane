@@ -125,6 +125,47 @@ export { codeFeatureTddV1 } from './presets/code_feature_tdd.v1.js'
 export { getPreset, listPresets } from './presets/registry.js'
 export { validateTransition } from './validators/transition-policy.js'
 export { computeTaskContext } from './task-context.js'
+export { createInMemoryWorkflowKernel, stableJson } from './workflow/index.js'
+export {
+  basicWorkflowV1,
+  builtInWorkflowDefinitions,
+  codeDefectFastlaneWorkflowV1,
+  codeFeatureTddWorkflowV1,
+} from './workflow/definitions.js'
+export type {
+  ActorRef,
+  BuiltInCondition,
+  EffectIntent,
+  EffectTemplate,
+  EvidenceInput,
+  EvidenceKindSpec,
+  EvidenceRecord,
+  ObligationKindSpec,
+  ObligationRecord,
+  ParticipantRunRecord,
+  PublishedWorkflowDefinition,
+  Requirement,
+  RoleBindings,
+  RoleSpec,
+  SupervisorBinding,
+  SupervisorCapabilities,
+  SupervisorRunRecord,
+  TransitionSpec,
+  WorkflowAnomaly,
+  WorkflowControlAction,
+  WorkflowDefinition,
+  WorkflowEvent,
+  WorkflowIdempotencyRecord,
+  WorkflowKernelSnapshot,
+  WorkflowPatchProposal,
+  WorkflowRef,
+  WorkflowRejection,
+  WorkflowRejectionCode,
+  WorkflowResult,
+  WorkflowTask,
+  WorkState,
+  WorkStatus,
+} from './workflow/index.js'
 
 export type {
   EvidenceStore,
