@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
+import { AcpClientHttpError } from '../../src/http-client.js'
 import { runCli } from '../cli-test-helpers.js'
 
 async function loadCommand(): Promise<{
@@ -95,6 +96,64 @@ describe('acp task run-complete command', () => {
     await expect(runTaskRunCompleteCommand(['--run', 'run_1'])).rejects.toThrow(
       '--outcome is required'
     )
+  })
+
+  test('throws AcpClientHttpError on server error', async () => {
+    const { runTaskRunCompleteCommand } = await loadCommand()
+    const fetchImpl = async () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            code: 'invalid_run_state',
+            message: 'Run is not in running state',
+          },
+        }),
+        { status: 409, headers: { 'content-type': 'application/json' } }
+      )
+
+    await expect(
+      runTaskRunCompleteCommand(
+        ['--server', 'http://acp.test', '--run', 'run_err', '--outcome', 'success', '--json'],
+        { fetchImpl }
+      )
+    ).rejects.toBeInstanceOf(AcpClientHttpError)
+
+    await expect(
+      runTaskRunCompleteCommand(
+        ['--server', 'http://acp.test', '--run', 'run_err', '--outcome', 'success', '--json'],
+        { fetchImpl }
+      )
+    ).rejects.toHaveProperty('status', 409)
+  })
+
+  test('exits non-zero on server error via runCli', async () => {
+    const result = await runCli(
+      [
+        'task',
+        'run-complete',
+        '--server',
+        'http://acp.test',
+        '--run',
+        'run_err',
+        '--outcome',
+        'success',
+        '--json',
+      ],
+      {
+        fetchImpl: async () =>
+          new Response(
+            JSON.stringify({
+              error: {
+                code: 'invalid_run_state',
+                message: 'Run is not in running state',
+              },
+            }),
+            { status: 409, headers: { 'content-type': 'application/json' } }
+          ),
+      }
+    )
+
+    expect(result.exitCode).toBe(1)
   })
 
   test('is registered under acp task run-complete', async () => {

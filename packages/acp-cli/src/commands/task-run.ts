@@ -1,6 +1,7 @@
 import type { ActorRef } from 'acp-core'
 
 import { CliUsageError } from '../cli-runtime.js'
+import { AcpClientHttpError } from '../http-client.js'
 import {
   hasFlag,
   parseArgs,
@@ -95,7 +96,13 @@ export async function runTaskRunCommand(
     body: JSON.stringify(body),
   })
 
-  const responseBody = (await response.json()) as {
+  const responseBody = (await response.json()) as Record<string, unknown>
+
+  if (!response.ok) {
+    throw new AcpClientHttpError(response.status, responseBody)
+  }
+
+  const typedBody = responseBody as {
     participantRun: {
       runId: string
       kind: string
@@ -111,10 +118,10 @@ export async function runTaskRunCommand(
   }
 
   if (jsonOutput) {
-    return asJson(responseBody)
+    return asJson(typedBody)
   }
 
-  const run = responseBody.participantRun
+  const run = typedBody.participantRun
   const text = `Started participant run ${run.runId} for ${run.taskId} ${run.role}; status=${run.status} context=${run.contextHash}`
   return asText(text)
 }

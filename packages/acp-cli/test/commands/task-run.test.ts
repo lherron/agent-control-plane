@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import { runTaskRunCommand } from '../../src/commands/task-run.js'
+import { AcpClientHttpError } from '../../src/http-client.js'
 import { runCli } from '../cli-test-helpers.js'
 
 const owner = { kind: 'agent', id: 'larry' } as const
@@ -190,6 +191,132 @@ describe('acp task run command', () => {
     await expect(runTaskRunCommand(['--role', 'owner', '--agent', 'larry'])).rejects.toThrow(
       '--task is required'
     )
+  })
+
+  test('throws AcpClientHttpError on role_not_bound server error (409)', async () => {
+    const fetchImpl = async () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            code: 'role_not_bound',
+            message: "Role 'observer' is not bound to any actor",
+          },
+        }),
+        { status: 409, headers: { 'content-type': 'application/json' } }
+      )
+
+    await expect(
+      runTaskRunCommand(
+        [
+          '--server',
+          'http://acp.test',
+          '--task',
+          'T-ERR',
+          '--role',
+          'observer',
+          '--agent',
+          'larry',
+          '--json',
+        ],
+        { fetchImpl }
+      )
+    ).rejects.toBeInstanceOf(AcpClientHttpError)
+
+    await expect(
+      runTaskRunCommand(
+        [
+          '--server',
+          'http://acp.test',
+          '--task',
+          'T-ERR',
+          '--role',
+          'observer',
+          '--agent',
+          'larry',
+          '--json',
+        ],
+        { fetchImpl }
+      )
+    ).rejects.toHaveProperty('status', 409)
+  })
+
+  test('throws AcpClientHttpError on actor mismatch server error (403)', async () => {
+    const fetchImpl = async () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            code: 'actor_mismatch',
+            message: 'Actor does not match the bound agent for role',
+          },
+        }),
+        { status: 403, headers: { 'content-type': 'application/json' } }
+      )
+
+    await expect(
+      runTaskRunCommand(
+        [
+          '--server',
+          'http://acp.test',
+          '--task',
+          'T-ERR',
+          '--role',
+          'owner',
+          '--agent',
+          'wrong-agent',
+          '--json',
+        ],
+        { fetchImpl }
+      )
+    ).rejects.toBeInstanceOf(AcpClientHttpError)
+
+    await expect(
+      runTaskRunCommand(
+        [
+          '--server',
+          'http://acp.test',
+          '--task',
+          'T-ERR',
+          '--role',
+          'owner',
+          '--agent',
+          'wrong-agent',
+          '--json',
+        ],
+        { fetchImpl }
+      )
+    ).rejects.toHaveProperty('status', 403)
+  })
+
+  test('exits non-zero on server error via runCli', async () => {
+    const result = await runCli(
+      [
+        'task',
+        'run',
+        '--server',
+        'http://acp.test',
+        '--task',
+        'T-ERR',
+        '--role',
+        'owner',
+        '--agent',
+        'larry',
+        '--json',
+      ],
+      {
+        fetchImpl: async () =>
+          new Response(
+            JSON.stringify({
+              error: {
+                code: 'role_not_bound',
+                message: "Role 'owner' is not bound to any actor",
+              },
+            }),
+            { status: 409, headers: { 'content-type': 'application/json' } }
+          ),
+      }
+    )
+
+    expect(result.exitCode).toBe(1)
   })
 
   test('is registered under acp task run', async () => {

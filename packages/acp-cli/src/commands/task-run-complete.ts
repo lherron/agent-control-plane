@@ -1,3 +1,4 @@
+import { AcpClientHttpError } from '../http-client.js'
 import {
   hasFlag,
   parseArgs,
@@ -92,6 +93,10 @@ export async function runTaskRunCompleteCommand(
   )
 
   const responseBody = (await response.json()) as Record<string, unknown>
+
+  if (!response.ok) {
+    throw new AcpClientHttpError(response.status, responseBody)
+  }
 
   if (hasFlag(parsed, '--json')) {
     return asJson(responseBody)
