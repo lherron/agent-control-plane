@@ -537,6 +537,13 @@ describe('acp CLI smoke fixtures', () => {
     expect(result.stderr).toContain("unknown command 'does-not-exist'")
   })
 
+  test('unknown subcommand under task obligation exits non-zero', async () => {
+    const result = await runCli(['task', 'obligation', 'expire'])
+
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/unknown/i)
+  })
+
   test('workflow ref validation rejects invalid versions before side effects', async () => {
     const fetchQueue = createFetchQueue([])
     const result = await runCli(

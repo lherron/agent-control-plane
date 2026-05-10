@@ -156,6 +156,49 @@ describe('durable workflow task obligation lifecycle routes', () => {
     })
   })
 
+  describe('cancel obligation - missing reason', () => {
+    test('returns 422 invalid_evidence when reason is missing', async () => {
+      await withWiredServer(async (fixture) => {
+        const { taskId, obligationId } = await createTaskWithObligation(fixture)
+
+        const response = await fixture.request({
+          method: 'POST',
+          path: `/v1/tasks/${taskId}/obligations/${obligationId}/cancel`,
+          body: {
+            actor: { kind: 'agent', id: 'coordinator' },
+            idempotencyKey: 'server-obligation:cancel:missing-reason',
+          },
+        })
+
+        expect(response.status).toBe(422)
+        await expect(response.json()).resolves.toMatchObject({
+          error: { code: 'invalid_evidence' },
+        })
+      })
+    })
+
+    test('returns 422 invalid_evidence when reason is blank', async () => {
+      await withWiredServer(async (fixture) => {
+        const { taskId, obligationId } = await createTaskWithObligation(fixture)
+
+        const response = await fixture.request({
+          method: 'POST',
+          path: `/v1/tasks/${taskId}/obligations/${obligationId}/cancel`,
+          body: {
+            actor: { kind: 'agent', id: 'coordinator' },
+            reason: '',
+            idempotencyKey: 'server-obligation:cancel:blank-reason',
+          },
+        })
+
+        expect(response.status).toBe(422)
+        await expect(response.json()).resolves.toMatchObject({
+          error: { code: 'invalid_evidence' },
+        })
+      })
+    })
+  })
+
   test('POST waive returns 403 when persisted supervisor run lacks createWaivers', async () => {
     await withWiredServer(async (fixture) => {
       const { taskId, obligationId } = await createTaskWithObligation(fixture, {
