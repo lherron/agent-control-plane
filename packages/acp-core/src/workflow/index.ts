@@ -366,6 +366,12 @@ export type WorkflowControlAction =
     }
   | { type: 'satisfy_obligation'; obligationId: string; evidence?: EvidenceInput[] | undefined }
   | {
+      type: 'waive_obligation'
+      obligationId: string
+      reason: string
+      evidenceRefs?: string[] | undefined
+    }
+  | {
       type: 'propose_workflow_patch'
       category: WorkflowAnomaly['category']
       summary: string
@@ -383,7 +389,7 @@ export type WorkflowControlAction =
   | {
       type: 'apply_transition'
       transitionId: string
-      evidenceRefs: string[]
+      evidenceRefs?: string[] | undefined
       expectedTaskVersion?: number | undefined
       participantRunId?: string | undefined
     }
@@ -549,8 +555,9 @@ function getControlActionCapabilityError(
     launch_participant_run: capabilities.launchRuns,
     create_obligation: capabilities.createObligations,
     satisfy_obligation: capabilities.satisfyObligations,
+    waive_obligation: capabilities.createWaivers,
     propose_workflow_patch: capabilities.proposeWorkflowPatches,
-    pause_supervision: true,
+    pause_supervision: capabilities.pauseSupervision,
     unpause_supervision: true,
     attach_evidence: capabilities.attachEvidence,
     apply_transition: capabilities.applySupervisorTransitions,
@@ -1436,6 +1443,7 @@ export function createInMemoryWorkflowKernel(
     proposal?: WorkflowPatchProposal | undefined
     evidence?: EvidenceRecord[] | undefined
   }> =>
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: central dispatcher for one checked supervisor action.
     withIdempotency(request.idempotencyKey, request, () => {
       const idempotencyKey = request.idempotencyKey ?? ''
       const task = tasks.get(request.taskId)
@@ -1465,9 +1473,7 @@ export function createInMemoryWorkflowKernel(
       }
       // Authorization hardening: load persisted supervisor run record
       const supervisorRunList = supervisorRuns.get(task.taskId) ?? []
-      const supervisorRun = supervisorRunList.find(
-        (run) => run.runId === request.supervisorRunId
-      )
+      const supervisorRun = supervisorRunList.find((run) => run.runId === request.supervisorRunId)
       if (supervisorRun === undefined) {
         return reject(
           'authority_not_granted',
@@ -1476,10 +1482,7 @@ export function createInMemoryWorkflowKernel(
       }
       // Verify request actor matches supervisor run actor
       if (request.actor !== undefined && !actorEquals(request.actor, supervisorRun.supervisor)) {
-        return reject(
-          'authority_not_granted',
-          'Request actor does not match supervisor run actor'
-        )
+        return reject('authority_not_granted', 'Request actor does not match supervisor run actor')
       }
       // Verify supervisor run actor matches task supervisor binding
       if (
@@ -1651,6 +1654,66 @@ export function createInMemoryWorkflowKernel(
         })
         return { ok: true, task: clone(nextTask), obligation: clone(updatedObligation) }
       }
+      if (action.type === 'waive_obligation') {
+        const resolved = resolveObligation(action.obligationId)
+        if (!resolved.ok) {
+          return resolved
+        }
+        if (resolved.task.taskId !== task.taskId) {
+          return reject(
+            'authority_not_granted',
+            `Obligation ${action.obligationId} does not belong to this task`
+          )
+        }
+        const { list, index, obligation } = resolved
+        const updatedObligation: ObligationRecord = {
+          ...obligation,
+          status: 'waived',
+          updatedAt: now,
+          waivedAt: now,
+          waiverReason: action.reason,
+          ...(action.evidenceRefs !== undefined
+            ? { waiverEvidenceRefs: clone(action.evidenceRefs) }
+            : {}),
+        }
+        const nextObligations = [...list]
+        nextObligations[index] = updatedObligation
+        obligations.set(task.taskId, clone(nextObligations))
+        const nextTask = nextTaskAfterObligationClosed(task, nextObligations)
+        tasks.set(task.taskId, clone(nextTask))
+        clearContextHashes(task.taskId)
+        appendEvent(nextTask, {
+          taskId: task.taskId,
+          type: 'waiver.recorded',
+          actor: supervisorRun.supervisor,
+          supervisorRunId: request.supervisorRunId,
+          observedTaskVersion: task.version,
+          nextTaskVersion: nextTask.version,
+          idempotencyKey,
+          payload: {
+            obligationId: action.obligationId,
+            waiverKind: obligation.kind,
+            reason: action.reason,
+            evidenceRefs: action.evidenceRefs ?? [],
+          },
+        })
+        appendEvent(nextTask, {
+          taskId: task.taskId,
+          type: 'obligation.waived',
+          actor: supervisorRun.supervisor,
+          supervisorRunId: request.supervisorRunId,
+          observedTaskVersion: task.version,
+          nextTaskVersion: nextTask.version,
+          idempotencyKey,
+          payload: {
+            obligationId: action.obligationId,
+            kind: obligation.kind,
+            reason: action.reason,
+            evidenceRefs: action.evidenceRefs ?? [],
+          },
+        })
+        return { ok: true, task: clone(nextTask), obligation: clone(updatedObligation) }
+      }
       if (action.type === 'propose_workflow_patch') {
         const anomaly: WorkflowAnomaly = {
           anomalyId: nextId('anom'),
@@ -1698,9 +1761,7 @@ export function createInMemoryWorkflowKernel(
       }
       if (action.type === 'pause_supervision') {
         // Update persisted supervisor run record
-        const runIdx = supervisorRunList.findIndex(
-          (run) => run.runId === request.supervisorRunId
-        )
+        const runIdx = supervisorRunList.findIndex((run) => run.runId === request.supervisorRunId)
         if (runIdx >= 0) {
           const updatedRun: SupervisorRunRecord = {
             ...supervisorRun,
@@ -1725,9 +1786,7 @@ export function createInMemoryWorkflowKernel(
         if (supervisorRun.paused !== true) {
           return reject('state_mismatch', 'Supervisor run is not paused')
         }
-        const runIdx = supervisorRunList.findIndex(
-          (run) => run.runId === request.supervisorRunId
-        )
+        const runIdx = supervisorRunList.findIndex((run) => run.runId === request.supervisorRunId)
         if (runIdx >= 0) {
           const updatedRun: SupervisorRunRecord = {
             ...supervisorRun,
@@ -1788,7 +1847,7 @@ export function createInMemoryWorkflowKernel(
           )
         }
         // Validate evidence refs - REQUIRED, must not be empty
-        if (action.evidenceRefs.length === 0) {
+        if ((action.evidenceRefs ?? []).length === 0) {
           return reject(
             'missing_evidence',
             `Transition "${action.transitionId}" requires evidence references`
@@ -1796,7 +1855,7 @@ export function createInMemoryWorkflowKernel(
         }
         const taskEvidence = evidence.get(task.taskId) ?? []
         const referencedEvidence: EvidenceRecord[] = []
-        for (const ref of action.evidenceRefs) {
+        for (const ref of action.evidenceRefs ?? []) {
           const record = taskEvidence.find((e) => e.evidenceId === ref)
           if (record === undefined) {
             return reject('evidence_not_found', `Evidence not found: ${ref}`)
@@ -1838,7 +1897,11 @@ export function createInMemoryWorkflowKernel(
           }
           // Verify participant run's actor is currently bound to that role
           const boundActor = task.roleBindings[prun.role]
-          if (boundActor === undefined || boundActor === null || !actorEquals(boundActor, prun.actor)) {
+          if (
+            boundActor === undefined ||
+            boundActor === null ||
+            !actorEquals(boundActor, prun.actor)
+          ) {
             return reject(
               'authority_not_granted',
               `Participant run ${prunId} actor is not the current binding for role "${prun.role}"`,
@@ -1846,10 +1909,7 @@ export function createInMemoryWorkflowKernel(
             )
           }
           // Validate optional participantRunId matches
-          if (
-            action.participantRunId !== undefined &&
-            action.participantRunId !== prunId
-          ) {
+          if (action.participantRunId !== undefined && action.participantRunId !== prunId) {
             return reject(
               'authority_not_granted',
               `Evidence references participant run ${prunId} but expected ${action.participantRunId}`
@@ -2325,6 +2385,103 @@ export function createInMemoryWorkflowKernel(
     return clone(context)
   }
 
+  const validateAttachEvidenceProvenance = (
+    task: WorkflowTask,
+    request: {
+      actor: ActorRef
+      role?: string | undefined
+      runId?: string | undefined
+      supervisorRunId?: string | undefined
+      participantRunId?: string | undefined
+    }
+  ): WorkflowRejection | undefined => {
+    const taskParticipantRuns = participantRuns.get(task.taskId) ?? []
+    if (request.participantRunId !== undefined) {
+      const run = taskParticipantRuns.find((record) => record.runId === request.participantRunId)
+      if (run === undefined) {
+        return reject(
+          'authority_not_granted',
+          `Participant run ${request.participantRunId} not found on this task`
+        ).error
+      }
+      if (!actorEquals(request.actor, run.actor)) {
+        return reject(
+          'authority_not_granted',
+          `Request actor does not match participant run ${request.participantRunId}`
+        ).error
+      }
+      if (request.role !== run.role) {
+        return reject(
+          'authority_not_granted',
+          `Request role does not match participant run ${request.participantRunId}`
+        ).error
+      }
+    }
+    if (request.supervisorRunId !== undefined) {
+      const run = [...supervisorRuns.values()]
+        .flat()
+        .find((record) => record.runId === request.supervisorRunId)
+      if (run !== undefined) {
+        if (run.taskId !== task.taskId) {
+          return reject(
+            'authority_not_granted',
+            `Supervisor run ${request.supervisorRunId} does not belong to this task`
+          ).error
+        }
+        if (!actorEquals(request.actor, run.supervisor)) {
+          return reject(
+            'authority_not_granted',
+            `Request actor does not match supervisor run ${request.supervisorRunId}`
+          ).error
+        }
+      }
+    }
+    if (request.runId === undefined) {
+      return undefined
+    }
+    const knownParticipantRun = [...participantRuns.values()]
+      .flat()
+      .find((record) => record.runId === request.runId)
+    const knownSupervisorRun = [...supervisorRuns.values()]
+      .flat()
+      .find((record) => record.runId === request.runId)
+    if (knownParticipantRun !== undefined) {
+      if (knownParticipantRun.taskId !== task.taskId) {
+        return reject(
+          'authority_not_granted',
+          `Participant run ${request.runId} does not belong to this task`
+        ).error
+      }
+      if (!actorEquals(request.actor, knownParticipantRun.actor)) {
+        return reject(
+          'authority_not_granted',
+          `Request actor does not match participant run ${request.runId}`
+        ).error
+      }
+      if (request.role !== knownParticipantRun.role) {
+        return reject(
+          'authority_not_granted',
+          `Request role does not match participant run ${request.runId}`
+        ).error
+      }
+    }
+    if (knownSupervisorRun !== undefined) {
+      if (knownSupervisorRun.taskId !== task.taskId) {
+        return reject(
+          'authority_not_granted',
+          `Supervisor run ${request.runId} does not belong to this task`
+        ).error
+      }
+      if (!actorEquals(request.actor, knownSupervisorRun.supervisor)) {
+        return reject(
+          'authority_not_granted',
+          `Request actor does not match supervisor run ${request.runId}`
+        ).error
+      }
+    }
+    return undefined
+  }
+
   const attachEvidence = (request: {
     taskId: string
     actor: ActorRef
@@ -2364,6 +2521,10 @@ export function createInMemoryWorkflowKernel(
             message: 'Actor is not authorized to attach evidence to this task',
           },
         }
+      }
+      const provenanceError = validateAttachEvidenceProvenance(task, request)
+      if (provenanceError !== undefined) {
+        return { ok: false, error: provenanceError }
       }
       for (const item of request.evidence) {
         if (definition.evidenceKinds[item.kind] === undefined) {
