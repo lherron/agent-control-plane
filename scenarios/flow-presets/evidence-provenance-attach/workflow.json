@@ -1,0 +1,57 @@
+{
+  "id": "evidence_provenance_demo",
+  "version": 1,
+  "kind": "generic",
+  "initial": { "status": "active", "phase": "collect" },
+  "phases": {
+    "collect": { "objective": "Collect typed evidence with full provenance from multiple authorized sources." }
+  },
+  "outcomes": {
+    "success": {},
+    "cancelled": {}
+  },
+  "roles": {
+    "collector": {
+      "description": "Bound role authorized to attach evidence directly.",
+      "binding": "required"
+    },
+    "observer": {
+      "description": "Unbound role — used as a negative case (no actor bound).",
+      "binding": "optional"
+    }
+  },
+  "evidenceKinds": {
+    "field_note": {
+      "description": "Free-form observation evidence with provenance.",
+      "requiredFields": ["summary"]
+    },
+    "supervisor_note": {
+      "description": "Evidence attached by the supervisor for compliance traceability.",
+      "requiredFields": ["summary"]
+    },
+    "participant_artifact": {
+      "description": "Evidence produced by a participant run on behalf of a bound role.",
+      "requiredFields": ["ref"]
+    }
+  },
+  "transitions": {
+    "close_success": {
+      "id": "close_success",
+      "label": "Close after evidence collection",
+      "from": { "status": "active", "phase": "collect" },
+      "to": { "status": "closed", "outcome": "success" },
+      "by": ["collector"],
+      "requires": [
+        { "type": "evidence", "kinds": ["field_note", "supervisor_note", "participant_artifact"], "mode": "all" }
+      ]
+    }
+  },
+  "supervisor": {
+    "dispatch": {
+      "collector": {
+        "promptRef": "collector.v1",
+        "expectedResult": "field_note.v1"
+      }
+    }
+  }
+}

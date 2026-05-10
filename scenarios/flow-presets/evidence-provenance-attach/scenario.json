@@ -1,0 +1,174 @@
+{
+  "scenarioId": "evidence-provenance-attach",
+  "title": "Standalone evidence attach with three-source provenance authorization",
+  "summary": "Exercises ACP Checkpoint E1 (evidence provenance + standalone attach). Drives a single task through three distinct authorized standalone evidence attaches — by a role-bound actor, by the supervisor with explicit attachEvidence capability, and by an actor with a persisted participant run on the task — verifies that EvidenceRecord provenance fields (actor, role, runId, participantRunId, supervisorRunId) round-trip correctly, and confirms idempotency replay. Includes negative cases for unauthorized actors and idempotency conflicts.",
+  "workflow": {
+    "id": "evidence_provenance_demo",
+    "version": 1,
+    "definitionFile": "./workflow.json"
+  },
+  "task": {
+    "taskId": "T-EVIDENCE-PROVENANCE-DEMO",
+    "projectId": "agent-spaces",
+    "goal": "Collect three field-note evidence records demonstrating provenance for each authorized actor type.",
+    "risk": "low",
+    "initialFacts": {
+      "demoFor": "checkpoint-E1"
+    }
+  },
+  "actors": [
+    { "binding": "collector", "actor": { "kind": "agent", "id": "larry" } },
+    { "binding": "supervisor", "actor": { "kind": "agent", "id": "rex" } }
+  ],
+  "supervisor": {
+    "actor": { "kind": "agent", "id": "rex" },
+    "autonomy": "managed",
+    "capabilities": {
+      "launchRuns": true,
+      "createObligations": false,
+      "satisfyObligations": false,
+      "attachEvidence": true,
+      "applySupervisorTransitions": false,
+      "proposeWorkflowPatches": false
+    }
+  },
+  "steps": [
+    {
+      "stepId": "01-create-task",
+      "summary": "Supervisor creates the workflow task pinned to evidence_provenance_demo@1, binds collector=larry.",
+      "actorBinding": "supervisor",
+      "expectedStateAfter": { "status": "active", "phase": "collect" },
+      "kernel": {
+        "op": "createTask",
+        "args": {
+          "taskId": "T-EVIDENCE-PROVENANCE-DEMO",
+          "projectId": "agent-spaces",
+          "workflow": { "id": "evidence_provenance_demo", "version": 1 },
+          "goal": "Collect three field-note evidence records demonstrating provenance for each authorized actor type.",
+          "risk": "low",
+          "roleBindings": {
+            "collector": { "kind": "agent", "id": "larry" }
+          },
+          "idempotencyKey": "scenario:evidence-provenance:create:v1"
+        }
+      }
+    },
+    {
+      "stepId": "02-attach-by-bound-role",
+      "summary": "Collector (role-bound actor larry) attaches a field_note via standalone evidence attach API. Provenance must record actor={agent:larry}, role=collector, runId=undefined, participantRunId=undefined, supervisorRunId=undefined.",
+      "actorBinding": "collector",
+      "expectedStateAfter": { "status": "active", "phase": "collect" },
+      "evidence": [
+        {
+          "kind": "field_note",
+          "ref": "note:collector-direct-attach",
+          "summary": "Field note attached by the role-bound collector via POST /v1/tasks/:id/evidence",
+          "expectedProvenance": {
+            "actor": { "kind": "agent", "id": "larry" },
+            "role": "collector"
+          }
+        }
+      ],
+      "idempotencyKey": "scenario:evidence-provenance:attach:bound-role:v1"
+    },
+    {
+      "stepId": "03-attach-by-supervisor",
+      "summary": "Supervisor (with attachEvidence capability) attaches a supervisor_note via standalone evidence attach API. Provenance must record actor={agent:rex}, supervisorRunId=<active supervisor run>, role=undefined.",
+      "actorBinding": "supervisor",
+      "expectedStateAfter": { "status": "active", "phase": "collect" },
+      "evidence": [
+        {
+          "kind": "supervisor_note",
+          "ref": "note:supervisor-traceability-attach",
+          "summary": "Supervisor compliance note attached via supervisor authority",
+          "expectedProvenance": {
+            "actor": { "kind": "agent", "id": "rex" },
+            "supervisorRunId": "<active>"
+          }
+        }
+      ],
+      "idempotencyKey": "scenario:evidence-provenance:attach:supervisor:v1"
+    },
+    {
+      "stepId": "04-launch-participant-run",
+      "summary": "Supervisor launches a participant run for the collector role. The participant run will produce a participant_artifact in the next step. This step exists to set up provenance source (c).",
+      "actorBinding": "supervisor",
+      "controlAction": {
+        "type": "launch_participant_run",
+        "role": "collector",
+        "actor": { "kind": "agent", "id": "larry" },
+        "idempotencyKey": "scenario:evidence-provenance:launch-collector:v1"
+      },
+      "expectedStateAfter": { "status": "active", "phase": "collect" }
+    },
+    {
+      "stepId": "05-attach-via-participant-run",
+      "summary": "Collector attaches a participant_artifact via standalone evidence attach API, supplying runId from step 04. Provenance must record actor={agent:larry}, role=collector, runId=<participant runId from 04>, participantRunId=<same>.",
+      "actorBinding": "collector",
+      "expectedStateAfter": { "status": "active", "phase": "collect" },
+      "evidence": [
+        {
+          "kind": "participant_artifact",
+          "ref": "artifact:collector-run-output",
+          "summary": "Artifact produced by the collector during their participant run",
+          "fromRunId": "<participant_run_id_from_step_04>",
+          "expectedProvenance": {
+            "actor": { "kind": "agent", "id": "larry" },
+            "role": "collector",
+            "participantRunId": "<participant_run_id_from_step_04>"
+          }
+        }
+      ],
+      "idempotencyKey": "scenario:evidence-provenance:attach:participant-run:v1"
+    },
+    {
+      "stepId": "06-idempotency-replay",
+      "summary": "Replay step 02 with the SAME idempotency key and SAME payload — must return the original evidence record with the same evidenceId (no duplicate).",
+      "actorBinding": "collector",
+      "expectedStateAfter": { "status": "active", "phase": "collect" },
+      "evidence": [
+        {
+          "kind": "field_note",
+          "ref": "note:collector-direct-attach",
+          "summary": "Field note attached by the role-bound collector via POST /v1/tasks/:id/evidence"
+        }
+      ],
+      "idempotencyKey": "scenario:evidence-provenance:attach:bound-role:v1",
+      "expectedReplay": true
+    },
+    {
+      "stepId": "07-close-success",
+      "summary": "Collector closes the task as success — all three evidence kinds are now present.",
+      "actorBinding": "collector",
+      "transitionId": "close_success",
+      "expectedStateAfter": { "status": "closed", "outcome": "success" }
+    }
+  ],
+  "negativeChecks": [
+    {
+      "name": "unauthorized-actor-cannot-attach",
+      "summary": "Attempt to attach a field_note as actor={agent:intruder} (not bound to any role, not the supervisor, no participant run on this task). Expect rejection code authority_not_granted (or capability_not_granted).",
+      "expectedRejection": "authority_not_granted"
+    },
+    {
+      "name": "supervisor-without-capability-cannot-attach",
+      "summary": "On a fresh task where the supervisor binding lacks attachEvidence:true, attempt step 03. Expect rejection code capability_not_granted.",
+      "expectedRejection": "capability_not_granted"
+    },
+    {
+      "name": "idempotency-conflict-on-different-payload",
+      "summary": "Replay step 02 with the SAME idempotency key but a DIFFERENT payload (e.g., change ref). Expect rejection code idempotency_conflict.",
+      "expectedRejection": "idempotency_conflict"
+    },
+    {
+      "name": "evidence-kind-not-in-workflow-rejected",
+      "summary": "Attempt to attach an evidence record with kind=undefined_kind not declared in workflow.evidenceKinds. Expect rejection code invalid_evidence (or workflow_definition_mismatch).",
+      "expectedRejection": "invalid_evidence"
+    },
+    {
+      "name": "participant-run-mismatch-rejected",
+      "summary": "Attempt to attach evidence supplying a runId that exists on a DIFFERENT task. Expect rejection code authority_not_granted (or invalid_evidence).",
+      "expectedRejection": "authority_not_granted"
+    }
+  ]
+}

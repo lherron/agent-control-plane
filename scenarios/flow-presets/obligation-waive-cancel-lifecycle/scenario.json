@@ -1,0 +1,198 @@
+{
+  "scenarioId": "obligation-waive-cancel-lifecycle",
+  "title": "Obligation waive vs cancel lifecycle with waiverRefs honoring",
+  "summary": "Exercises ACP Checkpoint E2 (obligation waive/cancel + waiverRefs honoring on transitions). Drives a single task through three obligation lifecycle terminals: satisfied (normal), waived (with reason+evidenceRefs to satisfy a Requirement{type:'waiver'}), and cancelled (supersession path). Demonstrates that the widened ObligationRecord.status enum (open|satisfied|waived|cancelled|expired) round-trips and that waive — not cancel — satisfies waiver requirements on transitions.",
+  "workflow": {
+    "id": "obligation_waive_cancel_demo",
+    "version": 1,
+    "definitionFile": "./workflow.json"
+  },
+  "task": {
+    "taskId": "T-OBLIGATION-LIFECYCLE-DEMO",
+    "projectId": "agent-spaces",
+    "goal": "Drive a draft through review and audit, exercising obligation satisfy/waive/cancel paths.",
+    "risk": "medium",
+    "initialFacts": {
+      "demoFor": "checkpoint-E2"
+    }
+  },
+  "actors": [
+    { "binding": "author", "actor": { "kind": "agent", "id": "larry" } },
+    { "binding": "reviewer", "actor": { "kind": "agent", "id": "curly" } },
+    { "binding": "supervisor", "actor": { "kind": "agent", "id": "rex" } }
+  ],
+  "supervisor": {
+    "actor": { "kind": "agent", "id": "rex" },
+    "autonomy": "managed",
+    "capabilities": {
+      "launchRuns": false,
+      "createObligations": true,
+      "satisfyObligations": true,
+      "createWaivers": true,
+      "applySupervisorTransitions": false,
+      "proposeWorkflowPatches": false
+    }
+  },
+  "steps": [
+    {
+      "stepId": "01-create-task",
+      "summary": "Supervisor creates the workflow task pinned to obligation_waive_cancel_demo@1, binds author=larry, reviewer=curly. Auditor intentionally left unbound — the audit obligation will be cleared by waiver, not by signoff.",
+      "actorBinding": "supervisor",
+      "expectedStateAfter": { "status": "open", "phase": "draft" },
+      "kernel": {
+        "op": "createTask",
+        "args": {
+          "taskId": "T-OBLIGATION-LIFECYCLE-DEMO",
+          "projectId": "agent-spaces",
+          "workflow": { "id": "obligation_waive_cancel_demo", "version": 1 },
+          "goal": "Drive a draft through review and audit, exercising obligation satisfy/waive/cancel paths.",
+          "risk": "medium",
+          "roleBindings": {
+            "author": { "kind": "agent", "id": "larry" },
+            "reviewer": { "kind": "agent", "id": "curly" }
+          },
+          "idempotencyKey": "scenario:obligation-lifecycle:create:v1"
+        }
+      }
+    },
+    {
+      "stepId": "02-attach-draft-package",
+      "summary": "Author attaches the draft_package required by the submit transition.",
+      "actorBinding": "author",
+      "expectedStateAfter": { "status": "open", "phase": "draft" },
+      "evidence": [
+        {
+          "kind": "draft_package",
+          "ref": "doc:draft-v1",
+          "summary": "Initial draft of the proposal package."
+        }
+      ]
+    },
+    {
+      "stepId": "03-submit",
+      "summary": "Author applies submit (open/draft -> active/review). Effects fire: create reviewer_signoff_pending (blocking, owner=reviewer) and auto_cleanup_pending (non-blocking, owner=author).",
+      "actorBinding": "author",
+      "transitionId": "submit",
+      "expectedStateAfter": { "status": "active", "phase": "review" },
+      "expectedEffects": [
+        { "kind": "create_obligation", "payload": { "kind": "reviewer_signoff_pending", "ownerRole": "reviewer", "blocking": true } },
+        { "kind": "create_obligation", "payload": { "kind": "auto_cleanup_pending", "ownerRole": "author", "blocking": false } }
+      ]
+    },
+    {
+      "stepId": "04-cancel-auto-cleanup",
+      "summary": "Supervisor cancels the auto_cleanup_pending obligation as superseded — this should NOT satisfy any waiver requirement and should record obligation.cancelled with the supplied reason.",
+      "actorBinding": "supervisor",
+      "controlAction": {
+        "type": "cancel_obligation",
+        "obligationKind": "auto_cleanup_pending",
+        "reason": "Superseded by direct cleanup pipeline run; obligation no longer needed.",
+        "idempotencyKey": "scenario:obligation-lifecycle:cancel-cleanup:v1"
+      },
+      "expectedStateAfter": { "status": "active", "phase": "review" },
+      "expectedObligationStateAfter": { "kind": "auto_cleanup_pending", "status": "cancelled" }
+    },
+    {
+      "stepId": "05-satisfy-reviewer-signoff",
+      "summary": "Reviewer attaches review_notes and supervisor satisfies reviewer_signoff_pending — normal happy-path obligation closure (status=satisfied, NOT waived).",
+      "actorBinding": "reviewer",
+      "evidence": [
+        {
+          "kind": "review_notes",
+          "ref": "doc:review-notes-v1",
+          "summary": "Reviewer accepted the draft with two minor comments."
+        }
+      ],
+      "controlAction": {
+        "type": "satisfy_obligation",
+        "obligationKind": "reviewer_signoff_pending",
+        "evidenceRefs": ["<evd_review_notes>"],
+        "idempotencyKey": "scenario:obligation-lifecycle:satisfy-reviewer:v1"
+      },
+      "expectedObligationStateAfter": { "kind": "reviewer_signoff_pending", "status": "satisfied" }
+    },
+    {
+      "stepId": "06-attach-review-completion",
+      "summary": "Reviewer attaches review_completion_record required by the advance_to_audit transition.",
+      "actorBinding": "reviewer",
+      "evidence": [
+        {
+          "kind": "review_completion_record",
+          "ref": "doc:review-completion-v1",
+          "summary": "Review concluded; ready for audit gate."
+        }
+      ]
+    },
+    {
+      "stepId": "07-advance-to-audit",
+      "summary": "Reviewer applies advance_to_audit (active/review -> active/audit). Effects fire: create audit_signoff_pending blocking obligation owned by auditor (unbound).",
+      "actorBinding": "reviewer",
+      "transitionId": "advance_to_audit",
+      "expectedStateAfter": { "status": "active", "phase": "audit" },
+      "expectedEffects": [
+        { "kind": "create_obligation", "payload": { "kind": "audit_signoff_pending", "ownerRole": "auditor", "blocking": true } }
+      ]
+    },
+    {
+      "stepId": "08-approve-without-waiver-rejected",
+      "summary": "Author attempts to apply approve without satisfying or waiving audit_signoff_pending. Expect rejection code waiver_required (the approve transition has Requirement{type:'waiver', waiverKind:'audit_signoff_pending'}).",
+      "actorBinding": "author",
+      "transitionId": "approve",
+      "expectedRejection": "waiver_required"
+    },
+    {
+      "stepId": "09-waive-audit-obligation",
+      "summary": "Supervisor (with createWaivers capability) waives audit_signoff_pending with reason + audit_waiver evidence. Records obligation.waived event AND a waiver record that the kernel can match against Requirement{type:'waiver'}.",
+      "actorBinding": "supervisor",
+      "evidence": [
+        {
+          "kind": "audit_waiver",
+          "ref": "doc:audit-waiver-2026-05-09",
+          "summary": "Audit waived under §4.2: low-risk template change, prior audit valid."
+        }
+      ],
+      "controlAction": {
+        "type": "waive_obligation",
+        "obligationKind": "audit_signoff_pending",
+        "reason": "Low-risk template change covered by §4.2; prior audit still in date.",
+        "evidenceRefs": ["<evd_audit_waiver>"],
+        "idempotencyKey": "scenario:obligation-lifecycle:waive-audit:v1"
+      },
+      "expectedObligationStateAfter": { "kind": "audit_signoff_pending", "status": "waived" }
+    },
+    {
+      "stepId": "10-approve-with-waiver-succeeds",
+      "summary": "Author re-applies approve. The kernel verifies the waiver record matches Requirement{type:'waiver', waiverKind:'audit_signoff_pending'} and accepts the transition.",
+      "actorBinding": "author",
+      "transitionId": "approve",
+      "expectedStateAfter": { "status": "closed", "outcome": "success" }
+    }
+  ],
+  "negativeChecks": [
+    {
+      "name": "cancel-does-not-satisfy-waiver",
+      "summary": "Repeat the run but at step 09 use cancel_obligation (with reason) instead of waive_obligation. Then attempt step 10. Expect rejection code waiver_required because cancel does NOT produce a waiver record.",
+      "expectedRejection": "waiver_required"
+    },
+    {
+      "name": "waive-without-capability-rejected",
+      "summary": "Recreate the supervisor binding without createWaivers capability. Attempt step 09. Expect rejection code capability_not_granted.",
+      "expectedRejection": "capability_not_granted"
+    },
+    {
+      "name": "cancel-without-reason-rejected",
+      "summary": "Attempt cancel_obligation with empty/missing reason. Expect rejection code invalid_evidence (or a dedicated reason_required code) — cancel REQUIRES reason per E2 design.",
+      "expectedRejection": "invalid_evidence"
+    },
+    {
+      "name": "waive-idempotency-conflict",
+      "summary": "Replay step 09 with the SAME idempotency key but a DIFFERENT reason. Expect rejection code idempotency_conflict.",
+      "expectedRejection": "idempotency_conflict"
+    },
+    {
+      "name": "expired-status-reserved-not-cli-exposed",
+      "summary": "Confirm CLI surfaces do not allow setting status=expired directly. The expired terminal is reserved for internal kernel use (future timer-driven expiration). expireObligation kernel method exists but no public CLI/API path. Verifier should confirm `acp task obligation expire` does NOT exist as a command.",
+      "expectedRejection": "command_not_found"
+    }
+  ]
+}

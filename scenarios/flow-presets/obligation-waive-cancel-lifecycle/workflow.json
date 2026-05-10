@@ -1,0 +1,116 @@
+{
+  "id": "obligation_waive_cancel_demo",
+  "version": 1,
+  "kind": "approval",
+  "initial": { "status": "open", "phase": "draft" },
+  "phases": {
+    "draft": { "objective": "Author prepares the package for review." },
+    "review": { "objective": "Reviewer evaluates the package; obligations track outstanding items." },
+    "audit": { "objective": "Audit gate that requires either an audit_review or an explicit waiver." }
+  },
+  "outcomes": {
+    "success": {},
+    "cancelled": {}
+  },
+  "roles": {
+    "author": {
+      "description": "Owns the draft and submits for review.",
+      "binding": "required"
+    },
+    "reviewer": {
+      "description": "Reviews the submitted package.",
+      "binding": "required",
+      "mustDifferFrom": ["author"]
+    },
+    "auditor": {
+      "description": "Owns audit signoff or grants the audit waiver.",
+      "binding": "optional"
+    }
+  },
+  "evidenceKinds": {
+    "draft_package": { "requiredFields": ["summary"] },
+    "review_notes": { "requiredFields": ["summary"] },
+    "audit_review": { "requiredFields": ["summary"] },
+    "audit_waiver": { "requiredFields": ["summary"] },
+    "review_completion_record": { "requiredFields": ["summary"] }
+  },
+  "obligationKinds": {
+    "reviewer_signoff_pending": {
+      "description": "Holds review phase until reviewer attaches review_notes.",
+      "blockingDefault": true,
+      "ownerRoles": ["reviewer"],
+      "allowedSatisfactionEvidence": ["review_notes"]
+    },
+    "auto_cleanup_pending": {
+      "description": "Cleanup obligation that is later cancelled (superseded).",
+      "blockingDefault": false,
+      "ownerRoles": ["author"]
+    },
+    "audit_signoff_pending": {
+      "description": "Holds final approval until audit gate is cleared.",
+      "blockingDefault": true,
+      "ownerRoles": ["auditor"],
+      "allowedSatisfactionEvidence": ["audit_review"]
+    }
+  },
+  "transitions": {
+    "submit": {
+      "id": "submit",
+      "label": "Submit draft for review",
+      "from": { "status": "open", "phase": "draft" },
+      "to": { "status": "active", "phase": "review" },
+      "by": ["author"],
+      "requires": [
+        { "type": "evidence", "kinds": ["draft_package"], "mode": "all" }
+      ],
+      "effects": [
+        {
+          "type": "create_obligation",
+          "kind": "reviewer_signoff_pending",
+          "ownerRole": "reviewer",
+          "blocking": true
+        },
+        {
+          "type": "create_obligation",
+          "kind": "auto_cleanup_pending",
+          "ownerRole": "author",
+          "blocking": false
+        }
+      ]
+    },
+    "advance_to_audit": {
+      "id": "advance_to_audit",
+      "label": "Advance from review to audit gate",
+      "from": { "status": "active", "phase": "review" },
+      "to": { "status": "active", "phase": "audit" },
+      "by": ["reviewer"],
+      "requires": [
+        { "type": "obligation_satisfied", "kind": "reviewer_signoff_pending" },
+        { "type": "evidence", "kinds": ["review_completion_record"], "mode": "all" }
+      ],
+      "effects": [
+        {
+          "type": "create_obligation",
+          "kind": "audit_signoff_pending",
+          "ownerRole": "auditor",
+          "blocking": true
+        }
+      ]
+    },
+    "approve": {
+      "id": "approve",
+      "label": "Final approval — requires audit signoff or audit waiver",
+      "from": { "status": "active", "phase": "audit" },
+      "to": { "status": "closed", "outcome": "success" },
+      "by": ["author"],
+      "requires": [
+        { "type": "waiver", "waiverKind": "audit_signoff_pending" }
+      ]
+    }
+  },
+  "supervisor": {
+    "recovery": {
+      "onMissingEvidence": { "prefer": ["create_obligation", "request_human_input"] }
+    }
+  }
+}

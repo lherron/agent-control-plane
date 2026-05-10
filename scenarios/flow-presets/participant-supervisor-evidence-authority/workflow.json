@@ -1,0 +1,87 @@
+{
+  "id": "participant_supervisor_demo",
+  "version": 1,
+  "kind": "code_change",
+  "initial": { "status": "open", "phase": "plan" },
+  "phases": {
+    "plan": { "objective": "Plan the change and bind roles." },
+    "implement": { "objective": "Implementer participant run produces commit_ref + regression_test." },
+    "verified": { "objective": "Tester participant run produces verification_report." }
+  },
+  "outcomes": {
+    "success": {},
+    "cancelled": {}
+  },
+  "roles": {
+    "implementer": {
+      "description": "Owns the implementation participant run.",
+      "binding": "required"
+    },
+    "tester": {
+      "description": "Owns the verification participant run; must differ from implementer.",
+      "binding": "required",
+      "mustDifferFrom": ["implementer"]
+    }
+  },
+  "evidenceKinds": {
+    "plan_record": { "requiredFields": ["summary"] },
+    "commit_ref": { "requiredFields": ["ref"] },
+    "regression_test": { "requiredFields": ["ref"] },
+    "verification_report": { "requiredFields": ["summary"] }
+  },
+  "transitions": {
+    "start": {
+      "id": "start",
+      "label": "Start (open -> active in plan)",
+      "from": { "status": "open", "phase": "plan" },
+      "to": { "status": "active", "phase": "plan" },
+      "by": ["implementer"],
+      "requires": [
+        { "type": "evidence", "kinds": ["plan_record"], "mode": "all" }
+      ]
+    },
+    "implement_fix": {
+      "id": "implement_fix",
+      "label": "Plan -> implement (requires participant-attached commit_ref + regression_test)",
+      "from": { "status": "active", "phase": "plan" },
+      "to": { "status": "active", "phase": "implement" },
+      "by": ["implementer"],
+      "requires": [
+        { "type": "evidence", "kinds": ["commit_ref", "regression_test"], "mode": "all" }
+      ]
+    },
+    "verify": {
+      "id": "verify",
+      "label": "Implement -> verified (requires participant-attached verification_report)",
+      "from": { "status": "active", "phase": "implement" },
+      "to": { "status": "active", "phase": "verified" },
+      "by": ["tester"],
+      "requires": [
+        { "type": "evidence", "kinds": ["verification_report"], "mode": "all" },
+        { "type": "sod", "actingRole": "tester", "notSameAs": ["implementer"] }
+      ]
+    },
+    "close_success": {
+      "id": "close_success",
+      "label": "Close as success",
+      "from": { "status": "active", "phase": "verified" },
+      "to": { "status": "closed", "outcome": "success" },
+      "by": ["implementer"]
+    }
+  },
+  "supervisor": {
+    "dispatch": {
+      "implementer": {
+        "promptRef": "implementer.v1",
+        "expectedResult": "implementation_result.v1"
+      },
+      "tester": {
+        "promptRef": "tester.v1",
+        "expectedResult": "verification_result.v1"
+      }
+    },
+    "recovery": {
+      "onMissingEvidence": { "prefer": ["launch_participant_run"] }
+    }
+  }
+}

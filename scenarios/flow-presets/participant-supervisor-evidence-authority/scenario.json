@@ -1,0 +1,274 @@
+{
+  "scenarioId": "participant-supervisor-evidence-authority",
+  "title": "Participant runtime + supervisor evidence-backed administrative ApplyTransition",
+  "summary": "Exercises ACP Checkpoint G (participant runtime create/resume + lifecycle) and Checkpoint H (supervisor AttachEvidence/ApplyTransition/Pause/Unpause control actions with capability-and-provenance authorization). The supervisor never claims a workflow role itself; instead, ApplyTransition uses evidenceRefs whose provenance the kernel verifies points back to a role-bound participant run, recording authority='supervisor_from_participant_evidence' on the transition event. Pause/Unpause produce real state changes that gate subsequent control actions.",
+  "workflow": {
+    "id": "participant_supervisor_demo",
+    "version": 1,
+    "definitionFile": "./workflow.json"
+  },
+  "task": {
+    "taskId": "T-PARTICIPANT-SUPERVISOR-DEMO",
+    "projectId": "agent-spaces",
+    "goal": "Drive a code-change task end to end via participant runs, with supervisor evidence-backed authority moving the workflow.",
+    "risk": "medium",
+    "initialFacts": {
+      "demoFor": "checkpoint-G-and-H"
+    }
+  },
+  "actors": [
+    { "binding": "implementer", "actor": { "kind": "agent", "id": "larry" } },
+    { "binding": "tester", "actor": { "kind": "agent", "id": "curly" } },
+    { "binding": "supervisor", "actor": { "kind": "agent", "id": "rex" } }
+  ],
+  "supervisor": {
+    "actor": { "kind": "agent", "id": "rex" },
+    "autonomy": "managed",
+    "capabilities": {
+      "launchRuns": true,
+      "attachEvidence": true,
+      "applySupervisorTransitions": true,
+      "createObligations": true,
+      "satisfyObligations": true,
+      "pauseSupervision": true,
+      "proposeWorkflowPatches": true
+    }
+  },
+  "steps": [
+    {
+      "stepId": "01-create-task",
+      "summary": "Supervisor creates the workflow task pinned to participant_supervisor_demo@1, binds implementer=larry, tester=curly.",
+      "actorBinding": "supervisor",
+      "expectedStateAfter": { "status": "open", "phase": "plan" },
+      "kernel": {
+        "op": "createTask",
+        "args": {
+          "taskId": "T-PARTICIPANT-SUPERVISOR-DEMO",
+          "projectId": "agent-spaces",
+          "workflow": { "id": "participant_supervisor_demo", "version": 1 },
+          "goal": "Drive a code-change task end to end via participant runs, with supervisor evidence-backed authority moving the workflow.",
+          "risk": "medium",
+          "roleBindings": {
+            "implementer": { "kind": "agent", "id": "larry" },
+            "tester": { "kind": "agent", "id": "curly" }
+          },
+          "idempotencyKey": "scenario:participant-supervisor:create:v1"
+        }
+      }
+    },
+    {
+      "stepId": "02-attach-plan",
+      "summary": "Implementer attaches a plan_record (standalone evidence attach) — required by the start transition.",
+      "actorBinding": "implementer",
+      "evidence": [
+        {
+          "kind": "plan_record",
+          "ref": "doc:plan-v1",
+          "summary": "Plan: guard nil order id and add a regression test."
+        }
+      ],
+      "idempotencyKey": "scenario:participant-supervisor:attach-plan:v1"
+    },
+    {
+      "stepId": "03-start",
+      "summary": "Implementer starts the task (open/plan -> active/plan).",
+      "actorBinding": "implementer",
+      "transitionId": "start",
+      "expectedStateAfter": { "status": "active", "phase": "plan" }
+    },
+    {
+      "stepId": "04-launch-implementer-run-via-cli",
+      "summary": "User-direct path: launch a participant run for the implementer role via `acp task run --task <id> --role implementer --agent larry`. The kernel verifies actor matches the persisted role binding (no body actor self-claim). Records the run with status='launched'.",
+      "actorBinding": "implementer",
+      "controlAction": {
+        "type": "user_launch_participant_run",
+        "role": "implementer",
+        "actor": { "kind": "agent", "id": "larry" },
+        "idempotencyKey": "scenario:participant-supervisor:launch-implementer:v1"
+      },
+      "expectedStateAfter": { "status": "active", "phase": "plan" },
+      "expectedRunRecord": {
+        "role": "implementer",
+        "actor": { "kind": "agent", "id": "larry" },
+        "status": "launched"
+      }
+    },
+    {
+      "stepId": "05-implementer-attaches-fix-evidence",
+      "summary": "Implementer participant run attaches commit_ref and regression_test, supplying its own runId so provenance records participantRunId=<run from step 04>.",
+      "actorBinding": "implementer",
+      "evidence": [
+        {
+          "kind": "commit_ref",
+          "ref": "git:agent-spaces@deadbee",
+          "summary": "fix: guard nil order id",
+          "fromRunId": "<implementer_run_id>",
+          "expectedProvenance": {
+            "actor": { "kind": "agent", "id": "larry" },
+            "role": "implementer",
+            "participantRunId": "<implementer_run_id>"
+          }
+        },
+        {
+          "kind": "regression_test",
+          "ref": "test:integration/orders.checkout.repro",
+          "summary": "Regression test now passing",
+          "fromRunId": "<implementer_run_id>",
+          "expectedProvenance": {
+            "actor": { "kind": "agent", "id": "larry" },
+            "role": "implementer",
+            "participantRunId": "<implementer_run_id>"
+          }
+        }
+      ],
+      "idempotencyKey": "scenario:participant-supervisor:implementer-evidence:v1"
+    },
+    {
+      "stepId": "06-complete-implementer-run",
+      "summary": "Implementer participant run is marked completed with outcome=success, referencing the two evidence records.",
+      "actorBinding": "implementer",
+      "controlAction": {
+        "type": "complete_participant_run",
+        "runId": "<implementer_run_id>",
+        "outcome": "success",
+        "evidenceRefs": ["<evd_commit_ref>", "<evd_regression_test>"],
+        "idempotencyKey": "scenario:participant-supervisor:implementer-complete:v1"
+      },
+      "expectedRunRecord": { "status": "completed", "outcome": "success" }
+    },
+    {
+      "stepId": "07-supervisor-applies-implement-fix-transition",
+      "summary": "Supervisor uses ApplyTransition control action with evidenceRefs pointing at the two implementer-run-provenance evidence records. Kernel verifies (a) evidence belongs to task, (b) evidence satisfies implement_fix evidence requirement, (c) evidence was attached by a participant run (not the supervisor), (d) participant run role 'implementer' is in transition.by, (e) participant run actor matches current binding. transition.applied event payload records authority='supervisor_from_participant_evidence', supervisorRunId=<active>, evidenceRefs=[...].",
+      "actorBinding": "supervisor",
+      "controlAction": {
+        "type": "apply_transition",
+        "transitionId": "implement_fix",
+        "evidenceRefs": ["<evd_commit_ref>", "<evd_regression_test>"],
+        "expectedTaskVersion": "<current>",
+        "idempotencyKey": "scenario:participant-supervisor:supv-apply-implement:v1"
+      },
+      "expectedStateAfter": { "status": "active", "phase": "implement" },
+      "expectedEventPayload": {
+        "type": "transition.applied",
+        "authority": "supervisor_from_participant_evidence",
+        "supervisorRunId": "<active>"
+      }
+    },
+    {
+      "stepId": "08-launch-tester-run",
+      "summary": "User-direct path: launch a participant run for the tester role via `acp task run --task <id> --role tester --agent curly`.",
+      "actorBinding": "tester",
+      "controlAction": {
+        "type": "user_launch_participant_run",
+        "role": "tester",
+        "actor": { "kind": "agent", "id": "curly" },
+        "idempotencyKey": "scenario:participant-supervisor:launch-tester:v1"
+      },
+      "expectedRunRecord": { "role": "tester", "actor": { "kind": "agent", "id": "curly" }, "status": "launched" }
+    },
+    {
+      "stepId": "09-tester-attaches-verification",
+      "summary": "Tester participant run attaches verification_report with run provenance.",
+      "actorBinding": "tester",
+      "evidence": [
+        {
+          "kind": "verification_report",
+          "ref": "report:qa-2026-05-09",
+          "summary": "Independent verification clean.",
+          "fromRunId": "<tester_run_id>",
+          "expectedProvenance": {
+            "actor": { "kind": "agent", "id": "curly" },
+            "role": "tester",
+            "participantRunId": "<tester_run_id>"
+          }
+        }
+      ],
+      "idempotencyKey": "scenario:participant-supervisor:tester-evidence:v1"
+    },
+    {
+      "stepId": "10-pause-supervision",
+      "summary": "Supervisor pauses its own supervision run via PauseSupervision control action. Records supervisor.paused event and updates the supervisor run record to paused=true. Subsequent supervisor control actions on this run must reject with code supervisor_paused.",
+      "actorBinding": "supervisor",
+      "controlAction": {
+        "type": "pause_supervision",
+        "reason": "Manual reviewer break — pausing automation while reviewer evaluates verification_report.",
+        "idempotencyKey": "scenario:participant-supervisor:pause:v1"
+      },
+      "expectedSupervisorRunRecord": { "paused": true }
+    },
+    {
+      "stepId": "11-paused-action-rejected",
+      "summary": "While paused, supervisor attempts AttachEvidence — must reject with supervisor_paused.",
+      "actorBinding": "supervisor",
+      "controlAction": {
+        "type": "attach_evidence",
+        "evidence": [
+          { "kind": "verification_report", "ref": "report:other", "summary": "Should not land while paused." }
+        ],
+        "idempotencyKey": "scenario:participant-supervisor:paused-attach:v1"
+      },
+      "expectedRejection": "supervisor_paused"
+    },
+    {
+      "stepId": "12-unpause-supervision",
+      "summary": "Supervisor unpauses; supervisor run record paused=false; subsequent control actions accepted again.",
+      "actorBinding": "supervisor",
+      "controlAction": {
+        "type": "unpause_supervision",
+        "idempotencyKey": "scenario:participant-supervisor:unpause:v1"
+      },
+      "expectedSupervisorRunRecord": { "paused": false }
+    },
+    {
+      "stepId": "13-tester-applies-verify",
+      "summary": "Tester (role-bound) applies verify directly. SoD requires acting actor != implementer (curly != larry, OK). The role-mode path is exercised here — supervisor authority is NOT used for verify, demonstrating that both authority modes coexist.",
+      "actorBinding": "tester",
+      "transitionId": "verify",
+      "expectedStateAfter": { "status": "active", "phase": "verified" }
+    },
+    {
+      "stepId": "14-close-success",
+      "summary": "Implementer applies close_success.",
+      "actorBinding": "implementer",
+      "transitionId": "close_success",
+      "expectedStateAfter": { "status": "closed", "outcome": "success" }
+    }
+  ],
+  "negativeChecks": [
+    {
+      "name": "user-launch-with-unbound-role-rejected",
+      "summary": "On a fresh task with tester role unbound, attempt `acp task run --role tester --agent curly`. Expect rejection code role_not_bound — the user-direct endpoint does NOT bind-and-launch.",
+      "expectedRejection": "role_not_bound"
+    },
+    {
+      "name": "user-launch-actor-mismatch-rejected",
+      "summary": "Attempt `acp task run --role implementer --agent rex` when implementer is bound to larry. Expect rejection code role_not_bound (or sod_violation) — body actor cannot self-claim.",
+      "expectedRejection": "role_not_bound"
+    },
+    {
+      "name": "supervisor-apply-transition-with-supervisor-only-evidence-rejected",
+      "summary": "On a fresh task, supervisor attaches all required evidence under supervisor authority (no participant run involved), then attempts ApplyTransition control action with those evidenceRefs. Expect rejection — evidence must be attached by a participant run for ApplyTransition. Rejection code authority_not_granted (or invalid_evidence).",
+      "expectedRejection": "authority_not_granted"
+    },
+    {
+      "name": "supervisor-apply-transition-without-evidenceRefs-rejected",
+      "summary": "Attempt ApplyTransition control action WITHOUT supplying evidenceRefs (i.e., relying on 'all evidence by kind on task' as the role-mode transition path does). Expect rejection — supervisor authority requires explicit evidenceRefs. Rejection code missing_evidence (or evidenceRefs_required).",
+      "expectedRejection": "missing_evidence"
+    },
+    {
+      "name": "supervisor-without-applySupervisorTransitions-cap-rejected",
+      "summary": "Recreate the task with the supervisor binding lacking applySupervisorTransitions capability. Attempt step 07. Expect rejection code capability_not_granted.",
+      "expectedRejection": "capability_not_granted"
+    },
+    {
+      "name": "request-body-capability-override-ignored",
+      "summary": "Supply a request body that claims supervisor capabilities the persisted supervisor run record does NOT have. Per the cody-mandated authorization hardening, capabilities must derive from the persisted run record, not the request body. Expect rejection code capability_not_granted.",
+      "expectedRejection": "capability_not_granted"
+    },
+    {
+      "name": "pause-without-pauseSupervision-cap-rejected",
+      "summary": "Recreate supervisor binding without pauseSupervision capability. Attempt step 10. Expect rejection code capability_not_granted.",
+      "expectedRejection": "capability_not_granted"
+    }
+  ]
+}
