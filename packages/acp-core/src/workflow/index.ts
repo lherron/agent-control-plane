@@ -28,6 +28,8 @@ export interface SupervisorCapabilities {
   proposeWorkflowPatches?: boolean | undefined
   createWaivers?: boolean | undefined
   pauseSupervision?: boolean | undefined
+  attachEvidence?: boolean | undefined
+  escalate?: boolean | undefined
 }
 
 export interface SupervisorBinding {
@@ -267,6 +269,8 @@ export interface SupervisorRunRecord {
   taskVersionAtStart: number
   contextHash: string
   createdAt: string
+  paused?: boolean | undefined
+  pausedReason?: string | undefined
 }
 
 export interface WorkflowAnomaly {
@@ -335,6 +339,10 @@ export type WorkflowRejectionCode =
   | 'capability_not_granted'
   | 'one_control_action_required'
   | 'obligation_not_found'
+  | 'supervisor_paused'
+  | 'supervisor_run_not_found'
+  | 'evidence_not_from_participant'
+  | 'evidence_not_found'
 
 export interface WorkflowRejection {
   code: WorkflowRejectionCode
@@ -367,6 +375,24 @@ export type WorkflowControlAction =
       rationaleSummary: string
     }
   | { type: 'pause_supervision'; reason: string }
+  | { type: 'unpause_supervision'; reason?: string | undefined }
+  | {
+      type: 'attach_evidence'
+      evidence: EvidenceInput[]
+    }
+  | {
+      type: 'apply_transition'
+      transitionId: string
+      evidenceRefs: string[]
+      expectedTaskVersion?: number | undefined
+      participantRunId?: string | undefined
+    }
+  | {
+      type: 'escalate'
+      reason: string
+      severity: string
+      audience?: string | undefined
+    }
 
 export interface WorkflowIdempotencyRecord {
   fingerprint: string
@@ -519,16 +545,19 @@ function getControlActionCapabilityError(
   action: WorkflowControlAction,
   capabilities: SupervisorCapabilities
 ): WorkflowRejection | undefined {
-  const hasCapability =
-    action.type === 'launch_participant_run'
-      ? capabilities.launchRuns
-      : action.type === 'create_obligation'
-        ? capabilities.createObligations
-        : action.type === 'satisfy_obligation'
-          ? capabilities.satisfyObligations
-          : action.type === 'propose_workflow_patch'
-            ? capabilities.proposeWorkflowPatches
-            : true
+  const capabilityMap: Record<string, boolean | undefined> = {
+    launch_participant_run: capabilities.launchRuns,
+    create_obligation: capabilities.createObligations,
+    satisfy_obligation: capabilities.satisfyObligations,
+    propose_workflow_patch: capabilities.proposeWorkflowPatches,
+    pause_supervision: true,
+    unpause_supervision: true,
+    attach_evidence: capabilities.attachEvidence,
+    apply_transition: capabilities.applySupervisorTransitions,
+    escalate: capabilities.escalate,
+  }
+
+  const hasCapability = capabilityMap[action.type] ?? false
 
   if (hasCapability === true) {
     return undefined
@@ -1400,6 +1429,7 @@ export function createInMemoryWorkflowKernel(
     participantRun?: ParticipantRunRecord | undefined
     anomaly?: WorkflowAnomaly | undefined
     proposal?: WorkflowPatchProposal | undefined
+    evidence?: EvidenceRecord[] | undefined
   }> =>
     withIdempotency(request.idempotencyKey, request, () => {
       const idempotencyKey = request.idempotencyKey ?? ''
@@ -1428,8 +1458,43 @@ export function createInMemoryWorkflowKernel(
       ) {
         return reject('context_stale', 'The supplied context hash is not current for this task')
       }
-      const capabilities = request.capabilities ?? task.supervisor?.capabilities ?? {}
+      // Authorization hardening: load persisted supervisor run record
+      const supervisorRunList = supervisorRuns.get(task.taskId) ?? []
+      const supervisorRun = supervisorRunList.find(
+        (run) => run.runId === request.supervisorRunId
+      )
+      if (supervisorRun === undefined) {
+        return reject(
+          'supervisor_run_not_found',
+          `Supervisor run not found: ${request.supervisorRunId}`
+        )
+      }
+      if (supervisorRun.taskId !== task.taskId) {
+        return reject(
+          'supervisor_run_not_found',
+          'Supervisor run does not belong to this task'
+        )
+      }
+      // Verify request actor matches supervisor run actor (if task has supervisor binding)
+      if (
+        task.supervisor !== undefined &&
+        !actorEquals(task.supervisor.actor, supervisorRun.supervisor)
+      ) {
+        return reject(
+          'authority_not_granted',
+          'Supervisor run actor does not match task supervisor binding'
+        )
+      }
+      // Derive capabilities from persisted supervisor run record, NOT from request body
+      const capabilities = supervisorRun.capabilities
       const action = request.action
+      // Check if supervisor run is paused (unpause is always allowed when paused)
+      if (supervisorRun.paused === true && action.type !== 'unpause_supervision') {
+        return reject(
+          'supervisor_paused',
+          'Supervisor run is paused — only unpause_supervision is allowed'
+        )
+      }
       const capabilityError = getControlActionCapabilityError(action, capabilities)
       if (capabilityError !== undefined) {
         return { ok: false, error: capabilityError }
@@ -1625,6 +1690,276 @@ export function createInMemoryWorkflowKernel(
         })
         return { ok: true, task: clone(task), anomaly: clone(anomaly), proposal: clone(proposal) }
       }
+      if (action.type === 'pause_supervision') {
+        // Update persisted supervisor run record
+        const runIdx = supervisorRunList.findIndex(
+          (run) => run.runId === request.supervisorRunId
+        )
+        if (runIdx >= 0) {
+          const updatedRun: SupervisorRunRecord = {
+            ...supervisorRun,
+            paused: true,
+            pausedReason: action.reason,
+          }
+          supervisorRunList[runIdx] = clone(updatedRun)
+          supervisorRuns.set(task.taskId, [...supervisorRunList])
+        }
+        appendEvent(task, {
+          taskId: task.taskId,
+          type: 'supervisor.paused',
+          actor: supervisorRun.supervisor,
+          supervisorRunId: request.supervisorRunId,
+          observedTaskVersion: task.version,
+          idempotencyKey,
+          payload: { reason: action.reason, supervisorRunId: request.supervisorRunId },
+        })
+        return { ok: true, task: clone(task) }
+      }
+      if (action.type === 'unpause_supervision') {
+        if (supervisorRun.paused !== true) {
+          return reject('state_mismatch', 'Supervisor run is not paused')
+        }
+        const runIdx = supervisorRunList.findIndex(
+          (run) => run.runId === request.supervisorRunId
+        )
+        if (runIdx >= 0) {
+          const updatedRun: SupervisorRunRecord = {
+            ...supervisorRun,
+            paused: undefined,
+            pausedReason: undefined,
+          }
+          supervisorRunList[runIdx] = clone(updatedRun)
+          supervisorRuns.set(task.taskId, [...supervisorRunList])
+        }
+        appendEvent(task, {
+          taskId: task.taskId,
+          type: 'supervisor.unpaused',
+          actor: supervisorRun.supervisor,
+          supervisorRunId: request.supervisorRunId,
+          observedTaskVersion: task.version,
+          idempotencyKey,
+          payload: { supervisorRunId: request.supervisorRunId },
+        })
+        return { ok: true, task: clone(task) }
+      }
+      if (action.type === 'attach_evidence') {
+        // Calls the same evidence kernel path as standalone attach
+        const records = addEvidence(
+          task,
+          action.evidence,
+          supervisorRun.supervisor,
+          idempotencyKey,
+          task.version,
+          { supervisorRunId: request.supervisorRunId }
+        )
+        return { ok: true, task: clone(task), evidence: records.map((r) => clone(r)) }
+      }
+      if (action.type === 'apply_transition') {
+        const definition = getDefinitionForTask(task)
+        const transition = definition.transitions[action.transitionId]
+        if (transition === undefined) {
+          return reject('unknown_transition', `Unknown transition "${action.transitionId}"`, {
+            transitionId: action.transitionId,
+          })
+        }
+        // Validate expectedTaskVersion if provided
+        if (
+          action.expectedTaskVersion !== undefined &&
+          action.expectedTaskVersion !== task.version
+        ) {
+          return reject(
+            'version_conflict',
+            `Task version ${task.version} does not match expected version ${action.expectedTaskVersion}`
+          )
+        }
+        // Validate evidence refs
+        const taskEvidence = evidence.get(task.taskId) ?? []
+        const referencedEvidence: EvidenceRecord[] = []
+        for (const ref of action.evidenceRefs) {
+          const record = taskEvidence.find((e) => e.evidenceId === ref)
+          if (record === undefined) {
+            return reject('evidence_not_found', `Evidence not found: ${ref}`)
+          }
+          if (record.taskId !== task.taskId) {
+            return reject('evidence_not_found', `Evidence ${ref} does not belong to this task`)
+          }
+          // Evidence must be attached by a participant run, not just by the supervisor
+          if (record.participantRunId === undefined) {
+            return reject(
+              'evidence_not_from_participant',
+              `Evidence ${ref} was not attached by a participant run`
+            )
+          }
+          referencedEvidence.push(record)
+        }
+        // Derive role and actor from the referenced evidence's participant runs
+        const participantRunIds = new Set(
+          referencedEvidence.map((e) => e.participantRunId).filter((id): id is string => !!id)
+        )
+        const taskParticipantRuns = participantRuns.get(task.taskId) ?? []
+        let derivedRole: string | undefined
+        let derivedActor: ActorRef | undefined
+        for (const prunId of participantRunIds) {
+          const prun = taskParticipantRuns.find((r) => r.runId === prunId)
+          if (prun === undefined) {
+            return reject(
+              'evidence_not_from_participant',
+              `Participant run ${prunId} not found on this task`
+            )
+          }
+          // Verify participant run's role is in the transition's by[] roles
+          if (!(transition.by ?? []).includes(prun.role)) {
+            return reject(
+              'role_not_allowed',
+              `Participant run ${prunId} role "${prun.role}" is not allowed for transition "${action.transitionId}"`,
+              { transitionId: action.transitionId }
+            )
+          }
+          // Verify participant run's actor is currently bound to that role
+          const boundActor = task.roleBindings[prun.role]
+          if (boundActor === undefined || boundActor === null || !actorEquals(boundActor, prun.actor)) {
+            return reject(
+              'role_not_bound',
+              `Participant run ${prunId} actor is not the current binding for role "${prun.role}"`,
+              { transitionId: action.transitionId }
+            )
+          }
+          // Validate optional participantRunId matches
+          if (
+            action.participantRunId !== undefined &&
+            action.participantRunId !== prunId
+          ) {
+            return reject(
+              'evidence_not_from_participant',
+              `Evidence references participant run ${prunId} but expected ${action.participantRunId}`
+            )
+          }
+          derivedRole = prun.role
+          derivedActor = prun.actor
+        }
+        if (derivedRole === undefined || derivedActor === undefined) {
+          return reject(
+            'evidence_not_from_participant',
+            'Cannot derive role/actor — no participant run evidence provided'
+          )
+        }
+        // SoD checks
+        const allEvidence = [...taskEvidence]
+        const transitionError = evaluateTransition(
+          task,
+          transition,
+          derivedActor,
+          derivedRole,
+          allEvidence
+        )
+        // Allow state_mismatch and evidence errors to pass through, but check SoD
+        if (transitionError !== undefined) {
+          if (transitionError.code === 'sod_violation') {
+            return { ok: false, error: transitionError }
+          }
+          if (transitionError.code === 'state_mismatch') {
+            return { ok: false, error: transitionError }
+          }
+          if (transitionError.code === 'open_blocking_obligation') {
+            return { ok: false, error: transitionError }
+          }
+          // For missing_evidence, we check against the referenced evidence
+          if (transitionError.code === 'missing_evidence') {
+            // Re-evaluate with full task evidence (referenced evidence should already be in task)
+            // The transition requires evidence kinds, check they exist in task
+            return { ok: false, error: transitionError }
+          }
+          if (
+            transitionError.code !== 'role_not_allowed' &&
+            transitionError.code !== 'role_not_bound'
+          ) {
+            return { ok: false, error: transitionError }
+          }
+          // role_not_allowed and role_not_bound are handled above via participant run validation
+        }
+        // Apply the transition
+        const previousVersion = task.version
+        const nextTask: WorkflowTask = {
+          ...task,
+          state: applyStatePatch(task.state, transition.to),
+          version: task.version + 1,
+          updatedAt: now,
+        }
+        const validation = validateWorkState(nextTask.state)
+        if (validation !== undefined) {
+          return { ok: false, error: validation }
+        }
+        tasks.set(task.taskId, clone(nextTask))
+        clearContextHashes(task.taskId)
+        const event = appendEvent(nextTask, {
+          taskId: task.taskId,
+          type: 'transition.applied',
+          actor: derivedActor,
+          supervisorRunId: request.supervisorRunId,
+          observedTaskVersion: previousVersion,
+          nextTaskVersion: nextTask.version,
+          idempotencyKey,
+          payload: {
+            transitionId: action.transitionId,
+            role: derivedRole,
+            from: task.state,
+            to: nextTask.state,
+            authority: 'supervisor_from_participant_evidence',
+            evidenceRefs: action.evidenceRefs,
+            supervisorRunId: request.supervisorRunId,
+          },
+        })
+        // Materialize transition effects
+        for (const effect of transition.effects ?? []) {
+          materializeTransitionEffect(nextTask, event, effect, derivedActor, idempotencyKey)
+        }
+        return { ok: true, task: clone(nextTask) }
+      }
+      if (action.type === 'escalate') {
+        const anomaly: WorkflowAnomaly = {
+          anomalyId: nextId('anom'),
+          taskId: task.taskId,
+          workflow: task.workflow,
+          supervisorRunId: request.supervisorRunId,
+          category: 'policy_conflict',
+          stateAtObservation: clone(task.state),
+          taskVersion: task.version,
+          summary: action.reason,
+          createdAt: now,
+        }
+        anomalies.set(task.taskId, [...(anomalies.get(task.taskId) ?? []), clone(anomaly)])
+        const event = appendEvent(task, {
+          taskId: task.taskId,
+          type: 'supervisor.escalated',
+          actor: supervisorRun.supervisor,
+          supervisorRunId: request.supervisorRunId,
+          observedTaskVersion: task.version,
+          idempotencyKey,
+          payload: {
+            reason: action.reason,
+            severity: action.severity,
+            ...(action.audience ? { audience: action.audience } : {}),
+            anomalyId: anomaly.anomalyId,
+          },
+        })
+        // Produce a canonical effect intent for human_review obligation
+        createEffectIntent(
+          task,
+          event.eventId,
+          idempotencyKey,
+          'create_obligation',
+          {
+            kind: 'human_review',
+            summary: action.reason,
+            blocking: action.severity === 'critical',
+            severity: action.severity,
+            ...(action.audience ? { audience: action.audience } : {}),
+          },
+          supervisorRun.supervisor,
+          task.version
+        )
+        return { ok: true, task: clone(task), anomaly: clone(anomaly) }
+      }
       return { ok: true, task: clone(task) }
     })
 
@@ -1808,6 +2143,67 @@ export function createInMemoryWorkflowKernel(
         }),
       })
     }
+    if (request.capabilities.attachEvidence) {
+      allowedControlActions.push({
+        type: 'attach_evidence',
+        command: makeCommand('acp.workflow.controlAction', {
+          taskId: task.taskId,
+          action: {
+            type: 'attach_evidence',
+            evidence: [{ kind: '<kind>', ref: '<ref>' }],
+          },
+          expectedTaskVersion: task.version,
+          idempotencyKey: `${request.idempotencyPrefix}:control:evidence:v${task.version}`,
+        }),
+      })
+    }
+    if (request.capabilities.applySupervisorTransitions) {
+      allowedControlActions.push({
+        type: 'apply_transition',
+        command: makeCommand('acp.workflow.controlAction', {
+          taskId: task.taskId,
+          action: {
+            type: 'apply_transition',
+            transitionId: '<transitionId>',
+            evidenceRefs: ['<evidenceRef>'],
+          },
+          expectedTaskVersion: task.version,
+          idempotencyKey: `${request.idempotencyPrefix}:control:transition:v${task.version}`,
+        }),
+      })
+    }
+    if (request.capabilities.escalate) {
+      allowedControlActions.push({
+        type: 'escalate',
+        command: makeCommand('acp.workflow.controlAction', {
+          taskId: task.taskId,
+          action: {
+            type: 'escalate',
+            reason: '<reason>',
+            severity: '<severity>',
+          },
+          expectedTaskVersion: task.version,
+          idempotencyKey: `${request.idempotencyPrefix}:control:escalate:v${task.version}`,
+        }),
+      })
+    }
+    // pause/unpause are always available
+    allowedControlActions.push({
+      type: 'pause_supervision',
+      command: makeCommand('acp.workflow.controlAction', {
+        taskId: task.taskId,
+        action: { type: 'pause_supervision', reason: '<reason>' },
+        idempotencyKey: `${request.idempotencyPrefix}:control:pause:v${task.version}`,
+      }),
+    })
+    allowedControlActions.push({
+      type: 'unpause_supervision',
+      command: makeCommand('acp.workflow.controlAction', {
+        taskId: task.taskId,
+        action: { type: 'unpause_supervision' },
+        idempotencyKey: `${request.idempotencyPrefix}:control:unpause:v${task.version}`,
+      }),
+    })
     const context: Record<string, unknown> = {
       schemaVersion: 1,
       task: {
@@ -1867,9 +2263,17 @@ export function createInMemoryWorkflowKernel(
           taskId: task.taskId,
           action: 'satisfy_obligation',
         }),
-        applyTransition: makeCommand('acp.workflow.applyTransition', {
+        attachEvidence: makeCommand('acp.workflow.controlAction', {
           taskId: task.taskId,
-          transitionId: '<transitionId>',
+          action: 'attach_evidence',
+        }),
+        applyTransition: makeCommand('acp.workflow.controlAction', {
+          taskId: task.taskId,
+          action: 'apply_transition',
+        }),
+        escalate: makeCommand('acp.workflow.controlAction', {
+          taskId: task.taskId,
+          action: 'escalate',
         }),
         createChildTask: makeCommand('acp.workflow.controlAction', {
           taskId: task.taskId,
@@ -1886,6 +2290,10 @@ export function createInMemoryWorkflowKernel(
         pauseSupervision: makeCommand('acp.workflow.controlAction', {
           taskId: task.taskId,
           action: 'pause_supervision',
+        }),
+        unpauseSupervision: makeCommand('acp.workflow.controlAction', {
+          taskId: task.taskId,
+          action: 'unpause_supervision',
         }),
       },
     }
