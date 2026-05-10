@@ -163,6 +163,27 @@ Caveats:
   the repo-native scenario conformance test; both returned
   `SCENARIO-VALIDATION PASS`.
 
+## Workflow Publish (T-01400 Stream B)
+
+### Endpoint
+
+- `POST /v1/workflows` — publishes or re-publishes an immutable workflow
+  definition from a JSON file. Returns the definition with `id`, `version`,
+  and `hash`.
+
+### CLI
+
+- `acp workflow publish <workflow.json>` — reads a workflow definition JSON
+  file and publishes it to the server. Required precondition before creating
+  tasks that reference the workflow.
+
+### Example
+
+```bash
+acp workflow publish ./scenarios/flow-presets/evidence-provenance-attach/workflow.json
+# → Published workflow evidence_provenance_demo@1 (sha256:...)
+```
+
 ## E1 — Evidence provenance + standalone attach (T-01392)
 
 ### Endpoints
@@ -173,7 +194,7 @@ Caveats:
 
 ### CLI
 
-- `acp task evidence add --task <id> --kind <kind> --ref <ref> --idempotency-key <key> [--role <role>] [--supervisor-run-id <id>] [--participant-run-id <id>] [--actor <agent>]`
+- `acp task evidence add --task <id> --kind <kind> --ref <ref> --idempotency-key <key> [--role <role>] [--supervisor-run <id>] [--from-run <runId>] [--as <agent>] [--summary <text>]`
 
 ### Verification recipes
 
@@ -278,9 +299,11 @@ See `scenarios/flow-presets/obligation-waive-cancel-lifecycle/runbook.md`.
 
 ### CLI
 
-- `acp task run` — command implementation exists and is tested but is not yet
-  wired into the CLI dispatch tree. Use the HTTP API
-  (`POST /v1/workflow-participant-runs`) directly for now.
+- `acp task run --task <id> --role <role> --agent <agent> [--idempotency-key <key>]`
+  — launches a participant run. Uses `--agent` (or `--as` / `--actor`) for actor
+  identity.
+- `acp task run-complete --run <runId> --outcome <success|failed> [--evidence-ref <ref>]... [--summary <text>]`
+  — completes a participant run with outcome and optional evidence references.
 
 ### Verification recipes
 
@@ -439,14 +462,16 @@ This walkthrough demonstrates the `participant-supervisor-evidence-authority`
 scenario — a code-change task driven by participant runs, supervisor
 authority, and evidence provenance (G + H + E1 working together).
 
-> **Note:** `acp task run` is shown as illustrative — the command
-> implementation exists and is tested but is not yet wired into CLI dispatch.
-> Use `POST /v1/workflow-participant-runs` via curl in practice.
+> **Note:** `acp task run` and `acp task run-complete` are fully wired into
+> CLI dispatch as of T-01400 (Stream B). The commands below run verbatim.
 
 **Setup:** Publish the workflow and create a supervised task with implementer
 and tester roles.
 
 ```bash
+# Publish workflow definition (required precondition)
+acp workflow publish ./scenarios/flow-presets/participant-supervisor-evidence-authority/workflow.json
+
 # Start supervisor run (creates task inline)
 acp supervise \
   --workflow participant_supervisor_demo@1 \
@@ -468,13 +493,13 @@ acp supervise \
 ```bash
 acp task evidence add \
   --task T-DEFECT-DEMO --kind plan_record --ref doc:plan-v1 \
-
-  --actor larry --role implementer \
+  --summary "Plan: guard nil order id" \
+  --as agent:larry --role implementer \
   --idempotency-key demo:plan:v1
 
 acp task transition \
   --task T-DEFECT-DEMO --transition start \
-  --actor larry --role implementer \
+  --as agent:larry --role implementer \
   --idempotency-key demo:start:v1
 ```
 
@@ -488,12 +513,12 @@ acp task run \
 
 acp task evidence add \
   --task T-DEFECT-DEMO --kind commit_ref --ref git:deadbeef \
-  --actor larry --participant-run-id prun_001 \
+  --as agent:larry --from-run prun_001 \
   --idempotency-key demo:commit:v1
 
 acp task evidence add \
   --task T-DEFECT-DEMO --kind regression_test --ref test:orders.checkout \
-  --actor larry --participant-run-id prun_001 \
+  --as agent:larry --from-run prun_001 \
   --idempotency-key demo:test:v1
 ```
 
@@ -521,12 +546,12 @@ acp task run \
 
 acp task evidence add \
   --task T-DEFECT-DEMO --kind verification_report --ref report:qa-2026 \
-  --actor curly --participant-run-id prun_002 \
+  --as agent:curly --from-run prun_002 \
   --idempotency-key demo:verify-evidence:v1
 
 acp task transition \
   --task T-DEFECT-DEMO --transition verify \
-  --actor curly --role tester \
+  --as agent:curly --role tester \
   --idempotency-key demo:verify:v1
 ```
 
@@ -535,7 +560,7 @@ acp task transition \
 ```bash
 acp task transition \
   --task T-DEFECT-DEMO --transition close_success \
-  --actor larry --role implementer \
+  --as agent:larry --role implementer \
   --idempotency-key demo:close:v1
 # → state=closed/completed
 ```

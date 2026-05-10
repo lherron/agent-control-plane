@@ -29,19 +29,20 @@ the new waive and cancel APIs, and the honoring of `waiverRefs` on transitions.
 # 1. Publish workflow
 acp workflow publish ./scenarios/flow-presets/obligation-waive-cancel-lifecycle/workflow.json
 
-# 2. Create task with author + reviewer + supervisor (createObligations + createWaivers)
-acp task create \
-  --project agent-spaces \
+# 2. Create task + start supervisor run (createObligations + satisfyObligations + createWaivers)
+acp supervise \
   --workflow obligation_waive_cancel_demo@1 \
+  --project agent-spaces \
   --task-id T-OBLIGATION-LIFECYCLE-DEMO \
   --goal "Drive a draft through review and audit" \
   --risk medium \
   --bind author=agent:larry \
   --bind reviewer=agent:curly \
   --supervisor agent:rex \
-  --supervisor-autonomy managed \
+  --autonomy managed \
   --supervisor-capability createObligations,satisfyObligations,createWaivers \
   --idempotency-key scenario:obligation-lifecycle:create:v1
+# capture <SUPERVISOR_RUN_ID> from output
 
 # 3. Author attaches draft_package
 acp task evidence add \
@@ -61,7 +62,7 @@ acp task obligation cancel \
   --task T-OBLIGATION-LIFECYCLE-DEMO \
   --obligation <OBL_AUTO_CLEANUP_ID> \
   --reason "Superseded by direct cleanup pipeline run." \
-  --as agent:rex \
+  --actor rex \
   --idempotency-key scenario:obligation-lifecycle:cancel-cleanup:v1
 
 # 6. Reviewer attaches review_notes + supervisor satisfies reviewer_signoff_pending
@@ -74,7 +75,7 @@ acp task evidence add \
 acp workflow action \
   --task T-OBLIGATION-LIFECYCLE-DEMO \
   --supervisor-run <SUPERVISOR_RUN_ID> \
-  --action '{"type":"satisfy_obligation","obligationKind":"reviewer_signoff_pending","evidenceRefs":["<evd_review_notes>"]}' \
+  --action '{"type":"satisfy_obligation","obligationId":"<OBL_REVIEWER_SIGNOFF_ID>","evidenceRefs":["<evd_review_notes>"]}' \
   --idempotency-key scenario:obligation-lifecycle:satisfy-reviewer:v1
 
 # 7. Reviewer advances to audit (creates audit_signoff_pending)
@@ -95,7 +96,7 @@ acp task transition \
   --task T-OBLIGATION-LIFECYCLE-DEMO --transition approve \
   --as agent:larry --role author \
   --idempotency-key scenario:obligation-lifecycle:approve-fail:v1
-# expect: rejection_code=waiver_required
+# expect: rejection_code=open_blocking_obligation (blocking obligation still open)
 
 # 9. Supervisor attaches audit_waiver + waives audit_signoff_pending
 acp task evidence add \
@@ -110,13 +111,15 @@ acp task obligation waive \
   --obligation <OBL_AUDIT_SIGNOFF_ID> \
   --reason "Low-risk template change covered by §4.2; prior audit valid." \
   --evidence-ref <evd_audit_waiver> \
-  --as agent:rex \
+  --actor rex \
   --idempotency-key scenario:obligation-lifecycle:waive-audit:v1
 
 # 10. Approve succeeds — waiver record matches the transition's Requirement{type:'waiver'}
+#     --waiver-ref passes the waived obligation ID so the kernel can verify the waiver record.
 acp task transition \
   --task T-OBLIGATION-LIFECYCLE-DEMO --transition approve \
   --as agent:larry --role author \
+  --waiver-ref <OBL_AUDIT_SIGNOFF_ID> \
   --idempotency-key scenario:obligation-lifecycle:approve-success:v1
 ```
 

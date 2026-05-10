@@ -181,8 +181,10 @@ acp task transition \
 ```bash
 bun test tests/conformance/acp-workflow/flow-presets-scenarios.test.ts
 bun test tests/conformance/acp-workflow/participant-runtime.conformance.test.ts
+bun test tests/conformance/acp-workflow/supervisor-actions.conformance.test.ts
 bun test packages/acp-core/src/__tests__/workflow-participant-runtime.test.ts
 bun test packages/acp-server/test/workflow-participant-runs.test.ts
+bun test packages/acp-server/test/workflow-supervisor-actions.test.ts
 bun test packages/acp-cli/test/commands/task-run.test.ts
-# Plus T-01396 supervisor-actions test files once H lands.
+bun test packages/acp-cli/test/commands/task-run-complete.test.ts
 ```

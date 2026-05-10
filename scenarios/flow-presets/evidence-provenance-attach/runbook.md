@@ -26,18 +26,19 @@ and the standalone evidence attach API/CLI surface.
 # 1. Publish workflow
 acp workflow publish ./scenarios/flow-presets/evidence-provenance-attach/workflow.json
 
-# 2. Create task with collector + supervisor (with attachEvidence cap)
-acp task create \
-  --project agent-spaces \
+# 2. Create task + start supervisor run (with attachEvidence cap)
+acp supervise \
   --workflow evidence_provenance_demo@1 \
+  --project agent-spaces \
   --task-id T-EVIDENCE-PROVENANCE-DEMO \
   --goal "Collect three field-note evidence records demonstrating provenance" \
   --risk low \
   --bind collector=agent:larry \
   --supervisor agent:rex \
-  --supervisor-autonomy managed \
-  --supervisor-capability attachEvidence \
+  --autonomy managed \
+  --supervisor-capability launchRuns,attachEvidence \
   --idempotency-key scenario:evidence-provenance:create:v1
+# capture <SUPERVISOR_RUN_ID> from output
 
 # 3. Attach evidence as role-bound collector
 acp task evidence add \
@@ -90,7 +91,7 @@ acp task evidence add \
 acp task transition \
   --task T-EVIDENCE-PROVENANCE-DEMO \
   --transition close_success \
-  --as agent:larry \
+  --as agent:larry --role collector \
   --idempotency-key scenario:evidence-provenance:close:v1
 ```
 
