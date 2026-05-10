@@ -29,7 +29,12 @@ import { handleGetSession } from '../handlers/sessions-get.js'
 import { handleInterruptSession } from '../handlers/sessions-interrupt.js'
 import { handleListSessionRuns } from '../handlers/sessions-runs.js'
 import {
+  handleListWorkflowPatchProposals,
+  handleShowWorkflowPatchProposal,
+} from '../handlers/workflow-patch-proposals-read.js'
+import {
   handleApplyWorkflowTransition,
+  handleAttachWorkflowEvidence,
   handleGetWorkflowTask,
   handleWorkflowControlAction,
   handleWorkflowParticipantContext,
@@ -160,6 +165,17 @@ export function buildParamRoutes(): ParamRoute[] {
       withSpec('POST', '/v1/gateway/deliveries/:deliveryRequestId/requeue', handleRequeueDelivery)
     ),
     createParamRoute('GET', '/v1/tasks/:taskId', handleGetWorkflowTask),
+    createParamRoute(
+      'GET',
+      '/v1/tasks/:taskId/workflow-patch-proposals',
+      handleListWorkflowPatchProposals
+    ),
+    createParamRoute(
+      'GET',
+      '/v1/workflow-patch-proposals/:proposalId',
+      handleShowWorkflowPatchProposal
+    ),
+    createParamRoute('POST', '/v1/tasks/:taskId/evidence', handleAttachWorkflowEvidence),
     createParamRoute('POST', '/v1/tasks/:taskId/transitions', handleApplyWorkflowTransition),
     createParamRoute('POST', '/v1/tasks/:taskId/actions', handleWorkflowControlAction),
     createParamRoute(

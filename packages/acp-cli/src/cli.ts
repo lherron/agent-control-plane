@@ -26,10 +26,13 @@ import type { CommandDependencies, CommandOutput } from './commands/shared.js'
 import { runSystemEventCommand } from './commands/system-event.js'
 import { runTailCommand } from './commands/tail.js'
 import { runTaskCreateCommand } from './commands/task-create.js'
+import { runTaskEvidenceAddCommand } from './commands/task-evidence-add.js'
 import { runTaskShowCommand } from './commands/task-show.js'
 import { runTaskTransitionCommand } from './commands/task-transition.js'
 import { runThreadCommand } from './commands/thread.js'
 import { runWorkflowActionCommand } from './commands/workflow-action.js'
+import { runWorkflowPatchListCommand } from './commands/workflow-patch-list.js'
+import { runWorkflowPatchShowCommand } from './commands/workflow-patch-show.js'
 import { runWorkflowSuperviseCommand } from './commands/workflow-supervise.js'
 import { runWorkflowSupervisorContextCommand } from './commands/workflow-supervisor-context.js'
 import { runServerCommand } from './server-runtime.js'
@@ -186,6 +189,18 @@ function addTaskCommands(program: Command, deps: CommandDependencies): void {
     .option('--evidence <kind=ref>', 'inline transition evidence', repeatable(), [])
     .option('--run <runId>')
     .action(runLeaf(deps, [], runTaskTransitionCommand))
+
+  const evidence = task.command('evidence').description('manage task evidence')
+  common(evidence.command('add').description('attach evidence to a task'))
+    .requiredOption('--task <taskId>')
+    .requiredOption('--kind <kind>')
+    .requiredOption('--ref <ref>')
+    .requiredOption('--idempotency-key <key>')
+    .option('--role <role>')
+    .option('--run-id <runId>')
+    .option('--supervisor-run-id <runId>')
+    .option('--participant-run-id <runId>')
+    .action(runLeaf(deps, [], runTaskEvidenceAddCommand))
 }
 
 function addWorkflowCommands(program: Command, deps: CommandDependencies): void {
@@ -225,6 +240,19 @@ function addWorkflowCommands(program: Command, deps: CommandDependencies): void 
     .option('--expected-version <n>')
     .option('--context-hash <hash>')
     .action(runLeaf(deps, [], runWorkflowActionCommand))
+
+  const patch = workflow.command('patch').description('inspect workflow patch proposals')
+
+  common(patch.command('list').description('list workflow patch proposals'))
+    .option('--task <taskId>')
+    .option('--status <state>')
+    .option('--limit <n>')
+    .action(runLeaf(deps, [], runWorkflowPatchListCommand))
+
+  common(patch.command('show').description('show one workflow patch proposal'))
+    .option('--raw', 'print the full proposal record as JSON')
+    .argument('<proposalId>')
+    .action(runLeafWithPositionals(deps, [], runWorkflowPatchShowCommand))
 }
 
 function addSupervisorAliasCommand(program: Command, deps: CommandDependencies): void {
