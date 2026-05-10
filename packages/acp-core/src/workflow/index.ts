@@ -1418,6 +1418,7 @@ export function createInMemoryWorkflowKernel(
   const submitControlAction = (request: {
     taskId: string
     supervisorRunId: string
+    actor?: ActorRef | undefined
     contextHash?: string | undefined
     expectedTaskVersion?: number | undefined
     capabilities?: SupervisorCapabilities | undefined
@@ -1465,17 +1466,18 @@ export function createInMemoryWorkflowKernel(
       )
       if (supervisorRun === undefined) {
         return reject(
-          'supervisor_run_not_found',
-          `Supervisor run not found: ${request.supervisorRunId}`
+          'authority_not_granted',
+          `Supervisor run "${request.supervisorRunId}" not found on task "${task.taskId}"`
         )
       }
-      if (supervisorRun.taskId !== task.taskId) {
+      // Verify request actor matches supervisor run actor
+      if (request.actor !== undefined && !actorEquals(request.actor, supervisorRun.supervisor)) {
         return reject(
-          'supervisor_run_not_found',
-          'Supervisor run does not belong to this task'
+          'authority_not_granted',
+          'Request actor does not match supervisor run actor'
         )
       }
-      // Verify request actor matches supervisor run actor (if task has supervisor binding)
+      // Verify supervisor run actor matches task supervisor binding
       if (
         task.supervisor !== undefined &&
         !actorEquals(task.supervisor.actor, supervisorRun.supervisor)
@@ -1725,7 +1727,7 @@ export function createInMemoryWorkflowKernel(
         if (runIdx >= 0) {
           const updatedRun: SupervisorRunRecord = {
             ...supervisorRun,
-            paused: undefined,
+            paused: false,
             pausedReason: undefined,
           }
           supervisorRunList[runIdx] = clone(updatedRun)
@@ -1772,7 +1774,13 @@ export function createInMemoryWorkflowKernel(
             `Task version ${task.version} does not match expected version ${action.expectedTaskVersion}`
           )
         }
-        // Validate evidence refs
+        // Validate evidence refs - REQUIRED, must not be empty
+        if (action.evidenceRefs.length === 0) {
+          return reject(
+            'missing_evidence',
+            `Transition "${action.transitionId}" requires evidence references`
+          )
+        }
         const taskEvidence = evidence.get(task.taskId) ?? []
         const referencedEvidence: EvidenceRecord[] = []
         for (const ref of action.evidenceRefs) {
@@ -1786,8 +1794,8 @@ export function createInMemoryWorkflowKernel(
           // Evidence must be attached by a participant run, not just by the supervisor
           if (record.participantRunId === undefined) {
             return reject(
-              'evidence_not_from_participant',
-              `Evidence ${ref} was not attached by a participant run`
+              'authority_not_granted',
+              `Evidence ${ref} was not attached by a participant run — supervisor cannot use supervisor-only evidence for transitions`
             )
           }
           referencedEvidence.push(record)
@@ -1803,7 +1811,7 @@ export function createInMemoryWorkflowKernel(
           const prun = taskParticipantRuns.find((r) => r.runId === prunId)
           if (prun === undefined) {
             return reject(
-              'evidence_not_from_participant',
+              'authority_not_granted',
               `Participant run ${prunId} not found on this task`
             )
           }
@@ -1819,7 +1827,7 @@ export function createInMemoryWorkflowKernel(
           const boundActor = task.roleBindings[prun.role]
           if (boundActor === undefined || boundActor === null || !actorEquals(boundActor, prun.actor)) {
             return reject(
-              'role_not_bound',
+              'authority_not_granted',
               `Participant run ${prunId} actor is not the current binding for role "${prun.role}"`,
               { transitionId: action.transitionId }
             )
@@ -1830,7 +1838,7 @@ export function createInMemoryWorkflowKernel(
             action.participantRunId !== prunId
           ) {
             return reject(
-              'evidence_not_from_participant',
+              'authority_not_granted',
               `Evidence references participant run ${prunId} but expected ${action.participantRunId}`
             )
           }
@@ -1839,7 +1847,7 @@ export function createInMemoryWorkflowKernel(
         }
         if (derivedRole === undefined || derivedActor === undefined) {
           return reject(
-            'evidence_not_from_participant',
+            'missing_evidence',
             'Cannot derive role/actor — no participant run evidence provided'
           )
         }
