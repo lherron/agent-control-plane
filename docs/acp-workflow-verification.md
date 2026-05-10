@@ -162,3 +162,385 @@ Caveats:
   on 2026-05-10. Clod validated all scenarios with the independent harness and
   the repo-native scenario conformance test; both returned
   `SCENARIO-VALIDATION PASS`.
+
+## E1 — Evidence provenance + standalone attach (T-01392)
+
+### Endpoints
+
+- `POST /v1/tasks/:taskId/evidence` — standalone evidence attach with
+  3-source authorization (role-bound, supervisor, participant run), provenance
+  fields, and idempotency.
+
+### CLI
+
+- `acp task evidence add --task <id> --kind <kind> --ref <ref> --idempotency-key <key> [--role <role>] [--supervisor-run-id <id>] [--participant-run-id <id>] [--actor <agent>]`
+
+### Verification recipes
+
+```bash
+# Unit tests — kernel evidence provenance
+bun test tests/conformance/acp-workflow/evidence-provenance.test.ts
+# 2 tests, 8 expect() calls
+
+# Server integration — evidence attach handler
+bun test packages/acp-server/test/evidence-attach.test.ts
+# 5 tests, 26 expect() calls
+
+# CLI integration — evidence add command
+bun test packages/acp-cli/test/commands/evidence-add.test.ts
+# 1 test, 7 expect() calls
+
+# Scenario — evidence-provenance-attach
+bun test tests/conformance/acp-workflow/flow-presets-scenarios.test.ts
+```
+
+### Curl example — attach evidence as role-bound actor
+
+```bash
+curl -s -X POST http://127.0.0.1:18470/v1/tasks/T-001/evidence \
+  -H 'content-type: application/json' \
+  -H 'x-acp-actor-agent-id: larry' \
+  -d '{
+    "evidence": [{"kind":"commit_ref","ref":"git:abc123"}],
+    "role": "implementer",
+    "idempotencyKey": "ev:attach:v1"
+  }'
+```
+
+### Scenario runbook
+
+See `scenarios/flow-presets/evidence-provenance-attach/runbook.md` for the
+full end-to-end walkthrough covering role-bound, supervisor, and participant
+run evidence attach with idempotency replay and conflict checks.
+
+## E2 — Obligation waive and cancel lifecycle (T-01393)
+
+### Endpoints
+
+- `POST /v1/tasks/:taskId/obligations/:obligationId/waive` — waive with
+  reason + evidenceRefs. Produces a waiver record matched by
+  `Requirement{type:'waiver'}`.
+- `POST /v1/tasks/:taskId/obligations/:obligationId/cancel` — cancel with
+  reason. Does NOT satisfy waiver requirements.
+
+### CLI
+
+- `acp task obligation waive --task <id> --obligation <id> --reason <text> --idempotency-key <key> [--evidence-ref <ref>]...`
+- `acp task obligation cancel --task <id> --obligation <id> --reason <text> --idempotency-key <key>`
+
+### Verification recipes
+
+```bash
+# Kernel conformance — obligation lifecycle
+bun test tests/conformance/acp-workflow/obligation-lifecycle.conformance.test.ts
+# 1 test, 5 expect() calls
+
+# Kernel unit — obligation lifecycle
+bun test packages/acp-core/src/__tests__/workflow-obligation-lifecycle.test.ts
+
+# Server integration — waive/cancel handlers
+bun test packages/acp-server/test/workflow-task-obligations.test.ts
+# 2 tests, 12 expect() calls
+
+# CLI integration — waive/cancel commands
+bun test packages/acp-cli/test/commands/task-obligation-waive-cancel.test.ts
+# 2 tests, 12 expect() calls
+
+# Scenario — obligation-waive-cancel-lifecycle
+bun test tests/conformance/acp-workflow/flow-presets-scenarios.test.ts
+```
+
+### Curl example — waive obligation
+
+```bash
+curl -s -X POST http://127.0.0.1:18470/v1/tasks/T-001/obligations/obl_audit/waive \
+  -H 'content-type: application/json' \
+  -H 'x-acp-actor-agent-id: rex' \
+  -d '{
+    "reason": "Low-risk change covered by §4.2",
+    "evidenceRefs": ["evd_waiver_doc"],
+    "idempotencyKey": "obl:waive:v1"
+  }'
+```
+
+### Scenario runbook
+
+See `scenarios/flow-presets/obligation-waive-cancel-lifecycle/runbook.md`.
+
+## G — Participant runtime create/resume (T-01394)
+
+### Endpoints
+
+- `POST /v1/workflow-participant-runs` — launch or resume a participant run.
+  Rejects actor/role mismatches with `role_not_bound`.
+- `POST /v1/workflow-participant-runs/:runId/complete` — complete a run.
+- `POST /v1/workflow-participant-runs/:runId/fail` — fail a run.
+
+### CLI
+
+- `acp task run` — command implementation exists and is tested but is not yet
+  wired into the CLI dispatch tree. Use the HTTP API
+  (`POST /v1/workflow-participant-runs`) directly for now.
+
+### Verification recipes
+
+```bash
+# Kernel conformance — participant runtime
+bun test tests/conformance/acp-workflow/participant-runtime.conformance.test.ts
+# 3 tests, 27 expect() calls
+
+# Kernel unit — participant runtime
+bun test packages/acp-core/src/__tests__/workflow-participant-runtime.test.ts
+
+# Server integration — participant runs
+bun test packages/acp-server/test/workflow-participant-runs.test.ts
+# 4 tests, 24 expect() calls
+
+# CLI integration — task run command
+bun test packages/acp-cli/test/commands/task-run.test.ts
+# 3 tests, 5 expect() calls
+
+# Scenario — participant-supervisor-evidence-authority
+bun test tests/conformance/acp-workflow/flow-presets-scenarios.test.ts
+```
+
+### Curl example — launch participant run
+
+```bash
+curl -s -X POST http://127.0.0.1:18470/v1/workflow-participant-runs \
+  -H 'content-type: application/json' \
+  -H 'x-acp-actor-agent-id: larry' \
+  -d '{
+    "taskId": "T-001",
+    "role": "implementer",
+    "actor": {"kind":"agent","id":"larry"},
+    "idempotencyKey": "run:launch:v1"
+  }'
+```
+
+### Scenario runbook
+
+See `scenarios/flow-presets/participant-supervisor-evidence-authority/runbook.md`.
+
+## H — Supervisor actions + auth hardening (T-01396)
+
+### Endpoints
+
+- `POST /v1/tasks/:taskId/actions` — enhanced with new action types:
+  `attach_evidence`, `apply_transition`, `escalate`, `pause_supervision`,
+  `unpause_supervision`. Capabilities derive from the persisted supervisor run
+  record and cannot be overridden via request body.
+- `POST /v1/workflow-supervisor-runs` — starting a supervisor run is now a
+  hard prerequisite for any control action.
+
+### CLI
+
+- `acp workflow action --task <id> --supervisor-run <id> --action '<json>' --idempotency-key <key>`
+  — the `--capabilities` flag is accepted but ignored (auth hardening).
+
+### Verification recipes
+
+```bash
+# Kernel conformance — supervisor actions + auth hardening
+bun test tests/conformance/acp-workflow/supervisor-actions.conformance.test.ts
+# 4 tests, 30 expect() calls
+
+# Server integration — supervisor actions
+bun test packages/acp-server/test/workflow-supervisor-actions.test.ts
+# 4 tests, 23 expect() calls
+
+# Scenario — participant-supervisor-evidence-authority
+bun test tests/conformance/acp-workflow/flow-presets-scenarios.test.ts
+```
+
+### Curl example — supervisor apply_transition
+
+```bash
+curl -s -X POST http://127.0.0.1:18470/v1/tasks/T-001/actions \
+  -H 'content-type: application/json' \
+  -H 'x-acp-actor-agent-id: rex' \
+  -d '{
+    "supervisorRunId": "supv_001",
+    "action": {
+      "type": "apply_transition",
+      "transitionId": "implement_fix",
+      "evidenceRefs": ["evd_commit","evd_test"]
+    },
+    "idempotencyKey": "act:apply:v1"
+  }'
+```
+
+### Auth hardening details
+
+The control action flow now requires:
+1. Start a supervisor run via `POST /v1/workflow-supervisor-runs` (creates
+   the persisted run record with capabilities).
+2. Submit actions via `POST /v1/tasks/:taskId/actions` with
+   `supervisorRunId` — capabilities are read from the persisted record.
+3. Request-body capability claims are silently ignored.
+
+### Scenario runbook
+
+See `scenarios/flow-presets/participant-supervisor-evidence-authority/runbook.md`
+for the combined G + H + E1 end-to-end scenario.
+
+## I — Patch proposal read API (T-01395)
+
+### Endpoints
+
+- `GET /v1/tasks/:taskId/workflow-patch-proposals` — list with optional
+  `status` filter and `limit`.
+- `GET /v1/workflow-patch-proposals/:proposalId` — show full proposal.
+
+### CLI
+
+- `acp workflow patch list --task <id> [--status <s>] [--limit <n>]`
+- `acp workflow patch show <proposalId> [--raw] [--json]`
+
+### Verification recipes
+
+```bash
+# Server integration — patch proposal read
+bun test packages/acp-server/test/workflow-patch-proposals-read.test.ts
+# 3 tests, 29 expect() calls
+
+# CLI integration — patch list/show
+bun test packages/acp-cli/test/commands/workflow-patch-list-show.test.ts
+# 4 tests, 18 expect() calls
+```
+
+### Curl example — list patch proposals
+
+```bash
+curl -s http://127.0.0.1:18470/v1/tasks/T-001/workflow-patch-proposals?limit=10
+```
+
+## Manual-execution scenarios
+
+Three manual-execution scenarios were added in commit `61d01fb`:
+
+| Scenario folder | Checkpoints exercised | Runbook |
+| --- | --- | --- |
+| `evidence-provenance-attach/` | E1 | `scenarios/flow-presets/evidence-provenance-attach/runbook.md` |
+| `obligation-waive-cancel-lifecycle/` | E2 | `scenarios/flow-presets/obligation-waive-cancel-lifecycle/runbook.md` |
+| `participant-supervisor-evidence-authority/` | G + H + E1 | `scenarios/flow-presets/participant-supervisor-evidence-authority/runbook.md` |
+
+Each scenario folder contains `workflow.json`, `scenario.json`, and
+`runbook.md`. The scenarios are validated by the conformance harness:
+
+```bash
+bun test tests/conformance/acp-workflow/flow-presets-scenarios.test.ts
+bun scripts/validate-scenarios.ts
+```
+
+## End-to-end narrative: defect fastlane with participant + supervisor APIs
+
+This walkthrough demonstrates the `participant-supervisor-evidence-authority`
+scenario — a code-change task driven by participant runs, supervisor
+authority, and evidence provenance (G + H + E1 working together).
+
+> **Note:** `acp task run` is shown as illustrative — the command
+> implementation exists and is tested but is not yet wired into CLI dispatch.
+> Use `POST /v1/workflow-participant-runs` via curl in practice.
+
+**Setup:** Publish the workflow and create a supervised task with implementer
+and tester roles.
+
+```bash
+# Start supervisor run (creates task inline)
+acp supervise \
+  --workflow participant_supervisor_demo@1 \
+  --project agent-spaces \
+  --task-id T-DEFECT-DEMO \
+  --goal "Fix nil order id guard" \
+  --risk medium \
+  --bind implementer=agent:larry \
+  --bind tester=agent:curly \
+  --supervisor agent:rex \
+  --autonomy managed \
+  --supervisor-capability launchRuns,attachEvidence,applySupervisorTransitions,pauseSupervision \
+  --idempotency-key demo:create:v1
+# → supervisor run supv_001 started
+```
+
+**Phase 1 — Implementer attaches plan and starts work:**
+
+```bash
+acp task evidence add \
+  --task T-DEFECT-DEMO --kind plan_record --ref doc:plan-v1 \
+
+  --actor larry --role implementer \
+  --idempotency-key demo:plan:v1
+
+acp task transition \
+  --task T-DEFECT-DEMO --transition start \
+  --actor larry --role implementer \
+  --idempotency-key demo:start:v1
+```
+
+**Phase 2 — Implementer launches participant run, produces evidence:**
+
+```bash
+acp task run \
+  --task T-DEFECT-DEMO --role implementer --agent larry \
+  --idempotency-key demo:impl-run:v1
+# → participant run prun_001 launched
+
+acp task evidence add \
+  --task T-DEFECT-DEMO --kind commit_ref --ref git:deadbeef \
+  --actor larry --participant-run-id prun_001 \
+  --idempotency-key demo:commit:v1
+
+acp task evidence add \
+  --task T-DEFECT-DEMO --kind regression_test --ref test:orders.checkout \
+  --actor larry --participant-run-id prun_001 \
+  --idempotency-key demo:test:v1
+```
+
+**Phase 3 — Supervisor applies transition using participant evidence:**
+
+The supervisor's `apply_transition` action verifies each evidence record was
+attached by a participant run, the participant's role appears in the
+transition's `by[]`, and the actor matches the current binding. The resulting
+event records `authority='supervisor_from_participant_evidence'`.
+
+```bash
+acp workflow action \
+  --task T-DEFECT-DEMO --supervisor-run supv_001 \
+  --action '{"type":"apply_transition","transitionId":"implement_fix","evidenceRefs":["evd_commit","evd_test"]}' \
+  --idempotency-key demo:apply-impl:v1
+# → Applied workflow action to T-DEFECT-DEMO; state=active/verify version=5
+```
+
+**Phase 4 — Tester verifies (role-mode transition, not supervisor-mode):**
+
+```bash
+acp task run \
+  --task T-DEFECT-DEMO --role tester --agent curly \
+  --idempotency-key demo:tester-run:v1
+
+acp task evidence add \
+  --task T-DEFECT-DEMO --kind verification_report --ref report:qa-2026 \
+  --actor curly --participant-run-id prun_002 \
+  --idempotency-key demo:verify-evidence:v1
+
+acp task transition \
+  --task T-DEFECT-DEMO --transition verify \
+  --actor curly --role tester \
+  --idempotency-key demo:verify:v1
+```
+
+**Phase 5 — Close:**
+
+```bash
+acp task transition \
+  --task T-DEFECT-DEMO --transition close_success \
+  --actor larry --role implementer \
+  --idempotency-key demo:close:v1
+# → state=closed/completed
+```
+
+This narrative exercises: standalone evidence attach (E1), participant run
+launch and evidence provenance (G), supervisor apply_transition with
+participant-evidence authority (H), role-mode transitions, and the
+separation between supervisor-mode and role-mode mutations.

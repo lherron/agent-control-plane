@@ -52,11 +52,12 @@ artifacts don't collide.
 ## CLI surface notes
 
 Legacy task commands and route shapes were removed as breaking changes:
-`task evidence add`, `task promote`, `task transitions`, and `toPhase`
-mutation examples are not valid scenario validation commands. The current
-CLI surface is workflow-oriented (`task create`, `task show`,
-`task transition`) and the scenario artifacts are validated directly against
-the workflow kernel/runtime contract.
+`task promote`, `task transitions`, and `toPhase` mutation examples are not
+valid scenario validation commands. The current CLI surface is
+workflow-oriented (`task create`, `task show`, `task transition`,
+`task evidence add`, `task obligation waive/cancel`, `task run`,
+`workflow action`, `workflow patch list/show`) and the scenario artifacts
+are validated directly against the workflow kernel/runtime contract.
 
 ## Validating a scenario
 
