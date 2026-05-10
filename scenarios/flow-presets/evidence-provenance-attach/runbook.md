@@ -80,6 +80,7 @@ acp task evidence add \
 acp workflow action \
   --task T-EVIDENCE-PROVENANCE-DEMO \
   --supervisor-run <SUPERVISOR_RUN_ID> \
+  --actor rex \
   --action '{"type":"launch_participant_run","role":"collector","actor":{"kind":"agent","id":"larry"}}' \
   --idempotency-key scenario:evidence-provenance:launch-collector:v1
 

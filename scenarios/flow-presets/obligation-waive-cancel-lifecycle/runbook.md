@@ -92,7 +92,8 @@ acp task evidence add \
 acp workflow action \
   --task T-OBLIGATION-LIFECYCLE-DEMO \
   --supervisor-run <SUPERVISOR_RUN_ID> \
-  --action '{"type":"satisfy_obligation","obligationId":"<OBL_REVIEWER_SIGNOFF_ID>","evidenceRefs":["<evd_review_notes>"]}' \
+  --actor rex \
+  --action '{"type":"satisfy_obligation","obligationId":"<OBL_REVIEWER_SIGNOFF_ID>","evidence":[{"kind":"review_notes","ref":"<evd_review_notes>","summary":"Reviewer signoff evidence"}]}' \
   --idempotency-key scenario:obligation-lifecycle:satisfy-reviewer:v1
 
 # 7. Reviewer advances to audit (creates audit_signoff_pending)

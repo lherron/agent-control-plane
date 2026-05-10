@@ -444,6 +444,13 @@ export const handleCancelWorkflowObligation: RouteHandler = async ({ request, pa
   const obligationId = requireObligationId(params)
   const body = requireRecord(await parseJsonBody(request))
   const actor = extractActor(request, body, { required: false })
+
+  const rawReason = body['reason']
+  if (rawReason === undefined || typeof rawReason !== 'string' || rawReason.trim().length === 0) {
+    unprocessable('invalid_evidence', 'reason is required to cancel an obligation')
+  }
+  const reason = (rawReason as string).trim()
+
   const result = withDurableWorkflowKernel(
     deps,
     (kernel) => {
@@ -462,7 +469,7 @@ export const handleCancelWorkflowObligation: RouteHandler = async ({ request, pa
       }
       return kernel.cancelObligation(obligationId, {
         actor: actorRefFromUnknown(body['actor'], actor?.agentId),
-        reason: requireTrimmedStringField(body, 'reason'),
+        reason,
         idempotencyKey: requireTrimmedStringField(body, 'idempotencyKey'),
       })
     },

@@ -118,6 +118,7 @@ acp task run-complete \
 acp workflow action \
   --task T-PARTICIPANT-SUPERVISOR-DEMO \
   --supervisor-run <SUPERVISOR_RUN_ID> \
+  --actor rex \
   --action '{"type":"apply_transition","transitionId":"implement_fix","evidenceRefs":["<evd_commit_ref>","<evd_regression_test>"]}' \
   --idempotency-key scenario:participant-supervisor:supv-apply-implement:v1
 # verify event payload: { authority: "supervisor_from_participant_evidence",
@@ -141,6 +142,7 @@ acp task evidence add \
 acp workflow action \
   --task T-PARTICIPANT-SUPERVISOR-DEMO \
   --supervisor-run <SUPERVISOR_RUN_ID> \
+  --actor rex \
   --action '{"type":"pause_supervision","reason":"Manual reviewer break"}' \
   --idempotency-key scenario:participant-supervisor:pause:v1
 
@@ -148,6 +150,7 @@ acp workflow action \
 acp workflow action \
   --task T-PARTICIPANT-SUPERVISOR-DEMO \
   --supervisor-run <SUPERVISOR_RUN_ID> \
+  --actor rex \
   --action '{"type":"attach_evidence","evidence":[{"kind":"verification_report","ref":"report:other","summary":"x"}]}' \
   --idempotency-key scenario:participant-supervisor:paused-attach:v1
 # expect: rejection_code=supervisor_paused
@@ -156,6 +159,7 @@ acp workflow action \
 acp workflow action \
   --task T-PARTICIPANT-SUPERVISOR-DEMO \
   --supervisor-run <SUPERVISOR_RUN_ID> \
+  --actor rex \
   --action '{"type":"unpause_supervision"}' \
   --idempotency-key scenario:participant-supervisor:unpause:v1
 
