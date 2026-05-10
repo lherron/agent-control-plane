@@ -55,6 +55,24 @@ function createCodeTask() {
   if (!created.ok) {
     throw new Error(created.error.message)
   }
+  // Start the default supervisor run used by conformance tests
+  const supRun = kernel.startSupervisorRun({
+    taskId: created.task.taskId,
+    runId: 'run-supervisor-1',
+    supervisor,
+    autonomy: 'managed',
+    capabilities: {
+      launchRuns: true,
+      createObligations: true,
+      satisfyObligations: true,
+      requestHumanInput: true,
+      proposeWorkflowPatches: true,
+    },
+    idempotencyKey: 'supervisor:start:code-1',
+  })
+  if (!supRun.ok) {
+    throw new Error(supRun.error.message)
+  }
   return { kernel, task: created.task }
 }
 
@@ -375,6 +393,7 @@ describe('ACP workflow kernel invariants', () => {
     }
     expect(kernel.listEvents(task.taskId).map((event) => event.type)).toEqual([
       'task.created',
+      'supervisor_run.started',
       'transition.applied',
       'evidence.attached',
       'evidence.attached',
@@ -517,6 +536,14 @@ describe('ACP workflow kernel invariants', () => {
       'create_child_task',
     ])
 
+    kernel.startSupervisorRun({
+      taskId: 'task-approval-1',
+      runId: 'run-supervisor-approval',
+      supervisor,
+      autonomy: 'managed',
+      capabilities: { createChildTasks: true, createObligations: true, satisfyObligations: true },
+      idempotencyKey: 'supervisor:start:approval-1',
+    })
     kernel.submitControlAction({
       taskId: 'task-approval-1',
       supervisorRunId: 'run-supervisor-approval',
@@ -719,13 +746,26 @@ describe('ACP workflow kernel invariants', () => {
       workflow: { id: 'basic', version: 1 },
       goal: 'No implicit supervisor capabilities',
       roleBindings: { owner: implementer },
+      supervisor: {
+        actor: supervisor,
+        autonomy: 'managed',
+        capabilities: {},
+      },
       idempotencyKey: 'task:create:no-supervisor-capability',
     })
     expect(noSupervisorTask.ok).toBe(true)
+    kernel.startSupervisorRun({
+      taskId: 'task-no-supervisor-capability',
+      runId: 'run-supervisor-no-cap',
+      supervisor,
+      autonomy: 'managed',
+      capabilities: {},
+      idempotencyKey: 'supervisor:start:no-cap',
+    })
     expectReject(
       kernel.submitControlAction({
         taskId: 'task-no-supervisor-capability',
-        supervisorRunId: 'run-supervisor-1',
+        supervisorRunId: 'run-supervisor-no-cap',
         expectedTaskVersion: 0,
         action: { type: 'launch_participant_run', role: 'owner', actor: implementer },
         idempotencyKey: 'control:no-capability',

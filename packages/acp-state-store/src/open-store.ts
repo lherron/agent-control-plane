@@ -294,7 +294,9 @@ function initializeSchema(sqlite: SqliteDatabase): void {
       harness_json TEXT,
       task_version_at_start INTEGER NOT NULL,
       context_hash TEXT NOT NULL,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      paused INTEGER NOT NULL DEFAULT 0,
+      paused_reason TEXT
     );
 
     CREATE TABLE IF NOT EXISTS workflow_anomalies (

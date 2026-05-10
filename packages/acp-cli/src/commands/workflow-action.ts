@@ -48,14 +48,6 @@ export async function runWorkflowActionCommand(
     supervisorRunId: requireStringFlag(parsed, '--supervisor-run'),
     action: parseJsonObject('--action', requireStringFlag(parsed, '--action')),
     idempotencyKey: requireStringFlag(parsed, '--idempotency-key'),
-    ...(readStringFlag(parsed, '--capabilities') !== undefined
-      ? {
-          capabilities: parseJsonObject(
-            '--capabilities',
-            requireStringFlag(parsed, '--capabilities')
-          ),
-        }
-      : {}),
     ...(readStringFlag(parsed, '--expected-version') !== undefined
       ? {
           expectedTaskVersion: parseIntegerValue(

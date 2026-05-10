@@ -239,20 +239,21 @@ export const handleApplyWorkflowTransition: RouteHandler = async ({ request, par
 export const handleWorkflowControlAction: RouteHandler = async ({ request, params, deps }) => {
   const taskId = requireTaskId(params)
   const body = requireRecord(await parseJsonBody(request))
+  const actorRaw = body['actor']
   const result = withDurableWorkflowKernel(
     deps,
     (kernel) =>
       kernel.submitControlAction({
         taskId,
         supervisorRunId: requireTrimmedStringField(body, 'supervisorRunId'),
+        ...(actorRaw !== undefined && actorRaw !== null
+          ? { actor: actorRefFromUnknown(actorRaw) }
+          : {}),
         ...(readOptionalTrimmedStringField(body, 'contextHash') !== undefined
           ? { contextHash: readOptionalTrimmedStringField(body, 'contextHash') }
           : {}),
         ...(body['expectedTaskVersion'] !== undefined
           ? { expectedTaskVersion: requireNumberField(body, 'expectedTaskVersion') }
-          : {}),
-        ...(readOptionalRecordField(body, 'capabilities') !== undefined
-          ? { capabilities: readOptionalRecordField(body, 'capabilities') as never }
           : {}),
         action: parseWorkflowControlAction(body['action']),
         idempotencyKey: requireTrimmedStringField(body, 'idempotencyKey'),

@@ -1769,7 +1769,7 @@ export function createInMemoryWorkflowKernel(
           })
         }
         // Reject if caller explicitly requests role='supervisor' (or any role not in by[])
-        const requestedRole = (action as Record<string, unknown>).role as string | undefined
+        const requestedRole = (action as Record<string, unknown>)['role'] as string | undefined
         if (requestedRole !== undefined && !(transition.by ?? []).includes(requestedRole)) {
           return reject(
             'role_not_allowed',
@@ -2208,23 +2208,24 @@ export function createInMemoryWorkflowKernel(
         }),
       })
     }
-    // pause/unpause are always available
-    allowedControlActions.push({
-      type: 'pause_supervision',
-      command: makeCommand('acp.workflow.controlAction', {
-        taskId: task.taskId,
-        action: { type: 'pause_supervision', reason: '<reason>' },
-        idempotencyKey: `${request.idempotencyPrefix}:control:pause:v${task.version}`,
-      }),
-    })
-    allowedControlActions.push({
-      type: 'unpause_supervision',
-      command: makeCommand('acp.workflow.controlAction', {
-        taskId: task.taskId,
-        action: { type: 'unpause_supervision' },
-        idempotencyKey: `${request.idempotencyPrefix}:control:unpause:v${task.version}`,
-      }),
-    })
+    if (request.capabilities.pauseSupervision) {
+      allowedControlActions.push({
+        type: 'pause_supervision',
+        command: makeCommand('acp.workflow.controlAction', {
+          taskId: task.taskId,
+          action: { type: 'pause_supervision', reason: '<reason>' },
+          idempotencyKey: `${request.idempotencyPrefix}:control:pause:v${task.version}`,
+        }),
+      })
+      allowedControlActions.push({
+        type: 'unpause_supervision',
+        command: makeCommand('acp.workflow.controlAction', {
+          taskId: task.taskId,
+          action: { type: 'unpause_supervision' },
+          idempotencyKey: `${request.idempotencyPrefix}:control:unpause:v${task.version}`,
+        }),
+      })
+    }
     const context: Record<string, unknown> = {
       schemaVersion: 1,
       task: {

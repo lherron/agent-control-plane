@@ -131,6 +131,8 @@ type SupervisorRunRow = {
   task_version_at_start: number
   context_hash: string
   created_at: string
+  paused: number
+  paused_reason: string | null
 }
 
 type AnomalyRow = {
@@ -457,7 +459,7 @@ export class WorkflowRuntimeRepo {
       this.context.sqlite
         .prepare(
           `SELECT run_id, task_id, workflow_json, supervisor_json, autonomy, capabilities_json,
-                  harness_json, task_version_at_start, context_hash, created_at
+                  harness_json, task_version_at_start, context_hash, created_at, paused, paused_reason
              FROM workflow_supervisor_runs
          ORDER BY created_at, run_id`
         )
@@ -477,6 +479,7 @@ export class WorkflowRuntimeRepo {
         taskVersionAtStart: row.task_version_at_start,
         contextHash: row.context_hash,
         createdAt: row.created_at,
+        ...(row.paused === 1 ? { paused: true, pausedReason: row.paused_reason ?? undefined } : {}),
       })
     )
 
@@ -767,8 +770,8 @@ export class WorkflowRuntimeRepo {
       const insertSupervisorRun = this.context.sqlite.prepare(
         `INSERT INTO workflow_supervisor_runs (
            run_id, task_id, workflow_json, supervisor_json, autonomy, capabilities_json,
-           harness_json, task_version_at_start, context_hash, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           harness_json, task_version_at_start, context_hash, created_at, paused, paused_reason
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       for (const run of snapshot.supervisorRuns) {
         insertSupervisorRun.run(
@@ -781,7 +784,9 @@ export class WorkflowRuntimeRepo {
           run.harness === undefined ? null : stringify(run.harness),
           run.taskVersionAtStart,
           run.contextHash,
-          run.createdAt
+          run.createdAt,
+          run.paused === true ? 1 : 0,
+          run.pausedReason ?? null
         )
       }
 
