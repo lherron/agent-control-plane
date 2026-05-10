@@ -35,6 +35,7 @@ import { runTaskShowCommand } from './commands/task-show.js'
 import { runTaskTransitionCommand } from './commands/task-transition.js'
 import { runThreadCommand } from './commands/thread.js'
 import { runWorkflowActionCommand } from './commands/workflow-action.js'
+import { runWorkflowInteractCommand } from './commands/workflow-interact.js'
 import { runWorkflowPatchListCommand } from './commands/workflow-patch-list.js'
 import { runWorkflowPatchShowCommand } from './commands/workflow-patch-show.js'
 import { runWorkflowPublishCommand } from './commands/workflow-publish.js'
@@ -281,6 +282,16 @@ function addWorkflowCommands(program: Command, deps: CommandDependencies): void 
     .option('--bind <assignment>', 'role=agent:<id> (repeatable)', repeatable(), [])
     .option('--role <assignment>', 'role:<agentId> (repeatable)', repeatable(), [])
     .action(runLeaf(deps, [], runWorkflowSuperviseCommand))
+
+  common(workflow.command('interact').description('start an interactive workflow session'))
+    .argument('[target]')
+    .option('--supervisor <target>', 'override default supervisor')
+    .option('--workflow <id@version>', 'create workflow task before interacting')
+    .option('--goal <text>', 'goal for created workflow task')
+    .option('--bind <assignment>', 'role=agent (repeatable)', repeatable(), [])
+    .option('--task-id <id>', 'explicit task id for create path')
+    .option('--detach', 'skip attaching after route returns')
+    .action(runLeafWithPositionals(deps, [], runWorkflowInteractCommand))
 
   common(workflow.command('supervisor-context').description('compile supervisor context'))
     .requiredOption('--task <taskId>')
