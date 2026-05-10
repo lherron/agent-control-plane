@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import { runTaskRunCommand } from '../../src/commands/task-run.js'
+import { runCli } from '../cli-test-helpers.js'
 
 const owner = { kind: 'agent', id: 'larry' } as const
 
@@ -183,5 +184,51 @@ describe('acp task run command', () => {
         'Started participant run run_owner_1 for T-12345 owner; status=launched context=sha256:context'
       ),
     })
+  })
+
+  test('requires --task', async () => {
+    await expect(
+      runTaskRunCommand(['--role', 'owner', '--agent', 'larry'])
+    ).rejects.toThrow('--task is required')
+  })
+
+  test('is registered under acp task run', async () => {
+    const result = await runCli(
+      [
+        '--server',
+        'http://acp.test',
+        'task',
+        'run',
+        '--task',
+        'T-12345',
+        '--role',
+        'owner',
+        '--agent',
+        'larry',
+        '--json',
+      ],
+      {
+        fetchImpl: async () =>
+          new Response(
+            JSON.stringify({
+              participantRun: {
+                runId: 'run_owner_1',
+                kind: 'participant',
+                taskId: 'T-12345',
+                role: 'owner',
+                actor: owner,
+                status: 'launched',
+                taskVersionAtStart: 0,
+                contextHash: 'sha256:context',
+                createdAt: '2026-05-09T12:00:00.000Z',
+              },
+              context: { contextHash: 'sha256:context', task: { id: 'T-12345', version: 0 } },
+            }),
+            { status: 201, headers: { 'content-type': 'application/json' } }
+          ),
+      }
+    )
+
+    expect(result.exitCode).toBe(0)
   })
 })
