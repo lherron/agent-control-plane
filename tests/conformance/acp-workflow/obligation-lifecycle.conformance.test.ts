@@ -27,7 +27,9 @@ const conformanceWaiverWorkflow = {
     implementer: { binding: 'required' },
     reviewer: { binding: 'required' },
   },
-  evidenceKinds: {},
+  evidenceKinds: {
+    waiver_note: {},
+  },
   obligationKinds: {
     acceptance_override: {
       blockingDefault: false,
@@ -118,7 +120,25 @@ function seededKernel() {
   if (!obligation.ok || obligation.obligation === undefined) {
     throw new Error('obligation was not created')
   }
-  return { kernel, obligationId: obligation.obligation.obligationId }
+  return { kernel, taskId: created.task.taskId, obligationId: obligation.obligation.obligationId }
+}
+
+function attachWaiverEvidence(kernel: ReturnType<typeof createInMemoryWorkflowKernel>): string {
+  const attached = kernel.attachEvidence({
+    taskId: 'task-conformance-waiver',
+    actor: supervisor,
+    evidence: [{ kind: 'waiver_note', ref: 'artifact://waiver', summary: 'waiver' }],
+    idempotencyKey: 'conformance:waiver:evidence',
+  })
+  expect(attached.ok).toBe(true)
+  if (!attached.ok) {
+    throw new Error(attached.error.message)
+  }
+  const evidenceId = attached.evidence[0]?.evidenceId
+  if (evidenceId === undefined) {
+    throw new Error('evidence was not attached')
+  }
+  return evidenceId
 }
 
 describe('ACP workflow obligation lifecycle conformance', () => {
@@ -137,10 +157,11 @@ describe('ACP workflow obligation lifecycle conformance', () => {
     )
 
     const present = seededKernel()
+    const waiverEvidenceId = attachWaiverEvidence(present.kernel)
     const waived = present.kernel.waiveObligation(present.obligationId, {
       actor: supervisor,
       reason: 'Acceptance waiver granted by supervisor',
-      evidenceRefs: ['artifact://waiver'],
+      evidenceRefs: [waiverEvidenceId],
       idempotencyKey: 'conformance:waive',
     })
     expect(waived.ok).toBe(true)

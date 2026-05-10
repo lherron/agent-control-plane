@@ -409,6 +409,9 @@ export const handleWaiveWorkflowObligation: RouteHandler = async ({ request, par
       }
       return kernel.waiveObligation(obligationId, {
         actor: actorRefFromUnknown(body['actor'], actor?.agentId),
+        ...(readOptionalTrimmedStringField(body, 'supervisorRunId') !== undefined
+          ? { supervisorRunId: readOptionalTrimmedStringField(body, 'supervisorRunId') }
+          : {}),
         reason: requireTrimmedStringField(body, 'reason'),
         ...(readOptionalArrayField(body, 'evidenceRefs') !== undefined
           ? { evidenceRefs: readOptionalArrayField(body, 'evidenceRefs') as string[] }
@@ -422,6 +425,9 @@ export const handleWaiveWorkflowObligation: RouteHandler = async ({ request, par
   if (!result.ok) {
     if (result.error.code === 'authority_not_granted') {
       forbidden('obligation_waive_unauthorized', result.error.message)
+    }
+    if (result.error.code === 'capability_not_granted') {
+      forbidden(result.error.code, result.error.message)
     }
     if (result.error.code === 'idempotency_conflict') {
       conflict(result.error.message)

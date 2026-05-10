@@ -68,10 +68,40 @@ async function createTaskWithObligation(
   return { taskId: created.task.taskId, obligationId: acted.obligation.obligationId }
 }
 
+async function attachWaiverEvidence(
+  fixture: Awaited<Parameters<Parameters<typeof withWiredServer>[0]>[0]>,
+  taskId: string,
+  idempotencyKey: string
+): Promise<string> {
+  const response = await fixture.request({
+    method: 'POST',
+    path: `/v1/tasks/${taskId}/evidence`,
+    body: {
+      actor: { kind: 'agent', id: 'coordinator' },
+      evidence: [
+        { kind: 'evidence_override', ref: `artifact://${idempotencyKey}`, summary: 'done' },
+      ],
+      idempotencyKey,
+    },
+  })
+  expect(response.status).toBe(201)
+  const body = await fixture.json<{ evidence: Array<{ evidenceId: string }> }>(response)
+  const evidenceId = body.evidence[0]?.evidenceId
+  if (evidenceId === undefined) {
+    throw new Error('evidence was not attached')
+  }
+  return evidenceId
+}
+
 describe('durable workflow task obligation lifecycle routes', () => {
   test('POST waive records reason and evidenceRefs on an obligation', async () => {
     await withWiredServer(async (fixture) => {
       const { taskId, obligationId } = await createTaskWithObligation(fixture)
+      const waiverEvidenceId = await attachWaiverEvidence(
+        fixture,
+        taskId,
+        'server-obligation:evidence'
+      )
 
       const response = await fixture.request({
         method: 'POST',
@@ -79,7 +109,7 @@ describe('durable workflow task obligation lifecycle routes', () => {
         body: {
           actor: { kind: 'agent', id: 'coordinator' },
           reason: 'Supervisor accepted the evidence gap',
-          evidenceRefs: ['artifact://waiver-note'],
+          evidenceRefs: [waiverEvidenceId],
           idempotencyKey: 'server-obligation:waive',
         },
       })
@@ -90,7 +120,7 @@ describe('durable workflow task obligation lifecycle routes', () => {
       expect(response.status).toBe(200)
       expect(body.obligation).toMatchObject({
         status: 'waived',
-        waiverEvidenceRefs: ['artifact://waiver-note'],
+        waiverEvidenceRefs: [waiverEvidenceId],
       })
       expect(
         fixture.stateStore.workflowRuntime.loadSnapshot().events.map((event) => event.type)

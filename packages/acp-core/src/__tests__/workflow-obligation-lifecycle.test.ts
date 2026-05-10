@@ -143,14 +143,37 @@ function createWaiverObligation(
   return { kernel, taskId: task.taskId, obligationId: created.obligation.obligationId }
 }
 
+function attachWaiverEvidence(
+  kernel: ReturnType<typeof createInMemoryWorkflowKernel>,
+  taskId: string,
+  idempotencyKey: string
+): string {
+  const attached = kernel.attachEvidence({
+    taskId,
+    actor: supervisor,
+    evidence: [{ kind: 'review_note', ref: `artifact://${idempotencyKey}`, summary: 'waiver' }],
+    idempotencyKey,
+  })
+  expect(attached.ok).toBe(true)
+  if (!attached.ok) {
+    throw new Error(attached.error.message)
+  }
+  const evidenceId = attached.evidence[0]?.evidenceId
+  if (evidenceId === undefined) {
+    throw new Error('evidence was not attached')
+  }
+  return evidenceId
+}
+
 describe('ACP workflow obligation waive/cancel lifecycle', () => {
   test('waives an obligation with reason and evidence refs, recording waiver and obligation events', () => {
     const { kernel, taskId, obligationId } = createWaiverObligation()
+    const waiverEvidenceId = attachWaiverEvidence(kernel, taskId, 'obligation:waive:evidence')
 
     const waived = kernel.waiveObligation(obligationId, {
       actor: supervisor,
       reason: 'Human accepted the missing evidence risk',
-      evidenceRefs: ['artifact://approval-note'],
+      evidenceRefs: [waiverEvidenceId],
       idempotencyKey: 'obligation:waive:evidence-override',
     })
 
@@ -161,24 +184,29 @@ describe('ACP workflow obligation waive/cancel lifecycle', () => {
         status: 'waived',
         waivedAt: '2026-05-09T12:00:00.000Z',
         waiverReason: 'Human accepted the missing evidence risk',
-        waiverEvidenceRefs: ['artifact://approval-note'],
+        waiverEvidenceRefs: [waiverEvidenceId],
       })
     }
     expect(kernel.listObligations(taskId)[0]).toMatchObject({
       obligationId,
       status: 'waived',
-      waiverEvidenceRefs: ['artifact://approval-note'],
+      waiverEvidenceRefs: [waiverEvidenceId],
     })
     expect(kernel.listEvents(taskId).map((event) => event.type)).toContain('waiver.recorded')
     expect(kernel.listEvents(taskId).map((event) => event.type)).toContain('obligation.waived')
   })
 
   test('waive obligation is idempotent for the same idempotency key', () => {
-    const { kernel, obligationId } = createWaiverObligation()
+    const { kernel, taskId, obligationId } = createWaiverObligation()
+    const waiverEvidenceId = attachWaiverEvidence(
+      kernel,
+      taskId,
+      'obligation:waive:idempotent-evidence'
+    )
     const request = {
       actor: supervisor,
       reason: 'Repeatable supervisor waiver',
-      evidenceRefs: ['artifact://waiver-record'],
+      evidenceRefs: [waiverEvidenceId],
       idempotencyKey: 'obligation:waive:idempotent',
     }
 
@@ -237,10 +265,15 @@ describe('ACP workflow obligation waive/cancel lifecycle', () => {
     )
 
     const present = createWaiverObligation()
+    const waiverEvidenceId = attachWaiverEvidence(
+      present.kernel,
+      present.taskId,
+      'obligation:waive:transition-evidence'
+    )
     const waived = present.kernel.waiveObligation(present.obligationId, {
       actor: supervisor,
       reason: 'Waiver is explicitly recorded before transition',
-      evidenceRefs: ['artifact://waiver'],
+      evidenceRefs: [waiverEvidenceId],
       idempotencyKey: 'obligation:waive:for-transition',
     })
     expect(waived.ok).toBe(true)

@@ -2574,6 +2574,7 @@ export function createInMemoryWorkflowKernel(
     obligationId: string,
     request: {
       actor: ActorRef
+      supervisorRunId?: string | undefined
       reason: string
       evidenceRefs?: string[] | undefined
       idempotencyKey?: string | undefined
@@ -2588,6 +2589,36 @@ export function createInMemoryWorkflowKernel(
       const { task, list, index, obligation } = resolved
       if (!hasObligationLifecycleAuthority(task, obligation, request.actor)) {
         return reject('authority_not_granted', 'Actor is not authorized to waive this obligation')
+      }
+      if (request.supervisorRunId !== undefined) {
+        const supervisorRun = (supervisorRuns.get(task.taskId) ?? []).find(
+          (run) => run.runId === request.supervisorRunId
+        )
+        if (supervisorRun === undefined) {
+          return reject(
+            'authority_not_granted',
+            `Supervisor run "${request.supervisorRunId}" not found on task "${task.taskId}"`
+          )
+        }
+        if (!actorEquals(request.actor, supervisorRun.supervisor)) {
+          return reject(
+            'authority_not_granted',
+            `Request actor does not match supervisor run ${request.supervisorRunId}`
+          )
+        }
+        if (supervisorRun.capabilities.createWaivers !== true) {
+          return reject(
+            'capability_not_granted',
+            'Capability not granted for action "waive_obligation"'
+          )
+        }
+      }
+      const taskEvidence = evidence.get(task.taskId) ?? []
+      for (const ref of request.evidenceRefs ?? []) {
+        const record = taskEvidence.find((item) => item.evidenceId === ref)
+        if (record === undefined || record.taskId !== task.taskId) {
+          return reject('evidence_not_found', `Evidence not found: ${ref}`)
+        }
       }
       const updatedObligation: ObligationRecord = {
         ...obligation,
@@ -2609,6 +2640,9 @@ export function createInMemoryWorkflowKernel(
         taskId: task.taskId,
         type: 'waiver.recorded',
         actor: request.actor,
+        ...(request.supervisorRunId !== undefined
+          ? { supervisorRunId: request.supervisorRunId }
+          : {}),
         observedTaskVersion: task.version,
         nextTaskVersion: nextTask.version,
         idempotencyKey,
@@ -2623,6 +2657,9 @@ export function createInMemoryWorkflowKernel(
         taskId: task.taskId,
         type: 'obligation.waived',
         actor: request.actor,
+        ...(request.supervisorRunId !== undefined
+          ? { supervisorRunId: request.supervisorRunId }
+          : {}),
         observedTaskVersion: task.version,
         nextTaskVersion: nextTask.version,
         idempotencyKey,
