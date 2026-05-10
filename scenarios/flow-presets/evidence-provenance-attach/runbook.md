@@ -1,5 +1,21 @@
 # Runbook — Standalone evidence attach with three-source provenance
 
+> ## ⚠️ Real-agent execution required
+>
+> This scenario MUST be executed by real agent runtimes, not by an operator
+> issuing CLI commands with `--as agent:X`. Operator-CLI walks validate the CLI
+> surface but are NOT acceptance evidence.
+>
+> ### Agent assignments
+>
+> | Steps | Agent | Role |
+> | --- | --- | --- |
+> | 1–2, 4–5 | **Supervisor agent (rex)** | Publishes workflow, starts supervisor run, attaches supervisor evidence, launches participant run |
+> | 3, 6–8 | **Participant agent (larry)** | Collector — attaches role-bound evidence, attaches run-scoped evidence, closes task |
+>
+> See [`scenarios/flow-presets/README.md`](../README.md) for the cross-cutting
+> real-agent execution policy.
+
 End-to-end walkthrough for `evidence_provenance_demo@1` (see `workflow.json` and
 `scenario.json`). Exercises ACP Checkpoint E1: EvidenceRecord provenance fields
 and the standalone evidence attach API/CLI surface.

@@ -1,5 +1,22 @@
 # Runbook — Hotfix With Implementer/Tester SoD
 
+> ## ⚠️ Real-agent execution required
+>
+> This scenario MUST be executed by real agent runtimes, not by an operator
+> issuing CLI commands with `--as agent:X`. Operator-CLI walks validate the CLI
+> surface but are NOT acceptance evidence.
+>
+> ### Agent assignments
+>
+> | Steps | Agent | Role |
+> | --- | --- | --- |
+> | 1–2, 6 | **Supervisor agent (rex)** | Publishes workflow, creates task + supervisor run, applies `implement_fix` transition (supervisor authority backed by participant evidence) |
+> | 3–5 | **Participant agent (clod)** | Implementer — attaches `failing_test`, applies `start`, attaches `commit_ref` + `regression_test` |
+> | 7–9 | **Participant agent (cody)** | Tester — attaches `verification_report`, applies `verify`, applies `close_success` |
+>
+> See [`scenarios/flow-presets/README.md`](../README.md) for the cross-cutting
+> real-agent execution policy.
+
 End-to-end walkthrough for `hotfix_fastlane@1` (see `workflow.json` and
 `scenario.json`). This scenario is validated through the workflow kernel
 scenario conformance test:

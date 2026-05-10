@@ -1,5 +1,22 @@
 # Runbook — Obligation waive vs cancel lifecycle
 
+> ## ⚠️ Real-agent execution required
+>
+> This scenario MUST be executed by real agent runtimes, not by an operator
+> issuing CLI commands with `--as agent:X`. Operator-CLI walks validate the CLI
+> surface but are NOT acceptance evidence.
+>
+> ### Agent assignments
+>
+> | Steps | Agent | Role |
+> | --- | --- | --- |
+> | 1–2, 5, 9 | **Supervisor agent (rex)** | Publishes workflow, starts supervisor run, cancels obligation, attaches waiver evidence, waives obligation |
+> | 3–4, 10 | **Participant agent (larry)** | Author — attaches draft, submits, approves |
+> | 6–8 | **Participant agent (curly)** | Reviewer — attaches review notes, advances to audit |
+>
+> See [`scenarios/flow-presets/README.md`](../README.md) for the cross-cutting
+> real-agent execution policy.
+
 End-to-end walkthrough for `obligation_waive_cancel_demo@1` (see `workflow.json`
 and `scenario.json`). Exercises ACP Checkpoint E2: the widened
 `ObligationRecord.status` enum (`open|satisfied|waived|cancelled|expired`),

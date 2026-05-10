@@ -1,5 +1,32 @@
 # Flow presets — end-to-end scenarios
 
+> ## ⚠️ Real-agent execution required
+>
+> Every scenario walk **MUST** be driven by real agent runtimes — a supervisor
+> agent (typically rex) and per-role participant agents (typically larry, curly,
+> etc.) — each in their own `hrc` session.
+>
+> **Operator-issued CLI walks with `--as agent:X` are NOT acceptance evidence.**
+> They validate the CLI surface but not real agent participation. The system is
+> not considered validated unless real agents drive the commands.
+>
+> ### Reference pattern
+>
+> 1. The **supervisor agent** is dispatched first via `hrcchat dm` to a
+>    task-scoped session (e.g. `rex@agent-spaces:T-XXX`).
+> 2. The supervisor reads the runbook and drives all supervisor-side commands
+>    (workflow publish, supervise, supervisor actions, transitions it owns).
+> 3. For each role-bound participant segment, the supervisor dispatches the
+>    matching participant agent to a per-role lane (e.g.
+>    `larry@agent-spaces:T-XXX/collector`,
+>    `curly@agent-spaces:T-XXX/implementer`) via `hrcchat dm`.
+> 4. Each participant agent executes its commands in its own runtime and replies
+>    with run/evidence IDs.
+> 5. The supervisor confirms via `acp task show` and proceeds.
+>
+> See also: [`docs/acp-supervisor-playbook.md`](../docs/acp-supervisor-playbook.md)
+> for the canonical supervisor dispatch protocol.
+
 Three end-to-end scenarios for the new ACP workflow kernel
 (`packages/acp-core/src/workflow/index.ts`). Each scenario folder is
 self-contained:

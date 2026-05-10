@@ -1,5 +1,22 @@
 # Runbook — Participant runtime + supervisor evidence-backed authority
 
+> ## ⚠️ Real-agent execution required
+>
+> This scenario MUST be executed by real agent runtimes, not by an operator
+> issuing CLI commands with `--as agent:X`. Operator-CLI walks validate the CLI
+> surface but are NOT acceptance evidence.
+>
+> ### Agent assignments
+>
+> | Steps | Agent | Role |
+> | --- | --- | --- |
+> | 1, 7, 10–12 | **Supervisor agent (rex)** | Publishes workflow, starts supervisor run, applies supervisor transitions, pauses/unpauses supervision |
+> | 2–6, 14 | **Participant agent (larry)** | Implementer — attaches plan, starts, launches run, attaches evidence, completes run, closes task |
+> | 8–9, 13 | **Participant agent (curly)** | Tester — launches run, attaches verification report, applies verify transition |
+>
+> See [`scenarios/flow-presets/README.md`](../README.md) for the cross-cutting
+> real-agent execution policy.
+
 End-to-end walkthrough for `participant_supervisor_demo@1` (see `workflow.json`
 and `scenario.json`). Exercises ACP Checkpoints G (participant runtime
 create/resume) and H (supervisor `AttachEvidence`, `ApplyTransition`,

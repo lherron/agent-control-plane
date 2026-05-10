@@ -1,5 +1,21 @@
 # Runbook — Support escalation waiting on customer response
 
+> ## ⚠️ Real-agent execution required
+>
+> This scenario MUST be executed by real agent runtimes, not by an operator
+> issuing CLI commands with `--as agent:X`. Operator-CLI walks validate the CLI
+> surface but are NOT acceptance evidence.
+>
+> ### Agent assignments
+>
+> | Steps | Agent | Role |
+> | --- | --- | --- |
+> | 1, 6–7 | **Supervisor agent (rex)** | Publishes workflow, creates task + supervisor run, applies `wait_for_customer`, satisfies customer obligation |
+> | 2–5, 8–9 | **Participant agent (larry)** | Support agent — attaches triage summary, applies `start_triage`, records customer outreach, applies `reach_out`, applies `resume_resolution`, resolves |
+>
+> See [`scenarios/flow-presets/README.md`](../README.md) for the cross-cutting
+> real-agent execution policy.
+
 End-to-end walkthrough for `support_escalation@1` (see `workflow.json`). This is a non-code workflow that exercises the kernel's blocking-obligation pattern: the task sits in `status=waiting` until the customer's reply lands and the obligation is satisfied.
 
 > **Note on CLI mapping.** Legacy task commands such as `task evidence add`,

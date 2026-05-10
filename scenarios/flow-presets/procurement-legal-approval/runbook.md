@@ -1,5 +1,23 @@
 # Runbook — Procurement & legal approval (vendor wait + legal review)
 
+> ## ⚠️ Real-agent execution required
+>
+> This scenario MUST be executed by real agent runtimes, not by an operator
+> issuing CLI commands with `--as agent:X`. Operator-CLI walks validate the CLI
+> surface but are NOT acceptance evidence.
+>
+> ### Agent assignments
+>
+> | Steps | Agent | Role |
+> | --- | --- | --- |
+> | 1, 4–6 | **Supervisor agent (rex)** | Publishes workflow, creates task + supervisor run, routes to vendor, waits for vendor, satisfies vendor obligation |
+> | 2–3 | **Participant agent (larry)** | Requester — attaches `request_packet`, applies `submit_request` |
+> | 7–8 | **Participant agent (curly)** | Legal reviewer — applies `resume_legal_review`, attaches `legal_review`, satisfies legal obligation |
+> | 9–11 | **Participant agent (cody)** | Procurement lead — applies `complete_legal_review`, attaches `approval_record`, applies `approve` |
+>
+> See [`scenarios/flow-presets/README.md`](../README.md) for the cross-cutting
+> real-agent execution policy.
+
 End-to-end walkthrough for `procurement_legal_approval@1` (see `workflow.json`). Non-code workflow with two cascading blocking obligations:
 
 1. `vendor_response_pending` — the workflow waits in `awaiting_vendor` until the vendor's response packet lands.

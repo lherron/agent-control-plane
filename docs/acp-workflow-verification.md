@@ -1,5 +1,41 @@
 # ACP Workflow Verification
 
+> ## ⚠️ Real-agent execution required
+>
+> All manual scenario validation MUST be driven by real agent runtimes. An
+> operator issuing CLI commands with `--as agent:X` validates the CLI surface
+> but is **NOT** acceptance evidence for workflow correctness.
+>
+> ### Required execution pattern
+>
+> Instead of an operator running commands like:
+>
+> ```bash
+> # ❌ NOT acceptable — operator-CLI walk
+> acp task evidence add --task T-001 --kind field_note --ref note:x \
+>   --as agent:larry --role collector --idempotency-key ev:v1
+> ```
+>
+> The correct approach uses real agent dispatch:
+>
+> ```bash
+> # ✅ Supervisor agent (rex) dispatches participant
+> hrcchat dm larry@agent-spaces:T-001/collector - <<'EOF'
+> You are assigned the collector role on T-001.
+> Execute: acp task evidence add --task T-001 --kind field_note \
+>   --ref note:x --role collector --idempotency-key ev:v1
+> Reply with the evidence ID when done.
+> EOF
+>
+> # larry executes in its own hrc session and replies with evidence ID
+> # rex confirms via: acp task show --task T-001
+> ```
+>
+> See [`scenarios/flow-presets/README.md`](../scenarios/flow-presets/README.md)
+> for the full policy and
+> [`docs/acp-supervisor-playbook.md`](./acp-supervisor-playbook.md) for the
+> canonical supervisor dispatch protocol.
+
 ## Checkpoints
 
 ### 2026-05-09
@@ -440,6 +476,11 @@ curl -s http://127.0.0.1:18470/v1/tasks/T-001/workflow-patch-proposals?limit=10
 
 ## Manual-execution scenarios
 
+> **Note:** The CLI examples below illustrate the command surface. For
+> acceptance validation, these commands must be executed by real agent runtimes
+> using the supervisor→participant dispatch pattern described at the top of this
+> file, not by an operator using `--as agent:X`.
+
 Three manual-execution scenarios were added in commit `61d01fb`:
 
 | Scenario folder | Checkpoints exercised | Runbook |
@@ -457,6 +498,12 @@ bun scripts/validate-scenarios.ts
 ```
 
 ## End-to-end narrative: defect fastlane with participant + supervisor APIs
+
+> **Note:** The CLI examples below illustrate the command surface. For
+> acceptance validation, each command must be executed by the assigned real
+> agent in its own `hrc` session — supervisor commands by rex, implementer
+> commands by larry, tester commands by curly — via the dispatch pattern
+> described at the top of this file.
 
 This walkthrough demonstrates the `participant-supervisor-evidence-authority`
 scenario — a code-change task driven by participant runs, supervisor
