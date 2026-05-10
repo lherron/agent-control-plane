@@ -2,11 +2,15 @@ import { describe, expect, test } from 'bun:test'
 
 import { withWiredServer } from './fixtures/wired-server.js'
 
-async function createEvidenceTask(fixture: Parameters<Parameters<typeof withWiredServer>[0]>[0]) {
+async function createEvidenceTask(
+  fixture: Parameters<Parameters<typeof withWiredServer>[0]>[0],
+  id = 'default'
+) {
   const create = await fixture.request({
     method: 'POST',
     path: '/v1/tasks',
     body: {
+      taskId: `evidence-attach-${id}`,
       projectId: fixture.seed.projectId,
       workflow: { id: 'basic', version: 1 },
       goal: 'attach standalone evidence',
@@ -16,7 +20,7 @@ async function createEvidenceTask(fixture: Parameters<Parameters<typeof withWire
         autonomy: 'managed',
         capabilities: { attachEvidence: true, launchRuns: true },
       },
-      idempotencyKey: 'evidence-attach:create',
+      idempotencyKey: `evidence-attach:create:${id}`,
       actor: { agentId: 'rex' },
     },
   })
@@ -138,6 +142,65 @@ describe('standalone workflow evidence attach route', () => {
     })
   })
 
+  test('rejects participantRunId provenance from another task', async () => {
+    await withWiredServer(async (fixture) => {
+      const { task } = await createEvidenceTask(fixture, 'primary')
+      const { task: otherTask } = await createEvidenceTask(fixture, 'other')
+      const startRun = await fixture.request({
+        method: 'POST',
+        path: '/v1/workflow-supervisor-runs',
+        body: {
+          taskId: otherTask.taskId,
+          runId: 'supervisor-run-rex-other',
+          supervisor: { kind: 'agent', id: 'rex' },
+          autonomy: 'managed',
+          capabilities: { launchRuns: true },
+          idempotencyKey: 'evidence-attach:cross-task:start-supervisor',
+          actor: { agentId: 'rex' },
+        },
+      })
+      expect(startRun.status).toBe(200)
+
+      const launch = await fixture.request({
+        method: 'POST',
+        path: `/v1/tasks/${otherTask.taskId}/actions`,
+        body: {
+          supervisorRunId: 'supervisor-run-rex-other',
+          expectedTaskVersion: 0,
+          idempotencyKey: 'evidence-attach:cross-task:launch-participant',
+          action: {
+            type: 'launch_participant_run',
+            role: 'owner',
+            actor: { kind: 'agent', id: 'cody' },
+          },
+        },
+      })
+      expect(launch.status).toBe(200)
+      const participantRunId = fixture.stateStore.workflowRuntime
+        .loadSnapshot()
+        .participantRuns.find((run) => run.taskId === otherTask.taskId)?.runId
+      expect(participantRunId).toBeDefined()
+
+      const response = await attachEvidence(fixture, task.taskId, {
+        actor: { kind: 'agent', id: 'cody' },
+        role: 'owner',
+        participantRunId,
+        evidence: [{ kind: 'completion_note', ref: 'artifact://cross-task', summary: 'done' }],
+        expectedTaskVersion: 0,
+        idempotencyKey: 'evidence-attach:cross-task:attach',
+      })
+      const body = await fixture.json<{ error: { code: string } }>(response)
+
+      expect(response.status).toBe(403)
+      expect(body.error.code).toBe('authority_not_granted')
+      expect(
+        fixture.stateStore.workflowRuntime
+          .loadSnapshot()
+          .evidence.filter((record) => record.taskId === task.taskId)
+      ).toHaveLength(0)
+    })
+  })
+
   test('rejects unauthorized actor and invalid evidence kind before persistence', async () => {
     await withWiredServer(async (fixture) => {
       const { task } = await createEvidenceTask(fixture)
@@ -151,7 +214,7 @@ describe('standalone workflow evidence attach route', () => {
       })
       const unauthorizedBody = await fixture.json<{ error: { code: string } }>(unauthorized)
       expect(unauthorized.status).toBe(403)
-      expect(unauthorizedBody.error.code).toBe('evidence_attach_unauthorized')
+      expect(unauthorizedBody.error.code).toBe('authority_not_granted')
 
       const invalidKind = await attachEvidence(fixture, task.taskId, {
         actor: { kind: 'agent', id: 'cody' },

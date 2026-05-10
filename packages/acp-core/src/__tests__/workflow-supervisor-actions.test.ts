@@ -48,7 +48,7 @@ function createKernel() {
 
 function startSupervisorRun(
   kernel: ReturnType<typeof createInMemoryWorkflowKernel>,
-  capabilities: Record<string, unknown>,
+  capabilities: Record<string, unknown> | undefined,
   runId = 'supervisor-run-1',
   actor = supervisor,
   taskId = 'task-supervisor-actions'
@@ -136,6 +136,91 @@ describe('workflow supervisor control actions', () => {
         type: 'evidence.attached',
         supervisorRunId: 'supervisor-run-attach',
         payload: expect.objectContaining({ supervisorRunId: 'supervisor-run-attach' }),
+      })
+    )
+  })
+
+  test('AttachEvidence fails closed when the persisted run capabilities are missing', () => {
+    const { kernel } = createKernel()
+    startSupervisorRun(kernel, undefined, 'supervisor-run-attach-undefined')
+
+    expectReject(
+      submit(
+        kernel,
+        {
+          type: 'attach_evidence',
+          evidence: [{ kind: 'completion_note', ref: 'artifact://note', summary: 'done' }],
+        } as SupervisorAction,
+        {
+          runId: 'supervisor-run-attach-undefined',
+          capabilities: { attachEvidence: true },
+          key: 'supervisor-actions:attach:undefined-capabilities',
+        }
+      ),
+      'capability_not_granted'
+    )
+  })
+
+  test('WaiveObligation action is capability gated by persisted createWaivers', () => {
+    const { kernel, task } = createKernel()
+    startSupervisorRun(kernel, { createObligations: true })
+    const obligation = submit(
+      kernel,
+      {
+        type: 'create_obligation',
+        kind: 'missing_evidence',
+        summary: 'waiver target',
+        blocking: false,
+      } as SupervisorAction,
+      { expectedTaskVersion: task.version, key: 'supervisor-actions:waive:create' }
+    )
+    expect(obligation.ok).toBe(true)
+    if (!obligation.ok || obligation.obligation === undefined) {
+      throw new Error('obligation was not created')
+    }
+
+    expectReject(
+      submit(
+        kernel,
+        {
+          type: 'waive_obligation',
+          obligationId: obligation.obligation.obligationId,
+          reason: 'request-body capabilities must not grant waiver authority',
+        } as unknown as SupervisorAction,
+        {
+          capabilities: { createWaivers: true },
+          key: 'supervisor-actions:waive:denied',
+        }
+      ),
+      'capability_not_granted'
+    )
+
+    startSupervisorRun(
+      kernel,
+      { createObligations: true, createWaivers: true },
+      'supervisor-run-waive'
+    )
+    const waived = submit(
+      kernel,
+      {
+        type: 'waive_obligation',
+        obligationId: obligation.obligation.obligationId,
+        reason: 'supervisor accepted the risk',
+        evidenceRefs: ['artifact://waiver'],
+      } as unknown as SupervisorAction,
+      {
+        runId: 'supervisor-run-waive',
+        key: 'supervisor-actions:waive:allowed',
+      }
+    )
+
+    expect(waived.ok).toBe(true)
+    expect(kernel.listObligations(task.taskId)).toContainEqual(
+      expect.objectContaining({
+        obligationId: obligation.obligation.obligationId,
+        status: 'waived',
+        waiverReason: 'supervisor accepted the risk',
+        waiverEvidenceRefs: ['artifact://waiver'],
       })
     )
   })
@@ -356,6 +441,70 @@ describe('workflow supervisor control actions', () => {
     )
   })
 
+  test('ApplyTransition treats missing evidenceRefs as missing evidence instead of an internal error', () => {
+    const { kernel, task } = createKernel()
+    startSupervisorRun(kernel, { applySupervisorTransitions: true })
+    const started = kernel.applyTransition({
+      taskId: task.taskId,
+      transitionId: 'start',
+      actor: owner,
+      role: 'owner',
+      expectedTaskVersion: 0,
+      idempotencyKey: 'supervisor-actions:apply:undefined-refs:start',
+    })
+    expect(started.ok).toBe(true)
+
+    expectReject(
+      submit(
+        kernel,
+        {
+          type: 'apply_transition',
+          transitionId: 'close_success',
+        } as unknown as SupervisorAction,
+        {
+          expectedTaskVersion: 1,
+          key: 'supervisor-actions:apply:undefined-refs',
+        }
+      ),
+      'missing_evidence'
+    )
+  })
+
+  test('standalone AttachEvidence rejects participant runs from another task', () => {
+    const { kernel, task } = createKernel()
+    const otherTask = kernel.createTask({
+      taskId: 'task-supervisor-actions-other',
+      projectId: 'agent-spaces',
+      workflow: { id: 'basic', version: 1 },
+      goal: 'other task',
+      roleBindings: { owner },
+      idempotencyKey: 'supervisor-actions:evidence-provenance:create-other',
+    })
+    expect(otherTask.ok).toBe(true)
+    const otherRun = kernel.startParticipantRun({
+      taskId: 'task-supervisor-actions-other',
+      role: 'owner',
+      actor: owner,
+      idempotencyKey: 'supervisor-actions:evidence-provenance:other-run',
+    })
+    expect(otherRun.ok).toBe(true)
+    if (!otherRun.ok) {
+      throw new Error(otherRun.error.message)
+    }
+
+    expectReject(
+      kernel.attachEvidence({
+        taskId: task.taskId,
+        actor: owner,
+        role: 'owner',
+        participantRunId: otherRun.participantRun.runId,
+        evidence: [{ kind: 'completion_note', ref: 'artifact://cross-task', summary: 'done' }],
+        idempotencyKey: 'supervisor-actions:evidence-provenance:cross-task',
+      }),
+      'authority_not_granted'
+    )
+  })
+
   test('Escalate records an event and creates a canonical human review obligation effect', () => {
     const { kernel, task } = createKernel()
     startSupervisorRun(kernel, { escalate: true })
@@ -389,6 +538,42 @@ describe('workflow supervisor control actions', () => {
         payload: expect.objectContaining({ kind: 'human_review', reason: 'policy uncertainty' }),
       })
     )
+  })
+
+  test('PauseSupervision requires the persisted pauseSupervision capability but UnpauseSupervision remains allowed while paused', () => {
+    const { kernel } = createKernel()
+    startSupervisorRun(kernel, {})
+
+    expectReject(
+      submit(
+        kernel,
+        { type: 'pause_supervision', reason: 'missing persisted capability' } as SupervisorAction,
+        {
+          capabilities: { pauseSupervision: true },
+          key: 'supervisor-actions:pause:no-capability',
+        }
+      ),
+      'capability_not_granted'
+    )
+
+    startSupervisorRun(kernel, { pauseSupervision: true }, 'supervisor-run-pause-allowed')
+    const paused = submit(
+      kernel,
+      { type: 'pause_supervision', reason: 'human handoff' } as SupervisorAction,
+      { runId: 'supervisor-run-pause-allowed', key: 'supervisor-actions:pause:allowed' }
+    )
+    expect(paused.ok).toBe(true)
+
+    const unpaused = submit(
+      kernel,
+      { type: 'unpause_supervision', reason: 'ready' } as SupervisorAction,
+      {
+        runId: 'supervisor-run-pause-allowed',
+        capabilities: { pauseSupervision: false },
+        key: 'supervisor-actions:unpause:allowed-without-pause-cap',
+      }
+    )
+    expect(unpaused.ok).toBe(true)
   })
 
   test('PauseSupervision and UnpauseSupervision update persisted run state and gate later actions', () => {
