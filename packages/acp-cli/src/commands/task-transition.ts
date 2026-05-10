@@ -63,7 +63,7 @@ export async function runTaskTransitionCommand(
       '--run',
       '--server',
     ],
-    multiStringFlags: ['--evidence', '--waiver-ref'],
+    multiStringFlags: ['--evidence', '--evidence-ref', '--waiver-ref'],
   })
   requireNoPositionals(parsed)
 
@@ -111,6 +111,9 @@ export async function runTaskTransitionCommand(
       : {}),
     ...(parseEvidence(readMultiStringFlag(parsed, '--evidence')) !== undefined
       ? { inlineEvidence: parseEvidence(readMultiStringFlag(parsed, '--evidence')) }
+      : {}),
+    ...(readMultiStringFlag(parsed, '--evidence-ref').length > 0
+      ? { evidenceRefs: readMultiStringFlag(parsed, '--evidence-ref') }
       : {}),
     ...(readMultiStringFlag(parsed, '--waiver-ref').length > 0
       ? { waiverRefs: readMultiStringFlag(parsed, '--waiver-ref') }

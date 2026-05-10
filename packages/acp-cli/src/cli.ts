@@ -198,6 +198,7 @@ function addTaskCommands(program: Command, deps: CommandDependencies): void {
     .requiredOption('--idempotency-key <key>')
     .option('--context-hash <hash>')
     .option('--evidence <kind=ref>', 'inline transition evidence', repeatable(), [])
+    .option('--evidence-ref <ref>', 'attached evidence reference', repeatable(), [])
     .option('--waiver-ref <obligationId>', 'waiver obligation id', repeatable(), [])
     .option('--run <runId>')
     .option('--as <actorRef>', 'actor alias (agent:id normalizes to id)')

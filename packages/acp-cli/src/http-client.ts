@@ -173,6 +173,7 @@ export interface AcpClient {
     expectedTaskVersion: number
     contextHash?: string | undefined
     inlineEvidence?: EvidenceInput[] | undefined
+    evidenceRefs?: string[] | undefined
     waiverRefs?: string[] | undefined
     idempotencyKey: string
     runId?: string | undefined
@@ -451,6 +452,7 @@ export function createHttpClient(
           idempotencyKey: input.idempotencyKey,
           ...(input.contextHash !== undefined ? { contextHash: input.contextHash } : {}),
           ...(input.inlineEvidence !== undefined ? { inlineEvidence: input.inlineEvidence } : {}),
+          ...(input.evidenceRefs !== undefined ? { evidenceRefs: input.evidenceRefs } : {}),
           ...(input.waiverRefs !== undefined ? { waiverRefs: input.waiverRefs } : {}),
           ...(input.runId !== undefined ? { runId: input.runId } : {}),
         },
