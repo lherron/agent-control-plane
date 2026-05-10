@@ -648,6 +648,56 @@ describe('ACP workflow kernel invariants', () => {
     ).toEqual(supervisorMissingEvidenceGolden)
   })
 
+  test('supervisor context offers satisfy-obligation actions for open obligations', () => {
+    const { kernel, task } = createCodeTask()
+    kernel.applyTransition({
+      taskId: task.taskId,
+      transitionId: 'start',
+      actor: implementer,
+      role: 'implementer',
+      expectedTaskVersion: 0,
+      idempotencyKey: 'supervisor-satisfy-context:start',
+    })
+    const blocked = kernel.submitControlAction({
+      taskId: task.taskId,
+      supervisorRunId: 'run-supervisor-1',
+      expectedTaskVersion: 1,
+      capabilities: { createObligations: true },
+      action: {
+        type: 'create_obligation',
+        kind: 'missing_evidence',
+        ownerRole: 'implementer',
+        summary: 'Need implementation artifacts',
+        blocking: true,
+      },
+      idempotencyKey: 'supervisor-satisfy-context:blocker',
+    })
+    expect(blocked.ok).toBe(true)
+
+    const obligation = kernel.listObligations(task.taskId)[0]
+    expect(obligation).toBeDefined()
+    const context = kernel.compileSupervisorContext({
+      taskId: task.taskId,
+      runId: 'run-supervisor-1',
+      actor: supervisor,
+      autonomy: 'managed',
+      capabilities: { satisfyObligations: true },
+      idempotencyPrefix: 'idem:supervisor',
+    }) as { allowedControlActions: unknown[] }
+
+    expect(context.allowedControlActions).toEqual([
+      expect.objectContaining({
+        type: 'satisfy_obligation',
+        obligationId: obligation?.obligationId,
+        command: expect.objectContaining({
+          args: expect.objectContaining({
+            action: { type: 'satisfy_obligation', obligationId: obligation?.obligationId },
+          }),
+        }),
+      }),
+    ])
+  })
+
   test('supervisor applies one checked control action at a time', () => {
     const { kernel, task } = createCodeTask()
     expectReject(

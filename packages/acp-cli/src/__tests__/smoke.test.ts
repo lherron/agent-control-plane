@@ -145,14 +145,13 @@ describe('acp CLI smoke fixtures', () => {
           task: {
             taskId: 'T-10001',
             projectId: 'agent-spaces',
-            kind: 'task',
-            workflowPreset: 'code_defect_fastlane',
-            presetVersion: 1,
-            lifecycleState: 'open',
-            phase: 'open',
-            riskClass: 'medium',
-            roleMap: { implementer: 'larry', tester: 'cody' },
+            workflow: { id: 'basic', version: 1, hash: 'sha256:test' },
+            state: { status: 'open', phase: 'todo' },
+            goal: 'demo',
+            roleBindings: { owner: { kind: 'agent', id: 'larry' } },
             version: 0,
+            createdAt: '2026-05-09T00:00:00.000Z',
+            updatedAt: '2026-05-09T00:00:00.000Z',
           },
         },
         assert(request) {
@@ -161,10 +160,10 @@ describe('acp CLI smoke fixtures', () => {
           expect(request.headers.get('x-acp-actor-agent-id')).toBe('smokey')
           expect(request.body).toMatchObject({
             projectId: 'agent-spaces',
-            workflowPreset: 'code_defect_fastlane',
-            presetVersion: 1,
-            riskClass: 'medium',
-            roleMap: { implementer: 'larry', tester: 'cody' },
+            workflow: { id: 'basic', version: 1 },
+            goal: 'demo',
+            roleBindings: { owner: { kind: 'agent', id: 'larry' } },
+            idempotencyKey: 'smoke:create',
             actor: { agentId: 'smokey' },
           })
         },
@@ -175,20 +174,18 @@ describe('acp CLI smoke fixtures', () => {
       [
         'task',
         'create',
-        '--preset',
-        'code_defect_fastlane',
-        '--preset-version',
-        '1',
-        '--risk-class',
-        'medium',
+        '--workflow',
+        'basic@1',
         '--project',
         'agent-spaces',
+        '--goal',
+        'demo',
         '--actor',
         'smokey',
         '--role',
-        'implementer:larry',
-        '--role',
-        'tester:cody',
+        'owner:larry',
+        '--idempotency-key',
+        'smoke:create',
         '--json',
       ],
       { fetchImpl: fetchQueue.fetchImpl }
@@ -404,21 +401,45 @@ describe('acp CLI smoke fixtures', () => {
     expect(result.stdout).not.toMatch(/\bapplied\b/i)
   })
 
-  test('task transition parses comma-list evidence refs', async () => {
+  test('task transition parses inline evidence entries', async () => {
     const fetchQueue = createFetchQueue([
       {
         body: {
-          task: { taskId: 'T-10001', phase: 'green', version: 1 },
-          transition: { to: { phase: 'green' } },
+          task: {
+            taskId: 'T-10001',
+            projectId: 'agent-spaces',
+            workflow: { id: 'basic', version: 1, hash: 'sha256:test' },
+            state: { status: 'closed', outcome: 'success' },
+            version: 2,
+            goal: 'demo',
+            roleBindings: { owner: { kind: 'agent', id: 'smokey' } },
+            createdAt: '2026-05-09T00:00:00.000Z',
+            updatedAt: '2026-05-09T00:00:00.000Z',
+          },
+          event: {
+            eventId: 'wevt_1',
+            taskId: 'T-10001',
+            workflow: { id: 'basic', version: 1, hash: 'sha256:test' },
+            type: 'transition.applied',
+            actor: { kind: 'agent', id: 'smokey' },
+            observedTaskVersion: 1,
+            nextTaskVersion: 2,
+            idempotencyKey: 'smoke:transition',
+            payload: { transitionId: 'close_success' },
+            createdAt: '2026-05-09T00:00:00.000Z',
+          },
+          effects: [],
         },
         assert(request) {
           expect(request.method).toBe('POST')
           expect(new URL(request.url).pathname).toBe('/v1/tasks/T-10001/transitions')
           expect(request.body).toMatchObject({
-            toPhase: 'green',
-            expectedVersion: 0,
-            evidenceRefs: ['artifact://red', 'artifact://green'],
-            actor: { agentId: 'smokey', role: 'tester' },
+            transitionId: 'close_success',
+            role: 'owner',
+            expectedTaskVersion: 1,
+            inlineEvidence: [{ kind: 'completion_note', ref: 'artifact://done' }],
+            idempotencyKey: 'smoke:transition',
+            actor: { agentId: 'smokey' },
           })
         },
       },
@@ -430,16 +451,18 @@ describe('acp CLI smoke fixtures', () => {
         'transition',
         '--task',
         'T-10001',
-        '--to',
-        'green',
+        '--transition',
+        'close_success',
         '--actor',
         'smokey',
-        '--actor-role',
-        'tester',
+        '--role',
+        'owner',
         '--expected-version',
-        '0',
+        '1',
         '--evidence',
-        'artifact://red, artifact://green',
+        'completion_note=artifact://done',
+        '--idempotency-key',
+        'smoke:transition',
         '--json',
       ],
       { fetchImpl: fetchQueue.fetchImpl }
@@ -447,8 +470,8 @@ describe('acp CLI smoke fixtures', () => {
 
     expect(result.exitCode).toBe(0)
     expect(JSON.parse(result.stdout)).toMatchObject({
-      task: { taskId: 'T-10001', phase: 'green' },
-      transition: { to: { phase: 'green' } },
+      task: { taskId: 'T-10001', state: { status: 'closed' } },
+      event: { payload: { transitionId: 'close_success' } },
     })
   })
 
@@ -514,31 +537,31 @@ describe('acp CLI smoke fixtures', () => {
     expect(result.stderr).toContain("unknown command 'does-not-exist'")
   })
 
-  test('integer validation rejects invalid preset versions before side effects', async () => {
+  test('workflow ref validation rejects invalid versions before side effects', async () => {
     const fetchQueue = createFetchQueue([])
     const result = await runCli(
       [
         'task',
         'create',
-        '--preset',
-        'code_defect_fastlane',
-        '--preset-version',
-        '0',
-        '--risk-class',
-        'medium',
+        '--workflow',
+        'basic@0',
         '--project',
         'agent-spaces',
+        '--goal',
+        'demo',
         '--actor',
         'smokey',
         '--role',
-        'implementer:larry',
+        'owner:larry',
+        '--idempotency-key',
+        'smoke:create',
         '--json',
       ],
       { fetchImpl: fetchQueue.fetchImpl }
     )
 
     expect(result.exitCode).toBe(2)
-    expect(result.stderr).toContain('--preset-version must be an integer >= 1')
+    expect(result.stderr).toContain('--workflow must be an integer >= 1')
     expect(fetchQueue.calls).toHaveLength(0)
   })
 })

@@ -126,6 +126,12 @@ export { getPreset, listPresets } from './presets/registry.js'
 export { validateTransition } from './validators/transition-policy.js'
 export { computeTaskContext } from './task-context.js'
 export { createInMemoryWorkflowKernel, stableJson } from './workflow/index.js'
+export {
+  basicWorkflowV1,
+  builtInWorkflowDefinitions,
+  codeDefectFastlaneWorkflowV1,
+  codeFeatureTddWorkflowV1,
+} from './workflow/definitions.js'
 export type {
   ActorRef,
   BuiltInCondition,
@@ -143,11 +149,14 @@ export type {
   RoleSpec,
   SupervisorBinding,
   SupervisorCapabilities,
+  SupervisorRunRecord,
   TransitionSpec,
   WorkflowAnomaly,
   WorkflowControlAction,
   WorkflowDefinition,
   WorkflowEvent,
+  WorkflowIdempotencyRecord,
+  WorkflowKernelSnapshot,
   WorkflowPatchProposal,
   WorkflowRef,
   WorkflowRejection,

@@ -5,7 +5,10 @@ End-to-end walkthrough for `procurement_legal_approval@1` (see `workflow.json`).
 1. `vendor_response_pending` — the workflow waits in `awaiting_vendor` until the vendor's response packet lands.
 2. `legal_review_pending` — opened on resume; legal must complete its review before procurement can finalize.
 
-> **Note on CLI mapping.** The live `acp task` CLI surface still uses the legacy preset model; obligations and `waiting` status are kernel concepts. This runbook is therefore kernel-driven (same surface as the conformance tests). Lines tagged `[cli]` show the equivalent legacy CLI invocation when one applies; lines tagged `[kernel]` are canonical.
+> **Note on CLI mapping.** Legacy task commands and phase-based task mutation
+> were removed as breaking changes. This runbook is kernel-driven and is
+> validated by `bun test tests/conformance/acp-workflow/flow-presets-scenarios.test.ts`,
+> which loads `workflow.json` and executes `scenario.json`.
 
 ## Setup
 
@@ -167,8 +170,8 @@ Attach `legal_review` evidence (kernel `attachEvidence` or inline on the satisfy
 
 SoD is enforced by explicit `sod` requirements on `resume_legal_review` (`legal_reviewer` `notSameAs` `[requester, procurement_lead]`) and on `approve` / `reject` (`procurement_lead` `notSameAs` `[requester, legal_reviewer]`). `RoleSpec.mustDifferFrom` is metadata only in the current kernel and is not auto-enforced — the explicit `sod` requirements are what reject these cases.
 
-- **sod_violation — approver == requester:** Create a separate task binding `requester` AND `procurement_lead` to the same actor (e.g. both `alex`). Reach `final_approval` and apply `approve`. Rejected with `sod_violation`.
-- **sod_violation — approver == legal_reviewer:** Create a separate task binding `procurement_lead` AND `legal_reviewer` to the same actor. Reach `final_approval` and apply `approve`. Rejected with `sod_violation`.
+- **sod_violation — procurement_lead == requester:** Create a separate task binding `requester` AND `procurement_lead` to the same actor (e.g. both `alex`). After legal review is satisfied, `complete_legal_review` rejects with `sod_violation`, preventing `final_approval`.
+- **sod_violation — procurement_lead == legal_reviewer:** Create a separate task binding `procurement_lead` AND `legal_reviewer` to the same actor. After the vendor obligation is satisfied, `resume_legal_review` rejects with `sod_violation`, preventing `final_approval`.
 - **sod_violation — legal_reviewer == requester:** Create a separate task binding `requester` AND `legal_reviewer` to the same actor. After the vendor obligation is satisfied, apply `resume_legal_review`. Rejected with `sod_violation`.
 - **sod_violation — legal_reviewer == procurement_lead:** Create a separate task binding `procurement_lead` AND `legal_reviewer` to the same actor. Apply `resume_legal_review` after the vendor obligation is satisfied. Rejected with `sod_violation`.
 - **role_not_bound:** In the happy-path task (different actors), attempt `approve` with actor=alex claiming role=procurement_lead. Rejected with `role_not_bound` — the binding check fires before SoD.

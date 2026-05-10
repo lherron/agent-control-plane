@@ -1,7 +1,7 @@
-import type { RiskClass } from 'acp-core'
+import type { ActorRef } from 'acp-core'
 
 import { CliUsageError } from '../cli-runtime.js'
-import { renderCreatedTask } from '../output/task-render.js'
+import { renderCreatedWorkflowTask } from '../output/task-render.js'
 import { parseRoleAssignment } from '../roles.js'
 import {
   hasFlag,
@@ -24,24 +24,27 @@ import {
   resolveServerUrl,
 } from './shared.js'
 
-const ALLOWED_RISK_CLASSES = new Set<RiskClass>(['low', 'medium', 'high'])
-const ALLOWED_KINDS = new Set(['task', 'bug', 'spike', 'chore'])
+function parseWorkflowRef(value: string): { id: string; version: number } {
+  const at = value.lastIndexOf('@')
+  if (at <= 0 || at === value.length - 1) {
+    throw new CliUsageError('--workflow must use id@version, for example basic@1')
+  }
+  return {
+    id: value.slice(0, at),
+    version: parseIntegerValue('--workflow', value.slice(at + 1), { min: 1 }),
+  }
+}
 
-function parseRoleMap(values: string[]): Record<string, string> {
-  const roleMap: Record<string, string> = {}
+function parseRoleBindings(values: string[]): Record<string, ActorRef | null> {
+  const bindings: Record<string, ActorRef | null> = {}
   for (const value of values) {
     const assignment = parseRoleAssignment(value)
-    if (roleMap[assignment.role] !== undefined) {
+    if (bindings[assignment.role] !== undefined) {
       throw new CliUsageError(`duplicate role assignment for ${assignment.role}`)
     }
-    roleMap[assignment.role] = assignment.agentId
+    bindings[assignment.role] = { kind: 'agent', id: assignment.agentId }
   }
-
-  if (roleMap['implementer'] === undefined) {
-    throw new CliUsageError('create requires --role implementer:<agentId>')
-  }
-
-  return roleMap
+  return bindings
 }
 
 export async function runTaskCreateCommand(
@@ -51,12 +54,12 @@ export async function runTaskCreateCommand(
   const parsed = parseArgs(args, {
     booleanFlags: ['--json'],
     stringFlags: [
-      '--preset',
-      '--preset-version',
-      '--risk-class',
+      '--workflow',
+      '--risk',
       '--project',
       '--actor',
-      '--kind',
+      '--goal',
+      '--idempotency-key',
       '--meta',
       '--server',
     ],
@@ -67,33 +70,21 @@ export async function runTaskCreateCommand(
   const env = resolveEnv(deps)
   const actorAgentId = requireActorAgentId(readStringFlag(parsed, '--actor'), env)
   const serverUrl = resolveServerUrl(readStringFlag(parsed, '--server'), env)
-  const workflowPreset = requireStringFlag(parsed, '--preset')
-  const presetVersion = parseIntegerValue(
-    '--preset-version',
-    requireStringFlag(parsed, '--preset-version'),
-    { min: 1 }
-  )
-  const riskClass = requireStringFlag(parsed, '--risk-class') as RiskClass
-  if (!ALLOWED_RISK_CLASSES.has(riskClass)) {
-    throw new CliUsageError('--risk-class must be one of: low, medium, high')
-  }
-
-  const kind = readStringFlag(parsed, '--kind') ?? 'task'
-  if (!ALLOWED_KINDS.has(kind)) {
-    throw new CliUsageError('--kind must be one of: task, bug, spike, chore')
-  }
-
   const client = getClientFactory(deps)({ serverUrl, actorAgentId })
   const response = await client.createTask({
     actorAgentId,
     projectId: requireStringFlag(parsed, '--project'),
-    workflowPreset,
-    presetVersion,
-    riskClass,
-    kind,
-    roleMap: parseRoleMap(readMultiStringFlag(parsed, '--role')),
+    workflow: parseWorkflowRef(requireStringFlag(parsed, '--workflow')),
+    goal: requireStringFlag(parsed, '--goal'),
+    ...(readStringFlag(parsed, '--risk') !== undefined
+      ? { risk: readStringFlag(parsed, '--risk') }
+      : {}),
+    roleBindings: parseRoleBindings(readMultiStringFlag(parsed, '--role')),
+    idempotencyKey: requireStringFlag(parsed, '--idempotency-key'),
     ...(maybeParseMetaFlag(parsed) !== undefined ? { meta: maybeParseMetaFlag(parsed) } : {}),
   })
 
-  return hasFlag(parsed, '--json') ? asJson(response) : asText(renderCreatedTask(response.task))
+  return hasFlag(parsed, '--json')
+    ? asJson(response)
+    : asText(renderCreatedWorkflowTask(response.task))
 }

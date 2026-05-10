@@ -11,13 +11,14 @@ self-contained:
   ordered steps (with `kernel.op`/`controlAction`/`evidence`/`transitionId`),
   expected state-after, expected effect intents, and negative checks.
 - `runbook.md` — human-readable walkthrough showing the canonical kernel
-  calls and, where applicable, the equivalent `acp task` CLI invocation.
+  calls. The checked command for all scenarios is the scenario conformance
+  test listed below.
 
 ## Scenarios
 
 | Folder | Workflow id @ version | Kind | Highlights |
 | --- | --- | --- | --- |
-| `hotfix-implementer-tester/` | `hotfix_fastlane@1` | `code_change` | Implementer/tester SoD, `declare_handoff` + `wake_role_session` effects on red→green at risk≥medium. CLI-driven via the existing `code_defect_fastlane@1` preset. |
+| `hotfix-implementer-tester/` | `hotfix_fastlane@1` | `code_change` | Implementer/tester SoD, `declare_handoff` + `wake_role_session` effects on red→green at risk≥medium. |
 | `support-escalation-customer-response/` | `support_escalation@1` | `support` | Non-code. Blocking obligation `customer_response_pending` parks the task in `waiting/awaiting_customer` until the customer replies. 72h timer effect. |
 | `procurement-legal-approval/` | `procurement_legal_approval@1` | `approval` | Non-code. Two cascading blocking obligations (`vendor_response_pending` then `legal_review_pending`) and a three-way SoD enforced by explicit `sod` requirements on `resume_legal_review` and `approve`/`reject` (legal_reviewer ≠ requester, procurement_lead; procurement_lead ≠ requester, legal_reviewer). |
 
@@ -50,23 +51,12 @@ artifacts don't collide.
 
 ## CLI surface notes
 
-The live `acp task` CLI (`packages/acp-cli`) currently talks to the
-**legacy** preset model (`packages/acp-core/src/presets/registry.ts` —
-`code_defect_fastlane@1`, `code_feature_tdd@1`). The new workflow kernel is
-in-memory and exposed only through the conformance suite today.
-
-- The **hotfix** scenario maps cleanly onto the registered
-  `code_defect_fastlane@1` preset: same phase graph, same SoD rule, same
-  evidence shape. The runbook gives concrete `acp task create` /
-  `acp task evidence add` / `acp task transition` commands that exercise the
-  equivalent legacy lifecycle end-to-end.
-- The **support escalation** and **procurement** scenarios use kernel
-  features (`waiting` status, `obligation_satisfied` requirements,
-  `create_obligation` effects, `start_timer`) that the legacy CLI does not
-  yet model. Their runbooks are kernel-driven (load the JSON, call
-  `createTask` / `applyTransition` / `submitControlAction`). When the new
-  workflow kernel is wired through `acp task` the same step sequences will
-  become CLI commands without re-authoring.
+Legacy task commands and route shapes were removed as breaking changes:
+`task evidence add`, `task promote`, `task transitions`, and `toPhase`
+mutation examples are not valid scenario validation commands. The current
+CLI surface is workflow-oriented (`task create`, `task show`,
+`task transition`) and the scenario artifacts are validated directly against
+the workflow kernel/runtime contract.
 
 ## Validating a scenario
 
@@ -81,3 +71,9 @@ without throwing. Then the steps in `scenario.json` should drive the task
 from `initial` to the documented terminal `state`. The negative checks at
 the bottom of each `scenario.json` are the rejection codes the kernel must
 emit when their preconditions are violated.
+
+Run all scenario artifacts with:
+
+```bash
+bun test tests/conformance/acp-workflow/flow-presets-scenarios.test.ts
+```

@@ -1,4 +1,4 @@
-import type { Task } from 'acp-core'
+import type { Task, WorkflowTask } from 'acp-core'
 
 import type { TaskContext } from '../http-client.js'
 
@@ -51,6 +51,41 @@ export function renderCreatedTask(task: Task): string {
   ]
 
   return lines.join('\n')
+}
+
+export function renderCreatedWorkflowTask(task: WorkflowTask): string {
+  const lines = [
+    `Created ${task.taskId} (workflow=${task.workflow.id}@${task.workflow.version} status=${task.state.status} phase=${task.state.phase ?? 'none'} risk=${task.risk ?? 'n/a'})`,
+    'Roles:',
+    ...Object.entries(task.roleBindings)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(
+        ([role, actor]) => `  ${role}: ${actor === null ? 'unbound' : `${actor.kind}:${actor.id}`}`
+      ),
+  ]
+
+  return lines.join('\n')
+}
+
+export function renderWorkflowTask(task: WorkflowTask): string {
+  return [
+    `Task ${task.taskId}`,
+    `Project: ${task.projectId}`,
+    `Workflow: ${task.workflow.id}@${task.workflow.version}`,
+    `Hash: ${task.workflow.hash}`,
+    `Status: ${task.state.status}`,
+    `Phase: ${task.state.phase ?? 'none'}`,
+    `Outcome: ${task.state.outcome ?? 'none'}`,
+    `Version: ${task.version}`,
+    `Goal: ${task.goal}`,
+    `Risk: ${task.risk ?? 'n/a'}`,
+    'Roles:',
+    ...Object.entries(task.roleBindings)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(
+        ([role, actor]) => `  ${role}: ${actor === null ? 'unbound' : `${actor.kind}:${actor.id}`}`
+      ),
+  ].join('\n')
 }
 
 export function renderPromotedTask(task: Task): string {

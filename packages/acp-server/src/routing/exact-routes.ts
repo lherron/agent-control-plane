@@ -36,7 +36,10 @@ import { handleSessionRefEvents } from '../handlers/session-refs-events.js'
 import { handleListSessions } from '../handlers/sessions-list.js'
 import { handleResetSession } from '../handlers/sessions-reset.js'
 import { handleResolveSession } from '../handlers/sessions-resolve.js'
-import { handleCreateTask } from '../handlers/tasks-create.js'
+import {
+  handleCreateWorkflowTask,
+  handleStartWorkflowSupervisorRun,
+} from '../handlers/workflow-tasks.js'
 import { handleLaunchSession } from '../launch-role-scoped.js'
 import { withActorAndAuthz } from '../middleware/actor-and-authz.js'
 
@@ -72,7 +75,8 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
       '/v1/interface/messages',
       handleCreateInterfaceMessage
     ),
-    [exactRouteKey('POST', '/v1/tasks')]: handleCreateTask,
+    [exactRouteKey('POST', '/v1/tasks')]: handleCreateWorkflowTask,
+    [exactRouteKey('POST', '/v1/workflow-supervisor-runs')]: handleStartWorkflowSupervisorRun,
     [exactRouteKey('POST', '/v1/inputs')]: maybeWrapMutatingRoute(
       'POST',
       '/v1/inputs',

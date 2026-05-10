@@ -11,8 +11,6 @@ export type {
   AcpErrorBody,
   FetchLike,
   GetTaskResponse,
-  ListTaskTransitionsResponse,
-  TaskPromoteResponse,
   TaskContext,
   TaskTransitionResponse,
 } from './http-client.js'

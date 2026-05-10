@@ -176,12 +176,12 @@
   "negativeChecks": [
     {
       "name": "approver-cannot-be-requester",
-      "summary": "Create a separate task binding requester AND procurement_lead to the same actor (e.g. both=alex). Reach `final_approval` and apply `approve`. Kernel rejects with `sod_violation` (the explicit `sod` requirement on `approve` lists `notSameAs: [requester, legal_reviewer]`).",
+      "summary": "Create a separate task binding requester AND procurement_lead to the same actor (e.g. both=alex). After legal review is satisfied, applying `complete_legal_review` rejects with `sod_violation` from the explicit procurement lead SoD requirement; the workflow prevents reaching `final_approval` with this conflicting binding.",
       "expectedRejection": "sod_violation"
     },
     {
       "name": "approver-cannot-be-legal-reviewer",
-      "summary": "Create a separate task binding procurement_lead AND legal_reviewer to the same actor. Reach `final_approval` and apply `approve`. Kernel rejects with `sod_violation` from the explicit `sod` requirement on `approve`.",
+      "summary": "Create a separate task binding procurement_lead AND legal_reviewer to the same actor. After the vendor obligation is satisfied, applying `resume_legal_review` rejects with `sod_violation` from the explicit `sod` requirement on `resume_legal_review`; the workflow prevents reaching `final_approval` with this conflicting binding.",
       "expectedRejection": "sod_violation"
     },
     {

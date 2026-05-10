@@ -26,12 +26,12 @@ import type { CommandDependencies, CommandOutput } from './commands/shared.js'
 import { runSystemEventCommand } from './commands/system-event.js'
 import { runTailCommand } from './commands/tail.js'
 import { runTaskCreateCommand } from './commands/task-create.js'
-import { runTaskEvidenceAddCommand } from './commands/task-evidence-add.js'
-import { runTaskPromoteCommand } from './commands/task-promote.js'
 import { runTaskShowCommand } from './commands/task-show.js'
 import { runTaskTransitionCommand } from './commands/task-transition.js'
-import { runTaskTransitionsCommand } from './commands/task-transitions.js'
 import { runThreadCommand } from './commands/thread.js'
+import { runWorkflowActionCommand } from './commands/workflow-action.js'
+import { runWorkflowSuperviseCommand } from './commands/workflow-supervise.js'
+import { runWorkflowSupervisorContextCommand } from './commands/workflow-supervisor-context.js'
 import { runServerCommand } from './server-runtime.js'
 
 type GlobalOptions = {
@@ -161,12 +161,12 @@ function tabular(cmd: Command): Command {
 function addTaskCommands(program: Command, deps: CommandDependencies): void {
   const task = program.command('task').description('manage ACP workflow tasks')
 
-  common(task.command('create').description('create a preset-driven ACP workflow task'))
-    .requiredOption('--preset <id>')
-    .requiredOption('--preset-version <n>')
-    .requiredOption('--risk-class <class>')
+  common(task.command('create').description('create a durable ACP workflow task'))
+    .requiredOption('--workflow <id@version>')
     .requiredOption('--project <projectId>')
-    .option('--kind <kind>')
+    .requiredOption('--goal <text>')
+    .requiredOption('--idempotency-key <key>')
+    .option('--risk <class>')
     .option('--meta <json>')
     .option('--role <assignment>', 'role:agentId (repeatable)', repeatable(), [])
     .action(runLeaf(deps, [], runTaskCreateCommand))
@@ -176,43 +176,74 @@ function addTaskCommands(program: Command, deps: CommandDependencies): void {
     .option('--role <role>')
     .action(runLeaf(deps, [], runTaskShowCommand))
 
-  common(task.command('promote').description('promote a wrkq task into ACP workflow control'))
+  common(task.command('transition').description('apply one workflow transition'))
     .requiredOption('--task <taskId>')
-    .requiredOption('--preset <id>')
-    .requiredOption('--preset-version <n>')
-    .requiredOption('--risk-class <class>')
-    .option('--actor-role <role>')
-    .option('--initial-phase <phase>')
-    .option('--role <assignment>', 'role:agentId (repeatable)', repeatable(), [])
-    .action(runLeaf(deps, [], runTaskPromoteCommand))
-
-  const evidence = task.command('evidence').description('manage task evidence')
-  common(evidence.command('add').description('attach evidence to a task'))
-    .requiredOption('--task <taskId>')
-    .requiredOption('--kind <kind>')
-    .requiredOption('--ref <ref>')
-    .requiredOption('--producer-role <role>')
-    .option('--build-id <id>')
-    .option('--build-version <version>')
-    .option('--build-env <env>')
-    .option('--content-hash <hash>')
-    .option('--meta <json>')
-    .action(runLeaf(deps, [], runTaskEvidenceAddCommand))
-
-  common(task.command('transition').description('apply one task phase transition'))
-    .requiredOption('--task <taskId>')
-    .requiredOption('--to <phase>')
-    .requiredOption('--actor-role <role>')
+    .requiredOption('--transition <transitionId>')
+    .requiredOption('--role <role>')
     .requiredOption('--expected-version <n>')
-    .option('--evidence <refs>')
-    .option('--idempotency-key <key>')
-    .option('--request-handoff')
-    .option('--waiver <kind:ref>', 'repeatable waiver evidence', repeatable(), [])
+    .requiredOption('--idempotency-key <key>')
+    .option('--context-hash <hash>')
+    .option('--evidence <kind=ref>', 'inline transition evidence', repeatable(), [])
+    .option('--run <runId>')
     .action(runLeaf(deps, [], runTaskTransitionCommand))
+}
 
-  common(task.command('transitions').description('list task transition history'))
+function addWorkflowCommands(program: Command, deps: CommandDependencies): void {
+  const workflow = program.command('workflow').description('manage ACP workflow supervision')
+
+  common(workflow.command('supervise').description('start or resume a workflow supervisor run'))
+    .option('--task <taskId>')
+    .option('--workflow <id@version>')
+    .option('--project <projectId>')
+    .option('--goal <text>')
+    .requiredOption('--supervisor <actorRef>')
+    .requiredOption('--idempotency-key <key>')
+    .option('--resume')
+    .option('--risk <class>')
+    .option('--autonomy <mode>')
+    .option('--harness <idOrJson>')
+    .option('--capabilities <json>')
+    .option('--run <runId>')
+    .option('--bind <assignment>', 'role=agent:<id> (repeatable)', repeatable(), [])
+    .option('--role <assignment>', 'role:<agentId> (repeatable)', repeatable(), [])
+    .action(runLeaf(deps, [], runWorkflowSuperviseCommand))
+
+  common(workflow.command('supervisor-context').description('compile supervisor context'))
     .requiredOption('--task <taskId>')
-    .action(runLeaf(deps, [], runTaskTransitionsCommand))
+    .requiredOption('--run <runId>')
+    .requiredOption('--idempotency-prefix <key>')
+    .option('--autonomy <mode>')
+    .option('--capabilities <json>')
+    .action(runLeaf(deps, [], runWorkflowSupervisorContextCommand))
+
+  common(workflow.command('action').description('submit one checked workflow supervisor action'))
+    .requiredOption('--task <taskId>')
+    .requiredOption('--supervisor-run <runId>')
+    .requiredOption('--action <json>')
+    .requiredOption('--idempotency-key <key>')
+    .option('--capabilities <json>')
+    .option('--expected-version <n>')
+    .option('--context-hash <hash>')
+    .action(runLeaf(deps, [], runWorkflowActionCommand))
+}
+
+function addSupervisorAliasCommand(program: Command, deps: CommandDependencies): void {
+  common(program.command('supervise').description('start or resume a workflow supervisor run'))
+    .option('--task <taskId>')
+    .option('--workflow <id@version>')
+    .option('--project <projectId>')
+    .option('--goal <text>')
+    .requiredOption('--supervisor <actorRef>')
+    .requiredOption('--idempotency-key <key>')
+    .option('--resume')
+    .option('--risk <class>')
+    .option('--autonomy <mode>')
+    .option('--harness <idOrJson>')
+    .option('--capabilities <json>')
+    .option('--run <runId>')
+    .option('--bind <assignment>', 'role=agent:<id> (repeatable)', repeatable(), [])
+    .option('--role <assignment>', 'role:<agentId> (repeatable)', repeatable(), [])
+    .action(runLeaf(deps, [], runWorkflowSuperviseCommand))
 }
 
 function addAdminCommands(program: Command, deps: CommandDependencies): void {
@@ -550,6 +581,8 @@ export function buildProgram(
     .option('--json', 'emit JSON output')
 
   addTaskCommands(program, deps)
+  addWorkflowCommands(program, deps)
+  addSupervisorAliasCommand(program, deps)
   addAdminCommands(program, deps)
   addGovernanceCommands(program, deps)
   addRuntimeCommands(program, deps)

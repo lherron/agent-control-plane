@@ -234,6 +234,20 @@ export interface ParticipantRunRecord {
   createdAt: string
 }
 
+export interface SupervisorRunRecord {
+  runId: string
+  kind: 'workflow_supervisor'
+  taskId: string
+  workflow: WorkflowRef
+  supervisor: ActorRef
+  autonomy: SupervisorBinding['autonomy']
+  capabilities: SupervisorCapabilities
+  harness?: Record<string, unknown> | undefined
+  taskVersionAtStart: number
+  contextHash: string
+  createdAt: string
+}
+
 export interface WorkflowAnomaly {
   anomalyId: string
   taskId: string
@@ -332,9 +346,25 @@ export type WorkflowControlAction =
     }
   | { type: 'pause_supervision'; reason: string }
 
-interface IdempotencyRecord {
+export interface WorkflowIdempotencyRecord {
   fingerprint: string
   result: unknown
+}
+
+export interface WorkflowKernelSnapshot {
+  definitions: PublishedWorkflowDefinition[]
+  tasks: WorkflowTask[]
+  evidence: EvidenceRecord[]
+  obligations: ObligationRecord[]
+  effects: EffectIntent[]
+  events: WorkflowEvent[]
+  supervisorRuns: SupervisorRunRecord[]
+  participantRuns: ParticipantRunRecord[]
+  anomalies: WorkflowAnomaly[]
+  patchProposals: WorkflowPatchProposal[]
+  idempotency: Array<{ key: string; record: WorkflowIdempotencyRecord }>
+  contextHashes: Array<{ taskId: string; hashes: string[] }>
+  sequence: number
 }
 
 const VALID_STATUSES = new Set<string>(['open', 'active', 'waiting', 'closed'])
@@ -488,7 +518,9 @@ function getControlActionCapabilityError(
   }
 }
 
-export function createInMemoryWorkflowKernel(input: { now?: string | undefined } = {}) {
+export function createInMemoryWorkflowKernel(
+  input: { now?: string | undefined; snapshot?: WorkflowKernelSnapshot | undefined } = {}
+) {
   const now = input.now ?? new Date().toISOString()
   const definitions = new Map<string, PublishedWorkflowDefinition>()
   const tasks = new Map<string, WorkflowTask>()
@@ -496,15 +528,62 @@ export function createInMemoryWorkflowKernel(input: { now?: string | undefined }
   const obligations = new Map<string, ObligationRecord[]>()
   const effects = new Map<string, EffectIntent[]>()
   const events = new Map<string, WorkflowEvent[]>()
+  const supervisorRuns = new Map<string, SupervisorRunRecord[]>()
   const participantRuns = new Map<string, ParticipantRunRecord[]>()
   const anomalies = new Map<string, WorkflowAnomaly[]>()
   const patchProposals = new Map<string, WorkflowPatchProposal[]>()
-  const idempotency = new Map<string, IdempotencyRecord>()
+  const idempotency = new Map<string, WorkflowIdempotencyRecord>()
   const currentContextHashes = new Map<string, Set<string>>()
   let sequence = 0
 
   const nextId = (prefix: string): string => `${prefix}_${String(++sequence).padStart(4, '0')}`
   const definitionKey = (id: string, version: number): string => `${id}@${version}`
+
+  if (input.snapshot !== undefined) {
+    for (const definition of input.snapshot.definitions) {
+      definitions.set(
+        definitionKey(definition.id, definition.version),
+        deepFreeze(clone(definition))
+      )
+    }
+    for (const task of input.snapshot.tasks) {
+      tasks.set(task.taskId, clone(task))
+    }
+    for (const record of input.snapshot.evidence) {
+      evidence.set(record.taskId, [...(evidence.get(record.taskId) ?? []), clone(record)])
+    }
+    for (const record of input.snapshot.obligations) {
+      obligations.set(record.taskId, [...(obligations.get(record.taskId) ?? []), clone(record)])
+    }
+    for (const record of input.snapshot.effects) {
+      effects.set(record.taskId, [...(effects.get(record.taskId) ?? []), clone(record)])
+    }
+    for (const event of input.snapshot.events) {
+      events.set(event.taskId, [...(events.get(event.taskId) ?? []), clone(event)])
+    }
+    for (const run of input.snapshot.supervisorRuns) {
+      supervisorRuns.set(run.taskId, [...(supervisorRuns.get(run.taskId) ?? []), clone(run)])
+    }
+    for (const run of input.snapshot.participantRuns) {
+      participantRuns.set(run.taskId, [...(participantRuns.get(run.taskId) ?? []), clone(run)])
+    }
+    for (const anomaly of input.snapshot.anomalies) {
+      anomalies.set(anomaly.taskId, [...(anomalies.get(anomaly.taskId) ?? []), clone(anomaly)])
+    }
+    for (const proposal of input.snapshot.patchProposals) {
+      patchProposals.set(proposal.taskId, [
+        ...(patchProposals.get(proposal.taskId) ?? []),
+        clone(proposal),
+      ])
+    }
+    for (const entry of input.snapshot.idempotency) {
+      idempotency.set(entry.key, clone(entry.record))
+    }
+    for (const entry of input.snapshot.contextHashes) {
+      currentContextHashes.set(entry.taskId, new Set(entry.hashes))
+    }
+    sequence = input.snapshot.sequence
+  }
 
   const rememberContextHash = (taskId: string, hash: string): void => {
     currentContextHashes.set(taskId, new Set([...(currentContextHashes.get(taskId) ?? []), hash]))
@@ -958,6 +1037,7 @@ export function createInMemoryWorkflowKernel(input: { now?: string | undefined }
       obligations.set(task.taskId, [])
       effects.set(task.taskId, [])
       events.set(task.taskId, [])
+      supervisorRuns.set(task.taskId, [])
       participantRuns.set(task.taskId, [])
       anomalies.set(task.taskId, [])
       patchProposals.set(task.taskId, [])
@@ -975,6 +1055,75 @@ export function createInMemoryWorkflowKernel(input: { now?: string | undefined }
         },
       })
       return { ok: true, task: clone(task) }
+    })
+
+  const startSupervisorRun = (request: {
+    taskId: string
+    runId?: string | undefined
+    supervisor: ActorRef
+    autonomy: SupervisorBinding['autonomy']
+    capabilities?: SupervisorCapabilities | undefined
+    harness?: Record<string, unknown> | undefined
+    idempotencyKey?: string | undefined
+  }): WorkflowResult<{
+    task: WorkflowTask
+    supervisorRun: SupervisorRunRecord
+    context: Record<string, unknown>
+  }> =>
+    withIdempotency(request.idempotencyKey, request, () => {
+      const idempotencyKey = request.idempotencyKey ?? ''
+      const task = tasks.get(request.taskId)
+      if (task === undefined) {
+        return reject('task_not_found', `Task not found: ${request.taskId}`)
+      }
+      const runId = request.runId ?? nextId('supv')
+      const capabilities = request.capabilities ?? task.supervisor?.capabilities ?? {}
+      const context = compileSupervisorContext({
+        taskId: task.taskId,
+        runId,
+        actor: request.supervisor,
+        autonomy: request.autonomy,
+        capabilities,
+        idempotencyPrefix: idempotencyKey,
+      })
+      const supervisorRun: SupervisorRunRecord = {
+        runId,
+        kind: 'workflow_supervisor',
+        taskId: task.taskId,
+        workflow: task.workflow,
+        supervisor: clone(request.supervisor),
+        autonomy: request.autonomy,
+        capabilities: clone(capabilities),
+        ...(request.harness !== undefined ? { harness: clone(request.harness) } : {}),
+        taskVersionAtStart: task.version,
+        contextHash: String(context['contextHash']),
+        createdAt: now,
+      }
+      supervisorRuns.set(task.taskId, [
+        ...(supervisorRuns.get(task.taskId) ?? []),
+        clone(supervisorRun),
+      ])
+      appendEvent(task, {
+        taskId: task.taskId,
+        type: 'supervisor_run.started',
+        actor: request.supervisor,
+        supervisorRunId: runId,
+        observedTaskVersion: task.version,
+        idempotencyKey,
+        payload: {
+          runId,
+          autonomy: request.autonomy,
+          capabilities,
+          contextHash: supervisorRun.contextHash,
+          ...(request.harness !== undefined ? { harness: request.harness } : {}),
+        },
+      })
+      return {
+        ok: true,
+        task: clone(task),
+        supervisorRun: clone(supervisorRun),
+        context: clone(context),
+      }
     })
 
   const applyTransition = (request: {
@@ -1149,7 +1298,7 @@ export function createInMemoryWorkflowKernel(input: { now?: string | undefined }
           createdAt: now,
         }
         participantRuns.set(task.taskId, [...(participantRuns.get(task.taskId) ?? []), clone(run)])
-        appendEvent(task, {
+        const event = appendEvent(task, {
           taskId: task.taskId,
           type: 'participant_run.launched',
           actor: task.supervisor?.actor ?? { kind: 'agent', id: request.supervisorRunId },
@@ -1158,6 +1307,20 @@ export function createInMemoryWorkflowKernel(input: { now?: string | undefined }
           idempotencyKey,
           payload: { runId: run.runId, role: run.role, actor: run.actor },
         })
+        createEffectIntent(
+          task,
+          event.eventId,
+          idempotencyKey,
+          'wake_role_session',
+          {
+            role: action.role,
+            actor: action.actor,
+            runId: run.runId,
+            reason: `Workflow supervisor launched ${action.role} for ${task.taskId}`,
+          },
+          task.supervisor?.actor ?? { kind: 'agent', id: request.supervisorRunId },
+          task.version
+        )
         return { ok: true, task: clone(task), participantRun: clone(run) }
       }
       if (action.type === 'create_obligation') {
@@ -1462,6 +1625,22 @@ export function createInMemoryWorkflowKernel(input: { now?: string | undefined }
         }),
       })
     }
+    if (request.capabilities.satisfyObligations) {
+      for (const obligation of (obligations.get(task.taskId) ?? []).filter(
+        (candidate) => candidate.status === 'open'
+      )) {
+        allowedControlActions.push({
+          type: 'satisfy_obligation',
+          obligationId: obligation.obligationId,
+          command: makeCommand('acp.workflow.controlAction', {
+            taskId: task.taskId,
+            action: { type: 'satisfy_obligation', obligationId: obligation.obligationId },
+            expectedTaskVersion: task.version,
+            idempotencyKey: `${request.idempotencyPrefix}:control:satisfy:${obligation.obligationId}:v${task.version}`,
+          }),
+        })
+      }
+    }
     if (request.capabilities.proposeWorkflowPatches) {
       allowedControlActions.push({
         type: 'propose_workflow_patch',
@@ -1564,12 +1743,15 @@ export function createInMemoryWorkflowKernel(input: { now?: string | undefined }
     publishWorkflowDefinition,
     getWorkflowDefinition,
     createTask,
+    startSupervisorRun,
     applyTransition,
     submitControlAction,
     compileParticipantContext,
     compileSupervisorContext,
     getTask: (taskId: string): WorkflowTask | undefined => clone(tasks.get(taskId)),
     listEvents: (taskId: string): WorkflowEvent[] => clone(events.get(taskId) ?? []),
+    listSupervisorRuns: (taskId: string): SupervisorRunRecord[] =>
+      clone(supervisorRuns.get(taskId) ?? []),
     listEvidence: (taskId: string): EvidenceRecord[] => clone(evidence.get(taskId) ?? []),
     listObligations: (taskId: string): ObligationRecord[] => clone(obligations.get(taskId) ?? []),
     listEffectIntents: (taskId: string): EffectIntent[] => clone(effects.get(taskId) ?? []),
@@ -1578,5 +1760,28 @@ export function createInMemoryWorkflowKernel(input: { now?: string | undefined }
     listAnomalies: (taskId: string): WorkflowAnomaly[] => clone(anomalies.get(taskId) ?? []),
     listWorkflowPatchProposals: (taskId: string): WorkflowPatchProposal[] =>
       clone(patchProposals.get(taskId) ?? []),
+    exportSnapshot: (): WorkflowKernelSnapshot => ({
+      definitions: clone([...definitions.values()]),
+      tasks: clone([...tasks.values()]),
+      evidence: clone([...evidence.values()].flat()),
+      obligations: clone([...obligations.values()].flat()),
+      effects: clone([...effects.values()].flat()),
+      events: clone([...events.values()].flat()),
+      supervisorRuns: clone([...supervisorRuns.values()].flat()),
+      participantRuns: clone([...participantRuns.values()].flat()),
+      anomalies: clone([...anomalies.values()].flat()),
+      patchProposals: clone([...patchProposals.values()].flat()),
+      idempotency: clone(
+        [...idempotency.entries()].map(([key, record]) => ({
+          key,
+          record,
+        }))
+      ),
+      contextHashes: [...currentContextHashes.entries()].map(([taskId, hashes]) => ({
+        taskId,
+        hashes: [...hashes],
+      })),
+      sequence,
+    }),
   }
 }

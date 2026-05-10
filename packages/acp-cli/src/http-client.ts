@@ -1,14 +1,16 @@
 import type {
+  ActorRef,
   AdminAgent,
   AdminMembership,
   AdminProject,
   AgentHeartbeat,
-  EvidenceItem,
+  EffectIntent,
+  EvidenceInput,
   InterfaceBinding,
   InterfaceIdentity,
-  LoggedTransitionRecord,
   SystemEvent,
-  Task,
+  WorkflowEvent,
+  WorkflowTask,
 } from 'acp-core'
 
 export const DEFAULT_ACP_SERVER_URL = 'http://127.0.0.1:18470'
@@ -22,28 +24,25 @@ export type TaskContext = {
 }
 
 export type GetTaskResponse = {
-  task: Task
-  context?: TaskContext | undefined
+  task: WorkflowTask
+  events: WorkflowEvent[]
+  evidence: unknown[]
+  obligations: unknown[]
+  effects: EffectIntent[]
+  supervisorRuns: unknown[]
+  participantRuns: unknown[]
+  anomalies: unknown[]
+  workflowPatchProposals: unknown[]
 }
 
 export type CreateTaskResponse = {
-  task: Task
-}
-
-export type TaskPromoteResponse = {
-  task: Task
-  transition: LoggedTransitionRecord
+  task: WorkflowTask
 }
 
 export type TaskTransitionResponse = {
-  task: Task
-  transition: LoggedTransitionRecord
-  handoff?: Record<string, unknown> | undefined
-  wake?: Record<string, unknown> | undefined
-}
-
-export type ListTaskTransitionsResponse = {
-  transitions: readonly LoggedTransitionRecord[]
+  task: WorkflowTask
+  event: WorkflowEvent
+  effects: EffectIntent[]
 }
 
 export type ListInterfaceBindingsResponse = {
@@ -113,11 +112,11 @@ export interface AcpClient {
   createTask(input: {
     actorAgentId: string
     projectId: string
-    workflowPreset: string
-    presetVersion: number
-    riskClass: string
-    kind: string
-    roleMap: Record<string, string>
+    workflow: { id: string; version: number }
+    goal: string
+    risk?: string | undefined
+    roleBindings: Record<string, ActorRef | null>
+    idempotencyKey: string
     meta?: Record<string, unknown> | undefined
   }): Promise<CreateTaskResponse>
   promoteTask(input: {
@@ -129,7 +128,7 @@ export interface AcpClient {
     roleMap: Record<string, string>
     actorRole?: string | undefined
     initialPhase?: string | undefined
-  }): Promise<TaskPromoteResponse>
+  }): Promise<never>
   getTask(input: {
     taskId: string
     role?: string | undefined
@@ -137,20 +136,20 @@ export interface AcpClient {
   addEvidence(input: {
     actorAgentId: string
     taskId: string
-    evidence: EvidenceItem[]
-  }): Promise<null>
+    evidence: unknown[]
+  }): Promise<never>
   transitionTask(input: {
     actorAgentId: string
-    actorRole: string
     taskId: string
-    toPhase: string
-    expectedVersion: number
-    evidenceRefs?: string[] | undefined
-    idempotencyKey?: string | undefined
-    requestHandoff?: boolean | undefined
-    waivers?: EvidenceItem[] | undefined
+    transitionId: string
+    role: string
+    expectedTaskVersion: number
+    contextHash?: string | undefined
+    inlineEvidence?: EvidenceInput[] | undefined
+    idempotencyKey: string
+    runId?: string | undefined
   }): Promise<TaskTransitionResponse>
-  listTransitions(input: { taskId: string }): Promise<ListTaskTransitionsResponse>
+  listTransitions(input: { taskId: string }): Promise<never>
   listInterfaceBindings(input: {
     gatewayId?: string | undefined
     conversationRef?: string | undefined
@@ -350,34 +349,19 @@ export function createHttpClient(
         actorAgentId: input.actorAgentId,
         body: {
           projectId: input.projectId,
-          workflowPreset: input.workflowPreset,
-          presetVersion: input.presetVersion,
-          riskClass: input.riskClass,
-          kind: input.kind,
-          roleMap: input.roleMap,
+          workflow: input.workflow,
+          goal: input.goal,
+          ...(input.risk !== undefined ? { risk: input.risk } : {}),
+          roleBindings: input.roleBindings,
+          idempotencyKey: input.idempotencyKey,
           actor: { agentId: input.actorAgentId },
-          ...(input.meta !== undefined ? { meta: input.meta } : {}),
+          ...(input.meta !== undefined ? { initialFacts: input.meta } : {}),
         },
       })
     },
 
-    promoteTask(input) {
-      return request<TaskPromoteResponse>({
-        method: 'POST',
-        path: `/v1/tasks/${encodeURIComponent(input.taskId)}/promote`,
-        actorAgentId: input.actorAgentId,
-        body: {
-          workflowPreset: input.workflowPreset,
-          presetVersion: input.presetVersion,
-          riskClass: input.riskClass,
-          roleMap: input.roleMap,
-          actor: {
-            agentId: input.actorAgentId,
-            ...(input.actorRole !== undefined ? { role: input.actorRole } : {}),
-          },
-          ...(input.initialPhase !== undefined ? { initialPhase: input.initialPhase } : {}),
-        },
-      })
+    promoteTask() {
+      throw new AcpClientTransportError('legacy task promote route has been removed')
     },
 
     getTask(input) {
@@ -388,16 +372,8 @@ export function createHttpClient(
       })
     },
 
-    addEvidence(input) {
-      return request<null>({
-        method: 'POST',
-        path: `/v1/tasks/${encodeURIComponent(input.taskId)}/evidence`,
-        actorAgentId: input.actorAgentId,
-        body: {
-          actor: { agentId: input.actorAgentId },
-          evidence: input.evidence,
-        },
-      })
+    addEvidence() {
+      throw new AcpClientTransportError('legacy task evidence route has been removed')
     },
 
     transitionTask(input) {
@@ -406,22 +382,20 @@ export function createHttpClient(
         path: `/v1/tasks/${encodeURIComponent(input.taskId)}/transitions`,
         actorAgentId: input.actorAgentId,
         body: {
-          toPhase: input.toPhase,
-          expectedVersion: input.expectedVersion,
-          actor: { agentId: input.actorAgentId, role: input.actorRole },
-          ...(input.evidenceRefs !== undefined ? { evidenceRefs: input.evidenceRefs } : {}),
-          ...(input.idempotencyKey !== undefined ? { idempotencyKey: input.idempotencyKey } : {}),
-          ...(input.requestHandoff === true ? { requestHandoff: true } : {}),
-          ...(input.waivers !== undefined ? { waivers: input.waivers } : {}),
+          transitionId: input.transitionId,
+          role: input.role,
+          expectedTaskVersion: input.expectedTaskVersion,
+          actor: { agentId: input.actorAgentId },
+          idempotencyKey: input.idempotencyKey,
+          ...(input.contextHash !== undefined ? { contextHash: input.contextHash } : {}),
+          ...(input.inlineEvidence !== undefined ? { inlineEvidence: input.inlineEvidence } : {}),
+          ...(input.runId !== undefined ? { runId: input.runId } : {}),
         },
       })
     },
 
-    listTransitions(input) {
-      return request<ListTaskTransitionsResponse>({
-        method: 'GET',
-        path: `/v1/tasks/${encodeURIComponent(input.taskId)}/transitions`,
-      })
+    listTransitions() {
+      throw new AcpClientTransportError('legacy task transitions route has been removed')
     },
 
     listInterfaceBindings(input) {

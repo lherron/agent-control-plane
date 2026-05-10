@@ -2,9 +2,10 @@
 
 End-to-end walkthrough for `support_escalation@1` (see `workflow.json`). This is a non-code workflow that exercises the kernel's blocking-obligation pattern: the task sits in `status=waiting` until the customer's reply lands and the obligation is satisfied.
 
-> **Note on CLI mapping.** The live `acp task` CLI surface still talks to the legacy `Task`/preset model (no `obligation` or `waiting` phase yet). For now this scenario is **kernel-driven** — exercise it through the in-memory workflow kernel exposed in `packages/acp-core/src/workflow/index.ts` (the same surface the conformance tests use). The runbook below is therefore a sequence of kernel calls; once the workflow kernel is wired through `acp task` the same steps will become CLI commands without re-authoring.
->
-> Where a CLI command already maps cleanly (create, evidence add, transition by phase) it is shown side-by-side. Lines tagged `[kernel]` are the canonical operation; lines tagged `[cli]` are the equivalent CLI invocation if/when the surface lands.
+> **Note on CLI mapping.** Legacy task commands such as `task evidence add`,
+> `task transitions`, and phase-based mutation were removed as breaking
+> changes. This scenario is validated through the workflow kernel scenario
+> conformance test, which loads `workflow.json` and executes `scenario.json`.
 
 ## Setup
 
@@ -43,15 +44,8 @@ Expected: `state = { status: 'open', phase: 'triage' }`.
 [kernel] kernel.applyTransition with inlineEvidence: [{ kind: 'triage_summary', ref: 'doc:triage-zd-198432', summary: '...' }]
 ```
 
-If using the legacy CLI as a stand-in:
-
-```bash
-[cli] acp --actor "$ACTOR_AGENT" task evidence add \
-  --task "$TASK_ID" \
-  --kind triage_summary \
-  --ref doc:triage-zd-198432 \
-  --producer-role support_agent
-```
+The scenario conformance test carries this evidence forward and submits it
+with the next legal workflow mutation.
 
 ## 3. Apply `start_triage`
 
