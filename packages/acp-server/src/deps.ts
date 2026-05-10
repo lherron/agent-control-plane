@@ -100,6 +100,7 @@ export type AcpHrcClient = Pick<
   | 'listSessions'
   | 'resolveSession'
   | 'sendInFlightInput'
+  | 'startRuntime'
   | 'terminate'
   | 'watch'
   | 'watchMessages'

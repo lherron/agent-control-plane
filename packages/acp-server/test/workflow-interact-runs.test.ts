@@ -49,7 +49,8 @@ type HrcClientWithStartRuntime = AcpHrcClient & {
 }
 
 const openEndedScopeRef = 'agent:supervisor:project:agent-spaces'
-const taskScopeRef = 'agent:supervisor:project:agent-spaces:thread:T-01410'
+// agent-scope canonical task conversations use :task:<taskId>; CLI shorthands must normalize before POSTing.
+const taskScopeRef = 'agent:supervisor:project:agent-spaces:task:T-01410'
 const sessionRef = { scopeRef: openEndedScopeRef, laneRef: 'lane:main' }
 const taskSessionRef = { scopeRef: taskScopeRef, laneRef: 'lane:main' }
 
