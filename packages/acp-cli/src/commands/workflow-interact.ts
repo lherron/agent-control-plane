@@ -200,7 +200,7 @@ export async function runWorkflowInteractCommand(
   // Build sessionRef
   let scopeRef = `agent:${supervisorAgentId}:project:${projectId}`
   if (taskId !== undefined) {
-    scopeRef += `:thread:${taskId}`
+    scopeRef += `:task:${taskId}`
   }
 
   const sessionRef = {

@@ -122,7 +122,7 @@ describe('workflow interact CLI', () => {
     expect(result.exitCode).toBe(0)
     expect(calls[1]?.body).toMatchObject({
       sessionRef: {
-        scopeRef: 'agent:supervisor:project:agent-spaces:thread:T-12345',
+        scopeRef: 'agent:supervisor:project:agent-spaces:task:T-12345',
         laneRef: 'lane:main',
       },
       workflowInteract: true,
@@ -158,7 +158,7 @@ describe('workflow interact CLI', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0]?.body).toMatchObject({
       sessionRef: {
-        scopeRef: 'agent:supervisor:project:agent-spaces:thread:T-12345',
+        scopeRef: 'agent:supervisor:project:agent-spaces:task:T-12345',
         laneRef: 'lane:main',
       },
       workflowInteract: true,
@@ -217,7 +217,7 @@ describe('workflow interact CLI', () => {
     })
     expect(calls[1]?.body).toMatchObject({
       sessionRef: {
-        scopeRef: 'agent:supervisor:project:agent-spaces:thread:T-24680',
+        scopeRef: 'agent:supervisor:project:agent-spaces:task:T-24680',
         laneRef: 'lane:main',
       },
       workflowInteract: true,
@@ -260,7 +260,7 @@ describe('workflow interact CLI', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0]?.body).toMatchObject({
       sessionRef: {
-        scopeRef: 'agent:reviewer:project:agent-spaces:thread:T-12345',
+        scopeRef: 'agent:reviewer:project:agent-spaces:task:T-12345',
         laneRef: 'lane:main',
       },
       workflowTaskId: 'T-12345',
@@ -313,7 +313,7 @@ describe('workflow interact CLI', () => {
     )
 
     expect(result.exitCode).toBe(0)
-    expect(result.stdout).toContain('agent:supervisor:project:agent-spaces:thread:T-12345')
+    expect(result.stdout).toContain('agent:supervisor:project:agent-spaces:task:T-12345')
     expect(result.stdout).toContain('rt-interact-1')
     expect(result.stdout).toContain('true')
   })
