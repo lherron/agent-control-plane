@@ -107,11 +107,21 @@ function createActiveTask() {
 
 function createWaiverObligation() {
   const { kernel, task } = createActiveTask()
+  const supRun = kernel.startSupervisorRun({
+    taskId: task.taskId,
+    runId: 'run-supervisor-waiver',
+    supervisor,
+    autonomy: 'managed',
+    capabilities: { createObligations: true, createWaivers: true },
+    idempotencyKey: 'supervisor:start:waiver',
+  })
+  if (!supRun.ok) {
+    throw new Error(supRun.error.message)
+  }
   const created = kernel.submitControlAction({
     taskId: task.taskId,
     supervisorRunId: 'run-supervisor-waiver',
     expectedTaskVersion: task.version,
-    capabilities: { createObligations: true },
     action: {
       type: 'create_obligation',
       kind: 'evidence_override',

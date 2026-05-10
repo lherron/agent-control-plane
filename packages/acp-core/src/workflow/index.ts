@@ -720,6 +720,7 @@ export function createInMemoryWorkflowKernel(
         type: 'evidence.attached',
         actor,
         ...(provenance?.runId ? { runId: provenance.runId } : {}),
+        ...(provenance?.supervisorRunId ? { supervisorRunId: provenance.supervisorRunId } : {}),
         observedTaskVersion,
         idempotencyKey,
         payload: {
@@ -730,6 +731,9 @@ export function createInMemoryWorkflowKernel(
           actor: clone(actor),
           ...(provenance?.role !== undefined ? { role: provenance.role } : {}),
           ...(provenance?.runId !== undefined ? { runId: provenance.runId } : {}),
+          ...(provenance?.supervisorRunId !== undefined
+            ? { supervisorRunId: provenance.supervisorRunId }
+            : {}),
         },
       })
     }
@@ -1764,6 +1768,15 @@ export function createInMemoryWorkflowKernel(
             transitionId: action.transitionId,
           })
         }
+        // Reject if caller explicitly requests role='supervisor' (or any role not in by[])
+        const requestedRole = (action as Record<string, unknown>).role as string | undefined
+        if (requestedRole !== undefined && !(transition.by ?? []).includes(requestedRole)) {
+          return reject(
+            'role_not_allowed',
+            `Role "${requestedRole}" is not allowed to apply transition "${action.transitionId}"`,
+            { transitionId: action.transitionId }
+          )
+        }
         // Validate expectedTaskVersion if provided
         if (
           action.expectedTaskVersion !== undefined &&
@@ -1958,7 +1971,7 @@ export function createInMemoryWorkflowKernel(
           'create_obligation',
           {
             kind: 'human_review',
-            summary: action.reason,
+            reason: action.reason,
             blocking: action.severity === 'critical',
             severity: action.severity,
             ...(action.audience ? { audience: action.audience } : {}),
