@@ -35,7 +35,9 @@ import {
 import {
   handleApplyWorkflowTransition,
   handleAttachWorkflowEvidence,
+  handleCancelWorkflowObligation,
   handleGetWorkflowTask,
+  handleWaiveWorkflowObligation,
   handleWorkflowControlAction,
   handleWorkflowParticipantContext,
   handleWorkflowSupervisorContext,
@@ -178,6 +180,16 @@ export function buildParamRoutes(): ParamRoute[] {
     createParamRoute('POST', '/v1/tasks/:taskId/evidence', handleAttachWorkflowEvidence),
     createParamRoute('POST', '/v1/tasks/:taskId/transitions', handleApplyWorkflowTransition),
     createParamRoute('POST', '/v1/tasks/:taskId/actions', handleWorkflowControlAction),
+    createParamRoute(
+      'POST',
+      '/v1/tasks/:taskId/obligations/:obligationId/waive',
+      handleWaiveWorkflowObligation
+    ),
+    createParamRoute(
+      'POST',
+      '/v1/tasks/:taskId/obligations/:obligationId/cancel',
+      handleCancelWorkflowObligation
+    ),
     createParamRoute(
       'POST',
       '/v1/tasks/:taskId/participant-context',

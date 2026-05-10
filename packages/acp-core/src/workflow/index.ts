@@ -190,11 +190,18 @@ export interface ObligationRecord {
   ownerRole?: string | undefined
   summary: string
   blocking: boolean
-  status: 'open' | 'satisfied' | 'cancelled'
+  status: 'open' | 'satisfied' | 'waived' | 'cancelled' | 'expired'
   createdAt: string
   updatedAt: string
   satisfiedAt?: string | undefined
   satisfactionEvidenceIds?: string[] | undefined
+  waivedAt?: string | undefined
+  waiverReason?: string | undefined
+  waiverEvidenceRefs?: string[] | undefined
+  cancelledAt?: string | undefined
+  cancelReason?: string | undefined
+  expiredAt?: string | undefined
+  expireReason?: string | undefined
 }
 
 export interface EffectIntent {
@@ -313,6 +320,7 @@ export type WorkflowRejectionCode =
   | 'invalid_evidence'
   | 'open_blocking_obligation'
   | 'obligation_not_satisfied'
+  | 'waiver_required'
   | 'version_conflict'
   | 'context_stale'
   | 'capability_not_granted'
@@ -863,7 +871,8 @@ export function createInMemoryWorkflowKernel(
     transition: TransitionSpec,
     actor: ActorRef,
     role: string,
-    allEvidence: readonly EvidenceInput[]
+    allEvidence: readonly EvidenceInput[],
+    waiverRefs: readonly string[] = []
   ): WorkflowRejection | undefined => {
     if (!stateMatches(task.state, transition.from)) {
       return {
@@ -968,8 +977,108 @@ export function createInMemoryWorkflowKernel(
           }
         }
       }
+      if (requirement.type === 'waiver') {
+        const refs = new Set(waiverRefs)
+        const matchingWaiver = (obligations.get(task.taskId) ?? []).find(
+          (obligation) =>
+            refs.has(obligation.obligationId) &&
+            obligation.kind === requirement.waiverKind &&
+            obligation.status === 'waived'
+        )
+        if (matchingWaiver === undefined) {
+          return {
+            code: 'waiver_required',
+            message: `Transition "${transition.id}" requires a recorded waiver for "${requirement.waiverKind}"`,
+            transitionId: transition.id,
+            suggestedActions: ['waive_obligation'],
+          }
+        }
+      }
     }
     return undefined
+  }
+
+  const findObligation = (
+    obligationId: string
+  ): {
+    task: WorkflowTask
+    list: ObligationRecord[]
+    index: number
+    obligation: ObligationRecord
+  } => {
+    for (const [taskId, list] of obligations.entries()) {
+      const index = list.findIndex((obligation) => obligation.obligationId === obligationId)
+      if (index < 0) {
+        continue
+      }
+      const task = tasks.get(taskId)
+      const obligation = list[index]
+      if (task !== undefined && obligation !== undefined) {
+        return { task, list, index, obligation }
+      }
+    }
+    throw new Error(`Obligation not found: ${obligationId}`)
+  }
+
+  const resolveObligation = (
+    obligationId: string
+  ): WorkflowResult<{
+    task: WorkflowTask
+    list: ObligationRecord[]
+    index: number
+    obligation: ObligationRecord
+  }> => {
+    try {
+      return { ok: true, ...findObligation(obligationId) }
+    } catch {
+      return reject('obligation_not_found', `Obligation not found: ${obligationId}`)
+    }
+  }
+
+  const hasObligationLifecycleAuthority = (
+    task: WorkflowTask,
+    obligation: ObligationRecord,
+    actor: ActorRef
+  ): boolean => {
+    const supervisor = task.supervisor
+    if (
+      supervisor !== undefined &&
+      actorEquals(supervisor.actor, actor) &&
+      (supervisor.capabilities.createWaivers === true ||
+        supervisor.capabilities.createObligations === true)
+    ) {
+      return true
+    }
+
+    const definition = getDefinitionForTask(task)
+    const ownerRoles = definition.obligationKinds?.[obligation.kind]?.ownerRoles ?? []
+    const roles =
+      ownerRoles.length > 0 ? ownerRoles : obligation.ownerRole ? [obligation.ownerRole] : []
+    return roles.some((role) => actorEquals(task.roleBindings[role], actor))
+  }
+
+  const nextTaskAfterObligationClosed = (
+    task: WorkflowTask,
+    nextObligations: readonly ObligationRecord[]
+  ): WorkflowTask => {
+    const stillBlocked = nextObligations.some(
+      (obligation) => obligation.status === 'open' && obligation.blocking
+    )
+    const definition = getDefinitionForTask(task)
+    const hasWaitingResumeTransition = Object.values(definition.transitions).some((transition) =>
+      stateMatches(task.state, transition.from)
+    )
+    return {
+      ...task,
+      state:
+        stillBlocked || (task.state.status === 'waiting' && hasWaitingResumeTransition)
+          ? task.state
+          : task.state.status === 'waiting'
+            ? { status: 'active', phase: task.state.phase }
+            : task.state,
+      version: task.version + 1,
+      updatedAt: now,
+    }
   }
 
   const publishWorkflowDefinition = (
@@ -1197,7 +1306,8 @@ export function createInMemoryWorkflowKernel(
         transition,
         request.actor,
         request.role,
-        combinedEvidence
+        combinedEvidence,
+        request.waiverRefs
       )
       if (transitionError !== undefined) {
         return { ok: false, error: transitionError }
@@ -1252,6 +1362,7 @@ export function createInMemoryWorkflowKernel(
           to: nextTask.state,
           evidenceKinds: (request.inlineEvidence ?? []).map((item) => item.kind),
           ...(request.evidenceRefs !== undefined ? { evidenceRefs: request.evidenceRefs } : {}),
+          ...(request.waiverRefs !== undefined ? { waiverRefs: request.waiverRefs } : {}),
         },
       })
       const beforeEffectCount = effects.get(task.taskId)?.length ?? 0
@@ -1841,6 +1952,169 @@ export function createInMemoryWorkflowKernel(
       return { ok: true, evidence: clone(records) }
     })
 
+  const waiveObligation = (
+    obligationId: string,
+    request: {
+      actor: ActorRef
+      reason: string
+      evidenceRefs?: string[] | undefined
+      idempotencyKey?: string | undefined
+    }
+  ): WorkflowResult<{ task: WorkflowTask; obligation: ObligationRecord }> =>
+    withIdempotency(request.idempotencyKey, { obligationId, ...request }, () => {
+      const idempotencyKey = request.idempotencyKey ?? ''
+      const resolved = resolveObligation(obligationId)
+      if (!resolved.ok) {
+        return resolved
+      }
+      const { task, list, index, obligation } = resolved
+      if (!hasObligationLifecycleAuthority(task, obligation, request.actor)) {
+        return reject('authority_not_granted', 'Actor is not authorized to waive this obligation')
+      }
+      const updatedObligation: ObligationRecord = {
+        ...obligation,
+        status: 'waived',
+        updatedAt: now,
+        waivedAt: now,
+        waiverReason: request.reason,
+        ...(request.evidenceRefs !== undefined
+          ? { waiverEvidenceRefs: clone(request.evidenceRefs) }
+          : {}),
+      }
+      const nextObligations = [...list]
+      nextObligations[index] = updatedObligation
+      obligations.set(task.taskId, clone(nextObligations))
+      const nextTask = nextTaskAfterObligationClosed(task, nextObligations)
+      tasks.set(task.taskId, clone(nextTask))
+      clearContextHashes(task.taskId)
+      appendEvent(nextTask, {
+        taskId: task.taskId,
+        type: 'waiver.recorded',
+        actor: request.actor,
+        observedTaskVersion: task.version,
+        nextTaskVersion: nextTask.version,
+        idempotencyKey,
+        payload: {
+          obligationId,
+          waiverKind: obligation.kind,
+          reason: request.reason,
+          evidenceRefs: request.evidenceRefs ?? [],
+        },
+      })
+      appendEvent(nextTask, {
+        taskId: task.taskId,
+        type: 'obligation.waived',
+        actor: request.actor,
+        observedTaskVersion: task.version,
+        nextTaskVersion: nextTask.version,
+        idempotencyKey,
+        payload: {
+          obligationId,
+          kind: obligation.kind,
+          reason: request.reason,
+          evidenceRefs: request.evidenceRefs ?? [],
+        },
+      })
+      return { ok: true, task: clone(nextTask), obligation: clone(updatedObligation) }
+    })
+
+  const cancelObligation = (
+    obligationId: string,
+    request: {
+      actor: ActorRef
+      reason: string
+      idempotencyKey?: string | undefined
+    }
+  ): WorkflowResult<{ task: WorkflowTask; obligation: ObligationRecord }> =>
+    withIdempotency(request.idempotencyKey, { obligationId, ...request }, () => {
+      const idempotencyKey = request.idempotencyKey ?? ''
+      const resolved = resolveObligation(obligationId)
+      if (!resolved.ok) {
+        return resolved
+      }
+      const { task, list, index, obligation } = resolved
+      if (!hasObligationLifecycleAuthority(task, obligation, request.actor)) {
+        return reject('authority_not_granted', 'Actor is not authorized to cancel this obligation')
+      }
+      const updatedObligation: ObligationRecord = {
+        ...obligation,
+        status: 'cancelled',
+        updatedAt: now,
+        cancelledAt: now,
+        cancelReason: request.reason,
+      }
+      const nextObligations = [...list]
+      nextObligations[index] = updatedObligation
+      obligations.set(task.taskId, clone(nextObligations))
+      const nextTask = nextTaskAfterObligationClosed(task, nextObligations)
+      tasks.set(task.taskId, clone(nextTask))
+      clearContextHashes(task.taskId)
+      appendEvent(nextTask, {
+        taskId: task.taskId,
+        type: 'obligation.cancelled',
+        actor: request.actor,
+        observedTaskVersion: task.version,
+        nextTaskVersion: nextTask.version,
+        idempotencyKey,
+        payload: {
+          obligationId,
+          kind: obligation.kind,
+          reason: request.reason,
+        },
+      })
+      return { ok: true, task: clone(nextTask), obligation: clone(updatedObligation) }
+    })
+
+  const expireObligation = (
+    obligationId: string,
+    request: {
+      reason: string
+      actor?: ActorRef | undefined
+      idempotencyKey?: string | undefined
+    }
+  ): WorkflowResult<{ task: WorkflowTask; obligation: ObligationRecord }> =>
+    withIdempotency(
+      request.idempotencyKey ?? `obligation:expire:${obligationId}:${request.reason}`,
+      { obligationId, ...request },
+      () => {
+        const idempotencyKey =
+          request.idempotencyKey ?? `obligation:expire:${obligationId}:${request.reason}`
+        const resolved = resolveObligation(obligationId)
+        if (!resolved.ok) {
+          return resolved
+        }
+        const { task, list, index, obligation } = resolved
+        const actor = request.actor ?? { kind: 'service', id: 'workflow-timer' }
+        const updatedObligation: ObligationRecord = {
+          ...obligation,
+          status: 'expired',
+          updatedAt: now,
+          expiredAt: now,
+          expireReason: request.reason,
+        }
+        const nextObligations = [...list]
+        nextObligations[index] = updatedObligation
+        obligations.set(task.taskId, clone(nextObligations))
+        const nextTask = nextTaskAfterObligationClosed(task, nextObligations)
+        tasks.set(task.taskId, clone(nextTask))
+        clearContextHashes(task.taskId)
+        appendEvent(nextTask, {
+          taskId: task.taskId,
+          type: 'obligation.expired',
+          actor,
+          observedTaskVersion: task.version,
+          nextTaskVersion: nextTask.version,
+          idempotencyKey,
+          payload: {
+            obligationId,
+            kind: obligation.kind,
+            reason: request.reason,
+          },
+        })
+        return { ok: true, task: clone(nextTask), obligation: clone(updatedObligation) }
+      }
+    )
+
   return {
     publishWorkflowDefinition,
     getWorkflowDefinition,
@@ -1848,6 +2122,9 @@ export function createInMemoryWorkflowKernel(
     startSupervisorRun,
     applyTransition,
     attachEvidence,
+    waiveObligation,
+    cancelObligation,
+    expireObligation,
     submitControlAction,
     compileParticipantContext,
     compileSupervisorContext,

@@ -40,6 +40,14 @@ function requireTaskId(params: Record<string, string | undefined>): string {
   return taskId
 }
 
+function requireObligationId(params: Record<string, string | undefined>): string {
+  const obligationId = params['obligationId']
+  if (obligationId === undefined || obligationId.length === 0) {
+    throw new Error('obligationId route parameter is required')
+  }
+  return obligationId
+}
+
 async function reconcileEffects(deps: Parameters<RouteHandler>[0]['deps']): Promise<void> {
   if (deps.stateStore === undefined) {
     throw new Error('ACP workflow runtime requires stateStore')
@@ -210,6 +218,9 @@ export const handleApplyWorkflowTransition: RouteHandler = async ({ request, par
         ...(readOptionalArrayField(body, 'evidenceRefs') !== undefined
           ? { evidenceRefs: readOptionalArrayField(body, 'evidenceRefs') as string[] }
           : {}),
+        ...(readOptionalArrayField(body, 'waiverRefs') !== undefined
+          ? { waiverRefs: readOptionalArrayField(body, 'waiverRefs') as string[] }
+          : {}),
         ...(readOptionalArrayField(body, 'inlineEvidence') !== undefined
           ? { inlineEvidence: readOptionalArrayField(body, 'inlineEvidence') as never }
           : {}),
@@ -369,4 +380,95 @@ export const handleAttachWorkflowEvidence: RouteHandler = async ({ request, para
 
   await reconcileEffects(deps)
   return json({ evidence: result.evidence }, isReplay ? 200 : 201)
+}
+
+export const handleWaiveWorkflowObligation: RouteHandler = async ({ request, params, deps }) => {
+  const taskId = requireTaskId(params)
+  const obligationId = requireObligationId(params)
+  const body = requireRecord(await parseJsonBody(request))
+  const actor = extractActor(request, body, { required: false })
+  const result = withDurableWorkflowKernel(
+    deps,
+    (kernel) => {
+      if (
+        kernel
+          .listObligations(taskId)
+          .some((obligation) => obligation.obligationId === obligationId) !== true
+      ) {
+        return {
+          ok: false,
+          error: {
+            code: 'obligation_not_found' as const,
+            message: `Obligation not found: ${obligationId}`,
+          },
+        } as const
+      }
+      return kernel.waiveObligation(obligationId, {
+        actor: actorRefFromUnknown(body['actor'], actor?.agentId),
+        reason: requireTrimmedStringField(body, 'reason'),
+        ...(readOptionalArrayField(body, 'evidenceRefs') !== undefined
+          ? { evidenceRefs: readOptionalArrayField(body, 'evidenceRefs') as string[] }
+          : {}),
+        idempotencyKey: requireTrimmedStringField(body, 'idempotencyKey'),
+      })
+    },
+    { save: true }
+  )
+
+  if (!result.ok) {
+    if (result.error.code === 'authority_not_granted') {
+      forbidden('obligation_waive_unauthorized', result.error.message)
+    }
+    if (result.error.code === 'idempotency_conflict') {
+      conflict(result.error.message)
+    }
+    unprocessable(result.error.code, result.error.message, { ...result.error })
+  }
+
+  await reconcileEffects(deps)
+  return json({ task: result.task, obligation: result.obligation })
+}
+
+export const handleCancelWorkflowObligation: RouteHandler = async ({ request, params, deps }) => {
+  const taskId = requireTaskId(params)
+  const obligationId = requireObligationId(params)
+  const body = requireRecord(await parseJsonBody(request))
+  const actor = extractActor(request, body, { required: false })
+  const result = withDurableWorkflowKernel(
+    deps,
+    (kernel) => {
+      if (
+        kernel
+          .listObligations(taskId)
+          .some((obligation) => obligation.obligationId === obligationId) !== true
+      ) {
+        return {
+          ok: false,
+          error: {
+            code: 'obligation_not_found' as const,
+            message: `Obligation not found: ${obligationId}`,
+          },
+        } as const
+      }
+      return kernel.cancelObligation(obligationId, {
+        actor: actorRefFromUnknown(body['actor'], actor?.agentId),
+        reason: requireTrimmedStringField(body, 'reason'),
+        idempotencyKey: requireTrimmedStringField(body, 'idempotencyKey'),
+      })
+    },
+    { save: true }
+  )
+
+  if (!result.ok) {
+    if (result.error.code === 'authority_not_granted') {
+      forbidden('obligation_cancel_unauthorized', result.error.message)
+    }
+    if (result.error.code === 'idempotency_conflict') {
+      conflict(result.error.message)
+    }
+    unprocessable(result.error.code, result.error.message, { ...result.error })
+  }
+
+  await reconcileEffects(deps)
+  return json({ task: result.task, obligation: result.obligation })
 }

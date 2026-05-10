@@ -43,6 +43,16 @@ export type AddEvidenceResponse = {
   evidence: Array<{ evidenceId: string; taskId: string; kind: string; ref: string }>
 }
 
+export type ObligationLifecycleResponse = {
+  task: WorkflowTask
+  obligation: {
+    obligationId: string
+    taskId: string
+    status: string
+    [key: string]: unknown
+  }
+}
+
 export type TaskTransitionResponse = {
   task: WorkflowTask
   event: WorkflowEvent
@@ -155,9 +165,25 @@ export interface AcpClient {
     expectedTaskVersion: number
     contextHash?: string | undefined
     inlineEvidence?: EvidenceInput[] | undefined
+    waiverRefs?: string[] | undefined
     idempotencyKey: string
     runId?: string | undefined
   }): Promise<TaskTransitionResponse>
+  waiveObligation(input: {
+    actorAgentId: string
+    taskId: string
+    obligationId: string
+    reason: string
+    evidenceRefs?: string[] | undefined
+    idempotencyKey: string
+  }): Promise<ObligationLifecycleResponse>
+  cancelObligation(input: {
+    actorAgentId: string
+    taskId: string
+    obligationId: string
+    reason: string
+    idempotencyKey: string
+  }): Promise<ObligationLifecycleResponse>
   listTransitions(input: { taskId: string }): Promise<never>
   listInterfaceBindings(input: {
     gatewayId?: string | undefined
@@ -415,7 +441,35 @@ export function createHttpClient(
           idempotencyKey: input.idempotencyKey,
           ...(input.contextHash !== undefined ? { contextHash: input.contextHash } : {}),
           ...(input.inlineEvidence !== undefined ? { inlineEvidence: input.inlineEvidence } : {}),
+          ...(input.waiverRefs !== undefined ? { waiverRefs: input.waiverRefs } : {}),
           ...(input.runId !== undefined ? { runId: input.runId } : {}),
+        },
+      })
+    },
+
+    waiveObligation(input) {
+      return request<ObligationLifecycleResponse>({
+        method: 'POST',
+        path: `/v1/tasks/${encodeURIComponent(input.taskId)}/obligations/${encodeURIComponent(input.obligationId)}/waive`,
+        actorAgentId: input.actorAgentId,
+        body: {
+          actor: { kind: 'agent', id: input.actorAgentId },
+          reason: input.reason,
+          ...(input.evidenceRefs !== undefined ? { evidenceRefs: input.evidenceRefs } : {}),
+          idempotencyKey: input.idempotencyKey,
+        },
+      })
+    },
+
+    cancelObligation(input) {
+      return request<ObligationLifecycleResponse>({
+        method: 'POST',
+        path: `/v1/tasks/${encodeURIComponent(input.taskId)}/obligations/${encodeURIComponent(input.obligationId)}/cancel`,
+        actorAgentId: input.actorAgentId,
+        body: {
+          actor: { kind: 'agent', id: input.actorAgentId },
+          reason: input.reason,
+          idempotencyKey: input.idempotencyKey,
         },
       })
     },

@@ -230,7 +230,14 @@ function initializeSchema(sqlite: SqliteDatabase): void {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       satisfied_at TEXT,
-      satisfaction_evidence_ids_json TEXT
+      satisfaction_evidence_ids_json TEXT,
+      waived_at TEXT,
+      waiver_reason TEXT,
+      waiver_evidence_refs_json TEXT,
+      cancelled_at TEXT,
+      cancel_reason TEXT,
+      expired_at TEXT,
+      expire_reason TEXT
     );
 
     CREATE TABLE IF NOT EXISTS workflow_events (
@@ -433,6 +440,17 @@ function migrateTransitionOutboxActorColumns(sqlite: SqliteDatabase): void {
   `)
 }
 
+function migrateWorkflowObligationLifecycleColumns(sqlite: SqliteDatabase): void {
+  const columns = listTableColumns(sqlite, 'workflow_obligations')
+  addColumnIfMissing(sqlite, 'workflow_obligations', columns, 'waived_at', 'TEXT')
+  addColumnIfMissing(sqlite, 'workflow_obligations', columns, 'waiver_reason', 'TEXT')
+  addColumnIfMissing(sqlite, 'workflow_obligations', columns, 'waiver_evidence_refs_json', 'TEXT')
+  addColumnIfMissing(sqlite, 'workflow_obligations', columns, 'cancelled_at', 'TEXT')
+  addColumnIfMissing(sqlite, 'workflow_obligations', columns, 'cancel_reason', 'TEXT')
+  addColumnIfMissing(sqlite, 'workflow_obligations', columns, 'expired_at', 'TEXT')
+  addColumnIfMissing(sqlite, 'workflow_obligations', columns, 'expire_reason', 'TEXT')
+}
+
 function getCreateTableSql(sqlite: SqliteDatabase, tableName: string): string {
   const row = sqlite
     .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`)
@@ -630,6 +648,7 @@ function migrateLegacySchema(sqlite: SqliteDatabase): void {
     migrateRunsActorColumns(sqlite)
     migrateInputAttemptsActorColumns(sqlite)
     migrateTransitionOutboxActorColumns(sqlite)
+    migrateWorkflowObligationLifecycleColumns(sqlite)
   })()
   rebuildRunsForQueuedStatus(sqlite)
   rebuildInputAttemptsForNullableRun(sqlite)

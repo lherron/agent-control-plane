@@ -67,6 +67,13 @@ type ObligationRow = {
   updated_at: string
   satisfied_at: string | null
   satisfaction_evidence_ids_json: string | null
+  waived_at: string | null
+  waiver_reason: string | null
+  waiver_evidence_refs_json: string | null
+  cancelled_at: string | null
+  cancel_reason: string | null
+  expired_at: string | null
+  expire_reason: string | null
 }
 
 type EventRow = {
@@ -331,7 +338,9 @@ export class WorkflowRuntimeRepo {
       this.context.sqlite
         .prepare(
           `SELECT obligation_id, task_id, kind, owner_role, summary, blocking, status,
-                  created_at, updated_at, satisfied_at, satisfaction_evidence_ids_json
+                  created_at, updated_at, satisfied_at, satisfaction_evidence_ids_json,
+                  waived_at, waiver_reason, waiver_evidence_refs_json, cancelled_at,
+                  cancel_reason, expired_at, expire_reason
              FROM workflow_obligations
          ORDER BY created_at, obligation_id`
         )
@@ -351,6 +360,15 @@ export class WorkflowRuntimeRepo {
         ...(row.satisfaction_evidence_ids_json !== null
           ? { satisfactionEvidenceIds: parse<string[]>(row.satisfaction_evidence_ids_json) }
           : {}),
+        ...(row.waived_at !== null ? { waivedAt: row.waived_at } : {}),
+        ...(row.waiver_reason !== null ? { waiverReason: row.waiver_reason } : {}),
+        ...(row.waiver_evidence_refs_json !== null
+          ? { waiverEvidenceRefs: parse<string[]>(row.waiver_evidence_refs_json) }
+          : {}),
+        ...(row.cancelled_at !== null ? { cancelledAt: row.cancelled_at } : {}),
+        ...(row.cancel_reason !== null ? { cancelReason: row.cancel_reason } : {}),
+        ...(row.expired_at !== null ? { expiredAt: row.expired_at } : {}),
+        ...(row.expire_reason !== null ? { expireReason: row.expire_reason } : {}),
       })
     )
 
@@ -644,8 +662,9 @@ export class WorkflowRuntimeRepo {
       const insertObligation = this.context.sqlite.prepare(
         `INSERT INTO workflow_obligations (
            obligation_id, task_id, kind, owner_role, summary, blocking, status, created_at,
-           updated_at, satisfied_at, satisfaction_evidence_ids_json
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           updated_at, satisfied_at, satisfaction_evidence_ids_json, waived_at, waiver_reason,
+           waiver_evidence_refs_json, cancelled_at, cancel_reason, expired_at, expire_reason
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       for (const obligation of snapshot.obligations) {
         insertObligation.run(
@@ -661,7 +680,16 @@ export class WorkflowRuntimeRepo {
           obligation.satisfiedAt ?? null,
           obligation.satisfactionEvidenceIds === undefined
             ? null
-            : stringify(obligation.satisfactionEvidenceIds)
+            : stringify(obligation.satisfactionEvidenceIds),
+          obligation.waivedAt ?? null,
+          obligation.waiverReason ?? null,
+          obligation.waiverEvidenceRefs === undefined
+            ? null
+            : stringify(obligation.waiverEvidenceRefs),
+          obligation.cancelledAt ?? null,
+          obligation.cancelReason ?? null,
+          obligation.expiredAt ?? null,
+          obligation.expireReason ?? null
         )
       }
 

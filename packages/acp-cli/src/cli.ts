@@ -27,6 +27,8 @@ import { runSystemEventCommand } from './commands/system-event.js'
 import { runTailCommand } from './commands/tail.js'
 import { runTaskCreateCommand } from './commands/task-create.js'
 import { runTaskEvidenceAddCommand } from './commands/task-evidence-add.js'
+import { runTaskObligationCancelCommand } from './commands/task-obligation-cancel.js'
+import { runTaskObligationWaiveCommand } from './commands/task-obligation-waive.js'
 import { runTaskShowCommand } from './commands/task-show.js'
 import { runTaskTransitionCommand } from './commands/task-transition.js'
 import { runThreadCommand } from './commands/thread.js'
@@ -187,6 +189,7 @@ function addTaskCommands(program: Command, deps: CommandDependencies): void {
     .requiredOption('--idempotency-key <key>')
     .option('--context-hash <hash>')
     .option('--evidence <kind=ref>', 'inline transition evidence', repeatable(), [])
+    .option('--waiver-ref <obligationId>', 'waiver obligation id', repeatable(), [])
     .option('--run <runId>')
     .action(runLeaf(deps, [], runTaskTransitionCommand))
 
@@ -201,6 +204,22 @@ function addTaskCommands(program: Command, deps: CommandDependencies): void {
     .option('--supervisor-run-id <runId>')
     .option('--participant-run-id <runId>')
     .action(runLeaf(deps, [], runTaskEvidenceAddCommand))
+
+  const obligation = task.command('obligation').description('manage task obligations')
+  common(obligation.command('waive').description('waive a task obligation'))
+    .requiredOption('--task <taskId>')
+    .requiredOption('--obligation <obligationId>')
+    .requiredOption('--reason <text>')
+    .option('--evidence-ref <ref>', 'waiver evidence reference', repeatable(), [])
+    .requiredOption('--idempotency-key <key>')
+    .action(runLeaf(deps, [], runTaskObligationWaiveCommand))
+
+  common(obligation.command('cancel').description('cancel a task obligation'))
+    .requiredOption('--task <taskId>')
+    .requiredOption('--obligation <obligationId>')
+    .requiredOption('--reason <text>')
+    .requiredOption('--idempotency-key <key>')
+    .action(runLeaf(deps, [], runTaskObligationCancelCommand))
 }
 
 function addWorkflowCommands(program: Command, deps: CommandDependencies): void {
