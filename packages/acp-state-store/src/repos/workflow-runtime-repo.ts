@@ -113,6 +113,7 @@ type ParticipantRunRow = {
   workflow_json: string
   actor_json: string
   role: string
+  status: string
   parent_supervisor_run_id: string | null
   task_version_at_start: number
   context_hash: string
@@ -428,7 +429,7 @@ export class WorkflowRuntimeRepo {
     const participantRuns = (
       this.context.sqlite
         .prepare(
-          `SELECT run_id, task_id, workflow_json, actor_json, role, parent_supervisor_run_id,
+          `SELECT run_id, task_id, workflow_json, actor_json, role, status, parent_supervisor_run_id,
                   task_version_at_start, context_hash, created_at
              FROM workflow_participant_runs
          ORDER BY created_at, run_id`
@@ -442,6 +443,7 @@ export class WorkflowRuntimeRepo {
         workflow: parse<WorkflowRef>(row.workflow_json),
         actor: parse<ActorRef>(row.actor_json),
         role: row.role,
+        status: row.status as ParticipantRunRecord['status'],
         ...(row.parent_supervisor_run_id !== null
           ? { parentSupervisorRunId: row.parent_supervisor_run_id }
           : {}),
@@ -743,9 +745,9 @@ export class WorkflowRuntimeRepo {
 
       const insertParticipantRun = this.context.sqlite.prepare(
         `INSERT INTO workflow_participant_runs (
-           run_id, task_id, workflow_json, actor_json, role, parent_supervisor_run_id,
+           run_id, task_id, workflow_json, actor_json, role, status, parent_supervisor_run_id,
            task_version_at_start, context_hash, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       for (const run of snapshot.participantRuns) {
         insertParticipantRun.run(
@@ -754,6 +756,7 @@ export class WorkflowRuntimeRepo {
           stringify(run.workflow),
           stringify(run.actor),
           run.role,
+          run.status ?? 'launched',
           run.parentSupervisorRunId ?? null,
           run.taskVersionAtStart,
           run.contextHash,

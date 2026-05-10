@@ -277,6 +277,7 @@ function initializeSchema(sqlite: SqliteDatabase): void {
       workflow_json TEXT NOT NULL,
       actor_json TEXT NOT NULL,
       role TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'launched',
       parent_supervisor_run_id TEXT,
       task_version_at_start INTEGER NOT NULL,
       context_hash TEXT NOT NULL,

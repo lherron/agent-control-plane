@@ -29,6 +29,10 @@ import { handleGetSession } from '../handlers/sessions-get.js'
 import { handleInterruptSession } from '../handlers/sessions-interrupt.js'
 import { handleListSessionRuns } from '../handlers/sessions-runs.js'
 import {
+  handleCompleteWorkflowParticipantRun,
+  handleFailWorkflowParticipantRun,
+} from '../handlers/workflow-participant-runs.js'
+import {
   handleListWorkflowPatchProposals,
   handleShowWorkflowPatchProposal,
 } from '../handlers/workflow-patch-proposals-read.js'
@@ -223,6 +227,16 @@ export function buildParamRoutes(): ParamRoute[] {
     createParamRoute('GET', '/v1/sessions/:sessionId/capture', handleCaptureSession),
     createParamRoute('GET', '/v1/sessions/:sessionId/attach-command', handleAttachCommand),
     createParamRoute('GET', '/v1/sessions/:sessionId/events', handleSessionEvents),
+    createParamRoute(
+      'POST',
+      '/v1/workflow-participant-runs/:runId/complete',
+      handleCompleteWorkflowParticipantRun
+    ),
+    createParamRoute(
+      'POST',
+      '/v1/workflow-participant-runs/:runId/fail',
+      handleFailWorkflowParticipantRun
+    ),
   ]
 }
 

@@ -233,6 +233,8 @@ export interface WorkflowEvent {
   createdAt: string
 }
 
+export type ParticipantRunStatus = 'launched' | 'running' | 'completed' | 'failed' | 'cancelled'
+
 export interface ParticipantRunRecord {
   runId: string
   kind: 'participant'
@@ -240,10 +242,17 @@ export interface ParticipantRunRecord {
   workflow: WorkflowRef
   actor: ActorRef
   role: string
+  status: ParticipantRunStatus
   parentSupervisorRunId?: string | undefined
   taskVersionAtStart: number
   contextHash: string
   createdAt: string
+  completedAt?: string | undefined
+  outcome?: string | undefined
+  summary?: string | undefined
+  failureReason?: string | undefined
+  failureClassification?: string | undefined
+  cancelReason?: string | undefined
 }
 
 export interface SupervisorRunRecord {
@@ -1433,6 +1442,7 @@ export function createInMemoryWorkflowKernel(
           workflow: task.workflow,
           actor: clone(action.actor),
           role: action.role,
+          status: 'launched',
           parentSupervisorRunId: request.supervisorRunId,
           taskVersionAtStart: task.version,
           contextHash: hashValue({
@@ -2115,6 +2125,308 @@ export function createInMemoryWorkflowKernel(
       }
     )
 
+  const buildParticipantRunContext = (
+    task: WorkflowTask,
+    run: ParticipantRunRecord
+  ): Record<string, unknown> => {
+    const definition = getDefinitionForTask(task)
+    const allEvidence = evidence.get(task.taskId) ?? []
+    const allowedTransitions: Record<string, unknown>[] = []
+    for (const transition of Object.values(definition.transitions)) {
+      const error = evaluateTransition(task, transition, run.actor, run.role, allEvidence)
+      if (error === undefined) {
+        allowedTransitions.push(buildTransitionAffordance(task, transition, run.role))
+      }
+    }
+    const context: Record<string, unknown> = {
+      schemaVersion: 1,
+      task: {
+        id: task.taskId,
+        projectId: task.projectId,
+        workflow: task.workflow,
+        state: task.state,
+        version: task.version,
+        goal: task.goal,
+        ...(task.risk ? { risk: task.risk } : {}),
+      },
+      run: {
+        id: run.runId,
+        actor: run.actor,
+        role: run.role,
+      },
+      roleObjective: {
+        current: `Act as ${run.role} for the current workflow state.`,
+        doneWhen: allowedTransitions.map(
+          (transition) => `Apply ${transition['id']} when requirements are met.`
+        ),
+      },
+      assignedObligations: (obligations.get(task.taskId) ?? []).filter(
+        (obligation) => obligation.ownerRole === run.role
+      ),
+      relevantEvidence: allEvidence,
+      allowedTransitions,
+    }
+    const hash = contextHashFor(context)
+    context['contextHash'] = hash
+    rememberContextHash(task.taskId, hash)
+    return clone(context)
+  }
+
+  const startParticipantRun = (request: {
+    taskId: string
+    role: string
+    actor: ActorRef
+    harness?: Record<string, unknown> | undefined
+    parentSupervisorRunId?: string | undefined
+    idempotencyKey?: string | undefined
+  }): WorkflowResult<{ participantRun: ParticipantRunRecord; context: Record<string, unknown> }> =>
+    withIdempotency(request.idempotencyKey, request, () => {
+      const idempotencyKey = request.idempotencyKey ?? ''
+      const task = tasks.get(request.taskId)
+      if (task === undefined) {
+        return reject('task_not_found', `Task not found: ${request.taskId}`)
+      }
+      const definition = getDefinitionForTask(task)
+      if (definition.roles[request.role] === undefined) {
+        return reject(
+          'role_not_bound',
+          `Role "${request.role}" is not defined by workflow "${definition.id}"`
+        )
+      }
+      const boundActor = task.roleBindings[request.role]
+      if (boundActor === undefined || boundActor === null) {
+        return reject(
+          'role_not_bound',
+          `Role "${request.role}" is not bound — cannot launch participant run`
+        )
+      }
+      if (!actorEquals(boundActor, request.actor)) {
+        return reject('role_not_bound', `Role "${request.role}" is bound to a different actor`)
+      }
+      const runId = nextId('prun')
+      const run: ParticipantRunRecord = {
+        runId,
+        kind: 'participant',
+        taskId: task.taskId,
+        workflow: task.workflow,
+        actor: clone(request.actor),
+        role: request.role,
+        status: 'launched',
+        ...(request.parentSupervisorRunId !== undefined
+          ? { parentSupervisorRunId: request.parentSupervisorRunId }
+          : {}),
+        taskVersionAtStart: task.version,
+        contextHash: '', // placeholder, set below
+        createdAt: now,
+      }
+      const context = buildParticipantRunContext(task, run)
+      run.contextHash = String(context['contextHash'])
+      participantRuns.set(task.taskId, [...(participantRuns.get(task.taskId) ?? []), clone(run)])
+      appendEvent(task, {
+        taskId: task.taskId,
+        type: 'participant_run.launched',
+        actor: request.actor,
+        participantRunId: runId,
+        observedTaskVersion: task.version,
+        idempotencyKey,
+        payload: { runId, role: run.role, actor: clone(request.actor) },
+      })
+      return { ok: true, participantRun: clone(run), context: clone(context) }
+    })
+
+  const resumeParticipantRun = (request: {
+    taskId: string
+    role: string
+    actor: ActorRef
+  }): WorkflowResult<{
+    participantRun: ParticipantRunRecord
+    context: Record<string, unknown>
+  }> => {
+    const task = tasks.get(request.taskId)
+    if (task === undefined) {
+      return reject('task_not_found', `Task not found: ${request.taskId}`)
+    }
+    const runs = participantRuns.get(task.taskId) ?? []
+    const existing = runs.find(
+      (run) =>
+        run.role === request.role &&
+        actorEquals(run.actor, request.actor) &&
+        (run.status === 'launched' || run.status === 'running')
+    )
+    if (existing === undefined) {
+      return reject('task_not_found', 'No active participant run found for this role and actor')
+    }
+    const context = buildParticipantRunContext(task, existing)
+    const updatedRun = { ...existing, contextHash: String(context['contextHash']) }
+    // Update the stored run's contextHash
+    const allRuns = participantRuns.get(task.taskId) ?? []
+    const idx = allRuns.findIndex((r) => r.runId === existing.runId)
+    if (idx >= 0) {
+      allRuns[idx] = clone(updatedRun)
+      participantRuns.set(task.taskId, [...allRuns])
+    }
+    return { ok: true, participantRun: clone(updatedRun), context: clone(context) }
+  }
+
+  const markParticipantRunRunning = (
+    runId: string,
+    request: { idempotencyKey?: string | undefined } = {}
+  ): WorkflowResult<{ participantRun: ParticipantRunRecord }> =>
+    withIdempotency(request.idempotencyKey, { runId, ...request }, () => {
+      for (const [taskId, runs] of participantRuns.entries()) {
+        const idx = runs.findIndex((run) => run.runId === runId)
+        if (idx < 0) continue
+        const run = runs[idx]
+        if (run === undefined) continue
+        if (run.status !== 'launched') {
+          return reject(
+            'state_mismatch',
+            `Cannot mark run ${runId} as running from status "${run.status}"`
+          )
+        }
+        const updated: ParticipantRunRecord = { ...run, status: 'running' }
+        const nextRuns = [...runs]
+        nextRuns[idx] = clone(updated)
+        participantRuns.set(taskId, nextRuns)
+        return { ok: true, participantRun: clone(updated) }
+      }
+      return reject('task_not_found', `Participant run not found: ${runId}`)
+    })
+
+  const completeParticipantRun = (
+    runId: string,
+    request: {
+      outcome: string
+      evidenceRefs?: string[] | undefined
+      summary?: string | undefined
+      idempotencyKey?: string | undefined
+    }
+  ): WorkflowResult<{ participantRun: ParticipantRunRecord }> =>
+    withIdempotency(request.idempotencyKey, { runId, ...request }, () => {
+      for (const [taskId, runs] of participantRuns.entries()) {
+        const idx = runs.findIndex((run) => run.runId === runId)
+        if (idx < 0) continue
+        const run = runs[idx]
+        if (run === undefined) continue
+        const task = tasks.get(taskId)
+        if (task === undefined) continue
+        const updated: ParticipantRunRecord = {
+          ...run,
+          status: 'completed',
+          completedAt: now,
+          outcome: request.outcome,
+          ...(request.summary !== undefined ? { summary: request.summary } : {}),
+        }
+        const nextRuns = [...runs]
+        nextRuns[idx] = clone(updated)
+        participantRuns.set(taskId, nextRuns)
+        appendEvent(task, {
+          taskId,
+          type: 'participant_run.completed',
+          actor: run.actor,
+          participantRunId: runId,
+          observedTaskVersion: task.version,
+          idempotencyKey: request.idempotencyKey ?? '',
+          payload: {
+            outcome: request.outcome,
+            ...(request.evidenceRefs !== undefined ? { evidenceRefs: request.evidenceRefs } : {}),
+            ...(request.summary !== undefined ? { summary: request.summary } : {}),
+          },
+        })
+        return { ok: true, participantRun: clone(updated) }
+      }
+      return reject('task_not_found', `Participant run not found: ${runId}`)
+    })
+
+  const failParticipantRun = (
+    runId: string,
+    request: {
+      reason: string
+      classification?: string | undefined
+      idempotencyKey?: string | undefined
+    }
+  ): WorkflowResult<{ participantRun: ParticipantRunRecord }> =>
+    withIdempotency(request.idempotencyKey, { runId, ...request }, () => {
+      for (const [taskId, runs] of participantRuns.entries()) {
+        const idx = runs.findIndex((run) => run.runId === runId)
+        if (idx < 0) continue
+        const run = runs[idx]
+        if (run === undefined) continue
+        const task = tasks.get(taskId)
+        if (task === undefined) continue
+        const updated: ParticipantRunRecord = {
+          ...run,
+          status: 'failed',
+          completedAt: now,
+          outcome: 'failed',
+          failureReason: request.reason,
+          ...(request.classification !== undefined
+            ? { failureClassification: request.classification }
+            : {}),
+        }
+        const nextRuns = [...runs]
+        nextRuns[idx] = clone(updated)
+        participantRuns.set(taskId, nextRuns)
+        appendEvent(task, {
+          taskId,
+          type: 'participant_run.completed',
+          actor: run.actor,
+          participantRunId: runId,
+          observedTaskVersion: task.version,
+          idempotencyKey: request.idempotencyKey ?? '',
+          payload: {
+            outcome: 'failed',
+            reason: request.reason,
+            ...(request.classification !== undefined
+              ? { classification: request.classification }
+              : {}),
+          },
+        })
+        return { ok: true, participantRun: clone(updated) }
+      }
+      return reject('task_not_found', `Participant run not found: ${runId}`)
+    })
+
+  const cancelParticipantRun = (
+    runId: string,
+    request: {
+      reason: string
+      idempotencyKey?: string | undefined
+    }
+  ): WorkflowResult<{ participantRun: ParticipantRunRecord }> =>
+    withIdempotency(request.idempotencyKey, { runId, ...request }, () => {
+      for (const [taskId, runs] of participantRuns.entries()) {
+        const idx = runs.findIndex((run) => run.runId === runId)
+        if (idx < 0) continue
+        const run = runs[idx]
+        if (run === undefined) continue
+        const task = tasks.get(taskId)
+        if (task === undefined) continue
+        const updated: ParticipantRunRecord = {
+          ...run,
+          status: 'cancelled',
+          completedAt: now,
+          cancelReason: request.reason,
+        }
+        const nextRuns = [...runs]
+        nextRuns[idx] = clone(updated)
+        participantRuns.set(taskId, nextRuns)
+        appendEvent(task, {
+          taskId,
+          type: 'participant_run.cancelled',
+          actor: run.actor,
+          participantRunId: runId,
+          observedTaskVersion: task.version,
+          idempotencyKey: request.idempotencyKey ?? '',
+          payload: {
+            reason: request.reason,
+          },
+        })
+        return { ok: true, participantRun: clone(updated) }
+      }
+      return reject('task_not_found', `Participant run not found: ${runId}`)
+    })
+
   return {
     publishWorkflowDefinition,
     getWorkflowDefinition,
@@ -2128,6 +2440,12 @@ export function createInMemoryWorkflowKernel(
     submitControlAction,
     compileParticipantContext,
     compileSupervisorContext,
+    startParticipantRun,
+    resumeParticipantRun,
+    markParticipantRunRunning,
+    completeParticipantRun,
+    failParticipantRun,
+    cancelParticipantRun,
     getTask: (taskId: string): WorkflowTask | undefined => clone(tasks.get(taskId)),
     listEvents: (taskId: string): WorkflowEvent[] => clone(events.get(taskId) ?? []),
     listSupervisorRuns: (taskId: string): SupervisorRunRecord[] =>
