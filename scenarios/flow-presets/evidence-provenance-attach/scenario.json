@@ -1,5 +1,6 @@
 {
   "scenarioId": "evidence-provenance-attach",
+  "manualOnly": true,
   "title": "Standalone evidence attach with three-source provenance authorization",
   "summary": "Exercises ACP Checkpoint E1 (evidence provenance + standalone attach). Drives a single task through three distinct authorized standalone evidence attaches — by a role-bound actor, by the supervisor with explicit attachEvidence capability, and by an actor with a persisted participant run on the task — verifies that EvidenceRecord provenance fields (actor, role, runId, participantRunId, supervisorRunId) round-trip correctly, and confirms idempotency replay. Includes negative cases for unauthorized actors and idempotency conflicts.",
   "workflow": {

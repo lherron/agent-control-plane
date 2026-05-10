@@ -86,12 +86,26 @@ describe('standalone workflow evidence attach route', () => {
   test('persisted participant run actor attaches evidence with participantRunId provenance', async () => {
     await withWiredServer(async (fixture) => {
       const { task } = await createEvidenceTask(fixture)
+      const startRun = await fixture.request({
+        method: 'POST',
+        path: '/v1/workflow-supervisor-runs',
+        body: {
+          taskId: task.taskId,
+          runId: 'supervisor-run-rex-1',
+          supervisor: { kind: 'agent', id: 'rex' },
+          autonomy: 'managed',
+          capabilities: { launchRuns: true },
+          idempotencyKey: 'evidence-attach:launch-participant:start',
+          actor: { agentId: 'rex' },
+        },
+      })
+      expect(startRun.status).toBe(200)
+
       const launch = await fixture.request({
         method: 'POST',
         path: `/v1/tasks/${task.taskId}/actions`,
         body: {
           supervisorRunId: 'supervisor-run-rex-1',
-          capabilities: { launchRuns: true },
           expectedTaskVersion: 0,
           idempotencyKey: 'evidence-attach:launch-participant',
           action: {

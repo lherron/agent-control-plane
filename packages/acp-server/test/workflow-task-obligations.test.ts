@@ -28,13 +28,27 @@ async function createTaskWithObligation(
   expect(create.status).toBe(201)
   const created = await fixture.json<{ task: { taskId: string } }>(create)
 
+  const startRun = await fixture.request({
+    method: 'POST',
+    path: '/v1/workflow-supervisor-runs',
+    body: {
+      taskId: created.task.taskId,
+      runId: 'server-supervisor-run',
+      supervisor: { kind: 'agent', id: 'coordinator' },
+      autonomy: 'managed',
+      capabilities: { createObligations: true, createWaivers: true },
+      idempotencyKey: 'server-obligation:supervisor:start',
+      actor: { agentId: 'coordinator' },
+    },
+  })
+  expect(startRun.status).toBe(200)
+
   const action = await fixture.request({
     method: 'POST',
     path: `/v1/tasks/${created.task.taskId}/actions`,
     body: {
       supervisorRunId: 'server-supervisor-run',
       expectedTaskVersion: 0,
-      capabilities: { createObligations: true },
       idempotencyKey: 'server-obligation:create-obligation',
       action: {
         type: 'create_obligation',

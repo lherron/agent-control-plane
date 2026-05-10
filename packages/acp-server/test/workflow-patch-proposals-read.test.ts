@@ -44,13 +44,27 @@ async function createTaskWithPatchProposal(
   })
   expect(create.status).toBe(201)
 
+  const startRun = await fixture.request({
+    method: 'POST',
+    path: '/v1/workflow-supervisor-runs',
+    body: {
+      taskId: input.taskId,
+      runId: `${input.idempotencyPrefix}:supervisor`,
+      supervisor: { kind: 'agent', id: 'rex' },
+      autonomy: 'managed',
+      capabilities: { proposeWorkflowPatches: true },
+      idempotencyKey: `${input.idempotencyPrefix}:supervisor:start`,
+      actor: { agentId: 'rex' },
+    },
+  })
+  expect(startRun.status).toBe(200)
+
   const action = await fixture.request({
     method: 'POST',
     path: `/v1/tasks/${input.taskId}/actions`,
     body: {
       supervisorRunId: `${input.idempotencyPrefix}:supervisor`,
       expectedTaskVersion: 0,
-      capabilities: { proposeWorkflowPatches: true },
       idempotencyKey: `${input.idempotencyPrefix}:propose`,
       action: {
         type: 'propose_workflow_patch',

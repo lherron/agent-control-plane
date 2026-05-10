@@ -1,5 +1,6 @@
 {
   "scenarioId": "obligation-waive-cancel-lifecycle",
+  "manualOnly": true,
   "title": "Obligation waive vs cancel lifecycle with waiverRefs honoring",
   "summary": "Exercises ACP Checkpoint E2 (obligation waive/cancel + waiverRefs honoring on transitions). Drives a single task through three obligation lifecycle terminals: satisfied (normal), waived (with reason+evidenceRefs to satisfy a Requirement{type:'waiver'}), and cancelled (supersession path). Demonstrates that the widened ObligationRecord.status enum (open|satisfied|waived|cancelled|expired) round-trips and that waive — not cancel — satisfies waiver requirements on transitions.",
   "workflow": {

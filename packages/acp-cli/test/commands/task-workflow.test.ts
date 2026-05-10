@@ -252,8 +252,6 @@ describe('workflow task commands', () => {
         'agent:rex:project:agent-spaces:task:T-12345~main',
         '--action',
         '{"type":"satisfy_obligation","obligationId":"obl_1"}',
-        '--capabilities',
-        '{"satisfyObligations":true}',
         '--expected-version',
         '1',
         '--idempotency-key',
@@ -270,7 +268,6 @@ describe('workflow task commands', () => {
     expect(seen[0]?.body).toEqual({
       supervisorRunId: 'agent:rex:project:agent-spaces:task:T-12345~main',
       action: { type: 'satisfy_obligation', obligationId: 'obl_1' },
-      capabilities: { satisfyObligations: true },
       expectedTaskVersion: 1,
       idempotencyKey: 'rex:control:satisfy:v1',
     })

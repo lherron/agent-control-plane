@@ -170,13 +170,27 @@ describe('durable workflow task routes', () => {
       const created = await fixture.json<{ task: { taskId: string } }>(create)
       expect(create.status).toBe(201)
 
+      const startRun = await fixture.request({
+        method: 'POST',
+        path: '/v1/workflow-supervisor-runs',
+        body: {
+          taskId: created.task.taskId,
+          runId: 'supervisor-run-1',
+          supervisor: { kind: 'agent', id: 'rex' },
+          autonomy: 'managed',
+          capabilities: { launchRuns: true },
+          idempotencyKey: 'workflow-supervisor:launch-owner:start',
+          actor: { agentId: 'rex' },
+        },
+      })
+      expect(startRun.status).toBe(200)
+
       const action = await fixture.request({
         method: 'POST',
         path: `/v1/tasks/${created.task.taskId}/actions`,
         body: {
           supervisorRunId: 'supervisor-run-1',
           expectedTaskVersion: 0,
-          capabilities: { launchRuns: true },
           idempotencyKey: 'workflow-supervisor:launch-owner',
           action: {
             type: 'launch_participant_run',

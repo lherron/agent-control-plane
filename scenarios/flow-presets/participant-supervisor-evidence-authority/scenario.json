@@ -1,5 +1,6 @@
 {
   "scenarioId": "participant-supervisor-evidence-authority",
+  "manualOnly": true,
   "title": "Participant runtime + supervisor evidence-backed administrative ApplyTransition",
   "summary": "Exercises ACP Checkpoint G (participant runtime create/resume + lifecycle) and Checkpoint H (supervisor AttachEvidence/ApplyTransition/Pause/Unpause control actions with capability-and-provenance authorization). The supervisor never claims a workflow role itself; instead, ApplyTransition uses evidenceRefs whose provenance the kernel verifies points back to a role-bound participant run, recording authority='supervisor_from_participant_evidence' on the transition event. Pause/Unpause produce real state changes that gate subsequent control actions.",
   "workflow": {

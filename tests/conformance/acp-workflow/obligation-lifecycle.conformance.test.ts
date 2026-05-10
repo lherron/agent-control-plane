@@ -91,11 +91,21 @@ function seededKernel() {
   if (!started.ok) {
     throw new Error(started.error.message)
   }
+  const supRun = kernel.startSupervisorRun({
+    taskId: created.task.taskId,
+    runId: 'run-supervisor-conformance',
+    supervisor,
+    autonomy: 'managed',
+    capabilities: { createObligations: true, createWaivers: true },
+    idempotencyKey: 'conformance:supervisor:start',
+  })
+  if (!supRun.ok) {
+    throw new Error(supRun.error.message)
+  }
   const obligation = kernel.submitControlAction({
     taskId: created.task.taskId,
     supervisorRunId: 'run-supervisor-conformance',
     expectedTaskVersion: 1,
-    capabilities: { createObligations: true },
     action: {
       type: 'create_obligation',
       kind: 'acceptance_override',

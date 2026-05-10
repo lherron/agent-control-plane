@@ -15,6 +15,7 @@ import {
 
 type Scenario = {
   scenarioId: string
+  manualOnly?: boolean | undefined
   workflow: { id: string; version: number; definitionFile: string }
   actors: Array<{ binding: string; actor: ActorRef }>
   supervisor?: SupervisorBinding | undefined
@@ -65,6 +66,7 @@ function loadScenarios(): ScenarioFixture[] {
         ) as WorkflowDefinition,
       }
     })
+    .filter((fixture) => fixture.scenario.manualOnly !== true)
     .sort((a, b) => a.scenario.scenarioId.localeCompare(b.scenario.scenarioId))
 }
 
@@ -144,6 +146,8 @@ function runHappyPath(
   const { scenario } = fixture
   const taskId = scenario.steps[0]?.kernel?.args['taskId'] as string
   const pendingEvidence: EvidenceInput[] = []
+  const supervisorRunId = `scenario:${scenario.scenarioId}:supervisor`
+  let supervisorRunStarted = false
 
   for (const step of scenario.steps) {
     if (options.skipStepIds?.includes(step.stepId)) {
@@ -163,6 +167,18 @@ function runHappyPath(
       expect(created.ok).toBe(true)
       if (created.ok) {
         expectStateMatches(created.task.state, step.expectedStateAfter)
+        if (scenario.supervisor !== undefined && !supervisorRunStarted) {
+          const startedRun = kernel.startSupervisorRun({
+            taskId,
+            runId: supervisorRunId,
+            supervisor: scenario.supervisor.actor,
+            autonomy: scenario.supervisor.autonomy,
+            capabilities: scenario.supervisor.capabilities,
+            idempotencyKey: `${supervisorRunId}:start`,
+          })
+          expect(startedRun.ok).toBe(true)
+          supervisorRunStarted = true
+        }
       }
     }
 
@@ -175,8 +191,7 @@ function runHappyPath(
       const evidence = [...pendingEvidence.splice(0), ...(step.controlAction.evidence ?? [])]
       const satisfied = kernel.submitControlAction({
         taskId,
-        supervisorRunId: `scenario:${scenario.scenarioId}:${step.stepId}`,
-        capabilities: scenario.supervisor?.capabilities,
+        supervisorRunId,
         action: {
           type: 'satisfy_obligation',
           obligationId,

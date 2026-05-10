@@ -26,13 +26,27 @@ describe('ACP workflow patch proposal read conformance', () => {
       })
       expect(create.status).toBe(201)
 
+      const startRun = await fixture.request({
+        method: 'POST',
+        path: '/v1/workflow-supervisor-runs',
+        body: {
+          taskId,
+          runId: 'patch-conformance:supervisor',
+          supervisor: { kind: 'agent', id: 'rex' },
+          autonomy: 'managed',
+          capabilities: { proposeWorkflowPatches: true },
+          idempotencyKey: 'patch-conformance:supervisor:start',
+          actor: { agentId: 'rex' },
+        },
+      })
+      expect(startRun.status).toBe(200)
+
       const propose = await fixture.request({
         method: 'POST',
         path: `/v1/tasks/${taskId}/actions`,
         body: {
           supervisorRunId: 'patch-conformance:supervisor',
           expectedTaskVersion: 0,
-          capabilities: { proposeWorkflowPatches: true },
           idempotencyKey: 'patch-conformance:propose',
           action: {
             type: 'propose_workflow_patch',
