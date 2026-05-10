@@ -27,6 +27,7 @@ Start `acp-server` locally first, then point the CLI at it (or rely on the defau
 - `acp task run` *(implemented but not yet wired into CLI dispatch — use HTTP API directly)*
 - `acp workflow supervise`
 - `acp workflow supervisor-context`
+- `acp workflow interact`
 - `acp workflow action`
 - `acp workflow patch list`
 - `acp workflow patch show`
