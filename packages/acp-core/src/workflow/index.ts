@@ -175,6 +175,11 @@ export interface EvidenceInput {
 export interface EvidenceRecord extends EvidenceInput {
   evidenceId: string
   taskId: string
+  actor?: ActorRef | undefined
+  role?: string | undefined
+  runId?: string | undefined
+  participantRunId?: string | undefined
+  supervisorRunId?: string | undefined
   createdAt: string
 }
 
@@ -639,11 +644,26 @@ export function createInMemoryWorkflowKernel(
     items: readonly EvidenceInput[],
     actor: ActorRef,
     idempotencyKey: string,
-    observedTaskVersion: number
+    observedTaskVersion: number,
+    provenance?: {
+      role?: string | undefined
+      runId?: string | undefined
+      participantRunId?: string | undefined
+      supervisorRunId?: string | undefined
+    }
   ): EvidenceRecord[] => {
     const records = items.map((item) => ({
       evidenceId: nextId('evd'),
       taskId: task.taskId,
+      actor: clone(actor),
+      ...(provenance?.role !== undefined ? { role: provenance.role } : {}),
+      ...(provenance?.runId !== undefined ? { runId: provenance.runId } : {}),
+      ...(provenance?.participantRunId !== undefined
+        ? { participantRunId: provenance.participantRunId }
+        : {}),
+      ...(provenance?.supervisorRunId !== undefined
+        ? { supervisorRunId: provenance.supervisorRunId }
+        : {}),
       createdAt: now,
       ...clone(item),
     }))
@@ -653,6 +673,7 @@ export function createInMemoryWorkflowKernel(
         taskId: task.taskId,
         type: 'evidence.attached',
         actor,
+        ...(provenance?.runId ? { runId: provenance.runId } : {}),
         observedTaskVersion,
         idempotencyKey,
         payload: {
@@ -660,6 +681,9 @@ export function createInMemoryWorkflowKernel(
           kind: record.kind,
           ref: record.ref,
           ...(record.summary ? { summary: record.summary } : {}),
+          actor: clone(actor),
+          ...(provenance?.role !== undefined ? { role: provenance.role } : {}),
+          ...(provenance?.runId !== undefined ? { runId: provenance.runId } : {}),
         },
       })
     }
@@ -1187,7 +1211,10 @@ export function createInMemoryWorkflowKernel(
         task.roleBindings[request.role] = clone(request.actor)
       }
       if ((request.inlineEvidence ?? []).length > 0) {
-        addEvidence(task, request.inlineEvidence ?? [], request.actor, idempotencyKey, task.version)
+        addEvidence(task, request.inlineEvidence ?? [], request.actor, idempotencyKey, task.version, {
+          role: request.role,
+          runId: request.runId,
+        })
       }
       const previousVersion = task.version
       const nextTask: WorkflowTask = {
@@ -1217,6 +1244,7 @@ export function createInMemoryWorkflowKernel(
           from: task.state,
           to: nextTask.state,
           evidenceKinds: (request.inlineEvidence ?? []).map((item) => item.kind),
+          ...(request.evidenceRefs !== undefined ? { evidenceRefs: request.evidenceRefs } : {}),
         },
       })
       const beforeEffectCount = effects.get(task.taskId)?.length ?? 0
