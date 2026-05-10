@@ -91,6 +91,56 @@ describe('ACP workflow supervisor action conformance', () => {
       ),
       'capability_not_granted'
     )
+
+    expectReject(
+      submit(
+        kernel,
+        {
+          type: 'attach_evidence',
+          evidence: [{ kind: 'completion_note', ref: 'artifact://note', summary: 'done' }],
+        } as SupervisorAction,
+        'conformance-supervisor-actions:attach-body-capability',
+        { attachEvidence: true }
+      ),
+      'capability_not_granted'
+    )
+  })
+
+  test('waive_obligation requires persisted createWaivers authority', () => {
+    const kernel = seededKernel()
+    startSupervisorRun(kernel, { createObligations: true, createWaivers: true })
+    const obligation = submit(
+      kernel,
+      {
+        type: 'create_obligation',
+        kind: 'missing_evidence',
+        summary: 'waiver target',
+        blocking: false,
+      } as SupervisorAction,
+      'conformance-supervisor-actions:waive:create'
+    )
+    expect(obligation.ok).toBe(true)
+    if (!obligation.ok || obligation.obligation === undefined) {
+      throw new Error('obligation was not created')
+    }
+
+    const waived = submit(
+      kernel,
+      {
+        type: 'waive_obligation',
+        obligationId: obligation.obligation.obligationId,
+        reason: 'accepted by supervisor',
+      } as unknown as SupervisorAction,
+      'conformance-supervisor-actions:waive:allowed'
+    )
+
+    expect(waived.ok).toBe(true)
+    expect(kernel.listObligations('conformance-supervisor-actions')).toContainEqual(
+      expect.objectContaining({
+        obligationId: obligation.obligation.obligationId,
+        status: 'waived',
+      })
+    )
   })
 
   test('AttachEvidence and Escalate produce durable workflow records', () => {
@@ -239,6 +289,67 @@ describe('ACP workflow supervisor action conformance', () => {
     )
   })
 
+  test('ApplyTransition missing evidenceRefs is a missing_evidence rejection', () => {
+    const kernel = seededKernel()
+    startSupervisorRun(kernel, { applySupervisorTransitions: true })
+    const started = kernel.applyTransition({
+      taskId: 'conformance-supervisor-actions',
+      transitionId: 'start',
+      actor: owner,
+      role: 'owner',
+      expectedTaskVersion: 0,
+      idempotencyKey: 'conformance-supervisor-actions:undefined-refs:start',
+    })
+    expect(started.ok).toBe(true)
+
+    expectReject(
+      submit(
+        kernel,
+        {
+          type: 'apply_transition',
+          transitionId: 'close_success',
+        } as unknown as SupervisorAction,
+        'conformance-supervisor-actions:undefined-refs:apply'
+      ),
+      'missing_evidence'
+    )
+  })
+
+  test('standalone evidence attach validates participant run task provenance', () => {
+    const kernel = seededKernel()
+    const otherTask = kernel.createTask({
+      taskId: 'conformance-supervisor-actions-other',
+      projectId: 'agent-spaces',
+      workflow: { id: 'basic', version: 1 },
+      goal: 'other task',
+      roleBindings: { owner },
+      idempotencyKey: 'conformance-supervisor-actions:cross-task:create',
+    })
+    expect(otherTask.ok).toBe(true)
+    const otherRun = kernel.startParticipantRun({
+      taskId: 'conformance-supervisor-actions-other',
+      role: 'owner',
+      actor: owner,
+      idempotencyKey: 'conformance-supervisor-actions:cross-task:run',
+    })
+    expect(otherRun.ok).toBe(true)
+    if (!otherRun.ok) {
+      throw new Error(otherRun.error.message)
+    }
+
+    expectReject(
+      kernel.attachEvidence({
+        taskId: 'conformance-supervisor-actions',
+        actor: owner,
+        role: 'owner',
+        participantRunId: otherRun.participantRun.runId,
+        evidence: [{ kind: 'completion_note', ref: 'artifact://cross-task', summary: 'done' }],
+        idempotencyKey: 'conformance-supervisor-actions:cross-task:attach',
+      }),
+      'authority_not_granted'
+    )
+  })
+
   test('PauseSupervision gates control actions until UnpauseSupervision', () => {
     const kernel = seededKernel()
     startSupervisorRun(kernel, { pauseSupervision: true, createObligations: true })
@@ -286,5 +397,20 @@ describe('ACP workflow supervisor action conformance', () => {
         'conformance-supervisor-actions:accepted'
       ).ok
     ).toBe(true)
+  })
+
+  test('PauseSupervision requires persisted pauseSupervision authority while UnpauseSupervision remains ungated', () => {
+    const kernel = seededKernel()
+    startSupervisorRun(kernel, {})
+
+    expectReject(
+      submit(
+        kernel,
+        { type: 'pause_supervision', reason: 'missing capability' } as SupervisorAction,
+        'conformance-supervisor-actions:pause:no-capability',
+        { pauseSupervision: true }
+      ),
+      'capability_not_granted'
+    )
   })
 })

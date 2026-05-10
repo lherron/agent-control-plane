@@ -177,6 +177,132 @@ describe('workflow supervisor action routes', () => {
     })
   })
 
+  test('AttachEvidence action rejects when attachEvidence is absent from the persisted run', async () => {
+    await withWiredServer(async (fixture) => {
+      const taskId = await createTask(fixture)
+      const runId = await startSupervisorRun(fixture, taskId, {})
+
+      const response = await fixture.request({
+        method: 'POST',
+        path: `/v1/tasks/${taskId}/actions`,
+        body: {
+          supervisorRunId: runId,
+          actor: supervisor,
+          capabilities: { attachEvidence: true },
+          action: {
+            type: 'attach_evidence',
+            evidence: [{ kind: 'completion_note', ref: 'artifact://note', summary: 'done' }],
+          },
+          idempotencyKey: 'server-supervisor-actions:attach:no-capability',
+        },
+      })
+
+      expect(response.status).toBe(422)
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: 'capability_not_granted' },
+      })
+    })
+  })
+
+  test('WaiveObligation action requires createWaivers on the persisted supervisor run', async () => {
+    await withWiredServer(async (fixture) => {
+      const taskId = await createTask(fixture)
+      const createRunId = await startSupervisorRun(fixture, taskId, {
+        createObligations: true,
+      })
+      const created = await fixture.request({
+        method: 'POST',
+        path: `/v1/tasks/${taskId}/actions`,
+        body: {
+          supervisorRunId: createRunId,
+          actor: supervisor,
+          action: {
+            type: 'create_obligation',
+            kind: 'missing_evidence',
+            summary: 'waiver target',
+            blocking: false,
+          },
+          idempotencyKey: 'server-supervisor-actions:waive:create',
+        },
+      })
+      expect(created.status).toBe(200)
+      const obligationId =
+        fixture.stateStore.workflowRuntime.loadSnapshot().obligations[0]?.obligationId
+      expect(obligationId).toBeDefined()
+
+      const denied = await fixture.request({
+        method: 'POST',
+        path: `/v1/tasks/${taskId}/actions`,
+        body: {
+          supervisorRunId: createRunId,
+          actor: supervisor,
+          capabilities: { createWaivers: true },
+          action: {
+            type: 'waive_obligation',
+            obligationId,
+            reason: 'request body must not grant waiver authority',
+          },
+          idempotencyKey: 'server-supervisor-actions:waive:denied',
+        },
+      })
+      expect(denied.status).toBe(422)
+      await expect(denied.json()).resolves.toMatchObject({
+        error: { code: 'capability_not_granted' },
+      })
+
+      const waiveRunId = await startSupervisorRun(
+        fixture,
+        taskId,
+        { createObligations: true, createWaivers: true },
+        'server-supervisor-run-waive'
+      )
+      const waived = await fixture.request({
+        method: 'POST',
+        path: `/v1/tasks/${taskId}/actions`,
+        body: {
+          supervisorRunId: waiveRunId,
+          actor: supervisor,
+          action: {
+            type: 'waive_obligation',
+            obligationId,
+            reason: 'supervisor accepted the risk',
+          },
+          idempotencyKey: 'server-supervisor-actions:waive:allowed',
+        },
+      })
+
+      expect(waived.status).toBe(200)
+      expect(fixture.stateStore.workflowRuntime.loadSnapshot().obligations[0]).toMatchObject({
+        obligationId,
+        status: 'waived',
+      })
+    })
+  })
+
+  test('PauseSupervision action requires pauseSupervision on the persisted supervisor run', async () => {
+    await withWiredServer(async (fixture) => {
+      const taskId = await createTask(fixture)
+      const runId = await startSupervisorRun(fixture, taskId, {})
+
+      const pause = await fixture.request({
+        method: 'POST',
+        path: `/v1/tasks/${taskId}/actions`,
+        body: {
+          supervisorRunId: runId,
+          actor: supervisor,
+          capabilities: { pauseSupervision: true },
+          action: { type: 'pause_supervision', reason: 'human handoff' },
+          idempotencyKey: 'server-supervisor-actions:pause:no-capability',
+        },
+      })
+
+      expect(pause.status).toBe(422)
+      await expect(pause.json()).resolves.toMatchObject({
+        error: { code: 'capability_not_granted' },
+      })
+    })
+  })
+
   test('PauseSupervision blocks later actions until UnpauseSupervision resumes the run', async () => {
     await withWiredServer(async (fixture) => {
       const taskId = await createTask(fixture)
