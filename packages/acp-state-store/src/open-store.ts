@@ -211,6 +211,11 @@ function initializeSchema(sqlite: SqliteDatabase): void {
       ref TEXT NOT NULL,
       summary TEXT,
       data_json TEXT,
+      actor_json TEXT,
+      role TEXT,
+      run_id TEXT,
+      participant_run_id TEXT,
+      supervisor_run_id TEXT,
       created_at TEXT NOT NULL
     );
 

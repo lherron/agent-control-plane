@@ -47,6 +47,11 @@ type EvidenceRow = {
   ref: string
   summary: string | null
   data_json: string | null
+  actor_json: string | null
+  role: string | null
+  run_id: string | null
+  participant_run_id: string | null
+  supervisor_run_id: string | null
   created_at: string
 }
 
@@ -299,7 +304,8 @@ export class WorkflowRuntimeRepo {
     const evidence = (
       this.context.sqlite
         .prepare(
-          `SELECT evidence_id, task_id, kind, ref, summary, data_json, created_at
+          `SELECT evidence_id, task_id, kind, ref, summary, data_json,
+                  actor_json, role, run_id, participant_run_id, supervisor_run_id, created_at
              FROM workflow_evidence
          ORDER BY created_at, evidence_id`
         )
@@ -312,6 +318,11 @@ export class WorkflowRuntimeRepo {
         ref: row.ref,
         ...(row.summary !== null ? { summary: row.summary } : {}),
         ...(row.data_json !== null ? { data: parse<Record<string, unknown>>(row.data_json) } : {}),
+        ...(row.actor_json !== null ? { actor: parse<ActorRef>(row.actor_json) } : {}),
+        ...(row.role !== null ? { role: row.role } : {}),
+        ...(row.run_id !== null ? { runId: row.run_id } : {}),
+        ...(row.participant_run_id !== null ? { participantRunId: row.participant_run_id } : {}),
+        ...(row.supervisor_run_id !== null ? { supervisorRunId: row.supervisor_run_id } : {}),
         createdAt: row.created_at,
       })
     )
@@ -609,8 +620,9 @@ export class WorkflowRuntimeRepo {
       }
 
       const insertEvidence = this.context.sqlite.prepare(
-        `INSERT INTO workflow_evidence (evidence_id, task_id, kind, ref, summary, data_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO workflow_evidence (evidence_id, task_id, kind, ref, summary, data_json,
+         actor_json, role, run_id, participant_run_id, supervisor_run_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       for (const item of snapshot.evidence) {
         insertEvidence.run(
@@ -620,6 +632,11 @@ export class WorkflowRuntimeRepo {
           item.ref,
           item.summary ?? null,
           item.data === undefined ? null : stringify(item.data),
+          item.actor === undefined ? null : stringify(item.actor),
+          item.role ?? null,
+          item.runId ?? null,
+          item.participantRunId ?? null,
+          item.supervisorRunId ?? null,
           item.createdAt
         )
       }

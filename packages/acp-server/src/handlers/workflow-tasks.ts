@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-import { json, notFound } from '../http.js'
+import { conflict, forbidden, json, notFound, unprocessable } from '../http.js'
 import { reconcileWorkflowEffectIntents } from '../integration/workflow-effect-reconciler.js'
 import { extractActor } from '../parsers/actor.js'
 import {
@@ -307,4 +307,66 @@ export const handleWorkflowSupervisorContext: RouteHandler = async ({ request, p
     { save: true }
   )
   return json({ context })
+}
+
+export const handleAttachWorkflowEvidence: RouteHandler = async ({ request, params, deps }) => {
+  const taskId = requireTaskId(params)
+  const body = requireRecord(await parseJsonBody(request))
+  const actor = extractActor(request, body, { required: false })
+  const actorRef = actorRefFromUnknown(body['actor'], actor?.agentId)
+  const evidenceItems = readOptionalArrayField(body, 'evidence') as
+    | Array<{ kind: string; ref: string; summary?: string }>
+    | undefined
+  if (evidenceItems === undefined || evidenceItems.length === 0) {
+    unprocessable('invalid_evidence', 'At least one evidence item is required')
+  }
+
+  const idempotencyKey = requireTrimmedStringField(body, 'idempotencyKey')
+  let isReplay = false
+
+  const result = withDurableWorkflowKernel(
+    deps,
+    (kernel) => {
+      const snapshot = kernel.exportSnapshot()
+      const existingKey = snapshot.idempotency.find((entry) => entry.key === idempotencyKey)
+      if (existingKey !== undefined) {
+        isReplay = true
+      }
+      return kernel.attachEvidence({
+        taskId,
+        actor: actorRef,
+        ...(readOptionalTrimmedStringField(body, 'role') !== undefined
+          ? { role: readOptionalTrimmedStringField(body, 'role') }
+          : {}),
+        ...(readOptionalTrimmedStringField(body, 'runId') !== undefined
+          ? { runId: readOptionalTrimmedStringField(body, 'runId') }
+          : {}),
+        ...(readOptionalTrimmedStringField(body, 'supervisorRunId') !== undefined
+          ? { supervisorRunId: readOptionalTrimmedStringField(body, 'supervisorRunId') }
+          : {}),
+        ...(readOptionalTrimmedStringField(body, 'participantRunId') !== undefined
+          ? { participantRunId: readOptionalTrimmedStringField(body, 'participantRunId') }
+          : {}),
+        evidence: evidenceItems,
+        ...(body['expectedTaskVersion'] !== undefined
+          ? { expectedTaskVersion: requireNumberField(body, 'expectedTaskVersion') }
+          : {}),
+        idempotencyKey,
+      })
+    },
+    { save: true }
+  )
+
+  if (!result.ok) {
+    if (result.error.code === 'authority_not_granted') {
+      forbidden('evidence_attach_unauthorized', result.error.message)
+    }
+    if (result.error.code === 'idempotency_conflict') {
+      conflict(result.error.message)
+    }
+    unprocessable(result.error.code, result.error.message, { ...result.error })
+  }
+
+  await reconcileEffects(deps)
+  return json({ evidence: result.evidence }, isReplay ? 200 : 201)
 }

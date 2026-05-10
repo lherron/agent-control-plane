@@ -39,6 +39,10 @@ export type CreateTaskResponse = {
   task: WorkflowTask
 }
 
+export type AddEvidenceResponse = {
+  evidence: Array<{ evidenceId: string; taskId: string; kind: string; ref: string }>
+}
+
 export type TaskTransitionResponse = {
   task: WorkflowTask
   event: WorkflowEvent
@@ -136,8 +140,13 @@ export interface AcpClient {
   addEvidence(input: {
     actorAgentId: string
     taskId: string
-    evidence: unknown[]
-  }): Promise<never>
+    role?: string | undefined
+    runId?: string | undefined
+    supervisorRunId?: string | undefined
+    participantRunId?: string | undefined
+    evidence: Array<{ kind: string; ref: string; summary?: string | undefined }>
+    idempotencyKey: string
+  }): Promise<AddEvidenceResponse>
   transitionTask(input: {
     actorAgentId: string
     taskId: string
@@ -372,8 +381,25 @@ export function createHttpClient(
       })
     },
 
-    addEvidence() {
-      throw new AcpClientTransportError('legacy task evidence route has been removed')
+    addEvidence(input) {
+      return request<AddEvidenceResponse>({
+        method: 'POST',
+        path: `/v1/tasks/${encodeURIComponent(input.taskId)}/evidence`,
+        actorAgentId: input.actorAgentId,
+        body: {
+          actor: { kind: 'agent', id: input.actorAgentId },
+          ...(input.role !== undefined ? { role: input.role } : {}),
+          ...(input.runId !== undefined ? { runId: input.runId } : {}),
+          ...(input.supervisorRunId !== undefined
+            ? { supervisorRunId: input.supervisorRunId }
+            : {}),
+          ...(input.participantRunId !== undefined
+            ? { participantRunId: input.participantRunId }
+            : {}),
+          evidence: input.evidence,
+          idempotencyKey: input.idempotencyKey,
+        },
+      })
     },
 
     transitionTask(input) {

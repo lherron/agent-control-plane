@@ -1211,10 +1211,17 @@ export function createInMemoryWorkflowKernel(
         task.roleBindings[request.role] = clone(request.actor)
       }
       if ((request.inlineEvidence ?? []).length > 0) {
-        addEvidence(task, request.inlineEvidence ?? [], request.actor, idempotencyKey, task.version, {
-          role: request.role,
-          runId: request.runId,
-        })
+        addEvidence(
+          task,
+          request.inlineEvidence ?? [],
+          request.actor,
+          idempotencyKey,
+          task.version,
+          {
+            role: request.role,
+            runId: request.runId,
+          }
+        )
       }
       const previousVersion = task.version
       const nextTask: WorkflowTask = {
@@ -1767,12 +1774,80 @@ export function createInMemoryWorkflowKernel(
     return clone(context)
   }
 
+  const attachEvidence = (request: {
+    taskId: string
+    actor: ActorRef
+    role?: string | undefined
+    runId?: string | undefined
+    supervisorRunId?: string | undefined
+    participantRunId?: string | undefined
+    evidence: EvidenceInput[]
+    expectedTaskVersion?: number | undefined
+    idempotencyKey?: string | undefined
+  }): WorkflowResult<{ evidence: EvidenceRecord[] }> =>
+    withIdempotency(request.idempotencyKey, request, () => {
+      const idempotencyKey = request.idempotencyKey ?? ''
+      const task = tasks.get(request.taskId)
+      if (task === undefined) {
+        return reject('task_not_found', `Task not found: ${request.taskId}`)
+      }
+      if (
+        request.expectedTaskVersion !== undefined &&
+        request.expectedTaskVersion !== task.version
+      ) {
+        return reject(
+          'version_conflict',
+          `Task version ${task.version} does not match expected version ${request.expectedTaskVersion}`
+        )
+      }
+      const definition = getDefinitionForTask(task)
+      const isSupervisor =
+        task.supervisor !== undefined && actorEquals(task.supervisor.actor, request.actor)
+      const isBoundRole =
+        request.role !== undefined && actorEquals(task.roleBindings[request.role], request.actor)
+      if (!isSupervisor && !isBoundRole) {
+        return {
+          ok: false,
+          error: {
+            code: 'authority_not_granted' as WorkflowRejectionCode,
+            message: 'Actor is not authorized to attach evidence to this task',
+          },
+        }
+      }
+      for (const item of request.evidence) {
+        if (definition.evidenceKinds[item.kind] === undefined) {
+          return {
+            ok: false,
+            error: {
+              code: 'invalid_evidence' as WorkflowRejectionCode,
+              message: `Evidence kind "${item.kind}" is not defined by workflow "${definition.id}"`,
+            },
+          }
+        }
+      }
+      const records = addEvidence(
+        task,
+        request.evidence,
+        request.actor,
+        idempotencyKey,
+        task.version,
+        {
+          role: request.role,
+          runId: request.runId,
+          participantRunId: request.participantRunId,
+          supervisorRunId: request.supervisorRunId,
+        }
+      )
+      return { ok: true, evidence: clone(records) }
+    })
+
   return {
     publishWorkflowDefinition,
     getWorkflowDefinition,
     createTask,
     startSupervisorRun,
     applyTransition,
+    attachEvidence,
     submitControlAction,
     compileParticipantContext,
     compileSupervisorContext,
