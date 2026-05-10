@@ -58,7 +58,10 @@ function parseBindAssignment(raw: string): { role: string; actor: ActorRef } {
   if (colonIndex > 0 && colonIndex < actorRaw.length - 1) {
     return {
       role,
-      actor: { kind: actorRaw.slice(0, colonIndex) as ActorRef['kind'], id: actorRaw.slice(colonIndex + 1) },
+      actor: {
+        kind: actorRaw.slice(0, colonIndex) as ActorRef['kind'],
+        id: actorRaw.slice(colonIndex + 1),
+      },
     }
   }
   return { role, actor: { kind: 'agent', id: actorRaw } }

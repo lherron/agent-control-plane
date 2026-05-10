@@ -14,7 +14,6 @@ import {
   getClientFactory,
   requireActorAgentId,
   resolveEnv,
-  resolveOptionalActorAgentId,
   resolveServerUrl,
 } from './shared.js'
 

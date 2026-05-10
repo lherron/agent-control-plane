@@ -187,9 +187,9 @@ describe('acp task run command', () => {
   })
 
   test('requires --task', async () => {
-    await expect(
-      runTaskRunCommand(['--role', 'owner', '--agent', 'larry'])
-    ).rejects.toThrow('--task is required')
+    await expect(runTaskRunCommand(['--role', 'owner', '--agent', 'larry'])).rejects.toThrow(
+      '--task is required'
+    )
   })
 
   test('is registered under acp task run', async () => {

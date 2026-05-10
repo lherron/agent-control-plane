@@ -112,10 +112,13 @@ describe('acp task run-complete command', () => {
       ],
       {
         fetchImpl: async () =>
-          new Response(JSON.stringify({ participantRun: { runId: 'run_1', status: 'completed' } }), {
-            status: 200,
-            headers: { 'content-type': 'application/json' },
-          }),
+          new Response(
+            JSON.stringify({ participantRun: { runId: 'run_1', status: 'completed' } }),
+            {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            }
+          ),
       }
     )
 

@@ -98,5 +98,7 @@ export async function runTaskRunCompleteCommand(
   }
 
   const run = responseBody['participantRun'] as { runId?: string; status?: string } | undefined
-  return asText(`Completed participant run ${run?.runId ?? runId}; status=${run?.status ?? 'unknown'}`)
+  return asText(
+    `Completed participant run ${run?.runId ?? runId}; status=${run?.status ?? 'unknown'}`
+  )
 }

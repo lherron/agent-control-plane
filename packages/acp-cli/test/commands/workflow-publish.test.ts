@@ -1,7 +1,7 @@
+import { describe, expect, test } from 'bun:test'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, test } from 'bun:test'
 
 import { CliUsageError } from '../../src/cli-runtime.js'
 
@@ -71,13 +71,16 @@ describe('acp workflow publish command', () => {
     await writeFile(file, JSON.stringify(workflow))
     const { runWorkflowPublishCommand } = await loadCommand()
 
-    const output = await runWorkflowPublishCommand(['--server', 'http://acp.test', '--json', file], {
-      fetchImpl: async () =>
-        new Response(JSON.stringify({ definition: { ...workflow, hash: 'sha256:test' } }), {
-          status: 201,
-          headers: { 'content-type': 'application/json' },
-        }),
-    })
+    const output = await runWorkflowPublishCommand(
+      ['--server', 'http://acp.test', '--json', file],
+      {
+        fetchImpl: async () =>
+          new Response(JSON.stringify({ definition: { ...workflow, hash: 'sha256:test' } }), {
+            status: 201,
+            headers: { 'content-type': 'application/json' },
+          }),
+      }
+    )
 
     expect(output).toEqual({
       format: 'json',

@@ -29,9 +29,9 @@ describe('workflow publish route', () => {
         path: '/v1/workflows',
         body: validWorkflow,
       })
-      const body = await fixture.json<{ definition: { id: string; version: number; hash: string } }>(
-        response
-      )
+      const body = await fixture.json<{
+        definition: { id: string; version: number; hash: string }
+      }>(response)
 
       expect(response.status).toBe(201)
       expect(body.definition).toMatchObject({

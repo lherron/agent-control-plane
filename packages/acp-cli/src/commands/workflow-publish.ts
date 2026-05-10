@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises'
 
 import { CliUsageError } from '../cli-runtime.js'
 import type { FetchLike } from '../http-client.js'
-import { hasFlag, parseArgs, readStringFlag, requireNoPositionals } from './options.js'
+import { hasFlag, parseArgs, readStringFlag } from './options.js'
 import {
   type CommandDependencies,
   type CommandOutput,

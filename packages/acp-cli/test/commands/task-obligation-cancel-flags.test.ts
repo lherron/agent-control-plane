@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import { runTaskObligationCancelCommand } from '../../src/commands/task-obligation-cancel.js'
-import { AcpClientHttpError } from '../../src/http-client.js'
+import type { AcpClientHttpError } from '../../src/http-client.js'
 import { runCli } from '../cli-test-helpers.js'
 
 describe('acp task obligation cancel flag alignment', () => {
