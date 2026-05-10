@@ -2,6 +2,7 @@ import { CliUsageError } from '../cli-runtime.js'
 import {
   hasFlag,
   parseArgs,
+  parseCommaList,
   parseIntegerValue,
   parseJsonObject,
   readMultiStringFlag,
@@ -88,6 +89,7 @@ export async function runWorkflowSuperviseCommand(
     booleanFlags: ['--json', '--resume'],
     stringFlags: [
       '--task',
+      '--task-id',
       '--workflow',
       '--project',
       '--goal',
@@ -96,6 +98,7 @@ export async function runWorkflowSuperviseCommand(
       '--autonomy',
       '--harness',
       '--capabilities',
+      '--supervisor-capability',
       '--idempotency-key',
       '--run',
       '--server',
@@ -129,6 +132,20 @@ export async function runWorkflowSuperviseCommand(
     ...readMultiStringFlag(parsed, '--bind'),
     ...readMultiStringFlag(parsed, '--role'),
   ]
+
+  // Resolve capabilities from --capabilities JSON or --supervisor-capability CSV
+  let capabilities: Record<string, unknown> | undefined
+  if (readStringFlag(parsed, '--capabilities') !== undefined) {
+    capabilities = parseJsonObject('--capabilities', requireStringFlag(parsed, '--capabilities'))
+  } else if (readStringFlag(parsed, '--supervisor-capability') !== undefined) {
+    const csvValue = readStringFlag(parsed, '--supervisor-capability')!
+    capabilities = Object.fromEntries(
+      parseCommaList(csvValue, '--supervisor-capability').map((cap) => [cap, true])
+    )
+  }
+
+  const explicitTaskId = readStringFlag(parsed, '--task-id')
+
   const body = {
     supervisor,
     autonomy: readStringFlag(parsed, '--autonomy') ?? 'managed',
@@ -136,14 +153,7 @@ export async function runWorkflowSuperviseCommand(
     ...(readStringFlag(parsed, '--run') !== undefined
       ? { runId: readStringFlag(parsed, '--run') }
       : {}),
-    ...(readStringFlag(parsed, '--capabilities') !== undefined
-      ? {
-          capabilities: parseJsonObject(
-            '--capabilities',
-            requireStringFlag(parsed, '--capabilities')
-          ),
-        }
-      : {}),
+    ...(capabilities !== undefined ? { capabilities } : {}),
     ...(parseHarness(readStringFlag(parsed, '--harness')) !== undefined
       ? { harness: parseHarness(readStringFlag(parsed, '--harness')) }
       : {}),
@@ -158,6 +168,7 @@ export async function runWorkflowSuperviseCommand(
               ? { risk: readStringFlag(parsed, '--risk') }
               : {}),
             roleBindings: parseRoleBindings(bindValues),
+            ...(explicitTaskId !== undefined ? { taskId: explicitTaskId } : {}),
           },
         }),
   }

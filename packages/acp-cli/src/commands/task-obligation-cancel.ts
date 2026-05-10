@@ -36,7 +36,7 @@ export async function runTaskObligationCancelCommand(
     actorAgentId,
     taskId,
     obligationId,
-    reason: requireStringFlag(parsed, '--reason'),
+    reason: readStringFlag(parsed, '--reason'),
     idempotencyKey: requireStringFlag(parsed, '--idempotency-key'),
   })
 

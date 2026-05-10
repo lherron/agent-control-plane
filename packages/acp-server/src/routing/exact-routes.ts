@@ -37,6 +37,7 @@ import { handleListSessions } from '../handlers/sessions-list.js'
 import { handleResetSession } from '../handlers/sessions-reset.js'
 import { handleResolveSession } from '../handlers/sessions-resolve.js'
 import { handleCreateWorkflowParticipantRun } from '../handlers/workflow-participant-runs.js'
+import { handlePublishWorkflow } from '../handlers/workflow-publish.js'
 import {
   handleCreateWorkflowTask,
   handleStartWorkflowSupervisorRun,
@@ -78,6 +79,7 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
     ),
     [exactRouteKey('POST', '/v1/tasks')]: handleCreateWorkflowTask,
     [exactRouteKey('POST', '/v1/workflow-supervisor-runs')]: handleStartWorkflowSupervisorRun,
+    [exactRouteKey('POST', '/v1/workflows')]: handlePublishWorkflow,
     [exactRouteKey('POST', '/v1/workflow-participant-runs')]: handleCreateWorkflowParticipantRun,
     [exactRouteKey('POST', '/v1/inputs')]: maybeWrapMutatingRoute(
       'POST',

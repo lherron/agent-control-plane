@@ -132,6 +132,14 @@ export interface AcpClient {
     roleBindings: Record<string, ActorRef | null>
     idempotencyKey: string
     meta?: Record<string, unknown> | undefined
+    taskId?: string | undefined
+    supervisor?:
+      | {
+          actor: ActorRef
+          autonomy?: string | undefined
+          capabilities?: Record<string, boolean> | undefined
+        }
+      | undefined
   }): Promise<CreateTaskResponse>
   promoteTask(input: {
     actorAgentId: string
@@ -181,7 +189,7 @@ export interface AcpClient {
     actorAgentId: string
     taskId: string
     obligationId: string
-    reason: string
+    reason?: string | undefined
     idempotencyKey: string
   }): Promise<ObligationLifecycleResponse>
   listTransitions(input: { taskId: string }): Promise<never>
@@ -391,6 +399,8 @@ export function createHttpClient(
           idempotencyKey: input.idempotencyKey,
           actor: { agentId: input.actorAgentId },
           ...(input.meta !== undefined ? { initialFacts: input.meta } : {}),
+          ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
+          ...(input.supervisor !== undefined ? { supervisor: input.supervisor } : {}),
         },
       })
     },
@@ -468,7 +478,7 @@ export function createHttpClient(
         actorAgentId: input.actorAgentId,
         body: {
           actor: { kind: 'agent', id: input.actorAgentId },
-          reason: input.reason,
+          ...(input.reason !== undefined ? { reason: input.reason } : {}),
           idempotencyKey: input.idempotencyKey,
         },
       })

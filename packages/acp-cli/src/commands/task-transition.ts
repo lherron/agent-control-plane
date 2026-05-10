@@ -15,11 +15,20 @@ import {
   type CommandOutput,
   asJson,
   asText,
+  createRawAcpRequester,
   getClientFactory,
   requireActorAgentId,
   resolveEnv,
   resolveServerUrl,
 } from './shared.js'
+
+function normalizeActorId(raw: string): string {
+  const trimmed = raw.trim()
+  if (trimmed.startsWith('agent:')) {
+    return trimmed.slice('agent:'.length)
+  }
+  return trimmed
+}
 
 function parseEvidence(values: string[]): EvidenceInput[] | undefined {
   const evidence: EvidenceInput[] = []
@@ -46,6 +55,7 @@ export async function runTaskTransitionCommand(
       '--task',
       '--transition',
       '--actor',
+      '--as',
       '--role',
       '--expected-version',
       '--context-hash',
@@ -58,19 +68,43 @@ export async function runTaskTransitionCommand(
   requireNoPositionals(parsed)
 
   const env = resolveEnv(deps)
-  const actorAgentId = requireActorAgentId(readStringFlag(parsed, '--actor'), env)
+  const asValue = readStringFlag(parsed, '--as')
+  const actorValue = readStringFlag(parsed, '--actor')
+  const rawActor = asValue ?? actorValue
+  const actorAgentId = requireActorAgentId(
+    rawActor !== undefined ? normalizeActorId(rawActor) : undefined,
+    env
+  )
   const serverUrl = resolveServerUrl(readStringFlag(parsed, '--server'), env)
+  const taskId = requireStringFlag(parsed, '--task')
+
+  // If --expected-version is omitted, fetch task to get current version
+  let expectedTaskVersion: number
+  const expectedVersionRaw = readStringFlag(parsed, '--expected-version')
+  if (expectedVersionRaw !== undefined) {
+    expectedTaskVersion = parseIntegerValue('--expected-version', expectedVersionRaw, { min: 0 })
+  } else {
+    const requester = createRawAcpRequester({
+      serverUrl,
+      actorAgentId,
+      fetchImpl: deps.fetchImpl,
+    })
+    const taskSnapshot = await requester.requestJson<{
+      task: { taskId: string; version: number }
+    }>({
+      method: 'GET',
+      path: `/v1/tasks/${encodeURIComponent(taskId)}`,
+    })
+    expectedTaskVersion = taskSnapshot.task.version
+  }
+
   const client = getClientFactory(deps)({ serverUrl, actorAgentId })
   const response = await client.transitionTask({
     actorAgentId,
-    taskId: requireStringFlag(parsed, '--task'),
+    taskId,
     transitionId: requireStringFlag(parsed, '--transition'),
     role: requireStringFlag(parsed, '--role'),
-    expectedTaskVersion: parseIntegerValue(
-      '--expected-version',
-      requireStringFlag(parsed, '--expected-version'),
-      { min: 0 }
-    ),
+    expectedTaskVersion,
     idempotencyKey: requireStringFlag(parsed, '--idempotency-key'),
     ...(readStringFlag(parsed, '--context-hash') !== undefined
       ? { contextHash: readStringFlag(parsed, '--context-hash') }
