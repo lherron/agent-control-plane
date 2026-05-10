@@ -2526,6 +2526,23 @@ export function createInMemoryWorkflowKernel(
       if (provenanceError !== undefined) {
         return { ok: false, error: provenanceError }
       }
+      if (request.supervisorRunId !== undefined && isSupervisor) {
+        const supervisorRun = (supervisorRuns.get(task.taskId) ?? []).find(
+          (run) => run.runId === request.supervisorRunId
+        )
+        if (supervisorRun === undefined) {
+          return reject(
+            'authority_not_granted',
+            `Supervisor run "${request.supervisorRunId}" not found on task "${task.taskId}"`
+          )
+        }
+        if (supervisorRun.capabilities.attachEvidence !== true) {
+          return reject(
+            'capability_not_granted',
+            'Capability not granted for action "attach_evidence"'
+          )
+        }
+      }
       for (const item of request.evidence) {
         if (definition.evidenceKinds[item.kind] === undefined) {
           return {

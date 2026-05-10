@@ -320,7 +320,11 @@ describe('workflow supervisor control actions', () => {
       'capability_not_granted'
     )
 
-    startSupervisorRun(kernel, { applySupervisorTransitions: true }, 'supervisor-run-apply')
+    startSupervisorRun(
+      kernel,
+      { attachEvidence: true, applySupervisorTransitions: true },
+      'supervisor-run-apply'
+    )
     kernel.applyTransition({
       taskId: task.taskId,
       transitionId: 'start',

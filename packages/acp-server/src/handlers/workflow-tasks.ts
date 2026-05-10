@@ -370,8 +370,11 @@ export const handleAttachWorkflowEvidence: RouteHandler = async ({ request, para
   )
 
   if (!result.ok) {
-    if (result.error.code === 'authority_not_granted') {
-      forbidden('authority_not_granted', result.error.message)
+    if (
+      result.error.code === 'authority_not_granted' ||
+      result.error.code === 'capability_not_granted'
+    ) {
+      forbidden(result.error.code, result.error.message)
     }
     if (result.error.code === 'idempotency_conflict') {
       conflict(result.error.message)

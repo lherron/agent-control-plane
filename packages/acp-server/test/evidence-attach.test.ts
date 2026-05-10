@@ -44,6 +44,20 @@ describe('standalone workflow evidence attach route', () => {
   test('supervisor with attachEvidence capability attaches evidence with supervisor provenance', async () => {
     await withWiredServer(async (fixture) => {
       const { task } = await createEvidenceTask(fixture)
+      const startRun = await fixture.request({
+        method: 'POST',
+        path: '/v1/workflow-supervisor-runs',
+        body: {
+          taskId: task.taskId,
+          runId: 'supervisor-run-rex-1',
+          supervisor: { kind: 'agent', id: 'rex' },
+          autonomy: 'managed',
+          capabilities: { attachEvidence: true, launchRuns: true },
+          idempotencyKey: 'evidence-attach:supervisor:start',
+          actor: { agentId: 'rex' },
+        },
+      })
+      expect(startRun.status).toBe(200)
 
       const response = await attachEvidence(fixture, task.taskId, {
         actor: { kind: 'agent', id: 'rex' },
