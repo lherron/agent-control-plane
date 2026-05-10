@@ -3,7 +3,11 @@ import { describe, expect, test } from 'bun:test'
 import { withWiredServer } from './fixtures/wired-server.js'
 
 async function createTaskWithObligation(
-  fixture: Awaited<Parameters<Parameters<typeof withWiredServer>[0]>[0]>
+  fixture: Awaited<Parameters<Parameters<typeof withWiredServer>[0]>[0]>,
+  capabilities: { createObligations: boolean; createWaivers?: boolean | undefined } = {
+    createObligations: true,
+    createWaivers: true,
+  }
 ) {
   const create = await fixture.request({
     method: 'POST',
@@ -19,7 +23,7 @@ async function createTaskWithObligation(
       supervisor: {
         actor: { kind: 'agent', id: 'coordinator' },
         autonomy: 'managed',
-        capabilities: { createObligations: true, createWaivers: true },
+        capabilities,
       },
       idempotencyKey: 'server-obligation:create',
       actor: { agentId: 'coordinator' },
@@ -36,7 +40,7 @@ async function createTaskWithObligation(
       runId: 'server-supervisor-run',
       supervisor: { kind: 'agent', id: 'coordinator' },
       autonomy: 'managed',
-      capabilities: { createObligations: true, createWaivers: true },
+      capabilities,
       idempotencyKey: 'server-obligation:supervisor:start',
       actor: { agentId: 'coordinator' },
     },
@@ -119,6 +123,53 @@ describe('durable workflow task obligation lifecycle routes', () => {
       expect(
         fixture.stateStore.workflowRuntime.loadSnapshot().events.map((event) => event.type)
       ).toContain('obligation.cancelled')
+    })
+  })
+
+  test('POST waive returns 403 when persisted supervisor run lacks createWaivers', async () => {
+    await withWiredServer(async (fixture) => {
+      const { taskId, obligationId } = await createTaskWithObligation(fixture, {
+        createObligations: true,
+      })
+
+      const response = await fixture.request({
+        method: 'POST',
+        path: `/v1/tasks/${taskId}/obligations/${obligationId}/waive`,
+        body: {
+          actor: { kind: 'agent', id: 'coordinator' },
+          supervisorRunId: 'server-supervisor-run',
+          reason: 'Supervisor run lacks waiver authority',
+          idempotencyKey: 'server-obligation:waive:no-create-waivers',
+        },
+      })
+
+      expect(response.status).toBe(403)
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: 'capability_not_granted' },
+      })
+    })
+  })
+
+  test('POST waive returns 422 when waiver evidence refs include a missing evidence id', async () => {
+    await withWiredServer(async (fixture) => {
+      const { taskId, obligationId } = await createTaskWithObligation(fixture)
+
+      const response = await fixture.request({
+        method: 'POST',
+        path: `/v1/tasks/${taskId}/obligations/${obligationId}/waive`,
+        body: {
+          actor: { kind: 'agent', id: 'coordinator' },
+          supervisorRunId: 'server-supervisor-run',
+          reason: 'References a missing evidence record',
+          evidenceRefs: ['evd_missing_waiver'],
+          idempotencyKey: 'server-obligation:waive:missing-evidence',
+        },
+      })
+
+      expect(response.status).toBe(422)
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: 'evidence_not_found' },
+      })
     })
   })
 })

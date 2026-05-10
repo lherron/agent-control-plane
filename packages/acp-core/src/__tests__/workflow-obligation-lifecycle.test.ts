@@ -105,14 +105,19 @@ function createActiveTask() {
   return { kernel, task: started.task }
 }
 
-function createWaiverObligation() {
+function createWaiverObligation(
+  capabilities: { createObligations: boolean; createWaivers?: boolean | undefined } = {
+    createObligations: true,
+    createWaivers: true,
+  }
+) {
   const { kernel, task } = createActiveTask()
   const supRun = kernel.startSupervisorRun({
     taskId: task.taskId,
     runId: 'run-supervisor-waiver',
     supervisor,
     autonomy: 'managed',
-    capabilities: { createObligations: true, createWaivers: true },
+    capabilities,
     idempotencyKey: 'supervisor:start:waiver',
   })
   if (!supRun.ok) {
@@ -283,6 +288,35 @@ describe('ACP workflow obligation waive/cancel lifecycle', () => {
         idempotencyKey: 'obligation:cancel:unauthorized',
       }),
       'authority_not_granted'
+    )
+  })
+
+  test('standalone waive obligation is capability gated by persisted createWaivers', () => {
+    const { kernel, obligationId } = createWaiverObligation({ createObligations: true })
+
+    expectReject(
+      kernel.waiveObligation(obligationId, {
+        actor: supervisor,
+        supervisorRunId: 'run-supervisor-waiver',
+        reason: 'Supervisor run lacks waiver authority',
+        idempotencyKey: 'obligation:waive:no-create-waivers',
+      } as never),
+      'capability_not_granted'
+    )
+  })
+
+  test('standalone waive obligation rejects missing waiver evidence refs', () => {
+    const { kernel, obligationId } = createWaiverObligation()
+
+    expectReject(
+      kernel.waiveObligation(obligationId, {
+        actor: supervisor,
+        supervisorRunId: 'run-supervisor-waiver',
+        reason: 'References a missing evidence record',
+        evidenceRefs: ['evd_missing_waiver'],
+        idempotencyKey: 'obligation:waive:missing-evidence',
+      } as never),
+      'evidence_not_found'
     )
   })
 })
