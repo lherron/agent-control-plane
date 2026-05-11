@@ -132,6 +132,7 @@ function extractTurnEndAssistantMessage(payload: unknown): string | undefined {
   return text.trim().length > 0 ? text : undefined
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: central dispatcher folding gateway session events into per-run projection state.
 function processEvent(
   state: ProjectState,
   event: GatewaySessionEvent,

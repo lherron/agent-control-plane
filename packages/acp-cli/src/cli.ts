@@ -32,6 +32,7 @@ import { runTaskObligationWaiveCommand } from './commands/task-obligation-waive.
 import { runTaskRunCompleteCommand } from './commands/task-run-complete.js'
 import { runTaskRunCommand } from './commands/task-run.js'
 import { runTaskShowCommand } from './commands/task-show.js'
+import { runTaskTimelineCommand } from './commands/task-timeline.js'
 import { runTaskTransitionCommand } from './commands/task-transition.js'
 import { runThreadCommand } from './commands/thread.js'
 import { runWorkflowActionCommand } from './commands/workflow-action.js'
@@ -121,7 +122,9 @@ function legacyArgs(command: Command, positionals: readonly string[] = []): stri
     }
 
     if (value === true) {
-      args.push(flag)
+      if (!flag.startsWith('--no-')) {
+        args.push(flag)
+      }
       continue
     }
 
@@ -191,6 +194,27 @@ function addTaskCommands(program: Command, deps: CommandDependencies): void {
     .option('--role <role>')
     .action(runLeaf(deps, [], runTaskShowCommand))
 
+  common(task.command('timeline').description('show a workflow task execution timeline'))
+    .requiredOption('--task <taskId>')
+    .option('--since <when>')
+    .option('--until <when>')
+    .option('--only <kinds>')
+    .option('--skip <kinds>')
+    .option('--rejections-only')
+    .option('-v, --verbose')
+    .option('--markdown')
+    .option('--plain')
+    .option('--no-color')
+    .option('--no-hrc')
+    .option('--hrc-detail <mode>')
+    .option('--hrc-kinds <csv>')
+    .option('--hrc-all-kinds')
+    .option('--hrc-store <path>')
+    .option('--hrc-anchor <mode>')
+    .option('--hrc-event-window <seconds>')
+    .option('--width <n>')
+    .action(runLeaf(deps, [], runTaskTimelineCommand))
+
   common(task.command('transition').description('apply one workflow transition'))
     .requiredOption('--task <taskId>')
     .requiredOption('--transition <transitionId>')
@@ -210,6 +234,14 @@ function addTaskCommands(program: Command, deps: CommandDependencies): void {
     .requiredOption('--role <role>')
     .option('--agent <agentId>')
     .option('--harness <harness>')
+    .option('--hrc-run-id <id>')
+    .option('--runtime-id <id>')
+    .option('--launch-id <id>')
+    .option('--host-session-id <id>')
+    .option('--scope-ref <scopeRef>')
+    .option('--lane-ref <laneRef>')
+    .option('--generation <n>')
+    .option('--launch-runtime')
     .option('--idempotency-key <key>')
     .option('--resume')
     .option('--as <actorRef>', 'actor alias (agent:id normalizes to id)')

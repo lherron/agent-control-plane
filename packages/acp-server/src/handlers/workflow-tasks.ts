@@ -189,6 +189,7 @@ export const handleGetWorkflowTask: RouteHandler = async ({ params, deps }) => {
       effects: kernel.listEffectIntents(taskId),
       supervisorRuns: kernel.listSupervisorRuns(taskId),
       participantRuns: kernel.listParticipantRuns(taskId),
+      workflowHrcRunMaps: kernel.listWorkflowHrcRunMaps(taskId),
       anomalies: kernel.listAnomalies(taskId),
       workflowPatchProposals: kernel.listWorkflowPatchProposals(taskId),
     }

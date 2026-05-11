@@ -22,10 +22,10 @@ export async function runWorkflowPublishCommand(
     multiStringFlags: [],
   })
 
-  if (parsed.positionals.length !== 1) {
+  const [filePath] = parsed.positionals
+  if (parsed.positionals.length !== 1 || filePath === undefined) {
     throw new CliUsageError('usage: acp workflow publish <workflow.json>')
   }
-  const filePath = parsed.positionals[0]!
 
   let fileContent: string
   try {

@@ -1943,6 +1943,67 @@ meta-evaluation report is required
 promotion applies only to future workflow version
 ```
 
+### Implementation completion status
+
+Status: Complete as of 2026-05-11.
+
+Completed checkpoints:
+
+- [x] Phase 1: ACP/HRC capture foundation.
+- [x] Phase 2: deterministic workflow replay.
+- [x] Phase 3: low-authority learning workflows.
+- [x] Phase 4: high-authority proposal and replay workflows.
+- [x] Phase 5: promotion, rollback, and audit workflows.
+- [x] Phase 6: learning-workflow self-improvement governance.
+- [x] `wlearn` downstream tooling.
+
+Implementation notes:
+
+- ACP workflow events now include schema version, workflow sequence, command hash,
+  event hash, previous hash, accepted/rejected/recorded result, rejection code,
+  actor/role/authority metadata, and causation/correlation fields.
+- ACP persists `WorkflowHrcRunMap` records and writes mapping events for launch
+  or reconciled ACP/HRC run correlation.
+- Effect lifecycle changes are ledgered with `effect.intent.leased`,
+  `effect.intent.delivered`, `effect.intent.failed`, and
+  `effect.intent.unsupported` events. Unsupported effects are not silently
+  marked delivered.
+- Learning workflow presets live in ACP under `learning_*` workflow IDs and
+  `learning-task/*` kinds. They cover trace triage, trace labeling, playbook
+  update, curation, policy patch, patch evaluation, patch promotion, rollback,
+  audit, and learning-workflow patch governance.
+- `wlearn` is implemented as read-only/downstream tooling for trace
+  materialization, replay reports, HRC range summaries, playbook/patch drafts,
+  curation reports, and promotion-readiness submission. It does not own
+  lifecycle state or promotion authority.
+
+Justified spec adjustments:
+
+- Rejected commands against unknown task IDs cannot be appended to a
+  task-scoped workflow stream because no workflow task identity is available.
+  Rejections are ledgered once the target task exists.
+- Deterministic replay validates event integrity and recorded kernel outcomes
+  from replay-grade events. It intentionally does not attempt bit-identical LLM
+  replay or statistical Grade C operational claims.
+- External authority is represented as ACP role/evidence requirements; concrete
+  organizational authority binding remains deployment policy.
+
+Validation recorded in `HEURISTIC_LEARNING_IMPLEMENTATION.md`:
+
+- `bun run --filter acp-core typecheck`
+- `bun run --filter acp-core test`
+- `bun run --filter acp-state-store typecheck`
+- `bun run --filter acp-state-store test`
+- `bun run --filter acp-server typecheck`
+- `bun test packages/acp-server/test/workflow-tasks.test.ts`
+- `bun test packages/acp-server/test/workflow-participant-runs.test.ts`
+- `bun run --filter wlearn typecheck`
+- `bun run --filter wlearn test`
+- `bun run lint`
+- `bun run test`
+- Manual `wlearn trace materialize` and `wlearn replay run` smoke tests against
+  a generated ACP workflow snapshot.
+
 ---
 
 ## 17. Minimum Viable Vertical Slice
@@ -2076,4 +2137,3 @@ This gives the system a path to absorb feedback without giving the learner contr
 ## Appendix A: Reference
 
 Jiayi Weng, *Learning Beyond Gradients*, 2026. <https://trinkle23897.github.io/learning-beyond-gradients/>
-

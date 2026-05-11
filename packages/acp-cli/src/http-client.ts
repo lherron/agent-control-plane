@@ -10,6 +10,7 @@ import type {
   InterfaceIdentity,
   SystemEvent,
   WorkflowEvent,
+  WorkflowHrcRunMap,
   WorkflowTask,
 } from 'acp-core'
 
@@ -31,6 +32,7 @@ export type GetTaskResponse = {
   effects: EffectIntent[]
   supervisorRuns: unknown[]
   participantRuns: unknown[]
+  workflowHrcRunMaps?: WorkflowHrcRunMap[] | undefined
   anomalies: unknown[]
   workflowPatchProposals: unknown[]
 }

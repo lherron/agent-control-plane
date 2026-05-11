@@ -1,0 +1,1364 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ACP Viewer Prototype</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #101214;
+        --panel: #181b1e;
+        --panel-2: #202428;
+        --panel-3: #272c31;
+        --line: #343b42;
+        --line-soft: #252a2f;
+        --text: #eef2e8;
+        --muted: #98a09a;
+        --quiet: #68716d;
+        --green: #80c29b;
+        --cyan: #73b6c7;
+        --amber: #d9aa5a;
+        --red: #d36f63;
+        --blue: #7f9dcc;
+        --violet: #a58bc4;
+        --paper: #d8d1bd;
+        --shadow: 0 18px 70px rgba(0, 0, 0, 0.32);
+        --radius: 6px;
+        font-family:
+          "IBM Plex Sans Condensed", "Aptos Narrow", "Arial Narrow", system-ui, sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px) 0 0 / 42px 42px,
+          linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px) 0 0 / 42px 42px,
+          radial-gradient(circle at 12% 18%, rgba(115, 182, 199, 0.08), transparent 34rem),
+          var(--bg);
+        color: var(--text);
+      }
+
+      button,
+      input,
+      select {
+        font: inherit;
+      }
+
+      button {
+        color: inherit;
+      }
+
+      .app {
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: 232px minmax(0, 1fr) 392px;
+        grid-template-rows: 64px 1fr;
+      }
+
+      .topbar {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: 232px minmax(0, 1fr) 392px;
+        align-items: stretch;
+        border-bottom: 1px solid var(--line);
+        background: rgba(16, 18, 20, 0.9);
+        backdrop-filter: blur(18px);
+        position: sticky;
+        top: 0;
+        z-index: 5;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 18px;
+        border-right: 1px solid var(--line);
+        letter-spacing: 0;
+      }
+
+      .brand-mark {
+        width: 28px;
+        height: 28px;
+        border: 1px solid var(--paper);
+        display: grid;
+        place-items: center;
+        color: var(--paper);
+        background:
+          linear-gradient(135deg, transparent 46%, var(--paper) 47%, var(--paper) 53%, transparent 54%),
+          rgba(255, 255, 255, 0.02);
+      }
+
+      .brand strong {
+        display: block;
+        font-size: 15px;
+        text-transform: uppercase;
+      }
+
+      .brand span:last-child {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .global-search {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 18px;
+      }
+
+      .search-box {
+        height: 36px;
+        width: min(520px, 100%);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--panel);
+        color: var(--muted);
+        padding: 0 12px;
+      }
+
+      .search-box svg,
+      .icon-button svg,
+      .nav svg,
+      .toolbar svg {
+        width: 16px;
+        height: 16px;
+        stroke-width: 1.8;
+      }
+
+      .search-box input {
+        min-width: 0;
+        flex: 1;
+        background: transparent;
+        border: 0;
+        outline: 0;
+        color: var(--text);
+      }
+
+      .search-box kbd {
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 2px 6px;
+        color: var(--quiet);
+        font-size: 11px;
+      }
+
+      .connection {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 10px;
+        padding: 0 18px;
+        border-left: 1px solid var(--line);
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 28px;
+        padding: 0 10px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        color: var(--muted);
+        background: rgba(255, 255, 255, 0.02);
+        white-space: nowrap;
+      }
+
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 99px;
+        background: var(--quiet);
+        box-shadow: 0 0 0 3px rgba(104, 113, 109, 0.12);
+      }
+
+      .dot.live,
+      .status.busy {
+        background: var(--green);
+      }
+
+      .status.launching {
+        background: var(--cyan);
+      }
+
+      .status.idle {
+        background: var(--blue);
+      }
+
+      .status.stale,
+      .dot.warn {
+        background: var(--amber);
+      }
+
+      .status.failed,
+      .dot.error {
+        background: var(--red);
+      }
+
+      .nav {
+        grid-row: 2;
+        border-right: 1px solid var(--line);
+        padding: 16px 12px;
+        background: rgba(20, 22, 24, 0.75);
+      }
+
+      .nav-group {
+        display: grid;
+        gap: 4px;
+        margin-bottom: 18px;
+      }
+
+      .nav-label {
+        padding: 8px 10px;
+        color: var(--quiet);
+        text-transform: uppercase;
+        font-size: 11px;
+      }
+
+      .nav button {
+        height: 36px;
+        border: 0;
+        border-radius: var(--radius);
+        background: transparent;
+        display: grid;
+        grid-template-columns: 18px 1fr auto;
+        align-items: center;
+        gap: 10px;
+        padding: 0 10px;
+        color: var(--muted);
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .nav button:hover,
+      .nav button.active {
+        color: var(--text);
+        background: var(--panel-2);
+      }
+
+      .nav button.active {
+        outline: 1px solid var(--line);
+      }
+
+      .nav small {
+        color: var(--quiet);
+      }
+
+      .main {
+        min-width: 0;
+        grid-row: 2;
+        display: grid;
+        grid-template-rows: auto auto minmax(0, 1fr);
+        gap: 14px;
+        padding: 18px;
+      }
+
+      .page-title {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 18px;
+      }
+
+      .page-title > div:first-child {
+        min-width: 0;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 30px;
+        line-height: 1;
+        font-weight: 650;
+        letter-spacing: 0;
+      }
+
+      .subtitle {
+        color: var(--muted);
+        margin-top: 7px;
+        max-width: 68ch;
+        line-height: 1.45;
+      }
+
+      .toolbar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+
+      .button,
+      .icon-button,
+      select {
+        height: 34px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--panel);
+        color: var(--text);
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 12px;
+        cursor: pointer;
+      }
+
+      .icon-button {
+        width: 34px;
+        display: inline-grid;
+        place-items: center;
+        cursor: pointer;
+      }
+
+      select {
+        padding: 0 30px 0 10px;
+      }
+
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(110px, 1fr));
+        gap: 10px;
+      }
+
+      .metric {
+        min-height: 82px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: linear-gradient(180deg, var(--panel), rgba(24, 27, 30, 0.72));
+        padding: 12px;
+        display: grid;
+        align-content: space-between;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+      }
+
+      .metric span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .metric strong {
+        font-size: 25px;
+        line-height: 1;
+      }
+
+      .metric code {
+        color: var(--quiet);
+        font-size: 11px;
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .workbench {
+        min-height: 0;
+        display: grid;
+        grid-template-columns: minmax(340px, 0.9fr) minmax(360px, 1.1fr);
+        gap: 14px;
+      }
+
+      .job-detail-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+        padding: 14px;
+        overflow: auto;
+      }
+
+      .job-detail-grid .detail-section {
+        min-width: 0;
+      }
+
+      .job-detail-grid .wide {
+        grid-column: 1 / -1;
+      }
+
+      .flow-list {
+        display: grid;
+        gap: 10px;
+        padding: 12px;
+      }
+
+      .flow-step {
+        display: grid;
+        grid-template-columns: 34px minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: start;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: rgba(255, 255, 255, 0.025);
+      }
+
+      .flow-step strong,
+      .flow-step span,
+      .flow-step code {
+        min-width: 0;
+      }
+
+      .step-index {
+        width: 26px;
+        height: 26px;
+        display: grid;
+        place-items: center;
+        border-radius: 99px;
+        background: var(--panel-3);
+        color: var(--paper);
+        font-size: 12px;
+      }
+
+      .flow-step p {
+        color: var(--muted);
+        margin-top: 4px;
+        line-height: 1.35;
+      }
+
+      .flow-step.agent .step-index {
+        box-shadow: inset 0 0 0 1px var(--green);
+      }
+
+      .flow-step.exec .step-index {
+        box-shadow: inset 0 0 0 1px var(--cyan);
+      }
+
+      .run-strip {
+        display: grid;
+        gap: 8px;
+        padding: 12px;
+      }
+
+      .run-item {
+        display: grid;
+        grid-template-columns: 92px minmax(0, 1fr) 86px;
+        gap: 10px;
+        align-items: center;
+        padding: 9px 10px;
+        border: 1px solid var(--line-soft);
+        border-radius: var(--radius);
+      }
+
+      .panel {
+        min-width: 0;
+        min-height: 0;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: rgba(24, 27, 30, 0.86);
+        box-shadow: var(--shadow);
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        overflow: hidden;
+      }
+
+      .panel-header {
+        min-height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .panel-header h2 {
+        font-size: 14px;
+        text-transform: uppercase;
+      }
+
+      .panel-header span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .sessions {
+        overflow: auto;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+      }
+
+      th,
+      td {
+        padding: 11px 12px;
+        border-bottom: 1px solid var(--line-soft);
+        text-align: left;
+        vertical-align: middle;
+      }
+
+      th {
+        color: var(--quiet);
+        font-size: 11px;
+        text-transform: uppercase;
+        font-weight: 600;
+        background: rgba(16, 18, 20, 0.58);
+        position: sticky;
+        top: 0;
+        z-index: 1;
+      }
+
+      td {
+        color: var(--text);
+        font-size: 13px;
+      }
+
+      .row-button {
+        display: contents;
+        cursor: pointer;
+      }
+
+      tr.session-row {
+        cursor: pointer;
+      }
+
+      tr.session-row:hover td,
+      tr.session-row.selected td {
+        background: rgba(115, 182, 199, 0.075);
+      }
+
+      .truncate {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .status-cell {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .status {
+        width: 8px;
+        height: 8px;
+        border-radius: 99px;
+        flex: 0 0 auto;
+      }
+
+      .mono {
+        font-family: "Berkeley Mono", "IBM Plex Mono", "SFMono-Regular", ui-monospace, monospace;
+        font-size: 12px;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        max-width: 100%;
+        min-height: 22px;
+        padding: 0 8px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        color: var(--muted);
+        background: rgba(255, 255, 255, 0.025);
+        font-size: 12px;
+      }
+
+      .panel.timeline {
+        min-height: 0;
+        display: grid;
+        grid-template-rows: auto 156px minmax(0, 1fr);
+      }
+
+      .timeline-map {
+        position: relative;
+        border-bottom: 1px solid var(--line);
+        background:
+          linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px) 0 0 / 54px 100%,
+          linear-gradient(180deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px) 0 0 / 100% 39px,
+          #15181b;
+        overflow: hidden;
+      }
+
+      .lane {
+        position: absolute;
+        left: 16px;
+        right: 16px;
+        height: 1px;
+        background: var(--line);
+      }
+
+      .lane span {
+        position: absolute;
+        top: -9px;
+        left: 0;
+        color: var(--quiet);
+        background: #15181b;
+        padding-right: 8px;
+        font-size: 11px;
+        text-transform: uppercase;
+      }
+
+      .event {
+        position: absolute;
+        width: 14px;
+        height: 14px;
+        border-radius: 99px;
+        border: 2px solid #15181b;
+        cursor: pointer;
+        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.28);
+      }
+
+      .event:hover,
+      .event.selected {
+        transform: scale(1.18);
+        box-shadow: 0 0 0 4px rgba(216, 209, 189, 0.12);
+      }
+
+      .event.runtime {
+        background: var(--green);
+      }
+
+      .event.input {
+        background: var(--amber);
+      }
+
+      .event.tool {
+        background: var(--cyan);
+      }
+
+      .event.delivery {
+        background: var(--violet);
+      }
+
+      .event.warning {
+        background: var(--red);
+      }
+
+      .event-list {
+        overflow: auto;
+      }
+
+      .event-row {
+        width: 100%;
+        min-height: 58px;
+        border: 0;
+        border-bottom: 1px solid var(--line-soft);
+        background: transparent;
+        display: grid;
+        grid-template-columns: 72px 94px minmax(0, 1fr) 74px;
+        align-items: center;
+        gap: 10px;
+        padding: 9px 12px;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .event-row:hover,
+      .event-row.selected {
+        background: rgba(216, 209, 189, 0.06);
+      }
+
+      .event-row time,
+      .event-row code {
+        color: var(--quiet);
+      }
+
+      .event-row strong {
+        display: block;
+        color: var(--text);
+        font-size: 13px;
+      }
+
+      .event-row em {
+        display: block;
+        color: var(--muted);
+        font-style: normal;
+        font-size: 12px;
+        margin-top: 2px;
+      }
+
+      .family {
+        width: fit-content;
+        min-width: 68px;
+        min-height: 24px;
+        display: inline-grid;
+        place-items: center;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        font-size: 12px;
+      }
+
+      .family.runtime {
+        color: var(--green);
+      }
+
+      .family.input {
+        color: var(--amber);
+      }
+
+      .family.tool {
+        color: var(--cyan);
+      }
+
+      .family.delivery {
+        color: var(--violet);
+      }
+
+      .family.warning {
+        color: var(--red);
+      }
+
+      .inspector {
+        grid-row: 2;
+        border-left: 1px solid var(--line);
+        background: rgba(20, 22, 24, 0.88);
+        display: grid;
+        grid-template-rows: auto auto minmax(0, 1fr);
+        min-width: 0;
+      }
+
+      .inspector-head {
+        padding: 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .inspector-head h2 {
+        font-size: 20px;
+        line-height: 1.1;
+      }
+
+      .inspector-head p {
+        color: var(--muted);
+        margin-top: 8px;
+        line-height: 1.35;
+      }
+
+      .tabs {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        border-bottom: 1px solid var(--line);
+      }
+
+      .tabs button {
+        height: 42px;
+        border: 0;
+        border-right: 1px solid var(--line);
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+      }
+
+      .tabs button.active {
+        background: var(--panel-2);
+        color: var(--text);
+      }
+
+      .detail {
+        min-height: 0;
+        overflow: auto;
+        padding: 16px;
+        display: grid;
+        gap: 14px;
+        align-content: start;
+      }
+
+      .detail-section {
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--panel);
+        overflow: hidden;
+      }
+
+      .detail-section h3 {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--line);
+        font-size: 12px;
+        text-transform: uppercase;
+      }
+
+      dl {
+        margin: 0;
+        display: grid;
+        grid-template-columns: 112px minmax(0, 1fr);
+      }
+
+      dt,
+      dd {
+        margin: 0;
+        padding: 9px 12px;
+        border-bottom: 1px solid var(--line-soft);
+        min-width: 0;
+      }
+
+      dt {
+        color: var(--quiet);
+        font-size: 12px;
+      }
+
+      dd {
+        color: var(--text);
+        overflow-wrap: anywhere;
+      }
+
+      pre {
+        margin: 0;
+        padding: 12px;
+        overflow: auto;
+        color: var(--paper);
+        background: #0c0f11;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .callout {
+        border-left: 3px solid var(--amber);
+        padding: 12px;
+        background: rgba(217, 170, 90, 0.08);
+        color: var(--paper);
+        line-height: 1.45;
+      }
+
+      @media (max-width: 1260px) {
+        .app {
+          grid-template-columns: 74px minmax(0, 1fr);
+          grid-template-rows: 64px auto auto;
+        }
+
+        .topbar {
+          grid-template-columns: 74px minmax(0, 1fr);
+        }
+
+        .brand {
+          justify-content: center;
+          padding: 0;
+        }
+
+        .brand div:last-child,
+        .connection {
+          display: none;
+        }
+
+        .nav {
+          grid-row: 2 / 4;
+        }
+
+        .nav button {
+          grid-template-columns: 1fr;
+          place-items: center;
+          padding: 0;
+        }
+
+        .nav button span,
+        .nav small,
+        .nav-label {
+          display: none;
+        }
+
+        .main {
+          grid-column: 2;
+          grid-row: 2;
+        }
+
+        .inspector {
+          grid-column: 2;
+          grid-row: 3;
+          border-left: 0;
+          border-top: 1px solid var(--line);
+        }
+      }
+
+      @media (max-width: 1500px) {
+        .page-title {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .toolbar {
+          justify-content: flex-start;
+        }
+
+        .workbench {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 980px) {
+        .metrics,
+        .workbench {
+          grid-template-columns: 1fr;
+        }
+
+        .page-title {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .toolbar {
+          justify-content: flex-start;
+        }
+      }
+
+      @media (max-width: 720px) {
+        .app {
+          grid-template-columns: 1fr;
+        }
+
+        .topbar {
+          grid-template-columns: 1fr;
+        }
+
+        .brand,
+        .nav {
+          display: none;
+        }
+
+        .main,
+        .inspector {
+          grid-column: 1;
+        }
+
+        .global-search {
+          padding: 0 18px;
+        }
+
+        .global-search .pill {
+          display: none;
+        }
+
+        .search-box {
+          width: 100%;
+        }
+
+        .metrics {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .event-row {
+          grid-template-columns: 64px minmax(0, 1fr) 54px;
+        }
+
+        .event-row .family {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div>
+            <strong>ACP Viewer</strong>
+            <span>direct-to-local endpoints</span>
+          </div>
+        </div>
+        <div class="global-search">
+          <label class="search-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+              <circle cx="11" cy="11" r="7"></circle>
+              <path d="m20 20-3.5-3.5"></path>
+            </svg>
+            <input value="project:agent-spaces status:active" aria-label="Search ACP data" />
+            <kbd>/</kbd>
+          </label>
+          <span class="pill"><span class="dot live"></span>stream hrcSeq 12844</span>
+        </div>
+        <div class="connection">
+          <span class="pill">127.0.0.1:18470</span>
+          <button class="icon-button" type="button" aria-label="refresh snapshot">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+              <path d="M21 12a9 9 0 0 1-15.3 6.4"></path>
+              <path d="M3 12A9 9 0 0 1 18.3 5.6"></path>
+              <path d="M18 2v4h-4"></path>
+              <path d="M6 22v-4h4"></path>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <aside class="nav" aria-label="ACP viewer navigation">
+        <div class="nav-group">
+          <div class="nav-label">Observe</div>
+          <button type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+              <path d="M3 12h4l3 8 4-16 3 8h4"></path>
+            </svg>
+            <span>Live</span>
+            <small>38</small>
+          </button>
+          <button type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="14" rx="2"></rect>
+              <path d="M8 20h8"></path>
+              <path d="M12 18v2"></path>
+            </svg>
+            <span>Sessions</span>
+            <small>124</small>
+          </button>
+          <button type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+              <path d="M4 7h16"></path>
+              <path d="M4 12h16"></path>
+              <path d="M4 17h10"></path>
+            </svg>
+            <span>Runs</span>
+            <small>9</small>
+          </button>
+          <button type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+              <path d="M12 3v18"></path>
+              <path d="M5 8h14"></path>
+              <path d="M5 16h14"></path>
+            </svg>
+            <span>Events</span>
+            <small>5k</small>
+          </button>
+        </div>
+        <div class="nav-group">
+          <div class="nav-label">Control Plane</div>
+          <button type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+              <path d="M4 6h16v12H4z"></path>
+              <path d="M8 10h8"></path>
+              <path d="M8 14h5"></path>
+            </svg>
+            <span>Projects</span>
+          </button>
+          <button type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+              <circle cx="12" cy="8" r="4"></circle>
+              <path d="M4 21a8 8 0 0 1 16 0"></path>
+            </svg>
+            <span>Agents</span>
+          </button>
+          <button class="active" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+              <path d="M6 3v18"></path>
+              <path d="M18 3v18"></path>
+              <path d="M6 8h12"></path>
+              <path d="M6 16h12"></path>
+            </svg>
+            <span>Jobs</span>
+          </button>
+          <button type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+              <path d="M4 5h16"></path>
+              <path d="M4 12h16"></path>
+              <path d="M4 19h16"></path>
+              <circle cx="8" cy="5" r="2"></circle>
+              <circle cx="16" cy="12" r="2"></circle>
+              <circle cx="10" cy="19" r="2"></circle>
+            </svg>
+            <span>Interfaces</span>
+            <small>3</small>
+          </button>
+        </div>
+      </aside>
+
+      <main class="main">
+        <section class="page-title">
+          <div>
+            <h1>Jobs</h1>
+            <p class="subtitle">
+              Static catalog of scheduled ACP jobs: what exists, what each job does at startup,
+              how it is scheduled, and the JobFlow definition behind multi-step work.
+            </p>
+          </div>
+          <div class="toolbar">
+            <select aria-label="job project filter">
+              <option>All projects</option>
+              <option>agent-spaces</option>
+              <option>content_ai_ops</option>
+            </select>
+            <button class="button" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+                <path d="M12 5v14"></path>
+                <path d="M5 12h14"></path>
+              </svg>
+              New job
+            </button>
+            <button class="button" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+                <path d="M20 6 9 17l-5-5"></path>
+              </svg>
+              Validate
+            </button>
+          </div>
+        </section>
+
+        <section class="metrics" aria-label="job catalog metrics">
+          <div class="metric"><span>Total jobs</span><strong>12</strong><code>GET /v1/admin/jobs</code></div>
+          <div class="metric"><span>Flow jobs</span><strong>5</strong><code>job.flow.sequence[]</code></div>
+          <div class="metric"><span>Due next hour</span><strong>4</strong><code>nextFireAt</code></div>
+          <div class="metric"><span>Disabled</span><strong>2</strong><code>disabled</code></div>
+          <div class="metric"><span>Last failure</span><strong>13m</strong><code>/v1/jobs/:jobId/runs</code></div>
+          <div class="metric"><span>Scheduler</span><strong>on</strong><code>proposed /scheduler</code></div>
+        </section>
+
+        <section class="workbench">
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Job Catalog</h2>
+                <span>Jobs as durable definitions, not a timeline of executions</span>
+              </div>
+              <span class="badge">12 jobs</span>
+            </div>
+            <div class="sessions">
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width: 108px">State</th>
+                    <th>Job</th>
+                    <th style="width: 136px">Schedule</th>
+                    <th style="width: 108px">Kind</th>
+                    <th style="width: 116px">Next</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr class="session-row selected" data-job="0">
+                    <td><span class="status-cell"><span class="status busy"></span>enabled</span></td>
+                    <td class="truncate"><strong>nightly.learning-curation</strong><br><span class="mono">agent:larry project:agent-spaces</span></td>
+                    <td class="mono">15 1 * * *</td>
+                    <td><span class="badge">flow</span></td>
+                    <td>01:15</td>
+                  </tr>
+                  <tr class="session-row" data-job="1">
+                    <td><span class="status-cell"><span class="status busy"></span>enabled</span></td>
+                    <td class="truncate"><strong>discord.delivery-reconcile</strong><br><span class="mono">project:gateway</span></td>
+                    <td class="mono">*/10 * * * *</td>
+                    <td><span class="badge">input</span></td>
+                    <td>7m</td>
+                  </tr>
+                  <tr class="session-row" data-job="2">
+                    <td><span class="status-cell"><span class="status stale"></span>disabled</span></td>
+                    <td class="truncate"><strong>weekly.ops-rollup</strong><br><span class="mono">project:content_ai_ops</span></td>
+                    <td class="mono">0 9 * * 1</td>
+                    <td><span class="badge">flow</span></td>
+                    <td>paused</td>
+                  </tr>
+                  <tr class="session-row" data-job="3">
+                    <td><span class="status-cell"><span class="status launching"></span>enabled</span></td>
+                    <td class="truncate"><strong>hourly.task-health</strong><br><span class="mono">project:agent-spaces</span></td>
+                    <td class="mono">0 * * * *</td>
+                    <td><span class="badge">exec</span></td>
+                    <td>42m</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h2 id="job-title">nightly.learning-curation</h2>
+                <span id="job-subtitle">Flow job: curate learning traces, evaluate patches, publish summary</span>
+              </div>
+              <span id="job-kind" class="badge">flow · 4 steps</span>
+            </div>
+            <div class="job-detail-grid">
+              <section class="detail-section">
+                <h3>Identity</h3>
+                <dl>
+                  <dt>jobId</dt><dd id="job-id" class="mono">job_learning_nightly</dd>
+                  <dt>projectId</dt><dd class="mono">agent-spaces</dd>
+                  <dt>agentId</dt><dd class="mono">larry</dd>
+                  <dt>laneRef</dt><dd class="mono">main</dd>
+                  <dt>disabled</dt><dd>false</dd>
+                </dl>
+              </section>
+              <section class="detail-section">
+                <h3>Schedule</h3>
+                <dl>
+                  <dt>cron</dt><dd id="job-cron" class="mono">15 1 * * *</dd>
+                  <dt>nextFireAt</dt><dd>2026-05-12T01:15:00-05:00</dd>
+                  <dt>lastFireAt</dt><dd>2026-05-11T01:15:00-05:00</dd>
+                  <dt>window</dt><dd>01:00-03:00 local</dd>
+                  <dt>catch-up</dt><dd>skip missed window</dd>
+                </dl>
+              </section>
+              <section class="detail-section wide">
+                <h3>Startup Details</h3>
+                <dl>
+                  <dt>scopeRef</dt><dd class="mono">agent:larry:project:agent-spaces:task:T-learning-curation:role:implementer</dd>
+                  <dt>input.content</dt><dd>Review heuristic-learning traces from the last 24 hours and prepare accepted policy patches.</dd>
+                  <dt>source</dt><dd class="mono">meta.source.kind = job</dd>
+                </dl>
+              </section>
+              <section class="detail-section wide">
+                <h3>JobFlow Summary</h3>
+                <div class="flow-list">
+                  <div class="flow-step agent">
+                    <span class="step-index">1</span>
+                    <span><strong>collect-traces</strong><p>Agent step gathers recent workflow traces and labels candidate learning artifacts.</p></span>
+                    <code class="badge">expect: summary</code>
+                  </div>
+                  <div class="flow-step exec">
+                    <span class="step-index">2</span>
+                    <span><strong>validate-schema</strong><p>Exec step runs deterministic validation before any publication step is allowed.</p></span>
+                    <code class="badge">exec</code>
+                  </div>
+                  <div class="flow-step agent">
+                    <span class="step-index">3</span>
+                    <span><strong>evaluate-patches</strong><p>Agent step evaluates proposed patches and emits a RESULT block.</p></span>
+                    <code class="badge">expect: ready=true</code>
+                  </div>
+                  <div class="flow-step agent">
+                    <span class="step-index">F</span>
+                    <span><strong>onFailure.summarize</strong><p>Failure branch summarizes the failed step and leaves follow-up context.</p></span>
+                    <code class="badge">onFailure</code>
+                  </div>
+                </div>
+              </section>
+              <section class="detail-section wide">
+                <h3>Recent Runs</h3>
+                <div class="run-strip">
+                  <div class="run-item"><span class="badge">succeeded</span><span class="mono">jrun_01441 · run_8230 · input_501</span><time>01:17</time></div>
+                  <div class="run-item"><span class="badge">failed</span><span class="mono">jrun_01305 · run_8112 · input_488</span><time>yesterday</time></div>
+                  <div class="run-item"><span class="badge">succeeded</span><span class="mono">jrun_01277 · run_7901 · input_470</span><time>May 9</time></div>
+                </div>
+              </section>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <aside class="inspector" aria-label="selected job flow inspector">
+        <div class="inspector-head">
+          <h2 id="detail-title">JobFlow Definition</h2>
+          <p id="detail-summary">
+            First-class visibility into sequence and onFailure steps: input prompts, exec commands,
+            timeouts, branch rules, and expectations before looking at any particular run.
+          </p>
+        </div>
+        <div class="tabs" role="tablist">
+          <button class="active" type="button">Flow</button>
+          <button type="button">Startup</button>
+          <button type="button">Schedule</button>
+          <button type="button">Runs</button>
+        </div>
+        <div class="detail">
+          <section class="detail-section">
+            <h3>Selected Step</h3>
+            <dl>
+              <dt>stepId</dt><dd id="detail-seq" class="mono">validate-schema</dd>
+              <dt>kind</dt><dd class="mono">exec</dd>
+              <dt>phase</dt><dd class="mono">sequence</dd>
+              <dt>timeout</dt><dd class="mono">PT2M</dd>
+              <dt>next</dt><dd class="mono">continue</dd>
+            </dl>
+          </section>
+          <section class="detail-section">
+            <h3>Exec Startup</h3>
+            <pre id="payload">{
+  "argv": ["bun", "test", "tests/conformance/acp-workflow"],
+  "cwd": "/Users/lherron/praesidium/agent-spaces",
+  "maxOutputBytes": 120000,
+  "timeout": "PT2M"
+}</pre>
+          </section>
+          <section class="detail-section">
+            <h3>Endpoint Coverage</h3>
+            <dl>
+              <dt>job</dt><dd class="mono">GET /v1/admin/jobs/:jobId</dd>
+              <dt>runs</dt><dd class="mono">GET /v1/jobs/:jobId/runs</dd>
+              <dt>run detail</dt><dd class="mono">GET /v1/job-runs/:jobRunId</dd>
+              <dt>missing</dt><dd class="mono">GET /v1/admin/jobs/:jobId/detail</dd>
+            </dl>
+          </section>
+          <p class="callout">
+            Proposed addition: return computed flow summary, next fire previews, disabled reason,
+            and latest run summary with the job detail so the viewer does not infer intent from raw JSON alone.
+          </p>
+        </div>
+      </aside>
+    </div>
+
+    <script>
+      const jobs = [
+        {
+          title: "nightly.learning-curation",
+          subtitle: "Flow job: curate learning traces, evaluate patches, publish summary",
+          kind: "flow · 4 steps",
+          jobId: "job_learning_nightly",
+          cron: "15 1 * * *",
+          step: "validate-schema",
+          payload: {
+            argv: ["bun", "test", "tests/conformance/acp-workflow"],
+            cwd: "/Users/lherron/praesidium/agent-spaces",
+            maxOutputBytes: 120000,
+            timeout: "PT2M",
+          },
+        },
+        {
+          title: "discord.delivery-reconcile",
+          subtitle: "Simple input job: reconcile failed gateway deliveries and queue retries",
+          kind: "input · no flow",
+          jobId: "job_delivery_reconcile",
+          cron: "*/10 * * * *",
+          step: "input.content",
+          payload: {
+            content: "Find failed Discord deliveries, requeue safe retries, and summarize blocked cases.",
+            scopeRef: "agent:ops:project:gateway:role:observer",
+          },
+        },
+        {
+          title: "weekly.ops-rollup",
+          subtitle: "Disabled flow job: produce weekly project operations report",
+          kind: "flow · disabled",
+          jobId: "job_weekly_rollup",
+          cron: "0 9 * * 1",
+          step: "collect-week",
+          payload: {
+            disabledReason: "waiting for project ownership mapping",
+            sequence: ["collect-week", "summarize-risks", "publish-report"],
+          },
+        },
+        {
+          title: "hourly.task-health",
+          subtitle: "Exec-backed health check over workflow task store and scheduler wiring",
+          kind: "exec · 1 step",
+          jobId: "job_task_health",
+          cron: "0 * * * *",
+          step: "task-health",
+          payload: {
+            argv: ["bun", "packages/acp-cli/bin/acp.js", "task", "timeline", "--json"],
+            cwd: "/Users/lherron/praesidium/agent-spaces",
+          },
+        },
+      ];
+
+      function selectJob(index) {
+        const job = jobs[index] || jobs[0];
+        document.querySelectorAll("[data-job]").forEach((node) => {
+          node.classList.toggle("selected", node.dataset.job === String(index));
+        });
+        document.getElementById("job-title").textContent = job.title;
+        document.getElementById("job-subtitle").textContent = job.subtitle;
+        document.getElementById("job-kind").textContent = job.kind;
+        document.getElementById("job-id").textContent = job.jobId;
+        document.getElementById("job-cron").textContent = job.cron;
+        document.getElementById("detail-seq").textContent = job.step;
+        document.getElementById("payload").textContent = JSON.stringify(job.payload, null, 2);
+      }
+
+      document.querySelectorAll("[data-job]").forEach((node) => {
+        node.addEventListener("click", () => selectJob(Number(node.dataset.job)));
+      });
+    </script>
+  </body>
+</html>

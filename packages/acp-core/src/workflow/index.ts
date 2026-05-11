@@ -182,6 +182,20 @@ export interface EvidenceRecord extends EvidenceInput {
   runId?: string | undefined
   participantRunId?: string | undefined
   supervisorRunId?: string | undefined
+  schemaVersion?: number | undefined
+  schemaHash?: string | undefined
+  producedAt?: string | undefined
+  taskVersionAtProduction?: number | undefined
+  phaseAtProduction?: string | undefined
+  transitionIntentId?: string | undefined
+  artifactRefs?: string[] | undefined
+  semanticValidation?:
+    | {
+        validatorId: string
+        result: 'valid' | 'invalid' | 'inconclusive'
+        reason?: string | undefined
+      }
+    | undefined
   createdAt: string
 }
 
@@ -213,17 +227,25 @@ export interface EffectIntent {
   kind: string
   payload: Record<string, unknown>
   idempotencyKey: string
-  state: 'pending' | 'leased' | 'delivered' | 'failed'
+  state: 'pending' | 'leased' | 'delivered' | 'failed' | 'unsupported' | 'expired'
   createdAt: string
   updatedAt: string
 }
 
 export interface WorkflowEvent {
   eventId: string
+  workflowSeq: number
+  schemaVersion: number
   taskId: string
   workflow: WorkflowRef
   type: string
+  commandType?: string | undefined
+  commandHash?: string | undefined
+  causationId?: string | undefined
+  correlationId?: string | undefined
   actor: ActorRef
+  role?: string | undefined
+  authority?: string | undefined
   runId?: string | undefined
   supervisorRunId?: string | undefined
   participantRunId?: string | undefined
@@ -231,8 +253,28 @@ export interface WorkflowEvent {
   nextTaskVersion?: number | undefined
   contextHash?: string | undefined
   idempotencyKey: string
+  result: 'accepted' | 'rejected' | 'recorded'
+  rejectionCode?: string | undefined
   payload: Record<string, unknown>
+  eventHash: string
+  prevHash?: string | undefined
   createdAt: string
+}
+
+export interface WorkflowHrcRunMap {
+  mapId: string
+  workflowTaskId: string
+  participantRunId?: string | undefined
+  supervisorRunId?: string | undefined
+  hrcRunId: string
+  runtimeId?: string | undefined
+  launchId?: string | undefined
+  hostSessionId?: string | undefined
+  scopeRef?: string | undefined
+  laneRef?: string | undefined
+  generation?: number | undefined
+  createdAt: string
+  source: 'admission' | 'launch' | 'reconciled'
 }
 
 export type ParticipantRunStatus = 'launched' | 'running' | 'completed' | 'failed' | 'cancelled'
@@ -412,6 +454,7 @@ export interface WorkflowKernelSnapshot {
   obligations: ObligationRecord[]
   effects: EffectIntent[]
   events: WorkflowEvent[]
+  workflowHrcRunMaps?: WorkflowHrcRunMap[] | undefined
   supervisorRuns: SupervisorRunRecord[]
   participantRuns: ParticipantRunRecord[]
   anomalies: WorkflowAnomaly[]
@@ -586,6 +629,7 @@ export function createInMemoryWorkflowKernel(
   const obligations = new Map<string, ObligationRecord[]>()
   const effects = new Map<string, EffectIntent[]>()
   const events = new Map<string, WorkflowEvent[]>()
+  const workflowHrcRunMaps = new Map<string, WorkflowHrcRunMap[]>()
   const supervisorRuns = new Map<string, SupervisorRunRecord[]>()
   const participantRuns = new Map<string, ParticipantRunRecord[]>()
   const anomalies = new Map<string, WorkflowAnomaly[]>()
@@ -618,6 +662,12 @@ export function createInMemoryWorkflowKernel(
     }
     for (const event of input.snapshot.events) {
       events.set(event.taskId, [...(events.get(event.taskId) ?? []), clone(event)])
+    }
+    for (const map of input.snapshot.workflowHrcRunMaps ?? []) {
+      workflowHrcRunMaps.set(map.workflowTaskId, [
+        ...(workflowHrcRunMaps.get(map.workflowTaskId) ?? []),
+        clone(map),
+      ])
     }
     for (const run of input.snapshot.supervisorRuns) {
       supervisorRuns.set(run.taskId, [...(supervisorRuns.get(run.taskId) ?? []), clone(run)])
@@ -680,16 +730,115 @@ export function createInMemoryWorkflowKernel(
 
   const appendEvent = (
     task: WorkflowTask,
-    inputEvent: Omit<WorkflowEvent, 'eventId' | 'createdAt' | 'workflow'>
+    inputEvent: Omit<
+      WorkflowEvent,
+      | 'eventId'
+      | 'workflowSeq'
+      | 'schemaVersion'
+      | 'createdAt'
+      | 'workflow'
+      | 'result'
+      | 'eventHash'
+      | 'prevHash'
+    > & { result?: WorkflowEvent['result'] | undefined }
   ): WorkflowEvent => {
-    const event: WorkflowEvent = {
+    const existingEvents = events.get(task.taskId) ?? []
+    const eventWithoutHash: Omit<WorkflowEvent, 'eventHash'> = {
       eventId: nextId('wevt'),
+      workflowSeq: existingEvents.length + 1,
+      schemaVersion: 1,
       createdAt: now,
       workflow: task.workflow,
       ...inputEvent,
+      result: inputEvent.result ?? 'accepted',
+      commandType: inputEvent.commandType ?? inputEvent.type,
+      commandHash:
+        inputEvent.commandHash ??
+        hashValue({
+          type: inputEvent.commandType ?? inputEvent.type,
+          idempotencyKey: inputEvent.idempotencyKey,
+          payload: inputEvent.payload,
+        }),
+      ...(existingEvents.at(-1)?.eventHash !== undefined
+        ? { prevHash: existingEvents.at(-1)?.eventHash }
+        : {}),
     }
-    events.set(task.taskId, [...(events.get(task.taskId) ?? []), clone(event)])
+    const event: WorkflowEvent = {
+      ...eventWithoutHash,
+      eventHash: hashValue(eventWithoutHash),
+    }
+    events.set(task.taskId, [...existingEvents, clone(event)])
     return event
+  }
+
+  const redactedCommand = (value: unknown): Record<string, unknown> => {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      return {}
+    }
+    const record = value as Record<string, unknown>
+    return Object.fromEntries(
+      Object.entries(record).filter(
+        ([key]) => !['inlineEvidence', 'evidence', 'data', 'payload'].includes(key)
+      )
+    )
+  }
+
+  const recordRejectedCommand = (
+    task: WorkflowTask,
+    input: {
+      type: string
+      actor: ActorRef
+      idempotencyKey: string
+      error: WorkflowRejection
+      command: Record<string, unknown>
+      contextHash?: string | undefined
+      role?: string | undefined
+      authority?: string | undefined
+      runId?: string | undefined
+      supervisorRunId?: string | undefined
+      participantRunId?: string | undefined
+    }
+  ): void => {
+    appendEvent(task, {
+      taskId: task.taskId,
+      type: input.type,
+      commandType: input.type,
+      actor: input.actor,
+      ...(input.role !== undefined ? { role: input.role } : {}),
+      ...(input.authority !== undefined ? { authority: input.authority } : {}),
+      ...(input.runId !== undefined ? { runId: input.runId } : {}),
+      ...(input.supervisorRunId !== undefined ? { supervisorRunId: input.supervisorRunId } : {}),
+      ...(input.participantRunId !== undefined ? { participantRunId: input.participantRunId } : {}),
+      observedTaskVersion: task.version,
+      ...(input.contextHash !== undefined ? { contextHash: input.contextHash } : {}),
+      idempotencyKey: input.idempotencyKey,
+      result: 'rejected',
+      rejectionCode: input.error.code,
+      payload: {
+        rejection: clone(input.error),
+        command: redactedCommand(input.command),
+      },
+    })
+  }
+
+  const rejectAndRecord = (
+    task: WorkflowTask,
+    input: {
+      type: string
+      actor: ActorRef
+      idempotencyKey: string
+      error: WorkflowRejection
+      command: Record<string, unknown>
+      contextHash?: string | undefined
+      role?: string | undefined
+      authority?: string | undefined
+      runId?: string | undefined
+      supervisorRunId?: string | undefined
+      participantRunId?: string | undefined
+    }
+  ): { ok: false; error: WorkflowRejection } => {
+    recordRejectedCommand(task, input)
+    return { ok: false, error: input.error }
   }
 
   const addEvidence = (
@@ -1321,6 +1470,7 @@ export function createInMemoryWorkflowKernel(
     runId?: string | undefined
     idempotencyKey?: string | undefined
   }): WorkflowResult<{ task: WorkflowTask; event: WorkflowEvent; effects: EffectIntent[] }> =>
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: central dispatcher for one checked transition with multiple guard layers.
     withIdempotency(request.idempotencyKey, request, () => {
       const idempotencyKey = request.idempotencyKey ?? ''
       const task = tasks.get(request.taskId)
@@ -1328,22 +1478,55 @@ export function createInMemoryWorkflowKernel(
         return reject('task_not_found', `Task not found: ${request.taskId}`)
       }
       if (request.expectedTaskVersion !== task.version) {
-        return reject(
+        const error = reject(
           'version_conflict',
           `Task version ${task.version} does not match expected version ${request.expectedTaskVersion}`
-        )
+        ).error
+        return rejectAndRecord(task, {
+          type: 'transition.rejected',
+          actor: request.actor,
+          role: request.role,
+          idempotencyKey,
+          error,
+          command: request,
+          ...(request.contextHash !== undefined ? { contextHash: request.contextHash } : {}),
+          ...(request.runId !== undefined ? { runId: request.runId } : {}),
+        })
       }
       if (
         request.contextHash !== undefined &&
         currentContextHashes.get(task.taskId)?.has(request.contextHash) !== true
       ) {
-        return reject('context_stale', 'The supplied context hash is not current for this task')
+        const error = reject(
+          'context_stale',
+          'The supplied context hash is not current for this task'
+        ).error
+        return rejectAndRecord(task, {
+          type: 'transition.rejected',
+          actor: request.actor,
+          role: request.role,
+          idempotencyKey,
+          error,
+          command: request,
+          contextHash: request.contextHash,
+          ...(request.runId !== undefined ? { runId: request.runId } : {}),
+        })
       }
       const definition = getDefinitionForTask(task)
       const transition = definition.transitions[request.transitionId]
       if (transition === undefined) {
-        return reject('unknown_transition', `Unknown transition "${request.transitionId}"`, {
+        const error = reject('unknown_transition', `Unknown transition "${request.transitionId}"`, {
           transitionId: request.transitionId,
+        }).error
+        return rejectAndRecord(task, {
+          type: 'transition.rejected',
+          actor: request.actor,
+          role: request.role,
+          idempotencyKey,
+          error,
+          command: request,
+          ...(request.contextHash !== undefined ? { contextHash: request.contextHash } : {}),
+          ...(request.runId !== undefined ? { runId: request.runId } : {}),
         })
       }
       const combinedEvidence = [
@@ -1359,7 +1542,16 @@ export function createInMemoryWorkflowKernel(
         request.waiverRefs
       )
       if (transitionError !== undefined) {
-        return { ok: false, error: transitionError }
+        return rejectAndRecord(task, {
+          type: 'transition.rejected',
+          actor: request.actor,
+          role: request.role,
+          idempotencyKey,
+          error: transitionError,
+          command: request,
+          ...(request.contextHash !== undefined ? { contextHash: request.contextHash } : {}),
+          ...(request.runId !== undefined ? { runId: request.runId } : {}),
+        })
       }
       const roleSpec = definition.roles[request.role]
       if (
@@ -1391,14 +1583,25 @@ export function createInMemoryWorkflowKernel(
       }
       const validation = validateWorkState(nextTask.state)
       if (validation !== undefined) {
-        return { ok: false, error: validation }
+        return rejectAndRecord(task, {
+          type: 'transition.rejected',
+          actor: request.actor,
+          role: request.role,
+          idempotencyKey,
+          error: validation,
+          command: request,
+          ...(request.contextHash !== undefined ? { contextHash: request.contextHash } : {}),
+          ...(request.runId !== undefined ? { runId: request.runId } : {}),
+        })
       }
       tasks.set(task.taskId, clone(nextTask))
       clearContextHashes(task.taskId)
       const event = appendEvent(nextTask, {
         taskId: task.taskId,
         type: 'transition.applied',
+        commandType: 'transition.accepted',
         actor: request.actor,
+        role: request.role,
         ...(request.runId ? { runId: request.runId } : {}),
         observedTaskVersion: previousVersion,
         nextTaskVersion: nextTask.version,
@@ -2823,6 +3026,9 @@ export function createInMemoryWorkflowKernel(
     actor: ActorRef
     harness?: Record<string, unknown> | undefined
     parentSupervisorRunId?: string | undefined
+    hrc?:
+      | Omit<WorkflowHrcRunMap, 'mapId' | 'workflowTaskId' | 'participantRunId' | 'createdAt'>
+      | undefined
     idempotencyKey?: string | undefined
   }): WorkflowResult<{ participantRun: ParticipantRunRecord; context: Record<string, unknown> }> =>
     withIdempotency(request.idempotencyKey, request, () => {
@@ -2833,20 +3039,47 @@ export function createInMemoryWorkflowKernel(
       }
       const definition = getDefinitionForTask(task)
       if (definition.roles[request.role] === undefined) {
-        return reject(
+        const error = reject(
           'role_not_bound',
           `Role "${request.role}" is not defined by workflow "${definition.id}"`
-        )
+        ).error
+        return rejectAndRecord(task, {
+          type: 'participant_run.rejected',
+          actor: request.actor,
+          role: request.role,
+          idempotencyKey,
+          error,
+          command: request,
+        })
       }
       const boundActor = task.roleBindings[request.role]
       if (boundActor === undefined || boundActor === null) {
-        return reject(
+        const error = reject(
           'role_not_bound',
           `Role "${request.role}" is not bound — cannot launch participant run`
-        )
+        ).error
+        return rejectAndRecord(task, {
+          type: 'participant_run.rejected',
+          actor: request.actor,
+          role: request.role,
+          idempotencyKey,
+          error,
+          command: request,
+        })
       }
       if (!actorEquals(boundActor, request.actor)) {
-        return reject('role_not_bound', `Role "${request.role}" is bound to a different actor`)
+        const error = reject(
+          'role_not_bound',
+          `Role "${request.role}" is bound to a different actor`
+        ).error
+        return rejectAndRecord(task, {
+          type: 'participant_run.rejected',
+          actor: request.actor,
+          role: request.role,
+          idempotencyKey,
+          error,
+          command: request,
+        })
       }
       const runId = nextId('prun')
       const run: ParticipantRunRecord = {
@@ -2867,16 +3100,105 @@ export function createInMemoryWorkflowKernel(
       const context = buildParticipantRunContext(task, run)
       run.contextHash = String(context['contextHash'])
       participantRuns.set(task.taskId, [...(participantRuns.get(task.taskId) ?? []), clone(run)])
-      appendEvent(task, {
+      const launchEvent = appendEvent(task, {
         taskId: task.taskId,
         type: 'participant_run.launched',
+        commandType: 'participant.run.admitted',
         actor: request.actor,
         participantRunId: runId,
         observedTaskVersion: task.version,
         idempotencyKey,
         payload: { runId, role: run.role, actor: clone(request.actor) },
       })
+      if (request.hrc !== undefined) {
+        const map: WorkflowHrcRunMap = {
+          mapId: nextId('whrc'),
+          workflowTaskId: task.taskId,
+          participantRunId: runId,
+          ...clone(request.hrc),
+          createdAt: now,
+        }
+        workflowHrcRunMaps.set(task.taskId, [
+          ...(workflowHrcRunMaps.get(task.taskId) ?? []),
+          clone(map),
+        ])
+        appendEvent(task, {
+          taskId: task.taskId,
+          type: 'workflow_hrc_run.mapped',
+          commandType: 'workflow.hrc_run.mapped',
+          causationId: launchEvent.eventId,
+          actor: request.actor,
+          participantRunId: runId,
+          observedTaskVersion: task.version,
+          idempotencyKey,
+          result: 'recorded',
+          payload: clone(map) as unknown as Record<string, unknown>,
+        })
+      }
       return { ok: true, participantRun: clone(run), context: clone(context) }
+    })
+
+  const recordWorkflowHrcRunMap = (request: {
+    workflowTaskId: string
+    participantRunId?: string | undefined
+    supervisorRunId?: string | undefined
+    hrcRunId: string
+    runtimeId?: string | undefined
+    launchId?: string | undefined
+    hostSessionId?: string | undefined
+    scopeRef?: string | undefined
+    laneRef?: string | undefined
+    generation?: number | undefined
+    source: WorkflowHrcRunMap['source']
+    actor?: ActorRef | undefined
+    idempotencyKey?: string | undefined
+  }): WorkflowResult<{ map: WorkflowHrcRunMap }> =>
+    withIdempotency(request.idempotencyKey, request, () => {
+      const idempotencyKey = request.idempotencyKey ?? ''
+      const task = tasks.get(request.workflowTaskId)
+      if (task === undefined) {
+        return reject('task_not_found', `Task not found: ${request.workflowTaskId}`)
+      }
+      const map: WorkflowHrcRunMap = {
+        mapId: nextId('whrc'),
+        workflowTaskId: task.taskId,
+        ...(request.participantRunId !== undefined
+          ? { participantRunId: request.participantRunId }
+          : {}),
+        ...(request.supervisorRunId !== undefined
+          ? { supervisorRunId: request.supervisorRunId }
+          : {}),
+        hrcRunId: request.hrcRunId,
+        ...(request.runtimeId !== undefined ? { runtimeId: request.runtimeId } : {}),
+        ...(request.launchId !== undefined ? { launchId: request.launchId } : {}),
+        ...(request.hostSessionId !== undefined ? { hostSessionId: request.hostSessionId } : {}),
+        ...(request.scopeRef !== undefined ? { scopeRef: request.scopeRef } : {}),
+        ...(request.laneRef !== undefined ? { laneRef: request.laneRef } : {}),
+        ...(request.generation !== undefined ? { generation: request.generation } : {}),
+        createdAt: now,
+        source: request.source,
+      }
+      workflowHrcRunMaps.set(task.taskId, [
+        ...(workflowHrcRunMaps.get(task.taskId) ?? []),
+        clone(map),
+      ])
+      appendEvent(task, {
+        taskId: task.taskId,
+        type: 'workflow_hrc_run.mapped',
+        commandType: 'workflow.hrc_run.mapped',
+        actor: request.actor ?? { kind: 'service', id: 'workflow-kernel' },
+        ...(request.participantRunId !== undefined
+          ? { participantRunId: request.participantRunId }
+          : {}),
+        ...(request.supervisorRunId !== undefined
+          ? { supervisorRunId: request.supervisorRunId }
+          : {}),
+        observedTaskVersion: task.version,
+        idempotencyKey,
+        result: 'recorded',
+        payload: clone(map) as unknown as Record<string, unknown>,
+      })
+      return { ok: true, map: clone(map) }
     })
 
   const resumeParticipantRun = (request: {
@@ -3086,6 +3408,7 @@ export function createInMemoryWorkflowKernel(
     compileParticipantContext,
     compileSupervisorContext,
     startParticipantRun,
+    recordWorkflowHrcRunMap,
     resumeParticipantRun,
     markParticipantRunRunning,
     completeParticipantRun,
@@ -3098,6 +3421,8 @@ export function createInMemoryWorkflowKernel(
     listEvidence: (taskId: string): EvidenceRecord[] => clone(evidence.get(taskId) ?? []),
     listObligations: (taskId: string): ObligationRecord[] => clone(obligations.get(taskId) ?? []),
     listEffectIntents: (taskId: string): EffectIntent[] => clone(effects.get(taskId) ?? []),
+    listWorkflowHrcRunMaps: (taskId: string): WorkflowHrcRunMap[] =>
+      clone(workflowHrcRunMaps.get(taskId) ?? []),
     listParticipantRuns: (taskId: string): ParticipantRunRecord[] =>
       clone(participantRuns.get(taskId) ?? []),
     listAnomalies: (taskId: string): WorkflowAnomaly[] => clone(anomalies.get(taskId) ?? []),
@@ -3110,6 +3435,7 @@ export function createInMemoryWorkflowKernel(
       obligations: clone([...obligations.values()].flat()),
       effects: clone([...effects.values()].flat()),
       events: clone([...events.values()].flat()),
+      workflowHrcRunMaps: clone([...workflowHrcRunMaps.values()].flat()),
       supervisorRuns: clone([...supervisorRuns.values()].flat()),
       participantRuns: clone([...participantRuns.values()].flat()),
       anomalies: clone([...anomalies.values()].flat()),

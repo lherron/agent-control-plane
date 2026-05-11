@@ -90,6 +90,146 @@ describe('workflow participant run routes', () => {
     })
   })
 
+  test('launch records ACP to HRC run mapping when HRC identity is supplied', async () => {
+    await withWiredServer(async (fixture) => {
+      const taskId = await createWorkflowTask(fixture)
+
+      const response = await fixture.request({
+        method: 'POST',
+        path: '/v1/workflow-participant-runs',
+        body: {
+          taskId,
+          role: 'owner',
+          actor: owner,
+          hrcRunId: 'hrc-run-route',
+          runtimeId: 'runtime-route',
+          launchId: 'launch-route',
+          hostSessionId: 'host-session-route',
+          scopeRef: 'agent:larry:project:agent-spaces',
+          laneRef: 'main',
+          generation: 2,
+          idempotencyKey: 'participant-route:start:mapped',
+        },
+      })
+      expect(response.status).toBe(201)
+
+      const snapshot = fixture.stateStore.workflowRuntime.loadSnapshot()
+      expect(snapshot.workflowHrcRunMaps).toEqual([
+        expect.objectContaining({
+          workflowTaskId: taskId,
+          hrcRunId: 'hrc-run-route',
+          runtimeId: 'runtime-route',
+          source: 'launch',
+        }),
+      ])
+      expect(snapshot.events.at(-1)).toMatchObject({
+        type: 'workflow_hrc_run.mapped',
+        result: 'recorded',
+        payload: expect.objectContaining({ hrcRunId: 'hrc-run-route' }),
+      })
+    })
+  })
+
+  test('launchRuntime dispatches a real runtime and records returned HRC identity', async () => {
+    const launchCalls: unknown[] = []
+    await withWiredServer(
+      async (fixture) => {
+        const taskId = await createWorkflowTask(fixture)
+
+        const response = await fixture.request({
+          method: 'POST',
+          path: '/v1/workflow-participant-runs',
+          body: {
+            taskId,
+            role: 'owner',
+            actor: owner,
+            scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:${taskId}`,
+            laneRef: 'main',
+            launchRuntime: true,
+            idempotencyKey: 'participant-route:start:real-launch',
+          },
+        })
+        const body = await fixture.json<{
+          participantRun: { runId: string }
+          launch: {
+            runId: string
+            sessionId: string
+            hostSessionId?: string
+            runtimeId?: string
+            launchId?: string
+            generation?: number
+          }
+          workflowHrcRunMap: {
+            hrcRunId: string
+            runtimeId?: string
+            launchId?: string
+            hostSessionId?: string
+          }
+        }>(response)
+
+        expect(response.status).toBe(201)
+        expect(body.launch).toMatchObject({
+          runId: 'hrc-run-real-1',
+          sessionId: 'host-session-real-1',
+          hostSessionId: 'host-session-real-1',
+          runtimeId: 'runtime-real-1',
+          launchId: 'launch-real-1',
+          generation: 7,
+        })
+        expect(body.workflowHrcRunMap).toMatchObject({
+          hrcRunId: 'hrc-run-real-1',
+          runtimeId: 'runtime-real-1',
+          launchId: 'launch-real-1',
+          hostSessionId: 'host-session-real-1',
+        })
+        expect(launchCalls).toHaveLength(1)
+        expect(launchCalls[0]).toMatchObject({
+          sessionRef: {
+            scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:${taskId}`,
+            laneRef: 'main',
+          },
+          intent: {
+            initialPrompt: expect.stringContaining(`"id": "${taskId}"`),
+          },
+        })
+
+        const snapshot = fixture.stateStore.workflowRuntime.loadSnapshot()
+        expect(snapshot.workflowHrcRunMaps).toEqual([
+          expect.objectContaining({
+            workflowTaskId: taskId,
+            participantRunId: body.participantRun.runId,
+            hrcRunId: 'hrc-run-real-1',
+            runtimeId: 'runtime-real-1',
+            launchId: 'launch-real-1',
+            hostSessionId: 'host-session-real-1',
+            source: 'launch',
+          }),
+        ])
+      },
+      {
+        runtimeResolver: async () => ({
+          agentRoot: '/tmp/agents/larry',
+          projectRoot: '/tmp/project',
+          cwd: '/tmp/project',
+          runMode: 'task',
+          bundle: { kind: 'agent-default' },
+          harness: { provider: 'openai', interactive: true },
+        }),
+        launchRoleScopedRun: async (input) => {
+          launchCalls.push(input)
+          return {
+            runId: 'hrc-run-real-1',
+            sessionId: 'host-session-real-1',
+            hostSessionId: 'host-session-real-1',
+            runtimeId: 'runtime-real-1',
+            launchId: 'launch-real-1',
+            generation: 7,
+          }
+        },
+      }
+    )
+  })
+
   test('rejects unbound and mismatched actors with role_not_bound', async () => {
     await withWiredServer(async (fixture) => {
       const unboundTaskId = await createWorkflowTask(fixture, { owner: null })

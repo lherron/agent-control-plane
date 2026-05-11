@@ -235,8 +235,12 @@ export async function reconcileWorkflowEffectIntents(input: {
       }
 
       const result = deliverEffect({ coordStore: input.coordStore, task, sourceEvent, effect })
+      if (result === undefined) {
+        input.stateStore.workflowRuntime.markEffectIntentUnsupported(effect.effectId)
+        continue
+      }
       input.stateStore.workflowRuntime.markEffectIntentDelivered(effect.effectId)
-      delivered.push({ effectId: effect.effectId, ...(result !== undefined ? { result } : {}) })
+      delivered.push({ effectId: effect.effectId, result })
     } catch (error) {
       input.stateStore.workflowRuntime.markEffectIntentFailed(effect.effectId)
       throw error

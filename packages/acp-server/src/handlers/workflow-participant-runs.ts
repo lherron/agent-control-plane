@@ -1,4 +1,6 @@
+import { normalizeSessionRef } from 'agent-scope'
 import { json, unprocessable } from '../http.js'
+import { resolveLaunchIntent } from '../launch-role-scoped.js'
 import {
   parseJsonBody,
   readOptionalArrayField,
@@ -18,6 +20,14 @@ export const handleCreateWorkflowParticipantRun: RouteHandler = async ({ request
   const harness = readOptionalRecordField(body, 'harness')
   const idempotencyKey = readOptionalTrimmedStringField(body, 'idempotencyKey')
   const resume = body['resume'] === true
+  const hrcRunId = readOptionalTrimmedStringField(body, 'hrcRunId')
+  const runtimeId = readOptionalTrimmedStringField(body, 'runtimeId')
+  const launchId = readOptionalTrimmedStringField(body, 'launchId')
+  const hostSessionId = readOptionalTrimmedStringField(body, 'hostSessionId')
+  const scopeRef = readOptionalTrimmedStringField(body, 'scopeRef')
+  const laneRef = readOptionalTrimmedStringField(body, 'laneRef')
+  const generation = typeof body['generation'] === 'number' ? body['generation'] : undefined
+  const launchRuntime = body['launchRuntime'] === true
 
   if (resume) {
     const result = withDurableWorkflowKernel(
@@ -32,6 +42,7 @@ export const handleCreateWorkflowParticipantRun: RouteHandler = async ({ request
   }
 
   let isReplay = false
+  const launchIdempotencyKey = idempotencyKey
   const result = withDurableWorkflowKernel(
     deps,
     (kernel) => {
@@ -47,6 +58,20 @@ export const handleCreateWorkflowParticipantRun: RouteHandler = async ({ request
         role,
         actor,
         ...(harness !== undefined ? { harness } : {}),
+        ...(hrcRunId !== undefined
+          ? {
+              hrc: {
+                hrcRunId,
+                ...(runtimeId !== undefined ? { runtimeId } : {}),
+                ...(launchId !== undefined ? { launchId } : {}),
+                ...(hostSessionId !== undefined ? { hostSessionId } : {}),
+                ...(scopeRef !== undefined ? { scopeRef } : {}),
+                ...(laneRef !== undefined ? { laneRef } : {}),
+                ...(generation !== undefined ? { generation } : {}),
+                source: 'launch',
+              },
+            }
+          : {}),
         ...(idempotencyKey !== undefined ? { idempotencyKey } : {}),
       })
     },
@@ -56,7 +81,70 @@ export const handleCreateWorkflowParticipantRun: RouteHandler = async ({ request
   if (!result.ok) {
     unprocessable(result.error.code, result.error.message, { ...result.error })
   }
+  if (launchRuntime && !isReplay) {
+    if (deps.launchRoleScopedRun === undefined) {
+      unprocessable('runtime_launcher_unavailable', 'No HRC runtime launcher is configured')
+    }
+    if (scopeRef === undefined) {
+      unprocessable('scope_ref_required', '--scope-ref is required when launchRuntime is true')
+    }
+
+    const sessionRef = normalizeSessionRef({ scopeRef, laneRef: laneRef ?? 'main' })
+    const intent = await resolveLaunchIntent(deps, sessionRef, {
+      initialPrompt: buildWorkflowParticipantPrompt(result.context),
+    })
+    const launched = await deps.launchRoleScopedRun({
+      sessionRef,
+      intent,
+      waitForCompletion: false,
+    })
+    const mapped = withDurableWorkflowKernel(
+      deps,
+      (kernel) =>
+        kernel.recordWorkflowHrcRunMap({
+          workflowTaskId: taskId,
+          participantRunId: result.participantRun.runId,
+          hrcRunId: launched.runId,
+          ...(launched.runtimeId !== undefined ? { runtimeId: launched.runtimeId } : {}),
+          ...(launched.launchId !== undefined ? { launchId: launched.launchId } : {}),
+          ...(launched.hostSessionId !== undefined
+            ? { hostSessionId: launched.hostSessionId }
+            : {}),
+          scopeRef,
+          laneRef: laneRef ?? 'main',
+          ...(launched.generation !== undefined ? { generation: launched.generation } : {}),
+          source: 'launch',
+          actor,
+          ...(launchIdempotencyKey !== undefined
+            ? { idempotencyKey: `${launchIdempotencyKey}:hrc-map` }
+            : {}),
+        }),
+      { save: true }
+    )
+    if (!mapped.ok) {
+      unprocessable(mapped.error.code, mapped.error.message, { ...mapped.error })
+    }
+    return json(
+      {
+        ...result,
+        launch: launched,
+        workflowHrcRunMap: mapped.map,
+      },
+      201
+    )
+  }
   return json(result, isReplay ? 200 : 201)
+}
+
+function buildWorkflowParticipantPrompt(context: Record<string, unknown>): string {
+  return [
+    'You are starting an ACP workflow participant run.',
+    'Use the context below as the authoritative task contract and continue autonomously within your role.',
+    '',
+    '```json',
+    JSON.stringify(context, null, 2),
+    '```',
+  ].join('\n')
 }
 
 export const handleCompleteWorkflowParticipantRun: RouteHandler = async ({

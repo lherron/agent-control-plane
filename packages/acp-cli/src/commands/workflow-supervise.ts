@@ -137,11 +137,13 @@ export async function runWorkflowSuperviseCommand(
   let capabilities: Record<string, unknown> | undefined
   if (readStringFlag(parsed, '--capabilities') !== undefined) {
     capabilities = parseJsonObject('--capabilities', requireStringFlag(parsed, '--capabilities'))
-  } else if (readStringFlag(parsed, '--supervisor-capability') !== undefined) {
-    const csvValue = readStringFlag(parsed, '--supervisor-capability')!
-    capabilities = Object.fromEntries(
-      parseCommaList(csvValue, '--supervisor-capability').map((cap) => [cap, true])
-    )
+  } else {
+    const csvValue = readStringFlag(parsed, '--supervisor-capability')
+    if (csvValue !== undefined) {
+      capabilities = Object.fromEntries(
+        parseCommaList(csvValue, '--supervisor-capability').map((cap) => [cap, true])
+      )
+    }
   }
 
   const explicitTaskId = readStringFlag(parsed, '--task-id')

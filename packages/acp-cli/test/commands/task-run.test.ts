@@ -84,6 +84,161 @@ describe('acp task run command', () => {
     })
   })
 
+  test('forwards HRC correlation fields from JSON harness and explicit flags', async () => {
+    const seen: Array<{ body: unknown }> = []
+    const fetchImpl = async (_input: Request | string | URL, init?: RequestInit) => {
+      seen.push({ body: JSON.parse(String(init?.body)) })
+      return new Response(
+        JSON.stringify({
+          participantRun: {
+            runId: 'run_owner_1',
+            kind: 'participant',
+            taskId: 'T-12345',
+            role: 'owner',
+            actor: owner,
+            status: 'launched',
+            taskVersionAtStart: 0,
+            contextHash: 'sha256:context',
+            createdAt: '2026-05-09T12:00:00.000Z',
+          },
+          context: {
+            contextHash: 'sha256:context',
+            task: { id: 'T-12345', version: 0 },
+          },
+        }),
+        { status: 201, headers: { 'content-type': 'application/json' } }
+      )
+    }
+
+    await runTaskRunCommand(
+      [
+        '--server',
+        'http://acp.test',
+        '--task',
+        'T-12345',
+        '--role',
+        'owner',
+        '--agent',
+        'larry',
+        '--harness',
+        JSON.stringify({
+          kind: 'clod',
+          hrcRunId: 'hrc-run-json',
+          scopeRef: 'agent:larry:project:agent-spaces:task:T-12345',
+          laneRef: 'main',
+        }),
+        '--runtime-id',
+        'runtime-explicit',
+        '--launch-id',
+        'launch-explicit',
+        '--host-session-id',
+        'host-session-explicit',
+        '--generation',
+        '2',
+        '--json',
+      ],
+      { fetchImpl }
+    )
+
+    expect(seen).toEqual([
+      {
+        body: {
+          taskId: 'T-12345',
+          role: 'owner',
+          actor: owner,
+          harness: {
+            kind: 'clod',
+            hrcRunId: 'hrc-run-json',
+            scopeRef: 'agent:larry:project:agent-spaces:task:T-12345',
+            laneRef: 'main',
+          },
+          hrcRunId: 'hrc-run-json',
+          runtimeId: 'runtime-explicit',
+          launchId: 'launch-explicit',
+          hostSessionId: 'host-session-explicit',
+          scopeRef: 'agent:larry:project:agent-spaces:task:T-12345',
+          laneRef: 'main',
+          generation: 2,
+        },
+      },
+    ])
+  })
+
+  test('forwards launch-runtime request with scope for real HRC launch', async () => {
+    const seen: Array<{ body: unknown }> = []
+    const fetchImpl = async (_input: Request | string | URL, init?: RequestInit) => {
+      seen.push({ body: JSON.parse(String(init?.body)) })
+      return new Response(
+        JSON.stringify({
+          participantRun: {
+            runId: 'run_owner_1',
+            kind: 'participant',
+            taskId: 'T-12345',
+            role: 'owner',
+            actor: owner,
+            status: 'launched',
+            taskVersionAtStart: 0,
+            contextHash: 'sha256:context',
+            createdAt: '2026-05-09T12:00:00.000Z',
+          },
+          context: {
+            contextHash: 'sha256:context',
+            task: { id: 'T-12345', version: 0 },
+          },
+          launch: {
+            runId: 'hrc-run-real',
+            sessionId: 'host-session-real',
+            hostSessionId: 'host-session-real',
+            runtimeId: 'runtime-real',
+            generation: 4,
+          },
+          workflowHrcRunMap: {
+            mapId: 'whrc_1',
+            workflowTaskId: 'T-12345',
+            participantRunId: 'run_owner_1',
+            hrcRunId: 'hrc-run-real',
+            runtimeId: 'runtime-real',
+            hostSessionId: 'host-session-real',
+            scopeRef: 'agent:larry:project:agent-spaces:task:T-12345',
+            laneRef: 'main',
+            source: 'launch',
+          },
+        }),
+        { status: 201, headers: { 'content-type': 'application/json' } }
+      )
+    }
+
+    await runTaskRunCommand(
+      [
+        '--server',
+        'http://acp.test',
+        '--task',
+        'T-12345',
+        '--role',
+        'owner',
+        '--agent',
+        'larry',
+        '--scope-ref',
+        'agent:larry:project:agent-spaces:task:T-12345',
+        '--launch-runtime',
+        '--json',
+      ],
+      { fetchImpl }
+    )
+
+    expect(seen).toEqual([
+      {
+        body: {
+          taskId: 'T-12345',
+          role: 'owner',
+          actor: owner,
+          launchRuntime: true,
+          scopeRef: 'agent:larry:project:agent-spaces:task:T-12345',
+        },
+      },
+    ])
+  })
+
   test('--resume requests the existing participant run and returns the recompiled context', async () => {
     const seen: Array<{ body: unknown }> = []
     const fetchImpl = async (_input: Request | string | URL, init?: RequestInit) => {
@@ -300,6 +455,14 @@ describe('acp task run command', () => {
         'owner',
         '--agent',
         'larry',
+        '--hrc-run-id',
+        'hrc-run-cli',
+        '--runtime-id',
+        'runtime-cli',
+        '--scope-ref',
+        'agent:larry:project:agent-spaces:task:T-12345',
+        '--lane-ref',
+        'main',
         '--json',
       ],
       {

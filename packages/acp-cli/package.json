@@ -26,6 +26,8 @@
     "acp-core": "*",
     "acp-ops-projection": "*",
     "acp-server": "*",
+    "agent-action-render": "*",
+    "chalk": "^5.6.2",
     "cli-kit": "*",
     "commander": "^14.0.0",
     "gateway-discord": "*",

@@ -84,6 +84,17 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
       return {
         runId: resolved.hostSessionId,
         sessionId: resolved.hostSessionId,
+        hostSessionId: resolved.hostSessionId,
+        ...(liveTmuxRuntime !== undefined ? { runtimeId: liveTmuxRuntime.runtimeId } : {}),
+        ...(liveTmuxRuntime !== undefined
+          ? {
+              launchId: findLatestLaunchId(hrcDbPath, {
+                hostSessionId: resolved.hostSessionId,
+                runtimeId: liveTmuxRuntime.runtimeId,
+              }),
+            }
+          : {}),
+        generation: resolved.generation,
       }
     }
 
@@ -169,6 +180,13 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
       return {
         runId: delivered.hostSessionId,
         sessionId: delivered.hostSessionId,
+        hostSessionId: delivered.hostSessionId,
+        runtimeId: delivered.runtimeId ?? liveTmuxRuntime.runtimeId,
+        launchId: findLatestLaunchId(hrcDbPath, {
+          hostSessionId: delivered.hostSessionId,
+          runtimeId: delivered.runtimeId ?? liveTmuxRuntime.runtimeId,
+        }),
+        generation: delivered.generation,
       }
     }
 
@@ -183,6 +201,7 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
           : {}),
         fences: dispatchFence,
         runtimeIntent: normalizedIntent,
+        waitForCompletion: shouldWaitForCompletion,
       })
     } catch (error) {
       persistFenceDispatchError(runStore, acpRunId, error)
@@ -238,7 +257,72 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
     return {
       runId: dispatched.runId,
       sessionId: targetSession.hostSessionId,
+      hostSessionId: dispatched.hostSessionId,
+      runtimeId: dispatched.runtimeId,
+      launchId:
+        findLaunchIdForRun(hrcDbPath, dispatched.runId) ??
+        findLatestLaunchId(hrcDbPath, {
+          hostSessionId: dispatched.hostSessionId,
+          runtimeId: dispatched.runtimeId,
+        }),
+      generation: dispatched.generation,
     }
+  }
+}
+
+function findLaunchIdForRun(hrcDbPath: string, runId: string): string | undefined {
+  let db: Database | undefined
+  try {
+    db = new Database(hrcDbPath, { readonly: true })
+    const row = db
+      .query<{ launchId: string }, [string]>(
+        `SELECT launch_id AS launchId
+           FROM hrc_events
+          WHERE run_id = ? AND launch_id IS NOT NULL
+          ORDER BY hrc_seq ASC
+          LIMIT 1`
+      )
+      .get(runId)
+    return row?.launchId
+  } catch {
+    return undefined
+  } finally {
+    db?.close()
+  }
+}
+
+function findLatestLaunchId(
+  hrcDbPath: string,
+  input: { hostSessionId: string; runtimeId?: string | undefined }
+): string | undefined {
+  let db: Database | undefined
+  try {
+    db = new Database(hrcDbPath, { readonly: true })
+    const row =
+      input.runtimeId !== undefined
+        ? db
+            .query<{ launchId: string }, [string, string]>(
+              `SELECT launch_id AS launchId
+                 FROM launches
+                WHERE host_session_id = ? AND runtime_id = ?
+                ORDER BY created_at DESC, launch_id DESC
+                LIMIT 1`
+            )
+            .get(input.hostSessionId, input.runtimeId)
+        : db
+            .query<{ launchId: string }, [string]>(
+              `SELECT launch_id AS launchId
+                 FROM launches
+                WHERE host_session_id = ?
+                ORDER BY created_at DESC, launch_id DESC
+                LIMIT 1`
+            )
+            .get(input.hostSessionId)
+    return row?.launchId
+  } catch {
+    return undefined
+  } finally {
+    db?.close()
   }
 }
 

@@ -104,6 +104,24 @@ export type {
   ConversationTurnRenderState,
 } from './conversation/turn.js'
 export type {
+  CorrelationState,
+  LearningArtifactBase,
+  PatchBundle,
+  PromotionReadinessReport,
+  ReplayReport,
+  TraceIngestReport,
+  TraceUseLabel,
+  WorkflowTrace,
+} from './learning/index.js'
+export {
+  materializeWorkflowTrace,
+  reviewTraceLabel,
+  runDeterministicWorkflowReplay,
+  transitionLearningArtifactLifecycle,
+  validatePromotionReadiness,
+} from './learning/index.js'
+
+export type {
   AgentFlowStep,
   BaseFlowStep,
   ExecFlowStep,
@@ -131,6 +149,17 @@ export {
   builtInWorkflowDefinitions,
   codeDefectFastlaneWorkflowV1,
   codeFeatureTddWorkflowV1,
+  learningAuditWorkflowV1,
+  learningCurationWorkflowV1,
+  learningPatchEvaluationWorkflowV1,
+  learningPatchPromotionWorkflowV1,
+  learningPlaybookUpdateWorkflowV1,
+  learningPolicyPatchWorkflowV1,
+  learningRollbackWorkflowV1,
+  learningTraceLabelingWorkflowV1,
+  learningTraceTriageWorkflowV1,
+  learningWorkflowDefinitionsV1,
+  learningWorkflowPatchWorkflowV1,
 } from './workflow/definitions.js'
 export type {
   ActorRef,
@@ -155,6 +184,7 @@ export type {
   WorkflowControlAction,
   WorkflowDefinition,
   WorkflowEvent,
+  WorkflowHrcRunMap,
   WorkflowIdempotencyRecord,
   WorkflowKernelSnapshot,
   WorkflowPatchProposal,

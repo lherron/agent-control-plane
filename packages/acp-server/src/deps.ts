@@ -83,6 +83,8 @@ export type LaunchRoleScopedRun = (input: {
   runId: string
   sessionId: string
   hostSessionId?: string | undefined
+  runtimeId?: string | undefined
+  launchId?: string | undefined
   generation?: number | undefined
 }>
 

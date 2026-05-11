@@ -1,0 +1,32 @@
+{
+  "name": "wlearn",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Downstream workflow-learning tools for ACP/HRC traces",
+  "type": "module",
+  "bin": {
+    "wlearn": "./bin/wlearn.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "bin"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "acp-core": "*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.8.3"
+  }
+}

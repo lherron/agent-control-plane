@@ -1,3 +1,16 @@
+export {
+  MAX_LINE_CHARS,
+  MAX_PREVIEW_CHARS,
+  NOTICE_ICON,
+  PRIMARY_ARG_KEY,
+  TOOL_EMOJI,
+  extractToolPreview,
+  formatNoticeLine,
+  formatToolLine,
+  getToolEmoji,
+} from 'agent-action-render'
+import { MAX_LINE_CHARS, formatNoticeLine, formatToolLine } from 'agent-action-render'
+
 import { padMarkdownTables } from './markdown.js'
 import type { RenderAction, RenderBlock, RenderFrame } from './types.js'
 
@@ -15,59 +28,6 @@ export interface NoticeBlock {
 
 /** Extended block type that includes notice (until types.ts ships it). */
 type ExtendedRenderBlock = RenderBlock | NoticeBlock
-
-// ---------------------------------------------------------------------------
-// Per-tool emoji map
-// ---------------------------------------------------------------------------
-
-const TOOL_EMOJI: Record<string, string> = {
-  Bash: '💻',
-  Read: '📖',
-  Write: '✍️',
-  Edit: '🔧',
-  Grep: '🔎',
-  Glob: '📁',
-  Task: '🤖',
-  WebFetch: '📄',
-  WebSearch: '🔍',
-  TodoWrite: '📋',
-  NotebookEdit: '📓',
-}
-const DEFAULT_TOOL_EMOJI = '⚙️'
-
-// ---------------------------------------------------------------------------
-// Primary-arg key map (which input key to preview for each tool)
-// ---------------------------------------------------------------------------
-
-const PRIMARY_ARG_KEY: Record<string, string> = {
-  Bash: 'command',
-  Read: 'file_path',
-  Write: 'file_path',
-  Edit: 'file_path',
-  Grep: 'pattern',
-  Glob: 'pattern',
-  Task: 'description',
-  WebFetch: 'url',
-  WebSearch: 'query',
-  NotebookEdit: 'notebook_path',
-}
-
-// ---------------------------------------------------------------------------
-// Notice-level icons
-// ---------------------------------------------------------------------------
-
-const NOTICE_ICON: Record<string, string> = {
-  info: 'ℹ️',
-  warn: '⚠️',
-  error: '❌',
-}
-
-// ---------------------------------------------------------------------------
-// Shared constants
-// ---------------------------------------------------------------------------
-
-const MAX_LINE_CHARS = 80
-const MAX_PREVIEW_CHARS = 60
 
 /**
  * Options for controlling Discord rendering behavior.
@@ -106,100 +66,6 @@ export interface MediaRefAttachment {
   mimeType?: string
   filename?: string
   alt?: string
-}
-
-// ---------------------------------------------------------------------------
-// Tool-line formatting helpers (exported for tests)
-// ---------------------------------------------------------------------------
-
-/**
- * Extract the primary preview value from a tool block.
- * Uses the per-tool arg key map when `input` is present, otherwise falls back
- * to the legacy `summary` field.
- */
-export function extractToolPreview(
-  toolName: string,
-  input: Record<string, unknown> | undefined,
-  summary: string
-): string {
-  if (!input) {
-    // Legacy path: strip backtick wrapping that formatToolSummary added
-    return summary.replace(/^`|`$/g, '')
-  }
-
-  // Special case: TodoWrite shows count of todos
-  if (toolName === 'TodoWrite') {
-    const todos = input['todos']
-    if (Array.isArray(todos)) {
-      return `${todos.length} todo${todos.length === 1 ? '' : 's'}`
-    }
-    return summary.replace(/^`|`$/g, '')
-  }
-
-  const argKey = PRIMARY_ARG_KEY[toolName]
-  if (argKey) {
-    const value = input[argKey]
-    if (typeof value === 'string' && value.length > 0) {
-      return value
-    }
-  }
-
-  // Fallback: first string-valued arg
-  for (const value of Object.values(input)) {
-    if (typeof value === 'string' && value.length > 0) {
-      return value
-    }
-  }
-
-  return summary.replace(/^`|`$/g, '')
-}
-
-/**
- * Get the emoji for a tool, or the default gear emoji.
- */
-export function getToolEmoji(toolName: string): string {
-  return TOOL_EMOJI[toolName] ?? DEFAULT_TOOL_EMOJI
-}
-
-/**
- * Format a single tool line for progress display.
- *
- * - Running/Completed: `{toolEmoji} {toolName}: "{preview}"`
- * - Failed: `❌ {toolName}: "{preview}"`
- *
- * Per-line cap: 80 chars. Preview is truncated with `...` to fit.
- */
-export function formatToolLine(
-  toolName: string,
-  input: Record<string, unknown> | undefined,
-  summary: string,
-  failed: boolean
-): string {
-  const emoji = failed ? '❌' : getToolEmoji(toolName)
-  const prefix = `${emoji} ${toolName}: "`
-  const suffix = '"'
-  // Budget for the preview text: total line cap minus prefix and suffix
-  const previewBudget = Math.min(MAX_PREVIEW_CHARS, MAX_LINE_CHARS - prefix.length - suffix.length)
-
-  let preview = extractToolPreview(toolName, input, summary)
-  if (preview.length > previewBudget) {
-    preview = `${preview.slice(0, previewBudget - 3)}...`
-  }
-
-  const line = `${prefix}${preview}${suffix}`
-  // Final safety truncation (shouldn't be needed but guards edge cases)
-  return line.length > MAX_LINE_CHARS ? `${line.slice(0, MAX_LINE_CHARS - 3)}...` : line
-}
-
-/**
- * Format a notice line: `{icon} {message}`, truncated to 80 chars.
- */
-export function formatNoticeLine(level: string, message: string): string {
-  const icon = NOTICE_ICON[level] ?? 'ℹ️'
-  const prefix = `${icon} `
-  const budget = MAX_LINE_CHARS - prefix.length
-  const truncated = message.length > budget ? `${message.slice(0, budget - 3)}...` : message
-  return `${prefix}${truncated}`
 }
 
 // ---------------------------------------------------------------------------

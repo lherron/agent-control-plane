@@ -242,12 +242,20 @@ function initializeSchema(sqlite: SqliteDatabase): void {
 
     CREATE TABLE IF NOT EXISTS workflow_events (
       event_id TEXT PRIMARY KEY,
+      workflow_seq INTEGER NOT NULL DEFAULT 0,
+      schema_version INTEGER NOT NULL DEFAULT 1,
       task_id TEXT NOT NULL,
       workflow_id TEXT NOT NULL,
       workflow_version INTEGER NOT NULL,
       workflow_hash TEXT NOT NULL,
       type TEXT NOT NULL,
+      command_type TEXT,
+      command_hash TEXT,
+      causation_id TEXT,
+      correlation_id TEXT,
       actor_json TEXT NOT NULL,
+      role TEXT,
+      authority TEXT,
       run_id TEXT,
       supervisor_run_id TEXT,
       participant_run_id TEXT,
@@ -255,8 +263,28 @@ function initializeSchema(sqlite: SqliteDatabase): void {
       next_task_version INTEGER,
       context_hash TEXT,
       idempotency_key TEXT NOT NULL,
+      result TEXT NOT NULL DEFAULT 'accepted',
+      rejection_code TEXT,
       payload_json TEXT NOT NULL,
+      event_hash TEXT NOT NULL DEFAULT '',
+      prev_hash TEXT,
       created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS workflow_hrc_run_maps (
+      map_id TEXT PRIMARY KEY,
+      workflow_task_id TEXT NOT NULL,
+      participant_run_id TEXT,
+      supervisor_run_id TEXT,
+      hrc_run_id TEXT NOT NULL,
+      runtime_id TEXT,
+      launch_id TEXT,
+      host_session_id TEXT,
+      scope_ref TEXT,
+      lane_ref TEXT,
+      generation INTEGER,
+      created_at TEXT NOT NULL,
+      source TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS workflow_effect_intents (
@@ -452,6 +480,40 @@ function migrateWorkflowObligationLifecycleColumns(sqlite: SqliteDatabase): void
   addColumnIfMissing(sqlite, 'workflow_obligations', columns, 'cancel_reason', 'TEXT')
   addColumnIfMissing(sqlite, 'workflow_obligations', columns, 'expired_at', 'TEXT')
   addColumnIfMissing(sqlite, 'workflow_obligations', columns, 'expire_reason', 'TEXT')
+}
+
+function migrateWorkflowEventSourcingColumns(sqlite: SqliteDatabase): void {
+  const columns = listTableColumns(sqlite, 'workflow_events')
+  addColumnIfMissing(
+    sqlite,
+    'workflow_events',
+    columns,
+    'workflow_seq',
+    'INTEGER NOT NULL DEFAULT 0'
+  )
+  addColumnIfMissing(
+    sqlite,
+    'workflow_events',
+    columns,
+    'schema_version',
+    'INTEGER NOT NULL DEFAULT 1'
+  )
+  addColumnIfMissing(sqlite, 'workflow_events', columns, 'command_type', 'TEXT')
+  addColumnIfMissing(sqlite, 'workflow_events', columns, 'command_hash', 'TEXT')
+  addColumnIfMissing(sqlite, 'workflow_events', columns, 'causation_id', 'TEXT')
+  addColumnIfMissing(sqlite, 'workflow_events', columns, 'correlation_id', 'TEXT')
+  addColumnIfMissing(sqlite, 'workflow_events', columns, 'role', 'TEXT')
+  addColumnIfMissing(sqlite, 'workflow_events', columns, 'authority', 'TEXT')
+  addColumnIfMissing(
+    sqlite,
+    'workflow_events',
+    columns,
+    'result',
+    "TEXT NOT NULL DEFAULT 'accepted'"
+  )
+  addColumnIfMissing(sqlite, 'workflow_events', columns, 'rejection_code', 'TEXT')
+  addColumnIfMissing(sqlite, 'workflow_events', columns, 'event_hash', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(sqlite, 'workflow_events', columns, 'prev_hash', 'TEXT')
 }
 
 function getCreateTableSql(sqlite: SqliteDatabase, tableName: string): string {
@@ -652,6 +714,7 @@ function migrateLegacySchema(sqlite: SqliteDatabase): void {
     migrateInputAttemptsActorColumns(sqlite)
     migrateTransitionOutboxActorColumns(sqlite)
     migrateWorkflowObligationLifecycleColumns(sqlite)
+    migrateWorkflowEventSourcingColumns(sqlite)
   })()
   rebuildRunsForQueuedStatus(sqlite)
   rebuildInputAttemptsForNullableRun(sqlite)

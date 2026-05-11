@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import type {
   ActorRef,
   EffectIntent,
@@ -10,6 +12,7 @@ import type {
   WorkState,
   WorkflowAnomaly,
   WorkflowEvent,
+  WorkflowHrcRunMap,
   WorkflowIdempotencyRecord,
   WorkflowKernelSnapshot,
   WorkflowPatchProposal,
@@ -78,12 +81,20 @@ type ObligationRow = {
 
 type EventRow = {
   event_id: string
+  workflow_seq: number
+  schema_version: number
   task_id: string
   workflow_id: string
   workflow_version: number
   workflow_hash: string
   type: string
+  command_type: string | null
+  command_hash: string | null
+  causation_id: string | null
+  correlation_id: string | null
   actor_json: string
+  role: string | null
+  authority: string | null
   run_id: string | null
   supervisor_run_id: string | null
   participant_run_id: string | null
@@ -91,8 +102,28 @@ type EventRow = {
   next_task_version: number | null
   context_hash: string | null
   idempotency_key: string
+  result: WorkflowEvent['result']
+  rejection_code: string | null
   payload_json: string
+  event_hash: string
+  prev_hash: string | null
   created_at: string
+}
+
+type WorkflowHrcRunMapRow = {
+  map_id: string
+  workflow_task_id: string
+  participant_run_id: string | null
+  supervisor_run_id: string | null
+  hrc_run_id: string
+  runtime_id: string | null
+  launch_id: string | null
+  host_session_id: string | null
+  scope_ref: string | null
+  lane_ref: string | null
+  generation: number | null
+  created_at: string
+  source: WorkflowHrcRunMap['source']
 }
 
 type EffectRow = {
@@ -189,6 +220,31 @@ function optional<T>(value: T | null): T | undefined {
   return value === null ? undefined : value
 }
 
+function stableJson(value: unknown): string {
+  return JSON.stringify(sortJson(value))
+}
+
+function sortJson(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sortJson(item))
+  }
+  if (value === null || typeof value !== 'object') {
+    return value
+  }
+  const source = value as Record<string, unknown>
+  const sorted: Record<string, unknown> = {}
+  for (const key of Object.keys(source).sort()) {
+    if (source[key] !== undefined) {
+      sorted[key] = sortJson(source[key])
+    }
+  }
+  return sorted
+}
+
+function hashValue(value: unknown): string {
+  return `sha256:${createHash('sha256').update(stableJson(value)).digest('hex')}`
+}
+
 function mapTask(row: TaskRow): WorkflowTask {
   const risk = optional(row.risk)
   const facts = row.facts_json === null ? undefined : parse<Record<string, unknown>>(row.facts_json)
@@ -218,6 +274,125 @@ function mapTask(row: TaskRow): WorkflowTask {
 
 export class WorkflowRuntimeRepo {
   constructor(private readonly context: RepoContext) {}
+
+  private appendEffectLifecycleEvent(
+    effect: EffectRow,
+    input: {
+      type: string
+      deliveryResult?: string | undefined
+      errorCode?: string | undefined
+      errorMessage?: string | undefined
+    }
+  ): void {
+    const source = this.context.sqlite
+      .prepare(
+        `SELECT event_id, workflow_seq, schema_version, task_id, workflow_id,
+                workflow_version, workflow_hash, actor_json, observed_task_version,
+                next_task_version, event_hash
+           FROM workflow_events
+          WHERE event_id = ?`
+      )
+      .get(effect.source_event_id) as
+      | Pick<
+          EventRow,
+          | 'event_id'
+          | 'workflow_seq'
+          | 'schema_version'
+          | 'task_id'
+          | 'workflow_id'
+          | 'workflow_version'
+          | 'workflow_hash'
+          | 'actor_json'
+          | 'observed_task_version'
+          | 'next_task_version'
+          | 'event_hash'
+        >
+      | undefined
+
+    if (source === undefined) {
+      throw new Error(`workflow effect source event missing: ${effect.source_event_id}`)
+    }
+
+    const workflowSeq =
+      (
+        this.context.sqlite
+          .prepare(
+            'SELECT max(workflow_seq) AS workflow_seq FROM workflow_events WHERE task_id = ?'
+          )
+          .get(effect.task_id) as { workflow_seq: number | null } | undefined
+      )?.workflow_seq ?? 0
+    const eventId = `wevt_${effect.effect_id}_${input.type.replaceAll('.', '_')}`
+    const payload = {
+      effectId: effect.effect_id,
+      effectKind: effect.kind,
+      ...(input.deliveryResult !== undefined ? { deliveryResult: input.deliveryResult } : {}),
+      ...(input.errorCode !== undefined ? { errorCode: input.errorCode } : {}),
+      ...(input.errorMessage !== undefined ? { errorMessage: input.errorMessage } : {}),
+      sourceWorkflowEventId: effect.source_event_id,
+    }
+    const eventWithoutHash = {
+      eventId,
+      workflowSeq: workflowSeq + 1,
+      schemaVersion: 1,
+      taskId: effect.task_id,
+      workflow: {
+        id: source.workflow_id,
+        version: source.workflow_version,
+        hash: source.workflow_hash,
+      },
+      type: input.type,
+      commandType: input.type,
+      commandHash: hashValue({ type: input.type, effectId: effect.effect_id, payload }),
+      causationId: source.event_id,
+      actor: parse<ActorRef>(source.actor_json),
+      observedTaskVersion: source.next_task_version ?? source.observed_task_version,
+      idempotencyKey: `${effect.idempotency_key}:${input.type}`,
+      result: 'recorded' as const,
+      payload,
+      prevHash: source.event_hash,
+      createdAt: new Date().toISOString(),
+    }
+    this.context.sqlite
+      .prepare(
+        `INSERT OR IGNORE INTO workflow_events (
+           event_id, workflow_seq, schema_version, task_id, workflow_id, workflow_version,
+           workflow_hash, type, command_type, command_hash, causation_id, correlation_id,
+           actor_json, role, authority, run_id, supervisor_run_id, participant_run_id,
+           observed_task_version, next_task_version, context_hash, idempotency_key, result,
+           rejection_code, payload_json, event_hash, prev_hash, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        eventWithoutHash.eventId,
+        eventWithoutHash.workflowSeq,
+        eventWithoutHash.schemaVersion,
+        eventWithoutHash.taskId,
+        eventWithoutHash.workflow.id,
+        eventWithoutHash.workflow.version,
+        eventWithoutHash.workflow.hash,
+        eventWithoutHash.type,
+        eventWithoutHash.commandType,
+        eventWithoutHash.commandHash,
+        eventWithoutHash.causationId,
+        null,
+        stringify(eventWithoutHash.actor),
+        null,
+        null,
+        null,
+        null,
+        null,
+        eventWithoutHash.observedTaskVersion,
+        null,
+        null,
+        eventWithoutHash.idempotencyKey,
+        eventWithoutHash.result,
+        null,
+        stringify(eventWithoutHash.payload),
+        hashValue(eventWithoutHash),
+        eventWithoutHash.prevHash,
+        eventWithoutHash.createdAt
+      )
+  }
 
   listPendingEffectIntents(limit = 100): EffectIntent[] {
     const rows = this.context.sqlite
@@ -266,6 +441,8 @@ export class WorkflowRuntimeRepo {
         .prepare('UPDATE workflow_effect_intents SET state = ?, updated_at = ? WHERE effect_id = ?')
         .run('leased', updatedAt, id)
 
+      this.appendEffectLifecycleEvent(existing, { type: 'effect.intent.leased' })
+
       return {
         effectId: existing.effect_id,
         taskId: existing.task_id,
@@ -281,15 +458,68 @@ export class WorkflowRuntimeRepo {
   }
 
   markEffectIntentDelivered(effectId: string): void {
+    const existing = this.context.sqlite
+      .prepare(
+        `SELECT effect_id, task_id, source_event_id, kind, payload_json, idempotency_key,
+                state, created_at, updated_at
+           FROM workflow_effect_intents
+          WHERE effect_id = ?`
+      )
+      .get(effectId) as EffectRow | undefined
+    if (existing === undefined || existing.state === 'delivered') {
+      return
+    }
     this.context.sqlite
       .prepare('UPDATE workflow_effect_intents SET state = ?, updated_at = ? WHERE effect_id = ?')
       .run('delivered', new Date().toISOString(), effectId)
+    this.appendEffectLifecycleEvent(existing, {
+      type: 'effect.intent.delivered',
+      deliveryResult: 'delivered',
+    })
   }
 
   markEffectIntentFailed(effectId: string): void {
+    const existing = this.context.sqlite
+      .prepare(
+        `SELECT effect_id, task_id, source_event_id, kind, payload_json, idempotency_key,
+                state, created_at, updated_at
+           FROM workflow_effect_intents
+          WHERE effect_id = ?`
+      )
+      .get(effectId) as EffectRow | undefined
+    if (existing === undefined || existing.state === 'failed') {
+      return
+    }
     this.context.sqlite
       .prepare('UPDATE workflow_effect_intents SET state = ?, updated_at = ? WHERE effect_id = ?')
       .run('failed', new Date().toISOString(), effectId)
+    this.appendEffectLifecycleEvent(existing, {
+      type: 'effect.intent.failed',
+      deliveryResult: 'failed',
+    })
+  }
+
+  markEffectIntentUnsupported(effectId: string): void {
+    const existing = this.context.sqlite
+      .prepare(
+        `SELECT effect_id, task_id, source_event_id, kind, payload_json, idempotency_key,
+                state, created_at, updated_at
+           FROM workflow_effect_intents
+          WHERE effect_id = ?`
+      )
+      .get(effectId) as EffectRow | undefined
+    if (existing === undefined || existing.state === 'unsupported') {
+      return
+    }
+    this.context.sqlite
+      .prepare('UPDATE workflow_effect_intents SET state = ?, updated_at = ? WHERE effect_id = ?')
+      .run('unsupported', new Date().toISOString(), effectId)
+    this.appendEffectLifecycleEvent(existing, {
+      type: 'effect.intent.unsupported',
+      deliveryResult: 'unsupported',
+      errorCode: 'unsupported_effect',
+      errorMessage: `Unsupported workflow effect kind: ${existing.kind}`,
+    })
   }
 
   loadSnapshot(): WorkflowKernelSnapshot {
@@ -378,21 +608,31 @@ export class WorkflowRuntimeRepo {
     const events = (
       this.context.sqlite
         .prepare(
-          `SELECT event_id, task_id, workflow_id, workflow_version, workflow_hash, type,
-                  actor_json, run_id, supervisor_run_id, participant_run_id,
-                  observed_task_version, next_task_version, context_hash, idempotency_key,
-                  payload_json, created_at
+          `SELECT event_id, workflow_seq, schema_version, task_id, workflow_id,
+                  workflow_version, workflow_hash, type, command_type, command_hash,
+                  causation_id, correlation_id, actor_json, role, authority, run_id,
+                  supervisor_run_id, participant_run_id, observed_task_version,
+                  next_task_version, context_hash, idempotency_key, result, rejection_code,
+                  payload_json, event_hash, prev_hash, created_at
              FROM workflow_events
-         ORDER BY created_at, event_id`
+         ORDER BY task_id, workflow_seq, created_at, event_id`
         )
         .all() as EventRow[]
     ).map(
       (row): WorkflowEvent => ({
         eventId: row.event_id,
+        workflowSeq: row.workflow_seq,
+        schemaVersion: row.schema_version,
         taskId: row.task_id,
         workflow: { id: row.workflow_id, version: row.workflow_version, hash: row.workflow_hash },
         type: row.type,
+        ...(row.command_type !== null ? { commandType: row.command_type } : {}),
+        ...(row.command_hash !== null ? { commandHash: row.command_hash } : {}),
+        ...(row.causation_id !== null ? { causationId: row.causation_id } : {}),
+        ...(row.correlation_id !== null ? { correlationId: row.correlation_id } : {}),
         actor: parse<ActorRef>(row.actor_json),
+        ...(row.role !== null ? { role: row.role } : {}),
+        ...(row.authority !== null ? { authority: row.authority } : {}),
         ...(row.run_id !== null ? { runId: row.run_id } : {}),
         ...(row.supervisor_run_id !== null ? { supervisorRunId: row.supervisor_run_id } : {}),
         ...(row.participant_run_id !== null ? { participantRunId: row.participant_run_id } : {}),
@@ -400,8 +640,40 @@ export class WorkflowRuntimeRepo {
         ...(row.next_task_version !== null ? { nextTaskVersion: row.next_task_version } : {}),
         ...(row.context_hash !== null ? { contextHash: row.context_hash } : {}),
         idempotencyKey: row.idempotency_key,
+        result: row.result,
+        ...(row.rejection_code !== null ? { rejectionCode: row.rejection_code } : {}),
         payload: parse<Record<string, unknown>>(row.payload_json),
+        eventHash: row.event_hash,
+        ...(row.prev_hash !== null ? { prevHash: row.prev_hash } : {}),
         createdAt: row.created_at,
+      })
+    )
+
+    const workflowHrcRunMaps = (
+      this.context.sqlite
+        .prepare(
+          `SELECT map_id, workflow_task_id, participant_run_id, supervisor_run_id,
+                  hrc_run_id, runtime_id, launch_id, host_session_id, scope_ref, lane_ref,
+                  generation, created_at, source
+             FROM workflow_hrc_run_maps
+         ORDER BY created_at, map_id`
+        )
+        .all() as WorkflowHrcRunMapRow[]
+    ).map(
+      (row): WorkflowHrcRunMap => ({
+        mapId: row.map_id,
+        workflowTaskId: row.workflow_task_id,
+        ...(row.participant_run_id !== null ? { participantRunId: row.participant_run_id } : {}),
+        ...(row.supervisor_run_id !== null ? { supervisorRunId: row.supervisor_run_id } : {}),
+        hrcRunId: row.hrc_run_id,
+        ...(row.runtime_id !== null ? { runtimeId: row.runtime_id } : {}),
+        ...(row.launch_id !== null ? { launchId: row.launch_id } : {}),
+        ...(row.host_session_id !== null ? { hostSessionId: row.host_session_id } : {}),
+        ...(row.scope_ref !== null ? { scopeRef: row.scope_ref } : {}),
+        ...(row.lane_ref !== null ? { laneRef: row.lane_ref } : {}),
+        ...(row.generation !== null ? { generation: row.generation } : {}),
+        createdAt: row.created_at,
+        source: row.source,
       })
     )
 
@@ -572,6 +844,7 @@ export class WorkflowRuntimeRepo {
       obligations,
       effects,
       events,
+      workflowHrcRunMaps,
       supervisorRuns,
       participantRuns,
       anomalies,
@@ -584,280 +857,356 @@ export class WorkflowRuntimeRepo {
 
   saveSnapshot(snapshot: WorkflowKernelSnapshot): void {
     this.context.sqlite.transaction(() => {
-      for (const table of [
-        'workflow_context_hashes',
-        'workflow_idempotency_records',
-        'workflow_patch_proposals',
-        'workflow_anomalies',
-        'workflow_supervisor_runs',
-        'workflow_participant_runs',
-        'workflow_effect_intents',
-        'workflow_events',
-        'workflow_obligations',
-        'workflow_evidence',
-        'workflow_tasks',
-        'workflow_definitions',
-        'workflow_runtime_meta',
-      ]) {
-        this.context.sqlite.prepare(`DELETE FROM ${table}`).run()
-      }
-
+      this.truncateAllSnapshotTables()
       const now = new Date().toISOString()
-      const insertDefinition = this.context.sqlite.prepare(
-        `INSERT INTO workflow_definitions (id, version, hash, definition_json, created_at)
-         VALUES (?, ?, ?, ?, ?)`
-      )
-      for (const definition of snapshot.definitions) {
-        insertDefinition.run(
-          definition.id,
-          definition.version,
-          definition.hash,
-          stringify(definition),
-          now
-        )
-      }
-
-      const insertTask = this.context.sqlite.prepare(
-        `INSERT INTO workflow_tasks (
-           task_id, project_id, workflow_id, workflow_version, workflow_hash, state_json, version,
-           goal, risk, facts_json, role_bindings_json, supervisor_json, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      for (const task of snapshot.tasks) {
-        insertTask.run(
-          task.taskId,
-          task.projectId,
-          task.workflow.id,
-          task.workflow.version,
-          task.workflow.hash,
-          stringify(task.state),
-          task.version,
-          task.goal,
-          task.risk ?? null,
-          task.facts === undefined ? null : stringify(task.facts),
-          stringify(task.roleBindings),
-          task.supervisor === undefined ? null : stringify(task.supervisor),
-          task.createdAt,
-          task.updatedAt
-        )
-      }
-
-      const insertEvidence = this.context.sqlite.prepare(
-        `INSERT INTO workflow_evidence (evidence_id, task_id, kind, ref, summary, data_json,
-         actor_json, role, run_id, participant_run_id, supervisor_run_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      for (const item of snapshot.evidence) {
-        insertEvidence.run(
-          item.evidenceId,
-          item.taskId,
-          item.kind,
-          item.ref,
-          item.summary ?? null,
-          item.data === undefined ? null : stringify(item.data),
-          item.actor === undefined ? null : stringify(item.actor),
-          item.role ?? null,
-          item.runId ?? null,
-          item.participantRunId ?? null,
-          item.supervisorRunId ?? null,
-          item.createdAt
-        )
-      }
-
-      const insertObligation = this.context.sqlite.prepare(
-        `INSERT INTO workflow_obligations (
-           obligation_id, task_id, kind, owner_role, summary, blocking, status, created_at,
-           updated_at, satisfied_at, satisfaction_evidence_ids_json, waived_at, waiver_reason,
-           waiver_evidence_refs_json, cancelled_at, cancel_reason, expired_at, expire_reason
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      for (const obligation of snapshot.obligations) {
-        insertObligation.run(
-          obligation.obligationId,
-          obligation.taskId,
-          obligation.kind,
-          obligation.ownerRole ?? null,
-          obligation.summary,
-          obligation.blocking ? 1 : 0,
-          obligation.status,
-          obligation.createdAt,
-          obligation.updatedAt,
-          obligation.satisfiedAt ?? null,
-          obligation.satisfactionEvidenceIds === undefined
-            ? null
-            : stringify(obligation.satisfactionEvidenceIds),
-          obligation.waivedAt ?? null,
-          obligation.waiverReason ?? null,
-          obligation.waiverEvidenceRefs === undefined
-            ? null
-            : stringify(obligation.waiverEvidenceRefs),
-          obligation.cancelledAt ?? null,
-          obligation.cancelReason ?? null,
-          obligation.expiredAt ?? null,
-          obligation.expireReason ?? null
-        )
-      }
-
-      const insertEvent = this.context.sqlite.prepare(
-        `INSERT INTO workflow_events (
-           event_id, task_id, workflow_id, workflow_version, workflow_hash, type, actor_json,
-           run_id, supervisor_run_id, participant_run_id, observed_task_version,
-           next_task_version, context_hash, idempotency_key, payload_json, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      for (const event of snapshot.events) {
-        insertEvent.run(
-          event.eventId,
-          event.taskId,
-          event.workflow.id,
-          event.workflow.version,
-          event.workflow.hash,
-          event.type,
-          stringify(event.actor),
-          event.runId ?? null,
-          event.supervisorRunId ?? null,
-          event.participantRunId ?? null,
-          event.observedTaskVersion,
-          event.nextTaskVersion ?? null,
-          event.contextHash ?? null,
-          event.idempotencyKey,
-          stringify(event.payload),
-          event.createdAt
-        )
-      }
-
-      const insertEffect = this.context.sqlite.prepare(
-        `INSERT INTO workflow_effect_intents (
-           effect_id, task_id, source_event_id, kind, payload_json, idempotency_key, state,
-           created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      for (const effect of snapshot.effects) {
-        insertEffect.run(
-          effect.effectId,
-          effect.taskId,
-          effect.sourceEventId,
-          effect.kind,
-          stringify(effect.payload),
-          effect.idempotencyKey,
-          effect.state,
-          effect.createdAt,
-          effect.updatedAt
-        )
-      }
-
-      const insertParticipantRun = this.context.sqlite.prepare(
-        `INSERT INTO workflow_participant_runs (
-           run_id, task_id, workflow_json, actor_json, role, status, parent_supervisor_run_id,
-           task_version_at_start, context_hash, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      for (const run of snapshot.participantRuns) {
-        insertParticipantRun.run(
-          run.runId,
-          run.taskId,
-          stringify(run.workflow),
-          stringify(run.actor),
-          run.role,
-          run.status ?? 'launched',
-          run.parentSupervisorRunId ?? null,
-          run.taskVersionAtStart,
-          run.contextHash,
-          run.createdAt
-        )
-      }
-
-      const insertSupervisorRun = this.context.sqlite.prepare(
-        `INSERT INTO workflow_supervisor_runs (
-           run_id, task_id, workflow_json, supervisor_json, autonomy, capabilities_json,
-           harness_json, task_version_at_start, context_hash, created_at, paused, paused_reason
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      for (const run of snapshot.supervisorRuns) {
-        insertSupervisorRun.run(
-          run.runId,
-          run.taskId,
-          stringify(run.workflow),
-          stringify(run.supervisor),
-          run.autonomy,
-          stringify(run.capabilities),
-          run.harness === undefined ? null : stringify(run.harness),
-          run.taskVersionAtStart,
-          run.contextHash,
-          run.createdAt,
-          run.paused === true ? 1 : 0,
-          run.pausedReason ?? null
-        )
-      }
-
-      const insertAnomaly = this.context.sqlite.prepare(
-        `INSERT INTO workflow_anomalies (
-           anomaly_id, task_id, workflow_json, supervisor_run_id, category,
-           state_at_observation_json, task_version, summary, proposed_recovery, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      for (const anomaly of snapshot.anomalies) {
-        insertAnomaly.run(
-          anomaly.anomalyId,
-          anomaly.taskId,
-          stringify(anomaly.workflow),
-          anomaly.supervisorRunId ?? null,
-          anomaly.category,
-          stringify(anomaly.stateAtObservation),
-          anomaly.taskVersion,
-          anomaly.summary,
-          anomaly.proposedRecovery ?? null,
-          anomaly.createdAt
-        )
-      }
-
-      const insertProposal = this.context.sqlite.prepare(
-        `INSERT INTO workflow_patch_proposals (
-           proposal_id, task_id, base_workflow_json, proposed_version, source_anomaly_ids_json,
-           patch_kind, patch_json, rationale_summary, status, created_by_json, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      for (const proposal of snapshot.patchProposals) {
-        insertProposal.run(
-          proposal.proposalId,
-          proposal.taskId,
-          stringify(proposal.baseWorkflow),
-          proposal.proposedVersion ?? null,
-          stringify(proposal.sourceAnomalyIds),
-          proposal.patchKind,
-          stringify(proposal.patch),
-          proposal.rationaleSummary,
-          proposal.status,
-          stringify(proposal.createdBy),
-          proposal.createdAt
-        )
-      }
-
-      const insertIdempotency = this.context.sqlite.prepare(
-        `INSERT INTO workflow_idempotency_records (idempotency_key, fingerprint, result_json, created_at)
-         VALUES (?, ?, ?, ?)`
-      )
-      for (const entry of snapshot.idempotency) {
-        insertIdempotency.run(
-          entry.key,
-          entry.record.fingerprint,
-          stringify(entry.record.result),
-          now
-        )
-      }
-
-      const insertContextHash = this.context.sqlite.prepare(
-        'INSERT INTO workflow_context_hashes (task_id, context_hash) VALUES (?, ?)'
-      )
-      for (const entry of snapshot.contextHashes) {
-        for (const hash of entry.hashes) {
-          insertContextHash.run(entry.taskId, hash)
-        }
-      }
-
-      this.context.sqlite
-        .prepare('INSERT INTO workflow_runtime_meta (key, value_json) VALUES (?, ?)')
-        .run('sequence', stringify(snapshot.sequence))
+      this.writeDefinitions(snapshot.definitions, now)
+      this.writeTasks(snapshot.tasks)
+      this.writeEvidence(snapshot.evidence)
+      this.writeObligations(snapshot.obligations)
+      this.writeEvents(snapshot.events)
+      this.writeHrcRunMaps(snapshot.workflowHrcRunMaps ?? [])
+      this.writeEffects(snapshot.effects)
+      this.writeParticipantRuns(snapshot.participantRuns)
+      this.writeSupervisorRuns(snapshot.supervisorRuns)
+      this.writeAnomalies(snapshot.anomalies)
+      this.writePatchProposals(snapshot.patchProposals)
+      this.writeIdempotency(snapshot.idempotency, now)
+      this.writeContextHashes(snapshot.contextHashes)
+      this.writeRuntimeSequence(snapshot.sequence)
     })()
+  }
+
+  private truncateAllSnapshotTables(): void {
+    const tables = [
+      'workflow_context_hashes',
+      'workflow_idempotency_records',
+      'workflow_patch_proposals',
+      'workflow_anomalies',
+      'workflow_supervisor_runs',
+      'workflow_participant_runs',
+      'workflow_hrc_run_maps',
+      'workflow_effect_intents',
+      'workflow_events',
+      'workflow_obligations',
+      'workflow_evidence',
+      'workflow_tasks',
+      'workflow_definitions',
+      'workflow_runtime_meta',
+    ]
+    for (const table of tables) {
+      this.context.sqlite.prepare(`DELETE FROM ${table}`).run()
+    }
+  }
+
+  private writeDefinitions(definitions: WorkflowKernelSnapshot['definitions'], now: string): void {
+    const stmt = this.context.sqlite.prepare(
+      `INSERT INTO workflow_definitions (id, version, hash, definition_json, created_at)
+       VALUES (?, ?, ?, ?, ?)`
+    )
+    for (const definition of definitions) {
+      stmt.run(definition.id, definition.version, definition.hash, stringify(definition), now)
+    }
+  }
+
+  private writeTasks(tasks: WorkflowKernelSnapshot['tasks']): void {
+    const stmt = this.context.sqlite.prepare(
+      `INSERT INTO workflow_tasks (
+         task_id, project_id, workflow_id, workflow_version, workflow_hash, state_json, version,
+         goal, risk, facts_json, role_bindings_json, supervisor_json, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    for (const task of tasks) {
+      stmt.run(
+        task.taskId,
+        task.projectId,
+        task.workflow.id,
+        task.workflow.version,
+        task.workflow.hash,
+        stringify(task.state),
+        task.version,
+        task.goal,
+        task.risk ?? null,
+        task.facts === undefined ? null : stringify(task.facts),
+        stringify(task.roleBindings),
+        task.supervisor === undefined ? null : stringify(task.supervisor),
+        task.createdAt,
+        task.updatedAt
+      )
+    }
+  }
+
+  private writeEvidence(evidence: WorkflowKernelSnapshot['evidence']): void {
+    const stmt = this.context.sqlite.prepare(
+      `INSERT INTO workflow_evidence (evidence_id, task_id, kind, ref, summary, data_json,
+       actor_json, role, run_id, participant_run_id, supervisor_run_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    for (const item of evidence) {
+      stmt.run(
+        item.evidenceId,
+        item.taskId,
+        item.kind,
+        item.ref,
+        item.summary ?? null,
+        item.data === undefined ? null : stringify(item.data),
+        item.actor === undefined ? null : stringify(item.actor),
+        item.role ?? null,
+        item.runId ?? null,
+        item.participantRunId ?? null,
+        item.supervisorRunId ?? null,
+        item.createdAt
+      )
+    }
+  }
+
+  private writeObligations(obligations: WorkflowKernelSnapshot['obligations']): void {
+    const stmt = this.context.sqlite.prepare(
+      `INSERT INTO workflow_obligations (
+         obligation_id, task_id, kind, owner_role, summary, blocking, status, created_at,
+         updated_at, satisfied_at, satisfaction_evidence_ids_json, waived_at, waiver_reason,
+         waiver_evidence_refs_json, cancelled_at, cancel_reason, expired_at, expire_reason
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    for (const obligation of obligations) {
+      stmt.run(
+        obligation.obligationId,
+        obligation.taskId,
+        obligation.kind,
+        obligation.ownerRole ?? null,
+        obligation.summary,
+        obligation.blocking ? 1 : 0,
+        obligation.status,
+        obligation.createdAt,
+        obligation.updatedAt,
+        obligation.satisfiedAt ?? null,
+        obligation.satisfactionEvidenceIds === undefined
+          ? null
+          : stringify(obligation.satisfactionEvidenceIds),
+        obligation.waivedAt ?? null,
+        obligation.waiverReason ?? null,
+        obligation.waiverEvidenceRefs === undefined
+          ? null
+          : stringify(obligation.waiverEvidenceRefs),
+        obligation.cancelledAt ?? null,
+        obligation.cancelReason ?? null,
+        obligation.expiredAt ?? null,
+        obligation.expireReason ?? null
+      )
+    }
+  }
+
+  private writeEvents(events: WorkflowKernelSnapshot['events']): void {
+    const stmt = this.context.sqlite.prepare(
+      `INSERT INTO workflow_events (
+         event_id, workflow_seq, schema_version, task_id, workflow_id, workflow_version,
+         workflow_hash, type, command_type, command_hash, causation_id, correlation_id,
+         actor_json, role, authority, run_id, supervisor_run_id, participant_run_id,
+         observed_task_version, next_task_version, context_hash, idempotency_key, result,
+         rejection_code, payload_json, event_hash, prev_hash, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    for (const event of events) {
+      stmt.run(
+        event.eventId,
+        event.workflowSeq,
+        event.schemaVersion,
+        event.taskId,
+        event.workflow.id,
+        event.workflow.version,
+        event.workflow.hash,
+        event.type,
+        event.commandType ?? null,
+        event.commandHash ?? null,
+        event.causationId ?? null,
+        event.correlationId ?? null,
+        stringify(event.actor),
+        event.role ?? null,
+        event.authority ?? null,
+        event.runId ?? null,
+        event.supervisorRunId ?? null,
+        event.participantRunId ?? null,
+        event.observedTaskVersion,
+        event.nextTaskVersion ?? null,
+        event.contextHash ?? null,
+        event.idempotencyKey,
+        event.result,
+        event.rejectionCode ?? null,
+        stringify(event.payload),
+        event.eventHash,
+        event.prevHash ?? null,
+        event.createdAt
+      )
+    }
+  }
+
+  private writeHrcRunMaps(maps: NonNullable<WorkflowKernelSnapshot['workflowHrcRunMaps']>): void {
+    const stmt = this.context.sqlite.prepare(
+      `INSERT INTO workflow_hrc_run_maps (
+         map_id, workflow_task_id, participant_run_id, supervisor_run_id, hrc_run_id,
+         runtime_id, launch_id, host_session_id, scope_ref, lane_ref, generation, created_at,
+         source
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    for (const map of maps) {
+      stmt.run(
+        map.mapId,
+        map.workflowTaskId,
+        map.participantRunId ?? null,
+        map.supervisorRunId ?? null,
+        map.hrcRunId,
+        map.runtimeId ?? null,
+        map.launchId ?? null,
+        map.hostSessionId ?? null,
+        map.scopeRef ?? null,
+        map.laneRef ?? null,
+        map.generation ?? null,
+        map.createdAt,
+        map.source
+      )
+    }
+  }
+
+  private writeEffects(effects: WorkflowKernelSnapshot['effects']): void {
+    const stmt = this.context.sqlite.prepare(
+      `INSERT INTO workflow_effect_intents (
+         effect_id, task_id, source_event_id, kind, payload_json, idempotency_key, state,
+         created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    for (const effect of effects) {
+      stmt.run(
+        effect.effectId,
+        effect.taskId,
+        effect.sourceEventId,
+        effect.kind,
+        stringify(effect.payload),
+        effect.idempotencyKey,
+        effect.state,
+        effect.createdAt,
+        effect.updatedAt
+      )
+    }
+  }
+
+  private writeParticipantRuns(runs: WorkflowKernelSnapshot['participantRuns']): void {
+    const stmt = this.context.sqlite.prepare(
+      `INSERT INTO workflow_participant_runs (
+         run_id, task_id, workflow_json, actor_json, role, status, parent_supervisor_run_id,
+         task_version_at_start, context_hash, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    for (const run of runs) {
+      stmt.run(
+        run.runId,
+        run.taskId,
+        stringify(run.workflow),
+        stringify(run.actor),
+        run.role,
+        run.status ?? 'launched',
+        run.parentSupervisorRunId ?? null,
+        run.taskVersionAtStart,
+        run.contextHash,
+        run.createdAt
+      )
+    }
+  }
+
+  private writeSupervisorRuns(runs: WorkflowKernelSnapshot['supervisorRuns']): void {
+    const stmt = this.context.sqlite.prepare(
+      `INSERT INTO workflow_supervisor_runs (
+         run_id, task_id, workflow_json, supervisor_json, autonomy, capabilities_json,
+         harness_json, task_version_at_start, context_hash, created_at, paused, paused_reason
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    for (const run of runs) {
+      stmt.run(
+        run.runId,
+        run.taskId,
+        stringify(run.workflow),
+        stringify(run.supervisor),
+        run.autonomy,
+        stringify(run.capabilities),
+        run.harness === undefined ? null : stringify(run.harness),
+        run.taskVersionAtStart,
+        run.contextHash,
+        run.createdAt,
+        run.paused === true ? 1 : 0,
+        run.pausedReason ?? null
+      )
+    }
+  }
+
+  private writeAnomalies(anomalies: WorkflowKernelSnapshot['anomalies']): void {
+    const stmt = this.context.sqlite.prepare(
+      `INSERT INTO workflow_anomalies (
+         anomaly_id, task_id, workflow_json, supervisor_run_id, category,
+         state_at_observation_json, task_version, summary, proposed_recovery, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    for (const anomaly of anomalies) {
+      stmt.run(
+        anomaly.anomalyId,
+        anomaly.taskId,
+        stringify(anomaly.workflow),
+        anomaly.supervisorRunId ?? null,
+        anomaly.category,
+        stringify(anomaly.stateAtObservation),
+        anomaly.taskVersion,
+        anomaly.summary,
+        anomaly.proposedRecovery ?? null,
+        anomaly.createdAt
+      )
+    }
+  }
+
+  private writePatchProposals(proposals: WorkflowKernelSnapshot['patchProposals']): void {
+    const stmt = this.context.sqlite.prepare(
+      `INSERT INTO workflow_patch_proposals (
+         proposal_id, task_id, base_workflow_json, proposed_version, source_anomaly_ids_json,
+         patch_kind, patch_json, rationale_summary, status, created_by_json, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    for (const proposal of proposals) {
+      stmt.run(
+        proposal.proposalId,
+        proposal.taskId,
+        stringify(proposal.baseWorkflow),
+        proposal.proposedVersion ?? null,
+        stringify(proposal.sourceAnomalyIds),
+        proposal.patchKind,
+        stringify(proposal.patch),
+        proposal.rationaleSummary,
+        proposal.status,
+        stringify(proposal.createdBy),
+        proposal.createdAt
+      )
+    }
+  }
+
+  private writeIdempotency(entries: WorkflowKernelSnapshot['idempotency'], now: string): void {
+    const stmt = this.context.sqlite.prepare(
+      `INSERT INTO workflow_idempotency_records (idempotency_key, fingerprint, result_json, created_at)
+       VALUES (?, ?, ?, ?)`
+    )
+    for (const entry of entries) {
+      stmt.run(entry.key, entry.record.fingerprint, stringify(entry.record.result), now)
+    }
+  }
+
+  private writeContextHashes(entries: WorkflowKernelSnapshot['contextHashes']): void {
+    const stmt = this.context.sqlite.prepare(
+      'INSERT INTO workflow_context_hashes (task_id, context_hash) VALUES (?, ?)'
+    )
+    for (const entry of entries) {
+      for (const hash of entry.hashes) {
+        stmt.run(entry.taskId, hash)
+      }
+    }
+  }
+
+  private writeRuntimeSequence(sequence: WorkflowKernelSnapshot['sequence']): void {
+    this.context.sqlite
+      .prepare('INSERT INTO workflow_runtime_meta (key, value_json) VALUES (?, ?)')
+      .run('sequence', stringify(sequence))
   }
 }

@@ -71,6 +71,7 @@ describe('real launcher helpers', () => {
                 },
                 initialPrompt: '  remember chartreuse  ',
               },
+              waitForCompletion: true,
             })
             db.run(
               'INSERT INTO runs (run_id, status, error_code, error_message) VALUES (?, ?, NULL, NULL)',
@@ -131,6 +132,9 @@ describe('real launcher helpers', () => {
       expect(result).toEqual({
         runId: 'run-123',
         sessionId: 'hsid-123',
+        hostSessionId: 'hsid-123',
+        runtimeId: 'rt-123',
+        generation: 3,
       })
       expect(calls).toEqual(['resolveSession', 'dispatchTurn'])
       expect(seenEvents).toEqual([
@@ -192,6 +196,8 @@ describe('real launcher helpers', () => {
     expect(result).toEqual({
       runId: 'hsid-empty',
       sessionId: 'hsid-empty',
+      hostSessionId: 'hsid-empty',
+      generation: undefined,
     })
     expect(calls).toEqual(['resolveSession'])
   })
@@ -362,6 +368,10 @@ describe('real launcher helpers', () => {
       expect(result).toEqual({
         runId: 'hsid-discord',
         sessionId: 'hsid-discord',
+        hostSessionId: 'hsid-discord',
+        runtimeId: 'rt-tmux',
+        launchId: undefined,
+        generation: 1,
       })
       expect(calls).toEqual([
         'resolveSession',
@@ -498,6 +508,8 @@ describe('real launcher helpers', () => {
     expect(result).toEqual({
       runId: 'hsid-empty',
       sessionId: 'hsid-empty',
+      hostSessionId: 'hsid-empty',
+      generation: undefined,
     })
     expect(calls).toEqual(['resolveSession'])
   })
