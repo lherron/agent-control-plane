@@ -55,17 +55,64 @@ export function JobFlow() {
     )
   }
 
+  const title = data.summary.title || data.job.jobId
+  const cron = data.schedule.cron
+  const nextFire = data.schedule.nextFireAt
+    ? new Date(data.schedule.nextFireAt).toLocaleString()
+    : '—'
+  const lastFire = data.schedule.lastFireAt
+    ? new Date(data.schedule.lastFireAt).toLocaleString()
+    : '—'
+
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="px-4 py-2 border-b border-border bg-card flex items-center gap-3">
-        <div>
-          <span className="font-semibold text-sm text-foreground">{data.job.jobId}</span>
-          <span className="text-xs text-muted ml-2">JobFlow</span>
+      {/* Header — rich title + context strip per reference image */}
+      <div className="px-6 pt-4 pb-3 border-b border-border bg-card">
+        <div className="flex items-baseline gap-3 mb-1">
+          <span className="text-base font-semibold text-foreground">JobFlow:</span>
+          <span className="text-base font-mono text-foreground">{title}</span>
+          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] uppercase tracking-wide bg-accent/10 text-accent border border-accent/30">
+            {data.summary.kind}
+          </span>
+          {data.job.disabled ? (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] uppercase tracking-wide bg-red-50 text-red-700 border border-red-200">
+              disabled
+            </span>
+          ) : (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] uppercase tracking-wide bg-emerald-50 text-emerald-700 border border-emerald-200">
+              enabled
+            </span>
+          )}
+          <span className="ml-auto text-xs text-quiet">
+            {data.flow.sequence.length} sequence · {data.flow.onFailure.length} onFailure ·{' '}
+            {data.flow.edges.length} edges
+          </span>
         </div>
-        <div className="text-xs text-quiet ml-auto">
-          {data.flow.sequence.length} sequence &middot; {data.flow.onFailure.length} onFailure
-          &middot; {data.flow.edges.length} edges
+        <div className="flex items-center gap-x-6 gap-y-1 flex-wrap text-xs text-muted">
+          <span>
+            <span className="text-quiet">project</span>{' '}
+            <span className="text-foreground font-mono">{data.job.projectId}</span>
+          </span>
+          <span>
+            <span className="text-quiet">agent</span>{' '}
+            <span className="text-foreground font-mono">{data.job.agentId}</span>
+          </span>
+          <span>
+            <span className="text-quiet">scope</span>{' '}
+            <span className="text-foreground font-mono">{data.startup.scopeRef}</span>
+          </span>
+          <span>
+            <span className="text-quiet">cron</span>{' '}
+            <span className="text-foreground font-mono">{cron}</span>
+          </span>
+          <span>
+            <span className="text-quiet">next fire</span>{' '}
+            <span className="text-foreground">{nextFire}</span>
+          </span>
+          <span>
+            <span className="text-quiet">last fire</span>{' '}
+            <span className="text-foreground">{lastFire}</span>
+          </span>
         </div>
       </div>
 
@@ -81,7 +128,7 @@ export function JobFlow() {
         </div>
 
         {/* Inspector panel */}
-        <div className="w-80 border-l border-border bg-card overflow-auto shrink-0">
+        <div className="w-96 border-l border-border bg-card overflow-hidden shrink-0 flex flex-col">
           {selectedStep ? (
             <StepInspector
               step={selectedStep}
@@ -89,8 +136,9 @@ export function JobFlow() {
               latestRuns={data.latestRuns}
             />
           ) : (
-            <div className="flex items-center justify-center h-full text-xs text-quiet">
-              Click a step to inspect
+            <div className="flex flex-col items-center justify-center h-full text-quiet text-xs p-6 text-center gap-2">
+              <div className="text-[11px] uppercase tracking-wide text-muted">Step inspector</div>
+              <div>Click a step in the flow canvas to inspect.</div>
             </div>
           )}
         </div>

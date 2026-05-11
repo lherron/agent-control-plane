@@ -205,12 +205,34 @@ function RawTab({ step }: { step: NormalizedFlowStep }) {
 export function StepInspector({ step, stepRuns, latestRuns }: StepInspectorProps) {
   const [activeTab, setActiveTab] = useState<InspectorTab>('definition')
 
+  const isOnFailure = step.phase === 'onFailure'
   return (
     <div className="h-full flex flex-col">
-      <div className="px-4 py-3 border-b border-border">
-        <div className="font-semibold text-sm text-foreground">{step.id}</div>
-        <div className="text-xs text-muted">
-          {step.kind ?? 'agent'} step &middot; {step.phase}[{step.index}]
+      <div className="px-4 py-3 border-b border-border space-y-1">
+        <div className="text-[10px] uppercase tracking-wide text-muted">
+          Step {step.index + 1} · {step.phase}
+        </div>
+        <div className="font-semibold text-sm text-foreground font-mono">{step.id}</div>
+        <div className="flex items-center gap-2 text-xs">
+          <span
+            className={
+              isOnFailure
+                ? 'inline-flex px-1.5 py-0 rounded text-[10px] bg-red-50 text-red-700 border border-red-200'
+                : 'inline-flex px-1.5 py-0 rounded text-[10px] bg-accent/10 text-accent border border-accent/30'
+            }
+          >
+            {step.kind ?? 'agent'}
+          </span>
+          {step.fresh !== undefined && (
+            <span className="text-quiet">
+              fresh: <span className="text-foreground">{String(step.fresh)}</span>
+            </span>
+          )}
+          {step.timeout && (
+            <span className="text-quiet">
+              timeout: <span className="text-foreground">{step.timeout}</span>
+            </span>
+          )}
         </div>
       </div>
 
@@ -229,10 +251,10 @@ export function StepInspector({ step, stepRuns, latestRuns }: StepInspectorProps
             active={activeTab === 'expectations'}
             onClick={() => setActiveTab('expectations')}
           >
-            Expect
+            Expectations
           </TabsTrigger>
           <TabsTrigger active={activeTab === 'runs'} onClick={() => setActiveTab('runs')}>
-            Runs
+            Last Runs
           </TabsTrigger>
           <TabsTrigger active={activeTab === 'raw'} onClick={() => setActiveTab('raw')}>
             Raw

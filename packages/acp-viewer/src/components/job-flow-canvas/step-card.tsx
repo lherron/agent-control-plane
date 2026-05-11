@@ -19,26 +19,46 @@ function stepKindLabel(step: NormalizedFlowStep): string {
 }
 
 export function StepCard({ step, x, y, width, height, selected, onSelect }: StepCardProps) {
+  const isOnFailure = step.phase === 'onFailure'
+  const stepNumber = step.index + 1
   return (
-    <foreignObject x={x} y={y} width={width} height={height}>
+    <foreignObject x={x} y={y} width={width} height={height} style={{ pointerEvents: 'auto' }}>
       <button
         type="button"
         className={cn(
-          'h-full w-full rounded-lg border bg-card p-3 cursor-pointer transition-all text-xs text-left',
+          'h-full w-full rounded-lg border bg-card cursor-pointer transition-all text-xs text-left overflow-hidden flex flex-col',
           selected
-            ? 'border-accent ring-2 ring-accent/30 shadow-md'
-            : 'border-border hover:border-accent/50 shadow-sm'
+            ? 'border-accent ring-2 ring-accent/40 shadow-md'
+            : 'border-border hover:border-accent/60 shadow-sm'
         )}
-        onClick={() => onSelect(step.id)}
+        onClick={(e) => {
+          e.stopPropagation()
+          onSelect(step.id)
+        }}
       >
-        <div className="flex items-center justify-between gap-1 mb-1">
-          <span className="font-semibold text-foreground truncate">{step.id}</span>
-          <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
+        <div
+          className={cn(
+            'px-3 py-1.5 flex items-center justify-between gap-1 border-b',
+            isOnFailure
+              ? 'bg-red-50 border-red-200 text-red-700'
+              : 'bg-accent/10 border-accent/30 text-accent'
+          )}
+        >
+          <span className="font-semibold truncate text-[11px] uppercase tracking-wide">
+            Step {stepNumber} · {step.id}
+          </span>
+          <Badge
+            variant="outline"
+            className={cn(
+              'text-[10px] px-1.5 py-0 shrink-0 bg-card',
+              isOnFailure ? 'border-red-300 text-red-700' : 'border-accent/40 text-accent'
+            )}
+          >
             {stepKindLabel(step)}
           </Badge>
         </div>
 
-        <div className="space-y-0.5 text-quiet">
+        <div className="space-y-0.5 text-quiet px-3 py-2 flex-1 min-h-0 overflow-hidden">
           {step.timeout && (
             <div className="truncate">
               <span className="text-muted">timeout:</span> {step.timeout}
@@ -55,9 +75,9 @@ export function StepCard({ step, x, y, width, height, selected, onSelect }: Step
             </div>
           )}
           {step.input && (
-            <div className="truncate">
+            <div className="truncate text-foreground/80">
               <span className="text-muted">input:</span>{' '}
-              {step.input.length > 40 ? `${step.input.slice(0, 37)}...` : step.input}
+              {step.input.length > 50 ? `${step.input.slice(0, 47)}...` : step.input}
             </div>
           )}
           {step.kind === 'exec' && step.exec && (

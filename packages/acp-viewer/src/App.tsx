@@ -1,5 +1,4 @@
 import { LeftNav } from '@/components/app-shell/left-nav'
-import { ProvenanceStrip } from '@/components/provenance-strip'
 import { Outlet } from 'react-router-dom'
 
 export default function App() {
@@ -10,7 +9,6 @@ export default function App() {
         <main className="flex-1 overflow-auto">
           <Outlet />
         </main>
-        <ProvenanceStrip />
       </div>
     </div>
   )
