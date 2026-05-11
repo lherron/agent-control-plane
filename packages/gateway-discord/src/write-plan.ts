@@ -112,9 +112,25 @@ export function buildFinalDeliveryFrame(input: {
     )
   }
 
-  const deliveryText = delivery.body.text
-  if (run === undefined || !deliveryDuplicatesLastAssistantSegment(deliveryText, run)) {
-    blocks.push({ t: 'markdown', md: deliveryText })
+  const degraded =
+    delivery.outcome?.state === 'degraded' && delivery.outcome.reason === 'no_assistant_content'
+      ? delivery.outcome
+      : undefined
+
+  if (degraded) {
+    blocks.push({
+      t: 'notice',
+      level: 'warn',
+      message:
+        degraded.source !== undefined
+          ? `Agent finished without producing a reply (source: ${degraded.source}).`
+          : 'Agent finished without producing a reply.',
+    })
+  } else {
+    const deliveryText = delivery.body.text
+    if (run === undefined || !deliveryDuplicatesLastAssistantSegment(deliveryText, run)) {
+      blocks.push({ t: 'markdown', md: deliveryText })
+    }
   }
 
   appendDeliveryAttachments(blocks, delivery)

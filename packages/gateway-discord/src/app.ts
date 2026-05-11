@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
 import type { DeliveryRequest, InputIntent, InterfaceSessionRef } from 'acp-core'
+import { parseScopeRef, validateScopeRef } from 'agent-scope'
 import { Client, Events, GatewayIntentBits, type Message, MessageType } from 'discord.js'
 
 import { mapDiscordMessageAttachments, resolveDiscordIngressContent } from './attachment-ingress.js'
@@ -57,9 +58,13 @@ const LIVE_PROGRESS_EDIT_THROTTLE_MS = 1500
 const LIVE_PROGRESS_INITIAL_FLUSH_MS = 150
 const LIVE_PROGRESS_RATE_LIMIT_BACKOFF_MS = 60_000
 const DEFAULT_LIVE_PROGRESS_TIMEOUT_MS = 60 * 60 * 1000
-const PENDING_PLACEHOLDER_TIMEOUT_MS = 60_000
+const PENDING_PLACEHOLDER_TIMEOUT_MS = 300_000
 const LIVE_SUBSCRIPTION_INITIAL_RECONNECT_MS = 1000
 const LIVE_SUBSCRIPTION_MAX_RECONNECT_MS = 5000
+// Discord's native typing indicator lasts ~10s per ping. Refresh every 8s so
+// the "<bot> is typing..." UX stays visible the whole time a request is in
+// flight without sending edits to the placeholder bubble.
+const TYPING_REFRESH_MS = 8_000
 
 /**
  * Pull a human-readable cause out of the ACP error envelope so we can show it
@@ -112,9 +117,16 @@ function resolveMessageIdentity(sessionRef: InterfaceSessionRef): DiscordAgentMe
 }
 
 function projectIdFromScopeRef(scopeRef: string): string {
-  const parts = scopeRef.split(':')
-  const projectIndex = parts.indexOf('project')
-  return parts[projectIndex + 1] ?? scopeRef
+  // Use the canonical agent-scope parser. Falls back to the raw scopeRef
+  // when the input isn't a well-formed scope or lacks a project segment —
+  // intended only for logging/diagnostic contexts. Healthy code paths
+  // should prefer `binding.projectId` directly (always populated since
+  // the projectId-required validation landed).
+  const validation = validateScopeRef(scopeRef)
+  if (!validation.ok) {
+    return scopeRef
+  }
+  return parseScopeRef(scopeRef).projectId ?? scopeRef
 }
 
 function laneIdFromRef(laneRef: string): string {
@@ -202,6 +214,7 @@ type PendingPlaceholder = {
   promptPreview?: string | undefined
   pendingTimeout: ReturnType<typeof setTimeout>
   runTimeout: ReturnType<typeof setTimeout>
+  typingTimer?: ReturnType<typeof setInterval> | undefined
   flushTimer?: ReturnType<typeof setTimeout> | undefined
   disableTimer?: ReturnType<typeof setTimeout> | undefined
   pendingFrame?: RenderFrame | undefined
@@ -952,6 +965,14 @@ export class GatewayDiscordApp {
       if (placeholder?.runTimeout) {
         clearTimeout(placeholder.runTimeout)
       }
+      // Stop the Discord typing indicator the moment HRC signals turn_end,
+      // not when the polling-driven final delivery arrives. The polling gap
+      // (deliveryPollMs) was leaving "<bot> is typing..." up after the
+      // assistant text was already visible.
+      if (placeholder?.typingTimer) {
+        clearInterval(placeholder.typingTimer)
+        placeholder.typingTimer = undefined
+      }
     }
   }
 
@@ -1138,7 +1159,48 @@ export class GatewayDiscordApp {
     list.push(pending)
     this.pendingPlaceholdersBySessionRef.set(sessionRef, list)
     this.ensureLiveSubscriptionForSessionRef(sessionRef, input.projectId)
+
+    const typingTargetId = input.placeholder.threadId ?? input.placeholder.channelId
+    if (typingTargetId !== undefined) {
+      pending.typingTimer = this.startTypingLoop(typingTargetId, sessionRef, input.projectId)
+    }
+
     return pending
+  }
+
+  private startTypingLoop(
+    channelId: string,
+    sessionRef: string,
+    projectId: string
+  ): ReturnType<typeof setInterval> {
+    void this.sendTypingPing(channelId, sessionRef, projectId)
+    return setInterval(() => {
+      void this.sendTypingPing(channelId, sessionRef, projectId)
+    }, TYPING_REFRESH_MS)
+  }
+
+  private async sendTypingPing(
+    channelId: string,
+    sessionRef: string,
+    projectId: string
+  ): Promise<void> {
+    try {
+      const channel = await this.client.channels.fetch(channelId)
+      if (!channel || typeof (channel as { sendTyping?: unknown }).sendTyping !== 'function') {
+        return
+      }
+      await (channel as { sendTyping: () => Promise<unknown> }).sendTyping()
+      log.info('gw.discord.typing.refresh', {
+        trace: { gatewayId: this.gatewayId, projectId },
+        data: { channelId, sessionRef },
+      })
+    } catch (error) {
+      log.warn('gw.discord.typing.error', {
+        trace: { gatewayId: this.gatewayId, projectId },
+        data: { channelId, sessionRef },
+        err: { message: error instanceof Error ? error.message : String(error) },
+      })
+    }
   }
 
   private async describePendingPlaceholderTimeout(pending: PendingPlaceholder): Promise<string> {
@@ -1292,6 +1354,10 @@ export class GatewayDiscordApp {
   private clearPlaceholderTimers(placeholder: PendingPlaceholder): void {
     clearTimeout(placeholder.pendingTimeout)
     clearTimeout(placeholder.runTimeout)
+    if (placeholder.typingTimer) {
+      clearInterval(placeholder.typingTimer)
+      placeholder.typingTimer = undefined
+    }
     if (placeholder.flushTimer) {
       clearTimeout(placeholder.flushTimer)
       placeholder.flushTimer = undefined

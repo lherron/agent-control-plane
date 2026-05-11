@@ -1,4 +1,5 @@
 import { admissionLabel } from 'acp-ops-projection'
+import { parseScopeRef, validateScopeRef } from 'agent-scope'
 import type { ContentBlock, Message, ToolResult } from 'spaces-runtime'
 import { createLogger } from './logger.js'
 import type { GatewaySessionEvent, SessionEventEnvelope } from './types.js'
@@ -28,14 +29,16 @@ function getBoolean(record: Record<string, unknown>, key: string): boolean | und
 }
 
 function deriveProjectId(scopeRef: string): string | undefined {
-  const parts = scopeRef.split(':')
-  const projectIndex = parts.indexOf('project')
-  if (projectIndex < 0) {
+  // Use the canonical agent-scope parser so we accept the full grammar
+  // (agent:<id>:project:<id>[:task:<id>][:role:<name>]) and reject anything
+  // that doesn't have a project segment. Returning undefined causes the
+  // adapter to drop the event — which is correct: a project-less scope is
+  // not bindable to any Discord conversation.
+  const validation = validateScopeRef(scopeRef)
+  if (!validation.ok) {
     return undefined
   }
-
-  const projectId = parts[projectIndex + 1]
-  return projectId && projectId.length > 0 ? projectId : undefined
+  return parseScopeRef(scopeRef).projectId
 }
 
 function textFrom(value: unknown): string {

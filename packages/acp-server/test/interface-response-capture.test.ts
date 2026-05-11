@@ -135,6 +135,52 @@ describe('interface response capture', () => {
     }
   })
 
+  test('enqueues degraded delivery when a synthesized completion has no assistant content', async () => {
+    const temp = createTempInterfaceStore()
+    const runStore = new InMemoryRunStore()
+    const run = createInterfaceRun(runStore)
+
+    try {
+      const capture = createInterfaceResponseCapture({
+        interfaceStore: temp.interfaceStore,
+        runStore,
+        runId: run.runId,
+        inputAttemptId: 'ia_empty',
+      })
+
+      await capture.handler({
+        type: 'turn_end',
+        payload: {
+          success: true,
+          transport: 'headless',
+          source: 'launch_exit_synthesized',
+          outcome: {
+            state: 'degraded',
+            reason: 'no_assistant_content',
+            source: 'launch_exit_synthesized',
+          },
+        },
+      })
+
+      const deliveries = temp.interfaceStore.deliveries.listQueuedForGateway('discord_prod')
+      expect(deliveries).toHaveLength(1)
+      expect(deliveries[0]).toMatchObject({
+        runId: run.runId,
+        inputAttemptId: 'ia_empty',
+        bodyKind: 'text/markdown',
+        bodyText: '',
+        outcome: {
+          state: 'degraded',
+          reason: 'no_assistant_content',
+          source: 'launch_exit_synthesized',
+        },
+        status: 'queued',
+      })
+    } finally {
+      temp.cleanup()
+    }
+  })
+
   test('ignores tool and partial events', async () => {
     const temp = createTempInterfaceStore()
     const runStore = new InMemoryRunStore()

@@ -31,6 +31,9 @@ type DeliveryRequestRow = {
   body_kind: DeliveryRequest['bodyKind']
   body_text: string
   body_attachments_json: string | null
+  outcome_state: string | null
+  outcome_reason: string | null
+  outcome_source: string | null
   status: DeliveryRequest['status']
   created_at: string
   delivered_at: string | null
@@ -63,12 +66,33 @@ function mapDeliveryRequestRow(row: DeliveryRequestRow): DeliveryRequest {
     bodyKind: row.body_kind,
     bodyText: row.body_text,
     ...(bodyAttachments !== undefined ? { bodyAttachments } : {}),
+    ...mapDeliveryOutcome(row),
     status: row.status,
     createdAt: row.created_at,
     deliveredAt: toOptionalString(row.delivered_at),
     failureCode: toOptionalString(row.failure_code),
     failureMessage: toOptionalString(row.failure_message),
   }
+}
+
+function mapDeliveryOutcome(row: DeliveryRequestRow): Pick<DeliveryRequest, 'outcome'> {
+  if (row.outcome_state === 'degraded' && row.outcome_reason === 'no_assistant_content') {
+    return {
+      outcome: {
+        state: 'degraded',
+        reason: 'no_assistant_content',
+        ...(toOptionalString(row.outcome_source) !== undefined
+          ? { source: toOptionalString(row.outcome_source) }
+          : {}),
+      },
+    }
+  }
+
+  if (row.outcome_state === 'normal') {
+    return { outcome: { state: 'normal' } }
+  }
+
+  return {}
 }
 
 function parseBodyAttachments(
@@ -120,12 +144,15 @@ export class DeliveryRequestRepo {
            body_kind,
            body_text,
            body_attachments_json,
+           outcome_state,
+           outcome_reason,
+           outcome_source,
            status,
            created_at,
            delivered_at,
            failure_code,
            failure_message
-         ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)`
+         ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)`
       )
       .run(
         input.deliveryRequestId,
@@ -144,6 +171,9 @@ export class DeliveryRequestRepo {
         input.bodyKind,
         input.bodyText,
         serializeBodyAttachments(input.bodyAttachments),
+        input.outcome?.state ?? null,
+        input.outcome?.state === 'degraded' ? input.outcome.reason : null,
+        input.outcome?.state === 'degraded' ? (input.outcome.source ?? null) : null,
         input.createdAt
       )
 
@@ -170,6 +200,9 @@ export class DeliveryRequestRepo {
                 body_kind,
                 body_text,
                 body_attachments_json,
+                outcome_state,
+                outcome_reason,
+                outcome_source,
                 status,
                 created_at,
                 delivered_at,
@@ -285,6 +318,9 @@ export class DeliveryRequestRepo {
                 body_kind,
                 body_text,
                 body_attachments_json,
+                outcome_state,
+                outcome_reason,
+                outcome_source,
                 status,
                 created_at,
                 delivered_at,
@@ -318,6 +354,9 @@ export class DeliveryRequestRepo {
                 body_kind,
                 body_text,
                 body_attachments_json,
+                outcome_state,
+                outcome_reason,
+                outcome_source,
                 status,
                 created_at,
                 delivered_at,
@@ -367,6 +406,9 @@ export class DeliveryRequestRepo {
                 body_kind,
                 body_text,
                 body_attachments_json,
+                outcome_state,
+                outcome_reason,
+                outcome_source,
                 status,
                 created_at,
                 delivered_at,
@@ -418,12 +460,15 @@ export class DeliveryRequestRepo {
              body_kind,
              body_text,
              body_attachments_json,
+             outcome_state,
+             outcome_reason,
+             outcome_source,
              status,
              created_at,
              delivered_at,
              failure_code,
              failure_message
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)`
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)`
         )
         .run(
           requeuedDeliveryRequestId,
@@ -443,6 +488,9 @@ export class DeliveryRequestRepo {
           source.bodyKind,
           source.bodyText,
           serializeBodyAttachments(source.bodyAttachments),
+          source.outcome?.state ?? null,
+          source.outcome?.state === 'degraded' ? source.outcome.reason : null,
+          source.outcome?.state === 'degraded' ? (source.outcome.source ?? null) : null,
           createdAt
         )
 

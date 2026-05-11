@@ -3,12 +3,21 @@ import type { UnifiedSessionEvent } from 'spaces-runtime'
 export interface CompletedVisibleAssistantMessage {
   messageId?: string | undefined
   text: string
+  outcome?:
+    | { state: 'normal' }
+    | { state: 'degraded'; reason: 'no_assistant_content'; source?: string | undefined }
+    | undefined
 }
 
 export function toCompletedVisibleAssistantMessage(
   event: UnifiedSessionEvent
 ): CompletedVisibleAssistantMessage | undefined {
   if (event.type === 'turn_end') {
+    const degraded = extractNoAssistantContentOutcome(event.payload)
+    if (degraded !== undefined) {
+      return { text: '', outcome: degraded }
+    }
+
     const text = extractTurnEndAssistantText(event.payload)
     if (text === undefined || text.trim().length === 0) {
       return undefined
@@ -35,6 +44,43 @@ export function toCompletedVisibleAssistantMessage(
     ...(event.messageId !== undefined ? { messageId: event.messageId } : {}),
     text,
   }
+}
+
+function extractNoAssistantContentOutcome(
+  payload: unknown
+): { state: 'degraded'; reason: 'no_assistant_content'; source?: string | undefined } | undefined {
+  if (!isRecord(payload)) {
+    return undefined
+  }
+
+  const outcome = payload['outcome']
+  if (isRecord(outcome)) {
+    const state = outcome['state']
+    const reason = outcome['reason']
+    if (state === 'degraded' && reason === 'no_assistant_content') {
+      const source = typeof outcome['source'] === 'string' ? outcome['source'] : undefined
+      return {
+        state: 'degraded',
+        reason: 'no_assistant_content',
+        ...(source !== undefined ? { source } : {}),
+      }
+    }
+  }
+
+  const source = payload['source']
+  const finalOutput = payload['finalOutput']
+  const hasFinalOutput = typeof finalOutput === 'string' && finalOutput.trim().length > 0
+  const message = isRecord(payload['message']) ? payload['message'] : undefined
+  const hasAssistantMessage = message?.['role'] === 'assistant'
+  if (source === 'launch_exit_synthesized' && !hasFinalOutput && !hasAssistantMessage) {
+    return {
+      state: 'degraded',
+      reason: 'no_assistant_content',
+      source: 'launch_exit_synthesized',
+    }
+  }
+
+  return undefined
 }
 
 function extractTurnEndAssistantText(payload: unknown): string | undefined {

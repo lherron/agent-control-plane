@@ -8,6 +8,14 @@ export type InterfaceStoreActorIdentity = {
 export type InterfaceBindingStatus = 'active' | 'disabled'
 export type DeliveryRequestStatus = 'queued' | 'delivering' | 'delivered' | 'failed'
 export type DeliveryBodyKind = 'text/markdown'
+
+export type DeliveryOutcome =
+  | { state: 'normal' }
+  | {
+      state: 'degraded'
+      reason: 'no_assistant_content'
+      source?: string | undefined
+    }
 export type OutboundAttachmentState = 'pending' | 'consumed' | 'delivered' | 'failed'
 
 export type InterfaceBinding = {
@@ -18,6 +26,9 @@ export type InterfaceBinding = {
   scopeRef: string
   laneRef: string
   projectId?: string | undefined
+  agentId?: string | undefined
+  taskId?: string | undefined
+  roleName?: string | undefined
   status: InterfaceBindingStatus
   createdAt: string
   updatedAt: string
@@ -62,6 +73,7 @@ export type DeliveryRequest = {
   bodyKind: DeliveryBodyKind
   bodyText: string
   bodyAttachments?: AttachmentRef[] | undefined
+  outcome?: DeliveryOutcome | undefined
   status: DeliveryRequestStatus
   createdAt: string
   deliveredAt?: string | undefined
@@ -109,6 +121,7 @@ export type EnqueueDeliveryRequestInput = {
   bodyKind: DeliveryBodyKind
   bodyText: string
   bodyAttachments?: AttachmentRef[] | undefined
+  outcome?: DeliveryOutcome | undefined
   createdAt: string
 }
 

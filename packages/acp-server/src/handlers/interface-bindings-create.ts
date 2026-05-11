@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
 
 import type { InterfaceBinding as StoredInterfaceBinding } from 'acp-interface-store'
+import { parseScopeRef } from 'agent-scope'
 
-import { json } from '../http.js'
+import { json, unprocessable } from '../http.js'
 import {
   parseJsonBody,
   readOptionalTrimmedStringField,
@@ -34,8 +35,28 @@ export const handleCreateInterfaceBinding: RouteHandler = async ({ request, deps
   const gatewayId = requireTrimmedStringField(body, 'gatewayId')
   const conversationRef = requireTrimmedStringField(body, 'conversationRef')
   const threadRef = readOptionalTrimmedStringField(body, 'threadRef')
-  const projectId = readOptionalTrimmedStringField(body, 'projectId')
+  const bodyProjectId = readOptionalTrimmedStringField(body, 'projectId')
   const status = parseInterfaceBindingStatus(body['status'])
+
+  const parsedScope = parseScopeRef(sessionRef.scopeRef)
+  if (parsedScope.projectId === undefined) {
+    unprocessable(
+      'invalid_binding',
+      'binding sessionRef.scopeRef must include a project segment (agent:<id>:project:<id>...)',
+      { field: 'sessionRef.scopeRef', scopeRef: sessionRef.scopeRef }
+    )
+  }
+
+  if (bodyProjectId !== undefined && bodyProjectId !== parsedScope.projectId) {
+    unprocessable(
+      'invalid_binding',
+      `body projectId "${bodyProjectId}" disagrees with scopeRef project "${parsedScope.projectId}"`,
+      { field: 'projectId', bodyProjectId, scopeProjectId: parsedScope.projectId }
+    )
+  }
+
+  const effectiveProjectId = parsedScope.projectId
+
   const existing = findExistingBinding({
     bindings: deps.interfaceStore.bindings.list({ gatewayId, conversationRef }),
     gatewayId,
@@ -50,7 +71,7 @@ export const handleCreateInterfaceBinding: RouteHandler = async ({ request, deps
     ...(threadRef !== undefined ? { threadRef } : {}),
     scopeRef: sessionRef.scopeRef,
     laneRef: sessionRef.laneRef,
-    ...(projectId !== undefined ? { projectId } : {}),
+    projectId: effectiveProjectId,
     status,
     createdAt: existing?.createdAt ?? timestamp,
     updatedAt: timestamp,

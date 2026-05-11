@@ -118,4 +118,66 @@ describe('interface binding endpoints', () => {
       expect(payload.error.code).toBe('malformed_request')
     })
   })
+
+  test('rejects bindings whose scopeRef has no project segment', async () => {
+    await withWiredServer(async (fixture) => {
+      const response = await fixture.request({
+        method: 'POST',
+        path: '/v1/interface/bindings',
+        body: {
+          gatewayId: 'discord_prod',
+          conversationRef: 'channel:123',
+          sessionRef: { scopeRef: 'agent:curly', laneRef: 'main' },
+        },
+      })
+      const payload = await fixture.json<{ error: { code: string; message: string } }>(response)
+
+      expect(response.status).toBe(422)
+      expect(payload.error.code).toBe('invalid_binding')
+      expect(payload.error.message).toContain('project segment')
+    })
+  })
+
+  test('rejects bindings whose body projectId disagrees with scopeRef', async () => {
+    await withWiredServer(async (fixture) => {
+      const response = await fixture.request({
+        method: 'POST',
+        path: '/v1/interface/bindings',
+        body: {
+          gatewayId: 'discord_prod',
+          conversationRef: 'channel:123',
+          projectId: 'wrong-project',
+          sessionRef: {
+            scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
+            laneRef: 'main',
+          },
+        },
+      })
+      const payload = await fixture.json<{ error: { code: string } }>(response)
+
+      expect(response.status).toBe(422)
+      expect(payload.error.code).toBe('invalid_binding')
+    })
+  })
+
+  test('derives projectId from scopeRef when body omits it', async () => {
+    await withWiredServer(async (fixture) => {
+      const response = await fixture.request({
+        method: 'POST',
+        path: '/v1/interface/bindings',
+        body: {
+          gatewayId: 'discord_prod',
+          conversationRef: 'channel:derived',
+          sessionRef: {
+            scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
+            laneRef: 'main',
+          },
+        },
+      })
+      const payload = await fixture.json<{ binding: { projectId?: string } }>(response)
+
+      expect(response.status).toBe(201)
+      expect(payload.binding.projectId).toBe(fixture.seed.projectId)
+    })
+  })
 })

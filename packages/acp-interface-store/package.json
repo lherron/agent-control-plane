@@ -20,6 +20,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "agent-scope": "*",
     "better-sqlite3": "^11.10.0"
   },
   "devDependencies": {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { DeliveryRequest } from 'acp-core'
+import type { DeliveryOutcome, DeliveryRequest } from 'acp-core'
 
 import type { DiscordAgentMessageIdentity } from '../identity.js'
 import type { RunState } from '../session-events-manager.js'
@@ -12,7 +12,7 @@ const identity: DiscordAgentMessageIdentity = {
   avatarUrl: 'https://example.test/cody.png',
 }
 
-function delivery(text: string): DeliveryRequest {
+function delivery(text: string, outcome?: DeliveryOutcome): DeliveryRequest {
   return {
     deliveryRequestId: 'dr_write_plan',
     gatewayId: 'discord_prod',
@@ -31,6 +31,7 @@ function delivery(text: string): DeliveryRequest {
     },
     bodyKind: 'text/markdown',
     bodyText: text,
+    ...(outcome !== undefined ? { outcome } : {}),
     createdAt: '2026-05-09T04:00:00.000Z',
   } as DeliveryRequest
 }
@@ -127,6 +128,76 @@ describe('Discord write planner', () => {
     expect(plan.chunks.at(-1)?.length).toBeLessThanOrEqual(1900)
     expect(plan.chunks.join('\n')).toContain('START')
     expect(plan.chunks.join('\n')).toContain('END')
+  })
+
+  test('explicit normal outcome renders delivery body the same as omitted outcome', () => {
+    const plan = planFinalDeliveryWrite({
+      delivery: delivery('hello world', { state: 'normal' }),
+      identity,
+      maxChars: 2000,
+    })
+
+    const content = plan.chunks.join('\n')
+    expect(content).toContain('hello world')
+    expect(content).not.toContain('⚠️')
+  })
+
+  test('degraded no_assistant_content suppresses delivery body and renders a warning notice', () => {
+    const plan = planFinalDeliveryWrite({
+      delivery: delivery('', {
+        state: 'degraded',
+        reason: 'no_assistant_content',
+        source: 'launch_exit_synthesized',
+      }),
+      identity,
+      maxChars: 2000,
+    })
+
+    const content = plan.chunks.join('\n')
+    expect(content).toContain('⚠️')
+    expect(content).toContain('Agent finished without producing a reply')
+    expect(content).toContain('launch_exit_synthesized')
+  })
+
+  test('degraded outcome keeps the tool/notice timeline but does not promote delivery body', () => {
+    const plan = planFinalDeliveryWrite({
+      delivery: delivery('PROMPT-AS-BODY', {
+        state: 'degraded',
+        reason: 'no_assistant_content',
+        source: 'codex_app_server',
+      }),
+      run: runState({
+        toolExecutions: [
+          {
+            toolUseId: 'tool-degraded',
+            toolName: 'command_execution',
+            input: { command: 'sleep 1; printf DONE' },
+            status: 'completed',
+            seq: 2,
+          },
+        ],
+      }),
+      identity,
+      maxChars: 2000,
+    })
+
+    const content = plan.chunks.join('\n')
+    expect(content).toContain('command_execution')
+    expect(content).toContain('⚠️')
+    expect(content).toContain('codex_app_server')
+    expect(content).not.toContain('PROMPT-AS-BODY')
+  })
+
+  test('degraded outcome without a source omits the source clause from the notice', () => {
+    const plan = planFinalDeliveryWrite({
+      delivery: delivery('', { state: 'degraded', reason: 'no_assistant_content' }),
+      identity,
+      maxChars: 2000,
+    })
+
+    const content = plan.chunks.join('\n')
+    expect(content).toContain('Agent finished without producing a reply.')
+    expect(content).not.toContain('source:')
   })
 
   test('budgets progress edit header and bubble together', () => {

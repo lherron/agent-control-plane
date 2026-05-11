@@ -1,3 +1,17 @@
+import { parseScopeRef, validateScopeRef } from 'agent-scope'
+
+function buildScopeRef(parts: {
+  agentId: string
+  projectId: string
+  taskId?: string | undefined
+  roleName?: string | undefined
+}): string {
+  let ref = `agent:${parts.agentId}:project:${parts.projectId}`
+  if (parts.taskId !== undefined) ref += `:task:${parts.taskId}`
+  if (parts.roleName !== undefined) ref += `:role:${parts.roleName}`
+  return ref
+}
+
 import type {
   InterfaceBinding,
   InterfaceBindingListFilters,
@@ -7,31 +21,95 @@ import type {
 import type { RepoContext } from './shared.js'
 import { toOptionalString } from './shared.js'
 
+function assertBindingScope(binding: InterfaceBinding): void {
+  const validation = validateScopeRef(binding.scopeRef)
+  if (!validation.ok) {
+    throw new Error(
+      `Interface binding scopeRef "${binding.scopeRef}" is invalid: ${validation.error}`
+    )
+  }
+
+  const parsed = parseScopeRef(binding.scopeRef)
+  if (parsed.projectId === undefined) {
+    throw new Error(
+      `Interface binding scopeRef "${binding.scopeRef}" must include a project segment`
+    )
+  }
+
+  if (binding.projectId === undefined) {
+    throw new Error(
+      `Interface binding projectId is required (scopeRef "${binding.scopeRef}" has project "${parsed.projectId}")`
+    )
+  }
+
+  if (binding.projectId !== parsed.projectId) {
+    throw new Error(
+      `Interface binding projectId "${binding.projectId}" disagrees with scopeRef project "${parsed.projectId}"`
+    )
+  }
+}
+
 type InterfaceBindingRow = {
   binding_id: string
   gateway_id: string
   conversation_ref: string
   thread_ref: string | null
-  scope_ref: string
   lane_ref: string
-  project_id: string | null
+  project_id: string
+  agent_id: string
+  task_id: string | null
+  role_name: string | null
   status: InterfaceBinding['status']
   created_at: string
   updated_at: string
 }
 
 function mapInterfaceBindingRow(row: InterfaceBindingRow): InterfaceBinding {
+  const taskId = toOptionalString(row.task_id)
+  const roleName = toOptionalString(row.role_name)
+  const scopeRef = buildScopeRef({
+    agentId: row.agent_id,
+    projectId: row.project_id,
+    ...(taskId !== undefined ? { taskId } : {}),
+    ...(roleName !== undefined ? { roleName } : {}),
+  })
+
   return {
     bindingId: row.binding_id,
     gatewayId: row.gateway_id,
     conversationRef: row.conversation_ref,
     threadRef: toOptionalString(row.thread_ref),
-    scopeRef: row.scope_ref,
+    scopeRef,
     laneRef: row.lane_ref,
-    projectId: toOptionalString(row.project_id),
+    projectId: row.project_id,
+    agentId: row.agent_id,
+    ...(taskId !== undefined ? { taskId } : {}),
+    ...(roleName !== undefined ? { roleName } : {}),
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  }
+}
+
+type ParsedBindingScope = {
+  agentId: string
+  projectId: string
+  taskId?: string | undefined
+  roleName?: string | undefined
+}
+
+function deriveStructuredFields(binding: InterfaceBinding): ParsedBindingScope {
+  const parsed = parseScopeRef(binding.scopeRef)
+  if (parsed.projectId === undefined) {
+    throw new Error(
+      `Interface binding scopeRef "${binding.scopeRef}" must include a project segment`
+    )
+  }
+  return {
+    agentId: parsed.agentId,
+    projectId: parsed.projectId,
+    ...(parsed.taskId !== undefined ? { taskId: parsed.taskId } : {}),
+    ...(parsed.roleName !== undefined ? { roleName: parsed.roleName } : {}),
   }
 }
 
@@ -39,6 +117,8 @@ export class BindingRepo {
   constructor(private readonly context: RepoContext) {}
 
   create(binding: InterfaceBinding): InterfaceBinding {
+    assertBindingScope(binding)
+    const structured = deriveStructuredFields(binding)
     this.context.sqlite
       .prepare(
         `INSERT INTO interface_bindings (
@@ -46,22 +126,26 @@ export class BindingRepo {
            gateway_id,
            conversation_ref,
            thread_ref,
-           scope_ref,
            lane_ref,
            project_id,
+           agent_id,
+           task_id,
+           role_name,
            status,
            created_at,
            updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         binding.bindingId,
         binding.gatewayId,
         binding.conversationRef,
         binding.threadRef ?? null,
-        binding.scopeRef,
         binding.laneRef,
-        binding.projectId ?? null,
+        structured.projectId,
+        structured.agentId,
+        structured.taskId ?? null,
+        structured.roleName ?? null,
         binding.status,
         binding.createdAt,
         binding.updatedAt
@@ -71,26 +155,32 @@ export class BindingRepo {
   }
 
   upsertByLookup(binding: InterfaceBinding): InterfaceBinding {
+    assertBindingScope(binding)
     return this.context.sqlite.transaction(() => {
       const existing = this.loadByLookup(binding)
       if (existing === undefined) {
         return this.create(binding)
       }
 
+      const structured = deriveStructuredFields(binding)
       this.context.sqlite
         .prepare(
           `UPDATE interface_bindings
-              SET scope_ref = ?,
-                  lane_ref = ?,
+              SET lane_ref = ?,
                   project_id = ?,
+                  agent_id = ?,
+                  task_id = ?,
+                  role_name = ?,
                   status = ?,
                   updated_at = ?
             WHERE binding_id = ?`
         )
         .run(
-          binding.scopeRef,
           binding.laneRef,
-          binding.projectId ?? null,
+          structured.projectId,
+          structured.agentId,
+          structured.taskId ?? null,
+          structured.roleName ?? null,
           binding.status,
           binding.updatedAt,
           existing.bindingId
@@ -130,9 +220,11 @@ export class BindingRepo {
                 gateway_id,
                 conversation_ref,
                 thread_ref,
-                scope_ref,
                 lane_ref,
                 project_id,
+                agent_id,
+                task_id,
+                role_name,
                 status,
                 created_at,
                 updated_at
@@ -152,9 +244,11 @@ export class BindingRepo {
                 gateway_id,
                 conversation_ref,
                 thread_ref,
-                scope_ref,
                 lane_ref,
                 project_id,
+                agent_id,
+                task_id,
+                role_name,
                 status,
                 created_at,
                 updated_at
@@ -189,9 +283,11 @@ export class BindingRepo {
                     gateway_id,
                     conversation_ref,
                     thread_ref,
-                    scope_ref,
                     lane_ref,
                     project_id,
+                    agent_id,
+                    task_id,
+                    role_name,
                     status,
                     created_at,
                     updated_at
@@ -208,9 +304,11 @@ export class BindingRepo {
                     gateway_id,
                     conversation_ref,
                     thread_ref,
-                    scope_ref,
                     lane_ref,
                     project_id,
+                    agent_id,
+                    task_id,
+                    role_name,
                     status,
                     created_at,
                     updated_at
@@ -236,9 +334,11 @@ export class BindingRepo {
                     gateway_id,
                     conversation_ref,
                     thread_ref,
-                    scope_ref,
                     lane_ref,
                     project_id,
+                    agent_id,
+                    task_id,
+                    role_name,
                     status,
                     created_at,
                     updated_at
@@ -256,9 +356,11 @@ export class BindingRepo {
                     gateway_id,
                     conversation_ref,
                     thread_ref,
-                    scope_ref,
                     lane_ref,
                     project_id,
+                    agent_id,
+                    task_id,
+                    role_name,
                     status,
                     created_at,
                     updated_at

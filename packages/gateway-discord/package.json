@@ -26,6 +26,7 @@
     "acp-core": "*",
     "acp-ops-projection": "*",
     "agent-action-render": "*",
+    "agent-scope": "*",
     "discord.js": "^14.16.0",
     "spaces-runtime": "*"
   },

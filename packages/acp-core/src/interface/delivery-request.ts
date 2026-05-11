@@ -9,6 +9,14 @@ export interface DeliveryRequestBody {
   attachments?: AttachmentRef[] | undefined
 }
 
+export type DeliveryOutcome =
+  | { state: 'normal' }
+  | {
+      state: 'degraded'
+      reason: 'no_assistant_content'
+      source?: 'launch_exit_synthesized' | 'codex_app_server' | 'codex_jsonl' | string | undefined
+    }
+
 export interface DeliveryFailure {
   code: string
   message: string
@@ -25,6 +33,7 @@ export interface DeliveryRequest {
   threadRef?: string | undefined
   replyToMessageRef?: string | undefined
   body: DeliveryRequestBody
+  outcome?: DeliveryOutcome | undefined
   status: DeliveryRequestStatus
   createdAt: string
   deliveredAt?: string | undefined

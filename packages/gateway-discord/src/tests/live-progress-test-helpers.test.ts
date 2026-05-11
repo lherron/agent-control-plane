@@ -79,6 +79,7 @@ export class FakeChannel {
   readonly messages = {
     fetch: async (id: string) => this.messageById.get(id) ?? null,
   }
+  readonly typingPings: number[] = []
 
   private nextId = 1
   private readonly messageById = new Map<string, FakeSentMessage>()
@@ -91,6 +92,10 @@ export class FakeChannel {
 
   isThread(): false {
     return false
+  }
+
+  async sendTyping(): Promise<void> {
+    this.typingPings.push(Date.now())
   }
 
   async send(input: string | FakeSendPayload): Promise<FakeSentMessage> {

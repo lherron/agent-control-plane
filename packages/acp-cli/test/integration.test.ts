@@ -141,8 +141,6 @@ describe('acp-cli integration', () => {
         'acp-discord-smoke',
         '--conversation-ref',
         'channel:123',
-        '--project',
-        seededWrkq.seed.projectId,
         '--session',
         'cody@agent-spaces:discord',
         '--json',
@@ -159,7 +157,7 @@ describe('acp-cli integration', () => {
           scopeRef: 'agent:cody:project:agent-spaces:task:discord',
           laneRef: 'main',
         },
-        projectId: seededWrkq.seed.projectId,
+        projectId: 'agent-spaces',
         status: 'active',
       },
     })

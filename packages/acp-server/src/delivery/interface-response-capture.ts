@@ -103,6 +103,7 @@ export function createInterfaceResponseCapture(
             bodyKind: 'text/markdown',
             bodyText: visibleMessage.text,
             ...(bodyAttachments.length > 0 ? { bodyAttachments } : {}),
+            ...(visibleMessage.outcome !== undefined ? { outcome: visibleMessage.outcome } : {}),
             createdAt,
           })
 

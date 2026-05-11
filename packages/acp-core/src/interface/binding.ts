@@ -12,6 +12,9 @@ export interface InterfaceBinding {
   threadRef?: string | undefined
   sessionRef: InterfaceSessionRef
   projectId?: string | undefined
+  agentId?: string | undefined
+  taskId?: string | undefined
+  roleName?: string | undefined
   status: InterfaceBindingStatus
   createdAt: string
   updatedAt: string

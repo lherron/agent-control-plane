@@ -6,6 +6,7 @@ import { Command, CommanderError } from 'commander'
 import { CliUsageError, exitWithError, writeCommandOutput } from './cli-runtime.js'
 import { runAdminContributionsReconcileCommand } from './commands/admin-contributions-reconcile.js'
 import { runAdminInterfaceBindingDisableCommand } from './commands/admin-interface-binding-disable.js'
+import { runAdminInterfaceBindingLintCommand } from './commands/admin-interface-binding-lint.js'
 import { runAdminInterfaceBindingListCommand } from './commands/admin-interface-binding-list.js'
 import { runAdminInterfaceBindingSetCommand } from './commands/admin-interface-binding-set.js'
 import { runAgentCommand } from './commands/agent.js'
@@ -409,6 +410,15 @@ function addAdminCommands(program: Command, deps: CommandDependencies): void {
     .requiredOption('--conversation-ref <ref>')
     .option('--thread-ref <ref>')
     .action(runLeaf(deps, [], runAdminInterfaceBindingDisableCommand))
+
+  common(
+    binding.command('lint').description('audit bindings for missing/inconsistent project scope')
+  )
+    .option('--gateway <id>')
+    .option('--project <projectId>')
+    .option('--all', 'include disabled bindings (default: active only)')
+    .option('--show-ok', 'also print bindings with no issues')
+    .action(runLeaf(deps, [], runAdminInterfaceBindingLintCommand))
 
   const contributions = admin.command('contributions').description('manage input contributions')
   common(contributions.command('reconcile').description('reconcile input contributions from HRC'))
