@@ -26,12 +26,12 @@ export interface LayoutConfig {
 }
 
 export const DEFAULT_LAYOUT_CONFIG: LayoutConfig = {
-  cardWidth: 220,
-  cardHeight: 100,
-  horizontalGap: 80,
-  verticalGap: 60,
-  paddingLeft: 40,
-  paddingTop: 40,
+  cardWidth: 252,
+  cardHeight: 116,
+  horizontalGap: 64,
+  verticalGap: 92,
+  paddingLeft: 96,
+  paddingTop: 56,
 }
 
 export interface LayoutResult {

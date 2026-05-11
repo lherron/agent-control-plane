@@ -1,43 +1,47 @@
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { EmptyState, Pill } from '@/components/primitives'
+import { Plug } from 'lucide-react'
 import type { ProjectDetailState } from '../types'
 
 interface Props {
   detail: ProjectDetailState
 }
 
+const GRID = '120px minmax(180px,1.2fr) minmax(140px,1fr) minmax(220px,1.4fr) 80px 90px'
+
 export function ProjectInterfacesTab({ detail }: Props) {
+  if (detail.interfaceBindings.length === 0) {
+    return <EmptyState icon={<Plug className="h-8 w-8" />} title="No bindings" />
+  }
+
   return (
-    <section className="rounded-md border border-border bg-card">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Gateway</TableHead>
-            <TableHead>Conversation</TableHead>
-            <TableHead>Thread</TableHead>
-            <TableHead>Scope</TableHead>
-            <TableHead>Lane</TableHead>
-            <TableHead>Status</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {detail.interfaceBindings.length === 0 ? (
-            <TableRow>
-              <TableCell colSpan={6}>No interface bindings found.</TableCell>
-            </TableRow>
-          ) : (
-            detail.interfaceBindings.map((binding) => (
-              <TableRow key={binding.bindingId}>
-                <TableCell>{binding.gatewayId}</TableCell>
-                <TableCell className="font-mono text-xs">{binding.conversationRef}</TableCell>
-                <TableCell className="font-mono text-xs">{binding.threadRef ?? 'None'}</TableCell>
-                <TableCell className="font-mono text-xs">{binding.scopeRef ?? 'None'}</TableCell>
-                <TableCell>{binding.laneRef ?? 'None'}</TableCell>
-                <TableCell>{binding.status}</TableCell>
-              </TableRow>
-            ))
-          )}
-        </TableBody>
-      </Table>
+    <section className="max-w-5xl">
+      <div
+        style={{ gridTemplateColumns: GRID }}
+        className="grid items-center gap-x-6 pb-2 border-b border-border/60"
+      >
+        {['Gateway', 'Conversation', 'Thread', 'Scope', 'Lane', 'Status'].map((label, i) => (
+          <span key={label ?? `_${i}`} className="kicker text-muted truncate">
+            {label}
+          </span>
+        ))}
+      </div>
+
+      <ul>
+        {detail.interfaceBindings.map((b) => (
+          <li
+            key={b.bindingId}
+            style={{ gridTemplateColumns: GRID }}
+            className="grid items-center gap-x-6 py-3 border-b border-border/40"
+          >
+            <span className="mono text-[11px] text-ink truncate">{b.gatewayId}</span>
+            <span className="mono text-[11px] text-ink truncate">{b.conversationRef}</span>
+            <span className="mono text-[11px] text-muted truncate">{b.threadRef ?? '—'}</span>
+            <span className="mono text-[11px] text-ink truncate">{b.scopeRef ?? '—'}</span>
+            <span className="mono text-[11px] text-ink truncate">{b.laneRef ?? '—'}</span>
+            <Pill tone={b.status === 'active' ? 'success' : 'muted'}>{b.status}</Pill>
+          </li>
+        ))}
+      </ul>
     </section>
   )
 }

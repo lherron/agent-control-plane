@@ -1,4 +1,3 @@
-import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/cn'
 import type { NormalizedFlowStep } from '@/types/api'
 
@@ -21,72 +20,92 @@ function stepKindLabel(step: NormalizedFlowStep): string {
 export function StepCard({ step, x, y, width, height, selected, onSelect }: StepCardProps) {
   const isOnFailure = step.phase === 'onFailure'
   const stepNumber = step.index + 1
+
   return (
     <foreignObject x={x} y={y} width={width} height={height} style={{ pointerEvents: 'auto' }}>
       <button
         type="button"
-        className={cn(
-          'h-full w-full rounded-lg border bg-card cursor-pointer transition-all text-xs text-left overflow-hidden flex flex-col',
-          selected
-            ? 'border-accent ring-2 ring-accent/40 shadow-md'
-            : 'border-border hover:border-accent/60 shadow-sm'
-        )}
         onClick={(e) => {
           e.stopPropagation()
           onSelect(step.id)
         }}
+        className={cn(
+          'h-full w-full text-left bg-card transition-all duration-150 flex flex-col overflow-hidden relative',
+          'border rounded-[3px] focus:outline-none',
+          selected
+            ? 'border-accent shadow-[0_0_0_3px_rgba(227,168,87,0.22),0_2px_8px_rgba(0,0,0,0.3)]'
+            : isOnFailure
+              ? 'border-[#5a2c38] hover:border-[#ef6483]/70 shadow-[0_1px_2px_rgba(0,0,0,0.3)]'
+              : 'border-border hover:border-accent/40 shadow-[0_1px_2px_rgba(0,0,0,0.3)]'
+        )}
       >
+        {/* Phase strip */}
+        <span
+          className={cn(
+            'absolute left-0 top-0 bottom-0 w-[3px]',
+            isOnFailure ? 'bg-[#ef6483]' : 'brass-foil'
+          )}
+        />
+
         <div
           className={cn(
-            'px-3 py-1.5 flex items-center justify-between gap-1 border-b',
+            'flex items-center justify-between gap-2 pl-3 pr-2.5 py-1.5 border-b',
             isOnFailure
-              ? 'bg-red-50 border-red-200 text-red-700'
-              : 'bg-accent/10 border-accent/30 text-accent'
+              ? 'bg-[#3a1d24]/60 border-[#5a2c38]/60'
+              : 'bg-[#3a2d18]/50 border-[#5a4520]/40'
           )}
         >
-          <span className="font-semibold truncate text-[11px] uppercase tracking-wide">
-            Step {stepNumber} · {step.id}
-          </span>
-          <Badge
-            variant="outline"
+          <div className="flex items-baseline gap-2 min-w-0">
+            <span className="mono text-[9px] tabular text-quiet shrink-0">
+              {String(stepNumber).padStart(2, '0')}
+            </span>
+            <span
+              className={cn(
+                'mono text-[11px] uppercase tracking-wider truncate font-medium',
+                isOnFailure ? 'text-[#f7a5b8]' : 'text-[#f0c483]'
+              )}
+            >
+              {step.id}
+            </span>
+          </div>
+          <span
             className={cn(
-              'text-[10px] px-1.5 py-0 shrink-0 bg-card',
-              isOnFailure ? 'border-red-300 text-red-700' : 'border-accent/40 text-accent'
+              'mono text-[9px] uppercase tracking-wider px-1 py-px border rounded-[2px] shrink-0',
+              isOnFailure
+                ? 'bg-paper border-[#5a2c38] text-[#f7a5b8]'
+                : 'bg-paper border-[#5a4520] text-[#f0c483]'
             )}
           >
             {stepKindLabel(step)}
-          </Badge>
+          </span>
         </div>
 
-        <div className="space-y-0.5 text-quiet px-3 py-2 flex-1 min-h-0 overflow-hidden">
-          {step.timeout && (
-            <div className="truncate">
-              <span className="text-muted">timeout:</span> {step.timeout}
-            </div>
-          )}
-          {step.fresh !== undefined && (
-            <div className="truncate">
-              <span className="text-muted">fresh:</span> {String(step.fresh)}
-            </div>
-          )}
-          {step.next && step.next !== 'continue' && (
-            <div className="truncate">
-              <span className="text-muted">next:</span> {step.next}
-            </div>
-          )}
+        <div className="flex flex-col px-3 py-2 gap-[3px] text-[11px] leading-tight flex-1 min-h-0 overflow-hidden">
+          {step.timeout && <Row k="timeout" v={step.timeout} />}
+          {step.fresh !== undefined && <Row k="fresh" v={String(step.fresh)} />}
+          {step.next && step.next !== 'continue' && <Row k="next" v={step.next} accent />}
           {step.input && (
-            <div className="truncate text-foreground/80">
-              <span className="text-muted">input:</span>{' '}
-              {step.input.length > 50 ? `${step.input.slice(0, 47)}...` : step.input}
-            </div>
+            <Row
+              k="input"
+              v={step.input.length > 60 ? `${step.input.slice(0, 57)}…` : step.input}
+            />
           )}
-          {step.kind === 'exec' && step.exec && (
-            <div className="truncate">
-              <span className="text-muted">exec:</span> {step.exec.argv.join(' ')}
-            </div>
-          )}
+          {step.kind === 'exec' && step.exec && <Row k="exec" v={step.exec.argv.join(' ')} />}
         </div>
       </button>
     </foreignObject>
+  )
+}
+
+function Row({ k, v, accent = false }: { k: string; v: string; accent?: boolean }) {
+  return (
+    <div className="flex items-baseline gap-2 min-w-0">
+      <span className="mono text-[9.5px] uppercase tracking-wider text-quiet shrink-0">{k}</span>
+      <span
+        className={cn('mono text-[11px] truncate', accent ? 'text-accent font-medium' : 'text-ink')}
+      >
+        {v}
+      </span>
+    </div>
   )
 }

@@ -1,23 +1,9 @@
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+import { PageHeader } from '@/components/page-header'
+import { EmptyState, ErrorBanner, PageLoading, Pill, StatusDot } from '@/components/primitives'
 import type { AgentSummary } from '@/types/api'
 import { useQuery } from '@tanstack/react-query'
-import {
-  type SortingState,
-  createColumnHelper,
-  flexRender,
-  getCoreRowModel,
-  getSortedRowModel,
-  useReactTable,
-} from '@tanstack/react-table'
-import { Bot } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { ArrowUpRight, Cpu } from 'lucide-react'
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { heartbeatStatus } from '../agent-utils'
 import { fetchAgentDetail, fetchAgents } from '../data'
@@ -29,10 +15,6 @@ interface AgentRow extends AgentSummary {
   heartbeat: string
 }
 
-const columnHelper = createColumnHelper<AgentRow>()
-
-// Single batched fetch instead of useQueries dynamic-length pattern
-// (see ProjectsListPage bugfix notes for why).
 async function fetchAgentsWithRollups(): Promise<AgentRow[]> {
   const agents = await fetchAgents()
   const details = await Promise.all(
@@ -50,115 +32,89 @@ async function fetchAgentsWithRollups(): Promise<AgentRow[]> {
   })
 }
 
-export function AgentsListPage() {
-  const [sorting, setSorting] = useState<SortingState>([{ id: 'displayName', desc: false }])
-  const agentsQuery = useQuery({
-    queryKey: ['agents', 'with-rollups'],
-    queryFn: fetchAgentsWithRollups,
-  })
-  const data = useMemo<AgentRow[]>(() => agentsQuery.data ?? [], [agentsQuery.data])
+function heartbeatTone(status: string): 'success' | 'destructive' | 'warn' | 'muted' {
+  if (status === 'alive') return 'success'
+  if (status === 'stale') return 'warn'
+  if (status === 'dead' || status === 'down') return 'destructive'
+  return 'muted'
+}
 
-  const columns = useMemo(
-    () => [
-      columnHelper.accessor('displayName', {
-        header: 'Agent',
-        cell: ({ row, getValue }) => (
-          <Link
-            to={`/agents/${encodeURIComponent(row.original.agentId)}`}
-            className="font-medium text-primary hover:text-accent"
-          >
-            {getValue()}
-          </Link>
-        ),
-      }),
-      columnHelper.accessor('agentId', {
-        header: 'Agent ID',
-        cell: ({ getValue }) => <span className="font-mono text-xs">{getValue()}</span>,
-      }),
-      columnHelper.accessor('status', {
-        header: 'Status',
-      }),
-      columnHelper.accessor('membershipsCount', {
-        header: 'Projects',
-        cell: ({ getValue }) => getValue() ?? '...',
-      }),
-      columnHelper.accessor('defaultProjectCount', {
-        header: 'Defaults',
-        cell: ({ getValue }) => getValue() ?? '...',
-      }),
-      columnHelper.accessor('assignedJobsCount', {
-        header: 'Jobs',
-        cell: ({ getValue }) => getValue() ?? '...',
-      }),
-      columnHelper.accessor('heartbeat', {
-        header: 'Heartbeat',
-      }),
-    ],
-    []
+const GRID = '14px minmax(220px,1.3fr) 130px 80px 70px 90px 14px'
+
+export function AgentsListPage() {
+  const query = useQuery({ queryKey: ['agents', 'with-rollups'], queryFn: fetchAgentsWithRollups })
+  const rows = useMemo<AgentRow[]>(
+    () => (query.data ?? []).slice().sort((a, b) => a.displayName.localeCompare(b.displayName)),
+    [query.data]
   )
 
-  const table = useReactTable({
-    data,
-    columns,
-    state: { sorting },
-    onSortingChange: setSorting,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-  })
+  if (query.isLoading) return <PageLoading label="Loading" />
+  if (query.error instanceof Error) return <ErrorBanner message={query.error.message} />
 
   return (
-    <div className="p-6 space-y-5">
-      <header className="flex items-center gap-3">
-        <div className="flex h-9 w-9 items-center justify-center rounded-md bg-selected text-selected-foreground">
-          <Bot className="h-4 w-4" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-semibold">Agents</h1>
-          <p className="text-sm text-muted">{data.length} configured agents</p>
-        </div>
-      </header>
+    <div className="flex flex-col min-h-full">
+      <PageHeader
+        title="Agents"
+        meta={[
+          { label: 'Configured', value: rows.length },
+          { label: 'Alive', value: rows.filter((r) => r.heartbeat === 'alive').length },
+        ]}
+      />
 
-      <section className="rounded-md border border-border bg-card">
-        <Table>
-          <TableHeader>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id}>
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(header.column.columnDef.header, header.getContext())}
-                  </TableHead>
-                ))}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {agentsQuery.isLoading ? (
-              <TableRow>
-                <TableCell colSpan={columns.length}>Loading agents...</TableCell>
-              </TableRow>
-            ) : table.getRowModel().rows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={columns.length}>No agents found.</TableCell>
-              </TableRow>
-            ) : (
-              table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id}>
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </section>
-      {agentsQuery.error instanceof Error ? (
-        <p className="text-sm text-destructive">{agentsQuery.error.message}</p>
-      ) : null}
+      <div className="flex-1 px-10 py-8 rise rise-2">
+        {rows.length === 0 ? (
+          <EmptyState icon={<Cpu className="h-8 w-8" />} title="No agents" />
+        ) : (
+          <>
+            <div
+              style={{ gridTemplateColumns: GRID }}
+              className="grid items-center gap-x-6 pb-2 border-b border-border/60"
+            >
+              {[null, 'Agent', 'ID', 'Projects', 'Jobs', 'Heartbeat', null].map((label, i) => (
+                <span key={label ?? `_${i}`} className="kicker text-muted truncate">
+                  {label ?? ''}
+                </span>
+              ))}
+            </div>
+
+            <ul>
+              {rows.map((agent) => {
+                const hbTone = heartbeatTone(agent.heartbeat)
+                return (
+                  <li key={agent.agentId}>
+                    <Link
+                      to={`/agents/${encodeURIComponent(agent.agentId)}`}
+                      style={{ gridTemplateColumns: GRID }}
+                      className="grid items-center gap-x-6 py-3 group border-b border-border/40 transition-colors hover:bg-paper/40"
+                    >
+                      <StatusDot tone={hbTone} pulse={agent.heartbeat === 'alive'} />
+                      <div className="min-w-0">
+                        <div className="text-[14px] text-ink font-medium truncate group-hover:text-accent">
+                          {agent.displayName}
+                        </div>
+                        {agent.defaultProjectCount && agent.defaultProjectCount > 0 ? (
+                          <div className="mono text-[10px] text-accent">
+                            default for {agent.defaultProjectCount}
+                          </div>
+                        ) : null}
+                      </div>
+                      <span className="mono text-[12px] text-muted truncate">{agent.agentId}</span>
+                      <span className="mono text-[12px] tabular text-ink">
+                        {agent.membershipsCount ?? '…'}
+                      </span>
+                      <span className="mono text-[12px] tabular text-ink">
+                        {agent.assignedJobsCount ?? '…'}
+                      </span>
+                      <Pill tone={hbTone}>{agent.heartbeat}</Pill>
+                      <ArrowUpRight className="h-3.5 w-3.5 text-quiet/0 group-hover:text-accent transition-all" />
+                    </Link>
+                  </li>
+                )
+              })}
+            </ul>
+          </>
+        )}
+      </div>
     </div>
   )
 }

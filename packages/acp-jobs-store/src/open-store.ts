@@ -837,7 +837,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
       patch.description === null
         ? null
         : patch.description !== undefined
-          ? normalizeOptionalString(patch.description) ?? null
+          ? (normalizeOptionalString(patch.description) ?? null)
           : (existing.description ?? null)
     const now = new Date().toISOString()
     const nextFireAt =

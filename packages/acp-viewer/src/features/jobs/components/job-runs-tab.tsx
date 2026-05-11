@@ -1,68 +1,69 @@
-import { Badge } from '@/components/ui/badge'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+import { EmptyState, Pill, StatusDot } from '@/components/primitives'
 import type { JobDetailResponse } from '@/types/api'
+import { Activity } from 'lucide-react'
 
 interface JobRunsTabProps {
   data: JobDetailResponse
 }
 
-function statusVariant(status: string): 'secondary' | 'destructive' | 'outline' {
-  switch (status) {
-    case 'succeeded':
-      return 'secondary'
-    case 'failed':
-      return 'destructive'
-    default:
-      return 'outline'
-  }
+function fmtDate(iso: string | undefined): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(d)
 }
+
+function statusTone(status: string): 'success' | 'destructive' | 'warn' | 'muted' {
+  if (status === 'succeeded') return 'success'
+  if (status === 'failed') return 'destructive'
+  if (status === 'skipped') return 'warn'
+  return 'muted'
+}
+
+const GRID = '12px minmax(220px,1.4fr) 100px 110px minmax(160px,1fr) minmax(160px,1fr)'
 
 export function JobRunsTab({ data }: JobRunsTabProps) {
   const { latestRuns } = data
 
   if (latestRuns.length === 0) {
-    return <div className="p-4 text-xs text-quiet italic">No recent runs.</div>
+    return <EmptyState icon={<Activity className="h-8 w-8" />} title="No runs yet" />
   }
 
   return (
-    <div className="p-4">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Run ID</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Triggered By</TableHead>
-            <TableHead>Triggered At</TableHead>
-            <TableHead>Completed</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {latestRuns.map((run) => (
-            <TableRow key={run.jobRunId}>
-              <TableCell className="font-mono text-xs">{run.jobRunId}</TableCell>
-              <TableCell>
-                <Badge variant={statusVariant(run.status)} className="text-[10px]">
-                  {run.status}
-                </Badge>
-              </TableCell>
-              <TableCell className="text-xs">{run.triggeredBy}</TableCell>
-              <TableCell className="text-xs">
-                {new Date(run.triggeredAt).toLocaleString()}
-              </TableCell>
-              <TableCell className="text-xs">
-                {run.completedAt ? new Date(run.completedAt).toLocaleString() : '—'}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+    <section className="max-w-5xl">
+      <div
+        style={{ gridTemplateColumns: GRID }}
+        className="grid items-center gap-x-6 pb-2 border-b border-border/60"
+      >
+        {[null, 'Run', 'Status', 'Trigger', 'Started', 'Completed'].map((label, i) => (
+          <span key={label ?? `_${i}`} className="kicker text-muted truncate">
+            {label ?? ''}
+          </span>
+        ))}
+      </div>
+
+      <ul>
+        {latestRuns.map((run) => (
+          <li
+            key={run.jobRunId}
+            style={{ gridTemplateColumns: GRID }}
+            className="grid items-center gap-x-6 py-3 border-b border-border/40"
+          >
+            <StatusDot tone={statusTone(run.status)} />
+            <span className="mono text-[12px] text-ink truncate">{run.jobRunId}</span>
+            <Pill tone={statusTone(run.status)}>{run.status}</Pill>
+            <span className="text-[12px] text-ink">{run.triggeredBy}</span>
+            <span className="mono text-[12px] tabular text-ink">{fmtDate(run.triggeredAt)}</span>
+            <span className="mono text-[12px] tabular text-muted">{fmtDate(run.completedAt)}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }

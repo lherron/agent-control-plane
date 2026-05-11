@@ -1,168 +1,114 @@
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import type { ProjectSummary } from '@/types/api'
+import { PageHeader } from '@/components/page-header'
+import { EmptyState, ErrorBanner, PageLoading, Pill } from '@/components/primitives'
 import { useQuery } from '@tanstack/react-query'
-import {
-  type SortingState,
-  createColumnHelper,
-  flexRender,
-  getCoreRowModel,
-  getSortedRowModel,
-  useReactTable,
-} from '@tanstack/react-table'
-import { FolderKanban } from 'lucide-react'
-import { Fragment, useMemo, useState } from 'react'
+import { ArrowUpRight, Boxes } from 'lucide-react'
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { fetchProjectDetail, fetchProjects } from '../data'
 import { formatDateTime } from '../project-utils'
 
-interface ProjectRow extends ProjectSummary {
+interface ProjectRow {
+  projectId: string
+  displayName: string
+  defaultAgentId: string | null
+  rootDir: string
+  updatedAt: string
   jobCount: number | undefined
+  agentCount: number | undefined
 }
 
-const columnHelper = createColumnHelper<ProjectRow>()
-
-// Single batched fetch: list + per-project detail merged in one queryFn.
-// Avoids useQueries' dynamic-length hook pattern, which blocks React 19
-// route transitions in some cases (see ProjectsListPage bugfix notes).
-async function fetchProjectsWithJobCounts(): Promise<ProjectRow[]> {
+async function fetchProjectsWithRollups(): Promise<ProjectRow[]> {
   const projects = await fetchProjects()
   const details = await Promise.all(
     projects.map((p) => fetchProjectDetail(p.projectId).catch(() => undefined))
   )
   return projects.map((project, i) => ({
-    ...project,
+    projectId: project.projectId,
+    displayName: project.displayName,
+    defaultAgentId: project.defaultAgentId,
+    rootDir: project.rootDir,
+    updatedAt: project.updatedAt,
     jobCount: details[i]?.jobs.length,
+    agentCount: details[i]?.memberships.length,
   }))
 }
 
-export function ProjectsListPage() {
-  const [sorting, setSorting] = useState<SortingState>([
-    { id: 'defaultAgentId', desc: false },
-    { id: 'displayName', desc: false },
-  ])
-  const projectsQuery = useQuery({
-    queryKey: ['projects', 'with-job-counts'],
-    queryFn: fetchProjectsWithJobCounts,
-  })
-  const data = useMemo<ProjectRow[]>(() => projectsQuery.data ?? [], [projectsQuery.data])
+const GRID = '14px minmax(220px,1.4fr) minmax(180px,1fr) minmax(220px,1.4fr) 60px 60px minmax(140px,0.9fr) 14px'
 
-  const columns = useMemo(
-    () => [
-      columnHelper.accessor('displayName', {
-        header: 'Project',
-        cell: ({ row, getValue }) => (
-          <Link
-            to={`/projects/${encodeURIComponent(row.original.projectId)}`}
-            className="font-medium text-primary hover:text-accent"
-          >
-            {getValue()}
-          </Link>
-        ),
-      }),
-      columnHelper.accessor('projectId', {
-        header: 'Project ID',
-        cell: ({ getValue }) => <span className="font-mono text-xs">{getValue()}</span>,
-      }),
-      columnHelper.accessor('defaultAgentId', {
-        header: 'Default Agent',
-        cell: ({ getValue }) => getValue() ?? 'None',
-      }),
-      columnHelper.accessor('rootDir', {
-        header: 'Root Dir',
-        cell: ({ getValue }) => <span className="font-mono text-xs">{getValue() ?? 'None'}</span>,
-      }),
-      columnHelper.accessor('jobCount', {
-        header: 'Jobs',
-        cell: ({ getValue }) => getValue() ?? '...',
-      }),
-      columnHelper.accessor('updatedAt', {
-        header: 'Updated',
-        cell: ({ getValue }) => formatDateTime(getValue()),
-      }),
-    ],
-    []
+export function ProjectsListPage() {
+  const query = useQuery({ queryKey: ['projects', 'with-rollups'], queryFn: fetchProjectsWithRollups })
+
+  const rows = useMemo<ProjectRow[]>(
+    () => (query.data ?? []).slice().sort((a, b) => a.displayName.localeCompare(b.displayName)),
+    [query.data]
   )
 
-  const table = useReactTable({
-    data,
-    columns,
-    state: { sorting },
-    onSortingChange: setSorting,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-  })
-
-  const rows = table.getRowModel().rows
-  let currentDefaultAgent = ''
+  if (query.isLoading) return <PageLoading label="Loading" />
+  if (query.error instanceof Error) return <ErrorBanner message={query.error.message} />
 
   return (
-    <div className="p-6 space-y-5">
-      <header className="flex items-center gap-3">
-        <div className="flex h-9 w-9 items-center justify-center rounded-md bg-selected text-selected-foreground">
-          <FolderKanban className="h-4 w-4" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-semibold">Projects</h1>
-          <p className="text-sm text-muted">{data.length} configured projects</p>
-        </div>
-      </header>
+    <div className="flex flex-col min-h-full">
+      <PageHeader title="Projects" meta={[{ label: 'Configured', value: rows.length }]} />
 
-      <section className="rounded-md border border-border bg-card">
-        <Table>
-          <TableHeader>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id}>
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(header.column.columnDef.header, header.getContext())}
-                  </TableHead>
-                ))}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {projectsQuery.isLoading ? (
-              <TableRow>
-                <TableCell colSpan={columns.length}>Loading projects...</TableCell>
-              </TableRow>
-            ) : rows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={columns.length}>No projects found.</TableCell>
-              </TableRow>
-            ) : (
-              rows.map((row) => {
-                const defaultAgent = row.original.defaultAgentId ?? 'No default agent'
-                const showGroup = defaultAgent !== currentDefaultAgent
-                currentDefaultAgent = defaultAgent
+      <div className="flex-1 px-10 py-8 rise rise-2">
+        {rows.length === 0 ? (
+          <EmptyState icon={<Boxes className="h-8 w-8" />} title="No projects" />
+        ) : (
+          <>
+            <div
+              style={{ gridTemplateColumns: GRID }}
+              className="grid items-center gap-x-6 pb-2 border-b border-border/60"
+            >
+              {[null, 'Project', 'ID', 'Root', 'Agents', 'Jobs', 'Updated', null].map((label, i) => (
+                <span key={label ?? `_${i}`} className="kicker text-muted truncate">
+                  {label ?? ''}
+                </span>
+              ))}
+            </div>
 
-                return (
-                  <Fragment key={row.id}>
-                    {showGroup ? (
-                      <TableRow key={`${defaultAgent}-group`} className="bg-secondary/60">
-                        <TableCell colSpan={columns.length} className="text-xs uppercase text-muted">
-                          Default agent: {defaultAgent}
-                        </TableCell>
-                      </TableRow>
-                    ) : null}
-                    <TableRow key={row.id}>
-                      {row.getVisibleCells().map((cell) => (
-                        <TableCell key={cell.id}>
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  </Fragment>
-                )
-              })
-            )}
-          </TableBody>
-        </Table>
-      </section>
-      {projectsQuery.error instanceof Error ? (
-        <p className="text-sm text-destructive">{projectsQuery.error.message}</p>
-      ) : null}
+            <ul>
+              {rows.map((row) => (
+                <li key={row.projectId}>
+                  <Link
+                    to={`/projects/${encodeURIComponent(row.projectId)}`}
+                    style={{ gridTemplateColumns: GRID }}
+                    className="grid items-center gap-x-6 py-3 group border-b border-border/40 transition-colors hover:bg-paper/40"
+                  >
+                    <span className="block h-1.5 w-1.5 rounded-full bg-accent" />
+                    <div className="text-[14px] text-ink font-medium truncate">
+                      {row.displayName}
+                    </div>
+                    <span className="mono text-[12px] text-muted truncate">{row.projectId}</span>
+                    <span className="mono text-[12px] text-ink truncate">
+                      {row.rootDir || <span className="text-quiet">—</span>}
+                    </span>
+                    <span className="mono text-[12px] tabular text-ink">
+                      {row.agentCount ?? '…'}
+                    </span>
+                    <span className="mono text-[12px] tabular text-ink">
+                      {row.jobCount !== undefined ? (
+                        row.jobCount > 0 ? (
+                          <Pill tone="accent" mono>
+                            {row.jobCount}
+                          </Pill>
+                        ) : (
+                          <span className="text-quiet">0</span>
+                        )
+                      ) : (
+                        '…'
+                      )}
+                    </span>
+                    <span className="mono text-[11px] tabular text-muted">
+                      {formatDateTime(row.updatedAt)}
+                    </span>
+                    <ArrowUpRight className="h-3.5 w-3.5 text-quiet/0 group-hover:text-accent transition-all" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
     </div>
   )
 }

@@ -6,8 +6,8 @@ interface Props {
 
 export function ProjectRawTab({ detail }: Props) {
   return (
-    <pre className="max-h-[620px] overflow-auto rounded-md border border-border bg-card p-4 font-mono text-xs">
-      {JSON.stringify(detail, null, 2)}
+    <pre className="mono text-[12px] leading-relaxed text-ink overflow-auto max-h-[680px] max-w-5xl">
+{JSON.stringify(detail, null, 2)}
     </pre>
   )
 }

@@ -1,44 +1,44 @@
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+import { EmptyState, Pill } from '@/components/primitives'
+import { Target } from 'lucide-react'
 import type { AgentDetailState } from '../types'
 
 interface Props {
   detail: AgentDetailState
 }
 
+const GRID = 'minmax(280px,2fr) 120px 110px'
+
 export function AgentScopeTargetsTab({ detail }: Props) {
+  if (detail.scopeTargets.length === 0) {
+    return <EmptyState icon={<Target className="h-8 w-8" />} title="No targets" />
+  }
+
   return (
-    <section className="rounded-md border border-border bg-card">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Scope</TableHead>
-            <TableHead>Lane</TableHead>
-            <TableHead>Source</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {detail.scopeTargets.length === 0 ? (
-            <TableRow>
-              <TableCell colSpan={3}>No scope targets found.</TableCell>
-            </TableRow>
-          ) : (
-            detail.scopeTargets.map((target) => (
-              <TableRow key={`${target.scopeRef}:${target.laneRef}:${target.source}`}>
-                <TableCell className="font-mono text-xs">{target.scopeRef}</TableCell>
-                <TableCell>{target.laneRef}</TableCell>
-                <TableCell>{target.source}</TableCell>
-              </TableRow>
-            ))
-          )}
-        </TableBody>
-      </Table>
+    <section className="max-w-5xl">
+      <div
+        style={{ gridTemplateColumns: GRID }}
+        className="grid items-center gap-x-6 pb-2 border-b border-border/60"
+      >
+        {['Scope', 'Lane', 'Source'].map((label, i) => (
+          <span key={label ?? `_${i}`} className="kicker text-muted truncate">
+            {label}
+          </span>
+        ))}
+      </div>
+
+      <ul>
+        {detail.scopeTargets.map((t) => (
+          <li
+            key={`${t.scopeRef}:${t.laneRef}:${t.source}`}
+            style={{ gridTemplateColumns: GRID }}
+            className="grid items-center gap-x-6 py-3 border-b border-border/40"
+          >
+            <span className="mono text-[11.5px] text-ink truncate">{t.scopeRef}</span>
+            <span className="mono text-[11.5px] text-ink">{t.laneRef}</span>
+            <Pill tone={t.source === 'membership' ? 'muted' : 'accent'}>{t.source}</Pill>
+          </li>
+        ))}
+      </ul>
     </section>
   )
 }

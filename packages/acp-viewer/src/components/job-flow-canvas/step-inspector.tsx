@@ -1,6 +1,4 @@
-import { Badge } from '@/components/ui/badge'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Pill, StatusDot } from '@/components/primitives'
 import type { JobRunRecord, JobStepRunRecord, NormalizedFlowStep } from '@/types/api'
 import { useState } from 'react'
 
@@ -10,285 +8,198 @@ interface StepInspectorProps {
   latestRuns?: JobRunRecord[]
 }
 
-type InspectorTab = 'definition' | 'startup' | 'expectations' | 'runs' | 'raw'
+type InspectorTab = 'definition' | 'startup' | 'expect' | 'runs' | 'raw'
 
-function DefinitionTab({ step }: { step: NormalizedFlowStep }) {
+const TABS: ReadonlyArray<{ id: InspectorTab; label: string }> = [
+  { id: 'definition', label: 'Defn' },
+  { id: 'startup', label: 'Startup' },
+  { id: 'expect', label: 'Expect' },
+  { id: 'runs', label: 'Runs' },
+  { id: 'raw', label: 'Raw' },
+]
+
+function KV({ k, children }: { k: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-3 text-xs">
-      <div>
-        <span className="text-muted">ID:</span>{' '}
-        <span className="font-mono text-foreground">{step.id}</span>
-      </div>
-      <div>
-        <span className="text-muted">Kind:</span>{' '}
-        <span className="text-foreground">{step.kind ?? 'agent'}</span>
-      </div>
-      <div>
-        <span className="text-muted">Phase:</span>{' '}
-        <span className="text-foreground">{step.phase}</span>
-      </div>
-      <div>
-        <span className="text-muted">Index:</span>{' '}
-        <span className="text-foreground">{step.index}</span>
-      </div>
-      {step.timeout && (
-        <div>
-          <span className="text-muted">Timeout:</span>{' '}
-          <span className="text-foreground">{step.timeout}</span>
-        </div>
-      )}
-      {step.fresh !== undefined && (
-        <div>
-          <span className="text-muted">Fresh:</span>{' '}
-          <span className="text-foreground">{String(step.fresh)}</span>
-        </div>
-      )}
-      {step.next && (
-        <div>
-          <span className="text-muted">Next:</span>{' '}
-          <span className="text-foreground">{step.next}</span>
-        </div>
-      )}
+    <div className="grid grid-cols-[80px_minmax(0,1fr)] gap-3 py-2 border-b border-border/40 last:border-0">
+      <span className="kicker text-muted">{k}</span>
+      <span className="text-[12px] text-ink min-w-0 break-words">{children}</span>
     </div>
   )
 }
 
-function StartupTab({ step }: { step: NormalizedFlowStep }) {
-  return (
-    <div className="space-y-3 text-xs">
-      {step.input && (
-        <div>
-          <div className="text-muted mb-1">Input:</div>
-          <pre className="bg-secondary rounded p-2 text-foreground whitespace-pre-wrap font-mono text-[11px]">
-            {step.input}
-          </pre>
-        </div>
-      )}
-      {step.inputFile && (
-        <div>
-          <span className="text-muted">Input File:</span>{' '}
-          <span className="font-mono text-foreground">{step.inputFile}</span>
-        </div>
-      )}
-      {step.kind === 'exec' && step.exec && (
-        <div>
-          <div className="text-muted mb-1">Exec:</div>
-          <pre className="bg-secondary rounded p-2 text-foreground whitespace-pre-wrap font-mono text-[11px]">
-            {JSON.stringify(step.exec, null, 2)}
-          </pre>
-        </div>
-      )}
-      {step.branches && (
-        <div>
-          <div className="text-muted mb-1">Branches:</div>
-          <pre className="bg-secondary rounded p-2 text-foreground whitespace-pre-wrap font-mono text-[11px]">
-            {JSON.stringify(step.branches, null, 2)}
-          </pre>
-        </div>
-      )}
-      {!step.input && !step.inputFile && !step.exec && (
-        <div className="text-quiet italic">No startup configuration for this step.</div>
-      )}
-    </div>
-  )
-}
-
-function ExpectationsTab({ step }: { step: NormalizedFlowStep }) {
-  if (!step.expect) {
-    return <div className="text-xs text-quiet italic">No expectations defined.</div>
-  }
-
-  return (
-    <div className="space-y-3 text-xs">
-      {step.expect.outcome && (
-        <div>
-          <span className="text-muted">Outcome:</span>{' '}
-          <Badge variant="outline" className="text-[10px]">
-            {step.expect.outcome}
-          </Badge>
-        </div>
-      )}
-      {step.expect.resultBlock && (
-        <div>
-          <span className="text-muted">Result Block:</span>{' '}
-          <span className="font-mono text-foreground">{step.expect.resultBlock}</span>
-        </div>
-      )}
-      {step.expect.require && step.expect.require.length > 0 && (
-        <div>
-          <div className="text-muted mb-1">Require:</div>
-          <div className="flex flex-wrap gap-1">
-            {step.expect.require.map((r) => (
-              <Badge key={r} variant="secondary" className="text-[10px]">
-                {r}
-              </Badge>
-            ))}
-          </div>
-        </div>
-      )}
-      {step.expect.equals && (
-        <div>
-          <div className="text-muted mb-1">Equals:</div>
-          <pre className="bg-secondary rounded p-2 text-foreground whitespace-pre-wrap font-mono text-[11px]">
-            {JSON.stringify(step.expect.equals, null, 2)}
-          </pre>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function RunsTab({
-  stepRuns,
-  latestRuns,
-  stepId,
-}: {
-  stepRuns?: Array<{ jobRunId: string; stepRun: JobStepRunRecord }>
-  latestRuns?: JobRunRecord[]
-  stepId: string
-}) {
-  const filtered = stepRuns?.filter((sr) => sr.stepRun.stepId === stepId) ?? []
-
-  if (filtered.length === 0) {
-    return <div className="text-xs text-quiet italic">No recent runs for this step.</div>
-  }
-
-  return (
-    <div className="space-y-2 text-xs">
-      {filtered.map((sr) => {
-        const parentRun = latestRuns?.find((r) => r.jobRunId === sr.jobRunId)
-        return (
-          <div
-            key={`${sr.jobRunId}-${sr.stepRun.stepId}`}
-            className="border border-border rounded p-2 space-y-1"
-          >
-            <div className="flex items-center gap-2">
-              <Badge
-                variant={
-                  sr.stepRun.status === 'succeeded'
-                    ? 'secondary'
-                    : sr.stepRun.status === 'failed'
-                      ? 'destructive'
-                      : 'outline'
-                }
-                className="text-[10px]"
-              >
-                {sr.stepRun.status}
-              </Badge>
-              <span className="text-quiet">attempt {sr.stepRun.attempt}</span>
-            </div>
-            {parentRun && (
-              <div className="text-quiet">
-                Run: {parentRun.triggeredBy} @ {new Date(parentRun.triggeredAt).toLocaleString()}
-              </div>
-            )}
-            {sr.stepRun.error && (
-              <div className="text-destructive">
-                {sr.stepRun.error.code}: {sr.stepRun.error.message}
-              </div>
-            )}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function RawTab({ step }: { step: NormalizedFlowStep }) {
-  return (
-    <pre className="bg-secondary rounded p-2 text-foreground whitespace-pre-wrap font-mono text-[11px]">
-      {JSON.stringify(step, null, 2)}
-    </pre>
-  )
+function statusTone(status: string): 'success' | 'destructive' | 'warn' | 'muted' {
+  if (status === 'succeeded') return 'success'
+  if (status === 'failed') return 'destructive'
+  if (status === 'skipped') return 'warn'
+  return 'muted'
 }
 
 export function StepInspector({ step, stepRuns, latestRuns }: StepInspectorProps) {
   const [activeTab, setActiveTab] = useState<InspectorTab>('definition')
-
   const isOnFailure = step.phase === 'onFailure'
+  const filteredRuns = stepRuns?.filter((sr) => sr.stepRun.stepId === step.id) ?? []
+
   return (
-    <div className="h-full flex flex-col">
-      <div className="px-4 py-3 border-b border-border space-y-1">
-        <div className="text-[10px] uppercase tracking-wide text-muted">
+    <div className="h-full flex flex-col min-h-0">
+      <header className="px-6 pt-7 pb-5">
+        <div className="kicker text-muted mb-2">
           Step {step.index + 1} · {step.phase}
         </div>
-        <div className="font-semibold text-sm text-foreground font-mono">{step.id}</div>
-        <div className="flex items-center gap-2 text-xs">
-          <span
-            className={
-              isOnFailure
-                ? 'inline-flex px-1.5 py-0 rounded text-[10px] bg-red-50 text-red-700 border border-red-200'
-                : 'inline-flex px-1.5 py-0 rounded text-[10px] bg-accent/10 text-accent border border-accent/30'
-            }
-          >
-            {step.kind ?? 'agent'}
-          </span>
-          {step.fresh !== undefined && (
-            <span className="text-quiet">
-              fresh: <span className="text-foreground">{String(step.fresh)}</span>
-            </span>
+        <div className="display text-[24px] text-ink leading-tight tracking-tight mb-3 break-all">
+          {step.id}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Pill tone={isOnFailure ? 'destructive' : 'accent'}>{step.kind ?? 'agent'}</Pill>
+          {step.next && step.next !== 'continue' && (
+            <Pill tone="muted" mono>
+              → {step.next}
+            </Pill>
           )}
-          {step.timeout && (
-            <span className="text-quiet">
-              timeout: <span className="text-foreground">{step.timeout}</span>
-            </span>
-          )}
+        </div>
+      </header>
+
+      <div className="border-b border-border/60">
+        <div className="flex px-6 gap-5">
+          {TABS.map((t) => {
+            const isActive = activeTab === t.id
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setActiveTab(t.id)}
+                className={`relative py-2 text-[12px] transition-colors ${
+                  isActive ? 'text-ink font-medium' : 'text-muted hover:text-ink'
+                }`}
+              >
+                {t.label}
+                {isActive && (
+                  <span className="absolute -bottom-px left-0 right-0 h-[1.5px] bg-accent" />
+                )}
+              </button>
+            )
+          })}
         </div>
       </div>
 
-      <Tabs className="flex-1 flex flex-col min-h-0">
-        <TabsList className="mx-4 mt-2 shrink-0">
-          <TabsTrigger
-            active={activeTab === 'definition'}
-            onClick={() => setActiveTab('definition')}
-          >
-            Definition
-          </TabsTrigger>
-          <TabsTrigger active={activeTab === 'startup'} onClick={() => setActiveTab('startup')}>
-            Startup
-          </TabsTrigger>
-          <TabsTrigger
-            active={activeTab === 'expectations'}
-            onClick={() => setActiveTab('expectations')}
-          >
-            Expectations
-          </TabsTrigger>
-          <TabsTrigger active={activeTab === 'runs'} onClick={() => setActiveTab('runs')}>
-            Last Runs
-          </TabsTrigger>
-          <TabsTrigger active={activeTab === 'raw'} onClick={() => setActiveTab('raw')}>
-            Raw
-          </TabsTrigger>
-        </TabsList>
+      <div className="flex-1 overflow-auto px-6 py-5 min-h-0">
+        {activeTab === 'definition' && (
+          <dl>
+            <KV k="ID">
+              <span className="mono">{step.id}</span>
+            </KV>
+            <KV k="Kind">{step.kind ?? 'agent'}</KV>
+            <KV k="Phase">{step.phase}</KV>
+            {step.timeout && <KV k="Timeout">{step.timeout}</KV>}
+            {step.fresh !== undefined && <KV k="Fresh">{String(step.fresh)}</KV>}
+            {step.next && (
+              <KV k="Next">
+                <span className="mono text-accent">{step.next}</span>
+              </KV>
+            )}
+          </dl>
+        )}
 
-        <ScrollArea className="flex-1 px-4 py-3">
-          {activeTab === 'definition' && (
-            <TabsContent>
-              <DefinitionTab step={step} />
-            </TabsContent>
-          )}
-          {activeTab === 'startup' && (
-            <TabsContent>
-              <StartupTab step={step} />
-            </TabsContent>
-          )}
-          {activeTab === 'expectations' && (
-            <TabsContent>
-              <ExpectationsTab step={step} />
-            </TabsContent>
-          )}
-          {activeTab === 'runs' && (
-            <TabsContent>
-              <RunsTab stepRuns={stepRuns} latestRuns={latestRuns} stepId={step.id} />
-            </TabsContent>
-          )}
-          {activeTab === 'raw' && (
-            <TabsContent>
-              <RawTab step={step} />
-            </TabsContent>
-          )}
-        </ScrollArea>
-      </Tabs>
+        {activeTab === 'startup' && (
+          <div className="space-y-4">
+            {step.input && (
+              <div>
+                <div className="kicker text-muted mb-2">Input</div>
+                <pre className="mono text-[11.5px] leading-relaxed text-ink whitespace-pre-wrap">
+                  {step.input}
+                </pre>
+              </div>
+            )}
+            {step.inputFile && (
+              <KV k="Input file">
+                <span className="mono">{step.inputFile}</span>
+              </KV>
+            )}
+            {step.kind === 'exec' && step.exec && (
+              <div>
+                <div className="kicker text-muted mb-2">Exec</div>
+                <pre className="mono text-[11.5px] leading-relaxed text-ink whitespace-pre-wrap">
+                  {JSON.stringify(step.exec, null, 2)}
+                </pre>
+              </div>
+            )}
+            {!step.input && !step.inputFile && !step.exec && (
+              <div className="text-[12px] text-muted">No startup config.</div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'expect' &&
+          (step.expect ? (
+            <dl>
+              {step.expect.outcome && (
+                <KV k="Outcome">
+                  <Pill tone={step.expect.outcome === 'succeeded' ? 'success' : 'destructive'}>
+                    {step.expect.outcome}
+                  </Pill>
+                </KV>
+              )}
+              {step.expect.resultBlock && (
+                <KV k="Result block">
+                  <span className="mono">{step.expect.resultBlock}</span>
+                </KV>
+              )}
+              {step.expect.require && step.expect.require.length > 0 && (
+                <KV k="Require">
+                  <div className="flex flex-wrap gap-1">
+                    {step.expect.require.map((r) => (
+                      <Pill key={r} tone="muted" mono>
+                        {r}
+                      </Pill>
+                    ))}
+                  </div>
+                </KV>
+              )}
+            </dl>
+          ) : (
+            <div className="text-[12px] text-muted">None.</div>
+          ))}
+
+        {activeTab === 'runs' &&
+          (filteredRuns.length === 0 ? (
+            <div className="text-[12px] text-muted">No runs.</div>
+          ) : (
+            <ul className="space-y-3">
+              {filteredRuns.map((sr) => {
+                const parent = latestRuns?.find((r) => r.jobRunId === sr.jobRunId)
+                return (
+                  <li
+                    key={`${sr.jobRunId}-${sr.stepRun.stepId}`}
+                    className="py-2 border-b border-border/40 last:border-0 space-y-1"
+                  >
+                    <div className="flex items-center gap-2">
+                      <StatusDot tone={statusTone(sr.stepRun.status)} />
+                      <Pill tone={statusTone(sr.stepRun.status)}>{sr.stepRun.status}</Pill>
+                      <span className="mono text-[10px] text-muted">
+                        attempt {sr.stepRun.attempt}
+                      </span>
+                    </div>
+                    {parent && (
+                      <div className="text-[11px] text-muted">
+                        {parent.triggeredBy} · {new Date(parent.triggeredAt).toLocaleString()}
+                      </div>
+                    )}
+                    {sr.stepRun.error && (
+                      <div className="mono text-[11px] text-destructive">
+                        {sr.stepRun.error.code}: {sr.stepRun.error.message}
+                      </div>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          ))}
+
+        {activeTab === 'raw' && (
+          <pre className="mono text-[11px] leading-relaxed text-ink whitespace-pre-wrap">
+            {JSON.stringify(step, null, 2)}
+          </pre>
+        )}
+      </div>
     </div>
   )
 }

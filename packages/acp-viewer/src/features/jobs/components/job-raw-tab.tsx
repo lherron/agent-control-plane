@@ -1,4 +1,3 @@
-import { ScrollArea } from '@/components/ui/scroll-area'
 import type { JobDetailResponse } from '@/types/api'
 
 interface JobRawTabProps {
@@ -7,12 +6,8 @@ interface JobRawTabProps {
 
 export function JobRawTab({ data }: JobRawTabProps) {
   return (
-    <div className="p-4">
-      <ScrollArea className="max-h-[600px]">
-        <pre className="bg-secondary rounded p-3 text-foreground whitespace-pre-wrap font-mono text-[11px]">
-          {JSON.stringify(data, null, 2)}
-        </pre>
-      </ScrollArea>
-    </div>
+    <pre className="mono text-[12px] tabular leading-relaxed text-ink overflow-auto max-h-[680px] max-w-5xl">
+      {JSON.stringify(data, null, 2)}
+    </pre>
   )
 }

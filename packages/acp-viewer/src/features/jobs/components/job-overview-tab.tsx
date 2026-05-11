@@ -1,4 +1,4 @@
-import { Badge } from '@/components/ui/badge'
+import { FieldRow, Pill, SectionHeader } from '@/components/primitives'
 import type { JobDetailResponse } from '@/types/api'
 import { Link } from 'react-router-dom'
 
@@ -6,72 +6,85 @@ interface JobOverviewTabProps {
   data: JobDetailResponse
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex gap-2 text-xs">
-      <span className="text-muted w-28 shrink-0">{label}</span>
-      <span className="text-foreground">{children}</span>
-    </div>
-  )
+function fmtDate(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(d)
 }
 
 export function JobOverviewTab({ data }: JobOverviewTabProps) {
   const { job, summary } = data
 
   return (
-    <div className="space-y-3 p-4">
-      <Field label="Job ID">
-        <span className="font-mono">{job.jobId}</span>
-      </Field>
-      <Field label="Kind">
-        <Badge variant="outline" className="text-[10px]">
-          {summary.kind}
-        </Badge>
-      </Field>
-      <Field label="State">
-        <Badge variant={job.disabled ? 'destructive' : 'secondary'} className="text-[10px]">
-          {job.disabled ? 'disabled' : 'enabled'}
-        </Badge>
-        {summary.disabledReason && (
-          <span className="text-quiet ml-2">{summary.disabledReason}</span>
-        )}
-      </Field>
-      <Field label="Title">{summary.title}</Field>
-      {summary.description && <Field label="Description">{summary.description}</Field>}
-      <Field label="Project">
-        <Link
-          to={`/projects/${encodeURIComponent(job.projectId)}`}
-          className="text-accent hover:underline font-mono"
-        >
-          {job.projectId}
-        </Link>
-      </Field>
-      <Field label="Agent">
-        <Link
-          to={`/agents/${encodeURIComponent(job.agentId)}`}
-          className="text-accent hover:underline font-mono"
-        >
-          {job.agentId}
-        </Link>
-      </Field>
-      <Field label="Scope Ref">
-        <span className="font-mono">{job.scopeRef}</span>
-      </Field>
-      <Field label="Lane Ref">
-        <span className="font-mono">{job.laneRef}</span>
-      </Field>
-      <Field label="Flow Steps">{summary.flowStepCount}</Field>
-      {summary.onFailureStepCount > 0 && (
-        <Field label="onFailure Steps">{summary.onFailureStepCount}</Field>
-      )}
-      <Field label="Actor">
-        <span className="font-mono">
-          {job.actor.kind}
-          {job.actor.id ? `:${job.actor.id}` : ''}
-        </span>
-      </Field>
-      <Field label="Created">{new Date(job.createdAt).toLocaleString()}</Field>
-      <Field label="Updated">{new Date(job.updatedAt).toLocaleString()}</Field>
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-16 gap-y-12 max-w-5xl">
+      <section>
+        <SectionHeader title="Identity" />
+        <dl>
+          <FieldRow label="Slug">
+            <span className="mono">{job.slug}</span>
+          </FieldRow>
+          <FieldRow label="Job ID">
+            <span className="mono text-muted">{job.jobId}</span>
+          </FieldRow>
+          <FieldRow label="Kind">
+            <Pill
+              tone={
+                summary.kind === 'flow' ? 'accent' : summary.kind === 'exec' ? 'success' : 'muted'
+              }
+            >
+              {summary.kind}
+            </Pill>
+          </FieldRow>
+          {(summary.description || job.description) && (
+            <FieldRow label="Description">{summary.description ?? job.description}</FieldRow>
+          )}
+        </dl>
+      </section>
+
+      <section>
+        <SectionHeader title="Routing" />
+        <dl>
+          <FieldRow label="Project">
+            <Link
+              to={`/projects/${encodeURIComponent(job.projectId)}`}
+              className="mono text-ink-link hover:text-accent transition-colors"
+            >
+              {job.projectId}
+            </Link>
+          </FieldRow>
+          <FieldRow label="Agent">
+            <Link
+              to={`/agents/${encodeURIComponent(job.agentId)}`}
+              className="mono text-ink-link hover:text-accent transition-colors"
+            >
+              {job.agentId}
+            </Link>
+          </FieldRow>
+          <FieldRow label="Scope">
+            <span className="mono">{job.scopeRef}</span>
+          </FieldRow>
+          <FieldRow label="Lane">
+            <span className="mono">{job.laneRef}</span>
+          </FieldRow>
+          <FieldRow label="Actor">
+            <span className="mono text-muted">
+              {job.actor.kind}
+              {job.actor.id ? `:${job.actor.id}` : ''}
+            </span>
+          </FieldRow>
+        </dl>
+      </section>
+
+      <section className="xl:col-span-2">
+        <SectionHeader title="Timestamps" />
+        <dl>
+          <FieldRow label="Created">{fmtDate(job.createdAt)}</FieldRow>
+          <FieldRow label="Updated">{fmtDate(job.updatedAt)}</FieldRow>
+        </dl>
+      </section>
     </div>
   )
 }

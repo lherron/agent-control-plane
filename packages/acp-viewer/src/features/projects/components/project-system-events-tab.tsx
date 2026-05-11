@@ -1,4 +1,5 @@
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { EmptyState, Pill } from '@/components/primitives'
+import { Activity } from 'lucide-react'
 import { formatDateTime } from '../project-utils'
 import type { ProjectDetailState } from '../types'
 
@@ -7,36 +8,28 @@ interface Props {
 }
 
 export function ProjectSystemEventsTab({ detail }: Props) {
+  if (detail.recentSystemEvents.length === 0) {
+    return <EmptyState icon={<Activity className="h-8 w-8" />} title="No events" />
+  }
+
   return (
-    <section className="rounded-md border border-border bg-card">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Time</TableHead>
-            <TableHead>Kind</TableHead>
-            <TableHead>Payload</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {detail.recentSystemEvents.length === 0 ? (
-            <TableRow>
-              <TableCell colSpan={3}>No recent system events found.</TableCell>
-            </TableRow>
-          ) : (
-            detail.recentSystemEvents.map((event) => (
-              <TableRow key={event.eventId}>
-                <TableCell>{formatDateTime(event.occurredAt ?? event.recordedAt ?? event.createdAt)}</TableCell>
-                <TableCell>{event.kind}</TableCell>
-                <TableCell>
-                  <pre className="max-w-[560px] overflow-auto whitespace-pre-wrap font-mono text-xs">
-                    {JSON.stringify(event.payload, null, 2)}
-                  </pre>
-                </TableCell>
-              </TableRow>
-            ))
-          )}
-        </TableBody>
-      </Table>
-    </section>
+    <ol className="space-y-6 max-w-5xl">
+      {detail.recentSystemEvents.map((e) => (
+        <li key={e.eventId}>
+          <header className="flex items-baseline justify-between gap-4 pb-2 border-b border-border/40">
+            <div className="flex items-baseline gap-3">
+              <Pill tone="accent">{e.kind}</Pill>
+              <span className="mono text-[11px] text-muted">
+                {formatDateTime(e.occurredAt ?? e.recordedAt ?? e.createdAt)}
+              </span>
+            </div>
+            <span className="mono text-[10px] text-quiet">{e.eventId}</span>
+          </header>
+          <pre className="mt-2 mono text-[11px] leading-relaxed text-ink overflow-auto max-h-72 whitespace-pre-wrap">
+{JSON.stringify(e.payload, null, 2)}
+          </pre>
+        </li>
+      ))}
+    </ol>
   )
 }

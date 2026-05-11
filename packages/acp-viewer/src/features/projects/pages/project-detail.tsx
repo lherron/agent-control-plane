@@ -1,8 +1,8 @@
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { PageHeader } from '@/components/page-header'
+import { BackLink, ErrorBanner, PageLoading, TabBar } from '@/components/primitives'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, FolderKanban } from 'lucide-react'
 import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { ProjectAgentsTab } from '../components/project-agents-tab'
 import { ProjectInterfacesTab } from '../components/project-interfaces-tab'
 import { ProjectJobsTab } from '../components/project-jobs-tab'
@@ -10,72 +10,64 @@ import { ProjectOverviewTab } from '../components/project-overview-tab'
 import { ProjectRawTab } from '../components/project-raw-tab'
 import { ProjectSystemEventsTab } from '../components/project-system-events-tab'
 import { fetchProjectDetail } from '../data'
-import type { ProjectDetailState } from '../types'
 
-const tabs = ['Overview', 'Agents', 'Jobs', 'Interfaces', 'System Events', 'Raw'] as const
-type ProjectTab = (typeof tabs)[number]
+type ProjectTab = 'overview' | 'agents' | 'jobs' | 'interfaces' | 'events' | 'raw'
+
+const TABS: ReadonlyArray<{ id: ProjectTab; label: string }> = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'agents', label: 'Agents' },
+  { id: 'jobs', label: 'Jobs' },
+  { id: 'interfaces', label: 'Interfaces' },
+  { id: 'events', label: 'Events' },
+  { id: 'raw', label: 'Raw' },
+]
 
 export function ProjectDetailPage() {
   const { projectId } = useParams()
-  const [activeTab, setActiveTab] = useState<ProjectTab>('Overview')
+  const [activeTab, setActiveTab] = useState<ProjectTab>('overview')
+
   const query = useQuery({
     queryKey: ['projects', projectId, 'detail'],
     queryFn: () => fetchProjectDetail(projectId ?? ''),
     enabled: projectId !== undefined && projectId.length > 0,
   })
 
-  if (projectId === undefined) {
-    return <div className="p-6 text-destructive">Missing project id.</div>
-  }
-
-  if (query.isLoading) {
-    return <div className="p-6 text-muted">Loading project...</div>
-  }
-
-  if (query.error instanceof Error) {
-    return <div className="p-6 text-destructive">{query.error.message}</div>
-  }
-
-  if (query.data === undefined) {
-    return <div className="p-6 text-muted">Project not found.</div>
-  }
+  if (projectId === undefined) return <ErrorBanner message="Missing project id." />
+  if (query.isLoading) return <PageLoading label="Loading" />
+  if (query.error instanceof Error) return <ErrorBanner message={query.error.message} />
+  if (query.data === undefined) return <ErrorBanner message={`Project ${projectId} not found.`} />
 
   const detail = query.data
+  const project = detail.project
 
   return (
-    <div className="p-6 space-y-5">
-      <Link to="/projects" className="inline-flex items-center gap-2 text-sm text-muted hover:text-accent">
-        <ArrowLeft className="h-4 w-4" />
-        Projects
-      </Link>
+    <div className="flex flex-col h-full min-h-0">
+      <div className="px-10 pt-8 rise rise-1">
+        <BackLink to="/projects" label="Projects" />
+      </div>
 
-      <header className="flex items-center gap-3">
-        <div className="flex h-9 w-9 items-center justify-center rounded-md bg-selected text-selected-foreground">
-          <FolderKanban className="h-4 w-4" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-semibold">{detail.project.displayName}</h1>
-          <p className="font-mono text-xs text-muted">{detail.project.projectId}</p>
-        </div>
-      </header>
+      <PageHeader
+        title={project.displayName}
+        meta={[
+          { label: 'ID', value: project.projectId },
+          { label: 'Default agent', value: project.defaultAgentId ?? '—' },
+          { label: 'Memberships', value: detail.memberships.length },
+          { label: 'Jobs', value: detail.jobs.length },
+        ]}
+      />
 
-      <Tabs>
-        <TabsList>
-          {tabs.map((tab) => (
-            <TabsTrigger key={tab} active={activeTab === tab} onClick={() => setActiveTab(tab)}>
-              {tab}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-        <TabsContent>
-          {activeTab === 'Overview' ? <ProjectOverviewTab detail={detail} /> : null}
-          {activeTab === 'Agents' ? <ProjectAgentsTab detail={detail} /> : null}
-          {activeTab === 'Jobs' ? <ProjectJobsTab detail={detail} /> : null}
-          {activeTab === 'Interfaces' ? <ProjectInterfacesTab detail={detail} /> : null}
-          {activeTab === 'System Events' ? <ProjectSystemEventsTab detail={detail} /> : null}
-          {activeTab === 'Raw' ? <ProjectRawTab detail={detail} /> : null}
-        </TabsContent>
-      </Tabs>
+      <TabBar tabs={TABS} active={activeTab} onChange={setActiveTab} />
+
+      <div className="flex-1 overflow-auto bg-background">
+        <div className="px-10 py-10 rise rise-2">
+          {activeTab === 'overview' && <ProjectOverviewTab detail={detail} />}
+          {activeTab === 'agents' && <ProjectAgentsTab detail={detail} />}
+          {activeTab === 'jobs' && <ProjectJobsTab detail={detail} />}
+          {activeTab === 'interfaces' && <ProjectInterfacesTab detail={detail} />}
+          {activeTab === 'events' && <ProjectSystemEventsTab detail={detail} />}
+          {activeTab === 'raw' && <ProjectRawTab detail={detail} />}
+        </div>
+      </div>
     </div>
   )
 }

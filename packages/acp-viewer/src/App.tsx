@@ -3,13 +3,11 @@ import { Outlet } from 'react-router-dom'
 
 export default function App() {
   return (
-    <div className="grid grid-cols-[232px_minmax(0,1fr)] min-h-screen">
+    <div className="grid grid-cols-[232px_minmax(0,1fr)] min-h-screen bg-background">
       <LeftNav />
-      <div className="flex flex-col bg-workbench">
-        <main className="flex-1 overflow-auto">
-          <Outlet />
-        </main>
-      </div>
+      <main className="flex-1 overflow-auto min-w-0">
+        <Outlet />
+      </main>
     </div>
   )
 }

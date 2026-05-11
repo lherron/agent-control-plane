@@ -1,3 +1,4 @@
+import { FieldRow, SectionHeader } from '@/components/primitives'
 import type { JobDetailResponse } from '@/types/api'
 
 interface JobStartupTabProps {
@@ -6,30 +7,32 @@ interface JobStartupTabProps {
 
 export function JobStartupTab({ data }: JobStartupTabProps) {
   const { startup } = data
-
   return (
-    <div className="space-y-4 p-4 text-xs">
-      <div>
-        <span className="text-muted">Scope Ref:</span>{' '}
-        <span className="font-mono text-foreground">{startup.scopeRef}</span>
-      </div>
-      <div>
-        <span className="text-muted">Lane Ref:</span>{' '}
-        <span className="font-mono text-foreground">{startup.laneRef}</span>
-      </div>
-      <div>
-        <span className="text-muted">Actor:</span>{' '}
-        <span className="font-mono text-foreground">
-          {startup.actor.kind}
-          {startup.actor.id ? `:${startup.actor.id}` : ''}
-        </span>
-      </div>
-      <div>
-        <div className="text-muted mb-1">Input Template:</div>
-        <pre className="bg-secondary rounded p-3 text-foreground whitespace-pre-wrap font-mono text-[11px] max-h-80 overflow-auto">
+    <div className="grid grid-cols-1 xl:grid-cols-[1fr_2fr] gap-x-16 gap-y-12 max-w-5xl">
+      <section>
+        <SectionHeader title="Dispatch" />
+        <dl>
+          <FieldRow label="Scope">
+            <span className="mono">{startup.scopeRef}</span>
+          </FieldRow>
+          <FieldRow label="Lane">
+            <span className="mono">{startup.laneRef}</span>
+          </FieldRow>
+          <FieldRow label="Actor">
+            <span className="mono">
+              {startup.actor.kind}
+              {startup.actor.id ? `:${startup.actor.id}` : ''}
+            </span>
+          </FieldRow>
+        </dl>
+      </section>
+
+      <section>
+        <SectionHeader title="Input template" />
+        <pre className="mono text-[12px] tabular leading-relaxed text-ink overflow-auto max-h-[480px]">
           {JSON.stringify(startup.input, null, 2)}
         </pre>
-      </div>
+      </section>
     </div>
   )
 }
