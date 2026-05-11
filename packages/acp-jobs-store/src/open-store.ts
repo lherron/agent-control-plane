@@ -13,6 +13,8 @@ type MigrationRow = {
 
 type JobRow = {
   job_id: string
+  slug: string
+  description: string | null
   project_id: string
   agent_id: string
   scope_ref: string
@@ -97,6 +99,8 @@ export type JobInputTemplate = Readonly<Record<string, unknown>>
 
 export type JobRecord = {
   jobId: string
+  slug: string
+  description?: string | undefined
   projectId: string
   agentId: string
   scopeRef: string
@@ -111,6 +115,12 @@ export type JobRecord = {
   actorStamp?: string | undefined
   createdAt: string
   updatedAt: string
+}
+
+export const JOB_SLUG_REGEX = /^[a-z0-9][a-z0-9._-]{0,79}$/
+
+export function isValidJobSlug(value: string): boolean {
+  return JOB_SLUG_REGEX.test(value)
 }
 
 export type JobStepRunRecord = {
@@ -153,6 +163,8 @@ export type JobRunRecord = {
 
 export type CreateJobInput = {
   jobId?: string | undefined
+  slug?: string | undefined
+  description?: string | undefined
   projectId: string
   agentId: string
   scopeRef: string
@@ -167,6 +179,8 @@ export type CreateJobInput = {
 }
 
 export type UpdateJobInput = {
+  slug?: string | undefined
+  description?: string | null | undefined
   schedule?: JobSchedule | undefined
   input?: JobInputTemplate | undefined
   flow?: JobFlow | undefined
@@ -361,6 +375,17 @@ export const jobsStoreMigrations: readonly JobsStoreMigration[] = [
         WHERE run_id IS NOT NULL;
     `,
   },
+  {
+    id: '004_job_slug_description',
+    sql: `
+      ALTER TABLE jobs ADD COLUMN slug TEXT;
+      ALTER TABLE jobs ADD COLUMN description TEXT;
+      UPDATE jobs SET slug = job_id WHERE slug IS NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS jobs_project_slug_idx
+        ON jobs (project_id, slug)
+        WHERE archived_at IS NULL;
+    `,
+  },
 ]
 
 export interface OpenSqliteJobsStoreOptions {
@@ -446,6 +471,12 @@ export interface JobsStore {
   close(): void
 }
 
+function normalizeOptionalString(value: string | null | undefined): string | undefined {
+  if (value === null || value === undefined) return undefined
+  const trimmed = value.trim()
+  return trimmed.length === 0 ? undefined : trimmed
+}
+
 function isEphemeralPath(path: string): boolean {
   return path === '' || path === ':memory:'
 }
@@ -518,6 +549,8 @@ function toJobRecord(row: JobRow): JobRecord {
   const flow = parseOptionalJsonRecord(row.flow_json, 'flow') as JobFlow | undefined
   return {
     jobId: row.job_id,
+    slug: row.slug ?? row.job_id,
+    ...(row.description !== null ? { description: row.description } : {}),
     projectId: row.project_id,
     agentId: row.agent_id,
     scopeRef: row.scope_ref,
@@ -689,12 +722,19 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
     const disabled = input.disabled ?? false
     const nextFireAt = createNextFireAt({ schedule, disabled, anchor: now })
     const jobId = input.jobId ?? `job_${randomUUID().replace(/-/g, '').slice(0, 12)}`
+    const slug = input.slug ?? jobId
+    if (!isValidJobSlug(slug)) {
+      throw new Error(`invalid job slug: ${slug}`)
+    }
+    const description = normalizeOptionalString(input.description)
 
     sqlite
       .prepare(
         `
           INSERT INTO jobs (
             job_id,
+            slug,
+            description,
             project_id,
             agent_id,
             scope_ref,
@@ -715,11 +755,13 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
             created_at,
             updated_at,
             archived_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
         `
       )
       .run(
         jobId,
+        slug,
+        description ?? null,
         input.projectId,
         input.agentId,
         input.scopeRef,
@@ -787,6 +829,16 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
       patch.schedule !== undefined ? requireSchedule(patch.schedule) : existingJob.schedule
     const disabled = patch.disabled ?? existingJob.disabled
     const flow = patch.flow ?? existingJob.flow
+    const slug = patch.slug ?? existingJob.slug
+    if (patch.slug !== undefined && !isValidJobSlug(patch.slug)) {
+      throw new Error(`invalid job slug: ${patch.slug}`)
+    }
+    const description =
+      patch.description === null
+        ? null
+        : patch.description !== undefined
+          ? (normalizeOptionalString(patch.description) ?? null)
+          : (existing.description ?? null)
     const now = new Date().toISOString()
     const nextFireAt =
       patch.schedule !== undefined || patch.disabled !== undefined
@@ -797,7 +849,9 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
       .prepare(
         `
           UPDATE jobs
-          SET schedule_cron = ?,
+          SET slug = ?,
+              description = ?,
+              schedule_cron = ?,
               schedule_window_start = ?,
               schedule_window_end = ?,
               schedule_json = ?,
@@ -814,6 +868,8 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
         `
       )
       .run(
+        slug,
+        description,
         schedule.cron,
         getScheduleWindowValue(schedule, 'windowStart'),
         getScheduleWindowValue(schedule, 'windowEnd'),

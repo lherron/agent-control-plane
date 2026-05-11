@@ -1,11 +1,15 @@
+import { handleGetAdminAgentDetail } from '../handlers/admin-agents-detail.js'
+import { handleGetAdminAgentHeartbeat } from '../handlers/admin-agents-heartbeat-get.js'
 import { handleGetAdminAgent, handlePatchAdminAgent } from '../handlers/admin-agents.js'
 import { handlePostHeartbeatWake, handlePutHeartbeat } from '../handlers/admin-heartbeat.js'
+import { handleGetAdminJobDetail } from '../handlers/admin-jobs-detail.js'
 import {
   handleGetAdminJob,
   handlePatchAdminJob,
   handleRunAdminJob,
 } from '../handlers/admin-jobs.js'
 import { handleListProjectMemberships } from '../handlers/admin-memberships.js'
+import { handleGetAdminProjectDetail } from '../handlers/admin-projects-detail.js'
 import { handleGetAdminProject, handleSetProjectDefaultAgent } from '../handlers/admin-projects.js'
 import { handleGetConversationThread } from '../handlers/conversation-threads.js'
 import { handleListConversationTurns } from '../handlers/conversation-turns.js'
@@ -123,6 +127,8 @@ export function buildParamRoutes(): ParamRoute[] {
       withSpec('POST', '/v1/gateway/deliveries/:deliveryRequestId/fail', handleFailGatewayDelivery)
     ),
     createParamRoute('GET', '/v1/admin/agents/:agentId', handleGetAdminAgent),
+    createParamRoute('GET', '/v1/admin/agents/:agentId/detail', handleGetAdminAgentDetail),
+    createParamRoute('GET', '/v1/admin/agents/:agentId/heartbeat', handleGetAdminAgentHeartbeat),
     createParamRoute(
       'PATCH',
       '/v1/admin/agents/:agentId',
@@ -135,6 +141,7 @@ export function buildParamRoutes(): ParamRoute[] {
     ),
     createParamRoute('POST', '/v1/admin/agents/:agentId/heartbeat/wake', handlePostHeartbeatWake),
     createParamRoute('GET', '/v1/admin/projects/:projectId', handleGetAdminProject),
+    createParamRoute('GET', '/v1/admin/projects/:projectId/detail', handleGetAdminProjectDetail),
     createParamRoute(
       'POST',
       '/v1/admin/projects/:projectId/default-agent',
@@ -146,6 +153,7 @@ export function buildParamRoutes(): ParamRoute[] {
       handleListProjectMemberships
     ),
     createParamRoute('GET', '/v1/admin/jobs/:jobId', handleGetAdminJob),
+    createParamRoute('GET', '/v1/admin/jobs/:jobId/detail', handleGetAdminJobDetail),
     createParamRoute(
       'PATCH',
       '/v1/admin/jobs/:jobId',

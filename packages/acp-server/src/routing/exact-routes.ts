@@ -4,6 +4,7 @@ import {
   handleListInterfaceIdentities,
   handleRegisterInterfaceIdentity,
 } from '../handlers/admin-interface-identities.js'
+import { handleGetSchedulerState } from '../handlers/admin-jobs-scheduler.js'
 import {
   handleCreateAdminJob,
   handleListAdminJobs,
@@ -135,6 +136,7 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
       handleReconcileAdminContributions
     ),
     [exactRouteKey('GET', '/v1/admin/jobs')]: handleListAdminJobs,
+    [exactRouteKey('GET', '/v1/admin/jobs/scheduler')]: handleGetSchedulerState,
     [exactRouteKey('GET', '/v1/conversation/threads')]: handleListConversationThreads,
     [exactRouteKey('POST', '/v1/coordination/messages')]: maybeWrapMutatingRoute(
       'POST',

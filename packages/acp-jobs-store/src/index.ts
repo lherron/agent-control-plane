@@ -1,5 +1,7 @@
 export {
   createInMemoryJobsStore,
+  isValidJobSlug,
+  JOB_SLUG_REGEX,
   jobsStoreMigrations,
   listAppliedJobsStoreMigrations,
   openSqliteJobsStore,
