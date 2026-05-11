@@ -130,6 +130,36 @@ describe('workflow interact CLI', () => {
     })
   })
 
+  test('bare task positional accepts workflow-style hex task ids', async () => {
+    const calls: FetchCall[] = []
+    const result = await runCli(
+      ['--server', 'http://acp.test', 'workflow', 'interact', 'T-0693E836', '--detach'],
+      {
+        env: projectEnv(),
+        fetchImpl: async (input, init) => {
+          const call = parseRequest(input, init)
+          calls.push(call)
+          if (call.url === 'http://acp.test/v1/admin/projects/agent-spaces') {
+            return jsonResponse(projectResponse('supervisor'))
+          }
+          if (call.url === 'http://acp.test/v1/workflow-interact-runs') {
+            return jsonResponse(interactResponse(), 201)
+          }
+          throw new Error(`unexpected fetch: ${call.method} ${call.url}`)
+        },
+      }
+    )
+
+    expect(result.exitCode).toBe(0)
+    expect(calls[1]?.body).toMatchObject({
+      sessionRef: {
+        scopeRef: 'agent:supervisor:project:agent-spaces:task:T-0693E836',
+        laneRef: 'lane:main',
+      },
+      workflowTaskId: 'T-0693E836',
+    })
+  })
+
   test('explicit supervisor target positional uses the same task thread shape', async () => {
     const calls: FetchCall[] = []
     const result = await runCli(
@@ -206,6 +236,8 @@ describe('workflow interact CLI', () => {
       ['POST', 'http://acp.test/v1/workflow-interact-runs'],
     ])
     expect(calls[0]?.body).toMatchObject({
+      supervisor: { kind: 'agent', id: 'supervisor' },
+      autonomy: 'managed',
       createTask: {
         projectId: 'agent-spaces',
         workflow: { id: 'code_feature_tdd', version: 1 },
@@ -215,6 +247,10 @@ describe('workflow interact CLI', () => {
         },
       },
     })
+    // Internal idempotency key — non-empty string, prefixed for traceability.
+    const createBody = calls[0]?.body as Record<string, unknown>
+    expect(typeof createBody['idempotencyKey']).toBe('string')
+    expect(createBody['idempotencyKey'] as string).toMatch(/^acp-workflow-interact-/)
     expect(calls[1]?.body).toMatchObject({
       sessionRef: {
         scopeRef: 'agent:supervisor:project:agent-spaces:task:T-24680',
@@ -222,7 +258,7 @@ describe('workflow interact CLI', () => {
       },
       workflowInteract: true,
       workflowTaskId: 'T-24680',
-      workflowRef: { id: 'code_feature_tdd', version: 1 },
+      workflowRef: 'code_feature_tdd@1',
       workflowGoal: 'Implement X',
     })
   })
@@ -344,5 +380,71 @@ describe('workflow interact CLI', () => {
 
     expect(result.exitCode).toBe(0)
     expect(JSON.parse(result.stdout)).toEqual(interactResponse())
+  })
+
+  test('default invocation (no --detach) invokes the attach descriptor', async () => {
+    const attachCalls: Array<{ transport: string; argv: string[] }> = []
+    const result = await runCli(
+      [
+        '--server',
+        'http://acp.test',
+        'workflow',
+        'interact',
+        'T-12345',
+        '--supervisor',
+        'supervisor@agent-spaces',
+      ],
+      {
+        env: projectEnv(),
+        fetchImpl: async (input, init) => {
+          const call = parseRequest(input, init)
+          if (call.url === 'http://acp.test/v1/workflow-interact-runs') {
+            return jsonResponse(interactResponse(), 201)
+          }
+          throw new Error(`unexpected fetch: ${call.method} ${call.url}`)
+        },
+        attach: async (descriptor) => {
+          attachCalls.push({ transport: descriptor.transport, argv: descriptor.argv })
+          return 0
+        },
+      }
+    )
+
+    expect(result.exitCode).toBe(0)
+    expect(attachCalls).toHaveLength(1)
+    expect(attachCalls[0]).toEqual({ transport: 'tmux', argv: ['true'] })
+  })
+
+  test('--detach does NOT invoke the attach descriptor', async () => {
+    let attachInvocations = 0
+    const result = await runCli(
+      [
+        '--server',
+        'http://acp.test',
+        'workflow',
+        'interact',
+        'T-12345',
+        '--supervisor',
+        'supervisor@agent-spaces',
+        '--detach',
+      ],
+      {
+        env: projectEnv(),
+        fetchImpl: async (input, init) => {
+          const call = parseRequest(input, init)
+          if (call.url === 'http://acp.test/v1/workflow-interact-runs') {
+            return jsonResponse(interactResponse(), 201)
+          }
+          throw new Error(`unexpected fetch: ${call.method} ${call.url}`)
+        },
+        attach: async () => {
+          attachInvocations += 1
+          return 0
+        },
+      }
+    )
+
+    expect(result.exitCode).toBe(0)
+    expect(attachInvocations).toBe(0)
   })
 })

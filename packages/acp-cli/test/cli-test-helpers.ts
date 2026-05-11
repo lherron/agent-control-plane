@@ -1,4 +1,5 @@
 import { main } from '../src/cli.js'
+import type { AttachDescriptor } from '../src/commands/shared.js'
 
 export type CliResult = {
   stdout: string
@@ -26,6 +27,7 @@ export async function runCli(
   options: {
     fetchImpl?: (input: Request | string | URL, init?: RequestInit) => Promise<Response>
     env?: NodeJS.ProcessEnv | undefined
+    attach?: (descriptor: AttachDescriptor) => Promise<number>
   } = {}
 ): Promise<CliResult> {
   const stdout: string[] = []
@@ -56,6 +58,7 @@ export async function runCli(
     await main(args, {
       ...(options.fetchImpl !== undefined ? { fetchImpl: options.fetchImpl } : {}),
       ...(options.env !== undefined ? { env: options.env } : {}),
+      ...(options.attach !== undefined ? { attach: options.attach } : {}),
     })
     return { stdout: stdout.join(''), stderr: stderr.join(''), exitCode: 0 }
   } catch (error) {

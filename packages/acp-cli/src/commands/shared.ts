@@ -9,6 +9,12 @@ import {
 } from '../http-client.js'
 import { type ParsedArgs, hasFlag, parseJsonObject, readStringFlag } from './options.js'
 
+export type AttachDescriptor = {
+  transport: string
+  argv: string[]
+  bindingFence?: unknown
+}
+
 export type CommandDependencies = {
   env?: NodeJS.ProcessEnv | undefined
   createClient?:
@@ -18,6 +24,7 @@ export type CommandDependencies = {
       }) => AcpClient)
     | undefined
   fetchImpl?: FetchLike | undefined
+  attach?: ((descriptor: AttachDescriptor) => Promise<number>) | undefined
 }
 
 export type { CommandOutput }

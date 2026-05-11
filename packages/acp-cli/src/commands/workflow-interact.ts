@@ -1,3 +1,7 @@
+import { randomUUID } from 'node:crypto'
+
+import { inferProjectIdFromCwd } from 'spaces-config'
+
 import { CliUsageError } from '../cli-runtime.js'
 import { normalizeScopeInput } from '../scope-input.js'
 import {
@@ -8,6 +12,7 @@ import {
   readStringFlag,
 } from './options.js'
 import {
+  type AttachDescriptor,
   type CommandDependencies,
   type CommandOutput,
   asJson,
@@ -18,7 +23,9 @@ import {
   resolveServerUrl,
 } from './shared.js'
 
-const BARE_TASK_PATTERN = /^T-\d+$/
+// Task IDs come in two forms: wrkq tasks (`T-01410`, all digits) and workflow
+// tasks (`T-0693E836`, 8 uppercase hex chars from createTaskId). Accept both.
+const BARE_TASK_PATTERN = /^T-[A-Za-z0-9]+$/
 
 function parseWorkflowRef(value: string): { id: string; version: number } {
   const at = value.lastIndexOf('@')
@@ -53,14 +60,23 @@ function parseRoleBindings(values: string[]): Record<string, { kind: string; id:
   return bindings
 }
 
+async function defaultAttach(descriptor: AttachDescriptor): Promise<number> {
+  if (!Array.isArray(descriptor.argv) || descriptor.argv.length === 0) {
+    throw new CliUsageError('attach descriptor missing argv')
+  }
+  const [bin, ...rest] = descriptor.argv as [string, ...string[]]
+  const proc = Bun.spawn([bin, ...rest], {
+    stdin: 'inherit',
+    stdout: 'inherit',
+    stderr: 'inherit',
+  })
+  return await proc.exited
+}
+
 type InteractResponse = {
   sessionId: string
   runtimeId: string
-  attachDescriptor?: {
-    transport: string
-    argv: string[]
-    bindingFence?: unknown
-  }
+  attachDescriptor?: AttachDescriptor
 }
 
 type ProjectResponse = {
@@ -99,16 +115,16 @@ export async function runWorkflowInteractCommand(
     fetchImpl: deps.fetchImpl,
   })
 
-  // Infer project from env
-  const projectId = env['ASP_PROJECT']
+  // Project inference: ASP_PROJECT env → walk-up asp-targets.toml marker → fail.
+  const projectId = inferProjectIdFromCwd({ env })
   if (projectId === undefined || projectId.trim().length === 0) {
     throw new CliUsageError(
       'cannot infer project; set ASP_PROJECT or provide a fully qualified target'
     )
   }
 
-  // Parse positional target
-  // Filter out stringified 'undefined' from commander's optional argument handling
+  // Parse positional target.
+  // Filter out stringified 'undefined' from commander's optional argument handling.
   const rawPositional = parsed.positionals[0]
   const positional =
     rawPositional !== undefined && rawPositional !== 'undefined' ? rawPositional : undefined
@@ -117,19 +133,15 @@ export async function runWorkflowInteractCommand(
 
   if (positional !== undefined) {
     if (BARE_TASK_PATTERN.test(positional)) {
-      // Bare T-XXXXX: use as taskId, supervisor comes from --supervisor or project default
+      // Bare T-XXXXX: use as taskId, supervisor comes from --supervisor or project default.
       taskId = positional
     } else {
-      // Parse as agent-scope shorthand
+      // Parse as agent-scope shorthand.
       const scope = normalizeScopeInput(positional)
-      // Extract agent, project, and thread/task from the scopeRef
-      // Format: agent:<agentId>[:project:<projectId>[:task:<taskId>]]
       const parts = scope.scopeRef.split(':')
-      // agent:<id>
       if (parts[0] === 'agent' && parts[1]) {
         supervisorAgentId = parts[1]
       }
-      // Check for :task: segment (scope-input uses "task" not "thread")
       const taskIndex = parts.indexOf('task')
       if (taskIndex !== -1 && parts[taskIndex + 1]) {
         taskId = parts[taskIndex + 1]
@@ -137,7 +149,7 @@ export async function runWorkflowInteractCommand(
     }
   }
 
-  // Handle --supervisor flag
+  // Handle --supervisor flag.
   const supervisorFlag = readStringFlag(parsed, '--supervisor')
   if (supervisorFlag !== undefined) {
     const scope = normalizeScopeInput(supervisorFlag)
@@ -147,7 +159,22 @@ export async function runWorkflowInteractCommand(
     }
   }
 
-  // Handle --workflow create-and-interact flow
+  // Resolve supervisor: explicit flag/positional > project default.
+  // Done BEFORE the create-and-interact path so the supervisor identity can be
+  // included in the workflow-supervisor-runs body.
+  if (supervisorAgentId === undefined) {
+    const projectResponse = await requester.requestJson<ProjectResponse>({
+      method: 'GET',
+      path: `/v1/admin/projects/${projectId}`,
+    })
+
+    if (projectResponse.project.defaultAgentId === undefined) {
+      throw new CliUsageError(`no default supervisor agent configured for project ${projectId}`)
+    }
+    supervisorAgentId = projectResponse.project.defaultAgentId
+  }
+
+  // Handle --workflow create-and-interact flow.
   const workflowRaw = readStringFlag(parsed, '--workflow')
   let workflowRef: { id: string; version: number } | undefined
   let workflowGoal: string | undefined
@@ -162,14 +189,18 @@ export async function runWorkflowInteractCommand(
 
     const bindValues = readMultiStringFlag(parsed, '--bind')
     const roleBindings = parseRoleBindings(bindValues)
+    const explicitTaskId = readStringFlag(parsed, '--task-id')
 
-    // POST to /v1/workflow-supervisor-runs to create the task
     const createBody = {
+      supervisor: { kind: 'agent', id: supervisorAgentId },
+      autonomy: 'managed',
+      idempotencyKey: `acp-workflow-interact-${randomUUID()}`,
       createTask: {
         projectId,
         workflow: workflowRef,
         goal: workflowGoal,
         roleBindings,
+        ...(explicitTaskId !== undefined ? { taskId: explicitTaskId } : {}),
       },
     }
 
@@ -179,25 +210,10 @@ export async function runWorkflowInteractCommand(
       body: createBody,
     })
 
-    // Use the created task's ID for the interact run
     taskId = createResponse.task.taskId
   }
 
-  // Resolve supervisor: explicit flag > positional > project default
-  if (supervisorAgentId === undefined) {
-    // Look up project default supervisor
-    const projectResponse = await requester.requestJson<ProjectResponse>({
-      method: 'GET',
-      path: `/v1/admin/projects/${projectId}`,
-    })
-
-    if (projectResponse.project.defaultAgentId === undefined) {
-      throw new CliUsageError(`no default supervisor agent configured for project ${projectId}`)
-    }
-    supervisorAgentId = projectResponse.project.defaultAgentId
-  }
-
-  // Build sessionRef
+  // Build sessionRef.
   let scopeRef = `agent:${supervisorAgentId}:project:${projectId}`
   if (taskId !== undefined) {
     scopeRef += `:task:${taskId}`
@@ -208,7 +224,7 @@ export async function runWorkflowInteractCommand(
     laneRef: 'lane:main',
   }
 
-  // Build interact body
+  // Build interact body.
   const interactBody: Record<string, unknown> = {
     sessionRef,
     workflowInteract: true,
@@ -219,41 +235,45 @@ export async function runWorkflowInteractCommand(
   }
 
   if (workflowRef !== undefined) {
-    interactBody['workflowRef'] = workflowRef
+    // Server expects the env-passthrough form `<id>@<version>` (string), not
+    // the structured `{ id, version }` shape used by workflow-supervisor-runs.
+    interactBody['workflowRef'] = `${workflowRef.id}@${workflowRef.version}`
   }
 
   if (workflowGoal !== undefined) {
     interactBody['workflowGoal'] = workflowGoal
   }
 
-  // POST /v1/workflow-interact-runs
+  // POST /v1/workflow-interact-runs.
   const response = await requester.requestJson<InteractResponse>({
     method: 'POST',
     path: '/v1/workflow-interact-runs',
     body: interactBody,
   })
 
-  // Output handling
   if (hasFlag(parsed, '--json')) {
     return asJson(response)
   }
 
-  if (hasFlag(parsed, '--detach')) {
-    const lines = [
-      'Interactive session started',
-      `  scope:   ${scopeRef}`,
-      `  runtime: ${response.runtimeId}`,
-      `  attach:  ${response.attachDescriptor?.argv?.join(' ') ?? '(no attach descriptor)'}`,
-    ]
-    return asText(lines.join('\n'))
-  }
-
-  // Default: also print attach info (in real usage would attach)
-  const lines = [
+  const summaryLines = [
     'Interactive session started',
     `  scope:   ${scopeRef}`,
     `  runtime: ${response.runtimeId}`,
     `  attach:  ${response.attachDescriptor?.argv?.join(' ') ?? '(no attach descriptor)'}`,
   ]
-  return asText(lines.join('\n'))
+
+  if (hasFlag(parsed, '--detach')) {
+    return asText(summaryLines.join('\n'))
+  }
+
+  // Default: auto-attach using the descriptor. Print the summary first so the
+  // operator can see what happened if the attach fails or the descriptor is
+  // missing.
+  if (response.attachDescriptor === undefined) {
+    return asText(summaryLines.join('\n'))
+  }
+
+  const attachFn = deps.attach ?? defaultAttach
+  await attachFn(response.attachDescriptor)
+  return asText(summaryLines.join('\n'))
 }
