@@ -3,7 +3,8 @@ import type {
   AgentSummary,
   HeartbeatSummary,
   JobDetailResponse,
-  JobSummary,
+  JobRecord,
+  JobsListResponse,
   ProjectDetailResponse,
   ProjectSummary,
   SchedulerStateResponse,
@@ -43,8 +44,9 @@ export function getAgentDetail(agentId: string): Promise<AgentDetailResponse> {
 
 // --- Jobs ---
 
-export function listJobs(): Promise<JobSummary[]> {
-  return fetchJson<JobSummary[]>('/v1/admin/jobs')
+export async function listJobs(): Promise<JobRecord[]> {
+  const data = await fetchJson<JobsListResponse>('/v1/admin/jobs')
+  return data.jobs
 }
 
 export function getJobDetail(jobId: string): Promise<JobDetailResponse> {
@@ -54,7 +56,7 @@ export function getJobDetail(jobId: string): Promise<JobDetailResponse> {
 // --- Scheduler ---
 
 export function getSchedulerState(): Promise<SchedulerStateResponse> {
-  return fetchJson<SchedulerStateResponse>('/v1/admin/scheduler/state')
+  return fetchJson<SchedulerStateResponse>('/v1/admin/jobs/scheduler')
 }
 
 // --- Agent Heartbeat ---

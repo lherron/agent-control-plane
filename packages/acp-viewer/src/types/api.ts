@@ -51,41 +51,207 @@ export interface HeartbeatSummary {
   status: string
 }
 
-export interface JobSummary {
+// --- Jobs (matches real backend shapes) ---
+
+export interface JobRecord {
   jobId: string
   projectId: string
-  name: string
-  kind: string
+  agentId: string
+  scopeRef: string
+  laneRef: string
+  schedule: JobSchedule
+  input: Record<string, unknown>
+  flow?: JobFlow | undefined
   disabled: boolean
-  cron: string | null
-  nextFireAt: string | null
-  flowStepCount: number
+  lastFireAt?: string | undefined
+  nextFireAt?: string | undefined
+  actor: Actor
+  actorStamp?: string | undefined
   createdAt: string
   updatedAt: string
 }
 
-export interface JobFlowStep {
-  stepId: string
-  name: string
+export interface Actor {
   kind: string
-  agentId: string | null
-  dependsOn: string[]
-  config: Record<string, unknown>
+  id?: string | undefined
+  [key: string]: unknown
+}
+
+export interface JobSchedule {
+  cron: string
+  windowStart?: string | undefined
+  windowEnd?: string | undefined
+  windowMinutes?: number | undefined
+  [key: string]: unknown
+}
+
+export interface JobFlow {
+  sequence: JobFlowStep[]
+  onFailure?: JobFlowStep[] | undefined
+}
+
+export type JobFlowStep = AgentFlowStep | ExecFlowStep
+
+export interface BaseFlowStep {
+  id: string
+  kind?: 'agent' | 'exec' | undefined
+  timeout?: string | undefined
+  fresh?: boolean | undefined
+  next?: string | undefined
+}
+
+export interface AgentFlowStep extends BaseFlowStep {
+  kind?: 'agent' | undefined
+  input?: string | undefined
+  inputFile?: string | undefined
+  expect?: StepExpectation | undefined
+}
+
+export interface ExecFlowStep extends BaseFlowStep {
+  kind: 'exec'
+  exec: {
+    argv: string[]
+    cwd?: string | undefined
+    env?: Record<string, string> | undefined
+    timeout?: string | undefined
+    maxOutputBytes?: number | undefined
+  }
+  branches?:
+    | {
+        exitCode?: Record<string, string> | undefined
+        default?: string | undefined
+      }
+    | undefined
+}
+
+export interface StepExpectation {
+  outcome?: 'succeeded' | 'failed' | 'cancelled' | undefined
+  resultBlock?: string | undefined
+  require?: string[] | undefined
+  equals?: Record<string, string | number | boolean | null> | undefined
+}
+
+export type JobKind = 'input' | 'flow' | 'exec'
+
+export interface JobSummaryInfo {
+  kind: JobKind
+  title: string
+  description?: string | undefined
+  disabledReason?: string | undefined
+  flowStepCount: number
+  onFailureStepCount: number
+}
+
+export interface ScheduleSummary {
+  cron: string
+  lastFireAt?: string | undefined
+  nextFireAt?: string | undefined
+  nextFirePreview?: string[] | undefined
+  windowStart?: string | undefined
+  windowEnd?: string | undefined
+  windowMinutes?: number | undefined
+}
+
+export interface StartupSummary {
+  scopeRef: string
+  laneRef: string
+  input: Record<string, unknown>
+  actor: Actor
+}
+
+export interface NormalizedFlowStep extends BaseFlowStep {
+  phase: 'sequence' | 'onFailure'
+  index: number
+  // union fields surfaced
+  input?: string | undefined
+  inputFile?: string | undefined
+  expect?: StepExpectation | undefined
+  exec?: ExecFlowStep['exec'] | undefined
+  branches?: ExecFlowStep['branches'] | undefined
+}
+
+export interface NormalizedFlowEdge {
+  from: string
+  to: string
+  label: 'continue' | 'succeed' | 'fail' | 'onFailure'
+}
+
+export interface NormalizedFlow {
+  nodes: NormalizedFlowStep[]
+  sequence: NormalizedFlowStep[]
+  onFailure: NormalizedFlowStep[]
+  edges: NormalizedFlowEdge[]
+  warnings: string[]
+}
+
+export interface ProvenanceEntry {
+  source: string
+  available: boolean
+  note?: string | undefined
+}
+
+export interface JobRunRecord {
+  jobRunId: string
+  jobId: string
+  triggeredAt: string
+  triggeredBy: 'schedule' | 'manual' | 'catch-up'
+  status: 'pending' | 'claimed' | 'dispatched' | 'succeeded' | 'failed' | 'skipped'
+  inputAttemptId?: string | undefined
+  runId?: string | undefined
+  errorCode?: string | undefined
+  errorMessage?: string | undefined
+  leaseOwner?: string | undefined
+  leaseExpiresAt?: string | undefined
+  claimedAt?: string | undefined
+  dispatchedAt?: string | undefined
+  completedAt?: string | undefined
+  actor: Actor
+  actorStamp?: string | undefined
+  createdAt: string
+  updatedAt: string
+}
+
+export interface JobStepRunRecord {
+  jobRunId: string
+  stepId: string
+  phase: 'sequence' | 'onFailure'
+  status: 'pending' | 'claimed' | 'dispatched' | 'succeeded' | 'failed' | 'skipped'
+  attempt: number
+  inputAttemptId?: string | undefined
+  runId?: string | undefined
+  resultBlock?: string | undefined
+  result?: Record<string, unknown> | undefined
+  error?: { code: string; message: string } | undefined
+  startedAt?: string | undefined
+  completedAt?: string | undefined
+  createdAt: string
+  updatedAt: string
 }
 
 export interface JobDetailResponse {
-  job: JobSummary
-  flow: JobFlowStep[]
-  recentRuns: JobRunSummary[]
+  job: JobRecord
+  summary: JobSummaryInfo
+  schedule: ScheduleSummary
+  startup: StartupSummary
+  flow?: NormalizedFlow | undefined
+  latestRuns: JobRunRecord[]
+  provenance: ProvenanceEntry[]
+  lineage: {
+    project?: Record<string, unknown>
+    agent?: Record<string, unknown>
+    memberships: MembershipSummary[]
+    interfaceBindings: InterfaceBindingSummary[]
+    jobRuns: JobRunRecord[]
+    stepRuns: Array<{ jobRunId: string; stepRun: JobStepRunRecord }>
+    inputAttempts: Array<{ jobRunId: string; record: Record<string, unknown> }>
+    runs: Array<{ jobRunId: string; run: Record<string, unknown> }>
+  }
 }
 
-export interface JobRunSummary {
-  runId: string
-  jobId: string
-  status: string
-  startedAt: string
-  completedAt: string | null
-  durationMs: number | null
+// --- Jobs list (matches GET /v1/admin/jobs) ---
+
+export interface JobsListResponse {
+  jobs: JobRecord[]
 }
 
 export interface SchedulerStateResponse {
