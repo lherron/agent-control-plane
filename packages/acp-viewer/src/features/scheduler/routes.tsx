@@ -4,6 +4,11 @@ import { SchedulerPage } from './scheduler-page'
 export const schedulerRoutes: RouteObject[] = [
   {
     path: 'scheduler',
-    element: <SchedulerPage />,
+    children: [
+      {
+        index: true,
+        element: <SchedulerPage />,
+      },
+    ],
   },
 ]

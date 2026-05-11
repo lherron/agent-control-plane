@@ -1,9 +1,19 @@
 import type { RouteObject } from 'react-router-dom'
-import { AgentsPage } from './agents-page'
+import { AgentDetailPage } from './pages/agent-detail'
+import { AgentsListPage } from './pages/agents-list'
 
 export const agentRoutes: RouteObject[] = [
   {
     path: 'agents',
-    element: <AgentsPage />,
+    children: [
+      {
+        index: true,
+        element: <AgentsListPage />,
+      },
+      {
+        path: ':agentId',
+        element: <AgentDetailPage />,
+      },
+    ],
   },
 ]
