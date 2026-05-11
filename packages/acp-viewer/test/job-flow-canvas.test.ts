@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { computeLayout, DEFAULT_LAYOUT_CONFIG } from '../src/components/job-flow-canvas/layout'
+import { DEFAULT_LAYOUT_CONFIG, computeLayout } from '../src/components/job-flow-canvas/layout'
 import type { LayoutNode } from '../src/components/job-flow-canvas/layout'
 
 describe('job-flow-canvas layout', () => {
@@ -86,9 +86,7 @@ describe('job-flow-canvas layout', () => {
   })
 
   it('works with custom config', () => {
-    const nodes: LayoutNode[] = [
-      { id: 'x', phase: 'sequence', index: 0 },
-    ]
+    const nodes: LayoutNode[] = [{ id: 'x', phase: 'sequence', index: 0 }]
     const customConfig = {
       cardWidth: 100,
       cardHeight: 50,

@@ -12,5 +12,11 @@ export default defineConfig({
   },
   server: {
     port: 5174,
+    proxy: {
+      '/v1': {
+        target: 'http://127.0.0.1:18470',
+        changeOrigin: true,
+      },
+    },
   },
 })
