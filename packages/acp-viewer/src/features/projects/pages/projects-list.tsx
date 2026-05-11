@@ -1,6 +1,6 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import type { ProjectSummary } from '@/types/api'
-import { useQueries, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import {
   type SortingState,
   createColumnHelper,
@@ -14,7 +14,6 @@ import { Fragment, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { fetchProjectDetail, fetchProjects } from '../data'
 import { formatDateTime } from '../project-utils'
-import type { ProjectDetailState } from '../types'
 
 interface ProjectRow extends ProjectSummary {
   jobCount: number | undefined
@@ -22,40 +21,30 @@ interface ProjectRow extends ProjectSummary {
 
 const columnHelper = createColumnHelper<ProjectRow>()
 
+// Single batched fetch: list + per-project detail merged in one queryFn.
+// Avoids useQueries' dynamic-length hook pattern, which blocks React 19
+// route transitions in some cases (see ProjectsListPage bugfix notes).
+async function fetchProjectsWithJobCounts(): Promise<ProjectRow[]> {
+  const projects = await fetchProjects()
+  const details = await Promise.all(
+    projects.map((p) => fetchProjectDetail(p.projectId).catch(() => undefined))
+  )
+  return projects.map((project, i) => ({
+    ...project,
+    jobCount: details[i]?.jobs.length,
+  }))
+}
+
 export function ProjectsListPage() {
   const [sorting, setSorting] = useState<SortingState>([
     { id: 'defaultAgentId', desc: false },
     { id: 'displayName', desc: false },
   ])
   const projectsQuery = useQuery({
-    queryKey: ['projects'],
-    queryFn: fetchProjects,
+    queryKey: ['projects', 'with-job-counts'],
+    queryFn: fetchProjectsWithJobCounts,
   })
-  const projects = projectsQuery.data ?? []
-  const detailQueries = useQueries({
-    queries: projects.map((project) => ({
-      queryKey: ['projects', project.projectId, 'detail'],
-      queryFn: () => fetchProjectDetail(project.projectId),
-      staleTime: 30_000,
-    })),
-  })
-
-  const detailByProjectId = useMemo(() => {
-    return new Map(
-      detailQueries
-        .map((query, index) => [projects[index]?.projectId, query.data] as const)
-        .filter((entry): entry is readonly [string, ProjectDetailState] => entry[0] !== undefined)
-    )
-  }, [detailQueries, projects])
-
-  const data = useMemo<ProjectRow[]>(
-    () =>
-      projects.map((project) => ({
-        ...project,
-        jobCount: detailByProjectId.get(project.projectId)?.jobs.length,
-      })),
-    [detailByProjectId, projects]
-  )
+  const data = useMemo<ProjectRow[]>(() => projectsQuery.data ?? [], [projectsQuery.data])
 
   const columns = useMemo(
     () => [

@@ -7,7 +7,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import type { AgentSummary } from '@/types/api'
-import { useQueries, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import {
   type SortingState,
   createColumnHelper,
@@ -21,7 +21,6 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { heartbeatStatus } from '../agent-utils'
 import { fetchAgentDetail, fetchAgents } from '../data'
-import type { AgentDetailState } from '../types'
 
 interface AgentRow extends AgentSummary {
   membershipsCount: number | undefined
@@ -32,44 +31,32 @@ interface AgentRow extends AgentSummary {
 
 const columnHelper = createColumnHelper<AgentRow>()
 
+// Single batched fetch instead of useQueries dynamic-length pattern
+// (see ProjectsListPage bugfix notes for why).
+async function fetchAgentsWithRollups(): Promise<AgentRow[]> {
+  const agents = await fetchAgents()
+  const details = await Promise.all(
+    agents.map((a) => fetchAgentDetail(a.agentId).catch(() => undefined))
+  )
+  return agents.map((agent, i) => {
+    const detail = details[i]
+    return {
+      ...agent,
+      membershipsCount: detail?.memberships.length,
+      defaultProjectCount: detail?.memberships.filter((m) => m.isDefaultAgent).length,
+      assignedJobsCount: detail?.jobs.length,
+      heartbeat: heartbeatStatus(detail?.heartbeat),
+    }
+  })
+}
+
 export function AgentsListPage() {
   const [sorting, setSorting] = useState<SortingState>([{ id: 'displayName', desc: false }])
   const agentsQuery = useQuery({
-    queryKey: ['agents'],
-    queryFn: fetchAgents,
+    queryKey: ['agents', 'with-rollups'],
+    queryFn: fetchAgentsWithRollups,
   })
-  const agents = agentsQuery.data ?? []
-  const detailQueries = useQueries({
-    queries: agents.map((agent) => ({
-      queryKey: ['agents', agent.agentId, 'detail'],
-      queryFn: () => fetchAgentDetail(agent.agentId),
-      staleTime: 30_000,
-    })),
-  })
-
-  const detailByAgentId = useMemo(() => {
-    return new Map(
-      detailQueries
-        .map((query, index) => [agents[index]?.agentId, query.data] as const)
-        .filter((entry): entry is readonly [string, AgentDetailState] => entry[0] !== undefined)
-    )
-  }, [agents, detailQueries])
-
-  const data = useMemo<AgentRow[]>(
-    () =>
-      agents.map((agent) => {
-        const detail = detailByAgentId.get(agent.agentId)
-        return {
-          ...agent,
-          membershipsCount: detail?.memberships.length,
-          defaultProjectCount: detail?.memberships.filter((membership) => membership.isDefaultAgent)
-            .length,
-          assignedJobsCount: detail?.jobs.length,
-          heartbeat: heartbeatStatus(detail?.heartbeat),
-        }
-      }),
-    [agents, detailByAgentId]
-  )
+  const data = useMemo<AgentRow[]>(() => agentsQuery.data ?? [], [agentsQuery.data])
 
   const columns = useMemo(
     () => [
