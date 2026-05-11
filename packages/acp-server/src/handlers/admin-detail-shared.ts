@@ -66,16 +66,17 @@ export function summarizeJob(job: JobRecord): JobSummary {
         ? 'exec'
         : 'input'
   const content = readInputContent(job.input)
-  const description =
+  const fallbackDescription =
     content === undefined
       ? undefined
       : content.length > 160
         ? `${content.slice(0, 157)}...`
         : content
+  const description = job.description ?? fallbackDescription
 
   return {
     kind,
-    title: `${job.projectId}/${job.agentId}`,
+    title: job.slug,
     ...(description !== undefined ? { description } : {}),
     ...(job.disabled ? { disabledReason: 'job is disabled' } : {}),
     flowStepCount,

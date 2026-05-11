@@ -55,6 +55,8 @@ export interface HeartbeatSummary {
 
 export interface JobRecord {
   jobId: string
+  slug: string
+  description?: string | undefined
   projectId: string
   agentId: string
   scopeRef: string

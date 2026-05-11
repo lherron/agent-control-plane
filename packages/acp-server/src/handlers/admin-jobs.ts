@@ -2,12 +2,13 @@ import {
   type JobFlowValidationError,
   type JobRecord,
   isValidCron,
+  isValidJobSlug,
   mapJobRunStatusForFlowResponse,
   validateJobFlow,
   validateJobFlowJob,
 } from 'acp-jobs-store'
 
-import { json, notFound } from '../http.js'
+import { badRequest, json, notFound } from '../http.js'
 import {
   isRecord,
   parseJsonBody,
@@ -177,11 +178,18 @@ export const handleCreateAdminJob: RouteHandler = async ({ request, deps, actor 
 
   const laneRef = readOptionalTrimmedStringField(body, 'laneRef')
   const disabled = readOptionalBooleanField(body, 'disabled')
+  const slug = readOptionalTrimmedStringField(body, 'slug')
+  if (slug !== undefined && !isValidJobSlug(slug)) {
+    badRequest(`invalid slug: ${slug}`, { field: 'slug' })
+  }
+  const description = readOptionalTrimmedStringField(body, 'description')
   const jobsStore = requireJobsStore(deps)
   const created = jobsStore.createJob({
     agentId: requireTrimmedStringField(body, 'agentId'),
     projectId: requireTrimmedStringField(body, 'projectId'),
     scopeRef: requireTrimmedStringField(body, 'scopeRef'),
+    ...(slug !== undefined ? { slug } : {}),
+    ...(description !== undefined ? { description } : {}),
     ...(laneRef !== undefined ? { laneRef } : {}),
     schedule: parseSchedule(body),
     input: parseInputTemplate(body),
@@ -227,7 +235,20 @@ export const handlePatchAdminJob: RouteHandler = async ({ request, params, deps,
   const schedule = parseOptionalSchedule(body)
   const input = parseOptionalInputTemplate(body)
   const disabled = readOptionalBooleanField(body, 'disabled')
+  const slug = readOptionalTrimmedStringField(body, 'slug')
+  if (slug !== undefined && !isValidJobSlug(slug)) {
+    badRequest(`invalid slug: ${slug}`, { field: 'slug' })
+  }
+  // description may be explicitly cleared with null in the JSON body
+  const descriptionPatch: { description?: string | null } =
+    'description' in body
+      ? body['description'] === null
+        ? { description: null }
+        : { description: readOptionalTrimmedStringField(body, 'description') ?? null }
+      : {}
   const updated = requireJobsStore(deps).updateJob(requireJobId(params), {
+    ...(slug !== undefined ? { slug } : {}),
+    ...descriptionPatch,
     ...(schedule !== undefined ? { schedule } : {}),
     ...(input !== undefined ? { input } : {}),
     ...(flow !== undefined ? { flow } : {}),

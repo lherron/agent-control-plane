@@ -71,6 +71,7 @@ export function JobFlow() {
         <div className="flex items-baseline gap-3 mb-1">
           <span className="text-base font-semibold text-foreground">JobFlow:</span>
           <span className="text-base font-mono text-foreground">{title}</span>
+          <span className="text-[11px] font-mono text-quiet">{data.job.jobId}</span>
           <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] uppercase tracking-wide bg-accent/10 text-accent border border-accent/30">
             {data.summary.kind}
           </span>
@@ -88,6 +89,9 @@ export function JobFlow() {
             {data.flow.edges.length} edges
           </span>
         </div>
+        {data.job.description !== undefined && data.job.description.length > 0 && (
+          <div className="text-xs text-muted mb-1">{data.job.description}</div>
+        )}
         <div className="flex items-center gap-x-6 gap-y-1 flex-wrap text-xs text-muted">
           <span>
             <span className="text-quiet">project</span>{' '}

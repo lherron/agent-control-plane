@@ -130,7 +130,8 @@ export function JobsCatalog() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-16">State</TableHead>
-                  <TableHead>Job</TableHead>
+                  <TableHead>Slug</TableHead>
+                  <TableHead>Job ID</TableHead>
                   <TableHead>Schedule</TableHead>
                   <TableHead className="w-16">Kind</TableHead>
                   <TableHead>Next Fire</TableHead>
@@ -153,7 +154,15 @@ export function JobsCatalog() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <div className="font-mono text-xs text-foreground">{job.jobId}</div>
+                      <div className="font-mono text-xs text-foreground">{job.slug}</div>
+                      {job.description !== undefined && job.description.length > 0 && (
+                        <div className="text-xs text-quiet truncate max-w-[28rem]">
+                          {job.description}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="font-mono text-[11px] text-quiet">{job.jobId}</div>
                     </TableCell>
                     <TableCell className="font-mono text-xs">{job.schedule.cron}</TableCell>
                     <TableCell>
