@@ -145,7 +145,7 @@ describe('acp task timeline command', () => {
     )
 
     expect(joined.text).toContain('hrc/42')
-    expect(joined.text).toContain('💻 exec_command: "ls -la /tmp"')
+    expect(joined.text).toContain('💻 exec_command: ls -la /tmp')
     expect(acpOnly.text).not.toContain('hrc/42')
   })
 

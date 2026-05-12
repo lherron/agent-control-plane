@@ -143,9 +143,14 @@ export function renderFrameToDiscordContent(
   _maxChars: number,
   options: RenderOptions = {}
 ): string {
-  const parts: string[] = []
-  if (frame.title) parts.push(`**${frame.title}**`)
-  if (frame.statusLine) parts.push(`_${frame.statusLine}_`)
+  const parts: Array<{ text: string; compactRow: boolean }> = []
+  const pushPart = (text: string, compactRow = false) => {
+    if (text.length > 0) {
+      parts.push({ text, compactRow })
+    }
+  }
+  if (frame.title) pushPart(`**${frame.title}**`)
+  if (frame.statusLine) pushPart(`_${frame.statusLine}_`)
 
   // Count tool/notice blocks for the 12-line cap
   const blocks = frame.blocks as ExtendedRenderBlock[]
@@ -160,18 +165,25 @@ export function renderFrameToDiscordContent(
       if (toolNoticeIndex <= collapsed) {
         // Skip oldest tool/notice blocks
         if (!collapseLineEmitted && collapsed > 0) {
-          parts.push(`_... +${collapsed} earlier tools_`)
+          pushPart(`_... +${collapsed} earlier tools_`, options.compact === true)
           collapseLineEmitted = true
         }
         continue
       }
-      parts.push(renderBlock(block, options))
+      pushPart(renderBlock(block, options), options.compact === true)
     } else {
-      parts.push(renderBlock(block, options))
+      pushPart(renderBlock(block, options))
     }
   }
 
-  return parts.filter(Boolean).join('\n\n')
+  return parts
+    .map((part, index) => {
+      if (index === 0) return part.text
+      const previous = parts[index - 1]
+      const separator = previous?.compactRow && part.compactRow ? '\n' : '\n\n'
+      return `${separator}${part.text}`
+    })
+    .join('')
 }
 
 // ---------------------------------------------------------------------------

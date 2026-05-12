@@ -36,7 +36,7 @@ describe('GatewayDiscordApp live progress final budget', () => {
     const content = webhook.edits.at(-1)?.payload.content ?? ''
     expect(content.length).toBeLessThanOrEqual(2000)
     expect(content).toContain('_... +8 earlier tools_')
-    expect(content).toContain('📖 Read: "packages/gateway-discord/src/fixture-19.ts"')
+    expect(content).toContain('📖 Read: packages/gateway-discord/src/fixture-19.ts')
     expect(content).toContain(finalAnswer)
     expect(content).toContain('Final answer ends.')
 
@@ -123,7 +123,7 @@ describe('GatewayDiscordApp live progress final budget', () => {
     await waitFor(() => webhook.edits.length > 0)
 
     const content = webhook.edits.at(-1)?.payload.content ?? ''
-    expect(content).toContain('shell: "printf X"')
-    expect(content).not.toContain('command_execution: "/bin/zsh -lc')
+    expect(content).toContain('shell: printf X')
+    expect(content).not.toContain('command_execution: /bin/zsh -lc')
   })
 })

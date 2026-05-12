@@ -37,9 +37,9 @@ describe('GatewayDiscordApp live tool progress e2e', () => {
     expect(harness.eventRequests[0]?.searchParams.has('runId')).toBe(false)
 
     const content = webhook.edits.at(-1)?.payload.content ?? ''
-    expect(content).toContain('💻 shell: "bun test"')
+    expect(content).toContain('💻 shell: bun test')
     expect(content).toContain('(×2)')
-    expect(content).toContain('📖 Read: "packages/gateway-discord/src/app.ts"')
+    expect(content).toContain('📖 Read: packages/gateway-discord/src/app.ts')
     expect(content).not.toContain('✅ **Bash**')
     expect(content).not.toContain('```')
 
