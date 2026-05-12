@@ -279,6 +279,26 @@ describe('renderBlock tool rendering', () => {
     expect(content).toContain('📖 Read: "/src/index.ts"')
   })
 
+  test('renders shell display label for wrapped command_execution tool blocks', () => {
+    const frame: RenderFrame = {
+      runId: 'r1',
+      projectId: 'p1',
+      phase: 'progress',
+      blocks: [
+        {
+          t: 'tool',
+          toolName: 'command_execution',
+          summary: '',
+          input: { command: "/bin/zsh -lc 'printf X'" },
+        } as never,
+      ],
+      updatedAt: Date.now(),
+    }
+    const content = renderFrameToDiscordContent(frame, 2000)
+    expect(content).toContain('shell: "printf X"')
+    expect(content).not.toContain('command_execution: "/bin/zsh -lc')
+  })
+
   test('renders failed tool with ❌ replacing tool emoji', () => {
     const frame: RenderFrame = {
       runId: 'r1',

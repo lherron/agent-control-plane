@@ -84,6 +84,29 @@ describe('Discord write planner', () => {
     expect(content.match(/AFTER-LIVE/g)).toHaveLength(1)
   })
 
+  test('renders shell display label for wrapped command_execution in final delivery plan', () => {
+    const plan = planFinalDeliveryWrite({
+      delivery: delivery('done'),
+      run: runState({
+        toolExecutions: [
+          {
+            toolUseId: 'tool-shell',
+            toolName: 'command_execution',
+            input: { command: "/bin/zsh -lc 'printf X'" },
+            status: 'completed',
+            seq: 2,
+          },
+        ],
+      }),
+      identity,
+      maxChars: 2000,
+    })
+
+    const content = plan.chunks.join('\n')
+    expect(content).toContain('shell: "printf X"')
+    expect(content).not.toContain('command_execution: "/bin/zsh -lc')
+  })
+
   test('caps tool and notice history while keeping assistant text outside the cap', () => {
     const plan = planFinalDeliveryWrite({
       delivery: delivery('closing text'),
