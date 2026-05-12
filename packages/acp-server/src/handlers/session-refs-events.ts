@@ -9,6 +9,8 @@ const NDJSON_HEADERS = {
   'transfer-encoding': 'chunked',
 }
 
+const SESSION_REFS_EVENTS_KEEPALIVE_MS = 5_000
+
 function parseOptionalPositiveInteger(raw: string | null, field: string): number | undefined {
   if (raw === null || raw.trim().length === 0) {
     return undefined
@@ -107,21 +109,51 @@ export const handleSessionRefEvents: RouteHandler = async ({ request, url, deps 
   })
   const iterator = iterable[Symbol.asyncIterator]()
   const encoder = new TextEncoder()
+  let controllerRef: ReadableStreamDefaultController<Uint8Array> | undefined
+  let keepalive: ReturnType<typeof setInterval> | undefined
   let closed = false
 
-  const close = () => {
+  const close = (closeStream = true) => {
     if (closed) {
       return
     }
 
     closed = true
     abortController.abort()
+    if (keepalive !== undefined) {
+      clearInterval(keepalive)
+      keepalive = undefined
+    }
+
     void iterator.return?.()
+    if (closeStream) {
+      try {
+        controllerRef?.close()
+      } catch {
+        // Bun may close the stream first when the client disconnects.
+      }
+    }
   }
 
-  request.signal.addEventListener('abort', close, { once: true })
+  request.signal.addEventListener('abort', () => close(), { once: true })
 
   const readableStream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controllerRef = controller
+      if (follow) {
+        keepalive = setInterval(() => {
+          if (closed) {
+            return
+          }
+
+          try {
+            controller.enqueue(encoder.encode('\n'))
+          } catch {
+            close()
+          }
+        }, SESSION_REFS_EVENTS_KEEPALIVE_MS)
+      }
+    },
     async pull(controller) {
       if (closed) {
         return
@@ -134,7 +166,7 @@ export const handleSessionRefEvents: RouteHandler = async ({ request, url, deps 
         }
 
         if (next.done === true) {
-          close()
+          close(false)
           controller.close()
           return
         }
@@ -142,12 +174,12 @@ export const handleSessionRefEvents: RouteHandler = async ({ request, url, deps 
         controller.enqueue(encoder.encode(`${JSON.stringify(next.value)}\n`))
       } catch (error) {
         if (!closed) {
-          close()
+          close(false)
           controller.error(error)
         }
       }
     },
-    cancel: close,
+    cancel: () => close(),
   })
 
   return new Response(readableStream, {
