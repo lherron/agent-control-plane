@@ -316,7 +316,7 @@ describe('renderBlock tool rendering', () => {
       updatedAt: Date.now(),
     }
     const content = renderFrameToDiscordContent(frame, 2000)
-    expect(content).toContain('❌ Bash: "ls"')
+    expect(content).toContain('❌ shell: "ls"')
     expect(content).not.toContain('💻')
   })
 
@@ -346,7 +346,7 @@ describe('renderBlock tool rendering', () => {
     const compactContent = renderFrameToDiscordContent(frame, 2000, { compact: true })
     expect(compactContent).not.toContain('```')
     expect(compactContent).not.toContain('image')
-    expect(compactContent).toContain('💻 Bash: "echo hi"')
+    expect(compactContent).toContain('💻 shell: "echo hi"')
   })
 })
 

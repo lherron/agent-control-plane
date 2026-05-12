@@ -75,7 +75,7 @@ describe('Discord write planner', () => {
 
     const content = plan.chunks.join('\n')
     const beforeIndex = content.indexOf('BEFORE-LIVE')
-    const toolIndex = content.indexOf('command_execution')
+    const toolIndex = content.indexOf('shell: "sleep 20; printf TOOL-LIVE"')
     const afterIndex = content.indexOf('AFTER-LIVE')
 
     expect(beforeIndex).toBeGreaterThanOrEqual(0)
@@ -205,7 +205,7 @@ describe('Discord write planner', () => {
     })
 
     const content = plan.chunks.join('\n')
-    expect(content).toContain('command_execution')
+    expect(content).toContain('shell: "sleep 1; printf DONE"')
     expect(content).toContain('⚠️')
     expect(content).toContain('codex_app_server')
     expect(content).not.toContain('PROMPT-AS-BODY')
