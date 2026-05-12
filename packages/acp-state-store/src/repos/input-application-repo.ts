@@ -221,7 +221,11 @@ function reconcileInputApplicationFromHrcLedger(input: {
     }
   }
 
-  if (ledgerStatus === 'rejected' || ledgerStatus === 'failed') {
+  if (
+    ledgerStatus === 'rejected' ||
+    ledgerStatus === 'failed' ||
+    ledgerStatus === 'queue_recommended'
+  ) {
     const inputApplication = input.inputApplicationStore.update(input.inputApplicationId, {
       status: 'failed',
       ...(input.ledger.errorCode !== undefined ? { lastErrorCode: input.ledger.errorCode } : {}),

@@ -1114,141 +1114,149 @@ describe('input admission queue', () => {
     )
   })
 
-  test('explicit active-run contribution queues fallback when HRC rejects unsupported delivery', async () => {
+  test('explicit active-run contribution queues fallback quietly when HRC recommends queue', async () => {
     const stores = createAdmissionStores()
     const launchCalls: LaunchCall[] = []
     const contributionCalls: unknown[] = []
+    const consoleErrors: string[] = []
+    const originalConsoleError = console.error
+    console.error = ((...args: unknown[]) => {
+      consoleErrors.push(args.map((a) => String(a)).join(' '))
+    }) as typeof console.error
 
-    await withWiredServer(
-      async (fixture) => {
-        const sessionRef = {
-          scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:T-contrib:role:implementer`,
-          laneRef: 'main',
-        }
+    try {
+      await withWiredServer(
+        async (fixture) => {
+          const sessionRef = {
+            scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:T-contrib:role:implementer`,
+            laneRef: 'main',
+          }
 
-        const first = await fixture.request({
-          method: 'POST',
-          path: '/v1/inputs',
-          body: {
-            idempotencyKey: 'contrib-first',
+          const first = await fixture.request({
+            method: 'POST',
+            path: '/v1/inputs',
+            body: {
+              idempotencyKey: 'contrib-first',
+              sessionRef,
+              content: 'start active run',
+            },
+          })
+          const firstPayload = await fixture.json<{ run: { runId: string; status: string } }>(first)
+          expect(firstPayload.run.status).toBe('running')
+
+          const contributionBody = {
+            idempotencyKey: 'contrib-second',
             sessionRef,
-            content: 'start active run',
-          },
-        })
-        const firstPayload = await fixture.json<{ run: { runId: string; status: string } }>(first)
-        expect(firstPayload.run.status).toBe('running')
-
-        const contributionBody = {
-          idempotencyKey: 'contrib-second',
-          sessionRef,
-          content: 'append this if supported',
-          intent: {
-            kind: 'contribute_to_active_run',
-            fallback: 'queue',
-            contributionSemantics: 'append_context',
-          },
-        }
-        const contribution = await fixture.request({
-          method: 'POST',
-          path: '/v1/inputs',
-          body: contributionBody,
-        })
-        const replay = await fixture.request({
-          method: 'POST',
-          path: '/v1/inputs',
-          body: contributionBody,
-        })
-        const payload = await fixture.json<{
-          run: { runId: string; status: string }
-          inputApplication: { inputApplicationId: string; status: string; targetRunId: string }
-          admission: {
-            kind: string
-            runId: string
-            queueItemId: string
-            inputApplicationId: string
+            content: 'append this if supported',
+            intent: {
+              kind: 'contribute_to_active_run',
+              fallback: 'queue',
+              contributionSemantics: 'append_context',
+            },
           }
-          currentState: { queueStatus: string; applicationStatus: string; reason: string }
-        }>(contribution)
-        const replayPayload = await fixture.json<{ admission: unknown }>(replay)
-
-        expect(contribution.status).toBe(201)
-        expect(replay.status).toBe(200)
-        expect(payload.admission.kind).toBe('queued_run')
-        expect(payload.admission.inputApplicationId).toBe(
-          payload.inputApplication.inputApplicationId
-        )
-        expect(payload.inputApplication.status).toBe('failed')
-        expect(payload.inputApplication.targetRunId).toBe(firstPayload.run.runId)
-        expect(payload.currentState).toEqual(
-          expect.objectContaining({
-            queueStatus: 'queued',
-            applicationStatus: 'failed',
-            reason: 'active_run_contribution_disabled',
+          const contribution = await fixture.request({
+            method: 'POST',
+            path: '/v1/inputs',
+            body: contributionBody,
           })
-        )
-        expect(payload.run.status).toBe('queued')
-        expect(stores.inputQueueStore.getById(payload.admission.queueItemId)?.resetPolicy).toBe(
-          'expire_on_generation_change'
-        )
-        expect(replayPayload.admission).toEqual(payload.admission)
-        expect(contributionCalls).toHaveLength(1)
-        expect(contributionCalls[0]).toEqual(
-          expect.objectContaining({
-            inputApplicationId: payload.inputApplication.inputApplicationId,
-            expectedRunId: 'hrc-active',
-            prompt: 'append this if supported',
+          const replay = await fixture.request({
+            method: 'POST',
+            path: '/v1/inputs',
+            body: contributionBody,
           })
-        )
-        expect(launchCalls).toHaveLength(1)
-        expect(
-          stores.adminStore.systemEvents
-            .list({ projectId: fixture.seed.projectId })
-            .map((event) => event.kind)
-        ).toContain('input.queued')
-      },
-      {
-        ...stores,
-        runtimeResolver: async () => ({
-          agentRoot: '/tmp/agents/larry',
-          projectRoot: '/tmp/project',
-          cwd: '/tmp/project',
-          runMode: 'task',
-          bundle: { kind: 'agent-default' },
-          harness: { provider: 'openai', interactive: true },
-        }),
-        launchRoleScopedRun: async (input) => {
-          launchCalls.push(input)
-          if (input.acpRunId !== undefined) {
-            input.runStore?.updateRun(input.acpRunId, {
-              status: 'running',
-              hrcRunId: 'hrc-active',
-              hostSessionId: 'hsid-active',
-              generation: 3,
-              runtimeId: 'rt-active',
-            })
-          }
-          return { runId: 'hrc-active', sessionId: 'hsid-active' }
-        },
-        hrcClient: {
-          submitActiveRunContribution: async (request: unknown) => {
-            contributionCalls.push(request)
-            const inputApplicationId = (request as { inputApplicationId: string })
-              .inputApplicationId
-            return {
-              status: 'rejected',
-              inputApplicationId,
-              hostSessionId: 'hsid-active',
-              generation: 3,
-              runtimeId: 'rt-active',
-              runId: 'hrc-active',
-              capability: { supported: false },
-              errorCode: 'active_run_contribution_disabled',
-              errorMessage: 'disabled',
+          const payload = await fixture.json<{
+            run: { runId: string; status: string }
+            inputApplication: { inputApplicationId: string; status: string; targetRunId: string }
+            admission: {
+              kind: string
+              runId: string
+              queueItemId: string
+              inputApplicationId: string
             }
+            currentState: { queueStatus: string; applicationStatus: string; reason: string }
+          }>(contribution)
+          const replayPayload = await fixture.json<{ admission: unknown }>(replay)
+
+          expect(contribution.status).toBe(201)
+          expect(replay.status).toBe(200)
+          expect(payload.admission.kind).toBe('queued_run')
+          expect(payload.admission.inputApplicationId).toBe(
+            payload.inputApplication.inputApplicationId
+          )
+          expect(payload.inputApplication.status).toBe('failed')
+          expect(payload.inputApplication.targetRunId).toBe(firstPayload.run.runId)
+          expect(payload.currentState).toEqual(
+            expect.objectContaining({
+              queueStatus: 'queued',
+              applicationStatus: 'failed',
+              reason: 'feature_disabled',
+            })
+          )
+          expect(payload.run.status).toBe('queued')
+          expect(stores.inputQueueStore.getById(payload.admission.queueItemId)?.resetPolicy).toBe(
+            'expire_on_generation_change'
+          )
+          expect(replayPayload.admission).toEqual(payload.admission)
+          expect(contributionCalls).toHaveLength(1)
+          expect(contributionCalls[0]).toEqual(
+            expect.objectContaining({
+              inputApplicationId: payload.inputApplication.inputApplicationId,
+              expectedRunId: 'hrc-active',
+              prompt: 'append this if supported',
+            })
+          )
+          expect(launchCalls).toHaveLength(1)
+          expect(
+            stores.adminStore.systemEvents
+              .list({ projectId: fixture.seed.projectId })
+              .map((event) => event.kind)
+          ).toContain('input.queued')
+          expect(consoleErrors).toEqual([])
+        },
+        {
+          ...stores,
+          runtimeResolver: async () => ({
+            agentRoot: '/tmp/agents/larry',
+            projectRoot: '/tmp/project',
+            cwd: '/tmp/project',
+            runMode: 'task',
+            bundle: { kind: 'agent-default' },
+            harness: { provider: 'openai', interactive: true },
+          }),
+          launchRoleScopedRun: async (input) => {
+            launchCalls.push(input)
+            if (input.acpRunId !== undefined) {
+              input.runStore?.updateRun(input.acpRunId, {
+                status: 'running',
+                hrcRunId: 'hrc-active',
+                hostSessionId: 'hsid-active',
+                generation: 3,
+                runtimeId: 'rt-active',
+              })
+            }
+            return { runId: 'hrc-active', sessionId: 'hsid-active' }
           },
-        } as never,
-      }
-    )
+          hrcClient: {
+            submitActiveRunContribution: async (request: unknown) => {
+              contributionCalls.push(request)
+              const inputApplicationId = (request as { inputApplicationId: string })
+                .inputApplicationId
+              return {
+                status: 'queue_recommended',
+                inputApplicationId,
+                hostSessionId: 'hsid-active',
+                generation: 3,
+                runtimeId: 'rt-active',
+                runId: 'hrc-active',
+                capability: { supported: false, reason: 'feature_disabled' },
+              }
+            },
+          } as never,
+        }
+      )
+    } finally {
+      console.error = originalConsoleError
+    }
   })
 
   test('accepted active-run contribution does not consume ordinary busy FIFO sequence', async () => {
