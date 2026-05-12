@@ -53,6 +53,26 @@ function extractNoAssistantContentOutcome(
     return undefined
   }
 
+  const source = payload['source']
+  const finalOutput = payload['finalOutput']
+  const content = payload['content']
+  const hasFinalOutput =
+    (typeof finalOutput === 'string' && finalOutput.trim().length > 0) ||
+    (typeof content === 'string' && content.trim().length > 0)
+  const message = isRecord(payload['message']) ? payload['message'] : undefined
+  let hasAssistantMessage = false
+  if (message?.['role'] === 'assistant') {
+    const assistantText = tryExtractAssistantText(message['content'])
+    if (assistantText === undefined) {
+      return undefined
+    }
+    hasAssistantMessage = assistantText.trim().length > 0
+  }
+
+  if (hasFinalOutput || hasAssistantMessage) {
+    return undefined
+  }
+
   const outcome = payload['outcome']
   if (isRecord(outcome)) {
     const state = outcome['state']
@@ -67,20 +87,25 @@ function extractNoAssistantContentOutcome(
     }
   }
 
-  const source = payload['source']
-  const finalOutput = payload['finalOutput']
-  const hasFinalOutput = typeof finalOutput === 'string' && finalOutput.trim().length > 0
-  const message = isRecord(payload['message']) ? payload['message'] : undefined
-  const hasAssistantMessage = message?.['role'] === 'assistant'
-  if (source === 'launch_exit_synthesized' && !hasFinalOutput && !hasAssistantMessage) {
+  if (isNoAssistantContentSource(source)) {
     return {
       state: 'degraded',
       reason: 'no_assistant_content',
-      source: 'launch_exit_synthesized',
+      source,
     }
   }
 
   return undefined
+}
+
+function isNoAssistantContentSource(
+  source: unknown
+): source is 'launch_exit_synthesized' | 'codex_app_server' | 'codex_jsonl' {
+  return (
+    source === 'launch_exit_synthesized' ||
+    source === 'codex_app_server' ||
+    source === 'codex_jsonl'
+  )
 }
 
 function extractTurnEndAssistantText(payload: unknown): string | undefined {
@@ -103,7 +128,7 @@ function extractTurnEndAssistantText(payload: unknown): string | undefined {
     return undefined
   }
 
-  return extractAssistantText(message['content'])
+  return tryExtractAssistantText(message['content'])
 }
 
 function extractAssistantText(content: unknown): string {
@@ -132,6 +157,14 @@ function extractAssistantText(content: unknown): string {
   }
 
   return textParts.join('')
+}
+
+function tryExtractAssistantText(content: unknown): string | undefined {
+  try {
+    return extractAssistantText(content)
+  } catch {
+    return undefined
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
