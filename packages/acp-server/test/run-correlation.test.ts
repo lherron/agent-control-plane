@@ -654,4 +654,196 @@ describe('ACP run correlation', () => {
       hrc.cleanup()
     }
   })
+
+  test('dispatcher delivers degraded outcome for completed interface runs with no assistant content', async () => {
+    const hrc = createHeadlessHrcDb()
+    hrc.db.exec(`
+      CREATE TABLE hrc_events (
+        hrc_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id TEXT,
+        event_kind TEXT NOT NULL,
+        payload_json TEXT NOT NULL
+      );
+    `)
+    const launcher = createRealLauncher({
+      hrcDbPath: hrc.hrcDbPath,
+      pollIntervalMs: 1,
+      watchTimeoutMs: 250,
+      createClient: () =>
+        ({
+          resolveSession: async () => ({ hostSessionId: 'hsid-empty', generation: 5 }),
+          dispatchTurn: async () => {
+            hrc.db.run(
+              'INSERT INTO runs (run_id, status, error_code, error_message) VALUES (?, ?, NULL, NULL)',
+              'hrc-run-empty',
+              'completed'
+            )
+            hrc.db.run(
+              'INSERT INTO hrc_events (run_id, event_kind, payload_json) VALUES (?, ?, ?)',
+              'hrc-run-empty',
+              'turn.completed',
+              JSON.stringify({
+                success: true,
+                transport: 'headless',
+                source: 'codex_app_server',
+              })
+            )
+
+            return {
+              runId: 'hrc-run-empty',
+              hostSessionId: 'hsid-empty',
+              generation: 5,
+              runtimeId: 'rt-empty',
+              transport: 'headless',
+              status: 'completed',
+              supportsInFlightInput: false,
+            }
+          },
+        }) as unknown as any,
+    })
+
+    try {
+      await withWiredServer(
+        async (fixture) => {
+          addInterfaceBinding(fixture)
+
+          const response = await postInterfaceMessage(fixture)
+          const payload = await fixture.json<{ runId: string }>(response)
+          expect(response.status).toBe(201)
+
+          const dispatcher = createInterfaceRunDispatcher({
+            runStore: fixture.runStore,
+            interfaceStore: fixture.interfaceStore,
+            conversationStore: fixture.conversationStore,
+            hrcDbPath: hrc.hrcDbPath,
+            config: { intervalMs: 1, staleTimeoutMs: 1_000 },
+          })
+          await dispatcher.runOnce()
+
+          const [delivery] = fixture.interfaceStore.deliveries.listQueuedForGateway('discord_prod')
+          expect(delivery).toMatchObject({
+            runId: payload.runId,
+            bodyText: '',
+            outcome: {
+              state: 'degraded',
+              reason: 'no_assistant_content',
+              source: 'codex_app_server',
+            },
+          })
+        },
+        {
+          runtimeResolver: async () => ({
+            agentRoot: '/tmp/agents/curly',
+            projectRoot: '/tmp/project',
+            cwd: '/tmp/project',
+            runMode: 'task',
+            bundle: { kind: 'agent-default' },
+            harness: { provider: 'openai', interactive: true },
+          }),
+          launchRoleScopedRun: launcher,
+        }
+      )
+    } finally {
+      hrc.cleanup()
+    }
+  })
+
+  test('dispatcher prefers assistant content over degraded no-content outcome metadata', async () => {
+    const hrc = createHeadlessHrcDb()
+    hrc.db.exec(`
+      CREATE TABLE hrc_events (
+        hrc_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id TEXT,
+        event_kind TEXT NOT NULL,
+        payload_json TEXT NOT NULL
+      );
+    `)
+    const launcher = createRealLauncher({
+      hrcDbPath: hrc.hrcDbPath,
+      pollIntervalMs: 1,
+      watchTimeoutMs: 250,
+      createClient: () =>
+        ({
+          resolveSession: async () => ({ hostSessionId: 'hsid-contradictory', generation: 6 }),
+          dispatchTurn: async () => {
+            hrc.db.run(
+              'INSERT INTO runs (run_id, status, error_code, error_message) VALUES (?, ?, NULL, NULL)',
+              'hrc-run-contradictory',
+              'completed'
+            )
+            hrc.db.run(
+              'INSERT INTO hrc_events (run_id, event_kind, payload_json) VALUES (?, ?, ?)',
+              'hrc-run-contradictory',
+              'turn.completed',
+              JSON.stringify({
+                success: true,
+                transport: 'headless',
+                source: 'codex_app_server',
+                outcome: {
+                  state: 'degraded',
+                  reason: 'no_assistant_content',
+                  source: 'codex_app_server',
+                },
+                message: {
+                  role: 'assistant',
+                  content: [{ type: 'text', text: 'Useful assistant content.' }],
+                },
+                finalOutput: 'Fallback final output.',
+              })
+            )
+
+            return {
+              runId: 'hrc-run-contradictory',
+              hostSessionId: 'hsid-contradictory',
+              generation: 6,
+              runtimeId: 'rt-contradictory',
+              transport: 'headless',
+              status: 'completed',
+              supportsInFlightInput: false,
+            }
+          },
+        }) as unknown as any,
+    })
+
+    try {
+      await withWiredServer(
+        async (fixture) => {
+          addInterfaceBinding(fixture)
+
+          const response = await postInterfaceMessage(fixture)
+          const payload = await fixture.json<{ runId: string }>(response)
+          expect(response.status).toBe(201)
+
+          const dispatcher = createInterfaceRunDispatcher({
+            runStore: fixture.runStore,
+            interfaceStore: fixture.interfaceStore,
+            conversationStore: fixture.conversationStore,
+            hrcDbPath: hrc.hrcDbPath,
+            config: { intervalMs: 1, staleTimeoutMs: 1_000 },
+          })
+          await dispatcher.runOnce()
+
+          const [delivery] = fixture.interfaceStore.deliveries.listQueuedForGateway('discord_prod')
+          expect(delivery).toMatchObject({
+            runId: payload.runId,
+            bodyText: 'Useful assistant content.',
+          })
+          expect(delivery?.outcome).toBeUndefined()
+        },
+        {
+          runtimeResolver: async () => ({
+            agentRoot: '/tmp/agents/curly',
+            projectRoot: '/tmp/project',
+            cwd: '/tmp/project',
+            runMode: 'task',
+            bundle: { kind: 'agent-default' },
+            harness: { provider: 'openai', interactive: true },
+          }),
+          launchRoleScopedRun: launcher,
+        }
+      )
+    } finally {
+      hrc.cleanup()
+    }
+  })
 })

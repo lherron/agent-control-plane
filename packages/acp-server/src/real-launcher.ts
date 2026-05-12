@@ -905,6 +905,20 @@ function assistantCompletionPayloadToUnifiedEvent(
 
   const finalOutput = readString(record, 'finalOutput') ?? readString(record, 'content')
   if (finalOutput === undefined || finalOutput.trim().length === 0) {
+    const source = readString(record, 'source')
+    const outcome = asRecord(record['outcome'])
+    if (
+      (readString(outcome, 'state') === 'degraded' &&
+        readString(outcome, 'reason') === 'no_assistant_content') ||
+      source === 'launch_exit_synthesized' ||
+      source === 'codex_app_server' ||
+      source === 'codex_jsonl'
+    ) {
+      return {
+        type: 'turn_end',
+        payload,
+      }
+    }
     return undefined
   }
 

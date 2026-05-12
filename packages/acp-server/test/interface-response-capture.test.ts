@@ -181,6 +181,52 @@ describe('interface response capture', () => {
     }
   })
 
+  test('enqueues degraded delivery when app-server completion has blank assistant content', async () => {
+    const temp = createTempInterfaceStore()
+    const runStore = new InMemoryRunStore()
+    const run = createInterfaceRun(runStore)
+
+    try {
+      const capture = createInterfaceResponseCapture({
+        interfaceStore: temp.interfaceStore,
+        runStore,
+        runId: run.runId,
+        inputAttemptId: 'ia_blank',
+      })
+
+      await capture.handler({
+        type: 'turn_end',
+        payload: {
+          success: true,
+          transport: 'headless',
+          source: 'codex_app_server',
+          finalOutput: '',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: '' }],
+          },
+        },
+      })
+
+      const deliveries = temp.interfaceStore.deliveries.listQueuedForGateway('discord_prod')
+      expect(deliveries).toHaveLength(1)
+      expect(deliveries[0]).toMatchObject({
+        runId: run.runId,
+        inputAttemptId: 'ia_blank',
+        bodyKind: 'text/markdown',
+        bodyText: '',
+        outcome: {
+          state: 'degraded',
+          reason: 'no_assistant_content',
+          source: 'codex_app_server',
+        },
+        status: 'queued',
+      })
+    } finally {
+      temp.cleanup()
+    }
+  })
+
   test('ignores tool and partial events', async () => {
     const temp = createTempInterfaceStore()
     const runStore = new InMemoryRunStore()

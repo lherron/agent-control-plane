@@ -212,6 +212,7 @@ export function createInterfaceRunDispatcher(
                 : {}),
               bodyKind: 'text/markdown',
               bodyText: visible.text,
+              ...(visible.outcome !== undefined ? { outcome: visible.outcome } : {}),
               ...(bodyAttachments.length > 0 ? { bodyAttachments } : {}),
               createdAt,
             })
