@@ -676,6 +676,23 @@ export class InputAdmissionService {
           ...(targetRun !== undefined ? { targetRun } : {}),
         })
       }
+      if (response.status === 'queue_recommended') {
+        if (input.intent.fallback === 'queue') {
+          return this.createQueuedContributionFallback({
+            attempt,
+            intent: input.intent,
+            application,
+            reason: response.capability?.reason ?? 'active_run_contribution_rejected',
+            response,
+          })
+        }
+        return this.createRejectedAdmission({
+          attempt,
+          intent: input.intent,
+          reason: response.capability?.reason ?? 'active_run_contribution_rejected',
+          inputApplication: application,
+        })
+      }
       if (input.intent.fallback === 'queue') {
         return this.createQueuedContributionFallback({
           attempt,

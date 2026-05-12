@@ -5,6 +5,7 @@ import type { LaunchRoleScopedRun, ResolvedAcpServerDeps } from '../deps.js'
 import type { StoredRun } from '../domain/run-store.js'
 import { recordInputAdmissionEvent } from '../input-admission/input-admission-events.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
+import { hasHrcAcceptedRunSince as defaultHasHrcAcceptedRunSince } from '../real-launcher.js'
 
 export type InputQueueDispatcher = {
   start(): void
@@ -31,6 +32,10 @@ export type InputQueueDispatcherDeps = Pick<
 > & {
   launchRoleScopedRun: NonNullable<LaunchRoleScopedRun>
   config: InputQueueDispatcherConfig
+  hrcDbPath?: string | undefined
+  hasHrcAcceptedRunSince?:
+    | ((hrcDbPath: string, hostSessionId: string, since: string) => boolean)
+    | undefined
 }
 
 function isRuntimeBusyError(error: unknown): boolean {
@@ -53,10 +58,37 @@ function leaseTimeoutMs(deps: InputQueueDispatcherDeps): number {
 
 type StaleBlockerKind = 'no_correlation' | 'partial_correlation'
 
-function classifyStalePendingRunBlocker(
-  run: StoredRun,
+type ClassifyStalePendingRunBlockerInput = {
+  run: StoredRun
+  siblings: readonly StoredRun[]
   timeoutMs: number
+  hrcDbPath?: string | undefined
+  hasHrcAcceptedRunSince?:
+    | ((hrcDbPath: string, hostSessionId: string, since: string) => boolean)
+    | undefined
+}
+
+function hasCredibleSiblingProgress(run: StoredRun, siblings: readonly StoredRun[]): boolean {
+  return siblings.some((sibling) => {
+    if (sibling.runId === run.runId) {
+      return false
+    }
+    if (sibling.scopeRef !== run.scopeRef || sibling.laneRef !== run.laneRef) {
+      return false
+    }
+    return (
+      sibling.status === 'running' ||
+      (sibling.status === 'pending' &&
+        sibling.hrcRunId !== undefined &&
+        sibling.runtimeId !== undefined)
+    )
+  })
+}
+
+function classifyStalePendingRunBlocker(
+  input: ClassifyStalePendingRunBlockerInput
 ): StaleBlockerKind | undefined {
+  const { run, siblings, timeoutMs, hrcDbPath } = input
   if (run.status !== 'pending') {
     return undefined
   }
@@ -66,17 +98,37 @@ function classifyStalePendingRunBlocker(
   if (Date.now() - new Date(run.updatedAt).getTime() <= timeoutMs) {
     return undefined
   }
+  if (hasCredibleSiblingProgress(run, siblings)) {
+    return undefined
+  }
+  const hasHrcAcceptedRunSince = input.hasHrcAcceptedRunSince ?? defaultHasHrcAcceptedRunSince
+  if (
+    hrcDbPath !== undefined &&
+    run.hostSessionId !== undefined &&
+    hasHrcAcceptedRunSince(hrcDbPath, run.hostSessionId, run.createdAt)
+  ) {
+    return undefined
+  }
   return run.hostSessionId === undefined ? 'no_correlation' : 'partial_correlation'
 }
 
-function failStalePendingRunBlockers(deps: InputQueueDispatcherDeps, item: InputQueueItem): void {
-  const sessionRef = normalizeSessionRef({ scopeRef: item.scopeRef, laneRef: item.laneRef })
+function failStalePendingRunBlockers(deps: InputQueueDispatcherDeps): void {
   const timeoutMs = stalePendingRunTimeoutMs(deps)
-  for (const run of deps.runStore.listRunsForSession(sessionRef)) {
-    if (run.runId === item.runId) {
-      continue
-    }
-    const blockerKind = classifyStalePendingRunBlocker(run, timeoutMs)
+  const runs = deps.runStore.listRuns()
+  for (const run of runs) {
+    const siblings = runs.filter(
+      (candidate) =>
+        candidate.runId !== run.runId &&
+        candidate.scopeRef === run.scopeRef &&
+        candidate.laneRef === run.laneRef
+    )
+    const blockerKind = classifyStalePendingRunBlocker({
+      run,
+      siblings,
+      timeoutMs,
+      hrcDbPath: deps.hrcDbPath,
+      hasHrcAcceptedRunSince: deps.hasHrcAcceptedRunSince,
+    })
     if (blockerKind === undefined) {
       continue
     }
@@ -237,7 +289,6 @@ function reconcileTerminalQueueItem(deps: InputQueueDispatcherDeps, item: InputQ
 
 function sameSessionHasActiveRun(deps: InputQueueDispatcherDeps, item: InputQueueItem): boolean {
   const sessionRef = normalizeSessionRef({ scopeRef: item.scopeRef, laneRef: item.laneRef })
-  failStalePendingRunBlockers(deps, item)
   return deps.runStore
     .listRunsForSession(sessionRef)
     .some(
@@ -475,6 +526,8 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
   }
 
   async function runOnce(): Promise<void> {
+    failStalePendingRunBlockers(deps)
+
     // Fair-by-session: scan one queued head per (scopeRef, laneRef) so blocked sessions
     // never starve later ones, even when total queued items exceed the global page limit.
     const items = deps.inputQueueStore.listDispatchableSessionHeads()
@@ -540,4 +593,9 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
     },
     runOnce,
   }
+}
+
+export const __testing = {
+  classifyStalePendingRunBlocker,
+  sameSessionHasActiveRun,
 }

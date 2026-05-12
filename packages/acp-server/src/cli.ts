@@ -581,6 +581,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
           runtimeResolver: resolvedDeps.runtimeResolver,
           inputQueuePolicy: resolvedDeps.inputQueuePolicy,
           launchRoleScopedRun: resolvedDeps.launchRoleScopedRun,
+          hrcDbPath: resolveDatabasePath(),
           config: {
             intervalMs: inputQueueDispatcherIntervalMs,
             stalePendingRunTimeoutMs: inputQueueStalePendingRunTimeoutMs,
