@@ -1,8 +1,175 @@
 import { describe, expect, test } from 'bun:test'
 
-import { SessionEventsManager } from '../session-events-manager.js'
+import { type RunState, SessionEventsManager } from '../session-events-manager.js'
+import type { RenderFrame, SessionEventEnvelope } from '../types.js'
+
+type SessionAwareManager = {
+  subscribe(sessionRef: string, projectId: string): void
+  receive(envelope: SessionEventEnvelope): void
+  getRunState(sessionRef: string, runId: string): RunState | undefined
+}
+
+function sessionEnvelope(
+  sessionRef: string,
+  projectId: string,
+  seq: number,
+  runId: string,
+  event: SessionEventEnvelope['event']
+): SessionEventEnvelope {
+  return {
+    sessionRef,
+    projectId,
+    seq,
+    runId,
+    event,
+  } as unknown as SessionEventEnvelope
+}
+
+function toolNamesFromFrame(frame: unknown): string[] {
+  const blocks = (frame as { blocks?: Array<{ t: string; toolName?: string }> }).blocks ?? []
+  return blocks
+    .filter((block) => block.t === 'tool')
+    .map((block) => block.toolName)
+    .filter((name): name is string => name !== undefined)
+}
 
 describe('SessionEventsManager internal run handling', () => {
+  test('isolates same-project same-HRC-run projections by canonical sessionRef', () => {
+    const projectId = 'agent-spaces'
+    const sessionA = 'agent:cody:project:agent-spaces:task:scope-A/lane:main'
+    const sessionB = 'agent:cody:project:agent-spaces:task:scope-B/lane:main'
+    const sharedRunId = 'hrc-shared-run'
+    const renders: Array<{
+      sessionRef: string
+      projectId: string
+      runId: string
+      toolNames: string[]
+    }> = []
+
+    const manager = new SessionEventsManager('gateway-test', ((
+      sessionRef: string,
+      callbackProjectId: string,
+      callbackRunId: string,
+      frame: RenderFrame
+    ) => {
+      renders.push({
+        sessionRef,
+        projectId: callbackProjectId,
+        runId: callbackRunId,
+        toolNames: toolNamesFromFrame(frame),
+      })
+    }) as never) as unknown as SessionAwareManager
+
+    manager.subscribe(sessionA, projectId)
+    manager.subscribe(sessionB, projectId)
+
+    manager.receive(
+      sessionEnvelope(sessionA, projectId, 1, sharedRunId, {
+        type: 'tool_execution_start',
+        toolUseId: 'tool-scope-a',
+        toolName: 'Bash',
+        input: { command: 'scope A only' },
+      })
+    )
+    manager.receive(
+      sessionEnvelope(sessionB, projectId, 1, sharedRunId, {
+        type: 'tool_execution_start',
+        toolUseId: 'tool-scope-b',
+        toolName: 'Read',
+        input: { file_path: 'scope-b-only.md' },
+      })
+    )
+
+    const stateA = manager.getRunState(sessionA, sharedRunId)
+    const stateB = manager.getRunState(sessionB, sharedRunId)
+
+    expect(stateA?.toolExecutions.map((tool) => tool.toolUseId)).toEqual(['tool-scope-a'])
+    expect(stateB?.toolExecutions.map((tool) => tool.toolUseId)).toEqual(['tool-scope-b'])
+    expect(renders).toHaveLength(2)
+    expect(
+      renders.map((render) => ({
+        sessionRef: render.sessionRef,
+        projectId: render.projectId,
+        runId: render.runId,
+        toolNames: render.toolNames,
+      }))
+    ).toEqual([
+      {
+        sessionRef: sessionA,
+        projectId,
+        runId: sharedRunId,
+        toolNames: ['Bash'],
+      },
+      {
+        sessionRef: sessionB,
+        projectId,
+        runId: sharedRunId,
+        toolNames: ['Read'],
+      },
+    ])
+  })
+
+  test('routes distinct-run same-project renders with each canonical sessionRef', () => {
+    const projectId = 'agent-spaces'
+    const sessionA = 'agent:cody:project:agent-spaces:task:scope-A/lane:main'
+    const sessionB = 'agent:cody:project:agent-spaces:task:scope-B/lane:main'
+    const renders: Array<{
+      sessionRef: string
+      projectId: string
+      runId: string
+      toolNames: string[]
+    }> = []
+
+    const manager = new SessionEventsManager('gateway-test', ((
+      sessionRef: string,
+      callbackProjectId: string,
+      callbackRunId: string,
+      frame: RenderFrame
+    ) => {
+      renders.push({
+        sessionRef,
+        projectId: callbackProjectId,
+        runId: callbackRunId,
+        toolNames: toolNamesFromFrame(frame),
+      })
+    }) as never) as unknown as SessionAwareManager
+
+    manager.subscribe(sessionA, projectId)
+    manager.subscribe(sessionB, projectId)
+
+    manager.receive(
+      sessionEnvelope(sessionA, projectId, 1, 'hrc-scope-a', {
+        type: 'tool_execution_start',
+        toolUseId: 'tool-scope-a',
+        toolName: 'Bash',
+        input: { command: 'scope A only' },
+      })
+    )
+    manager.receive(
+      sessionEnvelope(sessionB, projectId, 1, 'hrc-scope-b', {
+        type: 'tool_execution_start',
+        toolUseId: 'tool-scope-b',
+        toolName: 'Read',
+        input: { file_path: 'scope-b-only.md' },
+      })
+    )
+
+    expect(renders).toEqual([
+      {
+        sessionRef: sessionA,
+        projectId,
+        runId: 'hrc-scope-a',
+        toolNames: ['Bash'],
+      },
+      {
+        sessionRef: sessionB,
+        projectId,
+        runId: 'hrc-scope-b',
+        toolNames: ['Read'],
+      },
+    ])
+  })
+
   test('ignores explicitly internal events without keeping project-level internal run ids', () => {
     const renders: Array<{ projectId: string; runId: string }> = []
 
