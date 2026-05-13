@@ -7,6 +7,7 @@ function hrcEvent(overrides: Partial<HrcLifecycleEventPayload> = {}): HrcLifecyc
     hrcSeq: 41,
     eventKind: 'turn.message',
     scopeRef: 'agent:larry:project:agent-spaces:task:T-01372',
+    laneRef: 'main',
     runId: 'hrc-run-ignored',
     payload: {
       type: 'message_end',
@@ -32,6 +33,7 @@ describe('adaptHrcLifecycleEvent', () => {
         })
       )
     ).toEqual({
+      sessionRef: 'agent:larry:project:agent-spaces:task:T-01372/lane:main',
       projectId: 'agent-spaces',
       runId: 'hrc-run-ignored',
       seq: 7,
@@ -99,6 +101,7 @@ describe('adaptHrcLifecycleEvent', () => {
         })
       )
     ).toEqual({
+      sessionRef: 'agent:larry:project:agent-spaces:task:T-01372/lane:main',
       projectId: 'agent-spaces',
       runId: 'hrc-run-ignored',
       seq: 11,
@@ -152,6 +155,7 @@ describe('adaptHrcLifecycleEvent', () => {
         })
       )
     ).toEqual({
+      sessionRef: 'agent:larry:project:agent-spaces:task:T-01372/lane:main',
       projectId: 'agent-spaces',
       runId: 'hrc-run-ignored',
       seq: 9,

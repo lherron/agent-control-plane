@@ -759,6 +759,7 @@ export function runStateToFrame(run: RunState): RenderFrame {
 }
 
 export type OnRenderCallback = (
+  sessionRef: string,
   projectId: string,
   runId: string,
   frame: RenderFrame,
@@ -771,7 +772,7 @@ export class SessionEventsManager {
   private readonly gatewayId: string
   private readonly onRender: OnRenderCallback
   private readonly onRunQueued?: OnRunQueuedCallback | undefined
-  private readonly projects = new Map<string, ProjectState>()
+  private readonly sessions = new Map<string, ProjectState>()
 
   constructor(gatewayId: string, onRender: OnRenderCallback, onRunQueued?: OnRunQueuedCallback) {
     this.gatewayId = gatewayId
@@ -779,21 +780,30 @@ export class SessionEventsManager {
     this.onRunQueued = onRunQueued
   }
 
-  subscribe(projectId: string): void {
-    if (!this.projects.has(projectId)) {
-      this.projects.set(projectId, {
+  subscribe(sessionRef: string, projectId: string): void {
+    if (!this.sessions.has(sessionRef)) {
+      this.sessions.set(sessionRef, {
         projectId,
         runs: new Map(),
       })
     }
   }
 
-  unsubscribe(projectId: string): void {
-    this.projects.delete(projectId)
+  unsubscribe(sessionRef: string): void {
+    this.sessions.delete(sessionRef)
   }
 
   receive(envelope: SessionEventEnvelope): void {
-    const state = this.ensureProject(envelope.projectId)
+    if (!envelope.sessionRef) {
+      log.warn('session.event.dropped', {
+        message: 'Dropping session event without canonical session identity',
+        trace: { gatewayId: this.gatewayId, projectId: envelope.projectId, runId: envelope.runId },
+        data: { eventType: envelope.event.type },
+      })
+      return
+    }
+
+    const state = this.ensureSession(envelope.sessionRef, envelope.projectId)
     const affectedRunId = this.getAffectedRunId(envelope.event, envelope.runId)
     const existingRun = affectedRunId ? state.runs.get(affectedRunId) : undefined
     const seq = envelope.seq ?? (existingRun?.lastSeq ?? 0) + 1
@@ -802,7 +812,12 @@ export class SessionEventsManager {
     if (existingRun && seq <= existingRun.lastSeq) {
       log.debug('session.event.dedupe', {
         message: `Ignoring duplicate event: ${envelope.event.type}`,
-        trace: { gatewayId: this.gatewayId, projectId: envelope.projectId, runId: envelope.runId },
+        trace: {
+          gatewayId: this.gatewayId,
+          projectId: envelope.projectId,
+          sessionRef: envelope.sessionRef,
+          runId: envelope.runId,
+        },
         data: { eventType: envelope.event.type, seq, lastSeq: existingRun.lastSeq },
       })
       return
@@ -814,19 +829,30 @@ export class SessionEventsManager {
 
     log.info('session.event.received', {
       message: `Received event: ${envelope.event.type}`,
-      trace: { gatewayId: this.gatewayId, projectId: envelope.projectId, runId: envelope.runId },
+      trace: {
+        gatewayId: this.gatewayId,
+        projectId: envelope.projectId,
+        sessionRef: envelope.sessionRef,
+        runId: envelope.runId,
+      },
       data: { eventType: envelope.event.type, seq },
     })
 
-    this.processAndEmit(envelope.projectId, envelope.event, envelope.runId, seq)
+    this.processAndEmit(
+      envelope.sessionRef,
+      envelope.projectId,
+      envelope.event,
+      envelope.runId,
+      seq
+    )
   }
 
-  getRunState(projectId: string, runId: string): RunState | undefined {
-    return this.projects.get(projectId)?.runs.get(runId)
+  getRunState(sessionRef: string, runId: string): RunState | undefined {
+    return this.sessions.get(sessionRef)?.runs.get(runId)
   }
 
-  setDiscordMessage(projectId: string, runId: string, messageId: string, channelId: string): void {
-    const project = this.projects.get(projectId)
+  setDiscordMessage(sessionRef: string, runId: string, messageId: string, channelId: string): void {
+    const project = this.sessions.get(sessionRef)
     const run = project?.runs.get(runId)
     if (!run) {
       return
@@ -836,8 +862,8 @@ export class SessionEventsManager {
     run.discordChannelId = channelId
   }
 
-  private ensureProject(projectId: string): ProjectState {
-    const existing = this.projects.get(projectId)
+  private ensureSession(sessionRef: string, projectId: string): ProjectState {
+    const existing = this.sessions.get(sessionRef)
     if (existing) {
       return existing
     }
@@ -846,19 +872,20 @@ export class SessionEventsManager {
       projectId,
       runs: new Map(),
     }
-    this.projects.set(projectId, created)
+    this.sessions.set(sessionRef, created)
     return created
   }
 
   private processAndEmit(
+    sessionRef: string,
     projectId: string,
     event: GatewaySessionEvent,
     runId: string | undefined,
     seq: number
   ): void {
-    const state = this.ensureProject(projectId)
+    const state = this.ensureSession(sessionRef, projectId)
     const newState = processEvent(state, event, runId, seq)
-    this.projects.set(projectId, newState)
+    this.sessions.set(sessionRef, newState)
 
     if (event.type === 'run_queued' && this.onRunQueued) {
       this.onRunQueued(event.projectId, event.runId, event.input.content)
@@ -874,7 +901,7 @@ export class SessionEventsManager {
       return
     }
 
-    this.onRender(projectId, affectedRunId, runStateToFrame(run), run)
+    this.onRender(sessionRef, projectId, affectedRunId, runStateToFrame(run), run)
   }
 
   private getAffectedRunId(

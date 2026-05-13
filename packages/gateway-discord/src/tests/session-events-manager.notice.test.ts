@@ -4,8 +4,11 @@ import { renderFrameToDiscordContent } from '../render.js'
 import { SessionEventsManager } from '../session-events-manager.js'
 import type { RenderFrame, SessionEventEnvelope } from '../types.js'
 
+const TEST_SESSION = 'agent:larry:project:agent-spaces/lane:main'
+
 function noticeEnvelope(seq: number, level: 'info' | 'warn' | 'error', message: string) {
   return {
+    sessionRef: TEST_SESSION,
     projectId: 'agent-spaces',
     runId: 'run_notice',
     seq,
@@ -20,11 +23,16 @@ function noticeEnvelope(seq: number, level: 'info' | 'warn' | 'error', message: 
 describe('SessionEventsManager notice rendering', () => {
   test('renders the latest notices inline and counts them in the 12-line cap', () => {
     const frames: RenderFrame[] = []
-    const manager = new SessionEventsManager('gateway-test', (_projectId, _runId, frame) => {
-      frames.push(frame)
-    })
+    const manager = new SessionEventsManager(
+      'gateway-test',
+      (_sessionRef, _projectId, _runId, frame) => {
+        frames.push(frame)
+      }
+    )
 
+    manager.subscribe(TEST_SESSION, 'agent-spaces')
     manager.receive({
+      sessionRef: TEST_SESSION,
       projectId: 'agent-spaces',
       runId: 'run_notice',
       seq: 1,

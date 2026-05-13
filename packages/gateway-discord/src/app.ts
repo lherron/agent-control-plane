@@ -22,7 +22,7 @@ import {
   requiredEnv,
 } from './config.js'
 import { classifyDiscordError } from './discord-errors.js'
-import { adaptHrcLifecycleEvent } from './hrc-event-adapter.js'
+import { adaptHrcLifecycleEvent, canonicalSessionRefFromEvent } from './hrc-event-adapter.js'
 import {
   type DiscordAgentMessageIdentity,
   avatarFor,
@@ -151,16 +151,6 @@ function sessionRefFromBinding(binding: DiscordInterfaceBinding): InterfaceSessi
   }
 
   return undefined
-}
-
-function canonicalSessionRefFromEvent(event: {
-  scopeRef?: string | undefined
-  laneRef?: string | undefined
-}): string | undefined {
-  if (!event.scopeRef || !event.laneRef) {
-    return undefined
-  }
-  return `${event.scopeRef}/lane:${laneIdFromRef(event.laneRef)}`
 }
 
 export function eventTimestampIsClaimable(input: {
@@ -355,8 +345,8 @@ export class GatewayDiscordApp {
     })
     this.sessionEventsManager = new SessionEventsManager(
       this.gatewayId,
-      (projectId, runId, frame, run) => {
-        this.scheduleProgressEdit(projectId, runId, frame, run)
+      (sessionRef, projectId, runId, frame, run) => {
+        this.scheduleProgressEdit(sessionRef, projectId, runId, frame, run)
       }
     )
     this.onMessageCreateBound = async (message) => {
@@ -817,7 +807,7 @@ export class GatewayDiscordApp {
     }
 
     this.liveSubscriptionsBySessionRef.set(input.sessionRef, subscription)
-    this.sessionEventsManager.subscribe(input.projectId)
+    this.sessionEventsManager.subscribe(input.sessionRef, input.projectId)
     void this.runLiveSubscription(subscription)
   }
 
@@ -961,7 +951,7 @@ export class GatewayDiscordApp {
 
     this.sessionEventsManager.receive(envelope)
     if (envelope.event.type === 'turn_end') {
-      const placeholder = this.findPlaceholderByHrcRunId(hrcRunId)
+      const placeholder = this.findPlaceholderByHrcRunId(envelope.sessionRef, hrcRunId)
       if (placeholder?.runTimeout) {
         clearTimeout(placeholder.runTimeout)
       }
@@ -977,12 +967,13 @@ export class GatewayDiscordApp {
   }
 
   private scheduleProgressEdit(
+    sessionRef: string,
     projectId: string,
     runId: string,
     frame: RenderFrame,
     run: RunState
   ): void {
-    const placeholder = this.findPlaceholderByHrcRunId(runId)
+    const placeholder = this.findPlaceholderByHrcRunId(sessionRef, runId)
     if (!placeholder || placeholder.projectId !== projectId || placeholder.webhookGone) {
       return
     }
@@ -1006,12 +997,12 @@ export class GatewayDiscordApp {
         : Math.max(LIVE_PROGRESS_EDIT_THROTTLE_MS - (now - placeholder.lastSuccessfulEditAt), 0)
     placeholder.flushTimer = setTimeout(() => {
       placeholder.flushTimer = undefined
-      void this.flushProgressEdit(runId)
+      void this.flushProgressEdit(sessionRef, runId)
     }, delay)
   }
 
-  private async flushProgressEdit(runId: string): Promise<void> {
-    const placeholder = this.findPlaceholderByHrcRunId(runId)
+  private async flushProgressEdit(sessionRef: string, runId: string): Promise<void> {
+    const placeholder = this.findPlaceholderByHrcRunId(sessionRef, runId)
     if (
       !placeholder ||
       !placeholder.ui.channelId ||
@@ -1067,6 +1058,7 @@ export class GatewayDiscordApp {
       placeholder.editDisabled = false
       if (placeholder.pendingFrame && !placeholder.webhookGone && placeholder.claimedHrcRunId) {
         this.scheduleProgressEdit(
+          placeholder.sessionRef,
           placeholder.projectId,
           placeholder.claimedHrcRunId,
           placeholder.pendingFrame,
@@ -1094,6 +1086,7 @@ export class GatewayDiscordApp {
     })
     this.clearLiveSubscription(subscription)
     this.liveSubscriptionsBySessionRef.delete(sessionRef)
+    this.sessionEventsManager.unsubscribe(sessionRef)
   }
 
   private stopAllLiveSubscriptions(reason: string): void {
@@ -1435,18 +1428,20 @@ export class GatewayDiscordApp {
     return true
   }
 
-  private findPlaceholderByHrcRunId(hrcRunId: string): PendingPlaceholder | undefined {
+  private findPlaceholderByHrcRunId(
+    sessionRef: string,
+    hrcRunId: string
+  ): PendingPlaceholder | undefined {
     for (const placeholder of this.placeholdersByRunId.values()) {
-      if (placeholder.claimedHrcRunId === hrcRunId) {
+      if (placeholder.sessionRef === sessionRef && placeholder.claimedHrcRunId === hrcRunId) {
         return placeholder
       }
     }
 
-    for (const placeholders of this.pendingPlaceholdersBySessionRef.values()) {
-      const found = placeholders.find((placeholder) => placeholder.claimedHrcRunId === hrcRunId)
-      if (found !== undefined) {
-        return found
-      }
+    const placeholders = this.pendingPlaceholdersBySessionRef.get(sessionRef) ?? []
+    const found = placeholders.find((placeholder) => placeholder.claimedHrcRunId === hrcRunId)
+    if (found !== undefined) {
+      return found
     }
 
     return undefined
@@ -1471,12 +1466,12 @@ export class GatewayDiscordApp {
       conversationRef: delivery.conversationRef,
       ...(delivery.threadRef ? { threadRef: delivery.threadRef } : {}),
     })
-    const projectId = binding?.projectId ?? projectIdFromScopeRef(delivery.sessionRef.scopeRef)
+    const deliverySessionRef = canonicalSessionRefString(delivery.sessionRef)
     const placeholder = delivery.runId ? this.placeholdersByRunId.get(delivery.runId) : undefined
     const hrcRunId = placeholder?.claimedHrcRunId ?? delivery.runId
     const liveRunState =
       hrcRunId !== undefined
-        ? this.sessionEventsManager.getRunState(projectId, hrcRunId)
+        ? this.sessionEventsManager.getRunState(deliverySessionRef, hrcRunId)
         : undefined
 
     // Resolve agent identity from the delivery's sessionRef

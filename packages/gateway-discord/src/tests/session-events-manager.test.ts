@@ -9,6 +9,8 @@ type SessionAwareManager = {
   getRunState(sessionRef: string, runId: string): RunState | undefined
 }
 
+const TEST_SESSION = 'agent:larry:project:test-suite/lane:main'
+
 function sessionEnvelope(
   sessionRef: string,
   projectId: string,
@@ -23,6 +25,16 @@ function sessionEnvelope(
     runId,
     event,
   } as unknown as SessionEventEnvelope
+}
+
+function receive(
+  manager: SessionEventsManager,
+  envelope: Omit<SessionEventEnvelope, 'sessionRef'>
+): void {
+  manager.receive({
+    sessionRef: TEST_SESSION,
+    ...envelope,
+  })
 }
 
 function toolNamesFromFrame(frame: unknown): string[] {
@@ -173,12 +185,12 @@ describe('SessionEventsManager internal run handling', () => {
   test('ignores explicitly internal events without keeping project-level internal run ids', () => {
     const renders: Array<{ projectId: string; runId: string }> = []
 
-    const manager = new SessionEventsManager('gateway-test', (projectId, runId) => {
+    const manager = new SessionEventsManager('gateway-test', (_sessionRef, projectId, runId) => {
       renders.push({ projectId, runId })
     })
 
-    manager.subscribe('control-plane')
-    manager.receive({
+    manager.subscribe(TEST_SESSION, 'control-plane')
+    receive(manager, {
       projectId: 'control-plane',
       seq: 1,
       runId: 'run-internal',
@@ -192,10 +204,10 @@ describe('SessionEventsManager internal run handling', () => {
       },
     })
 
-    expect(manager.getRunState('control-plane', 'run-internal')).toBeUndefined()
+    expect(manager.getRunState(TEST_SESSION, 'run-internal')).toBeUndefined()
     expect(renders).toHaveLength(0)
 
-    manager.receive({
+    receive(manager, {
       projectId: 'control-plane',
       seq: 2,
       runId: 'run-internal',
@@ -207,10 +219,10 @@ describe('SessionEventsManager internal run handling', () => {
       },
     })
 
-    expect(manager.getRunState('control-plane', 'run-internal')).toBeDefined()
+    expect(manager.getRunState(TEST_SESSION, 'run-internal')).toBeDefined()
     expect(renders).toHaveLength(1)
 
-    manager.receive({
+    receive(manager, {
       projectId: 'control-plane',
       seq: 3,
       runId: 'run-user',
@@ -223,32 +235,35 @@ describe('SessionEventsManager internal run handling', () => {
       },
     })
 
-    expect(manager.getRunState('control-plane', 'run-user')).toBeDefined()
+    expect(manager.getRunState(TEST_SESSION, 'run-user')).toBeDefined()
     expect(renders).toHaveLength(2)
     expect(renders[1]?.runId).toBe('run-user')
 
     const projectState = (
       manager as unknown as {
-        projects: Map<string, Record<string, unknown>>
+        sessions: Map<string, Record<string, unknown>>
       }
-    ).projects.get('control-plane')
+    ).sessions.get(TEST_SESSION)
     expect(projectState).not.toHaveProperty('internalRunIds')
   })
 
   test('renders final assistant content carried on turn_end payload', () => {
     const renders: Array<{ projectId: string; runId: string; content: string }> = []
 
-    const manager = new SessionEventsManager('gateway-test', (projectId, runId, frame) => {
-      const markdown = frame.blocks.find((block) => block.t === 'markdown')
-      renders.push({
-        projectId,
-        runId,
-        content: markdown?.md ?? '',
-      })
-    })
+    const manager = new SessionEventsManager(
+      'gateway-test',
+      (_sessionRef, projectId, runId, frame) => {
+        const markdown = frame.blocks.find((block) => block.t === 'markdown')
+        renders.push({
+          projectId,
+          runId,
+          content: markdown?.md ?? '',
+        })
+      }
+    )
 
-    manager.subscribe('control-plane')
-    manager.receive({
+    manager.subscribe(TEST_SESSION, 'control-plane')
+    receive(manager, {
       projectId: 'control-plane',
       seq: 1,
       runId: 'run-user',
@@ -259,7 +274,7 @@ describe('SessionEventsManager internal run handling', () => {
         startedAt: 1,
       },
     })
-    manager.receive({
+    receive(manager, {
       projectId: 'control-plane',
       seq: 2,
       runId: 'run-user',
@@ -271,7 +286,7 @@ describe('SessionEventsManager internal run handling', () => {
       },
     })
 
-    expect(manager.getRunState('control-plane', 'run-user')?.status).toBe('completed')
+    expect(manager.getRunState(TEST_SESSION, 'run-user')?.status).toBe('completed')
     expect(renders[renders.length - 1]).toEqual({
       projectId: 'control-plane',
       runId: 'run-user',
@@ -281,16 +296,19 @@ describe('SessionEventsManager internal run handling', () => {
 
   test('tracks event dedupe on RunState instead of ProjectState across resumed subscriptions', () => {
     const renders: Array<{ seq: number | undefined; content: string }> = []
-    const manager = new SessionEventsManager('gateway-test', (_projectId, _runId, frame, run) => {
-      const markdown = frame.blocks.find((block) => block.t === 'markdown')
-      renders.push({
-        seq: (run as unknown as { lastSeq?: number }).lastSeq,
-        content: markdown?.md ?? '',
-      })
-    })
+    const manager = new SessionEventsManager(
+      'gateway-test',
+      (_sessionRef, _projectId, _runId, frame, run) => {
+        const markdown = frame.blocks.find((block) => block.t === 'markdown')
+        renders.push({
+          seq: (run as unknown as { lastSeq?: number }).lastSeq,
+          content: markdown?.md ?? '',
+        })
+      }
+    )
 
-    manager.subscribe('agent-spaces')
-    manager.receive({
+    manager.subscribe(TEST_SESSION, 'agent-spaces')
+    receive(manager, {
       projectId: 'agent-spaces',
       runId: 'run-resumed',
       seq: 1,
@@ -302,8 +320,8 @@ describe('SessionEventsManager internal run handling', () => {
       },
     })
 
-    manager.subscribe('agent-spaces')
-    manager.receive({
+    manager.subscribe(TEST_SESSION, 'agent-spaces')
+    receive(manager, {
       projectId: 'agent-spaces',
       runId: 'run-resumed',
       seq: 1,
@@ -312,7 +330,7 @@ describe('SessionEventsManager internal run handling', () => {
         textDelta: 'duplicate should not render',
       },
     })
-    manager.receive({
+    receive(manager, {
       projectId: 'agent-spaces',
       runId: 'run-resumed',
       seq: 2,
@@ -325,14 +343,14 @@ describe('SessionEventsManager internal run handling', () => {
     expect(renders).toHaveLength(2)
     expect(renders.at(-1)).toEqual({ seq: 2, content: 'fresh update renders' })
     expect(
-      manager.getRunState('agent-spaces', 'run-resumed') as unknown as { lastSeq?: number }
+      manager.getRunState(TEST_SESSION, 'run-resumed') as unknown as { lastSeq?: number }
     ).toMatchObject({ lastSeq: 2 })
 
     const projectState = (
       manager as unknown as {
-        projects: Map<string, Record<string, unknown>>
+        sessions: Map<string, Record<string, unknown>>
       }
-    ).projects.get('agent-spaces')
+    ).sessions.get(TEST_SESSION)
     expect(projectState).toBeDefined()
     expect(projectState).not.toHaveProperty('lastSeq')
     expect(projectState).not.toHaveProperty('internalRunIds')
@@ -342,12 +360,12 @@ describe('SessionEventsManager internal run handling', () => {
     let lastFrame:
       | { blocks: Array<{ t: string; md?: string; toolName?: string; message?: string }> }
       | undefined
-    const manager = new SessionEventsManager('gateway-test', (_pid, _rid, frame) => {
+    const manager = new SessionEventsManager('gateway-test', (_sessionRef, _pid, _rid, frame) => {
       lastFrame = frame as never
     })
 
-    manager.subscribe('agent-spaces')
-    manager.receive({
+    manager.subscribe(TEST_SESSION, 'agent-spaces')
+    receive(manager, {
       projectId: 'agent-spaces',
       runId: 'run-mix',
       seq: 1,
@@ -360,7 +378,7 @@ describe('SessionEventsManager internal run handling', () => {
     })
 
     // text segment A
-    manager.receive({
+    receive(manager, {
       projectId: 'agent-spaces',
       runId: 'run-mix',
       seq: 2,
@@ -370,7 +388,7 @@ describe('SessionEventsManager internal run handling', () => {
         message: { role: 'assistant', content: '' },
       },
     })
-    manager.receive({
+    receive(manager, {
       projectId: 'agent-spaces',
       runId: 'run-mix',
       seq: 3,
@@ -378,7 +396,7 @@ describe('SessionEventsManager internal run handling', () => {
     })
 
     // tool 1
-    manager.receive({
+    receive(manager, {
       projectId: 'agent-spaces',
       runId: 'run-mix',
       seq: 4,
@@ -389,7 +407,7 @@ describe('SessionEventsManager internal run handling', () => {
         input: { file_path: '/x' },
       },
     })
-    manager.receive({
+    receive(manager, {
       projectId: 'agent-spaces',
       runId: 'run-mix',
       seq: 5,
@@ -402,7 +420,7 @@ describe('SessionEventsManager internal run handling', () => {
     })
 
     // notice
-    manager.receive({
+    receive(manager, {
       projectId: 'agent-spaces',
       runId: 'run-mix',
       seq: 6,
@@ -410,7 +428,7 @@ describe('SessionEventsManager internal run handling', () => {
     })
 
     // text segment B (after tool/notice — new messageId)
-    manager.receive({
+    receive(manager, {
       projectId: 'agent-spaces',
       runId: 'run-mix',
       seq: 7,
@@ -418,7 +436,7 @@ describe('SessionEventsManager internal run handling', () => {
     })
 
     // tool 2
-    manager.receive({
+    receive(manager, {
       projectId: 'agent-spaces',
       runId: 'run-mix',
       seq: 8,
@@ -431,13 +449,13 @@ describe('SessionEventsManager internal run handling', () => {
     })
 
     // text segment C
-    manager.receive({
+    receive(manager, {
       projectId: 'agent-spaces',
       runId: 'run-mix',
       seq: 9,
       event: { type: 'message_update', messageId: 'msg-C', textDelta: 'final' },
     })
-    manager.receive({
+    receive(manager, {
       projectId: 'agent-spaces',
       runId: 'run-mix',
       seq: 10,
@@ -466,12 +484,12 @@ describe('SessionEventsManager internal run handling', () => {
 
   test('no-messageId stream does not duplicate the segment after a tool boundary closes it', () => {
     let lastFrame: { blocks: Array<{ t: string; md?: string; toolName?: string }> } | undefined
-    const manager = new SessionEventsManager('gateway-test', (_pid, _rid, frame) => {
+    const manager = new SessionEventsManager('gateway-test', (_sessionRef, _pid, _rid, frame) => {
       lastFrame = frame as never
     })
 
-    manager.subscribe('agent-spaces')
-    manager.receive({
+    manager.subscribe(TEST_SESSION, 'agent-spaces')
+    receive(manager, {
       projectId: 'agent-spaces',
       runId: 'run-noid',
       seq: 1,
@@ -484,7 +502,7 @@ describe('SessionEventsManager internal run handling', () => {
     })
 
     // message_start with no messageId, no content
-    manager.receive({
+    receive(manager, {
       projectId: 'agent-spaces',
       runId: 'run-noid',
       seq: 2,
@@ -492,7 +510,7 @@ describe('SessionEventsManager internal run handling', () => {
     })
 
     // streaming delta, no messageId
-    manager.receive({
+    receive(manager, {
       projectId: 'agent-spaces',
       runId: 'run-noid',
       seq: 3,
@@ -500,7 +518,7 @@ describe('SessionEventsManager internal run handling', () => {
     })
 
     // tool fires mid-message — closes active append, but the message itself isn't done
-    manager.receive({
+    receive(manager, {
       projectId: 'agent-spaces',
       runId: 'run-noid',
       seq: 4,
@@ -511,7 +529,7 @@ describe('SessionEventsManager internal run handling', () => {
         input: { file_path: '/x' },
       },
     })
-    manager.receive({
+    receive(manager, {
       projectId: 'agent-spaces',
       runId: 'run-noid',
       seq: 5,
@@ -524,7 +542,7 @@ describe('SessionEventsManager internal run handling', () => {
     })
 
     // message_end carries the full final assistant message — STILL no messageId
-    manager.receive({
+    receive(manager, {
       projectId: 'agent-spaces',
       runId: 'run-noid',
       seq: 6,
@@ -545,12 +563,12 @@ describe('SessionEventsManager internal run handling', () => {
 
   test('Codex-style message_end-only assistant turn creates a segment instead of falling through to finalOutput', () => {
     let lastFrame: { blocks: Array<{ t: string; md?: string; toolName?: string }> } | undefined
-    const manager = new SessionEventsManager('gateway-test', (_pid, _rid, frame) => {
+    const manager = new SessionEventsManager('gateway-test', (_sessionRef, _pid, _rid, frame) => {
       lastFrame = frame as never
     })
 
-    manager.subscribe('codex-proj')
-    manager.receive({
+    manager.subscribe(TEST_SESSION, 'codex-proj')
+    receive(manager, {
       projectId: 'codex-proj',
       runId: 'run-codex',
       seq: 1,
@@ -563,7 +581,7 @@ describe('SessionEventsManager internal run handling', () => {
     })
 
     // tool first
-    manager.receive({
+    receive(manager, {
       projectId: 'codex-proj',
       runId: 'run-codex',
       seq: 2,
@@ -574,7 +592,7 @@ describe('SessionEventsManager internal run handling', () => {
         input: { file_path: '/c' },
       },
     })
-    manager.receive({
+    receive(manager, {
       projectId: 'codex-proj',
       runId: 'run-codex',
       seq: 3,
@@ -587,7 +605,7 @@ describe('SessionEventsManager internal run handling', () => {
     })
 
     // ONLY message_end for the assistant text — no message_start, no message_update
-    manager.receive({
+    receive(manager, {
       projectId: 'codex-proj',
       runId: 'run-codex',
       seq: 4,
@@ -599,7 +617,7 @@ describe('SessionEventsManager internal run handling', () => {
     })
 
     // Then turn_end with the same finalOutput — should NOT add a duplicate segment
-    manager.receive({
+    receive(manager, {
       projectId: 'codex-proj',
       runId: 'run-codex',
       seq: 5,
@@ -619,12 +637,12 @@ describe('SessionEventsManager internal run handling', () => {
 
   test('derived cumulative message_end does not duplicate existing streamed segments', () => {
     let lastFrame: { blocks: Array<{ t: string; md?: string; toolName?: string }> } | undefined
-    const manager = new SessionEventsManager('gateway-test', (_pid, _rid, frame) => {
+    const manager = new SessionEventsManager('gateway-test', (_sessionRef, _pid, _rid, frame) => {
       lastFrame = frame as never
     })
 
-    manager.subscribe('codex-proj')
-    manager.receive({
+    manager.subscribe(TEST_SESSION, 'codex-proj')
+    receive(manager, {
       projectId: 'codex-proj',
       runId: 'run-streamed',
       seq: 1,
@@ -635,7 +653,7 @@ describe('SessionEventsManager internal run handling', () => {
         startedAt: 1,
       },
     })
-    manager.receive({
+    receive(manager, {
       projectId: 'codex-proj',
       runId: 'run-streamed',
       seq: 2,
@@ -645,13 +663,13 @@ describe('SessionEventsManager internal run handling', () => {
         message: { role: 'assistant', content: '' },
       },
     })
-    manager.receive({
+    receive(manager, {
       projectId: 'codex-proj',
       runId: 'run-streamed',
       seq: 3,
       event: { type: 'message_update', messageId: 'msg-streamed', textDelta: 'before' },
     })
-    manager.receive({
+    receive(manager, {
       projectId: 'codex-proj',
       runId: 'run-streamed',
       seq: 4,
@@ -662,7 +680,7 @@ describe('SessionEventsManager internal run handling', () => {
       },
     })
 
-    manager.receive({
+    receive(manager, {
       projectId: 'codex-proj',
       runId: 'run-streamed',
       seq: 5,
