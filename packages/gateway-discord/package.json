@@ -28,6 +28,7 @@
     "agent-action-render": "*",
     "agent-scope": "*",
     "discord.js": "^14.16.0",
+    "hrc-frame-render": "*",
     "spaces-runtime": "*"
   },
   "devDependencies": {
