@@ -698,12 +698,14 @@ describe('SessionEventsManager internal run handling', () => {
 
   test('two anchored message_end events (turn.message synthesized ids) keep both segments and interleave with a tool call by seq', () => {
     let lastFrame: { blocks: Array<{ t: string; md?: string; toolName?: string }> } | undefined
-    const manager = new SessionEventsManager('gateway-test', (_pid, _rid, frame) => {
+    const manager = new SessionEventsManager('gateway-test', (_sessionRef, _pid, _rid, frame) => {
       lastFrame = frame as never
     })
 
-    manager.subscribe('media-ingest')
+    const sessionRef = 'agent:cody:project:media-ingest/lane:main'
+    manager.subscribe(sessionRef, 'media-ingest')
     manager.receive({
+      sessionRef,
       projectId: 'media-ingest',
       runId: 'run-turn-msg',
       seq: 1,
@@ -715,6 +717,7 @@ describe('SessionEventsManager internal run handling', () => {
       },
     })
     manager.receive({
+      sessionRef,
       projectId: 'media-ingest',
       runId: 'run-turn-msg',
       seq: 2,
@@ -725,6 +728,7 @@ describe('SessionEventsManager internal run handling', () => {
       },
     })
     manager.receive({
+      sessionRef,
       projectId: 'media-ingest',
       runId: 'run-turn-msg',
       seq: 3,
@@ -736,6 +740,7 @@ describe('SessionEventsManager internal run handling', () => {
       },
     })
     manager.receive({
+      sessionRef,
       projectId: 'media-ingest',
       runId: 'run-turn-msg',
       seq: 4,
@@ -747,6 +752,7 @@ describe('SessionEventsManager internal run handling', () => {
       },
     })
     manager.receive({
+      sessionRef,
       projectId: 'media-ingest',
       runId: 'run-turn-msg',
       seq: 5,
