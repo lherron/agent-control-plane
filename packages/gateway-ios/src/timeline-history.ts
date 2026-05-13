@@ -147,15 +147,31 @@ async function collectSessionEventsBefore(
 ): Promise<HrcLifecycleEvent[]> {
   if (limit <= 0 || beforeHrcSeq === 0) return []
 
-  const batch = await collectAsync(
-    hrcClient.watch({
-      beforeHrcSeq: beforeHrcSeq ?? INITIAL_BEFORE_HRC_SEQ,
-      limit,
-      hostSessionId: query.hostSessionId,
-      generation: query.generation,
-    })
-  )
-  return batch.filter((event) => eventMatchesSession(event, query)).slice(0, limit)
+  const matches: HrcLifecycleEvent[] = []
+  let cursor = beforeHrcSeq ?? INITIAL_BEFORE_HRC_SEQ
+
+  while (matches.length < limit && cursor > 0) {
+    const batch = await collectAsync(
+      hrcClient.watch({
+        beforeHrcSeq: cursor,
+        limit,
+        hostSessionId: query.hostSessionId,
+        generation: query.generation,
+      })
+    )
+
+    if (batch.length === 0) break
+
+    matches.push(...batch.filter((event) => eventMatchesSession(event, query)))
+
+    const oldestSeq = Math.min(...batch.map((event) => event.hrcSeq))
+    if (oldestSeq >= cursor) break
+    cursor = oldestSeq
+
+    if (batch.length < limit) break
+  }
+
+  return matches.slice(0, limit)
 }
 
 function messageMatchesSession(

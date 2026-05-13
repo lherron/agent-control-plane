@@ -188,6 +188,25 @@ describe('timeline history', () => {
     expect(page.newestCursor.hrcSeq).toBe(201)
   })
 
+  it('continues paging until limit matching session events are collected', async () => {
+    const client = createMockClient({
+      eventPages: [
+        [event(1003, OTHER_SESSION_REF), event(1002, OTHER_SESSION_REF)],
+        [event(1001), event(1000)],
+        [],
+      ],
+      messagePages: [[]],
+    })
+
+    const page = await getTimelineHistoryPage(
+      client,
+      historyUrl(`sessionRef=${encodeURIComponent(SESSION_REF)}&beforeHrcSeq=1004&limit=2`)
+    )
+
+    expect(page.frames.map((frame) => frame.lastHrcSeq)).toEqual([1000, 1001])
+    expect(client.watchCalls.map((call) => call.beforeHrcSeq)).toEqual([1004, 1002, 1000])
+  })
+
   it('honors limit=1', async () => {
     const client = createMockClient({
       eventPages: [[event(302), event(301)], []],
