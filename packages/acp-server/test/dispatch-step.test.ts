@@ -306,4 +306,212 @@ describe('legacy dispatchJobRunThroughInputs (regression)', () => {
       }
     )
   })
+
+  test('includes meta.interfaceSource when an active binding matches scopeRef + laneRef', async () => {
+    const launchCalls: LaunchCall[] = []
+    const inputAttemptStore = new RecordingInputAttemptStore()
+    const launchOverrides = createLaunchOverrides(launchCalls)
+
+    await withWiredServer(
+      async (fixture) => {
+        fixture.interfaceStore.bindings.create({
+          bindingId: 'ifb_direct_test',
+          gatewayId: 'acp-mini',
+          conversationRef: 'channel:1500000000000000001',
+          scopeRef: 'agent:heather:project:vitals',
+          laneRef: 'main',
+          projectId: 'vitals',
+          status: 'active',
+          createdAt: '2026-05-13T16:00:00.000Z',
+          updatedAt: '2026-05-13T16:00:00.000Z',
+        })
+
+        await dispatchJobRunThroughInputs(
+          {
+            ...fixture,
+            inputAttemptStore,
+            ...launchOverrides,
+            defaultActor: { kind: 'system', id: 'test-actor' },
+            authorize: () => 'allow',
+            adminStore: undefined as never,
+            interfaceStore: fixture.interfaceStore,
+            presetRegistry: {
+              getPreset: () => {
+                throw new Error('not needed')
+              },
+            },
+          },
+          {
+            jobId: 'job_direct_interface',
+            jobRunId: 'jr_direct_interface',
+            scopeRef: 'agent:heather:project:vitals',
+            laneRef: 'main',
+            content: 'direct job with interface binding',
+          }
+        )
+
+        expect(inputAttemptStore.calls).toHaveLength(1)
+        const call = inputAttemptStore.calls[0]!
+        expect(call.metadata).toEqual(
+          expect.objectContaining({
+            interfaceSource: {
+              gatewayId: 'acp-mini',
+              bindingId: 'ifb_direct_test',
+              conversationRef: 'channel:1500000000000000001',
+              messageRef: 'jobrun:jr_direct_interface',
+            },
+          })
+        )
+        expect(call.metadata).toEqual(
+          expect.objectContaining({
+            source: {
+              kind: 'job',
+              jobId: 'job_direct_interface',
+              jobRunId: 'jr_direct_interface',
+            },
+          })
+        )
+
+        const source = (call.metadata as Record<string, unknown>)['source'] as Record<
+          string,
+          unknown
+        >
+        expect(source).not.toHaveProperty('stepId')
+        expect(source).not.toHaveProperty('phase')
+        expect(source).not.toHaveProperty('attempt')
+      },
+      {
+        inputAttemptStore,
+        ...launchOverrides,
+      }
+    )
+  })
+
+  test('threadRef is included when the matching binding has a threadRef', async () => {
+    const launchCalls: LaunchCall[] = []
+    const inputAttemptStore = new RecordingInputAttemptStore()
+    const launchOverrides = createLaunchOverrides(launchCalls)
+
+    await withWiredServer(
+      async (fixture) => {
+        fixture.interfaceStore.bindings.create({
+          bindingId: 'ifb_direct_thread',
+          gatewayId: 'acp-mini',
+          conversationRef: 'channel:1500000000000000002',
+          threadRef: 'thread:abc',
+          scopeRef: 'agent:heather:project:vitals',
+          laneRef: 'main',
+          projectId: 'vitals',
+          status: 'active',
+          createdAt: '2026-05-13T16:01:00.000Z',
+          updatedAt: '2026-05-13T16:01:00.000Z',
+        })
+
+        await dispatchJobRunThroughInputs(
+          {
+            ...fixture,
+            inputAttemptStore,
+            ...launchOverrides,
+            defaultActor: { kind: 'system', id: 'test-actor' },
+            authorize: () => 'allow',
+            adminStore: undefined as never,
+            interfaceStore: fixture.interfaceStore,
+            presetRegistry: {
+              getPreset: () => {
+                throw new Error('not needed')
+              },
+            },
+          },
+          {
+            jobId: 'job_direct_thread',
+            jobRunId: 'jr_direct_thread',
+            scopeRef: 'agent:heather:project:vitals',
+            laneRef: 'main',
+            content: 'direct job with threaded interface binding',
+          }
+        )
+
+        expect(inputAttemptStore.calls).toHaveLength(1)
+        const call = inputAttemptStore.calls[0]!
+        expect(call.metadata).toEqual(
+          expect.objectContaining({
+            interfaceSource: {
+              gatewayId: 'acp-mini',
+              bindingId: 'ifb_direct_thread',
+              conversationRef: 'channel:1500000000000000002',
+              threadRef: 'thread:abc',
+              messageRef: 'jobrun:jr_direct_thread',
+            },
+          })
+        )
+      },
+      {
+        inputAttemptStore,
+        ...launchOverrides,
+      }
+    )
+  })
+
+  test('omits meta.interfaceSource when no active binding matches the scope + lane', async () => {
+    const launchCalls: LaunchCall[] = []
+    const inputAttemptStore = new RecordingInputAttemptStore()
+    const launchOverrides = createLaunchOverrides(launchCalls)
+
+    await withWiredServer(
+      async (fixture) => {
+        fixture.interfaceStore.bindings.create({
+          bindingId: 'ifb_direct_other_lane',
+          gatewayId: 'acp-mini',
+          conversationRef: 'channel:1500000000000000003',
+          scopeRef: 'agent:heather:project:vitals',
+          laneRef: 'side',
+          projectId: 'vitals',
+          status: 'active',
+          createdAt: '2026-05-13T16:02:00.000Z',
+          updatedAt: '2026-05-13T16:02:00.000Z',
+        })
+
+        await dispatchJobRunThroughInputs(
+          {
+            ...fixture,
+            inputAttemptStore,
+            ...launchOverrides,
+            defaultActor: { kind: 'system', id: 'test-actor' },
+            authorize: () => 'allow',
+            adminStore: undefined as never,
+            interfaceStore: fixture.interfaceStore,
+            presetRegistry: {
+              getPreset: () => {
+                throw new Error('not needed')
+              },
+            },
+          },
+          {
+            jobId: 'job_direct_no_match',
+            jobRunId: 'jr_direct_no_match',
+            scopeRef: 'agent:heather:project:vitals',
+            laneRef: 'main',
+            content: 'direct job without a matching interface binding',
+          }
+        )
+
+        expect(inputAttemptStore.calls).toHaveLength(1)
+        const call = inputAttemptStore.calls[0]!
+        expect(call.metadata).not.toHaveProperty('interfaceSource')
+        expect(call.metadata).toEqual(
+          expect.objectContaining({
+            source: {
+              kind: 'job',
+              jobId: 'job_direct_no_match',
+              jobRunId: 'jr_direct_no_match',
+            },
+          })
+        )
+      },
+      {
+        inputAttemptStore,
+        ...launchOverrides,
+      }
+    )
+  })
 })
