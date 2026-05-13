@@ -119,13 +119,19 @@ function adaptToolResult(payload: unknown): GatewaySessionEvent | undefined {
   }
 }
 
-function adaptAssistantMessage(payload: unknown): GatewaySessionEvent | undefined {
+function adaptAssistantMessage(
+  payload: unknown,
+  fallbackMessageId?: string
+): GatewaySessionEvent | undefined {
   if (!isRecord(payload)) {
     return undefined
   }
 
   const message = isRecord(payload['message']) ? payload['message'] : payload
-  const messageId = getString(payload, 'messageId')
+  const messageId =
+    getString(payload, 'messageId') ??
+    (isRecord(message) ? getString(message, 'id') : undefined) ??
+    fallbackMessageId
   if (message['role'] !== 'assistant') {
     return undefined
   }
@@ -244,6 +250,8 @@ export function adaptHrcLifecycleEvent(
         sessionEvent = adaptToolResult(event.payload)
         break
       case 'turn.message':
+        sessionEvent = adaptAssistantMessage(event.payload, `hrc:${event.hrcSeq}`)
+        break
       case 'sdk.message':
       case 'message_end':
         sessionEvent = adaptAssistantMessage(event.payload)

@@ -44,7 +44,7 @@ describe('timeline rendering', () => {
           hrcSeq: 1,
           ts: '2026-05-11T05:31:34.000Z',
           eventKind: 'tool_execution_start',
-          displayText: '💻 exec_command: "pwd"',
+          displayText: '💻 exec_command: pwd',
           toolName: 'exec_command',
           joinKind: 'run_id',
         },
@@ -54,7 +54,7 @@ describe('timeline rendering', () => {
           hrcSeq: 2,
           ts: '2026-05-11T05:31:35.000Z',
           eventKind: 'tool_execution_start',
-          displayText: '💻 exec_command: "ls"',
+          displayText: '💻 exec_command: ls',
           toolName: 'exec_command',
           joinKind: 'run_id',
         },
@@ -64,7 +64,7 @@ describe('timeline rendering', () => {
           hrcSeq: 3,
           ts: '2026-05-11T05:31:36.000Z',
           eventKind: 'tool_execution_start',
-          displayText: '💻 exec_command: "date"',
+          displayText: '💻 exec_command: date',
           toolName: 'exec_command',
           joinKind: 'run_id',
         },
@@ -74,7 +74,7 @@ describe('timeline rendering', () => {
           hrcSeq: 4,
           ts: '2026-05-11T05:31:37.000Z',
           eventKind: 'tool_execution_start',
-          displayText: '💻 exec_command: "whoami"',
+          displayText: '💻 exec_command: whoami',
           toolName: 'exec_command',
           joinKind: 'run_id',
         },
@@ -106,7 +106,7 @@ describe('timeline rendering', () => {
       width: 100,
     })
 
-    expect(text).toContain('💻 exec_command: "pwd"')
+    expect(text).toContain('💻 exec_command: pwd')
     expect(text).toContain('… 1 more exec_command call')
     expect(text).toContain('🤖 assistant')
     expect(text).toContain('      > ## Done')

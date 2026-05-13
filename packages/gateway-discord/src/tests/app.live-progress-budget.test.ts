@@ -36,7 +36,7 @@ describe('GatewayDiscordApp live progress final budget', () => {
     const content = webhook.edits.at(-1)?.payload.content ?? ''
     expect(content.length).toBeLessThanOrEqual(2000)
     expect(content).toContain('_... +8 earlier tools_')
-    expect(content).toContain('📖 Read: "packages/gateway-discord/src/fixture-19.ts"')
+    expect(content).toContain('📖 Read: packages/gateway-discord/src/fixture-19.ts')
     expect(content).toContain(finalAnswer)
     expect(content).toContain('Final answer ends.')
 
@@ -107,5 +107,23 @@ describe('GatewayDiscordApp live progress final budget', () => {
     expect(toolIndex).toBeGreaterThan(beforeIndex)
     expect(afterIndex).toBeGreaterThan(toolIndex)
     expect(content.match(/AFTER-LIVE/g)).toHaveLength(1)
+  })
+
+  test('renders shell display label for wrapped command_execution in live progress edit', async () => {
+    const harness = createLiveProgressHarness()
+    await harness.app.refreshBindings()
+    await harness.app.handleMessageCreate(harness.inboundMessage())
+    const webhook = harness.webhook()
+
+    harness.emit(
+      toolStart(1, 'tool_shell', 'command_execution', { command: "/bin/zsh -lc 'printf X'" })
+    )
+    harness.emit(toolEnd(2, 'tool_shell', 'command_execution'))
+
+    await waitFor(() => webhook.edits.length > 0)
+
+    const content = webhook.edits.at(-1)?.payload.content ?? ''
+    expect(content).toContain('shell: printf X')
+    expect(content).not.toContain('command_execution: /bin/zsh -lc')
   })
 })

@@ -196,14 +196,14 @@ describe('extractToolPreview', () => {
 // ---------------------------------------------------------------------------
 
 describe('formatToolLine', () => {
-  test('formats running tool with correct emoji and quoted preview', () => {
+  test('formats running tool with correct emoji and bare preview', () => {
     const line = formatToolLine('Read', { file_path: '/src/index.ts' }, '', false)
-    expect(line).toBe('📖 Read: "/src/index.ts"')
+    expect(line).toBe('📖 Read: /src/index.ts')
   })
 
   test('formats failed tool with ❌ emoji', () => {
     const line = formatToolLine('Read', { file_path: '/src/index.ts' }, '', true)
-    expect(line).toBe('❌ Read: "/src/index.ts"')
+    expect(line).toBe('❌ Read: /src/index.ts')
   })
 
   test('truncates preview to fit 80-char line cap', () => {
@@ -276,7 +276,27 @@ describe('renderBlock tool rendering', () => {
       updatedAt: Date.now(),
     }
     const content = renderFrameToDiscordContent(frame, 2000)
-    expect(content).toContain('📖 Read: "/src/index.ts"')
+    expect(content).toContain('📖 Read: /src/index.ts')
+  })
+
+  test('renders shell display label for wrapped command_execution tool blocks', () => {
+    const frame: RenderFrame = {
+      runId: 'r1',
+      projectId: 'p1',
+      phase: 'progress',
+      blocks: [
+        {
+          t: 'tool',
+          toolName: 'command_execution',
+          summary: '',
+          input: { command: "/bin/zsh -lc 'printf X'" },
+        } as never,
+      ],
+      updatedAt: Date.now(),
+    }
+    const content = renderFrameToDiscordContent(frame, 2000)
+    expect(content).toContain('shell: printf X')
+    expect(content).not.toContain('command_execution: /bin/zsh -lc')
   })
 
   test('renders failed tool with ❌ replacing tool emoji', () => {
@@ -296,7 +316,7 @@ describe('renderBlock tool rendering', () => {
       updatedAt: Date.now(),
     }
     const content = renderFrameToDiscordContent(frame, 2000)
-    expect(content).toContain('❌ Bash: "ls"')
+    expect(content).toContain('❌ shell: ls')
     expect(content).not.toContain('💻')
   })
 
@@ -326,7 +346,7 @@ describe('renderBlock tool rendering', () => {
     const compactContent = renderFrameToDiscordContent(frame, 2000, { compact: true })
     expect(compactContent).not.toContain('```')
     expect(compactContent).not.toContain('image')
-    expect(compactContent).toContain('💻 Bash: "echo hi"')
+    expect(compactContent).toContain('💻 shell: echo hi')
   })
 })
 

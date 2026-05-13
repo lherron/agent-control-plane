@@ -34,7 +34,7 @@ describe('hrc event timeline rows', () => {
     )
 
     expect(row).toMatchObject({
-      displayText: '💻 exec_command: "ls -la /tmp"',
+      displayText: '💻 exec_command: ls -la /tmp',
       toolName: 'exec_command',
       payload: { toolName: 'exec_command', input: { cmd: 'ls -la /tmp' } },
     })

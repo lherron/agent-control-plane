@@ -19,7 +19,7 @@ describe('GatewayDiscordApp live progress edit failure fallback', () => {
     await waitFor(() => webhook.failedEdits.length > 0)
 
     expect(webhook.failedEdits).toHaveLength(1)
-    expect(webhook.failedEdits[0]?.payload.content).toContain('💻 Bash')
+    expect(webhook.failedEdits[0]?.payload.content).toContain('💻 shell')
 
     harness.emit(
       toolStart(2, 'tool_2', 'Read', { file_path: 'packages/gateway-discord/src/app.ts' })

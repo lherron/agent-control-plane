@@ -75,13 +75,36 @@ describe('Discord write planner', () => {
 
     const content = plan.chunks.join('\n')
     const beforeIndex = content.indexOf('BEFORE-LIVE')
-    const toolIndex = content.indexOf('command_execution')
+    const toolIndex = content.indexOf('shell: sleep 20; printf TOOL-LIVE')
     const afterIndex = content.indexOf('AFTER-LIVE')
 
     expect(beforeIndex).toBeGreaterThanOrEqual(0)
     expect(toolIndex).toBeGreaterThan(beforeIndex)
     expect(afterIndex).toBeGreaterThan(toolIndex)
     expect(content.match(/AFTER-LIVE/g)).toHaveLength(1)
+  })
+
+  test('renders shell display label for wrapped command_execution in final delivery plan', () => {
+    const plan = planFinalDeliveryWrite({
+      delivery: delivery('done'),
+      run: runState({
+        toolExecutions: [
+          {
+            toolUseId: 'tool-shell',
+            toolName: 'command_execution',
+            input: { command: "/bin/zsh -lc 'printf X'" },
+            status: 'completed',
+            seq: 2,
+          },
+        ],
+      }),
+      identity,
+      maxChars: 2000,
+    })
+
+    const content = plan.chunks.join('\n')
+    expect(content).toContain('shell: printf X')
+    expect(content).not.toContain('command_execution: /bin/zsh -lc')
   })
 
   test('caps tool and notice history while keeping assistant text outside the cap', () => {
@@ -113,6 +136,30 @@ describe('Discord write planner', () => {
     expect(content).not.toContain('/f0.ts')
     expect(content).toContain('/f13.ts')
     expect(toolLines).toHaveLength(12)
+  })
+
+  test('keeps compact final tool history single-spaced after completion', () => {
+    const plan = planFinalDeliveryWrite({
+      delivery: delivery('closing text'),
+      run: runState({
+        assistantSegments: [{ id: 'closing', seq: 40, text: 'closing text' }],
+        toolExecutions: Array.from({ length: 14 }, (_, index) => ({
+          toolUseId: `tool-${index}`,
+          toolName: 'command_execution',
+          input: { command: `echo ${index}; printf done` },
+          status: 'completed' as const,
+          seq: index + 2,
+        })),
+      }),
+      identity,
+      maxChars: 2000,
+    })
+
+    const content = plan.chunks.join('\n')
+
+    expect(content).toContain('_... +2 earlier tools_')
+    expect(content).toContain('shell: echo 13; printf done')
+    expect(content).not.toMatch(/shell: echo \d+; printf done\n\n💻 shell:/)
   })
 
   test('chunks long final delivery text instead of truncating it', () => {
@@ -182,7 +229,7 @@ describe('Discord write planner', () => {
     })
 
     const content = plan.chunks.join('\n')
-    expect(content).toContain('command_execution')
+    expect(content).toContain('shell: sleep 1; printf DONE')
     expect(content).toContain('⚠️')
     expect(content).toContain('codex_app_server')
     expect(content).not.toContain('PROMPT-AS-BODY')

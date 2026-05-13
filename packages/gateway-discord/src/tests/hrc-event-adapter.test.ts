@@ -70,6 +70,7 @@ describe('adaptHrcLifecycleEvent', () => {
   test('maps assistant turn.message to message_end and drops non-assistant messages', () => {
     expect(adaptHrcLifecycleEvent(hrcEvent())?.event).toMatchObject({
       type: 'message_end',
+      messageId: 'hrc:41',
       message: { role: 'assistant', content: 'hello from hrc' },
     })
 
@@ -83,6 +84,81 @@ describe('adaptHrcLifecycleEvent', () => {
         })
       )
     ).toBeUndefined()
+  })
+
+  test('synthesizes a unique messageId per turn.message so consecutive prose blocks each render', () => {
+    const first = adaptHrcLifecycleEvent(
+      hrcEvent({
+        hrcSeq: 101,
+        eventKind: 'turn.message',
+        payload: {
+          type: 'message_end',
+          message: { role: 'assistant', content: 'first prose block' },
+        },
+      })
+    )
+    const second = adaptHrcLifecycleEvent(
+      hrcEvent({
+        hrcSeq: 103,
+        eventKind: 'turn.message',
+        payload: {
+          type: 'message_end',
+          message: { role: 'assistant', content: 'second prose block' },
+        },
+      })
+    )
+
+    expect(first?.event).toMatchObject({
+      type: 'message_end',
+      messageId: 'hrc:101',
+      message: { role: 'assistant', content: 'first prose block' },
+    })
+    expect(second?.event).toMatchObject({
+      type: 'message_end',
+      messageId: 'hrc:103',
+      message: { role: 'assistant', content: 'second prose block' },
+    })
+    // distinct ids let SessionEventsManager push two separate segments instead
+    // of dropping the second one through the no-targetRef close-only branch.
+    expect((first?.event as { messageId?: string }).messageId).not.toBe(
+      (second?.event as { messageId?: string }).messageId
+    )
+  })
+
+  test('preserves payload messageId on turn.message when present (does not override with fallback)', () => {
+    const envelope = adaptHrcLifecycleEvent(
+      hrcEvent({
+        hrcSeq: 200,
+        eventKind: 'turn.message',
+        payload: {
+          type: 'message_end',
+          messageId: 'msg-from-payload',
+          message: { role: 'assistant', content: 'hello' },
+        },
+      })
+    )
+    expect(envelope?.event).toMatchObject({
+      type: 'message_end',
+      messageId: 'msg-from-payload',
+    })
+  })
+
+  test('raw message_end with no payload id stays anchorless (streaming dedup preserved)', () => {
+    const envelope = adaptHrcLifecycleEvent(
+      hrcEvent({
+        hrcSeq: 300,
+        eventKind: 'message_end',
+        payload: {
+          type: 'message_end',
+          message: { role: 'assistant', content: 'cumulative streamed text' },
+        },
+      })
+    )
+    expect(envelope?.event).toMatchObject({
+      type: 'message_end',
+      message: { role: 'assistant', content: 'cumulative streamed text' },
+    })
+    expect((envelope?.event as { messageId?: string }).messageId).toBeUndefined()
   })
 
   test('passes raw app-server assistant streaming events through', () => {

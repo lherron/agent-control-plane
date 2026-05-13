@@ -510,4 +510,74 @@ describe('SessionEventsManager internal run handling', () => {
     expect(markdownBlocks).toHaveLength(1)
     expect(markdownBlocks[0]?.md).toBe('before')
   })
+
+  test('two anchored message_end events (turn.message synthesized ids) keep both segments and interleave with a tool call by seq', () => {
+    let lastFrame: { blocks: Array<{ t: string; md?: string; toolName?: string }> } | undefined
+    const manager = new SessionEventsManager('gateway-test', (_pid, _rid, frame) => {
+      lastFrame = frame as never
+    })
+
+    manager.subscribe('media-ingest')
+    manager.receive({
+      projectId: 'media-ingest',
+      runId: 'run-turn-msg',
+      seq: 1,
+      event: {
+        type: 'run_started',
+        runId: 'run-turn-msg',
+        projectId: 'media-ingest',
+        startedAt: 1,
+      },
+    })
+    manager.receive({
+      projectId: 'media-ingest',
+      runId: 'run-turn-msg',
+      seq: 2,
+      event: {
+        type: 'message_end',
+        messageId: 'hrc:2',
+        message: { role: 'assistant', content: 'first prose' },
+      },
+    })
+    manager.receive({
+      projectId: 'media-ingest',
+      runId: 'run-turn-msg',
+      seq: 3,
+      event: {
+        type: 'tool_execution_start',
+        toolUseId: 'toolu_x',
+        toolName: 'Bash',
+        input: { command: 'ls' },
+      },
+    })
+    manager.receive({
+      projectId: 'media-ingest',
+      runId: 'run-turn-msg',
+      seq: 4,
+      event: {
+        type: 'tool_execution_end',
+        toolUseId: 'toolu_x',
+        toolName: 'Bash',
+        result: { content: [{ type: 'text', text: 'ok' }] },
+      },
+    })
+    manager.receive({
+      projectId: 'media-ingest',
+      runId: 'run-turn-msg',
+      seq: 5,
+      event: {
+        type: 'message_end',
+        messageId: 'hrc:5',
+        message: { role: 'assistant', content: 'second prose' },
+      },
+    })
+
+    expect(lastFrame).toBeDefined()
+    const visible = lastFrame!.blocks.filter((b) => b.t === 'markdown' || b.t === 'tool')
+    expect(visible.map((b) => (b.t === 'markdown' ? b.md : `tool:${b.toolName}`))).toEqual([
+      'first prose',
+      'tool:Bash',
+      'second prose',
+    ])
+  })
 })
