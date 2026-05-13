@@ -198,6 +198,7 @@ export type GatewaySessionEvent =
   | GatewayNoticeEvent
 
 export type SessionEventEnvelope = {
+  sessionRef: string
   projectId: string
   runId?: string | undefined
   seq?: number | undefined

@@ -10,6 +10,7 @@ export type HrcLifecycleEventPayload = {
   hrcSeq: number
   eventKind: string
   scopeRef: string
+  laneRef?: string | undefined
   runId?: string | undefined
   payload: unknown
 }
@@ -39,6 +40,20 @@ function deriveProjectId(scopeRef: string): string | undefined {
     return undefined
   }
   return parseScopeRef(scopeRef).projectId
+}
+
+function laneIdFromRef(laneRef: string): string {
+  return laneRef.startsWith('lane:') ? laneRef.slice('lane:'.length) : laneRef
+}
+
+export function canonicalSessionRefFromEvent(event: {
+  scopeRef?: string | undefined
+  laneRef?: string | undefined
+}): string | undefined {
+  if (!event.scopeRef || !event.laneRef) {
+    return undefined
+  }
+  return `${event.scopeRef}/lane:${laneIdFromRef(event.laneRef)}`
 }
 
 function textFrom(value: unknown): string {
@@ -212,6 +227,7 @@ export function adaptHrcLifecycleEvent(
   event: HrcLifecycleEventPayload
 ): SessionEventEnvelope | undefined {
   const projectId = deriveProjectId(event.scopeRef)
+  const sessionRef = canonicalSessionRefFromEvent(event)
   const runId = event.runId?.trim()
   let sessionEvent: GatewaySessionEvent | undefined
 
@@ -222,6 +238,14 @@ export function adaptHrcLifecycleEvent(
 
   if (projectId === undefined) {
     log.debug('adapter.event.dropped', { data: { eventKind: event.eventKind, runId } })
+    return undefined
+  }
+
+  if (sessionRef === undefined) {
+    log.warn('adapter.event.dropped', {
+      message: 'Dropping HRC event without canonical session identity',
+      data: { eventKind: event.eventKind, runId, scopeRef: event.scopeRef, laneRef: event.laneRef },
+    })
     return undefined
   }
 
@@ -284,6 +308,7 @@ export function adaptHrcLifecycleEvent(
   }
 
   return {
+    sessionRef,
     projectId,
     runId,
     seq: event.hrcSeq,
