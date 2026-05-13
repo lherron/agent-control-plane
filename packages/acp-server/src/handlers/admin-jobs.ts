@@ -23,6 +23,7 @@ import { handleCreateInput } from './inputs.js'
 import type { Actor, JobFlow } from 'acp-core'
 import type { ResolvedAcpServerDeps } from '../deps.js'
 import { advanceJobFlow } from '../jobs/flow-engine.js'
+import { resolveInterfaceSourceForScope } from '../jobs/resolve-interface-source.js'
 import type { RouteHandler } from '../routing/route-context.js'
 
 function requireJobsStore(deps: ResolvedAcpServerDeps) {
@@ -127,6 +128,11 @@ export async function dispatchJobRunThroughInputs(
   }
 ): Promise<{ inputAttemptId: string; runId: string }> {
   const actor = input.actor ?? deps.defaultActor
+  const interfaceSource = resolveInterfaceSourceForScope(deps, {
+    scopeRef: input.scopeRef,
+    laneRef: input.laneRef,
+    messageRef: `jobrun:${input.jobRunId}`,
+  })
   const url = new URL('http://acp.local/v1/inputs')
   const response = await handleCreateInput({
     request: new Request(url.toString(), {
@@ -145,6 +151,7 @@ export async function dispatchJobRunThroughInputs(
             jobId: input.jobId,
             jobRunId: input.jobRunId,
           },
+          ...(interfaceSource !== undefined ? { interfaceSource } : {}),
         },
       }),
     }),

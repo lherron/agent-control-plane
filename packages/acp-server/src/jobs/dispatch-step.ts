@@ -2,6 +2,7 @@ import type { Actor, JobStepRunPhase } from 'acp-core'
 
 import type { ResolvedAcpServerDeps } from '../deps.js'
 import { handleCreateInput } from '../handlers/inputs.js'
+import { resolveInterfaceSourceForScope } from './resolve-interface-source.js'
 
 // ---------------------------------------------------------------------------
 // Pure helper: deterministic idempotency key for a flow step dispatch
@@ -58,7 +59,11 @@ export async function dispatchStepThroughInputs(
     attempt: input.attempt,
   })
 
-  const interfaceSource = resolveInterfaceSourceForScope(deps, input)
+  const interfaceSource = resolveInterfaceSourceForScope(deps, {
+    scopeRef: input.scopeRef,
+    laneRef: input.laneRef,
+    messageRef: idempotencyKey,
+  })
 
   const url = new URL('http://acp.local/v1/inputs')
   const response = await handleCreateInput({
@@ -103,34 +108,5 @@ export async function dispatchStepThroughInputs(
   return {
     inputAttemptId: payload.inputAttempt.inputAttemptId,
     runId: payload.run.runId,
-  }
-}
-
-function resolveInterfaceSourceForScope(
-  deps: ResolvedAcpServerDeps,
-  input: DispatchStepInput
-):
-  | {
-      gatewayId: string
-      bindingId: string
-      conversationRef: string
-      threadRef?: string
-      messageRef: string
-    }
-  | undefined {
-  const bindings = deps.interfaceStore.bindings.list()
-  const binding = bindings.find(
-    (b) => b.status === 'active' && b.scopeRef === input.scopeRef && b.laneRef === input.laneRef
-  )
-  if (binding === undefined) {
-    return undefined
-  }
-
-  return {
-    gatewayId: binding.gatewayId,
-    bindingId: binding.bindingId,
-    conversationRef: binding.conversationRef,
-    ...(binding.threadRef !== undefined ? { threadRef: binding.threadRef } : {}),
-    messageRef: `jobrun:${input.jobRunId}:phase:${input.phase}:step:${input.stepId}:attempt:${input.attempt}`,
   }
 }
