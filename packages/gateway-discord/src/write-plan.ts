@@ -134,13 +134,23 @@ export function buildFinalDeliveryFrame(input: {
             : '❌ Agent crashed. No reply produced.',
       })
     } else {
+      const details =
+        'details' in degraded && typeof degraded.details === 'object' && degraded.details !== null
+          ? (degraded.details as { errorMessage?: unknown })
+          : undefined
+      const errorMessage =
+        typeof details?.errorMessage === 'string' ? details.errorMessage : undefined
       blocks.push({
         t: 'notice',
         level: 'warn',
         message:
-          degraded.source !== undefined
-            ? `Agent finished without producing a reply (source: ${degraded.source}).`
-            : 'Agent finished without producing a reply.',
+          errorMessage !== undefined
+            ? `Agent finished without producing a reply: ${errorMessage}${
+                degraded.source !== undefined ? ` (source: ${degraded.source})` : ''
+              }.`
+            : degraded.source !== undefined
+              ? `Agent finished without producing a reply (source: ${degraded.source}).`
+              : 'Agent finished without producing a reply.',
       })
     }
   } else {

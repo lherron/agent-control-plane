@@ -57,4 +57,35 @@ describe('toCompletedVisibleAssistantMessage launch exit outcomes', () => {
       },
     })
   })
+
+  test('preserves no assistant content error details as a visible degraded outcome', () => {
+    const message = toCompletedVisibleAssistantMessage({
+      type: 'turn_end',
+      payload: {
+        type: 'turn.completed',
+        source: 'codex_app_server',
+        success: false,
+        outcome: {
+          state: 'degraded',
+          reason: 'no_assistant_content',
+          source: 'codex_app_server',
+          details: {
+            errorMessage: 'driver exploded before turn',
+          },
+        },
+      },
+    } as unknown as UnifiedSessionEvent)
+
+    expect(message).toEqual({
+      text: '',
+      outcome: {
+        state: 'degraded',
+        reason: 'no_assistant_content',
+        source: 'codex_app_server',
+        details: {
+          errorMessage: 'driver exploded before turn',
+        },
+      },
+    })
+  })
 })

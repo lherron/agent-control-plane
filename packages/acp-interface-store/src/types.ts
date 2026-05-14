@@ -15,6 +15,7 @@ export type DeliveryOutcome =
       state: 'degraded'
       reason: 'no_assistant_content'
       source?: string | undefined
+      details?: { errorMessage?: string | undefined } | undefined
     }
   | {
       state: 'degraded'

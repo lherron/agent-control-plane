@@ -15,6 +15,7 @@ export type DeliveryOutcome =
       state: 'degraded'
       reason: 'no_assistant_content'
       source?: 'launch_exit_synthesized' | 'codex_app_server' | 'codex_jsonl' | string | undefined
+      details?: { errorMessage?: string | undefined } | undefined
     }
   | {
       state: 'degraded'

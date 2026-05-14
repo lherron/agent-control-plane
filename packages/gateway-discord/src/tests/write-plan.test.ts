@@ -206,6 +206,26 @@ describe('Discord write planner', () => {
     expect(content).toContain('launch_exit_synthesized')
   })
 
+  test('degraded no_assistant_content renders error details when present', () => {
+    const plan = planFinalDeliveryWrite({
+      delivery: delivery('', {
+        state: 'degraded',
+        reason: 'no_assistant_content',
+        source: 'codex_app_server',
+        details: {
+          errorMessage: 'driver exploded before turn',
+        },
+      }),
+      identity,
+      maxChars: 2000,
+    })
+
+    const content = plan.chunks.join('\n')
+    expect(content).toContain(
+      'Agent finished without producing a reply: driver exploded before turn'
+    )
+  })
+
   test('degraded launch_signalled renders a cancellation notice with signal metadata', () => {
     const plan = planFinalDeliveryWrite({
       delivery: delivery('', {

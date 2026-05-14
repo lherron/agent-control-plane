@@ -5,7 +5,12 @@ export interface CompletedVisibleAssistantMessage {
   text: string
   outcome?:
     | { state: 'normal' }
-    | { state: 'degraded'; reason: 'no_assistant_content'; source?: string | undefined }
+    | {
+        state: 'degraded'
+        reason: 'no_assistant_content'
+        source?: string | undefined
+        details?: { errorMessage?: string | undefined } | undefined
+      }
     | { state: 'degraded'; reason: 'launch_signalled'; source?: string | undefined; signal: string }
     | { state: 'degraded'; reason: 'launch_failed'; source?: string | undefined; exitCode: number }
     | undefined
@@ -79,10 +84,14 @@ function extractDegradedOutcome(payload: unknown): DegradedOutcome | undefined {
     }
 
     if (reason === 'no_assistant_content') {
+      const details = isRecord(outcome['details']) ? outcome['details'] : undefined
+      const errorMessage =
+        typeof details?.['errorMessage'] === 'string' ? details['errorMessage'] : undefined
       return {
         state: 'degraded',
         reason: 'no_assistant_content',
         ...(outcomeSource !== undefined ? { source: outcomeSource } : {}),
+        ...(errorMessage !== undefined ? { details: { errorMessage } } : {}),
       }
     }
   }

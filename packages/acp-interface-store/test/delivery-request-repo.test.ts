@@ -178,4 +178,41 @@ describe('DeliveryRequestRepo', () => {
       })
     })
   })
+
+  test('round-trips no assistant content error details through queued delivery storage', () => {
+    withInterfaceStore(({ store }) => {
+      store.deliveries.enqueue({
+        deliveryRequestId: 'dr-no-assistant-content',
+        gatewayId: 'discord_prod',
+        bindingId: 'bind-1',
+        scopeRef: 'scope:project',
+        laneRef: 'main',
+        runId: 'run-no-assistant-content',
+        conversationRef: 'channel:123',
+        bodyKind: 'text/markdown',
+        bodyText: '',
+        outcome: {
+          state: 'degraded',
+          reason: 'no_assistant_content',
+          source: 'codex_app_server',
+          details: {
+            errorMessage: 'driver exploded before turn',
+          },
+        },
+        createdAt: '2026-04-20T15:32:00.000Z',
+      })
+
+      const expectedOutcome = {
+        state: 'degraded',
+        reason: 'no_assistant_content',
+        source: 'codex_app_server',
+        details: {
+          errorMessage: 'driver exploded before turn',
+        },
+      }
+
+      expect(store.deliveries.get('dr-no-assistant-content')?.outcome).toEqual(expectedOutcome)
+      expect(store.deliveries.leaseNext('discord_prod')?.outcome).toEqual(expectedOutcome)
+    })
+  })
 })

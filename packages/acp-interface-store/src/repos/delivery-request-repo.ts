@@ -106,6 +106,9 @@ function mapDeliveryOutcome(row: DeliveryRequestRow): Pick<DeliveryRequest, 'out
   }
 
   if (row.outcome_state === 'degraded' && row.outcome_reason === 'no_assistant_content') {
+    const details = parseOutcomeDetails(row.outcome_details_json)
+    const errorMessage =
+      typeof details?.['errorMessage'] === 'string' ? details['errorMessage'] : undefined
     return {
       outcome: {
         state: 'degraded',
@@ -113,6 +116,7 @@ function mapDeliveryOutcome(row: DeliveryRequestRow): Pick<DeliveryRequest, 'out
         ...(toOptionalString(row.outcome_source) !== undefined
           ? { source: toOptionalString(row.outcome_source) }
           : {}),
+        ...(errorMessage !== undefined ? { details: { errorMessage } } : {}),
       },
     }
   }
@@ -170,6 +174,9 @@ function serializeOutcomeDetails(outcome: EnqueueDeliveryRequestInput['outcome']
   }
   if ('exitCode' in outcome && outcome.exitCode !== undefined) {
     details['exitCode'] = outcome.exitCode
+  }
+  if (outcome.reason === 'no_assistant_content' && outcome.details?.errorMessage !== undefined) {
+    details['errorMessage'] = outcome.details.errorMessage
   }
 
   return Object.keys(details).length > 0 ? JSON.stringify(details) : null
