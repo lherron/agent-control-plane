@@ -1,3 +1,4 @@
+import { Database } from 'bun:sqlite'
 import type { InterfaceStore } from 'acp-interface-store'
 import { normalizeSessionRef } from 'agent-scope'
 import type { UnifiedSessionEvent } from 'spaces-runtime'
@@ -115,7 +116,7 @@ export function createInterfaceRunDispatcher(
       const hrcStatus = readRunStatus(hrcDbPath, run.hrcRunId)
       if (hrcStatus === undefined) {
         // HRC run not found or not terminal yet — check for stale timeout
-        if (isStale(run, config.staleTimeoutMs)) {
+        if (isStale(run, config.staleTimeoutMs, hrcDbPath)) {
           runFailed = true
           errorCode = 'turn_timeout'
           errorMessage = `Run exceeded stale timeout (${Math.round(config.staleTimeoutMs / 1000)}s) with no HRC completion`
@@ -132,7 +133,7 @@ export function createInterfaceRunDispatcher(
           hrcStatus.errorMessage ?? `HRC run ${run.hrcRunId} ended with status: ${hrcStatus.status}`
       } else {
         // Not terminal yet — check stale
-        if (isStale(run, config.staleTimeoutMs)) {
+        if (isStale(run, config.staleTimeoutMs, hrcDbPath)) {
           runFailed = true
           errorCode = 'turn_timeout'
           errorMessage = `Run exceeded stale timeout (${Math.round(config.staleTimeoutMs / 1000)}s) with no HRC completion`
@@ -153,7 +154,7 @@ export function createInterfaceRunDispatcher(
 
       if (assistantMessage === undefined) {
         // No assistant message yet — check stale timeout
-        if (isStale(run, config.staleTimeoutMs)) {
+        if (isStale(run, config.staleTimeoutMs, hrcDbPath)) {
           runFailed = true
           errorCode = 'turn_timeout'
           errorMessage = `Run exceeded stale timeout (${Math.round(config.staleTimeoutMs / 1000)}s) with no assistant response`
@@ -162,7 +163,7 @@ export function createInterfaceRunDispatcher(
       }
     } else {
       // No correlation data — likely dispatch failed before persisting. Check stale.
-      if (isStale(run, config.staleTimeoutMs)) {
+      if (isStale(run, config.staleTimeoutMs, hrcDbPath)) {
         runFailed = true
         errorCode = 'turn_timeout'
         errorMessage = 'Run has no HRC correlation and exceeded stale timeout'
@@ -390,9 +391,115 @@ export function createInterfaceRunDispatcher(
   return { start, stop, runOnce }
 }
 
-function isStale(run: StoredRun, staleTimeoutMs: number): boolean {
-  const updatedAt = new Date(run.updatedAt).getTime()
-  return Date.now() - updatedAt > staleTimeoutMs
+function isStale(run: StoredRun, staleTimeoutMs: number, hrcDbPath?: string): boolean {
+  const activityAt =
+    hrcDbPath === undefined
+      ? parseTimestampMs(run.updatedAt, Date.now())
+      : lastObservedActivityMs(run, hrcDbPath)
+  return Date.now() - activityAt > staleTimeoutMs
+}
+
+export function lastObservedActivityMs(run: StoredRun, hrcDbPath: string): number {
+  const now = Date.now()
+  const runUpdatedAt = parseTimestampMs(run.updatedAt, now)
+
+  if (run.status === 'pending' && run.hrcRunId === undefined) {
+    return runUpdatedAt
+  }
+
+  const hrcEventAt = readLastCorrelatedHrcEventMs(run, hrcDbPath, now)
+  return hrcEventAt === undefined ? runUpdatedAt : Math.max(runUpdatedAt, hrcEventAt)
+}
+
+function readLastCorrelatedHrcEventMs(
+  run: StoredRun,
+  hrcDbPath: string,
+  now: number
+): number | undefined {
+  const correlation = buildHrcActivityQuery(run)
+  if (correlation === undefined) {
+    return undefined
+  }
+
+  const db = new Database(hrcDbPath, { readonly: true })
+  try {
+    const row = db
+      .query<{ ts: string }, Array<string | number>>(correlation.sql)
+      .get(...correlation.params)
+    if (row === null || row === undefined) {
+      return undefined
+    }
+
+    const parsed = Date.parse(row.ts)
+    if (!Number.isFinite(parsed)) {
+      return undefined
+    }
+
+    return Math.min(parsed, now)
+  } catch {
+    return undefined
+  } finally {
+    db.close()
+  }
+}
+
+function buildHrcActivityQuery(
+  run: StoredRun
+): { sql: string; params: Array<string | number> } | undefined {
+  if (run.hrcRunId !== undefined) {
+    const clauses = ['run_id = ?']
+    const params: Array<string | number> = [run.hrcRunId]
+
+    if (run.hostSessionId !== undefined) {
+      clauses.push('host_session_id = ?')
+      params.push(run.hostSessionId)
+    }
+
+    if (run.generation !== undefined) {
+      clauses.push('generation = ?')
+      params.push(run.generation)
+    }
+
+    return {
+      sql: `SELECT ts
+        FROM hrc_events
+        WHERE ${clauses.join(' AND ')}
+        ORDER BY hrc_seq DESC
+        LIMIT 1`,
+      params,
+    }
+  }
+
+  if (run.hostSessionId === undefined) {
+    return undefined
+  }
+
+  const clauses = ['host_session_id = ?', 'scope_ref = ?', 'lane_ref = ?', 'hrc_seq > ?']
+  const params: Array<string | number> = [
+    run.hostSessionId,
+    run.scopeRef,
+    run.laneRef,
+    run.afterHrcSeq ?? 0,
+  ]
+
+  if (run.generation !== undefined) {
+    clauses.push('generation = ?')
+    params.push(run.generation)
+  }
+
+  return {
+    sql: `SELECT ts
+      FROM hrc_events
+      WHERE ${clauses.join(' AND ')}
+      ORDER BY hrc_seq DESC
+      LIMIT 1`,
+    params,
+  }
+}
+
+function parseTimestampMs(value: string, fallback: number): number {
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : fallback
 }
 
 function readInterfaceRunSource(run: StoredRun): InterfaceRunSource | undefined {
