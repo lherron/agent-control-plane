@@ -112,20 +112,37 @@ export function buildFinalDeliveryFrame(input: {
     )
   }
 
-  const degraded =
-    delivery.outcome?.state === 'degraded' && delivery.outcome.reason === 'no_assistant_content'
-      ? delivery.outcome
-      : undefined
+  const degraded = delivery.outcome?.state === 'degraded' ? delivery.outcome : undefined
 
   if (degraded) {
-    blocks.push({
-      t: 'notice',
-      level: 'warn',
-      message:
-        degraded.source !== undefined
-          ? `Agent finished without producing a reply (source: ${degraded.source}).`
-          : 'Agent finished without producing a reply.',
-    })
+    if (degraded.reason === 'launch_signalled') {
+      const signal = 'signal' in degraded ? (degraded as { signal?: string }).signal : undefined
+      blocks.push({
+        t: 'markdown',
+        md: signal
+          ? `⏹ Run was cancelled or interrupted (signal: ${signal}).`
+          : '⏹ Run was cancelled or interrupted.',
+      })
+    } else if (degraded.reason === 'launch_failed') {
+      const exitCode =
+        'exitCode' in degraded ? (degraded as { exitCode?: number }).exitCode : undefined
+      blocks.push({
+        t: 'markdown',
+        md:
+          exitCode !== undefined
+            ? `❌ Agent crashed (exit code ${exitCode}). No reply produced.`
+            : '❌ Agent crashed. No reply produced.',
+      })
+    } else {
+      blocks.push({
+        t: 'notice',
+        level: 'warn',
+        message:
+          degraded.source !== undefined
+            ? `Agent finished without producing a reply (source: ${degraded.source}).`
+            : 'Agent finished without producing a reply.',
+      })
+    }
   } else {
     const deliveryText = delivery.body.text
     if (run === undefined || !deliveryDuplicatesLastAssistantSegment(deliveryText, run)) {

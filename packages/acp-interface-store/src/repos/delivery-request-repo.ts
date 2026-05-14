@@ -34,6 +34,7 @@ type DeliveryRequestRow = {
   outcome_state: string | null
   outcome_reason: string | null
   outcome_source: string | null
+  outcome_details_json: string | null
   status: DeliveryRequest['status']
   created_at: string
   delivered_at: string | null
@@ -76,6 +77,34 @@ function mapDeliveryRequestRow(row: DeliveryRequestRow): DeliveryRequest {
 }
 
 function mapDeliveryOutcome(row: DeliveryRequestRow): Pick<DeliveryRequest, 'outcome'> {
+  if (row.outcome_state === 'degraded' && row.outcome_reason === 'launch_signalled') {
+    const details = parseOutcomeDetails(row.outcome_details_json)
+    return {
+      outcome: {
+        state: 'degraded',
+        reason: 'launch_signalled',
+        ...(toOptionalString(row.outcome_source) !== undefined
+          ? { source: toOptionalString(row.outcome_source) }
+          : {}),
+        signal: (details?.['signal'] as string) ?? 'UNKNOWN',
+      },
+    }
+  }
+
+  if (row.outcome_state === 'degraded' && row.outcome_reason === 'launch_failed') {
+    const details = parseOutcomeDetails(row.outcome_details_json)
+    return {
+      outcome: {
+        state: 'degraded',
+        reason: 'launch_failed',
+        ...(toOptionalString(row.outcome_source) !== undefined
+          ? { source: toOptionalString(row.outcome_source) }
+          : {}),
+        exitCode: (details?.['exitCode'] as number) ?? 1,
+      },
+    }
+  }
+
   if (row.outcome_state === 'degraded' && row.outcome_reason === 'no_assistant_content') {
     return {
       outcome: {
@@ -93,6 +122,17 @@ function mapDeliveryOutcome(row: DeliveryRequestRow): Pick<DeliveryRequest, 'out
   }
 
   return {}
+}
+
+function parseOutcomeDetails(json: string | null): Record<string, unknown> | undefined {
+  if (json === null || json.trim().length === 0) {
+    return undefined
+  }
+  try {
+    return JSON.parse(json) as Record<string, unknown>
+  } catch {
+    return undefined
+  }
 }
 
 function parseBodyAttachments(
@@ -117,6 +157,22 @@ function serializeBodyAttachments(attachments: AttachmentRef[] | undefined): str
   }
 
   return JSON.stringify(attachments)
+}
+
+function serializeOutcomeDetails(outcome: EnqueueDeliveryRequestInput['outcome']): string | null {
+  if (outcome === undefined || outcome.state !== 'degraded') {
+    return null
+  }
+
+  const details: Record<string, unknown> = {}
+  if ('signal' in outcome && outcome.signal !== undefined) {
+    details['signal'] = outcome.signal
+  }
+  if ('exitCode' in outcome && outcome.exitCode !== undefined) {
+    details['exitCode'] = outcome.exitCode
+  }
+
+  return Object.keys(details).length > 0 ? JSON.stringify(details) : null
 }
 
 export class DeliveryRequestRepo {
@@ -147,12 +203,13 @@ export class DeliveryRequestRepo {
            outcome_state,
            outcome_reason,
            outcome_source,
+           outcome_details_json,
            status,
            created_at,
            delivered_at,
            failure_code,
            failure_message
-         ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)`
+         ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)`
       )
       .run(
         input.deliveryRequestId,
@@ -174,6 +231,7 @@ export class DeliveryRequestRepo {
         input.outcome?.state ?? null,
         input.outcome?.state === 'degraded' ? input.outcome.reason : null,
         input.outcome?.state === 'degraded' ? (input.outcome.source ?? null) : null,
+        serializeOutcomeDetails(input.outcome),
         input.createdAt
       )
 
@@ -203,6 +261,7 @@ export class DeliveryRequestRepo {
                 outcome_state,
                 outcome_reason,
                 outcome_source,
+                outcome_details_json,
                 status,
                 created_at,
                 delivered_at,
@@ -321,6 +380,7 @@ export class DeliveryRequestRepo {
                 outcome_state,
                 outcome_reason,
                 outcome_source,
+                outcome_details_json,
                 status,
                 created_at,
                 delivered_at,
@@ -357,6 +417,7 @@ export class DeliveryRequestRepo {
                 outcome_state,
                 outcome_reason,
                 outcome_source,
+                outcome_details_json,
                 status,
                 created_at,
                 delivered_at,
@@ -409,6 +470,7 @@ export class DeliveryRequestRepo {
                 outcome_state,
                 outcome_reason,
                 outcome_source,
+                outcome_details_json,
                 status,
                 created_at,
                 delivered_at,
@@ -463,12 +525,13 @@ export class DeliveryRequestRepo {
              outcome_state,
              outcome_reason,
              outcome_source,
+             outcome_details_json,
              status,
              created_at,
              delivered_at,
              failure_code,
              failure_message
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)`
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)`
         )
         .run(
           requeuedDeliveryRequestId,
@@ -491,6 +554,7 @@ export class DeliveryRequestRepo {
           source.outcome?.state ?? null,
           source.outcome?.state === 'degraded' ? source.outcome.reason : null,
           source.outcome?.state === 'degraded' ? (source.outcome.source ?? null) : null,
+          serializeOutcomeDetails(source.outcome),
           createdAt
         )
 

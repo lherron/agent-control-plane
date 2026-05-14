@@ -209,6 +209,7 @@ function initializeSchema(sqlite: SqliteDatabase): void {
     ['delivery_requests', 'outcome_state TEXT'],
     ['delivery_requests', 'outcome_reason TEXT'],
     ['delivery_requests', 'outcome_source TEXT'],
+    ['delivery_requests', 'outcome_details_json TEXT'],
   ] as const
 
   for (const [table, columnDef] of deliveryOutcomeColumns) {

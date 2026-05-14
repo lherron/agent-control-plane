@@ -16,6 +16,18 @@ export type DeliveryOutcome =
       reason: 'no_assistant_content'
       source?: string | undefined
     }
+  | {
+      state: 'degraded'
+      reason: 'launch_signalled'
+      source?: string | undefined
+      signal: string
+    }
+  | {
+      state: 'degraded'
+      reason: 'launch_failed'
+      source?: string | undefined
+      exitCode: number
+    }
 export type OutboundAttachmentState = 'pending' | 'consumed' | 'delivered' | 'failed'
 
 export type InterfaceBinding = {

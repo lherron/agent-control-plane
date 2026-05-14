@@ -16,6 +16,18 @@ export type DeliveryOutcome =
       reason: 'no_assistant_content'
       source?: 'launch_exit_synthesized' | 'codex_app_server' | 'codex_jsonl' | string | undefined
     }
+  | {
+      state: 'degraded'
+      reason: 'launch_signalled'
+      source?: string | undefined
+      signal: string
+    }
+  | {
+      state: 'degraded'
+      reason: 'launch_failed'
+      source?: string | undefined
+      exitCode: number
+    }
 
 export interface DeliveryFailure {
   code: string

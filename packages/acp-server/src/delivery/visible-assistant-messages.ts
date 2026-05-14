@@ -6,6 +6,8 @@ export interface CompletedVisibleAssistantMessage {
   outcome?:
     | { state: 'normal' }
     | { state: 'degraded'; reason: 'no_assistant_content'; source?: string | undefined }
+    | { state: 'degraded'; reason: 'launch_signalled'; source?: string | undefined; signal: string }
+    | { state: 'degraded'; reason: 'launch_failed'; source?: string | undefined; exitCode: number }
     | undefined
 }
 
@@ -13,7 +15,7 @@ export function toCompletedVisibleAssistantMessage(
   event: UnifiedSessionEvent
 ): CompletedVisibleAssistantMessage | undefined {
   if (event.type === 'turn_end') {
-    const degraded = extractNoAssistantContentOutcome(event.payload)
+    const degraded = extractDegradedOutcome(event.payload)
     if (degraded !== undefined) {
       return { text: '', outcome: degraded }
     }
@@ -46,11 +48,43 @@ export function toCompletedVisibleAssistantMessage(
   }
 }
 
-function extractNoAssistantContentOutcome(
-  payload: unknown
-): { state: 'degraded'; reason: 'no_assistant_content'; source?: string | undefined } | undefined {
+type DegradedOutcome = NonNullable<CompletedVisibleAssistantMessage['outcome']>
+
+function extractDegradedOutcome(payload: unknown): DegradedOutcome | undefined {
   if (!isRecord(payload)) {
     return undefined
+  }
+
+  const outcome = payload['outcome']
+  if (isRecord(outcome) && outcome['state'] === 'degraded') {
+    const reason = outcome['reason']
+    const outcomeSource = typeof outcome['source'] === 'string' ? outcome['source'] : undefined
+
+    if (reason === 'launch_signalled' && typeof outcome['signal'] === 'string') {
+      return {
+        state: 'degraded',
+        reason: 'launch_signalled',
+        ...(outcomeSource !== undefined ? { source: outcomeSource } : {}),
+        signal: outcome['signal'],
+      }
+    }
+
+    if (reason === 'launch_failed' && typeof outcome['exitCode'] === 'number') {
+      return {
+        state: 'degraded',
+        reason: 'launch_failed',
+        ...(outcomeSource !== undefined ? { source: outcomeSource } : {}),
+        exitCode: outcome['exitCode'],
+      }
+    }
+
+    if (reason === 'no_assistant_content') {
+      return {
+        state: 'degraded',
+        reason: 'no_assistant_content',
+        ...(outcomeSource !== undefined ? { source: outcomeSource } : {}),
+      }
+    }
   }
 
   const source = payload['source']
@@ -71,20 +105,6 @@ function extractNoAssistantContentOutcome(
 
   if (hasFinalOutput || hasAssistantMessage) {
     return undefined
-  }
-
-  const outcome = payload['outcome']
-  if (isRecord(outcome)) {
-    const state = outcome['state']
-    const reason = outcome['reason']
-    if (state === 'degraded' && reason === 'no_assistant_content') {
-      const source = typeof outcome['source'] === 'string' ? outcome['source'] : undefined
-      return {
-        state: 'degraded',
-        reason: 'no_assistant_content',
-        ...(source !== undefined ? { source } : {}),
-      }
-    }
   }
 
   if (isNoAssistantContentSource(source)) {
