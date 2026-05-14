@@ -148,7 +148,27 @@ describe('GAP 1: placement metadata persistence', () => {
     }
   })
 
-  test('project create persists rootDir', () => {
+  test('project create persists homeDir and rootDir aliases', () => {
+    const store = createInMemoryAdminStore()
+    try {
+      const project = store.projects.create({
+        projectId: 'agent-spaces',
+        displayName: 'Agent Spaces',
+        homeDir: '/Users/dev/agent-spaces',
+        actor: ACTOR,
+        now: '2026-04-23T10:00:00.000Z',
+      })
+
+      expect(project.homeDir).toBe('/Users/dev/agent-spaces')
+      expect(project.rootDir).toBe('/Users/dev/agent-spaces')
+      expect(store.projects.get('agent-spaces')?.homeDir).toBe('/Users/dev/agent-spaces')
+      expect(store.projects.get('agent-spaces')?.rootDir).toBe('/Users/dev/agent-spaces')
+    } finally {
+      store.close()
+    }
+  })
+
+  test('project create accepts legacy rootDir', () => {
     const store = createInMemoryAdminStore()
     try {
       const project = store.projects.create({
@@ -159,8 +179,8 @@ describe('GAP 1: placement metadata persistence', () => {
         now: '2026-04-23T10:00:00.000Z',
       })
 
+      expect(project.homeDir).toBe('/Users/dev/agent-spaces')
       expect(project.rootDir).toBe('/Users/dev/agent-spaces')
-      expect(store.projects.get('agent-spaces')?.rootDir).toBe('/Users/dev/agent-spaces')
     } finally {
       store.close()
     }
@@ -176,6 +196,7 @@ describe('GAP 1: placement metadata persistence', () => {
         now: '2026-04-23T10:00:00.000Z',
       })
 
+      expect(project.homeDir).toBeUndefined()
       expect(project.rootDir).toBeUndefined()
     } finally {
       store.close()
@@ -194,6 +215,41 @@ describe('GAP 1: placement metadata persistence', () => {
           now: '2026-04-23T10:00:00.000Z',
         })
       ).toThrow('rootDir must not be empty')
+    } finally {
+      store.close()
+    }
+  })
+
+  test('project create rejects empty homeDir', () => {
+    const store = createInMemoryAdminStore()
+    try {
+      expect(() =>
+        store.projects.create({
+          projectId: 'bad',
+          displayName: 'Bad',
+          homeDir: '',
+          actor: ACTOR,
+          now: '2026-04-23T10:00:00.000Z',
+        })
+      ).toThrow('homeDir must not be empty')
+    } finally {
+      store.close()
+    }
+  })
+
+  test('project create rejects mismatched homeDir and rootDir', () => {
+    const store = createInMemoryAdminStore()
+    try {
+      expect(() =>
+        store.projects.create({
+          projectId: 'bad',
+          displayName: 'Bad',
+          homeDir: '/home/project',
+          rootDir: '/root/project',
+          actor: ACTOR,
+          now: '2026-04-23T10:00:00.000Z',
+        })
+      ).toThrow('homeDir and rootDir must match')
     } finally {
       store.close()
     }
@@ -224,7 +280,7 @@ describe('GAP 1: placement metadata persistence', () => {
     }
   })
 
-  test('rootDir appears in projects list', () => {
+  test('homeDir and rootDir appear in projects list', () => {
     const store = createInMemoryAdminStore()
     try {
       store.projects.create({
@@ -242,7 +298,9 @@ describe('GAP 1: placement metadata persistence', () => {
       })
 
       const projects = store.projects.list()
+      expect(projects[0]?.homeDir).toBe('/root/p1')
       expect(projects[0]?.rootDir).toBe('/root/p1')
+      expect(projects[1]?.homeDir).toBeUndefined()
       expect(projects[1]?.rootDir).toBeUndefined()
     } finally {
       store.close()

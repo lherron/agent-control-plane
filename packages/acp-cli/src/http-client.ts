@@ -234,6 +234,7 @@ export interface AcpClient {
     actorAgentId: string
     projectId: string
     displayName: string
+    homeDir?: string | undefined
     rootDir?: string | undefined
   }): Promise<CreateProjectResponse>
   listProjects(): Promise<ListProjectsResponse>
@@ -586,6 +587,7 @@ export function createHttpClient(
         body: {
           projectId: input.projectId,
           displayName: input.displayName,
+          ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
           ...(input.rootDir !== undefined ? { rootDir: input.rootDir } : {}),
           actor: { kind: 'agent', id: input.actorAgentId },
         },

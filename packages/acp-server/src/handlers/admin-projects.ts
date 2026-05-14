@@ -31,12 +31,23 @@ export const handleCreateAdminProject: RouteHandler = async (context) => {
   const body = requireRecord(await parseJsonBody(request))
   const projectId = requireTrimmedStringField(body, 'projectId')
   const displayName = requireTrimmedStringField(body, 'displayName')
+  const homeDir = readOptionalTrimmedStringField(body, 'homeDir')
   const rootDir = readOptionalTrimmedStringField(body, 'rootDir')
+  if (homeDir !== undefined && rootDir !== undefined && homeDir !== rootDir) {
+    badRequest('homeDir and rootDir must match when both are provided', {
+      homeDir,
+      rootDir,
+    })
+  }
   const actor = requireActor(context)
   const existing = deps.adminStore.projects.get(projectId)
 
   if (existing !== undefined) {
-    if (existing.displayName === displayName) {
+    const requestedHomeDir = homeDir ?? rootDir
+    if (
+      existing.displayName === displayName &&
+      (requestedHomeDir === undefined || existing.homeDir === requestedHomeDir)
+    ) {
       return json({ project: existing }, 200)
     }
 
@@ -46,6 +57,7 @@ export const handleCreateAdminProject: RouteHandler = async (context) => {
   const project = deps.adminStore.projects.create({
     projectId,
     displayName,
+    ...(homeDir !== undefined ? { homeDir } : {}),
     ...(rootDir !== undefined ? { rootDir } : {}),
     actor,
     now: new Date().toISOString(),

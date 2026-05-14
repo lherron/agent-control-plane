@@ -452,6 +452,7 @@ function addGovernanceCommands(program: Command, deps: CommandDependencies): voi
   common(project.command('create').description('create one project'))
     .requiredOption('--project <projectId>')
     .requiredOption('--display-name <name>')
+    .option('--home-dir <path>')
     .option('--root-dir <path>')
     .action(runLeaf(deps, ['create'], runProjectCommand))
   common(project.command('list').description('list projects')).action(

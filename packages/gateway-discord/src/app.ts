@@ -2,7 +2,18 @@ import { randomUUID } from 'node:crypto'
 
 import type { DeliveryRequest, InputIntent, InterfaceSessionRef } from 'acp-core'
 import { parseScopeRef, validateScopeRef } from 'agent-scope'
-import { Client, Events, GatewayIntentBits, type Message, MessageType } from 'discord.js'
+import {
+  Client,
+  Events,
+  GatewayIntentBits,
+  type Message,
+  type MessageReaction,
+  MessageType,
+  type PartialMessageReaction,
+  type PartialUser,
+  Partials,
+  type User,
+} from 'discord.js'
 
 import { mapDiscordMessageAttachments, resolveDiscordIngressContent } from './attachment-ingress.js'
 import { createDiscordAttachments, fetchMediaAttachments } from './attachments.js'
@@ -65,6 +76,7 @@ const LIVE_SUBSCRIPTION_MAX_RECONNECT_MS = 5000
 // the "<bot> is typing..." UX stays visible the whole time a request is in
 // flight without sending edits to the placeholder bubble.
 const TYPING_REFRESH_MS = 8_000
+const CANCEL_REACTION_NAMES = new Set(['x', 'cancel', '❌', '✖', '✕', '✖️'])
 
 /**
  * Pull a human-readable cause out of the ACP error envelope so we can show it
@@ -131,6 +143,21 @@ function projectIdFromScopeRef(scopeRef: string): string {
 
 function laneIdFromRef(laneRef: string): string {
   return laneRef.startsWith('lane:') ? laneRef.slice('lane:'.length) : laneRef
+}
+
+function isCancelReactionName(name: string | null): boolean {
+  if (name === null) {
+    return false
+  }
+  const normalized = name.trim().toLowerCase()
+  return (
+    CANCEL_REACTION_NAMES.has(normalized) ||
+    CANCEL_REACTION_NAMES.has(stripVariationSelector(normalized))
+  )
+}
+
+function stripVariationSelector(value: string): string {
+  return value.replace(/\uFE0F/g, '')
 }
 
 function canonicalSessionRefString(sessionRef: InterfaceSessionRef): string {
@@ -209,6 +236,9 @@ type PendingPlaceholder = {
   disableTimer?: ReturnType<typeof setTimeout> | undefined
   pendingFrame?: RenderFrame | undefined
   pendingRun?: RunState | undefined
+  cancelRequested?: boolean | undefined
+  cancelDispatching?: boolean | undefined
+  cancelActorId?: string | undefined
   editDisabled: boolean
   webhookGone: boolean
   lastSuccessfulEditAt: number
@@ -222,6 +252,9 @@ type LiveSubscription = {
   lastHrcSeq: number
   reconnectDelayMs: number
 }
+
+type DiscordReactionUser = User | PartialUser
+type DiscordReaction = MessageReaction | PartialMessageReaction
 
 type IngressRoute = KeywordRoute
 
@@ -308,8 +341,13 @@ export class GatewayDiscordApp {
   private readonly pendingPlaceholdersBySessionRef = new Map<string, PendingPlaceholder[]>()
   private readonly sessionEventsManager: SessionEventsManager
   private readonly keywordRoutesByMessageId = new Map<string, IngressRoute>()
+  private readonly activePlaceholdersByMessageId = new Map<string, PendingPlaceholder>()
   private readonly createdClient: boolean
   private readonly onMessageCreateBound: (message: Message) => Promise<void>
+  private readonly onMessageReactionAddBound: (
+    reaction: DiscordReaction,
+    user: DiscordReactionUser
+  ) => Promise<void>
   private readonly webhooks: ReturnType<typeof createWebhookManager>
 
   private bindingsTimer: ReturnType<typeof setInterval> | undefined
@@ -326,8 +364,10 @@ export class GatewayDiscordApp {
         intents: [
           GatewayIntentBits.Guilds,
           GatewayIntentBits.GuildMessages,
+          GatewayIntentBits.GuildMessageReactions,
           GatewayIntentBits.MessageContent,
         ],
+        partials: [Partials.Message, Partials.Channel, Partials.Reaction, Partials.User],
       })
     this.fetchImpl = options.fetchImpl ?? fetch
     this.maxChars = options.maxChars ?? DEFAULT_MAX_CHARS
@@ -360,11 +400,23 @@ export class GatewayDiscordApp {
         })
       }
     }
+    this.onMessageReactionAddBound = async (reaction, user) => {
+      try {
+        await this.handleMessageReactionAdd(reaction, user)
+      } catch (error) {
+        log.error('gw.messageReactionAdd.failed', {
+          message: 'handleMessageReactionAdd threw; keeping gateway alive',
+          trace: { gatewayId: this.gatewayId },
+          err: { message: error instanceof Error ? error.message : String(error) },
+        })
+      }
+    }
   }
 
   async start(): Promise<void> {
     await this.refreshBindings()
     this.client.on(Events.MessageCreate, this.onMessageCreateBound)
+    this.client.on(Events.MessageReactionAdd, this.onMessageReactionAddBound)
 
     if (this.createdClient) {
       this.client.once(Events.ClientReady, () => {
@@ -406,6 +458,7 @@ export class GatewayDiscordApp {
     }
     this.placeholdersByRunId.clear()
     this.pendingPlaceholdersBySessionRef.clear()
+    this.activePlaceholdersByMessageId.clear()
     if (this.bindingsTimer) {
       clearInterval(this.bindingsTimer)
       this.bindingsTimer = undefined
@@ -417,9 +470,46 @@ export class GatewayDiscordApp {
     }
 
     this.client.off(Events.MessageCreate, this.onMessageCreateBound)
+    this.client.off(Events.MessageReactionAdd, this.onMessageReactionAddBound)
     if (this.createdClient) {
       this.client.destroy()
     }
+  }
+
+  async handleMessageReactionAdd(
+    reaction: DiscordReaction,
+    user: DiscordReactionUser
+  ): Promise<void> {
+    const actor = await this.resolveReactionUser(user)
+    if (actor === undefined) {
+      return
+    }
+    if (actor.bot && actor.id !== VIRTU_BOT_ID) {
+      return
+    }
+
+    const resolvedReaction = await this.resolveReaction(reaction)
+    if (resolvedReaction === undefined || !isCancelReactionName(resolvedReaction.emoji.name)) {
+      return
+    }
+
+    const placeholder = this.activePlaceholdersByMessageId.get(resolvedReaction.message.id)
+    if (placeholder === undefined) {
+      return
+    }
+
+    if (placeholder.acpRunId === undefined) {
+      placeholder.cancelRequested = true
+      placeholder.cancelActorId = actor?.id
+      log.info('gw.discord.cancel_reaction.deferred', {
+        message: 'Cancel reaction recorded before ACP run id was available',
+        trace: { gatewayId: this.gatewayId, projectId: placeholder.projectId },
+        data: { messageId: placeholder.ui.id, sessionRef: placeholder.sessionRef },
+      })
+      return
+    }
+
+    await this.cancelPlaceholderRun(placeholder, actor?.id)
   }
 
   async refreshBindings(): Promise<DiscordInterfaceBinding[]> {
@@ -605,6 +695,9 @@ export class GatewayDiscordApp {
         pendingPlaceholder.acpRunId = payload.runId
         await this.refreshPendingPlaceholderCorrelation(pendingPlaceholder)
         this.placeholdersByRunId.set(payload.runId, pendingPlaceholder)
+        if (pendingPlaceholder.cancelRequested === true) {
+          await this.cancelPlaceholderRun(pendingPlaceholder, pendingPlaceholder.cancelActorId)
+        }
       } else if (
         payload.admission?.kind === 'accepted_in_flight' ||
         payload.admission?.kind === 'admission_pending'
@@ -628,6 +721,79 @@ export class GatewayDiscordApp {
 
   private async shouldSteerInput(sessionRef: InterfaceSessionRef): Promise<boolean> {
     return this.resolveSteeringAvailability(sessionRef)
+  }
+
+  private async resolveReaction(reaction: DiscordReaction): Promise<MessageReaction | undefined> {
+    if (
+      reaction.partial === true &&
+      typeof (reaction as { fetch?: unknown }).fetch === 'function'
+    ) {
+      try {
+        return await reaction.fetch()
+      } catch (error) {
+        log.warn('gw.discord.reaction.fetch_failed', {
+          message: 'Could not fetch partial Discord reaction',
+          trace: { gatewayId: this.gatewayId },
+          err: { message: error instanceof Error ? error.message : String(error) },
+        })
+        return undefined
+      }
+    }
+
+    return reaction as MessageReaction
+  }
+
+  private async resolveReactionUser(user: DiscordReactionUser): Promise<User | undefined> {
+    if (user.partial === true && typeof (user as { fetch?: unknown }).fetch === 'function') {
+      try {
+        return await user.fetch()
+      } catch (error) {
+        log.warn('gw.discord.reaction_user.fetch_failed', {
+          message: 'Could not fetch partial Discord reaction user',
+          trace: { gatewayId: this.gatewayId },
+          err: { message: error instanceof Error ? error.message : String(error) },
+        })
+        return undefined
+      }
+    }
+
+    return user as User
+  }
+
+  private async cancelPlaceholderRun(
+    placeholder: PendingPlaceholder,
+    actorId: string | undefined
+  ): Promise<void> {
+    const runId = placeholder.acpRunId
+    if (runId === undefined || placeholder.cancelDispatching === true) {
+      return
+    }
+
+    placeholder.cancelRequested = true
+    placeholder.cancelActorId = actorId
+    placeholder.cancelDispatching = true
+    try {
+      await this.postJson(`/v1/runs/${encodeURIComponent(runId)}/cancel`, {})
+    } catch (error) {
+      placeholder.cancelDispatching = false
+      throw error
+    }
+
+    log.info('gw.discord.cancel_reaction.applied', {
+      message: 'Discord cancel reaction cancelled active run',
+      trace: { gatewayId: this.gatewayId, projectId: placeholder.projectId, runId },
+      data: {
+        actorRef: actorId !== undefined ? `discord:user:${actorId}` : undefined,
+        messageId: placeholder.ui.id,
+        sessionRef: placeholder.sessionRef,
+      },
+    })
+
+    await this.noticePlaceholder(
+      placeholder.ui,
+      `🛑 **Cancel requested:** ${placeholder.promptPreview ?? runId}`
+    )
+    this.removePendingPlaceholder(placeholder, 'cancel_reaction')
   }
 
   private async resolveSteeringAvailability(sessionRef: InterfaceSessionRef): Promise<boolean> {
@@ -1151,6 +1317,7 @@ export class GatewayDiscordApp {
     const list = this.pendingPlaceholdersBySessionRef.get(sessionRef) ?? []
     list.push(pending)
     this.pendingPlaceholdersBySessionRef.set(sessionRef, list)
+    this.activePlaceholdersByMessageId.set(input.placeholder.id, pending)
     this.ensureLiveSubscriptionForSessionRef(sessionRef, input.projectId)
 
     const typingTargetId = input.placeholder.threadId ?? input.placeholder.channelId
@@ -1325,6 +1492,7 @@ export class GatewayDiscordApp {
     if (placeholder.acpRunId !== undefined) {
       this.placeholdersByRunId.delete(placeholder.acpRunId)
     }
+    this.activePlaceholdersByMessageId.delete(placeholder.ui.id)
 
     if (placeholder.claimedHrcRunId !== undefined) {
       this.liveSubscriptionsBySessionRef

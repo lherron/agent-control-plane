@@ -126,6 +126,7 @@ export interface AgentsStore {
 export interface CreateProjectInput {
   projectId: string
   displayName: string
+  homeDir?: string | undefined
   rootDir?: string | undefined
   actor: Actor
   now: string
@@ -411,6 +412,10 @@ function maybeRootDir(value: string | null): { rootDir: string } | undefined {
   return value === null ? undefined : { rootDir: value }
 }
 
+function maybeProjectHomeDir(value: string | null): { homeDir: string } | undefined {
+  return value === null ? undefined : { homeDir: value }
+}
+
 function maybeLinkedAgentId(value: string | null): { linkedAgentId: string } | undefined {
   return value === null ? undefined : { linkedAgentId: value }
 }
@@ -435,6 +440,7 @@ function toAdminProject(row: ProjectRow): AdminProject {
     projectId: row.project_id,
     displayName: row.display_name,
     ...(maybeDefaultAgentId(row.default_agent_id) ?? {}),
+    ...(maybeProjectHomeDir(row.root_dir) ?? {}),
     ...(maybeRootDir(row.root_dir) ?? {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -603,7 +609,12 @@ function createAgentsStore(sqlite: SqliteDatabase): AgentsStore {
 function createProjectsStore(sqlite: SqliteDatabase): ProjectsStore {
   return {
     create(input) {
+      const homeDir = validateOptionalPath(input.homeDir, 'homeDir')
       const rootDir = validateOptionalPath(input.rootDir, 'rootDir')
+      if (homeDir !== null && rootDir !== null && homeDir !== rootDir) {
+        throw new Error('homeDir and rootDir must match when both are provided')
+      }
+      const projectDir = homeDir ?? rootDir
       const existing = this.get(input.projectId)
       if (existing !== undefined) {
         if (
@@ -631,7 +642,7 @@ function createProjectsStore(sqlite: SqliteDatabase): ProjectsStore {
         .run(
           input.projectId,
           input.displayName,
-          rootDir,
+          projectDir,
           input.now,
           input.now,
           serializeMutableActorStamp(input.actor, input.actor)

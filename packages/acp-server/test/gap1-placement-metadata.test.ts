@@ -80,7 +80,30 @@ describe('GAP 1: placement metadata HTTP endpoints', () => {
     })
   })
 
-  test('POST /v1/admin/projects with rootDir persists and returns it', async () => {
+  test('POST /v1/admin/projects with homeDir persists and returns homeDir/rootDir aliases', async () => {
+    await withWiredServer(async (fixture) => {
+      const response = await fixture.request({
+        method: 'POST',
+        path: '/v1/admin/projects',
+        body: {
+          projectId: 'agent-spaces',
+          displayName: 'Agent Spaces',
+          homeDir: '/Users/dev/agent-spaces',
+          actor: { kind: 'agent', id: 'operator' },
+        },
+      })
+
+      expect(response.status).toBe(201)
+      const result = await fixture.json<{
+        project: { projectId: string; homeDir: string; rootDir: string }
+      }>(response)
+      expect(result.project.projectId).toBe('agent-spaces')
+      expect(result.project.homeDir).toBe('/Users/dev/agent-spaces')
+      expect(result.project.rootDir).toBe('/Users/dev/agent-spaces')
+    })
+  })
+
+  test('POST /v1/admin/projects still accepts legacy rootDir', async () => {
     await withWiredServer(async (fixture) => {
       const response = await fixture.request({
         method: 'POST',
@@ -95,14 +118,14 @@ describe('GAP 1: placement metadata HTTP endpoints', () => {
 
       expect(response.status).toBe(201)
       const result = await fixture.json<{
-        project: { projectId: string; rootDir: string }
+        project: { homeDir: string; rootDir: string }
       }>(response)
-      expect(result.project.projectId).toBe('agent-spaces')
+      expect(result.project.homeDir).toBe('/Users/dev/agent-spaces')
       expect(result.project.rootDir).toBe('/Users/dev/agent-spaces')
     })
   })
 
-  test('GET /v1/admin/projects/:projectId returns rootDir', async () => {
+  test('GET /v1/admin/projects/:projectId returns homeDir and rootDir', async () => {
     await withWiredServer(async (fixture) => {
       await fixture.request({
         method: 'POST',
@@ -121,8 +144,9 @@ describe('GAP 1: placement metadata HTTP endpoints', () => {
       })
       expect(getResponse.status).toBe(200)
       const result = await fixture.json<{
-        project: { rootDir: string }
+        project: { homeDir: string; rootDir: string }
       }>(getResponse)
+      expect(result.project.homeDir).toBe('/Users/dev/agent-spaces')
       expect(result.project.rootDir).toBe('/Users/dev/agent-spaces')
     })
   })

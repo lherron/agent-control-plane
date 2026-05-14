@@ -35,7 +35,7 @@ export const handleResolveRuntime: RouteHandler = async ({ request, deps }) => {
   let projectRootDir: string | null = null
   if (parsedScope.projectId !== undefined) {
     const project = deps.adminStore.projects.get(parsedScope.projectId)
-    projectRootDir = project?.rootDir ?? null
+    projectRootDir = project?.homeDir ?? project?.rootDir ?? null
   }
 
   return json({

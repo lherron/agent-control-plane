@@ -18,7 +18,14 @@ export async function runProjectCommand(
   if (subcommand === 'create') {
     const parsed = parseArgs(rest, {
       booleanFlags: ['--json'],
-      stringFlags: ['--project', '--display-name', '--root-dir', '--actor', '--server'],
+      stringFlags: [
+        '--project',
+        '--display-name',
+        '--home-dir',
+        '--root-dir',
+        '--actor',
+        '--server',
+      ],
     })
     requireNoPositionals(parsed)
     const actorAgentId = resolveGovernanceActorAgentId(parsed, deps, { requireActor: true })
@@ -28,6 +35,9 @@ export async function runProjectCommand(
       actorAgentId: actorAgentId as string,
       projectId: requireStringFlag(parsed, '--project'),
       displayName: requireStringFlag(parsed, '--display-name'),
+      ...(parsed.stringFlags['--home-dir'] !== undefined
+        ? { homeDir: requireStringFlag(parsed, '--home-dir') }
+        : {}),
       ...(parsed.stringFlags['--root-dir'] !== undefined
         ? { rootDir: requireStringFlag(parsed, '--root-dir') }
         : {}),

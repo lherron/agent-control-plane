@@ -19,6 +19,7 @@ export type AdminProject = {
   projectId: string
   displayName: string
   defaultAgentId?: string | undefined
+  homeDir?: string | undefined
   rootDir?: string | undefined
   createdAt: string
   updatedAt: string

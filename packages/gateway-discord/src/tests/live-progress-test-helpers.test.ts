@@ -145,6 +145,7 @@ export type LiveProgressHarness = {
   channel: FakeChannel
   client: FakeClient
   eventRequests: URL[]
+  cancelledRunIds: string[]
   emit: (event: Record<string, unknown>) => void
   closeEvents: () => void
   enqueueDelivery: (text: string) => void
@@ -164,6 +165,7 @@ export function createRateLimitError(): Error & { status: number; retryAfter: nu
 export function createLiveProgressHarness(
   options: {
     interfaceMessageResponse?: (ingressCount: number) => Record<string, unknown>
+    beforeInterfaceMessageResponse?: () => Promise<void>
   } = {}
 ): LiveProgressHarness {
   const channel = new FakeChannel('chan_live_progress')
@@ -174,6 +176,7 @@ export function createLiveProgressHarness(
   const pendingEvents: string[] = []
   const deliveries: unknown[] = []
   const eventRequests: URL[] = []
+  const cancelledRunIds: string[] = []
   let ingressCount = 0
 
   const enqueue = (line: string) => {
@@ -216,6 +219,7 @@ export function createLiveProgressHarness(
     if (url.pathname === '/v1/interface/messages') {
       expect(request.method).toBe('POST')
       ingressCount += 1
+      await options.beforeInterfaceMessageResponse?.()
       return Response.json(
         options.interfaceMessageResponse?.(ingressCount) ?? {
           inputAttemptId: 'ia_live_progress',
@@ -225,6 +229,18 @@ export function createLiveProgressHarness(
         },
         { status: 201 }
       )
+    }
+
+    const cancelMatch = url.pathname.match(/^\/v1\/runs\/([^/]+)\/cancel$/)
+    if (cancelMatch !== null) {
+      expect(request.method).toBe('POST')
+      cancelledRunIds.push(decodeURIComponent(cancelMatch[1] ?? ''))
+      return Response.json({
+        run: {
+          runId: decodeURIComponent(cancelMatch[1] ?? ''),
+          status: 'cancelled',
+        },
+      })
     }
 
     if (url.pathname.startsWith('/v1/runs/')) {
@@ -310,6 +326,7 @@ export function createLiveProgressHarness(
     channel,
     client,
     eventRequests,
+    cancelledRunIds,
     emit: (event) => enqueue(`${JSON.stringify(event)}\n`),
     closeEvents: () => {
       streamController?.close()
