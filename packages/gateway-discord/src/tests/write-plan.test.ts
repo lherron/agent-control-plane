@@ -206,6 +206,44 @@ describe('Discord write planner', () => {
     expect(content).toContain('launch_exit_synthesized')
   })
 
+  test('degraded launch_signalled renders a cancellation notice with signal metadata', () => {
+    const plan = planFinalDeliveryWrite({
+      delivery: delivery('', {
+        state: 'degraded',
+        reason: 'launch_signalled',
+        source: 'launch_exit_synthesized',
+        signal: 'SIGTERM',
+      } as unknown as DeliveryOutcome),
+      identity,
+      maxChars: 2000,
+    })
+
+    const content = plan.chunks.join('\n')
+    expect(content).toContain('⏹')
+    expect(content).toContain('Run was cancelled or interrupted')
+    expect(content).toContain('signal: SIGTERM')
+    expect(content).not.toContain('Agent finished without producing a reply')
+  })
+
+  test('degraded launch_failed renders a crash notice with exit code metadata', () => {
+    const plan = planFinalDeliveryWrite({
+      delivery: delivery('', {
+        state: 'degraded',
+        reason: 'launch_failed',
+        source: 'launch_exit_synthesized',
+        exitCode: 42,
+      } as unknown as DeliveryOutcome),
+      identity,
+      maxChars: 2000,
+    })
+
+    const content = plan.chunks.join('\n')
+    expect(content).toContain('❌')
+    expect(content).toContain('Agent crashed')
+    expect(content).toContain('exit code 42')
+    expect(content).not.toContain('Agent finished without producing a reply')
+  })
+
   test('degraded outcome keeps the tool/notice timeline but does not promote delivery body', () => {
     const plan = planFinalDeliveryWrite({
       delivery: delivery('PROMPT-AS-BODY', {

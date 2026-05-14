@@ -106,4 +106,76 @@ describe('DeliveryRequestRepo', () => {
       expect(store.deliveries.get('dr-fail')).toEqual(failed)
     })
   })
+
+  test('round-trips synthesized launch signal outcome metadata through queued delivery storage', () => {
+    withInterfaceStore(({ store }) => {
+      store.deliveries.enqueue({
+        deliveryRequestId: 'dr-signalled',
+        gatewayId: 'discord_prod',
+        bindingId: 'bind-1',
+        scopeRef: 'scope:project',
+        laneRef: 'main',
+        runId: 'run-signalled',
+        conversationRef: 'channel:123',
+        bodyKind: 'text/markdown',
+        bodyText: '',
+        outcome: {
+          state: 'degraded',
+          reason: 'launch_signalled',
+          source: 'launch_exit_synthesized',
+          signal: 'SIGTERM',
+        },
+        createdAt: '2026-04-20T15:30:00.000Z',
+      } as Parameters<typeof store.deliveries.enqueue>[0])
+
+      expect(store.deliveries.get('dr-signalled')?.outcome).toEqual({
+        state: 'degraded',
+        reason: 'launch_signalled',
+        source: 'launch_exit_synthesized',
+        signal: 'SIGTERM',
+      })
+      expect(store.deliveries.leaseNext('discord_prod')?.outcome).toEqual({
+        state: 'degraded',
+        reason: 'launch_signalled',
+        source: 'launch_exit_synthesized',
+        signal: 'SIGTERM',
+      })
+    })
+  })
+
+  test('round-trips synthesized launch failure outcome metadata through queued delivery storage', () => {
+    withInterfaceStore(({ store }) => {
+      store.deliveries.enqueue({
+        deliveryRequestId: 'dr-failed-launch',
+        gatewayId: 'discord_prod',
+        bindingId: 'bind-1',
+        scopeRef: 'scope:project',
+        laneRef: 'main',
+        runId: 'run-failed-launch',
+        conversationRef: 'channel:123',
+        bodyKind: 'text/markdown',
+        bodyText: '',
+        outcome: {
+          state: 'degraded',
+          reason: 'launch_failed',
+          source: 'launch_exit_synthesized',
+          exitCode: 42,
+        },
+        createdAt: '2026-04-20T15:31:00.000Z',
+      } as Parameters<typeof store.deliveries.enqueue>[0])
+
+      expect(store.deliveries.get('dr-failed-launch')?.outcome).toEqual({
+        state: 'degraded',
+        reason: 'launch_failed',
+        source: 'launch_exit_synthesized',
+        exitCode: 42,
+      })
+      expect(store.deliveries.leaseNext('discord_prod')?.outcome).toEqual({
+        state: 'degraded',
+        reason: 'launch_failed',
+        source: 'launch_exit_synthesized',
+        exitCode: 42,
+      })
+    })
+  })
 })
