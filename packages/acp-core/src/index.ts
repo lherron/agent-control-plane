@@ -11,6 +11,7 @@ export { ActorValidationError, parseActorFromHeaders } from './models/actor.js'
 export type { Actor, ActorStamp } from './models/actor.js'
 export type {
   AdminAgent,
+  AdminAgentProfile,
   AdminAgentStatus,
   AdminMembership,
   AdminProject,

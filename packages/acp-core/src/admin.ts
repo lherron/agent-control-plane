@@ -4,10 +4,22 @@ export type AdminAgentStatus = 'active' | 'disabled'
 
 export type MembershipRole = 'coordinator' | 'implementer' | 'tester' | 'observer'
 
+export type AdminAgentProfile = {
+  displayColor?: string | undefined
+  monogram?: string | undefined
+  avatarUrl?: string | undefined
+  tagline?: string | undefined
+  role?: string | undefined
+  defaultModel?: string | undefined
+  vibe?: string[] | undefined
+  specialties?: string[] | undefined
+}
+
 export type AdminAgent = {
   agentId: string
   displayName?: string | undefined
   homeDir?: string | undefined
+  profile?: AdminAgentProfile | undefined
   status: AdminAgentStatus
   createdAt: string
   updatedAt: string
