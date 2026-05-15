@@ -1,11 +1,11 @@
 import { Pill, StatusDot } from '@/components/primitives'
 import { cn } from '@/lib/cn'
+import type { AgentSummaryProfile } from '@/types/api'
 import { ArrowUpRight } from 'lucide-react'
 import type { CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 import { agentPersonality, hasPersonality } from '../personality'
 import { AgentAvatar } from './agent-avatar'
-import { motifBackground } from './agent-motif'
 
 interface AgentCardData {
   agentId: string
@@ -15,6 +15,7 @@ interface AgentCardData {
   membershipsCount: number | undefined
   defaultProjectCount: number | undefined
   assignedJobsCount: number | undefined
+  profile?: AgentSummaryProfile | undefined
 }
 
 function heartbeatTone(status: string): 'success' | 'destructive' | 'warn' | 'muted' {
@@ -30,28 +31,23 @@ function heartbeatTone(status: string): 'success' | 'destructive' | 'warn' | 'mu
  * artifact: same skeleton, different paper stock.
  */
 export function AgentCard({ row }: { row: AgentCardData }) {
-  const personality = agentPersonality(row.agentId)
+  const personality = agentPersonality(row.agentId, row.profile)
   const tone = heartbeatTone(row.heartbeat)
-  const registered = hasPersonality(row.agentId)
-
-  const accent = personality.accent ?? personality.color
-  const motif = motifBackground(personality.motif, personality.color)
+  const registered = hasPersonality(row.agentId, row.profile)
 
   // Diagonal corner wash — agent colour pooling in the bottom-right.
   const cardStyle: CSSProperties = {
     borderColor: `${personality.color}55`,
     backgroundImage: [
-      // Patterned tint behind everything
-      motif,
       // Soft directional wash from bottom-right
-      `radial-gradient(ellipse 80% 60% at 110% 110%, ${accent}26 0%, transparent 65%)`,
+      `radial-gradient(ellipse 80% 60% at 110% 110%, ${personality.color}26 0%, transparent 65%)`,
       // Subtle top-left vignette so the avatar reads
       `radial-gradient(ellipse 50% 40% at 0% 0%, ${personality.color}14 0%, transparent 70%)`,
     ].join(', '),
-    backgroundBlendMode: 'normal, normal, normal',
+    backgroundBlendMode: 'normal, normal',
     boxShadow: `inset 0 0 0 1px ${personality.color}1A`,
     ['--card-hover-border' as string]: `${personality.color}AA`,
-    ['--card-hover-shadow' as string]: `0 0 0 1px ${personality.color}66, 0 18px 36px -20px ${accent}80`,
+    ['--card-hover-shadow' as string]: `0 0 0 1px ${personality.color}66, 0 18px 36px -20px ${personality.color}80`,
   }
 
   const ruleStyle: CSSProperties = {
@@ -59,7 +55,7 @@ export function AgentCard({ row }: { row: AgentCardData }) {
   }
 
   const tabStyle: CSSProperties = {
-    background: `linear-gradient(135deg, ${personality.color} 0%, ${accent} 100%)`,
+    background: personality.color,
     clipPath: 'polygon(0 0, 100% 0, 100% 100%)',
   }
 
@@ -84,23 +80,6 @@ export function AgentCard({ row }: { row: AgentCardData }) {
         style={tabStyle}
       />
 
-      {/* Big watermark glyph — sits behind the spec sheet at low opacity */}
-      <span
-        aria-hidden="true"
-        className="display-italic absolute pointer-events-none select-none leading-none"
-        style={{
-          right: '-8px',
-          bottom: '-18px',
-          fontSize: '180px',
-          color: personality.color,
-          opacity: 0.07,
-          letterSpacing: '-0.04em',
-          textShadow: `0 2px 0 ${accent}40`,
-        }}
-      >
-        {personality.glyph}
-      </span>
-
       {/* Paper grain over the top to soften the pattern */}
       <span
         aria-hidden="true"
@@ -116,7 +95,7 @@ export function AgentCard({ row }: { row: AgentCardData }) {
       <div className="relative z-10 flex flex-col h-full">
         {/* —— face up: identity + personality —— */}
         <div className="flex items-start gap-5">
-          <AgentAvatar agentId={row.agentId} size="md" />
+          <AgentAvatar agentId={row.agentId} size="md" profile={row.profile} />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 mb-1">
               <h3 className="display text-[28px] text-ink leading-none tracking-[-0.02em] truncate">

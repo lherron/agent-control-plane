@@ -1,4 +1,4 @@
-import type { AgentMotif } from '../personality'
+type AgentMotif = 'dots' | 'lines' | 'rules' | 'hatch' | 'chevron' | 'checker'
 
 /**
  * Build a CSS background-image string for an agent's motif, tinted with their

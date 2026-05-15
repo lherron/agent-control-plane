@@ -27,6 +27,17 @@ export interface ProjectDetailResponse {
   systemEvents: SystemEvent[]
 }
 
+export interface AgentSummaryProfile {
+  displayColor?: string | undefined
+  monogram?: string | undefined
+  avatarUrl?: string | undefined
+  tagline?: string | undefined
+  role?: string | undefined
+  defaultModel?: string | undefined
+  vibe?: string[] | undefined
+  specialties?: string[] | undefined
+}
+
 export interface AgentSummary {
   agentId: string
   displayName: string
@@ -36,6 +47,7 @@ export interface AgentSummary {
   updatedAt: string
   createdBy: string
   updatedBy: string
+  profile?: AgentSummaryProfile | undefined
 }
 
 export interface AgentDetailResponse {

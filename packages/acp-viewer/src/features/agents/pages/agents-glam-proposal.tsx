@@ -37,8 +37,8 @@ export function AgentsGlamProposalPage() {
   const rows = useMemo<AgentRow[]>(
     () =>
       (query.data ?? []).slice().sort((a, b) => {
-        const aReg = hasPersonality(a.agentId)
-        const bReg = hasPersonality(b.agentId)
+        const aReg = hasPersonality(a.agentId, a.profile)
+        const bReg = hasPersonality(b.agentId, b.profile)
         if (aReg !== bReg) return aReg ? -1 : 1
         return a.displayName.localeCompare(b.displayName)
       }),
@@ -48,8 +48,8 @@ export function AgentsGlamProposalPage() {
   if (query.isLoading) return <PageLoading label="Loading proposal" />
   if (query.error instanceof Error) return <ErrorBanner message={query.error.message} />
 
-  const profiled = rows.filter((r) => hasPersonality(r.agentId))
-  const awaiting = rows.filter((r) => !hasPersonality(r.agentId))
+  const profiled = rows.filter((r) => hasPersonality(r.agentId, r.profile))
+  const awaiting = rows.filter((r) => !hasPersonality(r.agentId, r.profile))
 
   return (
     <div className="flex flex-col min-h-full">

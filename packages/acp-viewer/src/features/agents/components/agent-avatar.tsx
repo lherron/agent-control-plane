@@ -1,4 +1,5 @@
 import { cn } from '@/lib/cn'
+import type { AgentSummaryProfile } from '@/types/api'
 import type { CSSProperties } from 'react'
 import { agentPersonality } from '../personality'
 
@@ -12,6 +13,10 @@ interface AgentAvatarProps {
   monogram?: string
   /** Force the monogram fallback even when a pfpUrl is configured. */
   forceMonogram?: boolean
+  /** API profile — passed through to agentPersonality for color/monogram lookup. */
+  profile?: AgentSummaryProfile | null
+  /** Display name — used for fallback monogram derivation. */
+  displayName?: string
 }
 
 const SIZE: Record<AvatarSize, { box: string; type: string; corner: string }> = {
@@ -33,8 +38,10 @@ export function AgentAvatar({
   className,
   monogram,
   forceMonogram,
+  profile,
+  displayName,
 }: AgentAvatarProps) {
-  const personality = agentPersonality(agentId)
+  const personality = agentPersonality(agentId, profile, displayName)
   const mark = monogram ?? personality.monogram
   const dims = SIZE[size]
   const showPfp = !forceMonogram && Boolean(personality.pfpUrl)

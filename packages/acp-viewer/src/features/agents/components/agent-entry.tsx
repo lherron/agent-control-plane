@@ -1,4 +1,5 @@
 import { Pill, StatusDot } from '@/components/primitives'
+import type { AgentSummaryProfile } from '@/types/api'
 import { ArrowUpRight } from 'lucide-react'
 import type { CSSProperties, ReactNode } from 'react'
 import { Link } from 'react-router-dom'
@@ -14,6 +15,7 @@ interface AgentEntryData {
   membershipsCount: number | undefined
   defaultProjectCount: number | undefined
   assignedJobsCount: number | undefined
+  profile?: AgentSummaryProfile | undefined
 }
 
 function heartbeatTone(status: string): 'success' | 'destructive' | 'warn' | 'muted' {
@@ -40,7 +42,7 @@ export function AgentEntry({
   index: number
   total: number
 }) {
-  const personality = agentPersonality(row.agentId)
+  const personality = agentPersonality(row.agentId, row.profile, row.displayName)
   const tone = heartbeatTone(row.heartbeat)
   const num = String(index + 1).padStart(2, '0')
   const tot = String(total).padStart(2, '0')
@@ -87,7 +89,13 @@ export function AgentEntry({
 
       {/* Mobile/tablet — PFP sits beside name+tagline as a byline row */}
       <div className="flex items-start gap-5 mb-8 lg:hidden">
-        <AgentAvatar agentId={row.agentId} size="lg" className="shrink-0" />
+        <AgentAvatar
+          agentId={row.agentId}
+          size="lg"
+          className="shrink-0"
+          profile={row.profile}
+          displayName={row.displayName}
+        />
         <div className="min-w-0 flex-1 pt-1">
           <h2 className="display text-ink leading-[0.95] tracking-[-0.03em] text-[clamp(36px,10vw,56px)] break-words">
             {row.displayName}
@@ -108,7 +116,13 @@ export function AgentEntry({
 
       {/* Desktop — PFP and full content column side-by-side */}
       <div className="hidden lg:flex lg:items-start lg:gap-16">
-        <AgentAvatar agentId={row.agentId} size="xl" className="shrink-0" />
+        <AgentAvatar
+          agentId={row.agentId}
+          size="xl"
+          className="shrink-0"
+          profile={row.profile}
+          displayName={row.displayName}
+        />
         <div className="min-w-0 flex-1 pt-2">
           <h2 className="display text-ink leading-[0.92] tracking-[-0.03em] text-[clamp(64px,7vw,104px)] break-words">
             {row.displayName}
