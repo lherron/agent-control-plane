@@ -141,6 +141,7 @@ export interface AcpServerDeps {
   authorize?: AuthorizeFn | undefined
   jobExecPolicy?: JobExecPolicy | undefined
   inputQueuePolicy?: InputQueuePolicy | undefined
+  agentAssetsDir?: string | undefined
 }
 
 export interface ResolvedAcpServerDeps extends AcpServerDeps {

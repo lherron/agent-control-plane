@@ -1,3 +1,4 @@
+import { handleGetAgentPfp, handlePatchAdminAgentProfile } from '../handlers/admin-agent-profile.js'
 import { handleGetAdminAgentDetail } from '../handlers/admin-agents-detail.js'
 import { handleGetAdminAgentHeartbeat } from '../handlers/admin-agents-heartbeat-get.js'
 import { handleGetAdminAgent, handlePatchAdminAgent } from '../handlers/admin-agents.js'
@@ -134,6 +135,12 @@ export function buildParamRoutes(): ParamRoute[] {
       '/v1/admin/agents/:agentId',
       withSpec('PATCH', '/v1/admin/agents/:agentId', handlePatchAdminAgent)
     ),
+    createParamRoute(
+      'PATCH',
+      '/v1/admin/agents/:agentId/profile',
+      withSpec('PATCH', '/v1/admin/agents/:agentId/profile', handlePatchAdminAgentProfile)
+    ),
+    createParamRoute('GET', '/v1/assets/agents/:agentId/pfp.png', handleGetAgentPfp),
     createParamRoute(
       'PUT',
       '/v1/admin/agents/:agentId/heartbeat',

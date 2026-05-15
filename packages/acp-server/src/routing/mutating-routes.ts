@@ -18,6 +18,10 @@ export const mutatingRouteSpecs: Record<string, ActorAndAuthzSpec> = {
     operation: 'admin.agents.patch',
     resource: ({ params }) => ({ kind: 'agent', id: params['agentId'] }),
   },
+  'PATCH /v1/admin/agents/:agentId/profile': {
+    operation: 'admin.agents.profile.patch',
+    resource: ({ params }) => ({ kind: 'agent', id: params['agentId'] }),
+  },
   'PUT /v1/admin/agents/:agentId/heartbeat': {
     operation: 'admin.agents.heartbeat.put',
     resource: ({ params }) => ({ kind: 'agent', id: params['agentId'] }),

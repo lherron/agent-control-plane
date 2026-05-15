@@ -1,6 +1,7 @@
 import type {
   ActorRef,
   AdminAgent,
+  AdminAgentProfile,
   AdminMembership,
   AdminProject,
   AgentHeartbeat,
@@ -114,6 +115,21 @@ export type PostHeartbeatWakeResponse = {
   agentId: string
   projectId: string
   wakeId?: string | undefined
+}
+
+export type AgentProfilePatchPayload = {
+  displayColor?: string | null | undefined
+  monogram?: string | null | undefined
+  avatarUrl?: string | null | undefined
+  tagline?: string | null | undefined
+  role?: string | null | undefined
+  defaultModel?: string | null | undefined
+  vibe?: string[] | null | undefined
+  specialties?: string[] | null | undefined
+}
+
+export type PatchAgentProfileResponse = {
+  agent: { agentId: string; profile?: AdminAgentProfile | undefined }
 }
 
 export type AcpErrorBody = {
@@ -281,6 +297,11 @@ export interface AcpClient {
     scopeRef?: string | undefined
     laneRef?: string | undefined
   }): Promise<PostHeartbeatWakeResponse>
+  patchAgentProfile(input: {
+    actorAgentId: string
+    agentId: string
+    profile: AgentProfilePatchPayload
+  }): Promise<PatchAgentProfileResponse>
 }
 
 export class AcpClientHttpError extends Error {
@@ -709,6 +730,18 @@ export function createHttpClient(
         body: {
           ...(input.scopeRef !== undefined ? { scopeRef: input.scopeRef } : {}),
           ...(input.laneRef !== undefined ? { laneRef: input.laneRef } : {}),
+        },
+      })
+    },
+
+    patchAgentProfile(input) {
+      return request<PatchAgentProfileResponse>({
+        method: 'PATCH',
+        path: `/v1/admin/agents/${encodeURIComponent(input.agentId)}/profile`,
+        actorAgentId: input.actorAgentId,
+        body: {
+          ...input.profile,
+          actor: { kind: 'agent', id: input.actorAgentId },
         },
       })
     },
