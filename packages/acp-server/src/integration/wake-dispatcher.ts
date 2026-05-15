@@ -1,7 +1,8 @@
+import type { AdminStore } from 'acp-admin-store'
 import { parseScopeRef } from 'agent-scope'
 import { type CoordinationStore, consumeWake, leaseWake } from 'coordination-substrate'
 
-import type { LaunchRoleScopedRun, RuntimeResolver } from '../deps.js'
+import type { AgentRootResolver, LaunchRoleScopedRun, RuntimeResolver } from '../deps.js'
 import type { InputAttemptStore } from '../domain/input-attempt-store.js'
 import type { RunStore } from '../domain/run-store.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
@@ -14,7 +15,9 @@ export type WakeDispatcherInput = {
   coordStore: CoordinationStore
   inputAttemptStore: InputAttemptStore
   runStore: RunStore
+  adminStore: AdminStore
   runtimeResolver: NonNullable<RuntimeResolver>
+  agentRootResolver?: AgentRootResolver | undefined
   launchRoleScopedRun: NonNullable<LaunchRoleScopedRun>
   admitInput?:
     | ((input: {
@@ -44,7 +47,15 @@ function listQueuedWakeIds(coordStore: CoordinationStore): string[] {
 }
 
 export function createWakeDispatcher(input: WakeDispatcherInput): WakeDispatcher {
-  const { coordStore, inputAttemptStore, runStore, runtimeResolver, launchRoleScopedRun } = input
+  const {
+    coordStore,
+    inputAttemptStore,
+    runStore,
+    adminStore,
+    runtimeResolver,
+    agentRootResolver,
+    launchRoleScopedRun,
+  } = input
 
   let running = false
   let inflight: Promise<void> | undefined
@@ -96,7 +107,7 @@ export function createWakeDispatcher(input: WakeDispatcherInput): WakeDispatcher
 
     try {
       const intent = await resolveLaunchIntent(
-        { runtimeResolver } as Parameters<typeof resolveLaunchIntent>[0],
+        { runtimeResolver, agentRootResolver, adminStore },
         sessionRef
       )
 

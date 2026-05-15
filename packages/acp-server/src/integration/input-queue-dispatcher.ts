@@ -23,6 +23,7 @@ export type InputQueueDispatcherConfig = {
 export type InputQueueDispatcherDeps = Pick<
   ResolvedAcpServerDeps,
   | 'adminStore'
+  | 'agentRootResolver'
   | 'hrcClient'
   | 'inputAdmissionStore'
   | 'inputQueueStore'
@@ -455,8 +456,9 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
     const intent = await resolveLaunchIntent(
       {
         runtimeResolver: deps.runtimeResolver,
+        agentRootResolver: deps.agentRootResolver,
         adminStore: deps.adminStore,
-      } as Parameters<typeof resolveLaunchIntent>[0],
+      },
       sessionRef,
       {
         initialPrompt: prompt,

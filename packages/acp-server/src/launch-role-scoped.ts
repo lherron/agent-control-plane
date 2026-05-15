@@ -10,6 +10,14 @@ import { parseJsonBody, requireRecord, requireTrimmedStringField } from './parse
 
 import type { RouteHandler } from './routing/route-context.js'
 
+// Narrow dependency surface for launch placement/intent resolution.
+// Call sites without full ResolvedAcpServerDeps (queue + wake dispatchers)
+// must still provide adminStore so admin-project-root lookups apply to cwd.
+export type LaunchIntentDeps = Pick<
+  ResolvedAcpServerDeps,
+  'runtimeResolver' | 'agentRootResolver' | 'adminStore'
+>
+
 export type LaunchRoleScopedTaskRunInput = {
   sessionRef: SessionRef
   taskId: string
@@ -109,7 +117,7 @@ export async function launchRoleScopedTaskRun(
 }
 
 export async function resolveLaunchIntent(
-  deps: ResolvedAcpServerDeps,
+  deps: LaunchIntentDeps,
   sessionRef: SessionRef,
   options: {
     initialPrompt?: string | undefined
@@ -145,7 +153,7 @@ export const handleLaunchSession: RouteHandler = async ({ request, deps }) => {
 }
 
 async function resolveLaunchPlacement(
-  deps: ResolvedAcpServerDeps,
+  deps: LaunchIntentDeps,
   sessionRef: SessionRef
 ): Promise<HrcRuntimeIntent['placement']> {
   const resolvedPlacement = deps.runtimeResolver
@@ -195,13 +203,15 @@ async function resolveLaunchPlacement(
 }
 
 function readAdminProjectRoot(
-  deps: ResolvedAcpServerDeps,
+  deps: LaunchIntentDeps,
   projectId: string | undefined
 ): string | undefined {
   if (projectId === undefined) {
     return undefined
   }
 
+  // Defensive optional chaining: some test fixtures cast bare objects to
+  // ResolvedAcpServerDeps without populating adminStore.
   const project = deps.adminStore?.projects.get(projectId)
   const rootDir = project?.homeDir ?? project?.rootDir
   return typeof rootDir === 'string' && rootDir.length > 0 ? rootDir : undefined

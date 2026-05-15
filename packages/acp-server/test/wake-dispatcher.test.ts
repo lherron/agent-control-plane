@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
+import { type AdminStore, createInMemoryAdminStore } from 'acp-admin-store'
 import { appendEvent, cancelWake } from 'coordination-substrate'
 
 import type { CoordinationStore, WakeRequest } from 'coordination-substrate'
@@ -19,6 +20,7 @@ type WakeDispatcherFactoryInput = {
   coordStore: CoordinationStore
   inputAttemptStore: InMemoryInputAttemptStore
   runStore: InMemoryRunStore
+  adminStore: AdminStore
   runtimeResolver: NonNullable<AcpServerDeps['runtimeResolver']>
   launchRoleScopedRun: NonNullable<AcpServerDeps['launchRoleScopedRun']>
 }
@@ -61,11 +63,13 @@ function createRuntimeResolver(): NonNullable<AcpServerDeps['runtimeResolver']> 
 function createWakeDispatcherInput(input: {
   fixture: Awaited<Parameters<Parameters<typeof withWiredServer>[0]>[0]>
   launchRoleScopedRun: NonNullable<AcpServerDeps['launchRoleScopedRun']>
+  adminStore?: AdminStore | undefined
 }): WakeDispatcherFactoryInput {
   return {
     coordStore: input.fixture.coordStore,
     inputAttemptStore: input.fixture.inputAttemptStore,
     runStore: input.fixture.runStore,
+    adminStore: input.adminStore ?? createInMemoryAdminStore(),
     runtimeResolver: createRuntimeResolver(),
     launchRoleScopedRun: input.launchRoleScopedRun,
   }

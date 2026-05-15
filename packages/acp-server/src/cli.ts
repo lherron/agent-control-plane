@@ -510,7 +510,11 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
           coordStore,
           inputAttemptStore: resolvedDeps.inputAttemptStore,
           runStore: resolvedDeps.runStore,
+          adminStore: resolvedDeps.adminStore,
           runtimeResolver: resolvedDeps.runtimeResolver,
+          ...(resolvedDeps.agentRootResolver !== undefined
+            ? { agentRootResolver: resolvedDeps.agentRootResolver }
+            : {}),
           launchRoleScopedRun: resolvedDeps.launchRoleScopedRun,
           admitInput: async (input) => {
             const admitted = await new InputAdmissionService(resolvedDeps).admit({
