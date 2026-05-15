@@ -21,6 +21,7 @@ import { createAcpServer } from './create-acp-server.js'
 import {
   type AcpHrcClient,
   type AcpRuntimePlacement,
+  DEFAULT_AGENT_ASSETS_DIR,
   DEFAULT_INTERFACE_DB_PATH,
   DEFAULT_STATE_DB_PATH,
   resolveAcpServerDeps,
@@ -74,6 +75,7 @@ export interface AcpServerCliOptions {
   adminDbPath?: string | undefined
   jobsDbPath?: string | undefined
   conversationDbPath?: string | undefined
+  agentAssetsDir: string
   host: string
   port: number
   actor: string
@@ -128,6 +130,9 @@ export function parseCliArgs(args: readonly string[]): ParsedCliArgs {
       case '--state-db-path':
         options.stateDbPath = requireValue(arg)
         break
+      case '--agent-assets-dir':
+        options.agentAssetsDir = requireValue(arg)
+        break
       case '--port': {
         const port = Number.parseInt(requireValue(arg), 10)
         if (!Number.isFinite(port) || port <= 0) {
@@ -176,6 +181,9 @@ export function resolveCliOptions(
     'acp-conversation.db'
   )
 
+  const agentAssetsDir =
+    parsed.options.agentAssetsDir ?? env['ACP_AGENT_ASSETS_DIR'] ?? DEFAULT_AGENT_ASSETS_DIR
+
   return {
     help: parsed.help,
     options: {
@@ -186,6 +194,7 @@ export function resolveCliOptions(
       ...(adminDbPath !== undefined ? { adminDbPath } : {}),
       ...(jobsDbPath !== undefined ? { jobsDbPath } : {}),
       ...(conversationDbPath !== undefined ? { conversationDbPath } : {}),
+      agentAssetsDir,
       host: parsed.options.host ?? env['ACP_HOST'] ?? DEFAULT_HOST,
       port: parsed.options.port ?? (Number.isFinite(envPort) ? envPort : DEFAULT_PORT),
       actor: parsed.options.actor ?? env['ACP_ACTOR'] ?? env['WRKQ_ACTOR'] ?? DEFAULT_ACTOR,
@@ -209,6 +218,7 @@ export function formatStartupLine(options: AcpServerCliOptions): string {
     `interface.db = ${options.interfaceDbPath}`,
     `state.db = ${options.stateDbPath}`,
     ...optionalDbSegments,
+    `agentAssets = ${options.agentAssetsDir}`,
   ].join(' ')
 }
 
@@ -217,7 +227,7 @@ export function renderHelp(): string {
     'acp-server — Bun.serve wrapper around packages/acp-server',
     '',
     'Usage:',
-    '  acp-server [--wrkq-db-path <path>] [--coord-db-path <path>] [--interface-db-path <path>] [--state-db-path <path>] [--admin-db-path <path>] [--jobs-db-path <path>] [--conversation-db-path <path>] [--host <host>] [--port <port>] [--actor <agentId>]',
+    '  acp-server [--wrkq-db-path <path>] [--coord-db-path <path>] [--interface-db-path <path>] [--state-db-path <path>] [--admin-db-path <path>] [--jobs-db-path <path>] [--conversation-db-path <path>] [--agent-assets-dir <path>] [--host <host>] [--port <port>] [--actor <agentId>]',
     '',
     'Environment:',
     '  ACP_WRKQ_DB_PATH  Defaults to WRKQ_DB_PATH',
@@ -228,6 +238,7 @@ export function renderHelp(): string {
     '  ACP_JOBS_DB_PATH Opens optional jobs store when set; blank uses sibling acp-jobs.db',
     '  ACP_SCHEDULER_ENABLED Set to 1 or true to enable the in-process jobs scheduler',
     '  ACP_CONVERSATION_DB_PATH Opens optional conversation store when set; blank uses sibling acp-conversation.db',
+    `  ACP_AGENT_ASSETS_DIR Defaults to ${DEFAULT_AGENT_ASSETS_DIR}`,
     `  ACP_INTERFACE_DISPATCHER_DISPATCH_STALE_TIMEOUT_MS Defaults to ${DEFAULT_INTERFACE_DISPATCHER_DISPATCH_STALE_TIMEOUT_MS}`,
     `  ACP_INPUT_QUEUE_STALE_PENDING_RUN_TIMEOUT_MS Defaults to ${DEFAULT_INPUT_QUEUE_STALE_PENDING_RUN_TIMEOUT_MS}`,
     `  ACP_INPUT_QUEUE_LEASE_TIMEOUT_MS Defaults to ${DEFAULT_INPUT_QUEUE_LEASE_TIMEOUT_MS}`,
@@ -429,6 +440,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
           },
         }
       : {}),
+    agentAssetsDir: options.agentAssetsDir,
   }
   const acpServer = createAcpServer(serverDeps)
   const resolvedDeps = resolveAcpServerDeps(serverDeps)

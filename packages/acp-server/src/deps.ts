@@ -38,6 +38,8 @@ import type { JobExecPolicy } from './jobs/exec-policy.js'
 
 export const DEFAULT_INTERFACE_DB_PATH = '/Users/lherron/praesidium/var/db/acp-interface.db'
 export const DEFAULT_STATE_DB_PATH = '/Users/lherron/praesidium/var/db/acp-state.db'
+export const DEFAULT_AGENT_ASSETS_DIR =
+  '/Users/lherron/praesidium/var/state/acp-server/assets/agents'
 
 export interface PresetRegistry {
   getPreset(presetId: string, version: number): Preset
