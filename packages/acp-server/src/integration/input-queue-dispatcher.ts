@@ -453,7 +453,10 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
       attachments
     )
     const intent = await resolveLaunchIntent(
-      { runtimeResolver: deps.runtimeResolver } as Parameters<typeof resolveLaunchIntent>[0],
+      {
+        runtimeResolver: deps.runtimeResolver,
+        adminStore: deps.adminStore,
+      } as Parameters<typeof resolveLaunchIntent>[0],
       sessionRef,
       {
         initialPrompt: prompt,
