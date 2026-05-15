@@ -33,6 +33,25 @@ Start `acp-server` locally first, then point the CLI at it (or rely on the defau
 - `acp workflow patch show`
 - `acp supervise` (alias for `workflow supervise`)
 
+## Seed Agent Profiles
+
+Run the one-shot profile seed directly with Bun:
+
+```bash
+bun run packages/acp-cli/src/seed/seed-agent-profiles.ts
+```
+
+The seed reads profile data from `packages/acp-cli/src/seed/agent-profile-seed.ts`, patches
+existing admin agents in `ACP_ADMIN_DB_PATH` (default:
+`/Users/lherron/praesidium/var/db/acp-admin.db`), and skips seed entries whose agents do
+not exist. It also copies available source PFPs from `packages/acp-viewer/public/pfp/` into
+`<ACP_AGENT_ASSETS_DIR>/agents/<agentId>/pfp.png` (default:
+`/Users/lherron/praesidium/var/state/acp-server/assets/agents/<agentId>/pfp.png`).
+
+The script overwrites profile fields from the seed and replaces PFP assets only when source
+bytes differ. After the first seed run, the admin DB is the runtime source of truth for
+agent profiles.
+
 ## Workflow task commands
 
 ### `acp task evidence add` (E1 — standalone evidence attach)

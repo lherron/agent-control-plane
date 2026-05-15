@@ -23,6 +23,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "acp-admin-store": "*",
     "acp-core": "*",
     "acp-ops-projection": "*",
     "acp-server": "*",
