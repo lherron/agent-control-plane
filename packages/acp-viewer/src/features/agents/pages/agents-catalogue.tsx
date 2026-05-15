@@ -32,8 +32,8 @@ async function fetchAgentsWithRollups(): Promise<AgentRow[]> {
   })
 }
 
-export function AgentsGlamProposalPage() {
-  const query = useQuery({ queryKey: ['agents', 'glam-proposal'], queryFn: fetchAgentsWithRollups })
+export function AgentsCataloguePage() {
+  const query = useQuery({ queryKey: ['agents', 'catalogue'], queryFn: fetchAgentsWithRollups })
   const rows = useMemo<AgentRow[]>(
     () =>
       (query.data ?? []).slice().sort((a, b) => {
@@ -45,7 +45,7 @@ export function AgentsGlamProposalPage() {
     [query.data]
   )
 
-  if (query.isLoading) return <PageLoading label="Loading proposal" />
+  if (query.isLoading) return <PageLoading label="Loading" />
   if (query.error instanceof Error) return <ErrorBanner message={query.error.message} />
 
   const profiled = rows.filter((r) => hasPersonality(r.agentId, r.profile))
@@ -100,7 +100,7 @@ export function AgentsGlamProposalPage() {
 function Masthead({ profiled, total }: { profiled: number; total: number }) {
   return (
     <header className="mx-auto w-full max-w-[1120px] px-5 sm:px-8 md:px-10 pt-14 md:pt-20 pb-10 md:pb-12 rise">
-      <div className="kicker text-accent mb-4 md:mb-5">A·C·P · agent catalogue · draft</div>
+      <div className="kicker text-accent mb-4 md:mb-5">A·C·P · agent catalogue</div>
       <h1 className="display text-ink leading-[0.9] tracking-[-0.03em] text-[clamp(48px,13vw,80px)] md:text-[clamp(72px,9vw,140px)] break-words">
         The collective,
         <br />
