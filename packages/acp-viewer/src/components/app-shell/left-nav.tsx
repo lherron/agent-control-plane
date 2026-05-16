@@ -68,15 +68,15 @@ function DesktopSidebar() {
 function MobileTopBar({ onMenu }: { onMenu: () => void }) {
   return (
     <div className="lg:hidden sticky top-0 z-30 flex items-center justify-between h-14 px-5 bg-nav-bg/95 backdrop-blur-sm border-b border-nav-rule">
-      <Masthead size="sm" />
       <button
         type="button"
         onClick={onMenu}
         aria-label="Open navigation"
-        className="inline-flex items-center justify-center h-9 w-9 -mr-1.5 rounded-[3px] text-nav-foreground hover:text-accent transition-colors"
+        className="inline-flex items-center justify-center h-9 w-9 -ml-1.5 rounded-[3px] text-nav-foreground hover:text-accent transition-colors"
       >
         <Menu className="h-5 w-5" />
       </button>
+      <Masthead size="sm" />
     </div>
   )
 }
