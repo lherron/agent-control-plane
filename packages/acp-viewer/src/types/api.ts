@@ -57,6 +57,61 @@ export interface AgentDetailResponse {
   jobs: JobSummary[]
 }
 
+export type ContextRunMode = 'query' | 'heartbeat' | 'task' | 'maintenance'
+
+export interface AgentSystemPromptResponse {
+  systemPrompt: AgentSystemPromptInspection | null
+  provenance: ProvenanceEntry[]
+}
+
+export interface AgentSystemPromptInspection {
+  agentRoot: string
+  agentsRoot: string
+  agentName: string
+  runMode: ContextRunMode
+  projectRoot?: string | undefined
+  projectId?: string | undefined
+  template: {
+    kind: 'context' | 'built-in'
+    path?: string | undefined
+    mode: 'replace' | 'append'
+    maxChars?: number | undefined
+  }
+  prompt: {
+    content: string
+    mode: 'replace' | 'append'
+    totalChars: number
+    sections: ContextPromptSection[]
+  }
+  reminder: {
+    content?: string | undefined
+    totalChars: number
+    sections: ContextPromptSection[]
+  }
+  diagnostics: {
+    prompt: { sectionSizes: string[]; totalChars: number }
+    reminder: { sectionSizes: string[]; totalChars: number }
+    totalChars: number
+    maxChars?: number | undefined
+    nearMaxChars: boolean
+  }
+}
+
+export interface ContextPromptSection {
+  zone: 'prompt' | 'reminder'
+  name: string
+  type: 'file' | 'inline' | 'exec' | 'slot'
+  source: string
+  included: boolean
+  chars: number
+  bytes: number
+  truncated: boolean
+  when?: { runMode?: string | undefined; exists?: string | undefined } | undefined
+  maxChars?: number | undefined
+  content?: string | undefined
+  skippedReason?: 'when' | 'empty' | undefined
+}
+
 export interface HeartbeatSummary {
   agentId: string
   lastSeen: string

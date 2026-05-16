@@ -1,4 +1,5 @@
 import { handleGetAgentPfp, handlePatchAdminAgentProfile } from '../handlers/admin-agent-profile.js'
+import { handleGetAdminAgentSystemPrompt } from '../handlers/admin-agent-system-prompt.js'
 import { handleGetAdminAgentDetail } from '../handlers/admin-agents-detail.js'
 import { handleGetAdminAgentHeartbeat } from '../handlers/admin-agents-heartbeat-get.js'
 import { handleGetAdminAgent, handlePatchAdminAgent } from '../handlers/admin-agents.js'
@@ -129,6 +130,11 @@ export function buildParamRoutes(): ParamRoute[] {
     ),
     createParamRoute('GET', '/v1/admin/agents/:agentId', handleGetAdminAgent),
     createParamRoute('GET', '/v1/admin/agents/:agentId/detail', handleGetAdminAgentDetail),
+    createParamRoute(
+      'GET',
+      '/v1/admin/agents/:agentId/system-prompt',
+      handleGetAdminAgentSystemPrompt
+    ),
     createParamRoute('GET', '/v1/admin/agents/:agentId/heartbeat', handleGetAdminAgentHeartbeat),
     createParamRoute(
       'PATCH',

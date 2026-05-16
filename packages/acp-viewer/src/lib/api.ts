@@ -1,6 +1,8 @@
 import type {
   AgentDetailResponse,
   AgentSummary,
+  AgentSystemPromptResponse,
+  ContextRunMode,
   HeartbeatSummary,
   JobDetailResponse,
   JobRecord,
@@ -42,6 +44,24 @@ export function listAgents(): Promise<AgentSummary[]> {
 
 export function getAgentDetail(agentId: string): Promise<AgentDetailResponse> {
   return fetchJson<AgentDetailResponse>(`/v1/admin/agents/${encodeURIComponent(agentId)}/detail`)
+}
+
+export function getAgentSystemPrompt(
+  agentId: string,
+  options: { runMode?: ContextRunMode | undefined; projectId?: string | undefined } = {}
+): Promise<AgentSystemPromptResponse> {
+  const params = new URLSearchParams()
+  if (options.runMode !== undefined) {
+    params.set('runMode', options.runMode)
+  }
+  if (options.projectId !== undefined && options.projectId.length > 0) {
+    params.set('projectId', options.projectId)
+  }
+
+  const query = params.size > 0 ? `?${params.toString()}` : ''
+  return fetchJson<AgentSystemPromptResponse>(
+    `/v1/admin/agents/${encodeURIComponent(agentId)}/system-prompt${query}`
+  )
 }
 
 // --- Jobs ---

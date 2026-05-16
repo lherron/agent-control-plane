@@ -12,7 +12,11 @@ describe('agents feature', () => {
   it('imports agent tab components', async () => {
     const overview = await import('../src/features/agents/components/agent-overview-tab')
     const heartbeat = await import('../src/features/agents/components/agent-heartbeat-tab')
+    const template = await import('../src/features/agents/components/agent-prompt-template-tab')
+    const prompt = await import('../src/features/agents/components/agent-system-prompt-tab')
     expect(overview.AgentOverviewTab).toBeDefined()
     expect(heartbeat.AgentHeartbeatTab).toBeDefined()
+    expect(template.AgentPromptTemplateTab).toBeDefined()
+    expect(prompt.AgentSystemPromptTab).toBeDefined()
   })
 })

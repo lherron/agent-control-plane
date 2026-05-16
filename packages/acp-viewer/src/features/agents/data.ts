@@ -1,5 +1,5 @@
-import { getAgentDetail } from '@/lib/api'
-import type { AgentSummary } from '@/types/api'
+import { getAgentDetail, getAgentSystemPrompt } from '@/lib/api'
+import type { AgentSummary, AgentSystemPromptResponse, ContextRunMode } from '@/types/api'
 import type { AgentDetailState, AgentHeartbeat } from './types'
 
 const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env
@@ -27,4 +27,11 @@ export async function fetchAgentHeartbeat(agentId: string): Promise<AgentHeartbe
     `/v1/admin/agents/${encodeURIComponent(agentId)}/heartbeat`
   )
   return payload.heartbeat
+}
+
+export async function fetchAgentSystemPrompt(
+  agentId: string,
+  options: { runMode?: ContextRunMode | undefined; projectId?: string | undefined } = {}
+): Promise<AgentSystemPromptResponse> {
+  return getAgentSystemPrompt(agentId, options)
 }

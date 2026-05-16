@@ -10,15 +10,27 @@ import { AgentHeartbeatTab } from '../components/agent-heartbeat-tab'
 import { AgentJobsTab } from '../components/agent-jobs-tab'
 import { AgentOverviewTab } from '../components/agent-overview-tab'
 import { AgentProjectsTab } from '../components/agent-projects-tab'
+import { AgentPromptTemplateTab } from '../components/agent-prompt-template-tab'
 import { AgentRawTab } from '../components/agent-raw-tab'
 import { AgentScopeTargetsTab } from '../components/agent-scope-targets-tab'
+import { AgentSystemPromptTab } from '../components/agent-system-prompt-tab'
 import { fetchAgentDetail, fetchAgentHeartbeat } from '../data'
 import { agentPersonality, hasPersonality } from '../personality'
 
-type AgentTab = 'overview' | 'projects' | 'jobs' | 'heartbeat' | 'scope' | 'raw'
+type AgentTab =
+  | 'overview'
+  | 'projects'
+  | 'jobs'
+  | 'heartbeat'
+  | 'scope'
+  | 'template'
+  | 'prompt'
+  | 'raw'
 
 const TABS: ReadonlyArray<{ id: AgentTab; label: string }> = [
   { id: 'overview', label: 'Overview' },
+  { id: 'prompt', label: 'Prompt' },
+  { id: 'template', label: 'Template' },
   { id: 'projects', label: 'Projects' },
   { id: 'jobs', label: 'Jobs' },
   { id: 'heartbeat', label: 'Heartbeat' },
@@ -98,6 +110,8 @@ export function AgentDetailPage() {
             <AgentHeartbeatTab detail={detail} loading={heartbeatQuery.isLoading} />
           )}
           {activeTab === 'scope' && <AgentScopeTargetsTab detail={detail} />}
+          {activeTab === 'template' && <AgentPromptTemplateTab detail={detail} />}
+          {activeTab === 'prompt' && <AgentSystemPromptTab detail={detail} />}
           {activeTab === 'raw' && <AgentRawTab detail={detail} />}
         </div>
       </div>
