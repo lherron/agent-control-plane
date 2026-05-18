@@ -42,6 +42,12 @@ function createHeadlessHrcDb(): { db: Database; hrcDbPath: string; cleanup(): vo
       event_kind TEXT NOT NULL,
       event_json TEXT NOT NULL
     );
+    CREATE TABLE hrc_events (
+      hrc_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT,
+      event_kind TEXT NOT NULL,
+      payload_json TEXT NOT NULL
+    );
   `)
 
   return {
@@ -356,6 +362,12 @@ describe('ACP dispatch fences', () => {
                   content: [{ type: 'text', text: 'Used followLatest.' }],
                 },
               })
+            )
+            hrc.db.run(
+              'INSERT INTO hrc_events (run_id, event_kind, payload_json) VALUES (?, ?, ?)',
+              'hrc-run-follow',
+              'turn.completed',
+              JSON.stringify({ finalOutput: 'Used followLatest.' })
             )
 
             return {

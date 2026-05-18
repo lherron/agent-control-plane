@@ -601,19 +601,14 @@ async function pollCompletedAssistantMessage(options: {
   const deadline = Date.now() + options.timeoutMs
 
   while (Date.now() <= deadline) {
-    const message =
-      readCompletedAssistantMessageFromHrcEvents(options.hrcDbPath, options.runId) ??
-      toUnifiedAssistantMessageEndFromRawEvents(listRawRunEvents(options.hrcDbPath, options.runId))
+    const message = readCompletedAssistantMessageFromHrcEvents(options.hrcDbPath, options.runId)
     if (message !== undefined) {
       return message
     }
     await Bun.sleep(RAW_EVENT_POLL_INTERVAL_MS)
   }
 
-  return (
-    readCompletedAssistantMessageFromHrcEvents(options.hrcDbPath, options.runId) ??
-    toUnifiedAssistantMessageEndFromRawEvents(listRawRunEvents(options.hrcDbPath, options.runId))
-  )
+  return readCompletedAssistantMessageFromHrcEvents(options.hrcDbPath, options.runId)
 }
 
 export function hasHrcAcceptedRunSince(
@@ -673,7 +668,7 @@ export function readRunStatus(
   }
 }
 
-export function listRawRunEvents(hrcDbPath: string, runId: string): RawRunEventRecord[] {
+export function listLegacyRawRunEvents(hrcDbPath: string, runId: string): RawRunEventRecord[] {
   const db = new Database(hrcDbPath, { readonly: true })
   try {
     const rows = db

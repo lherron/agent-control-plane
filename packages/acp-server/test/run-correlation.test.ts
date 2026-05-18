@@ -55,6 +55,17 @@ function createHeadlessHrcDb(): { db: Database; hrcDbPath: string; cleanup(): vo
   }
 }
 
+function createRunScopedHrcEventsTable(db: Database): void {
+  db.exec(`
+    CREATE TABLE hrc_events (
+      hrc_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT,
+      event_kind TEXT NOT NULL,
+      payload_json TEXT NOT NULL
+    );
+  `)
+}
+
 async function postInterfaceMessage(fixture: WiredServerFixture): Promise<Response> {
   return fixture.request({
     method: 'POST',
@@ -74,6 +85,7 @@ async function postInterfaceMessage(fixture: WiredServerFixture): Promise<Respon
 describe('ACP run correlation', () => {
   test('stores HRC correlation fields on the ACP run after dispatch', async () => {
     const hrc = createHeadlessHrcDb()
+    createRunScopedHrcEventsTable(hrc.db)
     const dispatchCalls: unknown[] = []
     const launcher = createRealLauncher({
       hrcDbPath: hrc.hrcDbPath,
@@ -100,6 +112,12 @@ describe('ACP run correlation', () => {
                   content: [{ type: 'text', text: 'All green.' }],
                 },
               })
+            )
+            hrc.db.run(
+              'INSERT INTO hrc_events (run_id, event_kind, payload_json) VALUES (?, ?, ?)',
+              'hrc-run-123',
+              'turn.completed',
+              JSON.stringify({ finalOutput: 'All green.' })
             )
 
             return {
@@ -359,6 +377,7 @@ describe('ACP run correlation', () => {
 
   test('correlates the returned ACP runId with the HRC run launched by interface messages', async () => {
     const hrc = createHeadlessHrcDb()
+    createRunScopedHrcEventsTable(hrc.db)
     const dispatchCalls: Array<Record<string, unknown>> = []
     const launcher = createRealLauncher({
       hrcDbPath: hrc.hrcDbPath,
@@ -385,6 +404,12 @@ describe('ACP run correlation', () => {
                   content: [{ type: 'text', text: 'Correlated.' }],
                 },
               })
+            )
+            hrc.db.run(
+              'INSERT INTO hrc_events (run_id, event_kind, payload_json) VALUES (?, ?, ?)',
+              'hrc-run-456',
+              'turn.completed',
+              JSON.stringify({ finalOutput: 'Correlated.' })
             )
 
             return {

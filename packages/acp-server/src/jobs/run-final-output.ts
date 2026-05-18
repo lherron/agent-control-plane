@@ -4,11 +4,9 @@ import type { UnifiedSessionEvent } from 'spaces-runtime'
 import { toCompletedVisibleAssistantMessage } from '../delivery/visible-assistant-messages.js'
 import type { StoredRun } from '../domain/run-store.js'
 import {
-  type RawRunEventRecord,
-  listRawRunEvents,
   readAssistantMessageAfterSeq,
+  readCompletedAssistantMessageFromHrcEvents,
   readLatestAssistantMessageSeq,
-  toUnifiedAssistantMessageEndFromRawEvents,
 } from '../real-launcher.js'
 
 // ---------------------------------------------------------------------------
@@ -31,12 +29,10 @@ export type RunFinalOutputDeps = {
 // ---------------------------------------------------------------------------
 
 export type HrcEventReaders = {
-  /** Return raw run events for a headless hrcRunId. */
-  listRawRunEvents: (hrcDbPath: string, runId: string) => RawRunEventRecord[]
-
-  /** Convert raw events → unified message_end event. */
-  toUnifiedAssistantMessageEndFromRawEvents: (
-    events: readonly RawRunEventRecord[]
+  /** Read the completed assistant message for a headless hrcRunId from hrc_events. */
+  readCompletedAssistantMessageFromHrcEvents: (
+    hrcDbPath: string,
+    runId: string
   ) => UnifiedSessionEvent | undefined
 
   /** Read the latest assistant message sequence number for an interactive session. */
@@ -55,8 +51,7 @@ export type HrcEventReaders = {
 }
 
 const defaultReaders: HrcEventReaders = {
-  listRawRunEvents,
-  toUnifiedAssistantMessageEndFromRawEvents,
+  readCompletedAssistantMessageFromHrcEvents,
   readLatestAssistantMessageSeq,
   readAssistantMessageAfterSeq,
 }
@@ -69,7 +64,7 @@ const defaultReaders: HrcEventReaders = {
  * Extract the final assistant text from an ACP Run's persisted HRC event log.
  *
  * Routes to the correct event source based on the Run record:
- *   - Headless runs (`hrcRunId` present): reads `events` table keyed by run_id.
+ *   - Headless runs (`hrcRunId` present): reads `hrc_events` keyed by run_id.
  *   - Interactive/tmux runs (`hostSessionId` + `generation`): reads `hrc_events`
  *     table keyed by host_session_id / scope_ref / lane_ref.
  *
@@ -104,10 +99,9 @@ function resolveAssistantEvent(
   run: StoredRun,
   readers: HrcEventReaders
 ): UnifiedSessionEvent | undefined {
-  // Headless path: hrcRunId → events table
+  // Headless path: hrcRunId → canonical hrc_events table
   if (run.hrcRunId !== undefined) {
-    const events = readers.listRawRunEvents(hrcDbPath, run.hrcRunId)
-    return readers.toUnifiedAssistantMessageEndFromRawEvents(events)
+    return readers.readCompletedAssistantMessageFromHrcEvents(hrcDbPath, run.hrcRunId)
   }
 
   // Interactive/tmux path: hostSessionId + sessionRef → hrc_events table

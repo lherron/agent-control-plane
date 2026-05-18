@@ -13,7 +13,7 @@ import {
 } from '../src/real-launcher.js'
 
 describe('real launcher helpers', () => {
-  test('dispatches prompt turns through dispatchTurn and emits codex-shaped event-table replies', async () => {
+  test('dispatches prompt turns through dispatchTurn and emits canonical hrc_events replies', async () => {
     const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-real-launcher-db-'))
     const hrcDbPath = join(fixtureDir, 'hrc.sqlite')
     const db = new Database(hrcDbPath)
@@ -29,6 +29,12 @@ describe('real launcher helpers', () => {
         run_id TEXT,
         event_kind TEXT NOT NULL,
         event_json TEXT NOT NULL
+      );
+      CREATE TABLE hrc_events (
+        hrc_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id TEXT,
+        event_kind TEXT NOT NULL,
+        payload_json TEXT NOT NULL
       );
     `)
 
@@ -89,6 +95,12 @@ describe('real launcher helpers', () => {
                   content: [{ type: 'text', text: 'chartreuse' }],
                 },
               })
+            )
+            db.run(
+              'INSERT INTO hrc_events (run_id, event_kind, payload_json) VALUES (?, ?, ?)',
+              'run-123',
+              'turn.completed',
+              JSON.stringify({ finalOutput: 'chartreuse' })
             )
             return {
               runId: 'run-123',

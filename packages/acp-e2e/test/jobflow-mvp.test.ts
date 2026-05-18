@@ -68,6 +68,12 @@ function createHeadlessHrcDb(): HeadlessHrcFixture {
       event_kind TEXT NOT NULL,
       event_json TEXT NOT NULL
     );
+    CREATE TABLE hrc_events (
+      hrc_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT,
+      event_kind TEXT NOT NULL,
+      payload_json TEXT NOT NULL
+    );
   `)
 
   return {
@@ -101,6 +107,9 @@ function insertTerminalHrcRun(
       },
     })
   )
+  hrc.db
+    .prepare('INSERT INTO hrc_events (run_id, event_kind, payload_json) VALUES (?, ?, ?)')
+    .run(hrcRunId, 'turn.completed', JSON.stringify({ finalOutput: outcome.text }))
 }
 
 function createTerminalFlowLauncher(

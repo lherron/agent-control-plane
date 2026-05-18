@@ -1,14 +1,20 @@
-import { describe, expect, test } from 'bun:test'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import { Database } from 'bun:sqlite'
+import { afterEach, describe, expect, test } from 'bun:test'
 
 import type { UnifiedSessionEvent } from 'spaces-runtime'
 
 import type { StoredRun } from '../../src/domain/run-store.js'
 import {
   type HrcEventReaders,
-  type RawRunEventRecord,
   type RunFinalOutputDeps,
   getRunFinalAssistantText,
 } from '../../src/jobs/run-final-output.js'
+
+const tempDirs: string[] = []
 
 // ---------------------------------------------------------------------------
 // Helpers: minimal StoredRun factory
@@ -34,19 +40,48 @@ function makeDeps(run: StoredRun | undefined, hrcDbPath = ':memory:'): RunFinalO
   }
 }
 
+function makeStore(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'acp-run-final-output-'))
+  tempDirs.push(dir)
+  const path = join(dir, 'state.sqlite')
+  const db = new Database(path)
+  db.exec(`
+    CREATE TABLE events (
+      seq INTEGER PRIMARY KEY,
+      run_id TEXT,
+      event_kind TEXT NOT NULL,
+      event_json TEXT NOT NULL
+    );
+
+    CREATE TABLE hrc_events (
+      hrc_seq INTEGER PRIMARY KEY,
+      run_id TEXT,
+      event_kind TEXT NOT NULL,
+      payload_json TEXT NOT NULL
+    );
+  `)
+  db.close()
+  return path
+}
+
 // ---------------------------------------------------------------------------
 // Fake readers
 // ---------------------------------------------------------------------------
 
 function fakeReaders(overrides: Partial<HrcEventReaders> = {}): HrcEventReaders {
   return {
-    listRawRunEvents: () => [],
-    toUnifiedAssistantMessageEndFromRawEvents: () => undefined,
+    readCompletedAssistantMessageFromHrcEvents: () => undefined,
     readLatestAssistantMessageSeq: () => 0,
     readAssistantMessageAfterSeq: () => undefined,
     ...overrides,
   }
 }
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
 
 function makeMessageEndEvent(text: string): UnifiedSessionEvent {
   return {
@@ -64,28 +99,16 @@ describe('getRunFinalAssistantText', () => {
   // Headless path (hrcRunId)
   // -----------------------------------------------------------------------
 
-  test('headless: extracts text from raw run events via hrcRunId', () => {
+  test('headless: extracts text from hrc_events via hrcRunId', () => {
     const run = makeRun({ hrcRunId: 'hrc-run-42' })
     const deps = makeDeps(run, '/fake/hrc.db')
 
     const readers = fakeReaders({
-      listRawRunEvents: (dbPath, runId) => {
+      readCompletedAssistantMessageFromHrcEvents: (dbPath, runId) => {
         expect(dbPath).toBe('/fake/hrc.db')
         expect(runId).toBe('hrc-run-42')
-        return [
-          {
-            eventKind: 'message_end',
-            eventJson: {
-              type: 'message_end',
-              message: {
-                role: 'assistant',
-                content: [{ type: 'text', text: 'headless reply' }],
-              },
-            },
-          },
-        ] satisfies RawRunEventRecord[]
+        return makeMessageEndEvent('headless reply')
       },
-      toUnifiedAssistantMessageEndFromRawEvents: () => makeMessageEndEvent('headless reply'),
     })
 
     const result = getRunFinalAssistantText(deps, 'run-1', readers)
@@ -96,12 +119,54 @@ describe('getRunFinalAssistantText', () => {
     const run = makeRun({ hrcRunId: 'hrc-run-empty' })
     const deps = makeDeps(run)
 
-    const readers = fakeReaders({
-      listRawRunEvents: () => [],
-      toUnifiedAssistantMessageEndFromRawEvents: () => undefined,
-    })
+    const result = getRunFinalAssistantText(deps, 'run-1', fakeReaders())
+    expect(result).toBeUndefined()
+  })
 
-    const result = getRunFinalAssistantText(deps, 'run-1', readers)
+  test('headless: reads final output from canonical hrc_events', () => {
+    const path = makeStore()
+    const db = new Database(path)
+    db.prepare(
+      `INSERT INTO events (seq, run_id, event_kind, event_json)
+        VALUES (?, ?, ?, ?)`
+    ).run(
+      1,
+      'hrc-run-canonical',
+      'sdk.message_delta',
+      JSON.stringify({ type: 'message_delta', role: 'assistant', delta: 'raw-only reply' })
+    )
+    db.prepare(
+      `INSERT INTO hrc_events (hrc_seq, run_id, event_kind, payload_json)
+        VALUES (?, ?, ?, ?)`
+    ).run(
+      1,
+      'hrc-run-canonical',
+      'turn.completed',
+      JSON.stringify({ finalOutput: 'canonical reply' })
+    )
+    db.close()
+
+    const run = makeRun({ hrcRunId: 'hrc-run-canonical' })
+    const result = getRunFinalAssistantText(makeDeps(run, path), 'run-1')
+    expect(result).toBe('canonical reply')
+  })
+
+  test('headless: ignores raw events when hrc_events has no final output', () => {
+    const path = makeStore()
+    const db = new Database(path)
+    db.prepare(
+      `INSERT INTO events (seq, run_id, event_kind, event_json)
+        VALUES (?, ?, ?, ?)`
+    ).run(
+      1,
+      'hrc-run-raw-only',
+      'sdk.message_delta',
+      JSON.stringify({ type: 'message_delta', role: 'assistant', delta: 'raw-only reply' })
+    )
+    db.close()
+
+    const run = makeRun({ hrcRunId: 'hrc-run-raw-only' })
+    const result = getRunFinalAssistantText(makeDeps(run, path), 'run-1')
     expect(result).toBeUndefined()
   })
 
@@ -195,11 +260,10 @@ describe('getRunFinalAssistantText', () => {
     let interactiveCalled = false
 
     const readers = fakeReaders({
-      listRawRunEvents: () => {
+      readCompletedAssistantMessageFromHrcEvents: () => {
         headlessCalled = true
-        return []
+        return makeMessageEndEvent('from headless')
       },
-      toUnifiedAssistantMessageEndFromRawEvents: () => makeMessageEndEvent('from headless'),
       readLatestAssistantMessageSeq: () => {
         interactiveCalled = true
         return 10
@@ -222,8 +286,7 @@ describe('getRunFinalAssistantText', () => {
     }
 
     const readers = fakeReaders({
-      listRawRunEvents: () => [],
-      toUnifiedAssistantMessageEndFromRawEvents: () => emptyEvent,
+      readCompletedAssistantMessageFromHrcEvents: () => emptyEvent,
     })
 
     const result = getRunFinalAssistantText(deps, 'run-1', readers)

@@ -15,7 +15,8 @@ export const DEFAULT_HRC_KINDS_EXCLUDED = new Set([
   'tool_execution_update',
 ])
 
-export type HrcStoreTable = 'events' | 'hrc_events'
+type HrcTimelineTable = 'events' | 'hrc_events'
+export type HrcStoreTable = HrcTimelineTable
 
 export type HrcEvent = {
   hrcSeq: number
@@ -92,7 +93,7 @@ export function resolveHrcStorePath(
   return DEFAULT_HRC_STORE_PATH
 }
 
-function tableExists(db: Database, table: HrcStoreTable): boolean {
+function tableExists(db: Database, table: HrcTimelineTable): boolean {
   const row = db
     .query<{ name: string }, [string]>(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?"
@@ -101,13 +102,13 @@ function tableExists(db: Database, table: HrcStoreTable): boolean {
   return row !== null
 }
 
-function resolveTable(db: Database): HrcStoreTable | undefined {
-  if (tableExists(db, 'events')) return 'events'
+function resolveTable(db: Database): HrcTimelineTable | undefined {
   if (tableExists(db, 'hrc_events')) return 'hrc_events'
+  if (tableExists(db, 'events')) return 'events'
   return undefined
 }
 
-function selectColumns(table: HrcStoreTable): string {
+function selectColumns(table: HrcTimelineTable): string {
   if (table === 'events') {
     return `
       seq AS hrcSeq,
@@ -128,13 +129,14 @@ function selectColumns(table: HrcStoreTable): string {
     lane_ref AS laneRef`
 }
 
-function seqColumn(table: HrcStoreTable): string {
+function seqColumn(table: HrcTimelineTable): string {
   return table === 'events' ? 'seq' : 'hrc_seq'
 }
 
 function buildWhere(
   query: HrcEventQuery,
-  mode: 'run_id' | 'scope_window'
+  mode: 'run_id' | 'scope_window',
+  table: HrcTimelineTable
 ): { whereSql: string; bindings: Array<string | number> } {
   const where: string[] = ['ts >= ?', 'ts <= ?']
   const bindings: Array<string | number> = [query.fromTs, query.toTs]
@@ -161,7 +163,7 @@ function buildWhere(
         bindings.push(kind.replaceAll('*', '%'))
       }
       where.push(`(${kindClauses.join(' OR ')})`)
-    } else {
+    } else if (table === 'events') {
       where.push(`event_kind NOT IN (${[...DEFAULT_HRC_KINDS_EXCLUDED].map(() => '?').join(', ')})`)
       bindings.push(...DEFAULT_HRC_KINDS_EXCLUDED)
     }
@@ -178,7 +180,7 @@ export class HrcStoreReader {
   readonly path: string
 
   private readonly db: Database
-  private readonly table: HrcStoreTable
+  private readonly table: HrcTimelineTable
 
   constructor(path: string) {
     if (!existsSync(path)) {
@@ -213,7 +215,7 @@ export class HrcStoreReader {
   }
 
   private fetch(query: HrcEventQuery, mode: 'run_id' | 'scope_window'): HrcEventQueryResult {
-    const { whereSql, bindings } = buildWhere(query, mode)
+    const { whereSql, bindings } = buildWhere(query, mode, this.table)
     const totalRow = this.db
       .query<{ total: number }, Array<string | number>>(
         `SELECT COUNT(*) AS total FROM ${this.table} WHERE ${whereSql}`
