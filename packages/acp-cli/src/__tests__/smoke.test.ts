@@ -259,7 +259,7 @@ describe('acp CLI smoke fixtures', () => {
           expect(request.method).toBe('POST')
           expect(new URL(request.url).pathname).toBe('/v1/inputs')
           expect(request.body).toMatchObject({
-            sessionRef: { scopeRef: 'agent:larry:project:agent-spaces' },
+            sessionRef: { scopeRef: 'agent:larry:project:agent-spaces:task:primary' },
             content: 'Proceed',
           })
         },
@@ -291,7 +291,7 @@ describe('acp CLI smoke fixtures', () => {
           expect(request.method).toBe('POST')
           expect(new URL(request.url).pathname).toBe('/v1/inputs')
           expect(request.body).toMatchObject({
-            sessionRef: { scopeRef: 'agent:larry:project:agent-spaces' },
+            sessionRef: { scopeRef: 'agent:larry:project:agent-spaces:task:primary' },
             content: 'Proceed',
             intent: {
               kind: 'contribute_to_active_run',

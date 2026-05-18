@@ -323,7 +323,7 @@ describe('runtime-oriented CLI commands', () => {
         assert(request) {
           expect(new URL(request.url).pathname).toBe('/v1/inputs')
           expect(request.body).toMatchObject({
-            sessionRef: { scopeRef: 'agent:larry:project:agent-spaces' },
+            sessionRef: { scopeRef: 'agent:larry:project:agent-spaces:task:primary' },
             content: 'Proceed',
           })
         },

@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
 
+import { resolveScopeInput } from 'agent-scope'
 import { inferProjectIdFromCwd } from 'spaces-config'
 
 import { CliUsageError } from '../cli-runtime.js'
-import { normalizeScopeInput } from '../scope-input.js'
 import {
   hasFlag,
   parseArgs,
@@ -136,27 +136,22 @@ export async function runWorkflowInteractCommand(
       // Bare T-XXXXX: use as taskId, supervisor comes from --supervisor or project default.
       taskId = positional
     } else {
-      // Parse as agent-scope shorthand.
-      const scope = normalizeScopeInput(positional)
-      const parts = scope.scopeRef.split(':')
-      if (parts[0] === 'agent' && parts[1]) {
-        supervisorAgentId = parts[1]
-      }
-      const taskIndex = parts.indexOf('task')
-      if (taskIndex !== -1 && parts[taskIndex + 1]) {
-        taskId = parts[taskIndex + 1]
+      // Parse as agent-scope shorthand using the permissive resolver (workflow
+      // tasks have their own task-id semantics and must NOT be canonicalized
+      // to "primary" when the user omitted a task qualifier).
+      const scope = resolveScopeInput(positional)
+      supervisorAgentId = scope.parsed.agentId
+      if (scope.parsed.taskId !== undefined) {
+        taskId = scope.parsed.taskId
       }
     }
   }
 
-  // Handle --supervisor flag.
+  // Handle --supervisor flag — only agentId is meaningful here.
   const supervisorFlag = readStringFlag(parsed, '--supervisor')
   if (supervisorFlag !== undefined) {
-    const scope = normalizeScopeInput(supervisorFlag)
-    const parts = scope.scopeRef.split(':')
-    if (parts[0] === 'agent' && parts[1]) {
-      supervisorAgentId = parts[1]
-    }
+    const scope = resolveScopeInput(supervisorFlag)
+    supervisorAgentId = scope.parsed.agentId
   }
 
   // Resolve supervisor: explicit flag/positional > project default.
