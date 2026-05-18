@@ -289,14 +289,78 @@ type AcpRunLookupResponse = {
 type MobileSessionSummary = {
   sessionRef?: string | undefined
   status?: string | undefined
+  summaryStatus?: string | undefined
   activeTurnId?: string | undefined
   capabilities?: {
     input?: boolean | undefined
   }
 }
 
-type MobileSessionsResponse = {
+type MobileDashboardSnapshot = {
+  type?: string | undefined
   sessions?: MobileSessionSummary[] | undefined
+}
+
+export type DashboardSnapshotFetcher = (
+  acpBaseUrl: string,
+  options?: { timeoutMs?: number | undefined }
+) => Promise<MobileDashboardSnapshot>
+
+async function fetchDashboardSnapshotViaWebSocket(
+  acpBaseUrl: string,
+  options?: { timeoutMs?: number | undefined }
+): Promise<MobileDashboardSnapshot> {
+  const wsUrl = `${acpBaseUrl.replace(/^http/, 'ws')}/v1/mobile/dashboard`
+  const timeoutMs = options?.timeoutMs ?? 5_000
+
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(wsUrl)
+    const timer = setTimeout(() => {
+      try {
+        ws.close()
+      } catch {
+        // ignore
+      }
+      reject(new Error(`dashboard snapshot timeout after ${timeoutMs}ms`))
+    }, timeoutMs)
+
+    ws.addEventListener('message', (event) => {
+      try {
+        const payload = JSON.parse(String((event as MessageEvent).data)) as MobileDashboardSnapshot
+        if (payload?.type === 'dashboard_snapshot') {
+          clearTimeout(timer)
+          try {
+            ws.close()
+          } catch {
+            // ignore
+          }
+          resolve(payload)
+        }
+      } catch (error) {
+        clearTimeout(timer)
+        try {
+          ws.close()
+        } catch {
+          // ignore
+        }
+        reject(error instanceof Error ? error : new Error(String(error)))
+      }
+    })
+
+    ws.addEventListener('error', () => {
+      clearTimeout(timer)
+      reject(new Error('dashboard snapshot websocket error'))
+    })
+
+    ws.addEventListener('close', (event) => {
+      clearTimeout(timer)
+      reject(
+        new Error(
+          `dashboard snapshot websocket closed before snapshot (code=${(event as CloseEvent).code})`
+        )
+      )
+    })
+  })
 }
 
 export type GatewayDiscordAppOptions = {
@@ -305,6 +369,7 @@ export type GatewayDiscordAppOptions = {
   discordToken?: string | undefined
   client?: Client | undefined
   fetchImpl?: FetchLike | undefined
+  dashboardSnapshotImpl?: DashboardSnapshotFetcher | undefined
   maxChars?: number | undefined
   renderOptions?: RenderOptions | undefined
   bindingsRefreshMs?: number | undefined
@@ -328,6 +393,7 @@ export class GatewayDiscordApp {
   private readonly gatewayId: string
   private readonly client: Client
   private readonly fetchImpl: FetchLike
+  private readonly dashboardSnapshotImpl: DashboardSnapshotFetcher
   private readonly maxChars: number
   private readonly renderOptions: RenderOptions
   private readonly bindingsRefreshMs: number
@@ -370,6 +436,7 @@ export class GatewayDiscordApp {
         partials: [Partials.Message, Partials.Channel, Partials.Reaction, Partials.User],
       })
     this.fetchImpl = options.fetchImpl ?? fetch
+    this.dashboardSnapshotImpl = options.dashboardSnapshotImpl ?? fetchDashboardSnapshotViaWebSocket
     this.maxChars = options.maxChars ?? DEFAULT_MAX_CHARS
     this.renderOptions = options.renderOptions ?? {
       useBlockQuotes: process.env['ACP_DISCORD_USE_BLOCKQUOTES'] === '1',
@@ -797,24 +864,18 @@ export class GatewayDiscordApp {
   }
 
   private async resolveSteeringAvailability(sessionRef: InterfaceSessionRef): Promise<boolean> {
-    const params = new URLSearchParams({
-      scopeRef: sessionRef.scopeRef,
-      laneRef: sessionRef.laneRef,
-    })
+    const wantedSessionRef = `${sessionRef.scopeRef}/lane:${sessionRef.laneRef}`
 
     try {
-      const response = await this.fetchImpl(`${this.acpBaseUrl}/v1/mobile/sessions?${params}`)
-      if (!response.ok) {
-        return false
-      }
-      const payload = (await response.json()) as MobileSessionsResponse
+      const snapshot = await this.dashboardSnapshotImpl(this.acpBaseUrl)
       return (
-        payload.sessions?.some(
+        snapshot.sessions?.some(
           (session) =>
+            session.sessionRef === wantedSessionRef &&
             session.capabilities?.input === true &&
             typeof session.activeTurnId === 'string' &&
             session.activeTurnId.trim().length > 0 &&
-            session.status !== 'inactive'
+            (session.summaryStatus ?? session.status) !== 'inactive'
         ) ?? false
       )
     } catch (error) {

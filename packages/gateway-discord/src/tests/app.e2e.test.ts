@@ -247,6 +247,18 @@ describe('GatewayDiscordApp local e2e', () => {
       acpBaseUrl: 'http://acp.test',
       gatewayId: 'discord_prod',
       client: client as never,
+      dashboardSnapshotImpl: async () => ({
+        type: 'dashboard_snapshot',
+        sessions: [
+          {
+            sessionRef: 'agent:cody:project:agent-spaces/lane:main',
+            status: 'active',
+            summaryStatus: 'active',
+            activeTurnId: 'hrc_run_active',
+            capabilities: { input: true },
+          },
+        ],
+      }),
       fetchImpl: createFetch(async (request) => {
         const url = new URL(request.url)
         paths.push(url.pathname)
@@ -268,21 +280,6 @@ describe('GatewayDiscordApp local e2e', () => {
                 status: 'active',
                 createdAt: '2026-05-07T10:00:00.000Z',
                 updatedAt: '2026-05-07T10:00:00.000Z',
-              },
-            ],
-          })
-        }
-
-        if (url.pathname === '/v1/mobile/sessions') {
-          expect(url.searchParams.get('scopeRef')).toBe('agent:cody:project:agent-spaces')
-          expect(url.searchParams.get('laneRef')).toBe('main')
-          return Response.json({
-            sessions: [
-              {
-                sessionRef: 'agent:cody:project:agent-spaces/lane:main',
-                status: 'active',
-                activeTurnId: 'hrc_run_active',
-                capabilities: { input: true },
               },
             ],
           })
@@ -373,12 +370,10 @@ describe('GatewayDiscordApp local e2e', () => {
         acpBaseUrl: 'http://acp.test',
         gatewayId: 'discord_prod',
         client: client as never,
+        dashboardSnapshotImpl: async () => ({ type: 'dashboard_snapshot', sessions: [] }),
         fetchImpl: createFetch(async (request) => {
           const url = new URL(request.url)
           paths.push(url.pathname)
-          if (url.pathname === '/v1/mobile/sessions') {
-            return Response.json({ sessions: [] })
-          }
           return fixture.handler(request)
         }),
       })
@@ -446,6 +441,7 @@ describe('GatewayDiscordApp local e2e', () => {
       acpBaseUrl: 'http://acp.test',
       gatewayId: 'discord_prod',
       client: client as never,
+      dashboardSnapshotImpl: async () => ({ type: 'dashboard_snapshot', sessions: [] }),
       fetchImpl: createFetch(async (request) => {
         const url = new URL(request.url)
 
@@ -455,10 +451,6 @@ describe('GatewayDiscordApp local e2e', () => {
             bindings:
               bindingListCalls === 1 ? [parentBinding] : [parentBinding, exactThreadBinding],
           })
-        }
-
-        if (url.pathname === '/v1/mobile/sessions') {
-          return Response.json({ sessions: [] })
         }
 
         if (url.pathname === '/v1/interface/messages') {
@@ -536,12 +528,9 @@ describe('GatewayDiscordApp local e2e', () => {
           return Response.json({ inputAttemptId: 'ia_unexpected', runId: 'run_unexpected' })
         }
 
-        if (url.pathname === '/v1/mobile/sessions') {
-          return Response.json({ sessions: [] })
-        }
-
         return new Response('not found', { status: 404 })
       }),
+      dashboardSnapshotImpl: async () => ({ type: 'dashboard_snapshot', sessions: [] }),
     })
 
     await app.refreshBindings()
