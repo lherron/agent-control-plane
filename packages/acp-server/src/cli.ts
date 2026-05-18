@@ -29,6 +29,7 @@ import {
 import { createDevFlowLauncher } from './dev-flow-launcher.js'
 import { createEchoLauncher } from './echo-launcher.js'
 import { dispatchJobRunThroughInputs } from './handlers/admin-jobs.js'
+import { buildMobileUpgradeData, parseMobileRouteKind } from './handlers/mobile-ws.js'
 import { closeMobileWebSocket, openMobileWebSocket } from './handlers/mobile.js'
 import { InputAdmissionService } from './input-admission/input-admission-service.js'
 import { createInputQueueDispatcher } from './integration/input-queue-dispatcher.js'
@@ -451,19 +452,15 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     idleTimeout: 255,
     async fetch(request, server) {
       const url = new URL(request.url)
-      if (
-        request.headers.get('upgrade')?.toLowerCase() === 'websocket' &&
-        (url.pathname === '/v1/mobile/timeline' || url.pathname === '/v1/mobile/diagnostics')
-      ) {
+      const mobileWsKind =
+        request.headers.get('upgrade')?.toLowerCase() === 'websocket'
+          ? parseMobileRouteKind(url.pathname)
+          : undefined
+      if (mobileWsKind !== undefined) {
         const upgraded = (
           server as never as { upgrade(request: Request, options: unknown): boolean }
         ).upgrade(request, {
-          data: {
-            deps: resolvedDeps,
-            url: request.url,
-            kind: url.pathname.endsWith('/diagnostics') ? 'diagnostics' : 'timeline',
-            abortController: new AbortController(),
-          },
+          data: buildMobileUpgradeData(resolvedDeps, request.url, mobileWsKind),
         })
         return upgraded ? undefined : new Response('WebSocket upgrade failed', { status: 400 })
       }

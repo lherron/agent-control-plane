@@ -16,6 +16,15 @@ import {
 
 import type { AcpHrcClient, ResolvedAcpServerDeps } from '../deps.js'
 import type { RouteHandler } from '../routing/route-context.js'
+import {
+  type MobileWebSocketLike,
+  abortMobileWebSocket,
+  parseMobileEventCursor,
+  parseMobileMessageCursor,
+  parseMobileRawFlag,
+  sendMobileErrorEnvelope,
+  sendMobileJsonEnvelope,
+} from './mobile-ws.js'
 
 const GATEWAY_ID = 'acp-local'
 const API_VERSION = 'v1'
@@ -132,18 +141,7 @@ type MobileHistoryPage = {
   events?: MobileEventMessage[] | undefined
 }
 
-type MobileWebSocketData = {
-  deps: ResolvedAcpServerDeps
-  url: string
-  kind: 'timeline' | 'diagnostics'
-  abortController: AbortController
-}
-
-type MobileWebSocket = {
-  data: MobileWebSocketData
-  send(message: string): number | undefined
-  close(code?: number, reason?: string): void
-}
+type MobileWebSocket = MobileWebSocketLike
 
 function requireHrcClient(deps: ResolvedAcpServerDeps): AcpHrcClient {
   if (deps.hrcClient === undefined) {
@@ -768,19 +766,6 @@ async function resolveMobileSession(
   return { record, runtime: latestRuntimeForSession(record, runtimes) }
 }
 
-function eventOptionsFromURL(url: URL): Parameters<AcpHrcClient['watch']>[0] {
-  const fromSeq = Number.parseInt(url.searchParams.get('fromHrcSeq') ?? '1', 10)
-  const generation = Number.parseInt(url.searchParams.get('generation') ?? '', 10)
-  return {
-    fromSeq: Number.isFinite(fromSeq) ? Math.max(1, fromSeq) : 1,
-    follow: url.searchParams.get('follow') === 'true',
-    ...(url.searchParams.get('hostSessionId') !== null
-      ? { hostSessionId: url.searchParams.get('hostSessionId') ?? undefined }
-      : {}),
-    ...(Number.isFinite(generation) ? { generation } : {}),
-  }
-}
-
 export const handleMobileHealth: RouteHandler = async ({ deps }) => {
   const hrcClient = deps.hrcClient
   let hrcOk = false
@@ -868,7 +853,7 @@ export const handleMobileHistory: RouteHandler = async ({ deps, url }) => {
   const sessionRefValue = url.searchParams.get('sessionRef') ?? undefined
   const hostSessionId = url.searchParams.get('hostSessionId') ?? undefined
   const [events, messages] = await Promise.all([
-    collectEvents(hrcClient, eventOptionsFromURL(url), parsedLimit),
+    collectEvents(hrcClient, parseMobileEventCursor(url), parsedLimit),
     collectMessages(hrcClient, {
       sessionRef: sessionRefValue,
       hostSessionId,
@@ -945,10 +930,10 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
   const parsedURL = new URL(url)
   const sessionRefValue = parsedURL.searchParams.get('sessionRef') ?? undefined
   const generation = Number.parseInt(parsedURL.searchParams.get('generation') ?? '', 10)
-  const fromMessageSeq = Number.parseInt(parsedURL.searchParams.get('fromMessageSeq') ?? '0', 10)
-  const raw = parsedURL.searchParams.get('raw') === 'true'
+  const fromMessageSeq = parseMobileMessageCursor(parsedURL)
+  const raw = parseMobileRawFlag(parsedURL)
   const options = {
-    ...eventOptionsFromURL(parsedURL),
+    ...parseMobileEventCursor(parsedURL),
     follow: true,
     signal: abortController.signal,
   }
@@ -974,14 +959,12 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
     )
     liveFrameSeq = (history.frames.at(-1)?.frameSeq ?? 0) + 1
     if (session !== undefined) {
-      ws.send(
-        JSON.stringify({
-          type: 'snapshot',
-          session,
-          snapshotHighWater: history.newestCursor,
-          history,
-        })
-      )
+      sendMobileJsonEnvelope(ws, {
+        type: 'snapshot',
+        session,
+        snapshotHighWater: history.newestCursor,
+        history,
+      })
     }
   }
 
@@ -989,21 +972,24 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
     if (kind === 'diagnostics') {
       for await (const event of hrcClient.watch(options)) {
         if (abortController.signal.aborted) break
-        ws.send(JSON.stringify(projectEvent(event)))
+        sendMobileJsonEnvelope(ws, projectEvent(event))
       }
       return
     }
 
     const sendFrame = (frame: MobileTimelineFrame | undefined): void => {
       if (frame === undefined || abortController.signal.aborted) return
-      ws.send(JSON.stringify({ type: 'frame', frame: { ...frame, frameSeq: liveFrameSeq++ } }))
+      sendMobileJsonEnvelope(ws, {
+        type: 'frame',
+        frame: { ...frame, frameSeq: liveFrameSeq++ },
+      })
     }
 
     const pumpEvents = async (): Promise<void> => {
       for await (const event of hrcClient.watch(options)) {
         if (abortController.signal.aborted) break
         sendFrame(raw ? projectFrame(event) : projectPrimaryEvent(event))
-        if (raw) ws.send(JSON.stringify(projectEvent(event)))
+        if (raw) sendMobileJsonEnvelope(ws, projectEvent(event))
       }
     }
 
@@ -1034,21 +1020,15 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
     await Promise.all([pumpEvents(), pumpMessages()])
   } catch (error) {
     if (!abortController.signal.aborted) {
-      ws.send(
-        JSON.stringify({
-          type: 'error',
-          code: 'mobile_stream_failed',
-          message: error instanceof Error ? error.message : String(error),
-        })
+      sendMobileErrorEnvelope(
+        ws,
+        'mobile_stream_failed',
+        error instanceof Error ? error.message : String(error)
       )
     }
   }
 }
 
 export function closeMobileWebSocket(ws: MobileWebSocket): void {
-  try {
-    ws.data.abortController.abort()
-  } catch {
-    // The socket is already closing; abort errors are expected during teardown.
-  }
+  abortMobileWebSocket(ws)
 }
