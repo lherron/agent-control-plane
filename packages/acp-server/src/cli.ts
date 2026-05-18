@@ -456,15 +456,15 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     idleTimeout: 255,
     async fetch(request, server) {
       const url = new URL(request.url)
-      const mobileWsKind =
+      const mobileWsMatch =
         request.headers.get('upgrade')?.toLowerCase() === 'websocket'
           ? parseMobileRouteKind(url.pathname)
           : undefined
-      if (mobileWsKind !== undefined) {
+      if (mobileWsMatch !== undefined) {
         const upgraded = (
           server as never as { upgrade(request: Request, options: unknown): boolean }
         ).upgrade(request, {
-          data: buildMobileUpgradeData(resolvedDeps, request.url, mobileWsKind),
+          data: buildMobileUpgradeData(resolvedDeps, request.url, mobileWsMatch),
         })
         return upgraded ? undefined : new Response('WebSocket upgrade failed', { status: 400 })
       }

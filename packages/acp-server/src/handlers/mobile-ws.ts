@@ -13,16 +13,34 @@ import type { AcpHrcClient, ResolvedAcpServerDeps } from '../deps.js'
 
 export type MobileRouteKind = 'timeline' | 'diagnostics' | 'dashboard'
 
+/**
+ * Canonical mobile WebSocket paths. `dashboard` is the static system-wide
+ * surface (no session in the path). `timeline` and `diagnostics` are templates
+ * scoped to a single `:hostSessionId` (the path-derived host session id is the
+ * only authority — query-string sessionRef/hostSessionId are ignored for
+ * routing purposes after T-01508).
+ */
 export const MOBILE_WS_PATHS = {
-  timeline: '/v1/mobile/timeline',
-  diagnostics: '/v1/mobile/diagnostics',
   dashboard: '/v1/mobile/dashboard',
+  timelineTemplate: '/v1/mobile/sessions/:hostSessionId/timeline',
+  diagnosticsTemplate: '/v1/mobile/sessions/:hostSessionId/diagnostics',
 } as const
+
+export type MobileRouteMatch = {
+  kind: MobileRouteKind
+  /** Only present for session-scoped routes (timeline, diagnostics). */
+  hostSessionId?: string | undefined
+}
 
 export type MobileWebSocketData = {
   deps: ResolvedAcpServerDeps
   url: string
   kind: MobileRouteKind
+  /**
+   * Path-derived host session id for session-scoped routes. Undefined for the
+   * dashboard route.
+   */
+  hostSessionId?: string | undefined
   abortController: AbortController
 }
 
@@ -32,14 +50,24 @@ export type MobileWebSocketLike = {
   close(code?: number, reason?: string): void
 }
 
+const SESSION_SCOPED_PATTERN = /^\/v1\/mobile\/sessions\/([^/]+)\/(timeline|diagnostics)$/
+
 /**
- * Parses the path of an incoming WebSocket upgrade request to the mobile route
- * kind, or `undefined` when the path is not a recognized mobile WS endpoint.
+ * Parses the path of an incoming WebSocket upgrade request to a mobile route
+ * match (kind + optional hostSessionId), or `undefined` when the path is not a
+ * recognized mobile WS endpoint.
  */
-export function parseMobileRouteKind(pathname: string): MobileRouteKind | undefined {
-  if (pathname === MOBILE_WS_PATHS.timeline) return 'timeline'
-  if (pathname === MOBILE_WS_PATHS.diagnostics) return 'diagnostics'
-  if (pathname === MOBILE_WS_PATHS.dashboard) return 'dashboard'
+export function parseMobileRouteKind(pathname: string): MobileRouteMatch | undefined {
+  if (pathname === MOBILE_WS_PATHS.dashboard) {
+    return { kind: 'dashboard' }
+  }
+  const match = SESSION_SCOPED_PATTERN.exec(pathname)
+  if (match !== null) {
+    const hostSessionId = decodeURIComponent(match[1] as string)
+    if (hostSessionId.length === 0) return undefined
+    const kind = match[2] as MobileRouteKind
+    return { kind, hostSessionId }
+  }
   return undefined
 }
 
@@ -51,12 +79,13 @@ export function parseMobileRouteKind(pathname: string): MobileRouteKind | undefi
 export function buildMobileUpgradeData(
   deps: ResolvedAcpServerDeps,
   url: string,
-  kind: MobileRouteKind
+  match: MobileRouteMatch
 ): MobileWebSocketData {
   return {
     deps,
     url,
-    kind,
+    kind: match.kind,
+    ...(match.hostSessionId !== undefined ? { hostSessionId: match.hostSessionId } : {}),
     abortController: new AbortController(),
   }
 }

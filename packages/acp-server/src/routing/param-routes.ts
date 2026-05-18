@@ -21,6 +21,7 @@ import { handleFailGatewayDelivery } from '../handlers/gateway-deliveries-fail.j
 import { handleStreamGatewayDeliveries } from '../handlers/gateway-deliveries-stream.js'
 import { handleGetInputAttempt } from '../handlers/input-attempts-get.js'
 import { handleGetJobRun, handleListJobRuns } from '../handlers/job-runs.js'
+import { handleMobileInput, handleMobileInterrupt } from '../handlers/mobile.js'
 import { handleCancelRun } from '../handlers/runs-cancel.js'
 import { handleGetRun } from '../handlers/runs-get.js'
 import {
@@ -258,6 +259,8 @@ export function buildParamRoutes(): ParamRoute[] {
       '/v1/workflow-participant-runs/:runId/fail',
       handleFailWorkflowParticipantRun
     ),
+    createParamRoute('POST', '/v1/mobile/sessions/:hostSessionId/input', handleMobileInput),
+    createParamRoute('POST', '/v1/mobile/sessions/:hostSessionId/interrupt', handleMobileInterrupt),
   ]
 }
 

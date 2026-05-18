@@ -1178,20 +1178,20 @@ async function openMobileDashboardWebSocket(
   }
 }
 
-async function resolveMobileSession(
+async function resolveMobileSessionByHostSessionId(
   hrcClient: AcpHrcClient,
-  sessionRefValue: string
+  hostSessionId: string
 ): Promise<{
   record: HrcSessionRecord
   runtime?: HrcRuntimeSnapshot | undefined
 }> {
   const records = await hrcClient.listSessions({})
-  const record = records.find(
-    (candidate) => sessionRef(candidate.scopeRef, candidate.laneRef) === sessionRefValue
-  )
-  if (record === undefined) {
-    badRequest(`session not found: ${sessionRefValue}`, { sessionRef: sessionRefValue })
+  const matches = records.filter((candidate) => candidate.hostSessionId === hostSessionId)
+  if (matches.length === 0) {
+    badRequest(`session not found: ${hostSessionId}`, { hostSessionId })
   }
+  // Multiple generations may exist for a hostSessionId — pick the highest.
+  const record = matches.sort((lhs, rhs) => rhs.generation - lhs.generation)[0] as HrcSessionRecord
   const runtimes = await hrcClient.listRuntimes({ hostSessionId: record.hostSessionId })
   return { record, runtime: latestRuntimeForSession(record, runtimes) }
 }
@@ -1273,9 +1273,6 @@ export const handleMobilePair: RouteHandler = async ({ request }) => {
   })
 }
 
-export const handleMobileSessions: RouteHandler = async ({ deps, url }) =>
-  json(await listMobileSessions(deps, url))
-
 export const handleMobileDashboard: RouteHandler = async () =>
   json(
     {
@@ -1308,14 +1305,24 @@ export const handleMobileHistory: RouteHandler = async ({ deps, url }) => {
   return json(historyPage(events, messages, raw, sessionRefValue))
 }
 
-export const handleMobileInput: RouteHandler = async ({ deps, request }) => {
+function requireHostSessionIdParam(params: Record<string, string>): string {
+  const value = params['hostSessionId']
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    badRequest('hostSessionId path segment is required')
+  }
+  return value
+}
+
+export const handleMobileInput: RouteHandler = async ({ deps, request, params }) => {
   const hrcClient = requireHrcClient(deps)
+  const hostSessionId = requireHostSessionIdParam(params)
   const body = requireRecord(await parseJsonBody(request))
   const clientInputId = requireTrimmedStringField(body, 'clientInputId')
   const text = requireTrimmedStringField(body, 'text')
-  const sessionRefValue = requireTrimmedStringField(body, 'sessionRef')
 
   try {
+    const { record } = await resolveMobileSessionByHostSessionId(hrcClient, hostSessionId)
+    const sessionRefValue = sessionRef(record.scopeRef, record.laneRef)
     await hrcClient.deliverLiteralBySelector({
       selector: { sessionRef: sessionRefValue },
       text,
@@ -1338,14 +1345,14 @@ export const handleMobileInput: RouteHandler = async ({ deps, request }) => {
   }
 }
 
-export const handleMobileInterrupt: RouteHandler = async ({ deps, request }) => {
+export const handleMobileInterrupt: RouteHandler = async ({ deps, request, params }) => {
   const hrcClient = requireHrcClient(deps)
+  const hostSessionId = requireHostSessionIdParam(params)
   const body = requireRecord(await parseJsonBody(request))
   const clientInputId = requireTrimmedStringField(body, 'clientInputId')
-  const sessionRefValue = requireTrimmedStringField(body, 'sessionRef')
 
   try {
-    const { runtime } = await resolveMobileSession(hrcClient, sessionRefValue)
+    const { runtime } = await resolveMobileSessionByHostSessionId(hrcClient, hostSessionId)
     if (runtime === undefined) {
       return json(
         { ok: false, clientInputId, code: 'not_interruptible', message: 'No runtime is attached.' },
@@ -1368,52 +1375,84 @@ export const handleMobileInterrupt: RouteHandler = async ({ deps, request }) => 
 }
 
 export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
-  const { deps, url, kind, abortController } = ws.data
+  const { deps, url, kind, hostSessionId: pathHostSessionId, abortController } = ws.data
   const hrcClient = requireHrcClient(deps)
   const parsedURL = new URL(url)
-  const sessionRefValue = parsedURL.searchParams.get('sessionRef') ?? undefined
-  const generation = Number.parseInt(parsedURL.searchParams.get('generation') ?? '', 10)
-  const fromMessageSeq = parseMobileMessageCursor(parsedURL)
-  const raw = parseMobileRawFlag(parsedURL)
-  const options = {
-    ...parseMobileEventCursor(parsedURL),
-    follow: true,
-    signal: abortController.signal,
-  }
-  let liveFrameSeq = 1
 
   if (kind === 'dashboard') {
     await openMobileDashboardWebSocket(ws, hrcClient, parsedURL)
     return
   }
 
+  if (pathHostSessionId === undefined || pathHostSessionId.length === 0) {
+    sendMobileErrorEnvelope(ws, 'invalid_path', 'hostSessionId path segment is required')
+    ws.close(1008, 'missing hostSessionId')
+    return
+  }
+
+  const generation = Number.parseInt(parsedURL.searchParams.get('generation') ?? '', 10)
+  const fromMessageSeq = parseMobileMessageCursor(parsedURL)
+  const raw = parseMobileRawFlag(parsedURL)
+  const cursor = parseMobileEventCursor(parsedURL)
+  const options = {
+    ...cursor,
+    // Path-derived hostSessionId takes precedence over any query value.
+    hostSessionId: pathHostSessionId,
+    follow: true,
+    signal: abortController.signal,
+  }
+  let liveFrameSeq = 1
+  let sessionRefValue: string | undefined
+
   if (kind === 'timeline') {
-    const index = await listMobileSessions(deps, parsedURL)
-    const session = index.sessions[0]
+    let resolved: { record: HrcSessionRecord; runtime?: HrcRuntimeSnapshot | undefined }
+    try {
+      resolved = await resolveMobileSessionByHostSessionId(hrcClient, pathHostSessionId)
+    } catch (error) {
+      sendMobileErrorEnvelope(
+        ws,
+        'session_not_found',
+        error instanceof Error ? error.message : String(error)
+      )
+      ws.close(1008, 'session not found')
+      return
+    }
+    const { record, runtime } = resolved
+    sessionRefValue = sessionRef(record.scopeRef, record.laneRef)
+    const [latestEvents, latestRun] = await Promise.all([
+      hrcClient.listLatestEventBySession({
+        hostSessionId: record.hostSessionId,
+        generation: record.generation,
+      }),
+      hrcClient.getLatestRunForSession({
+        hostSessionId: record.hostSessionId,
+        generation: record.generation,
+      }),
+    ])
+    const session = projectSession({
+      record,
+      runtime,
+      run: latestRun ?? undefined,
+      lastEvent: latestEvents[0],
+      raw,
+    })
     const [historyEvents, historyMessages] = await Promise.all([
       collectEvents(hrcClient, { ...options, fromSeq: 1, follow: false }, 80),
       collectMessages(hrcClient, {
-        sessionRef: session?.sessionRef ?? sessionRefValue,
-        hostSessionId: options.hostSessionId,
+        sessionRef: sessionRefValue,
+        hostSessionId: pathHostSessionId,
         ...(Number.isFinite(generation) ? { generation } : {}),
         limit: 80,
       }),
     ])
-    const history = historyPage(
-      historyEvents,
-      historyMessages,
-      raw,
-      session?.sessionRef ?? sessionRefValue
-    )
+    const history = historyPage(historyEvents, historyMessages, raw, sessionRefValue)
     liveFrameSeq = (history.frames.at(-1)?.frameSeq ?? 0) + 1
-    if (session !== undefined) {
-      sendMobileJsonEnvelope(ws, {
-        type: 'snapshot',
-        session,
-        snapshotHighWater: history.newestCursor,
-        history,
-      })
-    }
+    sendMobileJsonEnvelope(ws, {
+      type: 'snapshot',
+      session,
+      snapshotHighWater: history.newestCursor,
+      history,
+    })
   }
 
   try {
@@ -1444,7 +1483,7 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
     const pumpMessages = async (): Promise<void> => {
       for await (const message of hrcClient.watchMessages({
         filter: {
-          ...(options.hostSessionId !== undefined ? { hostSessionId: options.hostSessionId } : {}),
+          hostSessionId: pathHostSessionId,
           ...(Number.isFinite(generation) ? { generation } : {}),
           ...(Number.isFinite(fromMessageSeq) ? { afterSeq: fromMessageSeq } : {}),
           order: 'asc',
@@ -1453,15 +1492,14 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
         signal: abortController.signal,
       })) {
         if (abortController.signal.aborted) break
-        const sessionRefForFrame = sessionRefValue
         if (
-          sessionRefForFrame !== undefined &&
+          sessionRefValue !== undefined &&
           message.execution.sessionRef !== undefined &&
-          message.execution.sessionRef !== sessionRefForFrame
+          message.execution.sessionRef !== sessionRefValue
         ) {
           continue
         }
-        sendFrame(projectMessage(message, sessionRefForFrame))
+        sendFrame(projectMessage(message, sessionRefValue))
       }
     }
 

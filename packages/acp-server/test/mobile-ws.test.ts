@@ -16,19 +16,38 @@ import {
 import type { ResolvedAcpServerDeps } from '../src/deps.js'
 
 function makeUrl(query: string): URL {
-  return new URL(`http://acp.local/v1/mobile/timeline${query}`)
+  return new URL(`http://acp.local/v1/mobile/sessions/hsid-test/timeline${query}`)
 }
 
 describe('parseMobileRouteKind', () => {
-  test('recognises canonical mobile WS paths', () => {
-    expect(parseMobileRouteKind(MOBILE_WS_PATHS.timeline)).toBe('timeline')
-    expect(parseMobileRouteKind(MOBILE_WS_PATHS.diagnostics)).toBe('diagnostics')
-    expect(parseMobileRouteKind(MOBILE_WS_PATHS.dashboard)).toBe('dashboard')
+  test('recognises the dashboard system-wide WS path', () => {
+    expect(parseMobileRouteKind(MOBILE_WS_PATHS.dashboard)).toEqual({ kind: 'dashboard' })
   })
 
-  test('returns undefined for other paths', () => {
+  test('parses session-scoped timeline and diagnostics paths', () => {
+    expect(parseMobileRouteKind('/v1/mobile/sessions/hsid-abc/timeline')).toEqual({
+      kind: 'timeline',
+      hostSessionId: 'hsid-abc',
+    })
+    expect(parseMobileRouteKind('/v1/mobile/sessions/hsid-xyz/diagnostics')).toEqual({
+      kind: 'diagnostics',
+      hostSessionId: 'hsid-xyz',
+    })
+  })
+
+  test('decodes percent-encoded hostSessionId segments', () => {
+    expect(parseMobileRouteKind('/v1/mobile/sessions/hsid%20one/timeline')).toEqual({
+      kind: 'timeline',
+      hostSessionId: 'hsid one',
+    })
+  })
+
+  test('returns undefined for legacy unscoped or unknown paths', () => {
+    expect(parseMobileRouteKind('/v1/mobile/timeline')).toBeUndefined()
+    expect(parseMobileRouteKind('/v1/mobile/diagnostics')).toBeUndefined()
     expect(parseMobileRouteKind('/v1/mobile/health')).toBeUndefined()
-    expect(parseMobileRouteKind('/v1/mobile/timeline/extra')).toBeUndefined()
+    expect(parseMobileRouteKind('/v1/mobile/sessions/hsid/timeline/extra')).toBeUndefined()
+    expect(parseMobileRouteKind('/v1/mobile/sessions//timeline')).toBeUndefined()
     expect(parseMobileRouteKind('/')).toBeUndefined()
   })
 })
@@ -149,8 +168,9 @@ describe('abortMobileWebSocket', () => {
   test('aborts the controller', () => {
     const data = {
       deps: {} as ResolvedAcpServerDeps,
-      url: 'http://acp.local/v1/mobile/timeline',
+      url: 'http://acp.local/v1/mobile/sessions/hsid-test/timeline',
       kind: 'timeline' as const,
+      hostSessionId: 'hsid-test',
       abortController: new AbortController(),
     }
     abortMobileWebSocket({ data })
@@ -160,8 +180,9 @@ describe('abortMobileWebSocket', () => {
   test('swallows errors raised by abort()', () => {
     const data = {
       deps: {} as ResolvedAcpServerDeps,
-      url: 'http://acp.local/v1/mobile/timeline',
+      url: 'http://acp.local/v1/mobile/sessions/hsid-test/timeline',
       kind: 'timeline' as const,
+      hostSessionId: 'hsid-test',
       abortController: {
         abort() {
           throw new Error('already disposed')
@@ -174,12 +195,26 @@ describe('abortMobileWebSocket', () => {
 })
 
 describe('buildMobileUpgradeData', () => {
-  test('returns a fresh AbortController and matching shape', () => {
+  test('carries hostSessionId from a session-scoped route match', () => {
     const deps = {} as ResolvedAcpServerDeps
-    const data = buildMobileUpgradeData(deps, 'http://acp.local/v1/mobile/timeline', 'timeline')
+    const data = buildMobileUpgradeData(
+      deps,
+      'http://acp.local/v1/mobile/sessions/hsid-abc/timeline',
+      { kind: 'timeline', hostSessionId: 'hsid-abc' }
+    )
     expect(data.deps).toBe(deps)
-    expect(data.url).toBe('http://acp.local/v1/mobile/timeline')
+    expect(data.url).toBe('http://acp.local/v1/mobile/sessions/hsid-abc/timeline')
     expect(data.kind).toBe('timeline')
+    expect(data.hostSessionId).toBe('hsid-abc')
     expect(data.abortController.signal.aborted).toBe(false)
+  })
+
+  test('omits hostSessionId for the dashboard route', () => {
+    const deps = {} as ResolvedAcpServerDeps
+    const data = buildMobileUpgradeData(deps, 'http://acp.local/v1/mobile/dashboard', {
+      kind: 'dashboard',
+    })
+    expect(data.kind).toBe('dashboard')
+    expect(data.hostSessionId).toBeUndefined()
   })
 })
