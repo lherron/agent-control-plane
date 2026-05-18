@@ -30,7 +30,11 @@ import { createDevFlowLauncher } from './dev-flow-launcher.js'
 import { createEchoLauncher } from './echo-launcher.js'
 import { dispatchJobRunThroughInputs } from './handlers/admin-jobs.js'
 import { buildMobileUpgradeData, parseMobileRouteKind } from './handlers/mobile-ws.js'
-import { closeMobileWebSocket, openMobileWebSocket } from './handlers/mobile.js'
+import {
+  closeMobileWebSocket,
+  handleMobileWebSocketMessage,
+  openMobileWebSocket,
+} from './handlers/mobile.js'
 import { InputAdmissionService } from './input-admission/input-admission-service.js'
 import { createInputQueueDispatcher } from './integration/input-queue-dispatcher.js'
 import { createInterfaceRunDispatcher } from './integration/interface-run-dispatcher.js'
@@ -493,8 +497,8 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
           }
         })
       },
-      message() {
-        // Mobile streams are server-push only in this first facade slice.
+      message(ws, message) {
+        handleMobileWebSocketMessage(ws as never, message as never)
       },
       close(ws) {
         closeMobileWebSocket(ws as never)

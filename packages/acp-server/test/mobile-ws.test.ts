@@ -23,6 +23,7 @@ describe('parseMobileRouteKind', () => {
   test('recognises canonical mobile WS paths', () => {
     expect(parseMobileRouteKind(MOBILE_WS_PATHS.timeline)).toBe('timeline')
     expect(parseMobileRouteKind(MOBILE_WS_PATHS.diagnostics)).toBe('diagnostics')
+    expect(parseMobileRouteKind(MOBILE_WS_PATHS.dashboard)).toBe('dashboard')
   })
 
   test('returns undefined for other paths', () => {

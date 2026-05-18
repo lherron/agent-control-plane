@@ -11,11 +11,12 @@
  */
 import type { AcpHrcClient, ResolvedAcpServerDeps } from '../deps.js'
 
-export type MobileRouteKind = 'timeline' | 'diagnostics'
+export type MobileRouteKind = 'timeline' | 'diagnostics' | 'dashboard'
 
 export const MOBILE_WS_PATHS = {
   timeline: '/v1/mobile/timeline',
   diagnostics: '/v1/mobile/diagnostics',
+  dashboard: '/v1/mobile/dashboard',
 } as const
 
 export type MobileWebSocketData = {
@@ -38,6 +39,7 @@ export type MobileWebSocketLike = {
 export function parseMobileRouteKind(pathname: string): MobileRouteKind | undefined {
   if (pathname === MOBILE_WS_PATHS.timeline) return 'timeline'
   if (pathname === MOBILE_WS_PATHS.diagnostics) return 'diagnostics'
+  if (pathname === MOBILE_WS_PATHS.dashboard) return 'dashboard'
   return undefined
 }
 
