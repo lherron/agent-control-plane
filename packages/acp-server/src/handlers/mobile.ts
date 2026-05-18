@@ -307,30 +307,35 @@ async function listMobileSessions(
   const status = url.searchParams.get('status')
   const query = url.searchParams.get('q')?.trim().toLowerCase()
 
-  const [records, runtimes, events] = await Promise.all([
+  const [records, runtimes, latestEvents] = await Promise.all([
     hrcClient.listSessions({
       ...(scopeRef !== undefined ? { scopeRef } : {}),
       ...(laneRef !== undefined ? { laneRef } : {}),
     }),
     hrcClient.listRuntimes({}),
-    collectEvents(hrcClient, { follow: false }, 2_000),
+    // Indexed SQL query returns one row per (hostSessionId, generation); does not
+    // depend on a bounded recent window, so lastHrcSeq / lastActivityAt stay
+    // reliable on large stores. See HrcLifecycleEventRepository.listLatestPerSession.
+    hrcClient.listLatestEventBySession({
+      ...(scopeRef !== undefined ? { scopeRef } : {}),
+      ...(laneRef !== undefined ? { laneRef } : {}),
+    }),
   ])
 
-  const latestEventByHostSessionId = new Map<string, HrcLifecycleEvent>()
-  for (const event of events) {
-    const previous = latestEventByHostSessionId.get(event.hostSessionId)
-    if (previous === undefined || event.hrcSeq > previous.hrcSeq) {
-      latestEventByHostSessionId.set(event.hostSessionId, event)
-    }
+  const latestEventByHostSessionGeneration = new Map<string, HrcLifecycleEvent>()
+  for (const event of latestEvents) {
+    const key = `${event.hostSessionId}:${event.generation}`
+    latestEventByHostSessionGeneration.set(key, event)
   }
 
-  let sessions = records.map((record) =>
-    projectSession({
+  let sessions = records.map((record) => {
+    const generationKey = `${record.hostSessionId}:${record.generation}`
+    return projectSession({
       record,
       runtime: latestRuntimeForSession(record, runtimes),
-      lastEvent: latestEventByHostSessionId.get(record.hostSessionId),
+      lastEvent: latestEventByHostSessionGeneration.get(generationKey),
     })
-  )
+  })
 
   if (mode === 'interactive' || mode === 'headless') {
     sessions = sessions.filter((session) => session.mode === mode)

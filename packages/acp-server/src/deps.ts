@@ -99,6 +99,7 @@ export type AcpHrcClient = Pick<
   | 'getAttachDescriptor'
   | 'getSession'
   | 'interrupt'
+  | 'listLatestEventBySession'
   | 'listMessages'
   | 'listRuntimes'
   | 'listSessions'
