@@ -20,6 +20,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "acp-core": "*",
     "better-sqlite3": "^11.10.0"
   },
   "devDependencies": {
