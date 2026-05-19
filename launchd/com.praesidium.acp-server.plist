@@ -49,7 +49,7 @@
     <key>ACP_LOG_PATH</key>
     <string>/Users/lherron/praesidium/var/logs/acp-server.log</string>
     <key>ACP_DISCORD_TOKEN_KV</key>
-    <string>cfg/dev/_global/discord/master_token</string>
+    <string>cfg/dev/_global/discord/blaster_token</string>
     <key>DISCORD_VIRTU_BOT_ID</key>
     <string>1165644636807778414</string>
     <key>ACP_HOST</key>
