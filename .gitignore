@@ -53,3 +53,7 @@ coverage/
 
 # Coordinator long-running spec backups (kept locally by skill convention)
 *_BACKUP.md
+
+# Playwright test artifacts
+packages/*/test-results/
+packages/*/playwright-report/
