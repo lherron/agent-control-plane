@@ -1,6 +1,9 @@
-export { admissionLabel, admissionLabelFromResponse } from './admission-labels.js'
-export type { AdmissionLabelInput } from './admission-labels.js'
-import { admissionLabel } from './admission-labels.js'
+export {
+  admissionLabel,
+  admissionLabelFromResponse,
+  type AdmissionLabelInput,
+} from 'agent-action-render'
+import { admissionLabel } from 'agent-action-render'
 
 export type DashboardEventFamily =
   | 'runtime'

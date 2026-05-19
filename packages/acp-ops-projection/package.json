@@ -19,6 +19,9 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
+  "dependencies": {
+    "agent-action-render": "*"
+  },
   "devDependencies": {
     "@types/bun": "latest",
     "typescript": "^5.8.3"
