@@ -13,7 +13,9 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
@@ -21,9 +23,9 @@
   },
   "dependencies": {
     "acp-core": "*",
-    "agent-scope": "*",
+    "agent-scope": "0.1.0",
     "better-sqlite3": "^11.10.0",
-    "hrc-core": "*"
+    "hrc-core": "0.1.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",

@@ -16,11 +16,11 @@
     "acp-jobs-store": "*",
     "acp-server": "*",
     "acp-state-store": "*",
-    "agent-scope": "*",
+    "agent-scope": "0.1.0",
     "coordination-substrate": "*",
-    "hrc-core": "*",
-    "hrc-server": "*",
-    "spaces-runtime": "*",
+    "hrc-core": "0.1.0",
+    "hrc-server": "0.1.0",
+    "spaces-runtime": "0.1.0",
     "wrkq-lib": "*"
   },
   "devDependencies": {

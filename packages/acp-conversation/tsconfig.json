@@ -9,7 +9,6 @@
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "test", "**/*.test.ts"],
   "references": [
-    { "path": "../acp-core" },
-    { "path": "../agent-scope" }
+    { "path": "../acp-core" }
   ]
 }

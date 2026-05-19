@@ -13,7 +13,9 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "bun run --cwd ../acp-ops-projection build && tsc",
     "typecheck": "bun run --cwd ../acp-ops-projection build && tsc --noEmit",

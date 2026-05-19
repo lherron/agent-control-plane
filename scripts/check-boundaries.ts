@@ -39,6 +39,27 @@ const hrcPackages = [
   'hrc-frame-render',
 ]
 
+const acpPackages = [
+  'acp-core',
+  'acp-state-store',
+  'acp-admin-store',
+  'acp-interface-store',
+  'acp-conversation',
+  'acp-jobs-store',
+  'acp-server',
+  'acp-cli',
+  'acp-e2e',
+  'acp-ops-projection',
+  'acp-ops-reducer',
+  'acp-ops-web',
+  'acp-viewer',
+  'gateway-discord',
+  'gateway-ios',
+  'coordination-substrate',
+  'wrkq-lib',
+  'wlearn',
+]
+
 const layers: Layer[] = [
   {
     name: 'ASP',
@@ -57,7 +78,26 @@ const layers: Layer[] = [
       'wlearn',
     ],
   },
+  // ACP is allowed to import HRC packages by name. What ACP must NOT do is
+  // reach into HRC implementation internals via a subpath like 'hrc-server/src/...'.
+  // The brain-enricher content scan below catches the other half — coupling to
+  // HRC-only features.
+  {
+    name: 'ACP',
+    roots: acpPackages.map((name) => `packages/${name}`),
+    forbidden: [
+      'hrc-server/src',
+      'hrc-frame-render/src',
+      'hrc-core/src',
+      'hrc-events/src',
+      'hrc-sdk/src',
+      'hrc-store-sqlite/src',
+      'agent-action-render/src',
+    ],
+  },
 ]
+
+const acpInternalForbiddenContent = ['enrichTurnPromptForBrain', 'brain-enricher', 'gbrain']
 
 const ignoredDirectories = new Set([
   '.git',
@@ -147,6 +187,22 @@ for (const layer of layers) {
   if (violations.length > 0) {
     violationsByLayer.set(layer.name, violations)
   }
+}
+
+// Content scan: ACP source must not reference HRC-only feature names.
+const acpRoots = acpPackages.map((name) => `packages/${name}`)
+const acpFiles = (await Promise.all(acpRoots.map((root) => collectTsFiles(root)))).flat()
+const contentViolations: Violation[] = []
+for (const file of acpFiles.sort()) {
+  const content = await readFile(file, 'utf8')
+  for (const token of acpInternalForbiddenContent) {
+    if (content.includes(token)) {
+      contentViolations.push({ file: relative(process.cwd(), file), specifier: token })
+    }
+  }
+}
+if (contentViolations.length > 0) {
+  violationsByLayer.set('ACP (content)', contentViolations)
 }
 
 if (violationsByLayer.size === 0) {

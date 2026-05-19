@@ -16,7 +16,10 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "bin"],
+  "files": [
+    "dist",
+    "bin"
+  ],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",

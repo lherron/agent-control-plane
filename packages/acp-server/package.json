@@ -16,7 +16,10 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
@@ -30,12 +33,12 @@
     "acp-interface-store": "*",
     "acp-jobs-store": "*",
     "acp-state-store": "*",
-    "agent-scope": "*",
+    "agent-scope": "0.1.0",
     "coordination-substrate": "*",
-    "hrc-core": "*",
-    "hrc-sdk": "*",
-    "spaces-config": "*",
-    "spaces-runtime": "*",
+    "hrc-core": "0.1.0",
+    "hrc-sdk": "0.1.0",
+    "spaces-config": "0.1.0",
+    "spaces-runtime": "0.1.0",
     "wrkq-lib": "*"
   },
   "devDependencies": {

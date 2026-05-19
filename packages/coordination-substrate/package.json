@@ -13,14 +13,18 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "src/storage/schema.sql", "src/storage/migrations/001_initial.sql"],
+  "files": [
+    "dist",
+    "src/storage/schema.sql",
+    "src/storage/migrations/001_initial.sql"
+  ],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
   "dependencies": {
-    "agent-scope": "*"
+    "agent-scope": "0.1.0"
   },
   "devDependencies": {
     "@types/bun": "latest",

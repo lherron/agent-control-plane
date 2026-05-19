@@ -16,7 +16,10 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
@@ -27,13 +30,13 @@
     "acp-core": "*",
     "acp-ops-projection": "*",
     "acp-server": "*",
-    "agent-action-render": "*",
-    "agent-scope": "*",
+    "agent-action-render": "0.1.0",
+    "agent-scope": "0.1.0",
     "chalk": "^5.6.2",
-    "cli-kit": "*",
+    "cli-kit": "0.1.0",
     "commander": "^14.0.0",
     "gateway-discord": "*",
-    "spaces-config": "*",
+    "spaces-config": "0.1.0",
     "wrkq-lib": "*"
   },
   "devDependencies": {
