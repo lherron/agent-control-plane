@@ -1,30 +1,110 @@
+## agent-control-plane
+
+This is the ACP (Agent Control Plane) layer of the three-repo split
+(ASP / HRC / ACP). It owns the workflow kernel, task/control-plane state,
+the ACP HTTP server, interface gateways (Discord, iOS), and operator
+dashboards/viewers.
+
+ASP packages (agent-scope, cli-kit, spaces-config, spaces-runtime, etc.) and
+HRC packages (agent-action-render, hrc-core, hrc-sdk, hrc-frame-render, etc.)
+are external dependencies sourced from the local Verdaccio registry at
+`http://127.0.0.1:4873/`.
+
 ## Build & Run
 
-This is a Bun monorepo with packages in `packages/*`.
-
 ```bash
-bun install       # Install dependencies
-bun run build     # Build all packages
+bun install       # Install dependencies (resolves ASP+HRC deps from Verdaccio)
+bun run build     # Build all ACP packages in order
 ```
 
 ## Validation
 
-Run these after implementing to get immediate feedback:
-
-- Only run tests (`bun run test`) **after modifying files under `packages/*` AND after manually testing if possible**.
+- Conformance: `bun test tests/conformance/acp-workflow`
 - Tests: `bun run test`
-- Typecheck: `bun run typecheck` (run `bun run build` first if workspace typings are missing)
+- Typecheck: `bun run typecheck`
 - Lint: `bun run lint` (fix with `bun run lint:fix`)
+- Boundary checks: `bun run check:boundaries`, `bun run check:manifests`
+
+## Project Structure
+
+```
+packages/
+├── acp-core/             # Workflow domain types, kernel, presets, validators
+├── acp-state-store/      # SQLite repos for workflow/runtime/input/transition-outbox
+├── acp-admin-store/      # SQLite repos for agents, projects, memberships, heartbeats
+├── acp-interface-store/  # SQLite repos for interface bindings, message sources
+├── acp-conversation/     # SQLite conversation thread/turn store
+├── acp-jobs-store/       # SQLite job/cron/flow records
+├── acp-server/           # ACP HTTP server: workflow/task/admin/interface/runtime
+├── acp-cli/              # `acp` operator/user CLI
+├── acp-e2e/              # End-to-end ACP × HRC tests
+├── acp-ops-projection/   # Operator dashboard projection contracts
+├── acp-ops-reducer/      # Pure client reducer for the ops dashboard
+├── acp-ops-web/          # ACP operator session dashboard web app
+├── acp-viewer/           # Local read-only ACP state viewer web app
+├── gateway-discord/      # ACP Discord interface gateway
+├── gateway-ios/          # iOS/mobile gateway (currently the HRC mobile surface)
+├── coordination-substrate/ # SQLite ledger for handoffs/wake/coordination
+├── wrkq-lib/             # TS store layer over wrkq SQLite
+└── wlearn/               # Workflow-learning replay/trace tools
+```
+
+Conformance tests live in `tests/conformance/acp-workflow/`.
+
+## Repo Boundaries
+
+Enforced by `bun run check:boundaries`:
+
+- ACP source may import ASP and HRC packages by name from Verdaccio.
+- ACP source **must not** reach into HRC implementation internals via
+  subpath imports like `hrc-server/src/...` or relative path traversals.
+- ACP source **must not** reference HRC-only feature identifiers
+  (`enrichTurnPromptForBrain`, `brain-enricher`, `gbrain`) — this is a
+  content scan, not just an import scan. The HRC brain-enricher is an
+  HRC-internal feature; ACP should never couple to it.
+
+## ACP Server Lifecycle
+
+The `acp` daemon is managed via launchd:
+
+- Plist: `launchd/com.praesidium.acp-server.plist` (canonical source); installed
+  to `~/Library/LaunchAgents/com.praesidium.acp-server.plist`.
+- HTTP: `http://127.0.0.1:18470`
+- State DBs: `/Users/lherron/praesidium/var/db/acp-{state,interface,coordination,admin,...}.db`
+- Logs: `/Users/lherron/praesidium/var/logs/acp-server.{log,err.log}`
+
+The binary at `/Users/lherron/.bun/bin/acp` is `bun link`ed from this repo's
+`packages/acp-cli`. After local changes:
+
+```bash
+bun run build
+launchctl kickstart -k gui/$(id -u)/com.praesidium.acp-server
+acp server status
+```
+
+`ACP_REAL_HRC_LAUNCHER=1` and the embedded `HRC_RUNTIME_DIR`/`HRC_STATE_DIR`
+env in the ACP plist tell `acp-server` to spawn real HRC client paths against
+the locally-running HRC daemon. These are runtime contracts; do not rename
+them as part of repo-ownership tidying.
 
 ## Discord Gateway Validation
 
-When changing Discord gateway behavior, smoke test with real Discord. Fake Discord clients, mocked channel objects, and in-process Discord substitutes are acceptable for automated tests, but they do not count as manual smoke validation.
+When changing Discord gateway behavior, smoke test with real Discord. Fake
+Discord clients, mocked channel objects, and in-process Discord substitutes
+are acceptable for automated tests, but they do not count as manual smoke
+validation.
 
-For gateway changes, verify the behavior in an actual Discord channel/thread using the installed gateway, real bot credentials, and ACP/HRC services. Report the real Discord smoke result when handing work back. If real Discord validation is blocked, say exactly what blocked it and do not present fake-client output as a successful smoke test.
+For gateway changes, verify the behavior in an actual Discord channel/thread
+using the installed gateway, real bot credentials, and ACP/HRC services.
+Report the real Discord smoke result when handing work back. If real Discord
+validation is blocked, say exactly what blocked it and do not present
+fake-client output as a successful smoke test.
 
 ## ACP Discord Bindings
 
-Bindings map a Discord conversation to an ACP session scope. Manage them under `acp admin interface binding` (note: under `admin interface`, not bare `interface`).
+Bindings map a Discord conversation to an ACP session scope. Manage them under
+`acp admin interface binding` (note: under `admin interface`, not bare
+`interface`).
 
 ```bash
 acp admin interface binding list --json
@@ -35,140 +115,74 @@ acp admin interface binding disable --binding <id>
 
 Notes:
 
-- `binding set` upserts on `(gatewayId, conversationRef [, threadRef])`. Re-running `set` with the same channel keeps the same `bindingId` and just updates the scope/lane — that's the supported way to repoint a channel without churning binding IDs.
-- `conversationRef` for a channel is `channel:<id>`; for a thread, add `--thread-ref thread:<id>`. Use the numeric Discord ID, not the `#name`.
-- Discord channel ID lookup: `discord-chat channels list | jq -r '.data[] | select(.name=="<name>") | .id'`.
-- Standard dev gateway is `acp-discord-smoke`; bind `agent:<agent>:project:<project>:task:<task>` for task-scoped routing.
+- `binding set` upserts on `(gatewayId, conversationRef [, threadRef])`. Re-running
+  `set` with the same channel keeps the same `bindingId` and updates the
+  scope/lane — repointing a channel without churning binding IDs.
+- `conversationRef` for a channel is `channel:<id>`; for a thread, add
+  `--thread-ref thread:<id>`. Use the numeric Discord ID, not the `#name`.
+- Standard dev gateway is `acp-discord-smoke`; bind
+  `agent:<agent>:project:<project>:task:<task>` for task-scoped routing.
 
 Verifying a binding:
 
 ```bash
-# 1. Send via the virtu bot (acts as a real user, not the gateway bot itself)
 CP_CHANNEL_ID=<channel-id> ./scripts/virtu-send.sh "ping"
-
-# 2. Confirm a run was created on the target scope
-acp session resolve --scope-ref <scopeRef> --lane-ref main --json     # -> sessionId
-acp session runs --session <sessionId> --json                         # check metadata.meta.interfaceSource.bindingId
-
-# 3. Read the reply from Discord (acp tail may return [] for headless runs)
+acp session resolve --scope-ref <scopeRef> --lane-ref main --json
+acp session runs --session <sessionId> --json
 TOKEN=$(consul kv get cfg/dev/_global/discord/master_token)
 curl -sS -H "Authorization: Bot $TOKEN" \
   "https://discord.com/api/v10/channels/<channel-id>/messages?limit=5" \
   | jq -r '.[] | {author: .author.username, ts: .timestamp, content}'
 ```
 
-The run's `metadata.meta.interfaceSource.bindingId` is the authoritative proof that a specific binding routed the inbound — match it against the binding you just created.
+The run's `metadata.meta.interfaceSource.bindingId` is the authoritative proof
+that a specific binding routed the inbound — match it against the binding you
+just created.
 
-## Ops Dashboard
+## Ops Dashboard (acp-ops-web)
 
-When the user refers to the "ops dashboard", they mean the ACP ops web dashboard in `packages/acp-ops-web`.
-Always open the ops dashboard in the Codex in-app browser when asked to start, inspect, or verify it.
-
-Run it from `packages/acp-ops-web`:
+Run from `packages/acp-ops-web`:
 
 ```bash
 bun run dev -- --host 127.0.0.1
 ```
 
-Then open `http://127.0.0.1:5173/` in the in-app browser. If port `5173` is already serving the dashboard, reuse it instead of starting another server.
+Then open `http://127.0.0.1:5173/`. Reuse the port if already running.
 
-Operational notes from dashboard work:
+Notes:
 
-- The real snapshot endpoint is `/v1/ops/session-dashboard/snapshot`.
-- A successful real snapshot can contain sessions with `events: 0`; an empty event stream/timeline is not automatically a rendering bug.
-- Dev demo data should only appear when the dashboard snapshot request fails in development, not before a successful real snapshot replaces it.
-- For package-scoped validation after ops dashboard changes, prefer `bun run --filter acp-ops-web typecheck` and `bun run --filter acp-ops-web test`.
+- Real snapshot endpoint: `/v1/ops/session-dashboard/snapshot`.
+- A successful real snapshot can contain sessions with `events: 0`; an empty
+  event stream is not automatically a rendering bug.
+- Dev demo data should only appear when the snapshot request fails in
+  development, not before a successful real snapshot replaces it.
+- For package-scoped validation: `bun run --filter acp-ops-web typecheck`
+  and `bun run --filter acp-ops-web test`. Playwright tests require Chromium
+  in the env.
 
 ## ACP Viewer
 
-When changing pages or UI under `packages/acp-viewer`, open the affected route in the Codex in-app browser and display it for review.
-
-Run it from `packages/acp-viewer`:
+Run from `packages/acp-viewer`:
 
 ```bash
 bun run dev -- --host 127.0.0.1
 ```
 
-Then open the relevant `http://127.0.0.1:5174/...` route in the in-app browser. If port `5174` is already serving the viewer, reuse it instead of starting another server.
+Then open the relevant `http://127.0.0.1:5174/...` route. Reuse the port if
+already running.
 
-## Project Structure
+## Conformance Tests
 
-```
-packages/
-├── agent-scope/      # ScopeRef/ScopeHandle/SessionRef/SessionHandle utilities
-├── config/           # spaces-config: config-time determinism, resolution, locks, materialization
-├── runtime/          # spaces-runtime: harness-agnostic runtime/session contracts
-├── execution/        # spaces-execution: run-time orchestration and harness dispatch
-├── harness-claude/   # Claude CLI + Agent SDK adapters
-├── harness-codex/    # Codex adapter
-├── harness-pi/       # Pi CLI adapter
-├── harness-pi-sdk/   # Pi SDK adapter
-├── agent-spaces/     # Public host-facing client surface
-└── cli/              # CLI entry point
-```
-
-## Smoke Testing the CLI
-
-**Always test `asp run` changes with `--dry-run`** to verify the generated Claude command without actually launching Claude.
-**If you update something available via CLI, run the CLI to validate it.**
-
-Run CLI commands with `--dry-run` to verify behavior without launching Claude:
+`tests/conformance/acp-workflow/` is the canonical ACP workflow kernel test
+suite. Always run before declaring ACP work done:
 
 ```bash
-# Run CLI directly with bun (no build step needed)
-bun packages/cli/bin/asp.js <command>
-
-# Set ASP_HOME to a writable path (avoids EPERM creating temp dirs)
-ASP_HOME=/tmp/asp-test
-
-# Test with a local space (dev mode)
-ASP_HOME=/tmp/asp-test bun packages/cli/bin/asp.js run \
-  integration-tests/fixtures/sample-registry/spaces/base --dry-run
-
-# For codex harness dry-runs without a local Codex install
-PATH=integration-tests/fixtures/codex-shim:$PATH \
-  ASP_HOME=/tmp/asp-test bun packages/cli/bin/asp.js run \
-  integration-tests/fixtures/sample-registry/spaces/base --dry-run --harness codex
-
-# Test inherit flags
-bun packages/cli/bin/asp.js run <space-path> --dry-run --inherit-all
-bun packages/cli/bin/asp.js run <space-path> --dry-run --inherit-project --inherit-user
-
-# Test settings composition (add [settings] to a space.toml first)
-bun packages/cli/bin/asp.js run <space-path> --dry-run  # should show --settings flag
+bun test tests/conformance/acp-workflow
 ```
 
-Note: `asp run` does not accept a `--prompt` flag.
+## Cross-Repo Consumption
 
-Test fixtures are in `integration-tests/fixtures/`:
-- `sample-registry/spaces/` - Various test spaces (base, frontend, backend, etc.)
-- `sample-project/` - Project with asp-targets.toml
-- `claude-shim/` - Mock claude binary for tests
-
-## Codebase Patterns
-
-- TypeScript with strict mode and `exactOptionalPropertyTypes`
-- Optional properties use `prop?: T | undefined` pattern
-- Biome for linting/formatting
-- JSON schemas in `packages/config/src/core/schemas/`
-- Error classes in `packages/config/src/core/errors.ts`
-
-## Error Handling
-
-`asp run` should **never** silently capture errors. It should always exit immediately when an error occurs.
-
-- Do not use try/catch blocks that swallow errors
-- Let filesystem errors propagate naturally
-- Throw explicit errors for invalid states (e.g., missing bundle)
-- Errors should be visible to the user, not hidden
-
-## Pi Harness
-
-When running with `--harness pi`:
-
-- Always set `PI_CODING_AGENT_DIR=<asp_modules target pi dir>` as an environment variable
-- This env var must appear in `--print-command` output for copy-paste compatibility
-- This env var must be set when spawning the Pi process directly
-- Add `--no-extensions` when there are no extensions to load (prevents Pi from loading defaults)
-- Always add `--no-skills` to disable default skill loading from `.claude`, `.codex`, `~/.pi/agent/skills/`
-- Materialize hooks to `hooks-scripts/` (Pi has an incompatible `hooks/` directory format)
+`.npmrc` in this repo points `registry=http://127.0.0.1:4873/`. The Verdaccio
+upstream policy serves ASP/HRC cross-repo packages from local storage only
+(no public-npm fallthrough on those names) and proxies everything else
+(`chalk`, `commander`, `@anthropic-ai/*`, ...) to the public npmjs registry.
