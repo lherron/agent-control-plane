@@ -67,7 +67,7 @@
   </dict>
 
   <key>WorkingDirectory</key>
-  <string>/Users/lherron/praesidium/agent-spaces</string>
+  <string>/Users/lherron/praesidium/agent-control-plane</string>
 
   <key>RunAtLoad</key>
   <true/>
