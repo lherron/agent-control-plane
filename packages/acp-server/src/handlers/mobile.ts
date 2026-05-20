@@ -258,6 +258,8 @@ function mobileMode(
   return 'interactive'
 }
 
+const DEAD_RUNTIME_STATUSES = new Set(['dead', 'stopped', 'crashed', 'exited', 'terminated'])
+
 function mobileStatus(status: string, runtime?: HrcRuntimeSnapshot): MobileSessionStatus {
   const normalized = status.toLowerCase()
   if (normalized.includes('stale')) return 'stale'
@@ -269,7 +271,11 @@ function mobileStatus(status: string, runtime?: HrcRuntimeSnapshot): MobileSessi
   ) {
     return 'inactive'
   }
-  if (runtime?.status.toLowerCase().includes('stale')) return 'stale'
+  const runtimeStatus = runtime?.status.toLowerCase()
+  if (runtimeStatus?.includes('stale')) return 'stale'
+  if (runtime === undefined || (runtimeStatus !== undefined && DEAD_RUNTIME_STATUSES.has(runtimeStatus))) {
+    return 'inactive'
+  }
   return 'active'
 }
 

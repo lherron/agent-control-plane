@@ -163,6 +163,42 @@ describe('WS /v1/mobile/dashboard', () => {
     expect(bucket.map((item) => item.hrcSeq)).toEqual([8, 9, 10, 11, 12])
   })
 
+  test('summaryStatus becomes inactive when runtime is dead even if session record is active', async () => {
+    const deadRuntime: HrcRuntimeSnapshot = { ...RUNTIME, status: 'terminated' }
+    const client = {
+      listSessions: async () => [SESSION],
+      listRuntimes: async () => [deadRuntime],
+      listLatestEventBySession: async () => [event(1)],
+      getLatestRunForSession: async () => RUN,
+      listRuns: async () => [RUN],
+      watch: () => (async function* () {})(),
+    } as unknown as AcpHrcClient
+    const { ws, sent } = createDashboardSocket({ hrcClient: client })
+
+    await openMobileWebSocket(ws)
+
+    const sessions = (sent[0] as Record<string, unknown>).sessions as Array<Record<string, unknown>>
+    expect(sessions[0]!.summaryStatus).toBe('inactive')
+    expect((sessions[0]!.session as Record<string, unknown>).status).toBe('active')
+  })
+
+  test('summaryStatus is inactive when no runtime is attached', async () => {
+    const client = {
+      listSessions: async () => [SESSION],
+      listRuntimes: async () => [],
+      listLatestEventBySession: async () => [event(1)],
+      getLatestRunForSession: async () => undefined,
+      listRuns: async () => [],
+      watch: () => (async function* () {})(),
+    } as unknown as AcpHrcClient
+    const { ws, sent } = createDashboardSocket({ hrcClient: client })
+
+    await openMobileWebSocket(ws)
+
+    const sessions = (sent[0] as Record<string, unknown>).sessions as Array<Record<string, unknown>>
+    expect(sessions[0]!.summaryStatus).toBe('inactive')
+  })
+
   test('replays from fromHrcSeq, then live streams from snapshot high water without duplicates', async () => {
     const hrcEvents = [event(1), event(2), event(3), event(4), event(4)]
     const { ws, sent } = createDashboardSocket({

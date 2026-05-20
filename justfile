@@ -62,6 +62,7 @@ install:
     bun run clean
     bun install
     bun run build
+    bun scripts/publish-local-verdaccio.ts
     cd packages/acp-cli && bun link
     cd packages/acp-server && bun link
     cd packages/wlearn && bun link
