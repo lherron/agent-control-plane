@@ -165,7 +165,7 @@ function defaultRuntimeResolver(): NonNullable<AcpServerDeps['runtimeResolver']>
     projectRoot: '/tmp/acp-e2e-project',
     cwd: '/tmp/acp-e2e-project',
     runMode: 'task',
-    bundle: { kind: 'agent-default' },
+    bundle: { kind: 'compose', compose: [] },
     harness: { provider: 'openai', interactive: true, model: 'gpt-5-codex' },
   })
 }

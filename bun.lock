@@ -1,5 +1,6 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "agent-control-plane",
@@ -88,6 +89,7 @@
         "coordination-substrate": "*",
         "hrc-core": "0.1.0",
         "hrc-server": "0.1.0",
+        "spaces-config": "0.1.0-dev.20260521015650",
         "spaces-runtime": "0.1.0",
         "wrkq-lib": "*",
       },
@@ -259,6 +261,7 @@
         "agent-scope": "0.1.0",
         "discord.js": "^14.16.0",
         "hrc-frame-render": "0.1.0",
+        "spaces-config": "0.1.0-dev.20260521015650",
         "spaces-runtime": "0.1.0",
       },
       "devDependencies": {
