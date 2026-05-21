@@ -31,12 +31,12 @@
     "acp-ops-projection": "*",
     "acp-server": "*",
     "agent-action-render": "0.1.0",
-    "agent-scope": "0.1.0",
+    "agent-scope": "0.1.0-dev.20260521110556",
     "chalk": "^5.6.2",
-    "cli-kit": "0.1.0",
+    "cli-kit": "0.1.0-dev.20260521110556",
     "commander": "^14.0.0",
     "gateway-discord": "*",
-    "spaces-config": "0.1.0-dev.20260521015650",
+    "spaces-config": "0.1.0-dev.20260521110556",
     "wrkq-lib": "*"
   },
   "devDependencies": {

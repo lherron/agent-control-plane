@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "acp-core": "*",
-    "agent-scope": "0.1.0",
+    "agent-scope": "0.1.0-dev.20260521110556",
     "better-sqlite3": "^11.10.0"
   },
   "devDependencies": {

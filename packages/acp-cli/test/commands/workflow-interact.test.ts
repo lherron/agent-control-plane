@@ -90,7 +90,7 @@ describe('workflow interact CLI', () => {
     ])
     expect(calls[1]?.body).toMatchObject({
       sessionRef: {
-        scopeRef: 'agent:supervisor:project:agent-spaces',
+        scopeRef: 'agent:supervisor:project:agent-spaces:task:primary',
         laneRef: 'lane:main',
       },
       workflowInteract: true,

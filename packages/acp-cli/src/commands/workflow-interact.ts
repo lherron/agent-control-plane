@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
-import { resolveScopeInput } from 'agent-scope'
+import { parseScopeHandle, parseScopeRef, parseSessionHandle } from 'agent-scope'
+import type { ParsedScopeRef } from 'agent-scope'
 import { inferProjectIdFromCwd } from 'spaces-config'
 
 import { CliUsageError } from '../cli-runtime.js'
@@ -26,6 +27,26 @@ import {
 // Task IDs come in two forms: wrkq tasks (`T-01410`, all digits) and workflow
 // tasks (`T-0693E836`, 8 uppercase hex chars from createTaskId). Accept both.
 const BARE_TASK_PATTERN = /^T-[A-Za-z0-9]+$/
+
+/**
+ * Parse a supervisor positional/flag input without canonicalizing to
+ * `task:primary`. Workflow tasks own their own taskId space (created by the
+ * server when --workflow is supplied), so this command must distinguish
+ * between "user did not supply a task" and "user supplied task:primary".
+ *
+ * The ASP `resolveScopeInput` resolver now always qualifies to task:primary
+ * when project is present, which conflicts with workflow-task semantics.
+ */
+function parseSupervisorInput(input: string): ParsedScopeRef {
+  if (input.includes('~')) {
+    const session = parseSessionHandle(input)
+    return parseScopeRef(session.scopeRef)
+  }
+  if (input.startsWith('agent:')) {
+    return parseScopeRef(input)
+  }
+  return parseScopeHandle(input)
+}
 
 function parseWorkflowRef(value: string): { id: string; version: number } {
   const at = value.lastIndexOf('@')
@@ -136,13 +157,12 @@ export async function runWorkflowInteractCommand(
       // Bare T-XXXXX: use as taskId, supervisor comes from --supervisor or project default.
       taskId = positional
     } else {
-      // Parse as agent-scope shorthand using the permissive resolver (workflow
-      // tasks have their own task-id semantics and must NOT be canonicalized
-      // to "primary" when the user omitted a task qualifier).
-      const scope = resolveScopeInput(positional)
-      supervisorAgentId = scope.parsed.agentId
-      if (scope.parsed.taskId !== undefined) {
-        taskId = scope.parsed.taskId
+      // Parse without filling task:primary — workflow tasks have their own
+      // task-id semantics that the server assigns when --workflow is supplied.
+      const parsedScope = parseSupervisorInput(positional)
+      supervisorAgentId = parsedScope.agentId
+      if (parsedScope.taskId !== undefined) {
+        taskId = parsedScope.taskId
       }
     }
   }
@@ -150,8 +170,7 @@ export async function runWorkflowInteractCommand(
   // Handle --supervisor flag — only agentId is meaningful here.
   const supervisorFlag = readStringFlag(parsed, '--supervisor')
   if (supervisorFlag !== undefined) {
-    const scope = resolveScopeInput(supervisorFlag)
-    supervisorAgentId = scope.parsed.agentId
+    supervisorAgentId = parseSupervisorInput(supervisorFlag).agentId
   }
 
   // Resolve supervisor: explicit flag/positional > project default.
@@ -208,11 +227,11 @@ export async function runWorkflowInteractCommand(
     taskId = createResponse.task.taskId
   }
 
-  // Build sessionRef.
-  let scopeRef = `agent:${supervisorAgentId}:project:${projectId}`
-  if (taskId !== undefined) {
-    scopeRef += `:task:${taskId}`
-  }
+  // Build sessionRef. Always qualify with a task — explicit workflow task id
+  // when supplied, else the canonical `primary` default that matches the
+  // always-qualified resolver invariant from agent-scope.
+  const effectiveTaskId = taskId ?? 'primary'
+  const scopeRef = `agent:${supervisorAgentId}:project:${projectId}:task:${effectiveTaskId}`
 
   const sessionRef = {
     scopeRef,
