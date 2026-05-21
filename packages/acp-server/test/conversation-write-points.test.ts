@@ -287,7 +287,7 @@ describe('conversation write-points', () => {
             projectRoot: '/tmp/project',
             cwd: '/tmp/project',
             runMode: 'task',
-            bundle: { kind: 'agent-default' },
+            bundle: { kind: 'compose', compose: [] },
             harness: { provider: 'openai', interactive: true },
           }),
           launchRoleScopedRun: async (input) => {
@@ -374,7 +374,7 @@ describe('conversation write-points', () => {
             projectRoot: '/tmp/project',
             cwd: '/tmp/project',
             runMode: 'task',
-            bundle: { kind: 'agent-default' },
+            bundle: { kind: 'compose', compose: [] },
             harness: { provider: 'openai', interactive: true },
           }),
           launchRoleScopedRun: async (input) => {
@@ -465,7 +465,7 @@ describe('conversation write-points', () => {
             projectRoot: '/tmp/project',
             cwd: '/tmp/project',
             runMode: 'task',
-            bundle: { kind: 'agent-default' },
+            bundle: { kind: 'compose', compose: [] },
             harness: { provider: 'openai', interactive: true },
           }),
           launchRoleScopedRun: async (input) => {

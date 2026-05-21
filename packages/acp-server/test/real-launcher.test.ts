@@ -65,7 +65,7 @@ describe('real launcher helpers', () => {
                 placement: {
                   agentRoot: '/tmp/rex',
                   runMode: 'task',
-                  bundle: { kind: 'agent-default' },
+                  bundle: { kind: 'compose', compose: [] },
                   dryRun: false,
                 },
                 harness: {
@@ -128,7 +128,7 @@ describe('real launcher helpers', () => {
           placement: {
             agentRoot: '/tmp/rex',
             runMode: 'task',
-            bundle: { kind: 'agent-default' },
+            bundle: { kind: 'compose', compose: [] },
           },
           harness: {
             provider: 'openai',
@@ -192,7 +192,7 @@ describe('real launcher helpers', () => {
         placement: {
           agentRoot: '/tmp/rex',
           runMode: 'task',
-          bundle: { kind: 'agent-default' },
+          bundle: { kind: 'compose', compose: [] },
         },
         harness: {
           provider: 'openai',
@@ -290,7 +290,7 @@ describe('real launcher helpers', () => {
                 placement: {
                   agentRoot: '/tmp/cody',
                   runMode: 'task',
-                  bundle: { kind: 'agent-default' },
+                  bundle: { kind: 'compose', compose: [] },
                   dryRun: false,
                 },
                 harness: {
@@ -367,7 +367,7 @@ describe('real launcher helpers', () => {
           placement: {
             agentRoot: '/tmp/cody',
             runMode: 'task',
-            bundle: { kind: 'agent-default' },
+            bundle: { kind: 'compose', compose: [] },
           },
           harness: {
             provider: 'openai',
@@ -455,7 +455,7 @@ describe('real launcher helpers', () => {
             placement: {
               agentRoot: '/tmp/rex',
               runMode: 'task',
-              bundle: { kind: 'agent-default' },
+              bundle: { kind: 'compose', compose: [] },
             },
             harness: {
               provider: 'openai',
@@ -504,7 +504,7 @@ describe('real launcher helpers', () => {
         placement: {
           agentRoot: '/tmp/rex',
           runMode: 'task',
-          bundle: { kind: 'agent-default' },
+          bundle: { kind: 'compose', compose: [] },
         },
         harness: {
           provider: 'openai',
@@ -538,7 +538,7 @@ describe('real launcher helpers', () => {
           projectRoot,
           cwd: projectRoot,
           runMode: 'task',
-          bundle: { kind: 'agent-default' },
+          bundle: { kind: 'compose', compose: [] },
           correlation: {
             sessionRef: {
               scopeRef: 'agent:rex:project:agent-spaces',
@@ -593,7 +593,7 @@ describe('real launcher helpers', () => {
           placement: {
             agentRoot,
             runMode: 'task',
-            bundle: { kind: 'agent-default' },
+            bundle: { kind: 'compose', compose: [] },
           },
         } as HrcRuntimeIntent,
       })
@@ -622,7 +622,7 @@ describe('real launcher helpers', () => {
           projectRoot: '/Users/lherron/praesidium/agent-spaces',
           cwd: '/Users/lherron/praesidium/agent-spaces',
           runMode: 'task',
-          bundle: { kind: 'agent-default' },
+          bundle: { kind: 'compose', compose: [] },
         },
         harness: {
           provider: 'openai',
@@ -649,7 +649,7 @@ describe('real launcher helpers', () => {
         placement: {
           agentRoot: '/tmp/cody',
           runMode: 'task',
-          bundle: { kind: 'agent-default' },
+          bundle: { kind: 'compose', compose: [] },
         },
         harness: {
           provider: 'openai',

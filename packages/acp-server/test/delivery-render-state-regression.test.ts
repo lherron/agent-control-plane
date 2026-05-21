@@ -84,7 +84,7 @@ describe('delivery render-state regression (T-01193)', () => {
             projectRoot: '/tmp/project',
             cwd: '/tmp/project',
             runMode: 'task',
-            bundle: { kind: 'agent-default' },
+            bundle: { kind: 'compose', compose: [] },
             harness: { provider: 'openai', interactive: true },
           }),
           launchRoleScopedRun: async (input) => {
@@ -179,7 +179,7 @@ describe('delivery render-state regression (T-01193)', () => {
             projectRoot: '/tmp/project',
             cwd: '/tmp/project',
             runMode: 'task',
-            bundle: { kind: 'agent-default' },
+            bundle: { kind: 'compose', compose: [] },
             harness: { provider: 'openai', interactive: true },
           }),
           launchRoleScopedRun: async (input) => {

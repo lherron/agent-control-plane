@@ -230,7 +230,7 @@ async function withFlowHarness<T>(
     projectRoot: process.cwd(),
     cwd: process.cwd(),
     runMode: 'task',
-    bundle: { kind: 'agent-default' },
+    bundle: { kind: 'compose', compose: [] },
     harness: { provider: 'openai', interactive: true },
   })
   const jobExecPolicy: NonNullable<AcpServerDeps['jobExecPolicy']> = {

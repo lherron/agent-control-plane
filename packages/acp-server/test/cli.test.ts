@@ -174,6 +174,8 @@ describe('acp-server cli helpers', () => {
         projectRoot,
         cwd: projectRoot,
         runMode: 'task',
+        // buildRuntimeBundleRef returns agent-default when no agent-profile.toml
+        // exists. This expectation will change to agent-project once T-01564 lands.
         bundle: { kind: 'agent-default' },
       })
     } finally {

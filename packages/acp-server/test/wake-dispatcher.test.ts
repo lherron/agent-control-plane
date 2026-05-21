@@ -55,7 +55,7 @@ function createRuntimeResolver(): NonNullable<AcpServerDeps['runtimeResolver']> 
     projectRoot: '/tmp/project',
     cwd: '/tmp/project',
     runMode: 'task',
-    bundle: { kind: 'agent-default' },
+    bundle: { kind: 'compose', compose: [] },
     harness: { provider: 'openai', interactive: true },
   })
 }

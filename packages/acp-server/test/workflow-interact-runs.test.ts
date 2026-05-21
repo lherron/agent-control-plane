@@ -166,7 +166,7 @@ function placementWithoutHarness() {
     projectRoot: '/tmp/acp-test/project',
     cwd: '/tmp/acp-test/project',
     runMode: 'workflow',
-    bundle: { kind: 'agent-default' },
+    bundle: { kind: 'compose', compose: [] },
   }
 }
 

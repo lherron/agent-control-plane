@@ -167,7 +167,7 @@ describe('ACP dispatch fences', () => {
         placement: {
           agentRoot: '/tmp/rex',
           runMode: 'task',
-          bundle: { kind: 'agent-default' },
+          bundle: { kind: 'compose', compose: [] },
         },
         harness: {
           provider: 'openai',
@@ -236,7 +236,7 @@ describe('ACP dispatch fences', () => {
           projectRoot: '/tmp/project',
           cwd: '/tmp/project',
           runMode: 'task',
-          bundle: { kind: 'agent-default' },
+          bundle: { kind: 'compose', compose: [] },
           harness: { provider: 'openai', interactive: true },
         }),
         launchRoleScopedRun: launcher,
@@ -282,7 +282,7 @@ describe('ACP dispatch fences', () => {
           placement: {
             agentRoot: '/tmp/cody',
             runMode: 'task',
-            bundle: { kind: 'agent-default' },
+            bundle: { kind: 'compose', compose: [] },
           },
           harness: {
             provider: 'openai',
@@ -405,7 +405,7 @@ describe('ACP dispatch fences', () => {
             projectRoot: '/tmp/project',
             cwd: '/tmp/project',
             runMode: 'task',
-            bundle: { kind: 'agent-default' },
+            bundle: { kind: 'compose', compose: [] },
             harness: { provider: 'openai', interactive: true },
           }),
           launchRoleScopedRun: async (input) => {

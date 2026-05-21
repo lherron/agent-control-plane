@@ -186,7 +186,7 @@ async function resolveLaunchPlacement(
         agentRoot,
         projectRoot: adminProjectRoot,
       })
-    : (resolvedBundle ?? { kind: 'agent-default' })
+    : (resolvedBundle ?? { kind: 'compose', compose: [] })
 
   return {
     ...(resolvedPlacement ?? {}),
@@ -225,7 +225,7 @@ function shouldRebuildDefaultBundle(
     return false
   }
 
-  return bundle === undefined || bundle.kind === 'agent-default'
+  return bundle === undefined || (bundle.kind === 'compose' && bundle.compose.length === 0)
 }
 
 function readLaunchHarness(placement: unknown): HrcHarnessIntent | undefined {

@@ -212,7 +212,7 @@ describe('workflow participant run routes', () => {
           projectRoot: '/tmp/project',
           cwd: '/tmp/project',
           runMode: 'task',
-          bundle: { kind: 'agent-default' },
+          bundle: { kind: 'compose', compose: [] },
           harness: { provider: 'openai', interactive: true },
         }),
         launchRoleScopedRun: async (input) => {

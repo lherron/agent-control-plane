@@ -34,7 +34,7 @@ function makeSessionRef(projectId: string): { scopeRef: string; laneRef: string 
 
 function buildDeps(input: {
   projectId: string
-  bundleKind?: 'agent-default' | 'spaces-snapshot'
+  bundle?: { kind: string; [key: string]: unknown }
 }): LaunchIntentDeps {
   const adminStore = createInMemoryAdminStore()
   adminStore.projects.create({
@@ -52,7 +52,7 @@ function buildDeps(input: {
       projectRoot: WRONG_PROJECT_ROOT,
       cwd: WRONG_CWD,
       runMode: 'task',
-      bundle: { kind: input.bundleKind ?? 'agent-default' },
+      bundle: input.bundle ?? { kind: 'compose', compose: [] },
       harness: { provider: 'anthropic', interactive: true },
     }),
     agentRootResolver: undefined,
@@ -71,7 +71,7 @@ describe('resolveLaunchIntent admin-store project-root resolution', () => {
     expect(intent.placement.cwd).not.toBe(WRONG_CWD)
   })
 
-  test('default bundle is rebuilt with the adminStore project root when runtimeResolver returns agent-default', async () => {
+  test('empty-compose bundle is rebuilt with the adminStore project root when runtimeResolver returns a degenerate bundle', async () => {
     // buildRuntimeBundleRef switches to 'agent-project' only if an agent-profile.toml
     // exists at agentRoot. Stage a real tempdir so the rebuild path produces a
     // non-default bundle wired to the adminStore homeDir.
@@ -95,7 +95,7 @@ describe('resolveLaunchIntent admin-store project-root resolution', () => {
           projectRoot: WRONG_PROJECT_ROOT,
           cwd: WRONG_CWD,
           runMode: 'task',
-          bundle: { kind: 'agent-default' },
+          bundle: { kind: 'compose', compose: [] },
           harness: { provider: 'anthropic', interactive: true },
         }),
         agentRootResolver: undefined,

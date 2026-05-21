@@ -1,4 +1,5 @@
 import { parseScopeRef } from 'agent-scope'
+import { buildRuntimeBundleRef } from 'spaces-config'
 
 import { json, notFound } from '../http.js'
 import { parseJsonBody, requireRecord } from '../parsers/body.js'
@@ -42,7 +43,11 @@ export const handleResolveRuntime: RouteHandler = async ({ request, deps }) => {
     placement: {
       agentRoot,
       runMode: 'task',
-      bundle: { kind: 'agent-default' },
+      bundle: buildRuntimeBundleRef({
+        agentName: parsedScope.agentId,
+        agentRoot,
+        ...(projectRootDir !== null ? { projectRoot: projectRootDir } : {}),
+      }),
       correlation: { sessionRef },
       homeDir: agentHomeDir,
       projectRootDir: projectRootDir,

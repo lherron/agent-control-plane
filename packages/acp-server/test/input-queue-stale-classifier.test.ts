@@ -40,7 +40,7 @@ function createDeps(
       projectRoot: '/tmp/project',
       cwd: '/tmp/project',
       runMode: 'task' as const,
-      bundle: { kind: 'agent-default' as const },
+      bundle: { kind: 'compose' as const, compose: [] },
       harness: { provider: 'openai' as const, interactive: true },
     }),
     launchRoleScopedRun: async () => {

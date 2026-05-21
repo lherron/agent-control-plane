@@ -84,7 +84,7 @@ describe('POST /v1/interface/messages', () => {
             projectRoot: agentRoot,
             cwd: agentRoot,
             runMode: 'task',
-            bundle: { kind: 'agent-default' },
+            bundle: { kind: 'compose', compose: [] },
             harness: { provider: 'openai', interactive: true },
           }),
           launchRoleScopedRun: async (input) => {
@@ -219,7 +219,7 @@ describe('POST /v1/interface/messages', () => {
           projectRoot: '/tmp/project',
           cwd: '/tmp/project',
           runMode: 'task',
-          bundle: { kind: 'agent-default' },
+          bundle: { kind: 'compose', compose: [] },
           harness: { provider: 'openai', interactive: true },
         }),
         launchRoleScopedRun: async (input) => {
@@ -278,7 +278,7 @@ describe('POST /v1/interface/messages', () => {
           projectRoot: '/tmp/project',
           cwd: '/tmp/project',
           runMode: 'task',
-          bundle: { kind: 'agent-default' },
+          bundle: { kind: 'compose', compose: [] },
           harness: { provider: 'openai', interactive: true },
         }),
         launchRoleScopedRun: async ({ acpRunId, runStore }) => {
@@ -414,7 +414,7 @@ describe('POST /v1/interface/messages', () => {
             projectRoot: '/tmp/project',
             cwd: '/tmp/project',
             runMode: 'task',
-            bundle: { kind: 'agent-default' },
+            bundle: { kind: 'compose', compose: [] },
             harness: { provider: 'openai', interactive: true },
           }),
           launchRoleScopedRun: async (input) => {
@@ -504,7 +504,7 @@ describe('POST /v1/interface/messages', () => {
             projectRoot: '/tmp/project',
             cwd: '/tmp/project',
             runMode: 'task',
-            bundle: { kind: 'agent-default' },
+            bundle: { kind: 'compose', compose: [] },
             harness: { provider: 'openai', interactive: true },
           }),
           launchRoleScopedRun: async (input) => {
@@ -572,7 +572,7 @@ describe('POST /v1/interface/messages', () => {
               projectRoot: '/tmp/project',
               cwd: '/tmp/project',
               runMode: 'task',
-              bundle: { kind: 'agent-default' },
+              bundle: { kind: 'compose', compose: [] },
             },
           })
           expect(launches[0]?.intent.attachments).toBeUndefined()
@@ -592,7 +592,7 @@ describe('POST /v1/interface/messages', () => {
             projectRoot: '/tmp/project',
             cwd: '/tmp/project',
             runMode: 'task',
-            bundle: { kind: 'agent-default' },
+            bundle: { kind: 'compose', compose: [] },
             harness: { provider: 'openai', interactive: true },
           }),
           launchRoleScopedRun: async (input) => {
@@ -654,7 +654,7 @@ describe('POST /v1/interface/messages', () => {
           projectRoot: '/tmp/project',
           cwd: '/tmp/project',
           runMode: 'task',
-          bundle: { kind: 'agent-default' },
+          bundle: { kind: 'compose', compose: [] },
           harness: { provider: 'openai', interactive: true },
         }),
         launchRoleScopedRun: async (input) => {
