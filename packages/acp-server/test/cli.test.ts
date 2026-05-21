@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -155,6 +155,7 @@ describe('acp-server cli helpers', () => {
     try {
       mkdirSync(agentRoot, { recursive: true })
       mkdirSync(projectRoot, { recursive: true })
+      writeFileSync(join(agentRoot, 'agent-profile.toml'), 'schemaVersion = 2\n')
 
       const placement = resolveRealLauncherPlacement(
         {
@@ -174,9 +175,7 @@ describe('acp-server cli helpers', () => {
         projectRoot,
         cwd: projectRoot,
         runMode: 'task',
-        // buildRuntimeBundleRef returns agent-default when no agent-profile.toml
-        // exists. This expectation will change to agent-project once T-01564 lands.
-        bundle: { kind: 'agent-default' },
+        bundle: { kind: 'agent-project', agentName: 'cody', projectRoot },
       })
     } finally {
       rmSync(workspace, { recursive: true, force: true })

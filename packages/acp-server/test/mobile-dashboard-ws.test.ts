@@ -200,6 +200,7 @@ describe('WS /v1/mobile/dashboard', () => {
   })
 
   test('replays from fromHrcSeq, then live streams from snapshot high water without duplicates', async () => {
+    process.env['ACP_MOBILE_DASHBOARD_MAX_REPLAY_AGE_MS'] = String(7 * 24 * 60 * 60 * 1000)
     const hrcEvents = [event(1), event(2), event(3), event(4), event(4)]
     const { ws, sent } = createDashboardSocket({
       hrcClient: createDashboardClient(hrcEvents),
