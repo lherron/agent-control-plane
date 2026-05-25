@@ -23,10 +23,14 @@ import { handleCreateInterfaceMessage } from '../handlers/interface-messages.js'
 import { handleCreateMessage } from '../handlers/messages.js'
 import {
   handleMobileDashboard,
+  handleMobileDmTargets,
   handleMobileHealth,
   handleMobileHistory,
+  handleMobileMessagesQuery,
+  handleMobileMessagesWatch,
   handleMobilePair,
   handleMobilePairing,
+  handleMobileSemanticDm,
 } from '../handlers/mobile.js'
 import { handleOpsDashboardEvents } from '../handlers/ops-dashboard-events.js'
 import { handleOpsDashboardSnapshot } from '../handlers/ops-dashboard-snapshot.js'
@@ -155,5 +159,9 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
     [exactRouteKey('POST', '/v1/mobile/pair')]: handleMobilePair,
     [exactRouteKey('GET', '/v1/mobile/dashboard')]: handleMobileDashboard,
     [exactRouteKey('GET', '/v1/mobile/history')]: handleMobileHistory,
+    [exactRouteKey('GET', '/v1/mobile/dm/targets')]: handleMobileDmTargets,
+    [exactRouteKey('POST', '/v1/mobile/messages/query')]: handleMobileMessagesQuery,
+    [exactRouteKey('POST', '/v1/mobile/messages/dm')]: handleMobileSemanticDm,
+    [exactRouteKey('GET', '/v1/mobile/messages/watch')]: handleMobileMessagesWatch,
   }
 }

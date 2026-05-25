@@ -24,6 +24,10 @@ describe('parseMobileRouteKind', () => {
     expect(parseMobileRouteKind(MOBILE_WS_PATHS.dashboard)).toEqual({ kind: 'dashboard' })
   })
 
+  test('recognises the hrcchat messages WS path', () => {
+    expect(parseMobileRouteKind(MOBILE_WS_PATHS.messages)).toEqual({ kind: 'messages' })
+  })
+
   test('parses session-scoped timeline and diagnostics paths', () => {
     expect(parseMobileRouteKind('/v1/mobile/sessions/hsid-abc/timeline')).toEqual({
       kind: 'timeline',

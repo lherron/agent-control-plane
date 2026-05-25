@@ -11,7 +11,7 @@
  */
 import type { AcpHrcClient, ResolvedAcpServerDeps } from '../deps.js'
 
-export type MobileRouteKind = 'timeline' | 'diagnostics' | 'dashboard'
+export type MobileRouteKind = 'timeline' | 'diagnostics' | 'dashboard' | 'messages'
 
 /**
  * Canonical mobile WebSocket paths. `dashboard` is the static system-wide
@@ -22,6 +22,7 @@ export type MobileRouteKind = 'timeline' | 'diagnostics' | 'dashboard'
  */
 export const MOBILE_WS_PATHS = {
   dashboard: '/v1/mobile/dashboard',
+  messages: '/v1/mobile/messages/watch',
   timelineTemplate: '/v1/mobile/sessions/:hostSessionId/timeline',
   diagnosticsTemplate: '/v1/mobile/sessions/:hostSessionId/diagnostics',
 } as const
@@ -60,6 +61,9 @@ const SESSION_SCOPED_PATTERN = /^\/v1\/mobile\/sessions\/([^/]+)\/(timeline|diag
 export function parseMobileRouteKind(pathname: string): MobileRouteMatch | undefined {
   if (pathname === MOBILE_WS_PATHS.dashboard) {
     return { kind: 'dashboard' }
+  }
+  if (pathname === MOBILE_WS_PATHS.messages) {
+    return { kind: 'messages' }
   }
   const match = SESSION_SCOPED_PATTERN.exec(pathname)
   if (match !== null) {

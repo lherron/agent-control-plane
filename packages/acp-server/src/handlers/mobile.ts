@@ -1,10 +1,12 @@
 import type {
   HrcLifecycleEvent,
   HrcMessageAddress,
+  HrcMessageFilter,
   HrcMessageRecord,
   HrcRunRecord,
   HrcRuntimeSnapshot,
   HrcSessionRecord,
+  HrcTargetView,
 } from 'hrc-core'
 
 import { badRequest, json } from '../http.js'
@@ -160,6 +162,14 @@ type MobileDashboardSessionsRefreshed = {
   generatedAt: string
   cursors: MobileDashboardSnapshot['cursors']
   sessions: MobileSessionSummary[]
+}
+
+type MobileDmTargetsResponse = {
+  targets: HrcTargetView[]
+}
+
+type MobileMessagesResponse = {
+  messages: HrcMessageRecord[]
 }
 
 type MobileTimelineFrame = {
@@ -621,6 +631,93 @@ function numberField(record: Record<string, unknown>, key: string): number | und
 
 function addressSessionRef(address: HrcMessageAddress): string | undefined {
   return address.kind === 'session' ? address.sessionRef : undefined
+}
+
+const HUMAN_MESSAGE_ADDRESS: HrcMessageAddress = { kind: 'entity', entity: 'human' }
+
+function parseMobileMessageAddress(input: unknown, field: string): HrcMessageAddress {
+  if (!isRecord(input)) badRequest(`${field} must be an object`)
+
+  const kind = input['kind']
+  if (kind === 'entity') {
+    const entity = input['entity']
+    if (entity !== 'human' && entity !== 'system') {
+      badRequest(`${field}.entity must be human or system`)
+    }
+    return { kind: 'entity', entity }
+  }
+
+  if (kind === 'session') {
+    const sessionRefValue = input['sessionRef']
+    if (typeof sessionRefValue !== 'string' || sessionRefValue.trim().length === 0) {
+      badRequest(`${field}.sessionRef is required`)
+    }
+    return { kind: 'session', sessionRef: sessionRefValue.trim() }
+  }
+
+  badRequest(`${field}.kind must be session or entity`)
+}
+
+function readPositiveInteger(input: unknown, fallback: number, max: number): number {
+  const value = typeof input === 'number' ? input : Number.parseInt(String(input ?? ''), 10)
+  if (!Number.isFinite(value) || value < 1) return fallback
+  return Math.min(Math.floor(value), max)
+}
+
+function readNonNegativeInteger(input: unknown): number | undefined {
+  const value = typeof input === 'number' ? input : Number.parseInt(String(input ?? ''), 10)
+  if (!Number.isFinite(value) || value < 0) return undefined
+  return Math.floor(value)
+}
+
+function parseMobileMessageFilter(input: Record<string, unknown>): HrcMessageFilter {
+  const filter: HrcMessageFilter = {}
+  if (input['participant'] !== undefined) {
+    filter.participant = parseMobileMessageAddress(input['participant'], 'participant')
+  }
+  if (input['from'] !== undefined) {
+    filter.from = parseMobileMessageAddress(input['from'], 'from')
+  }
+  if (input['to'] !== undefined) {
+    filter.to = parseMobileMessageAddress(input['to'], 'to')
+  }
+  if (isRecord(input['thread'])) {
+    const rootMessageId = input['thread']['rootMessageId']
+    if (typeof rootMessageId === 'string' && rootMessageId.trim().length > 0) {
+      filter.thread = { rootMessageId: rootMessageId.trim() }
+    }
+  }
+  if (typeof input['hostSessionId'] === 'string' && input['hostSessionId'].trim().length > 0) {
+    filter.hostSessionId = input['hostSessionId'].trim()
+  }
+  const generation = readNonNegativeInteger(input['generation'])
+  if (generation !== undefined) filter.generation = generation
+  const afterSeq = readNonNegativeInteger(input['afterSeq'])
+  if (afterSeq !== undefined) filter.afterSeq = afterSeq
+  if (Array.isArray(input['kinds'])) {
+    filter.kinds = input['kinds'].filter((kind): kind is 'dm' | 'literal' | 'system' =>
+      kind === 'dm' || kind === 'literal' || kind === 'system'
+    )
+  }
+  if (Array.isArray(input['phases'])) {
+    filter.phases = input['phases'].filter((phase): phase is 'request' | 'response' | 'oneway' =>
+      phase === 'request' || phase === 'response' || phase === 'oneway'
+    )
+  }
+  filter.limit = readPositiveInteger(input['limit'], 50, 200)
+  filter.order = input['order'] === 'asc' ? 'asc' : 'desc'
+
+  if (
+    filter.participant === undefined &&
+    filter.from === undefined &&
+    filter.to === undefined &&
+    filter.thread === undefined &&
+    filter.hostSessionId === undefined
+  ) {
+    filter.participant = HUMAN_MESSAGE_ADDRESS
+  }
+
+  return filter
 }
 
 function sessionRefFromMessage(message: HrcMessageRecord, fallbackSessionRef?: string): string {
@@ -1289,6 +1386,75 @@ export const handleMobileDashboard: RouteHandler = async () =>
     426
   )
 
+export const handleMobileMessagesWatch: RouteHandler = async () =>
+  json(
+    {
+      ok: false,
+      code: 'upgrade_required',
+      message: 'Use a WebSocket upgrade for /v1/mobile/messages/watch.',
+    },
+    426
+  )
+
+export const handleMobileDmTargets: RouteHandler = async ({ deps, url }) => {
+  const hrcClient = requireHrcClient(deps)
+  const q = url.searchParams.get('q')?.trim().toLowerCase()
+  const projectId = url.searchParams.get('projectId') ?? undefined
+  const lane = url.searchParams.get('lane') ?? undefined
+  const discover = url.searchParams.get('discover') !== 'false'
+  let targets = await hrcClient.listTargets({ projectId, lane, discover })
+
+  if (q !== undefined && q.length > 0) {
+    targets = targets.filter((target) =>
+      [
+        target.sessionRef,
+        target.scopeRef,
+        target.laneRef,
+        target.state,
+        target.runtime?.runtimeId ?? '',
+        target.runtime?.status ?? '',
+        target.runtime?.transport ?? '',
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(q)
+    )
+  }
+
+  return json({ targets } satisfies MobileDmTargetsResponse)
+}
+
+export const handleMobileMessagesQuery: RouteHandler = async ({ deps, request }) => {
+  const hrcClient = requireHrcClient(deps)
+  const body = requireRecord(await parseJsonBody(request))
+  const response = await hrcClient.listMessages(parseMobileMessageFilter(body))
+  return json({ messages: response.messages } satisfies MobileMessagesResponse)
+}
+
+export const handleMobileSemanticDm: RouteHandler = async ({ deps, request }) => {
+  const hrcClient = requireHrcClient(deps)
+  const body = requireRecord(await parseJsonBody(request))
+  const text = requireTrimmedStringField(body, 'body')
+  const to = parseMobileMessageAddress(body['to'], 'to')
+  const mode = body['mode']
+  const replyToMessageId =
+    typeof body['replyToMessageId'] === 'string' && body['replyToMessageId'].trim().length > 0
+      ? body['replyToMessageId'].trim()
+      : undefined
+
+  const response = await hrcClient.semanticDm({
+    from: HUMAN_MESSAGE_ADDRESS,
+    to,
+    body: text,
+    respondTo: HUMAN_MESSAGE_ADDRESS,
+    createIfMissing: false,
+    ...(mode === 'auto' || mode === 'headless' || mode === 'nonInteractive' ? { mode } : {}),
+    ...(replyToMessageId !== undefined ? { replyToMessageId } : {}),
+  })
+
+  return json(response)
+}
+
 export const handleMobileHistory: RouteHandler = async ({ deps, url }) => {
   const hrcClient = requireHrcClient(deps)
   const limit = Number.parseInt(url.searchParams.get('limit') ?? '80', 10)
@@ -1384,6 +1550,24 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
   const { deps, url, kind, hostSessionId: pathHostSessionId, abortController } = ws.data
   const hrcClient = requireHrcClient(deps)
   const parsedURL = new URL(url)
+
+  if (kind === 'messages') {
+    const filter = parseMobileMessageFilter(
+      Object.fromEntries(parsedURL.searchParams.entries()) as Record<string, unknown>
+    )
+    const afterSeq = readNonNegativeInteger(parsedURL.searchParams.get('afterSeq'))
+    filter.order = 'asc'
+    if (afterSeq !== undefined) filter.afterSeq = afterSeq
+    for await (const message of hrcClient.watchMessages({
+      filter,
+      follow: true,
+      signal: abortController.signal,
+    })) {
+      if (abortController.signal.aborted) break
+      sendMobileJsonEnvelope(ws, { type: 'message', message })
+    }
+    return
+  }
 
   if (kind === 'dashboard') {
     await openMobileDashboardWebSocket(ws, hrcClient, parsedURL)
