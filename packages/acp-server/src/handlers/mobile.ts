@@ -707,16 +707,6 @@ function parseMobileMessageFilter(input: Record<string, unknown>): HrcMessageFil
   filter.limit = readPositiveInteger(input['limit'], 50, 200)
   filter.order = input['order'] === 'asc' ? 'asc' : 'desc'
 
-  if (
-    filter.participant === undefined &&
-    filter.from === undefined &&
-    filter.to === undefined &&
-    filter.thread === undefined &&
-    filter.hostSessionId === undefined
-  ) {
-    filter.participant = HUMAN_MESSAGE_ADDRESS
-  }
-
   return filter
 }
 
