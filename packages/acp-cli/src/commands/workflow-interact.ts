@@ -137,7 +137,7 @@ export async function runWorkflowInteractCommand(
   })
 
   // Project inference: ASP_PROJECT env → walk-up asp-targets.toml marker → fail.
-  const projectId = inferProjectIdFromCwd({ env })
+  const projectId = env['ASP_PROJECT'] ?? inferProjectIdFromCwd({ env })
   if (projectId === undefined || projectId.trim().length === 0) {
     throw new CliUsageError(
       'cannot infer project; set ASP_PROJECT or provide a fully qualified target'
