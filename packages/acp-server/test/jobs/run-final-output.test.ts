@@ -13,6 +13,7 @@ import {
   type RunFinalOutputDeps,
   getRunFinalAssistantText,
 } from '../../src/jobs/run-final-output.js'
+import { readCompletedAssistantMessageFromHrcEvents } from '../../src/real-launcher.js'
 
 const tempDirs: string[] = []
 
@@ -273,6 +274,61 @@ describe('getRunFinalAssistantText', () => {
     getRunFinalAssistantText(deps, 'run-1', readers)
     expect(headlessCalled).toBe(true)
     expect(interactiveCalled).toBe(false)
+  })
+
+  // -----------------------------------------------------------------------
+  // readCompletedAssistantMessageFromHrcEvents: synthesized completion must
+  // not shadow the real reply (headless Codex regression)
+  // -----------------------------------------------------------------------
+
+  test('reader: real turn.message wins over content-less synthesized turn.completed', () => {
+    const path = makeStore()
+    const db = new Database(path)
+    const insert = db.prepare(
+      `INSERT INTO hrc_events (hrc_seq, run_id, event_kind, payload_json) VALUES (?, ?, ?, ?)`
+    )
+    // Headless Codex delivers the real reply as a turn.message, then on exit
+    // synthesizes a content-less turn.completed because the driver never saw a
+    // turn-completed marker in the child's stdout.
+    insert.run(
+      1,
+      'hrc-run-shadow',
+      'turn.message',
+      JSON.stringify({
+        type: 'message_end',
+        message: { role: 'assistant', content: 'Magni Thorsson.' },
+      })
+    )
+    insert.run(
+      2,
+      'hrc-run-shadow',
+      'turn.completed',
+      JSON.stringify({ success: true, transport: 'headless', source: 'launch_exit_synthesized' })
+    )
+    db.close()
+
+    const event = readCompletedAssistantMessageFromHrcEvents(path, 'hrc-run-shadow')
+    expect(event?.type).toBe('message_end')
+    if (event?.type === 'message_end') {
+      expect(event.message?.content).toEqual([{ type: 'text', text: 'Magni Thorsson.' }])
+    }
+  })
+
+  test('reader: synthesized turn.completed alone still surfaces the degraded outcome', () => {
+    const path = makeStore()
+    const db = new Database(path)
+    db.prepare(
+      `INSERT INTO hrc_events (hrc_seq, run_id, event_kind, payload_json) VALUES (?, ?, ?, ?)`
+    ).run(
+      1,
+      'hrc-run-degraded',
+      'turn.completed',
+      JSON.stringify({ success: true, transport: 'headless', source: 'launch_exit_synthesized' })
+    )
+    db.close()
+
+    const event = readCompletedAssistantMessageFromHrcEvents(path, 'hrc-run-degraded')
+    expect(event?.type).toBe('turn_end')
   })
 
   test('message_end with empty text returns undefined', () => {

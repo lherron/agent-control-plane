@@ -855,14 +855,31 @@ export function readCompletedAssistantMessageFromHrcEvents(
       )
       .all(runId)
 
+    // Prefer real assistant content. A content-less synthesized completion
+    // (e.g. source: "launch_exit_synthesized" emitted when a headless Codex
+    // launch exits without the driver observing a turn-completed marker) maps
+    // to a degraded turn_end. If we returned that immediately it would shadow
+    // the real reply, which headless Codex delivers as a turn.message. So we
+    // only fall back to the degraded outcome when no real assistant content
+    // exists anywhere in the run.
+    let degradedCompletion: UnifiedSessionEvent | undefined
+
     for (let index = rows.length - 1; index >= 0; index -= 1) {
       const row = rows[index]
       if (row?.eventKind !== 'turn.completed') {
         continue
       }
       const event = assistantCompletionPayloadToUnifiedEvent(parseJson(row.payloadJson))
-      if (event !== undefined) {
+      if (event === undefined) {
+        continue
+      }
+      if (event.type === 'message_end') {
         return event
+      }
+      // Degraded turn_end (no assistant content) — keep the newest as a
+      // fallback, but let a real turn.message win first.
+      if (degradedCompletion === undefined) {
+        degradedCompletion = event
       }
     }
 
@@ -877,7 +894,7 @@ export function readCompletedAssistantMessageFromHrcEvents(
       }
     }
 
-    return undefined
+    return degradedCompletion
   } catch {
     return undefined
   } finally {
