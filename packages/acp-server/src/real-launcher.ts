@@ -814,6 +814,93 @@ export function readAssistantMessageAfterSeq(options: {
   }
 }
 
+export function readCompletedAssistantMessageAfterSeq(options: {
+  hrcDbPath: string
+  hostSessionId: string
+  sessionRef: SessionRef
+  afterHrcSeq: number
+}): UnifiedSessionEvent | undefined {
+  const db = new Database(options.hrcDbPath, { readonly: true })
+  try {
+    const rows = db
+      .query<
+        { eventKind: string; hrcRunId: string | null; payloadJson: string },
+        [string, string, string, number]
+      >(
+        `SELECT event_kind AS eventKind, run_id AS hrcRunId, payload_json AS payloadJson
+          FROM hrc_events
+          WHERE host_session_id = ?
+            AND scope_ref = ?
+            AND lane_ref = ?
+            AND event_kind IN ('turn.message', 'turn.completed')
+            AND hrc_seq > ?
+          ORDER BY hrc_seq ASC`
+      )
+      .all(
+        options.hostSessionId,
+        options.sessionRef.scopeRef,
+        options.sessionRef.laneRef,
+        options.afterHrcSeq
+      )
+
+    type Candidate = {
+      hasAssistantMessage: boolean
+      latestAssistantMessage?: UnifiedSessionEvent | undefined
+      degradedCompletion?: UnifiedSessionEvent | undefined
+      completed: boolean
+    }
+    const candidates = new Map<string, Candidate>()
+
+    for (const row of rows) {
+      const hrcRunId = row.hrcRunId?.trim()
+      if (!hrcRunId) {
+        continue
+      }
+      const candidate =
+        candidates.get(hrcRunId) ??
+        ({
+          hasAssistantMessage: false,
+          completed: false,
+        } satisfies Candidate)
+
+      if (row.eventKind === 'turn.message') {
+        const event = assistantMessagePayloadToUnifiedEvent(parseJson(row.payloadJson))
+        if (event !== undefined) {
+          candidate.hasAssistantMessage = true
+          candidate.latestAssistantMessage = event
+          candidates.set(hrcRunId, candidate)
+        }
+        continue
+      }
+
+      if (!candidate.hasAssistantMessage) {
+        continue
+      }
+      candidate.completed = true
+      const completion = assistantCompletionPayloadToUnifiedEvent(parseJson(row.payloadJson))
+      if (completion !== undefined) {
+        if (completion.type === 'message_end') {
+          candidate.latestAssistantMessage = completion
+        } else if (candidate.degradedCompletion === undefined) {
+          candidate.degradedCompletion = completion
+        }
+      }
+      candidates.set(hrcRunId, candidate)
+    }
+
+    for (const candidate of candidates.values()) {
+      if (!candidate.completed) {
+        continue
+      }
+      return candidate.latestAssistantMessage ?? candidate.degradedCompletion
+    }
+
+    return undefined
+  } finally {
+    db.close()
+  }
+}
+
 function assistantMessagePayloadToUnifiedEvent(payload: unknown): UnifiedSessionEvent | undefined {
   const record = asRecord(payload)
   if (readString(record, 'type') !== 'message_end') {

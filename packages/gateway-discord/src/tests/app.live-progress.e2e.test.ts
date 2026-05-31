@@ -12,6 +12,133 @@ import {
 } from './live-progress-test-helpers.test.js'
 
 describe('GatewayDiscordApp live tool progress e2e', () => {
+  test('keeps editing a live placeholder with multiple assistant messages and AskUserQuestion', async () => {
+    const harness = createLiveProgressHarness()
+    await harness.app.refreshBindings()
+    await harness.app.handleMessageCreate(harness.inboundMessage())
+
+    const webhook = harness.webhook()
+    const messageId = webhook.sent[0]?.message.id ?? ''
+
+    harness.emit(assistantTurnMessage(1, 'First assistant update.'))
+    harness.emit(toolStart(2, 'tool_read', 'Read', { file_path: '/tmp/example.txt' }))
+    harness.emit(toolEnd(3, 'tool_read', 'Read'))
+    harness.emit(assistantTurnMessage(4, 'Second assistant update.'))
+    harness.emit(
+      hrcTurnEvent(5, 'turn.tool_call', {
+        type: 'tool_execution_start',
+        toolUseId: 'tool_question',
+        toolName: 'AskUserQuestion',
+        input: {
+          questions: [
+            {
+              header: 'File layer',
+              question: 'How do you want the file layer handled?',
+              options: [
+                {
+                  label: 'Summon agent-minder',
+                  description: 'Have agent-minder author the files.',
+                },
+                {
+                  label: 'Stop at plumbing',
+                  description: 'Leave the room built and bound.',
+                },
+              ],
+              multiSelect: false,
+            },
+          ],
+        },
+      })
+    )
+
+    await waitFor(() => {
+      const content =
+        webhook.edits.filter((edit) => edit.messageId === messageId).at(-1)?.payload.content ?? ''
+      return (
+        content.includes('First assistant update.') &&
+        content.includes('Second assistant update.') &&
+        content.includes('❓ **File layer**') &&
+        content.includes('1. **Summon agent-minder**')
+      )
+    }, 1000)
+
+    const content =
+      webhook.edits.filter((edit) => edit.messageId === messageId).at(-1)?.payload.content ?? ''
+    expect(content).toContain('First assistant update.')
+    expect(content).toContain('Second assistant update.')
+    expect(content).toContain('❓ **File layer**')
+    expect(content).toContain('How do you want the file layer handled?')
+    expect(content).toContain('1. **Summon agent-minder**')
+  })
+
+  test('steers replies into an active AskUserQuestion placeholder without dashboard state', async () => {
+    const harness = createLiveProgressHarness({
+      interfaceMessageResponse: (ingressCount) =>
+        ingressCount === 1
+          ? {
+              inputAttemptId: 'ia_live_progress',
+              runId: 'run_live_progress',
+              hostSessionId: 'hsid_live_progress',
+              generation: 7,
+            }
+          : {
+              inputAttemptId: 'ia_answer',
+              targetRunId: 'run_live_progress',
+              admission: {
+                kind: 'accepted_in_flight',
+                inputAttemptId: 'ia_answer',
+                inputApplicationId: 'iap_answer',
+              },
+              currentState: {
+                applicationStatus: 'accepted',
+                inputApplicationId: 'iap_answer',
+              },
+            },
+    })
+    await harness.app.refreshBindings()
+    await harness.app.handleMessageCreate(harness.inboundMessage())
+
+    harness.emit(assistantTurnMessage(1, 'H2 step 1'))
+    harness.emit(
+      hrcTurnEvent(2, 'turn.tool_call', {
+        type: 'tool_execution_start',
+        toolUseId: 'tool_question',
+        toolName: 'AskUserQuestion',
+        input: {
+          questions: [
+            {
+              header: 'Fruit',
+              question: 'H2: pick a fruit',
+              options: [
+                { label: 'Apple', description: 'Choose apple.' },
+                { label: 'Banana', description: 'Choose banana.' },
+              ],
+            },
+          ],
+        },
+      })
+    )
+
+    const webhook = harness.webhook()
+    await waitFor(() => webhook.edits.at(-1)?.payload.content.includes('H2: pick a fruit') === true)
+
+    await harness.app.handleMessageCreate({
+      ...harness.inboundMessage(),
+      id: 'msg_answer',
+      content: 'Apple',
+    })
+
+    expect(harness.interfaceMessages).toHaveLength(2)
+    expect(harness.interfaceMessages[1]).toMatchObject({
+      content: 'Apple',
+      intent: {
+        kind: 'contribute_to_active_run',
+        fallback: 'reject',
+        contributionSemantics: 'interrupt_and_continue',
+      },
+    })
+  })
+
   test('edits the placeholder with compact hermes-style tool progress', async () => {
     const harness = createLiveProgressHarness()
     await harness.app.refreshBindings()
@@ -315,3 +442,35 @@ describe('GatewayDiscordApp live tool progress e2e', () => {
     }
   })
 })
+
+function assistantTurnMessage(seq: number, text: string): Record<string, unknown> {
+  return hrcTurnEvent(seq, 'turn.message', {
+    type: 'message_end',
+    message: {
+      role: 'assistant',
+      content: [{ type: 'text', text }],
+    },
+  })
+}
+
+function hrcTurnEvent(
+  seq: number,
+  eventKind: string,
+  payload: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    hrcSeq: seq,
+    streamSeq: seq,
+    ts: new Date(Date.now() + seq * 1000).toISOString(),
+    hostSessionId: 'hsid_live_progress',
+    scopeRef: 'agent:smokey:project:agent-spaces',
+    laneRef: 'main',
+    generation: 7,
+    runtimeId: 'rt_live_progress',
+    runId: 'hrc_run_live_progress',
+    category: 'turn',
+    eventKind,
+    replayed: false,
+    payload,
+  }
+}

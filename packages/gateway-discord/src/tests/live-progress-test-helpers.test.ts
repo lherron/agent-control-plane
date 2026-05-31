@@ -145,6 +145,7 @@ export type LiveProgressHarness = {
   channel: FakeChannel
   client: FakeClient
   eventRequests: URL[]
+  interfaceMessages: unknown[]
   cancelledRunIds: string[]
   emit: (event: Record<string, unknown>) => void
   closeEvents: () => void
@@ -176,6 +177,7 @@ export function createLiveProgressHarness(
   const pendingEvents: string[] = []
   const deliveries: unknown[] = []
   const eventRequests: URL[] = []
+  const interfaceMessages: unknown[] = []
   const cancelledRunIds: string[] = []
   let ingressCount = 0
 
@@ -218,6 +220,7 @@ export function createLiveProgressHarness(
 
     if (url.pathname === '/v1/interface/messages') {
       expect(request.method).toBe('POST')
+      interfaceMessages.push(await request.clone().json())
       ingressCount += 1
       await options.beforeInterfaceMessageResponse?.()
       return Response.json(
@@ -326,6 +329,7 @@ export function createLiveProgressHarness(
     channel,
     client,
     eventRequests,
+    interfaceMessages,
     cancelledRunIds,
     emit: (event) => enqueue(`${JSON.stringify(event)}\n`),
     closeEvents: () => {

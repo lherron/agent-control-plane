@@ -99,6 +99,11 @@ function renderBlock(block: ExtendedRenderBlock, options: RenderOptions = {}): s
         })
         .join('\n')
     case 'tool': {
+      const question = renderAskUserQuestion(block)
+      if (question !== undefined) {
+        return question
+      }
+
       const failed = block.approved === false
       const toolBlock = block as Extract<RenderBlock, { t: 'tool' }> & {
         input?: Record<string, unknown>
@@ -136,6 +141,55 @@ function renderBlock(block: ExtendedRenderBlock, options: RenderOptions = {}): s
 
   // Exhaustiveness fallback (future block types added to RenderBlock union)
   return ''
+}
+
+function renderAskUserQuestion(block: Extract<RenderBlock, { t: 'tool' }>): string | undefined {
+  if (block.toolName !== 'AskUserQuestion') {
+    return undefined
+  }
+
+  const input = (block as Extract<RenderBlock, { t: 'tool' }> & {
+    input?: Record<string, unknown>
+  }).input
+  const questions = Array.isArray(input?.['questions']) ? input?.['questions'] : undefined
+  if (questions === undefined || questions.length === 0) {
+    return '❓ Awaiting your response.'
+  }
+
+  const rendered: string[] = []
+  for (const rawQuestion of questions) {
+    if (typeof rawQuestion !== 'object' || rawQuestion === null || Array.isArray(rawQuestion)) {
+      continue
+    }
+    const question = rawQuestion as Record<string, unknown>
+    const header = typeof question['header'] === 'string' ? question['header'].trim() : ''
+    const prompt = typeof question['question'] === 'string' ? question['question'].trim() : ''
+    const options = Array.isArray(question['options']) ? question['options'] : []
+    const lines = [`❓ **${header || 'Question'}**`]
+    if (prompt.length > 0) {
+      lines.push(prompt)
+    }
+    options.forEach((rawOption, index) => {
+      if (typeof rawOption !== 'object' || rawOption === null || Array.isArray(rawOption)) {
+        return
+      }
+      const option = rawOption as Record<string, unknown>
+      const label = typeof option['label'] === 'string' ? option['label'].trim() : ''
+      const description =
+        typeof option['description'] === 'string' ? option['description'].trim() : ''
+      if (label.length === 0 && description.length === 0) {
+        return
+      }
+      lines.push(
+        `${index + 1}. **${label || `Option ${index + 1}`}**${
+          description.length > 0 ? ` — ${description}` : ''
+        }`
+      )
+    })
+    rendered.push(lines.join('\n'))
+  }
+
+  return rendered.length > 0 ? rendered.join('\n\n') : '❓ Awaiting your response.'
 }
 
 export function renderFrameToDiscordContent(
@@ -253,6 +307,12 @@ export function buildProgressBubble(
   const entries: BubbleEntry[] = []
   for (const block of frame.blocks as ExtendedRenderBlock[]) {
     if (block.t === 'tool') {
+      const question = renderAskUserQuestion(block)
+      if (question !== undefined) {
+        entries.push({ kind: 'text', text: question })
+        continue
+      }
+
       const failed = (block as Extract<RenderBlock, { t: 'tool' }>).approved === false
       const toolBlock = block as Extract<RenderBlock, { t: 'tool' }> & {
         input?: Record<string, unknown>
@@ -366,16 +426,19 @@ export function buildProgressBubble(
     content = buildContent(visible, collapsedCount)
   }
 
-  // If still over budget, only text entries remain — concatenate and truncate
-  // the trailing text so the bubble fits Discord's hard limit.
+  // If still over budget, only text entries remain. Preserve the tail so a
+  // just-emitted final message or pending AskUserQuestion stays visible.
   if (content.length > maxChars) {
-    const collapseLine = collapsedCount > 0 ? `_... +${collapsedCount} earlier tools_\n` : ''
+    const collapseLine =
+      collapsedCount > 0
+        ? `_... +${collapsedCount} earlier tools; older text truncated_\n`
+        : '_... older text truncated_\n'
     const allText = visible
       .filter((e): e is { kind: 'text'; text: string } => e.kind === 'text')
       .map((e) => e.text)
       .join('\n')
     const remaining = maxChars - collapseLine.length
-    content = `${collapseLine}${allText.slice(0, Math.max(0, remaining))}`
+    content = `${collapseLine}${allText.slice(Math.max(0, allText.length - remaining))}`
   }
 
   return content

@@ -27,6 +27,7 @@ type RunRow = {
   expected_host_session_id: string | null
   expected_generation: number | null
   follow_latest: number | null
+  after_hrc_seq: number | null
   metadata_json: string | null
   created_at: string
   updated_at: string
@@ -79,6 +80,7 @@ function mapRunRow(row: RunRow): StoredRun {
     ...(row.error_code !== null ? { errorCode: row.error_code } : {}),
     ...(row.error_message !== null ? { errorMessage: row.error_message } : {}),
     ...(dispatchFence !== undefined ? { dispatchFence } : {}),
+    ...(row.after_hrc_seq !== null ? { afterHrcSeq: row.after_hrc_seq } : {}),
     ...(metadata !== undefined ? { metadata } : {}),
   }
 }
@@ -103,6 +105,7 @@ type PersistedRun = {
   expectedHostSessionId: string | null
   expectedGeneration: number | null
   followLatest: number | null
+  afterHrcSeq: number | null
   metadataJson: string | null
   createdAt: string
   updatedAt: string
@@ -130,6 +133,7 @@ function toPersistedRun(run: StoredRun): PersistedRun {
     expectedGeneration: run.dispatchFence?.expectedGeneration ?? null,
     followLatest:
       run.dispatchFence?.followLatest === undefined ? null : run.dispatchFence.followLatest ? 1 : 0,
+    afterHrcSeq: run.afterHrcSeq ?? null,
     metadataJson: run.metadata === undefined ? null : JSON.stringify(run.metadata),
     createdAt: run.createdAt,
     updatedAt: run.updatedAt,
@@ -183,10 +187,11 @@ export class RunRepo {
            expected_host_session_id,
            expected_generation,
            follow_latest,
+           after_hrc_seq,
            metadata_json,
            created_at,
            updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         persisted.runId,
@@ -208,6 +213,7 @@ export class RunRepo {
         persisted.expectedHostSessionId,
         persisted.expectedGeneration,
         persisted.followLatest,
+        persisted.afterHrcSeq,
         persisted.metadataJson,
         persisted.createdAt,
         persisted.updatedAt
@@ -238,6 +244,7 @@ export class RunRepo {
                 expected_host_session_id,
                 expected_generation,
                 follow_latest,
+                after_hrc_seq,
                 metadata_json,
                 created_at,
                 updated_at
@@ -271,6 +278,7 @@ export class RunRepo {
                 expected_host_session_id,
                 expected_generation,
                 follow_latest,
+                after_hrc_seq,
                 metadata_json,
                 created_at,
                 updated_at
@@ -304,6 +312,7 @@ export class RunRepo {
                 expected_host_session_id,
                 expected_generation,
                 follow_latest,
+                after_hrc_seq,
                 metadata_json,
                 created_at,
                 updated_at
@@ -338,6 +347,7 @@ export class RunRepo {
                 expected_host_session_id,
                 expected_generation,
                 follow_latest,
+                after_hrc_seq,
                 metadata_json,
                 created_at,
                 updated_at
@@ -444,6 +454,7 @@ export class RunRepo {
                 expected_host_session_id = ?,
                 expected_generation = ?,
                 follow_latest = ?,
+                after_hrc_seq = ?,
                 metadata_json = ?,
                 updated_at = ?
           WHERE run_id = ?`
@@ -464,6 +475,7 @@ export class RunRepo {
         persisted.expectedHostSessionId,
         persisted.expectedGeneration,
         persisted.followLatest,
+        persisted.afterHrcSeq,
         persisted.metadataJson,
         persisted.updatedAt,
         persisted.runId

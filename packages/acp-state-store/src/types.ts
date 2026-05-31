@@ -29,6 +29,7 @@ export type StoredRun = Run & {
   errorCode?: string | undefined
   errorMessage?: string | undefined
   dispatchFence?: DispatchFence | undefined
+  afterHrcSeq?: number | undefined
 }
 
 export type UpdateRunInput = {
@@ -41,6 +42,7 @@ export type UpdateRunInput = {
   errorCode?: string | undefined
   errorMessage?: string | undefined
   metadata?: Readonly<Record<string, unknown>> | undefined
+  afterHrcSeq?: number | undefined
 }
 
 export type StoredInputAttempt = InputAttempt

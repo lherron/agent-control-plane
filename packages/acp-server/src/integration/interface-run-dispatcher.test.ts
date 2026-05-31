@@ -4,6 +4,9 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { openInterfaceStore } from 'acp-interface-store'
+
+import { InMemoryRunStore } from '../domain/run-store.js'
 import type { StoredRun } from '../domain/run-store.js'
 import * as dispatcherModule from './interface-run-dispatcher.js'
 
@@ -23,6 +26,173 @@ afterEach(() => {
 })
 
 describe('interface run dispatcher stale activity window', () => {
+  test('tmux runs do not finalize delivery on the first assistant message before turn completion', async () => {
+    const hrc = createHrcDb()
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-interface-dispatch-'))
+    fixtureDirs.push(fixtureDir)
+    const interfaceStore = openInterfaceStore({ dbPath: join(fixtureDir, 'interface.sqlite') })
+    const runStore = new InMemoryRunStore()
+    const sessionRef = {
+      scopeRef: 'agent:smokey:project:agent-spaces',
+      laneRef: 'main' as const,
+    }
+    const run = runStore.createRun({
+      sessionRef,
+      status: 'running',
+      metadata: {
+        meta: {
+          interfaceSource: {
+            gatewayId: 'discord_prod',
+            bindingId: 'ifb_live',
+            conversationRef: 'channel:chan_live',
+            messageRef: 'discord:message:prompt',
+            replyToMessageRef: 'discord:message:prompt',
+          },
+        },
+      },
+    })
+    runStore.updateRun(run.runId, {
+      hostSessionId: 'hsid-live',
+      generation: 7,
+      runtimeId: 'rt-live',
+      transport: 'tmux',
+      afterHrcSeq: 10,
+    })
+
+    insertAssistantMessage(hrc.db, {
+      hrcSeq: 11,
+      hostSessionId: 'hsid-live',
+      scopeRef: sessionRef.scopeRef,
+      laneRef: sessionRef.laneRef,
+      generation: 7,
+      runId: 'hrc-run-live',
+      text: 'first message, not final',
+    })
+
+    const dispatcher = dispatcherModule.createInterfaceRunDispatcher({
+      runStore,
+      interfaceStore,
+      hrcDbPath: hrc.hrcDbPath,
+      config: { intervalMs: 1, staleTimeoutMs: 60_000 },
+    })
+
+    await dispatcher.runOnce()
+
+    expect(interfaceStore.deliveries.listQueuedForGateway('discord_prod')).toHaveLength(0)
+    expect(runStore.getRun(run.runId)?.status).toBe('running')
+
+    insertAssistantMessage(hrc.db, {
+      hrcSeq: 12,
+      hostSessionId: 'hsid-live',
+      scopeRef: sessionRef.scopeRef,
+      laneRef: sessionRef.laneRef,
+      generation: 7,
+      runId: 'hrc-run-live',
+      text: 'final message',
+    })
+    insertTurnCompleted(hrc.db, {
+      hrcSeq: 13,
+      hostSessionId: 'hsid-live',
+      scopeRef: sessionRef.scopeRef,
+      laneRef: sessionRef.laneRef,
+      generation: 7,
+      runId: 'hrc-run-live',
+    })
+
+    await dispatcher.runOnce()
+
+    const [delivery] = interfaceStore.deliveries.listQueuedForGateway('discord_prod')
+    expect(delivery).toMatchObject({
+      runId: run.runId,
+      bodyText: 'final message',
+    })
+    expect(runStore.getRun(run.runId)?.status).toBe('completed')
+    interfaceStore.close()
+  })
+
+  test('tmux follow-up ignores a previous run completion after the dispatch fence', async () => {
+    const hrc = createHrcDb()
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-interface-dispatch-'))
+    fixtureDirs.push(fixtureDir)
+    const interfaceStore = openInterfaceStore({ dbPath: join(fixtureDir, 'interface.sqlite') })
+    const runStore = new InMemoryRunStore()
+    const sessionRef = {
+      scopeRef: 'agent:smokey:project:agent-spaces',
+      laneRef: 'main' as const,
+    }
+    const run = runStore.createRun({
+      sessionRef,
+      status: 'running',
+      metadata: {
+        meta: {
+          interfaceSource: {
+            gatewayId: 'discord_prod',
+            bindingId: 'ifb_live',
+            conversationRef: 'channel:chan_live',
+            messageRef: 'discord:message:prompt',
+            replyToMessageRef: 'discord:message:prompt',
+          },
+        },
+      },
+    })
+    runStore.updateRun(run.runId, {
+      hostSessionId: 'hsid-live',
+      generation: 7,
+      runtimeId: 'rt-live',
+      transport: 'tmux',
+      afterHrcSeq: 20,
+    })
+
+    insertTurnCompleted(hrc.db, {
+      hrcSeq: 21,
+      hostSessionId: 'hsid-live',
+      scopeRef: sessionRef.scopeRef,
+      laneRef: sessionRef.laneRef,
+      generation: 7,
+      runId: 'hrc-run-previous',
+    })
+    insertAssistantMessage(hrc.db, {
+      hrcSeq: 22,
+      hostSessionId: 'hsid-live',
+      scopeRef: sessionRef.scopeRef,
+      laneRef: sessionRef.laneRef,
+      generation: 7,
+      runId: 'hrc-run-follow-up',
+      text: 'follow-up still running',
+    })
+
+    const dispatcher = dispatcherModule.createInterfaceRunDispatcher({
+      runStore,
+      interfaceStore,
+      hrcDbPath: hrc.hrcDbPath,
+      config: { intervalMs: 1, staleTimeoutMs: 60_000 },
+    })
+
+    await dispatcher.runOnce()
+
+    expect(interfaceStore.deliveries.listQueuedForGateway('discord_prod')).toHaveLength(0)
+    expect(runStore.getRun(run.runId)?.status).toBe('running')
+
+    insertTurnCompleted(hrc.db, {
+      hrcSeq: 23,
+      hostSessionId: 'hsid-live',
+      scopeRef: sessionRef.scopeRef,
+      laneRef: sessionRef.laneRef,
+      generation: 7,
+      runId: 'hrc-run-follow-up',
+    })
+
+    await dispatcher.runOnce()
+
+    const [delivery] = interfaceStore.deliveries.listQueuedForGateway('discord_prod')
+    expect(delivery).toMatchObject({
+      runId: run.runId,
+      bodyText: 'follow-up still running',
+    })
+    expect(runStore.getRun(run.runId)?.status).toBe('completed')
+    interfaceStore.close()
+  })
+
   test('uses recent hrc_events activity to keep an old running run from going stale', () => {
     const now = Date.now()
     const hrc = createHrcDb()
@@ -234,6 +404,92 @@ function insertHrcEvent(
     input.generation ?? 0,
     input.runId ?? null,
     JSON.stringify({ type: 'turn_delta', text: 'progress' })
+  )
+}
+
+function insertAssistantMessage(
+  db: Database,
+  input: {
+    hrcSeq: number
+    hostSessionId: string
+    scopeRef: string
+    laneRef: string
+    generation: number
+    runId: string
+    text: string
+  }
+): void {
+  insertSessionEvent(db, {
+    ...input,
+    eventKind: 'turn.message',
+    payload: {
+      type: 'message_end',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: input.text }],
+      },
+    },
+  })
+}
+
+function insertTurnCompleted(
+  db: Database,
+  input: {
+    hrcSeq: number
+    hostSessionId: string
+    scopeRef: string
+    laneRef: string
+    generation: number
+    runId: string
+  }
+): void {
+  insertSessionEvent(db, {
+    ...input,
+    eventKind: 'turn.completed',
+    payload: {
+      success: true,
+      transport: 'tmux',
+    },
+  })
+}
+
+function insertSessionEvent(
+  db: Database,
+  input: {
+    hrcSeq: number
+    hostSessionId: string
+    scopeRef: string
+    laneRef: string
+    generation: number
+    runId: string
+    eventKind: string
+    payload: Record<string, unknown>
+  }
+): void {
+  db.run(
+    `INSERT INTO hrc_events (
+      hrc_seq,
+      stream_seq,
+      ts,
+      host_session_id,
+      scope_ref,
+      lane_ref,
+      generation,
+      run_id,
+      category,
+      event_kind,
+      payload_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'turn', ?, ?)`,
+    input.hrcSeq,
+    input.hrcSeq,
+    new Date().toISOString(),
+    input.hostSessionId,
+    input.scopeRef,
+    input.laneRef,
+    input.generation,
+    input.runId,
+    input.eventKind,
+    JSON.stringify(input.payload)
   )
 }
 

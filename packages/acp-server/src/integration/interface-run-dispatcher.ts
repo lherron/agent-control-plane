@@ -8,7 +8,7 @@ import type { ConversationStore } from '../deps.js'
 import type { RunStore, StoredRun } from '../domain/run-store.js'
 import {
   hasHrcAcceptedRunSince,
-  readAssistantMessageAfterSeq,
+  readCompletedAssistantMessageAfterSeq,
   readCompletedAssistantMessageFromHrcEvents,
   readRunStatus,
 } from '../real-launcher.js'
@@ -141,11 +141,14 @@ export function createInterfaceRunDispatcher(
         return handleFailureOrSkip(run, source, runFailed, errorCode, errorMessage)
       }
     } else if (run.hostSessionId !== undefined) {
-      // Tmux path: check for assistant message after dispatch fence seq
+      // Tmux path: live-progress delivery owns in-flight rendering. Do not
+      // treat the first assistant message as final; multi-step agentic turns
+      // can emit many turn.message events and can pause on interactive tools
+      // without turn.completed. Final delivery is only safe after completion.
       const sessionRef = normalizeSessionRef({ scopeRef: run.scopeRef, laneRef: run.laneRef })
       const afterSeq = run.afterHrcSeq ?? 0
 
-      assistantMessage = readAssistantMessageAfterSeq({
+      assistantMessage = readCompletedAssistantMessageAfterSeq({
         hrcDbPath,
         hostSessionId: run.hostSessionId,
         sessionRef,

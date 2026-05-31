@@ -55,6 +55,7 @@ describe('SqliteRunStore', () => {
         transport: 'tmux',
         errorCode: 'runtime_unavailable',
         errorMessage: 'child exited 1',
+        afterHrcSeq: 42,
       })
 
       expect(firstStore.runs.getRun(runId)).toMatchObject({
@@ -70,6 +71,7 @@ describe('SqliteRunStore', () => {
         transport: 'tmux',
         errorCode: 'runtime_unavailable',
         errorMessage: 'child exited 1',
+        afterHrcSeq: 42,
         dispatchFence: {
           expectedHostSessionId: 'host-session-001',
           expectedGeneration: 7,
@@ -96,6 +98,7 @@ describe('SqliteRunStore', () => {
         transport: 'tmux',
         errorCode: 'runtime_unavailable',
         errorMessage: 'child exited 1',
+        afterHrcSeq: 42,
         dispatchFence: {
           expectedHostSessionId: 'host-session-001',
           expectedGeneration: 7,
@@ -115,7 +118,8 @@ describe('SqliteRunStore', () => {
                   dispatch_fence_json,
                   expected_host_session_id,
                   expected_generation,
-                  follow_latest
+                  follow_latest,
+                  after_hrc_seq
              FROM runs
             WHERE run_id = ?`
         )
@@ -131,6 +135,7 @@ describe('SqliteRunStore', () => {
         expected_host_session_id: string
         expected_generation: number
         follow_latest: number
+        after_hrc_seq: number
       }
 
       expect(row).toEqual({
@@ -149,6 +154,7 @@ describe('SqliteRunStore', () => {
         expected_host_session_id: 'host-session-001',
         expected_generation: 7,
         follow_latest: 0,
+        after_hrc_seq: 42,
       })
     } finally {
       reopenedStore.close()

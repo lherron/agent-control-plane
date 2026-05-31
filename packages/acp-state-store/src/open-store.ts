@@ -56,6 +56,7 @@ function initializeSchema(sqlite: SqliteDatabase): void {
       expected_host_session_id TEXT,
       expected_generation INTEGER,
       follow_latest INTEGER CHECK (follow_latest IN (0, 1) OR follow_latest IS NULL),
+      after_hrc_seq INTEGER,
       metadata_json TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -409,6 +410,7 @@ function migrateRunsActorColumns(sqlite: SqliteDatabase): void {
   addColumnIfMissing(sqlite, 'runs', columns, 'actor_kind', "TEXT NOT NULL DEFAULT ''")
   addColumnIfMissing(sqlite, 'runs', columns, 'actor_id', "TEXT NOT NULL DEFAULT ''")
   addColumnIfMissing(sqlite, 'runs', columns, 'actor_display_name', 'TEXT')
+  addColumnIfMissing(sqlite, 'runs', columns, 'after_hrc_seq', 'INTEGER')
 
   sqlite.exec(`
     UPDATE runs

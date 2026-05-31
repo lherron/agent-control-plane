@@ -699,14 +699,7 @@ export class GatewayDiscordApp {
     const attachments = mapDiscordMessageAttachments(message)
     let response: Response
     try {
-      const shouldSteer = await this.shouldSteerInput(effectiveSessionRef)
-      const intent: InputIntent | undefined = shouldSteer
-        ? {
-            kind: 'contribute_to_active_run',
-            fallback: 'queue',
-            contributionSemantics: 'interrupt_and_continue',
-          }
-        : undefined
+      const intent = await this.resolveInputIntent(effectiveSessionRef)
 
       response = await this.fetchImpl(`${this.acpBaseUrl}/v1/interface/messages`, {
         method: 'POST',
@@ -786,8 +779,53 @@ export class GatewayDiscordApp {
     }
   }
 
-  private async shouldSteerInput(sessionRef: InterfaceSessionRef): Promise<boolean> {
-    return this.resolveSteeringAvailability(sessionRef)
+  private async resolveInputIntent(sessionRef: InterfaceSessionRef): Promise<InputIntent | undefined> {
+    if (this.findActivePlaceholderForSession(sessionRef) !== undefined) {
+      return {
+        kind: 'contribute_to_active_run',
+        fallback: 'reject',
+        contributionSemantics: 'interrupt_and_continue',
+      }
+    }
+
+    if (await this.resolveSteeringAvailability(sessionRef)) {
+      return {
+        kind: 'contribute_to_active_run',
+        fallback: 'queue',
+        contributionSemantics: 'interrupt_and_continue',
+      }
+    }
+
+    return undefined
+  }
+
+  private findActivePlaceholderForSession(
+    sessionRef: InterfaceSessionRef
+  ): PendingPlaceholder | undefined {
+    const wantedSessionRef = canonicalSessionRefString(sessionRef)
+
+    for (const placeholder of this.activePlaceholdersByMessageId.values()) {
+      if (placeholder.sessionRef !== wantedSessionRef) {
+        continue
+      }
+      const hrcRunId = placeholder.claimedHrcRunId
+      if (hrcRunId === undefined) {
+        continue
+      }
+
+      const run = this.sessionEventsManager.getRunState(wantedSessionRef, hrcRunId)
+      if (
+        run?.status === 'completed' ||
+        run?.status === 'failed' ||
+        run?.status === 'cancelled'
+      ) {
+        continue
+      }
+
+      return placeholder
+    }
+
+    return undefined
   }
 
   private async resolveReaction(reaction: DiscordReaction): Promise<MessageReaction | undefined> {
@@ -1177,6 +1215,21 @@ export class GatewayDiscordApp {
     }
 
     this.sessionEventsManager.receive(envelope)
+    if (
+      envelope.event.type === 'tool_execution_start' &&
+      envelope.event.toolName === 'AskUserQuestion'
+    ) {
+      const placeholder = this.findPlaceholderByHrcRunId(envelope.sessionRef, hrcRunId)
+      if (placeholder?.typingTimer) {
+        clearInterval(placeholder.typingTimer)
+        placeholder.typingTimer = undefined
+      }
+      if (placeholder?.flushTimer) {
+        clearTimeout(placeholder.flushTimer)
+        placeholder.flushTimer = undefined
+      }
+      void this.flushProgressEdit(envelope.sessionRef, hrcRunId)
+    }
     if (envelope.event.type === 'turn_end') {
       const placeholder = this.findPlaceholderByHrcRunId(envelope.sessionRef, hrcRunId)
       if (placeholder?.runTimeout) {
