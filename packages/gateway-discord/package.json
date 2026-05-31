@@ -28,11 +28,11 @@
     "acp-core": "*",
     "acp-ops-projection": "*",
     "agent-action-render": "0.1.0",
-    "agent-scope": "0.1.0-dev.20260521120825",
+    "agent-scope": "0.1.1-dev.20260530235735",
     "discord.js": "^14.16.0",
     "hrc-frame-render": "0.1.0",
-    "spaces-config": "0.1.0-dev.20260521120825",
-    "spaces-runtime": "0.1.0-dev.20260521120825"
+    "spaces-config": "0.1.1-dev.20260530235735",
+    "spaces-runtime": "0.1.1-dev.20260530235735"
   },
   "devDependencies": {
     "@types/bun": "latest",

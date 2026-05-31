@@ -33,12 +33,12 @@
     "acp-interface-store": "*",
     "acp-jobs-store": "*",
     "acp-state-store": "*",
-    "agent-scope": "0.1.0-dev.20260521120825",
+    "agent-scope": "0.1.1-dev.20260530235735",
     "coordination-substrate": "*",
     "hrc-core": "0.1.0",
     "hrc-sdk": "0.1.0",
-    "spaces-config": "0.1.0-dev.20260521120825",
-    "spaces-runtime": "0.1.0-dev.20260521120825",
+    "spaces-config": "0.1.1-dev.20260530235735",
+    "spaces-runtime": "0.1.1-dev.20260530235735",
     "wrkq-lib": "*"
   },
   "devDependencies": {

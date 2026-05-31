@@ -27,7 +27,7 @@
   "dependencies": {
     "hrc-core": "0.1.0",
     "hrc-sdk": "0.1.0",
-    "agent-scope": "0.1.0-dev.20260521120825"
+    "agent-scope": "0.1.1-dev.20260530235735"
   },
   "devDependencies": {
     "@types/bun": "latest",
