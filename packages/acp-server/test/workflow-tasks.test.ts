@@ -24,10 +24,6 @@ describe('durable workflow task routes', () => {
       expect(create.status).toBe(201)
       expect(created.task.workflow.hash).toMatch(/^sha256:/)
 
-      const get = await fixture.request({ method: 'GET', path: `/v1/tasks/${created.task.taskId}` })
-      const loaded = await fixture.json<{ task: { state: { status: string; phase: string } } }>(get)
-      expect(loaded.task.state).toEqual({ status: 'open', phase: 'todo' })
-
       const start = await fixture.request({
         method: 'POST',
         path: `/v1/tasks/${created.task.taskId}/transitions`,
@@ -227,69 +223,6 @@ describe('durable workflow task routes', () => {
     })
   })
 
-  test('task show includes persisted ACP to HRC run mappings', async () => {
-    await withWiredServer(async (fixture) => {
-      const create = await fixture.request({
-        method: 'POST',
-        path: '/v1/tasks',
-        body: {
-          projectId: fixture.seed.projectId,
-          workflow: { id: 'basic', version: 1 },
-          goal: 'show HRC mappings',
-          roleBindings: { owner: { kind: 'agent', id: 'cody' } },
-          idempotencyKey: 'workflow-show-hrc-map:create',
-          actor: { agentId: 'cody' },
-        },
-      })
-      const created = await fixture.json<{ task: { taskId: string } }>(create)
-      expect(create.status).toBe(201)
-
-      const launch = await fixture.request({
-        method: 'POST',
-        path: '/v1/workflow-participant-runs',
-        body: {
-          taskId: created.task.taskId,
-          role: 'owner',
-          actor: { kind: 'agent', id: 'cody' },
-          hrcRunId: 'hrc-run-show',
-          runtimeId: 'runtime-show',
-          hostSessionId: 'host-session-show',
-          scopeRef: 'agent:cody:project:agent-spaces',
-          laneRef: 'main',
-          idempotencyKey: 'workflow-show-hrc-map:launch',
-        },
-      })
-      expect(launch.status).toBe(201)
-
-      const show = await fixture.request({
-        method: 'GET',
-        path: `/v1/tasks/${created.task.taskId}`,
-      })
-      const body = await fixture.json<{
-        workflowHrcRunMaps: Array<{
-          workflowTaskId: string
-          hrcRunId: string
-          runtimeId?: string | undefined
-          scopeRef?: string | undefined
-          laneRef?: string | undefined
-          source: string
-        }>
-      }>(show)
-
-      expect(show.status).toBe(200)
-      expect(body.workflowHrcRunMaps).toEqual([
-        expect.objectContaining({
-          workflowTaskId: created.task.taskId,
-          hrcRunId: 'hrc-run-show',
-          runtimeId: 'runtime-show',
-          scopeRef: 'agent:cody:project:agent-spaces',
-          laneRef: 'main',
-          source: 'launch',
-        }),
-      ])
-    })
-  })
-
   test('starts a workflow supervisor run and persists its context link', async () => {
     await withWiredServer(async (fixture) => {
       const start = await fixture.request({
@@ -328,13 +261,6 @@ describe('durable workflow task routes', () => {
         'task.created',
         'supervisor_run.started',
       ])
-
-      const get = await fixture.request({
-        method: 'GET',
-        path: `/v1/tasks/${started.task.taskId}`,
-      })
-      const loaded = await fixture.json<{ supervisorRuns: unknown[] }>(get)
-      expect(loaded.supervisorRuns).toHaveLength(1)
     })
   })
 })

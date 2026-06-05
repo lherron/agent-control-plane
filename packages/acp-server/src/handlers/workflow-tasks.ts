@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-import { conflict, forbidden, json, notFound, unprocessable } from '../http.js'
+import { AcpHttpError, conflict, forbidden, json, unprocessable } from '../http.js'
 import { reconcileWorkflowEffectIntents } from '../integration/workflow-effect-reconciler.js'
 import { extractActor } from '../parsers/actor.js'
 import {
@@ -13,6 +13,7 @@ import {
   requireTrimmedStringField,
 } from '../parsers/body.js'
 import type { RouteHandler } from '../routing/route-context.js'
+import { wrkfErrorToHttpStatus } from '../wrkf/errors.js'
 import {
   actorRefFromUnknown,
   parseWorkflowControlAction,
@@ -174,30 +175,52 @@ export const handleStartWorkflowSupervisorRun: RouteHandler = async ({ request, 
   return json(response, createTask === undefined ? 200 : 201)
 }
 
+function isWrkfError(value: unknown): value is { code: string; message: string } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'code' in value &&
+    typeof (value as { code: unknown }).code === 'string'
+  )
+}
+
 export const handleGetWorkflowTask: RouteHandler = async ({ params, deps }) => {
   const taskId = requireTaskId(params)
-  const result = withDurableWorkflowKernel(deps, (kernel) => {
-    const task = kernel.getTask(taskId)
-    if (task === undefined) {
-      return undefined
-    }
-    return {
-      task,
-      events: kernel.listEvents(taskId),
-      evidence: kernel.listEvidence(taskId),
-      obligations: kernel.listObligations(taskId),
-      effects: kernel.listEffectIntents(taskId),
-      supervisorRuns: kernel.listSupervisorRuns(taskId),
-      participantRuns: kernel.listParticipantRuns(taskId),
-      workflowHrcRunMaps: kernel.listWorkflowHrcRunMaps(taskId),
-      anomalies: kernel.listAnomalies(taskId),
-      workflowPatchProposals: kernel.listWorkflowPatchProposals(taskId),
-    }
-  })
-  if (result === undefined) {
-    notFound(`workflow task not found: ${taskId}`, { taskId })
+  const wrkf = deps.wrkf
+  if (wrkf === undefined) {
+    throw new AcpHttpError(503, 'WRKF_UNAVAILABLE', 'wrkf port not available')
   }
-  return json(result)
+  try {
+    const inspected = (await wrkf.task.inspect({ task: taskId })) as {
+      task: unknown
+      instance: unknown
+    }
+    const timeline = await wrkf.task.timeline({ task: taskId })
+    const next = await wrkf.next({ task: taskId })
+    const evidence = await wrkf.evidence.list({ task: taskId })
+    const obligations = await wrkf.obligation.list({ task: taskId })
+    const effects = await wrkf.effect.list({ task: taskId })
+    const runs = await wrkf.run.list({ task: taskId })
+    return json({
+      source: 'wrkf',
+      task: inspected.task,
+      instance: inspected.instance,
+      next,
+      timeline,
+      evidence,
+      obligations,
+      effects,
+      runs,
+    })
+  } catch (error) {
+    if (error instanceof AcpHttpError) {
+      throw error
+    }
+    if (isWrkfError(error)) {
+      throw new AcpHttpError(wrkfErrorToHttpStatus(error.code), error.code, error.message)
+    }
+    throw error
+  }
 }
 
 export const handleApplyWorkflowTransition: RouteHandler = async ({ request, params, deps }) => {
