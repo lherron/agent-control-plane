@@ -1,7 +1,28 @@
 import { randomUUID } from 'node:crypto'
 
 import type { Actor, Run } from 'acp-core'
+import { RunCorrelationConflictError, deriveRunId } from 'acp-state-store'
 import type { SessionRef } from 'agent-scope'
+
+export { RunCorrelationConflictError, deriveRunId } from 'acp-state-store'
+
+export type CreateOrGetRunInput = {
+  sessionRef: SessionRef
+  wrkfTaskId: string
+  wrkfInstanceId: string
+  wrkfRunId: string
+  workflowRef: string
+  role: string
+  actor?: Actor | undefined
+  status?: Run['status'] | undefined
+}
+
+export type CreateOrGetRunResult = {
+  run: StoredRun
+  created: boolean
+}
+
+const RUN_CORRELATION_CONFLICT_FIELDS = ['wrkfTaskId', 'wrkfRunId', 'workflowRef', 'role'] as const
 
 export type DispatchFence = {
   expectedHostSessionId?: string | undefined
@@ -43,6 +64,7 @@ export interface RunStore {
     status?: Run['status'] | undefined
     metadata?: Readonly<Record<string, unknown>> | undefined
   }): StoredRun
+  createOrGetRun(input: CreateOrGetRunInput): CreateOrGetRunResult
   getRun(runId: string): StoredRun | undefined
   listRuns(): readonly StoredRun[]
   listRunsForSession(sessionRef: SessionRef): readonly StoredRun[]
@@ -77,6 +99,45 @@ export class InMemoryRunStore implements RunStore {
 
     this.runs.set(run.runId, run)
     return structuredClone(run)
+  }
+
+  createOrGetRun(input: CreateOrGetRunInput): CreateOrGetRunResult {
+    const runId = deriveRunId(input.wrkfRunId)
+    const existing = this.runs.get(runId)
+    if (existing !== undefined) {
+      const metadata = existing.metadata ?? {}
+      for (const field of RUN_CORRELATION_CONFLICT_FIELDS) {
+        const expected = (metadata as Record<string, unknown>)[field]
+        const actual = input[field]
+        if (expected !== actual) {
+          throw new RunCorrelationConflictError({ runId, field, expected, actual })
+        }
+      }
+      return { run: structuredClone(existing), created: false }
+    }
+
+    const actor = input.actor ?? { kind: 'system', id: 'acp-local' }
+    const timestamp = new Date().toISOString()
+    const run: StoredRun = {
+      runId,
+      scopeRef: input.sessionRef.scopeRef,
+      laneRef: input.sessionRef.laneRef,
+      actor: structuredClone(actor),
+      status: input.status ?? 'pending',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      metadata: {
+        source: 'wrkf',
+        wrkfTaskId: input.wrkfTaskId,
+        wrkfInstanceId: input.wrkfInstanceId,
+        wrkfRunId: input.wrkfRunId,
+        workflowRef: input.workflowRef,
+        role: input.role,
+      },
+    }
+
+    this.runs.set(run.runId, run)
+    return { run: structuredClone(run), created: true }
   }
 
   getRun(runId: string): StoredRun | undefined {

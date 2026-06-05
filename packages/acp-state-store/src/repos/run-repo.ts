@@ -3,9 +3,45 @@ import { randomUUID } from 'node:crypto'
 import type { Actor } from 'acp-core'
 import type { SessionRef } from 'agent-scope'
 
-import type { DispatchFence, StoredRun, UpdateRunInput } from '../types.js'
+import type {
+  CreateOrGetRunInput,
+  CreateOrGetRunResult,
+  DispatchFence,
+  StoredRun,
+  UpdateRunInput,
+} from '../types.js'
+import { RunCorrelationConflictError } from '../types.js'
 import type { RepoContext } from './shared.js'
 import { parseJsonRecord } from './shared.js'
+
+export { RunCorrelationConflictError } from '../types.js'
+
+/**
+ * Derive a deterministic, stable ACP run id from a wrkf run id.
+ * Pure and side-effect-free: the wrkfRunId is embedded verbatim so it is
+ * recoverable from the ACP runId for traceability.
+ */
+export function deriveRunId(wrkfRunId: string): string {
+  return `run_wrkf_${wrkfRunId}`
+}
+
+/** Conflict fields compared on replay. wrkfInstanceId is intentionally excluded. */
+const RUN_CORRELATION_CONFLICT_FIELDS = ['wrkfTaskId', 'wrkfRunId', 'workflowRef', 'role'] as const
+
+function assertRunCorrelationMatches(
+  runId: string,
+  existing: Record<string, unknown> | undefined,
+  input: CreateOrGetRunInput
+): void {
+  const metadata = existing ?? {}
+  for (const field of RUN_CORRELATION_CONFLICT_FIELDS) {
+    const expected = metadata[field]
+    const actual = input[field]
+    if (expected !== actual) {
+      throw new RunCorrelationConflictError({ runId, field, expected, actual })
+    }
+  }
+}
 
 type RunRow = {
   run_id: string
@@ -164,6 +200,12 @@ export class RunRepo {
       ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
     }
 
+    this.insert(run)
+
+    return this.require(run.runId)
+  }
+
+  private insert(run: StoredRun): void {
     const persisted = toPersistedRun(run)
     this.context.sqlite
       .prepare(
@@ -218,8 +260,54 @@ export class RunRepo {
         persisted.createdAt,
         persisted.updatedAt
       )
+  }
 
-    return this.require(run.runId)
+  /**
+   * Idempotently create (or replay) a wrkf-correlated run keyed on a
+   * deterministic id derived from the wrkf run id. NON-CANONICAL: this record
+   * is telemetry / dispatch-fencing only — wrkf.run.bindExternal remains
+   * execution truth.
+   *
+   * Semantics:
+   *   - no existing row       → insert, return { run, created: true }
+   *   - existing + match       → replay, return { run, created: false }
+   *   - existing + conflict    → throw RunCorrelationConflictError
+   * Conflict fields: wrkfTaskId, wrkfRunId, workflowRef, role
+   * (wrkfInstanceId may rotate for the same run and is NOT a conflict.)
+   */
+  createOrGetRun(input: CreateOrGetRunInput): CreateOrGetRunResult {
+    return this.context.sqlite.transaction(() => {
+      const runId = deriveRunId(input.wrkfRunId)
+      const existing = this.getRun(runId)
+      if (existing !== undefined) {
+        assertRunCorrelationMatches(runId, existing.metadata, input)
+        return { run: existing, created: false }
+      }
+
+      const actor = input.actor ?? { kind: 'system', id: 'acp-local' }
+      const timestamp = new Date().toISOString()
+      const metadata: Record<string, unknown> = {
+        source: 'wrkf',
+        wrkfTaskId: input.wrkfTaskId,
+        wrkfInstanceId: input.wrkfInstanceId,
+        wrkfRunId: input.wrkfRunId,
+        workflowRef: input.workflowRef,
+        role: input.role,
+      }
+      const run: StoredRun = {
+        runId,
+        scopeRef: input.sessionRef.scopeRef,
+        laneRef: input.sessionRef.laneRef,
+        actor,
+        status: input.status ?? 'pending',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        metadata,
+      }
+
+      this.insert(run)
+      return { run: this.require(runId), created: true }
+    })()
   }
 
   getRun(runId: string): StoredRun | undefined {

@@ -45,6 +45,22 @@ export type UpdateRunInput = {
   afterHrcSeq?: number | undefined
 }
 
+export type CreateOrGetRunInput = {
+  sessionRef: { scopeRef: string; laneRef: string }
+  wrkfTaskId: string
+  wrkfInstanceId: string
+  wrkfRunId: string
+  workflowRef: string
+  role: string
+  actor?: Actor | undefined
+  status?: StoredRun['status'] | undefined
+}
+
+export type CreateOrGetRunResult = {
+  run: StoredRun
+  created: boolean
+}
+
 export type StoredInputAttempt = InputAttempt
 
 export type InputAttemptCreateResult = {
@@ -182,5 +198,24 @@ export class InputAttemptConflictError extends Error {
     super(`different request body already exists for idempotencyKey ${idempotencyKey}`)
     this.name = 'InputAttemptConflictError'
     this.idempotencyKey = idempotencyKey
+  }
+}
+
+export class RunCorrelationConflictError extends Error {
+  readonly runId: string
+  readonly field: string
+  readonly expected: unknown
+  readonly actual: unknown
+
+  constructor(args: { runId: string; field: string; expected: unknown; actual: unknown }) {
+    super(
+      `run correlation conflict for ${args.runId}: ${args.field} changed from ` +
+        `${JSON.stringify(args.expected)} to ${JSON.stringify(args.actual)}`
+    )
+    this.name = 'RunCorrelationConflictError'
+    this.runId = args.runId
+    this.field = args.field
+    this.expected = args.expected
+    this.actual = args.actual
   }
 }
