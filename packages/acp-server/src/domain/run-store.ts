@@ -22,6 +22,19 @@ export type CreateOrGetRunResult = {
   created: boolean
 }
 
+export type AcquireLaunchClaimInput = {
+  runId: string
+  claimId: string
+  idempotencyKey: string
+  wrkfRunId: string
+  claimedAt?: string | undefined
+}
+
+export type AcquireLaunchClaimResult = {
+  run: StoredRun
+  acquired: boolean
+}
+
 const RUN_CORRELATION_CONFLICT_FIELDS = ['wrkfTaskId', 'wrkfRunId', 'workflowRef', 'role'] as const
 
 export type DispatchFence = {
@@ -65,6 +78,7 @@ export interface RunStore {
     metadata?: Readonly<Record<string, unknown>> | undefined
   }): StoredRun
   createOrGetRun(input: CreateOrGetRunInput): CreateOrGetRunResult
+  acquireLaunchClaim(input: AcquireLaunchClaimInput): AcquireLaunchClaimResult
   getRun(runId: string): StoredRun | undefined
   listRuns(): readonly StoredRun[]
   listRunsForSession(sessionRef: SessionRef): readonly StoredRun[]
@@ -138,6 +152,41 @@ export class InMemoryRunStore implements RunStore {
 
     this.runs.set(run.runId, run)
     return { run: structuredClone(run), created: true }
+  }
+
+  acquireLaunchClaim(input: AcquireLaunchClaimInput): AcquireLaunchClaimResult {
+    const run = this.runs.get(input.runId)
+    if (run === undefined) {
+      throw new Error(`run not found: ${input.runId}`)
+    }
+
+    const existingClaim = readRecord(run.metadata?.['wrkfLaunchClaim'])
+    const existingBind = readRecord(run.metadata?.['wrkfExternalBind'])
+    if (
+      run.hrcRunId !== undefined ||
+      existingClaim?.['status'] === 'claimed' ||
+      existingClaim?.['status'] === 'launch_failed' ||
+      existingBind?.['status'] === 'orphaned'
+    ) {
+      return { run: structuredClone(run), acquired: false }
+    }
+
+    const next: StoredRun = {
+      ...run,
+      metadata: {
+        ...(run.metadata ?? {}),
+        wrkfLaunchClaim: {
+          status: 'claimed',
+          claimId: input.claimId,
+          idempotencyKey: input.idempotencyKey,
+          wrkfRunId: input.wrkfRunId,
+          claimedAt: input.claimedAt ?? new Date().toISOString(),
+        },
+      },
+      updatedAt: new Date().toISOString(),
+    }
+    this.runs.set(input.runId, next)
+    return { run: structuredClone(next), acquired: true }
   }
 
   getRun(runId: string): StoredRun | undefined {
@@ -237,4 +286,10 @@ export class InMemoryRunStore implements RunStore {
     this.runs.set(runId, next)
     return structuredClone(next)
   }
+}
+
+function readRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined
 }

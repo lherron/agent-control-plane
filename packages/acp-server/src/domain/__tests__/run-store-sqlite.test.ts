@@ -160,4 +160,57 @@ describe('SqliteRunStore', () => {
       reopenedStore.close()
     }
   })
+
+  test('persists wrkf launch claim metadata across reopen', () => {
+    const dbPath = createDbPath()
+    const firstStore = openAcpStateStore({ dbPath })
+    let runId = ''
+    try {
+      const { run } = firstStore.runs.createOrGetRun({
+        sessionRef,
+        wrkfTaskId: 'T-01161',
+        wrkfInstanceId: 'inst-claim-001',
+        wrkfRunId: 'wrkfrun-claim-001',
+        workflowRef: 'canonical-flow@v1',
+        role: 'tester',
+      })
+      runId = run.runId
+
+      const claim = firstStore.runs.acquireLaunchClaim({
+        runId,
+        claimId: 'claim-001',
+        idempotencyKey: 'idem-claim-001',
+        wrkfRunId: 'wrkfrun-claim-001',
+        claimedAt: '2026-06-05T22:30:00.000Z',
+      })
+
+      expect(claim.acquired).toBe(true)
+      expect(claim.run.metadata?.['wrkfLaunchClaim']).toMatchObject({
+        status: 'claimed',
+        claimId: 'claim-001',
+        idempotencyKey: 'idem-claim-001',
+        wrkfRunId: 'wrkfrun-claim-001',
+      })
+    } finally {
+      firstStore.close()
+    }
+
+    const reopenedStore = openAcpStateStore({ dbPath })
+    try {
+      const blocked = reopenedStore.runs.acquireLaunchClaim({
+        runId,
+        claimId: 'claim-002',
+        idempotencyKey: 'idem-claim-001',
+        wrkfRunId: 'wrkfrun-claim-001',
+      })
+      expect(blocked.acquired).toBe(false)
+      expect(blocked.run.metadata?.['wrkfLaunchClaim']).toMatchObject({
+        status: 'claimed',
+        claimId: 'claim-001',
+        wrkfRunId: 'wrkfrun-claim-001',
+      })
+    } finally {
+      reopenedStore.close()
+    }
+  })
 })

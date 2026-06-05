@@ -162,9 +162,9 @@ describe('RunRepo.createOrGetRun — initial creation (W4a red)', () => {
     const store = openAcpStateStore({ dbPath: ':memory:' })
     const { deriveRunId } = runRepoModule as unknown as { deriveRunId: (id: string) => string }
     try {
-      ;(store.runs as unknown as Record<string, (...args: unknown[]) => unknown>)[
-        'createOrGetRun'
-      ](BASE)
+      ;(store.runs as unknown as Record<string, (...args: unknown[]) => unknown>)['createOrGetRun'](
+        BASE
+      )
 
       const found = store.runs.getRun(deriveRunId(BASE.wrkfRunId))
       expect(found).toBeDefined()
@@ -202,9 +202,9 @@ describe('RunRepo.createOrGetRun — replay (W4a red)', () => {
   test('[RED] calling twice with the same wrkfRunId returns the same runId', () => {
     const store = openAcpStateStore({ dbPath: ':memory:' })
     try {
-      const callFn = (
-        store.runs as unknown as Record<string, (...args: unknown[]) => unknown>
-      )['createOrGetRun'].bind(store.runs)
+      const callFn = (store.runs as unknown as Record<string, (...args: unknown[]) => unknown>)[
+        'createOrGetRun'
+      ].bind(store.runs)
 
       const r1 = callFn(BASE) as { run: { runId: string }; created: boolean }
       const r2 = callFn(BASE) as { run: { runId: string }; created: boolean }
@@ -218,9 +218,9 @@ describe('RunRepo.createOrGetRun — replay (W4a red)', () => {
   test('[RED] second call sets created: false (replay, not new insert)', () => {
     const store = openAcpStateStore({ dbPath: ':memory:' })
     try {
-      const callFn = (
-        store.runs as unknown as Record<string, (...args: unknown[]) => unknown>
-      )['createOrGetRun'].bind(store.runs)
+      const callFn = (store.runs as unknown as Record<string, (...args: unknown[]) => unknown>)[
+        'createOrGetRun'
+      ].bind(store.runs)
 
       callFn(BASE)
       const r2 = callFn(BASE) as { run: unknown; created: boolean }
@@ -234,9 +234,9 @@ describe('RunRepo.createOrGetRun — replay (W4a red)', () => {
   test('[RED] replay returns the original createdAt (no new row)', () => {
     const store = openAcpStateStore({ dbPath: ':memory:' })
     try {
-      const callFn = (
-        store.runs as unknown as Record<string, (...args: unknown[]) => unknown>
-      )['createOrGetRun'].bind(store.runs)
+      const callFn = (store.runs as unknown as Record<string, (...args: unknown[]) => unknown>)[
+        'createOrGetRun'
+      ].bind(store.runs)
 
       const r1 = callFn(BASE) as { run: { createdAt: string; runId: string }; created: boolean }
       const r2 = callFn(BASE) as { run: { createdAt: string; runId: string }; created: boolean }
@@ -251,9 +251,9 @@ describe('RunRepo.createOrGetRun — replay (W4a red)', () => {
   test('[RED] only one row exists in DB after two identical createOrGetRun calls', () => {
     const store = openAcpStateStore({ dbPath: ':memory:' })
     try {
-      const callFn = (
-        store.runs as unknown as Record<string, (...args: unknown[]) => unknown>
-      )['createOrGetRun'].bind(store.runs)
+      const callFn = (store.runs as unknown as Record<string, (...args: unknown[]) => unknown>)[
+        'createOrGetRun'
+      ].bind(store.runs)
 
       callFn(BASE)
       callFn(BASE)
@@ -271,16 +271,14 @@ describe('RunRepo.createOrGetRun — replay (W4a red)', () => {
     // wrkfInstanceId is metadata-only — it is NOT a conflict field
     const store = openAcpStateStore({ dbPath: ':memory:' })
     try {
-      const callFn = (
-        store.runs as unknown as Record<string, (...args: unknown[]) => unknown>
-      )['createOrGetRun'].bind(store.runs)
+      const callFn = (store.runs as unknown as Record<string, (...args: unknown[]) => unknown>)[
+        'createOrGetRun'
+      ].bind(store.runs)
 
       callFn(BASE)
 
       // Different wrkfInstanceId — should replay without throwing
-      expect(() =>
-        callFn({ ...BASE, wrkfInstanceId: 'inst_rotated_bbb222' })
-      ).not.toThrow()
+      expect(() => callFn({ ...BASE, wrkfInstanceId: 'inst_rotated_bbb222' })).not.toThrow()
     } finally {
       store.close()
     }
@@ -298,9 +296,9 @@ describe('RunRepo.createOrGetRun — conflict (W4a red)', () => {
       RunCorrelationConflictError: new (...args: unknown[]) => Error
     }
     try {
-      const callFn = (
-        store.runs as unknown as Record<string, (...args: unknown[]) => unknown>
-      )['createOrGetRun'].bind(store.runs)
+      const callFn = (store.runs as unknown as Record<string, (...args: unknown[]) => unknown>)[
+        'createOrGetRun'
+      ].bind(store.runs)
 
       callFn(BASE) // creates run_wrkf_wrkf-run-det-001
 
@@ -319,9 +317,9 @@ describe('RunRepo.createOrGetRun — conflict (W4a red)', () => {
       RunCorrelationConflictError: new (...args: unknown[]) => Error
     }
     try {
-      const callFn = (
-        store.runs as unknown as Record<string, (...args: unknown[]) => unknown>
-      )['createOrGetRun'].bind(store.runs)
+      const callFn = (store.runs as unknown as Record<string, (...args: unknown[]) => unknown>)[
+        'createOrGetRun'
+      ].bind(store.runs)
 
       callFn(BASE)
 
@@ -339,9 +337,9 @@ describe('RunRepo.createOrGetRun — conflict (W4a red)', () => {
       RunCorrelationConflictError: new (...args: unknown[]) => Error
     }
     try {
-      const callFn = (
-        store.runs as unknown as Record<string, (...args: unknown[]) => unknown>
-      )['createOrGetRun'].bind(store.runs)
+      const callFn = (store.runs as unknown as Record<string, (...args: unknown[]) => unknown>)[
+        'createOrGetRun'
+      ].bind(store.runs)
 
       callFn(BASE)
 
@@ -354,7 +352,9 @@ describe('RunRepo.createOrGetRun — conflict (W4a red)', () => {
   test('[RED] conflict error carries runId, field, expected, and actual', () => {
     const store = openAcpStateStore({ dbPath: ':memory:' })
     const { RunCorrelationConflictError } = runRepoModule as unknown as {
-      RunCorrelationConflictError: new (...args: unknown[]) => Error & {
+      RunCorrelationConflictError: new (
+        ...args: unknown[]
+      ) => Error & {
         runId: string
         field: string
         expected: unknown
@@ -363,9 +363,9 @@ describe('RunRepo.createOrGetRun — conflict (W4a red)', () => {
     }
     const { deriveRunId } = runRepoModule as unknown as { deriveRunId: (id: string) => string }
     try {
-      const callFn = (
-        store.runs as unknown as Record<string, (...args: unknown[]) => unknown>
-      )['createOrGetRun'].bind(store.runs)
+      const callFn = (store.runs as unknown as Record<string, (...args: unknown[]) => unknown>)[
+        'createOrGetRun'
+      ].bind(store.runs)
 
       callFn(BASE)
 
@@ -394,9 +394,9 @@ describe('RunRepo.createOrGetRun — conflict (W4a red)', () => {
     const store = openAcpStateStore({ dbPath: ':memory:' })
     const { deriveRunId } = runRepoModule as unknown as { deriveRunId: (id: string) => string }
     try {
-      const callFn = (
-        store.runs as unknown as Record<string, (...args: unknown[]) => unknown>
-      )['createOrGetRun'].bind(store.runs)
+      const callFn = (store.runs as unknown as Record<string, (...args: unknown[]) => unknown>)[
+        'createOrGetRun'
+      ].bind(store.runs)
 
       const r1 = callFn(BASE) as { run: { runId: string; metadata: Record<string, unknown> } }
 
@@ -409,6 +409,45 @@ describe('RunRepo.createOrGetRun — conflict (W4a red)', () => {
       const after = store.runs.getRun(deriveRunId(BASE.wrkfRunId))
       expect(after?.metadata?.['wrkfTaskId']).toBe(BASE.wrkfTaskId)
       expect(after?.metadata?.['wrkfTaskId']).toBe(r1.run.metadata['wrkfTaskId'])
+    } finally {
+      store.close()
+    }
+  })
+})
+
+describe('RunRepo.acquireLaunchClaim — durable launch exclusion (T-01934)', () => {
+  test('acquires one wrkf launch claim and replays blocked on the second claim', () => {
+    const store = openAcpStateStore({ dbPath: ':memory:' })
+    try {
+      const { run } = store.runs.createOrGetRun(BASE)
+
+      const first = store.runs.acquireLaunchClaim({
+        runId: run.runId,
+        claimId: 'claim-one',
+        idempotencyKey: 'idem-one',
+        wrkfRunId: BASE.wrkfRunId,
+        claimedAt: '2026-06-05T22:45:00.000Z',
+      })
+      expect(first.acquired).toBe(true)
+      expect(first.run.metadata?.['wrkfLaunchClaim']).toMatchObject({
+        status: 'claimed',
+        claimId: 'claim-one',
+        idempotencyKey: 'idem-one',
+        wrkfRunId: BASE.wrkfRunId,
+      })
+
+      const second = store.runs.acquireLaunchClaim({
+        runId: run.runId,
+        claimId: 'claim-two',
+        idempotencyKey: 'idem-one',
+        wrkfRunId: BASE.wrkfRunId,
+      })
+      expect(second.acquired).toBe(false)
+      expect(second.run.metadata?.['wrkfLaunchClaim']).toMatchObject({
+        status: 'claimed',
+        claimId: 'claim-one',
+        wrkfRunId: BASE.wrkfRunId,
+      })
     } finally {
       store.close()
     }

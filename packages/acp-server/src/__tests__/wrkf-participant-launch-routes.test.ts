@@ -49,9 +49,9 @@
 
 import { describe, expect, test } from 'bun:test'
 
-import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
-import type { LaunchRoleScopedRun, RuntimeResolver } from '../deps.js'
 import { withWiredServer } from '../../test/fixtures/wired-server.js'
+import type { LaunchRoleScopedRun, RuntimeResolver } from '../deps.js'
+import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
 
 // ─── Shared fixture data ─────────────────────────────────────────────────────
 
@@ -99,7 +99,7 @@ const CANNED_FAIL_RESULT = {
 class WrkfError extends Error {
   constructor(
     public readonly code: string,
-    message: string,
+    message: string
   ) {
     super(message)
     this.name = 'WrkfError'
@@ -172,7 +172,10 @@ function makeFakeWrkfPort(overrides: FakeWrkfOverrides = {}): AcpWrkfWorkflowPor
         if (overrides.bindExternal !== undefined) {
           return overrides.bindExternal(params as Record<string, unknown>)
         }
-        return { ...CANNED_WRKF_RUN, externalRunRef: (params as Record<string, unknown>)['externalRunRef'] }
+        return {
+          ...CANNED_WRKF_RUN,
+          externalRunRef: (params as Record<string, unknown>)['externalRunRef'],
+        }
       },
       finish: async (params) => {
         _calls.push({ method: 'run.finish', params })
@@ -267,7 +270,7 @@ describe('POST /v1/workflow-participant-runs — wrkf source-tagged response (W4
         wrkf,
         launchRoleScopedRun: launcher,
         runtimeResolver: FAKE_RUNTIME_RESOLVER,
-      },
+      }
     )
   })
 
@@ -305,7 +308,7 @@ describe('POST /v1/workflow-participant-runs — wrkf source-tagged response (W4
         wrkf,
         launchRoleScopedRun: launcher,
         runtimeResolver: FAKE_RUNTIME_RESOLVER,
-      },
+      }
     )
   })
 
@@ -339,7 +342,7 @@ describe('POST /v1/workflow-participant-runs — wrkf source-tagged response (W4
         wrkf,
         launchRoleScopedRun: launcher,
         runtimeResolver: FAKE_RUNTIME_RESOLVER,
-      },
+      }
     )
   })
 
@@ -362,6 +365,48 @@ describe('POST /v1/workflow-participant-runs — wrkf source-tagged response (W4
       expect(body.error.code).toBe('WRKF_UNAVAILABLE')
     })
     // withWiredServer called without wrkf override → deps.wrkf is undefined
+  })
+
+  test('blocked launch claim retry returns HTTP 409 with WRKF_PARTICIPANT_LAUNCH_BLOCKED', async () => {
+    const wrkf = makeFakeWrkfPort()
+    let launchCount = 0
+    const launcher: LaunchRoleScopedRun = async () => {
+      launchCount++
+      throw new Error('HRC accepted run but acknowledgement was lost')
+    }
+
+    await withWiredServer(
+      async (fixture) => {
+        const body = {
+          taskId: TASK_ID,
+          role: ROLE,
+          idempotencyKey: 'route-test-blocked-launch-001',
+          sessionRef: 'agent:larry:project:acps-test:task:T-09992~main',
+        }
+
+        const first = await fixture.request({
+          method: 'POST',
+          path: '/v1/workflow-participant-runs',
+          body,
+        })
+        expect(first.status).toBe(500)
+
+        const retry = await fixture.request({
+          method: 'POST',
+          path: '/v1/workflow-participant-runs',
+          body,
+        })
+        expect(retry.status).toBe(409)
+        const retryBody = await fixture.json<{ error: { code: string } }>(retry)
+        expect(retryBody.error.code).toBe('WRKF_PARTICIPANT_LAUNCH_BLOCKED')
+        expect(launchCount).toBe(1)
+      },
+      {
+        wrkf,
+        launchRoleScopedRun: launcher,
+        runtimeResolver: FAKE_RUNTIME_RESOLVER,
+      }
+    )
   })
 })
 
@@ -396,7 +441,7 @@ describe('POST /v1/workflow-participant-runs/:runId/complete — wrkf.run.finish
         expect(p['status']).toBe('completed')
         expect(p['summary']).toBe('implementation done')
       },
-      { wrkf },
+      { wrkf }
     )
   })
 
@@ -419,7 +464,7 @@ describe('POST /v1/workflow-participant-runs/:runId/complete — wrkf.run.finish
         expect(body.source).toBe('wrkf')
         expect(body.run).toBeDefined()
       },
-      { wrkf },
+      { wrkf }
     )
   })
 
@@ -435,9 +480,9 @@ describe('POST /v1/workflow-participant-runs/:runId/complete — wrkf.run.finish
           path: `/v1/workflow-participant-runs/${WRKF_RUN_ID}/complete`,
           body: {
             summary: 'implementation done',
-            outcome: 'success',               // old kernel field — must be ignored
-            evidenceRefs: ['artifact://x'],   // old kernel field — must be ignored
-            idempotencyKey: 'key-complete',   // old kernel field — must be ignored
+            outcome: 'success', // old kernel field — must be ignored
+            evidenceRefs: ['artifact://x'], // old kernel field — must be ignored
+            idempotencyKey: 'key-complete', // old kernel field — must be ignored
           },
         })
 
@@ -451,7 +496,7 @@ describe('POST /v1/workflow-participant-runs/:runId/complete — wrkf.run.finish
         expect(p['evidenceRefs']).toBeUndefined()
         expect(p['idempotencyKey']).toBeUndefined()
       },
-      { wrkf },
+      { wrkf }
     )
   })
 
@@ -504,7 +549,7 @@ describe('POST /v1/workflow-participant-runs/:runId/fail — wrkf.run.fail (W4b 
         expect(summary).toContain('implementation stalled')
         expect(summary).toContain('participant_repeated_failure')
       },
-      { wrkf },
+      { wrkf }
     )
   })
 
@@ -528,7 +573,7 @@ describe('POST /v1/workflow-participant-runs/:runId/fail — wrkf.run.fail (W4b 
         expect(p['runId']).toBe(WRKF_RUN_ID)
         expect(p['summary']).toContain('agent crashed')
       },
-      { wrkf },
+      { wrkf }
     )
   })
 
@@ -549,7 +594,7 @@ describe('POST /v1/workflow-participant-runs/:runId/fail — wrkf.run.fail (W4b 
         expect(body.source).toBe('wrkf')
         expect(body.run).toBeDefined()
       },
-      { wrkf },
+      { wrkf }
     )
   })
 
@@ -575,7 +620,7 @@ describe('POST /v1/workflow-participant-runs/:runId/fail — wrkf.run.fail (W4b 
         const body = await fixture.json<{ error: { code: string } }>(response)
         expect(body.error.code).toBe('WRKF_IDEMPOTENCY_MISMATCH')
       },
-      { wrkf },
+      { wrkf }
     )
   })
 
@@ -619,9 +664,9 @@ describe('runId semantics — WRKF run ids (W4b red)', () => {
         expect(finishCall).toBeDefined()
         const p = finishCall!.params as Record<string, unknown>
         expect(p['runId']).toBe(CUSTOM_WRKF_RUN_ID)
-        expect(p['runId']).not.toContain('run_wrkf_')  // must not be ACP-wrapped
+        expect(p['runId']).not.toContain('run_wrkf_') // must not be ACP-wrapped
       },
-      { wrkf },
+      { wrkf }
     )
   })
 
@@ -644,7 +689,7 @@ describe('runId semantics — WRKF run ids (W4b red)', () => {
         expect(p['runId']).toBe(CUSTOM_WRKF_RUN_ID)
         expect(p['runId']).not.toContain('run_wrkf_')
       },
-      { wrkf },
+      { wrkf }
     )
   })
 })

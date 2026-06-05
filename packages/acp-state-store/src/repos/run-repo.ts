@@ -4,6 +4,8 @@ import type { Actor } from 'acp-core'
 import type { SessionRef } from 'agent-scope'
 
 import type {
+  AcquireLaunchClaimInput,
+  AcquireLaunchClaimResult,
   CreateOrGetRunInput,
   CreateOrGetRunResult,
   DispatchFence,
@@ -41,6 +43,12 @@ function assertRunCorrelationMatches(
       throw new RunCorrelationConflictError({ runId, field, expected, actual })
     }
   }
+}
+
+function readRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined
 }
 
 type RunRow = {
@@ -307,6 +315,39 @@ export class RunRepo {
 
       this.insert(run)
       return { run: this.require(runId), created: true }
+    })()
+  }
+
+  acquireLaunchClaim(input: AcquireLaunchClaimInput): AcquireLaunchClaimResult {
+    return this.context.sqlite.transaction(() => {
+      const current = this.require(input.runId)
+      const existingClaim = readRecord(current.metadata?.['wrkfLaunchClaim'])
+      const existingBind = readRecord(current.metadata?.['wrkfExternalBind'])
+      if (
+        current.hrcRunId !== undefined ||
+        existingClaim?.['status'] === 'claimed' ||
+        existingClaim?.['status'] === 'launch_failed' ||
+        existingBind?.['status'] === 'orphaned'
+      ) {
+        return { run: current, acquired: false }
+      }
+
+      const next: StoredRun = {
+        ...current,
+        metadata: {
+          ...(current.metadata ?? {}),
+          wrkfLaunchClaim: {
+            status: 'claimed',
+            claimId: input.claimId,
+            idempotencyKey: input.idempotencyKey,
+            wrkfRunId: input.wrkfRunId,
+            claimedAt: input.claimedAt ?? new Date().toISOString(),
+          },
+        },
+        updatedAt: new Date().toISOString(),
+      }
+      this.persist(next)
+      return { run: this.require(input.runId), acquired: true }
     })()
   }
 

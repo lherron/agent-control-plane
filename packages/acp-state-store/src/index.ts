@@ -10,6 +10,8 @@ export { TransitionOutboxRepo } from './repos/transition-outbox-repo.js'
 export { WorkflowRuntimeRepo } from './repos/workflow-runtime-repo.js'
 export { InputAttemptConflictError, RunCorrelationConflictError } from './types.js'
 export type {
+  AcquireLaunchClaimInput,
+  AcquireLaunchClaimResult,
   AppendTransitionOutboxInput,
   CreateInputAttemptInput,
   CreateOrGetRunInput,

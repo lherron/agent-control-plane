@@ -45,6 +45,19 @@ export type UpdateRunInput = {
   afterHrcSeq?: number | undefined
 }
 
+export type AcquireLaunchClaimInput = {
+  runId: string
+  claimId: string
+  idempotencyKey: string
+  wrkfRunId: string
+  claimedAt?: string | undefined
+}
+
+export type AcquireLaunchClaimResult = {
+  run: StoredRun
+  acquired: boolean
+}
+
 export type CreateOrGetRunInput = {
   sessionRef: { scopeRef: string; laneRef: string }
   wrkfTaskId: string

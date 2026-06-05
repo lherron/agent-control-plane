@@ -91,11 +91,17 @@ export async function launchParticipant(
     ...(input.actor !== undefined ? { actor: input.actor } : {}),
   })
 
+  const existingExternalBind = readRecord(acpRun.metadata?.['wrkfExternalBind'])
+  if (existingExternalBind?.['status'] === 'orphaned') {
+    throw launchBlockedError(acpRun, 'wrkf participant launch has an orphaned HRC bind')
+  }
+
   if (!created && acpRun.hrcRunId !== undefined) {
-    await deps.wrkf.run.bindExternal({
-      runId: wrkfRunId,
-      externalRunRef: acpRun.hrcRunId,
-      deliveryRef: stableJson({
+    await bindExternalOrMarkOrphan(deps, input, {
+      acpRunId: acpRun.runId,
+      wrkfRunId,
+      hrcRunId: acpRun.hrcRunId,
+      deliveryRef: {
         kind: 'hrc',
         runId: acpRun.hrcRunId,
         hostSessionId: acpRun.hostSessionId,
@@ -103,10 +109,23 @@ export async function launchParticipant(
         scopeRef: input.sessionRef.scopeRef,
         laneRef: input.sessionRef.laneRef,
         generation: acpRun.generation,
-      }),
-      idempotencyKey: `${input.idempotencyKey}:bindExternal`,
+      },
+      currentMetadata: acpRun.metadata,
     })
     return buildResult(input.taskId, projection, wrkfRun, { replay: false })
+  }
+
+  const claim = deps.runStore.acquireLaunchClaim({
+    runId: acpRun.runId,
+    claimId: `${input.idempotencyKey}:launch`,
+    idempotencyKey: input.idempotencyKey,
+    wrkfRunId,
+  })
+  if (!claim.acquired) {
+    throw launchBlockedError(
+      claim.run,
+      'wrkf participant launch already has a durable launch claim'
+    )
   }
 
   const prompt = input.initialPrompt ?? buildParticipantPrompt({ input, projection, wrkfRun })
@@ -115,27 +134,55 @@ export async function launchParticipant(
     input.sessionRef,
     { initialPrompt: prompt }
   )
-  const launched = await deps.launchRoleScopedRun({
-    sessionRef: input.sessionRef,
-    intent,
-    acpRunId: acpRun.runId,
-    runStore: deps.runStore,
-    waitForCompletion: false,
-  })
+  let launched: Awaited<ReturnType<LaunchRoleScopedRun>>
+  try {
+    launched = await deps.launchRoleScopedRun({
+      sessionRef: input.sessionRef,
+      intent,
+      acpRunId: acpRun.runId,
+      runStore: deps.runStore,
+      waitForCompletion: false,
+    })
+  } catch (error) {
+    deps.runStore.updateRun(acpRun.runId, {
+      errorCode: 'wrkf_launch_failed_ambiguous',
+      errorMessage: error instanceof Error ? error.message : String(error),
+      metadata: mergeMetadata(claim.run.metadata, {
+        wrkfLaunchClaim: {
+          ...readRecord(claim.run.metadata?.['wrkfLaunchClaim']),
+          status: 'launch_failed',
+          wrkfRunId,
+          errorCode: 'wrkf_launch_failed_ambiguous',
+          errorMessage: error instanceof Error ? error.message : String(error),
+          failedAt: new Date().toISOString(),
+        },
+      }),
+    })
+    throw error
+  }
   const launchInfo = toLaunchInfo(launched)
 
-  deps.runStore.updateRun(acpRun.runId, {
+  const launchedRun = deps.runStore.updateRun(acpRun.runId, {
     hrcRunId: launched.runId,
     ...(launched.hostSessionId !== undefined ? { hostSessionId: launched.hostSessionId } : {}),
     ...(launched.runtimeId !== undefined ? { runtimeId: launched.runtimeId } : {}),
     ...(launched.generation !== undefined ? { generation: launched.generation } : {}),
     transport: 'hrc',
+    metadata: mergeMetadata(claim.run.metadata, {
+      wrkfLaunchClaim: {
+        ...readRecord(claim.run.metadata?.['wrkfLaunchClaim']),
+        status: 'launched',
+        hrcRunId: launched.runId,
+        launchedAt: new Date().toISOString(),
+      },
+    }),
   })
 
-  await deps.wrkf.run.bindExternal({
-    runId: wrkfRunId,
-    externalRunRef: launched.runId,
-    deliveryRef: stableJson({
+  await bindExternalOrMarkOrphan(deps, input, {
+    acpRunId: acpRun.runId,
+    wrkfRunId,
+    hrcRunId: launched.runId,
+    deliveryRef: {
       kind: 'hrc',
       runId: launched.runId,
       hostSessionId: launched.hostSessionId,
@@ -144,14 +191,82 @@ export async function launchParticipant(
       scopeRef: input.sessionRef.scopeRef,
       laneRef: input.sessionRef.laneRef,
       generation: launched.generation,
-    }),
-    idempotencyKey: `${input.idempotencyKey}:bindExternal`,
+    },
+    currentMetadata: launchedRun.metadata,
   })
 
   return buildResult(input.taskId, projection, wrkfRun, {
     launch: launchInfo,
     replay: false,
   })
+}
+
+async function bindExternalOrMarkOrphan(
+  deps: WrkfParticipantLaunchDeps,
+  input: WrkfParticipantLaunchInput,
+  args: {
+    acpRunId: string
+    wrkfRunId: string
+    hrcRunId: string
+    deliveryRef: Readonly<Record<string, unknown>>
+    currentMetadata?: Readonly<Record<string, unknown>> | undefined
+  }
+): Promise<void> {
+  try {
+    await deps.wrkf.run.bindExternal({
+      runId: args.wrkfRunId,
+      externalRunRef: args.hrcRunId,
+      deliveryRef: stableJson(args.deliveryRef),
+      idempotencyKey: `${input.idempotencyKey}:bindExternal`,
+    })
+  } catch (error) {
+    const errorCode = readErrorCode(error) ?? 'wrkf_bind_external_failed'
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    deps.runStore.updateRun(args.acpRunId, {
+      errorCode: 'wrkf_bind_external_failed',
+      errorMessage,
+      metadata: mergeMetadata(args.currentMetadata, {
+        wrkfExternalBind: {
+          status: 'orphaned',
+          hrcRunId: args.hrcRunId,
+          wrkfRunId: args.wrkfRunId,
+          errorCode,
+          errorMessage,
+          orphanedAt: new Date().toISOString(),
+        },
+      }),
+    })
+    throw error
+  }
+}
+
+function launchBlockedError(
+  run: { errorCode?: string | undefined; errorMessage?: string | undefined },
+  fallbackMessage: string
+): Error & {
+  code: string
+} {
+  const error = new Error(run.errorMessage ?? fallbackMessage) as Error & {
+    code: string
+  }
+  error.name = 'WrkfParticipantLaunchBlockedError'
+  error.code = 'WRKF_PARTICIPANT_LAUNCH_BLOCKED'
+  return error
+}
+
+function mergeMetadata(
+  current: Readonly<Record<string, unknown>> | undefined,
+  patch: Readonly<Record<string, unknown>>
+): Record<string, unknown> {
+  return {
+    ...(current ?? {}),
+    ...patch,
+  }
+}
+
+function readErrorCode(error: unknown): string | undefined {
+  const code = isRecord(error) ? error['code'] : undefined
+  return typeof code === 'string' && code.length > 0 ? code : undefined
 }
 
 function buildResult(
@@ -322,6 +437,10 @@ function readOptionalString(input: Record<string, unknown>, field: string): stri
 function readOptionalNumber(input: Record<string, unknown>, field: string): number | undefined {
   const value = input[field]
   return typeof value === 'number' ? value : undefined
+}
+
+function readRecord(value: unknown): Record<string, unknown> | undefined {
+  return isRecord(value) ? value : undefined
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

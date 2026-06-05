@@ -557,6 +557,7 @@ function rebuildRunsForQueuedStatus(sqlite: SqliteDatabase): void {
       expected_host_session_id TEXT,
       expected_generation INTEGER,
       follow_latest INTEGER CHECK (follow_latest IN (0, 1) OR follow_latest IS NULL),
+      after_hrc_seq INTEGER,
       metadata_json TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -582,6 +583,7 @@ function rebuildRunsForQueuedStatus(sqlite: SqliteDatabase): void {
       expected_host_session_id,
       expected_generation,
       follow_latest,
+      after_hrc_seq,
       metadata_json,
       created_at,
       updated_at
@@ -605,6 +607,7 @@ function rebuildRunsForQueuedStatus(sqlite: SqliteDatabase): void {
            expected_host_session_id,
            expected_generation,
            follow_latest,
+           after_hrc_seq,
            metadata_json,
            created_at,
            updated_at

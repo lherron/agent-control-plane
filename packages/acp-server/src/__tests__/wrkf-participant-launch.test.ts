@@ -112,9 +112,9 @@ import { describe, expect, test } from 'bun:test'
 // @ts-expect-error -- participant-launch.ts is the W4b deliverable; does not exist yet
 import { launchParticipant } from '../wrkf/participant-launch.js'
 
-import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
-import { InMemoryRunStore } from '../domain/run-store.js'
 import type { LaunchRoleScopedRun, RuntimeResolver } from '../deps.js'
+import { InMemoryRunStore } from '../domain/run-store.js'
+import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
 
 // ─── Local type aliases matching the service contract ───────────────────────
 type LaunchResult = {
@@ -180,7 +180,7 @@ const CANNED_LAUNCHED = {
 class WrkfError extends Error {
   constructor(
     public readonly code: string,
-    message: string,
+    message: string
   ) {
     super(message)
     this.name = 'WrkfError'
@@ -254,7 +254,10 @@ function makeFakeWrkfPort(overrides: FakeWrkfOverrides = {}): InstrumentedWrkfPo
         if (overrides.bindExternal !== undefined) {
           return overrides.bindExternal(params as Record<string, unknown>)
         }
-        return { ...CANNED_WRKF_RUN, externalRunRef: (params as Record<string, unknown>)['externalRunRef'] }
+        return {
+          ...CANNED_WRKF_RUN,
+          externalRunRef: (params as Record<string, unknown>)['externalRunRef'],
+        }
       },
       finish: boom('run.finish'),
       fail: boom('run.fail'),
@@ -282,6 +285,14 @@ const FAKE_RUNTIME_RESOLVER: RuntimeResolver = async () => ({
   bundle: { kind: 'compose', compose: [] },
 })
 
+async function waitFor(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    if (predicate()) return
+    await new Promise((resolve) => setTimeout(resolve, 1))
+  }
+  throw new Error('condition was not met before timeout')
+}
+
 /** Canonical base input for launchParticipant */
 const BASE_INPUT = {
   taskId: TASK_ID,
@@ -303,7 +314,7 @@ describe('launchParticipant — happy path (W4b red)', () => {
 
     const result = (await launchParticipant(
       { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT,
+      BASE_INPUT
     )) as LaunchResult
 
     expect(result.source).toBe('wrkf')
@@ -321,7 +332,7 @@ describe('launchParticipant — happy path (W4b red)', () => {
 
     const result = (await launchParticipant(
       { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT,
+      BASE_INPUT
     )) as LaunchResult
 
     expect(result.wrkfRun).toMatchObject({ id: CANNED_WRKF_RUN.id, role: ROLE })
@@ -334,7 +345,7 @@ describe('launchParticipant — happy path (W4b red)', () => {
 
     const result = (await launchParticipant(
       { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT,
+      BASE_INPUT
     )) as LaunchResult
 
     expect(result.launch).toMatchObject({
@@ -351,7 +362,7 @@ describe('launchParticipant — happy path (W4b red)', () => {
 
     await launchParticipant(
       { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT,
+      BASE_INPUT
     )
 
     const methodOrder = wrkf._calls.map((c) => c.method)
@@ -367,7 +378,7 @@ describe('launchParticipant — happy path (W4b red)', () => {
 
     await launchParticipant(
       { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT,
+      BASE_INPUT
     )
 
     const inspectCall = wrkf._calls.find((c) => c.method === 'task.inspect')
@@ -382,7 +393,7 @@ describe('launchParticipant — happy path (W4b red)', () => {
 
     await launchParticipant(
       { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT,
+      BASE_INPUT
     )
 
     const startCall = wrkf._calls.find((c) => c.method === 'run.start')
@@ -404,7 +415,7 @@ describe('launchParticipant — happy path (W4b red)', () => {
 
     await launchParticipant(
       { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT,
+      BASE_INPUT
     )
 
     expect(launchCalls).toHaveLength(1)
@@ -421,7 +432,7 @@ describe('launchParticipant — happy path (W4b red)', () => {
 
     await launchParticipant(
       { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT,
+      BASE_INPUT
     )
 
     const bindCall = wrkf._calls.find((c) => c.method === 'run.bindExternal')
@@ -438,7 +449,7 @@ describe('launchParticipant — happy path (W4b red)', () => {
 
     await launchParticipant(
       { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT,
+      BASE_INPUT
     )
 
     const bindCall = wrkf._calls.find((c) => c.method === 'run.bindExternal')
@@ -454,7 +465,7 @@ describe('launchParticipant — happy path (W4b red)', () => {
 
     await launchParticipant(
       { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT,
+      BASE_INPUT
     )
 
     const bindCall = wrkf._calls.find((c) => c.method === 'run.bindExternal')
@@ -472,7 +483,7 @@ describe('launchParticipant — happy path (W4b red)', () => {
 
     await launchParticipant(
       { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT,
+      BASE_INPUT
     )
 
     const acpRunId = `run_wrkf_${CANNED_WRKF_RUN.id}`
@@ -498,8 +509,8 @@ describe('launchParticipant — SF1: run.start ok, HRC launch fails (W4b red)', 
     await expect(
       launchParticipant(
         { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-        BASE_INPUT,
-      ),
+        BASE_INPUT
+      )
     ).rejects.toThrow('HRC socket timeout')
   })
 
@@ -513,7 +524,7 @@ describe('launchParticipant — SF1: run.start ok, HRC launch fails (W4b red)', 
     try {
       await launchParticipant(
         { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-        BASE_INPUT,
+        BASE_INPUT
       )
     } catch {
       // expected
@@ -536,7 +547,7 @@ describe('launchParticipant — SF1: run.start ok, HRC launch fails (W4b red)', 
     try {
       await launchParticipant(
         { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-        BASE_INPUT,
+        BASE_INPUT
       )
     } catch {
       // expected
@@ -563,8 +574,8 @@ describe('launchParticipant — SF2: HRC launch ok, bindExternal fails (W4b red)
     await expect(
       launchParticipant(
         { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-        BASE_INPUT,
-      ),
+        BASE_INPUT
+      )
     ).rejects.toThrow()
   })
 
@@ -584,7 +595,7 @@ describe('launchParticipant — SF2: HRC launch ok, bindExternal fails (W4b red)
     try {
       await launchParticipant(
         { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-        BASE_INPUT,
+        BASE_INPUT
       )
     } catch {
       // expected
@@ -599,7 +610,7 @@ describe('launchParticipant — SF2: HRC launch ok, bindExternal fails (W4b red)
 })
 
 describe('launchParticipant — SF3: retry after run.start, no externalRunRef yet (W4b red)', () => {
-  test('[RED] retry proceeds to launch+bind: no duplicate wrkf run.start (wrkf deduplicates by idempotencyKey)', async () => {
+  test('[RED] retry after ambiguous HRC launch failure does not relaunch blindly', async () => {
     // wrkf.run.start is idempotent by idempotencyKey and always returns same run.
     // The service should call run.start each attempt (wrkf handles dedup).
     // On retry (no externalRunRef), service must proceed to launch+bind.
@@ -607,7 +618,7 @@ describe('launchParticipant — SF3: retry after run.start, no externalRunRef ye
     const wrkf = makeFakeWrkfPort({
       runStart: async () => {
         runStartCount++
-        return CANNED_WRKF_RUN  // always same run, no externalRunRef
+        return CANNED_WRKF_RUN // always same run, no externalRunRef
       },
     })
     const runStore = new InMemoryRunStore()
@@ -622,27 +633,29 @@ describe('launchParticipant — SF3: retry after run.start, no externalRunRef ye
     try {
       await launchParticipant(
         { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-        BASE_INPUT,
+        BASE_INPUT
       )
     } catch {
       // expected
     }
 
-    // Second attempt: same idempotencyKey, should proceed to launch+bind
-    const result = (await launchParticipant(
-      { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT,
-    )) as LaunchResult
+    // Second attempt: same idempotencyKey, no externalRunRef, but the durable
+    // launch claim marks the prior HRC dispatch outcome ambiguous. Do not
+    // launch a second HRC run.
+    await expect(
+      launchParticipant(
+        { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
+        BASE_INPUT
+      )
+    ).rejects.toThrow()
 
     // run.start called once per launchParticipant invocation (2 total)
     expect(runStartCount).toBe(2)
-    // second attempt should have succeeded
-    expect(result.replay).toBe(false)
-    expect(result.source).toBe('wrkf')
-    expect(result.launch?.runId).toBe('hrc-run-retry-001')
+    // launcher called only once; retry is blocked by durable claim state
+    expect(launchCount).toBe(1)
   })
 
-  test('[RED] retry uses same wrkf run ID across both attempts', async () => {
+  test('[RED] retry preserves same wrkf run ID in durable launch-failed marker', async () => {
     const wrkf = makeFakeWrkfPort({
       runStart: async () => CANNED_WRKF_RUN,
     })
@@ -657,16 +670,131 @@ describe('launchParticipant — SF3: retry after run.start, no externalRunRef ye
     try {
       await launchParticipant(
         { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-        BASE_INPUT,
+        BASE_INPUT
       )
-    } catch { /* expected */ }
+    } catch {
+      /* expected */
+    }
 
-    const result = (await launchParticipant(
+    await expect(
+      launchParticipant(
+        { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
+        BASE_INPUT
+      )
+    ).rejects.toThrow()
+
+    const acpRun = runStore.getRun(`run_wrkf_${CANNED_WRKF_RUN.id}`)
+    expect(acpRun?.metadata?.['wrkfLaunchClaim']).toMatchObject({
+      status: 'launch_failed',
+      wrkfRunId: CANNED_WRKF_RUN.id,
+      errorCode: 'wrkf_launch_failed_ambiguous',
+    })
+  })
+})
+
+describe('launchParticipant — Option B durable launch claim (daedalus unblock)', () => {
+  test('[RED] concurrent same-key attempts acquire one durable claim and launch only once', async () => {
+    const wrkf = makeFakeWrkfPort({ runStart: async () => CANNED_WRKF_RUN })
+    const runStore = new InMemoryRunStore()
+    let releaseLaunch!: () => void
+    const launchGate = new Promise<void>((resolve) => {
+      releaseLaunch = resolve
+    })
+    let launchCount = 0
+    const launcher: LaunchRoleScopedRun = async () => {
+      launchCount++
+      await launchGate
+      return CANNED_LAUNCHED
+    }
+
+    const first = launchParticipant(
       { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT,
-    )) as LaunchResult
+      BASE_INPUT
+    )
+    await waitFor(() => launchCount === 1)
 
-    expect((result.wrkfRun as typeof CANNED_WRKF_RUN).id).toBe(CANNED_WRKF_RUN.id)
+    const second = launchParticipant(
+      { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
+      BASE_INPUT
+    )
+
+    await expect(second).rejects.toThrow()
+    releaseLaunch()
+    await expect(first).resolves.toMatchObject({ source: 'wrkf', replay: false })
+    expect(launchCount).toBe(1)
+  })
+
+  test('[RED] lost-ack style launcher error leaves no-HRC claim state that blocks relaunch', async () => {
+    const wrkf = makeFakeWrkfPort({ runStart: async () => CANNED_WRKF_RUN })
+    const runStore = new InMemoryRunStore()
+    let launchCount = 0
+    const launcher: LaunchRoleScopedRun = async () => {
+      launchCount++
+      throw new Error('HRC accepted run but client lost acknowledgement')
+    }
+
+    await expect(
+      launchParticipant(
+        { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
+        BASE_INPUT
+      )
+    ).rejects.toThrow('lost acknowledgement')
+
+    await expect(
+      launchParticipant(
+        { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
+        BASE_INPUT
+      )
+    ).rejects.toThrow()
+
+    expect(launchCount).toBe(1)
+    const acpRun = runStore.getRun(`run_wrkf_${CANNED_WRKF_RUN.id}`)
+    expect(acpRun?.hrcRunId).toBeUndefined()
+    expect(acpRun?.errorCode).toBe('wrkf_launch_failed_ambiguous')
+    expect(acpRun?.metadata?.['wrkfLaunchClaim']).toMatchObject({
+      status: 'launch_failed',
+      wrkfRunId: CANNED_WRKF_RUN.id,
+    })
+  })
+
+  test('[RED] bindExternal conflict stores orphan marker and retry does not relaunch', async () => {
+    const wrkf = makeFakeWrkfPort({
+      runStart: async () => CANNED_WRKF_RUN,
+      bindExternal: async () => {
+        throw new WrkfError('WRKF_IDEMPOTENCY_MISMATCH', 'conflicting external bind')
+      },
+    })
+    const runStore = new InMemoryRunStore()
+    let launchCount = 0
+    const launcher: LaunchRoleScopedRun = async () => {
+      launchCount++
+      return CANNED_LAUNCHED
+    }
+
+    await expect(
+      launchParticipant(
+        { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
+        BASE_INPUT
+      )
+    ).rejects.toThrow()
+
+    const acpRun = runStore.getRun(`run_wrkf_${CANNED_WRKF_RUN.id}`)
+    expect(acpRun?.hrcRunId).toBe(CANNED_LAUNCHED.runId)
+    expect(acpRun?.errorCode).toBe('wrkf_bind_external_failed')
+    expect(acpRun?.metadata?.['wrkfExternalBind']).toMatchObject({
+      status: 'orphaned',
+      hrcRunId: CANNED_LAUNCHED.runId,
+      wrkfRunId: CANNED_WRKF_RUN.id,
+      errorCode: 'WRKF_IDEMPOTENCY_MISMATCH',
+    })
+
+    await expect(
+      launchParticipant(
+        { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
+        BASE_INPUT
+      )
+    ).rejects.toThrow()
+    expect(launchCount).toBe(1)
   })
 })
 
@@ -675,7 +803,7 @@ describe('launchParticipant — SF4: retry after bindExternal succeeds → REPLA
     // After a successful bindExternal, wrkf.run.start (idempotent) returns the
     // same run WITH externalRunRef. The service must detect this and replay.
     const wrkf = makeFakeWrkfPort({
-      runStart: async () => CANNED_WRKF_RUN_BOUND,  // externalRunRef already set
+      runStart: async () => CANNED_WRKF_RUN_BOUND, // externalRunRef already set
     })
     const runStore = new InMemoryRunStore()
     const launchCalls: unknown[] = []
@@ -686,7 +814,7 @@ describe('launchParticipant — SF4: retry after bindExternal succeeds → REPLA
 
     const result = (await launchParticipant(
       { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT,
+      BASE_INPUT
     )) as LaunchResult
 
     expect(result.replay).toBe(true)
@@ -703,7 +831,7 @@ describe('launchParticipant — SF4: retry after bindExternal succeeds → REPLA
 
     await launchParticipant(
       { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT,
+      BASE_INPUT
     )
 
     const bindCall = wrkf._calls.find((c) => c.method === 'run.bindExternal')
@@ -719,7 +847,7 @@ describe('launchParticipant — SF4: retry after bindExternal succeeds → REPLA
 
     const result = (await launchParticipant(
       { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT,
+      BASE_INPUT
     )) as LaunchResult
 
     const run = result.wrkfRun as typeof CANNED_WRKF_RUN_BOUND
@@ -744,8 +872,8 @@ describe('launchParticipant — SF5: terminal wrkf run rejects launch (W4b red)'
     await expect(
       launchParticipant(
         { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-        BASE_INPUT,
-      ),
+        BASE_INPUT
+      )
     ).rejects.toThrow()
   })
 
@@ -765,9 +893,11 @@ describe('launchParticipant — SF5: terminal wrkf run rejects launch (W4b red)'
     try {
       await launchParticipant(
         { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-        BASE_INPUT,
+        BASE_INPUT
       )
-    } catch { /* expected */ }
+    } catch {
+      /* expected */
+    }
 
     expect(launchCalls).toHaveLength(0)
   })
@@ -778,60 +908,57 @@ describe('launchParticipant — SF5: terminal wrkf run rejects launch (W4b red)'
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('launchParticipant — crash-window recovery (W4b red)', () => {
-  test(
-    '[RED] crash-after-launch-before-bind: retry discovers hrcRunId from ACP run, calls bindExternal without relaunching',
-    async () => {
-      // Simulates: prior attempt called launchRoleScopedRun successfully (hrcRunId
-      // recorded in acpRun), but crashed before wrkf.run.bindExternal completed.
-      // On retry:
-      //   wrkf.run.start → same wrkfRun (no externalRunRef)
-      //   createOrGetRun → {run: existingAcpRun, created: false}
-      //   existingAcpRun.hrcRunId is set → skip relaunch, bind discovered ref
-      const wrkf = makeFakeWrkfPort({
-        runStart: async () => CANNED_WRKF_RUN,  // no externalRunRef
-      })
+  test('[RED] crash-after-launch-before-bind: retry discovers hrcRunId from ACP run, calls bindExternal without relaunching', async () => {
+    // Simulates: prior attempt called launchRoleScopedRun successfully (hrcRunId
+    // recorded in acpRun), but crashed before wrkf.run.bindExternal completed.
+    // On retry:
+    //   wrkf.run.start → same wrkfRun (no externalRunRef)
+    //   createOrGetRun → {run: existingAcpRun, created: false}
+    //   existingAcpRun.hrcRunId is set → skip relaunch, bind discovered ref
+    const wrkf = makeFakeWrkfPort({
+      runStart: async () => CANNED_WRKF_RUN, // no externalRunRef
+    })
 
-      // Pre-seed the runStore: simulate state after createOrGetRun + launch + crash before bind
-      const seededRunStore = new InMemoryRunStore()
-      const { run: seedRun } = seededRunStore.createOrGetRun({
-        sessionRef: SESSION_REF,
-        wrkfTaskId: TASK_ID,
-        wrkfInstanceId: CANNED_INSTANCE.instanceId,
-        wrkfRunId: CANNED_WRKF_RUN.id,
-        workflowRef: CANNED_INSTANCE.workflowRef,
-        role: ROLE,
-      })
-      // Simulate that the HRC run was launched and hrcRunId was committed to the ACP run
-      // before the crash (this is the state launchParticipant must leave BEFORE calling bindExternal)
-      seededRunStore.updateRun(seedRun.runId, { hrcRunId: CANNED_LAUNCHED.runId })
+    // Pre-seed the runStore: simulate state after createOrGetRun + launch + crash before bind
+    const seededRunStore = new InMemoryRunStore()
+    const { run: seedRun } = seededRunStore.createOrGetRun({
+      sessionRef: SESSION_REF,
+      wrkfTaskId: TASK_ID,
+      wrkfInstanceId: CANNED_INSTANCE.instanceId,
+      wrkfRunId: CANNED_WRKF_RUN.id,
+      workflowRef: CANNED_INSTANCE.workflowRef,
+      role: ROLE,
+    })
+    // Simulate that the HRC run was launched and hrcRunId was committed to the ACP run
+    // before the crash (this is the state launchParticipant must leave BEFORE calling bindExternal)
+    seededRunStore.updateRun(seedRun.runId, { hrcRunId: CANNED_LAUNCHED.runId })
 
-      const launchCalls: unknown[] = []
-      const launcher: LaunchRoleScopedRun = async (input) => {
-        launchCalls.push(input)
-        return CANNED_LAUNCHED
-      }
+    const launchCalls: unknown[] = []
+    const launcher: LaunchRoleScopedRun = async (input) => {
+      launchCalls.push(input)
+      return CANNED_LAUNCHED
+    }
 
-      const result = (await launchParticipant(
-        {
-          wrkf,
-          runStore: seededRunStore,
-          launchRoleScopedRun: launcher,
-          runtimeResolver: FAKE_RUNTIME_RESOLVER,
-        },
-        BASE_INPUT,
-      )) as LaunchResult
+    const result = (await launchParticipant(
+      {
+        wrkf,
+        runStore: seededRunStore,
+        launchRoleScopedRun: launcher,
+        runtimeResolver: FAKE_RUNTIME_RESOLVER,
+      },
+      BASE_INPUT
+    )) as LaunchResult
 
-      // Must NOT have launched again
-      expect(launchCalls).toHaveLength(0)
-      // Must have called bindExternal with the discovered hrcRunId
-      const bindCall = wrkf._calls.find((c) => c.method === 'run.bindExternal')
-      expect(bindCall).toBeDefined()
-      const p = bindCall!.params as Record<string, unknown>
-      expect(p['externalRunRef']).toBe(CANNED_LAUNCHED.runId)
-      // Result source is correct
-      expect(result.source).toBe('wrkf')
-    },
-  )
+    // Must NOT have launched again
+    expect(launchCalls).toHaveLength(0)
+    // Must have called bindExternal with the discovered hrcRunId
+    const bindCall = wrkf._calls.find((c) => c.method === 'run.bindExternal')
+    expect(bindCall).toBeDefined()
+    const p = bindCall!.params as Record<string, unknown>
+    expect(p['externalRunRef']).toBe(CANNED_LAUNCHED.runId)
+    // Result source is correct
+    expect(result.source).toBe('wrkf')
+  })
 
   test('[RED] bindExternal is the final arbiter: conflicting externalRunRef from ACP run → rejects', async () => {
     // If the ACP run has a different hrcRunId than what wrkf already has bound,
@@ -842,7 +969,10 @@ describe('launchParticipant — crash-window recovery (W4b red)', () => {
     const wrkf = makeFakeWrkfPort({
       runStart: async () => CANNED_WRKF_RUN,
       bindExternal: async () => {
-        throw new WrkfError('WRKF_EXTERNAL_REF_CONFLICT', 'externalRunRef already bound to a different run')
+        throw new WrkfError(
+          'WRKF_EXTERNAL_REF_CONFLICT',
+          'externalRunRef already bound to a different run'
+        )
       },
     })
 
@@ -867,8 +997,8 @@ describe('launchParticipant — crash-window recovery (W4b red)', () => {
           launchRoleScopedRun: launcher,
           runtimeResolver: FAKE_RUNTIME_RESOLVER,
         },
-        BASE_INPUT,
-      ),
+        BASE_INPUT
+      )
     ).rejects.toThrow()
   })
 })
