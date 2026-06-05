@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 
 import { AcpHttpError, json, unprocessable } from '../http.js'
 import { reconcileWorkflowEffectIntents } from '../integration/workflow-effect-reconciler.js'
+import { reconcileWrkfEffects } from '../integration/wrkf-effect-reconciler.js'
 import { extractActor } from '../parsers/actor.js'
 import {
   parseJsonBody,
@@ -175,14 +176,21 @@ export const handleStartWorkflowSupervisorRun: RouteHandler = async ({ request, 
   return json(response, createTask === undefined ? 200 : 201)
 }
 
-/**
- * W5 placeholder: after a successful wrkf transition, the real lease-based effect
- * delivery reconciler will pick up queued effects. For W3 this is an intentional
- * QUEUED/NO-OP tick — it does NOT call the old ACP reconcileWorkflowEffectIntents
- * authority. The real reconciler lands in W5.
- */
-function enqueueWrkfEffectDeliveryTick(_taskId: string): void {
-  // no-op (W5 placeholder)
+function enqueueWrkfEffectDeliveryTick(
+  taskId: string,
+  deps: Parameters<RouteHandler>[0]['deps']
+): void {
+  const wrkf = deps.wrkf
+  if (wrkf === undefined) {
+    return
+  }
+  void reconcileWrkfEffects({
+    wrkf,
+    coordStore: deps.coordStore,
+    taskId,
+  }).catch((error) => {
+    console.error('wrkf effect delivery tick failed', error)
+  })
 }
 
 function isWrkfError(value: unknown): value is { code: string; message: string } {
@@ -211,6 +219,11 @@ function optionalNumber(record: Record<string, unknown>, key: string): number | 
 function optionalWorkflowVersion(record: Record<string, unknown>): number | string {
   const value = record['templateVersion']
   return typeof value === 'number' || typeof value === 'string' ? value : 0
+}
+
+function wrkfActorFromBody(value: unknown, fallbackAgentId?: string | undefined): string {
+  const actor = actorRefFromUnknown(value, fallbackAgentId)
+  return actor.kind === 'agent' ? `agent:${actor.id}` : `${actor.kind}:${actor.id}`
 }
 
 function projectFlatWrkfInspect(
@@ -312,7 +325,7 @@ export const handleApplyWorkflowTransition: RouteHandler = async ({ request, par
       task: taskId,
       transition: requireTrimmedStringField(body, 'transitionId'),
       role: requireTrimmedStringField(body, 'role'),
-      actor: actorRefFromUnknown(body['actor'], actor?.agentId),
+      actor: wrkfActorFromBody(body['actor'], actor?.agentId),
       ...(body['expectedTaskVersion'] !== undefined
         ? { expectRevision: requireNumberField(body, 'expectedTaskVersion') }
         : {}),
@@ -327,9 +340,9 @@ export const handleApplyWorkflowTransition: RouteHandler = async ({ request, par
       idempotencyKey: requireTrimmedStringField(body, 'idempotencyKey'),
     })
 
-    // W5 placeholder: enqueue a QUEUED/NO-OP wrkf effect delivery tick. The real
-    // lease-based effect reconciler lands in W5. Do NOT call the old ACP reconciler.
-    enqueueWrkfEffectDeliveryTick(taskId)
+    if (body['dryRun'] !== true) {
+      enqueueWrkfEffectDeliveryTick(taskId, deps)
+    }
 
     return json(result)
   } catch (error) {

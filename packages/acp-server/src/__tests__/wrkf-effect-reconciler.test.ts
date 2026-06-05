@@ -74,10 +74,7 @@ import {
   openCoordinationStore,
 } from 'coordination-substrate'
 
-// ─── RED IMPORT ───────────────────────────────────────────────────────────────
-// wrkf-effect-reconciler.ts is the W5 deliverable; does not exist yet.
-// Bun throws CannotFindModule at this line → all tests in this file are RED.
-// @ts-expect-error -- wrkf-effect-reconciler.ts does not exist yet (W5 deliverable)
+import { withWiredServer } from '../../test/fixtures/wired-server.js'
 import { reconcileWrkfEffects } from '../integration/wrkf-effect-reconciler.js'
 
 import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
@@ -137,8 +134,7 @@ const REQUEST_OBSERVER_REVIEW_PAYLOAD = {
   reason: 'completion_claim_ready_for_external_review',
   data: {
     targetLane: 'observer',
-    instruction:
-      'Audit the latest completion_claim against the original task body and evidence.',
+    instruction: 'Audit the latest completion_claim against the original task body and evidence.',
     guardrails: [
       'Judge against the original task body, not the coordinator’s self-authored criteria alone.',
       'Do not accept bypassed functionality as complete without an explicit human/supervisor override.',
@@ -163,7 +159,9 @@ type WrkfEffect = {
   updatedAt: string
 }
 
-function makeEffect(overrides: Partial<WrkfEffect> & { id: string; kind: string; payload: Record<string, unknown> }): WrkfEffect {
+function makeEffect(
+  overrides: Partial<WrkfEffect> & { id: string; kind: string; payload: Record<string, unknown> }
+): WrkfEffect {
   return {
     instanceId: `wfi_${TASK_ID.toLowerCase()}_test`,
     revision: 4,
@@ -207,8 +205,8 @@ const OBSERVER_REVIEW_EFFECT = makeEffect({
 // The reconciler MUST check effects.length to detect empty claims, not leaseToken.
 type ClaimResponse = {
   effects: WrkfEffect[]
-  leaseToken: string  // always a string (real wrkf confirmed 2026-06-05)
-  leaseExpiresAt: string  // always a string
+  leaseToken: string // always a string (real wrkf confirmed 2026-06-05)
+  leaseExpiresAt: string // always a string
 }
 
 const LEASE_TOKEN_A = 'lease_aaaa1111bbbb2222cccc3333dddd4444'
@@ -778,7 +776,8 @@ describe('Section 3 — ack uses matching lease token from claim (W5 red)', () =
       const wrkf = makeFakeWrkfPort({
         claimByKind: {
           wake_role: async () => claimedResponse([WAKE_ROLE_EFFECT_MINIMAL], LEASE_TOKEN_A),
-          request_observer_review: async () => claimedResponse([OBSERVER_REVIEW_EFFECT], LEASE_TOKEN_B),
+          request_observer_review: async () =>
+            claimedResponse([OBSERVER_REVIEW_EFFECT], LEASE_TOKEN_B),
         },
       })
 
@@ -1337,7 +1336,7 @@ describe('Section 7 — wiring: enqueueWrkfEffectDeliveryTick calls reconcileWrk
           body: {
             transitionId: 'test_transition',
             role: 'coordinator',
-            actor: { kind: 'agent', id: 'clod' },
+            actor: { agentId: 'clod' },
             idempotencyKey: 'wrkf-wiring-test-001',
           },
         })
@@ -1437,7 +1436,7 @@ describe('Section 7 — wiring: enqueueWrkfEffectDeliveryTick calls reconcileWrk
           body: {
             transitionId: 'test_transition',
             role: 'coordinator',
-            actor: { kind: 'agent', id: 'clod' },
+            actor: { agentId: 'clod' },
             idempotencyKey: 'wrkf-wiring-test-002',
           },
         })
@@ -1527,7 +1526,7 @@ describe('Section 7 — wiring: enqueueWrkfEffectDeliveryTick calls reconcileWrk
           body: {
             transitionId: 'test_transition',
             role: 'coordinator',
-            actor: { kind: 'agent', id: 'clod' },
+            actor: { agentId: 'clod' },
             idempotencyKey: 'wrkf-wiring-test-003',
           },
         })
