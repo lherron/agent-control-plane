@@ -3,150 +3,16 @@ import { describe, expect, test } from 'bun:test'
 import { withWiredServer } from './fixtures/wired-server.js'
 
 describe('durable workflow task routes', () => {
-  test('creates, reloads, transitions, and replays a workflow task through state store', async () => {
-    await withWiredServer(async (fixture) => {
-      const create = await fixture.request({
-        method: 'POST',
-        path: '/v1/tasks',
-        body: {
-          projectId: fixture.seed.projectId,
-          workflow: { id: 'basic', version: 1 },
-          goal: 'prove durable workflow route',
-          roleBindings: { owner: { kind: 'agent', id: 'cody' } },
-          idempotencyKey: 'workflow-test:create',
-          actor: { agentId: 'cody' },
-        },
-      })
-      const created = await fixture.json<{ task: { taskId: string; workflow: { hash: string } } }>(
-        create
-      )
-
-      expect(create.status).toBe(201)
-      expect(created.task.workflow.hash).toMatch(/^sha256:/)
-
-      const start = await fixture.request({
-        method: 'POST',
-        path: `/v1/tasks/${created.task.taskId}/transitions`,
-        body: {
-          transitionId: 'start',
-          role: 'owner',
-          expectedTaskVersion: 0,
-          idempotencyKey: 'workflow-test:start',
-          actor: { agentId: 'cody' },
-        },
-      })
-      const started = await fixture.json<{
-        task: { state: { status: string; phase: string }; version: number }
-      }>(start)
-      expect(start.status).toBe(200)
-      expect(started.task.state).toEqual({ status: 'active', phase: 'doing' })
-      expect(started.task.version).toBe(1)
-
-      const replay = await fixture.request({
-        method: 'POST',
-        path: `/v1/tasks/${created.task.taskId}/transitions`,
-        body: {
-          transitionId: 'start',
-          role: 'owner',
-          expectedTaskVersion: 0,
-          idempotencyKey: 'workflow-test:start',
-          actor: { agentId: 'cody' },
-        },
-      })
-      const replayed = await fixture.json<{ task: { version: number } }>(replay)
-      expect(replay.status).toBe(200)
-      expect(replayed.task.version).toBe(1)
-
-      const reloadedSnapshot = fixture.stateStore.workflowRuntime.loadSnapshot()
-      expect(reloadedSnapshot.tasks).toHaveLength(1)
-      expect(reloadedSnapshot.events.map((event) => event.type)).toEqual([
-        'task.created',
-        'transition.applied',
-      ])
-      expect(reloadedSnapshot.idempotency.map((entry) => entry.key).sort()).toEqual([
-        'workflow-test:create',
-        'workflow-test:start',
-      ])
-    })
-  })
-
-  test('delivers workflow handoff and wake effects into coordination substrate', async () => {
-    await withWiredServer(async (fixture) => {
-      const create = await fixture.request({
-        method: 'POST',
-        path: '/v1/tasks',
-        body: {
-          projectId: fixture.seed.projectId,
-          workflow: { id: 'code_defect_fastlane', version: 1 },
-          goal: 'repair a regression',
-          risk: 'medium',
-          roleBindings: {
-            implementer: { kind: 'agent', id: 'cody' },
-            tester: { kind: 'agent', id: 'clod' },
-          },
-          idempotencyKey: 'workflow-effects:create',
-          actor: { agentId: 'cody' },
-        },
-      })
-      const created = await fixture.json<{ task: { taskId: string } }>(create)
-      expect(create.status).toBe(201)
-
-      const transition = await fixture.request({
-        method: 'POST',
-        path: `/v1/tasks/${created.task.taskId}/transitions`,
-        body: {
-          transitionId: 'red_to_green',
-          role: 'implementer',
-          expectedTaskVersion: 0,
-          idempotencyKey: 'workflow-effects:red-green',
-          actor: { agentId: 'cody' },
-          inlineEvidence: [{ kind: 'tdd_green_bundle', ref: 'artifact://green' }],
-        },
-      })
-      expect(transition.status).toBe(200)
-
-      const snapshot = fixture.stateStore.workflowRuntime.loadSnapshot()
-      expect(snapshot.effects.map((effect) => [effect.kind, effect.state])).toEqual([
-        ['declare_handoff', 'delivered'],
-        ['wake_role_session', 'delivered'],
-      ])
-      expect(snapshot.events.map((event) => [event.type, event.result])).toContainEqual([
-        'effect.intent.delivered',
-        'recorded',
-      ])
-
-      const coordinationEvents = fixture.coordStore.sqlite
-        .query<{ kind: string; idempotency_key: string | null }, []>(
-          `SELECT kind, idempotency_key
-             FROM coordination_events
-         ORDER BY seq ASC`
-        )
-        .all()
-      expect(coordinationEvents.map((event) => event.kind)).toEqual([
-        'handoff.declared',
-        'attention.requested',
-      ])
-
-      const handoffs = fixture.coordStore.sqlite
-        .query<{ task_id: string; kind: string; state: string }, []>(
-          'SELECT task_id, kind, state FROM handoffs'
-        )
-        .all()
-      expect(handoffs).toEqual([{ task_id: created.task.taskId, kind: 'review', state: 'open' }])
-
-      const wakes = fixture.coordStore.sqlite
-        .query<{ session_ref: string; state: string }, []>(
-          'SELECT session_ref, state FROM wake_requests'
-        )
-        .all()
-      expect(wakes).toEqual([
-        {
-          session_ref: `agent:clod:project:${fixture.seed.projectId}:task:${created.task.taskId}:role:tester~main`,
-          state: 'queued',
-        },
-      ])
-    })
-  })
+  // NOTE (W3): the kernel-transition lifecycle tests that previously lived here
+  // ("creates, reloads, transitions, and replays …" and "delivers workflow handoff
+  // and wake effects …") asserted the OLD ACP-kernel transition + effect-reconciler
+  // behavior. handleApplyWorkflowTransition is now a thin wrkf facade
+  // (deps.wrkf.transition.apply) and no longer drives kernel snapshots or the ACP
+  // effect reconciler. Per CANONICAL_WORKFLOW_REFACTOR.md (obsolete behavior tests
+  // should be deleted, not mechanically rewritten), those two tests were removed;
+  // transition.apply delegation is now covered by wrkf-mutation-facades.test.ts.
+  // The supervisor-run / control-action tests below still exercise live kernel
+  // handlers (not in W3 scope) and are retained.
 
   test('supervisor launch action records participant run and wakes its role session', async () => {
     await withWiredServer(async (fixture) => {

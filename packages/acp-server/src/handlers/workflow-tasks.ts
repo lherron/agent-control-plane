@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-import { AcpHttpError, conflict, forbidden, json, unprocessable } from '../http.js'
+import { AcpHttpError, json, unprocessable } from '../http.js'
 import { reconcileWorkflowEffectIntents } from '../integration/workflow-effect-reconciler.js'
 import { extractActor } from '../parsers/actor.js'
 import {
@@ -175,6 +175,16 @@ export const handleStartWorkflowSupervisorRun: RouteHandler = async ({ request, 
   return json(response, createTask === undefined ? 200 : 201)
 }
 
+/**
+ * W5 placeholder: after a successful wrkf transition, the real lease-based effect
+ * delivery reconciler will pick up queued effects. For W3 this is an intentional
+ * QUEUED/NO-OP tick — it does NOT call the old ACP reconcileWorkflowEffectIntents
+ * authority. The real reconciler lands in W5.
+ */
+function enqueueWrkfEffectDeliveryTick(_taskId: string): void {
+  // no-op (W5 placeholder)
+}
+
 function isWrkfError(value: unknown): value is { code: string; message: string } {
   return (
     typeof value === 'object' &&
@@ -236,39 +246,51 @@ export const handleGetWorkflowTask: RouteHandler = async ({ params, deps }) => {
 
 export const handleApplyWorkflowTransition: RouteHandler = async ({ request, params, deps }) => {
   const taskId = requireTaskId(params)
+  const wrkf = deps.wrkf
+  if (wrkf === undefined) {
+    throw new AcpHttpError(503, 'WRKF_UNAVAILABLE', 'wrkf port not available')
+  }
   const body = requireRecord(await parseJsonBody(request))
   const actor = extractActor(request, body, { required: true })
-  const result = withDurableWorkflowKernel(
-    deps,
-    (kernel) =>
-      kernel.applyTransition({
-        taskId,
-        transitionId: requireTrimmedStringField(body, 'transitionId'),
-        actor: actorRefFromUnknown(body['actor'], actor?.agentId),
-        role: requireTrimmedStringField(body, 'role'),
-        expectedTaskVersion: requireNumberField(body, 'expectedTaskVersion'),
-        ...(readOptionalTrimmedStringField(body, 'contextHash') !== undefined
-          ? { contextHash: readOptionalTrimmedStringField(body, 'contextHash') }
-          : {}),
-        ...(readOptionalArrayField(body, 'evidenceRefs') !== undefined
-          ? { evidenceRefs: readOptionalArrayField(body, 'evidenceRefs') as string[] }
-          : {}),
-        ...(readOptionalArrayField(body, 'waiverRefs') !== undefined
-          ? { waiverRefs: readOptionalArrayField(body, 'waiverRefs') as string[] }
-          : {}),
-        ...(readOptionalArrayField(body, 'inlineEvidence') !== undefined
-          ? { inlineEvidence: readOptionalArrayField(body, 'inlineEvidence') as never }
-          : {}),
-        ...(readOptionalTrimmedStringField(body, 'runId') !== undefined
-          ? { runId: readOptionalTrimmedStringField(body, 'runId') }
-          : {}),
-        idempotencyKey: requireTrimmedStringField(body, 'idempotencyKey'),
-      }),
-    { save: true }
-  )
-  const response = rejectWorkflowResult(result)
-  await reconcileEffects(deps)
-  return json(response)
+
+  // NOTE (W3): transition.apply does NOT accept evidenceRefs/waiverRefs/inlineEvidence/runId.
+  // Evidence/obligation mutations are now separate wrkf calls performed before the transition.
+  // The legacy expectedTaskVersion is the ONE field that aliases to a real wrkf precondition
+  // (expectRevision); all other legacy CAS/evidence fields are intentionally dropped here.
+  try {
+    const result = await wrkf.transition.apply({
+      task: taskId,
+      transition: requireTrimmedStringField(body, 'transitionId'),
+      role: requireTrimmedStringField(body, 'role'),
+      actor: actorRefFromUnknown(body['actor'], actor?.agentId),
+      ...(body['expectedTaskVersion'] !== undefined
+        ? { expectRevision: requireNumberField(body, 'expectedTaskVersion') }
+        : {}),
+      ...(readOptionalTrimmedStringField(body, 'contextHash') !== undefined
+        ? { contextHash: readOptionalTrimmedStringField(body, 'contextHash') }
+        : {}),
+      ...(readOptionalArrayField(body, 'checkIds') !== undefined
+        ? { checkIds: readOptionalArrayField(body, 'checkIds') as string[] }
+        : {}),
+      ...(typeof body['runChecks'] === 'boolean' ? { runChecks: body['runChecks'] } : {}),
+      ...(typeof body['dryRun'] === 'boolean' ? { dryRun: body['dryRun'] } : {}),
+      idempotencyKey: requireTrimmedStringField(body, 'idempotencyKey'),
+    })
+
+    // W5 placeholder: enqueue a QUEUED/NO-OP wrkf effect delivery tick. The real
+    // lease-based effect reconciler lands in W5. Do NOT call the old ACP reconciler.
+    enqueueWrkfEffectDeliveryTick(taskId)
+
+    return json(result)
+  } catch (error) {
+    if (error instanceof AcpHttpError) {
+      throw error
+    }
+    if (isWrkfError(error)) {
+      throw new AcpHttpError(wrkfErrorToHttpStatus(error.code), error.code, error.message)
+    }
+    throw error
+  }
 }
 
 export const handleWorkflowControlAction: RouteHandler = async ({ request, params, deps }) => {
@@ -358,127 +380,88 @@ export const handleWorkflowSupervisorContext: RouteHandler = async ({ request, p
 
 export const handleAttachWorkflowEvidence: RouteHandler = async ({ request, params, deps }) => {
   const taskId = requireTaskId(params)
+  const wrkf = deps.wrkf
+  if (wrkf === undefined) {
+    throw new AcpHttpError(503, 'WRKF_UNAVAILABLE', 'wrkf port not available')
+  }
   const body = requireRecord(await parseJsonBody(request))
   const actor = extractActor(request, body, { required: false })
   const actorRef = actorRefFromUnknown(body['actor'], actor?.agentId)
-  const evidenceItems = readOptionalArrayField(body, 'evidence') as
-    | Array<{ kind: string; ref: string; summary?: string }>
-    | undefined
-  if (evidenceItems === undefined || evidenceItems.length === 0) {
-    unprocessable('invalid_evidence', 'At least one evidence item is required')
+
+  // Legacy compatibility: wrkf evidence.add has NO expectRevision/idempotencyKey/runId.
+  // expectedTaskVersion is a phantom precondition here — never translate it to a wrkf param.
+  // Explicitly ignore it with a compatibility warning rather than honoring it silently.
+  if (body['expectedTaskVersion'] !== undefined) {
+    console.warn(
+      `[acp-server] evidence.add: ignoring legacy expectedTaskVersion (no such wrkf precondition) for task ${taskId}`
+    )
   }
 
-  const idempotencyKey = requireTrimmedStringField(body, 'idempotencyKey')
-  let isReplay = false
+  const kind = requireTrimmedStringField(body, 'kind')
+  const ref = requireTrimmedStringField(body, 'ref')
+  const summary = readOptionalTrimmedStringField(body, 'summary')
+  const facts = readOptionalRecordField(body, 'facts')
+  const role = readOptionalTrimmedStringField(body, 'role')
 
-  const result = withDurableWorkflowKernel(
-    deps,
-    (kernel) => {
-      const snapshot = kernel.exportSnapshot()
-      const existingKey = snapshot.idempotency.find((entry) => entry.key === idempotencyKey)
-      if (existingKey !== undefined) {
-        isReplay = true
-      }
-      return kernel.attachEvidence({
-        taskId,
-        actor: actorRef,
-        ...(readOptionalTrimmedStringField(body, 'role') !== undefined
-          ? { role: readOptionalTrimmedStringField(body, 'role') }
-          : {}),
-        ...(readOptionalTrimmedStringField(body, 'runId') !== undefined
-          ? { runId: readOptionalTrimmedStringField(body, 'runId') }
-          : {}),
-        ...(readOptionalTrimmedStringField(body, 'supervisorRunId') !== undefined
-          ? { supervisorRunId: readOptionalTrimmedStringField(body, 'supervisorRunId') }
-          : {}),
-        ...(readOptionalTrimmedStringField(body, 'participantRunId') !== undefined
-          ? { participantRunId: readOptionalTrimmedStringField(body, 'participantRunId') }
-          : {}),
-        evidence: evidenceItems,
-        ...(body['expectedTaskVersion'] !== undefined
-          ? { expectedTaskVersion: requireNumberField(body, 'expectedTaskVersion') }
-          : {}),
-        idempotencyKey,
-      })
-    },
-    { save: true }
-  )
-
-  if (!result.ok) {
-    if (
-      result.error.code === 'authority_not_granted' ||
-      result.error.code === 'capability_not_granted'
-    ) {
-      forbidden(result.error.code, result.error.message)
+  try {
+    const result = await wrkf.evidence.add({
+      task: taskId,
+      kind,
+      ref,
+      actor: actorRef,
+      ...(summary !== undefined ? { summary } : {}),
+      ...(facts !== undefined ? { facts } : {}),
+      ...(role !== undefined ? { role } : {}),
+    })
+    return json({ evidence: result }, 201)
+  } catch (error) {
+    if (error instanceof AcpHttpError) {
+      throw error
     }
-    if (result.error.code === 'idempotency_conflict') {
-      conflict(result.error.message)
+    if (isWrkfError(error)) {
+      throw new AcpHttpError(wrkfErrorToHttpStatus(error.code), error.code, error.message)
     }
-    unprocessable(result.error.code, result.error.message, { ...result.error })
+    throw error
   }
-
-  await reconcileEffects(deps)
-  return json({ evidence: result.evidence }, isReplay ? 200 : 201)
 }
 
 export const handleWaiveWorkflowObligation: RouteHandler = async ({ request, params, deps }) => {
   const taskId = requireTaskId(params)
   const obligationId = requireObligationId(params)
-  const body = requireRecord(await parseJsonBody(request))
-  const actor = extractActor(request, body, { required: false })
-  const result = withDurableWorkflowKernel(
-    deps,
-    (kernel) => {
-      if (
-        kernel
-          .listObligations(taskId)
-          .some((obligation) => obligation.obligationId === obligationId) !== true
-      ) {
-        return {
-          ok: false,
-          error: {
-            code: 'obligation_not_found' as const,
-            message: `Obligation not found: ${obligationId}`,
-          },
-        } as const
-      }
-      return kernel.waiveObligation(obligationId, {
-        actor: actorRefFromUnknown(body['actor'], actor?.agentId),
-        ...(readOptionalTrimmedStringField(body, 'supervisorRunId') !== undefined
-          ? { supervisorRunId: readOptionalTrimmedStringField(body, 'supervisorRunId') }
-          : {}),
-        reason: requireTrimmedStringField(body, 'reason'),
-        ...(readOptionalArrayField(body, 'evidenceRefs') !== undefined
-          ? { evidenceRefs: readOptionalArrayField(body, 'evidenceRefs') as string[] }
-          : {}),
-        idempotencyKey: requireTrimmedStringField(body, 'idempotencyKey'),
-      })
-    },
-    { save: true }
-  )
-
-  if (!result.ok) {
-    if (result.error.code === 'authority_not_granted') {
-      forbidden('obligation_waive_unauthorized', result.error.message)
-    }
-    if (result.error.code === 'capability_not_granted') {
-      forbidden(result.error.code, result.error.message)
-    }
-    if (result.error.code === 'idempotency_conflict') {
-      conflict(result.error.message)
-    }
-    unprocessable(result.error.code, result.error.message, { ...result.error })
+  const wrkf = deps.wrkf
+  if (wrkf === undefined) {
+    throw new AcpHttpError(503, 'WRKF_UNAVAILABLE', 'wrkf port not available')
   }
+  const body = requireRecord(await parseJsonBody(request))
 
-  await reconcileEffects(deps)
-  return json({ task: result.task, obligation: result.obligation })
+  // Do NOT pre-check existence via an ACP obligation list — wrkf is authoritative for
+  // obligation status and returns the canonical error if the obligation does not exist.
+  try {
+    const result = await wrkf.obligation.waive({
+      task: taskId,
+      id: obligationId,
+      reason: requireTrimmedStringField(body, 'reason'),
+    })
+    return json(result)
+  } catch (error) {
+    if (error instanceof AcpHttpError) {
+      throw error
+    }
+    if (isWrkfError(error)) {
+      throw new AcpHttpError(wrkfErrorToHttpStatus(error.code), error.code, error.message)
+    }
+    throw error
+  }
 }
 
 export const handleCancelWorkflowObligation: RouteHandler = async ({ request, params, deps }) => {
   const taskId = requireTaskId(params)
   const obligationId = requireObligationId(params)
+  const wrkf = deps.wrkf
+  if (wrkf === undefined) {
+    throw new AcpHttpError(503, 'WRKF_UNAVAILABLE', 'wrkf port not available')
+  }
   const body = requireRecord(await parseJsonBody(request))
-  const actor = extractActor(request, body, { required: false })
 
   const rawReason = body['reason']
   if (rawReason === undefined || typeof rawReason !== 'string' || rawReason.trim().length === 0) {
@@ -486,41 +469,21 @@ export const handleCancelWorkflowObligation: RouteHandler = async ({ request, pa
   }
   const reason = (rawReason as string).trim()
 
-  const result = withDurableWorkflowKernel(
-    deps,
-    (kernel) => {
-      if (
-        kernel
-          .listObligations(taskId)
-          .some((obligation) => obligation.obligationId === obligationId) !== true
-      ) {
-        return {
-          ok: false,
-          error: {
-            code: 'obligation_not_found' as const,
-            message: `Obligation not found: ${obligationId}`,
-          },
-        } as const
-      }
-      return kernel.cancelObligation(obligationId, {
-        actor: actorRefFromUnknown(body['actor'], actor?.agentId),
-        reason,
-        idempotencyKey: requireTrimmedStringField(body, 'idempotencyKey'),
-      })
-    },
-    { save: true }
-  )
-
-  if (!result.ok) {
-    if (result.error.code === 'authority_not_granted') {
-      forbidden('obligation_cancel_unauthorized', result.error.message)
+  // Do NOT pre-check existence via an ACP obligation list — wrkf is authoritative.
+  try {
+    const result = await wrkf.obligation.cancel({
+      task: taskId,
+      id: obligationId,
+      reason,
+    })
+    return json(result)
+  } catch (error) {
+    if (error instanceof AcpHttpError) {
+      throw error
     }
-    if (result.error.code === 'idempotency_conflict') {
-      conflict(result.error.message)
+    if (isWrkfError(error)) {
+      throw new AcpHttpError(wrkfErrorToHttpStatus(error.code), error.code, error.message)
     }
-    unprocessable(result.error.code, result.error.message, { ...result.error })
+    throw error
   }
-
-  await reconcileEffects(deps)
-  return json({ task: result.task, obligation: result.obligation })
 }
