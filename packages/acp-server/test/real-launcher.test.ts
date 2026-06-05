@@ -558,7 +558,7 @@ describe('real launcher helpers', () => {
 
       expect(normalized.harness).toEqual({
         provider: 'anthropic',
-        interactive: true,
+        interactive: false,
       })
       expect(normalized.execution).toEqual({ preferredMode: 'headless' })
       expect(normalized.placement.dryRun).toBe(false)
@@ -604,6 +604,49 @@ describe('real launcher helpers', () => {
         id: 'agent-sdk',
       })
       expect(normalized.execution).toBeUndefined()
+      expect(normalized.placement.dryRun).toBe(false)
+    } finally {
+      rmSync(agentRoot, { recursive: true, force: true })
+    }
+  })
+
+  test('normalizes codex profile harness to non-interactive headless broker intent', () => {
+    const agentRoot = mkdtempSync(join(tmpdir(), 'acp-real-launcher-codex-agent-'))
+
+    try {
+      writeFileSync(
+        join(agentRoot, 'agent-profile.toml'),
+        [
+          'schemaVersion = 2',
+          '',
+          '[identity]',
+          'display = "Mneme"',
+          'role = "media-memory"',
+          'harness = "codex"',
+          '',
+        ].join('\n')
+      )
+
+      const normalized = normalizeRealLauncherIntent({
+        sessionRef: {
+          scopeRef: 'agent:mneme:project:media-ingest',
+          laneRef: 'main',
+        },
+        intent: {
+          placement: {
+            agentRoot,
+            runMode: 'task',
+            bundle: { kind: 'compose', compose: [] },
+          },
+        } as HrcRuntimeIntent,
+      })
+
+      expect(normalized.harness).toEqual({
+        provider: 'openai',
+        interactive: false,
+        id: 'codex-cli',
+      })
+      expect(normalized.execution).toEqual({ preferredMode: 'headless' })
       expect(normalized.placement.dryRun).toBe(false)
     } finally {
       rmSync(agentRoot, { recursive: true, force: true })

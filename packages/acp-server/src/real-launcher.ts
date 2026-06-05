@@ -399,7 +399,11 @@ export function normalizeRealLauncherIntent(input: {
         }
   const harness = inferredHarness
   const normalizedHarness =
-    preferredMode === 'interactive' ? { ...harness, interactive: true } : harness
+    preferredMode === 'interactive'
+      ? { ...harness, interactive: true }
+      : preferredMode === 'headless' || preferredMode === 'nonInteractive'
+        ? { ...harness, interactive: false }
+        : harness
 
   return {
     ...input.intent,
