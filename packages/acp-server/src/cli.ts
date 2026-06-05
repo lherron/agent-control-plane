@@ -54,7 +54,6 @@ const DEFAULT_INTERFACE_DISPATCHER_DISPATCH_STALE_TIMEOUT_MS = 45_000
 const DEFAULT_INPUT_QUEUE_DISPATCHER_INTERVAL_MS = 2_000
 const DEFAULT_INPUT_QUEUE_STALE_PENDING_RUN_TIMEOUT_MS = 45_000
 const DEFAULT_INPUT_QUEUE_LEASE_TIMEOUT_MS = 600_000
-const DEFAULT_WRKF_DB_PATH = '/Users/lherron/praesidium/var/db/wrkf.db'
 const ACP_SERVER_VERSION = '0.1.0'
 
 export function isEnabledEnvFlag(value: string | undefined): boolean {
@@ -254,7 +253,7 @@ export function renderHelp(): string {
     `  ACP_PORT          Defaults to ${DEFAULT_PORT}`,
     `  ACP_ACTOR         Defaults to WRKQ_ACTOR or ${DEFAULT_ACTOR}`,
     '  WRKF_BIN          Defaults to wrkf',
-    `  WRKF_DB_PATH      Defaults to ${DEFAULT_WRKF_DB_PATH}`,
+    '  WRKF_DB_PATH      Defaults to the ACP wrkq DB path (wrkf shares the wrkq DB)',
     '  ACP_WRKF_DISABLED Set to 1 or true to bypass wrkf startup in local dev/test',
   ].join('\n')
 }
@@ -434,7 +433,11 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
   const launcherDeps = resolveLauncherDeps(process.env, process.cwd())
   const wrkfLifecycle = await createWrkfClientLifecycle({
     ...(process.env['WRKF_BIN'] !== undefined ? { command: process.env['WRKF_BIN'] } : {}),
-    dbPath: process.env['WRKF_DB_PATH'] ?? DEFAULT_WRKF_DB_PATH,
+    // wrkf is the canonical workflow authority over the SAME wrkq SQLite DB ACP
+    // already uses (options.wrkqDbPath). Defaulting to a separate wrkf.db would
+    // point ACP at an empty, divergent workflow store — exactly the shadow state
+    // the canonical-workflow refactor forbids. WRKF_DB_PATH stays as an override.
+    dbPath: process.env['WRKF_DB_PATH'] ?? options.wrkqDbPath,
     clientInfo: { name: 'acp-server', version: ACP_SERVER_VERSION },
     wrkfDisabled: isEnabledEnvFlag(process.env['ACP_WRKF_DISABLED']),
   })
