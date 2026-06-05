@@ -23,6 +23,19 @@ const ASP_PACKAGES = [
 
 type AspPackage = (typeof ASP_PACKAGES)[number]
 
+const HRC_PACKAGES = [
+  'agent-action-render',
+  'hrc-core',
+  'hrc-sdk',
+  'hrc-frame-render',
+  'hrc-events',
+  'hrc-store-sqlite',
+  'hrc-server',
+] as const
+
+type HrcPackage = (typeof HRC_PACKAGES)[number]
+type SyncPackage = AspPackage | HrcPackage
+
 type Manifest = {
   name?: string
   dependencies?: Record<string, string>
@@ -74,7 +87,7 @@ async function withLock<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-async function latestVersion(name: AspPackage): Promise<string> {
+async function latestVersion(name: SyncPackage): Promise<string> {
   const url = `${REGISTRY.replace(/\/$/, '')}/${encodeURIComponent(name)}`
   const response = await fetch(url)
   if (!response.ok) {
@@ -89,14 +102,17 @@ async function latestVersion(name: AspPackage): Promise<string> {
   return latest
 }
 
-async function latestAspVersions(): Promise<Map<AspPackage, string>> {
+async function latestPackageVersions<const T extends readonly SyncPackage[]>(
+  packages: T,
+  label: string
+): Promise<Map<T[number], string>> {
   const entries = await Promise.all(
-    ASP_PACKAGES.map(async (name) => [name, await latestVersion(name)] as const)
+    packages.map(async (name) => [name, await latestVersion(name)] as const)
   )
   const versions = new Set(entries.map(([, version]) => version))
   if (versions.size !== 1) {
     throw new Error(
-      `ASP Verdaccio latest set is incoherent: ${entries
+      `${label} Verdaccio latest set is incoherent: ${entries
         .map(([name, version]) => `${name}@${version}`)
         .join(', ')}`
     )
@@ -106,12 +122,12 @@ async function latestAspVersions(): Promise<Map<AspPackage, string>> {
 
 function updateDependencySet(
   deps: Record<string, string> | undefined,
-  latest: Map<AspPackage, string>
+  latest: Map<SyncPackage, string>
 ): boolean {
   if (!deps) return false
 
   let changed = false
-  for (const name of ASP_PACKAGES) {
+  for (const name of latest.keys()) {
     if (deps[name] && deps[name] !== latest.get(name)) {
       deps[name] = latest.get(name) ?? deps[name]
       changed = true
@@ -127,7 +143,7 @@ async function packageManifestPaths(): Promise<string[]> {
     .map((entry) => join(ROOT, 'packages', entry.name, 'package.json'))
 }
 
-async function syncManifests(latest: Map<AspPackage, string>): Promise<boolean> {
+async function syncManifests(latest: Map<SyncPackage, string>): Promise<boolean> {
   let changed = false
   for (const packageJsonPath of await packageManifestPaths()) {
     const original = await readFile(packageJsonPath, 'utf8')
@@ -148,7 +164,7 @@ async function syncManifests(latest: Map<AspPackage, string>): Promise<boolean> 
   return changed
 }
 
-async function installedVersion(name: AspPackage): Promise<string | undefined> {
+async function installedVersion(name: SyncPackage): Promise<string | undefined> {
   const packageJsonPath = join(ROOT, 'node_modules', name, 'package.json')
   const raw = await readFile(packageJsonPath, 'utf8').catch(() => undefined)
   if (!raw) return undefined
@@ -157,8 +173,8 @@ async function installedVersion(name: AspPackage): Promise<string | undefined> {
   return manifest.version
 }
 
-async function installedAspIsLatest(latest: Map<AspPackage, string>): Promise<boolean> {
-  for (const name of ASP_PACKAGES) {
+async function installedPackagesAreLatest(latest: Map<SyncPackage, string>): Promise<boolean> {
+  for (const name of latest.keys()) {
     const installed = await installedVersion(name)
     if (installed === undefined) continue
     if (installed !== latest.get(name)) return false
@@ -166,9 +182,9 @@ async function installedAspIsLatest(latest: Map<AspPackage, string>): Promise<bo
   return true
 }
 
-async function verifyInstalled(latest: Map<AspPackage, string>): Promise<void> {
+async function verifyInstalled(latest: Map<SyncPackage, string>, label: string): Promise<void> {
   const stale: string[] = []
-  for (const name of ASP_PACKAGES) {
+  for (const name of latest.keys()) {
     const installed = await installedVersion(name)
     if (installed === undefined) continue
     const expected = latest.get(name)
@@ -176,14 +192,16 @@ async function verifyInstalled(latest: Map<AspPackage, string>): Promise<void> {
       stale.push(`${name}: installed ${installed ?? '<missing>'}, latest ${expected}`)
   }
   if (stale.length > 0) {
-    throw new Error(`ASP dependency sync failed:\n${stale.join('\n')}`)
+    throw new Error(`${label} dependency sync failed:\n${stale.join('\n')}`)
   }
 }
 
 async function syncAsp(): Promise<void> {
-  const latest = await latestAspVersions()
+  const latestAsp = await latestPackageVersions(ASP_PACKAGES, 'ASP')
+  const latestHrc = await latestPackageVersions(HRC_PACKAGES, 'HRC')
+  const latest = new Map<SyncPackage, string>([...latestAsp, ...latestHrc])
   const changed = await syncManifests(latest)
-  const installedLatest = await installedAspIsLatest(latest)
+  const installedLatest = await installedPackagesAreLatest(latest)
 
   if (changed || !installedLatest) {
     const tmp = await mkdtemp(join(tmpdir(), 'acp-asp-sync-'))
@@ -202,8 +220,10 @@ async function syncAsp(): Promise<void> {
     }
   }
 
-  await verifyInstalled(latest)
-  console.log(`ASP_SYNC  ${ASP_PACKAGES[0]}@${latest.get(ASP_PACKAGES[0])}`)
+  await verifyInstalled(latest, 'ASP/HRC')
+  console.log(
+    `ASP_SYNC  ${ASP_PACKAGES[0]}@${latestAsp.get(ASP_PACKAGES[0])}  HRC_SYNC ${HRC_PACKAGES[1]}@${latestHrc.get(HRC_PACKAGES[1])}`
+  )
 }
 
 await withLock(syncAsp)
