@@ -26,6 +26,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@wrkf/client": "0.1.0",
     "acp-admin-store": "*",
     "acp-conversation": "*",
     "acp-core": "*",

@@ -41,6 +41,7 @@ import { createInterfaceRunDispatcher } from './integration/interface-run-dispat
 import { createWakeDispatcher } from './integration/wake-dispatcher.js'
 import { advanceJobFlow } from './jobs/flow-engine.js'
 import { createRealLauncher } from './real-launcher.js'
+import { createWrkfClientLifecycle } from './wrkf/client-lifecycle.js'
 
 const DEFAULT_COORD_DB_PATH = '/Users/lherron/praesidium/var/db/acp-coordination.db'
 const DEFAULT_PORT = 18470
@@ -53,6 +54,8 @@ const DEFAULT_INTERFACE_DISPATCHER_DISPATCH_STALE_TIMEOUT_MS = 45_000
 const DEFAULT_INPUT_QUEUE_DISPATCHER_INTERVAL_MS = 2_000
 const DEFAULT_INPUT_QUEUE_STALE_PENDING_RUN_TIMEOUT_MS = 45_000
 const DEFAULT_INPUT_QUEUE_LEASE_TIMEOUT_MS = 600_000
+const DEFAULT_WRKF_DB_PATH = '/Users/lherron/praesidium/var/db/wrkf.db'
+const ACP_SERVER_VERSION = '0.1.0'
 
 export function isEnabledEnvFlag(value: string | undefined): boolean {
   const normalized = value?.trim().toLowerCase()
@@ -250,6 +253,9 @@ export function renderHelp(): string {
     `  ACP_HOST          Defaults to ${DEFAULT_HOST}`,
     `  ACP_PORT          Defaults to ${DEFAULT_PORT}`,
     `  ACP_ACTOR         Defaults to WRKQ_ACTOR or ${DEFAULT_ACTOR}`,
+    '  WRKF_BIN          Defaults to wrkf',
+    `  WRKF_DB_PATH      Defaults to ${DEFAULT_WRKF_DB_PATH}`,
+    '  ACP_WRKF_DISABLED Set to 1 or true to bypass wrkf startup in local dev/test',
   ].join('\n')
 }
 
@@ -426,6 +432,12 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
       ? openSqliteConversationStore({ dbPath: options.conversationDbPath })
       : undefined
   const launcherDeps = resolveLauncherDeps(process.env, process.cwd())
+  const wrkfLifecycle = await createWrkfClientLifecycle({
+    ...(process.env['WRKF_BIN'] !== undefined ? { command: process.env['WRKF_BIN'] } : {}),
+    dbPath: process.env['WRKF_DB_PATH'] ?? DEFAULT_WRKF_DB_PATH,
+    clientInfo: { name: 'acp-server', version: ACP_SERVER_VERSION },
+    wrkfDisabled: isEnabledEnvFlag(process.env['ACP_WRKF_DISABLED']),
+  })
   const inputQueueMaxDepth = readPositiveIntegerEnv('ACP_INPUT_QUEUE_MAX_DEPTH')
   const inputQueueTtlMs = readPositiveIntegerEnv('ACP_INPUT_QUEUE_TTL_MS')
   const serverDeps = {
@@ -446,6 +458,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
         }
       : {}),
     agentAssetsDir: options.agentAssetsDir,
+    wrkf: wrkfLifecycle.wrkf,
   }
   const acpServer = createAcpServer(serverDeps)
   const resolvedDeps = resolveAcpServerDeps(serverDeps)
@@ -675,6 +688,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
       conversationStore?.close()
       interfaceStore.close()
       stateStore.close()
+      await wrkfLifecycle.close()
     },
   }
 }

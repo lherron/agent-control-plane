@@ -35,6 +35,7 @@ import {
 import { InMemoryInputAttemptStore, type InputAttemptStore } from './domain/input-attempt-store.js'
 import { InMemoryRunStore, type RunStore } from './domain/run-store.js'
 import type { JobExecPolicy } from './jobs/exec-policy.js'
+import type { AcpWrkfWorkflowPort } from './wrkf/port.js'
 
 export const DEFAULT_INTERFACE_DB_PATH = '/Users/lherron/praesidium/var/db/acp-interface.db'
 export const DEFAULT_STATE_DB_PATH = '/Users/lherron/praesidium/var/db/acp-state.db'
@@ -149,6 +150,7 @@ export interface AcpServerDeps {
   jobExecPolicy?: JobExecPolicy | undefined
   inputQueuePolicy?: InputQueuePolicy | undefined
   agentAssetsDir?: string | undefined
+  wrkf?: AcpWrkfWorkflowPort | undefined
 }
 
 export interface ResolvedAcpServerDeps extends AcpServerDeps {
@@ -165,6 +167,7 @@ export interface ResolvedAcpServerDeps extends AcpServerDeps {
   authorize: AuthorizeFn
   defaultActor: Actor
   inputQueuePolicy: InputQueuePolicy
+  wrkf: AcpWrkfWorkflowPort | undefined
 }
 
 export type DeliveryTargetResolver = (input: {
@@ -215,6 +218,7 @@ export function resolveAcpServerDeps(deps: AcpServerDeps): ResolvedAcpServerDeps
     authorize: deps.authorize ?? (() => 'allow'),
     defaultActor: deps.defaultActor ?? { kind: 'system', id: 'acp-local' },
     inputQueuePolicy: deps.inputQueuePolicy ?? {},
+    wrkf: deps.wrkf,
   }
 }
 

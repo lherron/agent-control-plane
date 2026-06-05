@@ -46,6 +46,7 @@ import {
   handleCreateWorkflowTask,
   handleStartWorkflowSupervisorRun,
 } from '../handlers/workflow-tasks.js'
+import { handleWrkfPing } from '../handlers/wrkf-ping.js'
 import { handleLaunchSession } from '../launch-role-scoped.js'
 import { withActorAndAuthz } from '../middleware/actor-and-authz.js'
 
@@ -163,5 +164,6 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
     [exactRouteKey('POST', '/v1/mobile/messages/query')]: handleMobileMessagesQuery,
     [exactRouteKey('POST', '/v1/mobile/messages/dm')]: handleMobileSemanticDm,
     [exactRouteKey('GET', '/v1/mobile/messages/watch')]: handleMobileMessagesWatch,
+    [exactRouteKey('GET', '/v1/wrkf/ping')]: handleWrkfPing,
   }
 }

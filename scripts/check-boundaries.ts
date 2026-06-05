@@ -13,6 +13,12 @@ type Violation = {
   specifier: string
 }
 
+type Warning = {
+  file: string
+  specifier: string
+  message: string
+}
+
 const aspPackages = [
   'agent-scope',
   'cli-kit',
@@ -109,6 +115,7 @@ const ignoredDirectories = new Set([
 ])
 
 const importPattern = /\bfrom\s*['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g
+const durableKernelPattern = /\bwithDurableWorkflowKernel\b/g
 
 async function collectTsFiles(root: string): Promise<string[]> {
   const files: string[] = []
@@ -203,6 +210,52 @@ for (const file of acpFiles.sort()) {
 }
 if (contentViolations.length > 0) {
   violationsByLayer.set('ACP (content)', contentViolations)
+}
+
+const warningFindings: Warning[] = []
+const acpServerSrcFiles = (await collectTsFiles('packages/acp-server/src')).filter(
+  (file) => !file.includes('/__tests__/') && !file.endsWith('.test.ts')
+)
+
+for (const file of acpServerSrcFiles.sort()) {
+  const relativeFile = relative(process.cwd(), file)
+  const content = await readFile(file, 'utf8')
+
+  for (const match of content.matchAll(importPattern)) {
+    const specifier = match[1] ?? match[2]
+    if (specifier !== '@wrkf/client') {
+      continue
+    }
+
+    if (!relativeFile.startsWith('packages/acp-server/src/wrkf/')) {
+      warningFindings.push({
+        file: relativeFile,
+        specifier,
+        message: '@wrkf/client production import outside packages/acp-server/src/wrkf/',
+      })
+    }
+  }
+
+  if (durableKernelPattern.test(content)) {
+    warningFindings.push({
+      file: relativeFile,
+      specifier: 'withDurableWorkflowKernel',
+      message: 'durable workflow kernel call site present; W7 will flip new call sites to error',
+    })
+  }
+  durableKernelPattern.lastIndex = 0
+}
+
+if (warningFindings.length > 0) {
+  console.warn('Boundary warnings:')
+  const groupedWarnings = Map.groupBy(warningFindings, (warning) => packageGroup(warning.file))
+  for (const [group, groupWarnings] of groupedWarnings) {
+    console.warn(`  ${group}`)
+    for (const warning of groupWarnings) {
+      console.warn(`    ${warning.file}: ${warning.message} (${warning.specifier})`)
+    }
+  }
+  console.warn('')
 }
 
 if (violationsByLayer.size === 0) {
