@@ -13,13 +13,13 @@ import {
   requireTrimmedStringField,
 } from '../parsers/body.js'
 import type { RouteHandler } from '../routing/route-context.js'
-import { wrkfErrorToHttpStatus } from '../wrkf/errors.js'
 import {
   actorRefFromUnknown,
   parseWorkflowControlAction,
   rejectWorkflowResult,
   withDurableWorkflowKernel,
 } from '../workflow-runtime.js'
+import { wrkfErrorToHttpStatus } from '../wrkf/errors.js'
 
 function createTaskId(): string {
   return `T-${randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase()}`
@@ -194,6 +194,49 @@ function isWrkfError(value: unknown): value is { code: string; message: string }
   )
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function optionalString(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key]
+  return typeof value === 'string' ? value : undefined
+}
+
+function optionalNumber(record: Record<string, unknown>, key: string): number | undefined {
+  const value = record[key]
+  return typeof value === 'number' ? value : undefined
+}
+
+function optionalWorkflowVersion(record: Record<string, unknown>): number | string {
+  const value = record['templateVersion']
+  return typeof value === 'number' || typeof value === 'string' ? value : 0
+}
+
+function projectFlatWrkfInspect(
+  taskId: string,
+  inspected: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    taskId,
+    projectId: optionalString(inspected, 'projectId') ?? '',
+    workflow: {
+      id: optionalString(inspected, 'templateId') ?? '',
+      version: optionalWorkflowVersion(inspected),
+      hash: optionalString(inspected, 'templateHash') ?? '',
+    },
+    state: {
+      status: optionalString(inspected, 'status') ?? 'unknown',
+      phase: optionalString(inspected, 'phase'),
+    },
+    version: optionalNumber(inspected, 'revision') ?? 0,
+    goal: '',
+    roleBindings: {},
+    createdAt: optionalString(inspected, 'createdAt') ?? '',
+    updatedAt: optionalString(inspected, 'updatedAt') ?? '',
+  }
+}
+
 export const handleGetWorkflowTask: RouteHandler = async ({ params, deps }) => {
   const taskId = requireTaskId(params)
   const wrkf = deps.wrkf
@@ -202,10 +245,7 @@ export const handleGetWorkflowTask: RouteHandler = async ({ params, deps }) => {
   }
   let inspectSucceeded = false
   try {
-    const inspected = (await wrkf.task.inspect({ task: taskId })) as {
-      task: unknown
-      instance: unknown
-    }
+    const inspected = await wrkf.task.inspect({ task: taskId })
     inspectSucceeded = true
     const timeline = await wrkf.task.timeline({ task: taskId })
     const next = await wrkf.next({ task: taskId })
@@ -213,10 +253,20 @@ export const handleGetWorkflowTask: RouteHandler = async ({ params, deps }) => {
     const obligations = await wrkf.obligation.list({ task: taskId })
     const effects = await wrkf.effect.list({ task: taskId })
     const runs = await wrkf.run.list({ task: taskId })
+    const inspectedRecord = isRecord(inspected) ? inspected : {}
+    const nextRecord = isRecord(next) ? next : {}
+    const task =
+      inspectedRecord['task'] !== undefined
+        ? inspectedRecord['task']
+        : projectFlatWrkfInspect(taskId, inspectedRecord)
+    const instance =
+      inspectedRecord['instance'] !== undefined
+        ? inspectedRecord['instance']
+        : nextRecord['instance']
     return json({
       source: 'wrkf',
-      task: inspected.task,
-      instance: inspected.instance,
+      task,
+      instance,
       next,
       timeline,
       evidence,
