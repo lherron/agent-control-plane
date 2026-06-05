@@ -190,11 +190,13 @@ export const handleGetWorkflowTask: RouteHandler = async ({ params, deps }) => {
   if (wrkf === undefined) {
     throw new AcpHttpError(503, 'WRKF_UNAVAILABLE', 'wrkf port not available')
   }
+  let inspectSucceeded = false
   try {
     const inspected = (await wrkf.task.inspect({ task: taskId })) as {
       task: unknown
       instance: unknown
     }
+    inspectSucceeded = true
     const timeline = await wrkf.task.timeline({ task: taskId })
     const next = await wrkf.next({ task: taskId })
     const evidence = await wrkf.evidence.list({ task: taskId })
@@ -218,6 +220,15 @@ export const handleGetWorkflowTask: RouteHandler = async ({ params, deps }) => {
     }
     if (isWrkfError(error)) {
       throw new AcpHttpError(wrkfErrorToHttpStatus(error.code), error.code, error.message)
+    }
+    // task.inspect is the first wrkf call and resolves task identity. A non-WrkfError
+    // thrown before it completes (e.g. SyntaxError from JSON.parse(undefined) when the
+    // wrkf process returns no body for a task that has no wrkf instance) means the task
+    // could not be resolved in wrkf. Map to WRKF_NOT_FOUND (404) instead of leaking a
+    // raw SyntaxError/TypeError to the ACP global handler as a 500. Errors from later
+    // calls (after inspect succeeded) still propagate, since the task identity is valid.
+    if (!inspectSucceeded) {
+      throw new AcpHttpError(404, 'WRKF_NOT_FOUND', `task not found in wrkf: ${taskId}`)
     }
     throw error
   }
