@@ -3,14 +3,11 @@ import type {
   EffectIntent,
   EvidenceRecord,
   ObligationRecord,
-  ParticipantRunRecord,
-  WorkflowAnomaly,
   WorkflowEvent,
-  WorkflowHrcRunMap,
   WorkflowTask,
 } from 'acp-core'
 
-import type { GetTaskResponse } from '../http-client.js'
+import type { GetTaskResponse, WrkfRun } from '../http-client.js'
 
 export type TimelineCategory =
   | 'transition'
@@ -162,19 +159,12 @@ function refsFor(event: WorkflowEvent, response: GetTaskResponse): string[] {
       refs.add(evidence.ref)
     }
   }
-  for (const run of (response.participantRuns ?? []) as ParticipantRunRecord[]) {
-    if (run.runId === event.participantRunId || run.runId === stringField(payload, 'runId')) {
-      refs.add(run.runId)
-    }
-  }
-  for (const map of response.workflowHrcRunMaps ?? []) {
-    if (
-      map.participantRunId === event.participantRunId ||
-      map.mapId === stringField(payload, 'mapId') ||
-      map.hrcRunId === stringField(payload, 'hrcRunId')
-    ) {
-      refs.add(map.hrcRunId)
-      if (map.scopeRef !== undefined) refs.add(`scope:${map.scopeRef}`)
+  for (const run of (response.runs ?? []) as WrkfRun[]) {
+    if (run.id === event.participantRunId || run.id === stringField(payload, 'runId')) {
+      refs.add(run.id)
+      if (run.externalRunRef !== undefined) refs.add(run.externalRunRef)
+      const delivery = parseDeliveryRef(run.deliveryRef)
+      if (delivery?.scopeRef !== undefined) refs.add(`scope:${delivery.scopeRef}`)
     }
   }
   for (const obligation of (response.obligations ?? []) as ObligationRecord[]) {
@@ -185,11 +175,6 @@ function refsFor(event: WorkflowEvent, response: GetTaskResponse): string[] {
   for (const effect of (response.effects ?? []) as EffectIntent[]) {
     if (effect.effectId === stringField(payload, 'effectId')) {
       refs.add(effect.kind)
-    }
-  }
-  for (const anomaly of (response.anomalies ?? []) as WorkflowAnomaly[]) {
-    if (anomaly.anomalyId === stringField(payload, 'anomalyId')) {
-      refs.add(anomaly.category)
     }
   }
 
@@ -206,26 +191,46 @@ function versionDeltaFor(event: WorkflowEvent): { from: number; to: number } | u
   return { from: event.observedTaskVersion, to: event.nextTaskVersion }
 }
 
-function scopeFor(event: WorkflowEvent, maps: readonly WorkflowHrcRunMap[]): string | undefined {
+function parseDeliveryRef(
+  ref: string | undefined
+): { scopeRef?: string | undefined; laneRef?: string | undefined } | undefined {
+  if (ref === undefined || ref.length === 0) return undefined
+  try {
+    const parsed = JSON.parse(ref) as unknown
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return undefined
+    }
+    const record = parsed as Record<string, unknown>
+    return {
+      ...(typeof record['scopeRef'] === 'string' ? { scopeRef: record['scopeRef'] } : {}),
+      ...(typeof record['laneRef'] === 'string' ? { laneRef: record['laneRef'] } : {}),
+    }
+  } catch {
+    return undefined
+  }
+}
+
+function scopeFor(event: WorkflowEvent, runs: readonly WrkfRun[]): string | undefined {
   const payload = asRecord(event.payload)
   const payloadScope = stringField(payload, 'scopeRef')
   if (payloadScope !== undefined) {
     return payloadScope
   }
   const hrcRunId = stringField(payload, 'hrcRunId')
-  const map = maps.find(
+  const run = runs.find(
     (entry) =>
-      entry.hrcRunId === hrcRunId ||
-      entry.participantRunId === event.participantRunId ||
-      entry.mapId === stringField(payload, 'mapId')
+      entry.externalRunRef === hrcRunId ||
+      entry.id === event.participantRunId ||
+      entry.id === stringField(payload, 'runId')
   )
-  return map?.scopeRef
+  return parseDeliveryRef(run?.deliveryRef)?.scopeRef
 }
 
 export function projectTaskTimeline(response: GetTaskResponse): TaskTimelineProjection {
-  const rows = response.events
+  const rows = response.timeline
     .map((event) => {
       const category = categoryFor(event.type)
+      const scopeRef = scopeFor(event, response.runs ?? [])
       return {
         seq: event.workflowSeq,
         ts: event.createdAt,
@@ -236,9 +241,7 @@ export function projectTaskTimeline(response: GetTaskResponse): TaskTimelineProj
         ...(event.role !== undefined ? { role: event.role } : {}),
         ...(event.rejectionCode !== undefined ? { rejectionCode: event.rejectionCode } : {}),
         ...(versionDeltaFor(event) !== undefined ? { versionDelta: versionDeltaFor(event) } : {}),
-        ...(scopeFor(event, response.workflowHrcRunMaps ?? []) !== undefined
-          ? { scopeRef: scopeFor(event, response.workflowHrcRunMaps ?? []) }
-          : {}),
+        ...(scopeRef !== undefined ? { scopeRef } : {}),
         ...(event.participantRunId !== undefined
           ? { participantRunId: event.participantRunId }
           : {}),

@@ -58,9 +58,8 @@ function makeRunlessTimelineFixture(): GetTaskResponse {
   const response = makeTimelineFixture()
   return {
     ...response,
-    events: response.events.filter((event) => !event.type.startsWith('participant_run.')),
-    participantRuns: [],
-    workflowHrcRunMaps: [],
+    timeline: response.timeline.filter((event) => !event.type.startsWith('participant_run.')),
+    runs: [],
   }
 }
 

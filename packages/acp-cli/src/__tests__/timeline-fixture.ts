@@ -2,6 +2,7 @@ import type { GetTaskResponse } from '../../src/http-client.js'
 
 export function makeTimelineFixture(): GetTaskResponse {
   return {
+    source: 'wrkf',
     task: {
       taskId: 'T-TIMELINE',
       projectId: 'agent-spaces',
@@ -16,7 +17,11 @@ export function makeTimelineFixture(): GetTaskResponse {
       createdAt: '2026-05-11T05:29:09.000Z',
       updatedAt: '2026-05-11T05:32:22.000Z',
     },
-    events: [
+    instance: {
+      revision: 1,
+    },
+    next: { transitions: [] },
+    timeline: [
       {
         eventId: 'wevt_1',
         workflowSeq: 1,
@@ -154,34 +159,16 @@ export function makeTimelineFixture(): GetTaskResponse {
     ],
     obligations: [],
     effects: [],
-    supervisorRuns: [],
-    participantRuns: [
+    runs: [
       {
-        runId: 'prun_1',
-        kind: 'participant',
-        taskId: 'T-TIMELINE',
-        workflow: { id: 'code_defect_fastlane', version: 1, hash: 'sha256:workflow' },
-        actor: { kind: 'agent', id: 'cody' },
+        id: 'prun_1',
+        actor: 'agent:cody',
         role: 'implementer',
         status: 'launched',
-        taskVersionAtStart: 1,
-        contextHash: 'sha256:context',
-        createdAt: '2026-05-11T05:31:32.000Z',
+        externalRunRef: 'hrc-run-1',
+        deliveryRef: JSON.stringify({ scopeRef: 'cody@agent-spaces:T-TIMELINE', laneRef: 'main' }),
+        startedAt: '2026-05-11T05:31:32.000Z',
       },
     ],
-    workflowHrcRunMaps: [
-      {
-        mapId: 'whrc_1',
-        workflowTaskId: 'T-TIMELINE',
-        participantRunId: 'prun_1',
-        hrcRunId: 'hrc-run-1',
-        scopeRef: 'cody@agent-spaces:T-TIMELINE',
-        laneRef: 'main',
-        createdAt: '2026-05-11T05:32:22.000Z',
-        source: 'launch',
-      },
-    ],
-    anomalies: [],
-    workflowPatchProposals: [],
   }
 }

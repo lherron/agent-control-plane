@@ -73,7 +73,7 @@ export async function runTaskEvidenceAddCommand(
     readStringFlag(parsed, '--supervisor-run-id') ?? readStringFlag(parsed, '--supervisor-run')
   let participantRunId = readStringFlag(parsed, '--participant-run-id')
 
-  // --from-run: lookup the participant run from the task snapshot
+  // --from-run: lookup the wrkf run from the task snapshot.
   if (fromRun !== undefined) {
     const requester = createRawAcpRequester({
       serverUrl,
@@ -81,21 +81,19 @@ export async function runTaskEvidenceAddCommand(
       fetchImpl: deps.fetchImpl,
     })
     const taskSnapshot = await requester.requestJson<{
-      task: { taskId: string; version: number }
-      participantRuns: Array<{
-        runId: string
+      runs: Array<{
+        id: string
         role: string
-        actor: { kind: string; id: string }
       }>
     }>({
       method: 'GET',
       path: `/v1/tasks/${encodeURIComponent(taskId)}`,
     })
-    const participantRun = taskSnapshot.participantRuns.find((r) => r.runId === fromRun)
-    if (participantRun !== undefined) {
-      role = role ?? participantRun.role
-      runId = runId ?? participantRun.runId
-      participantRunId = participantRunId ?? participantRun.runId
+    const run = taskSnapshot.runs.find((r) => r.id === fromRun)
+    if (run !== undefined) {
+      role = role ?? run.role
+      runId = runId ?? run.id
+      participantRunId = participantRunId ?? run.id
     }
   }
 

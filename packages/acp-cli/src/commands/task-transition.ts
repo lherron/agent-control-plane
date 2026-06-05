@@ -78,7 +78,7 @@ export async function runTaskTransitionCommand(
   const serverUrl = resolveServerUrl(readStringFlag(parsed, '--server'), env)
   const taskId = requireStringFlag(parsed, '--task')
 
-  // If --expected-version is omitted, fetch task to get current version
+  // If --expected-version is omitted, fetch the wrkf instance revision.
   let expectedTaskVersion: number
   const expectedVersionRaw = readStringFlag(parsed, '--expected-version')
   if (expectedVersionRaw !== undefined) {
@@ -90,12 +90,12 @@ export async function runTaskTransitionCommand(
       fetchImpl: deps.fetchImpl,
     })
     const taskSnapshot = await requester.requestJson<{
-      task: { taskId: string; version: number }
+      instance: { revision: number }
     }>({
       method: 'GET',
       path: `/v1/tasks/${encodeURIComponent(taskId)}`,
     })
-    expectedTaskVersion = taskSnapshot.task.version
+    expectedTaskVersion = taskSnapshot.instance.revision
   }
 
   const client = getClientFactory(deps)({ serverUrl, actorAgentId })

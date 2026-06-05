@@ -1,7 +1,5 @@
-import type { WorkflowHrcRunMap } from 'acp-core'
-
 import type { HrcEvent, HrcStoreReader } from '../hrc-store-reader.js'
-import type { GetTaskResponse } from '../http-client.js'
+import type { GetTaskResponse, WrkfRun } from '../http-client.js'
 import { hrcEventToTimelineRow } from './hrc-event-to-row.js'
 import type {
   AcpTimelineRow,
@@ -33,6 +31,13 @@ type HrcJoinBlock = {
   marker?: 'no_mapping' | 'no_events' | undefined
 }
 
+type RunHrcBinding = {
+  id: string
+  hrcRunId: string
+  scopeRef?: string | undefined
+  laneRef?: string | undefined
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -49,10 +54,8 @@ function runIdFor(row: AcpTimelineRow): string | undefined {
 }
 
 function participantCompleteTs(response: GetTaskResponse, runId: string): string | undefined {
-  const typedRuns = response.participantRuns as
-    | Array<{ runId?: string; completedAt?: string }>
-    | undefined
-  return typedRuns?.find((run) => run.runId === runId)?.completedAt
+  const typedRuns = (response.runs as Array<{ id?: string; completedAt?: string }> | undefined) ?? []
+  return typedRuns.find((run) => run.id === runId)?.completedAt
 }
 
 function nowIso(): string {
@@ -126,20 +129,54 @@ function hrcRowsForBlock(block: HrcJoinBlock, detail: HrcDetailMode): HrcTimelin
   return rows
 }
 
-function findMap(
-  maps: readonly WorkflowHrcRunMap[],
+function tryParseDeliveryRef(
+  ref: string | undefined
+): { scopeRef?: string | undefined; laneRef?: string | undefined } | undefined {
+  if (ref === undefined || ref.length === 0) return undefined
+  try {
+    const parsed = JSON.parse(ref) as unknown
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return undefined
+    }
+    const record = parsed as Record<string, unknown>
+    return {
+      ...(typeof record['scopeRef'] === 'string' ? { scopeRef: record['scopeRef'] } : {}),
+      ...(typeof record['laneRef'] === 'string' ? { laneRef: record['laneRef'] } : {}),
+    }
+  } catch {
+    return undefined
+  }
+}
+
+function runDerivedBindings(response: GetTaskResponse): RunHrcBinding[] {
+  const runs = (response.runs as WrkfRun[] | undefined) ?? []
+  return runs
+    .filter((run) => run.externalRunRef !== undefined && run.externalRunRef.length > 0)
+    .map((run) => {
+      const delivery = tryParseDeliveryRef(run.deliveryRef)
+      return {
+        id: run.id,
+        hrcRunId: run.externalRunRef as string,
+        ...(delivery?.scopeRef !== undefined ? { scopeRef: delivery.scopeRef } : {}),
+        ...(delivery?.laneRef !== undefined ? { laneRef: delivery.laneRef } : {}),
+      }
+    })
+}
+
+function findBinding(
+  bindings: readonly RunHrcBinding[],
   participantRunId: string
-): WorkflowHrcRunMap | undefined {
-  return maps.find((map) => map.participantRunId === participantRunId)
+): RunHrcBinding | undefined {
+  return bindings.find((binding) => binding.id === participantRunId)
 }
 
 function fetchBlockForRun(
   row: AcpTimelineRow,
-  map: WorkflowHrcRunMap | undefined,
+  binding: RunHrcBinding | undefined,
   options: HrcJoinOptions
 ): HrcJoinBlock {
   const participantRunId = runIdFor(row) ?? 'unknown'
-  if (map === undefined) {
+  if (binding === undefined) {
     return {
       participantRunId,
       joinKind: 'none',
@@ -158,9 +195,9 @@ function fetchBlockForRun(
 
   const primary = options.reader.fetchByRunId({
     ...commonQuery,
-    hrcRunId: map.hrcRunId,
-    ...(map.scopeRef !== undefined ? { scopeRef: map.scopeRef } : {}),
-    ...(map.laneRef !== undefined ? { laneRef: map.laneRef } : {}),
+    hrcRunId: binding.hrcRunId,
+    ...(binding.scopeRef !== undefined ? { scopeRef: binding.scopeRef } : {}),
+    ...(binding.laneRef !== undefined ? { laneRef: binding.laneRef } : {}),
   })
   if (primary.totalCount > 0) {
     return {
@@ -173,8 +210,8 @@ function fetchBlockForRun(
 
   const fallback = options.reader.fetchByScopeWindow({
     ...commonQuery,
-    ...(map.scopeRef !== undefined ? { scopeRef: map.scopeRef } : {}),
-    laneRef: map.laneRef ?? 'main',
+    ...(binding.scopeRef !== undefined ? { scopeRef: binding.scopeRef } : {}),
+    laneRef: binding.laneRef ?? 'main',
   })
   if (fallback.totalCount > 0) {
     return {
@@ -188,7 +225,7 @@ function fetchBlockForRun(
 
   return {
     participantRunId,
-    joinKind: map.hrcRunId.length > 0 ? 'run_id' : 'scope_window',
+    joinKind: binding.hrcRunId.length > 0 ? 'run_id' : 'scope_window',
     events: [],
     totalCount: 0,
     marker: 'no_events',
@@ -307,7 +344,7 @@ export function joinHrcTimeline(
   projection: TaskTimelineProjection,
   options: HrcJoinOptions
 ): TaskTimelineProjection {
-  const maps = options.response.workflowHrcRunMaps ?? []
+  const bindings = runDerivedBindings(options.response)
   const rows: TimelineRow[] = []
   const warnings = new Set(projection.warnings ?? [])
   const anchors = resolvedAnchors(projection.rows, options.anchorMode)
@@ -341,7 +378,7 @@ export function joinHrcTimeline(
     if (anchors.runs && isParticipantRunLaunch(row)) {
       const participantRunId = runIdFor(row)
       if (participantRunId !== undefined) {
-        appendBlock(fetchBlockForRun(row, findMap(maps, participantRunId), options))
+        appendBlock(fetchBlockForRun(row, findBinding(bindings, participantRunId), options))
       }
     }
 

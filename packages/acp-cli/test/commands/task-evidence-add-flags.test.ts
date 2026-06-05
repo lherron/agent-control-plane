@@ -100,21 +100,23 @@ describe('acp task evidence add flag alignment', () => {
           if (init?.method === 'GET') {
             return new Response(
               JSON.stringify({
+                source: 'wrkf',
                 task: { taskId: 'T-1', version: 2 },
-                events: [],
+                instance: { revision: 2 },
+                next: { transitions: [] },
+                timeline: [],
                 evidence: [],
                 obligations: [],
                 effects: [],
-                supervisorRuns: [],
-                participantRuns: [
+                runs: [
                   {
-                    runId: 'participant_1',
+                    id: 'participant_1',
                     role: 'collector',
-                    actor: { kind: 'agent', id: 'larry' },
+                    actor: 'agent:larry',
+                    status: 'active',
+                    startedAt: '2026-06-05T00:00:00.000Z',
                   },
                 ],
-                anomalies: [],
-                workflowPatchProposals: [],
               }),
               { status: 200, headers: { 'content-type': 'application/json' } }
             )

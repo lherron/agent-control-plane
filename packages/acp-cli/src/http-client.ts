@@ -11,7 +11,6 @@ import type {
   InterfaceIdentity,
   SystemEvent,
   WorkflowEvent,
-  WorkflowHrcRunMap,
   WorkflowTask,
 } from 'acp-core'
 
@@ -25,17 +24,28 @@ export type TaskContext = {
   hintsText: string
 }
 
+export type WrkfRun = {
+  id: string
+  role: string
+  actor: string
+  status: string
+  externalRunRef?: string | undefined
+  deliveryRef?: string | undefined
+  startedAt: string
+  completedAt?: string | undefined
+  terminalResult?: string | undefined
+}
+
 export type GetTaskResponse = {
+  source: string
   task: WorkflowTask
-  events: WorkflowEvent[]
+  instance: { revision: number; [key: string]: unknown }
+  next: unknown
+  timeline: WorkflowEvent[]
   evidence: unknown[]
   obligations: unknown[]
   effects: EffectIntent[]
-  supervisorRuns: unknown[]
-  participantRuns: unknown[]
-  workflowHrcRunMaps?: WorkflowHrcRunMap[] | undefined
-  anomalies: unknown[]
-  workflowPatchProposals: unknown[]
+  runs: WrkfRun[]
 }
 
 export type CreateTaskResponse = {

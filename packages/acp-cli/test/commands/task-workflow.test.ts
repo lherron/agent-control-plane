@@ -228,6 +228,7 @@ describe('workflow task commands', () => {
       async getTask(input) {
         expect(input).toEqual({ taskId: 'T-12345' })
         return {
+          source: 'wrkf',
           task: {
             taskId: 'T-12345',
             projectId: 'P-00001',
@@ -239,14 +240,13 @@ describe('workflow task commands', () => {
             createdAt: '2026-05-09T00:00:00.000Z',
             updatedAt: '2026-05-09T00:00:00.000Z',
           },
-          events: [],
+          instance: { revision: 1 },
+          next: { transitions: [] },
+          timeline: [],
           evidence: [],
           obligations: [],
           effects: [],
-          supervisorRuns: [],
-          participantRuns: [],
-          anomalies: [],
-          workflowPatchProposals: [],
+          runs: [],
         }
       },
     })

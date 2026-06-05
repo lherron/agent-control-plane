@@ -11,7 +11,7 @@ function transitionResponse() {
 }
 
 describe('acp task transition flag alignment', () => {
-  test('omitted --expected-version fetches the task version before transitioning', async () => {
+  test('omitted --expected-version fetches the wrkf instance revision before transitioning', async () => {
     const seen: Array<{ url: string; method?: string; body: unknown }> = []
     await runTaskTransitionCommand(
       [
@@ -36,7 +36,7 @@ describe('acp task transition flag alignment', () => {
             body: init?.body === undefined ? undefined : JSON.parse(String(init.body)),
           })
           if (init?.method === 'GET') {
-            return new Response(JSON.stringify({ task: { taskId: 'T-1', version: 7 } }), {
+            return new Response(JSON.stringify({ instance: { revision: 7 } }), {
               status: 200,
               headers: { 'content-type': 'application/json' },
             })

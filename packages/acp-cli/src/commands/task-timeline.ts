@@ -189,6 +189,12 @@ function withTimelineWarning(
   }
 }
 
+function hasExternalRunBindings(response: { runs?: Array<{ externalRunRef?: string | undefined }> }): boolean {
+  return (response.runs ?? []).some(
+    (run) => run.externalRunRef !== undefined && run.externalRunRef.length > 0
+  )
+}
+
 export async function runTaskTimelineCommand(
   args: string[],
   deps: CommandDependencies = {}
@@ -248,7 +254,6 @@ export async function runTaskTimelineCommand(
   })
 
   if (!hasFlag(parsed, '--no-hrc')) {
-    const maps = response.workflowHrcRunMaps ?? []
     const hrcAnchor = parseHrcAnchor(readStringFlag(parsed, '--hrc-anchor'))
     const anchors = resolveHrcAnchors(filtered, hrcAnchor)
     const hrcEventWindow =
@@ -257,10 +262,15 @@ export async function runTaskTimelineCommand(
             min: 1,
           })
         : 30
-    if (anchors.runs && !anchors.events && hasParticipantRunLaunch(filtered) && maps.length === 0) {
+    if (
+      anchors.runs &&
+      !anchors.events &&
+      hasParticipantRunLaunch(filtered) &&
+      !hasExternalRunBindings(response)
+    ) {
       filtered = withTimelineWarning(
         filtered,
-        'No workflow_hrc_run_maps rows for this task; rendering ACP-only.'
+        'No HRC-bound wrkf runs for this task; rendering ACP-only.'
       )
     } else if (anchors.runs || anchors.events) {
       const hrcStorePath = resolveHrcStorePath(readStringFlag(parsed, '--hrc-store'), env)
