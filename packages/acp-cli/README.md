@@ -18,20 +18,17 @@ Start `acp-server` locally first, then point the CLI at it (or rely on the defau
 - `acp heartbeat set|wake`
 - `acp delivery retry|list-failed`
 - `acp thread list|show|turns`
-- `acp task create`
 - `acp task show`
 - `acp task transition`
 - `acp task evidence add`
 - `acp task obligation waive`
 - `acp task obligation cancel`
 - `acp task run` *(implemented but not yet wired into CLI dispatch — use HTTP API directly)*
-- `acp workflow supervise`
-- `acp workflow supervisor-context`
-- `acp workflow interact`
-- `acp workflow action`
-- `acp workflow patch list`
-- `acp workflow patch show`
-- `acp supervise` (alias for `workflow supervise`)
+
+> **W6a (Phase 6):** The obsolete workflow-authority commands were removed —
+> `acp task create`, `acp workflow publish|supervise|supervisor-context|interact|action`,
+> `acp workflow patch list|show`, and the `acp supervise` alias. Task lifecycle
+> authority is now wrkf.
 
 ## Seed Agent Profiles
 
@@ -198,76 +195,12 @@ directly (`POST /v1/workflow-participant-runs/:runId/complete` and
 `POST /v1/workflow-participant-runs/:runId/fail`). No CLI wrappers exist
 for these endpoints yet.
 
-### `acp workflow action` (H — supervisor control actions)
+### Removed in W6a (Phase 6)
 
-Submit a supervisor control action. Capabilities are derived from the
-persisted supervisor run record — the `--capabilities` flag is accepted for
-backwards compatibility but its value is **ignored** (auth hardening).
-
-Starting a supervisor run via `acp workflow supervise` or
-`POST /v1/workflow-supervisor-runs` is a **hard prerequisite** for any
-control action.
-
-```bash
-acp workflow action \
-  --task <taskId> \
-  --supervisor-run <supervisorRunId> \
-  --action '<json>' \
-  --idempotency-key <key> \
-  [--expected-version <n>] \
-  [--context-hash <hash>] \
-  [--capabilities <json>] \
-  [--actor <agentId>] \
-  [--json]
-```
-
-**Required:** `--task`, `--supervisor-run`, `--action`, `--idempotency-key`.
-
-Action type JSON examples:
-
-```bash
-# attach_evidence — supervisor attaches evidence records
---action '{"type":"attach_evidence","evidence":[{"kind":"note","ref":"doc:x","summary":"..."}]}'
-
-# apply_transition — supervisor applies transition backed by participant evidence
---action '{"type":"apply_transition","transitionId":"implement_fix","evidenceRefs":["evd_001","evd_002"]}'
-
-# escalate — record an escalation anomaly
---action '{"type":"escalate","reason":"Blocked on external dependency","severity":"high"}'
-
-# launch_participant_run — launch a participant for a bound role
---action '{"type":"launch_participant_run","role":"implementer","actor":{"kind":"agent","id":"larry"}}'
-
-# satisfy_obligation — satisfy a blocking obligation
---action '{"type":"satisfy_obligation","obligationKind":"reviewer_signoff_pending","evidenceRefs":["evd_review"]}'
-
-# pause_supervision — pause supervisor run; further actions return supervisor_paused
---action '{"type":"pause_supervision","reason":"Manual reviewer break"}'
-
-# unpause_supervision — resume a paused supervisor run
---action '{"type":"unpause_supervision"}'
-```
-
-### `acp workflow patch list` / `acp workflow patch show` (I — patch proposals)
-
-List and inspect workflow patch proposals for a task.
-
-```bash
-# List proposals
-acp workflow patch list \
-  --task <taskId> \
-  [--status <status>] \
-  [--limit <n>]
-
-# Show a single proposal
-acp workflow patch show <proposalId> \
-  [--raw] \
-  [--json]
-```
-
-`patch list` returns proposal summaries. `patch show` returns the full
-proposal including `patch` and `replayExpectations` payloads; use `--raw` or
-`--json` for the full record.
+The supervisor control-action and patch-proposal commands (`acp workflow action`,
+`acp workflow patch list|show`), along with `acp task create` and
+`acp workflow publish|supervise|supervisor-context|interact`, were removed when
+task lifecycle authority moved to wrkf.
 
 ## Environment
 

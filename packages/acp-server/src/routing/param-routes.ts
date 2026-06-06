@@ -40,18 +40,11 @@ import {
   handleFailWorkflowParticipantRun,
 } from '../handlers/workflow-participant-runs.js'
 import {
-  handleListWorkflowPatchProposals,
-  handleShowWorkflowPatchProposal,
-} from '../handlers/workflow-patch-proposals-read.js'
-import {
   handleApplyWorkflowTransition,
   handleAttachWorkflowEvidence,
   handleCancelWorkflowObligation,
   handleGetWorkflowTask,
   handleWaiveWorkflowObligation,
-  handleWorkflowControlAction,
-  handleWorkflowParticipantContext,
-  handleWorkflowSupervisorContext,
 } from '../handlers/workflow-tasks.js'
 import { withActorAndAuthz } from '../middleware/actor-and-authz.js'
 
@@ -193,19 +186,8 @@ export function buildParamRoutes(): ParamRoute[] {
       withSpec('POST', '/v1/gateway/deliveries/:deliveryRequestId/requeue', handleRequeueDelivery)
     ),
     createParamRoute('GET', '/v1/tasks/:taskId', handleGetWorkflowTask),
-    createParamRoute(
-      'GET',
-      '/v1/tasks/:taskId/workflow-patch-proposals',
-      handleListWorkflowPatchProposals
-    ),
-    createParamRoute(
-      'GET',
-      '/v1/workflow-patch-proposals/:proposalId',
-      handleShowWorkflowPatchProposal
-    ),
     createParamRoute('POST', '/v1/tasks/:taskId/evidence', handleAttachWorkflowEvidence),
     createParamRoute('POST', '/v1/tasks/:taskId/transitions', handleApplyWorkflowTransition),
-    createParamRoute('POST', '/v1/tasks/:taskId/actions', handleWorkflowControlAction),
     createParamRoute(
       'POST',
       '/v1/tasks/:taskId/obligations/:obligationId/waive',
@@ -215,16 +197,6 @@ export function buildParamRoutes(): ParamRoute[] {
       'POST',
       '/v1/tasks/:taskId/obligations/:obligationId/cancel',
       handleCancelWorkflowObligation
-    ),
-    createParamRoute(
-      'POST',
-      '/v1/tasks/:taskId/participant-context',
-      handleWorkflowParticipantContext
-    ),
-    createParamRoute(
-      'POST',
-      '/v1/tasks/:taskId/supervisor-context',
-      handleWorkflowSupervisorContext
     ),
     createParamRoute('GET', '/v1/runs/:runId', handleGetRun),
     createParamRoute(

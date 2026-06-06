@@ -20,10 +20,16 @@ Environment variables:
 
 ## Workflow endpoints
 
+> **W6a (Phase 6):** The obsolete ACP-authoritative workflow routes were removed
+> — task creation (`POST /v1/tasks`), workflow publish (`POST /v1/workflows`),
+> supervisor runs/actions (`POST /v1/workflow-supervisor-runs`,
+> `POST /v1/tasks/:taskId/actions`), context compilation
+> (`POST /v1/tasks/:taskId/{participant,supervisor}-context`), and the
+> patch-proposal read routes. Task authority is now wrkf; the remaining
+> `/v1/tasks/:taskId` routes below are thin wrkf facades.
+
 ### Task lifecycle
 
-- `POST /v1/tasks` — create a durable workflow task pinned to a workflow
-  definition id/version/hash.
 - `GET /v1/tasks/:taskId` — return the full task snapshot (state, events,
   evidence, obligations, effects, supervisor runs, participant runs, anomalies,
   and patch proposals).
@@ -146,70 +152,14 @@ Environment variables:
   }
   ```
 
-### Supervisor runs and actions (H — supervisor actions + auth hardening)
+### Supervisor runs, actions, patch proposals, and context compilation
 
-- `POST /v1/workflow-supervisor-runs` — start or resume a bounded supervisor
-  run. Supports inline task creation. Starting a supervisor run is a **hard
-  prerequisite** for any control action — the persisted supervisor run record
-  is the sole source of capability authorization.
-
-- `POST /v1/tasks/:taskId/actions` — submit a supervisor control action.
-  Capabilities are derived from the persisted supervisor run record and
-  **cannot be overridden via request body**. The `--capabilities` flag on the
-  CLI is accepted for backwards compatibility but its value is ignored.
-
-  Supported action types:
-
-  | Action type | Capability required | Description |
-  | --- | --- | --- |
-  | `satisfy_obligation` | `satisfyObligations` | Satisfy a blocking obligation with evidence refs |
-  | `launch_participant_run` | `launchRuns` | Launch a participant run for a bound role/actor |
-  | `attach_evidence` | `attachEvidence` | Attach evidence records on behalf of the supervisor |
-  | `apply_transition` | `applySupervisorTransitions` | Apply a transition backed by participant-produced evidence |
-  | `escalate` | `escalate` | Record an escalation anomaly |
-  | `pause_supervision` | `pauseSupervision` | Pause the supervisor run; further actions return `supervisor_paused` |
-  | `unpause_supervision` | `pauseSupervision` | Unpause a previously paused supervisor run |
-
-  Request body:
-  ```json
-  {
-    "supervisorRunId": "supv_001",
-    "action": { "type": "attach_evidence", "evidence": [{ "kind": "...", "ref": "...", "summary": "..." }] },
-    "idempotencyKey": "act:attach:v1",
-    "expectedTaskVersion": 5,
-    "contextHash": "abc123"
-  }
-  ```
-
-  For `apply_transition`, the `action` payload must include `transitionId` and
-  `evidenceRefs`. The kernel verifies each evidence record was attached by a
-  participant run (not by the supervisor itself), the participant run's role
-  appears in the transition's `by[]`, and the participant run's actor matches
-  the current role binding. The resulting event records
-  `authority='supervisor_from_participant_evidence'`.
-
-### Patch proposals (I — workflow patch proposals)
-
-- `GET /v1/tasks/:taskId/workflow-patch-proposals` — list patch proposals for
-  a task. Query parameters: `status` (optional filter), `limit` (default 50).
-
-  Response: `{ proposals: [{ proposalId, baseWorkflow, patchKind, status, createdBy, createdAt, sourceAnomalyIds, rationaleSummary }] }`.
-
-- `GET /v1/workflow-patch-proposals/:proposalId` — show a single patch
-  proposal with full `patch` and `replayExpectations` payloads.
-
-  Response: `{ proposal: { proposalId, taskId, baseWorkflow, patchKind, status, createdBy, createdAt, sourceAnomalyIds, rationaleSummary, patch, replayExpectations } }`.
-
-### Context compilation
-
-- `POST /v1/tasks/:taskId/participant-context` — compile a command-oriented
-  participant context for a given run, actor, role, and session.
-- `POST /v1/tasks/:taskId/supervisor-context` — compile a command-oriented
-  supervisor context with allowed control actions, suggestions, obligations,
-  evidence, participant runs, anomalies, and exact command templates.
-
-Legacy preset promotion, transition listing, and `toPhase` task mutation routes
-have been removed as breaking changes.
+These ACP-authoritative routes — `POST /v1/workflow-supervisor-runs`,
+`POST /v1/tasks/:taskId/actions`, the `…/workflow-patch-proposals` read routes,
+and `POST /v1/tasks/:taskId/{participant,supervisor}-context` — were removed in
+W6a (Phase 6 of the Canonical Workflow Refactor) as the task lifecycle moved to
+wrkf authority. Legacy preset promotion, transition listing, and `toPhase` task
+mutation routes were removed earlier as breaking changes.
 
 ## Experimental endpoints
 

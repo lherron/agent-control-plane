@@ -138,64 +138,6 @@ describe('acp CLI smoke fixtures', () => {
     expect(result.stdout).toContain('message')
   })
 
-  test('task create produces structured JSON and captures repeatable roles', async () => {
-    const fetchQueue = createFetchQueue([
-      {
-        body: {
-          task: {
-            taskId: 'T-10001',
-            projectId: 'agent-spaces',
-            workflow: { id: 'basic', version: 1, hash: 'sha256:test' },
-            state: { status: 'open', phase: 'todo' },
-            goal: 'demo',
-            roleBindings: { owner: { kind: 'agent', id: 'larry' } },
-            version: 0,
-            createdAt: '2026-05-09T00:00:00.000Z',
-            updatedAt: '2026-05-09T00:00:00.000Z',
-          },
-        },
-        assert(request) {
-          expect(request.method).toBe('POST')
-          expect(new URL(request.url).pathname).toBe('/v1/tasks')
-          expect(request.headers.get('x-acp-actor-agent-id')).toBe('smokey')
-          expect(request.body).toMatchObject({
-            projectId: 'agent-spaces',
-            workflow: { id: 'basic', version: 1 },
-            goal: 'demo',
-            roleBindings: { owner: { kind: 'agent', id: 'larry' } },
-            idempotencyKey: 'smoke:create',
-            actor: { agentId: 'smokey' },
-          })
-        },
-      },
-    ])
-
-    const result = await runCli(
-      [
-        'task',
-        'create',
-        '--workflow',
-        'basic@1',
-        '--project',
-        'agent-spaces',
-        '--goal',
-        'demo',
-        '--actor',
-        'smokey',
-        '--role',
-        'owner:larry',
-        '--idempotency-key',
-        'smoke:create',
-        '--json',
-      ],
-      { fetchImpl: fetchQueue.fetchImpl }
-    )
-
-    expect(result.exitCode).toBe(0)
-    expect(JSON.parse(result.stdout)).toMatchObject({ task: { taskId: expect.any(String) } })
-    expect(fetchQueue.calls).toHaveLength(1)
-  })
-
   test('message broadcast sends one request per repeated recipient flag', async () => {
     const fetchQueue = createFetchQueue([
       {
@@ -544,31 +486,4 @@ describe('acp CLI smoke fixtures', () => {
     expect(result.stderr).toMatch(/unknown/i)
   })
 
-  test('workflow ref validation rejects invalid versions before side effects', async () => {
-    const fetchQueue = createFetchQueue([])
-    const result = await runCli(
-      [
-        'task',
-        'create',
-        '--workflow',
-        'basic@0',
-        '--project',
-        'agent-spaces',
-        '--goal',
-        'demo',
-        '--actor',
-        'smokey',
-        '--role',
-        'owner:larry',
-        '--idempotency-key',
-        'smoke:create',
-        '--json',
-      ],
-      { fetchImpl: fetchQueue.fetchImpl }
-    )
-
-    expect(result.exitCode).toBe(2)
-    expect(result.stderr).toContain('--workflow must be an integer >= 1')
-    expect(fetchQueue.calls).toHaveLength(0)
-  })
 })

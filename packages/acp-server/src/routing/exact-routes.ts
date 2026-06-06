@@ -41,11 +41,6 @@ import { handleResetSession } from '../handlers/sessions-reset.js'
 import { handleResolveSession } from '../handlers/sessions-resolve.js'
 import { handleCreateWorkflowInteractRun } from '../handlers/workflow-interact-runs.js'
 import { handleCreateWorkflowParticipantRun } from '../handlers/workflow-participant-runs.js'
-import { handlePublishWorkflow } from '../handlers/workflow-publish.js'
-import {
-  handleCreateWorkflowTask,
-  handleStartWorkflowSupervisorRun,
-} from '../handlers/workflow-tasks.js'
 import { handleWrkfPing } from '../handlers/wrkf-ping.js'
 import { handleLaunchSession } from '../launch-role-scoped.js'
 import { withActorAndAuthz } from '../middleware/actor-and-authz.js'
@@ -82,10 +77,7 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
       '/v1/interface/messages',
       handleCreateInterfaceMessage
     ),
-    [exactRouteKey('POST', '/v1/tasks')]: handleCreateWorkflowTask,
-    [exactRouteKey('POST', '/v1/workflow-supervisor-runs')]: handleStartWorkflowSupervisorRun,
     [exactRouteKey('POST', '/v1/workflow-interact-runs')]: handleCreateWorkflowInteractRun,
-    [exactRouteKey('POST', '/v1/workflows')]: handlePublishWorkflow,
     [exactRouteKey('POST', '/v1/workflow-participant-runs')]: handleCreateWorkflowParticipantRun,
     [exactRouteKey('POST', '/v1/inputs')]: maybeWrapMutatingRoute(
       'POST',

@@ -1,5 +1,18 @@
 # ACP Workflow Verification
 
+> ## ⚠️ Partially obsolete — W6a (Phase 6) removed the ACP-authoritative engine
+>
+> The Canonical Workflow Refactor moved task lifecycle authority to **wrkf**.
+> W6a removed the ACP-authoritative routes and CLI commands this runbook
+> references — task create (`POST /v1/tasks`), workflow publish
+> (`POST /v1/workflows`), supervisor runs/actions
+> (`POST /v1/workflow-supervisor-runs`, `POST /v1/tasks/:taskId/actions`),
+> context compilation (`…/{participant,supervisor}-context`), the
+> `…/workflow-patch-proposals` read routes, and their `acp` CLI commands. Those
+> sections below are retained for historical context only and no longer reflect
+> the live surface. The remaining `/v1/tasks/:taskId` GET/evidence/transitions/
+> obligation routes are now thin wrkf facades.
+
 > ## ⚠️ Real-agent execution required
 >
 > All manual scenario validation MUST be driven by real agent runtimes. An
