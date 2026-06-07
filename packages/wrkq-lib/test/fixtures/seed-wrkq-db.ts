@@ -7,6 +7,8 @@ import { Database as BunDatabase } from 'bun:sqlite'
 import BetterSqliteDatabase from 'better-sqlite3'
 
 const schemaDumpPath = '/Users/lherron/praesidium/wrkq/schema_dump.sql'
+const wrkqSystemActorUuid = '00000000-0000-4000-8000-0000000000a0'
+const rootContainerUuid = '00000000-0000-4000-8000-000000000001'
 
 type SqliteLike = {
   exec(sql: string): unknown
@@ -27,6 +29,7 @@ export type SeededWrkqFixture = {
   cleanup(): void
   seed: {
     bootstrapActorUuid: string
+    rootContainerUuid: string
     projectUuid: string
     projectId: string
     projectSlug: string
@@ -49,6 +52,33 @@ export function createSeededWrkqDb(): SeededWrkqFixture {
   sqlite
     .prepare('INSERT INTO actors (uuid, id, slug, display_name, role) VALUES (?, ?, ?, ?, ?)')
     .run(bootstrapActorUuid, 'A-00001', 'bootstrap', 'Bootstrap', 'human')
+  sqlite
+    .prepare('INSERT INTO actors (uuid, id, slug, display_name, role) VALUES (?, ?, ?, ?, ?)')
+    .run(wrkqSystemActorUuid, 'A-00000', 'wrkq-system', 'wrkq system', 'system')
+
+  sqlite
+    .prepare(
+      `INSERT INTO containers (
+         uuid,
+         id,
+         slug,
+         title,
+         parent_uuid,
+         kind,
+         created_by_actor_uuid,
+         updated_by_actor_uuid
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      rootContainerUuid,
+      'P-00000',
+      'wrkq-system-root',
+      'wrkq root',
+      null,
+      'root',
+      wrkqSystemActorUuid,
+      wrkqSystemActorUuid
+    )
 
   const projectUuid = randomUUID()
   const secondaryProjectUuid = randomUUID()
@@ -60,16 +90,18 @@ export function createSeededWrkqDb(): SeededWrkqFixture {
          id,
          slug,
          title,
+         parent_uuid,
          kind,
          created_by_actor_uuid,
          updated_by_actor_uuid
-       ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       projectUuid,
       'P-00001',
       'demo',
       'Demo Project',
+      rootContainerUuid,
       'project',
       bootstrapActorUuid,
       bootstrapActorUuid
@@ -81,16 +113,18 @@ export function createSeededWrkqDb(): SeededWrkqFixture {
          id,
          slug,
          title,
+         parent_uuid,
          kind,
          created_by_actor_uuid,
          updated_by_actor_uuid
-       ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       secondaryProjectUuid,
       'P-00002',
       'demo-two',
       'Demo Project Two',
+      rootContainerUuid,
       'project',
       bootstrapActorUuid,
       bootstrapActorUuid
@@ -116,6 +150,7 @@ export function createSeededWrkqDb(): SeededWrkqFixture {
     },
     seed: {
       bootstrapActorUuid,
+      rootContainerUuid,
       projectUuid,
       projectId: 'P-00001',
       projectSlug: 'demo',

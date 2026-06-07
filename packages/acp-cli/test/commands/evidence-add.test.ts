@@ -136,7 +136,8 @@ describe('acp task evidence add', () => {
       actor: { kind: 'agent', id: 'cody' },
       role: 'owner',
       runId: 'run-owner-1',
-      evidence: [{ kind: 'completion_note', ref: 'artifact://done' }],
+      kind: 'completion_note',
+      ref: 'artifact://done',
       idempotencyKey: 'cli:evidence:add',
     })
   })

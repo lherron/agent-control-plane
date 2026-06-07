@@ -138,9 +138,16 @@ function updateDependencySet(
 
 async function packageManifestPaths(): Promise<string[]> {
   const packageDirs = await readdir(join(ROOT, 'packages'), { withFileTypes: true })
-  return packageDirs
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => join(ROOT, 'packages', entry.name, 'package.json'))
+  const packageJsonPaths = await Promise.all(
+    packageDirs
+      .filter((entry) => entry.isDirectory())
+      .map(async (entry) => {
+        const packageJsonPath = join(ROOT, 'packages', entry.name, 'package.json')
+        const packageJsonStat = await stat(packageJsonPath).catch(() => undefined)
+        return packageJsonStat?.isFile() ? packageJsonPath : undefined
+      })
+  )
+  return packageJsonPaths.filter((path): path is string => path !== undefined)
 }
 
 async function syncManifests(latest: Map<SyncPackage, string>): Promise<boolean> {

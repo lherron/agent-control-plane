@@ -34,7 +34,9 @@ describe('acp task evidence add flag alignment', () => {
     )
 
     expect(seen[0]).toMatchObject({
-      evidence: [{ kind: 'completion_note', ref: 'artifact://done', summary: 'test summary' }],
+      kind: 'completion_note',
+      ref: 'artifact://done',
+      summary: 'test summary',
     })
   })
 
@@ -131,6 +133,8 @@ describe('acp task evidence add flag alignment', () => {
 
     expect(seen.map((call) => call.method)).toEqual(['GET', 'POST'])
     expect(seen[1]?.body).toMatchObject({
+      kind: 'completion_note',
+      ref: 'artifact://done',
       role: 'collector',
       runId: 'participant_1',
       participantRunId: 'participant_1',

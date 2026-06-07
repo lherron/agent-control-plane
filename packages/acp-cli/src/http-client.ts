@@ -453,6 +453,7 @@ export function createHttpClient(
     },
 
     addEvidence(input) {
+      const evidence = input.evidence[0]
       return request<AddEvidenceResponse>({
         method: 'POST',
         path: `/v1/tasks/${encodeURIComponent(input.taskId)}/evidence`,
@@ -467,7 +468,13 @@ export function createHttpClient(
           ...(input.participantRunId !== undefined
             ? { participantRunId: input.participantRunId }
             : {}),
-          evidence: input.evidence,
+          ...(evidence !== undefined
+            ? {
+                kind: evidence.kind,
+                ref: evidence.ref,
+                ...(evidence.summary !== undefined ? { summary: evidence.summary } : {}),
+              }
+            : {}),
           idempotencyKey: input.idempotencyKey,
         },
       })

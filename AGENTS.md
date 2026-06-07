@@ -5,6 +5,10 @@ This is the ACP (Agent Control Plane) layer of the three-repo split
 the ACP HTTP server, interface gateways (Discord, iOS), and operator
 dashboards/viewers.
 
+Current implementation spec: [`docs/agent-control-plane-current-spec.md`](docs/agent-control-plane-current-spec.md).
+It reflects the live wrkf-backed task route migration and supersedes older
+top-level planning notes for current behavior.
+
 ASP packages (agent-scope, cli-kit, spaces-config, spaces-runtime, etc.) and
 HRC packages (agent-action-render, hrc-core, hrc-sdk, hrc-frame-render, etc.)
 are external dependencies sourced from the local Verdaccio registry at
@@ -40,7 +44,6 @@ packages/
 ├── acp-e2e/              # End-to-end ACP × HRC tests
 ├── acp-ops-projection/   # Operator dashboard projection contracts
 ├── acp-ops-reducer/      # Pure client reducer for the ops dashboard
-├── acp-ops-web/          # ACP operator session dashboard web app
 ├── acp-viewer/           # Local read-only ACP state viewer web app
 ├── gateway-discord/      # ACP Discord interface gateway
 ├── gateway-ios/          # iOS/mobile gateway (currently the HRC mobile surface)
@@ -139,15 +142,11 @@ The run's `metadata.meta.interfaceSource.bindingId` is the authoritative proof
 that a specific binding routed the inbound — match it against the binding you
 just created.
 
-## Ops Dashboard (acp-ops-web)
+## Ops Dashboard
 
-Run from `packages/acp-ops-web`:
-
-```bash
-bun run dev -- --host 127.0.0.1
-```
-
-Then open `http://127.0.0.1:5173/`. Reuse the port if already running.
+`acp-ops-web` is referenced by older notes, but this checkout does not contain
+a tracked `packages/acp-ops-web/package.json`. Use `acp-viewer` for the current
+local dashboard surface unless that package is restored.
 
 Notes:
 
@@ -156,9 +155,6 @@ Notes:
   event stream is not automatically a rendering bug.
 - Dev demo data should only appear when the snapshot request fails in
   development, not before a successful real snapshot replaces it.
-- For package-scoped validation: `bun run --filter acp-ops-web typecheck`
-  and `bun run --filter acp-ops-web test`. Playwright tests require Chromium
-  in the env.
 
 ## ACP Viewer
 

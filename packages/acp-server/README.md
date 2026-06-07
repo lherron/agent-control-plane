@@ -1,6 +1,8 @@
 # acp-server
 
-Minimal ACP HTTP surface for tasks, transitions, inputs, coordination messages, and runtime/session resolution seams.
+ACP HTTP server for admin state, interfaces, inputs, coordination messages,
+runtime/session resolution, jobs, deliveries, mobile/dashboard views, and
+wrkf-backed workflow task facades.
 
 ## Running the server
 
@@ -14,9 +16,22 @@ Environment variables:
 
 - `ACP_WRKQ_DB_PATH` — defaults to `WRKQ_DB_PATH`
 - `ACP_COORD_DB_PATH` — defaults to `/Users/lherron/praesidium/var/db/acp-coordination.db`
+- `ACP_INTERFACE_DB_PATH` — defaults to `/Users/lherron/praesidium/var/db/acp-interface.db`
+- `ACP_STATE_DB_PATH` — defaults to `/Users/lherron/praesidium/var/db/acp-state.db`
+- `ACP_ADMIN_DB_PATH`, `ACP_JOBS_DB_PATH`, `ACP_CONVERSATION_DB_PATH` — optional DB overrides
+- `ACP_AGENT_ASSETS_DIR` — defaults to `/Users/lherron/praesidium/var/state/acp-server/assets/agents`
 - `ACP_HOST` — defaults to `127.0.0.1`
 - `ACP_PORT` — defaults to `18470`
 - `ACP_ACTOR` — defaults to `WRKQ_ACTOR` or `acp-server`
+- `WRKF_BIN` — defaults to `wrkf`
+- `WRKF_DB_PATH` — defaults to the ACP wrkq DB path
+- `ACP_WRKF_DISABLED` — set `1` or `true` to bypass wrkf startup in local dev/test
+
+Check wrkf availability through the running server:
+
+```bash
+curl -sS http://127.0.0.1:18470/v1/wrkf/ping
+```
 
 ## Workflow endpoints
 
@@ -30,87 +45,60 @@ Environment variables:
 
 ### Task lifecycle
 
-- `GET /v1/tasks/:taskId` — return the full task snapshot (state, events,
-  evidence, obligations, effects, supervisor runs, participant runs, anomalies,
-  and patch proposals).
-- `POST /v1/tasks/:taskId/transitions` — apply a workflow `transitionId`
-  mutation with role-based authorization, evidence requirements, and SoD checks.
+- `GET /v1/tasks/:taskId` — wrkf facade. Returns
+  `{ source: "wrkf", task, instance, next, timeline, evidence, obligations, effects, runs }`.
+- `POST /v1/tasks/:taskId/transitions` — delegates to wrkf `transition.apply`.
+  Legacy `expectedTaskVersion` is mapped to wrkf `expectRevision`; legacy
+  inline evidence fields are not workflow authority.
 
-### Evidence (E1 — standalone attach with provenance)
+### Evidence
 
-- `POST /v1/tasks/:taskId/evidence` — attach one or more evidence records to a
-  workflow task. Three authorization sources are supported:
-  1. **Role-bound actor** — an actor whose `actorAgentId` matches a persisted
-     role binding for the supplied `role`.
-  2. **Supervisor** — an actor with `attachEvidence` capability on the
-     persisted supervisor run (pass `supervisorRunId`).
-  3. **Participant run** — an actor with a persisted participant run on the
-     task (pass `participantRunId`).
-
-  Each evidence record captures provenance fields (`actor`, `role?`, `runId?`,
-  `participantRunId?`, `supervisorRunId?`) and round-trips them through
-  persistence. Workflow-defined `evidenceKinds` are enforced — unknown kinds
-  return `invalid_evidence`.
-
-  Idempotency: same `idempotencyKey` + same payload replays the original
-  response; same key + different payload returns `409 idempotency_conflict`.
+- `POST /v1/tasks/:taskId/evidence` — delegates to wrkf `evidence.add`.
+  ACP accepts the legacy CLI body shape, but the server sends only wrkf fields:
+  `task`, `kind`, `ref`, `actor`, optional `summary`, optional `facts`, and
+  optional `role`.
 
   Request body:
   ```json
   {
-    "evidence": [{ "kind": "commit_ref", "ref": "git:abc123", "summary": "..." }],
+    "kind": "commit_ref",
+    "ref": "git:abc123",
+    "summary": "optional summary",
     "role": "implementer",
-    "runId": "run_001",
-    "supervisorRunId": "supv_001",
-    "participantRunId": "prun_001",
-    "expectedTaskVersion": 3,
-    "idempotencyKey": "ev:attach:v1"
+    "actor": { "kind": "agent", "id": "larry" }
   }
   ```
-  Actor is resolved from the `x-acp-actor-agent-id` header or `actor` body
-  field. Response: `201` (new) or `200` (replay) with
-  `{ evidence: [{ evidenceId }] }`.
+  Response: `201` with `{ "evidence": ... }`.
 
-### Obligations (E2 — waive and cancel lifecycle)
+### Obligations
 
 - `POST /v1/tasks/:taskId/obligations/:obligationId/waive` — waive a blocking
-  obligation with a reason and optional `evidenceRefs`. Produces a waiver
-  record that the kernel matches against `Requirement{type:'waiver'}` on
-  subsequent transitions. Requires the actor to be the supervisor or an
-  authorized role-bound actor with appropriate capability.
+  obligation through wrkf `obligation.waive`.
 
   Request body:
   ```json
   {
-    "reason": "Low-risk change covered by §4.2",
-    "evidenceRefs": ["evd_001"],
-    "idempotencyKey": "obl:waive:v1"
+    "reason": "Low-risk change covered by policy"
   }
   ```
-  Response: `{ task, obligation }`.
+  Response: wrkf result.
 
 - `POST /v1/tasks/:taskId/obligations/:obligationId/cancel` — cancel
-  (supersede) an obligation. Cancellation does NOT satisfy waiver requirements
-  — this distinction is enforced by the kernel.
+  (supersede) an obligation through wrkf `obligation.cancel`.
 
   Request body:
   ```json
   {
-    "reason": "Superseded by direct cleanup pipeline run.",
-    "idempotencyKey": "obl:cancel:v1"
+    "reason": "Superseded by direct cleanup pipeline run."
   }
   ```
-  Response: `{ task, obligation }`.
+  Response: wrkf result.
 
-  Both mutations are idempotent under the standard key + payload fingerprint
-  rule. `ObligationRecord.status` supports `open|satisfied|waived|cancelled|expired`.
-
-### Participant runs (G — participant runtime)
+### Participant runs
 
 - `POST /v1/workflow-participant-runs` — launch or resume a participant run.
-  The kernel rejects requests where the body `actor` does not match the
-  persisted role binding (`role_not_bound`). No role self-claim is allowed via
-  this surface.
+  ACP starts a wrkf run, launches HRC through the role-scoped launcher, records
+  ACP execution metadata, and binds external HRC identifiers back to wrkf.
 
   Request body:
   ```json
@@ -118,37 +106,33 @@ Environment variables:
     "taskId": "T-001",
     "role": "implementer",
     "actor": { "kind": "agent", "id": "larry" },
-    "harness": { "kind": "codex" },
     "idempotencyKey": "run:launch:v1",
-    "resume": false
+    "sessionRef": {
+      "scopeRef": "agent:larry:project:agent-control-plane:task:T-001",
+      "laneRef": "main"
+    }
   }
   ```
-  Response: `201` (new) or `200` (resume/replay) with
-  `{ participantRun: { runId, kind, taskId, role, actor, status, taskVersionAtStart, contextHash, createdAt }, context }`.
-
-  Participant run statuses: `launched|running|completed|failed|cancelled`.
+  Response: wrkf/ACP launch result, `201` for a new launch or `200` for replay.
 
 - `POST /v1/workflow-participant-runs/:runId/complete` — complete a participant
-  run with an outcome and optional evidence references.
+  run through wrkf `run.finish`.
 
   Request body:
   ```json
   {
-    "outcome": "success",
-    "evidenceRefs": ["evd_001", "evd_002"],
-    "summary": "All tests passing",
-    "idempotencyKey": "run:complete:v1"
+    "summary": "All tests passing"
   }
   ```
 
-- `POST /v1/workflow-participant-runs/:runId/fail` — fail a participant run.
+- `POST /v1/workflow-participant-runs/:runId/fail` — fail a participant run
+  through wrkf `run.fail`.
 
   Request body:
   ```json
   {
     "reason": "Compilation error in module X",
-    "classification": "build_failure",
-    "idempotencyKey": "run:fail:v1"
+    "classification": "build_failure"
   }
   ```
 

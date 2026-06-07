@@ -31,8 +31,18 @@ function session(overrides: Partial<HrcSessionRecord> = {}): HrcSessionRecord {
 }
 
 function resolved(overrides: Partial<ResolveSessionResponse> = {}): ResolveSessionResponse {
-  const record = overrides.session ?? session()
+  const record = 'session' in overrides ? overrides.session : session()
+  if (record === null) {
+    return {
+      found: false,
+      hostSessionId: null,
+      generation: null,
+      created: false,
+      session: null,
+    }
+  }
   return {
+    found: true,
     hostSessionId: record.hostSessionId,
     generation: record.generation,
     created: false,
@@ -110,6 +120,36 @@ describe('gateway-ios input routes', () => {
 
     expect(response.status).toBe(400)
     expect(await body(response)).toEqual({ ok: false, code: 'session_not_interactive' })
+    expect(delivered).toBe(false)
+  })
+
+  it('POST /v1/input returns unknown_session when resolve misses', async () => {
+    let delivered = false
+    const client = {
+      resolveSession: async () => resolved({ session: null }),
+      deliverLiteralBySelector: async () => {
+        delivered = true
+        return { delivered: true, sessionRef: 'unused', hostSessionId: 'unused', generation: 0 }
+      },
+      listRuntimes: async () => [],
+      interrupt: async () => ({ interrupted: true }) as unknown as RuntimeActionResponse,
+    } satisfies GatewayIosHrcClient
+
+    const response = await createGatewayIosFetchHandler({ hrcClient: client })(
+      request('/v1/input', {
+        sessionRef: 'agent:cody:project:agent-spaces/lane:missing',
+        clientInputId: 'input-missing',
+        text: 'continue',
+        enter: true,
+      })
+    )
+
+    expect(response.status).toBe(404)
+    expect(await body(response)).toEqual({
+      ok: false,
+      code: HrcErrorCode.UNKNOWN_SESSION,
+      message: 'unknown session: agent:cody:project:agent-spaces/lane:missing',
+    })
     expect(delivered).toBe(false)
   })
 

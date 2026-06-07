@@ -93,11 +93,11 @@ import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import { afterEach, describe, expect, test } from 'bun:test'
 
+import { runTaskEvidenceAddCommand } from '../commands/task-evidence-add.js'
+import { runTaskTransitionCommand } from '../commands/task-transition.js'
 import { HrcStoreReader } from '../hrc-store-reader.js'
 import type { GetTaskResponse } from '../http-client.js'
 import { joinHrcTimeline } from '../output/timeline-hrc-join.js'
-import { runTaskEvidenceAddCommand } from '../commands/task-evidence-add.js'
-import { runTaskTransitionCommand } from '../commands/task-transition.js'
 
 // ── Wrkf response shape (what the server returns after W2a) ──────────────────
 
@@ -112,10 +112,13 @@ type WrkfRun = {
   completedAt?: string | undefined
 }
 
-function makeWrkfTaskResponse(taskId: string, opts: {
-  instanceRevision?: number
-  runs?: WrkfRun[]
-} = {}): Record<string, unknown> {
+function makeWrkfTaskResponse(
+  taskId: string,
+  opts: {
+    instanceRevision?: number
+    runs?: WrkfRun[]
+  } = {}
+): Record<string, unknown> {
   return {
     source: 'wrkf',
     task: { taskId, projectId: 'P-001', status: 'open' },
@@ -199,10 +202,7 @@ afterEach(() => {
 // GREEN when: those old fields are removed and runs/source are added.
 
 describe('W2b Consumer 1: GetTaskResponse type must drop ACP-only fields and add wrkf runs', () => {
-  const httpClientSrc = readFileSync(
-    new URL('../http-client.ts', import.meta.url),
-    'utf-8'
-  )
+  const httpClientSrc = readFileSync(new URL('../http-client.ts', import.meta.url), 'utf-8')
 
   function getResponseTypeSrc(): string {
     const start = httpClientSrc.indexOf('export type GetTaskResponse = {')
@@ -249,69 +249,65 @@ describe('W2b Consumer 1: GetTaskResponse type must drop ACP-only fields and add
 // GREEN when: code reads taskSnapshot.instance.revision instead.
 
 describe('W2b Consumer 2: task-transition without --expected-version reads instance.revision', () => {
-  test(
-    'GET returns wrkf projection with instance.revision=11; POST must send expectedTaskVersion=11 (RED: reads task.version=undefined)',
-    async () => {
-      const seen: Array<{ url: string; method?: string; body: unknown }> = []
+  test('GET returns wrkf projection with instance.revision=11; POST must send expectedTaskVersion=11 (RED: reads task.version=undefined)', async () => {
+    const seen: Array<{ url: string; method?: string; body: unknown }> = []
 
-      await runTaskTransitionCommand(
-        [
-          '--server',
-          'http://acp.test',
-          '--actor',
-          'cody',
-          '--task',
-          'T-W2b',
-          '--transition',
-          'start',
-          '--role',
-          'owner',
-          '--idempotency-key',
-          'w2b:revision:test',
-          // NOTE: --expected-version intentionally omitted — CLI must read wrkf revision
-        ],
-        {
-          fetchImpl: async (input, init) => {
-            const url = String(input)
-            const method = init?.method ?? 'GET'
-            const body =
-              init?.body !== undefined ? JSON.parse(String(init.body)) : undefined
-            seen.push({ url, method, body })
+    await runTaskTransitionCommand(
+      [
+        '--server',
+        'http://acp.test',
+        '--actor',
+        'cody',
+        '--task',
+        'T-W2b',
+        '--transition',
+        'start',
+        '--role',
+        'owner',
+        '--idempotency-key',
+        'w2b:revision:test',
+        // NOTE: --expected-version intentionally omitted — CLI must read wrkf revision
+      ],
+      {
+        fetchImpl: async (input, init) => {
+          const url = String(input)
+          const method = init?.method ?? 'GET'
+          const body = init?.body !== undefined ? JSON.parse(String(init.body)) : undefined
+          seen.push({ url, method, body })
 
-            if (method === 'GET') {
-              // Return wrkf-shaped response: NO task.version, but instance.revision = 11
-              return new Response(
-                JSON.stringify(makeWrkfTaskResponse('T-W2b', { instanceRevision: 11 })),
-                { status: 200, headers: { 'content-type': 'application/json' } }
-              )
-            }
-
-            // POST /transitions
+          if (method === 'GET') {
+            // Return wrkf-shaped response: NO task.version, but instance.revision = 11
             return new Response(
-              JSON.stringify({
-                task: {
-                  taskId: 'T-W2b',
-                  state: { status: 'active', phase: 'in_progress' },
-                  version: 12,
-                },
-                event: { payload: { transitionId: 'start' } },
-                effects: [],
-              }),
+              JSON.stringify(makeWrkfTaskResponse('T-W2b', { instanceRevision: 11 })),
               { status: 200, headers: { 'content-type': 'application/json' } }
             )
-          },
-        }
-      )
+          }
 
-      // Two requests: GET (fetch revision) + POST (transition)
-      expect(seen.map((c) => c.method)).toEqual(['GET', 'POST'])
+          // POST /transitions
+          return new Response(
+            JSON.stringify({
+              task: {
+                taskId: 'T-W2b',
+                state: { status: 'active', phase: 'in_progress' },
+                version: 12,
+              },
+              event: { payload: { transitionId: 'start' } },
+              effects: [],
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          )
+        },
+      }
+    )
 
-      // RED: task.version is undefined in wrkf response → POST sends expectedTaskVersion: undefined
-      //   toMatchObject fails because undefined !== 11
-      // GREEN: reads instance.revision = 11 → POST sends expectedTaskVersion: 11
-      expect(seen[1]?.body).toMatchObject({ expectedTaskVersion: 11 })
-    }
-  )
+    // Two requests: GET (fetch revision) + POST (transition)
+    expect(seen.map((c) => c.method)).toEqual(['GET', 'POST'])
+
+    // RED: task.version is undefined in wrkf response → POST sends expectedTaskVersion: undefined
+    //   toMatchObject fails because undefined !== 11
+    // GREEN: reads instance.revision = 11 → POST sends expectedTaskVersion: 11
+    expect(seen[1]?.body).toMatchObject({ expectedTaskVersion: 11 })
+  })
 })
 
 // ── Consumer 3: task-evidence-add --from-run resolves via wrkf runs ───────────
@@ -321,87 +317,85 @@ describe('W2b Consumer 2: task-transition without --expected-version reads insta
 // GREEN when: code reads taskSnapshot.runs[i].id instead of participantRuns[i].runId.
 
 describe('W2b Consumer 3: task-evidence-add --from-run resolves via wrkf runs (not participantRuns)', () => {
-  test(
-    '--from-run finds run by id from wrkf runs projection (RED: reads participantRuns which is undefined → TypeError)',
-    async () => {
-      const seen: Array<{ url: string; method?: string; body: unknown }> = []
+  test('--from-run finds run by id from wrkf runs projection (RED: reads participantRuns which is undefined → TypeError)', async () => {
+    const seen: Array<{ url: string; method?: string; body: unknown }> = []
 
-      // RED: will throw TypeError (participantRuns is undefined, .find() blows up)
-      // GREEN: resolves role='implementer' and runId='run-wrkf-1' from wrkf runs
-      await runTaskEvidenceAddCommand(
-        [
-          '--server',
-          'http://acp.test',
-          '--actor',
-          'cody',
-          '--task',
-          'T-W2b',
-          '--from-run',
-          'run-wrkf-1',
-          '--kind',
-          'completion_note',
-          '--ref',
-          'artifact://done',
-          '--idempotency-key',
-          'w2b:evidence:from-run',
-        ],
-        {
-          fetchImpl: async (input, init) => {
-            const url = String(input)
-            const method = init?.method ?? 'GET'
-            const body =
-              init?.body !== undefined ? JSON.parse(String(init.body)) : undefined
-            seen.push({ url, method, body })
+    // RED: will throw TypeError (participantRuns is undefined, .find() blows up)
+    // GREEN: resolves role='implementer' and runId='run-wrkf-1' from wrkf runs
+    await runTaskEvidenceAddCommand(
+      [
+        '--server',
+        'http://acp.test',
+        '--actor',
+        'cody',
+        '--task',
+        'T-W2b',
+        '--from-run',
+        'run-wrkf-1',
+        '--kind',
+        'completion_note',
+        '--ref',
+        'artifact://done',
+        '--idempotency-key',
+        'w2b:evidence:from-run',
+      ],
+      {
+        fetchImpl: async (input, init) => {
+          const url = String(input)
+          const method = init?.method ?? 'GET'
+          const body = init?.body !== undefined ? JSON.parse(String(init.body)) : undefined
+          seen.push({ url, method, body })
 
-            if (method === 'GET') {
-              // Return wrkf-shaped response: runs array uses id (not runId), no participantRuns
-              return new Response(
-                JSON.stringify(
-                  makeWrkfTaskResponse('T-W2b', {
-                    runs: [
-                      {
-                        id: 'run-wrkf-1',
-                        role: 'implementer',
-                        actor: 'agent:cody',
-                        status: 'active',
-                        startedAt: '2026-06-05T09:00:00Z',
-                      },
-                    ],
-                  })
-                ),
-                { status: 200, headers: { 'content-type': 'application/json' } }
-              )
-            }
-
-            // POST /evidence
+          if (method === 'GET') {
+            // Return wrkf-shaped response: runs array uses id (not runId), no participantRuns
             return new Response(
-              JSON.stringify({
-                evidence: [
-                  {
-                    evidenceId: 'evd-w2b-1',
-                    taskId: 'T-W2b',
-                    kind: 'completion_note',
-                    ref: 'artifact://done',
-                  },
-                ],
-              }),
-              { status: 201, headers: { 'content-type': 'application/json' } }
+              JSON.stringify(
+                makeWrkfTaskResponse('T-W2b', {
+                  runs: [
+                    {
+                      id: 'run-wrkf-1',
+                      role: 'implementer',
+                      actor: 'agent:cody',
+                      status: 'active',
+                      startedAt: '2026-06-05T09:00:00Z',
+                    },
+                  ],
+                })
+              ),
+              { status: 200, headers: { 'content-type': 'application/json' } }
             )
-          },
-        }
-      )
+          }
 
-      // Two requests: GET (fetch runs for --from-run resolution) + POST (add evidence)
-      expect(seen.map((c) => c.method)).toEqual(['GET', 'POST'])
+          // POST /evidence
+          return new Response(
+            JSON.stringify({
+              evidence: [
+                {
+                  evidenceId: 'evd-w2b-1',
+                  taskId: 'T-W2b',
+                  kind: 'completion_note',
+                  ref: 'artifact://done',
+                },
+              ],
+            }),
+            { status: 201, headers: { 'content-type': 'application/json' } }
+          )
+        },
+      }
+    )
 
-      // RED: TypeError thrown before reaching these assertions (participantRuns is undefined)
-      // GREEN: run found by id → role and runId resolved from wrkf run
-      expect(seen[1]?.body).toMatchObject({
-        role: 'implementer',
-        runId: 'run-wrkf-1',
-      })
-    }
-  )
+    // Two requests: GET (fetch runs for --from-run resolution) + POST (add evidence)
+    expect(seen.map((c) => c.method)).toEqual(['GET', 'POST'])
+
+    // RED: TypeError thrown before reaching these assertions (participantRuns is undefined)
+    // GREEN: run found by id → role and runId resolved from wrkf run
+    expect(seen[1]?.body).toMatchObject({
+      kind: 'completion_note',
+      ref: 'artifact://done',
+      role: 'implementer',
+      runId: 'run-wrkf-1',
+    })
+  })
 })
 
 // ── Consumer 4: timeline join via wrkf run.externalRunRef ────────────────────
@@ -454,7 +448,9 @@ describe('W2b Consumer 4: joinHrcTimeline uses wrkf run.externalRunRef (not work
     } as unknown as GetTaskResponse
   }
 
-  function makeMinimalProjectionWithParticipantRun(): import('../output/timeline-project.js').TaskTimelineProjection {
+  function makeMinimalProjectionWithParticipantRun(): import(
+    '../output/timeline-project.js'
+  ).TaskTimelineProjection {
     // A minimal projection containing a participant_run.launched row that joinHrcTimeline
     // uses as the anchor point for HRC event injection.
     return {
@@ -469,7 +465,12 @@ describe('W2b Consumer 4: joinHrcTimeline uses wrkf run.externalRunRef (not work
         createdAt: '2026-06-05T09:00:00Z',
         updatedAt: '2026-06-05T09:01:00Z',
       },
-      summary: { eventCount: 1, rejectionCount: 0, firstEventAt: '2026-06-05T09:01:00Z', lastEventAt: '2026-06-05T09:01:00Z' },
+      summary: {
+        eventCount: 1,
+        rejectionCount: 0,
+        firstEventAt: '2026-06-05T09:01:00Z',
+        lastEventAt: '2026-06-05T09:01:00Z',
+      },
       rows: [
         {
           ledger: 'acp',
@@ -489,75 +490,64 @@ describe('W2b Consumer 4: joinHrcTimeline uses wrkf run.externalRunRef (not work
     }
   }
 
-  test(
-    'joinHrcTimeline derives HRC mapping from runs[i].externalRunRef when workflowHrcRunMaps is absent (RED: maps is empty → no_mapping)',
-    () => {
-      const hrcStorePath = makeHrcStore(HRC_RUN_ID, SCOPE_REF)
-      const reader = new HrcStoreReader(hrcStorePath)
-      const response = makeWrkfGetTaskResponseForTimeline()
-      const projection = makeMinimalProjectionWithParticipantRun()
+  test('joinHrcTimeline derives HRC mapping from runs[i].externalRunRef when workflowHrcRunMaps is absent (RED: maps is empty → no_mapping)', () => {
+    const hrcStorePath = makeHrcStore(HRC_RUN_ID, SCOPE_REF)
+    const reader = new HrcStoreReader(hrcStorePath)
+    const response = makeWrkfGetTaskResponseForTimeline()
+    const projection = makeMinimalProjectionWithParticipantRun()
 
-      const result = joinHrcTimeline(projection, {
-        reader,
-        response,
-        detail: 'events',
-        anchorMode: 'runs',
+    const result = joinHrcTimeline(projection, {
+      reader,
+      response,
+      detail: 'events',
+      anchorMode: 'runs',
+    })
+    reader.close()
+
+    const hrcRows = result.rows.filter((row) => row.ledger === 'hrc')
+
+    // RED: response.workflowHrcRunMaps is absent → maps = [] → no_mapping marker row
+    //   hrcRows[0].marker === 'no_mapping' (not real HRC events)
+    // GREEN: joinHrcTimeline reads response.runs[0].externalRunRef = HRC_RUN_ID,
+    //   fetches events from HRC store by run ID, and produces real HRC event rows.
+    expect(hrcRows.length).toBeGreaterThan(0)
+    // Must contain actual HRC event rows (not just a no_mapping placeholder)
+    expect(hrcRows).toContainEqual(
+      expect.objectContaining({
+        ledger: 'hrc',
+        eventKind: 'tool_execution_start',
+        joinKind: 'run_id',
       })
-      reader.close()
+    )
+    // Must NOT have a no_mapping marker (which is the current "red" behavior)
+    expect(hrcRows).not.toContainEqual(expect.objectContaining({ marker: 'no_mapping' }))
+  })
 
-      const hrcRows = result.rows.filter((row) => row.ledger === 'hrc')
+  test('timeline-hrc-join.ts must not read workflowHrcRunMaps from response (RED: line contains workflowHrcRunMaps)', () => {
+    // Source-level assertion: joinHrcTimeline must not use response.workflowHrcRunMaps.
+    // After migration it derives HRC mappings from response.runs[i].externalRunRef instead.
+    // RED: timeline-hrc-join.ts still has `options.response.workflowHrcRunMaps ?? []`
+    // GREEN: that line is removed/replaced with wrkf run-derived mapping logic
+    const hrcJoinSrc = readFileSync(
+      new URL('../output/timeline-hrc-join.ts', import.meta.url),
+      'utf-8'
+    )
+    expect(hrcJoinSrc).not.toContain('workflowHrcRunMaps')
+  })
 
-      // RED: response.workflowHrcRunMaps is absent → maps = [] → no_mapping marker row
-      //   hrcRows[0].marker === 'no_mapping' (not real HRC events)
-      // GREEN: joinHrcTimeline reads response.runs[0].externalRunRef = HRC_RUN_ID,
-      //   fetches events from HRC store by run ID, and produces real HRC event rows.
-      expect(hrcRows.length).toBeGreaterThan(0)
-      // Must contain actual HRC event rows (not just a no_mapping placeholder)
-      expect(hrcRows).toContainEqual(
-        expect.objectContaining({
-          ledger: 'hrc',
-          eventKind: 'tool_execution_start',
-          joinKind: 'run_id',
-        })
-      )
-      // Must NOT have a no_mapping marker (which is the current "red" behavior)
-      expect(hrcRows).not.toContainEqual(
-        expect.objectContaining({ marker: 'no_mapping' })
-      )
-    }
-  )
-
-  test(
-    'timeline-hrc-join.ts must not read workflowHrcRunMaps from response (RED: line contains workflowHrcRunMaps)',
-    () => {
-      // Source-level assertion: joinHrcTimeline must not use response.workflowHrcRunMaps.
-      // After migration it derives HRC mappings from response.runs[i].externalRunRef instead.
-      // RED: timeline-hrc-join.ts still has `options.response.workflowHrcRunMaps ?? []`
-      // GREEN: that line is removed/replaced with wrkf run-derived mapping logic
-      const hrcJoinSrc = readFileSync(
-        new URL('../output/timeline-hrc-join.ts', import.meta.url),
-        'utf-8'
-      )
-      expect(hrcJoinSrc).not.toContain('workflowHrcRunMaps')
-    }
-  )
-
-  test(
-    'timeline-hrc-join.ts participantCompleteTs must not read response.participantRuns (RED: still reads participantRuns)',
-    () => {
-      // Source-level assertion: participantCompleteTs must read from response.runs (wrkf shape),
-      // using run.id for the lookup (not run.runId from old ACP participantRuns shape).
-      // RED: participantCompleteTs still accesses `response.participantRuns` via cast
-      // GREEN: reads `response.runs` and looks up by run.id
-      const hrcJoinSrc = readFileSync(
-        new URL('../output/timeline-hrc-join.ts', import.meta.url),
-        'utf-8'
-      )
-      const fnStart = hrcJoinSrc.indexOf('function participantCompleteTs')
-      expect(fnStart).toBeGreaterThan(-1) // function must still exist
-      const fnEnd = hrcJoinSrc.indexOf('\n}', fnStart) + 2
-      const fnBody = hrcJoinSrc.slice(fnStart, fnEnd)
-      expect(fnBody).not.toContain('participantRuns')
-    }
-  )
+  test('timeline-hrc-join.ts participantCompleteTs must not read response.participantRuns (RED: still reads participantRuns)', () => {
+    // Source-level assertion: participantCompleteTs must read from response.runs (wrkf shape),
+    // using run.id for the lookup (not run.runId from old ACP participantRuns shape).
+    // RED: participantCompleteTs still accesses `response.participantRuns` via cast
+    // GREEN: reads `response.runs` and looks up by run.id
+    const hrcJoinSrc = readFileSync(
+      new URL('../output/timeline-hrc-join.ts', import.meta.url),
+      'utf-8'
+    )
+    const fnStart = hrcJoinSrc.indexOf('function participantCompleteTs')
+    expect(fnStart).toBeGreaterThan(-1) // function must still exist
+    const fnEnd = hrcJoinSrc.indexOf('\n}', fnStart) + 2
+    const fnBody = hrcJoinSrc.slice(fnStart, fnEnd)
+    expect(fnBody).not.toContain('participantRuns')
+  })
 })

@@ -14,6 +14,7 @@ import type { HrcClient } from 'hrc-sdk'
 import type { InputRequest, InterruptRequest, MobileFence } from './contracts.js'
 
 type JsonObject = Record<string, unknown>
+type ResolvedSession = Extract<ResolveSessionResponse, { found: true }>
 
 export type GatewayIosHrcClient = Pick<
   HrcClient,
@@ -137,11 +138,17 @@ async function parseInterruptRequest(request: Request): Promise<InterruptRequest
   }
 }
 
-function sessionRecord(resolved: ResolveSessionResponse): HrcSessionRecord {
-  return resolved.session
+function requireResolvedSession(
+  resolved: ResolveSessionResponse,
+  sessionRef: string
+): ResolvedSession {
+  if (!resolved.found || resolved.session === null) {
+    throw new HrcDomainError(HrcErrorCode.UNKNOWN_SESSION, `unknown session: ${sessionRef}`)
+  }
+  return resolved
 }
 
-function explicitMode(resolved: ResolveSessionResponse): string | undefined {
+function explicitMode(resolved: ResolvedSession): string | undefined {
   const responseMode = (resolved as unknown as { mode?: unknown }).mode
   if (typeof responseMode === 'string') return responseMode
 
@@ -153,7 +160,7 @@ function explicitMode(resolved: ResolveSessionResponse): string | undefined {
   return typeof executionMode === 'string' ? executionMode : undefined
 }
 
-function isInteractiveSession(resolved: ResolveSessionResponse): boolean {
+function isInteractiveSession(resolved: ResolvedSession): boolean {
   const mode = explicitMode(resolved)
   if (mode === 'interactive') return true
   if (mode === 'headless' || mode === 'nonInteractive') return false
@@ -171,10 +178,7 @@ function isInteractiveSession(resolved: ResolveSessionResponse): boolean {
   return true
 }
 
-function validateSessionFence(
-  resolved: ResolveSessionResponse,
-  fences: MobileFence
-): Response | null {
+function validateSessionFence(resolved: ResolvedSession, fences: MobileFence): Response | null {
   const result = validateFence(fences, {
     activeHostSessionId: resolved.hostSessionId,
     generation: resolved.generation,
@@ -242,12 +246,13 @@ export async function handleInput(request: Request, deps: InputHandlerDeps): Pro
   try {
     const body = await parseInputRequest(request)
     const resolved = await deps.hrcClient.resolveSession({ sessionRef: body.sessionRef })
+    const activeSession = requireResolvedSession(resolved, body.sessionRef)
 
-    if (!isInteractiveSession(resolved)) {
+    if (!isInteractiveSession(activeSession)) {
       return errorJson('session_not_interactive', 400)
     }
 
-    const fenceError = validateSessionFence(resolved, body.fences)
+    const fenceError = validateSessionFence(activeSession, body.fences)
     if (fenceError) return fenceError
 
     const literalRequest: DeliverLiteralBySelectorRequest = {
@@ -272,14 +277,17 @@ export async function handleInterrupt(request: Request, deps: InputHandlerDeps):
   try {
     const body = await parseInterruptRequest(request)
     const resolved = await deps.hrcClient.resolveSession({ sessionRef: body.sessionRef })
-    const fenceError = validateSessionFence(resolved, body.fences)
+    const activeSession = requireResolvedSession(resolved, body.sessionRef)
+    const fenceError = validateSessionFence(activeSession, body.fences)
     if (fenceError) return fenceError
 
-    const appSelector = appSessionSelectorFor(sessionRecord(resolved))
+    const appSelector = appSessionSelectorFor(activeSession.session)
     if (appSelector) {
       await interruptAppSession(deps.hrcClient, appSelector)
     } else {
-      const runtimes = await deps.hrcClient.listRuntimes({ hostSessionId: resolved.hostSessionId })
+      const runtimes = await deps.hrcClient.listRuntimes({
+        hostSessionId: activeSession.hostSessionId,
+      })
       const runtime = latestRuntimeForSession(runtimes)
       if (!runtime) {
         return errorJson(HrcErrorCode.RUNTIME_UNAVAILABLE, 503, 'no runtime available')

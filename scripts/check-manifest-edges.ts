@@ -45,7 +45,18 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 async function readPackageInfo(dir: string): Promise<PackageInfo | undefined> {
-  const packageJson = JSON.parse(await readFile(join(dir, 'package.json'), 'utf8')) as PackageJson
+  let packageJsonContent: string
+  try {
+    packageJsonContent = await readFile(join(dir, 'package.json'), 'utf8')
+  } catch (error) {
+    const code = error instanceof Error && 'code' in error ? error.code : undefined
+    if (code === 'ENOENT') {
+      return undefined
+    }
+    throw error
+  }
+
+  const packageJson = JSON.parse(packageJsonContent) as PackageJson
   if (typeof packageJson.name !== 'string') {
     return undefined
   }

@@ -218,7 +218,7 @@ export const handleAttachWorkflowEvidence: RouteHandler = async ({ request, para
   }
   const body = requireRecord(await parseJsonBody(request))
   const actor = extractActor(request, body, { required: false })
-  const actorRef = actorRefFromUnknown(body['actor'], actor?.agentId)
+  const wrkfActor = wrkfActorFromBody(body['actor'], actor?.agentId)
 
   // Legacy compatibility: wrkf evidence.add has NO expectRevision/idempotencyKey/runId.
   // expectedTaskVersion is a phantom precondition here — never translate it to a wrkf param.
@@ -240,7 +240,7 @@ export const handleAttachWorkflowEvidence: RouteHandler = async ({ request, para
       task: taskId,
       kind,
       ref,
-      actor: actorRef,
+      actor: wrkfActor,
       ...(summary !== undefined ? { summary } : {}),
       ...(facts !== undefined ? { facts } : {}),
       ...(role !== undefined ? { role } : {}),
