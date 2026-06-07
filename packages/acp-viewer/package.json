@@ -12,6 +12,8 @@
   "dependencies": {
     "@tanstack/react-query": "^5.90.8",
     "@tanstack/react-table": "^8.21.3",
+    "acp-ops-projection": "workspace:*",
+    "acp-ops-reducer": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.513.0",

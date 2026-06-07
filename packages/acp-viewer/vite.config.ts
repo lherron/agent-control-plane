@@ -8,6 +8,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      'acp-ops-projection': path.resolve(__dirname, '../acp-ops-projection/src/index.ts'),
+      'acp-ops-reducer': path.resolve(__dirname, '../acp-ops-reducer/src/index.ts'),
     },
   },
   server: {
@@ -18,6 +20,7 @@ export default defineConfig({
       '/v1': {
         target: 'http://127.0.0.1:18470',
         changeOrigin: true,
+        ws: true,
       },
     },
   },
