@@ -340,7 +340,8 @@ function redactionOptions(opts: RedactionOptions): ResolvedRedactionOptions {
     payloadPreviewArrayLimit:
       opts.payloadPreviewArrayLimit ?? defaultRedactionOptions.payloadPreviewArrayLimit,
     rawPayloadDebug:
-      opts.rawPayloadDebug === true || process.env['ACP_DASHBOARD_RAW_PAYLOAD'] === '1',
+      opts.rawPayloadDebug === true ||
+      (typeof process !== 'undefined' && process.env?.['ACP_DASHBOARD_RAW_PAYLOAD'] === '1'),
   }
 }
 
