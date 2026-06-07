@@ -1,3 +1,15 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { openMobileDashboardSocket } from '@/features/sessions/api/mobile-socket'
+import type { MobileSocketSubscription } from '@/features/sessions/api/mobile-socket'
+import {
+  mobileEventToDashboardEvent,
+  mobileSnapshotToDashboardSnapshot,
+} from '@/features/sessions/lib/mobile-adapter'
+import {
+  dispatchDashboardAction,
+  getDashboardState,
+  useReducerStore,
+} from '@/features/sessions/store/use-reducer-store'
 import type {
   DashboardEvent,
   FamilyFilter,
@@ -7,72 +19,113 @@ import type {
 } from '@/features/sessions/types'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CONTRACT SEAM (P0). The UI layer (P4/P5) depends ONLY on this signature.
-// The real implementation lands in P3 (socket → reducer store → selectors).
-// Until then this returns an empty, well-typed snapshot so the UI compiles and
-// renders its empty states. Do NOT change the exported shape without coordinating
-// — the sessions UI is built against it.
+// Live hrc dashboard, fed by the /v1/mobile/dashboard WS. Opens the socket,
+// adapts mobile frames into the shared projection contracts, and dispatches into
+// the ported reducer store. Exposes paused/pause/goLive + family filter +
+// selection. Signature is the P0 contract the sessions UI is built against.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type UseMobileDashboardResult = {
-  /** Session rows derived from the live event stream, sorted most-recent-first by the store. */
   rows: SessionTimelineRow[]
-  /** Visible events (respecting familyFilter), oldest→newest. */
   events: DashboardEvent[]
-  /** Aggregate counts + rates for the StatusStrip. */
   summary: SessionDashboardSummary
-  /** Socket connection lifecycle, for the connection badge. */
   connectionState: StreamConnectionState
-  /** Currently inspected event (EventInspector), if any. */
   selectedEventId: string | undefined
-  /** Currently selected session row, if any. */
   selectedRowId: string | undefined
-  /** True when the user paused the live stream. */
   paused: boolean
-  /** Active event-family filter ('all' = no filter). */
   familyFilter: FamilyFilter
-  /** Pause the live stream (closes socket, freezes view). */
   pause: () => void
-  /** Resume the live stream from the last seen cursor. */
   goLive: () => void
-  /** Set the event-family filter. */
   setFamilyFilter: (family: FamilyFilter) => void
-  /** Select an event for the inspector. */
   selectEvent: (eventId: string) => void
-  /** Select a session row. */
   selectRow: (rowId: string) => void
 }
 
-const EMPTY_SUMMARY: SessionDashboardSummary = {
-  counts: {
-    busy: 0,
-    idle: 0,
-    launching: 0,
-    stale: 0,
-    dead: 0,
-    inFlightInputs: 0,
-    deliveryPending: 0,
-  },
-  eventRatePerMinute: 0,
-}
-
-const noop = () => {}
-
 export function useMobileDashboard(): UseMobileDashboardResult {
-  // P0 stub — replaced wholesale in P3. Keep the signature stable.
+  const rows = useReducerStore((s) => s.rows)
+  const events = useReducerStore((s) => s.events)
+  const summary = useReducerStore((s) => s.summary)
+  const connectionState = useReducerStore((s) => s.connectionState)
+  const selectedEventId = useReducerStore((s) => s.selectedEventId)
+  const selectedRowId = useReducerStore((s) => s.selectedRowId)
+  const familyFilter = useReducerStore((s) => s.familyFilter)
+
+  const [paused, setPaused] = useState(false)
+  const socketRef = useRef<MobileSocketSubscription | null>(null)
+
+  useEffect(() => {
+    if (paused) return
+
+    // Resume from the last seen cursor across remounts/pauses; undefined on a
+    // cold start pulls a fresh snapshot.
+    const last = getDashboardState().reducer.lastProcessedHrcSeq
+    const fromHrcSeq = last > 0 ? last + 1 : undefined
+
+    const socket = openMobileDashboardSocket(
+      { fromHrcSeq },
+      {
+        onSnapshot: (frame) =>
+          dispatchDashboardAction({
+            type: 'snapshot.loaded',
+            snapshot: mobileSnapshotToDashboardSnapshot(frame),
+          }),
+        onEvent: (message) => {
+          const event = mobileEventToDashboardEvent(message)
+          if (event !== undefined) dispatchDashboardAction({ type: 'event.received', event })
+        },
+        onState: (state) => {
+          if (!paused) dispatchDashboardAction({ type: 'connection.changed', state })
+        },
+        onGap: () => {
+          dispatchDashboardAction({ type: 'stream.gap', fromSeq: 0 })
+          dispatchDashboardAction({ type: 'stream.reconnect' })
+        },
+      }
+    )
+    socketRef.current = socket
+    return () => {
+      socket.close()
+      socketRef.current = null
+    }
+  }, [paused])
+
+  const pause = useCallback(() => {
+    setPaused(true)
+    socketRef.current?.close()
+    socketRef.current = null
+    dispatchDashboardAction({ type: 'connection.changed', state: 'paused' })
+  }, [])
+
+  const goLive = useCallback(() => {
+    setPaused(false)
+    dispatchDashboardAction({ type: 'connection.changed', state: 'connected' })
+  }, [])
+
+  const setFamilyFilter = useCallback((family: FamilyFilter) => {
+    dispatchDashboardAction({ type: 'filter.family', family })
+  }, [])
+
+  const selectEvent = useCallback((eventId: string) => {
+    dispatchDashboardAction({ type: 'event.selected', eventId })
+  }, [])
+
+  const selectRow = useCallback((rowId: string) => {
+    dispatchDashboardAction({ type: 'row.selected', rowId })
+  }, [])
+
   return {
-    rows: [],
-    events: [],
-    summary: EMPTY_SUMMARY,
-    connectionState: 'disconnected',
-    selectedEventId: undefined,
-    selectedRowId: undefined,
-    paused: false,
-    familyFilter: 'all',
-    pause: noop,
-    goLive: noop,
-    setFamilyFilter: noop,
-    selectEvent: noop,
-    selectRow: noop,
+    rows,
+    events,
+    summary,
+    connectionState,
+    selectedEventId,
+    selectedRowId,
+    paused,
+    familyFilter,
+    pause,
+    goLive,
+    setFamilyFilter,
+    selectEvent,
+    selectRow,
   }
 }
