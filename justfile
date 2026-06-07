@@ -67,9 +67,9 @@ install:
     cd packages/acp-server && bun link
     cd packages/wlearn && bun link
 
-# Serve the ACP Session Dashboard (acp-ops-web) against the local dev stack
+# Serve the ACP viewer (live sessions dashboard at /sessions) against the local dev stack
 serve-dashboard:
-    cd packages/acp-ops-web && bun run dev
+    cd packages/acp-viewer && bun run dev
 
 # Run control-plane interface test with rex-home target
 cp-test prompt="List skills available. Use only what is in your context, no tools.":
