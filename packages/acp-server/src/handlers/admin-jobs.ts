@@ -20,7 +20,9 @@ import {
 } from '../parsers/body.js'
 import { handleCreateInput } from './inputs.js'
 
-import type { Actor, JobFlow } from 'acp-core'
+import { validateJobTrigger } from 'acp-core'
+
+import type { Actor, JobFlow, JobTrigger } from 'acp-core'
 import type { ResolvedAcpServerDeps } from '../deps.js'
 import { advanceJobFlow } from '../jobs/flow-engine.js'
 import { resolveInterfaceSourceForScope } from '../jobs/resolve-interface-source.js'
@@ -64,6 +66,25 @@ function parseOptionalSchedule(
 
 function parseInputTemplate(input: Record<string, unknown>): Readonly<Record<string, unknown>> {
   return requireRecord(input['input'], 'input')
+}
+
+/** Parse + validate the optional `trigger` union from a job body. */
+function parseOptionalTrigger(body: Record<string, unknown>): JobTrigger | undefined {
+  if (!hasOwnField(body, 'trigger')) {
+    return undefined
+  }
+  const result = validateJobTrigger(body['trigger'])
+  if (!result.valid) {
+    badRequest(`invalid trigger: ${result.errors.join('; ')}`, { field: 'trigger' })
+  }
+  return result.trigger
+}
+
+/** v1: event-triggered jobs cannot define a flow (constraint #12). */
+function rejectEventFlow(triggerKind: JobTrigger['kind'], hasFlow: boolean): void {
+  if (triggerKind === 'event' && hasFlow) {
+    badRequest('event-triggered jobs cannot define a flow', { field: 'flow' })
+  }
 }
 
 function parseOptionalInputTemplate(
@@ -190,6 +211,8 @@ export const handleCreateAdminJob: RouteHandler = async ({ request, deps, actor 
     badRequest(`invalid slug: ${slug}`, { field: 'slug' })
   }
   const description = readOptionalTrimmedStringField(body, 'description')
+  const trigger = parseOptionalTrigger(body)
+  rejectEventFlow(trigger?.kind ?? 'schedule', flow !== undefined)
   const jobsStore = requireJobsStore(deps)
   const created = jobsStore.createJob({
     agentId: requireTrimmedStringField(body, 'agentId'),
@@ -198,7 +221,7 @@ export const handleCreateAdminJob: RouteHandler = async ({ request, deps, actor 
     ...(slug !== undefined ? { slug } : {}),
     ...(description !== undefined ? { description } : {}),
     ...(laneRef !== undefined ? { laneRef } : {}),
-    schedule: parseSchedule(body),
+    ...(trigger !== undefined ? { trigger } : { schedule: parseSchedule(body) }),
     input: parseInputTemplate(body),
     ...(flow !== undefined ? { flow } : {}),
     ...(disabled !== undefined ? { disabled } : {}),
@@ -240,6 +263,7 @@ export const handlePatchAdminJob: RouteHandler = async ({ request, params, deps,
   }
 
   const schedule = parseOptionalSchedule(body)
+  const trigger = parseOptionalTrigger(body)
   const input = parseOptionalInputTemplate(body)
   const disabled = readOptionalBooleanField(body, 'disabled')
   const slug = readOptionalTrimmedStringField(body, 'slug')
@@ -253,9 +277,19 @@ export const handlePatchAdminJob: RouteHandler = async ({ request, params, deps,
         ? { description: null }
         : { description: readOptionalTrimmedStringField(body, 'description') ?? null }
       : {}
-  const updated = requireJobsStore(deps).updateJob(requireJobId(params), {
+  const jobId = requireJobId(params)
+  // Reject event + flow on patch, considering the post-patch effective state so a
+  // flow cannot be bolted onto an existing event job (or vice versa).
+  if (trigger?.kind === 'event' || flow !== undefined) {
+    const existing = requireJob(deps, jobId)
+    const effectiveKind = trigger?.kind ?? existing.trigger.kind
+    const effectiveHasFlow = flow !== undefined || existing.flow !== undefined
+    rejectEventFlow(effectiveKind, effectiveHasFlow)
+  }
+  const updated = requireJobsStore(deps).updateJob(jobId, {
     ...(slug !== undefined ? { slug } : {}),
     ...descriptionPatch,
+    ...(trigger !== undefined ? { trigger } : {}),
     ...(schedule !== undefined ? { schedule } : {}),
     ...(input !== undefined ? { input } : {}),
     ...(flow !== undefined ? { flow } : {}),

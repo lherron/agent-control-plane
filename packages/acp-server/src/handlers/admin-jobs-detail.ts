@@ -79,10 +79,12 @@ export const handleGetAdminJobDetail: RouteHandler = async ({ params, deps }) =>
     .list({ projectId: job.projectId })
     .map(toApiInterfaceBinding)
 
+  const schedule = buildScheduleSummary(job)
   return json({
     job,
     summary: summarizeJob(job),
-    schedule: buildScheduleSummary(job),
+    trigger: job.trigger,
+    ...(schedule !== undefined ? { schedule } : {}),
     startup: {
       scopeRef: job.scopeRef,
       laneRef: job.laneRef,

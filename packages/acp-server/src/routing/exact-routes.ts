@@ -42,6 +42,7 @@ import { handleResolveSession } from '../handlers/sessions-resolve.js'
 import { handleCreateWorkflowInteractRun } from '../handlers/workflow-interact-runs.js'
 import { handleCreateWorkflowParticipantRun } from '../handlers/workflow-participant-runs.js'
 import { handleWrkfPing } from '../handlers/wrkf-ping.js'
+import { handleWrkqWebhook } from '../handlers/webhooks-wrkq.js'
 import { handleLaunchSession } from '../launch-role-scoped.js'
 import { withActorAndAuthz } from '../middleware/actor-and-authz.js'
 
@@ -157,5 +158,7 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
     [exactRouteKey('POST', '/v1/mobile/messages/dm')]: handleMobileSemanticDm,
     [exactRouteKey('GET', '/v1/mobile/messages/watch')]: handleMobileMessagesWatch,
     [exactRouteKey('GET', '/v1/wrkf/ping')]: handleWrkfPing,
+    // Loopback-trusted webhook ingest (no actor/authz wrapper).
+    [exactRouteKey('POST', '/v1/webhooks/wrkq')]: handleWrkqWebhook,
   }
 }

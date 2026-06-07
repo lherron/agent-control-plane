@@ -215,3 +215,29 @@ export type {
   MessageParticipantSessionRef,
   MessageParticipantSystem,
 } from './coordination-messages.js'
+
+export {
+  evaluateEventMatch,
+  isAgentOriginEvent,
+  normalizeAgentActor,
+  parseDurationToMs,
+  parseWrkqWebhookEvent,
+  resolveEventAction,
+  validateJobTrigger,
+} from './webhook/index.js'
+export type {
+  EventMatch,
+  EventOriginMatch,
+  EventTrigger,
+  JobTrigger,
+  JobTriggerKind,
+  OriginPolicy,
+  ParseWrkqWebhookEventResult,
+  ResolvedEventAction,
+  ResolveEventActionResult,
+  ScheduleTrigger,
+  ValidateJobTriggerResult,
+  WrkqWebhookEvent,
+  WrkqWebhookOrigin,
+  WrkqWebhookTransition,
+} from './webhook/index.js'

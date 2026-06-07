@@ -96,32 +96,37 @@ export function summarizeCompactJob(job: JobRecord): CompactJobSummary {
   }
 }
 
-export function buildScheduleSummary(job: JobRecord): {
-  cron: string
-  lastFireAt?: string | undefined
-  nextFireAt?: string | undefined
-  nextFirePreview?: string[] | undefined
-  windowStart?: string | undefined
-  windowEnd?: string | undefined
-  windowMinutes?: number | undefined
-} {
+export function buildScheduleSummary(job: JobRecord):
+  | {
+      cron: string
+      lastFireAt?: string | undefined
+      nextFireAt?: string | undefined
+      nextFirePreview?: string[] | undefined
+      windowStart?: string | undefined
+      windowEnd?: string | undefined
+      windowMinutes?: number | undefined
+    }
+  | undefined {
+  // Event-triggered jobs carry no schedule; the detail surface omits this block.
+  const schedule = job.schedule
+  if (schedule === undefined) {
+    return undefined
+  }
   const preview: string[] = []
-  let cursor = job.nextFireAt ?? nextFireAfter(job.schedule.cron, new Date().toISOString())
+  let cursor = job.nextFireAt ?? nextFireAfter(schedule.cron, new Date().toISOString())
   for (let index = 0; index < 5 && cursor !== null; index += 1) {
     preview.push(cursor)
-    cursor = nextFireAfter(job.schedule.cron, cursor)
+    cursor = nextFireAfter(schedule.cron, cursor)
   }
 
   return {
-    cron: job.schedule.cron,
+    cron: schedule.cron,
     ...(job.lastFireAt !== undefined ? { lastFireAt: job.lastFireAt } : {}),
     ...(job.nextFireAt !== undefined ? { nextFireAt: job.nextFireAt } : {}),
     ...(preview.length > 0 ? { nextFirePreview: preview } : {}),
-    ...(job.schedule.windowStart !== undefined ? { windowStart: job.schedule.windowStart } : {}),
-    ...(job.schedule.windowEnd !== undefined ? { windowEnd: job.schedule.windowEnd } : {}),
-    ...(typeof job.schedule.windowMinutes === 'number'
-      ? { windowMinutes: job.schedule.windowMinutes }
-      : {}),
+    ...(schedule.windowStart !== undefined ? { windowStart: schedule.windowStart } : {}),
+    ...(schedule.windowEnd !== undefined ? { windowEnd: schedule.windowEnd } : {}),
+    ...(typeof schedule.windowMinutes === 'number' ? { windowMinutes: schedule.windowMinutes } : {}),
   }
 }
 

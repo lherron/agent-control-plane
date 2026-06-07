@@ -39,6 +39,7 @@ import { InputAdmissionService } from './input-admission/input-admission-service
 import { createInputQueueDispatcher } from './integration/input-queue-dispatcher.js'
 import { createInterfaceRunDispatcher } from './integration/interface-run-dispatcher.js'
 import { createWakeDispatcher } from './integration/wake-dispatcher.js'
+import { createEventJobEvaluator } from './jobs/event-job-evaluator.js'
 import { advanceJobFlow } from './jobs/flow-engine.js'
 import { createRealLauncher } from './real-launcher.js'
 import { createWrkfClientLifecycle } from './wrkf/client-lifecycle.js'
@@ -638,6 +639,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
               job: entry.job,
               jobRun: entry.jobRun,
             }),
+          evaluateEventJob: createEventJobEvaluator(),
         })
       : undefined
   let jobsTickInProgress = false
