@@ -29,11 +29,39 @@ export type MobileDashboardCursors = {
   nextFromHrcSeq: number
 }
 
+export type MobileSessionStatus = 'active' | 'stale' | 'inactive'
+
 export type MobileSessionSummary = {
-  // Opaque for MVP — the dashboard derives rows from the event stream, not these.
-  scopeRef?: string | undefined
-  hostSessionId?: string | undefined
-  [key: string]: unknown
+  sessionRef: string
+  displayRef?: string | undefined
+  title?: string | undefined
+  mode?: string | undefined
+  summaryStatus: MobileSessionStatus
+  /** @deprecated mirror of summaryStatus from older clients */
+  status?: MobileSessionStatus | undefined
+  hostSessionId: string
+  generation: number
+  runtimeId?: string | undefined
+  activeTurnId?: string | undefined
+  lastHrcSeq?: number | undefined
+  lastActivityAt?: string | undefined
+  runtime?:
+    | {
+        status: string
+        transport?: string | undefined
+        runtimeId?: string | undefined
+        launchId?: string | undefined
+        activeRunId?: string | undefined
+        lastActivityAt?: string | undefined
+        supportsInflightInput?: boolean | undefined
+      }
+    | undefined
+  run?:
+    | {
+        status: string
+        runId: string
+      }
+    | undefined
 }
 
 export type MobileDashboardSnapshotFrame = {

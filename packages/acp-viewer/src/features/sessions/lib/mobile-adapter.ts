@@ -2,12 +2,17 @@ import {
   type DashboardEvent,
   type HrcLifecycleEvent,
   type SessionDashboardSnapshot,
+  type SessionRef,
   type SessionTimelineRow,
   buildSummary,
   deriveSessionRow,
   projectHrcToDashboardEvent,
 } from 'acp-ops-projection'
-import type { MobileDashboardSnapshotFrame, MobileEventMessage } from './mobile-frames'
+import type {
+  MobileDashboardSnapshotFrame,
+  MobileEventMessage,
+  MobileSessionSummary,
+} from './mobile-frames'
 
 // How long events live in the reducer window before compaction trims them.
 // The mobile WS is a rolling live view (recentEventsBySession is bounded
@@ -16,6 +21,108 @@ export const DASHBOARD_WINDOW_MS = 10 * 60_000
 
 function rowIdFor(event: DashboardEvent): string {
   return `${event.hostSessionId}:${event.generation}`
+}
+
+/** Split a flat "scope/lane:main" sessionRef into the projection SessionRef. */
+export function parseSessionRef(ref: string): SessionRef {
+  const marker = '/lane:'
+  const idx = ref.indexOf(marker)
+  if (idx === -1) return { scopeRef: ref, laneRef: 'main' }
+  return { scopeRef: ref.slice(0, idx), laneRef: ref.slice(idx + marker.length) || 'main' }
+}
+
+type RowStatus = 'busy' | 'idle' | 'launching' | 'stale' | 'dead'
+
+/** Collapse the mobile session/runtime/run statuses into a row status the
+ *  StatusStrip counts (busy/idle/launching/stale/dead). */
+function deriveRowStatus(s: MobileSessionSummary): RowStatus {
+  const summary = s.summaryStatus ?? s.status
+  if (summary === 'stale') return 'stale'
+  if (summary === 'inactive') return 'dead'
+  // active session — refine by runtime/run
+  if (s.activeTurnId !== undefined || s.run?.status === 'running') return 'busy'
+  const rt = s.runtime?.status?.toLowerCase() ?? ''
+  if (rt.includes('launch')) return 'launching'
+  if (rt.includes('busy')) return 'busy'
+  if (rt.includes('stale')) return 'stale'
+  if (rt.includes('dead') || rt.includes('exited') || rt.includes('crashed')) return 'dead'
+  return 'idle'
+}
+
+function normalizeTransport(t: string | undefined): 'tmux' | 'sdk' | undefined {
+  return t === 'tmux' || t === 'sdk' ? t : undefined
+}
+
+/**
+ * Map a roster MobileSessionSummary into a SessionTimelineRow so active sessions
+ * render even when they have no recent events (idle-but-active). Event-derived
+ * rows merge on top of these in the store (richer live data wins). Returns
+ * undefined for summaries missing identity fields.
+ */
+export function mobileSessionToRow(s: MobileSessionSummary): SessionTimelineRow | undefined {
+  if (!s.hostSessionId || !s.sessionRef) return undefined
+  const status = deriveRowStatus(s)
+  const continuity = status === 'stale' || status === 'dead' ? 'broken' : 'healthy'
+  const priority = status === 'busy' ? 60 : status === 'stale' || status === 'dead' ? 80 : 10
+
+  const runtime: SessionTimelineRow['runtime'] = s.runtime
+    ? {
+        status,
+        ...(s.runtime.runtimeId !== undefined ? { runtimeId: s.runtime.runtimeId } : {}),
+        ...(s.runtime.launchId !== undefined ? { launchId: s.runtime.launchId } : {}),
+        ...(normalizeTransport(s.runtime.transport) !== undefined
+          ? { transport: normalizeTransport(s.runtime.transport) }
+          : {}),
+        ...(s.runtime.activeRunId !== undefined ? { activeRunId: s.runtime.activeRunId } : {}),
+        ...(s.runtime.lastActivityAt !== undefined
+          ? { lastActivityAt: s.runtime.lastActivityAt }
+          : {}),
+        ...(s.runtime.supportsInflightInput !== undefined
+          ? { supportsInFlightInput: s.runtime.supportsInflightInput }
+          : {}),
+      }
+    : { status }
+
+  return {
+    rowId: `${s.hostSessionId}:${s.generation}`,
+    sessionRef: parseSessionRef(s.sessionRef),
+    hostSessionId: s.hostSessionId,
+    generation: s.generation,
+    runtime,
+    ...(s.run !== undefined ? { acp: { latestRunId: s.run.runId } } : {}),
+    visualState: {
+      priority,
+      colorRole: status === 'stale' || status === 'dead' ? 'warning' : 'runtime',
+      continuity,
+    },
+    stats: {
+      eventsInWindow: 0,
+      eventsPerMinute: 0,
+      ...(s.lastActivityAt !== undefined ? { lastEventAt: s.lastActivityAt } : {}),
+    },
+  }
+}
+
+/**
+ * Roster rows are populated only for ACTIVE sessions. Stale/inactive sessions are
+ * excluded — the server reports hundreds of stale historical generations that
+ * would flood the queue. A stale session that is actually emitting still appears
+ * via the event-derived path (events are not roster-filtered).
+ */
+export function isLiveSession(s: MobileSessionSummary): boolean {
+  return (s.summaryStatus ?? s.status) === 'active'
+}
+
+/** Map the roster array into rows (live sessions only). Exported for the
+ *  session_updated live-upsert path in the hook. */
+export function mobileRosterToRows(sessions: MobileSessionSummary[]): SessionTimelineRow[] {
+  const rows: SessionTimelineRow[] = []
+  for (const s of sessions) {
+    if (!isLiveSession(s)) continue
+    const row = mobileSessionToRow(s)
+    if (row !== undefined) rows.push(row)
+  }
+  return rows
 }
 
 /**
@@ -71,8 +178,12 @@ export function mobileSnapshotToDashboardSnapshot(
   }
   events.sort((a, b) => a.hrcSeq - b.hrcSeq)
 
-  // Derive rows from the flattened events purely to compute correct initial
-  // counts; the reducer re-derives its own rows when the snapshot loads.
+  // Roster rows for every live session (incl. active-but-idle ones with no
+  // recent events). The store merges event-derived rows on top of these.
+  const rosterRows = mobileRosterToRows(frame.sessions)
+
+  // Fall back to event-derived rows for summary counts when the roster is empty
+  // (e.g. test frames); the reducer re-derives its own rows on load regardless.
   const grouped = new Map<string, DashboardEvent[]>()
   for (const event of events) {
     const rowId = rowIdFor(event)
@@ -80,10 +191,11 @@ export function mobileSnapshotToDashboardSnapshot(
     list.push(event)
     grouped.set(rowId, list)
   }
-  const rows: SessionTimelineRow[] = []
+  const eventRows: SessionTimelineRow[] = []
   for (const list of grouped.values()) {
-    rows.push(deriveSessionRow(list, DASHBOARD_WINDOW_MS))
+    eventRows.push(deriveSessionRow(list, DASHBOARD_WINDOW_MS))
   }
+  const summaryRows = rosterRows.length > 0 ? rosterRows : eventRows
 
   const toTs = frame.generatedAt
   const toMs = Date.parse(toTs)
@@ -105,8 +217,8 @@ export function mobileSnapshotToDashboardSnapshot(
       lastHrcSeq: frame.cursors.lastHrcSeq,
       lastStreamSeq: frame.cursors.lastStreamSeq,
     },
-    summary: buildSummary(rows, events, DASHBOARD_WINDOW_MS),
-    sessions: [],
+    summary: buildSummary(summaryRows, events, DASHBOARD_WINDOW_MS),
+    sessions: rosterRows,
     events,
   }
 }

@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { openMobileDashboardSocket } from '@/features/sessions/api/mobile-socket'
 import type { MobileSocketSubscription } from '@/features/sessions/api/mobile-socket'
 import {
+  isLiveSession,
   mobileEventToDashboardEvent,
+  mobileSessionToRow,
   mobileSnapshotToDashboardSnapshot,
 } from '@/features/sessions/lib/mobile-adapter'
 import {
@@ -72,6 +74,11 @@ export function useMobileDashboard(): UseMobileDashboardResult {
         onEvent: (message) => {
           const event = mobileEventToDashboardEvent(message)
           if (event !== undefined) dispatchDashboardAction({ type: 'event.received', event })
+        },
+        onSessionUpdate: (session) => {
+          if (!isLiveSession(session)) return
+          const row = mobileSessionToRow(session)
+          if (row !== undefined) dispatchDashboardAction({ type: 'roster.upserted', row })
         },
         onState: (state) => {
           if (!paused) dispatchDashboardAction({ type: 'connection.changed', state })

@@ -3,6 +3,7 @@ import type {
   MobileDashboardSnapshotFrame,
   MobileEventMessage,
   MobileFrame,
+  MobileSessionSummary,
 } from '@/features/sessions/lib/mobile-frames'
 
 export type MobileSocketOptions = {
@@ -15,6 +16,8 @@ export type MobileSocketOptions = {
 export type MobileSocketHandlers = {
   onSnapshot?: ((frame: MobileDashboardSnapshotFrame) => void) | undefined
   onEvent?: ((message: MobileEventMessage) => void) | undefined
+  /** Per-session roster update (live status/runtime changes). */
+  onSessionUpdate?: ((session: MobileSessionSummary) => void) | undefined
   onState?: ((state: StreamConnectionState) => void) | undefined
   /** Replay cursor too old — caller should treat next snapshot as a reset. */
   onGap?: (() => void) | undefined
@@ -84,6 +87,9 @@ export function openMobileDashboardSocket(
         handlers.onEvent?.(frame)
         return
       }
+      case 'session_updated':
+        handlers.onSessionUpdate?.(frame.session)
+        return
       case 'ping':
         handlers.onPing?.()
         return
@@ -96,7 +102,7 @@ export function openMobileDashboardSocket(
         }
         return
       }
-      // sessions_refreshed / session_updated ignored for MVP
+      // sessions_refreshed ignored — its roster equals the snapshot's, sent once at connect
       default:
         return
     }

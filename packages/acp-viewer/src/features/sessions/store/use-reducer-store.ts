@@ -1,8 +1,9 @@
-import type {
-  DashboardEvent,
-  SessionDashboardSnapshot,
-  SessionDashboardSummary,
-  SessionTimelineRow,
+import {
+  type DashboardEvent,
+  type SessionDashboardSnapshot,
+  type SessionDashboardSummary,
+  type SessionTimelineRow,
+  buildSummary,
 } from 'acp-ops-projection'
 import {
   type ReducerState,
@@ -45,6 +46,7 @@ export type DashboardReducerAction =
   | { type: 'stream.reconnect' }
   | { type: 'stream.gap'; fromSeq: number }
   | { type: 'filter.family'; family: DashboardEvent['family'] | 'all' }
+  | { type: 'roster.upserted'; row: SessionTimelineRow }
 
 const EMPTY_SNAPSHOT = createEmptyDashboardSnapshot()
 
@@ -197,6 +199,21 @@ function reduceDashboardAction(
     case 'filter.family': {
       const next = { ...state, familyFilter: action.family }
       return { familyFilter: action.family, events: eventsForState(next) }
+    }
+    case 'roster.upserted': {
+      // Live roster update (session_updated). Merge into snapshot.sessions so
+      // active sessions stay current without a reconnect; event-derived rows
+      // still win via rowsForState when the session has live events.
+      const sessions = [
+        ...state.snapshot.sessions.filter((row) => row.rowId !== action.row.rowId),
+        action.row,
+      ]
+      const snapshot = { ...state.snapshot, sessions }
+      const next = { ...state, snapshot }
+      const rows = rowsForState(next)
+      // Recompute status counts from the merged rows; keep rate/lag from snapshot.
+      const counts = buildSummary(rows, [], 0).counts
+      return { snapshot, rows, summary: { ...state.summary, counts } }
     }
   }
 }
