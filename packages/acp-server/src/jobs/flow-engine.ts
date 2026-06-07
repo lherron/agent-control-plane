@@ -450,6 +450,10 @@ async function rotateFreshStepContext(
   const session = await deps.hrcClient.resolveSession({
     sessionRef: formatCanonicalSessionRef({ scopeRef: job.scopeRef, laneRef: job.laneRef }),
   })
+  if (!session.found) {
+    // Nothing to clear for a not-yet-provisioned scope.
+    return
+  }
 
   await deps.hrcClient.clearContext({
     hostSessionId: session.hostSessionId,

@@ -787,6 +787,13 @@ export class InputAdmissionService {
     const resolved = await this.deps.hrcClient.resolveSession({
       sessionRef: `${input.sessionRef.scopeRef}/lane:${input.sessionRef.laneRef}`,
     })
+    if (!resolved.found) {
+      return this.createRejectedAdmission({
+        attempt,
+        intent: input.intent,
+        reason: 'runtime_not_found',
+      })
+    }
     const runtimes = await this.deps.hrcClient.listRuntimes({
       hostSessionId: resolved.hostSessionId,
     })

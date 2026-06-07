@@ -49,6 +49,9 @@ export const handleResetSession: RouteHandler = async ({ request, deps }) => {
   const resolved = await hrcClient.resolveSession({
     sessionRef: toHrcSessionRef(sessionRef.scopeRef, sessionRef.laneRef),
   })
+  if (!resolved.found) {
+    badRequest(`session not found for ${sessionRef.scopeRef}`)
+  }
 
   const cleared = await hrcClient.clearContext({
     hostSessionId: resolved.hostSessionId,

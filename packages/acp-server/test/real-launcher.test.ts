@@ -47,7 +47,7 @@ describe('real launcher helpers', () => {
         ({
           resolveSession: async () => {
             calls.push('resolveSession')
-            return { hostSessionId: 'hsid-123', generation: 3 }
+            return { found: true, hostSessionId: 'hsid-123', generation: 3 }
           },
           ensureRuntime: async () => {
             throw new Error('ensureRuntime should not be called for headless real-launcher turns')
@@ -172,7 +172,7 @@ describe('real launcher helpers', () => {
         ({
           resolveSession: async () => {
             calls.push('resolveSession')
-            return { hostSessionId: 'hsid-empty' }
+            return { found: true, hostSessionId: 'hsid-empty' }
           },
           ensureRuntime: async () => {
             throw new Error('ensureRuntime should not be called for empty-prompt launches')
@@ -302,8 +302,9 @@ describe('real launcher helpers', () => {
                 },
                 initialPrompt: 'What is 2+2?',
               },
+              create: true,
             })
-            return { hostSessionId: 'hsid-discord', generation: 1 }
+            return { found: true, hostSessionId: 'hsid-discord', generation: 1 }
           },
           dispatchTurn: async () => {
             throw new Error('dispatchTurn should not be called when live tmux exists')
@@ -429,7 +430,7 @@ describe('real launcher helpers', () => {
       pollIntervalMs: 1,
       createClient: () =>
         ({
-          resolveSession: async () => ({ hostSessionId: 'hsid-failed' }),
+          resolveSession: async () => ({ found: true, hostSessionId: 'hsid-failed' }),
           dispatchTurn: async () => {
             db.run(
               'INSERT INTO runs (run_id, status, error_code, error_message) VALUES (?, ?, ?, ?)',
@@ -484,7 +485,7 @@ describe('real launcher helpers', () => {
         ({
           resolveSession: async () => {
             calls.push('resolveSession')
-            return { hostSessionId: 'hsid-empty' }
+            return { found: true, hostSessionId: 'hsid-empty' }
           },
           ensureRuntime: async () => {
             throw new Error('ensureRuntime should not be called for empty-prompt launches')

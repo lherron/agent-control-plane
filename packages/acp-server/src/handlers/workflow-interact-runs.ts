@@ -80,6 +80,9 @@ export const handleCreateWorkflowInteractRun: RouteHandler = async ({ request, d
     sessionRef: sessionRefString,
     runtimeIntent: intent,
   })
+  if (!resolved.found) {
+    badRequest(`session not found for ${sessionRefString}`)
+  }
   const runtime = await deps.hrcClient.startRuntime({
     hostSessionId: resolved.hostSessionId,
     intent,

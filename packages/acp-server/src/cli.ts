@@ -370,7 +370,10 @@ export function resolveLauncherDeps(
         const result = await hrcClient.resolveSession({
           sessionRef: toHrcSessionRef(sessionRef.scopeRef, sessionRef.laneRef),
         })
-        return result.hostSessionId
+        // Broker-cutover resolveSession returns a discriminated union; a fresh
+        // (unprovisioned) scope yields found:false / hostSessionId:null. Map that
+        // to undefined so the resolver's not-found contract is honored.
+        return result.found ? result.hostSessionId : undefined
       },
     }
   }
