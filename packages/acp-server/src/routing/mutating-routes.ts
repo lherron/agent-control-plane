@@ -104,4 +104,23 @@ export const mutatingRouteSpecs: Record<string, ActorAndAuthzSpec> = {
     operation: 'runs.outbound-messages.create',
     resource: ({ params }) => ({ kind: 'run', id: params['runId'] }),
   },
+  'POST /v1/wrkf/pbc/tasks/:task/run-step': {
+    operation: 'wrkf.pbc.run-step',
+    resource: ({ params }) => ({ kind: 'wrkf-task', id: params['task'] }),
+    parseActorBody: false,
+  },
+  'POST /v1/wrkf/pbc/tasks/:task/approve-transition': {
+    operation: 'wrkf.pbc.approve-transition',
+    resource: ({ params }) => ({ kind: 'wrkf-task', id: params['task'] }),
+    parseActorBody: false,
+  },
+  'POST /v1/wrkf/pbc/tasks/:task/run-until-blocked': {
+    operation: 'wrkf.pbc.run-until-blocked',
+    resource: ({ params }) => ({ kind: 'wrkf-task', id: params['task'] }),
+    parseActorBody: false,
+  },
+  'POST /v1/wrkf/effects/deliver': {
+    operation: 'wrkf.effects.deliver',
+    resource: ({ body }) => ({ kind: 'wrkf-task', id: readBodyString(body, 'task') }),
+  },
 } as const

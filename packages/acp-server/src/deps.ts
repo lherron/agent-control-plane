@@ -35,6 +35,12 @@ import {
 import { InMemoryInputAttemptStore, type InputAttemptStore } from './domain/input-attempt-store.js'
 import { InMemoryRunStore, type RunStore } from './domain/run-store.js'
 import type { JobExecPolicy } from './jobs/exec-policy.js'
+import {
+  InMemoryPbcCaptureStore,
+  InMemoryPbcIdempotencyStore,
+  type PbcCaptureStore,
+  type PbcRouteIdempotencyStore,
+} from './wrkf/pbc-route-idempotency-store.js'
 import type { AcpWrkfWorkflowPort } from './wrkf/port.js'
 
 export const DEFAULT_INTERFACE_DB_PATH = '/Users/lherron/praesidium/var/db/acp-interface.db'
@@ -151,6 +157,8 @@ export interface AcpServerDeps {
   inputQueuePolicy?: InputQueuePolicy | undefined
   agentAssetsDir?: string | undefined
   wrkf?: AcpWrkfWorkflowPort | undefined
+  pbcIdempotencyStore?: PbcRouteIdempotencyStore | undefined
+  pbcCaptureStore?: PbcCaptureStore | undefined
 }
 
 export interface ResolvedAcpServerDeps extends AcpServerDeps {
@@ -168,6 +176,8 @@ export interface ResolvedAcpServerDeps extends AcpServerDeps {
   defaultActor: Actor
   inputQueuePolicy: InputQueuePolicy
   wrkf: AcpWrkfWorkflowPort | undefined
+  pbcIdempotencyStore: PbcRouteIdempotencyStore
+  pbcCaptureStore: PbcCaptureStore
 }
 
 export type DeliveryTargetResolver = (input: {
@@ -219,6 +229,8 @@ export function resolveAcpServerDeps(deps: AcpServerDeps): ResolvedAcpServerDeps
     defaultActor: deps.defaultActor ?? { kind: 'system', id: 'acp-local' },
     inputQueuePolicy: deps.inputQueuePolicy ?? {},
     wrkf: deps.wrkf,
+    pbcIdempotencyStore: deps.pbcIdempotencyStore ?? new InMemoryPbcIdempotencyStore(),
+    pbcCaptureStore: deps.pbcCaptureStore ?? new InMemoryPbcCaptureStore(),
   }
 }
 

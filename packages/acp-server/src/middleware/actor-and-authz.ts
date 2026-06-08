@@ -18,6 +18,7 @@ type ResourceResolver = (input: {
 export type ActorAndAuthzSpec = {
   operation: string
   resource: AuthzResource | ResourceResolver
+  parseActorBody?: boolean | undefined
 }
 
 async function readMaybeJsonBody(request: Request): Promise<unknown> {
@@ -52,7 +53,11 @@ function resolveResource(
 export function withActorAndAuthz(spec: ActorAndAuthzSpec, handler: RouteHandler): RouteHandler {
   return async (context) => {
     const body = await readMaybeJsonBody(context.request)
-    const actor = parseActorFromHeaders(context.request.headers, body, context.deps.defaultActor)
+    const actor = parseActorFromHeaders(
+      context.request.headers,
+      spec.parseActorBody === false ? undefined : body,
+      context.deps.defaultActor
+    )
     if (actor === undefined) {
       throw new Error(`default actor resolution failed for ${spec.operation}`)
     }
