@@ -435,6 +435,8 @@ describe('ingestEvidenceAndSatisfyObligations', () => {
       task: TASK,
       role: ROLE,
       actor: ACTOR,
+      // PO-kind evidence produced by agent role requires the simulation flag (gate, SPEC §4.10)
+      allowProductOwnerSimulation: true,
       participantOutput: {
         evidence: [{ kind: 'clarification_response', summary: 'Clarification provided' }],
         satisfyObligations: [
@@ -463,6 +465,8 @@ describe('ingestEvidenceAndSatisfyObligations', () => {
       task: TASK,
       role: ROLE,
       actor: ACTOR,
+      // PO-kind evidence produced by agent role requires the simulation flag (gate, SPEC §4.10)
+      allowProductOwnerSimulation: true,
       participantOutput: {
         evidence: [{ kind: 'clarification_response' }],
         satisfyObligations: [{ obligationId: 'obl_clr_1', evidenceIndex: 0 }],
@@ -490,6 +494,8 @@ describe('ingestEvidenceAndSatisfyObligations', () => {
       task: TASK,
       role: ROLE,
       actor: ACTOR,
+      // PO-kind evidence produced by agent role requires the simulation flag (gate, SPEC §4.10)
+      allowProductOwnerSimulation: true,
       participantOutput: {
         evidence: [{ kind: 'patch_decision', facts: { route: 'finalize' } }],
         satisfyObligations: [
@@ -517,6 +523,8 @@ describe('ingestEvidenceAndSatisfyObligations', () => {
       task: TASK,
       role: ROLE,
       actor: ACTOR,
+      // PO-kind evidence produced by agent role requires the simulation flag (gate, SPEC §4.10)
+      allowProductOwnerSimulation: true,
       participantOutput: {
         evidence: [{ kind: 'clarification_response', summary: 'Here is the answer' }],
         satisfyObligations: [{ obligationId: 'obl_clr_1', evidenceIndex: 0 }],
@@ -542,6 +550,8 @@ describe('ingestEvidenceAndSatisfyObligations', () => {
       task: TASK,
       role: ROLE,
       actor: ACTOR,
+      // PO-kind evidence produced by agent role requires the simulation flag (gate, SPEC §4.10)
+      allowProductOwnerSimulation: true,
       participantOutput: {
         evidence: [{ kind: 'clarification_response', summary: 'Clarification' }],
         satisfyObligations: [{ obligationId: 'obl_clr_1', evidenceIndex: 0 }],
