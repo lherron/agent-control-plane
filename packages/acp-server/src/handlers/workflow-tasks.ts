@@ -227,22 +227,67 @@ export const handleAttachWorkflowEvidence: RouteHandler = async ({ request, para
   }
 
   const kind = requireTrimmedStringField(body, 'kind')
-  const ref = requireTrimmedStringField(body, 'ref')
+  const ref = readOptionalTrimmedStringField(body, 'ref')
   const summary = readOptionalTrimmedStringField(body, 'summary')
-  const facts = readOptionalRecordField(body, 'facts')
+  const rawFacts = body['facts']
+  if (rawFacts !== undefined && !isRecord(rawFacts)) {
+    unprocessable('invalid_evidence', 'facts must be an object', { field: 'facts' })
+  }
+  const facts = rawFacts as Record<string, unknown> | undefined
   const role = readOptionalTrimmedStringField(body, 'role')
+  const hasData = Object.prototype.hasOwnProperty.call(body, 'data')
 
   try {
     const result = await wrkf.evidence.add({
       task: taskId,
       kind,
-      ref,
       actor: wrkfActor,
+      ...(ref !== undefined ? { ref } : {}),
       ...(summary !== undefined ? { summary } : {}),
       ...(facts !== undefined ? { facts } : {}),
+      ...(hasData ? { data: body['data'] } : {}),
       ...(role !== undefined ? { role } : {}),
     })
     return json({ evidence: result }, 201)
+  } catch (error) {
+    if (error instanceof AcpHttpError) {
+      throw error
+    }
+    if (isWrkfError(error)) {
+      throw new AcpHttpError(wrkfErrorToHttpStatus(error.code), error.code, error.message)
+    }
+    throw error
+  }
+}
+
+export const handleSatisfyWorkflowObligation: RouteHandler = async ({ request, params, deps }) => {
+  const taskId = requireTaskId(params)
+  const obligationId = requireObligationId(params)
+  const wrkf = deps.wrkf
+  if (wrkf === undefined) {
+    throw new AcpHttpError(503, 'WRKF_UNAVAILABLE', 'wrkf port not available')
+  }
+  const body = requireRecord(await parseJsonBody(request))
+  const actor = extractActor(request, body, { required: false })
+  const wrkfActor =
+    body['actor'] !== undefined || actor !== undefined
+      ? wrkfActorFromBody(body['actor'], actor?.agentId)
+      : undefined
+  const evidenceId = readOptionalTrimmedStringField(body, 'evidenceId')
+  const role = readOptionalTrimmedStringField(body, 'role')
+  const reason = readOptionalTrimmedStringField(body, 'reason')
+
+  // Do NOT pre-check existence via an ACP obligation list — wrkf is authoritative.
+  try {
+    const result = await wrkf.obligation.satisfy({
+      task: taskId,
+      id: obligationId,
+      ...(evidenceId !== undefined ? { evidenceId } : {}),
+      ...(wrkfActor !== undefined ? { actor: wrkfActor } : {}),
+      ...(role !== undefined ? { role } : {}),
+      ...(reason !== undefined ? { reason } : {}),
+    })
+    return json(result)
   } catch (error) {
     if (error instanceof AcpHttpError) {
       throw error

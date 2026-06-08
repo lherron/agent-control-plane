@@ -46,7 +46,7 @@
  * evidence ingestion, capture idempotency, or effect delivery.
  */
 
-import { deliverPbcEffects } from './effect-delivery.js'
+import { deliverWrkfEffects } from './effect-delivery.js'
 import {
   type ParticipantOutputPort,
   captureAndIngestParticipantOutput,
@@ -531,7 +531,7 @@ async function readNext(
 }
 
 async function deliverEffects(port: PbcHarnessPort, task: string): Promise<Array<{ id: string }>> {
-  const delivery = await deliverPbcEffects(port, { task })
+  const delivery = await deliverWrkfEffects(port, { task })
   return delivery.delivered.map((id) => ({ id }))
 }
 

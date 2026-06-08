@@ -44,6 +44,7 @@ import {
   handleAttachWorkflowEvidence,
   handleCancelWorkflowObligation,
   handleGetWorkflowTask,
+  handleSatisfyWorkflowObligation,
   handleWaiveWorkflowObligation,
 } from '../handlers/workflow-tasks.js'
 import { handleWrkfPbcApproveTransition } from '../handlers/wrkf-pbc-approve-transition.js'
@@ -192,6 +193,15 @@ export function buildParamRoutes(): ParamRoute[] {
     createParamRoute('GET', '/v1/tasks/:taskId', handleGetWorkflowTask),
     createParamRoute('POST', '/v1/tasks/:taskId/evidence', handleAttachWorkflowEvidence),
     createParamRoute('POST', '/v1/tasks/:taskId/transitions', handleApplyWorkflowTransition),
+    createParamRoute(
+      'POST',
+      '/v1/tasks/:taskId/obligations/:obligationId/satisfy',
+      withSpec(
+        'POST',
+        '/v1/tasks/:taskId/obligations/:obligationId/satisfy',
+        handleSatisfyWorkflowObligation
+      )
+    ),
     createParamRoute(
       'POST',
       '/v1/tasks/:taskId/obligations/:obligationId/waive',

@@ -104,6 +104,10 @@ export const mutatingRouteSpecs: Record<string, ActorAndAuthzSpec> = {
     operation: 'runs.outbound-messages.create',
     resource: ({ params }) => ({ kind: 'run', id: params['runId'] }),
   },
+  'POST /v1/tasks/:taskId/obligations/:obligationId/satisfy': {
+    operation: 'wrkf.obligations.satisfy',
+    resource: ({ params }) => ({ kind: 'wrkf-obligation', id: params['obligationId'] }),
+  },
   'POST /v1/wrkf/pbc/tasks/:task/run-step': {
     operation: 'wrkf.pbc.run-step',
     resource: ({ params }) => ({ kind: 'wrkf-task', id: params['task'] }),

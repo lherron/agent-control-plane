@@ -30,7 +30,7 @@ type ListedEffect = {
 const DEFAULT_ADAPTER = 'acp'
 const WRKF_LEASE_CONFLICT = 'WRKF_LEASE_CONFLICT'
 
-export async function deliverPbcEffects(
+export async function deliverWrkfEffects(
   port: PbcEffectDeliveryPort,
   input: EffectDeliveryInput
 ): Promise<EffectDeliveryResult> {

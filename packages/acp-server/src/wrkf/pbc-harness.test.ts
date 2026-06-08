@@ -13,7 +13,7 @@
  *     - launchRuntime=true: no participantOutput yet → return 'launched' immediately
  *       (no transition, no run.finish until output captured later)
  *     - Apply transition ONLY if transitionPolicy='single-safe' selects exactly one
- *     - Deliver effects (deliverPbcEffects) AFTER a committed transition
+ *     - Deliver effects (deliverWrkfEffects) AFTER a committed transition
  *     - NEVER apply a transition before participant output is ingested
  *     - run.finish ONLY after evidence/obligation processing succeeds
  *

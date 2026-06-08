@@ -2,7 +2,7 @@
  * Red tests for effect-delivery.ts (Phase 4).
  *
  * Defines the contract for:
- *   deliverPbcEffects(port: PbcEffectDeliveryPort, input: EffectDeliveryInput):
+ *   deliverWrkfEffects(port: PbcEffectDeliveryPort, input: EffectDeliveryInput):
  *     Promise<EffectDeliveryResult>
  *
  * where:
@@ -28,7 +28,7 @@ import {
   type EffectDeliveryInput,
   type EffectDeliveryResult,
   type PbcEffectDeliveryPort,
-  deliverPbcEffects,
+  deliverWrkfEffects,
 } from './effect-delivery.js'
 
 // ---------------------------------------------------------------------------
@@ -94,12 +94,12 @@ const TWO_PENDING_EFFECTS: RawEffect[] = [
 // Tests: call ordering — list → deliver
 // ---------------------------------------------------------------------------
 
-describe('deliverPbcEffects - call ordering', () => {
+describe('deliverWrkfEffects - call ordering', () => {
   test('calls effect.list({task}) as the very first call', async () => {
     const port = makeFakePort({ effects: TWO_PENDING_EFFECTS })
     const input: EffectDeliveryInput = { task: TASK }
 
-    await deliverPbcEffects(port, input)
+    await deliverWrkfEffects(port, input)
 
     expect(port._calls[0]?.method).toBe('effect.list')
   })
@@ -108,7 +108,7 @@ describe('deliverPbcEffects - call ordering', () => {
     const port = makeFakePort({ effects: TWO_PENDING_EFFECTS })
     const input: EffectDeliveryInput = { task: TASK }
 
-    await deliverPbcEffects(port, input)
+    await deliverWrkfEffects(port, input)
 
     const listCall = port._calls.find((c) => c.method === 'effect.list')
     expect(listCall).toBeDefined()
@@ -120,7 +120,7 @@ describe('deliverPbcEffects - call ordering', () => {
     const port = makeFakePort({ effects: TWO_PENDING_EFFECTS })
     const input: EffectDeliveryInput = { task: TASK }
 
-    await deliverPbcEffects(port, input)
+    await deliverWrkfEffects(port, input)
 
     const callMethods = port._calls.map((c) => c.method)
     const listIdx = callMethods.indexOf('effect.list')
@@ -134,7 +134,7 @@ describe('deliverPbcEffects - call ordering', () => {
     const port = makeFakePort({ effects: TWO_PENDING_EFFECTS })
     const input: EffectDeliveryInput = { task: TASK }
 
-    await deliverPbcEffects(port, input)
+    await deliverWrkfEffects(port, input)
 
     const deliverCalls = port._calls.filter((c) => c.method === 'effect.deliver')
     expect(deliverCalls).toHaveLength(2)
@@ -146,7 +146,7 @@ describe('deliverPbcEffects - call ordering', () => {
     const port = makeFakePort({ effects: TWO_PENDING_EFFECTS })
     const input: EffectDeliveryInput = { task: TASK }
 
-    const result: EffectDeliveryResult = await deliverPbcEffects(port, input)
+    const result: EffectDeliveryResult = await deliverWrkfEffects(port, input)
 
     expect(result.delivered).toHaveLength(2)
     expect(result.delivered).toContain('eff_aaa111')
@@ -157,7 +157,7 @@ describe('deliverPbcEffects - call ordering', () => {
     const port = makeFakePort({ effects: [] })
     const input: EffectDeliveryInput = { task: TASK }
 
-    const result: EffectDeliveryResult = await deliverPbcEffects(port, input)
+    const result: EffectDeliveryResult = await deliverWrkfEffects(port, input)
 
     expect(result.delivered).toEqual([])
     expect(result.skipped).toEqual([])
@@ -171,14 +171,14 @@ describe('deliverPbcEffects - call ordering', () => {
 // Tests: effect.deliver params shape
 // ---------------------------------------------------------------------------
 
-describe('deliverPbcEffects - deliver params shape', () => {
+describe('deliverWrkfEffects - deliver params shape', () => {
   test('effect.deliver receives {effectId, adapter} — task is absent', async () => {
     const port = makeFakePort({
       effects: [{ id: 'eff_ccc333', kind: 'set_task_state', status: 'pending' }],
     })
     const input: EffectDeliveryInput = { task: TASK }
 
-    await deliverPbcEffects(port, input)
+    await deliverWrkfEffects(port, input)
 
     const deliverCall = port._calls.find((c) => c.method === 'effect.deliver')
     expect(deliverCall).toBeDefined()
@@ -198,7 +198,7 @@ describe('deliverPbcEffects - deliver params shape', () => {
     })
     const input: EffectDeliveryInput = { task: TASK } // no adapter
 
-    await deliverPbcEffects(port, input)
+    await deliverWrkfEffects(port, input)
 
     const deliverCall = port._calls.find((c) => c.method === 'effect.deliver')
     const params = deliverCall!.params as Record<string, unknown>
@@ -211,7 +211,7 @@ describe('deliverPbcEffects - deliver params shape', () => {
     })
     const input: EffectDeliveryInput = { task: TASK, adapter: 'custom-adapter' }
 
-    await deliverPbcEffects(port, input)
+    await deliverWrkfEffects(port, input)
 
     const deliverCall = port._calls.find((c) => c.method === 'effect.deliver')
     const params = deliverCall!.params as Record<string, unknown>
@@ -224,7 +224,7 @@ describe('deliverPbcEffects - deliver params shape', () => {
     })
     const input: EffectDeliveryInput = { task: TASK }
 
-    await deliverPbcEffects(port, input)
+    await deliverWrkfEffects(port, input)
 
     const deliverCall = port._calls.find((c) => c.method === 'effect.deliver')
     const params = deliverCall!.params as Record<string, unknown>
@@ -237,12 +237,12 @@ describe('deliverPbcEffects - deliver params shape', () => {
 // Tests: no manual claim loop
 // ---------------------------------------------------------------------------
 
-describe('deliverPbcEffects - no manual claim loop (SPEC §4.14)', () => {
+describe('deliverWrkfEffects - no manual claim loop (SPEC §4.14)', () => {
   test('does NOT call effect.claim for set_task_state effects', async () => {
     const port = makeFakePort({ effects: TWO_PENDING_EFFECTS })
     const input: EffectDeliveryInput = { task: TASK }
 
-    await deliverPbcEffects(port, input)
+    await deliverWrkfEffects(port, input)
 
     const claimCalls = port._calls.filter((c) => c.method === 'effect.claim')
     expect(claimCalls).toHaveLength(0)
@@ -252,7 +252,7 @@ describe('deliverPbcEffects - no manual claim loop (SPEC §4.14)', () => {
     const port = makeFakePort({ effects: TWO_PENDING_EFFECTS })
     const input: EffectDeliveryInput = { task: TASK }
 
-    await deliverPbcEffects(port, input)
+    await deliverWrkfEffects(port, input)
 
     expect(port._calls.filter((c) => c.method === 'effect.ack')).toHaveLength(0)
   })
@@ -261,7 +261,7 @@ describe('deliverPbcEffects - no manual claim loop (SPEC §4.14)', () => {
     const port = makeFakePort({ effects: TWO_PENDING_EFFECTS })
     const input: EffectDeliveryInput = { task: TASK }
 
-    await deliverPbcEffects(port, input)
+    await deliverWrkfEffects(port, input)
 
     expect(port._calls.filter((c) => c.method === 'effect.fail')).toHaveLength(0)
   })
@@ -270,7 +270,7 @@ describe('deliverPbcEffects - no manual claim loop (SPEC §4.14)', () => {
     const port = makeFakePort({ effects: TWO_PENDING_EFFECTS })
     const input: EffectDeliveryInput = { task: TASK }
 
-    await deliverPbcEffects(port, input)
+    await deliverWrkfEffects(port, input)
 
     const unexpectedMethods = port._calls
       .map((c) => c.method)
@@ -283,7 +283,7 @@ describe('deliverPbcEffects - no manual claim loop (SPEC §4.14)', () => {
 // Tests: WRKF_LEASE_CONFLICT is non-fatal
 // ---------------------------------------------------------------------------
 
-describe('deliverPbcEffects - WRKF_LEASE_CONFLICT handling', () => {
+describe('deliverWrkfEffects - WRKF_LEASE_CONFLICT handling', () => {
   test('does not throw when one effect has a lease conflict', async () => {
     const port = makeFakePort({
       effects: [
@@ -294,7 +294,7 @@ describe('deliverPbcEffects - WRKF_LEASE_CONFLICT handling', () => {
     })
     const input: EffectDeliveryInput = { task: TASK }
 
-    await expect(deliverPbcEffects(port, input)).resolves.toBeDefined()
+    await expect(deliverWrkfEffects(port, input)).resolves.toBeDefined()
   })
 
   test('skipped effect is absent from result.delivered', async () => {
@@ -307,7 +307,7 @@ describe('deliverPbcEffects - WRKF_LEASE_CONFLICT handling', () => {
     })
     const input: EffectDeliveryInput = { task: TASK }
 
-    const result: EffectDeliveryResult = await deliverPbcEffects(port, input)
+    const result: EffectDeliveryResult = await deliverWrkfEffects(port, input)
 
     expect(result.delivered).not.toContain('eff_conflict')
     expect(result.delivered).toContain('eff_ok')
@@ -323,7 +323,7 @@ describe('deliverPbcEffects - WRKF_LEASE_CONFLICT handling', () => {
     })
     const input: EffectDeliveryInput = { task: TASK }
 
-    const result: EffectDeliveryResult = await deliverPbcEffects(port, input)
+    const result: EffectDeliveryResult = await deliverWrkfEffects(port, input)
 
     expect(result.skipped).toHaveLength(1)
     expect(result.skipped[0]?.effectId).toBe('eff_conflict')
@@ -341,7 +341,7 @@ describe('deliverPbcEffects - WRKF_LEASE_CONFLICT handling', () => {
     })
     const input: EffectDeliveryInput = { task: TASK }
 
-    const result: EffectDeliveryResult = await deliverPbcEffects(port, input)
+    const result: EffectDeliveryResult = await deliverWrkfEffects(port, input)
 
     expect(result.delivered).toHaveLength(2)
     expect(result.delivered).toEqual(expect.arrayContaining(['eff_ok1', 'eff_ok3']))
@@ -359,7 +359,7 @@ describe('deliverPbcEffects - WRKF_LEASE_CONFLICT handling', () => {
     })
     const input: EffectDeliveryInput = { task: TASK }
 
-    await deliverPbcEffects(port, input)
+    await deliverWrkfEffects(port, input)
 
     // effect.deliver must have been attempted for the second effect despite the first failing
     const deliverCalls = port._calls.filter((c) => c.method === 'effect.deliver')
@@ -378,7 +378,7 @@ describe('deliverPbcEffects - WRKF_LEASE_CONFLICT handling', () => {
     })
     const input: EffectDeliveryInput = { task: TASK }
 
-    const result: EffectDeliveryResult = await deliverPbcEffects(port, input)
+    const result: EffectDeliveryResult = await deliverWrkfEffects(port, input)
 
     expect(result.delivered).toHaveLength(0)
     expect(result.skipped).toHaveLength(2)
@@ -400,7 +400,7 @@ describe('deliverPbcEffects - WRKF_LEASE_CONFLICT handling', () => {
       throw fatalError
     }
 
-    await expect(deliverPbcEffects(port, { task: TASK })).rejects.toThrow(
+    await expect(deliverWrkfEffects(port, { task: TASK })).rejects.toThrow(
       /WRKF_INTERNAL|database unreachable/
     )
   })

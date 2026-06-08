@@ -49,6 +49,9 @@ export type EvidenceRecord = {
   ref?: string | undefined
   summary?: string | undefined
   facts?: Record<string, unknown> | undefined
+  data?: unknown
+  actor?: unknown
+  role?: string | undefined
   raw: Record<string, unknown>
 }
 
@@ -130,12 +133,16 @@ export function projectEvidenceRecord(value: unknown, label = 'evidence'): Evide
   const facts = readOptionalRecordField(evidence, 'facts', label)
   const ref = readOptionalString(evidence, 'ref')
   const summary = readOptionalString(evidence, 'summary')
+  const role = readOptionalString(evidence, 'role')
   return {
     id: requireString(evidence, 'id', label),
     kind: requireString(evidence, 'kind', label),
     ...(ref !== undefined ? { ref } : {}),
     ...(summary !== undefined ? { summary } : {}),
     ...(facts !== undefined ? { facts } : {}),
+    ...(Object.prototype.hasOwnProperty.call(evidence, 'data') ? { data: evidence['data'] } : {}),
+    ...(Object.prototype.hasOwnProperty.call(evidence, 'actor') ? { actor: evidence['actor'] } : {}),
+    ...(role !== undefined ? { role } : {}),
     raw: evidence,
   }
 }

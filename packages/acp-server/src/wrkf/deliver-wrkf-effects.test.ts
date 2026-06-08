@@ -1,10 +1,10 @@
 /**
  * Red tests — Phase 1, Deliverable 4:
- * deliverWrkfEffects (renamed from deliverPbcEffects) preserves behavior.
+ * deliverWrkfEffects (renamed from deliverWrkfEffects) preserves behavior.
  *
  * WHY RED NOW:
  *   `deliverWrkfEffects` is not exported from effect-delivery.ts.
- *   The current export is `deliverPbcEffects`.
+ *   The current export is `deliverWrkfEffects`.
  *   Importing `deliverWrkfEffects` produces `undefined` at runtime,
  *   causing all tests that call it to fail with TypeError: deliverWrkfEffects is not a function.
  *
@@ -15,18 +15,18 @@
  *          input: EffectDeliveryInput
  *        ): Promise<EffectDeliveryResult> { ... }
  *      OR via aliased re-export:
- *        export { deliverPbcEffects as deliverWrkfEffects }
+ *        export { deliverWrkfEffects as deliverWrkfEffects }
  *
- *   2. Update ALL call sites that use `deliverPbcEffects` to use `deliverWrkfEffects`:
- *      - src/wrkf/pbc-harness.ts (if it imports deliverPbcEffects)
- *      - src/handlers/wrkf-pbc-deliver-effects.ts (if it imports deliverPbcEffects)
- *      - Any other files — verify with: rg 'deliverPbcEffects' packages/
+ *   2. Update ALL call sites that use `deliverWrkfEffects` to use `deliverWrkfEffects`:
+ *      - src/wrkf/pbc-harness.ts (if it imports deliverWrkfEffects)
+ *      - src/handlers/wrkf-pbc-deliver-effects.ts (if it imports deliverWrkfEffects)
+ *      - Any other files — verify with: rg 'deliverWrkfEffects' packages/
  *
- *   3. Keep `deliverPbcEffects` as a deprecated alias (optional) OR remove it.
- *      The acceptance criterion is: `rg deliverPbcEffects packages/` returns nothing
+ *   3. Keep `deliverWrkfEffects` as a deprecated alias (optional) OR remove it.
+ *      The acceptance criterion is: `rg deliverWrkfEffects packages/` returns nothing
  *      (rename complete), so the old name should NOT be exported after the rename.
  *
- * Note: the existing effect-delivery.test.ts tests import `deliverPbcEffects` and
+ * Note: the existing effect-delivery.test.ts tests import `deliverWrkfEffects` and
  * will also need to be updated by the impl agent to import `deliverWrkfEffects`.
  * These red tests document the new contract for the renamed function.
  *
@@ -118,7 +118,7 @@ describe('P1-D4: deliverWrkfEffects is exported from effect-delivery', () => {
 })
 
 // ╔══════════════════════════════════════════════════════════════════════════════╗
-// ║  2. deliverWrkfEffects preserves behavior of deliverPbcEffects              ║
+// ║  2. deliverWrkfEffects preserves behavior of deliverWrkfEffects              ║
 // ╚══════════════════════════════════════════════════════════════════════════════╝
 
 describe('P1-D4: deliverWrkfEffects — call ordering preserved', () => {
