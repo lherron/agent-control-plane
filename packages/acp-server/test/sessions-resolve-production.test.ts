@@ -49,6 +49,7 @@ describe('POST /v1/sessions/resolve production wiring', () => {
       resolveSession: async (request) => {
         calls.push(request)
         return {
+          found: true,
           hostSessionId: 'hsid-prod-resolve-001',
           generation: 7,
           created: false,

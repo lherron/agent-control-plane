@@ -283,6 +283,7 @@ describe('ACP session/control endpoints', () => {
       resolveSession: async (request) => {
         calls.push({ method: 'resolveSession', request })
         return {
+          found: true,
           hostSessionId: 'hsid-reset-001',
           generation: 1,
           created: false,
