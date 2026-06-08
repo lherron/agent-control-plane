@@ -776,7 +776,7 @@ describe('admin jobs routes', () => {
             resolveSession: async (request: unknown) => {
               order.push('resolveSession')
               hrcCalls.push({ method: 'resolveSession', request })
-              return { hostSessionId: 'hsid-fresh' }
+              return { found: true, hostSessionId: 'hsid-fresh' }
             },
             clearContext: async (request: unknown) => {
               order.push('clearContext')

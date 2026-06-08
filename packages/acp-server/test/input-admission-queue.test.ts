@@ -974,7 +974,7 @@ describe('input admission queue', () => {
         const dispatcher = createInputQueueDispatcher({
           adminStore: stores.adminStore,
           hrcClient: {
-            resolveSession: async () => ({ hostSessionId: 'hsid-pin', generation: 4 }),
+            resolveSession: async () => ({ found: true, hostSessionId: 'hsid-pin', generation: 4 }),
           } as never,
           inputAdmissionStore: stores.inputAdmissionStore,
           inputQueueStore: stores.inputQueueStore,
@@ -1737,7 +1737,7 @@ describe('input admission queue', () => {
       {
         ...stores,
         hrcClient: {
-          resolveSession: async () => ({ hostSessionId: 'hsid-control', generation: 4 }),
+          resolveSession: async () => ({ found: true, hostSessionId: 'hsid-control', generation: 4 }),
           listRuntimes: async () => [
             {
               runtimeId: 'rt-control',

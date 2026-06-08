@@ -179,7 +179,7 @@ describe('POST /v1/workflow-interact-runs', () => {
     const hrcClient = createHrcClientDouble({
       resolveSession: async (request) => {
         resolveSessionRequests.push(request as ResolveSessionRequest)
-        return { hostSessionId: 'hsid-resolved-before-start', generation: 2 }
+        return { found: true, hostSessionId: 'hsid-resolved-before-start', generation: 2 }
       },
       startRuntime: async (request) => {
         startRuntimeRequests.push(request)
@@ -252,7 +252,7 @@ describe('POST /v1/workflow-interact-runs', () => {
     const hrcClient = createHrcClientDouble({
       resolveSession: async (request) => {
         resolveSessionRequests.push(request as ResolveSessionRequest)
-        return { hostSessionId: 'hsid-workflow-task-resolved', generation: 5 }
+        return { found: true, hostSessionId: 'hsid-workflow-task-resolved', generation: 5 }
       },
       startRuntime: async (request) => {
         startRuntimeRequests.push(request)
@@ -298,7 +298,7 @@ describe('POST /v1/workflow-interact-runs', () => {
     const hrcClient = createHrcClientDouble({
       resolveSession: async () => {
         hrcCalls.push('resolveSession')
-        return { hostSessionId: 'hsid-should-not-resolve', generation: 1 }
+        return { found: true, hostSessionId: 'hsid-should-not-resolve', generation: 1 }
       },
       startRuntime: async () => {
         hrcCalls.push('startRuntime')
@@ -333,7 +333,7 @@ describe('POST /v1/workflow-interact-runs', () => {
   test('normalizes a no-harness launch intent to interactive mode before startRuntime', async () => {
     const startRuntimeRequests: StartRuntimeRequest[] = []
     const hrcClient = createHrcClientDouble({
-      resolveSession: async () => ({ hostSessionId: 'hsid-normalize', generation: 1 }),
+      resolveSession: async () => ({ found: true, hostSessionId: 'hsid-normalize', generation: 1 }),
       startRuntime: async (request) => {
         startRuntimeRequests.push(request)
         return createRuntime()

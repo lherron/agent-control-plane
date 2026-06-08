@@ -142,7 +142,7 @@ describe('ACP dispatch fences', () => {
       hrcDbPath: ':memory:',
       createClient: () =>
         ({
-          resolveSession: async () => ({ hostSessionId: 'hsid-123', generation: 4 }),
+          resolveSession: async () => ({ found: true, hostSessionId: 'hsid-123', generation: 4 }),
           dispatchTurn: async (input: unknown) => {
             dispatchCalls.push(input)
             return {
@@ -195,7 +195,7 @@ describe('ACP dispatch fences', () => {
       hrcDbPath: ':memory:',
       createClient: () =>
         ({
-          resolveSession: async () => ({ hostSessionId: 'hsid-old', generation: 5 }),
+          resolveSession: async () => ({ found: true, hostSessionId: 'hsid-old', generation: 5 }),
           dispatchTurn: async (input: unknown) => {
             dispatchCalls.push(input)
             throw new HrcConflictError(HrcErrorCode.STALE_CONTEXT, 'generation fence is stale', {
@@ -254,7 +254,7 @@ describe('ACP dispatch fences', () => {
         ({
           resolveSession: async (input: unknown) => {
             resolveCalls.push(input)
-            return { hostSessionId: 'hsid-discord', generation: 9 }
+            return { found: true, hostSessionId: 'hsid-discord', generation: 9 }
           },
           dispatchTurn: async () => {
             throw new Error('dispatchTurn should not be called when live tmux exists')
@@ -327,7 +327,7 @@ describe('ACP dispatch fences', () => {
       watchTimeoutMs: 250,
       createClient: () =>
         ({
-          resolveSession: async () => ({ hostSessionId: 'hsid-follow', generation: 12 }),
+          resolveSession: async () => ({ found: true, hostSessionId: 'hsid-follow', generation: 12 }),
           dispatchTurn: async (input: unknown) => {
             dispatchCalls.push(input)
             const fences =

@@ -93,7 +93,7 @@ describe('ACP run correlation', () => {
       watchTimeoutMs: 250,
       createClient: () =>
         ({
-          resolveSession: async () => ({ hostSessionId: 'hsid-123', generation: 7 }),
+          resolveSession: async () => ({ found: true, hostSessionId: 'hsid-123', generation: 7 }),
           dispatchTurn: async (input: unknown) => {
             dispatchCalls.push(input)
             hrc.db.run(
@@ -178,7 +178,7 @@ describe('ACP run correlation', () => {
       watchTimeoutMs: 250,
       createClient: () =>
         ({
-          resolveSession: async () => ({ hostSessionId: 'hsid-failed', generation: 11 }),
+          resolveSession: async () => ({ found: true, hostSessionId: 'hsid-failed', generation: 11 }),
           dispatchTurn: async () => {
             hrc.db.run(
               'INSERT INTO runs (run_id, status, error_code, error_message) VALUES (?, ?, ?, ?)',
@@ -385,7 +385,7 @@ describe('ACP run correlation', () => {
       watchTimeoutMs: 250,
       createClient: () =>
         ({
-          resolveSession: async () => ({ hostSessionId: 'hsid-456', generation: 13 }),
+          resolveSession: async () => ({ found: true, hostSessionId: 'hsid-456', generation: 13 }),
           dispatchTurn: async (input: unknown) => {
             dispatchCalls.push(input as Record<string, unknown>)
             hrc.db.run(
@@ -607,7 +607,7 @@ describe('ACP run correlation', () => {
       watchTimeoutMs: 250,
       createClient: () =>
         ({
-          resolveSession: async () => ({ hostSessionId: 'hsid-fast', generation: 5 }),
+          resolveSession: async () => ({ found: true, hostSessionId: 'hsid-fast', generation: 5 }),
           dispatchTurn: async () => {
             hrc.db.run(
               'INSERT INTO runs (run_id, status, error_code, error_message) VALUES (?, ?, NULL, NULL)',
@@ -696,7 +696,7 @@ describe('ACP run correlation', () => {
       watchTimeoutMs: 250,
       createClient: () =>
         ({
-          resolveSession: async () => ({ hostSessionId: 'hsid-empty', generation: 5 }),
+          resolveSession: async () => ({ found: true, hostSessionId: 'hsid-empty', generation: 5 }),
           dispatchTurn: async () => {
             hrc.db.run(
               'INSERT INTO runs (run_id, status, error_code, error_message) VALUES (?, ?, NULL, NULL)',
@@ -789,7 +789,7 @@ describe('ACP run correlation', () => {
       watchTimeoutMs: 250,
       createClient: () =>
         ({
-          resolveSession: async () => ({ hostSessionId: 'hsid-contradictory', generation: 6 }),
+          resolveSession: async () => ({ found: true, hostSessionId: 'hsid-contradictory', generation: 6 }),
           dispatchTurn: async () => {
             hrc.db.run(
               'INSERT INTO runs (run_id, status, error_code, error_message) VALUES (?, ?, NULL, NULL)',
