@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
 import { openMobileDashboardSocket } from '@/features/sessions/api/mobile-socket'
 import type { MobileSocketSubscription } from '@/features/sessions/api/mobile-socket'
 import {
@@ -19,6 +18,7 @@ import type {
   SessionTimelineRow,
   StreamConnectionState,
 } from '@/features/sessions/types'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Live hrc dashboard, fed by the /v1/mobile/dashboard WS. Opens the socket,

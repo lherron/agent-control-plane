@@ -2,11 +2,7 @@ import { stat } from 'node:fs/promises'
 import { basename } from 'node:path'
 
 import { CliUsageError } from '../cli-runtime.js'
-import {
-  AcpClientHttpError,
-  AcpClientTransportError,
-  parseResponseText,
-} from '../http-client.js'
+import { AcpClientHttpError, AcpClientTransportError, parseResponseText } from '../http-client.js'
 import { renderKeyValueTable, renderTable } from '../output/table.js'
 import {
   hasFlag,

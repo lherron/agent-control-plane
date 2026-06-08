@@ -13,7 +13,10 @@ export function cancelWake(
 ): WakeRequest | undefined {
   return store.sqlite.transaction((input: CancelWakeCommand) => {
     const existing = getWakeById(store.sqlite, input.wakeId)
-    if (!existing || (existing.state !== WAKE_STATE.queued && existing.state !== WAKE_STATE.leased)) {
+    if (
+      !existing ||
+      (existing.state !== WAKE_STATE.queued && existing.state !== WAKE_STATE.leased)
+    ) {
       return undefined
     }
 

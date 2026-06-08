@@ -285,7 +285,10 @@ function mobileStatus(status: string, runtime?: HrcRuntimeSnapshot): MobileSessi
   }
   const runtimeStatus = runtime?.status.toLowerCase()
   if (runtimeStatus?.includes('stale')) return 'stale'
-  if (runtime === undefined || (runtimeStatus !== undefined && DEAD_RUNTIME_STATUSES.has(runtimeStatus))) {
+  if (
+    runtime === undefined ||
+    (runtimeStatus !== undefined && DEAD_RUNTIME_STATUSES.has(runtimeStatus))
+  ) {
     return 'inactive'
   }
   return 'active'
@@ -693,13 +696,15 @@ function parseMobileMessageFilter(input: Record<string, unknown>): HrcMessageFil
   const afterSeq = readNonNegativeInteger(input['afterSeq'])
   if (afterSeq !== undefined) filter.afterSeq = afterSeq
   if (Array.isArray(input['kinds'])) {
-    filter.kinds = input['kinds'].filter((kind): kind is 'dm' | 'literal' | 'system' =>
-      kind === 'dm' || kind === 'literal' || kind === 'system'
+    filter.kinds = input['kinds'].filter(
+      (kind): kind is 'dm' | 'literal' | 'system' =>
+        kind === 'dm' || kind === 'literal' || kind === 'system'
     )
   }
   if (Array.isArray(input['phases'])) {
-    filter.phases = input['phases'].filter((phase): phase is 'request' | 'response' | 'oneway' =>
-      phase === 'request' || phase === 'response' || phase === 'oneway'
+    filter.phases = input['phases'].filter(
+      (phase): phase is 'request' | 'response' | 'oneway' =>
+        phase === 'request' || phase === 'response' || phase === 'oneway'
     )
   }
   filter.limit = readPositiveInteger(input['limit'], 50, 200)

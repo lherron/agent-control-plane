@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 
 import {
+  type WrkqWebhookEvent,
   evaluateEventMatch,
   isAgentOriginEvent,
   parseDurationToMs,
   parseWrkqWebhookEvent,
   resolveEventAction,
   validateJobTrigger,
-  type WrkqWebhookEvent,
 } from '../index.js'
 
 function event(overrides: Partial<WrkqWebhookEvent> = {}): WrkqWebhookEvent {
@@ -43,7 +43,9 @@ describe('parseWrkqWebhookEvent', () => {
 
   test('rejects missing event_id / event_seq', () => {
     expect(parseWrkqWebhookEvent({ ...event(), event_id: '' }).ok).toBe(false)
-    expect(parseWrkqWebhookEvent({ ...event(), event_seq: 'x' as unknown as number }).ok).toBe(false)
+    expect(parseWrkqWebhookEvent({ ...event(), event_seq: 'x' as unknown as number }).ok).toBe(
+      false
+    )
   })
 })
 
@@ -87,7 +89,10 @@ describe('evaluateEventMatch', () => {
   test('origin.actor exact match', () => {
     expect(evaluateEventMatch({ origin: { actor: 'human:lance' } }, event())).toBe(true)
     expect(
-      evaluateEventMatch({ origin: { actor: 'human:lance' } }, event({ origin: { actor: 'agent:cody' } }))
+      evaluateEventMatch(
+        { origin: { actor: 'human:lance' } },
+        event({ origin: { actor: 'agent:cody' } })
+      )
     ).toBe(false)
   })
 
@@ -109,11 +114,18 @@ describe('evaluateEventMatch', () => {
 
   test('"draft created by lance" composite match (the cody-review job)', () => {
     const draftByLance = event({ transition: { from: null, to: 'draft' } })
-    const match = { event: 'created', transition: { to: 'draft' }, origin: { actor: 'human:lance' } }
+    const match = {
+      event: 'created',
+      transition: { to: 'draft' },
+      origin: { actor: 'human:lance' },
+    }
     expect(evaluateEventMatch(match, draftByLance)).toBe(true)
     // agent draft → no match
     expect(
-      evaluateEventMatch(match, event({ transition: { to: 'draft' }, origin: { actor: 'agent:rex' } }))
+      evaluateEventMatch(
+        match,
+        event({ transition: { to: 'draft' }, origin: { actor: 'agent:rex' } })
+      )
     ).toBe(false)
     // lance but not draft → no match
     expect(evaluateEventMatch(match, event({ transition: { to: 'open' } }))).toBe(false)
@@ -137,9 +149,7 @@ describe('resolveEventAction (fail-closed)', () => {
     })
     expect(result.ok).toBe(true)
     if (result.ok) {
-      expect(result.resolved.scopeRef).toBe(
-        'agent:clod:project:agent-control-plane:task:T-00042'
-      )
+      expect(result.resolved.scopeRef).toBe('agent:clod:project:agent-control-plane:task:T-00042')
       expect(result.resolved.laneRef).toBe('main')
       expect(result.resolved.input['content']).toBe('Research Investigate widget (T-00042)')
       expect(result.resolved.targetTaskId).toBe('T-00042')

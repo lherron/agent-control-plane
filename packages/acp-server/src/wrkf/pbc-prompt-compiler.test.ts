@@ -19,7 +19,7 @@
 import { describe, expect, test } from 'bun:test'
 
 // These imports define the module contract. They will fail until the module exists.
-import { compilePbcPrompt, type PromptCompileInput } from './pbc-prompt-compiler.js'
+import { type PromptCompileInput, compilePbcPrompt } from './pbc-prompt-compiler.js'
 
 import { projectPbcTemplateModel } from './pbc-template-model.js'
 import type { EvidenceRecord, NextActionResponse, ObligationRecord } from './projections.js'
@@ -128,17 +128,13 @@ describe('compilePbcPrompt', () => {
 
   test('includes agentInstruction for the current state (active/pressure)', () => {
     const result = compilePbcPrompt(BASE_INPUT)
-    expect(result).toContain(
-      'Run the pressure pass and produce pressure_pass evidence.'
-    )
+    expect(result).toContain('Run the pressure pass and produce pressure_pass evidence.')
   })
 
   test('does not include agentInstruction for a different state (active/behavior_note)', () => {
     const result = compilePbcPrompt(BASE_INPUT)
     // The behavior_note guidance must not bleed into the pressure prompt
-    expect(result).not.toContain(
-      'Produce behavior_note and pre_interview_analysis evidence.'
-    )
+    expect(result).not.toContain('Produce behavior_note and pre_interview_analysis evidence.')
   })
 
   test('selects phase guidance by status+phase from the template', () => {
@@ -156,12 +152,8 @@ describe('compilePbcPrompt', () => {
       },
     }
     const result = compilePbcPrompt(inputInBehaviorNote)
-    expect(result).toContain(
-      'Produce behavior_note and pre_interview_analysis evidence.'
-    )
-    expect(result).not.toContain(
-      'Run the pressure pass and produce pressure_pass evidence.'
-    )
+    expect(result).toContain('Produce behavior_note and pre_interview_analysis evidence.')
+    expect(result).not.toContain('Run the pressure pass and produce pressure_pass evidence.')
   })
 
   // --- role hard rules ------------------------------------------------------
@@ -179,7 +171,9 @@ describe('compilePbcPrompt', () => {
       actor: 'human:product-owner',
     }
     const result = compilePbcPrompt(poInput)
-    expect(result).toContain('Answer only the blocking decision currently requested by the workflow.')
+    expect(result).toContain(
+      'Answer only the blocking decision currently requested by the workflow.'
+    )
   })
 
   // --- candidate transition guidance ----------------------------------------
@@ -188,9 +182,7 @@ describe('compilePbcPrompt', () => {
     // finalize_ready_pbc is in next.actions
     const result = compilePbcPrompt(BASE_INPUT)
     expect(result).toContain('finalize_ready_pbc')
-    expect(result).toContain(
-      'Propose finalize_ready_pbc only when pressure_pass.verdict is ready.'
-    )
+    expect(result).toContain('Propose finalize_ready_pbc only when pressure_pass.verdict is ready.')
   })
 
   test('includes evidence to produce for candidate transitions', () => {
@@ -235,7 +227,12 @@ describe('compilePbcPrompt', () => {
     const inputWithObligations: PromptCompileInput = {
       ...BASE_INPUT,
       obligations: [
-        { id: 'obl_1', kind: 'clarification_response', status: 'open', raw: {} } satisfies ObligationRecord,
+        {
+          id: 'obl_1',
+          kind: 'clarification_response',
+          status: 'open',
+          raw: {},
+        } satisfies ObligationRecord,
         { id: 'obl_2', kind: 'patch_decision', status: 'open', raw: {} } satisfies ObligationRecord,
       ],
     }
@@ -272,13 +269,17 @@ describe('compilePbcPrompt', () => {
   test('includes guardrail: participant must not call wrkf directly', () => {
     const result = compilePbcPrompt(BASE_INPUT)
     // Must include some form of "do not call wrkf" instruction
-    expect(result.toLowerCase()).toMatch(/do not.*wrkf|must not.*wrkf|no direct.*wrkf|wrkf.*directly/i)
+    expect(result.toLowerCase()).toMatch(
+      /do not.*wrkf|must not.*wrkf|no direct.*wrkf|wrkf.*directly/i
+    )
   })
 
   test('includes guardrail: participant must not apply transitions', () => {
     const result = compilePbcPrompt(BASE_INPUT)
     // Must tell participant that the harness applies transitions, not the participant
-    expect(result.toLowerCase()).toMatch(/do not.*apply.*transition|must not.*transition|harness.*applies.*transition/i)
+    expect(result.toLowerCase()).toMatch(
+      /do not.*apply.*transition|must not.*transition|harness.*applies.*transition/i
+    )
   })
 
   test('includes guardrail: agent must not fabricate product_owner obligation evidence', () => {

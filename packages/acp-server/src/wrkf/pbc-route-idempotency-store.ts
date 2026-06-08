@@ -4,11 +4,7 @@ export interface PbcRouteIdempotencyStore {
   check(
     key: string,
     bodyHash: string
-  ): Promise<
-    | { state: 'fresh' }
-    | { state: 'replay'; result: unknown }
-    | { state: 'conflict' }
-  >
+  ): Promise<{ state: 'fresh' } | { state: 'replay'; result: unknown } | { state: 'conflict' }>
   persist(key: string, bodyHash: string, result: unknown): Promise<void>
 }
 
@@ -23,11 +19,7 @@ export class InMemoryPbcIdempotencyStore implements PbcRouteIdempotencyStore {
   async check(
     key: string,
     bodyHash: string
-  ): Promise<
-    | { state: 'fresh' }
-    | { state: 'replay'; result: unknown }
-    | { state: 'conflict' }
-  > {
+  ): Promise<{ state: 'fresh' } | { state: 'replay'; result: unknown } | { state: 'conflict' }> {
     const record = this.records.get(key)
     if (record === undefined) {
       return { state: 'fresh' }

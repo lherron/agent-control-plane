@@ -172,7 +172,9 @@ function withTimelineWarning(
   }
 }
 
-function hasExternalRunBindings(response: { runs?: Array<{ externalRunRef?: string | undefined }> }): boolean {
+function hasExternalRunBindings(response: {
+  runs?: Array<{ externalRunRef?: string | undefined }>
+}): boolean {
   return (response.runs ?? []).some(
     (run) => run.externalRunRef !== undefined && run.externalRunRef.length > 0
   )

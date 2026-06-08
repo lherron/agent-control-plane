@@ -6,7 +6,12 @@ import {
   resolveEventAction,
 } from 'acp-core'
 
-import type { EvaluateEventJob, EventJobEvaluation, InboxEventRecord, JobRecord } from 'acp-jobs-store'
+import type {
+  EvaluateEventJob,
+  EventJobEvaluation,
+  InboxEventRecord,
+  JobRecord,
+} from 'acp-jobs-store'
 
 /**
  * Build the pure (event, job) decision function the scheduler injects into its

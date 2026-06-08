@@ -37,17 +37,17 @@ import { wrkfErrorToHttpStatus } from '../wrkf/errors.js'
 describe('wrkfErrorToHttpStatus — spec §"wrkf Error Mapping"', () => {
   // ── Domain error codes from the spec table ────────────────────────────────
   const SPEC_TABLE: Array<[code: string, expectedHttp: number]> = [
-    ['WRKF_NOT_FOUND',              404],
-    ['WRKF_ROLE_DENIED',            403],
-    ['WRKF_STALE_REVISION',         409],
-    ['WRKF_CONTEXT_MISMATCH',       409],
-    ['WRKF_IDEMPOTENCY_MISMATCH',   409],
-    ['WRKF_LEASE_CONFLICT',         409],
-    ['WRKF_TRANSITION_BLOCKED',     422],
-    ['WRKF_VALIDATION',             422],
+    ['WRKF_NOT_FOUND', 404],
+    ['WRKF_ROLE_DENIED', 403],
+    ['WRKF_STALE_REVISION', 409],
+    ['WRKF_CONTEXT_MISMATCH', 409],
+    ['WRKF_IDEMPOTENCY_MISMATCH', 409],
+    ['WRKF_LEASE_CONFLICT', 409],
+    ['WRKF_TRANSITION_BLOCKED', 422],
+    ['WRKF_VALIDATION', 422],
     ['WRKF_EFFECT_NOT_DELIVERABLE', 422],
-    ['WRKF_DB_MIGRATION_REQUIRED',  503],
-    ['WRKF_INTERNAL',               500],
+    ['WRKF_DB_MIGRATION_REQUIRED', 503],
+    ['WRKF_INTERNAL', 500],
   ]
 
   for (const [code, httpStatus] of SPEC_TABLE) {

@@ -4,9 +4,9 @@ import { cn } from '@/lib/cn'
 import { ArrowUpRight, GitBranch } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import {
+  FAMILY_ACCENT,
   compactRef,
   durationLabel,
-  FAMILY_ACCENT,
   parseScopeRef,
   rowSelected,
 } from './event-family'
@@ -25,7 +25,10 @@ export function SessionCard({
   const workLabel = scope.taskId ?? scope.role ?? 'primary'
   const selected = rowSelected(row, selectedRowId)
   const status = row.runtime?.status ?? 'unknown'
-  const familyColor = FAMILY_ACCENT[row.visualState.colorRole === 'message' ? 'agent_message' : row.visualState.colorRole]
+  const familyColor =
+    FAMILY_ACCENT[
+      row.visualState.colorRole === 'message' ? 'agent_message' : row.visualState.colorRole
+    ]
 
   return (
     <article
@@ -46,7 +49,10 @@ export function SessionCard({
             <strong className="text-[14px] font-semibold text-ink">{agentId}</strong>
             <span className="mono text-[10px] uppercase text-muted">{status}</span>
           </span>
-          <span className="mt-1 block truncate text-[12px] text-muted" title={row.sessionRef.scopeRef}>
+          <span
+            className="mt-1 block truncate text-[12px] text-muted"
+            title={row.sessionRef.scopeRef}
+          >
             {scope.projectId ?? compactRef(row.sessionRef.scopeRef, 34)}
           </span>
           <span className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-quiet">
@@ -78,4 +84,3 @@ export function SessionCard({
     </article>
   )
 }
-

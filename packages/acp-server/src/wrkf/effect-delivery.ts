@@ -83,7 +83,7 @@ function effectIdFrom(effect: ListedEffect): string | undefined {
 
 function maxEffectsLimit(maxEffects: number | undefined): number {
   if (maxEffects === undefined) {
-    return Infinity
+    return Number.POSITIVE_INFINITY
   }
   return Math.max(0, Math.floor(maxEffects))
 }

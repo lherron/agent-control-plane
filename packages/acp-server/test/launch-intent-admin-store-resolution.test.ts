@@ -33,7 +33,6 @@ function makeSessionRef(projectId: string): { scopeRef: string; laneRef: string 
 }
 
 describe('resolveLaunchIntent admin-store project-root resolution', () => {
-
   test('empty-compose bundle is rebuilt with the adminStore project root when runtimeResolver returns a degenerate bundle', async () => {
     // buildRuntimeBundleRef switches to 'agent-project' only if an agent-profile.toml
     // exists at agentRoot. Stage a real tempdir so the rebuild path produces a

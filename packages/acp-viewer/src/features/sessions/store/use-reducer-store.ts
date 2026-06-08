@@ -1,3 +1,5 @@
+import { createEmptyDashboardSnapshot } from '@/features/sessions/lib/empty-snapshot'
+import type { StreamConnectionState } from '@/features/sessions/types'
 import {
   type DashboardEvent,
   type SessionDashboardSnapshot,
@@ -14,8 +16,6 @@ import {
   selectVisibleEvents,
 } from 'acp-ops-reducer'
 import { create } from 'zustand'
-import { createEmptyDashboardSnapshot } from '@/features/sessions/lib/empty-snapshot'
-import type { StreamConnectionState } from '@/features/sessions/types'
 
 // Ported verbatim from acp-ops-web/src/store/useReducerStore.ts — the reducer
 // pipeline is transport-agnostic (it consumes DashboardEvent[]), so the mobile

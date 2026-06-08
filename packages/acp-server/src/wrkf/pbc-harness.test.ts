@@ -70,14 +70,14 @@ import { describe, expect, test } from 'bun:test'
 
 // These imports define the module contract. They will fail until the module exists.
 import {
-  runStep,
-  approveTransition,
-  runUntilBlocked,
+  type ApproveTransitionRequest,
   type PbcHarnessPort,
   type PbcHarnessResult,
   type RunStepRequest,
-  type ApproveTransitionRequest,
   type RunUntilBlockedRequest,
+  approveTransition,
+  runStep,
+  runUntilBlocked,
 } from './pbc-harness.js'
 
 // ---------------------------------------------------------------------------
@@ -89,16 +89,18 @@ type SpyCall = { method: string; params: unknown }
 type FakePbcHarnessPort = PbcHarnessPort & { _calls: SpyCall[] }
 
 /** Minimal next response for a given state/phase/revision. */
-function makeNextRaw(opts: {
-  status?: string
-  phase?: string
-  revision?: number
-  contextHash?: string
-  stale?: boolean
-  actions?: Array<{ transition: string; role?: string }>
-  openObligations?: Array<{ id: string; kind: string; status: string }>
-  pendingEffects?: Array<{ id: string; kind: string; status: string }>
-} = {}): Record<string, unknown> {
+function makeNextRaw(
+  opts: {
+    status?: string
+    phase?: string
+    revision?: number
+    contextHash?: string
+    stale?: boolean
+    actions?: Array<{ transition: string; role?: string }>
+    openObligations?: Array<{ id: string; kind: string; status: string }>
+    pendingEffects?: Array<{ id: string; kind: string; status: string }>
+  } = {}
+): Record<string, unknown> {
   return {
     instance: {
       state: { status: opts.status ?? 'open', phase: opts.phase ?? 'intake' },
@@ -145,14 +147,16 @@ function makeTransitionResult(transition: string, revision: number): Record<stri
  * opts.obligations: open obligations returned by obligation.list
  * opts.captureStore: pre-populated capture records (for idempotency tests)
  */
-function makeFakePort(opts: {
-  nextSequence?: Array<Record<string, unknown>>
-  effects?: Array<{ id: string; kind: string; status: string }>
-  obligations?: Array<{ id: string; kind: string; status: string }>
-  captureStore?: Record<string, unknown>
-  transitionShouldThrow?: (transition: string) => Error | undefined
-  evidenceCounter?: { current: number }
-} = {}): FakePbcHarnessPort {
+function makeFakePort(
+  opts: {
+    nextSequence?: Array<Record<string, unknown>>
+    effects?: Array<{ id: string; kind: string; status: string }>
+    obligations?: Array<{ id: string; kind: string; status: string }>
+    captureStore?: Record<string, unknown>
+    transitionShouldThrow?: (transition: string) => Error | undefined
+    evidenceCounter?: { current: number }
+  } = {}
+): FakePbcHarnessPort {
   const _calls: SpyCall[] = []
   const nextSeq = opts.nextSequence ?? [makeNextRaw()]
   let nextCallIdx = 0
@@ -771,9 +775,7 @@ describe('approveTransition', () => {
 
   test('re-reads next immediately before applying transition (fresh CAS)', async () => {
     const port = makeFakePort({
-      nextSequence: [
-        makeNextRaw({ revision: 4, contextHash: 'sha256:ctx4' }),
-      ],
+      nextSequence: [makeNextRaw({ revision: 4, contextHash: 'sha256:ctx4' })],
     })
     await approveTransition(port, {
       task: 'T-00001',
@@ -792,9 +794,7 @@ describe('approveTransition', () => {
 
   test('uses fresh expectRevision+contextHash from re-read next', async () => {
     const port = makeFakePort({
-      nextSequence: [
-        makeNextRaw({ revision: 7, contextHash: 'sha256:ctx7' }),
-      ],
+      nextSequence: [makeNextRaw({ revision: 7, contextHash: 'sha256:ctx7' })],
     })
     await approveTransition(port, {
       task: 'T-00001',
@@ -814,9 +814,7 @@ describe('approveTransition', () => {
 
   test('idempotency key is {routeKey}:transition:{transition}:{revision}', async () => {
     const port = makeFakePort({
-      nextSequence: [
-        makeNextRaw({ revision: 3, contextHash: 'sha256:ctx3' }),
-      ],
+      nextSequence: [makeNextRaw({ revision: 3, contextHash: 'sha256:ctx3' })],
     })
     await approveTransition(port, {
       task: 'T-00001',
@@ -944,7 +942,7 @@ describe('approveTransition', () => {
         makeNextRaw({ revision: 3, contextHash: 'sha256:stale' }),
         makeNextRaw({ revision: 4, contextHash: 'sha256:fresh' }),
       ],
-      transitionShouldThrow: (t) => {
+      transitionShouldThrow: (_t) => {
         applyCallCount++
         if (applyCallCount === 1) {
           const err = new Error('WRKF_STALE_REVISION') as Error & { code: string }
@@ -974,10 +972,7 @@ describe('approveTransition', () => {
   test('does NOT retry a second time on repeated WRKF_STALE_REVISION', async () => {
     let applyCallCount = 0
     const port = makeFakePort({
-      nextSequence: [
-        makeNextRaw({ revision: 3 }),
-        makeNextRaw({ revision: 4 }),
-      ],
+      nextSequence: [makeNextRaw({ revision: 3 }), makeNextRaw({ revision: 4 })],
       transitionShouldThrow: () => {
         applyCallCount++
         const err = new Error('WRKF_STALE_REVISION') as Error & { code: string }
@@ -1080,9 +1075,7 @@ describe('runUntilBlocked', () => {
           phase: 'clarification',
           revision: 3,
           actions: [],
-          openObligations: [
-            { id: 'obl_001', kind: 'clarification_response', status: 'open' },
-          ],
+          openObligations: [{ id: 'obl_001', kind: 'clarification_response', status: 'open' }],
         }),
       ],
     })
@@ -1105,9 +1098,7 @@ describe('runUntilBlocked', () => {
           phase: 'patch_decision',
           revision: 5,
           actions: [],
-          openObligations: [
-            { id: 'obl_002', kind: 'patch_decision', status: 'open' },
-          ],
+          openObligations: [{ id: 'obl_002', kind: 'patch_decision', status: 'open' }],
         }),
       ],
     })
@@ -1177,8 +1168,8 @@ describe('runUntilBlocked', () => {
     // Same actor for draft and pressure — SoD violation
     const result = await runUntilBlocked(port, {
       task: 'T-00001',
-      actor: 'agent:pbc-writer',         // same actor for both roles
-      pressureActor: 'agent:pbc-writer',  // SAME as actor → SoD violation
+      actor: 'agent:pbc-writer', // same actor for both roles
+      pressureActor: 'agent:pbc-writer', // SAME as actor → SoD violation
       idempotencyKey: 'autopilot-sod',
     } satisfies RunUntilBlockedRequest)
 
@@ -1214,7 +1205,7 @@ describe('runUntilBlocked', () => {
     const result = await runUntilBlocked(port, {
       task: 'T-00001',
       actor: 'agent:pbc-writer',
-      pressureActor: 'agent:pressure-reviewer',  // distinct
+      pressureActor: 'agent:pressure-reviewer', // distinct
       idempotencyKey: 'autopilot-sod-ok',
       maxTurns: 5,
     } satisfies RunUntilBlockedRequest)
@@ -1357,9 +1348,7 @@ describe('runUntilBlocked', () => {
           phase: 'clarification',
           revision: 3,
           actions: [{ transition: 'answer_clarification' }],
-          openObligations: [
-            { id: 'obl_clarifA', kind: 'clarification_response', status: 'open' },
-          ],
+          openObligations: [{ id: 'obl_clarifA', kind: 'clarification_response', status: 'open' }],
         }),
         // After obligation satisfaction, next has answer_clarification
         makeNextRaw({
@@ -1407,9 +1396,7 @@ describe('runUntilBlocked', () => {
           phase: 'patch_decision',
           revision: 5,
           actions: [{ transition: 'finalize_after_patch_decision' }],
-          openObligations: [
-            { id: 'obl_patchB', kind: 'patch_decision', status: 'open' },
-          ],
+          openObligations: [{ id: 'obl_patchB', kind: 'patch_decision', status: 'open' }],
         }),
         makeNextRaw({
           status: 'waiting',
@@ -1517,9 +1504,7 @@ describe('runUntilBlocked', () => {
           actions: [],
         }),
       ],
-      effects: [
-        { id: 'eff_set_1', kind: 'set_task_state', status: 'pending' },
-      ],
+      effects: [{ id: 'eff_set_1', kind: 'set_task_state', status: 'pending' }],
     })
 
     await runUntilBlocked(port, {
@@ -1610,9 +1595,7 @@ describe('runUntilBlocked', () => {
 
     const applyCall = port._calls.find((c) => c.method === 'transition.apply')
     if (applyCall !== undefined) {
-      expect((applyCall.params as Record<string, unknown>)['transition']).toBe(
-        'normalize_feedback'
-      )
+      expect((applyCall.params as Record<string, unknown>)['transition']).toBe('normalize_feedback')
     }
   })
 })

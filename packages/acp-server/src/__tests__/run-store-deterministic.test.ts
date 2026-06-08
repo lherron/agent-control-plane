@@ -60,9 +60,7 @@ describe('InMemoryRunStore.createOrGetRun — initial creation (W4a red)', () =>
   test('[RED] createOrGetRun exists on InMemoryRunStore', () => {
     const store = new InMemoryRunStore()
     // FAIL: method does not exist yet
-    expect(
-      typeof (store as unknown as Record<string, unknown>)['createOrGetRun']
-    ).toBe('function')
+    expect(typeof (store as unknown as Record<string, unknown>)['createOrGetRun']).toBe('function')
   })
 
   test('[RED] first call returns { run, created: true }', () => {

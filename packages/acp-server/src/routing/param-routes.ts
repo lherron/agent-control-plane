@@ -39,10 +39,6 @@ import {
   handleCompleteWorkflowParticipantRun,
   handleFailWorkflowParticipantRun,
 } from '../handlers/workflow-participant-runs.js'
-import { handleWrkfPbcApproveTransition } from '../handlers/wrkf-pbc-approve-transition.js'
-import { handleWrkfPbcInspect } from '../handlers/wrkf-pbc-inspect.js'
-import { handleWrkfPbcRunStep } from '../handlers/wrkf-pbc-run-step.js'
-import { handleWrkfPbcRunUntilBlocked } from '../handlers/wrkf-pbc-run-until-blocked.js'
 import {
   handleApplyWorkflowTransition,
   handleAttachWorkflowEvidence,
@@ -50,6 +46,10 @@ import {
   handleGetWorkflowTask,
   handleWaiveWorkflowObligation,
 } from '../handlers/workflow-tasks.js'
+import { handleWrkfPbcApproveTransition } from '../handlers/wrkf-pbc-approve-transition.js'
+import { handleWrkfPbcInspect } from '../handlers/wrkf-pbc-inspect.js'
+import { handleWrkfPbcRunStep } from '../handlers/wrkf-pbc-run-step.js'
+import { handleWrkfPbcRunUntilBlocked } from '../handlers/wrkf-pbc-run-until-blocked.js'
 import { withActorAndAuthz } from '../middleware/actor-and-authz.js'
 
 import { mutatingRouteSpecs } from './mutating-routes.js'
@@ -237,11 +237,7 @@ export function buildParamRoutes(): ParamRoute[] {
     createParamRoute(
       'POST',
       '/v1/wrkf/pbc/tasks/:task/run-until-blocked',
-      withSpec(
-        'POST',
-        '/v1/wrkf/pbc/tasks/:task/run-until-blocked',
-        handleWrkfPbcRunUntilBlocked
-      )
+      withSpec('POST', '/v1/wrkf/pbc/tasks/:task/run-until-blocked', handleWrkfPbcRunUntilBlocked)
     ),
     createParamRoute('GET', '/v1/sessions/:sessionId', handleGetSession),
     createParamRoute('GET', '/v1/sessions/:sessionId/runs', handleListSessionRuns),

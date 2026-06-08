@@ -81,8 +81,8 @@ import { readFileSync } from 'node:fs'
 
 import { describe, expect, test } from 'bun:test'
 
-import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
 import { withWiredServer } from '../../test/fixtures/wired-server.js'
+import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -414,10 +414,7 @@ describe('W3: POST /v1/tasks/:taskId/evidence — evidence.add wrkf facade', () 
   //
   describe('handler source does not use withDurableWorkflowKernel (RED: currently calls it)', () => {
     test('handleAttachWorkflowEvidence function body does not contain withDurableWorkflowKernel', () => {
-      const src = readFileSync(
-        new URL('../handlers/workflow-tasks.ts', import.meta.url),
-        'utf-8'
-      )
+      const src = readFileSync(new URL('../handlers/workflow-tasks.ts', import.meta.url), 'utf-8')
       const start = src.indexOf('export const handleAttachWorkflowEvidence')
       expect(start).toBeGreaterThan(-1)
       const nextExport = src.indexOf('\nexport const handle', start + 1)
@@ -466,9 +463,9 @@ describe('W3: POST /v1/tasks/:taskId/transitions — transition.apply wrkf facad
 
           // Shape: required params
           expect(capturedArgs!['task']).toBe(TASK_ID)
-          expect(capturedArgs!['transition']).toBe('start')         // mapped from transitionId
+          expect(capturedArgs!['transition']).toBe('start') // mapped from transitionId
           expect(capturedArgs!['role']).toBe('owner')
-          expect(capturedArgs!['expectRevision']).toBe(1)            // aliased from expectedTaskVersion
+          expect(capturedArgs!['expectRevision']).toBe(1) // aliased from expectedTaskVersion
           expect(capturedArgs!['idempotencyKey']).toBe('idem-w3-trans-001')
         },
         {
@@ -567,10 +564,7 @@ describe('W3: POST /v1/tasks/:taskId/transitions — transition.apply wrkf facad
   //
   describe('old reconciler not called post-transition (RED: current handler calls reconcileEffects)', () => {
     test('handleApplyWorkflowTransition source does not call reconcileWorkflowEffectIntents or reconcileEffects', () => {
-      const src = readFileSync(
-        new URL('../handlers/workflow-tasks.ts', import.meta.url),
-        'utf-8'
-      )
+      const src = readFileSync(new URL('../handlers/workflow-tasks.ts', import.meta.url), 'utf-8')
       const start = src.indexOf('export const handleApplyWorkflowTransition')
       expect(start).toBeGreaterThan(-1)
       const nextExport = src.indexOf('\nexport const handle', start + 1)
@@ -607,10 +601,7 @@ describe('W3: POST /v1/tasks/:taskId/transitions — transition.apply wrkf facad
   //
   describe('handler source does not use withDurableWorkflowKernel (RED: currently calls it)', () => {
     test('handleApplyWorkflowTransition function body does not contain withDurableWorkflowKernel', () => {
-      const src = readFileSync(
-        new URL('../handlers/workflow-tasks.ts', import.meta.url),
-        'utf-8'
-      )
+      const src = readFileSync(new URL('../handlers/workflow-tasks.ts', import.meta.url), 'utf-8')
       const start = src.indexOf('export const handleApplyWorkflowTransition')
       expect(start).toBeGreaterThan(-1)
       const nextExport = src.indexOf('\nexport const handle', start + 1)
@@ -731,10 +722,7 @@ describe('W3: POST /v1/tasks/:taskId/obligations/:obligationId/waive — obligat
   //
   describe('handler source does not use withDurableWorkflowKernel (RED: currently calls it)', () => {
     test('handleWaiveWorkflowObligation function body does not contain withDurableWorkflowKernel', () => {
-      const src = readFileSync(
-        new URL('../handlers/workflow-tasks.ts', import.meta.url),
-        'utf-8'
-      )
+      const src = readFileSync(new URL('../handlers/workflow-tasks.ts', import.meta.url), 'utf-8')
       const start = src.indexOf('export const handleWaiveWorkflowObligation')
       expect(start).toBeGreaterThan(-1)
       const nextExport = src.indexOf('\nexport const handle', start + 1)
@@ -844,10 +832,7 @@ describe('W3: POST /v1/tasks/:taskId/obligations/:obligationId/cancel — obliga
   //
   describe('handler source does not use withDurableWorkflowKernel (RED: currently calls it)', () => {
     test('handleCancelWorkflowObligation function body does not contain withDurableWorkflowKernel', () => {
-      const src = readFileSync(
-        new URL('../handlers/workflow-tasks.ts', import.meta.url),
-        'utf-8'
-      )
+      const src = readFileSync(new URL('../handlers/workflow-tasks.ts', import.meta.url), 'utf-8')
       const start = src.indexOf('export const handleCancelWorkflowObligation')
       expect(start).toBeGreaterThan(-1)
       // handleCancelWorkflowObligation is the last handler in the file — no next export

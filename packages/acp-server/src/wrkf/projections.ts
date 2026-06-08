@@ -93,12 +93,7 @@ export function projectNextActionResponse(value: unknown): NextActionResponse {
       'next',
       projectBlockedTransitionRecord
     ),
-    openObligations: projectOptionalArray(
-      next,
-      'openObligations',
-      'next',
-      projectObligationRecord
-    ),
+    openObligations: projectOptionalArray(next, 'openObligations', 'next', projectObligationRecord),
     pendingEffects: projectOptionalArray(next, 'pendingEffects', 'next', projectEffectRecord),
     raw: next,
   }
@@ -175,10 +170,7 @@ export function projectEffectRecord(value: unknown, label = 'effect'): EffectRec
   }
 }
 
-function projectWorkflowState(
-  instance: Record<string, unknown>,
-  label: string
-): WrkfWorkflowState {
+function projectWorkflowState(instance: Record<string, unknown>, label: string): WrkfWorkflowState {
   const state = readRecord(instance['state'])
   if (state !== undefined) {
     return {

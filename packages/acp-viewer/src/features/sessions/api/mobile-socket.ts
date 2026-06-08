@@ -1,10 +1,10 @@
-import type { StreamConnectionState } from '@/features/sessions/types'
 import type {
   MobileDashboardSnapshotFrame,
   MobileEventMessage,
   MobileFrame,
   MobileSessionSummary,
 } from '@/features/sessions/lib/mobile-frames'
+import type { StreamConnectionState } from '@/features/sessions/types'
 
 export type MobileSocketOptions = {
   /** Resume cursor: subscribe from this hrcSeq. Omit for a fresh snapshot. */

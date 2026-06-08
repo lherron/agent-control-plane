@@ -202,11 +202,13 @@ describe('mobileSessionToRow', () => {
   })
 
   test('marks busy when a run is running or a turn is active', () => {
-    expect(mobileSessionToRow({ ...IDLE_ACTIVE_SESSION, run: { status: 'running', runId: 'r1' } })
-      ?.runtime?.status).toBe('busy')
-    expect(mobileSessionToRow({ ...IDLE_ACTIVE_SESSION, activeTurnId: 't1' })?.runtime?.status).toBe(
-      'busy'
-    )
+    expect(
+      mobileSessionToRow({ ...IDLE_ACTIVE_SESSION, run: { status: 'running', runId: 'r1' } })
+        ?.runtime?.status
+    ).toBe('busy')
+    expect(
+      mobileSessionToRow({ ...IDLE_ACTIVE_SESSION, activeTurnId: 't1' })?.runtime?.status
+    ).toBe('busy')
   })
 
   test('maps stale summaryStatus to a broken/stale row', () => {

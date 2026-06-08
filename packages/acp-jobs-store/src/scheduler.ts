@@ -164,7 +164,7 @@ function drainEventInbox(input: {
           if (mint.minted) {
             minted.push({ job, jobRun: mint.jobRun })
           }
-        } catch (error) {
+        } catch (_error) {
           // Per-job isolation: an unexpected evaluation/mint failure for one job
           // is recorded (closest reason: template_error) and never poisons the
           // event for the remaining jobs.

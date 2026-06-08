@@ -178,7 +178,11 @@ describe('ACP run correlation', () => {
       watchTimeoutMs: 250,
       createClient: () =>
         ({
-          resolveSession: async () => ({ found: true, hostSessionId: 'hsid-failed', generation: 11 }),
+          resolveSession: async () => ({
+            found: true,
+            hostSessionId: 'hsid-failed',
+            generation: 11,
+          }),
           dispatchTurn: async () => {
             hrc.db.run(
               'INSERT INTO runs (run_id, status, error_code, error_message) VALUES (?, ?, ?, ?)',
@@ -789,7 +793,11 @@ describe('ACP run correlation', () => {
       watchTimeoutMs: 250,
       createClient: () =>
         ({
-          resolveSession: async () => ({ found: true, hostSessionId: 'hsid-contradictory', generation: 6 }),
+          resolveSession: async () => ({
+            found: true,
+            hostSessionId: 'hsid-contradictory',
+            generation: 6,
+          }),
           dispatchTurn: async () => {
             hrc.db.run(
               'INSERT INTO runs (run_id, status, error_code, error_message) VALUES (?, ?, NULL, NULL)',

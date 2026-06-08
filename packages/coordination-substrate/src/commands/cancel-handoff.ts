@@ -15,7 +15,10 @@ export function cancelHandoff(
 ): Handoff | undefined {
   return store.sqlite.transaction((input: CancelHandoffCommand) => {
     const existing = getHandoffById(store.sqlite, input.handoffId)
-    if (!existing || (existing.state !== HANDOFF_STATE.open && existing.state !== HANDOFF_STATE.accepted)) {
+    if (
+      !existing ||
+      (existing.state !== HANDOFF_STATE.open && existing.state !== HANDOFF_STATE.accepted)
+    ) {
       return undefined
     }
 

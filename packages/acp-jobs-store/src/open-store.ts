@@ -917,9 +917,7 @@ function toJobRunRecord(row: JobRunRow): JobRunRecord {
     ...(row.resolved_input_json !== null
       ? { resolvedInput: parseJsonRecord(row.resolved_input_json, 'resolvedInput') }
       : {}),
-    ...(row.source_json !== null
-      ? { source: parseJsonRecord(row.source_json, 'source') }
-      : {}),
+    ...(row.source_json !== null ? { source: parseJsonRecord(row.source_json, 'source') } : {}),
     actor: rowToActor(row),
     actorStamp: row.actor_stamp,
     createdAt: row.created_at,
@@ -1133,7 +1131,12 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
     const actor = resolveActor(input.actor)
     const disabled = input.disabled ?? false
     const trigger = resolveTrigger(input)
-    const columns = scheduleColumnsForTrigger({ trigger, schedule: input.schedule, disabled, anchor: now })
+    const columns = scheduleColumnsForTrigger({
+      trigger,
+      schedule: input.schedule,
+      disabled,
+      anchor: now,
+    })
     const jobId = input.jobId ?? newId('job')
     const slug = input.slug ?? jobId
     if (!isValidJobSlug(slug)) {

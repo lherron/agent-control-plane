@@ -772,7 +772,9 @@ export class GatewayDiscordApp {
     }
   }
 
-  private async resolveInputIntent(sessionRef: InterfaceSessionRef): Promise<InputIntent | undefined> {
+  private async resolveInputIntent(
+    sessionRef: InterfaceSessionRef
+  ): Promise<InputIntent | undefined> {
     if (this.findActivePlaceholderForSession(sessionRef) !== undefined) {
       return {
         kind: 'contribute_to_active_run',
@@ -807,11 +809,7 @@ export class GatewayDiscordApp {
       }
 
       const run = this.sessionEventsManager.getRunState(wantedSessionRef, hrcRunId)
-      if (
-        run?.status === 'completed' ||
-        run?.status === 'failed' ||
-        run?.status === 'cancelled'
-      ) {
+      if (run?.status === 'completed' || run?.status === 'failed' || run?.status === 'cancelled') {
         continue
       }
 

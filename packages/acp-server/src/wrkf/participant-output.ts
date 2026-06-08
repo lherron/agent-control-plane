@@ -30,15 +30,11 @@
  */
 
 import {
-  ingestEvidenceAndSatisfyObligations,
   type ParticipantOutput,
   type PbcEvidencePort,
+  ingestEvidenceAndSatisfyObligations,
 } from './pbc-evidence.js'
-import type {
-  EvidenceRecord,
-  NextActionResponse,
-  ObligationRecord,
-} from './projections.js'
+import type { EvidenceRecord, NextActionResponse, ObligationRecord } from './projections.js'
 
 // ---------------------------------------------------------------------------
 // Capture record (idempotency store value)
@@ -117,9 +113,7 @@ export async function captureAndIngestParticipantOutput(
   // ── supplied: participantOutput is required. ──────────────────────────────
   const output = input.participantOutput
   if (output === undefined) {
-    throw new Error(
-      'participantOutput is required when mode is "supplied"'
-    )
+    throw new Error('participantOutput is required when mode is "supplied"')
   }
 
   // ── Idempotency: check the captures store BEFORE any wrkf write. ───────────

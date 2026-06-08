@@ -148,4 +148,3 @@ export function payloadPreview(event: DashboardEvent, maxLength = 180): string {
   if (!rendered) return event.label
   return rendered.length <= maxLength ? rendered : `${rendered.slice(0, maxLength - 1)}...`
 }
-

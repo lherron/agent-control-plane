@@ -2,10 +2,10 @@ import type { DashboardEvent } from '@/features/sessions/types'
 import { cn } from '@/lib/cn'
 import { ShieldAlert } from 'lucide-react'
 import {
-  clockLabel,
-  compactRef,
   FAMILY_ACCENT,
   FAMILY_TEXT,
+  clockLabel,
+  compactRef,
   payloadPreview,
   severityTone,
 } from './event-family'
@@ -52,10 +52,16 @@ export function EventInspector({ event }: { event: DashboardEvent | undefined })
           <dl className="grid grid-cols-[112px_minmax(0,1fr)] gap-x-4 gap-y-2 text-[12px]">
             <Field label="eventKind" value={event.eventKind} />
             <Field label="family" value={event.family} valueClassName={FAMILY_TEXT[event.family]} />
-            <Field label="severity" value={event.severity} valueClassName={severityTone(event.severity)} />
+            <Field
+              label="severity"
+              value={event.severity}
+              valueClassName={severityTone(event.severity)}
+            />
             <Field label="ts" value={`${event.ts} (${clockLabel(event.ts)})`} />
             <Field label="hrcSeq" value={String(event.hrcSeq)} />
-            {event.streamSeq !== undefined && <Field label="streamSeq" value={String(event.streamSeq)} />}
+            {event.streamSeq !== undefined && (
+              <Field label="streamSeq" value={String(event.streamSeq)} />
+            )}
             {event.category && <Field label="category" value={event.category} />}
             <Field label="scopeRef" value={event.sessionRef.scopeRef} />
             <Field label="laneRef" value={event.sessionRef.laneRef} />
@@ -73,9 +79,7 @@ export function EventInspector({ event }: { event: DashboardEvent | undefined })
             </pre>
           </div>
 
-          <div className="mt-4 text-[11px] text-quiet">
-            {compactRef(event.id, 64)}
-          </div>
+          <div className="mt-4 text-[11px] text-quiet">{compactRef(event.id, 64)}</div>
         </div>
       )}
     </aside>
@@ -100,4 +104,3 @@ function Field({
     </>
   )
 }
-

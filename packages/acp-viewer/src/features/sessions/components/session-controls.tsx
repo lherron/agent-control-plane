@@ -1,8 +1,8 @@
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/cn'
 import type { FamilyFilter, StreamConnectionState } from '@/features/sessions/types'
+import { cn } from '@/lib/cn'
 import { Pause, Radio, WifiOff } from 'lucide-react'
-import { connectionTone, EVENT_FAMILIES } from './event-family'
+import { EVENT_FAMILIES, connectionTone } from './event-family'
 
 export function SessionControls({
   paused,
@@ -80,4 +80,3 @@ export function SessionControls({
     </div>
   )
 }
-

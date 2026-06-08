@@ -40,8 +40,8 @@ import { readFileSync } from 'node:fs'
 
 import { describe, expect, test } from 'bun:test'
 
-import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
 import { withWiredServer } from '../../test/fixtures/wired-server.js'
+import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
 
 // ── Canned fixture data returned by the fake wrkf port ───────────────────────
 
@@ -323,62 +323,49 @@ describe('W2a: GET /v1/tasks/:taskId — wrkf projection', () => {
   //   This is safe because task.inspect is the first call; any throw before any
   //   successful wrkf data is read means the task identity itself failed to resolve.
   //
-  describe(
-    'task.inspect transport error → 404 WRKF_NOT_FOUND (RED: SyntaxError escapes handler → 500 internal_error)',
-    () => {
-      test(
-        'task.inspect throws SyntaxError (JSON.parse undefined) → HTTP 404, not 500 (live repro: T-01931 no wrkf instance)',
-        async () => {
-          // Simulate what @wrkf/client does when the wrkf process returns no body for a
-          // task that has no wrkf instance: JSON.parse(undefined) → SyntaxError.
-          const transportError = new SyntaxError(
-            'Unexpected token u in JSON at position 0' // JSON.parse(undefined)
-          )
-          await withWiredServer(
-            async (fixture) => {
-              const response = await fixture.request({
-                method: 'GET',
-                path: `/v1/tasks/${TASK_ID}`,
-              })
-              // RED: isWrkfError(SyntaxError) === false (no .code) → re-thrown → 500 internal_error
-              // GREEN: handler catches all errors from task.inspect as WRKF_NOT_FOUND → 404
-              expect(response.status).toBe(404)
-              const body = await fixture.json<{ error: { code: string; message: string } }>(
-                response
-              )
-              expect(body.error.code).toBe('WRKF_NOT_FOUND')
-            },
-            { wrkf: makeFakeWrkfPort({ inspectError: transportError }) }
-          )
-        }
+  describe('task.inspect transport error → 404 WRKF_NOT_FOUND (RED: SyntaxError escapes handler → 500 internal_error)', () => {
+    test('task.inspect throws SyntaxError (JSON.parse undefined) → HTTP 404, not 500 (live repro: T-01931 no wrkf instance)', async () => {
+      // Simulate what @wrkf/client does when the wrkf process returns no body for a
+      // task that has no wrkf instance: JSON.parse(undefined) → SyntaxError.
+      const transportError = new SyntaxError(
+        'Unexpected token u in JSON at position 0' // JSON.parse(undefined)
       )
+      await withWiredServer(
+        async (fixture) => {
+          const response = await fixture.request({
+            method: 'GET',
+            path: `/v1/tasks/${TASK_ID}`,
+          })
+          // RED: isWrkfError(SyntaxError) === false (no .code) → re-thrown → 500 internal_error
+          // GREEN: handler catches all errors from task.inspect as WRKF_NOT_FOUND → 404
+          expect(response.status).toBe(404)
+          const body = await fixture.json<{ error: { code: string; message: string } }>(response)
+          expect(body.error.code).toBe('WRKF_NOT_FOUND')
+        },
+        { wrkf: makeFakeWrkfPort({ inspectError: transportError }) }
+      )
+    })
 
-      test(
-        'task.inspect throws TypeError (e.g. cannot read property of undefined) → HTTP 404, not 500',
-        async () => {
-          // Defensive coverage: the transport layer may also produce a TypeError if it tries
-          // to access a property on an undefined response object before reaching JSON.parse.
-          // Both SyntaxError and TypeError are non-WrkfError throws from task.inspect that
-          // must not escape as 500.
-          const transportError = new TypeError(
-            "Cannot read properties of undefined (reading 'data')"
-          )
-          await withWiredServer(
-            async (fixture) => {
-              const response = await fixture.request({
-                method: 'GET',
-                path: `/v1/tasks/${TASK_ID}`,
-              })
-              // RED: TypeError has no .code → isWrkfError fails → re-thrown → 500 internal_error
-              // GREEN: any non-WrkfError from task.inspect maps to 404 WRKF_NOT_FOUND
-              expect(response.status).toBe(404)
-              const body = await fixture.json<{ error: { code: string } }>(response)
-              expect(body.error.code).toBe('WRKF_NOT_FOUND')
-            },
-            { wrkf: makeFakeWrkfPort({ inspectError: transportError }) }
-          )
-        }
+    test('task.inspect throws TypeError (e.g. cannot read property of undefined) → HTTP 404, not 500', async () => {
+      // Defensive coverage: the transport layer may also produce a TypeError if it tries
+      // to access a property on an undefined response object before reaching JSON.parse.
+      // Both SyntaxError and TypeError are non-WrkfError throws from task.inspect that
+      // must not escape as 500.
+      const transportError = new TypeError("Cannot read properties of undefined (reading 'data')")
+      await withWiredServer(
+        async (fixture) => {
+          const response = await fixture.request({
+            method: 'GET',
+            path: `/v1/tasks/${TASK_ID}`,
+          })
+          // RED: TypeError has no .code → isWrkfError fails → re-thrown → 500 internal_error
+          // GREEN: any non-WrkfError from task.inspect maps to 404 WRKF_NOT_FOUND
+          expect(response.status).toBe(404)
+          const body = await fixture.json<{ error: { code: string } }>(response)
+          expect(body.error.code).toBe('WRKF_NOT_FOUND')
+        },
+        { wrkf: makeFakeWrkfPort({ inspectError: transportError }) }
       )
-    }
-  )
+    })
+  })
 })

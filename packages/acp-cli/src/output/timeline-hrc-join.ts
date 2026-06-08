@@ -57,7 +57,8 @@ function runIdFor(row: AcpTimelineRow): string | undefined {
 }
 
 function participantCompleteTs(response: GetTaskResponse, runId: string): string | undefined {
-  const typedRuns = (response.runs as Array<{ id?: string; completedAt?: string }> | undefined) ?? []
+  const typedRuns =
+    (response.runs as Array<{ id?: string; completedAt?: string }> | undefined) ?? []
   return typedRuns.find((run) => run.id === runId)?.completedAt
 }
 

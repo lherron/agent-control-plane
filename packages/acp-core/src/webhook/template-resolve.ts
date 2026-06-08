@@ -46,7 +46,8 @@ function contentVars(event: WrkqWebhookEvent): Record<string, string | undefined
     event: event.event,
     title: typeof event.title === 'string' ? cap(event.title) : undefined,
     slug: typeof event.slug === 'string' ? cap(event.slug) : undefined,
-    container_path: typeof event.container_path === 'string' ? cap(event.container_path) : undefined,
+    container_path:
+      typeof event.container_path === 'string' ? cap(event.container_path) : undefined,
     labels: Array.isArray(event.labels) ? cap(event.labels.join(',')) : undefined,
   }
 }
@@ -120,7 +121,7 @@ export function resolveEventAction(input: {
     return { ok: false, error: `laneRef: ${lane.error}` }
   }
 
-  let sessionRef
+  let sessionRef: ReturnType<typeof normalizeSessionRef>
   try {
     sessionRef = normalizeSessionRef({ scopeRef: scope.value, laneRef: lane.value })
   } catch (error) {

@@ -7,4 +7,3 @@ export const sessionRoutes: RouteObject[] = [
     element: <SessionsLive />,
   },
 ]
-

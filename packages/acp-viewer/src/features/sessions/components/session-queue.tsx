@@ -40,11 +40,7 @@ export function SessionQueue({
           <ol className="space-y-2">
             {visibleRows.map((row) => (
               <li key={row.rowId}>
-                <SessionCard
-                  row={row}
-                  selectedRowId={selectedRowId}
-                  onSelectRow={onSelectRow}
-                />
+                <SessionCard row={row} selectedRowId={selectedRowId} onSelectRow={onSelectRow} />
               </li>
             ))}
           </ol>
@@ -53,4 +49,3 @@ export function SessionQueue({
     </aside>
   )
 }
-

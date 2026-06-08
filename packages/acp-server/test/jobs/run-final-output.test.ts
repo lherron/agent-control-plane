@@ -285,7 +285,7 @@ describe('getRunFinalAssistantText', () => {
     const path = makeStore()
     const db = new Database(path)
     const insert = db.prepare(
-      `INSERT INTO hrc_events (hrc_seq, run_id, event_kind, payload_json) VALUES (?, ?, ?, ?)`
+      'INSERT INTO hrc_events (hrc_seq, run_id, event_kind, payload_json) VALUES (?, ?, ?, ?)'
     )
     // Headless Codex delivers the real reply as a turn.message, then on exit
     // synthesizes a content-less turn.completed because the driver never saw a
@@ -318,7 +318,7 @@ describe('getRunFinalAssistantText', () => {
     const path = makeStore()
     const db = new Database(path)
     db.prepare(
-      `INSERT INTO hrc_events (hrc_seq, run_id, event_kind, payload_json) VALUES (?, ?, ?, ?)`
+      'INSERT INTO hrc_events (hrc_seq, run_id, event_kind, payload_json) VALUES (?, ?, ?, ?)'
     ).run(
       1,
       'hrc-run-degraded',

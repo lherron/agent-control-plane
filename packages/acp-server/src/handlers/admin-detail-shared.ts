@@ -126,7 +126,9 @@ export function buildScheduleSummary(job: JobRecord):
     ...(preview.length > 0 ? { nextFirePreview: preview } : {}),
     ...(schedule.windowStart !== undefined ? { windowStart: schedule.windowStart } : {}),
     ...(schedule.windowEnd !== undefined ? { windowEnd: schedule.windowEnd } : {}),
-    ...(typeof schedule.windowMinutes === 'number' ? { windowMinutes: schedule.windowMinutes } : {}),
+    ...(typeof schedule.windowMinutes === 'number'
+      ? { windowMinutes: schedule.windowMinutes }
+      : {}),
   }
 }
 

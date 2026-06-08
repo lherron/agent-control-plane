@@ -148,9 +148,11 @@ function renderAskUserQuestion(block: Extract<RenderBlock, { t: 'tool' }>): stri
     return undefined
   }
 
-  const input = (block as Extract<RenderBlock, { t: 'tool' }> & {
-    input?: Record<string, unknown>
-  }).input
+  const input = (
+    block as Extract<RenderBlock, { t: 'tool' }> & {
+      input?: Record<string, unknown>
+    }
+  ).input
   const questions = Array.isArray(input?.['questions']) ? input?.['questions'] : undefined
   if (questions === undefined || questions.length === 0) {
     return '❓ Awaiting your response.'

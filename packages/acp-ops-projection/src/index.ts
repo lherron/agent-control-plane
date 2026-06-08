@@ -245,9 +245,7 @@ function deriveFamily(event: HrcLifecycleEvent): DashboardEventFamily {
     // A user-prompt turn (e.g. turn.user_prompt) rides the message_end shape with
     // role:'user'. Route it to the input family so it reads distinctly from the
     // agent's own messages instead of blending into the assistant stream.
-    return readString(payloadMessageRecord(event)?.['role']) === 'user'
-      ? 'input'
-      : 'agent_message'
+    return readString(payloadMessageRecord(event)?.['role']) === 'user' ? 'input' : 'agent_message'
   }
 
   if (

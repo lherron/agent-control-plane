@@ -106,7 +106,7 @@ export function createSessionIndex(deps: SessionIndexDeps) {
 function mergeIntoSummaries(
   sessions: HrcSessionRecord[],
   runtimes: HrcRuntimeSnapshot[],
-  targets: HrcTargetView[]
+  _targets: HrcTargetView[]
 ): MobileSessionSummary[] {
   // Index runtimes by hostSessionId (most recent wins via sort)
   const runtimeByHost = new Map<string, HrcRuntimeSnapshot>()

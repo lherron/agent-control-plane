@@ -322,8 +322,7 @@ export function selectVisibleEvents(
       if (filters.severity !== undefined && event.severity !== filters.severity) return false
       if (filters.fromTs !== undefined && !withinTimeBound(event.ts, filters.fromTs, 'from'))
         return false
-      if (filters.toTs !== undefined && !withinTimeBound(event.ts, filters.toTs, 'to'))
-        return false
+      if (filters.toTs !== undefined && !withinTimeBound(event.ts, filters.toTs, 'to')) return false
       return true
     })
     .sort(compareEvents)

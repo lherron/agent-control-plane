@@ -25,10 +25,10 @@ import { describe, expect, test } from 'bun:test'
 
 // These imports define the module contract. They will fail until the module exists.
 import {
-  deliverPbcEffects,
-  type PbcEffectDeliveryPort,
   type EffectDeliveryInput,
   type EffectDeliveryResult,
+  type PbcEffectDeliveryPort,
+  deliverPbcEffects,
 } from './effect-delivery.js'
 
 // ---------------------------------------------------------------------------
@@ -55,10 +55,12 @@ function makeLeaseConflictError(): Error & { code: string } {
   return err
 }
 
-function makeFakePort(opts: {
-  effects?: RawEffect[]
-  leaseConflictEffectIds?: string[]
-} = {}): FakeEffectPort {
+function makeFakePort(
+  opts: {
+    effects?: RawEffect[]
+    leaseConflictEffectIds?: string[]
+  } = {}
+): FakeEffectPort {
   const _calls: SpyCall[] = []
   const effects: RawEffect[] = opts.effects ?? []
   const leaseConflicts = new Set(opts.leaseConflictEffectIds ?? [])
@@ -361,9 +363,7 @@ describe('deliverPbcEffects - WRKF_LEASE_CONFLICT handling', () => {
 
     // effect.deliver must have been attempted for the second effect despite the first failing
     const deliverCalls = port._calls.filter((c) => c.method === 'effect.deliver')
-    const attemptedIds = deliverCalls.map(
-      (c) => (c.params as Record<string, unknown>)['effectId']
-    )
+    const attemptedIds = deliverCalls.map((c) => (c.params as Record<string, unknown>)['effectId'])
     expect(attemptedIds).toContain('eff_conflict_first')
     expect(attemptedIds).toContain('eff_after')
   })

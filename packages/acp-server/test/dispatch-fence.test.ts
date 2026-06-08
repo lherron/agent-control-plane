@@ -327,7 +327,11 @@ describe('ACP dispatch fences', () => {
       watchTimeoutMs: 250,
       createClient: () =>
         ({
-          resolveSession: async () => ({ found: true, hostSessionId: 'hsid-follow', generation: 12 }),
+          resolveSession: async () => ({
+            found: true,
+            hostSessionId: 'hsid-follow',
+            generation: 12,
+          }),
           dispatchTurn: async (input: unknown) => {
             dispatchCalls.push(input)
             const fences =

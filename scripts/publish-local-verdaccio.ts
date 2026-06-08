@@ -92,7 +92,7 @@ async function packForPublish(rel: string): Promise<{
       ...manifest,
       exports: stripBunConditions(manifest.exports),
     }
-    delete publishManifest.private
+    publishManifest.private = undefined
 
     await writeFile(packageJsonPath, `${JSON.stringify(publishManifest, null, 2)}\n`)
 

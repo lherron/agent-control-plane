@@ -243,7 +243,10 @@ export function validateJobTrigger(value: unknown): ValidateJobTriggerResult {
 
     let cooldown: string | undefined
     if (value['cooldown'] !== undefined) {
-      if (typeof value['cooldown'] === 'string' && parseDurationToMs(value['cooldown']) !== undefined) {
+      if (
+        typeof value['cooldown'] === 'string' &&
+        parseDurationToMs(value['cooldown']) !== undefined
+      ) {
         cooldown = value['cooldown']
       } else {
         errors.push('trigger.cooldown must be a duration string like "5m" or "1h"')
@@ -263,7 +266,10 @@ export function validateJobTrigger(value: unknown): ValidateJobTriggerResult {
     return { valid: true, trigger }
   }
 
-  return { valid: false, errors: [`trigger.kind must be 'schedule' or 'event' (got ${String(kind)})`] }
+  return {
+    valid: false,
+    errors: [`trigger.kind must be 'schedule' or 'event' (got ${String(kind)})`],
+  }
 }
 
 /**

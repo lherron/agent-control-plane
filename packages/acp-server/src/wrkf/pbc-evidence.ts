@@ -17,15 +17,15 @@
  *     allowProductOwnerSimulation is explicitly enabled.
  */
 
+import { PRODUCT_OWNER_EVIDENCE_KINDS } from './pbc-prompt-compiler.js'
 import {
-  projectEvidenceRecord,
-  projectNextActionResponse,
-  projectObligationRecord,
   type EvidenceRecord,
   type NextActionResponse,
   type ObligationRecord,
+  projectEvidenceRecord,
+  projectNextActionResponse,
+  projectObligationRecord,
 } from './projections.js'
-import { PRODUCT_OWNER_EVIDENCE_KINDS } from './pbc-prompt-compiler.js'
 
 // ---------------------------------------------------------------------------
 // Participant output contract (mirrors the schema embedded by the compiler)
@@ -119,9 +119,7 @@ export function validateParticipantOutputFacts(output: ParticipantOutput): void 
       case 'pre_interview_analysis': {
         if (facts !== undefined && 'clarification_needed' in facts) {
           if (typeof facts['clarification_needed'] !== 'boolean') {
-            throw new Error(
-              'pre_interview_analysis.facts.clarification_needed must be a boolean'
-            )
+            throw new Error('pre_interview_analysis.facts.clarification_needed must be a boolean')
           }
         }
         break
@@ -138,9 +136,7 @@ export function validateParticipantOutputFacts(output: ParticipantOutput): void 
       case 'patch_decision': {
         const route = facts?.['route']
         if (typeof route !== 'string' || !PATCH_ROUTES.includes(route)) {
-          throw new Error(
-            `patch_decision.facts.route must be one of: ${PATCH_ROUTES.join(', ')}`
-          )
+          throw new Error(`patch_decision.facts.route must be one of: ${PATCH_ROUTES.join(', ')}`)
         }
         break
       }
@@ -175,8 +171,7 @@ export async function ingestEvidenceAndSatisfyObligations(
     const offending = output.evidence.find((e) => PRODUCT_OWNER_EVIDENCE_KINDS.includes(e.kind))
     if (offending !== undefined) {
       throw new Error(
-        `Agent role must not synthesize product_owner obligation evidence ` +
-          `(kind "${offending.kind}") unless allowProductOwnerSimulation is enabled.`
+        `Agent role must not synthesize product_owner obligation evidence (kind "${offending.kind}") unless allowProductOwnerSimulation is enabled.`
       )
     }
   }
@@ -238,13 +233,9 @@ function resolveObligationId(
     return directive.obligationId
   }
   if (directive.obligationKind !== undefined) {
-    const match = open.find(
-      (o) => o.kind === directive.obligationKind && o.status === 'open'
-    )
+    const match = open.find((o) => o.kind === directive.obligationKind && o.status === 'open')
     if (match === undefined) {
-      throw new Error(
-        `no open obligation matching kind "${directive.obligationKind}" to satisfy`
-      )
+      throw new Error(`no open obligation matching kind "${directive.obligationKind}" to satisfy`)
     }
     return match.id
   }

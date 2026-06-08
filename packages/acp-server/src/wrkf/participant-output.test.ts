@@ -76,12 +76,12 @@ import { describe, expect, test } from 'bun:test'
 // These imports define the module contract.
 // They will fail (red) until participant-output.ts is created.
 import {
-  captureAndIngestParticipantOutput,
-  makeParticipantOutputCaptureKey,
   type CaptureIngestResult,
   type CaptureRecord,
-  type ParticipantOutputPort,
   type ParticipantOutputInput,
+  type ParticipantOutputPort,
+  captureAndIngestParticipantOutput,
+  makeParticipantOutputCaptureKey,
 } from './participant-output.js'
 
 // Re-import ParticipantOutput from pbc-evidence (the module reuses that type — DO NOT redefine)
@@ -111,11 +111,13 @@ const MINIMAL_NEXT_RAW = {
   pendingEffects: [],
 }
 
-function makeFakePort(opts: {
-  obligations?: Array<{ id: string; kind: string; status: string }>
-  nextResponse?: unknown
-  preSeedCaptures?: Map<string, CaptureRecord>
-} = {}): FakePort {
+function makeFakePort(
+  opts: {
+    obligations?: Array<{ id: string; kind: string; status: string }>
+    nextResponse?: unknown
+    preSeedCaptures?: Map<string, CaptureRecord>
+  } = {}
+): FakePort {
   const _calls: SpyCall[] = []
   const openObligations = opts.obligations ?? []
   const nextResp = opts.nextResponse ?? MINIMAL_NEXT_RAW
@@ -437,9 +439,7 @@ describe('captureAndIngestParticipantOutput — supplied mode', () => {
     expect(lastAddIdx).toBeGreaterThan(-1)
 
     // A 'next' call must appear after the last evidence.add
-    const nextAfterEvidence = port._calls
-      .slice(lastAddIdx + 1)
-      .some((c) => c.method === 'next')
+    const nextAfterEvidence = port._calls.slice(lastAddIdx + 1).some((c) => c.method === 'next')
     expect(nextAfterEvidence).toBe(true)
   })
 
@@ -875,42 +875,39 @@ describe('captureAndIngestParticipantOutput — launched-runtime mode', () => {
     expect(setCalls).toHaveLength(0)
   })
 
-  test(
-    'launched-runtime then supplied with same captureKey: supplied call succeeds (not blocked by prior awaiting status)',
-    async () => {
-      // Simulates the two-step lifecycle:
-      // 1. Route receives request while HRC run is in-flight → mode=launched-runtime
-      // 2. HRC runtime returns output → caller re-submits with mode=supplied + participantOutput
-      const port = makeFakePort()
-      const captureKey = makeParticipantOutputCaptureKey(ROUTE_KEY, TASK)
+  test('launched-runtime then supplied with same captureKey: supplied call succeeds (not blocked by prior awaiting status)', async () => {
+    // Simulates the two-step lifecycle:
+    // 1. Route receives request while HRC run is in-flight → mode=launched-runtime
+    // 2. HRC runtime returns output → caller re-submits with mode=supplied + participantOutput
+    const port = makeFakePort()
+    const captureKey = makeParticipantOutputCaptureKey(ROUTE_KEY, TASK)
 
-      // Step 1: launched-runtime — returns awaiting, nothing recorded
-      const awaitingResult = await captureAndIngestParticipantOutput(port, {
-        task: TASK,
-        role: ROLE,
-        actor: ACTOR,
-        captureKey,
-        mode: 'launched-runtime',
-      })
-      expect(awaitingResult.status).toBe('awaiting_runtime_output')
-      expect(port._captureStore.has(captureKey)).toBe(false)
+    // Step 1: launched-runtime — returns awaiting, nothing recorded
+    const awaitingResult = await captureAndIngestParticipantOutput(port, {
+      task: TASK,
+      role: ROLE,
+      actor: ACTOR,
+      captureKey,
+      mode: 'launched-runtime',
+    })
+    expect(awaitingResult.status).toBe('awaiting_runtime_output')
+    expect(port._captureStore.has(captureKey)).toBe(false)
 
-      // Step 2: supplied — ingests the actual output
-      port._calls.length = 0
-      const ingestedResult = await captureAndIngestParticipantOutput(port, {
-        task: TASK,
-        role: ROLE,
-        actor: ACTOR,
-        captureKey,
-        mode: 'supplied',
-        participantOutput: SUPPLIED_PBC_DRAFT_OUTPUT,
-      })
+    // Step 2: supplied — ingests the actual output
+    port._calls.length = 0
+    const ingestedResult = await captureAndIngestParticipantOutput(port, {
+      task: TASK,
+      role: ROLE,
+      actor: ACTOR,
+      captureKey,
+      mode: 'supplied',
+      participantOutput: SUPPLIED_PBC_DRAFT_OUTPUT,
+    })
 
-      expect(ingestedResult.status).toBe('ingested')
-      expect(ingestedResult.evidenceAdded).toHaveLength(1)
-      expect(port._captureStore.has(captureKey)).toBe(true)
-    }
-  )
+    expect(ingestedResult.status).toBe('ingested')
+    expect(ingestedResult.evidenceAdded).toHaveLength(1)
+    expect(port._captureStore.has(captureKey)).toBe(true)
+  })
 })
 
 // ===========================================================================

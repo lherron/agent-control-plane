@@ -72,7 +72,10 @@ export function projectPbcTemplateModelFromWorkflowShow(value: unknown): PbcTemp
   return projectPbcTemplateModel(nextActionModel, 'workflow.nextActionModel')
 }
 
-export function projectPbcTemplateModel(value: unknown, label = 'nextActionModel'): PbcTemplateModel {
+export function projectPbcTemplateModel(
+  value: unknown,
+  label = 'nextActionModel'
+): PbcTemplateModel {
   const model = requireRecord(value, label)
   const schemaVersion = readOptionalString(model, 'schemaVersion')
   return {
@@ -131,10 +134,7 @@ function projectScopeModel(value: unknown, label: string): PbcScopeModel {
   }
 }
 
-function projectPromptCatalogEntry(
-  value: unknown,
-  label: string
-): PbcPromptCatalogEntry {
+function projectPromptCatalogEntry(value: unknown, label: string): PbcPromptCatalogEntry {
   const entry = requireRecord(value, label)
   const kind = readOptionalString(entry, 'kind')
   const summary = readOptionalString(entry, 'summary')

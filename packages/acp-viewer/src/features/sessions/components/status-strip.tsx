@@ -1,6 +1,6 @@
-import type { ReactNode } from 'react'
 import type { SessionDashboardSummary } from '@/features/sessions/types'
 import { Activity, CircleDot, Clock3, Hourglass, MailWarning, RadioTower, Zap } from 'lucide-react'
+import type { ReactNode } from 'react'
 
 const metricDefs = [
   { key: 'busy', label: 'Busy', icon: Zap },
@@ -63,4 +63,3 @@ export function StatusStrip({
     </section>
   )
 }
-

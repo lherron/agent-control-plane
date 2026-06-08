@@ -62,14 +62,14 @@
 
 import { describe, expect, test } from 'bun:test'
 
+import { withWiredServer } from '../../test/fixtures/wired-server.js'
 import { createWrkfClientLifecycle } from '../wrkf/client-lifecycle.js'
 import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
-import { withWiredServer } from '../../test/fixtures/wired-server.js'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const TASK_ID = 'T-WRKF02'
-const WRKF_INSTANCE_ID = `wfi_twrkf02_real_shape_test`
+const WRKF_INSTANCE_ID = 'wfi_twrkf02_real_shape_test'
 
 // ── Real flat inspect shape ────────────────────────────────────────────────────
 //
@@ -336,8 +336,7 @@ describe('W2a real inspect shape — handler must project body.task from flat in
 // ═════════════════════════════════════════════════════════════════════════════
 
 const WRKF_BINARY =
-  process.env['WRKF_BIN'] ??
-  `${process.env['HOME'] ?? '/Users/lherron'}/.local/bin/wrkf`
+  process.env['WRKF_BIN'] ?? `${process.env['HOME'] ?? '/Users/lherron'}/.local/bin/wrkf`
 
 const WRKQ_DB_PATH =
   process.env['WRKQ_DB_PATH'] ??

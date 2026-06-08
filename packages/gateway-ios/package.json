@@ -25,9 +25,9 @@
     "test": "bun test"
   },
   "dependencies": {
-    "hrc-core": "0.1.0-dev.20260607181211",
-    "hrc-sdk": "0.1.0-dev.20260607181211",
-    "agent-scope": "0.1.1-dev.20260607181153"
+    "hrc-core": "0.1.0-dev.20260607205738",
+    "hrc-sdk": "0.1.0-dev.20260607205738",
+    "agent-scope": "0.1.1-dev.20260607205719"
   },
   "devDependencies": {
     "@types/bun": "latest",

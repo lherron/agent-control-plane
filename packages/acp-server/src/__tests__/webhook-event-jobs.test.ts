@@ -4,12 +4,9 @@ import { createInMemoryJobsStore } from 'acp-jobs-store'
 
 import type { Actor } from 'acp-core'
 import type { ResolvedAcpServerDeps } from '../deps.js'
-import {
-  handleCreateAdminJob,
-  handlePatchAdminJob,
-} from '../handlers/admin-jobs.js'
-import { errorResponse } from '../http.js'
+import { handleCreateAdminJob, handlePatchAdminJob } from '../handlers/admin-jobs.js'
 import { handleWrkqWebhook } from '../handlers/webhooks-wrkq.js'
+import { errorResponse } from '../http.js'
 
 const ACTOR: Actor = { kind: 'system', id: 'test' }
 
@@ -61,7 +58,11 @@ const EVENT_JOB_BODY = {
 describe('admin jobs trigger union', () => {
   test('creates an event-triggered job', async () => {
     const { deps } = makeDeps()
-    const res = await call(handleCreateAdminJob, jsonRequest('POST', '/v1/admin/jobs', EVENT_JOB_BODY), deps)
+    const res = await call(
+      handleCreateAdminJob,
+      jsonRequest('POST', '/v1/admin/jobs', EVENT_JOB_BODY),
+      deps
+    )
     expect(res.status).toBe(201)
     const body = (await res.json()) as { job: { trigger: { kind: string } } }
     expect(body.job.trigger.kind).toBe('event')
@@ -150,13 +151,23 @@ describe('POST /v1/webhooks/wrkq', () => {
 
   test('valid v2 payload → 204 + one durable inbox row; duplicate → 204, no second row', async () => {
     const { jobsStore, deps } = makeDeps()
-    const first = await call(handleWrkqWebhook, jsonRequest('POST', '/v1/webhooks/wrkq', payload), deps)
+    const first = await call(
+      handleWrkqWebhook,
+      jsonRequest('POST', '/v1/webhooks/wrkq', payload),
+      deps
+    )
     expect(first.status).toBe(204)
     expect(jobsStore.getInboxEvent('evt_7').event).toBeDefined()
 
-    const dup = await call(handleWrkqWebhook, jsonRequest('POST', '/v1/webhooks/wrkq', payload), deps)
+    const dup = await call(
+      handleWrkqWebhook,
+      jsonRequest('POST', '/v1/webhooks/wrkq', payload),
+      deps
+    )
     expect(dup.status).toBe(204)
-    const count = jobsStore.sqlite.prepare('SELECT COUNT(*) AS c FROM event_inbox').get() as { c: number }
+    const count = jobsStore.sqlite.prepare('SELECT COUNT(*) AS c FROM event_inbox').get() as {
+      c: number
+    }
     expect(count.c).toBe(1)
   })
 

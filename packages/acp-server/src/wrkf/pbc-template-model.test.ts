@@ -70,10 +70,7 @@ describe('PBC template model projection', () => {
 
     const pressure = getPhaseGuidance(model, { status: 'active', phase: 'pressure' })
     expect(pressure?.agentInstruction).toBe('Run the pressure pass.')
-    expect(pressure?.expectedEvidence).toEqual([
-      'pressure_pass',
-      'pbc_final when verdict is ready',
-    ])
+    expect(pressure?.expectedEvidence).toEqual(['pressure_pass', 'pbc_final when verdict is ready'])
 
     const finalize = getTransitionGuidance(model, 'finalize_ready_pbc')
     expect(finalize?.produceEvidence).toEqual(['pressure_pass', 'pbc_final'])

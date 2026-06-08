@@ -50,8 +50,7 @@ import { createWrkfClientLifecycle } from '../wrkf/client-lifecycle.js'
 // ─── Binary / DB paths ────────────────────────────────────────────────────────
 
 const WRKF_BINARY =
-  process.env['WRKF_BIN'] ??
-  `${process.env['HOME'] ?? '/Users/lherron'}/.local/bin/wrkf`
+  process.env['WRKF_BIN'] ?? `${process.env['HOME'] ?? '/Users/lherron'}/.local/bin/wrkf`
 
 const WRKQ_DB_PATH =
   process.env['WRKQ_DB_PATH'] ??
@@ -79,8 +78,8 @@ const EXPECTED_EFFECT_TOP_KEYS = [
 const EXPECTED_WAKE_ROLE_PAYLOAD_KEYS = ['kind', 'role'] as const // reason/data are optional
 
 // ─── Expected request_observer_review payload keys ───────────────────────────
-const EXPECTED_OBSERVER_PAYLOAD_KEYS = ['kind', 'role', 'reason', 'data'] as const
-const EXPECTED_OBSERVER_DATA_KEYS = ['guardrails', 'instruction', 'targetLane'] as const
+const _EXPECTED_OBSERVER_PAYLOAD_KEYS = ['kind', 'role', 'reason', 'data'] as const
+const _EXPECTED_OBSERVER_DATA_KEYS = ['guardrails', 'instruction', 'targetLane'] as const
 
 // ─────────────────────────────────────────────────────────────────────────────
 // REAL-PROCESS: wrkf effect list shape contract
@@ -108,7 +107,9 @@ describe('W5 real-process: @wrkf/client effect shape contract (fidelity guard)',
       const effects = result as Array<Record<string, unknown>>
 
       if (effects.length === 0) {
-        console.log(`[FIDELITY GUARD] No effects on ${LIVE_TASK_ID} — effect key assertions skipped`)
+        console.log(
+          `[FIDELITY GUARD] No effects on ${LIVE_TASK_ID} — effect key assertions skipped`
+        )
         return
       }
 
@@ -167,10 +168,7 @@ describe('W5 real-process: @wrkf/client effect shape contract (fidelity guard)',
         const payloadKeys = Object.keys(payload)
 
         for (const key of EXPECTED_WAKE_ROLE_PAYLOAD_KEYS) {
-          expect(
-            payloadKeys,
-            `wake_role payload missing expected key: ${key}`
-          ).toContain(key)
+          expect(payloadKeys, `wake_role payload missing expected key: ${key}`).toContain(key)
         }
 
         // payload.kind must equal effect.kind
@@ -302,7 +300,9 @@ describe('W5 real-process: @wrkf/client effect shape contract (fidelity guard)',
       const effects = (Array.isArray(result) ? result : []) as Array<Record<string, unknown>>
 
       if (effects.length === 0) {
-        console.log(`[FIDELITY GUARD] No effects on ${LIVE_TASK_ID} — idempotencyKey format check skipped`)
+        console.log(
+          `[FIDELITY GUARD] No effects on ${LIVE_TASK_ID} — idempotencyKey format check skipped`
+        )
         return
       }
 
@@ -317,14 +317,11 @@ describe('W5 real-process: @wrkf/client effect shape contract (fidelity guard)',
         ).toBeGreaterThanOrEqual(3)
 
         // First part is the instanceId (wfi_...)
-        expect(
-          parts[0],
-          `idempotencyKey first part should be instanceId: ${key}`
-        ).toMatch(/^wfi_/)
+        expect(parts[0], `idempotencyKey first part should be instanceId: ${key}`).toMatch(/^wfi_/)
 
         // Second part is the revision (a number string)
         expect(
-          Number.isInteger(parseInt(parts[1]!, 10)),
+          Number.isInteger(Number.parseInt(parts[1]!, 10)),
           `idempotencyKey second part should be revision number: ${key}`
         ).toBe(true)
       }

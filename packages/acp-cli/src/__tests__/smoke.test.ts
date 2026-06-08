@@ -485,5 +485,4 @@ describe('acp CLI smoke fixtures', () => {
     expect(result.exitCode).not.toBe(0)
     expect(result.stderr).toMatch(/unknown/i)
   })
-
 })

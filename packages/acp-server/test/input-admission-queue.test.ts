@@ -1737,7 +1737,11 @@ describe('input admission queue', () => {
       {
         ...stores,
         hrcClient: {
-          resolveSession: async () => ({ found: true, hostSessionId: 'hsid-control', generation: 4 }),
+          resolveSession: async () => ({
+            found: true,
+            hostSessionId: 'hsid-control',
+            generation: 4,
+          }),
           listRuntimes: async () => [
             {
               runtimeId: 'rt-control',

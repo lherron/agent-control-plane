@@ -48,18 +48,12 @@
 
 import { deliverPbcEffects } from './effect-delivery.js'
 import {
-  ingestEvidenceAndSatisfyObligations,
-  type ParticipantOutput,
-} from './pbc-evidence.js'
-import {
+  type ParticipantOutputPort,
   captureAndIngestParticipantOutput,
   makeParticipantOutputCaptureKey,
-  type ParticipantOutputPort,
 } from './participant-output.js'
-import {
-  projectNextActionResponse,
-  type NextActionResponse,
-} from './projections.js'
+import { type ParticipantOutput, ingestEvidenceAndSatisfyObligations } from './pbc-evidence.js'
+import { type NextActionResponse, projectNextActionResponse } from './projections.js'
 
 const WORKFLOW_REF = 'pbc-progressive-refinement@5'
 const DEFAULT_MAX_TURNS = 50

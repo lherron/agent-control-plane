@@ -166,7 +166,11 @@ export function mobileEventToDashboardEvent(
 
   const projected = projectHrcToDashboardEvent(lifecycle)
   // Synthesize a per-session-stable id (spec): hostSessionId:hrcSeq.
-  return { ...projected, id: `${message.hostSessionId}:${message.hrcSeq}`, redacted: projected.redacted }
+  return {
+    ...projected,
+    id: `${message.hostSessionId}:${message.hrcSeq}`,
+    redacted: projected.redacted,
+  }
 }
 
 /**
@@ -208,9 +212,7 @@ export function mobileSnapshotToDashboardSnapshot(
 
   const toTs = frame.generatedAt
   const toMs = Date.parse(toTs)
-  const fromTs = Number.isFinite(toMs)
-    ? new Date(toMs - DASHBOARD_WINDOW_MS).toISOString()
-    : toTs
+  const fromTs = Number.isFinite(toMs) ? new Date(toMs - DASHBOARD_WINDOW_MS).toISOString() : toTs
 
   return {
     serverTime: frame.generatedAt,

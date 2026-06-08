@@ -9,11 +9,11 @@ import {
 } from 'acp-core'
 
 import {
-  createInMemoryJobsStore,
-  tickJobsScheduler,
   type CreateJobInput,
   type EvaluateEventJob,
   type JobsStore,
+  createInMemoryJobsStore,
+  tickJobsScheduler,
 } from '../index.js'
 
 /** A faithful mirror of acp-server's injected evaluator, kept local to the test. */
@@ -42,7 +42,8 @@ const evaluateEventJob: EvaluateEventJob = ({ job, event }) => {
   if (!resolved.ok) {
     return { decision: 'skip', reason: 'template_error' }
   }
-  const cooldownMs = trigger.cooldown !== undefined ? parseDurationToMs(trigger.cooldown) : undefined
+  const cooldownMs =
+    trigger.cooldown !== undefined ? parseDurationToMs(trigger.cooldown) : undefined
   return {
     decision: 'mint',
     resolved: {
@@ -50,8 +51,15 @@ const evaluateEventJob: EvaluateEventJob = ({ job, event }) => {
       laneRef: resolved.resolved.laneRef,
       input: resolved.resolved.input,
     },
-    source: { kind: 'webhook', source: 'wrkq', eventId: parsed.event.event_id, eventSeq: parsed.event.event_seq },
-    ...(resolved.resolved.targetTaskId !== undefined ? { targetTaskId: resolved.resolved.targetTaskId } : {}),
+    source: {
+      kind: 'webhook',
+      source: 'wrkq',
+      eventId: parsed.event.event_id,
+      eventSeq: parsed.event.event_seq,
+    },
+    ...(resolved.resolved.targetTaskId !== undefined
+      ? { targetTaskId: resolved.resolved.targetTaskId }
+      : {}),
     ...(cooldownMs !== undefined ? { cooldownMs } : {}),
   }
 }
@@ -137,7 +145,11 @@ describe('trigger union round-trip', () => {
     expect(evt.schedule).toBeUndefined()
     const row = store.sqlite
       .prepare('SELECT schedule_cron, next_fire_at, trigger_kind FROM jobs WHERE job_id = ?')
-      .get(evt.jobId) as { schedule_cron: string | null; next_fire_at: string | null; trigger_kind: string }
+      .get(evt.jobId) as {
+      schedule_cron: string | null
+      next_fire_at: string | null
+      trigger_kind: string
+    }
     expect(row.schedule_cron).toBeNull()
     expect(row.next_fire_at).toBeNull()
     expect(row.trigger_kind).toBe('event')
@@ -165,19 +177,45 @@ describe('schedule-claim footgun (reviewer check #1)', () => {
 describe('event_inbox idempotency', () => {
   test('duplicate event_id does not create a second inbox row', () => {
     const store = createInMemoryJobsStore()
-    const first = store.insertInboxEvent({ eventId: 'evt_9', eventSeq: 9, event: 'created', payload: wrkqEvent({ event_id: 'evt_9', event_seq: 9 }) })
-    const second = store.insertInboxEvent({ eventId: 'evt_9', eventSeq: 9, event: 'created', payload: wrkqEvent({ event_id: 'evt_9', event_seq: 9 }) })
+    const first = store.insertInboxEvent({
+      eventId: 'evt_9',
+      eventSeq: 9,
+      event: 'created',
+      payload: wrkqEvent({ event_id: 'evt_9', event_seq: 9 }),
+    })
+    const second = store.insertInboxEvent({
+      eventId: 'evt_9',
+      eventSeq: 9,
+      event: 'created',
+      payload: wrkqEvent({ event_id: 'evt_9', event_seq: 9 }),
+    })
     expect(first.inserted).toBe(true)
     expect(second.inserted).toBe(false)
-    const count = store.sqlite.prepare('SELECT COUNT(*) AS c FROM event_inbox').get() as { c: number }
+    const count = store.sqlite.prepare('SELECT COUNT(*) AS c FROM event_inbox').get() as {
+      c: number
+    }
     expect(count.c).toBe(1)
   })
 
   test('claimPending drains by event_seq and marks leased', () => {
     const store = createInMemoryJobsStore()
-    store.insertInboxEvent({ eventId: 'b', eventSeq: 2, event: 'created', payload: wrkqEvent({ event_id: 'b', event_seq: 2 }) })
-    store.insertInboxEvent({ eventId: 'a', eventSeq: 1, event: 'created', payload: wrkqEvent({ event_id: 'a', event_seq: 1 }) })
-    const claimed = store.claimPendingInboxEvents({ now: 'now', leaseOwner: 'me', leaseExpiresAt: 'later' })
+    store.insertInboxEvent({
+      eventId: 'b',
+      eventSeq: 2,
+      event: 'created',
+      payload: wrkqEvent({ event_id: 'b', event_seq: 2 }),
+    })
+    store.insertInboxEvent({
+      eventId: 'a',
+      eventSeq: 1,
+      event: 'created',
+      payload: wrkqEvent({ event_id: 'a', event_seq: 1 }),
+    })
+    const claimed = store.claimPendingInboxEvents({
+      now: 'now',
+      leaseOwner: 'me',
+      leaseExpiresAt: 'later',
+    })
     expect(claimed.map((e) => e.eventId)).toEqual(['a', 'b'])
     expect(claimed[0]?.status).toBe('leased')
   })
@@ -291,10 +329,18 @@ describe('event-claim minting', () => {
         },
       })
     )
-    const first = await ingestAndTick(store, wrkqEvent({ event_id: 'evt_a', event_seq: 1 }), '2026-06-07T01:00:00Z')
+    const first = await ingestAndTick(
+      store,
+      wrkqEvent({ event_id: 'evt_a', event_seq: 1 }),
+      '2026-06-07T01:00:00Z'
+    )
     expect(first.runs.filter((r) => r.triggeredBy === 'webhook')).toHaveLength(1)
 
-    const second = await ingestAndTick(store, wrkqEvent({ event_id: 'evt_b', event_seq: 2 }), '2026-06-07T01:30:00Z')
+    const second = await ingestAndTick(
+      store,
+      wrkqEvent({ event_id: 'evt_b', event_seq: 2 }),
+      '2026-06-07T01:30:00Z'
+    )
     expect(second.runs.filter((r) => r.triggeredBy === 'webhook')).toHaveLength(0)
     const matches = store.listEventJobMatches({ sourceEventId: 'evt_b' }).matches
     expect(matches[0]?.reason).toBe('cooldown')

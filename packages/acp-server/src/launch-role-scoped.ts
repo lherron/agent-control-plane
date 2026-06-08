@@ -6,7 +6,12 @@ import { buildRuntimeBundleRef } from 'spaces-config'
 import type { ResolvedAcpServerDeps } from './deps.js'
 import { parseSessionRefField, requireTask } from './handlers/shared.js'
 import { badRequest, json, notFound, unprocessable } from './http.js'
-import { isRecord, parseJsonBody, requireRecord, requireTrimmedStringField } from './parsers/body.js'
+import {
+  isRecord,
+  parseJsonBody,
+  requireRecord,
+  requireTrimmedStringField,
+} from './parsers/body.js'
 
 import type { RouteHandler } from './routing/route-context.js'
 

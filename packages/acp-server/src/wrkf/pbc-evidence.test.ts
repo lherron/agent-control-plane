@@ -22,12 +22,12 @@ import { describe, expect, test } from 'bun:test'
 
 // These imports define the module contract. They will fail until the module exists.
 import {
-  validateParticipantOutputFacts,
-  ingestEvidenceAndSatisfyObligations,
-  type ParticipantOutput,
   type EvidenceIngestionInput,
   type EvidenceIngestionResult,
+  type ParticipantOutput,
   type PbcEvidencePort,
+  ingestEvidenceAndSatisfyObligations,
+  validateParticipantOutputFacts,
 } from './pbc-evidence.js'
 
 // ---------------------------------------------------------------------------
@@ -51,10 +51,12 @@ const MINIMAL_NEXT_RAW = {
   pendingEffects: [],
 }
 
-function makeFakePort(opts: {
-  obligations?: Array<{ id: string; kind: string; status: string }>
-  nextResponse?: unknown
-} = {}): FakePort {
+function makeFakePort(
+  opts: {
+    obligations?: Array<{ id: string; kind: string; status: string }>
+    nextResponse?: unknown
+  } = {}
+): FakePort {
   const _calls: SpyCall[] = []
   const openObligations = opts.obligations ?? []
   const nextResp = opts.nextResponse ?? MINIMAL_NEXT_RAW
@@ -439,9 +441,7 @@ describe('ingestEvidenceAndSatisfyObligations', () => {
       allowProductOwnerSimulation: true,
       participantOutput: {
         evidence: [{ kind: 'clarification_response', summary: 'Clarification provided' }],
-        satisfyObligations: [
-          { obligationId: 'obl_clr_1', evidenceIndex: 0 },
-        ],
+        satisfyObligations: [{ obligationId: 'obl_clr_1', evidenceIndex: 0 }],
       },
     }
 
@@ -486,9 +486,7 @@ describe('ingestEvidenceAndSatisfyObligations', () => {
 
   test('matches obligation by kind when obligationId is absent', async () => {
     const port = makeFakePort({
-      obligations: [
-        { id: 'obl_pd_7', kind: 'patch_decision', status: 'open' },
-      ],
+      obligations: [{ id: 'obl_pd_7', kind: 'patch_decision', status: 'open' }],
     })
     const input: EvidenceIngestionInput = {
       task: TASK,

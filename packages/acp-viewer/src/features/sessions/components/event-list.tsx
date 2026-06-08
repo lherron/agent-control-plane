@@ -5,12 +5,12 @@ import { ArrowUpRight, ListTree } from 'lucide-react'
 import { useEffect, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  agentIdFromSessionRef,
-  clockLabel,
-  compactRef,
   FAMILY_ACCENT,
   FAMILY_BORDER,
   FAMILY_TEXT,
+  agentIdFromSessionRef,
+  clockLabel,
+  compactRef,
   payloadPreview,
   severityTone,
 } from './event-family'
@@ -32,6 +32,7 @@ export function EventList({
   // the scroll to the top.
   const visibleEvents = useMemo(() => events.slice(-WINDOW_SIZE).reverse(), [events])
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-pin the scroll to the top only when the event count changes, not on every array identity change.
   useEffect(() => {
     const list = listRef.current
     if (!list) return
@@ -94,10 +95,17 @@ export function EventList({
                           <strong className="truncate text-[13px] font-semibold text-ink">
                             {event.label || event.eventKind}
                           </strong>
-                          <span className={cn('mono text-[10px] uppercase', FAMILY_TEXT[event.family])}>
+                          <span
+                            className={cn('mono text-[10px] uppercase', FAMILY_TEXT[event.family])}
+                          >
                             {event.family}
                           </span>
-                          <span className={cn('mono text-[10px] uppercase', severityTone(event.severity))}>
+                          <span
+                            className={cn(
+                              'mono text-[10px] uppercase',
+                              severityTone(event.severity)
+                            )}
+                          >
                             {event.severity}
                           </span>
                         </span>
@@ -131,4 +139,3 @@ export function EventList({
     </section>
   )
 }
-

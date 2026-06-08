@@ -28,15 +28,11 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { createWrkfClientLifecycle, type WrkfLifecycle } from '../wrkf/client-lifecycle.js'
-import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
-import type { PbcHarnessPort } from '../wrkf/pbc-harness.js'
-import {
-  runStep,
-  approveTransition,
-  runUntilBlocked,
-} from '../wrkf/pbc-harness.js'
+import { type WrkfLifecycle, createWrkfClientLifecycle } from '../wrkf/client-lifecycle.js'
 import type { CaptureRecord } from '../wrkf/participant-output.js'
+import type { PbcHarnessPort } from '../wrkf/pbc-harness.js'
+import { approveTransition, runStep, runUntilBlocked } from '../wrkf/pbc-harness.js'
+import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
 
 // ── Binary / DB ───────────────────────────────────────────────────────────────
 
@@ -65,7 +61,7 @@ function createFreshTask(label: string): string {
   const slug = `pbc-int-${process.pid}-${n}`
   const result = Bun.spawnSync(
     ['wrkq', 'touch', `inbox/${slug}`, '-t', `PBC Integration (${label} #${n})`],
-    { env: process.env },
+    { env: process.env }
   )
   const stdout = result.stdout.toString()
   const match = stdout.match(/(T-\d+)/)
@@ -144,7 +140,7 @@ async function rawAddEvidence(
     facts?: Record<string, unknown>
     actor?: string
     summary?: string
-  } = {},
+  } = {}
 ): Promise<unknown> {
   return wrkf.evidence.add({
     task,
@@ -161,7 +157,7 @@ async function rawApplyTransition(
   task: string,
   transition: string,
   actor: string,
-  routeKey: string,
+  routeKey: string
 ): Promise<unknown> {
   const nextRaw = await wrkf.next({ task })
   const inst = (nextRaw as Record<string, unknown>)['instance'] as Record<string, unknown>
@@ -178,9 +174,12 @@ async function rawApplyTransition(
 
 /** Read the wrkq task state via wrkq CLI. */
 function getWrkqTaskState(taskId: string): string {
-  const result = Bun.spawnSync(['bash', '-c', `wrkq cat ${taskId} | grep '^state:' | awk '{print $2}'`], {
-    env: process.env,
-  })
+  const result = Bun.spawnSync(
+    ['bash', '-c', `wrkq cat ${taskId} | grep '^state:' | awk '{print $2}'`],
+    {
+      env: process.env,
+    }
+  )
   return result.stdout.toString().trim()
 }
 
@@ -188,33 +187,43 @@ function getWrkqTaskState(taskId: string): string {
 async function driveToPresssureState(
   wrkf: AcpWrkfWorkflowPort,
   task: string,
-  pressureActor = DRAFT_ACTOR,
+  pressureActor = DRAFT_ACTOR
 ): Promise<void> {
   await rawAddEvidence(wrkf, task, 'intake_metadata')
   await rawApplyTransition(wrkf, task, 'normalize_feedback', DRAFT_ACTOR, task)
   await rawAddEvidence(wrkf, task, 'behavior_note')
-  await rawAddEvidence(wrkf, task, 'pre_interview_analysis', { facts: { clarification_needed: false } })
+  await rawAddEvidence(wrkf, task, 'pre_interview_analysis', {
+    facts: { clarification_needed: false },
+  })
   await rawApplyTransition(wrkf, task, 'draft_pbc', DRAFT_ACTOR, task)
   await rawAddEvidence(wrkf, task, 'pbc_draft')
   await rawApplyTransition(wrkf, task, 'run_pressure_pass', DRAFT_ACTOR, task)
-  await rawAddEvidence(wrkf, task, 'pressure_pass', { facts: { verdict: 'ready' }, actor: pressureActor })
+  await rawAddEvidence(wrkf, task, 'pressure_pass', {
+    facts: { verdict: 'ready' },
+    actor: pressureActor,
+  })
 }
 
 /** Drive a task to active/pressure with verdict=needs_patch (for request_patch_decision tests). */
 async function driveToPressureWithPatch(
   wrkf: AcpWrkfWorkflowPort,
   task: string,
-  pressureActor = PRESSURE_ACTOR,
+  pressureActor = PRESSURE_ACTOR
 ): Promise<void> {
   await rawAddEvidence(wrkf, task, 'intake_metadata')
   await rawApplyTransition(wrkf, task, 'normalize_feedback', DRAFT_ACTOR, task)
   await rawAddEvidence(wrkf, task, 'behavior_note')
-  await rawAddEvidence(wrkf, task, 'pre_interview_analysis', { facts: { clarification_needed: false } })
+  await rawAddEvidence(wrkf, task, 'pre_interview_analysis', {
+    facts: { clarification_needed: false },
+  })
   await rawApplyTransition(wrkf, task, 'draft_pbc', DRAFT_ACTOR, task)
   await rawAddEvidence(wrkf, task, 'pbc_draft')
   await rawApplyTransition(wrkf, task, 'run_pressure_pass', DRAFT_ACTOR, task)
   // verdict=needs_patch is required for request_patch_decision
-  await rawAddEvidence(wrkf, task, 'pressure_pass', { facts: { verdict: 'needs_patch' }, actor: pressureActor })
+  await rawAddEvidence(wrkf, task, 'pressure_pass', {
+    facts: { verdict: 'needs_patch' },
+    actor: pressureActor,
+  })
 }
 
 // ── Test timeout ──────────────────────────────────────────────────────────────
@@ -248,7 +257,7 @@ describe('Phase 7 Integration — workflow install/show + task.attach', () => {
       // installed is true (first time) or false (already current) — both valid
       expect(typeof result['installed']).toBe('boolean')
     },
-    T,
+    T
   )
 
   test(
@@ -265,7 +274,7 @@ describe('Phase 7 Integration — workflow install/show + task.attach', () => {
       // nextActionModel must be present (spec §4.8 — compiler reads from it)
       expect(template['nextActionModel']).toBeDefined()
     },
-    T,
+    T
   )
 
   test(
@@ -277,7 +286,7 @@ describe('Phase 7 Integration — workflow install/show + task.attach', () => {
       expect(result['revision']).toBe(0)
       expect(result['status']).toBe('open')
     },
-    T,
+    T
   )
 })
 
@@ -327,7 +336,7 @@ describe('Phase 7 Integration — Paths 2-4: ready path + effect delivery', () =
       // evidence was ingested
       expect(result.evidenceAdded).toHaveLength(1)
     },
-    T,
+    T
   )
 
   test(
@@ -349,7 +358,7 @@ describe('Phase 7 Integration — Paths 2-4: ready path + effect delivery', () =
       expect(result.instance.phase).toBe('behavior_note')
       expect(result.instance.revision).toBeGreaterThan(0)
     },
-    T,
+    T
   )
 
   // ── Step 2: behavior_note → pbc_draft ──────────────────────────────────────
@@ -378,7 +387,7 @@ describe('Phase 7 Integration — Paths 2-4: ready path + effect delivery', () =
       expect(kinds).toContain('behavior_note')
       expect(kinds).toContain('pre_interview_analysis')
     },
-    T,
+    T
   )
 
   test(
@@ -394,7 +403,7 @@ describe('Phase 7 Integration — Paths 2-4: ready path + effect delivery', () =
 
       expect(result.instance.phase).toBe('pbc_draft')
     },
-    T,
+    T
   )
 
   // ── Step 3: pbc_draft → pressure ───────────────────────────────────────────
@@ -416,7 +425,7 @@ describe('Phase 7 Integration — Paths 2-4: ready path + effect delivery', () =
       expect(result.evidenceAdded).toHaveLength(1)
       expect(result.runs.finished).toBeDefined()
     },
-    T,
+    T
   )
 
   test(
@@ -432,7 +441,7 @@ describe('Phase 7 Integration — Paths 2-4: ready path + effect delivery', () =
 
       expect(result.instance.phase).toBe('pressure')
     },
-    T,
+    T
   )
 
   // ── Step 4: pressure → finalized (SoD: PRESSURE_ACTOR) ─────────────────────
@@ -452,7 +461,7 @@ describe('Phase 7 Integration — Paths 2-4: ready path + effect delivery', () =
       })) as Record<string, unknown>
       expect(ev2['id']).toMatch(/^ev_/)
     },
-    T,
+    T
   )
 
   test(
@@ -473,7 +482,7 @@ describe('Phase 7 Integration — Paths 2-4: ready path + effect delivery', () =
       expect(result.instance.phase).toBe('finalized')
       expect(result.transitionApplied).toBeDefined()
     },
-    T,
+    T
   )
 
   // ── Path 3: no next actions in closed state ────────────────────────────────
@@ -488,11 +497,11 @@ describe('Phase 7 Integration — Paths 2-4: ready path + effect delivery', () =
       const actions = nextResult['actions'] as unknown[]
       // Filter to transition-kind only (no collect_evidence actions in closed state)
       const transitionActions = actions.filter(
-        (a) => (a as Record<string, unknown>)['kind'] === 'transition',
+        (a) => (a as Record<string, unknown>)['kind'] === 'transition'
       )
       expect(transitionActions).toHaveLength(0)
     },
-    T,
+    T
   )
 
   // ── Path 4: set_task_state delivery ───────────────────────────────────────
@@ -515,7 +524,7 @@ describe('Phase 7 Integration — Paths 2-4: ready path + effect delivery', () =
           e['kind'] === 'set_task_state' &&
           ((e['payload'] as Record<string, unknown>)?.['data'] as Record<string, unknown>)?.[
             'state'
-          ] === 'completed',
+          ] === 'completed'
       )
       expect(finalizeEffect).toBeDefined()
       expect((finalizeEffect as Record<string, unknown>)['status']).toBe('delivered')
@@ -524,7 +533,7 @@ describe('Phase 7 Integration — Paths 2-4: ready path + effect delivery', () =
       const pending = effects.filter((e) => e['status'] === 'pending')
       expect(pending).toHaveLength(0)
     },
-    T,
+    T
   )
 
   test(
@@ -533,7 +542,7 @@ describe('Phase 7 Integration — Paths 2-4: ready path + effect delivery', () =
       const state = getWrkqTaskState(task)
       expect(state).toBe('completed')
     },
-    T,
+    T
   )
 })
 
@@ -583,7 +592,7 @@ describe('Phase 7 Integration — Path 5: SoD negative', () => {
           role: 'agent',
           actor: DRAFT_ACTOR, // SAME actor — violates SoD
           routeKey: `${task}:rk:sod-neg`,
-        }),
+        })
       ).rejects.toThrow()
 
       // Verify error carries WRKF_TRANSITION_BLOCKED code
@@ -602,11 +611,10 @@ describe('Phase 7 Integration — Path 5: SoD negative', () => {
       expect(caught).toBeDefined()
       const err = caught as Record<string, unknown>
       // wrkf error code is in err.data.code or err.code
-      const code =
-        (err['data'] as Record<string, unknown> | undefined)?.['code'] ?? err['code']
+      const code = (err['data'] as Record<string, unknown> | undefined)?.['code'] ?? err['code']
       expect(String(code)).toContain('WRKF_TRANSITION_BLOCKED')
     },
-    T,
+    T
   )
 
   test(
@@ -623,14 +631,26 @@ describe('Phase 7 Integration — Path 5: SoD negative', () => {
       await attachToPbc(lc.wrkf!, sodTask)
       // Drive to pressure with DISTINCT evidence actors
       await rawAddEvidence(lc.wrkf!, sodTask, 'intake_metadata')
-      await rawApplyTransition(lc.wrkf!, sodTask, 'normalize_feedback', DRAFT_ACTOR, `${sodTask}:setup`)
+      await rawApplyTransition(
+        lc.wrkf!,
+        sodTask,
+        'normalize_feedback',
+        DRAFT_ACTOR,
+        `${sodTask}:setup`
+      )
       await rawAddEvidence(lc.wrkf!, sodTask, 'behavior_note')
       await rawAddEvidence(lc.wrkf!, sodTask, 'pre_interview_analysis', {
         facts: { clarification_needed: false },
       })
       await rawApplyTransition(lc.wrkf!, sodTask, 'draft_pbc', DRAFT_ACTOR, `${sodTask}:setup`)
       await rawAddEvidence(lc.wrkf!, sodTask, 'pbc_draft')
-      await rawApplyTransition(lc.wrkf!, sodTask, 'run_pressure_pass', DRAFT_ACTOR, `${sodTask}:setup`)
+      await rawApplyTransition(
+        lc.wrkf!,
+        sodTask,
+        'run_pressure_pass',
+        DRAFT_ACTOR,
+        `${sodTask}:setup`
+      )
       // Distinct evidence actors: pressure_pass by PRESSURE_ACTOR, pbc_draft by DRAFT_ACTOR
       await rawAddEvidence(lc.wrkf!, sodTask, 'pressure_pass', {
         facts: { verdict: 'ready' },
@@ -649,7 +669,7 @@ describe('Phase 7 Integration — Path 5: SoD negative', () => {
 
       expect(result.stopReason).toBe('requires_distinct_pressure_reviewer')
     },
-    T,
+    T
   )
 })
 
@@ -694,7 +714,7 @@ describe('Phase 7 Integration — Clarification path', () => {
       })
       expect(result.evidenceAdded).toHaveLength(2)
     },
-    T,
+    T
   )
 
   test(
@@ -713,14 +733,12 @@ describe('Phase 7 Integration — Clarification path', () => {
 
       // Open obligation must be present
       const oblsRaw = await lc.wrkf!.obligation.list({ task })
-      const obligations = (Array.isArray(oblsRaw) ? oblsRaw : []) as Array<
-        Record<string, unknown>
-      >
+      const obligations = (Array.isArray(oblsRaw) ? oblsRaw : []) as Array<Record<string, unknown>>
       const clarObls = obligations.filter((o) => o['kind'] === 'clarification_response')
       expect(clarObls.length).toBeGreaterThan(0)
       expect(clarObls[0]!['status']).toBe('open')
     },
-    T,
+    T
   )
 
   test(
@@ -745,11 +763,11 @@ describe('Phase 7 Integration — Clarification path', () => {
 
       expect(result.evidenceAdded).toHaveLength(1)
       expect(result.obligationsSatisfied).toHaveLength(1)
-      expect(
-        (result.obligationsSatisfied[0] as Record<string, unknown>)['kind'],
-      ).toBe('clarification_response')
+      expect((result.obligationsSatisfied[0] as Record<string, unknown>)['kind']).toBe(
+        'clarification_response'
+      )
     },
-    T,
+    T
   )
 
   test(
@@ -766,7 +784,7 @@ describe('Phase 7 Integration — Clarification path', () => {
       expect(result.instance.status).toBe('active')
       expect(result.instance.phase).toBe('pbc_draft')
     },
-    T,
+    T
   )
 })
 
@@ -806,7 +824,7 @@ describe('Phase 7 Integration — Patch-finalize path', () => {
       expect(result.instance.status).toBe('waiting')
       expect(result.instance.phase).toBe('patch_decision')
     },
-    T,
+    T
   )
 
   test(
@@ -827,7 +845,7 @@ describe('Phase 7 Integration — Patch-finalize path', () => {
       expect(result.evidenceAdded).toHaveLength(1)
       expect(result.obligationsSatisfied).toHaveLength(1)
     },
-    T,
+    T
   )
 
   test(
@@ -845,7 +863,7 @@ describe('Phase 7 Integration — Patch-finalize path', () => {
       })
       expect(result.evidenceAdded).toHaveLength(1)
     },
-    T,
+    T
   )
 
   test(
@@ -864,7 +882,7 @@ describe('Phase 7 Integration — Patch-finalize path', () => {
       expect(result.instance.status).toBe('closed')
       expect(result.instance.phase).toBe('finalized')
     },
-    T,
+    T
   )
 })
 
@@ -908,7 +926,7 @@ describe('Phase 7 Integration — Patch-revise path', () => {
       })
       expect(result.obligationsSatisfied).toHaveLength(1)
     },
-    T,
+    T
   )
 
   test(
@@ -925,7 +943,7 @@ describe('Phase 7 Integration — Patch-revise path', () => {
       expect(result.instance.status).toBe('active')
       expect(result.instance.phase).toBe('pbc_draft')
     },
-    T,
+    T
   )
 })
 
@@ -968,7 +986,7 @@ describe('Phase 7 Integration — Too_vague revise path', () => {
     'approveTransition revise_too_vague_pbc → state=active/pbc_draft (revision incremented)',
     async () => {
       const nextBefore = (await lc.wrkf!.next({ task })) as Record<string, unknown>
-      const revBefore = ((nextBefore['instance'] as Record<string, unknown>)['revision'] as number)
+      const revBefore = (nextBefore['instance'] as Record<string, unknown>)['revision'] as number
 
       const result = await approveTransition(port, {
         task,
@@ -984,7 +1002,7 @@ describe('Phase 7 Integration — Too_vague revise path', () => {
       // Revision must have advanced
       expect(result.instance.revision).toBeGreaterThan(revBefore)
     },
-    T,
+    T
   )
 })
 
@@ -1030,7 +1048,7 @@ describe('Phase 7 Integration — Disposition with explicit approval', () => {
       expect(result.instance.status).toBe('closed')
       expect(result.instance.phase).toBe('disposed')
     },
-    T,
+    T
   )
 })
 
@@ -1079,13 +1097,11 @@ describe('Phase 7 Integration — Idempotency: replay + mismatch', () => {
 
       // Verify wrkf has exactly ONE evidence record of this kind
       const evListRaw = await lc.wrkf!.evidence.list({ task })
-      const evList = (Array.isArray(evListRaw) ? evListRaw : []) as Array<
-        Record<string, unknown>
-      >
+      const evList = (Array.isArray(evListRaw) ? evListRaw : []) as Array<Record<string, unknown>>
       const intakeEvs = evList.filter((e) => e['kind'] === 'intake_metadata')
       expect(intakeEvs).toHaveLength(1)
     },
-    T,
+    T
   )
 
   test(
@@ -1138,11 +1154,10 @@ describe('Phase 7 Integration — Idempotency: replay + mismatch', () => {
 
       expect(caught).toBeDefined()
       const err = caught as Record<string, unknown>
-      const code =
-        (err['data'] as Record<string, unknown> | undefined)?.['code'] ?? err['code']
+      const code = (err['data'] as Record<string, unknown> | undefined)?.['code'] ?? err['code']
       expect(String(code)).toContain('WRKF_IDEMPOTENCY_MISMATCH')
     },
-    T,
+    T
   )
 
   test(
@@ -1164,7 +1179,7 @@ describe('Phase 7 Integration — Idempotency: replay + mismatch', () => {
       // We verify it doesn't break when called correctly.
       expect(result1.transitionApplied).toBeDefined()
     },
-    T,
+    T
   )
 })
 
@@ -1192,7 +1207,13 @@ describe('Phase 7 Integration — runUntilBlocked', () => {
       await attachToPbc(lc.wrkf!, task)
       await driveToPresssureState(lc.wrkf!, task, PRESSURE_ACTOR)
       await rawAddEvidence(lc.wrkf!, task, 'pbc_final')
-      await rawApplyTransition(lc.wrkf!, task, 'finalize_ready_pbc', PRESSURE_ACTOR, `${task}:setup`)
+      await rawApplyTransition(
+        lc.wrkf!,
+        task,
+        'finalize_ready_pbc',
+        PRESSURE_ACTOR,
+        `${task}:setup`
+      )
       // Now runUntilBlocked should stop immediately with 'closed'
       const result = await runUntilBlocked(port, {
         task,
@@ -1202,7 +1223,7 @@ describe('Phase 7 Integration — runUntilBlocked', () => {
       expect(result.stopReason).toBe('closed')
       expect(result.instance.status).toBe('closed')
     },
-    T,
+    T
   )
 
   test(
@@ -1222,7 +1243,7 @@ describe('Phase 7 Integration — runUntilBlocked', () => {
       })
       expect(result.stopReason).toBe('blocked_or_ambiguous')
     },
-    T,
+    T
   )
 
   test(
@@ -1251,7 +1272,7 @@ describe('Phase 7 Integration — runUntilBlocked', () => {
       // State advanced from intake to behavior_note (or wrkf reports stale in that state)
       expect(result.instance.phase).toBe('behavior_note')
     },
-    T,
+    T
   )
 
   test(
@@ -1279,7 +1300,7 @@ describe('Phase 7 Integration — runUntilBlocked', () => {
 
       expect(result.stopReason).toBe('requires_product_owner_clarification')
     },
-    T,
+    T
   )
 })
 
@@ -1336,7 +1357,7 @@ describe('Phase 7 Integration — Conformance: Change 5 assertions', () => {
       // MUST include runId, optionally status/summary
       expect(finishParams['runId']).toBeDefined()
     },
-    T,
+    T
   )
 
   test(
@@ -1363,7 +1384,7 @@ describe('Phase 7 Integration — Conformance: Change 5 assertions', () => {
       // Diagnostic message present
       expect(result.diagnostics.some((d) => d.includes('launched-runtime'))).toBe(true)
     },
-    T,
+    T
   )
 
   test(
@@ -1401,7 +1422,7 @@ describe('Phase 7 Integration — Conformance: Change 5 assertions', () => {
         expect(params['taskId']).toBeUndefined()
       }
     },
-    T,
+    T
   )
 
   test(
@@ -1438,6 +1459,6 @@ describe('Phase 7 Integration — Conformance: Change 5 assertions', () => {
       expect(params['transition']).toBe('normalize_feedback')
       expect(params['transitionId']).toBeUndefined()
     },
-    T,
+    T
   )
 })

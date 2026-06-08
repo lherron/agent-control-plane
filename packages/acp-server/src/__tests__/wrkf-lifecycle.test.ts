@@ -45,8 +45,6 @@ import { describe, expect, test } from 'bun:test'
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-expect-error -- wrkf/client-lifecycle.ts does not exist yet (W1 deliverable)
 import { createWrkfClientLifecycle } from '../wrkf/client-lifecycle.js'
-// @ts-expect-error -- wrkf/port.ts does not exist yet (W1 deliverable)
-import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
 // ────────────────────────────────────────────────────────────────────────────
 
 // ---------------------------------------------------------------------------
@@ -64,7 +62,10 @@ function makeInitializingClient(
       if (initResult === 'failure') {
         return Promise.reject(new Error('wrkf: binary not found or db unreadable'))
       }
-      return Promise.resolve({ protocolVersion: '1.0', serverInfo: { name: 'wrkf', version: '0.1.0' } })
+      return Promise.resolve({
+        protocolVersion: '1.0',
+        serverInfo: { name: 'wrkf', version: '0.1.0' },
+      })
     },
     close(): Promise<void> {
       onClose?.()

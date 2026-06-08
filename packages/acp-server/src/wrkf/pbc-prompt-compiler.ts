@@ -10,12 +10,12 @@
  * The harness (not the participant) writes to wrkf and applies transitions.
  */
 
-import type { EvidenceRecord, NextActionResponse, ObligationRecord } from './projections.js'
 import {
+  type PbcTemplateModel,
   getPhaseGuidance,
   getTransitionGuidance,
-  type PbcTemplateModel,
 } from './pbc-template-model.js'
+import type { EvidenceRecord, NextActionResponse, ObligationRecord } from './projections.js'
 
 export interface PromptCompileInput {
   template: PbcTemplateModel
@@ -61,8 +61,8 @@ export function compilePbcPrompt(input: PromptCompileInput): string {
   // --- header ---------------------------------------------------------------
   sections.push(
     [
-      `# PBC participant turn`,
-      ``,
+      '# PBC participant turn',
+      '',
       `Task: ${input.task}`,
       `Role: ${input.role}`,
       `Actor: ${input.actor}`,

@@ -1086,9 +1086,7 @@ describe('POST /v1/wrkf/effects/deliver — list then deliver per effectId (RED)
         expect(deliverCalls.length).toBeGreaterThanOrEqual(2)
 
         // Each deliver call must have effectId matching the listed effects
-        const effectIds = deliverCalls.map(
-          (c) => (c.params as Record<string, unknown>)['effectId']
-        )
+        const effectIds = deliverCalls.map((c) => (c.params as Record<string, unknown>)['effectId'])
         expect(effectIds).toContain('eff-aaa')
         expect(effectIds).toContain('eff-bbb')
       },
