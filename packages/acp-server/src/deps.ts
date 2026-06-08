@@ -36,10 +36,11 @@ import { InMemoryInputAttemptStore, type InputAttemptStore } from './domain/inpu
 import { InMemoryRunStore, type RunStore } from './domain/run-store.js'
 import type { JobExecPolicy } from './jobs/exec-policy.js'
 import {
-  InMemoryPbcCaptureStore,
-  InMemoryPbcIdempotencyStore,
-  type PbcCaptureStore,
-  type PbcRouteIdempotencyStore,
+  InMemoryWrkfParticipantCaptureStore,
+  InMemoryWrkfRouteIdempotencyStore,
+  createDurableWrkfStores,
+  type WrkfParticipantCaptureStore,
+  type WrkfRouteIdempotencyStore,
 } from './wrkf/pbc-route-idempotency-store.js'
 import type { AcpWrkfWorkflowPort } from './wrkf/port.js'
 
@@ -157,8 +158,8 @@ export interface AcpServerDeps {
   inputQueuePolicy?: InputQueuePolicy | undefined
   agentAssetsDir?: string | undefined
   wrkf?: AcpWrkfWorkflowPort | undefined
-  pbcIdempotencyStore?: PbcRouteIdempotencyStore | undefined
-  pbcCaptureStore?: PbcCaptureStore | undefined
+  pbcIdempotencyStore?: WrkfRouteIdempotencyStore | undefined
+  pbcCaptureStore?: WrkfParticipantCaptureStore | undefined
 }
 
 export interface ResolvedAcpServerDeps extends AcpServerDeps {
@@ -176,8 +177,8 @@ export interface ResolvedAcpServerDeps extends AcpServerDeps {
   defaultActor: Actor
   inputQueuePolicy: InputQueuePolicy
   wrkf: AcpWrkfWorkflowPort | undefined
-  pbcIdempotencyStore: PbcRouteIdempotencyStore
-  pbcCaptureStore: PbcCaptureStore
+  pbcIdempotencyStore: WrkfRouteIdempotencyStore
+  pbcCaptureStore: WrkfParticipantCaptureStore
 }
 
 export type DeliveryTargetResolver = (input: {
@@ -195,6 +196,7 @@ export type AuthorizeFn = (
 export function resolveAcpServerDeps(deps: AcpServerDeps): ResolvedAcpServerDeps {
   const stateStore = deps.stateStore
   const useStateInputStores = deps.inputAttemptStore === undefined && deps.runStore === undefined
+  const durableWrkfStores = stateStore !== undefined ? createDurableWrkfStores(stateStore) : undefined
 
   return {
     ...deps,
@@ -229,8 +231,14 @@ export function resolveAcpServerDeps(deps: AcpServerDeps): ResolvedAcpServerDeps
     defaultActor: deps.defaultActor ?? { kind: 'system', id: 'acp-local' },
     inputQueuePolicy: deps.inputQueuePolicy ?? {},
     wrkf: deps.wrkf,
-    pbcIdempotencyStore: deps.pbcIdempotencyStore ?? new InMemoryPbcIdempotencyStore(),
-    pbcCaptureStore: deps.pbcCaptureStore ?? new InMemoryPbcCaptureStore(),
+    pbcIdempotencyStore:
+      deps.pbcIdempotencyStore ??
+      durableWrkfStores?.idempotencyStore ??
+      new InMemoryWrkfRouteIdempotencyStore(),
+    pbcCaptureStore:
+      deps.pbcCaptureStore ??
+      durableWrkfStores?.captureStore ??
+      new InMemoryWrkfParticipantCaptureStore(),
   }
 }
 

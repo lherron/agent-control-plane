@@ -41,10 +41,17 @@ export {
   type UpdateRunInput,
 } from './domain/run-store.js'
 export {
+  DurableWrkfParticipantCaptureStore,
+  DurableWrkfRouteIdempotencyStore,
   InMemoryPbcCaptureStore,
   InMemoryPbcIdempotencyStore,
+  InMemoryWrkfParticipantCaptureStore,
+  InMemoryWrkfRouteIdempotencyStore,
+  createDurableWrkfStores,
   type PbcCaptureStore,
   type PbcRouteIdempotencyStore,
+  type WrkfParticipantCaptureStore,
+  type WrkfRouteIdempotencyStore,
 } from './wrkf/pbc-route-idempotency-store.js'
 export {
   handleLaunchSession,

@@ -5,11 +5,14 @@ import { InputAdmissionRepo } from './repos/input-admission-repo.js'
 import { InputApplicationRepo } from './repos/input-application-repo.js'
 import { InputAttemptRepo } from './repos/input-attempt-repo.js'
 import { InputQueueRepo } from './repos/input-queue-repo.js'
+import { PbcContinuationJobsRepo } from './repos/pbc-continuation-jobs-repo.js'
 import { RunRepo } from './repos/run-repo.js'
 import { SessionAdmissionSequenceRepo } from './repos/session-admission-sequence-repo.js'
 import type { RepoContext } from './repos/shared.js'
 import { TransitionOutboxRepo } from './repos/transition-outbox-repo.js'
 import { WorkflowRuntimeRepo } from './repos/workflow-runtime-repo.js'
+import { WrkfParticipantCapturesRepo } from './repos/wrkf-participant-captures-repo.js'
+import { WrkfRouteIdempotencyRepo } from './repos/wrkf-route-idempotency-repo.js'
 import Database, { type SqliteDatabase } from './sqlite.js'
 
 export interface OpenAcpStateStoreOptions {
@@ -26,6 +29,9 @@ export interface AcpStateStore {
   readonly sessionAdmissionSequences: SessionAdmissionSequenceRepo
   readonly transitionOutbox: TransitionOutboxRepo
   readonly workflowRuntime: WorkflowRuntimeRepo
+  readonly wrkfRouteIdempotency: WrkfRouteIdempotencyRepo
+  readonly wrkfParticipantCaptures: WrkfParticipantCapturesRepo
+  readonly pbcContinuationJobs: PbcContinuationJobsRepo
   runInTransaction<T>(fn: (store: AcpStateStore) => T): T
   close(): void
 }
@@ -372,6 +378,56 @@ function initializeSchema(sqlite: SqliteDatabase): void {
       key TEXT PRIMARY KEY,
       value_json TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS wrkf_route_idempotency (
+      route TEXT NOT NULL,
+      task_id TEXT NOT NULL,
+      actor_hash TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL,
+      body_hash TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('pending', 'completed', 'failed')),
+      response_json TEXT,
+      error_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (route, task_id, actor_hash, idempotency_key)
+    );
+
+    CREATE TABLE IF NOT EXISTS wrkf_participant_captures (
+      capture_key TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      workflow_ref TEXT NOT NULL,
+      wrkf_run_id TEXT NOT NULL,
+      body_hash TEXT NOT NULL,
+      evidence_ids_json TEXT NOT NULL,
+      obligation_ids_json TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('pending', 'completed')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS pbc_continuation_jobs (
+      job_id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      workflow_ref TEXT NOT NULL,
+      revision_at_admission TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
+      attempt INTEGER NOT NULL DEFAULT 0,
+      lease_owner TEXT,
+      lease_expires_at TEXT,
+      stop_reason TEXT,
+      result_json TEXT,
+      error_json TEXT,
+      created_at TEXT NOT NULL,
+      started_at TEXT,
+      finished_at TEXT,
+      updated_at TEXT NOT NULL,
+      UNIQUE (task_id, revision_at_admission, idempotency_key)
+    );
+
+    CREATE INDEX IF NOT EXISTS pbc_continuation_jobs_status_idx
+      ON pbc_continuation_jobs (status, created_at);
   `)
 }
 
@@ -756,6 +812,9 @@ export function openAcpStateStore(options: OpenAcpStateStoreOptions): AcpStateSt
     sessionAdmissionSequences: new SessionAdmissionSequenceRepo(context),
     transitionOutbox: new TransitionOutboxRepo(context),
     workflowRuntime: new WorkflowRuntimeRepo(context),
+    wrkfRouteIdempotency: new WrkfRouteIdempotencyRepo(context),
+    wrkfParticipantCaptures: new WrkfParticipantCapturesRepo(context),
+    pbcContinuationJobs: new PbcContinuationJobsRepo(context),
     runInTransaction<T>(fn: (activeStore: AcpStateStore) => T): T {
       return sqlite.transaction(() => fn(store))()
     },
