@@ -28,6 +28,14 @@ export type WorkflowPackSupport = {
   supported: boolean
   level: WorkflowPackLevel
   reason?: string
+  /**
+   * True when the pack recognises the workflowRef, regardless of whether
+   * hash/safety checks pass. Absent or false means the pack does not claim this
+   * workflow. A claimed-but-unsupported result (claimed:true, supported:false)
+   * is terminal: the registry MUST NOT fall through to later packs, preserving
+   * fail-closed safety guards (e.g. template-hash mismatch).
+   */
+  claimed?: boolean
 }
 
 /** Input identifying a workflow to be matched against packs. */

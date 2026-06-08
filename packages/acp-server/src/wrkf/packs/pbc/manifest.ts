@@ -28,14 +28,16 @@ export const pbcManifest: WorkflowPack = {
   displayName: 'PBC Progressive Refinement',
   supports({ workflowRef, templateHash }): WorkflowPackSupport {
     if (workflowRef !== PBC_WORKFLOW_REF) {
-      return { supported: false, level: 0 }
+      return { claimed: false, supported: false, level: 0 }
     }
+    // This pack claims the ref regardless of hash outcome. The claim is what tells
+    // the registry to treat any block as terminal rather than falling through.
     // Hash-pin guard fires only when a hash is supplied. A mismatch is treated as
     // manual/blocked (level 0), never best-effort — the compiled prompt, parser,
     // and transition policy cannot be trusted against an unknown template.
     if (templateHash !== undefined && templateHash !== KNOWN_TEMPLATE_HASH) {
-      return { supported: false, level: 0, reason: 'template-hash-mismatch' }
+      return { claimed: true, supported: false, level: 0, reason: 'template-hash-mismatch' }
     }
-    return { supported: true, level: 3 }
+    return { claimed: true, supported: true, level: 3 }
   },
 }
