@@ -159,6 +159,7 @@ type FakeProductPortOverrides = {
   taskAttach?: () => Promise<unknown>
   next?: () => Promise<unknown>
   evidenceAdd?: () => Promise<unknown>
+  evidenceList?: () => Promise<unknown>
   transitionApply?: () => Promise<unknown>
   effectList?: () => Promise<unknown>
   effectDeliver?: () => Promise<unknown>
@@ -227,6 +228,7 @@ function makeProductFakePort(overrides: FakeProductPortOverrides = {}): Instrume
       },
       list: async (params) => {
         _calls.push({ method: 'evidence.list', params })
+        if (overrides.evidenceList !== undefined) return overrides.evidenceList()
         return []
       },
       show: boom('evidence.show'),
@@ -1993,6 +1995,616 @@ describe('Route registration — all /v1/pbc/* routes are registered (RED)', () 
         wrkf,
         authorize: () => 'deny',
       }
+    )
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// §13 — GET /v1/pbc/tasks/:taskId — artifacts populated from evidence (T-03110)
+//
+// Currently FAILS: projection.ts hardcodes artifacts:{} and the route handler
+// never calls evidence.list. All assertions below are RED.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DISPOSED_NEXT = {
+  instance: {
+    id: 'inst-pbc-001',
+    state: { status: 'closed', phase: 'disposed' },
+    revision: 8,
+    contextHash: 'sha256:ctx-disposed-8',
+  },
+  actions: [],
+  blockedTransitions: [],
+  openObligations: [],
+  pendingEffects: [],
+}
+
+describe('GET /v1/pbc/tasks/:taskId — artifacts populated from evidence (RED, T-03110)', () => {
+  test('[RED] intake_metadata evidence → artifacts.intake defined with data', async () => {
+    const wrkf = makeProductFakePort({
+      next: async () => BEHAVIOR_NOTE_NEXT,
+      evidenceList: async () => [
+        {
+          id: 'ev-001',
+          kind: 'intake_metadata',
+          data: { title: 'Fix login button', description: 'Mobile UX issue' },
+        },
+      ],
+    })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'GET',
+          path: `/v1/pbc/tasks/${TASK}`,
+        })
+        expect(response.status).toBe(200)
+        const body = await fixture.json<Record<string, unknown>>(response)
+        const artifacts = body['artifacts'] as Record<string, unknown>
+
+        // RED: artifacts is {} — intake must be populated but is missing
+        expect(artifacts['intake']).toBeDefined()
+        const intake = artifacts['intake'] as Record<string, unknown>
+        expect(intake['data']).toEqual({ title: 'Fix login button', description: 'Mobile UX issue' })
+      },
+      { wrkf }
+    )
+  })
+
+  test('[RED] behavior_note evidence → artifacts.behaviorNote defined', async () => {
+    const wrkf = makeProductFakePort({
+      next: async () => BEHAVIOR_NOTE_NEXT,
+      evidenceList: async () => [
+        { id: 'ev-002', kind: 'behavior_note', data: { notes: 'User double-taps save button' } },
+      ],
+    })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'GET',
+          path: `/v1/pbc/tasks/${TASK}`,
+        })
+        expect(response.status).toBe(200)
+        const body = await fixture.json<Record<string, unknown>>(response)
+        const artifacts = body['artifacts'] as Record<string, unknown>
+
+        // RED: artifacts.behaviorNote must be defined from evidence
+        expect(artifacts['behaviorNote']).toBeDefined()
+        const bn = artifacts['behaviorNote'] as Record<string, unknown>
+        expect((bn['data'] as Record<string, unknown>)['notes']).toBe('User double-taps save button')
+      },
+      { wrkf }
+    )
+  })
+
+  test('[RED] pbc_draft evidence → artifacts.draft defined with first-class data', async () => {
+    const wrkf = makeProductFakePort({
+      next: async () => BEHAVIOR_NOTE_NEXT,
+      evidenceList: async () => [
+        { id: 'ev-001', kind: 'intake_metadata', data: { title: 'Fix login button' } },
+        { id: 'ev-002', kind: 'behavior_note', data: { notes: 'test' } },
+        { id: 'ev-003', kind: 'pbc_draft', data: { content: 'Initial draft of the PBC document' } },
+      ],
+    })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'GET',
+          path: `/v1/pbc/tasks/${TASK}`,
+        })
+        expect(response.status).toBe(200)
+        const body = await fixture.json<Record<string, unknown>>(response)
+        const artifacts = body['artifacts'] as Record<string, unknown>
+
+        // RED: artifacts.draft must be populated — currently {} so draft is missing
+        expect(artifacts['draft']).toBeDefined()
+        const draft = artifacts['draft'] as Record<string, unknown>
+        // data is first-class on ArtifactView (not nested inside another wrapper)
+        expect(draft['data']).toBeDefined()
+        expect((draft['data'] as Record<string, unknown>)['content']).toBe(
+          'Initial draft of the PBC document'
+        )
+      },
+      { wrkf }
+    )
+  })
+
+  test('[RED] pre_interview_analysis evidence → artifacts.preInterviewAnalysis defined', async () => {
+    const wrkf = makeProductFakePort({
+      next: async () => BEHAVIOR_NOTE_NEXT,
+      evidenceList: async () => [
+        { id: 'ev-001', kind: 'intake_metadata', data: { title: 'Fix login button' } },
+        {
+          id: 'ev-002',
+          kind: 'pre_interview_analysis',
+          data: { analysis: 'Likely needs a clarification round' },
+          facts: { clarification_needed: true },
+        },
+      ],
+    })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'GET',
+          path: `/v1/pbc/tasks/${TASK}`,
+        })
+        expect(response.status).toBe(200)
+        const body = await fixture.json<Record<string, unknown>>(response)
+        const artifacts = body['artifacts'] as Record<string, unknown>
+
+        // RED: artifacts.preInterviewAnalysis must be defined from evidence
+        expect(artifacts['preInterviewAnalysis']).toBeDefined()
+      },
+      { wrkf }
+    )
+  })
+
+  test('[RED] pressure_pass + pbc_final evidence → artifacts.pressurePass and artifacts.final defined', async () => {
+    const wrkf = makeProductFakePort({
+      next: async () => BEHAVIOR_NOTE_NEXT,
+      evidenceList: async () => [
+        { id: 'ev-001', kind: 'intake_metadata', data: { title: 'Fix login button' } },
+        { id: 'ev-002', kind: 'pbc_draft', data: { content: 'First draft' } },
+        {
+          id: 'ev-003',
+          kind: 'pressure_pass',
+          data: { review: 'Looks ready' },
+          facts: { verdict: 'ready', reviewedDraftEvidenceId: 'ev-002' },
+        },
+        {
+          id: 'ev-004',
+          kind: 'pbc_final',
+          data: { content: 'Final PBC document' },
+        },
+      ],
+    })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'GET',
+          path: `/v1/pbc/tasks/${TASK}`,
+        })
+        expect(response.status).toBe(200)
+        const body = await fixture.json<Record<string, unknown>>(response)
+        const artifacts = body['artifacts'] as Record<string, unknown>
+
+        // RED: both must be defined from evidence
+        expect(artifacts['pressurePass']).toBeDefined()
+        expect(artifacts['final']).toBeDefined()
+      },
+      { wrkf }
+    )
+  })
+
+  test('[RED] after revise loop, artifacts.draft shows LATEST fresh draft (not stale pre-boundary)', async () => {
+    // Evidence timeline:
+    //   ev-003: pbc_draft (stale — before revision boundary)
+    //   ev-004: pressure_pass(verdict=too_vague) — REVISION BOUNDARY
+    //   ev-005: pbc_draft (fresh — after boundary, this is the one to show)
+    const wrkf = makeProductFakePort({
+      next: async () => BEHAVIOR_NOTE_NEXT,
+      evidenceList: async () => [
+        { id: 'ev-001', kind: 'intake_metadata', data: { title: 'Fix login button' } },
+        { id: 'ev-002', kind: 'behavior_note', data: { notes: 'test' } },
+        { id: 'ev-003', kind: 'pbc_draft', data: { content: 'Stale first draft', version: 1 } },
+        {
+          id: 'ev-004',
+          kind: 'pressure_pass',
+          data: { review: 'Too vague' },
+          facts: { verdict: 'too_vague', reviewedDraftEvidenceId: 'ev-003' },
+        },
+        // ↑ revision boundary (too_vague verdict)
+        { id: 'ev-005', kind: 'pbc_draft', data: { content: 'Fresh second draft', version: 2 } },
+      ],
+    })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'GET',
+          path: `/v1/pbc/tasks/${TASK}`,
+        })
+        expect(response.status).toBe(200)
+        const body = await fixture.json<Record<string, unknown>>(response)
+        const artifacts = body['artifacts'] as Record<string, unknown>
+
+        // RED: artifacts.draft must be defined and show the LATEST fresh draft (ev-005)
+        expect(artifacts['draft']).toBeDefined()
+        const draft = artifacts['draft'] as Record<string, unknown>
+        const draftData = draft['data'] as Record<string, unknown>
+        // Must show the fresh draft (ev-005), NOT the stale one (ev-003)
+        expect(draftData['content']).toBe('Fresh second draft')
+        expect(draftData['version']).toBe(2)
+      },
+      { wrkf }
+    )
+  })
+
+  test('[RED] clarification_response + patch_decision evidence → respective artifact keys defined', async () => {
+    const wrkf = makeProductFakePort({
+      next: async () => BEHAVIOR_NOTE_NEXT,
+      evidenceList: async () => [
+        { id: 'ev-001', kind: 'intake_metadata', data: { title: 'Fix login button' } },
+        {
+          id: 'ev-002',
+          kind: 'clarification_response',
+          data: { answer: 'The user double-clicks the save button' },
+        },
+        {
+          id: 'ev-003',
+          kind: 'patch_decision',
+          data: { notes: 'Patch applied' },
+          facts: { route: 'finalize' },
+        },
+      ],
+    })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'GET',
+          path: `/v1/pbc/tasks/${TASK}`,
+        })
+        expect(response.status).toBe(200)
+        const body = await fixture.json<Record<string, unknown>>(response)
+        const artifacts = body['artifacts'] as Record<string, unknown>
+
+        // RED: both must be present in artifacts (currently {} — missing)
+        expect(artifacts['clarificationResponse']).toBeDefined()
+        expect(artifacts['patchDecision']).toBeDefined()
+      },
+      { wrkf }
+    )
+  })
+
+  test('[RED] disposition_decision evidence → artifacts.disposition defined', async () => {
+    const wrkf = makeProductFakePort({
+      next: async () => DISPOSED_NEXT,
+      evidenceList: async () => [
+        { id: 'ev-001', kind: 'intake_metadata', data: { title: 'Fix login button' } },
+        {
+          id: 'ev-002',
+          kind: 'disposition_decision',
+          data: { reason: 'Out of scope for this sprint' },
+          facts: { resolution: 'out_of_scope' },
+        },
+      ],
+    })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'GET',
+          path: `/v1/pbc/tasks/${TASK}`,
+        })
+        expect(response.status).toBe(200)
+        const body = await fixture.json<Record<string, unknown>>(response)
+        const artifacts = body['artifacts'] as Record<string, unknown>
+
+        // RED: artifacts.disposition must be defined from evidence
+        expect(artifacts['disposition']).toBeDefined()
+      },
+      { wrkf }
+    )
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// §14 — GET /v1/pbc/tasks/:taskId — product actions shape + enablement (T-03110)
+//
+// Currently FAILS: projection.ts maps next.actions to RAW wrkf transition names
+// (draft_pbc, normalize_feedback, …) all enabled:true. Product contract requires
+// exactly 5 kinds {continue, submit_clarification, submit_patch_decision, dispose,
+// retry_effect_delivery} with enablement derived from screen + obligations + effects.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('GET /v1/pbc/tasks/:taskId — product actions shape and enablement (RED, T-03110)', () => {
+  test('[RED] actions array contains exactly the 5 product action kinds (no raw wrkf names)', async () => {
+    // BEHAVIOR_NOTE_NEXT has actions:[{transition:'draft_pbc'}]
+    // Currently produces [{kind:'draft_pbc', enabled:true}] — wrong shape
+    const wrkf = makeProductFakePort({ next: async () => BEHAVIOR_NOTE_NEXT })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'GET',
+          path: `/v1/pbc/tasks/${TASK}`,
+        })
+        expect(response.status).toBe(200)
+        const body = await fixture.json<Record<string, unknown>>(response)
+        const actions = body['actions'] as Array<{ kind: string; enabled: boolean }>
+        const PRODUCT_KINDS = [
+          'continue',
+          'submit_clarification',
+          'submit_patch_decision',
+          'dispose',
+          'retry_effect_delivery',
+        ]
+
+        // RED: action kinds are raw wrkf names, not product kinds
+        for (const kind of PRODUCT_KINDS) {
+          expect(actions.map((a) => a.kind)).toContain(kind)
+        }
+        // No raw wrkf action names must appear
+        expect(actions.map((a) => a.kind)).not.toContain('draft_pbc')
+        expect(actions.map((a) => a.kind)).not.toContain('normalize_feedback')
+        expect(actions.map((a) => a.kind)).not.toContain('collect_behavior_note')
+      },
+      { wrkf }
+    )
+  })
+
+  test('[RED] working screen (active/behavior_note) → continue enabled, submit_* disabled', async () => {
+    const wrkf = makeProductFakePort({ next: async () => BEHAVIOR_NOTE_NEXT })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'GET',
+          path: `/v1/pbc/tasks/${TASK}`,
+        })
+        expect(response.status).toBe(200)
+        const body = await fixture.json<Record<string, unknown>>(response)
+        const actions = body['actions'] as Array<{ kind: string; enabled: boolean }>
+        const find = (kind: string) => actions.find((a) => a.kind === kind)
+
+        // RED: actions is [{kind:'draft_pbc', enabled:true}] — 'continue' not present
+        expect(find('continue')).toBeDefined()
+        expect(find('continue')?.enabled).toBe(true)
+        expect(find('submit_clarification')?.enabled).toBe(false)
+        expect(find('submit_patch_decision')?.enabled).toBe(false)
+      },
+      { wrkf }
+    )
+  })
+
+  test('[RED] starting screen (active/intake) → continue enabled', async () => {
+    const wrkf = makeProductFakePort({ next: async () => INTAKE_NEXT })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'GET',
+          path: `/v1/pbc/tasks/${TASK}`,
+        })
+        expect(response.status).toBe(200)
+        const body = await fixture.json<Record<string, unknown>>(response)
+        const actions = body['actions'] as Array<{ kind: string; enabled: boolean }>
+        const find = (kind: string) => actions.find((a) => a.kind === kind)
+
+        // RED: 'continue' kind not present in current raw-mapped output
+        expect(find('continue')).toBeDefined()
+        expect(find('continue')?.enabled).toBe(true)
+      },
+      { wrkf }
+    )
+  })
+
+  test('[RED] clarification screen (waiting/clarification) → submit_clarification enabled, continue disabled', async () => {
+    const wrkf = makeProductFakePort({ next: async () => CLARIFICATION_NEXT })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'GET',
+          path: `/v1/pbc/tasks/${TASK}`,
+        })
+        expect(response.status).toBe(200)
+        const body = await fixture.json<Record<string, unknown>>(response)
+        const actions = body['actions'] as Array<{ kind: string; enabled: boolean }>
+        const find = (kind: string) => actions.find((a) => a.kind === kind)
+
+        // RED: current actions is [] (no raw actions for waiting state)
+        // submit_clarification must be present and enabled
+        expect(find('submit_clarification')).toBeDefined()
+        expect(find('submit_clarification')?.enabled).toBe(true)
+        // continue must be disabled when waiting for human input
+        expect(find('continue')?.enabled).toBe(false)
+        expect(find('submit_patch_decision')?.enabled).toBe(false)
+      },
+      { wrkf }
+    )
+  })
+
+  test('[RED] patch_decision screen (waiting/patch_decision) → submit_patch_decision enabled, continue disabled', async () => {
+    const wrkf = makeProductFakePort({ next: async () => PATCH_DECISION_NEXT })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'GET',
+          path: `/v1/pbc/tasks/${TASK}`,
+        })
+        expect(response.status).toBe(200)
+        const body = await fixture.json<Record<string, unknown>>(response)
+        const actions = body['actions'] as Array<{ kind: string; enabled: boolean }>
+        const find = (kind: string) => actions.find((a) => a.kind === kind)
+
+        // RED: current actions is [] for waiting/patch_decision
+        expect(find('submit_patch_decision')).toBeDefined()
+        expect(find('submit_patch_decision')?.enabled).toBe(true)
+        expect(find('continue')?.enabled).toBe(false)
+        expect(find('submit_clarification')?.enabled).toBe(false)
+      },
+      { wrkf }
+    )
+  })
+
+  test('[RED] finalized screen (closed/finalized) → all product actions disabled', async () => {
+    const wrkf = makeProductFakePort({ next: async () => FINALIZED_NEXT })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'GET',
+          path: `/v1/pbc/tasks/${TASK}`,
+        })
+        expect(response.status).toBe(200)
+        const body = await fixture.json<Record<string, unknown>>(response)
+        const actions = body['actions'] as Array<{ kind: string; enabled: boolean }>
+
+        // RED: current actions is [] (no raw actions for closed) but must be 5 product actions all disabled
+        expect(actions.length).toBeGreaterThan(0) // 5 product kinds must always be present
+        for (const action of actions) {
+          expect(action.enabled).toBe(false)
+        }
+      },
+      { wrkf }
+    )
+  })
+
+  test('[RED] disposed screen (closed/disposed) → all product actions disabled', async () => {
+    const wrkf = makeProductFakePort({ next: async () => DISPOSED_NEXT })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'GET',
+          path: `/v1/pbc/tasks/${TASK}`,
+        })
+        expect(response.status).toBe(200)
+        const body = await fixture.json<Record<string, unknown>>(response)
+        const actions = body['actions'] as Array<{ kind: string; enabled: boolean }>
+
+        // RED: current actions is [] for closed/disposed, but must be 5 all-disabled product actions
+        expect(actions.length).toBeGreaterThan(0)
+        for (const action of actions) {
+          expect(action.enabled).toBe(false)
+        }
+      },
+      { wrkf }
+    )
+  })
+
+  test('[RED] dispose action enabled on active/working screen', async () => {
+    const wrkf = makeProductFakePort({ next: async () => BEHAVIOR_NOTE_NEXT })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'GET',
+          path: `/v1/pbc/tasks/${TASK}`,
+        })
+        expect(response.status).toBe(200)
+        const body = await fixture.json<Record<string, unknown>>(response)
+        const actions = body['actions'] as Array<{ kind: string; enabled: boolean }>
+        const disposeAction = actions.find((a) => a.kind === 'dispose')
+
+        // RED: 'dispose' kind not present in current raw-mapped [{kind:'draft_pbc',...}]
+        expect(disposeAction).toBeDefined()
+        expect(disposeAction?.enabled).toBe(true)
+      },
+      { wrkf }
+    )
+  })
+
+  test('[RED] dispose action enabled on clarification screen (active, waiting for input)', async () => {
+    const wrkf = makeProductFakePort({ next: async () => CLARIFICATION_NEXT })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'GET',
+          path: `/v1/pbc/tasks/${TASK}`,
+        })
+        expect(response.status).toBe(200)
+        const body = await fixture.json<Record<string, unknown>>(response)
+        const actions = body['actions'] as Array<{ kind: string; enabled: boolean }>
+        const disposeAction = actions.find((a) => a.kind === 'dispose')
+
+        // RED: 'dispose' not in raw-mapped actions (actions is [] for waiting state)
+        expect(disposeAction).toBeDefined()
+        expect(disposeAction?.enabled).toBe(true)
+      },
+      { wrkf }
+    )
+  })
+
+  test('[RED] retry_effect_delivery enabled when pending effect has retryable:true', async () => {
+    const nextWithRetryableEffect = {
+      instance: {
+        id: 'inst-pbc-001',
+        state: { status: 'active', phase: 'behavior_note' },
+        revision: 2,
+        contextHash: 'sha256:ctx-eff-retry',
+      },
+      actions: [{ id: 'draft_pbc', transition: 'draft_pbc', role: 'agent' }],
+      blockedTransitions: [],
+      openObligations: [],
+      pendingEffects: [{ id: 'eff-001', kind: 'set_task_state', status: 'failed', retryable: true }],
+    }
+    const wrkf = makeProductFakePort({ next: async () => nextWithRetryableEffect })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'GET',
+          path: `/v1/pbc/tasks/${TASK}`,
+        })
+        expect(response.status).toBe(200)
+        const body = await fixture.json<Record<string, unknown>>(response)
+        const actions = body['actions'] as Array<{ kind: string; enabled: boolean }>
+        const retryAction = actions.find((a) => a.kind === 'retry_effect_delivery')
+
+        // RED: 'retry_effect_delivery' not in raw-mapped actions
+        expect(retryAction).toBeDefined()
+        expect(retryAction?.enabled).toBe(true)
+      },
+      { wrkf }
+    )
+  })
+
+  test('[RED] retry_effect_delivery disabled when no pending retryable effect', async () => {
+    // BEHAVIOR_NOTE_NEXT has no pendingEffects
+    const wrkf = makeProductFakePort({ next: async () => BEHAVIOR_NOTE_NEXT })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'GET',
+          path: `/v1/pbc/tasks/${TASK}`,
+        })
+        expect(response.status).toBe(200)
+        const body = await fixture.json<Record<string, unknown>>(response)
+        const actions = body['actions'] as Array<{ kind: string; enabled: boolean }>
+        const retryAction = actions.find((a) => a.kind === 'retry_effect_delivery')
+
+        // RED: 'retry_effect_delivery' not in raw-mapped actions at all
+        expect(retryAction).toBeDefined()
+        expect(retryAction?.enabled).toBe(false)
+      },
+      { wrkf }
+    )
+  })
+
+  test('[RED] raw wrkf action names remain in diagnostics.legalTransitions (not in actions)', async () => {
+    // BEHAVIOR_NOTE_NEXT: actions:[{transition:'draft_pbc'}]
+    // diagnostics.legalTransitions must still contain 'draft_pbc'; actions must NOT
+    const wrkf = makeProductFakePort({ next: async () => BEHAVIOR_NOTE_NEXT })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'GET',
+          path: `/v1/pbc/tasks/${TASK}`,
+        })
+        expect(response.status).toBe(200)
+        const body = await fixture.json<Record<string, unknown>>(response)
+        const diagnostics = body['diagnostics'] as Record<string, unknown>
+        const legalTransitions = diagnostics['legalTransitions'] as string[]
+        const actions = body['actions'] as Array<{ kind: string; enabled: boolean }>
+
+        // diagnostics.legalTransitions MUST still carry raw wrkf names (already passes)
+        expect(legalTransitions).toContain('draft_pbc')
+
+        // actions MUST NOT carry raw wrkf names (currently RED: actions has 'draft_pbc')
+        expect(actions.map((a) => a.kind)).not.toContain('draft_pbc')
+      },
+      { wrkf }
     )
   })
 })
