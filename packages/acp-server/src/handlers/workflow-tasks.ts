@@ -14,6 +14,7 @@ import {
 import type { RouteHandler } from '../routing/route-context.js'
 import { actorRefFromUnknown } from '../workflow-runtime.js'
 import { wrkfErrorToHttpStatus } from '../wrkf/errors.js'
+import { defaultWorkflowPackRegistry } from '../wrkf/packs/default-registry.js'
 
 function requireTaskId(params: Record<string, string | undefined>): string {
   const taskId = params['taskId']
@@ -127,10 +128,29 @@ export const handleGetWorkflowTask: RouteHandler = async ({ params, deps }) => {
       inspectedRecord['instance'] !== undefined
         ? inspectedRecord['instance']
         : nextRecord['instance']
+
+    // Resolve the generic workflow pack for this task from its workflow ref +
+    // template hash. Unknown workflows degrade to { level: 0, supported: false }.
+    const workflowId = optionalString(inspectedRecord, 'templateId') ?? ''
+    const version = String(optionalWorkflowVersion(inspectedRecord))
+    const templateHash = optionalString(inspectedRecord, 'templateHash')
+    const workflowRef = `${workflowId}@${version}`
+    const { pack: resolvedPack, support } = defaultWorkflowPackRegistry.resolve({
+      workflowRef,
+      ...(templateHash !== undefined ? { templateHash } : {}),
+    })
+    const pack = {
+      ...(resolvedPack?.id !== undefined ? { id: resolvedPack.id } : {}),
+      level: support.level,
+      supported: support.supported,
+      ...(support.reason !== undefined ? { reason: support.reason } : {}),
+    }
+
     return json({
       source: 'wrkf',
       task,
       instance,
+      pack,
       next,
       timeline,
       evidence,
