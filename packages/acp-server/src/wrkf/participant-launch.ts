@@ -9,8 +9,8 @@ import type {
 } from '../deps.js'
 import type { RunStore } from '../domain/run-store.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
-import { isRecord } from '../parsers/body.js'
 import type { AcpWrkfWorkflowPort } from './port.js'
+import { isRecord, readOptionalNumber, readOptionalString, readRecord } from './value.js'
 
 export type WrkfParticipantLaunchInput = {
   taskId: string
@@ -428,18 +428,4 @@ function readRequiredString(input: Record<string, unknown>, field: string, label
     throw new Error(`${label}.${field} must be a non-empty string`)
   }
   return value
-}
-
-function readOptionalString(input: Record<string, unknown>, field: string): string | undefined {
-  const value = input[field]
-  return typeof value === 'string' && value.length > 0 ? value : undefined
-}
-
-function readOptionalNumber(input: Record<string, unknown>, field: string): number | undefined {
-  const value = input[field]
-  return typeof value === 'number' ? value : undefined
-}
-
-function readRecord(value: unknown): Record<string, unknown> | undefined {
-  return isRecord(value) ? value : undefined
 }
