@@ -63,6 +63,10 @@ type RequestOptions = {
   body?: unknown
 }
 
+const GATEWAY_ID = 'discord_prod'
+const CONVERSATION_REF = 'channel:123'
+const AUTHOR_REF = 'discord:user:999'
+
 function projectSessionRef(
   projectId: string,
   agentId = 'curly',
@@ -95,8 +99,8 @@ async function createBinding(
     method: 'POST',
     path: '/v1/interface/bindings',
     body: {
-      gatewayId: input.gatewayId ?? 'discord_prod',
-      conversationRef: input.conversationRef ?? 'channel:123',
+      gatewayId: input.gatewayId ?? GATEWAY_ID,
+      conversationRef: input.conversationRef ?? CONVERSATION_REF,
       ...(input.threadRef !== undefined ? { threadRef: input.threadRef } : {}),
       sessionRef: input.sessionRef ?? projectSessionRef(stack.seed.projectId),
       projectId: input.projectId ?? stack.seed.projectId,
@@ -121,11 +125,11 @@ async function postInterfaceMessage(
     path: '/v1/interface/messages',
     body: {
       source: {
-        gatewayId: input.gatewayId ?? 'discord_prod',
-        conversationRef: input.conversationRef ?? 'channel:123',
+        gatewayId: input.gatewayId ?? GATEWAY_ID,
+        conversationRef: input.conversationRef ?? CONVERSATION_REF,
         ...(input.threadRef !== undefined ? { threadRef: input.threadRef } : {}),
         messageRef: input.messageRef ?? 'discord:message:123',
-        authorRef: input.authorRef ?? 'discord:user:999',
+        authorRef: input.authorRef ?? AUTHOR_REF,
       },
       content: input.content ?? 'Need a reply.',
     },
@@ -172,7 +176,7 @@ async function queueAssistantDelivery(
 
   const ingressPayload = ingress.payload as InterfaceMessageResponse
   const delivery = stack.interfaceStore.deliveries
-    .listQueuedForGateway('discord_prod')
+    .listQueuedForGateway(GATEWAY_ID)
     .find((entry) => entry.runId === ingressPayload.runId)
 
   expect(delivery).toBeDefined()
@@ -191,8 +195,8 @@ describe('ACP interface e2e', () => {
 
       expect(created.response.status).toBe(201)
       expect(created.payload.binding).toMatchObject({
-        gatewayId: 'discord_prod',
-        conversationRef: 'channel:123',
+        gatewayId: GATEWAY_ID,
+        conversationRef: CONVERSATION_REF,
         projectId: stack.seed.projectId,
         sessionRef: projectSessionRef(stack.seed.projectId),
         status: 'active',
@@ -200,7 +204,7 @@ describe('ACP interface e2e', () => {
 
       const listed = await requestJson<{ bindings: InterfaceBindingPayload[] }>(stack, {
         method: 'GET',
-        path: `/v1/interface/bindings?gatewayId=discord_prod&projectId=${stack.seed.projectId}`,
+        path: `/v1/interface/bindings?gatewayId=${GATEWAY_ID}&projectId=${stack.seed.projectId}`,
       })
 
       expect(listed.response.status).toBe(200)
@@ -285,15 +289,15 @@ describe('ACP interface e2e', () => {
         })
         expect(
           stack.interfaceStore.messageSources.getByMessageRef(
-            'discord_prod',
+            GATEWAY_ID,
             'discord:message:dispatch'
           )
         ).toEqual({
-          gatewayId: 'discord_prod',
+          gatewayId: GATEWAY_ID,
           bindingId: binding.payload.binding.bindingId,
-          conversationRef: 'channel:123',
+          conversationRef: CONVERSATION_REF,
           messageRef: 'discord:message:dispatch',
-          authorRef: 'discord:user:999',
+          authorRef: AUTHOR_REF,
           receivedAt: expect.any(String),
         })
       },
@@ -311,15 +315,15 @@ describe('ACP interface e2e', () => {
           assistantText: 'Hello from mock launcher.',
         })
 
-        const deliveries = stack.interfaceStore.deliveries.listQueuedForGateway('discord_prod')
+        const deliveries = stack.interfaceStore.deliveries.listQueuedForGateway(GATEWAY_ID)
 
         expect(deliveries).toHaveLength(1)
         expect(deliveries[0]).toMatchObject({
-          gatewayId: 'discord_prod',
+          gatewayId: GATEWAY_ID,
           bindingId: queued.binding.bindingId,
           runId: queued.ingress.runId,
           inputAttemptId: queued.ingress.inputAttemptId,
-          conversationRef: 'channel:123',
+          conversationRef: CONVERSATION_REF,
           replyToMessageRef: 'discord:message:captured',
           bodyText: 'Hello from mock launcher.',
           status: 'queued',
@@ -348,19 +352,19 @@ describe('ACP interface e2e', () => {
           nextCursor: string | null
         }>(stack, {
           method: 'GET',
-          path: '/v1/gateway/discord_prod/deliveries/stream',
+          path: `/v1/gateway/${GATEWAY_ID}/deliveries/stream`,
         })
 
         expect(stream.response.status).toBe(200)
         expect(stream.payload.deliveries).toHaveLength(1)
         expect(stream.payload.deliveries[0]).toMatchObject({
           deliveryRequestId: queued.delivery.deliveryRequestId,
-          gatewayId: 'discord_prod',
+          gatewayId: GATEWAY_ID,
           bindingId: queued.binding.bindingId,
           sessionRef: threadSession,
           runId: queued.ingress.runId,
           inputAttemptId: queued.ingress.inputAttemptId,
-          conversationRef: 'channel:123',
+          conversationRef: CONVERSATION_REF,
           threadRef: 'thread:456',
           replyToMessageRef: 'discord:message:stream',
           body: {

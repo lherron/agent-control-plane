@@ -7,7 +7,7 @@ import {
   mapTransitionToWriteRecord,
 } from '../mapping/transition-row.js'
 import type { RepoContext } from './shared.js'
-import { requireTaskLookup } from './shared.js'
+import { findTaskUuid, requireTaskLookup } from './shared.js'
 
 type EvidenceLookupRow = {
   uuid: string
@@ -61,11 +61,9 @@ export class TransitionLogRepo implements TransitionLogStore {
 
   listTransitions(taskId: string): readonly LoggedTransitionRecord[] {
     return this.context.sqlite.transaction((id: string) => {
-      const task = this.context.sqlite.prepare('SELECT uuid FROM tasks WHERE id = ?').get(id) as
-        | { uuid: string }
-        | undefined
+      const taskUuid = findTaskUuid(this.context.sqlite, id)
 
-      if (task === undefined) {
+      if (taskUuid === undefined) {
         return []
       }
 
@@ -85,7 +83,7 @@ export class TransitionLogRepo implements TransitionLogStore {
             WHERE tt.task_uuid = ?
             ORDER BY tt.transitioned_at ASC, tt.id ASC`
         )
-        .all(task.uuid) as TransitionRow[]
+        .all(taskUuid) as TransitionRow[]
 
       return rows.map((row) => mapTransitionRow(id, row))
     })(taskId)

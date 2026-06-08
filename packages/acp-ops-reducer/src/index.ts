@@ -38,6 +38,10 @@ export type ParsedNdjsonChunk = {
 
 type ObjectRecord = Record<string, unknown>
 
+const SUPERSEDED_PRIORITY_FLOOR = 80
+const SUPERSEDED_COLOR_ROLE = 'warning'
+const SUPERSEDED_CONTINUITY = 'blocked'
+
 const REDACTED_VALUE = '[REDACTED]'
 const CREDENTIAL_KEY_PARTS = [
   'token',
@@ -118,9 +122,7 @@ function sanitizeEvent(event: DashboardEvent): DashboardEvent {
   }
 }
 
-function compareEvents(left: DashboardEvent, right: DashboardEvent): number {
-  const leftTs = Date.parse(left.ts)
-  const rightTs = Date.parse(right.ts)
+function compareByTimestamp(leftTs: number, rightTs: number, tieBreak: () => number): number {
   const leftValid = Number.isFinite(leftTs)
   const rightValid = Number.isFinite(rightTs)
 
@@ -132,7 +134,15 @@ function compareEvents(left: DashboardEvent, right: DashboardEvent): number {
     return leftValid ? -1 : 1
   }
 
-  return left.hrcSeq - right.hrcSeq
+  return tieBreak()
+}
+
+function compareEvents(left: DashboardEvent, right: DashboardEvent): number {
+  return compareByTimestamp(
+    Date.parse(left.ts),
+    Date.parse(right.ts),
+    () => left.hrcSeq - right.hrcSeq
+  )
 }
 
 function rowIdFor(event: DashboardEvent): string {
@@ -157,7 +167,7 @@ function markSupersededRows(
   const nextRows = new Map(rows)
   for (const [rowId, row] of rows) {
     const maxGeneration = maxGenerationByHost.get(row.hostSessionId) ?? row.generation
-    if (row.generation >= maxGeneration || row.visualState.continuity === 'blocked') {
+    if (row.generation >= maxGeneration || row.visualState.continuity === SUPERSEDED_CONTINUITY) {
       continue
     }
 
@@ -165,9 +175,9 @@ function markSupersededRows(
       ...row,
       visualState: {
         ...row.visualState,
-        priority: Math.max(row.visualState.priority, 80),
-        colorRole: 'warning',
-        continuity: 'blocked',
+        priority: Math.max(row.visualState.priority, SUPERSEDED_PRIORITY_FLOOR),
+        colorRole: SUPERSEDED_COLOR_ROLE,
+        continuity: SUPERSEDED_CONTINUITY,
       },
     })
   }
@@ -284,6 +294,15 @@ export function parseNdjsonChunk(buffer: string): ParsedNdjsonChunk {
   return { events, remainder, droppedLines }
 }
 
+function withinTimeBound(eventTs: string, bound: string, direction: 'from' | 'to'): boolean {
+  const eventMs = Date.parse(eventTs)
+  const boundMs = Date.parse(bound)
+  if (!Number.isFinite(eventMs) || !Number.isFinite(boundMs)) {
+    return true
+  }
+  return direction === 'from' ? eventMs >= boundMs : eventMs <= boundMs
+}
+
 export function selectVisibleEvents(
   state: ReducerState,
   filters: ReducerEventFilters = {}
@@ -301,40 +320,26 @@ export function selectVisibleEvents(
       if (filters.runId !== undefined && event.runId !== filters.runId) return false
       if (filters.family !== undefined && event.family !== filters.family) return false
       if (filters.severity !== undefined && event.severity !== filters.severity) return false
-      if (filters.fromTs !== undefined) {
-        const eventMs = Date.parse(event.ts)
-        const fromMs = Date.parse(filters.fromTs)
-        if (Number.isFinite(eventMs) && Number.isFinite(fromMs) && eventMs < fromMs) return false
-      }
-      if (filters.toTs !== undefined) {
-        const eventMs = Date.parse(event.ts)
-        const toMs = Date.parse(filters.toTs)
-        if (Number.isFinite(eventMs) && Number.isFinite(toMs) && eventMs > toMs) return false
-      }
+      if (filters.fromTs !== undefined && !withinTimeBound(event.ts, filters.fromTs, 'from'))
+        return false
+      if (filters.toTs !== undefined && !withinTimeBound(event.ts, filters.toTs, 'to'))
+        return false
       return true
     })
     .sort(compareEvents)
 }
 
 export function selectSortedRows(state: ReducerState): SessionTimelineRow[] {
-  return [...state.rows.values()].sort((left, right) => {
-    const leftTs = Date.parse(left.stats.lastEventAt ?? '')
-    const rightTs = Date.parse(right.stats.lastEventAt ?? '')
-    const leftValid = Number.isFinite(leftTs)
-    const rightValid = Number.isFinite(rightTs)
-
-    if (leftValid && rightValid && leftTs !== rightTs) {
-      return leftTs - rightTs
-    }
-
-    if (leftValid !== rightValid) {
-      return leftValid ? -1 : 1
-    }
-
-    if (left.hostSessionId !== right.hostSessionId) {
-      return left.hostSessionId.localeCompare(right.hostSessionId)
-    }
-
-    return left.generation - right.generation
-  })
+  return [...state.rows.values()].sort((left, right) =>
+    compareByTimestamp(
+      Date.parse(left.stats.lastEventAt ?? ''),
+      Date.parse(right.stats.lastEventAt ?? ''),
+      () => {
+        if (left.hostSessionId !== right.hostSessionId) {
+          return left.hostSessionId.localeCompare(right.hostSessionId)
+        }
+        return left.generation - right.generation
+      }
+    )
+  )
 }

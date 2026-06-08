@@ -14,7 +14,7 @@ import {
   uniqueStoredAttachmentPath,
 } from '../attachments.js'
 import { AcpHttpError, json } from '../http.js'
-import { parseJsonBody, requireRecord, requireTrimmedStringField } from '../parsers/body.js'
+import { isRecord, parseJsonBody, requireRecord, requireTrimmedStringField } from '../parsers/body.js'
 import type { RouteHandler } from '../routing/route-context.js'
 
 const ACTIVE_RUN_STATUSES = new Set(['pending', 'started', 'running'])
@@ -273,10 +273,6 @@ function readOptionalString(record: Record<string, unknown>, field: string): str
     )
   }
   return value.trim()
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function createDeliveryRequestId(runId: string): string {

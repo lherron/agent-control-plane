@@ -9,6 +9,20 @@ import type {
 import type { RepoContext } from './shared.js'
 import { toOptionalString } from './shared.js'
 
+const OUTBOUND_ATTACHMENT_ID_SLICE_LENGTH = 16
+
+const OUTBOUND_ATTACHMENT_COLUMNS = `outboundAttachmentId,
+                runId,
+                state,
+                consumedByDeliveryRequestId,
+                path,
+                filename,
+                contentType,
+                sizeBytes,
+                alt,
+                createdAt,
+                updatedAt`
+
 type OutboundAttachmentRow = {
   outboundAttachmentId: string
   runId: string
@@ -45,7 +59,8 @@ export class OutboundAttachmentRepo {
   create(input: CreateOutboundAttachmentInput): OutboundAttachment {
     const timestamp = input.createdAt ?? new Date().toISOString()
     const outboundAttachmentId =
-      input.outboundAttachmentId ?? `oa_${randomUUID().replace(/-/g, '').slice(0, 16)}`
+      input.outboundAttachmentId ??
+      `oa_${randomUUID().replace(/-/g, '').slice(0, OUTBOUND_ATTACHMENT_ID_SLICE_LENGTH)}`
 
     this.context.sqlite
       .prepare(
@@ -81,17 +96,7 @@ export class OutboundAttachmentRepo {
   get(outboundAttachmentId: string): OutboundAttachment | undefined {
     const row = this.context.sqlite
       .prepare(
-        `SELECT outboundAttachmentId,
-                runId,
-                state,
-                consumedByDeliveryRequestId,
-                path,
-                filename,
-                contentType,
-                sizeBytes,
-                alt,
-                createdAt,
-                updatedAt
+        `SELECT ${OUTBOUND_ATTACHMENT_COLUMNS}
            FROM outbound_attachments
           WHERE outboundAttachmentId = ?`
       )
@@ -112,17 +117,7 @@ export class OutboundAttachmentRepo {
   listForRun(runId: string): OutboundAttachment[] {
     const rows = this.context.sqlite
       .prepare(
-        `SELECT outboundAttachmentId,
-                runId,
-                state,
-                consumedByDeliveryRequestId,
-                path,
-                filename,
-                contentType,
-                sizeBytes,
-                alt,
-                createdAt,
-                updatedAt
+        `SELECT ${OUTBOUND_ATTACHMENT_COLUMNS}
            FROM outbound_attachments
           WHERE runId = ?
           ORDER BY createdAt ASC, outboundAttachmentId ASC`
@@ -135,17 +130,7 @@ export class OutboundAttachmentRepo {
   listPendingForRun(runId: string): OutboundAttachment[] {
     const rows = this.context.sqlite
       .prepare(
-        `SELECT outboundAttachmentId,
-                runId,
-                state,
-                consumedByDeliveryRequestId,
-                path,
-                filename,
-                contentType,
-                sizeBytes,
-                alt,
-                createdAt,
-                updatedAt
+        `SELECT ${OUTBOUND_ATTACHMENT_COLUMNS}
            FROM outbound_attachments
           WHERE runId = ?
             AND state = 'pending'

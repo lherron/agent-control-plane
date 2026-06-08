@@ -82,6 +82,23 @@ function encodeTaskMeta(task: Task): string {
   return stableStringify(root)
 }
 
+function stripAcpKind(
+  parsed: Record<string, unknown>,
+  acp: Record<string, unknown> | undefined
+): Record<string, unknown> {
+  if (acp === undefined) {
+    return parsed
+  }
+
+  const { kind: _drop, ...acpRest } = acp
+  if (Object.keys(acpRest).length === 0) {
+    const { acp: _omit, ...withoutAcp } = parsed
+    return withoutAcp
+  }
+
+  return { ...parsed, acp: acpRest }
+}
+
 function decodeTaskMeta(
   meta: string | null,
   fallbackKind: string
@@ -94,16 +111,7 @@ function decodeTaskMeta(
   const acp = isRecord(parsed['acp']) ? { ...parsed['acp'] } : undefined
   const kindValue = typeof acp?.['kind'] === 'string' ? acp['kind'] : fallbackKind
 
-  let cleaned: Record<string, unknown> = parsed
-  if (acp !== undefined) {
-    const { kind: _drop, ...acpRest } = acp
-    if (Object.keys(acpRest).length === 0) {
-      const { acp: _omit, ...withoutAcp } = parsed
-      cleaned = withoutAcp
-    } else {
-      cleaned = { ...parsed, acp: acpRest }
-    }
-  }
+  const cleaned = stripAcpKind(parsed, acp)
 
   return Object.keys(cleaned).length === 0
     ? { kind: kindValue }

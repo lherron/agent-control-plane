@@ -78,21 +78,40 @@ function isLastHrcRow(rows: readonly TimelineRow[], index: number, row: HrcTimel
   return next?.ledger !== 'hrc' || next.parentParticipantRunId !== row.parentParticipantRunId
 }
 
+type SymbolCategory = 'rejected' | 'run' | 'mappingEffect' | 'obligation' | 'anomaly' | 'default'
+
+function symbolCategoryFor(row: AcpTimelineRow): SymbolCategory {
+  if (row.kind === 'rejected') return 'rejected'
+  if (row.category === 'run') return 'run'
+  if (row.category === 'mapping' || row.category === 'effect') return 'mappingEffect'
+  if (row.category === 'obligation') return 'obligation'
+  if (row.category === 'anomaly') return 'anomaly'
+  return 'default'
+}
+
+const SYMBOL_GLYPHS: Readonly<
+  Record<SymbolCategory, { plain: string; tty: string; markdown: string }>
+> = {
+  rejected: { plain: '[x]', tty: '✗', markdown: '❌' },
+  run: { plain: '[>]', tty: '▶', markdown: '▶️' },
+  mappingEffect: { plain: '[*]', tty: '◆', markdown: '◆' },
+  obligation: { plain: '[o]', tty: '◇', markdown: '◇' },
+  anomaly: { plain: '[!]', tty: '⚠', markdown: '⚠️' },
+  default: { plain: '[+]', tty: '●', markdown: '✅' },
+}
+
+const SYMBOL_COLORS: Readonly<Record<SymbolCategory, (value: string) => string>> = {
+  rejected: chalk.red,
+  run: chalk.cyan,
+  mappingEffect: chalk.blue,
+  obligation: chalk.gray,
+  anomaly: chalk.yellow,
+  default: chalk.green,
+}
+
 function symbolFor(row: AcpTimelineRow, plain: boolean): string {
-  if (plain) {
-    if (row.kind === 'rejected') return '[x]'
-    if (row.category === 'run') return '[>]'
-    if (row.category === 'mapping' || row.category === 'effect') return '[*]'
-    if (row.category === 'obligation') return '[o]'
-    if (row.category === 'anomaly') return '[!]'
-    return '[+]'
-  }
-  if (row.kind === 'rejected') return '✗'
-  if (row.category === 'run') return '▶'
-  if (row.category === 'mapping' || row.category === 'effect') return '◆'
-  if (row.category === 'obligation') return '◇'
-  if (row.category === 'anomaly') return '⚠'
-  return '●'
+  const glyphs = SYMBOL_GLYPHS[symbolCategoryFor(row)]
+  return plain ? glyphs.plain : glyphs.tty
 }
 
 function styledSymbol(
@@ -101,12 +120,7 @@ function styledSymbol(
 ): string {
   const symbol = symbolFor(row, options.plain)
   if (!options.color) return symbol
-  if (row.kind === 'rejected') return chalk.red(symbol)
-  if (row.category === 'run') return chalk.cyan(symbol)
-  if (row.category === 'mapping' || row.category === 'effect') return chalk.blue(symbol)
-  if (row.category === 'obligation') return chalk.gray(symbol)
-  if (row.category === 'anomaly') return chalk.yellow(symbol)
-  return chalk.green(symbol)
+  return SYMBOL_COLORS[symbolCategoryFor(row)](symbol)
 }
 
 function actorText(row: AcpTimelineRow): string {
@@ -380,12 +394,7 @@ function escapeMarkdown(value: string): string {
 }
 
 function markdownSymbol(row: AcpTimelineRow): string {
-  if (row.kind === 'rejected') return '❌'
-  if (row.category === 'run') return '▶️'
-  if (row.category === 'mapping' || row.category === 'effect') return '◆'
-  if (row.category === 'obligation') return '◇'
-  if (row.category === 'anomaly') return '⚠️'
-  return '✅'
+  return SYMBOL_GLYPHS[symbolCategoryFor(row)].markdown
 }
 
 function renderMarkdown(

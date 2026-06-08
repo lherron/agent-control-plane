@@ -28,8 +28,24 @@ export interface InterfaceStore {
   close(): void
 }
 
+const SQLITE_BUSY_TIMEOUT_MS = 5000
+
 function isEphemeralPath(path: string): boolean {
   return path === '' || path === ':memory:'
+}
+
+function addColumnIfMissing(sqlite: SqliteDatabase, table: string, columnDef: string): void {
+  const columnName = columnDef.split(' ')[0]
+  const existing = sqlite
+    .prepare(
+      `SELECT name
+         FROM pragma_table_info('${table}')
+        WHERE name = ?`
+    )
+    .get(columnName)
+  if (existing === undefined) {
+    sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${columnDef};`)
+  }
 }
 
 function initializeSchema(sqlite: SqliteDatabase): void {
@@ -146,20 +162,11 @@ function initializeSchema(sqlite: SqliteDatabase): void {
       ON outbound_attachments (runId, state);
   `)
 
-  const linkedFailureIdColumn = sqlite
-    .prepare(
-      `SELECT name
-         FROM pragma_table_info('delivery_requests')
-        WHERE name = 'linked_failure_id'`
-    )
-    .get()
-
-  if (linkedFailureIdColumn === undefined) {
-    sqlite.exec(`
-      ALTER TABLE delivery_requests
-      ADD COLUMN linked_failure_id TEXT REFERENCES delivery_requests(delivery_request_id);
-    `)
-  }
+  addColumnIfMissing(
+    sqlite,
+    'delivery_requests',
+    'linked_failure_id TEXT REFERENCES delivery_requests(delivery_request_id)'
+  )
 
   const actorColumns = [
     ['interface_bindings', 'actor_kind TEXT'],
@@ -177,33 +184,10 @@ function initializeSchema(sqlite: SqliteDatabase): void {
   ] as const
 
   for (const [table, columnDef] of actorColumns) {
-    const columnName = columnDef.split(' ')[0]
-    const existing = sqlite
-      .prepare(
-        `SELECT name
-           FROM pragma_table_info('${table}')
-          WHERE name = ?`
-      )
-      .get(columnName)
-    if (existing === undefined) {
-      sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${columnDef};`)
-    }
+    addColumnIfMissing(sqlite, table, columnDef)
   }
 
-  const bodyAttachmentsColumn = sqlite
-    .prepare(
-      `SELECT name
-         FROM pragma_table_info('delivery_requests')
-        WHERE name = 'body_attachments_json'`
-    )
-    .get()
-
-  if (bodyAttachmentsColumn === undefined) {
-    sqlite.exec(`
-      ALTER TABLE delivery_requests
-      ADD COLUMN body_attachments_json TEXT;
-    `)
-  }
+  addColumnIfMissing(sqlite, 'delivery_requests', 'body_attachments_json TEXT')
 
   const deliveryOutcomeColumns = [
     ['delivery_requests', 'outcome_state TEXT'],
@@ -213,17 +197,7 @@ function initializeSchema(sqlite: SqliteDatabase): void {
   ] as const
 
   for (const [table, columnDef] of deliveryOutcomeColumns) {
-    const columnName = columnDef.split(' ')[0]
-    const existing = sqlite
-      .prepare(
-        `SELECT name
-           FROM pragma_table_info('${table}')
-          WHERE name = ?`
-      )
-      .get(columnName)
-    if (existing === undefined) {
-      sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${columnDef};`)
-    }
+    addColumnIfMissing(sqlite, table, columnDef)
   }
 
   migrateStructuredScopeColumns(sqlite)
@@ -433,7 +407,7 @@ function createSqliteDatabase(dbPath: string): SqliteDatabase {
   const sqlite = new Database(dbPath)
   sqlite.exec('PRAGMA journal_mode = WAL;')
   sqlite.exec('PRAGMA foreign_keys = ON;')
-  sqlite.exec('PRAGMA busy_timeout = 5000;')
+  sqlite.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS};`)
   return sqlite
 }
 

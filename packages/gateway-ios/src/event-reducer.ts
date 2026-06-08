@@ -269,11 +269,27 @@ function blocksFromContent(
 // Per-category event reducers (split for cognitive complexity)
 // ---------------------------------------------------------------------------
 
+/** Sentinel runId used when an event carries no runId. */
+const NO_RUN = 'no-run'
+
 const SESSION_STATUS_TEXT: Record<string, string> = {
   'session.created': 'Session created',
   'session.resolved': 'Session resolved',
   'session.generation_auto_rotated': 'Session generation rotated',
   'session.continuation_dropped': 'Session continuation dropped',
+}
+
+/** Status block value per runtime eventKind; defaults to 'active'. */
+const RUNTIME_STATUS_VALUE: Record<string, string> = {
+  'runtime.stale': 'stale',
+  'runtime.dead': 'stale',
+  'runtime.terminated': 'inactive',
+}
+
+/** Status block text per turn-lifecycle eventKind; defaults to 'Turn running'. */
+const TURN_LIFECYCLE_TEXT: Record<string, string> = {
+  'turn.completed': 'Turn completed',
+  'turn.accepted': 'Turn accepted',
 }
 
 function reduceSessionEvent(
@@ -311,12 +327,7 @@ function reduceRuntimeEvent(
 ): FrameUpdate {
   const action = event.eventKind.split('.')[1] ?? event.eventKind
   const statusText = `Runtime ${action}`
-  const statusValue =
-    event.eventKind === 'runtime.stale' || event.eventKind === 'runtime.dead'
-      ? 'stale'
-      : event.eventKind === 'runtime.terminated'
-        ? 'inactive'
-        : 'active'
+  const statusValue = RUNTIME_STATUS_VALUE[event.eventKind] ?? 'active'
   const blocks: TimelineBlock[] = [{ kind: 'status', status: statusValue, text: statusText }]
 
   return upsertFrame({
@@ -337,7 +348,7 @@ function reduceInterrupted(
   sessionRef: string,
   citation: SourceEventCitation
 ): FrameUpdate {
-  const runId = event.runId ?? 'no-run'
+  const runId = event.runId ?? NO_RUN
   const blocks: TimelineBlock[] = [
     { kind: 'status', status: 'interrupted', text: 'Turn interrupted' },
   ]
@@ -350,7 +361,7 @@ function reduceInterrupted(
     event,
     citation,
     blocks,
-    runId: runId !== 'no-run' ? runId : undefined,
+    runId: runId !== NO_RUN ? runId : undefined,
   })
 }
 
@@ -381,13 +392,9 @@ function reduceTurnLifecycle(
   sessionRef: string,
   citation: SourceEventCitation
 ): FrameUpdate {
-  const runId = event.runId ?? 'no-run'
+  const runId = event.runId ?? NO_RUN
   const isCompleted = event.eventKind === 'turn.completed'
-  const statusText = isCompleted
-    ? 'Turn completed'
-    : event.eventKind === 'turn.accepted'
-      ? 'Turn accepted'
-      : 'Turn running'
+  const statusText = TURN_LIFECYCLE_TEXT[event.eventKind] ?? 'Turn running'
   const statusValue = isCompleted ? 'completed' : 'running'
   const blocks: TimelineBlock[] = [{ kind: 'status', status: statusValue, text: statusText }]
 
@@ -400,7 +407,7 @@ function reduceTurnLifecycle(
     event,
     citation,
     blocks,
-    runId: runId !== 'no-run' ? runId : undefined,
+    runId: runId !== NO_RUN ? runId : undefined,
   })
 }
 
@@ -410,7 +417,7 @@ function reduceUserPrompt(
   sessionRef: string,
   citation: SourceEventCitation
 ): FrameUpdate {
-  const runId = event.runId ?? 'no-run'
+  const runId = event.runId ?? NO_RUN
   let messageId: string | undefined
   let textContent = ''
 
@@ -429,7 +436,7 @@ function reduceUserPrompt(
     event,
     citation,
     blocks: [{ kind: 'markdown', text: textContent }],
-    runId: runId !== 'no-run' ? runId : undefined,
+    runId: runId !== NO_RUN ? runId : undefined,
     onUpdate: (_fs) => {
       // user_prompt is immutable once created — no block changes on update
     },
@@ -445,7 +452,7 @@ function reduceTurnMessage(
   const payload = event.payload
   if (!isTurnMessagePayload(payload)) return { action: 'noop' }
 
-  const runId = event.runId ?? 'no-run'
+  const runId = event.runId ?? NO_RUN
   const role = payload.message.role
   const messageId = payload.messageId
   const key = assistantMessageKey(runId, role, messageId)
@@ -459,7 +466,7 @@ function reduceTurnMessage(
     event,
     citation,
     blocks: blocksFromContent(payload.message.content),
-    runId: runId !== 'no-run' ? runId : undefined,
+    runId: runId !== NO_RUN ? runId : undefined,
     onUpdate: (fs) => {
       // APPEND/MERGE blocks in hrcSeq order
       fs.frame.blocks.push(...blocksFromContent(payload.message.content))
@@ -476,7 +483,7 @@ function reduceToolCall(
   const payload = event.payload
   if (!isToolCallPayload(payload)) return { action: 'noop' }
 
-  const runId = event.runId ?? 'no-run'
+  const runId = event.runId ?? NO_RUN
   const key = toolKey(runId, payload.toolUseId)
   const callBlock: TimelineBlock = {
     kind: 'tool_call',
@@ -494,7 +501,7 @@ function reduceToolCall(
     event,
     citation,
     blocks: [callBlock],
-    runId: runId !== 'no-run' ? runId : undefined,
+    runId: runId !== NO_RUN ? runId : undefined,
     onUpdate: (fs) => {
       // Fill in tool_call block if this was a placeholder from result-first
       if (!fs.frame.blocks.some((b) => b.kind === 'tool_call')) {
@@ -513,7 +520,7 @@ function reduceToolResult(
   const payload = event.payload
   if (!isToolResultPayload(payload)) return { action: 'noop' }
 
-  const runId = event.runId ?? 'no-run'
+  const runId = event.runId ?? NO_RUN
   const key = toolKey(runId, payload.toolUseId)
 
   const resultText = payload.result.content
@@ -540,7 +547,7 @@ function reduceToolResult(
     event,
     citation,
     blocks: [resultBlock], // placeholder: only result block; tool_call prepended when call arrives
-    runId: runId !== 'no-run' ? runId : undefined,
+    runId: runId !== NO_RUN ? runId : undefined,
     onUpdate: (fs) => {
       fs.frame.blocks.push(resultBlock)
     },
@@ -553,7 +560,7 @@ function reduceInflight(
   sessionRef: string,
   citation: SourceEventCitation
 ): FrameUpdate {
-  const runId = event.runId ?? 'no-run'
+  const runId = event.runId ?? NO_RUN
   const isAccepted = event.eventKind === 'inflight.accepted'
   const blocks: TimelineBlock[] = [
     {
@@ -572,7 +579,7 @@ function reduceInflight(
     event,
     citation,
     blocks,
-    runId: runId !== 'no-run' ? runId : undefined,
+    runId: runId !== NO_RUN ? runId : undefined,
     onUpdate: (_fs) => {
       // input_ack is immutable once created
     },

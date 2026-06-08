@@ -629,6 +629,21 @@ export function buildProgram(
   return program
 }
 
+function handleCliError(err: unknown, json: boolean): void {
+  if (err instanceof CommanderError) {
+    if (
+      err.code === 'commander.helpDisplayed' ||
+      err.code === 'commander.help' ||
+      err.code === 'commander.version'
+    ) {
+      process.exit(0)
+    }
+    exitWithError(new CliUsageError(err.message), { json })
+  }
+
+  exitWithError(err, { json })
+}
+
 export async function main(
   args = process.argv.slice(2),
   deps: CommandDependencies = {}
@@ -642,19 +657,7 @@ export async function main(
     await program.parseAsync(['bun', 'acp', ...args])
   } catch (err) {
     const json = program.opts<GlobalOptions>().json ?? args.includes('--json')
-
-    if (err instanceof CommanderError) {
-      if (
-        err.code === 'commander.helpDisplayed' ||
-        err.code === 'commander.help' ||
-        err.code === 'commander.version'
-      ) {
-        process.exit(0)
-      }
-      exitWithError(new CliUsageError(err.message), { json })
-    }
-
-    exitWithError(err, { json })
+    handleCliError(err, json)
   }
 }
 
@@ -669,18 +672,6 @@ if (import.meta.main) {
     await program.parseAsync(process.argv)
   } catch (err) {
     const json = process.argv.includes('--json')
-
-    if (err instanceof CommanderError) {
-      if (
-        err.code === 'commander.helpDisplayed' ||
-        err.code === 'commander.help' ||
-        err.code === 'commander.version'
-      ) {
-        process.exit(0)
-      }
-      exitWithError(new CliUsageError(err.message), { json })
-    }
-
-    exitWithError(err, { json })
+    handleCliError(err, json)
   }
 }

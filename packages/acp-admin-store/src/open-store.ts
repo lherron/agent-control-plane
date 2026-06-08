@@ -403,7 +403,7 @@ function createSqliteDatabase(dbPath: string): SqliteDatabase {
   const sqlite = new Database(dbPath)
   sqlite.exec('PRAGMA journal_mode = WAL;')
   sqlite.exec('PRAGMA foreign_keys = ON;')
-  sqlite.exec('PRAGMA busy_timeout = 5000;')
+  sqlite.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS};`)
   return sqlite
 }
 
@@ -436,6 +436,13 @@ function parseJsonValue<T>(value: string): T {
 
 const PROFILE_ARRAY_LIMIT = 16
 const PROFILE_ARRAY_ITEM_LIMIT = 80
+
+const SQLITE_BUSY_TIMEOUT_MS = 5000
+const IDENTITY_ID_HEX_LENGTH = 16
+
+function generateIdentityId(): string {
+  return `ifid_${randomUUID().replace(/-/g, '').slice(0, IDENTITY_ID_HEX_LENGTH)}`
+}
 
 const EMPTY_AGENT_PROFILE_COLUMNS: AgentProfileColumns = {
   profile_display_color: null,
@@ -565,51 +572,32 @@ function profileArrayFromStorage(value: string | null, fieldName: string): strin
 }
 
 function maybeAgentProfile(row: AgentProfileColumns): { profile: AdminAgentProfile } | undefined {
+  const displayColor = profileScalarFromStorage(
+    row.profile_display_color,
+    validateProfileDisplayColor,
+    'profile.displayColor'
+  )
+  const monogram = profileScalarFromStorage(
+    row.profile_monogram,
+    validateProfileMonogram,
+    'profile.monogram'
+  )
+  const avatarUrl = profileStringFromStorage(row.profile_avatar_url)
+  const tagline = profileStringFromStorage(row.profile_tagline)
+  const role = profileStringFromStorage(row.profile_role)
+  const defaultModel = profileStringFromStorage(row.profile_default_model)
+  const vibe = profileArrayFromStorage(row.profile_vibe, 'profile.vibe')
+  const specialties = profileArrayFromStorage(row.profile_specialties, 'profile.specialties')
+
   const profile = {
-    ...(profileScalarFromStorage(
-      row.profile_display_color,
-      validateProfileDisplayColor,
-      'profile.displayColor'
-    ) !== undefined
-      ? {
-          displayColor: profileScalarFromStorage(
-            row.profile_display_color,
-            validateProfileDisplayColor,
-            'profile.displayColor'
-          ),
-        }
-      : {}),
-    ...(profileScalarFromStorage(
-      row.profile_monogram,
-      validateProfileMonogram,
-      'profile.monogram'
-    ) !== undefined
-      ? {
-          monogram: profileScalarFromStorage(
-            row.profile_monogram,
-            validateProfileMonogram,
-            'profile.monogram'
-          ),
-        }
-      : {}),
-    ...(profileStringFromStorage(row.profile_avatar_url) !== undefined
-      ? { avatarUrl: profileStringFromStorage(row.profile_avatar_url) }
-      : {}),
-    ...(profileStringFromStorage(row.profile_tagline) !== undefined
-      ? { tagline: profileStringFromStorage(row.profile_tagline) }
-      : {}),
-    ...(profileStringFromStorage(row.profile_role) !== undefined
-      ? { role: profileStringFromStorage(row.profile_role) }
-      : {}),
-    ...(profileStringFromStorage(row.profile_default_model) !== undefined
-      ? { defaultModel: profileStringFromStorage(row.profile_default_model) }
-      : {}),
-    ...(profileArrayFromStorage(row.profile_vibe, 'profile.vibe') !== undefined
-      ? { vibe: profileArrayFromStorage(row.profile_vibe, 'profile.vibe') }
-      : {}),
-    ...(profileArrayFromStorage(row.profile_specialties, 'profile.specialties') !== undefined
-      ? { specialties: profileArrayFromStorage(row.profile_specialties, 'profile.specialties') }
-      : {}),
+    ...(displayColor !== undefined ? { displayColor } : {}),
+    ...(monogram !== undefined ? { monogram } : {}),
+    ...(avatarUrl !== undefined ? { avatarUrl } : {}),
+    ...(tagline !== undefined ? { tagline } : {}),
+    ...(role !== undefined ? { role } : {}),
+    ...(defaultModel !== undefined ? { defaultModel } : {}),
+    ...(vibe !== undefined ? { vibe } : {}),
+    ...(specialties !== undefined ? { specialties } : {}),
   } satisfies AdminAgentProfile
 
   return Object.keys(profile).length === 0 ? undefined : { profile }
@@ -623,36 +611,19 @@ function validateOptionalPath(value: string | null | undefined, fieldName: strin
   return value
 }
 
-function maybeDisplayName(value: string | null): { displayName: string } | undefined {
-  return value === null ? undefined : { displayName: value }
-}
-
-function maybeHomeDir(value: string | null): { homeDir: string } | undefined {
-  return value === null ? undefined : { homeDir: value }
-}
-
-function maybeDefaultAgentId(value: string | null): { defaultAgentId: string } | undefined {
-  return value === null ? undefined : { defaultAgentId: value }
-}
-
-function maybeRootDir(value: string | null): { rootDir: string } | undefined {
-  return value === null ? undefined : { rootDir: value }
-}
-
-function maybeProjectHomeDir(value: string | null): { homeDir: string } | undefined {
-  return value === null ? undefined : { homeDir: value }
-}
-
-function maybeLinkedAgentId(value: string | null): { linkedAgentId: string } | undefined {
-  return value === null ? undefined : { linkedAgentId: value }
+function maybeField<K extends string>(
+  key: K,
+  value: string | null
+): { [P in K]: string } | undefined {
+  return value === null ? undefined : ({ [key]: value } as { [P in K]: string })
 }
 
 function toAdminAgent(row: AgentRow): AdminAgent {
   const stamp = parseJsonValue<MutableActorStamp>(row.actor_stamp)
   return {
     agentId: row.agent_id,
-    ...(maybeDisplayName(row.display_name) ?? {}),
-    ...(maybeHomeDir(row.home_dir) ?? {}),
+    ...(maybeField('displayName', row.display_name) ?? {}),
+    ...(maybeField('homeDir', row.home_dir) ?? {}),
     ...(maybeAgentProfile(row) ?? {}),
     status: row.status,
     createdAt: row.created_at,
@@ -667,9 +638,9 @@ function toAdminProject(row: ProjectRow): AdminProject {
   return {
     projectId: row.project_id,
     displayName: row.display_name,
-    ...(maybeDefaultAgentId(row.default_agent_id) ?? {}),
-    ...(maybeProjectHomeDir(row.root_dir) ?? {}),
-    ...(maybeRootDir(row.root_dir) ?? {}),
+    ...(maybeField('defaultAgentId', row.default_agent_id) ?? {}),
+    ...(maybeField('homeDir', row.root_dir) ?? {}),
+    ...(maybeField('rootDir', row.root_dir) ?? {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     createdBy: stamp.createdBy,
@@ -692,8 +663,8 @@ function toInterfaceIdentity(row: InterfaceIdentityRow): InterfaceIdentity {
   return {
     gatewayId: row.gateway_id,
     externalId: row.external_id,
-    ...(maybeDisplayName(row.display_name) ?? {}),
-    ...(maybeLinkedAgentId(row.linked_agent_id) ?? {}),
+    ...(maybeField('displayName', row.display_name) ?? {}),
+    ...(maybeField('linkedAgentId', row.linked_agent_id) ?? {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -1085,7 +1056,7 @@ function createInterfaceIdentitiesStore(sqlite: SqliteDatabase): InterfaceIdenti
         .get(input.gatewayId, input.externalId) as InterfaceIdentityRow | undefined
 
       if (existing === undefined) {
-        const identityId = `ifid_${randomUUID().replace(/-/g, '').slice(0, 16)}`
+        const identityId = generateIdentityId()
         sqlite
           .prepare(
             `INSERT INTO interface_identities (

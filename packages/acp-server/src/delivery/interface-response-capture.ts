@@ -5,6 +5,7 @@ import type { InterfaceStore, OutboundAttachment } from 'acp-interface-store'
 import type { UnifiedSessionEvent } from 'spaces-runtime'
 
 import type { RunStore } from '../domain/run-store.js'
+import { isRecord } from '../parsers/body.js'
 
 import { toCompletedVisibleAssistantMessage } from './visible-assistant-messages.js'
 
@@ -203,10 +204,6 @@ function readInterfaceRunSource(run: Run): InterfaceRunSource | undefined {
     messageRef: readRequiredString(interfaceSource, 'messageRef'),
     ...(replyToMessageRef !== undefined ? { replyToMessageRef } : {}),
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function readRequiredString(record: Record<string, unknown>, field: string): string {

@@ -1,6 +1,13 @@
-import { createHash } from 'node:crypto'
-
+import { hashValue, stableJson } from '../internal/canonical-json.js'
 import type { ActorRef, WorkflowEvent, WorkflowKernelSnapshot } from '../workflow/index.js'
+
+const SHORT_HASH_START = 7
+const SHORT_HASH_END = 19
+
+/** Strip the `sha256:` prefix and take the 12-char short id. */
+function shortHashId(hash: string): string {
+  return hash.slice(SHORT_HASH_START, SHORT_HASH_END)
+}
 
 export type CorrelationState =
   | 'fully_correlated'
@@ -146,31 +153,6 @@ export type PromotionReadinessReport = {
   createdAt: string
 }
 
-function stableJson(value: unknown): string {
-  return JSON.stringify(sortJson(value))
-}
-
-function sortJson(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map((item) => sortJson(item))
-  }
-  if (value === null || typeof value !== 'object') {
-    return value
-  }
-  const source = value as Record<string, unknown>
-  const sorted: Record<string, unknown> = {}
-  for (const key of Object.keys(source).sort()) {
-    if (source[key] !== undefined) {
-      sorted[key] = sortJson(source[key])
-    }
-  }
-  return sorted
-}
-
-function hashValue(value: unknown): string {
-  return `sha256:${createHash('sha256').update(stableJson(value)).digest('hex')}`
-}
-
 function eventHashInput(event: WorkflowEvent): Omit<WorkflowEvent, 'eventHash'> {
   const { eventHash: _eventHash, ...rest } = event
   return rest
@@ -223,9 +205,8 @@ export function materializeWorkflowTrace(input: {
         : ('inferred' as const),
   }))
   const stats = Object.values(input.hrcEventStats ?? {})
-  const traceId = `trace_${hashValue({ taskId: task.taskId, firstEvent: events[0]?.eventId }).slice(
-    7,
-    19
+  const traceId = `trace_${shortHashId(
+    hashValue({ taskId: task.taskId, firstEvent: events[0]?.eventId })
   )}`
   const workflowSeqRange: [number, number] = [
     events[0]?.workflowSeq ?? 0,
@@ -336,7 +317,7 @@ export function runDeterministicWorkflowReplay(input: {
     }
   })
   return {
-    reportId: `replay_${hashValue({ traceId: trace.traceId, failedProperties }).slice(7, 19)}`,
+    reportId: `replay_${shortHashId(hashValue({ traceId: trace.traceId, failedProperties }))}`,
     ...(input.patchBundleId !== undefined ? { patchBundleId: input.patchBundleId } : {}),
     evaluatorVersion: input.evaluatorVersion ?? 'workflow-kernel-replay.v1',
     replayTraceIds: [trace.traceId],
@@ -446,10 +427,12 @@ export function validatePromotionReadiness(input: {
     unmetRequirements.push('external_authority_required')
   }
   return {
-    reportId: `promotion_${hashValue({
-      patchBundleId: input.patchBundle.patchBundleId,
-      unmetRequirements,
-    }).slice(7, 19)}`,
+    reportId: `promotion_${shortHashId(
+      hashValue({
+        patchBundleId: input.patchBundle.patchBundleId,
+        unmetRequirements,
+      })
+    )}`,
     patchBundleId: input.patchBundle.patchBundleId,
     replayReportIds: input.replayReportIds,
     evalReportIds: input.evalReportIds,

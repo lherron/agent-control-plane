@@ -1,3 +1,4 @@
+import { httpErrorField } from './discord-errors.js'
 import { createLogger } from './logger.js'
 
 export type WebhookPayload = {
@@ -107,21 +108,15 @@ function normalizeEditPayload(payload: WebhookPayload): DiscordWebhookEditPayloa
   return rest
 }
 
-function errorValue(error: unknown, key: 'status' | 'code'): unknown {
-  return typeof error === 'object' && error !== null
-    ? (error as Record<string, unknown>)[key]
-    : undefined
-}
-
 function isInvalidWebhookError(error: unknown): boolean {
-  const status = errorValue(error, 'status')
-  const code = errorValue(error, 'code')
+  const status = httpErrorField(error, 'status')
+  const code = httpErrorField(error, 'code')
   return status === 403 || status === 404 || code === 403 || code === 404
 }
 
 function retryAfterMs(error: unknown): number | undefined {
-  const status = errorValue(error, 'status')
-  const code = errorValue(error, 'code')
+  const status = httpErrorField(error, 'status')
+  const code = httpErrorField(error, 'code')
   if (status !== 429 && code !== 429) return undefined
   if (typeof error !== 'object' || error === null) return 0
 

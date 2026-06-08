@@ -10,7 +10,14 @@ export type HandoffKind =
   | 'human-wait'
   | 'blocked'
 
-export type HandoffState = 'open' | 'accepted' | 'completed' | 'cancelled'
+export const HANDOFF_STATE = {
+  open: 'open',
+  accepted: 'accepted',
+  completed: 'completed',
+  cancelled: 'cancelled',
+} as const
+
+export type HandoffState = (typeof HANDOFF_STATE)[keyof typeof HANDOFF_STATE]
 
 export type Handoff = {
   handoffId: string

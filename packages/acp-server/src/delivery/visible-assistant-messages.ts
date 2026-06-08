@@ -1,5 +1,7 @@
 import type { UnifiedSessionEvent } from 'spaces-runtime'
 
+import { isRecord } from '../parsers/body.js'
+
 export interface CompletedVisibleAssistantMessage {
   messageId?: string | undefined
   text: string
@@ -194,8 +196,4 @@ function tryExtractAssistantText(content: unknown): string | undefined {
   } catch {
     return undefined
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

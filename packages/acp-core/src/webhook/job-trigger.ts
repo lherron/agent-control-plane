@@ -9,6 +9,8 @@
  * accessors — no ad-hoc JSON reads downstream.
  */
 
+import { isRecord } from '../internal/guards.js'
+
 export type EventMatch = {
   /** Event type(s) to match: "created" | "updated" | ... (string or any-of list). */
   event?: string | string[] | undefined
@@ -63,10 +65,6 @@ export type JobTriggerKind = JobTrigger['kind']
 export type ValidateJobTriggerResult =
   | { valid: true; trigger: JobTrigger }
   | { valid: false; errors: string[] }
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string')

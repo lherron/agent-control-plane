@@ -11,6 +11,8 @@ import {
 } from 'acp-ops-projection'
 import type { HrcLifecycleEvent as CoreHrcLifecycleEvent, HrcSessionRecord } from 'hrc-core'
 
+import { isRecord } from '../parsers/body.js'
+
 export const DEFAULT_DASHBOARD_WINDOW_MS = 90_000
 export const DEFAULT_DASHBOARD_LIMIT_SESSIONS = 50
 export const DEFAULT_DASHBOARD_LIMIT_EVENTS = 5_000
@@ -29,10 +31,6 @@ export type DashboardFilters = {
   runtimeId?: string | undefined
   runId?: string | undefined
   family?: DashboardEventFamily | string | undefined
-}
-
-function isRecord(value: unknown): value is ObjectRecord {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function readString(record: ObjectRecord, key: string): string | undefined {

@@ -1,7 +1,25 @@
+import { randomUUID } from 'node:crypto'
+
+import type { Actor } from 'acp-core'
+
 import type { SqliteDatabase } from '../sqlite.js'
 
 export interface RepoContext {
   sqlite: SqliteDatabase
+}
+
+/** Length of the hex slice used for repo-local short ids. */
+export const SHORT_ID_LEN = 12
+
+/** Default actor attributed to records created without an explicit actor. */
+export const DEFAULT_SYSTEM_ACTOR: Actor = { kind: 'system', id: 'acp-local' }
+
+/**
+ * Generate a prefixed short id, e.g. `shortId('run_')` → `run_<12 hex chars>`.
+ * Mirrors the prior inline `randomUUID().replace(/-/g, '').slice(0, 12)` idiom.
+ */
+export function shortId(prefix: string): string {
+  return `${prefix}${randomUUID().replace(/-/g, '').slice(0, SHORT_ID_LEN)}`
 }
 
 export function toOptionalString(value: string | null): string | undefined {

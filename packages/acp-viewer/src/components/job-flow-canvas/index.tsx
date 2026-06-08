@@ -51,6 +51,13 @@ function buildOrthogonalPath(
   ].join(' ')
 }
 
+// Geometry for the edge-label background box (centered on the edge midpoint).
+const LABEL_CHAR_HALF_WIDTH = 3.4 // approx half a glyph's advance, for centering the box
+const LABEL_CHAR_WIDTH = 6.8 // approx a glyph's advance, for the box width
+const LABEL_BOX_PAD_X = 5
+const LABEL_BOX_HEIGHT = 14
+const LABEL_BOX_RADIUS = 2
+
 function Arrow({
   edge,
   fromPos,
@@ -88,11 +95,11 @@ function Arrow({
       {labelText && (
         <g>
           <rect
-            x={midX - labelText.length * 3.4 - 5}
-            y={midY - 14}
-            width={labelText.length * 6.8 + 10}
-            height={14}
-            rx={2}
+            x={midX - labelText.length * LABEL_CHAR_HALF_WIDTH - LABEL_BOX_PAD_X}
+            y={midY - LABEL_BOX_HEIGHT}
+            width={labelText.length * LABEL_CHAR_WIDTH + LABEL_BOX_PAD_X * 2}
+            height={LABEL_BOX_HEIGHT}
+            rx={LABEL_BOX_RADIUS}
             fill="#1f1a2c"
             stroke={color}
             strokeOpacity={0.5}

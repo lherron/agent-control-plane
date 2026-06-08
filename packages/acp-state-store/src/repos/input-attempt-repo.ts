@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto'
-
 import {
   type CreateInputAttemptInput,
   InputAttemptConflictError,
@@ -7,7 +5,7 @@ import {
   type StoredInputAttempt,
 } from '../types.js'
 import type { RepoContext } from './shared.js'
-import { parseJsonRecord } from './shared.js'
+import { DEFAULT_SYSTEM_ACTOR, parseJsonRecord, shortId } from './shared.js'
 
 import type { Actor } from 'acp-core'
 
@@ -39,7 +37,7 @@ type TableInfoRow = {
 
 function normalizeActorInput(actor: Actor | { agentId: string } | undefined): Actor {
   if (actor === undefined) {
-    return { kind: 'system', id: 'acp-local' }
+    return DEFAULT_SYSTEM_ACTOR
   }
 
   if ('kind' in actor) {
@@ -137,7 +135,7 @@ export class InputAttemptRepo {
         }).runId
 
       const inputAttempt: StoredInputAttempt = {
-        inputAttemptId: `ia_${randomUUID().replace(/-/g, '').slice(0, 12)}`,
+        inputAttemptId: shortId('ia_'),
         scopeRef: input.sessionRef.scopeRef,
         laneRef: input.sessionRef.laneRef,
         actor,

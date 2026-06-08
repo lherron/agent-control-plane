@@ -1,6 +1,6 @@
 import type { CoordinationStore } from '../storage/open-store.js'
 import { getWakeById } from '../storage/records.js'
-import type { WakeRequest } from '../types/wake-request.js'
+import { WAKE_STATE, type WakeRequest } from '../types/wake-request.js'
 
 export type CancelWakeCommand = {
   wakeId: string
@@ -13,7 +13,7 @@ export function cancelWake(
 ): WakeRequest | undefined {
   return store.sqlite.transaction((input: CancelWakeCommand) => {
     const existing = getWakeById(store.sqlite, input.wakeId)
-    if (!existing || (existing.state !== 'queued' && existing.state !== 'leased')) {
+    if (!existing || (existing.state !== WAKE_STATE.queued && existing.state !== WAKE_STATE.leased)) {
       return undefined
     }
 
@@ -22,7 +22,7 @@ export function cancelWake(
       .query(
         'UPDATE wake_requests SET state = ?, leased_until = NULL, updated_at = ? WHERE wake_id = ?'
       )
-      .run('cancelled', cancelledAt, input.wakeId)
+      .run(WAKE_STATE.cancelled, cancelledAt, input.wakeId)
 
     return getWakeById(store.sqlite, input.wakeId)
   })(command)

@@ -1,6 +1,14 @@
 import type { SessionRef } from 'agent-scope'
 
-export type WakeRequestState = 'queued' | 'leased' | 'consumed' | 'cancelled' | 'expired'
+export const WAKE_STATE = {
+  queued: 'queued',
+  leased: 'leased',
+  consumed: 'consumed',
+  cancelled: 'cancelled',
+  expired: 'expired',
+} as const
+
+export type WakeRequestState = (typeof WAKE_STATE)[keyof typeof WAKE_STATE]
 
 export type WakeRequest = {
   wakeId: string

@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto'
-
 import type {
   InputAdmissionKind,
   InputAdmissionRecord,
@@ -14,6 +12,7 @@ import type {
   InputApplicationUpdateInput,
 } from '../types.js'
 import type { RepoContext } from './shared.js'
+import { shortId } from './shared.js'
 
 type InputAdmissionStoreLike = {
   getByInputAttemptId(inputAttemptId: string): InputAdmissionRecord | undefined
@@ -59,7 +58,7 @@ export class InputApplicationRepo {
 
   create(input: InputApplicationCreateInput): InputApplication {
     const now = new Date().toISOString()
-    const inputApplicationId = `iap_${randomUUID().replace(/-/g, '').slice(0, 12)}`
+    const inputApplicationId = shortId('iap_')
     this.context.sqlite
       .prepare(
         `INSERT INTO input_applications (

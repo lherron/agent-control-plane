@@ -48,6 +48,13 @@ export function getTaskLookup(sqlite: SqliteDatabase, taskId: string): TaskLooku
     | undefined
 }
 
+export function findTaskUuid(sqlite: SqliteDatabase, taskId: string): string | undefined {
+  const task = sqlite.prepare('SELECT uuid FROM tasks WHERE id = ?').get(taskId) as
+    | { uuid: string }
+    | undefined
+  return task?.uuid
+}
+
 export function requireTaskLookup(sqlite: SqliteDatabase, taskId: string): TaskLookupRow {
   const task = getTaskLookup(sqlite, taskId)
   if (task === undefined) {

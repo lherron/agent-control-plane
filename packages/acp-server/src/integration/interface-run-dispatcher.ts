@@ -6,6 +6,7 @@ import type { UnifiedSessionEvent } from 'spaces-runtime'
 import { toCompletedVisibleAssistantMessage } from '../delivery/visible-assistant-messages.js'
 import type { ConversationStore } from '../deps.js'
 import type { RunStore, StoredRun } from '../domain/run-store.js'
+import { isRecord } from '../parsers/body.js'
 import {
   hasHrcAcceptedRunSince,
   readCompletedAssistantMessageAfterSeq,
@@ -546,10 +547,6 @@ function readInterfaceRunSource(run: StoredRun): InterfaceRunSource | undefined 
     messageRef,
     ...(replyToMessageRef !== undefined ? { replyToMessageRef } : {}),
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function readString(record: Record<string, unknown>, field: string): string | undefined {

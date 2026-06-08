@@ -11,6 +11,7 @@ import type {
 
 import { badRequest, json } from '../http.js'
 import {
+  isRecord,
   parseJsonBody,
   readOptionalTrimmedStringField,
   requireRecord,
@@ -38,6 +39,7 @@ const MAX_DASHBOARD_SNAPSHOT_EVENTS = 200
 const MAX_MOBILE_SESSION_RUNS = 10_000
 const DEFAULT_DASHBOARD_MAX_REPLAY_EVENTS = 10_000
 const DEFAULT_DASHBOARD_MAX_REPLAY_AGE_MS = 3_600_000
+const MOBILE_WS_PING_INTERVAL_MS = 30_000
 
 type MobileSessionMode = 'interactive' | 'headless'
 type MobileSessionStatus = 'active' | 'stale' | 'inactive'
@@ -614,10 +616,6 @@ function projectFrame(
 type TimelineInput =
   | { kind: 'event'; event: HrcLifecycleEvent }
   | { kind: 'message'; message: HrcMessageRecord }
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
 
 function stringField(record: Record<string, unknown>, key: string): string | undefined {
   const value = record[key]
@@ -1243,7 +1241,7 @@ async function openMobileDashboardWebSocket(
     if (!abortController.signal.aborted) {
       sendMobileJsonEnvelope(ws, { type: 'ping', ts: new Date().toISOString() })
     }
-  }, 30_000)
+  }, MOBILE_WS_PING_INTERVAL_MS)
   abortController.signal.addEventListener('abort', () => clearInterval(pingTimer), { once: true })
 
   try {

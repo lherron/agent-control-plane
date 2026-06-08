@@ -1,4 +1,6 @@
-import { createHash } from 'node:crypto'
+import { hashValue, stableJson } from '../internal/canonical-json.js'
+
+export { stableJson }
 
 export type ActorRef =
   | { kind: 'agent'; id: string }
@@ -466,31 +468,6 @@ export interface WorkflowKernelSnapshot {
 
 const VALID_STATUSES = new Set<string>(['open', 'active', 'waiting', 'closed'])
 const RISK_ORDER: Record<string, number> = { low: 1, medium: 2, high: 3 }
-
-export function stableJson(value: unknown): string {
-  return JSON.stringify(sortJson(value))
-}
-
-function sortJson(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map((item) => sortJson(item))
-  }
-  if (value === null || typeof value !== 'object') {
-    return value
-  }
-  const source = value as Record<string, unknown>
-  const sorted: Record<string, unknown> = {}
-  for (const key of Object.keys(source).sort()) {
-    if (source[key] !== undefined) {
-      sorted[key] = sortJson(source[key])
-    }
-  }
-  return sorted
-}
-
-function hashValue(value: unknown): string {
-  return `sha256:${createHash('sha256').update(stableJson(value)).digest('hex')}`
-}
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T

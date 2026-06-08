@@ -10,6 +10,8 @@ import { Link } from 'react-router-dom'
 
 type StatusFilter = 'all' | 'enabled' | 'disabled'
 
+const CRON_DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
+
 function inferKind(job: JobRecord): JobKind {
   if (job.flow !== undefined) return 'flow'
   if (Array.isArray(job.input['argv']) || typeof job.input['command'] === 'string') return 'exec'
@@ -38,8 +40,7 @@ function describeCron(cron: string): string {
     return `Hourly :${min.padStart(2, '0')}`
   }
   if (dom === '*' && /^\d+$/.test(dow) && hour !== '*' && min !== '*') {
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-    const d = days[Number(dow)] ?? `dow:${dow}`
+    const d = CRON_DOW_LABELS[Number(dow)] ?? `dow:${dow}`
     return `${d} ${hour.padStart(2, '0')}:${min.padStart(2, '0')}`
   }
   return cron

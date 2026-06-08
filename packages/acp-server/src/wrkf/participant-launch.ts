@@ -9,6 +9,7 @@ import type {
 } from '../deps.js'
 import type { RunStore } from '../domain/run-store.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
+import { isRecord } from '../parsers/body.js'
 import type { AcpWrkfWorkflowPort } from './port.js'
 
 export type WrkfParticipantLaunchInput = {
@@ -441,8 +442,4 @@ function readOptionalNumber(input: Record<string, unknown>, field: string): numb
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {
   return isRecord(value) ? value : undefined
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

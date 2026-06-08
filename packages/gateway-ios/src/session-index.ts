@@ -118,18 +118,11 @@ function mergeIntoSummaries(
     }
   }
 
-  // Index targets by sessionRef
-  const targetByRef = new Map<string, HrcTargetView>()
-  for (const t of targets) {
-    targetByRef.set(t.sessionRef, t)
-  }
-
   const summaries: MobileSessionSummary[] = []
 
   for (const session of sessions) {
     const sessionRef = `${session.scopeRef}/lane:${session.laneRef}`
     const runtime = runtimeByHost.get(session.hostSessionId) ?? null
-    const _target = targetByRef.get(sessionRef) ?? null
 
     // Derive executionMode from session's lastAppliedIntentJson
     const executionMode: HrcExecutionMode =

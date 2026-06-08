@@ -15,6 +15,11 @@ type LoadedTaskRow = TaskRow & {
   uuid: string
 }
 
+const DEFAULT_TASK_PRIORITY = 3
+const DEFAULT_TASK_KIND = 'task'
+const EMPTY_DESCRIPTION = ''
+const EMPTY_SPECIFICATION = ''
+
 export class TaskRepo implements TaskStore {
   constructor(private readonly context: RepoContext) {}
 
@@ -57,10 +62,10 @@ export class TaskRepo implements TaskStore {
           record.title,
           record.projectUuid,
           record.state,
-          3,
-          'task',
-          '',
-          '',
+          DEFAULT_TASK_PRIORITY,
+          DEFAULT_TASK_KIND,
+          EMPTY_DESCRIPTION,
+          EMPTY_SPECIFICATION,
           record.workflowPreset,
           record.presetVersion,
           record.phase,

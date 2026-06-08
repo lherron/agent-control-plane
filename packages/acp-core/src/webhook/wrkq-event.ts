@@ -7,6 +7,8 @@
  * the durable payload is preserved verbatim in the inbox for audit/replay.
  */
 
+import { isRecord } from '../internal/guards.js'
+
 export type WrkqWebhookOrigin = {
   /** "human:<slug>" | "agent:<slug>" | "system:<slug>" | "system" */
   actor: string
@@ -54,10 +56,6 @@ export type ParseWrkqWebhookEventResult =
   | { ok: false; error: string }
 
 const SUPPORTED_SCHEMA_VERSION = 2
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
 
 /**
  * Validate just enough of a wrkq webhook body to durably ingest it: the schema

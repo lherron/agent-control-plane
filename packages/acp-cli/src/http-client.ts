@@ -355,8 +355,7 @@ export function isAcpErrorBody(value: unknown): value is AcpErrorBody {
   )
 }
 
-async function readBody(response: Response): Promise<unknown> {
-  const text = await response.text()
+export function parseResponseText(text: string): unknown {
   if (text.length === 0) {
     return null
   }
@@ -368,7 +367,11 @@ async function readBody(response: Response): Promise<unknown> {
   }
 }
 
-function trimTrailingSlashes(url: string): string {
+async function readBody(response: Response): Promise<unknown> {
+  return parseResponseText(await response.text())
+}
+
+export function trimTrailingSlashes(url: string): string {
   return url.replace(/\/+$/, '')
 }
 

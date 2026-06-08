@@ -6,7 +6,7 @@ import type {
   TransitionOutboxStatus,
 } from '../types.js'
 import type { RepoContext } from './shared.js'
-import { parseJsonRecord, toOptionalString } from './shared.js'
+import { DEFAULT_SYSTEM_ACTOR, parseJsonRecord, toOptionalString } from './shared.js'
 
 type TransitionOutboxRow = {
   transition_event_id: string
@@ -57,7 +57,7 @@ export class TransitionOutboxRepo {
 
   append(input: AppendTransitionOutboxInput): TransitionOutboxRecord {
     return this.context.sqlite.transaction(() => {
-      const actor = input.actor ?? { kind: 'system', id: 'acp-local' }
+      const actor = input.actor ?? DEFAULT_SYSTEM_ACTOR
       this.context.sqlite
         .prepare(
           `INSERT OR IGNORE INTO transition_outbox (

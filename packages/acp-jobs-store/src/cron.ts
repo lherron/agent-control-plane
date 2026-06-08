@@ -1,3 +1,8 @@
+// Upper bound on the minute-by-minute scan in `nextFireAfter`: 5 years of
+// minutes (60 min * 24 h * 366 days * 5 years). Guards against a cron that
+// can never fire walking forever.
+const MAX_FIRE_SCAN_MINUTES = 60 * 24 * 366 * 5
+
 type CronField = {
   matches(value: number): boolean
 }
@@ -156,8 +161,7 @@ export function nextFireAfter(cron: string, afterIso: string): string | null {
   let cursor = floorToUtcMinute(after)
   cursor = new Date(cursor.getTime() + 60_000)
 
-  const maxIterations = 60 * 24 * 366 * 5
-  for (let index = 0; index < maxIterations; index += 1) {
+  for (let index = 0; index < MAX_FIRE_SCAN_MINUTES; index += 1) {
     if (matchesCron(parsed, cursor)) {
       return cursor.toISOString()
     }

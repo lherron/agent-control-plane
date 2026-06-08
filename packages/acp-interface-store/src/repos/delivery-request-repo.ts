@@ -13,6 +13,63 @@ import type {
 import type { RepoContext } from './shared.js'
 import { toOptionalString } from './shared.js'
 
+const DEFAULT_FAILED_LIMIT = 50
+const REQUEUED_ID_SLICE_LENGTH = 12
+
+const DELIVERY_REQUEST_COLUMNS = `delivery_request_id,
+                linked_failure_id,
+                actor_kind,
+                actor_id,
+                actor_display_name,
+                gateway_id,
+                binding_id,
+                scope_ref,
+                lane_ref,
+                run_id,
+                input_attempt_id,
+                conversation_ref,
+                thread_ref,
+                reply_to_message_ref,
+                body_kind,
+                body_text,
+                body_attachments_json,
+                outcome_state,
+                outcome_reason,
+                outcome_source,
+                outcome_details_json,
+                status,
+                created_at,
+                delivered_at,
+                failure_code,
+                failure_message`
+
+const DELIVERY_REQUEST_INSERT_COLUMNS = `delivery_request_id,
+           linked_failure_id,
+           actor_kind,
+           actor_id,
+           actor_display_name,
+           gateway_id,
+           binding_id,
+           scope_ref,
+           lane_ref,
+           run_id,
+           input_attempt_id,
+           conversation_ref,
+           thread_ref,
+           reply_to_message_ref,
+           body_kind,
+           body_text,
+           body_attachments_json,
+           outcome_state,
+           outcome_reason,
+           outcome_source,
+           outcome_details_json,
+           status,
+           created_at,
+           delivered_at,
+           failure_code,
+           failure_message`
+
 type DeliveryRequestRow = {
   delivery_request_id: string
   linked_failure_id: string | null
@@ -190,32 +247,7 @@ export class DeliveryRequestRepo {
     this.context.sqlite
       .prepare(
         `INSERT INTO delivery_requests (
-           delivery_request_id,
-           linked_failure_id,
-           actor_kind,
-           actor_id,
-           actor_display_name,
-           gateway_id,
-           binding_id,
-           scope_ref,
-           lane_ref,
-           run_id,
-           input_attempt_id,
-           conversation_ref,
-           thread_ref,
-           reply_to_message_ref,
-           body_kind,
-           body_text,
-           body_attachments_json,
-           outcome_state,
-           outcome_reason,
-           outcome_source,
-           outcome_details_json,
-           status,
-           created_at,
-           delivered_at,
-           failure_code,
-           failure_message
+           ${DELIVERY_REQUEST_INSERT_COLUMNS}
          ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)`
       )
       .run(
@@ -248,32 +280,7 @@ export class DeliveryRequestRepo {
   listQueuedForGateway(gatewayId: string): DeliveryRequest[] {
     const rows = this.context.sqlite
       .prepare(
-        `SELECT delivery_request_id,
-                linked_failure_id,
-                actor_kind,
-                actor_id,
-                actor_display_name,
-                gateway_id,
-                binding_id,
-                scope_ref,
-                lane_ref,
-                run_id,
-                input_attempt_id,
-                conversation_ref,
-                thread_ref,
-                reply_to_message_ref,
-                body_kind,
-                body_text,
-                body_attachments_json,
-                outcome_state,
-                outcome_reason,
-                outcome_source,
-                outcome_details_json,
-                status,
-                created_at,
-                delivered_at,
-                failure_code,
-                failure_message
+        `SELECT ${DELIVERY_REQUEST_COLUMNS}
           FROM delivery_requests
           WHERE gateway_id = ?
             AND status = 'queued'
@@ -367,32 +374,7 @@ export class DeliveryRequestRepo {
   get(deliveryRequestId: string): DeliveryRequest | undefined {
     const row = this.context.sqlite
       .prepare(
-        `SELECT delivery_request_id,
-                linked_failure_id,
-                actor_kind,
-                actor_id,
-                actor_display_name,
-                gateway_id,
-                binding_id,
-                scope_ref,
-                lane_ref,
-                run_id,
-                input_attempt_id,
-                conversation_ref,
-                thread_ref,
-                reply_to_message_ref,
-                body_kind,
-                body_text,
-                body_attachments_json,
-                outcome_state,
-                outcome_reason,
-                outcome_source,
-                outcome_details_json,
-                status,
-                created_at,
-                delivered_at,
-                failure_code,
-                failure_message
+        `SELECT ${DELIVERY_REQUEST_COLUMNS}
            FROM delivery_requests
           WHERE delivery_request_id = ?`
       )
@@ -404,32 +386,7 @@ export class DeliveryRequestRepo {
   listByRun(runId: string): DeliveryRequest[] {
     const rows = this.context.sqlite
       .prepare(
-        `SELECT delivery_request_id,
-                linked_failure_id,
-                actor_kind,
-                actor_id,
-                actor_display_name,
-                gateway_id,
-                binding_id,
-                scope_ref,
-                lane_ref,
-                run_id,
-                input_attempt_id,
-                conversation_ref,
-                thread_ref,
-                reply_to_message_ref,
-                body_kind,
-                body_text,
-                body_attachments_json,
-                outcome_state,
-                outcome_reason,
-                outcome_source,
-                outcome_details_json,
-                status,
-                created_at,
-                delivered_at,
-                failure_code,
-                failure_message
+        `SELECT ${DELIVERY_REQUEST_COLUMNS}
            FROM delivery_requests
           WHERE run_id = ?
           ORDER BY created_at ASC, delivery_request_id ASC`
@@ -453,36 +410,11 @@ export class DeliveryRequestRepo {
       params.push(input.since)
     }
 
-    const limit = input.limit ?? 50
+    const limit = input.limit ?? DEFAULT_FAILED_LIMIT
 
     const rows = this.context.sqlite
       .prepare(
-        `SELECT delivery_request_id,
-                linked_failure_id,
-                actor_kind,
-                actor_id,
-                actor_display_name,
-                gateway_id,
-                binding_id,
-                scope_ref,
-                lane_ref,
-                run_id,
-                input_attempt_id,
-                conversation_ref,
-                thread_ref,
-                reply_to_message_ref,
-                body_kind,
-                body_text,
-                body_attachments_json,
-                outcome_state,
-                outcome_reason,
-                outcome_source,
-                outcome_details_json,
-                status,
-                created_at,
-                delivered_at,
-                failure_code,
-                failure_message
+        `SELECT ${DELIVERY_REQUEST_COLUMNS}
            FROM delivery_requests
           WHERE ${where.join(' AND ')}
           ORDER BY created_at ASC, delivery_request_id ASC
@@ -506,38 +438,15 @@ export class DeliveryRequestRepo {
         return { ok: false, code: 'wrong_state' } satisfies RequeueDeliveryRequestResult
       }
 
-      const requeuedDeliveryRequestId = `dr_${randomUUID().replace(/-/g, '').slice(0, 12)}`
+      const requeuedDeliveryRequestId = `dr_${randomUUID()
+        .replace(/-/g, '')
+        .slice(0, REQUEUED_ID_SLICE_LENGTH)}`
       const createdAt = new Date().toISOString()
 
       this.context.sqlite
         .prepare(
           `INSERT INTO delivery_requests (
-             delivery_request_id,
-             linked_failure_id,
-             actor_kind,
-             actor_id,
-             actor_display_name,
-             gateway_id,
-             binding_id,
-             scope_ref,
-             lane_ref,
-             run_id,
-             input_attempt_id,
-             conversation_ref,
-             thread_ref,
-             reply_to_message_ref,
-             body_kind,
-             body_text,
-             body_attachments_json,
-             outcome_state,
-             outcome_reason,
-             outcome_source,
-             outcome_details_json,
-             status,
-             created_at,
-             delivered_at,
-             failure_code,
-             failure_message
+             ${DELIVERY_REQUEST_INSERT_COLUMNS}
            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)`
         )
         .run(

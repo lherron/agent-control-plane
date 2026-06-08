@@ -196,6 +196,8 @@ function createRuntimeResolver(cwd: string): NonNullable<AcpServerDeps['runtimeR
   })
 }
 
+const EXEC_TIMEOUT_MS = '5000'
+
 async function withExecEnv<T>(
   cwd: string,
   enabled: boolean,
@@ -214,8 +216,8 @@ async function withExecEnv<T>(
     Reflect.deleteProperty(process.env, 'ACP_JOB_FLOW_EXEC_ENABLED')
   }
   process.env['ACP_JOB_FLOW_EXEC_ALLOWED_CWD_ROOTS'] = cwd
-  process.env['ACP_JOB_FLOW_EXEC_DEFAULT_TIMEOUT_MS'] = '5000'
-  process.env['ACP_JOB_FLOW_EXEC_MAX_TIMEOUT_MS'] = '5000'
+  process.env['ACP_JOB_FLOW_EXEC_DEFAULT_TIMEOUT_MS'] = EXEC_TIMEOUT_MS
+  process.env['ACP_JOB_FLOW_EXEC_MAX_TIMEOUT_MS'] = EXEC_TIMEOUT_MS
 
   try {
     return await run()

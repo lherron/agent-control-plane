@@ -33,6 +33,11 @@ export function parseSessionRef(ref: string): SessionRef {
 
 type RowStatus = 'busy' | 'idle' | 'launching' | 'stale' | 'dead'
 
+// Row sort priorities: stale/dead surface first, then busy, then everything else.
+const PRIORITY_BUSY = 60
+const PRIORITY_BROKEN = 80
+const PRIORITY_DEFAULT = 10
+
 /** Collapse the mobile session/runtime/run statuses into a row status the
  *  StatusStrip counts (busy/idle/launching/stale/dead). */
 function deriveRowStatus(s: MobileSessionSummary): RowStatus {
@@ -63,16 +68,20 @@ export function mobileSessionToRow(s: MobileSessionSummary): SessionTimelineRow 
   if (!s.hostSessionId || !s.sessionRef) return undefined
   const status = deriveRowStatus(s)
   const continuity = status === 'stale' || status === 'dead' ? 'broken' : 'healthy'
-  const priority = status === 'busy' ? 60 : status === 'stale' || status === 'dead' ? 80 : 10
+  const priority =
+    status === 'busy'
+      ? PRIORITY_BUSY
+      : status === 'stale' || status === 'dead'
+        ? PRIORITY_BROKEN
+        : PRIORITY_DEFAULT
+  const transport = s.runtime ? normalizeTransport(s.runtime.transport) : undefined
 
   const runtime: SessionTimelineRow['runtime'] = s.runtime
     ? {
         status,
         ...(s.runtime.runtimeId !== undefined ? { runtimeId: s.runtime.runtimeId } : {}),
         ...(s.runtime.launchId !== undefined ? { launchId: s.runtime.launchId } : {}),
-        ...(normalizeTransport(s.runtime.transport) !== undefined
-          ? { transport: normalizeTransport(s.runtime.transport) }
-          : {}),
+        ...(transport !== undefined ? { transport } : {}),
         ...(s.runtime.activeRunId !== undefined ? { activeRunId: s.runtime.activeRunId } : {}),
         ...(s.runtime.lastActivityAt !== undefined
           ? { lastActivityAt: s.runtime.lastActivityAt }

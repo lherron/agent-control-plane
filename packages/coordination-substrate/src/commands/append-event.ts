@@ -7,10 +7,10 @@ import {
   listDispatchAttemptsByWakeId,
 } from '../storage/records.js'
 import type { CoordinationEvent, CoordinationEventInput } from '../types/coordination-event.js'
-import type { Handoff, HandoffInput } from '../types/handoff.js'
+import { HANDOFF_STATE, type Handoff, type HandoffInput } from '../types/handoff.js'
 import type { LocalDispatchAttempt } from '../types/local-dispatch-attempt.js'
 import type { ParticipantRef } from '../types/participant-ref.js'
-import type { WakeRequest, WakeRequestInput } from '../types/wake-request.js'
+import { WAKE_STATE, type WakeRequest, type WakeRequestInput } from '../types/wake-request.js'
 import { stableStringify } from '../util/json.js'
 import { nextProjectSequence } from '../util/sequence.js'
 import { canonicalizeSessionRef, formatCanonicalSessionRef } from '../util/session-ref.js'
@@ -56,19 +56,19 @@ function buildExistingResult(store: CoordinationStore, eventId: string): AppendE
 }
 
 function assertInitialHandoffState(state?: Handoff['state']): Handoff['state'] {
-  if (state !== undefined && state !== 'open') {
+  if (state !== undefined && state !== HANDOFF_STATE.open) {
     throw new Error(`appendEvent handoff state must start as "open", received "${state}"`)
   }
 
-  return 'open'
+  return HANDOFF_STATE.open
 }
 
 function assertInitialWakeState(state?: WakeRequest['state']): WakeRequest['state'] {
-  if (state !== undefined && state !== 'queued') {
+  if (state !== undefined && state !== WAKE_STATE.queued) {
     throw new Error(`appendEvent wake state must start as "queued", received "${state}"`)
   }
 
-  return 'queued'
+  return WAKE_STATE.queued
 }
 
 export function appendEvent(

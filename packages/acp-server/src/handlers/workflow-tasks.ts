@@ -2,6 +2,7 @@ import { AcpHttpError, json, unprocessable } from '../http.js'
 import { reconcileWrkfEffects } from '../integration/wrkf-effect-reconciler.js'
 import { extractActor } from '../parsers/actor.js'
 import {
+  isRecord,
   parseJsonBody,
   readOptionalArrayField,
   readOptionalRecordField,
@@ -54,10 +55,6 @@ function isWrkfError(value: unknown): value is { code: string; message: string }
     'code' in value &&
     typeof (value as { code: unknown }).code === 'string'
   )
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function optionalString(record: Record<string, unknown>, key: string): string | undefined {

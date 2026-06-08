@@ -6,18 +6,16 @@ import {
   mapEvidenceToWriteRecord,
 } from '../mapping/evidence-row.js'
 import type { RepoContext } from './shared.js'
-import { requireTaskLookup } from './shared.js'
+import { findTaskUuid, requireTaskLookup } from './shared.js'
 
 export class EvidenceRepo implements EvidenceStore {
   constructor(private readonly context: RepoContext) {}
 
   listEvidence(taskId: string): readonly EvidenceItem[] {
     return this.context.sqlite.transaction((id: string) => {
-      const task = this.context.sqlite.prepare('SELECT uuid FROM tasks WHERE id = ?').get(id) as
-        | { uuid: string }
-        | undefined
+      const taskUuid = findTaskUuid(this.context.sqlite, id)
 
-      if (task === undefined) {
+      if (taskUuid === undefined) {
         return []
       }
 
@@ -38,7 +36,7 @@ export class EvidenceRepo implements EvidenceStore {
             WHERE ei.task_uuid = ?
             ORDER BY ei.produced_at ASC, ei.id ASC`
         )
-        .all(task.uuid) as EvidenceRow[]
+        .all(taskUuid) as EvidenceRow[]
 
       return rows.map((row) => mapEvidenceRow(row))
     })(taskId)

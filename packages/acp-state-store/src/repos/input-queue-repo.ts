@@ -1,9 +1,13 @@
-import { randomUUID } from 'node:crypto'
-
 import type { InputQueueItem, InputQueueStatus } from 'acp-core'
 
 import type { InputQueueCreateInput, InputQueueUpdateInput } from '../types.js'
 import type { RepoContext } from './shared.js'
+import { shortId } from './shared.js'
+
+/** Default cap on rows returned by `listDispatchable`. */
+const DEFAULT_DISPATCHABLE_LIMIT = 50
+/** Default cap on session heads returned by `listDispatchableSessionHeads`. */
+const DEFAULT_DISPATCHABLE_SESSION_HEADS_LIMIT = 200
 
 type InputQueueRow = {
   queue_item_id: string
@@ -56,7 +60,7 @@ export class InputQueueRepo {
 
   create(input: InputQueueCreateInput): InputQueueItem {
     const now = new Date().toISOString()
-    const queueItemId = `iq_${randomUUID().replace(/-/g, '').slice(0, 12)}`
+    const queueItemId = shortId('iq_')
     this.context.sqlite
       .prepare(
         `INSERT INTO input_queue (
@@ -112,7 +116,7 @@ export class InputQueueRepo {
     return row === undefined ? undefined : mapRow(row)
   }
 
-  listDispatchable(limit = 50): readonly InputQueueItem[] {
+  listDispatchable(limit = DEFAULT_DISPATCHABLE_LIMIT): readonly InputQueueItem[] {
     const now = new Date().toISOString()
     const rows = this.context.sqlite
       .prepare(
@@ -127,7 +131,9 @@ export class InputQueueRepo {
     return rows.map((row) => mapRow(row))
   }
 
-  listDispatchableSessionHeads(limit = 200): readonly InputQueueItem[] {
+  listDispatchableSessionHeads(
+    limit = DEFAULT_DISPATCHABLE_SESSION_HEADS_LIMIT
+  ): readonly InputQueueItem[] {
     const now = new Date().toISOString()
     const rows = this.context.sqlite
       .prepare(

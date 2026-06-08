@@ -12,7 +12,12 @@
 import type { ServerWebSocket } from 'bun'
 import type { HrcLifecycleEvent } from 'hrc-core'
 
-import type { GatewayWsMessage, HrcEventMessage, SnapshotHighWater } from './contracts.js'
+import type {
+  GatewayWsMessage,
+  HrcEventMessage,
+  MobileSessionSummary,
+  SnapshotHighWater,
+} from './contracts.js'
 import { matchesCategory, matchesEventKind } from './event-filter.js'
 import type { EventPumpHrcClient } from './event-pump.js'
 import { runEventPump } from './event-pump.js'
@@ -40,6 +45,39 @@ export type DiagnosticsWsData = {
 /** Dependencies injected into the diagnostics WS handler. */
 export type DiagnosticsWsDeps = {
   hrcClient: EventPumpHrcClient & SessionGenerationClient
+}
+
+/**
+ * Build the fabricated MobileSessionSummary used in the diagnostics snapshot.
+ * Diagnostics has no real session row; this lightweight summary just signals
+ * the stream is ready and carries the resolved host/generation.
+ */
+function diagnosticsSnapshot(
+  selected: { hostSessionId: string; generation: number },
+  sessionRef: string,
+  fromHrcSeq: number
+): MobileSessionSummary {
+  return {
+    sessionRef,
+    displayRef: sessionRef,
+    title: 'Diagnostics',
+    mode: 'interactive',
+    executionMode: 'interactive',
+    status: 'active',
+    hostSessionId: selected.hostSessionId,
+    generation: selected.generation,
+    runtimeId: null,
+    activeTurnId: null,
+    lastHrcSeq: fromHrcSeq,
+    lastMessageSeq: 0,
+    lastActivityAt: null,
+    capabilities: {
+      input: false,
+      interrupt: false,
+      launchHeadlessTurn: false,
+      history: false,
+    },
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -144,27 +182,7 @@ export function createDiagnosticsWsHandler(deps: DiagnosticsWsDeps) {
             // Send a lightweight snapshot so the client knows the stream is ready
             send({
               type: 'snapshot',
-              session: {
-                sessionRef,
-                displayRef: sessionRef,
-                title: 'Diagnostics',
-                mode: 'interactive',
-                executionMode: 'interactive',
-                status: 'active',
-                hostSessionId: selected.hostSessionId,
-                generation: selected.generation,
-                runtimeId: null,
-                activeTurnId: null,
-                lastHrcSeq: fromHrcSeq,
-                lastMessageSeq: 0,
-                lastActivityAt: null,
-                capabilities: {
-                  input: false,
-                  interrupt: false,
-                  launchHeadlessTurn: false,
-                  history: false,
-                },
-              },
+              session: diagnosticsSnapshot(selected, sessionRef, fromHrcSeq),
               snapshotHighWater,
               history: {
                 frames: [],

@@ -235,7 +235,7 @@ function eventKindIncludes(event: HrcLifecycleEvent, fragment: string): boolean 
 
 function isRejectionKind(event: HrcLifecycleEvent): boolean {
   const kind = event.eventKind.toLowerCase()
-  return kind.includes('reject') || kind.includes('rejected') || kind.includes('denied')
+  return kind.includes('reject') || kind.includes('denied')
 }
 
 function deriveFamily(event: HrcLifecycleEvent): DashboardEventFamily {
@@ -574,20 +574,24 @@ function eventBoolean(event: DashboardEvent, key: string): boolean | undefined {
   return readBoolean(eventPayload(event)?.[key])
 }
 
-function latestString(events: DashboardEvent[], key: string): string | undefined {
-  let latest: string | undefined
+function latestField<T>(
+  events: DashboardEvent[],
+  key: string,
+  reader: (event: DashboardEvent, key: string) => T | undefined
+): T | undefined {
+  let latest: T | undefined
   for (const event of events) {
-    latest = eventString(event, key) ?? latest
+    latest = reader(event, key) ?? latest
   }
   return latest
 }
 
+function latestString(events: DashboardEvent[], key: string): string | undefined {
+  return latestField(events, key, eventString)
+}
+
 function latestBoolean(events: DashboardEvent[], key: string): boolean | undefined {
-  let latest: boolean | undefined
-  for (const event of events) {
-    latest = eventBoolean(event, key) ?? latest
-  }
-  return latest
+  return latestField(events, key, eventBoolean)
 }
 
 function deriveRuntimeStatus(events: DashboardEvent[]): string | undefined {
@@ -619,20 +623,16 @@ function deriveRuntimeStatus(events: DashboardEvent[]): string | undefined {
   return status
 }
 
-function isInputPending(events: DashboardEvent[]): boolean {
+function someInFamily(
+  events: DashboardEvent[],
+  family: DashboardEventFamily,
+  pred: (event: DashboardEvent) => boolean
+): boolean {
   for (const event of events) {
-    if (event.family !== 'input') {
+    if (event.family !== family) {
       continue
     }
-
-    const kind = event.eventKind.toLowerCase()
-    const type = eventString(event, 'type')?.toLowerCase()
-    if (
-      kind.includes('accepted') ||
-      kind.includes('queued') ||
-      type?.includes('received') ||
-      type?.includes('queued')
-    ) {
+    if (pred(event)) {
       return true
     }
   }
@@ -640,20 +640,25 @@ function isInputPending(events: DashboardEvent[]): boolean {
   return false
 }
 
-function isDeliveryPending(events: DashboardEvent[]): boolean {
-  for (const event of events) {
-    if (event.family !== 'delivery') {
-      continue
-    }
+function isInputPending(events: DashboardEvent[]): boolean {
+  return someInFamily(events, 'input', (event) => {
+    const kind = event.eventKind.toLowerCase()
+    const type = eventString(event, 'type')?.toLowerCase()
+    return (
+      kind.includes('accepted') ||
+      kind.includes('queued') ||
+      type?.includes('received') === true ||
+      type?.includes('queued') === true
+    )
+  })
+}
 
+function isDeliveryPending(events: DashboardEvent[]): boolean {
+  return someInFamily(events, 'delivery', (event) => {
     const status = eventString(event, 'status')?.toLowerCase()
     const kind = event.eventKind.toLowerCase()
-    if (status === 'pending' || status === 'queued' || kind.includes('pending')) {
-      return true
-    }
-  }
-
-  return false
+    return status === 'pending' || status === 'queued' || kind.includes('pending')
+  })
 }
 
 function colorRoleFor(
@@ -710,6 +715,15 @@ function continuityFor(
   return 'unknown'
 }
 
+// Priority ladder for ordering session rows (higher = surfaced first).
+const PRIORITY_INPUT_AWAITING = 90
+const PRIORITY_BLOCKED = 80
+const PRIORITY_LAUNCHING = 70
+const PRIORITY_BUSY = 60
+const PRIORITY_DELIVERY_PENDING = 50
+const PRIORITY_IDLE = 10
+const PRIORITY_DEFAULT = 0
+
 function priorityFor(
   status: string | undefined,
   inputPending: boolean,
@@ -717,7 +731,7 @@ function priorityFor(
   continuity: SessionTimelineRow['visualState']['continuity']
 ): number {
   if (inputPending && status === 'busy') {
-    return 90
+    return PRIORITY_INPUT_AWAITING
   }
 
   if (
@@ -726,26 +740,26 @@ function priorityFor(
     status === 'stale' ||
     status === 'dead'
   ) {
-    return 80
+    return PRIORITY_BLOCKED
   }
 
   if (status === 'launching') {
-    return 70
+    return PRIORITY_LAUNCHING
   }
 
   if (status === 'busy') {
-    return 60
+    return PRIORITY_BUSY
   }
 
   if (deliveryPending) {
-    return 50
+    return PRIORITY_DELIVERY_PENDING
   }
 
   if (status === 'idle') {
-    return 10
+    return PRIORITY_IDLE
   }
 
-  return 0
+  return PRIORITY_DEFAULT
 }
 
 function eventsInWindow(events: DashboardEvent[], windowMs: number): DashboardEvent[] {
@@ -808,23 +822,11 @@ export function projectHrcToDashboardEvent(
   return projected
 }
 
-export function deriveSessionRow(events: DashboardEvent[], windowMs: number): SessionTimelineRow {
-  if (events.length === 0) {
-    throw new Error('deriveSessionRow requires at least one event')
-  }
-
-  const orderedEvents = [...events].sort(compareEvents)
-  const latest = orderedEvents[orderedEvents.length - 1]
-  if (latest === undefined) {
-    throw new Error('deriveSessionRow requires at least one event')
-  }
-  const status = deriveRuntimeStatus(orderedEvents)
-  const inputPending = isInputPending(orderedEvents)
-  const deliveryPending =
-    latestBoolean(orderedEvents, 'deliveryPending') ?? isDeliveryPending(orderedEvents)
-  const continuity = continuityFor(orderedEvents, status)
-  const windowEvents = eventsInWindow(orderedEvents, windowMs)
-
+function buildRuntime(
+  orderedEvents: DashboardEvent[],
+  latest: DashboardEvent,
+  status: string | undefined
+): NonNullable<SessionTimelineRow['runtime']> {
   const runtime: NonNullable<SessionTimelineRow['runtime']> = {}
   const runtimeId = latestString(orderedEvents, 'runtimeId') ?? latest.runtimeId
   const launchId = latestString(orderedEvents, 'launchId') ?? latest.launchId
@@ -845,6 +847,14 @@ export function deriveSessionRow(events: DashboardEvent[], windowMs: number): Se
   if (activeRunId !== undefined) runtime.activeRunId = activeRunId
   if (lastActivityAt !== undefined) runtime.lastActivityAt = lastActivityAt
 
+  return runtime
+}
+
+function buildAcp(
+  orderedEvents: DashboardEvent[],
+  latest: DashboardEvent,
+  deliveryPending: boolean | undefined
+): NonNullable<SessionTimelineRow['acp']> {
   const acp: NonNullable<SessionTimelineRow['acp']> = {}
   const latestRunId = latestString(orderedEvents, 'latestRunId') ?? latest.runId
   const inputAttemptId = latestString(orderedEvents, 'inputAttemptId')
@@ -856,6 +866,28 @@ export function deriveSessionRow(events: DashboardEvent[], windowMs: number): Se
   if (taskId !== undefined) acp.taskId = taskId
   if (workflowPreset !== undefined) acp.workflowPreset = workflowPreset
   if (deliveryPending !== undefined) acp.deliveryPending = deliveryPending
+
+  return acp
+}
+
+export function deriveSessionRow(events: DashboardEvent[], windowMs: number): SessionTimelineRow {
+  if (events.length === 0) {
+    throw new Error('deriveSessionRow requires at least one event')
+  }
+
+  const orderedEvents = [...events].sort(compareEvents)
+  // Non-empty (guarded above), so the last element is always defined.
+  const latest = orderedEvents[orderedEvents.length - 1] as DashboardEvent
+  const status = deriveRuntimeStatus(orderedEvents)
+  const inputPending = isInputPending(orderedEvents)
+  const deliveryPending =
+    latestBoolean(orderedEvents, 'deliveryPending') ?? isDeliveryPending(orderedEvents)
+  const continuity = continuityFor(orderedEvents, status)
+  const windowEvents = eventsInWindow(orderedEvents, windowMs)
+
+  const runtime = buildRuntime(orderedEvents, latest, status)
+  const acp = buildAcp(orderedEvents, latest, deliveryPending)
+  const inputAttemptId = acp.inputAttemptId
 
   const row: SessionTimelineRow = {
     rowId: `${latest.hostSessionId}:${latest.generation}`,

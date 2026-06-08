@@ -47,3 +47,5 @@ export function envNumber(names: string[], fallback: number): number {
   const parsed = Number.parseInt(rawValue, 10)
   return Number.isFinite(parsed) ? parsed : fallback
 }
+
+export const VIRTU_BOT_ID = optionalEnv('DISCORD_VIRTU_BOT_ID') ?? '1165644636807778414'

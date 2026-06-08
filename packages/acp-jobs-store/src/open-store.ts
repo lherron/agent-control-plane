@@ -8,6 +8,16 @@ import { validateJobTrigger } from 'acp-core'
 import { isValidCron, nextFireAfter } from './cron.js'
 import Database, { type SqliteDatabase } from './sqlite.js'
 
+/** Default page size for inflight/due claim queries. */
+const DEFAULT_CLAIM_LIMIT = 100
+/** Default page size for pending inbox-event claim queries. */
+const DEFAULT_INBOX_CLAIM_LIMIT = 50
+
+/** Generate a prefixed, hyphen-stripped, 12-char id (e.g. `job_ab12cd34ef56`). */
+function newId(prefix: string): string {
+  return `${prefix}_${randomUUID().replace(/-/g, '').slice(0, 12)}`
+}
+
 type MigrationRow = {
   id: string
 }
@@ -1124,7 +1134,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
     const disabled = input.disabled ?? false
     const trigger = resolveTrigger(input)
     const columns = scheduleColumnsForTrigger({ trigger, schedule: input.schedule, disabled, anchor: now })
-    const jobId = input.jobId ?? `job_${randomUUID().replace(/-/g, '').slice(0, 12)}`
+    const jobId = input.jobId ?? newId('job')
     const slug = input.slug ?? jobId
     if (!isValidJobSlug(slug)) {
       throw new Error(`invalid job slug: ${slug}`)
@@ -1328,7 +1338,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
   }
 
   const appendJobRun = (input: AppendJobRunInput): { jobRun: JobRunRecord } => {
-    const jobRunId = input.jobRunId ?? `jrun_${randomUUID().replace(/-/g, '').slice(0, 12)}`
+    const jobRunId = input.jobRunId ?? newId('jrun')
     const actor = resolveActor(input.actor)
     const now = new Date().toISOString()
     sqlite
@@ -1712,7 +1722,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
   }
 
   const listInflightFlowJobRuns = (input: { limit?: number | undefined } = {}): ClaimedDueJob[] => {
-    const limit = input.limit ?? 100
+    const limit = input.limit ?? DEFAULT_CLAIM_LIMIT
     const rows = sqlite
       .prepare(
         `
@@ -1738,7 +1748,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
 
   const claimDueJobs = (input: ClaimDueJobsInput): ClaimedDueJob[] => {
     const now = input.now
-    const limit = input.limit ?? 100
+    const limit = input.limit ?? DEFAULT_CLAIM_LIMIT
 
     return sqlite.transaction(() => {
       const dueJobs = sqlite
@@ -1796,15 +1806,15 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
           continue
         }
 
+        const claimActor: Actor = input.actor ?? { kind: 'system', id: 'scheduler' }
         const jobRun = appendJobRun({
           jobId: row.job_id,
           triggeredAt: now,
           triggeredBy,
           status: 'claimed',
           claimedAt: now,
-          actor: input.actor ?? { kind: 'system', id: 'scheduler' },
-          actorStamp:
-            input.actorStamp ?? actorToStamp(input.actor ?? { kind: 'system', id: 'scheduler' }),
+          actor: claimActor,
+          actorStamp: input.actorStamp ?? actorToStamp(claimActor),
         }).jobRun
 
         const updatedRow = requireJobRow(sqlite, row.job_id)
@@ -1859,7 +1869,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
   }
 
   const claimPendingInboxEvents = (input: ClaimInboxEventsInput): InboxEventRecord[] => {
-    const limit = input.limit ?? 50
+    const limit = input.limit ?? DEFAULT_INBOX_CLAIM_LIMIT
     return sqlite.transaction(() => {
       const candidates = sqlite
         .prepare(

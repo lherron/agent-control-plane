@@ -1,6 +1,7 @@
 import type { HrcActiveRunContributionResponse } from 'hrc-core'
 
 import { badRequest, json, notFound, unprocessable } from '../http.js'
+import { isRecord } from '../parsers/body.js'
 import type { RouteHandler } from '../routing/route-context.js'
 
 type ReconcileBody = {
@@ -16,10 +17,6 @@ type ReconcileResult = {
   hrcStatus?: string | undefined
   errorCode?: string | undefined
   errorMessage?: string | undefined
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function parseBody(body: unknown): ReconcileBody {

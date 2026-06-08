@@ -12,6 +12,9 @@ import type {
 export type HrcDetailMode = 'summary' | 'events' | 'full'
 export type HrcAnchorMode = 'runs' | 'events' | 'both' | 'auto'
 
+const HRC_ELISION_INSERT_INDEX = 250
+const TOOL_COLLAPSE_THRESHOLD = 3
+
 export type HrcJoinOptions = {
   reader: HrcStoreReader
   response: GetTaskResponse
@@ -117,7 +120,7 @@ function hrcRowsForBlock(block: HrcJoinBlock, detail: HrcDetailMode): HrcTimelin
 
   if (block.totalCount > block.events.length) {
     const elided = Math.max(0, block.totalCount - block.events.length)
-    rows.splice(250, 0, {
+    rows.splice(HRC_ELISION_INSERT_INDEX, 0, {
       ledger: 'hrc',
       parentParticipantRunId: block.participantRunId,
       eventKind: 'hrc.elided',
@@ -266,11 +269,11 @@ function isParticipantRunLaunch(row: TimelineRow): row is AcpTimelineRow {
   return row.ledger === 'acp' && row.category === 'run' && row.type === 'participant_run.launched'
 }
 
-function hasParticipantRunLaunch(rows: readonly TimelineRow[]): boolean {
+export function hasParticipantRunLaunch(rows: readonly TimelineRow[]): boolean {
   return rows.some(isParticipantRunLaunch)
 }
 
-function resolvedAnchors(
+export function resolvedAnchors(
   rows: readonly TimelineRow[],
   mode: HrcAnchorMode | undefined
 ): { runs: boolean; events: boolean } {
@@ -326,12 +329,12 @@ export function detectCollapsedHrcRuns(rows: readonly TimelineRow[]): TimelineCo
       endExclusive += 1
     }
     const length = endExclusive - index
-    if (length > 3) {
+    if (length > TOOL_COLLAPSE_THRESHOLD) {
       collapsed.push({
         parentParticipantRunId,
-        start: index + 3,
+        start: index + TOOL_COLLAPSE_THRESHOLD,
         end: endExclusive - 1,
-        count: length - 3,
+        count: length - TOOL_COLLAPSE_THRESHOLD,
         toolName,
       })
     }

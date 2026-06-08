@@ -28,11 +28,12 @@ import {
   DEFAULT_DELIVERY_IDLE_MS,
   DEFAULT_DELIVERY_POLL_MS,
   DEFAULT_MAX_CHARS,
+  VIRTU_BOT_ID,
   envNumber,
   optionalEnv,
   requiredEnv,
 } from './config.js'
-import { classifyDiscordError } from './discord-errors.js'
+import { classifyDiscordError, httpErrorField } from './discord-errors.js'
 import { adaptHrcLifecycleEvent, canonicalSessionRefFromEvent } from './hrc-event-adapter.js'
 import {
   type DiscordAgentMessageIdentity,
@@ -61,8 +62,6 @@ import {
   buildProgressEditContent,
   planFinalDeliveryWrite,
 } from './write-plan.js'
-
-const VIRTU_BOT_ID = optionalEnv('DISCORD_VIRTU_BOT_ID') ?? '1165644636807778414'
 
 const MAX_INGRESS_FAILURE_REASON_CHARS = 400
 const LIVE_PROGRESS_EDIT_THROTTLE_MS = 1500
@@ -196,19 +195,13 @@ export function eventTimestampIsClaimable(input: {
   return input.pendingSince <= eventMs
 }
 
-function errorField(error: unknown, key: 'status' | 'code'): unknown {
-  return typeof error === 'object' && error !== null
-    ? (error as Record<string, unknown>)[key]
-    : undefined
-}
-
 function isDiscordRateLimit(error: unknown): boolean {
-  return errorField(error, 'status') === 429 || errorField(error, 'code') === 429
+  return httpErrorField(error, 'status') === 429 || httpErrorField(error, 'code') === 429
 }
 
 function isDiscordWebhookGone(error: unknown): boolean {
-  const status = errorField(error, 'status')
-  const code = errorField(error, 'code')
+  const status = httpErrorField(error, 'status')
+  const code = httpErrorField(error, 'code')
   if (status === 404 || code === 404) {
     return true
   }

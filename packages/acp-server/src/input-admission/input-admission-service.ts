@@ -23,6 +23,7 @@ import type { StoredRun } from '../domain/run-store.js'
 import { forbidden } from '../http.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
 import { recordInputAdmissionEvent } from './input-admission-events.js'
+import { RUNTIME_BUSY_REQUEUE_DELAY_MS, isRuntimeBusyError } from './runtime-busy.js'
 
 export type InputAdmissionResult = {
   inputAttempt: {
@@ -219,16 +220,6 @@ function admissionResponse(input: {
     ...(input.queueItemId !== undefined ? { queueItemId: input.queueItemId } : {}),
     ...(input.currentState !== undefined ? { currentState: input.currentState } : {}),
   }
-}
-
-function runtimeBusyError(error: unknown): boolean {
-  const candidate = error as Record<string, unknown>
-  return (
-    candidate?.['code'] === 'runtime_busy' ||
-    candidate?.['errorCode'] === 'runtime_busy' ||
-    (error instanceof Error && error.message.toLowerCase().includes('runtime busy')) ||
-    (error instanceof Error && error.message.toLowerCase().includes('active run'))
-  )
 }
 
 function admissionOperationForIntent(intent: InputIntent): string {
@@ -1083,7 +1074,7 @@ export class InputAdmissionService {
         launched,
       }
     } catch (error) {
-      if (!runtimeBusyError(error)) {
+      if (!isRuntimeBusyError(error)) {
         throw error
       }
 
@@ -1100,7 +1091,7 @@ export class InputAdmissionService {
         seq,
         resetPolicy,
         ...queueFenceFromResetPolicy(resetPolicy, activeRunForQueue),
-        notBeforeAt: new Date(Date.now() + 2_000).toISOString(),
+        notBeforeAt: new Date(Date.now() + RUNTIME_BUSY_REQUEUE_DELAY_MS).toISOString(),
       })
       const updatedAdmission = this.deps.inputAdmissionStore.update(
         attempt.inputAttempt.inputAttemptId,

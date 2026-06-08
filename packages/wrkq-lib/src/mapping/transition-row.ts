@@ -36,6 +36,13 @@ type TransitionMetaPayload = {
   scopeRef?: string | undefined
 }
 
+function readStringArray(parsed: Record<string, unknown>, key: string): string[] {
+  const value = parsed[key]
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : []
+}
+
 function readTransitionMeta(meta: string | null): TransitionMetaPayload {
   const parsed = parseJsonRecord(meta)
   if (parsed === undefined) {
@@ -48,15 +55,9 @@ function readTransitionMeta(meta: string | null): TransitionMetaPayload {
     }
   }
 
-  const requiredEvidenceKinds = Array.isArray(parsed['requiredEvidenceKinds'])
-    ? parsed['requiredEvidenceKinds'].filter((value): value is string => typeof value === 'string')
-    : []
-  const evidenceKinds = Array.isArray(parsed['evidenceKinds'])
-    ? parsed['evidenceKinds'].filter((value): value is string => typeof value === 'string')
-    : []
-  const waivedEvidenceKinds = Array.isArray(parsed['waivedEvidenceKinds'])
-    ? parsed['waivedEvidenceKinds'].filter((value): value is string => typeof value === 'string')
-    : []
+  const requiredEvidenceKinds = readStringArray(parsed, 'requiredEvidenceKinds')
+  const evidenceKinds = readStringArray(parsed, 'evidenceKinds')
+  const waivedEvidenceKinds = readStringArray(parsed, 'waivedEvidenceKinds')
 
   return {
     requiredEvidenceKinds,

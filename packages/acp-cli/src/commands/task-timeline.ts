@@ -3,7 +3,9 @@ import { HrcStoreReader, resolveHrcStorePath } from '../hrc-store-reader.js'
 import {
   type HrcAnchorMode,
   type HrcDetailMode,
+  hasParticipantRunLaunch,
   joinHrcTimeline,
+  resolvedAnchors,
 } from '../output/timeline-hrc-join.js'
 import {
   type TaskTimelineProjection,
@@ -160,25 +162,6 @@ function parseHrcKinds(raw: string | undefined): Set<string> | undefined {
   return new Set(parseCommaList(raw, '--hrc-kinds'))
 }
 
-function hasParticipantRunLaunch(projection: TaskTimelineProjection): boolean {
-  return projection.rows.some(
-    (row) =>
-      row.ledger === 'acp' && row.category === 'run' && row.type === 'participant_run.launched'
-  )
-}
-
-function resolveHrcAnchors(
-  projection: TaskTimelineProjection,
-  mode: HrcAnchorMode
-): { runs: boolean; events: boolean } {
-  if (mode === 'runs') return { runs: true, events: false }
-  if (mode === 'events') return { runs: false, events: true }
-  if (mode === 'both') return { runs: true, events: true }
-  return hasParticipantRunLaunch(projection)
-    ? { runs: true, events: false }
-    : { runs: false, events: true }
-}
-
 function withTimelineWarning(
   projection: TaskTimelineProjection,
   warning: string
@@ -255,7 +238,7 @@ export async function runTaskTimelineCommand(
 
   if (!hasFlag(parsed, '--no-hrc')) {
     const hrcAnchor = parseHrcAnchor(readStringFlag(parsed, '--hrc-anchor'))
-    const anchors = resolveHrcAnchors(filtered, hrcAnchor)
+    const anchors = resolvedAnchors(filtered.rows, hrcAnchor)
     const hrcEventWindow =
       readStringFlag(parsed, '--hrc-event-window') !== undefined
         ? parseIntegerValue('--hrc-event-window', requireStringFlag(parsed, '--hrc-event-window'), {
@@ -265,7 +248,7 @@ export async function runTaskTimelineCommand(
     if (
       anchors.runs &&
       !anchors.events &&
-      hasParticipantRunLaunch(filtered) &&
+      hasParticipantRunLaunch(filtered.rows) &&
       !hasExternalRunBindings(response)
     ) {
       filtered = withTimelineWarning(

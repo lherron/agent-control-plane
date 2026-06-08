@@ -4,6 +4,16 @@ import { createLogger } from './logger.js'
 
 const log = createLogger({ component: 'gateway-discord' })
 
+/**
+ * Narrow an unknown error to read a numeric/string HTTP field (`status`/`code`)
+ * off the error object. Returns `undefined` for non-object errors.
+ */
+export function httpErrorField(error: unknown, key: 'status' | 'code'): unknown {
+  return typeof error === 'object' && error !== null
+    ? (error as Record<string, unknown>)[key]
+    : undefined
+}
+
 export function classifyDiscordError(
   error: unknown,
   route: string,

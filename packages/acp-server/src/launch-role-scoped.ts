@@ -6,7 +6,7 @@ import { buildRuntimeBundleRef } from 'spaces-config'
 import type { ResolvedAcpServerDeps } from './deps.js'
 import { parseSessionRefField, requireTask } from './handlers/shared.js'
 import { badRequest, json, notFound, unprocessable } from './http.js'
-import { parseJsonBody, requireRecord, requireTrimmedStringField } from './parsers/body.js'
+import { isRecord, parseJsonBody, requireRecord, requireTrimmedStringField } from './parsers/body.js'
 
 import type { RouteHandler } from './routing/route-context.js'
 
@@ -270,8 +270,4 @@ function readOptionalRecord(
 ): Record<string, unknown> | undefined {
   const value = input?.[field]
   return isRecord(value) ? value : undefined
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

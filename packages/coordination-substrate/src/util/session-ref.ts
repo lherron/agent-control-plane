@@ -1,5 +1,7 @@
 import { type SessionRef, normalizeSessionRef } from 'agent-scope'
 
+const SESSION_REF_DELIMITER = '~'
+
 function invalidSessionRefError(): Error {
   return new Error('Wake requests require a canonical SessionRef with an explicit laneRef')
 }
@@ -26,11 +28,11 @@ export function canonicalizeSessionRef(value: unknown): SessionRef {
 
 export function formatCanonicalSessionRef(value: SessionRef): string {
   const normalized = canonicalizeSessionRef(value)
-  return `${normalized.scopeRef}~${normalized.laneRef}`
+  return `${normalized.scopeRef}${SESSION_REF_DELIMITER}${normalized.laneRef}`
 }
 
 export function parseCanonicalSessionRef(value: string): SessionRef {
-  const delimiterIndex = value.indexOf('~')
+  const delimiterIndex = value.indexOf(SESSION_REF_DELIMITER)
   if (delimiterIndex <= 0 || delimiterIndex === value.length - 1) {
     throw invalidSessionRefError()
   }
@@ -39,7 +41,7 @@ export function parseCanonicalSessionRef(value: string): SessionRef {
   const laneRef = value.slice(delimiterIndex + 1)
   const normalized = normalizeSessionRef({ scopeRef, laneRef })
 
-  if (`${normalized.scopeRef}~${normalized.laneRef}` !== value) {
+  if (`${normalized.scopeRef}${SESSION_REF_DELIMITER}${normalized.laneRef}` !== value) {
     throw invalidSessionRefError()
   }
 

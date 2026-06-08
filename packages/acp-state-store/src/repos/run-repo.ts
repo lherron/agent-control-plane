@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto'
-
 import type { Actor } from 'acp-core'
 import type { SessionRef } from 'agent-scope'
 
@@ -14,7 +12,7 @@ import type {
 } from '../types.js'
 import { RunCorrelationConflictError } from '../types.js'
 import type { RepoContext } from './shared.js'
-import { parseJsonRecord } from './shared.js'
+import { DEFAULT_SYSTEM_ACTOR, parseJsonRecord, shortId } from './shared.js'
 
 export { RunCorrelationConflictError } from '../types.js'
 
@@ -76,6 +74,31 @@ type RunRow = {
   created_at: string
   updated_at: string
 }
+
+const RUN_SELECT_SQL = `SELECT run_id,
+                scope_ref,
+                lane_ref,
+                task_id,
+                actor_kind,
+                actor_id,
+                actor_display_name,
+                status,
+                hrc_run_id,
+                host_session_id,
+                generation,
+                runtime_id,
+                transport,
+                error_code,
+                error_message,
+                dispatch_fence_json,
+                expected_host_session_id,
+                expected_generation,
+                follow_latest,
+                after_hrc_seq,
+                metadata_json,
+                created_at,
+                updated_at
+           FROM runs`
 
 function mapDispatchFence(row: RunRow): DispatchFence | undefined {
   if (row.dispatch_fence_json !== null) {
@@ -194,10 +217,10 @@ export class RunRepo {
     status?: StoredRun['status'] | undefined
     metadata?: Readonly<Record<string, unknown>> | undefined
   }): StoredRun {
-    const actor = input.actor ?? { kind: 'system', id: 'acp-local' }
+    const actor = input.actor ?? DEFAULT_SYSTEM_ACTOR
     const timestamp = new Date().toISOString()
     const run: StoredRun = {
-      runId: `run_${randomUUID().replace(/-/g, '').slice(0, 12)}`,
+      runId: shortId('run_'),
       scopeRef: input.sessionRef.scopeRef,
       laneRef: input.sessionRef.laneRef,
       ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
@@ -292,7 +315,7 @@ export class RunRepo {
         return { run: existing, created: false }
       }
 
-      const actor = input.actor ?? { kind: 'system', id: 'acp-local' }
+      const actor = input.actor ?? DEFAULT_SYSTEM_ACTOR
       const timestamp = new Date().toISOString()
       const metadata: Record<string, unknown> = {
         source: 'wrkf',
@@ -354,30 +377,7 @@ export class RunRepo {
   getRun(runId: string): StoredRun | undefined {
     const row = this.context.sqlite
       .prepare(
-        `SELECT run_id,
-                scope_ref,
-                lane_ref,
-                task_id,
-                actor_kind,
-                actor_id,
-                actor_display_name,
-                status,
-                hrc_run_id,
-                host_session_id,
-                generation,
-                runtime_id,
-                transport,
-                error_code,
-                error_message,
-                dispatch_fence_json,
-                expected_host_session_id,
-                expected_generation,
-                follow_latest,
-                after_hrc_seq,
-                metadata_json,
-                created_at,
-                updated_at
-           FROM runs
+        `${RUN_SELECT_SQL}
           WHERE run_id = ?`
       )
       .get(runId) as RunRow | undefined
@@ -388,30 +388,7 @@ export class RunRepo {
   listRuns(): readonly StoredRun[] {
     const rows = this.context.sqlite
       .prepare(
-        `SELECT run_id,
-                scope_ref,
-                lane_ref,
-                task_id,
-                actor_kind,
-                actor_id,
-                actor_display_name,
-                status,
-                hrc_run_id,
-                host_session_id,
-                generation,
-                runtime_id,
-                transport,
-                error_code,
-                error_message,
-                dispatch_fence_json,
-                expected_host_session_id,
-                expected_generation,
-                follow_latest,
-                after_hrc_seq,
-                metadata_json,
-                created_at,
-                updated_at
-           FROM runs
+        `${RUN_SELECT_SQL}
        ORDER BY created_at ASC, run_id ASC`
       )
       .all() as RunRow[]
@@ -422,30 +399,7 @@ export class RunRepo {
   listRunsByStatus(status: string): readonly StoredRun[] {
     const rows = this.context.sqlite
       .prepare(
-        `SELECT run_id,
-                scope_ref,
-                lane_ref,
-                task_id,
-                actor_kind,
-                actor_id,
-                actor_display_name,
-                status,
-                hrc_run_id,
-                host_session_id,
-                generation,
-                runtime_id,
-                transport,
-                error_code,
-                error_message,
-                dispatch_fence_json,
-                expected_host_session_id,
-                expected_generation,
-                follow_latest,
-                after_hrc_seq,
-                metadata_json,
-                created_at,
-                updated_at
-           FROM runs
+        `${RUN_SELECT_SQL}
           WHERE status = ?
        ORDER BY created_at ASC, run_id ASC`
       )
@@ -457,30 +411,7 @@ export class RunRepo {
   listRunsForSession(sessionRef: SessionRef): readonly StoredRun[] {
     const rows = this.context.sqlite
       .prepare(
-        `SELECT run_id,
-                scope_ref,
-                lane_ref,
-                task_id,
-                actor_kind,
-                actor_id,
-                actor_display_name,
-                status,
-                hrc_run_id,
-                host_session_id,
-                generation,
-                runtime_id,
-                transport,
-                error_code,
-                error_message,
-                dispatch_fence_json,
-                expected_host_session_id,
-                expected_generation,
-                follow_latest,
-                after_hrc_seq,
-                metadata_json,
-                created_at,
-                updated_at
-           FROM runs
+        `${RUN_SELECT_SQL}
           WHERE scope_ref = ?
             AND lane_ref = ?
        ORDER BY created_at ASC, run_id ASC`

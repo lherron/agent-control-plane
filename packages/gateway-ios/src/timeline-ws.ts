@@ -134,6 +134,29 @@ export function createTimelineWsHandler(deps: TimelineWsDeps) {
         }
       }
 
+      // Helper: project an input through the reducer and emit FrameMessages,
+      // overriding each frame's frameSeq with wire delivery order.
+      const emitFrameUpdates = (input: ReducerInput): void => {
+        const result = reduce(reducerState, input)
+        reducerState = result.state
+
+        for (const update of result.frameUpdates) {
+          if (update.action === 'create' || update.action === 'update') {
+            // Override frameSeq with wire delivery order
+            const frame: TimelineFrame = {
+              ...update.frame,
+              frameSeq: frameSeqCounter++,
+            }
+
+            const frameMsg: FrameMessage = {
+              type: 'frame',
+              frame,
+            }
+            send(frameMsg)
+          }
+        }
+      }
+
       try {
         // Resolve session info
         // If hostSessionId is absent, the resolver must choose the active/latest
@@ -205,25 +228,7 @@ export function createTimelineWsHandler(deps: TimelineWsDeps) {
 
           // Emit live HRC event: project through reducer → FrameMessage
           onEvent(event: HrcLifecycleEvent) {
-            const input: ReducerInput = { kind: 'event', event }
-            const result = reduce(reducerState, input)
-            reducerState = result.state
-
-            for (const update of result.frameUpdates) {
-              if (update.action === 'create' || update.action === 'update') {
-                // Override frameSeq with wire delivery order
-                const frame: TimelineFrame = {
-                  ...update.frame,
-                  frameSeq: frameSeqCounter++,
-                }
-
-                const frameMsg: FrameMessage = {
-                  type: 'frame',
-                  frame,
-                }
-                send(frameMsg)
-              }
-            }
+            emitFrameUpdates({ kind: 'event', event })
 
             // If raw mode, also send the raw event
             if (raw) {
@@ -242,24 +247,7 @@ export function createTimelineWsHandler(deps: TimelineWsDeps) {
 
           // Emit live message: project through reducer → FrameMessage
           onMessage(message: HrcMessageRecord) {
-            const input: ReducerInput = { kind: 'message', message }
-            const result = reduce(reducerState, input)
-            reducerState = result.state
-
-            for (const update of result.frameUpdates) {
-              if (update.action === 'create' || update.action === 'update') {
-                const frame: TimelineFrame = {
-                  ...update.frame,
-                  frameSeq: frameSeqCounter++,
-                }
-
-                const frameMsg: FrameMessage = {
-                  type: 'frame',
-                  frame,
-                }
-                send(frameMsg)
-              }
-            }
+            emitFrameUpdates({ kind: 'message', message })
           },
         })
       } catch (err: unknown) {

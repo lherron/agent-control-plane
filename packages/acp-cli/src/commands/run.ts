@@ -2,7 +2,11 @@ import { stat } from 'node:fs/promises'
 import { basename } from 'node:path'
 
 import { CliUsageError } from '../cli-runtime.js'
-import { AcpClientHttpError, AcpClientTransportError } from '../http-client.js'
+import {
+  AcpClientHttpError,
+  AcpClientTransportError,
+  parseResponseText,
+} from '../http-client.js'
 import { renderKeyValueTable, renderTable } from '../output/table.js'
 import {
   hasFlag,
@@ -17,6 +21,7 @@ import {
   type CommandOutput,
   asJson,
   asText,
+  correlationHeadersFromEnv,
   createRawAcpRequester,
   createRawRequesterFromParsed,
   renderJsonOrTable,
@@ -56,18 +61,6 @@ const CONTENT_TYPES_BY_EXTENSION: Readonly<Record<string, string>> = {
   '.svg': 'image/svg+xml',
   '.txt': 'text/plain',
   '.webp': 'image/webp',
-}
-
-function parseResponseText(text: string): unknown {
-  if (text.length === 0) {
-    return null
-  }
-
-  try {
-    return JSON.parse(text) as unknown
-  } catch {
-    return text
-  }
 }
 
 function contentTypeFromFilename(filename: string): string | undefined {
@@ -119,28 +112,6 @@ function renderAttachmentTable(attachments: readonly OutboundAttachmentResponse[
     ],
     attachments
   )
-}
-
-function resolveCorrelationHeaders(
-  env: NodeJS.ProcessEnv,
-  options: { includeHrcRunId: boolean }
-): Record<string, string> {
-  const headers: Record<string, string> = {}
-  const hrcRunId = env['HRC_RUN_ID']?.trim()
-  const hrcHostSessionId = env['HRC_HOST_SESSION_ID']?.trim()
-  const hrcGeneration = env['HRC_GENERATION']?.trim()
-
-  if (options.includeHrcRunId && hrcRunId !== undefined && hrcRunId.length > 0) {
-    headers['HRC_RUN_ID'] = hrcRunId
-  }
-  if (hrcHostSessionId !== undefined && hrcHostSessionId.length > 0) {
-    headers['HRC_HOST_SESSION_ID'] = hrcHostSessionId
-  }
-  if (hrcGeneration !== undefined && hrcGeneration.length > 0) {
-    headers['HRC_GENERATION'] = hrcGeneration
-  }
-
-  return headers
 }
 
 async function postAttachment(input: {
@@ -254,7 +225,7 @@ export async function runRunCommand(
           ? { alt: readStringFlag(parsed, '--alt') }
           : {}),
         ...(actorAgentId !== undefined ? { actorAgentId } : {}),
-        headers: resolveCorrelationHeaders(env, { includeHrcRunId: runFlag === undefined }),
+        headers: correlationHeadersFromEnv(env, { includeHrcRunId: runFlag === undefined }),
       })
 
       return hasFlag(parsed, '--json')
@@ -289,7 +260,7 @@ export async function runRunCommand(
         const response = await requester.requestJson<Record<string, unknown>>({
           method: 'DELETE',
           path: `/v1/runs/${encodeURIComponent(runId)}/outbound-attachments`,
-          headers: resolveCorrelationHeaders(env, { includeHrcRunId: runFlag === undefined }),
+          headers: correlationHeadersFromEnv(env, { includeHrcRunId: runFlag === undefined }),
         })
         return hasFlag(parsed, '--json') ? asJson(response) : asText('cleared outbound attachments')
       } catch (error) {

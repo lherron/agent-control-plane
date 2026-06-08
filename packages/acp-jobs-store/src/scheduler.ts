@@ -53,6 +53,8 @@ export type TickJobsSchedulerInput = {
 export type ScheduledRun = JobRunRecord
 
 const DEFAULT_EVENT_LEASE_MS = 30_000
+/** Default page size for the event-inbox drain claim. */
+const DEFAULT_EVENT_CLAIM_LIMIT = 50
 
 function toIsoString(value: string | Date): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
@@ -203,7 +205,7 @@ export async function tickJobsScheduler(input: TickJobsSchedulerInput): Promise<
           evaluateEventJob: input.evaluateEventJob,
           leaseOwner: input.leaseOwner ?? 'acp-scheduler',
           leaseMs: input.eventLeaseMs ?? DEFAULT_EVENT_LEASE_MS,
-          limit: input.claimLimit ?? 50,
+          limit: input.claimLimit ?? DEFAULT_EVENT_CLAIM_LIMIT,
         })
       : []
 

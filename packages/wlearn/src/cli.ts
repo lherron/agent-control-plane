@@ -16,7 +16,7 @@ function parseArgs(argv: string[]): { command: string[]; flags: Record<string, s
     if (token?.startsWith('--') === true) {
       const key = token.slice(2)
       const value = argv[index + 1]
-      if (value === undefined || value.startsWith('--')) {
+      if (value === undefined || value.startsWith('--') === true) {
         throw new Error(`missing value for --${key}`)
       }
       flags[key] = value
@@ -60,6 +60,87 @@ function printJson(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
 }
 
+const PLAYBOOK_AUTHORITY_TIER = 2
+const PATCH_AUTHORITY_TIER = 3
+
+function handleTraceMaterialize(flags: Record<string, string>): void {
+  const snapshot = readJsonFile<WorkflowKernelSnapshot>(requireFlag(flags, 'snapshot'))
+  const workflowTaskId = requireFlag(flags, 'task')
+  printJson(materializeWorkflowTrace({ snapshot, workflowTaskId }))
+}
+
+function handleReplayRun(flags: Record<string, string>): void {
+  const snapshot = readJsonFile<WorkflowKernelSnapshot>(requireFlag(flags, 'snapshot'))
+  const workflowTaskId = requireFlag(flags, 'task')
+  printJson(
+    runDeterministicWorkflowReplay({
+      snapshot,
+      workflowTaskId,
+      ...(flags['candidate'] !== undefined ? { patchBundleId: flags['candidate'] } : {}),
+    })
+  )
+}
+
+function handleHrcSummarizeRange(flags: Record<string, string>): void {
+  printJson({
+    hrcRunId: requireFlag(flags, 'hrc-run'),
+    startSeq: Number(requireFlag(flags, 'start')),
+    endSeq: Number(requireFlag(flags, 'end')),
+    note: 'HRC range summarization is read-only; provide raw HRC events to downstream summarizers.',
+  })
+}
+
+function handlePlaybookDraft(flags: Record<string, string>): void {
+  printJson({
+    artifactKind: 'workflow_playbook',
+    authorityTier: PLAYBOOK_AUTHORITY_TIER,
+    lifecycle: 'draft',
+    sourceTraceIds: [requireFlag(flags, 'trace')],
+    guidance: 'Draft guidance must be reviewed in ACP before activation.',
+  })
+}
+
+function handlePatchDraft(flags: Record<string, string>): void {
+  printJson({
+    artifactKind: 'patch_bundle',
+    authorityTier: PATCH_AUTHORITY_TIER,
+    lifecycle: 'draft',
+    sourceTraceIds: [requireFlag(flags, 'trace')],
+    targetFacet: requireFlag(flags, 'target'),
+    note: 'Draft patch bundles require ACP evaluation and promotion workflows.',
+  })
+}
+
+function handleCurateReport(flags: Record<string, string>): void {
+  printJson({
+    reportKind: 'curation_report',
+    scope: requireFlag(flags, 'scope'),
+    actions: [],
+    note: 'Curation reports never delete raw ACP/HRC records.',
+  })
+}
+
+function handlePromotionSubmit(flags: Record<string, string>): void {
+  const patchBundle = parsePatchBundle(requireFlag(flags, 'patch-bundle-json'))
+  const reviewer = parseActor(requireFlag(flags, 'reviewer'))
+  const externalAuthority =
+    flags['external-authority'] !== undefined
+      ? parseActor(flags['external-authority'] as string)
+      : undefined
+  const report = validatePromotionReadiness({
+    patchBundle,
+    replayReportIds: [requireFlag(flags, 'replay-report')],
+    evalReportIds: [requireFlag(flags, 'eval-report')],
+    promotionReviewer: reviewer,
+    ...(externalAuthority !== undefined ? { externalAuthority } : {}),
+  })
+  printJson({
+    report,
+    acpAction: 'promotion_requested',
+    note: 'wlearn only submits readiness material; ACP owns promotion workflow state.',
+  })
+}
+
 function usage(): never {
   throw new Error(`usage:
   wlearn trace materialize --snapshot <file> --task <workflowTaskId>
@@ -76,87 +157,37 @@ export function runWlearnCli(argv = process.argv.slice(2)): void {
   const key = command.join(' ')
 
   if (key === 'trace materialize') {
-    const snapshot = readJsonFile<WorkflowKernelSnapshot>(requireFlag(flags, 'snapshot'))
-    const workflowTaskId = requireFlag(flags, 'task')
-    printJson(materializeWorkflowTrace({ snapshot, workflowTaskId }))
+    handleTraceMaterialize(flags)
     return
   }
 
   if (key === 'replay run') {
-    const snapshot = readJsonFile<WorkflowKernelSnapshot>(requireFlag(flags, 'snapshot'))
-    const workflowTaskId = requireFlag(flags, 'task')
-    printJson(
-      runDeterministicWorkflowReplay({
-        snapshot,
-        workflowTaskId,
-        ...(flags['candidate'] !== undefined ? { patchBundleId: flags['candidate'] } : {}),
-      })
-    )
+    handleReplayRun(flags)
     return
   }
 
   if (key === 'hrc summarize-range') {
-    printJson({
-      hrcRunId: requireFlag(flags, 'hrc-run'),
-      startSeq: Number(requireFlag(flags, 'start')),
-      endSeq: Number(requireFlag(flags, 'end')),
-      note: 'HRC range summarization is read-only; provide raw HRC events to downstream summarizers.',
-    })
+    handleHrcSummarizeRange(flags)
     return
   }
 
   if (key === 'playbook draft') {
-    printJson({
-      artifactKind: 'workflow_playbook',
-      authorityTier: 2,
-      lifecycle: 'draft',
-      sourceTraceIds: [requireFlag(flags, 'trace')],
-      guidance: 'Draft guidance must be reviewed in ACP before activation.',
-    })
+    handlePlaybookDraft(flags)
     return
   }
 
   if (key === 'patch draft') {
-    printJson({
-      artifactKind: 'patch_bundle',
-      authorityTier: 3,
-      lifecycle: 'draft',
-      sourceTraceIds: [requireFlag(flags, 'trace')],
-      targetFacet: requireFlag(flags, 'target'),
-      note: 'Draft patch bundles require ACP evaluation and promotion workflows.',
-    })
+    handlePatchDraft(flags)
     return
   }
 
   if (key === 'curate report') {
-    printJson({
-      reportKind: 'curation_report',
-      scope: requireFlag(flags, 'scope'),
-      actions: [],
-      note: 'Curation reports never delete raw ACP/HRC records.',
-    })
+    handleCurateReport(flags)
     return
   }
 
   if (key === 'promotion submit') {
-    const patchBundle = parsePatchBundle(requireFlag(flags, 'patch-bundle-json'))
-    const reviewer = parseActor(requireFlag(flags, 'reviewer'))
-    const externalAuthority =
-      flags['external-authority'] !== undefined
-        ? parseActor(flags['external-authority'] as string)
-        : undefined
-    const report = validatePromotionReadiness({
-      patchBundle,
-      replayReportIds: [requireFlag(flags, 'replay-report')],
-      evalReportIds: [requireFlag(flags, 'eval-report')],
-      promotionReviewer: reviewer,
-      ...(externalAuthority !== undefined ? { externalAuthority } : {}),
-    })
-    printJson({
-      report,
-      acpAction: 'promotion_requested',
-      note: 'wlearn only submits readiness material; ACP owns promotion workflow state.',
-    })
+    handlePromotionSubmit(flags)
     return
   }
 

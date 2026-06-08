@@ -1,5 +1,14 @@
 import { parseScopeRef, validateScopeRef } from 'agent-scope'
 
+import type {
+  InterfaceBinding,
+  InterfaceBindingListFilters,
+  InterfaceBindingLookup,
+} from '../types.js'
+
+import type { RepoContext } from './shared.js'
+import { toOptionalString } from './shared.js'
+
 function buildScopeRef(parts: {
   agentId: string
   projectId: string
@@ -11,15 +20,6 @@ function buildScopeRef(parts: {
   if (parts.roleName !== undefined) ref += `:role:${parts.roleName}`
   return ref
 }
-
-import type {
-  InterfaceBinding,
-  InterfaceBindingListFilters,
-  InterfaceBindingLookup,
-} from '../types.js'
-
-import type { RepoContext } from './shared.js'
-import { toOptionalString } from './shared.js'
 
 function assertBindingScope(binding: InterfaceBinding): void {
   const validation = validateScopeRef(binding.scopeRef)

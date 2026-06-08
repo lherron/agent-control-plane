@@ -156,8 +156,13 @@ export interface ConversationStore {
   ): StoredConversationTurn | undefined
 }
 
+const MEMORY_DB_PATH = ':memory:'
+const BUSY_TIMEOUT_MS = 5000
+const PRAGMA_JOURNAL_MODE_WAL = 'PRAGMA journal_mode = WAL;'
+const PRAGMA_FOREIGN_KEYS_ON = 'PRAGMA foreign_keys = ON;'
+
 function isEphemeralPath(path: string): boolean {
-  return path === '' || path === ':memory:'
+  return path === '' || path === MEMORY_DB_PATH
 }
 
 function ensureMigrationTable(sqlite: SqliteDatabase): void {
@@ -175,9 +180,9 @@ function createSqliteDatabase(dbPath: string): SqliteDatabase {
   }
 
   const sqlite = new Database(dbPath)
-  sqlite.exec('PRAGMA journal_mode = WAL;')
-  sqlite.exec('PRAGMA foreign_keys = ON;')
-  sqlite.exec('PRAGMA busy_timeout = 5000;')
+  sqlite.exec(PRAGMA_JOURNAL_MODE_WAL)
+  sqlite.exec(PRAGMA_FOREIGN_KEYS_ON)
+  sqlite.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS};`)
   return sqlite
 }
 
@@ -330,6 +335,19 @@ export function openSqliteConversationStore(
   const sqlite = createSqliteDatabase(options.dbPath)
   runConversationStoreMigrations(sqlite)
 
+  const getTurnRow = (turnId: string): TurnRow | undefined =>
+    sqlite.prepare('SELECT * FROM conversation_turns WHERE turnId = ?').get(turnId) as
+      | TurnRow
+      | undefined
+
+  const requireTurnRow = (turnId: string): TurnRow => {
+    const row = getTurnRow(turnId)
+    if (row === undefined) {
+      throw new Error(`turn not found: ${turnId}`)
+    }
+    return row
+  }
+
   const store: ConversationStore = {
     sqlite,
     migrations: {
@@ -453,13 +471,7 @@ export function openSqliteConversationStore(
     },
 
     updateRenderState(turnId, nextState, options) {
-      const row = sqlite.prepare('SELECT * FROM conversation_turns WHERE turnId = ?').get(turnId) as
-        | TurnRow
-        | undefined
-
-      if (row === undefined) {
-        throw new Error(`turn not found: ${turnId}`)
-      }
+      const row = requireTurnRow(turnId)
 
       assertLegalTransition(row.renderState as ConversationTurnRenderState, nextState)
 
@@ -470,19 +482,11 @@ export function openSqliteConversationStore(
         )
         .run(nextState, failureReason, turnId)
 
-      return turnRowToTurn(
-        sqlite.prepare('SELECT * FROM conversation_turns WHERE turnId = ?').get(turnId) as TurnRow
-      )
+      return turnRowToTurn(getTurnRow(turnId) as TurnRow)
     },
 
     attachLinks(turnId, links) {
-      const row = sqlite.prepare('SELECT * FROM conversation_turns WHERE turnId = ?').get(turnId) as
-        | TurnRow
-        | undefined
-
-      if (row === undefined) {
-        throw new Error(`turn not found: ${turnId}`)
-      }
+      const row = requireTurnRow(turnId)
 
       // Merge-only: never overwrite existing non-null link
       const updates: string[] = []
@@ -519,9 +523,7 @@ export function openSqliteConversationStore(
           .run(...params, turnId)
       }
 
-      return turnRowToTurn(
-        sqlite.prepare('SELECT * FROM conversation_turns WHERE turnId = ?').get(turnId) as TurnRow
-      )
+      return turnRowToTurn(getTurnRow(turnId) as TurnRow)
     },
 
     listTurns(threadId, options) {
@@ -556,5 +558,5 @@ export function openSqliteConversationStore(
 }
 
 export function createInMemoryConversationStore(): ConversationStore {
-  return openSqliteConversationStore({ dbPath: ':memory:' })
+  return openSqliteConversationStore({ dbPath: MEMORY_DB_PATH })
 }

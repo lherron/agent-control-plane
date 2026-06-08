@@ -14,6 +14,7 @@ import { requireMessageText, requireSessionRefFlags } from './session-shared.js'
 import {
   type CommandDependencies,
   type CommandOutput,
+  correlationHeadersFromEnv,
   createRawRequesterFromParsed,
   maybeParseMetaFlag,
   renderJsonOrTable,
@@ -204,24 +205,4 @@ function readInputIntent(
     return { kind: 'control_active_run', action: intent }
   }
   throw new CliUsageError('--intent must be new-work, contribute, interrupt, cancel, or pause')
-}
-
-function correlationHeadersFromEnv(
-  env: NodeJS.ProcessEnv,
-  options: { includeHrcRunId: boolean }
-): Record<string, string> {
-  const headers: Record<string, string> = {}
-  const add = (header: string, value: string | undefined): void => {
-    const trimmed = value?.trim()
-    if (trimmed !== undefined && trimmed.length > 0) {
-      headers[header] = trimmed
-    }
-  }
-
-  if (options.includeHrcRunId) {
-    add('HRC_RUN_ID', env['HRC_RUN_ID'])
-  }
-  add('HRC_HOST_SESSION_ID', env['HRC_HOST_SESSION_ID'])
-  add('HRC_GENERATION', env['HRC_GENERATION'])
-  return headers
 }

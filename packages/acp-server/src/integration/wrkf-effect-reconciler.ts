@@ -6,6 +6,7 @@ import {
   appendEvent,
 } from 'coordination-substrate'
 
+import { isRecord } from '../parsers/body.js'
 import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
 
 const SUPPORTED_EFFECT_KINDS = ['wake_role', 'request_observer_review'] as const
@@ -56,10 +57,6 @@ type ClaimResponse = {
 type TaskContext = {
   projectId: string
   roleBindings: Record<string, WrkfRoleBinding>
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function optionalString(record: Record<string, unknown>, key: string): string | undefined {

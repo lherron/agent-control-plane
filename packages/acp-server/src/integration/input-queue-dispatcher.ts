@@ -4,6 +4,7 @@ import { normalizeSessionRef } from 'agent-scope'
 import type { LaunchRoleScopedRun, ResolvedAcpServerDeps } from '../deps.js'
 import type { StoredRun } from '../domain/run-store.js'
 import { recordInputAdmissionEvent } from '../input-admission/input-admission-events.js'
+import { RUNTIME_BUSY_REQUEUE_DELAY_MS, isRuntimeBusyError } from '../input-admission/runtime-busy.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
 import { hasHrcAcceptedRunSince as defaultHasHrcAcceptedRunSince } from '../real-launcher.js'
 
@@ -37,16 +38,6 @@ export type InputQueueDispatcherDeps = Pick<
   hasHrcAcceptedRunSince?:
     | ((hrcDbPath: string, hostSessionId: string, since: string) => boolean)
     | undefined
-}
-
-function isRuntimeBusyError(error: unknown): boolean {
-  const candidate = error as Record<string, unknown>
-  return (
-    candidate?.['code'] === 'runtime_busy' ||
-    candidate?.['errorCode'] === 'runtime_busy' ||
-    (error instanceof Error && error.message.toLowerCase().includes('runtime busy')) ||
-    (error instanceof Error && error.message.toLowerCase().includes('active run'))
-  )
 }
 
 function stalePendingRunTimeoutMs(deps: InputQueueDispatcherDeps): number {
@@ -501,7 +492,7 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
         })
         deps.inputQueueStore.update(leased.queueItemId, {
           status: 'queued',
-          notBeforeAt: new Date(Date.now() + 2_000).toISOString(),
+          notBeforeAt: new Date(Date.now() + RUNTIME_BUSY_REQUEUE_DELAY_MS).toISOString(),
           lastErrorCode: 'runtime_busy',
           lastErrorMessage: error instanceof Error ? error.message : String(error),
         })
