@@ -1,0 +1,106 @@
+{
+  "schemaVersion": "wrkf.workflow-template.v0",
+  "id": "demo-linear",
+  "version": "1",
+  "kind": "agent_first_workflow",
+  "description": "Minimal non-PBC linear demo workflow used to certify that the generic wrkf runtime drives an arbitrary workflow (attach, inspect, evidence, obligation, transition, effect) without any pack-specific knowledge.",
+  "initial": {
+    "status": "open",
+    "phase": "start"
+  },
+  "roles": {
+    "agent": {
+      "description": "Records the demo note, runs the transition, and satisfies the review obligation."
+    },
+    "system": {
+      "description": "System effect adapter and administrative workflow authority."
+    }
+  },
+  "states": [
+    {
+      "status": "open",
+      "phase": "start",
+      "description": "Initial state: the agent has not yet submitted the demo note."
+    },
+    {
+      "status": "waiting",
+      "phase": "review",
+      "description": "The demo note was submitted; a blocking review obligation is open."
+    },
+    {
+      "status": "closed",
+      "phase": "done",
+      "description": "Terminal state: the demo workflow is complete."
+    }
+  ],
+  "evidenceKinds": {
+    "demo_note": {
+      "description": "A free-form note recorded by the agent to drive the single transition."
+    }
+  },
+  "obligationKinds": {
+    "demo_review": {
+      "description": "A blocking review obligation opened by the submit transition."
+    }
+  },
+  "transitions": [
+    {
+      "id": "submit",
+      "description": "Submit the demo note, open a review obligation, and project the task to blocked.",
+      "from": {
+        "status": "open",
+        "phase": "start"
+      },
+      "by": [
+        "agent"
+      ],
+      "requires": [
+        {
+          "evidence": {
+            "kind": "demo_note"
+          }
+        }
+      ],
+      "outcomes": [
+        {
+          "id": "submitted",
+          "description": "Note submitted; move to the review state, open the review obligation, and emit a task-state effect.",
+          "when": {
+            "always": true
+          },
+          "to": {
+            "status": "waiting",
+            "phase": "review"
+          },
+          "obligations": [
+            {
+              "kind": "demo_review",
+              "ownerRole": "agent",
+              "blocking": true,
+              "reason": "Review the submitted demo note.",
+              "obligeeRole": "workflow",
+              "waiveRole": "system",
+              "noSelfWaive": false
+            }
+          ],
+          "effects": [
+            {
+              "kind": "set_task_state",
+              "role": "system",
+              "semanticKey": "task-state:{taskUuid}:{revision}:blocked",
+              "data": {
+                "state": "blocked"
+              },
+              "reason": "demo-linear submit projects task state to blocked"
+            }
+          ]
+        }
+      ],
+      "responsibility": {
+        "role": "agent",
+        "scope": "task",
+        "lane": "demo-linear"
+      }
+    }
+  ]
+}
