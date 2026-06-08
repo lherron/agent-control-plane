@@ -52,6 +52,15 @@ import { handleWrkfPbcInspect } from '../handlers/wrkf-pbc-inspect.js'
 import { handleWrkfPbcRunStep } from '../handlers/wrkf-pbc-run-step.js'
 import { handleWrkfPbcRunUntilBlocked } from '../handlers/wrkf-pbc-run-until-blocked.js'
 import { withActorAndAuthz } from '../middleware/actor-and-authz.js'
+import {
+  handlePbcContinue,
+  handlePbcDispose,
+  handlePbcGetJob,
+  handlePbcGetTask,
+  handlePbcInput,
+  handlePbcReconcileEffects,
+  handlePbcStart,
+} from '../pbc/routes.js'
 
 import { mutatingRouteSpecs } from './mutating-routes.js'
 import type { RouteHandler, RouteParams } from './route-context.js'
@@ -249,6 +258,33 @@ export function buildParamRoutes(): ParamRoute[] {
       '/v1/wrkf/pbc/tasks/:task/run-until-blocked',
       withSpec('POST', '/v1/wrkf/pbc/tasks/:task/run-until-blocked', handleWrkfPbcRunUntilBlocked)
     ),
+    createParamRoute(
+      'POST',
+      '/v1/pbc/tasks/:taskId/start',
+      withSpec('POST', '/v1/pbc/tasks/:taskId/start', handlePbcStart)
+    ),
+    createParamRoute('GET', '/v1/pbc/tasks/:taskId', handlePbcGetTask),
+    createParamRoute(
+      'POST',
+      '/v1/pbc/tasks/:taskId/input',
+      withSpec('POST', '/v1/pbc/tasks/:taskId/input', handlePbcInput)
+    ),
+    createParamRoute(
+      'POST',
+      '/v1/pbc/tasks/:taskId/continue',
+      withSpec('POST', '/v1/pbc/tasks/:taskId/continue', handlePbcContinue)
+    ),
+    createParamRoute(
+      'POST',
+      '/v1/pbc/tasks/:taskId/dispose',
+      withSpec('POST', '/v1/pbc/tasks/:taskId/dispose', handlePbcDispose)
+    ),
+    createParamRoute(
+      'POST',
+      '/v1/pbc/tasks/:taskId/effects/reconcile',
+      withSpec('POST', '/v1/pbc/tasks/:taskId/effects/reconcile', handlePbcReconcileEffects)
+    ),
+    createParamRoute('GET', '/v1/pbc/jobs/:jobId', handlePbcGetJob),
     createParamRoute('GET', '/v1/sessions/:sessionId', handleGetSession),
     createParamRoute('GET', '/v1/sessions/:sessionId/runs', handleListSessionRuns),
     createParamRoute('POST', '/v1/sessions/:sessionId/interrupt', handleInterruptSession),

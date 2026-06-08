@@ -37,6 +37,11 @@ export function requirePbcHarnessPort(deps: RouteContext['deps']): PbcHarnessPor
 }
 
 export function mapPbcRouteError(error: unknown): unknown {
+  // Already-shaped HTTP errors (e.g. 409 conflicts thrown by product handlers)
+  // must pass through untouched — they carry a `.code` but are NOT wrkf errors.
+  if (error instanceof AcpHttpError) {
+    return error
+  }
   if (isWrkfError(error)) {
     return new AcpHttpError(wrkfErrorToHttpStatus(error.code), error.code, error.message)
   }

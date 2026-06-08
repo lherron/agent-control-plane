@@ -127,4 +127,24 @@ export const mutatingRouteSpecs: Record<string, ActorAndAuthzSpec> = {
     operation: 'wrkf.effects.deliver',
     resource: ({ body }) => ({ kind: 'wrkf-task', id: readBodyString(body, 'task') }),
   },
+  'POST /v1/pbc/tasks/:taskId/start': {
+    operation: 'pbc.tasks.start',
+    resource: ({ params }) => ({ kind: 'wrkf-task', id: params['taskId'] }),
+  },
+  'POST /v1/pbc/tasks/:taskId/input': {
+    operation: 'pbc.tasks.input',
+    resource: ({ params }) => ({ kind: 'wrkf-task', id: params['taskId'] }),
+  },
+  'POST /v1/pbc/tasks/:taskId/continue': {
+    operation: 'pbc.tasks.continue',
+    resource: ({ params }) => ({ kind: 'wrkf-task', id: params['taskId'] }),
+  },
+  'POST /v1/pbc/tasks/:taskId/dispose': {
+    operation: 'pbc.tasks.dispose',
+    resource: ({ params }) => ({ kind: 'wrkf-task', id: params['taskId'] }),
+  },
+  'POST /v1/pbc/tasks/:taskId/effects/reconcile': {
+    operation: 'pbc.tasks.effects.reconcile',
+    resource: ({ params }) => ({ kind: 'wrkf-task', id: params['taskId'] }),
+  },
 } as const
