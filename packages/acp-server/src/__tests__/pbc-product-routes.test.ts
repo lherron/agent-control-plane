@@ -142,6 +142,18 @@ const FINALIZED_NEXT = {
 
 type PortCall = { method: string; params: unknown }
 
+/**
+ * Build a WRKF_NOT_FOUND-shaped error exactly as the REAL wrkf binary throws it
+ * when `task.inspect` runs on a task that was never attached to a workflow
+ * (no instance). The unit-test default used to return a no-instance object,
+ * which masked the live 404 bug fixed in T-03050.
+ */
+function wrkfNoInstanceError(): Error & { code: string } {
+  const error = new Error('workflow instance not found') as Error & { code: string }
+  error.code = 'WRKF_NOT_FOUND'
+  return error
+}
+
 type FakeProductPortOverrides = {
   taskInspect?: () => Promise<unknown>
   taskAttach?: () => Promise<unknown>
@@ -658,6 +670,74 @@ describe('POST /v1/pbc/tasks/:taskId/start — duplicate-attach guard (RED)', ()
         const attachParams = attachCalls[0]!.params as Record<string, unknown>
         expect(typeof attachParams['workflow']).toBe('string')
         expect(String(attachParams['workflow'])).toContain('pbc')
+      },
+      { wrkf }
+    )
+  })
+
+  test('[RED] real wrkf THROWS WRKF_NOT_FOUND on inspect of a fresh task → start still attaches and returns 2xx', async () => {
+    // Live ghoste2e bug (T-03050): the REAL wrkf binary throws WRKF_NOT_FOUND
+    // ("workflow instance not found") when inspecting a task that was never
+    // attached, rather than returning a no-instance object. start.ts must catch
+    // that specific case, proceed to attach, and return the 2xx projection —
+    // NOT surface a 404. The previous no-instance-object fake masked this.
+    const wrkf = makeProductFakePort({
+      taskInspect: async () => {
+        throw wrkfNoInstanceError()
+      },
+      next: async () => BEHAVIOR_NOTE_NEXT,
+    })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'POST',
+          path: `/v1/pbc/tasks/${TASK}/start`,
+          body: { idempotencyKey: 'fresh-throws-not-found-001', intake: { title: 'test' } },
+        })
+        // Against the unfixed handler this is 404 WRKF_NOT_FOUND; must be 200.
+        expect(response.status).toBe(200)
+        const body = await fixture.json<Record<string, unknown>>(response)
+        expect(body['source']).toBe('wrkf')
+        expect(body['taskId']).toBe(TASK)
+        expect(body['workflowRef']).toBe(PBC_WORKFLOW_REF)
+
+        // inspect threw → start must fall through to attach the PBC workflow.
+        const attachCalls = wrkf._calls.filter((c) => c.method === 'task.attach')
+        expect(attachCalls.length).toBeGreaterThan(0)
+        const attachParams = attachCalls[0]!.params as Record<string, unknown>
+        expect(String(attachParams['workflow'])).toBe(PBC_WORKFLOW_REF)
+      },
+      { wrkf }
+    )
+  })
+
+  test('[RED] inspect error that is NOT an instance-not-found case is rethrown (not swallowed)', async () => {
+    // Only the specific "workflow instance not found" case may be swallowed.
+    // A genuine wrkf failure (e.g. a transient WRKF_INTERNAL) must surface.
+    const wrkf = makeProductFakePort({
+      taskInspect: async () => {
+        const error = new Error('wrkf exploded') as Error & { code: string }
+        error.code = 'WRKF_INTERNAL'
+        throw error
+      },
+    })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'POST',
+          path: `/v1/pbc/tasks/${TASK}/start`,
+          body: { idempotencyKey: 'inspect-internal-error-001', intake: { title: 'test' } },
+        })
+        // Non-instance-not-found wrkf error must surface (500), not be swallowed.
+        expect(response.status).toBe(500)
+        const body = await fixture.json<{ error: { code: string } }>(response)
+        expect(body.error.code).toBe('WRKF_INTERNAL')
+
+        // attach must NOT be called when inspect fails for a non-NOT_FOUND reason.
+        const attachCalls = wrkf._calls.filter((c) => c.method === 'task.attach')
+        expect(attachCalls).toHaveLength(0)
       },
       { wrkf }
     )

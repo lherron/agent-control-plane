@@ -30,6 +30,23 @@ import {
   wrkfActorString,
 } from './shared.js'
 
+/**
+ * The REAL wrkf binary THROWS WRKF_NOT_FOUND ("workflow instance not found")
+ * when `task.inspect` runs on a task that was never attached to a workflow.
+ * Treat that one case as "no instance yet" so start can fall through to attach.
+ * A missing *task* (vs missing *instance*) or any other wrkf error must still
+ * surface — so we require the message to mention the instance, not just NOT_FOUND.
+ */
+function isNoWorkflowInstanceError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false
+  }
+  const code = (error as { code?: unknown }).code
+  const message = error.message.toLowerCase()
+  const isNotFound = code === 'WRKF_NOT_FOUND' || message.includes('not found')
+  return isNotFound && message.includes('instance')
+}
+
 function existingInstanceFrom(inspected: unknown): Record<string, unknown> | undefined {
   if (!isRecord(inspected)) {
     return undefined
@@ -89,7 +106,18 @@ export const handlePbcStart: RouteHandler = (context) => {
     `POST /v1/pbc/tasks/${taskId}/start`,
     async (body, idempotencyKey) => {
       // 1. inspect-FIRST: decide attach vs reuse vs conflict.
-      const inspected = await wrkf.task.inspect({ task: taskId })
+      //    The real wrkf binary throws WRKF_NOT_FOUND on a never-attached task,
+      //    so guard the inspect call: swallow ONLY that "no instance" case and
+      //    proceed to attach; rethrow everything else.
+      let inspected: unknown
+      try {
+        inspected = await wrkf.task.inspect({ task: taskId })
+      } catch (error) {
+        if (!isNoWorkflowInstanceError(error)) {
+          throw error
+        }
+        inspected = undefined
+      }
       const existing = existingInstanceFrom(inspected)
 
       if (existing !== undefined) {
