@@ -3,21 +3,23 @@
  *
  * SPEC §4.8 (ParticipantOutput contract) / §4.15 (route idempotency key scheme).
  *
- * This module is the return channel for structured ParticipantOutput. It has two
- * modes:
+ * This module is the PBC-flavored return channel for structured ParticipantOutput.
+ * The generic capture/replay mechanics now live in
+ * `runtime/participant-capture.ts` (pack-free); this layer injects the PBC
+ * ingestion (ingestEvidenceAndSatisfyObligations) and preserves the historical
+ * public surface (importers depend on the symbols re-exported below).
+ *
+ * Two modes:
  *
  *   'supplied'         — the caller already has the participant's output (offline
  *                        simulation, or an HRC run that has finished and delivered
  *                        its result). The output is ingested via the P3 evidence /
- *                        obligation loop (ingestEvidenceAndSatisfyObligations — NOT
- *                        re-implemented here) and the result is recorded in the
- *                        captures store keyed by captureKey for idempotency.
+ *                        obligation loop and recorded in the captures store keyed
+ *                        by captureKey for idempotency.
  *
  *   'launched-runtime' — an HRC run is still in-flight; there is no output yet.
  *                        Returns 'awaiting_runtime_output' immediately with ZERO
- *                        wrkf writes and NO captures.set. The caller (P5 autopilot)
- *                        polls / waits and re-invokes with mode='supplied' once the
- *                        runtime delivers structured output.
+ *                        wrkf writes and NO captures.set.
  *
  * Locked invariants:
  *   - This module NEVER applies transitions. ParticipantOutputPort intentionally
@@ -30,39 +32,26 @@
  */
 
 import {
-  type ParticipantOutput,
-  type PbcEvidencePort,
-  ingestEvidenceAndSatisfyObligations,
-} from './pbc-evidence.js'
-import type { EvidenceRecord, NextActionResponse, ObligationRecord } from './projections.js'
+  type CaptureMode,
+  type CapturePort,
+  captureAndIngest,
+} from './runtime/participant-capture.js'
+import { type ParticipantOutput, ingestEvidenceAndSatisfyObligations } from './pbc-evidence.js'
 
 // ---------------------------------------------------------------------------
-// Capture record (idempotency store value)
+// Re-exported generic capture contract (kept on the historical path).
 // ---------------------------------------------------------------------------
 
-export interface CaptureRecord {
-  status: 'ingested'
-  evidenceAdded: EvidenceRecord[]
-  obligationsSatisfied: ObligationRecord[]
-}
+export type { CaptureIngestResult, CaptureRecord } from './runtime/participant-capture.js'
+
+/** Port — PbcEvidencePort PLUS the captures idempotency namespace. */
+export type ParticipantOutputPort = CapturePort
+
+export type ParticipantOutputMode = CaptureMode
 
 // ---------------------------------------------------------------------------
-// Port — PbcEvidencePort PLUS the captures idempotency namespace.
-// DELIBERATELY excludes transition.apply.
+// Input contract
 // ---------------------------------------------------------------------------
-
-export interface ParticipantOutputPort extends PbcEvidencePort {
-  captures: {
-    get(captureKey: string): Promise<CaptureRecord | undefined>
-    set(captureKey: string, record: CaptureRecord): Promise<void>
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Input / output contract
-// ---------------------------------------------------------------------------
-
-export type ParticipantOutputMode = 'supplied' | 'launched-runtime'
 
 export interface ParticipantOutputInput {
   task: string
@@ -75,14 +64,6 @@ export interface ParticipantOutputInput {
   allowProductOwnerSimulation?: boolean
 }
 
-export interface CaptureIngestResult {
-  status: 'ingested' | 'already_captured' | 'awaiting_runtime_output'
-  captureKey: string
-  evidenceAdded: EvidenceRecord[]
-  obligationsSatisfied: ObligationRecord[]
-  next?: NextActionResponse
-}
-
 // ---------------------------------------------------------------------------
 // Capture key scheme (SPEC §4.15) — P6 routes MUST use this before calling
 // captureAndIngestParticipantOutput.
@@ -93,64 +74,31 @@ export function makeParticipantOutputCaptureKey(routeKey: string, task: string):
 }
 
 // ---------------------------------------------------------------------------
-// Capture + ingest
+// Capture + ingest — inject PBC ingestion into the generic capture mechanics.
 // ---------------------------------------------------------------------------
 
 export async function captureAndIngestParticipantOutput(
   port: ParticipantOutputPort,
   input: ParticipantOutputInput
-): Promise<CaptureIngestResult> {
-  // ── launched-runtime: nothing to ingest yet. Zero wrkf writes, no capture. ──
-  if (input.mode === 'launched-runtime') {
-    return {
-      status: 'awaiting_runtime_output',
-      captureKey: input.captureKey,
-      evidenceAdded: [],
-      obligationsSatisfied: [],
-    }
-  }
-
+) {
   // ── supplied: participantOutput is required. ──────────────────────────────
-  const output = input.participantOutput
-  if (output === undefined) {
+  if (input.mode === 'supplied' && input.participantOutput === undefined) {
     throw new Error('participantOutput is required when mode is "supplied"')
   }
 
-  // ── Idempotency: check the captures store BEFORE any wrkf write. ───────────
-  const existing = await port.captures.get(input.captureKey)
-  if (existing !== undefined) {
-    return {
-      status: 'already_captured',
-      captureKey: input.captureKey,
-      evidenceAdded: existing.evidenceAdded,
-      obligationsSatisfied: existing.obligationsSatisfied,
-    }
-  }
-
-  // ── Delegate to the P3 evidence / obligation loop (NO re-implementation). ──
-  const ingest = await ingestEvidenceAndSatisfyObligations(port, {
-    task: input.task,
-    role: input.role,
-    actor: input.actor,
-    ...(input.allowProductOwnerSimulation !== undefined
-      ? { allowProductOwnerSimulation: input.allowProductOwnerSimulation }
-      : {}),
-    participantOutput: output,
-  })
-
-  // ── Record the capture for replay idempotency. ────────────────────────────
-  const record: CaptureRecord = {
-    status: 'ingested',
-    evidenceAdded: ingest.evidenceAdded,
-    obligationsSatisfied: ingest.obligationsSatisfied,
-  }
-  await port.captures.set(input.captureKey, record)
-
-  return {
-    status: 'ingested',
+  return captureAndIngest(port, {
     captureKey: input.captureKey,
-    evidenceAdded: ingest.evidenceAdded,
-    obligationsSatisfied: ingest.obligationsSatisfied,
-    next: ingest.next,
-  }
+    mode: input.mode,
+    // Invoked only in 'supplied' mode, AFTER the idempotency check passes.
+    ingest: () =>
+      ingestEvidenceAndSatisfyObligations(port, {
+        task: input.task,
+        role: input.role,
+        actor: input.actor,
+        ...(input.allowProductOwnerSimulation !== undefined
+          ? { allowProductOwnerSimulation: input.allowProductOwnerSimulation }
+          : {}),
+        participantOutput: input.participantOutput as ParticipantOutput,
+      }),
+  })
 }
