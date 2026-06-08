@@ -10,6 +10,10 @@ function readBodyString(body: unknown, field: string): string | undefined {
 }
 
 export const mutatingRouteSpecs: Record<string, ActorAndAuthzSpec> = {
+  'GET /v1/wrkf/pbc/tasks/:task/inspect': {
+    operation: 'wrkf.pbc.inspect',
+    resource: ({ params }) => ({ kind: 'wrkf-task', id: params['task'] }),
+  },
   'POST /v1/admin/agents': {
     operation: 'admin.agents.create',
     resource: ({ body }) => ({ kind: 'agent', id: readBodyString(body, 'agentId') }),

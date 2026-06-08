@@ -11,3 +11,7 @@ W1 keeps all existing workflow routes and response DTOs backed by the durable AC
 | `POST /v1/workflow-interact-runs` | Starts open-ended workflow interaction runs. | Route retained and backed by `handleCreateWorkflowInteractRun`. (The legacy `acp workflow interact` CLI was removed in W6a.) |
 
 > **W6a (Phase 6) note:** The obsolete ACP-authoritative workflow routes/commands were removed — `POST /v1/workflows` (`handlePublishWorkflow`), `POST /v1/workflow-supervisor-runs`, `POST /v1/tasks` (workflow task create), `POST /v1/tasks/:taskId/actions`, `POST /v1/tasks/:taskId/{participant,supervisor}-context`, and the `GET …/workflow-patch-proposals` read routes — along with their `acp` CLI commands. Task lifecycle authority is now wrkf; the remaining `/v1/tasks/:taskId` GET/evidence/transitions/obligation routes are thin wrkf facades.
+
+## PBC HTTP Route Consumers
+
+Taskboard and other product consumers should use `/v1/pbc/*`. The `/v1/wrkf/pbc/*` routes expose wrkf harness/operator-debug controls and require policy authorization under the `wrkf.pbc.*` operation namespace.

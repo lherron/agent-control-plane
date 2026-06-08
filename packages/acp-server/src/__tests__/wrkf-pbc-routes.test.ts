@@ -1325,9 +1325,37 @@ describe('Route registration and authz wrapping (RED)', () => {
     )
   })
 
-  test('[RED] GET /v1/wrkf/pbc/tasks/:task/inspect is NOT wrapped with authz (read-only, public)', async () => {
-    // Inspect is read-only and should NOT be in mutatingRouteSpecs.
-    // With authorize → 'deny', a non-wrapped route executes normally and returns 200.
+  test('[RED] GET /v1/wrkf/pbc/tasks/:task/inspect responds 403 when authorize returns deny', async () => {
+    const wrkf = makeFakePbcPort()
+    const authzCalls: Array<{ operation: string; resource: unknown }> = []
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'GET',
+          path: `/v1/wrkf/pbc/tasks/${TASK}/inspect`,
+        })
+        expect(response.status).toBe(403)
+        expect(wrkf._calls).toHaveLength(0)
+      },
+      {
+        wrkf,
+        authorize: (_actor, operation, resource) => {
+          authzCalls.push({ operation, resource })
+          return 'deny'
+        },
+      }
+    )
+
+    expect(authzCalls).toEqual([
+      {
+        operation: 'wrkf.pbc.inspect',
+        resource: { kind: 'wrkf-task', id: TASK },
+      },
+    ])
+  })
+
+  test('[RED] GET /v1/wrkf/pbc/tasks/:task/inspect passes through when authorize returns allow', async () => {
     const wrkf = makeFakePbcPort()
 
     await withWiredServer(
@@ -1336,12 +1364,13 @@ describe('Route registration and authz wrapping (RED)', () => {
           method: 'GET',
           path: `/v1/wrkf/pbc/tasks/${TASK}/inspect`,
         })
-        // Read-only route: not wrapped → executes handler → 200 (not 403)
         expect(response.status).toBe(200)
+        const body = await fixture.json<Record<string, unknown>>(response)
+        expect(body['task']).toBe(TASK)
       },
       {
         wrkf,
-        authorize: () => 'deny',
+        authorize: () => 'allow',
       }
     )
   })

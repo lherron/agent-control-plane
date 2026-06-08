@@ -238,7 +238,11 @@ export function buildParamRoutes(): ParamRoute[] {
       withSpec('POST', '/v1/runs/:runId/outbound-messages', handlePostRunOutboundMessage)
     ),
     createParamRoute('POST', '/v1/runs/:runId/cancel', handleCancelRun),
-    createParamRoute('GET', '/v1/wrkf/pbc/tasks/:task/inspect', handleWrkfPbcInspect),
+    createParamRoute(
+      'GET',
+      '/v1/wrkf/pbc/tasks/:task/inspect',
+      withSpec('GET', '/v1/wrkf/pbc/tasks/:task/inspect', handleWrkfPbcInspect)
+    ),
     createParamRoute(
       'POST',
       '/v1/wrkf/pbc/tasks/:task/run-step',
