@@ -1,5 +1,6 @@
 import type { ChooseTransitionFn, ChooseTransitionResult } from '../../runtime/workflow-pack.js'
 import type { NextActionResponse } from '../../projections.js'
+import { type PbcEvidenceSnapshot, checkPbcFreshness } from './freshness.js'
 
 type PbcTransitionInput = Parameters<ChooseTransitionFn>[0]
 
@@ -46,6 +47,16 @@ export const choosePbcTransition: ChooseTransitionFn = (
     return undefined
   }
 
+  if (requiresFreshnessCheck(transition)) {
+    const freshness = checkPbcFreshness({
+      evidenceTimeline: (input.evidenceTimeline ?? []).map(toPbcEvidenceSnapshot),
+      transition,
+    })
+    if (freshness.blocked) {
+      return { blocked: true, reason: freshness.reason }
+    }
+  }
+
   if (isFinalizationTransition(transition)) {
     if (
       input.reviewerActor === undefined ||
@@ -77,6 +88,28 @@ function transitionsFromNext(next: NextActionResponse): string[] {
 
 function isFinalizationTransition(transition: string): boolean {
   return FINALIZATION_TRANSITIONS.has(transition)
+}
+
+function requiresFreshnessCheck(transition: string): boolean {
+  return transition === 'run_pressure_pass' || FINALIZATION_TRANSITIONS.has(transition)
+}
+
+function toPbcEvidenceSnapshot(evidence: {
+  id: string
+  kind: string
+  facts?: Record<string, unknown> | undefined
+  data?: unknown
+}): PbcEvidenceSnapshot {
+  return {
+    id: evidence.id,
+    kind: evidence.kind,
+    ...(evidence.facts !== undefined ? { facts: evidence.facts } : {}),
+    ...(isRecord(evidence.data) ? { data: evidence.data } : {}),
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function isDispositionTransition(transition: string): boolean {

@@ -127,6 +127,20 @@ function makeEvidenceRecord(id: string, kind: string): Record<string, unknown> {
   return { id, kind, raw: {} }
 }
 
+function makeEvidenceSnapshot(
+  id: string,
+  kind: string,
+  opts: { facts?: Record<string, unknown>; data?: Record<string, unknown> } = {}
+): Record<string, unknown> {
+  return {
+    id,
+    kind,
+    ...(opts.facts !== undefined ? { facts: opts.facts } : {}),
+    ...(opts.data !== undefined ? { data: opts.data } : {}),
+    raw: {},
+  }
+}
+
 function makeObligationRecord(id: string, kind: string, status: string): Record<string, unknown> {
   return { id, kind, status, raw: {} }
 }
@@ -155,6 +169,7 @@ function makeFakePort(
     captureStore?: Record<string, unknown>
     transitionShouldThrow?: (transition: string) => Error | undefined
     evidenceCounter?: { current: number }
+    evidence?: Array<Record<string, unknown>>
   } = {}
 ): FakePbcHarnessPort {
   const _calls: SpyCall[] = []
@@ -163,6 +178,7 @@ function makeFakePort(
   const pendingEffects = opts.effects ?? []
   const openObligations = opts.obligations ?? []
   const captureStore: Record<string, unknown> = opts.captureStore ?? {}
+  const evidenceTimeline: Record<string, unknown>[] = [...(opts.evidence ?? [])]
   let runCounter = 0
   let evidenceCounter = 0
   const transitionThrow = opts.transitionShouldThrow ?? (() => undefined)
@@ -178,6 +194,10 @@ function makeFakePort(
     },
 
     evidence: {
+      list: async (params: { task: string }) => {
+        _calls.push({ method: 'evidence.list', params })
+        return evidenceTimeline
+      },
       add: async (params: {
         task: string
         kind: string
@@ -190,7 +210,14 @@ function makeFakePort(
       }) => {
         _calls.push({ method: 'evidence.add', params })
         evidenceCounter++
-        return makeEvidenceRecord(`ev_fake_${evidenceCounter}`, params.kind)
+        const record = makeEvidenceSnapshot(`ev_fake_${evidenceCounter}`, params.kind, {
+          ...(params.facts !== undefined ? { facts: params.facts } : {}),
+          ...(typeof params.data === 'object' && params.data !== null
+            ? { data: params.data as Record<string, unknown> }
+            : {}),
+        })
+        evidenceTimeline.push(record)
+        return record
       },
     },
 
@@ -1179,6 +1206,19 @@ describe('runUntilBlocked', () => {
   test('does NOT stop for SoD when pressureActor differs from draft actor', async () => {
     // Provide distinct actors; autopilot should apply finalize_ready_pbc
     const port = makeFakePort({
+      evidence: [
+        makeEvidenceSnapshot('ev_draft_1', 'pbc_draft'),
+        makeEvidenceSnapshot('ev_pp_1', 'pressure_pass', {
+          facts: { verdict: 'ready' },
+          data: { reviewedDraftEvidenceId: 'ev_draft_1' },
+        }),
+        makeEvidenceSnapshot('ev_final_1', 'pbc_final', {
+          data: {
+            basedOnDraftEvidenceId: 'ev_draft_1',
+            basedOnPressurePassEvidenceId: 'ev_pp_1',
+          },
+        }),
+      ],
       nextSequence: [
         makeNextRaw({
           status: 'active',

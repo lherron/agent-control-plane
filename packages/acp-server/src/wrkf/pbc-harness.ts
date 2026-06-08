@@ -25,6 +25,7 @@ const WORKFLOW_REF = 'pbc-progressive-refinement@5'
 
 const legacyRunStepPack: WorkflowPack = {
   ...pbcManifest,
+  needsEvidenceTimeline: false,
   chooseTransition: chooseLegacySingleSafeTransition,
 }
 

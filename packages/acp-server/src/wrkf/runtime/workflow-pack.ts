@@ -47,7 +47,7 @@ export type WorkflowPackInput = {
   template?: unknown
 }
 
-import type { NextActionResponse } from '../projections.js'
+import type { EvidenceRecord, NextActionResponse } from '../projections.js'
 import type { ParticipantOutput } from './evidence-writer.js'
 
 export type MaybePromise<T> = T | Promise<T>
@@ -79,6 +79,10 @@ export type ChooseTransitionResult =
       transition: string
       actor?: string | undefined
     }
+  | {
+      blocked: true
+      reason: string
+    }
 
 export type ChooseTransitionFn = (input: {
   next: NextActionResponse
@@ -88,6 +92,7 @@ export type ChooseTransitionFn = (input: {
   reviewerActor?: string | undefined
   allowExplicitOnly?: boolean | undefined
   candidateTransitions?: string[] | undefined
+  evidenceTimeline?: EvidenceRecord[] | undefined
 }) => MaybePromise<ChooseTransitionResult | undefined>
 export type ProjectFn = (input: unknown) => unknown
 
@@ -130,6 +135,7 @@ export type WorkflowPack = {
   compilePrompt?: CompilePromptFn | undefined
   parseParticipantOutput?: ParseParticipantOutputFn | undefined
   mapHumanInput?: MapHumanInputFn | undefined
+  needsEvidenceTimeline?: boolean | undefined
   chooseTransition?: ChooseTransitionFn | undefined
   project?: ProjectFn | undefined
   workerPolicy?: WorkerPolicyFn | undefined

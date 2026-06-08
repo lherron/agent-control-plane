@@ -1,7 +1,9 @@
 import { deliverWrkfEffects } from '../effect-delivery.js'
 import {
   type ActionRecord,
+  type EvidenceRecord,
   type NextActionResponse,
+  projectEvidenceRecord,
   projectNextActionResponse,
 } from '../projections.js'
 import { type CapturePort, captureAndIngest } from './participant-capture.js'
@@ -185,12 +187,16 @@ export async function runWorkflowStep(
 
   if (transitionPolicy === 'single-safe') {
     const chosen = await chooseFromCurrent(options.pack, {
+      port,
+      task: input.task,
       next: latestNext,
       actor: input.actor,
       role,
       allowExplicitOnly: false,
     })
-    if (chosen !== undefined) {
+    if (chosen?.blockedReason !== undefined) {
+      result.diagnostics.push(chosen.blockedReason)
+    } else if (chosen !== undefined) {
       result.transitionApplied = await applyFreshTransition(port, {
         task: input.task,
         transition: chosen.transition,
@@ -306,6 +312,8 @@ export async function runWorkflowUntilBlocked(
     const fresh = await readNext(port, input.task, 'agent')
     applyNext(result, fresh)
     const chosen = await chooseFromCurrent(options.pack, {
+      port,
+      task: input.task,
       next: fresh,
       actor: input.actor,
       role: 'agent',
@@ -315,6 +323,10 @@ export async function runWorkflowUntilBlocked(
     })
     if (chosen === undefined) {
       stopReason = 'blocked_or_ambiguous'
+      break
+    }
+    if (chosen.blockedReason !== undefined) {
+      stopReason = chosen.blockedReason
       break
     }
 
@@ -399,6 +411,8 @@ export function makeCaptureKey(routeKey: string, task: string): string {
 async function chooseFromCurrent(
   pack: WorkflowPack,
   input: {
+    port: WorkflowHarnessPort
+    task: string
     next: NextActionResponse
     actor: string
     role: string
@@ -406,11 +420,19 @@ async function chooseFromCurrent(
     reviewerActor?: string | undefined
     allowExplicitOnly: boolean
   }
-): Promise<{ transition: string; actor?: string | undefined } | undefined> {
+): Promise<
+  | { transition: string; actor?: string | undefined; blockedReason?: undefined }
+  | { blockedReason: string }
+  | undefined
+> {
   if (pack.chooseTransition === undefined) {
     return undefined
   }
   const candidates = realTransitionNames(input.next.actions)
+  const evidenceTimeline =
+    pack.needsEvidenceTimeline === true
+      ? await readEvidenceTimeline(input.port, input.task)
+      : undefined
   const chosen = await pack.chooseTransition({
     next: input.next,
     actor: input.actor,
@@ -419,8 +441,43 @@ async function chooseFromCurrent(
     ...(input.reviewerActor !== undefined ? { reviewerActor: input.reviewerActor } : {}),
     allowExplicitOnly: input.allowExplicitOnly,
     candidateTransitions: candidates,
+    ...(evidenceTimeline !== undefined ? { evidenceTimeline } : {}),
   })
-  return typeof chosen === 'string' ? { transition: chosen } : chosen
+  if (chosen === undefined) {
+    return undefined
+  }
+  if (typeof chosen === 'string') {
+    return { transition: chosen }
+  }
+  if ('blocked' in chosen) {
+    return { blockedReason: chosen.reason }
+  }
+  return chosen
+}
+
+async function readEvidenceTimeline(
+  port: WorkflowHarnessPort,
+  task: string
+): Promise<EvidenceRecord[]> {
+  const list = optionalEvidenceList(port)
+  if (list === undefined) {
+    return []
+  }
+  const raw = await list({ task })
+  if (!Array.isArray(raw)) {
+    return []
+  }
+  return raw.map((entry, index) => projectEvidenceRecord(entry, `evidenceTimeline[${index}]`))
+}
+
+function optionalEvidenceList(
+  port: WorkflowHarnessPort
+): ((params: { task: string }) => Promise<unknown>) | undefined {
+  const evidence = port.evidence as unknown as Record<string, unknown>
+  const list = evidence['list']
+  return typeof list === 'function'
+    ? (list as (params: { task: string }) => Promise<unknown>)
+    : undefined
 }
 
 async function deliverEffects(

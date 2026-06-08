@@ -43,6 +43,7 @@ export const pbcManifest: WorkflowPack = {
   },
   parseParticipantOutput: parsePbcParticipantOutput,
   mapHumanInput: mapPbcHumanInput,
+  needsEvidenceTimeline: true,
   chooseTransition: choosePbcTransition,
   workerPolicy: pbcWorkerPolicy,
 }
