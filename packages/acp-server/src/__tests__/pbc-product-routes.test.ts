@@ -809,6 +809,162 @@ describe('POST /v1/pbc/tasks/:taskId/start — conflict scenarios (RED)', () => 
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
+// §4b — start guard vs REAL wrkf inspect shape (T-03072)
+//
+// The REAL `wrkf.task.inspect` (ACP port) returns a FLAT object — NO `task` /
+// `instance` wrapper. The live status lives at the TOP-LEVEL `status`, the
+// workflow ref is `${templateId}@${templateVersion}`, NOT a `workflowRef` key.
+// Captured shape (see wrkf-real-inspect-shape.test.ts):
+//   { id, taskUuid, taskRef, projectId, templateId, templateVersion,
+//     templateHash, status, phase, revision, contextHash, ... }
+//
+// Against this shape the old guard read `inspected.instance` (undefined → no
+// existing instance found), silently fell through to attach, and returned 200
+// on a CLOSED/finalized instance instead of 409. These tests model the real
+// flat shape and pin the closed/conflict/reuse behavior.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Build the REAL flat `wrkf.task.inspect` shape for a PBC instance. */
+function realFlatInspect(over: {
+  status: string
+  phase: string
+  templateId?: string
+  templateVersion?: string
+  revision?: number
+}): Record<string, unknown> {
+  return {
+    id: 'wfi_real_flat_t03072',
+    taskUuid: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+    taskRef: `wrkq:${TASK}`,
+    projectId: '6c774212-f2e4-47a5-a8bd-e91ab53df40a',
+    templateId: over.templateId ?? 'pbc-progressive-refinement',
+    templateVersion: over.templateVersion ?? '5',
+    templateHash: 'sha256:deadbeef',
+    status: over.status,
+    phase: over.phase,
+    revision: over.revision ?? 4,
+    contextHash: 'sha256:ctx-real-flat',
+    taskDocEtag: '11',
+    taskDocHash: 'sha256:doc-real-flat',
+    createdAt: '2026-06-01T10:00:00Z',
+    updatedAt: '2026-06-08T12:00:00Z',
+  }
+}
+
+describe('POST /v1/pbc/tasks/:taskId/start — REAL flat inspect shape (T-03072)', () => {
+  test('[RED] closed PBC instance in REAL flat shape → 409 INSTANCE_CLOSED', async () => {
+    // status at TOP-LEVEL inspected.status (no instance wrapper), ref via templateId@templateVersion.
+    const wrkf = makeProductFakePort({
+      taskInspect: async () => realFlatInspect({ status: 'closed', phase: 'finalized', revision: 4 }),
+    })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'POST',
+          path: `/v1/pbc/tasks/${TASK}/start`,
+          body: { idempotencyKey: 'real-flat-closed-001', intake: { title: 'test' } },
+        })
+        // RED (pre-fix): guard reads inspected.instance (undefined) → attaches → 200.
+        expect(response.status).toBe(409)
+        const body = await fixture.json<{ error: { code: string } }>(response)
+        expect(body.error.code).toMatch(/INSTANCE_CLOSED|CLOSED/)
+
+        // Must NOT attach over a closed instance.
+        const attachCalls = wrkf._calls.filter((c) => c.method === 'task.attach')
+        expect(attachCalls).toHaveLength(0)
+      },
+      { wrkf }
+    )
+  })
+
+  test('[RED] closed PBC instance attached at an OLDER version (@1) → 409 INSTANCE_CLOSED (not CONFLICT)', async () => {
+    // Real live data: closed PBC instances exist with templateVersion '1' (e.g. T-01839),
+    // while PBC_WORKFLOW_REF is pinned to @5. PBC detection must be by workflow NAME, so an
+    // older-version closed PBC instance is INSTANCE_CLOSED, NOT misclassified as a conflict.
+    const wrkf = makeProductFakePort({
+      taskInspect: async () =>
+        realFlatInspect({
+          status: 'closed',
+          phase: 'finalized',
+          templateVersion: '1',
+          revision: 6,
+        }),
+    })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'POST',
+          path: `/v1/pbc/tasks/${TASK}/start`,
+          body: { idempotencyKey: 'real-flat-closed-v1-001', intake: { title: 'test' } },
+        })
+        expect(response.status).toBe(409)
+        const body = await fixture.json<{ error: { code: string } }>(response)
+        expect(body.error.code).toMatch(/INSTANCE_CLOSED|CLOSED/)
+      },
+      { wrkf }
+    )
+  })
+
+  test('[RED] active non-PBC instance in REAL flat shape → 409 INSTANCE_CONFLICT', async () => {
+    const wrkf = makeProductFakePort({
+      taskInspect: async () =>
+        realFlatInspect({
+          status: 'active',
+          phase: 'review',
+          templateId: 'some-other-workflow',
+          templateVersion: '3',
+          revision: 2,
+        }),
+    })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'POST',
+          path: `/v1/pbc/tasks/${TASK}/start`,
+          body: { idempotencyKey: 'real-flat-conflict-001', intake: { title: 'test' } },
+        })
+        // RED (pre-fix): guard misses the flat instance → attaches a 2nd workflow → 200.
+        expect(response.status).toBe(409)
+        const body = await fixture.json<{ error: { code: string } }>(response)
+        expect(body.error.code).toMatch(/CONFLICT|INSTANCE_CONFLICT/)
+
+        const attachCalls = wrkf._calls.filter((c) => c.method === 'task.attach')
+        expect(attachCalls).toHaveLength(0)
+      },
+      { wrkf }
+    )
+  })
+
+  test('[RED] active PBC instance in REAL flat shape → reuse (no re-attach, 200)', async () => {
+    // An existing ACTIVE PBC instance must be reused, never re-attached.
+    const wrkf = makeProductFakePort({
+      taskInspect: async () =>
+        realFlatInspect({ status: 'active', phase: 'behavior_note', revision: 2 }),
+      next: async () => BEHAVIOR_NOTE_NEXT,
+    })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'POST',
+          path: `/v1/pbc/tasks/${TASK}/start`,
+          body: { idempotencyKey: 'real-flat-reuse-001', intake: { title: 'test' } },
+        })
+        expect(response.status).toBe(200)
+
+        // Existing active PBC instance → must NOT attach again.
+        const attachCalls = wrkf._calls.filter((c) => c.method === 'task.attach')
+        expect(attachCalls).toHaveLength(0)
+      },
+      { wrkf }
+    )
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
 // §5 — GET /v1/pbc/tasks/:taskId — PbcTaskProjection shape
 // ─────────────────────────────────────────────────────────────────────────────
 

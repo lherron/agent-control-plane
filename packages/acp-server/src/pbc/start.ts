@@ -47,12 +47,35 @@ function isNoWorkflowInstanceError(error: unknown): boolean {
   return isNotFound && message.includes('instance')
 }
 
+/**
+ * Resolve the workflow instance from a `wrkf.task.inspect` result, handling BOTH
+ * shapes:
+ *   - NESTED ({ task, instance }) — used by older unit fakes; `inspected.instance`
+ *     carries `workflowRef` + `state.status`.
+ *   - FLAT (REAL @wrkf/client) — NO `task`/`instance` wrapper; the inspected record
+ *     IS the instance: top-level `status`/`phase`/`revision` and `templateId` +
+ *     `templateVersion` (see wrkf-real-inspect-shape.test.ts). The live closed-start
+ *     bug (T-03072) was that the guard only looked at `inspected.instance`, missed
+ *     the flat instance entirely, and silently re-attached → 200 on a closed task.
+ *
+ * The real binary THROWS WRKF_NOT_FOUND when no instance exists (swallowed by
+ * isNoWorkflowInstanceError), so a successful flat inspect always means there IS
+ * an instance — identified here by a top-level `templateId` or `status`. A bare
+ * `{ task: {...} }` (no instance fields) is treated as "no instance" so a fresh
+ * task still falls through to attach.
+ */
 function existingInstanceFrom(inspected: unknown): Record<string, unknown> | undefined {
   if (!isRecord(inspected)) {
     return undefined
   }
   const instance = inspected['instance']
-  return isRecord(instance) ? instance : undefined
+  if (isRecord(instance)) {
+    return instance
+  }
+  if (typeof inspected['templateId'] === 'string' || typeof inspected['status'] === 'string') {
+    return inspected
+  }
+  return undefined
 }
 
 function instanceStatus(instance: Record<string, unknown>): string {
@@ -61,6 +84,31 @@ function instanceStatus(instance: Record<string, unknown>): string {
     return state['status']
   }
   return typeof instance['status'] === 'string' ? (instance['status'] as string) : 'unknown'
+}
+
+/**
+ * Resolve the workflow ref from either shape:
+ *   - NESTED fake: `instance.workflowRef` (already a full `name@version` ref).
+ *   - FLAT real:   `${templateId}@${templateVersion}` (composed, matching how
+ *     handleGetWorkflowTask builds workflowRef from the flat inspect keys).
+ *   - next-style instance: nested `template.{id,version}`.
+ * Returns undefined when none is present (treated as a non-PBC conflict).
+ */
+function instanceWorkflowRef(instance: Record<string, unknown>): string | undefined {
+  if (typeof instance['workflowRef'] === 'string') {
+    return instance['workflowRef']
+  }
+  const templateId = instance['templateId']
+  if (typeof templateId === 'string') {
+    const version = instance['templateVersion']
+    return version === undefined ? templateId : `${templateId}@${String(version)}`
+  }
+  const template = instance['template']
+  if (isRecord(template) && typeof template['id'] === 'string') {
+    const version = template['version']
+    return version === undefined ? template['id'] : `${template['id']}@${String(version)}`
+  }
+  return undefined
 }
 
 function instancePhase(instance: Record<string, unknown>): string {
@@ -121,20 +169,29 @@ export const handlePbcStart: RouteHandler = (context) => {
       const existing = existingInstanceFrom(inspected)
 
       if (existing !== undefined) {
-        const wfRef = typeof existing['workflowRef'] === 'string' ? existing['workflowRef'] : undefined
+        const wfRef = instanceWorkflowRef(existing)
         const status = instanceStatus(existing)
-        if (wfRef !== PBC_WORKFLOW_REF) {
+        // Detect PBC by workflow NAME (templateId), not the version-pinned ref:
+        // older PBC instances were attached at @1/@2/… and are still PBC. Matching
+        // the exact PBC_WORKFLOW_REF (@5) would misclassify them as a conflict.
+        const wfName = wfRef === undefined ? undefined : wfRef.split('@')[0]
+        const pbcName = PBC_WORKFLOW_REF.split('@')[0]
+        if (wfName === pbcName) {
+          // Existing PBC instance: a closed/finalized one is terminal (no restart);
+          // an active/waiting one is reused below (fall through to evidence/next).
+          if (status === 'closed') {
+            throw new AcpHttpError(
+              409,
+              'INSTANCE_CLOSED',
+              `task ${taskId} has a closed PBC instance; restart is not supported`
+            )
+          }
+        } else {
+          // Any non-PBC instance (active OR closed) blocks a PBC start.
           throw new AcpHttpError(
             409,
             'INSTANCE_CONFLICT',
-            `task ${taskId} has an active non-PBC workflow instance`
-          )
-        }
-        if (status === 'closed') {
-          throw new AcpHttpError(
-            409,
-            'INSTANCE_CLOSED',
-            `task ${taskId} has a closed PBC instance; restart is not supported`
+            `task ${taskId} has a non-PBC workflow instance (${wfRef ?? 'unknown'})`
           )
         }
       } else {
