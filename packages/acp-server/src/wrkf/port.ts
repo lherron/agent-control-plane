@@ -75,7 +75,14 @@ export type AcpWrkfWorkflowPort = {
   obligation: {
     list(params: { task: string }): Promise<unknown>
     show(params: { id: string }): Promise<unknown>
-    satisfy(params: { task: string; id: string; evidenceId?: string | undefined }): Promise<unknown>
+    satisfy(params: {
+      task: string
+      id: string
+      evidenceId?: string | undefined
+      /** wrkf enforces ownerRole on obligation.satisfy; forward caller's role/actor. */
+      role?: string | undefined
+      actor?: string | undefined
+    }): Promise<unknown>
     waive(params: Record<string, unknown>): Promise<unknown>
     cancel(params: Record<string, unknown>): Promise<unknown>
   }

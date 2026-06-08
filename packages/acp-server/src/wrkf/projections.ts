@@ -29,6 +29,7 @@ export type WrkfInstance = {
 
 export type ActionRecord = {
   id?: string | undefined
+  kind?: string | undefined
   transition?: string | undefined
   role?: string | undefined
   label?: string | undefined
@@ -216,12 +217,21 @@ function projectWorkflowRef(
 function projectActionRecord(value: unknown, label = 'action'): ActionRecord {
   const action = requireRecord(value, label)
   const id = readOptionalString(action, 'id')
-  const transition = readOptionalString(action, 'transition') ?? id
+  const kind = readOptionalString(action, 'kind')
+  // PBC@5 emits transition-kind actions with id='transition_<name>' (no 'transition' field).
+  // Strip the prefix so harness can use the bare wrkf transition name.
+  const explicitTransition = readOptionalString(action, 'transition')
+  const derivedTransition =
+    explicitTransition ??
+    (kind === 'transition' && typeof id === 'string' && id.startsWith('transition_')
+      ? id.slice('transition_'.length)
+      : id)
   const role = readOptionalString(action, 'role')
   const labelText = readOptionalString(action, 'label')
   return {
     ...(id !== undefined ? { id } : {}),
-    ...(transition !== undefined ? { transition } : {}),
+    ...(kind !== undefined ? { kind } : {}),
+    ...(derivedTransition !== undefined ? { transition: derivedTransition } : {}),
     ...(role !== undefined ? { role } : {}),
     ...(labelText !== undefined ? { label: labelText } : {}),
     raw: action,

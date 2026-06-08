@@ -74,7 +74,14 @@ export interface PbcEvidencePort {
   }
   obligation: {
     list(params: { task: string }): Promise<unknown[]>
-    satisfy(params: { task: string; id: string; evidenceId?: string }): Promise<unknown>
+    satisfy(params: {
+      task: string
+      id: string
+      evidenceId?: string
+      /** Forwarded to wrkf — wrkf enforces ownerRole on obligation.satisfy. */
+      role?: string
+      actor?: string
+    }): Promise<unknown>
   }
 }
 
@@ -207,6 +214,9 @@ export async function ingestEvidenceAndSatisfyObligations(
         task: input.task,
         id,
         ...(evidenceId !== undefined ? { evidenceId } : {}),
+        // wrkf enforces ownerRole on obligation.satisfy; forward the caller's role/actor.
+        role: input.role,
+        actor: input.actor,
       })
       obligationsSatisfied.push(projectObligationRecord(satisfied))
     }

@@ -494,6 +494,10 @@ function chooseSingleSafeTransition(
   allowDisposition: boolean
 ): string | undefined {
   const candidates = next.actions
+    // Only consider real wrkf transition-kind actions. collect_evidence actions
+    // (kind='collect_evidence') are not transitions and wrkf rejects them.
+    // For fakes without a kind (unit tests), undefined passes through.
+    .filter((a) => a.kind === 'transition' || a.kind === undefined)
     .map((a) => a.transition)
     .filter((t): t is string => typeof t === 'string')
     .filter((t) => allowDisposition || !isDispositionTransition(t))
