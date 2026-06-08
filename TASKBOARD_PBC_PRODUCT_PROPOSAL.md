@@ -46,6 +46,75 @@ Browser
 
 ---
 
+## As-built ACP contract (VERIFIED 2026-06-08, ACP @ 50dc490) — supersedes assumed shapes below
+
+The ACP PBC product facade (`/v1/pbc/*`) is implemented and live-validated end-to-end (see `var/PHASE7_GHOSTE2E_RESULTS.md`). All endpoints Taskboard depends on exist. Build against the shapes here, not the idealized shapes elsewhere in this doc.
+
+### Endpoints — all present ✅
+| ACP endpoint | Status | Notes |
+|---|---|---|
+| `POST /v1/pbc/tasks/:taskId/start` | ✅ | attaches PBC + seeds intake + normalize + admits a continuation job |
+| `GET  /v1/pbc/tasks/:taskId` | ✅ | returns `PbcTaskProjection` |
+| `POST /v1/pbc/tasks/:taskId/input` | ✅ | `clarification_response` \| `patch_decision`; human actor only; agent → 403 |
+| `POST /v1/pbc/tasks/:taskId/continue` | ✅ | admits/replays a durable job; no inline HRC |
+| `POST /v1/pbc/tasks/:taskId/dispose` | ✅ | human actor only; `{resolution, reason}` |
+| `GET  /v1/pbc/jobs/:jobId` | ✅ | durable job status |
+| `POST /v1/pbc/tasks/:taskId/effects/reconcile` | ✅ | operator/debug only (not for Taskboard product use) |
+
+`/v1/wrkf/pbc/*` debug routes are now operator-gated (operation `wrkf.pbc.*`); product `/v1/pbc/*` uses `pbc.*` operations. Do not call the debug routes from Taskboard. ✅ matches the proposal.
+
+### `PbcTaskProjection` — actual as-built shape (`GET /v1/pbc/tasks/:taskId`)
+```jsonc
+{
+  "source": "wrkf",
+  "taskId": "T-…",
+  "workflowRef": "pbc-progressive-refinement@5",
+  "task": { /* title,state,projectId,containerId,url — OFTEN {} (ACP does not fetch wrkq detail; Taskboard merges its own) */ },
+  "instance": { "id", "status", "phase", "revision", "contextHash?", "stale?" },
+  "screen": "starting|working|clarification|patch_decision|finalized|disposed|blocked|error",
+  "currentInput?": { "kind": "clarification_response|patch_decision", "schema": {}, "prompt?", "defaults?" },
+  "artifacts": {},                       // ⚠️ SEE GAP 1 — currently HARDCODED EMPTY
+  "obligations": [ { "id", "kind", "status" } ],
+  "actions": [ { "kind", "enabled": true } ],   // ⚠️ SEE GAP 2 — raw wrkf action names, not product actions
+  "activeJob?": { "id", "status", "startedAt?", "finishedAt?", "error?" },  // NOTE: no stopReason here
+  "effects": [ { "id", "kind", "status" } ],
+  "diagnostics": { "pack": "pbc", "revision", "contextHash?", "legalTransitions?": [...], "stopReason?", "warnings?" }
+}
+```
+
+### ⚠️ Two ACP gaps that affect the Taskboard UX (tracked as ACP follow-up T-03110)
+1. **`artifacts` is hardcoded `{}`** (projection.ts:160) — it is NOT populated from evidence. The "main artifact panel" (intake, behavior note, draft, pressure pass, final, disposition) has **no data source as-built**. Until ACP populates `artifacts`, Taskboard's artifact panel will be empty. Either wait for the ACP follow-up, or (interim) read artifacts from the generic `GET /v1/tasks/:taskId` evidence list (`evidence[].data` is first-class there).
+2. **`actions` are raw wrkf action names** (`collect_behavior_note`, `normalize_feedback`, …, all `enabled:true`), **not** the product actions (`continue`/`submit_clarification`/`submit_patch_decision`/`dispose`/`retry_effect_delivery`) this doc assumed. **Do NOT drive product buttons off `actions`.** Drive the UI off **`screen`** (which is correct and authoritative): `clarification`→clarification form, `patch_decision`→patch form, `working`/`starting`→poll+continue, `finalized`/`disposed`→read-only, `blocked`/`error`→retry. Treat `actions`/`diagnostics.legalTransitions` as operator diagnostics only.
+
+### `start` request — actual
+ACP reads `{ idempotencyKey, intake }` (the whole `intake` object is stored as `intake_metadata.facts`). **`autoContinue` is IGNORED** — start ALWAYS admits a continuation job unless the instance is waiting/terminal. So the intake page's auto-continue toggle has no ACP effect today (job is auto-admitted regardless); if you need a no-auto-run mode, that's a future ACP change.
+
+### `GET /v1/pbc/jobs/:jobId` — actual (FLAT, not wrapped)
+```jsonc
+{ "id", "taskId", "status": "queued|running|succeeded|failed|cancelled", "startedAt?", "finishedAt?", "error?", "stopReason?" }
+```
+There is no `{ job: {...}, pbc? }` wrapper from ACP — Taskboard does that wrapping itself (proposal §`GET /admin/pbc/jobs/:jobId` is the Taskboard shape, fine). Note `cancelled` is a possible status (proposal listed only queued/running/succeeded/failed).
+
+### Actual error codes (use these in the error-mapping section, not the assumed names)
+| HTTP | Actual code | Replaces assumed |
+|---|---|---|
+| 409 | `IDEMPOTENCY_MISMATCH` | idempotency_conflict |
+| 409 | `INSTANCE_CONFLICT` | workflow_conflict (active non-PBC instance) |
+| 409 | `INSTANCE_CLOSED` | (closed PBC instance; no restart) |
+| 422 | `WRONG_SCREEN_KIND` | invalid_input (input kind not accepted on current screen) |
+| 403 | `actor_forbidden` | (agent tried product-owner input; or non-human dispose) |
+| 404 | `WRKF_NOT_FOUND` / `JOB_NOT_FOUND` | — |
+| 503 | `WRKF_UNAVAILABLE` / `STATE_STORE_UNAVAILABLE` | WRKF_UNAVAILABLE |
+| 400 | `malformed_request` | — |
+
+### Confirmed matches (no change needed)
+- `input` body = `{ idempotencyKey, kind, data }`; `dispose` body = `{ resolution, reason }` (+ idempotencyKey) — server takes form data only; actor from auth, never from browser body. ✅
+- `screen` field present with exactly the 8 values this doc assumed. ✅
+- Idempotency: same key+body replays; same key+different body → 409 `IDEMPOTENCY_MISMATCH`. ✅
+- `contextHash` is diagnostics-only; never required as a mutation input. ✅
+
+---
+
 ## Pressure test against the actual Taskboard implementation
 
 ### What already exists
