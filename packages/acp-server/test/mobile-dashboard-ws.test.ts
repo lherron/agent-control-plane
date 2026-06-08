@@ -15,7 +15,11 @@ import {
   openMobileWebSocket,
 } from '../src/handlers/mobile.js'
 
-const NOW = '2026-05-18T17:00:00.000Z'
+// Use a fresh timestamp so the dashboard replay age gate
+// (ACP_MOBILE_DASHBOARD_MAX_REPLAY_AGE_MS) never trips on wall-clock drift.
+// A hardcoded date silently rots: replays older than the policy window get
+// rejected as replay_gap_too_large once enough real time passes.
+const NOW = new Date().toISOString()
 const SESSION: HrcSessionRecord = {
   hostSessionId: 'hsid-mobile-dashboard',
   scopeRef: 'agent:larry:project:agent-spaces:task:T-01507',

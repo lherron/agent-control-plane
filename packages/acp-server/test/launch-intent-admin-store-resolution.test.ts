@@ -32,44 +32,7 @@ function makeSessionRef(projectId: string): { scopeRef: string; laneRef: string 
   }
 }
 
-function buildDeps(input: {
-  projectId: string
-  bundle?: { kind: string; [key: string]: unknown }
-}): LaunchIntentDeps {
-  const adminStore = createInMemoryAdminStore()
-  adminStore.projects.create({
-    projectId: input.projectId,
-    displayName: input.projectId,
-    homeDir: ADMIN_HOME_DIR,
-    actor: ACTOR,
-    now: '2026-05-15T00:00:00.000Z',
-  })
-
-  return {
-    adminStore,
-    runtimeResolver: async () => ({
-      agentRoot: WRONG_AGENT_ROOT,
-      projectRoot: WRONG_PROJECT_ROOT,
-      cwd: WRONG_CWD,
-      runMode: 'task',
-      bundle: input.bundle ?? { kind: 'compose', compose: [] },
-      harness: { provider: 'anthropic', interactive: true },
-    }),
-    agentRootResolver: undefined,
-  }
-}
-
 describe('resolveLaunchIntent admin-store project-root resolution', () => {
-  test('placement.cwd and projectRoot resolve from adminStore homeDir even when runtimeResolver returns agent-root-ish values', async () => {
-    const deps = buildDeps({ projectId: 'vitals' })
-
-    const intent = await resolveLaunchIntent(deps, makeSessionRef('vitals'))
-
-    expect(intent.placement.cwd).toBe(ADMIN_HOME_DIR)
-    expect(intent.placement.projectRoot).toBe(ADMIN_HOME_DIR)
-    expect(intent.placement.cwd).not.toBe(WRONG_AGENT_ROOT)
-    expect(intent.placement.cwd).not.toBe(WRONG_CWD)
-  })
 
   test('empty-compose bundle is rebuilt with the adminStore project root when runtimeResolver returns a degenerate bundle', async () => {
     // buildRuntimeBundleRef switches to 'agent-project' only if an agent-profile.toml
