@@ -10,7 +10,13 @@ import type { RouteHandler } from '../routing/route-context.js'
 import type { AcpStateStore, PbcContinuationJob } from 'acp-state-store'
 
 import { buildPbcTaskProjection } from './projection.js'
-import { mapPbcRouteError, readPbcNext, requirePbcTaskId, requirePbcWrkf } from './shared.js'
+import {
+  mapPbcRouteError,
+  readPbcEvidence,
+  readPbcNext,
+  requirePbcTaskId,
+  requirePbcWrkf,
+} from './shared.js'
 
 function findActiveJob(
   stateStore: AcpStateStore | undefined,
@@ -33,11 +39,13 @@ export const handlePbcGetTask: RouteHandler = async (context) => {
   try {
     const inspected = await wrkf.task.inspect({ task: taskId })
     const next = await readPbcNext(wrkf, taskId)
+    const evidence = await readPbcEvidence(wrkf, taskId)
     const taskMeta = isRecord(inspected) ? inspected['task'] : undefined
     const job = findActiveJob(context.deps.stateStore, taskId)
-    return Response.json(buildPbcTaskProjection({ taskId, next, task: taskMeta, job }), {
-      status: 200,
-    })
+    return Response.json(
+      buildPbcTaskProjection({ taskId, next, task: taskMeta, job, evidence }),
+      { status: 200 }
+    )
   } catch (error) {
     throw mapPbcRouteError(error)
   }

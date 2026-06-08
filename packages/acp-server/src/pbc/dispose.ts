@@ -18,6 +18,7 @@ import { buildPbcTaskProjection } from './projection.js'
 import {
   deliverPbcEffects,
   mapPbcRouteError,
+  readPbcEvidence,
   readPbcNext,
   requirePbcTaskId,
   requirePbcWrkf,
@@ -67,7 +68,8 @@ export const handlePbcDispose: RouteHandler = async (context) => {
     await deliverPbcEffects(wrkf, taskId)
 
     const after = await readPbcNext(wrkf, taskId)
-    return json(buildPbcTaskProjection({ taskId, next: after }), 200)
+    const evidence = await readPbcEvidence(wrkf, taskId)
+    return json(buildPbcTaskProjection({ taskId, next: after, evidence }), 200)
   } catch (error) {
     throw mapPbcRouteError(error)
   }

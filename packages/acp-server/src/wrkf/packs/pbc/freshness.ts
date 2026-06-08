@@ -89,7 +89,13 @@ export function checkPbcFreshness(input: {
   return { blocked: false }
 }
 
-function currentRevisionWindow(timeline: PbcEvidenceSnapshot[]): PbcEvidenceSnapshot[] {
+/**
+ * Slice the evidence timeline down to the CURRENT revision window — everything
+ * after the most recent revision boundary (a too_vague pressure_pass or a revise
+ * patch_decision). Shared by the freshness gate and the PbcTaskProjection
+ * artifacts builder so "latest eligible" draft/pressure/final stay in sync.
+ */
+export function currentRevisionWindow<T extends PbcEvidenceSnapshot>(timeline: T[]): T[] {
   let boundaryIndex = -1
   for (let index = 0; index < timeline.length; index++) {
     const evidence = timeline[index]
@@ -110,10 +116,10 @@ function isRevisionBoundary(evidence: PbcEvidenceSnapshot): boolean {
   return false
 }
 
-function latestOfKind(
-  timeline: PbcEvidenceSnapshot[],
+export function latestOfKind<T extends PbcEvidenceSnapshot>(
+  timeline: T[],
   kind: string
-): PbcEvidenceSnapshot | undefined {
+): T | undefined {
   for (let index = timeline.length - 1; index >= 0; index--) {
     const evidence = timeline[index]
     if (evidence?.kind === kind) {

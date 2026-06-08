@@ -71,6 +71,7 @@ export type EffectRecord = {
   idempotencyKey?: string | undefined
   revision?: number | undefined
   attempts?: number | undefined
+  retryable?: boolean | undefined
   raw: Record<string, unknown>
 }
 
@@ -165,6 +166,7 @@ export function projectEffectRecord(value: unknown, label = 'effect'): EffectRec
   const idempotencyKey = readOptionalString(effect, 'idempotencyKey')
   const revision = readOptionalNumber(effect, 'revision')
   const attempts = readOptionalNumber(effect, 'attempts')
+  const retryable = readOptionalBoolean(effect, 'retryable')
   return {
     id: requireString(effect, 'id', label),
     kind: requireString(effect, 'kind', label),
@@ -173,6 +175,7 @@ export function projectEffectRecord(value: unknown, label = 'effect'): EffectRec
     ...(idempotencyKey !== undefined ? { idempotencyKey } : {}),
     ...(revision !== undefined ? { revision } : {}),
     ...(attempts !== undefined ? { attempts } : {}),
+    ...(retryable !== undefined ? { retryable } : {}),
     raw: effect,
   }
 }

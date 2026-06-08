@@ -23,6 +23,7 @@ import {
   admitPbcContinuationJob,
   deliverPbcEffects,
   isAdmissibleForContinuation,
+  readPbcEvidence,
   readPbcNext,
   requirePbcStateStore,
   requirePbcTaskId,
@@ -223,7 +224,8 @@ export const handlePbcStart: RouteHandler = (context) => {
         : undefined
 
       const taskMeta = isRecord(inspected) ? inspected['task'] : undefined
-      return buildPbcTaskProjection({ taskId, next, task: taskMeta, job })
+      const evidence = await readPbcEvidence(wrkf, taskId)
+      return buildPbcTaskProjection({ taskId, next, task: taskMeta, job, evidence })
     }
   )
 }

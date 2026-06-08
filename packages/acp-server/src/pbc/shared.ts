@@ -11,13 +11,18 @@ import type { Actor } from 'acp-core'
 import type { AcpStateStore, PbcContinuationJob } from 'acp-state-store'
 
 import { AcpHttpError } from '../http.js'
+import { isRecord } from '../parsers/body.js'
 import type { RouteContext } from '../routing/route-context.js'
 import { deliverWrkfEffects } from '../wrkf/effect-delivery.js'
 import { wrkfErrorToHttpStatus } from '../wrkf/errors.js'
 import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
-import { projectNextActionResponse, type NextActionResponse } from '../wrkf/projections.js'
+import {
+  projectEvidenceRecord,
+  projectNextActionResponse,
+  type NextActionResponse,
+} from '../wrkf/projections.js'
 
-import { PBC_WORKFLOW_REF } from './projection.js'
+import { PBC_WORKFLOW_REF, type PbcArtifactEvidence } from './projection.js'
 
 /** wrkf actor wire form (`kind:id`) from a parsed Actor. */
 export function wrkfActorString(actor: Actor): string {
@@ -70,6 +75,32 @@ export async function readPbcNext(
   taskId: string
 ): Promise<NextActionResponse> {
   return projectNextActionResponse(await wrkf.next({ task: taskId, role: 'agent' }))
+}
+
+/**
+ * Read the task evidence timeline (oldest→newest) as browser-safe artifact
+ * snapshots for the PbcTaskProjection.artifacts map. Tolerant of an empty or
+ * non-array wrkf response.
+ */
+export async function readPbcEvidence(
+  wrkf: AcpWrkfWorkflowPort,
+  taskId: string
+): Promise<PbcArtifactEvidence[]> {
+  const listed = await wrkf.evidence.list({ task: taskId })
+  if (!Array.isArray(listed)) {
+    return []
+  }
+  return listed.map((entry, index) => {
+    const record = projectEvidenceRecord(entry, `evidence[${index}]`)
+    return {
+      id: record.id,
+      kind: record.kind,
+      ...(isRecord(record.data) ? { data: record.data } : {}),
+      ...(record.facts !== undefined ? { facts: record.facts } : {}),
+      ...(record.summary !== undefined ? { summary: record.summary } : {}),
+      ...(record.actor !== undefined ? { actor: record.actor } : {}),
+    }
+  })
 }
 
 /** A workflow instance is admissible for a continuation job only when active. */

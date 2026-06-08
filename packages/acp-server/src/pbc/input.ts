@@ -25,6 +25,7 @@ import {
   deliverPbcEffects,
   isAdmissibleForContinuation,
   mapPbcRouteError,
+  readPbcEvidence,
   readPbcNext,
   requirePbcStateStore,
   requirePbcTaskId,
@@ -159,7 +160,8 @@ export const handlePbcInput: RouteHandler = async (context) => {
         })
       : undefined
 
-    return json(buildPbcTaskProjection({ taskId, next: after, job }), 200)
+    const evidence = await readPbcEvidence(wrkf, taskId)
+    return json(buildPbcTaskProjection({ taskId, next: after, job, evidence }), 200)
   } catch (error) {
     throw mapPbcRouteError(error)
   }
