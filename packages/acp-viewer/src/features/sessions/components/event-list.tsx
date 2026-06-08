@@ -27,12 +27,15 @@ export function EventList({
   onSelectEvent: (eventId: string) => void
 }) {
   const listRef = useRef<HTMLDivElement>(null)
-  const visibleEvents = useMemo(() => events.slice(-WINDOW_SIZE), [events])
+  // Newest-first: keep the most recent window, reversed so the latest event is
+  // at the top. New events push down older rows; follow the live tail by pinning
+  // the scroll to the top.
+  const visibleEvents = useMemo(() => events.slice(-WINDOW_SIZE).reverse(), [events])
 
   useEffect(() => {
     const list = listRef.current
     if (!list) return
-    list.scrollTop = list.scrollHeight
+    list.scrollTop = 0
   }, [visibleEvents.length])
 
   return (

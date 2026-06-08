@@ -3,7 +3,13 @@ export {
   admissionLabelFromResponse,
   type AdmissionLabelInput,
 } from 'agent-action-render'
-import { admissionLabel } from 'agent-action-render'
+import {
+  admissionLabel,
+  extractToolPreview,
+  getToolDisplayName,
+  resolveToolPresenter,
+  truncateText,
+} from 'agent-action-render'
 
 export type DashboardEventFamily =
   | 'runtime'
@@ -236,7 +242,12 @@ function deriveFamily(event: HrcLifecycleEvent): DashboardEventFamily {
   const type = payloadType(event)
 
   if (type === 'message_start' || type === 'message_update' || type === 'message_end') {
-    return 'agent_message'
+    // A user-prompt turn (e.g. turn.user_prompt) rides the message_end shape with
+    // role:'user'. Route it to the input family so it reads distinctly from the
+    // agent's own messages instead of blending into the assistant stream.
+    return readString(payloadMessageRecord(event)?.['role']) === 'user'
+      ? 'input'
+      : 'agent_message'
   }
 
   if (
@@ -314,6 +325,69 @@ function deriveSeverity(event: HrcLifecycleEvent): DashboardEventSeverity {
   return 'info'
 }
 
+// Budget for the human-facing one-line detail. Wider than the terminal preview
+// budget (60) because the dashboard inspector has horizontal room; the list row
+// CSS-truncates visually, so this only bounds the underlying string.
+const DETAIL_CHAR_LIMIT = 200
+
+function compactDetail(text: string | undefined): string | undefined {
+  if (text === undefined) return undefined
+  const collapsed = text.replace(/\s+/g, ' ').trim()
+  if (collapsed.length === 0) return undefined
+  return truncateText(collapsed, DETAIL_CHAR_LIMIT, '…')
+}
+
+function toolNameOf(event: HrcLifecycleEvent): string | undefined {
+  return readString(payloadRecord(event)?.['toolName'])
+}
+
+function toolInputOf(event: HrcLifecycleEvent): ObjectRecord {
+  const input = payloadRecord(event)?.['input']
+  return isRecord(input) ? input : {}
+}
+
+function payloadMessageRecord(event: HrcLifecycleEvent): ObjectRecord | undefined {
+  const message = payloadRecord(event)?.['message']
+  return isRecord(message) ? message : undefined
+}
+
+/** Flatten assistant content (string or block array) into a readable line. */
+function contentText(content: unknown): string | undefined {
+  if (typeof content === 'string') return content.length > 0 ? content : undefined
+  if (!Array.isArray(content)) return undefined
+
+  const parts: string[] = []
+  for (const block of content) {
+    if (!isRecord(block)) continue
+    if (block['type'] === 'text') {
+      const text = readString(block['text'])
+      if (text) parts.push(text)
+    } else if (block['type'] === 'tool_use') {
+      const name = readString(block['name'])
+      if (name) parts.push(`→ ${name}`)
+    }
+  }
+  return parts.length > 0 ? parts.join(' ') : undefined
+}
+
+function toolResultText(result: unknown): string | undefined {
+  if (typeof result === 'string') return result.length > 0 ? result : undefined
+  const content = isRecord(result) ? result['content'] : undefined
+  return contentText(content)
+}
+
+function isToolType(type: string | undefined): boolean {
+  return (
+    type === 'tool_execution_start' ||
+    type === 'tool_execution_update' ||
+    type === 'tool_execution_end'
+  )
+}
+
+function isMessageType(type: string | undefined): boolean {
+  return type === 'message_start' || type === 'message_update' || type === 'message_end'
+}
+
 function eventLabel(event: HrcLifecycleEvent): string {
   if (event.eventKind.startsWith('input.')) {
     const pr = payloadRecord(event)
@@ -324,11 +398,64 @@ function eventLabel(event: HrcLifecycleEvent): string {
       reason: readString(pr?.['reason']),
     })
   }
-  return payloadType(event) ?? event.eventKind
+
+  const type = payloadType(event)
+
+  if (isToolType(type)) {
+    const name = toolNameOf(event)
+    if (name) {
+      const input = toolInputOf(event)
+      return getToolDisplayName(resolveToolPresenter(name, input), name, input)
+    }
+  }
+
+  if (isMessageType(type)) {
+    return readString(payloadMessageRecord(event)?.['role']) ?? 'message'
+  }
+
+  return type ?? event.eventKind
 }
 
 function eventShortDetail(event: HrcLifecycleEvent): string | undefined {
-  return eventErrorCode(event) ?? payloadType(event) ?? event.category
+  const errorCode = eventErrorCode(event)
+  if (errorCode !== undefined) return errorCode
+
+  const type = payloadType(event)
+  const pr = payloadRecord(event)
+
+  if (type === 'tool_execution_start' || type === 'tool_execution_update') {
+    const name = toolNameOf(event)
+    if (name) return compactDetail(extractToolPreview(name, toolInputOf(event), ''))
+  }
+
+  if (type === 'tool_execution_end') {
+    const failed = pr?.['isError'] === true
+    const detail = compactDetail(toolResultText(pr?.['result'] ?? pr?.['output']))
+    if (failed) return detail ? `error: ${detail}` : 'error'
+    return detail
+  }
+
+  if (type === 'message_update') {
+    const delta = readString(pr?.['textDelta'])
+    if (delta) return compactDetail(delta)
+    return compactDetail(contentText(pr?.['contentBlocks']))
+  }
+
+  if (type === 'message_start' || type === 'message_end') {
+    return compactDetail(contentText(payloadMessageRecord(event)?.['content']))
+  }
+
+  if (event.eventKind === 'turn.completed' || event.eventKind === 'turn_end') {
+    const success = readBoolean(pr?.['success'])
+    const reason = readString(pr?.['reason']) ?? readString(pr?.['source'])
+    const status = success === false ? 'failed' : 'completed'
+    return reason ? `${status} (${reason})` : status
+  }
+
+  const reason = readString(pr?.['reason'])
+  if (reason !== undefined) return reason
+
+  return payloadType(event) ?? event.category
 }
 
 function redactionOptions(opts: RedactionOptions): ResolvedRedactionOptions {
