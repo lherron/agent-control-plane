@@ -3,13 +3,14 @@
  *
  * This is the ONLY place PBC-specific ref strings appear. The manifest recognises
  * the `pbc-progressive-refinement@5` workflow and pins it by template hash when a
- * hash is supplied. The behavior slots (compilePrompt, parseParticipantOutput,
- * mapHumanInput, chooseTransition, project, workerPolicy) are intentionally left
- * undefined here — they are extracted from the existing pbc-* runtime files in
- * later sub-phases (2b–2d). For now this is a `supports()` shim only.
+ * hash is supplied. Pack behavior is wired here so the generic runtime can call
+ * typed contracts without importing PBC-specific policy.
  */
 
 import type { WorkflowPack, WorkflowPackSupport } from '../../runtime/workflow-pack.js'
+import { mapPbcHumanInput, parsePbcParticipantOutput } from './output-parser.js'
+import { choosePbcTransition } from './transition-policy.js'
+import { pbcWorkerPolicy } from './worker-policy.js'
 
 /** The only workflow ref this pack claims. */
 const PBC_WORKFLOW_REF = 'pbc-progressive-refinement@5'
@@ -40,4 +41,8 @@ export const pbcManifest: WorkflowPack = {
     }
     return { claimed: true, supported: true, level: 3 }
   },
+  parseParticipantOutput: parsePbcParticipantOutput,
+  mapHumanInput: mapPbcHumanInput,
+  chooseTransition: choosePbcTransition,
+  workerPolicy: pbcWorkerPolicy,
 }

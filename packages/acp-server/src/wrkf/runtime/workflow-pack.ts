@@ -47,12 +47,74 @@ export type WorkflowPackInput = {
   template?: unknown
 }
 
-/** Placeholder slot signatures — concrete shapes are pinned in later sub-phases. */
-export type CompilePromptFn = (input: unknown) => unknown
-export type ParseParticipantOutputFn = (input: unknown) => unknown
-export type MapHumanInputFn = (input: unknown) => unknown
-export type ChooseTransitionFn = (input: unknown) => unknown
+import type { NextActionResponse } from '../projections.js'
+import type { ParticipantOutput } from './evidence-writer.js'
+
+export type MaybePromise<T> = T | Promise<T>
+
+export type CompilePromptFn = (input: {
+  task: string
+  role: string
+  actor: string
+  next: NextActionResponse
+}) => MaybePromise<unknown>
+
+export type ParseParticipantOutputFn = (input: {
+  text: string
+  role: string
+  actor: string
+  next?: NextActionResponse | undefined
+}) => MaybePromise<ParticipantOutput>
+
+export type MapHumanInputFn = (input: {
+  text: string
+  role: string
+  actor: string
+  next: NextActionResponse
+}) => MaybePromise<ParticipantOutput>
+
+export type ChooseTransitionResult =
+  | string
+  | {
+      transition: string
+      actor?: string | undefined
+    }
+
+export type ChooseTransitionFn = (input: {
+  next: NextActionResponse
+  actor: string
+  role: string
+  alternateActor?: string | undefined
+  reviewerActor?: string | undefined
+  allowExplicitOnly?: boolean | undefined
+  candidateTransitions?: string[] | undefined
+}) => MaybePromise<ChooseTransitionResult | undefined>
 export type ProjectFn = (input: unknown) => unknown
+
+export type WorkerPolicyDecision =
+  | {
+      kind: 'stop'
+      reason: string
+    }
+  | {
+      kind: 'write-output'
+      role: string
+      actor: string
+      participantOutput: ParticipantOutput
+      allowSimulation?: boolean | undefined
+    }
+  | {
+      kind: 'continue'
+    }
+
+export type WorkerPolicyFn = (input: {
+  task: string
+  next: NextActionResponse
+  actor: string
+  alternateActor?: string | undefined
+  reviewerActor?: string | undefined
+  allowSimulation?: boolean | undefined
+}) => MaybePromise<WorkerPolicyDecision>
 
 /**
  * A pack adapting a workflow family to the generic runtime.
@@ -70,5 +132,5 @@ export type WorkflowPack = {
   mapHumanInput?: MapHumanInputFn | undefined
   chooseTransition?: ChooseTransitionFn | undefined
   project?: ProjectFn | undefined
-  workerPolicy?: unknown
+  workerPolicy?: WorkerPolicyFn | undefined
 }
