@@ -19,10 +19,10 @@
 import { describe, expect, test } from 'bun:test'
 
 // These imports define the module contract. They will fail until the module exists.
-import { type PromptCompileInput, compilePbcPrompt } from './pbc-prompt-compiler.js'
+import { type PromptCompileInput, compilePbcPrompt } from './prompt-compiler.js'
 
-import { projectPbcTemplateModel } from './pbc-template-model.js'
-import type { EvidenceRecord, NextActionResponse, ObligationRecord } from './projections.js'
+import { projectPbcTemplateModel } from './template-model.js'
+import type { EvidenceRecord, NextActionResponse, ObligationRecord } from '../../projections.js'
 
 // ---------------------------------------------------------------------------
 // Shared fixtures

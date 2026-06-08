@@ -5,7 +5,7 @@ import {
   getPhaseGuidance,
   getTransitionGuidance,
   projectPbcTemplateModelFromWorkflowShow,
-} from './pbc-template-model.js'
+} from './template-model.js'
 
 const NEXT_ACTION_MODEL = {
   schemaVersion: 'wrkf.next-action-model.v1',
