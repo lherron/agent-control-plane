@@ -57,8 +57,8 @@ const DEFAULT_ACTOR = 'acp-server'
 // PBC continuation worker launches participant turns as real provisioned agents.
 // Draft (agent role) and pressure reviewer must be DISTINCT for separation-of-duty.
 // Overridable per deployment; a task's explicit roleMap still takes precedence.
-const PBC_DRAFT_AGENT = process.env['ACP_PBC_DRAFT_AGENT']?.trim() || 'larry'
-const PBC_REVIEWER_AGENT = process.env['ACP_PBC_REVIEWER_AGENT']?.trim() || 'curly'
+const PBC_DRAFT_AGENT = process.env['ACP_PBC_DRAFT_AGENT']?.trim() || 'pbc-writer'
+const PBC_REVIEWER_AGENT = process.env['ACP_PBC_REVIEWER_AGENT']?.trim() || 'pbc-reviewer'
 const DEFAULT_JOBS_SCHEDULER_INTERVAL_MS = 5_000
 const DEFAULT_INTERFACE_DISPATCHER_INTERVAL_MS = 2_000
 const DEFAULT_INTERFACE_DISPATCHER_STALE_TIMEOUT_MS = 600_000 // 10 minutes
