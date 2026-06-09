@@ -3,6 +3,7 @@ import type { ParticipantOutput } from '../wrkf/runtime/evidence-writer.js'
 import { parsePbcParticipantOutput } from '../wrkf/packs/pbc/output-parser.js'
 import {
   PARTICIPANT_OUTPUT_SCHEMA,
+  buildPbcContextSection,
   compilePbcPrompt,
 } from '../wrkf/packs/pbc/prompt-compiler.js'
 import { projectPbcTemplateModelFromWorkflowShow } from '../wrkf/packs/pbc/template-model.js'
@@ -564,9 +565,11 @@ function compileWorkerPrompt(
   }
 
   // Fallback: template model not available on the `next` projection. Still
-  // embed the participant-output schema + the strict directive so the agent
-  // knows the exact contract.
+  // embed the CONTEXT section (raw product feedback + per-phase prior-evidence
+  // content) so the agent is NOT content-blind, plus the participant-output
+  // schema + the strict directive so it knows the exact contract (T-03755).
   const actions = transitionNames(next).join(', ') || '(none)'
+  const contextSection = buildPbcContextSection(next.instance.state.phase, priorEvidence)
   return [
     '# PBC continuation turn',
     '',
@@ -575,6 +578,7 @@ function compileWorkerPrompt(
     `Actor: ${actor}`,
     `Workflow state: ${next.instance.state.status}/${next.instance.state.phase}`,
     `Candidate transitions: ${actions}`,
+    ...(contextSection !== undefined ? ['', contextSection] : []),
     '',
     STRICT_OUTPUT_DIRECTIVE,
     '',

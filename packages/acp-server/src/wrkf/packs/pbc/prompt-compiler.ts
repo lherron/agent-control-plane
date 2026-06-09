@@ -171,6 +171,62 @@ function extractContentLines(record: EvidenceRecord): string[] {
 }
 
 /**
+ * Build the "## Context — product feedback & prior evidence content" section
+ * (T-03678/T-03755). Surfaces the SUBSTANTIVE content the participant needs to
+ * write grounded PBC evidence this turn — the task's raw product feedback plus
+ * the content (not just kind+id) of prior evidence relevant to the current
+ * phase. Shared by BOTH the template path (compilePbcPrompt) AND the
+ * compileWorkerPrompt fallback path so the agent is never content-blind
+ * regardless of template availability. Returns undefined when there is no
+ * context to surface.
+ */
+export function buildPbcContextSection(
+  phase: string,
+  evidence: EvidenceRecord[]
+): string | undefined {
+  const contextLines: string[] = []
+
+  const rawFeedback = extractRawFeedback(evidence)
+  if (rawFeedback !== undefined) {
+    contextLines.push('### Raw product feedback', '', rawFeedback)
+  }
+
+  const relevantKinds = PHASE_CONTEXT_KINDS[phase]
+  const relevant = evidence.filter(
+    (record) =>
+      record.kind !== 'intake_metadata' &&
+      (relevantKinds === undefined || relevantKinds.includes(record.kind))
+  )
+  if (relevant.length > 0) {
+    if (contextLines.length > 0) {
+      contextLines.push('')
+    }
+    contextLines.push('### Prior evidence content')
+    for (const record of relevant) {
+      const body = extractContentLines(record)
+      contextLines.push('', `#### ${record.kind} (id: ${record.id})`)
+      if (body.length > 0) {
+        contextLines.push(...body)
+      }
+    }
+  }
+
+  if (contextLines.length === 0) {
+    return undefined
+  }
+
+  return [
+    '## Context — product feedback & prior evidence content',
+    '',
+    'Ground your evidence in the content below. This is the actual product',
+    'feedback and the relevant prior evidence for this phase — write about',
+    'THIS, do not describe the prompt or invent facts.',
+    '',
+    ...contextLines,
+  ].join('\n')
+}
+
+/**
  * The exact participant output contract, embedded verbatim in the prompt so the
  * participant returns a parseable ParticipantOutput (SPEC §4.8).
  */
@@ -244,45 +300,9 @@ export function compilePbcPrompt(input: PromptCompileInput): string {
   // Without this the agent writes content-blind output about the prompt contract
   // itself rather than about the actual feedback (e.g. "dark mode toggle").
   {
-    const contextLines: string[] = []
-
-    const rawFeedback = extractRawFeedback(input.evidenceSummaries)
-    if (rawFeedback !== undefined) {
-      contextLines.push('### Raw product feedback', '', rawFeedback)
-    }
-
-    const relevantKinds = PHASE_CONTEXT_KINDS[state.phase]
-    const relevant = input.evidenceSummaries.filter(
-      (record) =>
-        record.kind !== 'intake_metadata' &&
-        (relevantKinds === undefined || relevantKinds.includes(record.kind))
-    )
-    if (relevant.length > 0) {
-      if (contextLines.length > 0) {
-        contextLines.push('')
-      }
-      contextLines.push('### Prior evidence content')
-      for (const record of relevant) {
-        const body = extractContentLines(record)
-        contextLines.push('', `#### ${record.kind} (id: ${record.id})`)
-        if (body.length > 0) {
-          contextLines.push(...body)
-        }
-      }
-    }
-
-    if (contextLines.length > 0) {
-      sections.push(
-        [
-          '## Context — product feedback & prior evidence content',
-          '',
-          'Ground your evidence in the content below. This is the actual product',
-          'feedback and the relevant prior evidence for this phase — write about',
-          'THIS, do not describe the prompt or invent facts.',
-          '',
-          ...contextLines,
-        ].join('\n')
-      )
+    const contextSection = buildPbcContextSection(state.phase, input.evidenceSummaries)
+    if (contextSection !== undefined) {
+      sections.push(contextSection)
     }
   }
 
