@@ -2359,3 +2359,158 @@ describe('runPbcContinuationWorker — worker prompt content (T-03678)', () => {
     expect(prompt).toContain('interface ParticipantOutput')
   })
 })
+
+// ===========================================================================
+// 11. WORKER PROMPT CONTENT — FALLBACK PATH (T-03755)
+//
+// RED tests: compileWorkerPrompt FALLBACK (triggered when next.instance.template
+// is absent — the live production case) must ALSO embed the CONTEXT section with
+// raw product feedback and per-phase prior-evidence content.
+//
+// Root cause: T-03678 added the CONTEXT section only inside compilePbcPrompt
+// (the template path). compileWorkerPrompt's fallback (worker.ts ~line 569) emits
+// only Task/Role/Actor/Workflow-state + strict directive + schema — NO context.
+// Live next has no template → fallback is used → agents write content-blind.
+//
+// These three tests force the FALLBACK path (next.instance.template is UNDEFINED)
+// and assert content that the fallback currently omits. All three FAIL now.
+// The existing T-03678 tests (template path) must remain GREEN through the fix.
+// ===========================================================================
+
+describe('runPbcContinuationWorker — worker prompt content FALLBACK path (T-03755)', () => {
+  // ── Test 1 (RED): behavior_note phase, fallback → must contain rawFeedback ──────
+  //
+  // FAILS NOW: compileWorkerPrompt fallback omits the CONTEXT section entirely.
+  // extractRawFeedback / PHASE_CONTEXT_KINDS are only applied in compilePbcPrompt
+  // (template path). The fallback only emits Task/Role/Actor/Workflow-state header
+  // + STRICT_OUTPUT_DIRECTIVE + PARTICIPANT_OUTPUT_SCHEMA.
+
+  test('behavior_note fallback: compiled prompt contains intake_metadata rawFeedback string [RED]', async () => {
+    const RAW_FEEDBACK = 'dark mode toggle is missing from the settings page'
+
+    const port = makeFakeWorkerPort({
+      // finalText undefined → awaiting_participant_output path; launchAcpRun still fires
+      finalText: undefined,
+      evidence: [
+        makeEvidenceRecord('ev_intake_1', 'intake_metadata', {
+          facts: { rawFeedback: RAW_FEEDBACK },
+        }),
+      ],
+      nextSequence: [
+        // NO template on instance → tryCompileTemplatePrompt returns undefined → fallback
+        makeNextRaw({
+          status: 'active',
+          phase: 'behavior_note',
+          revision: 1,
+          actions: [{ transition: 'draft_pbc' }],
+        }),
+      ],
+    })
+
+    await runPbcContinuationWorker(port, {
+      taskId: 'T-03755-bn',
+      idempotencyKey: 'prompt-fallback-bn-01',
+      actor: 'agent:pbc-writer',
+    })
+
+    const prompt = extractLaunchPrompt(port)
+    expect(prompt).toBeDefined()
+    // RED: fallback prompt has no context section — rawFeedback absent
+    expect(prompt).toContain(RAW_FEEDBACK)
+  })
+
+  // ── Test 2 (RED): pbc_draft phase, fallback → must contain behavior_note + clarif content ──
+  //
+  // FAILS NOW: fallback emits no prior-evidence content. The pbc-writer needs
+  // behavior_note content + clarification_response answer to draft a grounded PBC.
+
+  test('pbc_draft fallback: compiled prompt contains behavior_note content and clarification_response answer [RED]', async () => {
+    const BN_CONTENT = 'User expects a dark-mode toggle in Settings > Display.'
+    const CLARIF_ANSWER = 'Settings > Display > Theme — add a dark/light toggle control.'
+
+    const port = makeFakeWorkerPort({
+      finalText: undefined,
+      evidence: [
+        makeEvidenceRecord('ev_intake_1', 'intake_metadata', {
+          facts: { rawFeedback: 'dark mode toggle is missing' },
+        }),
+        makeEvidenceRecord('ev_bn_1', 'behavior_note', {
+          facts: { content: BN_CONTENT },
+        }),
+        makeEvidenceRecord('ev_cr_1', 'clarification_response', {
+          facts: { answer: CLARIF_ANSWER },
+        }),
+      ],
+      nextSequence: [
+        // NO template on instance → fallback path
+        makeNextRaw({
+          status: 'active',
+          phase: 'pbc_draft',
+          revision: 3,
+          actions: [{ transition: 'run_pressure_pass' }],
+        }),
+      ],
+    })
+
+    await runPbcContinuationWorker(port, {
+      taskId: 'T-03755-draft',
+      idempotencyKey: 'prompt-fallback-draft-01',
+      actor: 'agent:pbc-writer',
+    })
+
+    const prompt = extractLaunchPrompt(port)
+    expect(prompt).toBeDefined()
+    // RED: fallback prompt has no context — neither BN_CONTENT nor CLARIF_ANSWER present
+    expect(prompt).toContain(BN_CONTENT)
+    expect(prompt).toContain(CLARIF_ANSWER)
+  })
+
+  // ── Test 3 (RED): pressure phase, fallback → must contain pbc_draft content AND evidence id ──
+  //
+  // FAILS NOW: fallback omits all prior-evidence content. Both assertions are RED:
+  // (a) pbc_draft content — reviewer can't evaluate what it can't see.
+  // (b) pbc_draft evidence id — pbc-reviewer MUST copy this into
+  //     reviewedDraftEvidenceId so the finalize gate can close.
+
+  test('pressure fallback: compiled prompt contains pbc_draft content AND pbc_draft evidence id [RED]', async () => {
+    const DRAFT_CONTENT =
+      'When the user navigates to Settings > Display, they see a dark mode toggle that persists across sessions.'
+    const DRAFT_EVIDENCE_ID = 'ev_draft_fallback_1'
+
+    const port = makeFakeWorkerPort({
+      finalText: undefined,
+      evidence: [
+        makeEvidenceRecord('ev_bn_1', 'behavior_note', {
+          facts: { content: 'User expects dark mode toggle in Settings.' },
+        }),
+        makeEvidenceRecord(DRAFT_EVIDENCE_ID, 'pbc_draft', {
+          facts: { content: DRAFT_CONTENT, iteration: 1 },
+        }),
+      ],
+      nextSequence: [
+        // NO template on instance → fallback path.
+        // Use request_patch_decision (non-finalization) to avoid SoD stop check.
+        makeNextRaw({
+          status: 'active',
+          phase: 'pressure',
+          revision: 5,
+          actions: [{ transition: 'request_patch_decision' }],
+        }),
+      ],
+    })
+
+    await runPbcContinuationWorker(port, {
+      taskId: 'T-03755-pressure',
+      idempotencyKey: 'prompt-fallback-pressure-01',
+      actor: 'agent:pbc-writer',
+      pressureActor: 'agent:pbc-reviewer',
+    })
+
+    const prompt = extractLaunchPrompt(port)
+    expect(prompt).toBeDefined()
+    // RED: fallback prompt has no context section — draft content absent
+    expect(prompt).toContain(DRAFT_CONTENT)
+    // RED: evidence id absent — reviewer cannot set reviewedDraftEvidenceId
+    expect(prompt).toContain(DRAFT_EVIDENCE_ID)
+  })
+})
