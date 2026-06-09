@@ -120,10 +120,15 @@ const PRODUCT_ACTION_KINDS = [
 ] as const
 
 function toArtifactView(evidence: PbcArtifactEvidence): ArtifactView {
+  // start.ts writes intake_metadata with `facts: intake` (no `data`). Normalize
+  // ONLY the intake artifact so its payload is first-class under `.data` like
+  // every other kind (data wins when both present). Other kinds are unchanged.
+  const data =
+    evidence.kind === 'intake_metadata' ? (evidence.data ?? evidence.facts) : evidence.data
   return {
     id: evidence.id,
     kind: evidence.kind,
-    ...(evidence.data !== undefined ? { data: evidence.data } : {}),
+    ...(data !== undefined ? { data } : {}),
     ...(evidence.summary !== undefined ? { summary: evidence.summary } : {}),
     ...(evidence.facts !== undefined ? { facts: evidence.facts } : {}),
     ...(evidence.actor !== undefined ? { actor: evidence.actor } : {}),
