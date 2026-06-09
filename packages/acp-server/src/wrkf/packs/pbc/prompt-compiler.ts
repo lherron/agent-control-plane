@@ -97,6 +97,80 @@ const PER_PHASE_EVIDENCE: Record<string, { intro: string; items: PhaseEvidenceIt
 }
 
 /**
+ * Per-phase prior-evidence kinds whose CONTENT (not just kind+id) the participant
+ * needs to write grounded PBC evidence this turn (T-03678). intake_metadata is
+ * always surfaced separately as "Raw product feedback"; the kinds listed here are
+ * the additional prior evidence whose content must appear in the CONTEXT section:
+ *   - pbc_draft  → grounded in the behavior_note + pre_interview_analysis + clarification_response.
+ *   - pressure   → reviews the actual pbc_draft text.
+ */
+const PHASE_CONTEXT_KINDS: Record<string, string[]> = {
+  behavior_note: [],
+  pbc_draft: ['behavior_note', 'pre_interview_analysis', 'clarification_response'],
+  pressure: ['behavior_note', 'pbc_draft'],
+}
+
+/** Render a fact/data value verbatim for embedding in the prompt CONTEXT. */
+function stringifyContentValue(value: unknown): string {
+  if (typeof value === 'string') {
+    return value
+  }
+  if (value === null || value === undefined) {
+    return String(value)
+  }
+  if (typeof value === 'object') {
+    return JSON.stringify(value)
+  }
+  return String(value)
+}
+
+/**
+ * Extract the task's raw product feedback from the intake_metadata evidence
+ * (facts.rawFeedback, falling back to data.rawFeedback). Returns undefined when
+ * no intake_metadata evidence carries a rawFeedback string.
+ */
+function extractRawFeedback(evidence: EvidenceRecord[]): string | undefined {
+  for (const record of evidence) {
+    if (record.kind !== 'intake_metadata') {
+      continue
+    }
+    const fromFacts = record.facts?.['rawFeedback']
+    if (typeof fromFacts === 'string' && fromFacts.length > 0) {
+      return fromFacts
+    }
+    const data = record.data
+    if (data !== null && typeof data === 'object') {
+      const fromData = (data as Record<string, unknown>)['rawFeedback']
+      if (typeof fromData === 'string' && fromData.length > 0) {
+        return fromData
+      }
+    }
+  }
+  return undefined
+}
+
+/**
+ * Render the substantive content (facts + data fields) of a prior evidence
+ * record so the participant can ground its output in the actual text — not just
+ * the kind+id summary (T-03678).
+ */
+function extractContentLines(record: EvidenceRecord): string[] {
+  const lines: string[] = []
+  if (record.facts !== undefined) {
+    for (const [key, value] of Object.entries(record.facts)) {
+      lines.push(`- ${key}: ${stringifyContentValue(value)}`)
+    }
+  }
+  const data = record.data
+  if (data !== null && typeof data === 'object') {
+    for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+      lines.push(`- ${key}: ${stringifyContentValue(value)}`)
+    }
+  }
+  return lines
+}
+
+/**
  * The exact participant output contract, embedded verbatim in the prompt so the
  * participant returns a parseable ParticipantOutput (SPEC §4.8).
  */
@@ -161,6 +235,55 @@ export function compilePbcPrompt(input: PromptCompileInput): string {
       }
     }
     sections.push(lines.join('\n'))
+  }
+
+  // --- CONTEXT: product feedback + relevant prior-evidence content ----------
+  // Surface the SUBSTANTIVE content the participant needs to write grounded PBC
+  // evidence this turn — the task's raw product feedback plus the content (not
+  // just kind+id) of prior evidence relevant to the current phase (T-03678).
+  // Without this the agent writes content-blind output about the prompt contract
+  // itself rather than about the actual feedback (e.g. "dark mode toggle").
+  {
+    const contextLines: string[] = []
+
+    const rawFeedback = extractRawFeedback(input.evidenceSummaries)
+    if (rawFeedback !== undefined) {
+      contextLines.push('### Raw product feedback', '', rawFeedback)
+    }
+
+    const relevantKinds = PHASE_CONTEXT_KINDS[state.phase]
+    const relevant = input.evidenceSummaries.filter(
+      (record) =>
+        record.kind !== 'intake_metadata' &&
+        (relevantKinds === undefined || relevantKinds.includes(record.kind))
+    )
+    if (relevant.length > 0) {
+      if (contextLines.length > 0) {
+        contextLines.push('')
+      }
+      contextLines.push('### Prior evidence content')
+      for (const record of relevant) {
+        const body = extractContentLines(record)
+        contextLines.push('', `#### ${record.kind} (id: ${record.id})`)
+        if (body.length > 0) {
+          contextLines.push(...body)
+        }
+      }
+    }
+
+    if (contextLines.length > 0) {
+      sections.push(
+        [
+          '## Context — product feedback & prior evidence content',
+          '',
+          'Ground your evidence in the content below. This is the actual product',
+          'feedback and the relevant prior evidence for this phase — write about',
+          'THIS, do not describe the prompt or invent facts.',
+          '',
+          ...contextLines,
+        ].join('\n')
+      )
+    }
   }
 
   // --- exact per-phase required evidence (completeness contract) -------------
