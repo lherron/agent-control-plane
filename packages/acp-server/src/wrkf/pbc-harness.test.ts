@@ -52,7 +52,7 @@
  *
  *   runUntilBlocked(port, input: RunUntilBlockedRequest): Promise<PbcHarnessResult>
  *     - Autopilot per SPEC §4.17 + state-policy table §4.13
- *     - Stop reasons: closed, stale_instance, requires_product_owner_clarification,
+ *     - Stop reasons: closed, requires_product_owner_clarification,
  *       requires_product_owner_patch_decision, blocked_or_ambiguous,
  *       requires_distinct_pressure_reviewer, max_turns
  *     - Disposition transitions require allowDisposition=true
@@ -1045,9 +1045,9 @@ describe('runUntilBlocked', () => {
     expect(port._calls.find((c) => c.method === 'run.start')).toBeUndefined()
   })
 
-  // ── stale_instance: stop ──────────────────────────────────────────────────
+  // ── stale flag is diagnostics-only ────────────────────────────────────────
 
-  test('stops with stale_instance when next.instance.stale is true', async () => {
+  test('ignores next.instance.stale and uses the real blocking reason', async () => {
     const port = makeFakePort({
       nextSequence: [
         makeNextRaw({
@@ -1055,7 +1055,7 @@ describe('runUntilBlocked', () => {
           phase: 'intake',
           revision: 1,
           stale: true,
-          actions: [{ transition: 'normalize_feedback' }],
+          actions: [],
         }),
       ],
     })
@@ -1063,9 +1063,11 @@ describe('runUntilBlocked', () => {
       task: 'T-00001',
       actor: 'agent:pbc-writer',
       idempotencyKey: 'autopilot-stale',
+      maxTurns: 1,
     } satisfies RunUntilBlockedRequest)
 
-    expect(result.stopReason).toBe('stale_instance')
+    expect(result.stopReason).toBe('blocked_or_ambiguous')
+    expect(result.instance.stale).toBe(true)
   })
 
   // ── max_turns ─────────────────────────────────────────────────────────────

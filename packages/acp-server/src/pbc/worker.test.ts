@@ -9,7 +9,7 @@
  *
  *   Worker loop (spec lines 846-866):
  *     1. Re-read wrkf.next. Stop if terminal, waiting-for-human (no simulation),
- *        stale, ambiguous/blocked, SoD-blocked, or maxTurns exceeded.
+ *        ambiguous/blocked, SoD-blocked, or maxTurns exceeded.
  *     2. Ask pbcWorkerPolicy → 'stop' | 'continue'.
  *        ('write-output' is NOT used here; the worker always runs HRC.)
  *     3. Start wrkf run idempotently (run.start).
@@ -706,17 +706,18 @@ describe('runPbcContinuationWorker — behavior_note phase', () => {
     expect(port._calls.find((c) => c.method === 'launchAcpRun')).toBeUndefined()
   })
 
-  // ── stops immediately on stale instance ───────────────────────────────────
+  // ── stale flag is diagnostics-only ────────────────────────────────────────
 
-  test('stops immediately with stale_instance when next.instance.stale=true', async () => {
+  test('ignores next.instance.stale and attempts participant work', async () => {
     const port = makeFakeWorkerPort({
+      finalText: behaviorNoteText(),
       nextSequence: [
         makeNextRaw({
           status: 'active',
           phase: 'behavior_note',
           revision: 2,
           stale: true,
-          actions: [{ transition: 'draft_pbc' }],
+          actions: [],
         }),
       ],
     })
@@ -727,8 +728,10 @@ describe('runPbcContinuationWorker — behavior_note phase', () => {
       actor: 'agent:pbc-writer',
     } satisfies PbcContinuationWorkerInput)
 
-    expect(result.stopReason).toBe('stale_instance')
-    expect(port._calls.find((c) => c.method === 'run.start')).toBeUndefined()
+    expect(result.stopReason).toBe('blocked_or_ambiguous')
+    expect(result.turnsCompleted).toBe(1)
+    expect(port._calls.find((c) => c.method === 'run.start')).toBeDefined()
+    expect(port._calls.find((c) => c.method === 'launchAcpRun')).toBeDefined()
   })
 })
 

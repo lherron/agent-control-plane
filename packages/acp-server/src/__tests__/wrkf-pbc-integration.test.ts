@@ -1265,8 +1265,7 @@ describe('Phase 7 Integration — runUntilBlocked', () => {
       })
 
       // Should have applied normalize_feedback and then stopped.
-      // 'stale_instance' is also valid: wrkf can mark the instance stale after effect delivery.
-      expect(['blocked_or_ambiguous', 'max_turns', 'stale_instance']).toContain(result.stopReason)
+      expect(['blocked_or_ambiguous', 'max_turns']).toContain(result.stopReason)
       // The transition was applied
       expect(result.transitionApplied).toBeDefined()
       // State advanced from intake to behavior_note (or wrkf reports stale in that state)

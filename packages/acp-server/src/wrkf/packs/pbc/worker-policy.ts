@@ -10,9 +10,6 @@ export const pbcWorkerPolicy: WorkerPolicyFn = (input: PbcWorkerInput) => {
   if (input.next.instance.state.status === 'closed') {
     return { kind: 'stop', reason: 'closed' }
   }
-  if (input.next.instance.stale === true) {
-    return { kind: 'stop', reason: 'stale_instance' }
-  }
 
   if (state === 'waiting/clarification') {
     if (input.allowSimulation !== true) {
