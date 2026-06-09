@@ -1,5 +1,10 @@
 import { deliverWrkfEffects } from '../wrkf/effect-delivery.js'
 import { parsePbcParticipantOutput } from '../wrkf/packs/pbc/output-parser.js'
+import {
+  PARTICIPANT_OUTPUT_SCHEMA,
+  compilePbcPrompt,
+} from '../wrkf/packs/pbc/prompt-compiler.js'
+import { projectPbcTemplateModelFromWorkflowShow } from '../wrkf/packs/pbc/template-model.js'
 import { choosePbcTransition } from '../wrkf/packs/pbc/transition-policy.js'
 import { pbcWorkerPolicy } from '../wrkf/packs/pbc/worker-policy.js'
 import { captureAndIngestParticipantOutput } from '../wrkf/participant-output.js'
@@ -424,12 +429,38 @@ function participantFor(
   return { role: 'agent', actor: input.actor }
 }
 
+/**
+ * The non-negotiable output rule appended to every worker prompt. The
+ * participant agents (larry/curly) are general agents that habitually wrap JSON
+ * in prose or a ```json fence; the parser now tolerates a single fence, but we
+ * still ask for bare JSON to keep ingestion deterministic (T-03554).
+ */
+const STRICT_OUTPUT_DIRECTIVE = [
+  '## Output contract — STRICT',
+  '',
+  'Your ENTIRE response MUST be exactly one JSON object that matches the',
+  'ParticipantOutput schema below. Nothing else.',
+  '',
+  '- Do NOT add any prose before or after the JSON.',
+  '- Do NOT wrap the JSON in a markdown code fence (no ```json, no ```).',
+  '- The first character of your response must be `{` and the last must be `}`.',
+  '- Emit exactly ONE JSON object — never two.',
+].join('\n')
+
 function compileWorkerPrompt(
   taskId: string,
   role: string,
   actor: string,
   next: NextActionResponse
 ): string {
+  const templatePrompt = tryCompileTemplatePrompt(taskId, role, actor, next)
+  if (templatePrompt !== undefined) {
+    return [templatePrompt, '', STRICT_OUTPUT_DIRECTIVE].join('\n')
+  }
+
+  // Fallback: template model not available on the `next` projection. Still
+  // embed the participant-output schema + the strict directive so the agent
+  // knows the exact contract.
   const actions = transitionNames(next).join(', ') || '(none)'
   return [
     '# PBC continuation turn',
@@ -440,8 +471,44 @@ function compileWorkerPrompt(
     `Workflow state: ${next.instance.state.status}/${next.instance.state.phase}`,
     `Candidate transitions: ${actions}`,
     '',
-    'Return exactly one ParticipantOutput JSON object.',
+    STRICT_OUTPUT_DIRECTIVE,
+    '',
+    '```ts',
+    PARTICIPANT_OUTPUT_SCHEMA,
+    '```',
   ].join('\n')
+}
+
+/**
+ * Best-effort: build the full template-driven participant prompt (phase
+ * guidance + per-transition evidence shape + schema) from the template model
+ * carried on the `next` projection. Returns undefined when the template model
+ * is absent or cannot be projected, so the caller can fall back.
+ */
+function tryCompileTemplatePrompt(
+  taskId: string,
+  role: string,
+  actor: string,
+  next: NextActionResponse
+): string | undefined {
+  const rawTemplate = next.instance.template
+  if (rawTemplate === undefined) {
+    return undefined
+  }
+  try {
+    const template = projectPbcTemplateModelFromWorkflowShow({ workflow: rawTemplate })
+    return compilePbcPrompt({
+      template,
+      task: taskId,
+      role,
+      actor,
+      next,
+      evidenceSummaries: [],
+      obligations: next.openObligations,
+    })
+  } catch {
+    return undefined
+  }
 }
 
 async function readNext(

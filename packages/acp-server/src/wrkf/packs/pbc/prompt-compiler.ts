@@ -36,7 +36,7 @@ const PRODUCT_OWNER_EVIDENCE_KINDS = ['clarification_response', 'patch_decision'
  * The exact participant output contract, embedded verbatim in the prompt so the
  * participant returns a parseable ParticipantOutput (SPEC §4.8).
  */
-const PARTICIPANT_OUTPUT_SCHEMA = `interface ParticipantOutput {
+export const PARTICIPANT_OUTPUT_SCHEMA = `interface ParticipantOutput {
   evidence: Array<{
     kind: string;            // e.g. behavior_note, pressure_pass, pbc_final
     ref?: string;            // optional external reference

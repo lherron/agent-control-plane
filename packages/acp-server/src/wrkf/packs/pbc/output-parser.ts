@@ -23,16 +23,57 @@ export const mapPbcHumanInput: MapHumanInputFn = ({ text, next }) => {
 }
 
 export function parseStrictParticipantOutput(text: string): ParticipantOutput {
-  const trimmed = text.trim()
-  if (!isSingleJsonObject(trimmed)) {
+  const candidate = extractSingleJsonObject(text)
+  if (candidate === undefined) {
     throw new Error('participant output must be exactly one JSON object')
   }
 
-  const parsed = JSON.parse(trimmed) as unknown
+  const parsed = JSON.parse(candidate) as unknown
   if (!isParticipantOutput(parsed)) {
     throw new Error('participant output JSON does not match the required shape')
   }
   return parsed
+}
+
+/**
+ * Extract exactly one top-level JSON object from participant text, tolerating a
+ * single fenced code block (```json … ``` or ``` … ```) optionally surrounded
+ * by prose. Returns the JSON object text (still to be shape-validated), or
+ * undefined when the text does not contain exactly one JSON object.
+ *
+ * Rejects (returns undefined): multiple JSON objects / multiple fences,
+ * prose-only / no JSON, a fence whose body is not a single JSON object
+ * (e.g. prose or a JSON array).
+ */
+function extractSingleJsonObject(text: string): string | undefined {
+  const trimmed = text.trim()
+  if (trimmed.length === 0) {
+    return undefined
+  }
+
+  const fences = [...trimmed.matchAll(/```[^\n]*\n([\s\S]*?)```/g)]
+
+  if (fences.length > 1) {
+    // Multiple fenced blocks — ambiguous, reject.
+    return undefined
+  }
+
+  const fence = fences[0]
+  if (fence !== undefined) {
+    const inner = (fence[1] ?? '').trim()
+    if (!isSingleJsonObject(inner)) {
+      return undefined
+    }
+    // Reject when a bare JSON object also appears outside the fence.
+    const remaining = trimmed.replace(fence[0], '').trim()
+    if (remaining.length > 0 && isSingleJsonObject(remaining)) {
+      return undefined
+    }
+    return inner
+  }
+
+  // No fences — accept only a bare single JSON object.
+  return isSingleJsonObject(trimmed) ? trimmed : undefined
 }
 
 function isSingleJsonObject(text: string): boolean {
