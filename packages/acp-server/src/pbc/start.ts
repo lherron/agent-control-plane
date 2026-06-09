@@ -17,6 +17,7 @@ import { isRecord } from '../parsers/body.js'
 import type { RouteHandler } from '../routing/route-context.js'
 import { withPbcRouteIdempotency } from '../handlers/wrkf-pbc-shared.js'
 import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
+import { applyFreshTransition } from '../wrkf/transition-apply.js'
 
 import { buildPbcTaskProjection, PBC_WORKFLOW_REF } from './projection.js'
 import {
@@ -131,14 +132,17 @@ async function maybeNormalizeFeedback(
   if (!isIntake || normalize === undefined) {
     return next
   }
-  await wrkf.transition.apply({
+  // Re-read wrkf.next AFTER the intake_metadata evidence write (which bumps the
+  // wrkf context) so normalize_feedback applies with the FRESH revision/contextHash.
+  // applyFreshTransition does the re-read + a single CAS retry on stale mismatch.
+  await applyFreshTransition(wrkf, {
     task: taskId,
     transition: 'normalize_feedback',
     role: 'agent',
     actor,
-    expectRevision: next.instance.revision,
-    contextHash: next.instance.contextHash ?? '',
+    routeKey: taskId,
     runChecks: false,
+    assertLegal: false,
   })
   await deliverPbcEffects(wrkf, taskId)
   return readPbcNext(wrkf, taskId)

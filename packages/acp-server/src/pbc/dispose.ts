@@ -13,6 +13,7 @@ import type { Actor } from 'acp-core'
 import { badRequest, forbidden, json } from '../http.js'
 import { parseJsonBody, requireRecord, requireTrimmedStringField } from '../parsers/body.js'
 import type { RouteHandler } from '../routing/route-context.js'
+import { applyFreshTransition } from '../wrkf/transition-apply.js'
 
 import { buildPbcTaskProjection } from './projection.js'
 import {
@@ -55,14 +56,18 @@ export const handlePbcDispose: RouteHandler = async (context) => {
       facts: { resolution, reason },
     })
 
-    await wrkf.transition.apply({
+    // Re-read wrkf.next AFTER the evidence write so the transition applies with
+    // the FRESH revision/contextHash (the evidence.add bumps the wrkf context).
+    // applyFreshTransition does the re-read + a single CAS retry on stale
+    // revision/contextHash mismatch.
+    await applyFreshTransition(wrkf, {
       task: taskId,
       transition: `dispose_from_${phase}`,
       role: 'product_owner',
       actor: actorString,
-      expectRevision: next.instance.revision,
-      contextHash: next.instance.contextHash ?? '',
+      routeKey: taskId,
       runChecks: false,
+      assertLegal: false,
     })
 
     await deliverPbcEffects(wrkf, taskId)

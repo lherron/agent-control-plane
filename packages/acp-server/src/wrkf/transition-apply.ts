@@ -17,6 +17,13 @@ export type ApplyFreshTransitionInput = {
   actor?: string | undefined
   routeKey?: string | undefined
   runChecks?: boolean | undefined
+  /**
+   * When false, skip the pre-apply legality assertion against the fresh next
+   * action list (defaults to asserting whenever `role` is set). Use this when
+   * the caller has already determined authority and/or the transition is
+   * intentionally absent from the public next actions (e.g. PBC dispositions).
+   */
+  assertLegal?: boolean | undefined
 }
 
 export type ApplyFreshTransitionResult = {
@@ -36,7 +43,14 @@ export async function applyFreshTransition(
   let retried = false
 
   for (;;) {
-    if (input.role !== undefined) {
+    // Legality is asserted against the fresh next action list by default, but
+    // callers that already computed authority can opt out via assertLegal:false.
+    // The PBC product facade does this: it chooses the transition from policy ∩
+    // fresh next and applies as product_owner/agent, AND some of its transitions
+    // (e.g. dispose_from_*) are intentionally excluded from the public next
+    // actions — so a membership check would always false-block them. The final
+    // legality ruling is deferred to the runtime in that case.
+    if (input.role !== undefined && input.assertLegal !== false) {
       assertLegalTransition(fresh, input.transition)
     }
     try {

@@ -18,6 +18,7 @@ import type { RouteHandler } from '../routing/route-context.js'
 import { mapPbcHumanInput } from '../wrkf/packs/pbc/output-parser.js'
 import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
 import { projectObligationRecord, type NextActionResponse } from '../wrkf/projections.js'
+import { applyFreshTransition } from '../wrkf/transition-apply.js'
 
 import { buildPbcTaskProjection, deriveScreen } from './projection.js'
 import {
@@ -139,14 +140,17 @@ export const handlePbcInput: RouteHandler = async (context) => {
 
     const route = kind === 'patch_decision' ? inputText(kind, data) : undefined
     const transition = transitionForInput(screen, route)
-    await wrkf.transition.apply({
+    // Re-read wrkf.next AFTER the evidence + obligation writes (both bump the
+    // wrkf context) so the transition applies with the FRESH revision/contextHash.
+    // applyFreshTransition does the re-read + a single CAS retry on stale mismatch.
+    await applyFreshTransition(wrkf, {
       task: taskId,
       transition,
       role: 'product_owner',
       actor: actorString,
-      expectRevision: next.instance.revision,
-      contextHash: next.instance.contextHash ?? '',
+      routeKey: taskId,
       runChecks: false,
+      assertLegal: false,
     })
 
     await deliverPbcEffects(wrkf, taskId)
