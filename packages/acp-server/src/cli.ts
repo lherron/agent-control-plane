@@ -6,15 +6,16 @@ import { dirname, join } from 'node:path'
 
 import { openSqliteAdminStore } from 'acp-admin-store'
 import { openSqliteConversationStore } from 'acp-conversation'
+import type { Actor } from 'acp-core'
 import { openInterfaceStore } from 'acp-interface-store'
 import { createJobsScheduler, openSqliteJobsStore } from 'acp-jobs-store'
-import { openAcpStateStore } from 'acp-state-store'
+import { type PbcContinuationJob, openAcpStateStore } from 'acp-state-store'
 import { type SessionRef, normalizeSessionRef, parseScopeRef } from 'agent-scope'
 import { openCoordinationStore } from 'coordination-substrate'
 import { resolveControlSocketPath, resolveDatabasePath } from 'hrc-core'
 import { HrcClient } from 'hrc-sdk'
 import { buildRuntimeBundleRef, getAgentsRoot, resolveAgentPlacementPaths } from 'spaces-config'
-import { WrkqSchemaMissingError, openWrkqStore } from 'wrkq-lib'
+import { type WrkqStore, WrkqSchemaMissingError, openWrkqStore } from 'wrkq-lib'
 
 import { createAccessLogger } from './access-log.js'
 import { createAcpServer } from './create-acp-server.js'
@@ -24,6 +25,7 @@ import {
   DEFAULT_AGENT_ASSETS_DIR,
   DEFAULT_INTERFACE_DB_PATH,
   DEFAULT_STATE_DB_PATH,
+  type ResolvedAcpServerDeps,
   resolveAcpServerDeps,
 } from './deps.js'
 import { createDevFlowLauncher } from './dev-flow-launcher.js'
@@ -41,6 +43,10 @@ import { createInterfaceRunDispatcher } from './integration/interface-run-dispat
 import { createWakeDispatcher } from './integration/wake-dispatcher.js'
 import { createEventJobEvaluator } from './jobs/event-job-evaluator.js'
 import { advanceJobFlow } from './jobs/flow-engine.js'
+import { getRunFinalAssistantText } from './jobs/run-final-output.js'
+import { resolveLaunchIntent } from './launch-role-scoped.js'
+import { createPbcWorkerScheduler } from './pbc/worker-scheduler.js'
+import { type PbcContinuationWorkerPort, runPbcContinuationWorker } from './pbc/worker.js'
 import { createRealLauncher } from './real-launcher.js'
 import { createWrkfClientLifecycle } from './wrkf/client-lifecycle.js'
 
@@ -395,6 +401,299 @@ export function resolveLauncherDeps(
   return {}
 }
 
+function createPbcWorkerRunner(input: {
+  deps: ResolvedAcpServerDeps
+  wrkqStore: WrkqStore
+  options: AcpServerCliOptions
+}): ((job: PbcContinuationJob) => Promise<void>) | undefined {
+  const wrkf = input.deps.wrkf
+  if (wrkf === undefined || input.deps.launchRoleScopedRun === undefined) {
+    return undefined
+  }
+
+  return async (job) => {
+    let latestWrkfRunId: string | undefined
+    const port: PbcContinuationWorkerPort = {
+      next: (params) => wrkf.next(params),
+      evidence: {
+        list: async (params) => {
+          const listed = await wrkf.evidence.list(params)
+          return Array.isArray(listed) ? listed : []
+        },
+        add: (params) => wrkf.evidence.add(params as never),
+      },
+      obligation: {
+        list: async (params) => {
+          const listed = await wrkf.obligation.list(params)
+          return Array.isArray(listed) ? listed : []
+        },
+        satisfy: (params) => wrkf.obligation.satisfy(params),
+      },
+      captures: input.deps.pbcCaptureStore,
+      run: {
+        start: async (params) => {
+          const run = await wrkf.run.start(params as never)
+          latestWrkfRunId = recordId(run)
+          return run
+        },
+        finish: (params) => wrkf.run.finish(params),
+        fail: (params) => wrkf.run.fail(params),
+        bindExternal: (params) => wrkf.run.bindExternal(params),
+      },
+      transition: {
+        apply: (params) => wrkf.transition.apply(params as never),
+      },
+      effect: wrkf.effect,
+      launchAcpRun: async (params) => {
+        if (latestWrkfRunId === undefined || latestWrkfRunId.length === 0) {
+          throw new Error(`wrkf run id unavailable for PBC job ${job.jobId}`)
+        }
+        return launchPbcWorkerAcpRun({
+          deps: input.deps,
+          wrkqStore: input.wrkqStore,
+          options: input.options,
+          job,
+          wrkfRunId: latestWrkfRunId,
+          taskId: params.taskId,
+          role: params.role,
+          actor: params.actor,
+          idempotencyKey: params.idempotencyKey,
+          prompt: params.prompt,
+        })
+      },
+      getFinalAssistantText: (acpRunId) =>
+        getRunFinalAssistantText(
+          {
+            getRun: (runId) => input.deps.runStore.getRun(runId),
+            hrcDbPath: resolveDatabasePath(),
+          },
+          acpRunId
+        ),
+      jobs: {
+        transition: (params) => input.deps.stateStore!.pbcContinuationJobs.transition(params),
+      },
+    }
+
+    await runPbcContinuationWorker(port, {
+      taskId: job.taskId,
+      idempotencyKey: job.idempotencyKey,
+      actor: actorWireForRole(input.wrkqStore, input.options, job.taskId, 'agent'),
+      pressureActor: actorWireForRole(
+        input.wrkqStore,
+        input.options,
+        job.taskId,
+        'pressure_reviewer'
+      ),
+      jobId: job.jobId,
+    })
+  }
+}
+
+async function launchPbcWorkerAcpRun(input: {
+  deps: ResolvedAcpServerDeps
+  wrkqStore: WrkqStore
+  options: AcpServerCliOptions
+  job: PbcContinuationJob
+  wrkfRunId: string
+  taskId: string
+  role: string
+  actor: string
+  idempotencyKey: string
+  prompt?: string | undefined
+}): Promise<{ acpRunId: string }> {
+  if (input.deps.wrkf === undefined || input.deps.launchRoleScopedRun === undefined) {
+    throw new Error('PBC continuation worker requires wrkf and launchRoleScopedRun')
+  }
+
+  const projection = await readPbcWorkerProjection(input.deps, input.job)
+  const actor = actorFromWire(input.actor) ?? {
+    kind: 'agent',
+    id: agentIdForRole(input.wrkqStore, input.options, input.taskId, input.role),
+  }
+  const sessionRef = normalizeSessionRef({
+    scopeRef: scopeRefForWorkerRole(input.wrkqStore, input.options, input.taskId, input.role, actor),
+    laneRef: 'main',
+  })
+  const { run: acpRun, created } = input.deps.runStore.createOrGetRun({
+    sessionRef,
+    wrkfTaskId: input.taskId,
+    wrkfInstanceId: projection.instanceId,
+    wrkfRunId: input.wrkfRunId,
+    workflowRef: projection.workflowRef,
+    role: input.role,
+    actor,
+  })
+
+  const existingExternalBind = readRecord(acpRun.metadata?.['wrkfExternalBind'])
+  if (existingExternalBind?.['status'] === 'orphaned') {
+    throw new Error('PBC continuation worker launch has an orphaned HRC bind')
+  }
+  if (!created && acpRun.hrcRunId !== undefined) {
+    return { acpRunId: acpRun.runId }
+  }
+
+  const claim = input.deps.runStore.acquireLaunchClaim({
+    runId: acpRun.runId,
+    claimId: `${input.idempotencyKey}:claim`,
+    idempotencyKey: input.idempotencyKey,
+    wrkfRunId: input.wrkfRunId,
+  })
+  if (!claim.acquired) {
+    throw new Error('PBC continuation worker launch claim was not acquired')
+  }
+
+  const intent = await resolveLaunchIntent(input.deps, sessionRef, {
+    ...(input.prompt !== undefined ? { initialPrompt: input.prompt } : {}),
+  })
+  let launched: Awaited<ReturnType<NonNullable<ResolvedAcpServerDeps['launchRoleScopedRun']>>>
+  try {
+    launched = await input.deps.launchRoleScopedRun({
+      sessionRef,
+      intent,
+      acpRunId: acpRun.runId,
+      runStore: input.deps.runStore,
+      waitForCompletion: true,
+    })
+  } catch (error) {
+    input.deps.runStore.updateRun(acpRun.runId, {
+      errorCode: 'pbc_worker_launch_failed',
+      errorMessage: error instanceof Error ? error.message : String(error),
+      metadata: mergeMetadata(claim.run.metadata, {
+        wrkfLaunchClaim: {
+          ...readRecord(claim.run.metadata?.['wrkfLaunchClaim']),
+          status: 'launch_failed',
+          wrkfRunId: input.wrkfRunId,
+          failedAt: new Date().toISOString(),
+        },
+      }),
+    })
+    throw error
+  }
+
+  input.deps.runStore.updateRun(acpRun.runId, {
+    hrcRunId: launched.runId,
+    ...(launched.hostSessionId !== undefined ? { hostSessionId: launched.hostSessionId } : {}),
+    ...(launched.runtimeId !== undefined ? { runtimeId: launched.runtimeId } : {}),
+    ...(launched.generation !== undefined ? { generation: launched.generation } : {}),
+    transport: 'hrc',
+    metadata: mergeMetadata(claim.run.metadata, {
+      wrkfLaunchClaim: {
+        ...readRecord(claim.run.metadata?.['wrkfLaunchClaim']),
+        status: 'launched',
+        hrcRunId: launched.runId,
+        launchedAt: new Date().toISOString(),
+      },
+    }),
+  })
+
+  return { acpRunId: acpRun.runId }
+}
+
+async function readPbcWorkerProjection(
+  deps: ResolvedAcpServerDeps,
+  job: PbcContinuationJob
+): Promise<{ instanceId: string; workflowRef: string; revision: number }> {
+  const inspected = deps.wrkf?.task.inspect({ task: job.taskId }).catch(() => undefined)
+  const next = deps.wrkf?.next({ task: job.taskId }).catch(() => undefined)
+  const inspectedRecord = readRecord(inspected === undefined ? undefined : await inspected)
+  const nextRecord = readRecord(next === undefined ? undefined : await next)
+  const instance =
+    readRecord(inspectedRecord?.['instance']) ?? readRecord(nextRecord?.['instance']) ?? {}
+  const parsedRevision = Number(job.revisionAtAdmission)
+
+  return {
+    instanceId:
+      readString(instance, 'id') ??
+      readString(instance, 'instanceId') ??
+      readString(inspectedRecord, 'id') ??
+      job.taskId,
+    workflowRef:
+      readString(instance, 'workflowRef') ??
+      readString(instance, 'workflowId') ??
+      readString(inspectedRecord, 'templateId') ??
+      job.workflowRef,
+    revision:
+      readNumber(instance, 'revision') ??
+      (Number.isFinite(parsedRevision) ? parsedRevision : 0),
+  }
+}
+
+function actorWireForRole(
+  wrkqStore: WrkqStore,
+  options: AcpServerCliOptions,
+  taskId: string,
+  role: string
+): string {
+  return `agent:${agentIdForRole(wrkqStore, options, taskId, role)}`
+}
+
+function agentIdForRole(
+  wrkqStore: WrkqStore,
+  options: AcpServerCliOptions,
+  taskId: string,
+  role: string
+): string {
+  const task = wrkqStore.taskRepo.getTask(taskId)
+  const roleMap = wrkqStore.roleAssignmentRepo.getRoleMap(taskId) ?? task?.roleMap ?? {}
+  return roleMap[role]?.trim() || roleMap['agent']?.trim() || options.actor
+}
+
+function scopeRefForWorkerRole(
+  wrkqStore: WrkqStore,
+  options: AcpServerCliOptions,
+  taskId: string,
+  role: string,
+  actor: Actor
+): string {
+  const task = wrkqStore.taskRepo.getTask(taskId)
+  const agentId =
+    actor.kind === 'agent' ? actor.id : agentIdForRole(wrkqStore, options, taskId, role)
+  const projectSegment = task?.projectId !== undefined ? `:project:${task.projectId}` : ''
+  return `agent:${agentId}${projectSegment}:task:${taskId}:role:${role}`
+}
+
+function actorFromWire(input: string): Actor | undefined {
+  const separator = input.indexOf(':')
+  if (separator <= 0 || separator === input.length - 1) {
+    return undefined
+  }
+  const kind = input.slice(0, separator)
+  const id = input.slice(separator + 1)
+  if (kind === 'agent' || kind === 'human' || kind === 'system') {
+    return { kind, id } as Actor
+  }
+  return undefined
+}
+
+function recordId(record: unknown): string {
+  const id = readRecord(record)?.['id']
+  return typeof id === 'string' ? id : ''
+}
+
+function readRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : undefined
+}
+
+function readString(record: Record<string, unknown> | undefined, field: string): string | undefined {
+  const value = record?.[field]
+  return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
+function readNumber(record: Record<string, unknown> | undefined, field: string): number | undefined {
+  const value = record?.[field]
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function mergeMetadata(
+  current: Readonly<Record<string, unknown>> | undefined,
+  patch: Readonly<Record<string, unknown>>
+): Record<string, unknown> {
+  return {
+    ...(current ?? {}),
+    ...patch,
+  }
+}
+
 export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
   shutdown(): Promise<void>
   startupLine: string
@@ -631,8 +930,9 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     inputQueueDispatcher.start()
   }
 
+  const schedulerEnabled = isEnabledEnvFlag(process.env['ACP_SCHEDULER_ENABLED'])
   const jobsScheduler =
-    jobsStore !== undefined && isEnabledEnvFlag(process.env['ACP_SCHEDULER_ENABLED'])
+    jobsStore !== undefined && schedulerEnabled
       ? createJobsScheduler({
           store: jobsStore,
           dispatchThroughInputs: (input) => dispatchJobRunThroughInputs(resolvedDeps, input),
@@ -645,24 +945,49 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
           evaluateEventJob: createEventJobEvaluator(),
         })
       : undefined
-  let jobsTickInProgress = false
-  const jobsSchedulerTimer =
-    jobsScheduler !== undefined
+  const pbcWorkerRunner = schedulerEnabled
+    ? createPbcWorkerRunner({ deps: resolvedDeps, wrkqStore, options })
+    : undefined
+  const pbcWorkerScheduler =
+    pbcWorkerRunner !== undefined
+      ? createPbcWorkerScheduler({
+          stateStore,
+          runWorker: pbcWorkerRunner,
+        })
+      : undefined
+  let schedulerTickInProgress = false
+  const schedulerTimer =
+    jobsScheduler !== undefined || pbcWorkerScheduler !== undefined
       ? setInterval(() => {
-          if (jobsTickInProgress) {
+          if (schedulerTickInProgress) {
             return
           }
-          jobsTickInProgress = true
-          void jobsScheduler
-            .tick(new Date())
+          schedulerTickInProgress = true
+          void Promise.resolve()
+            .then(async () => {
+              if (jobsScheduler !== undefined) {
+                await jobsScheduler.tick(new Date())
+              }
+            })
             .catch((error) => {
               console.error(
                 'acp-server jobs scheduler tick failed:',
                 error instanceof Error ? error.message : String(error)
               )
             })
+            .then(async () => {
+              if (pbcWorkerScheduler !== undefined) {
+                await pbcWorkerScheduler.tick()
+              }
+            })
+            .catch((error) => {
+              console.error(
+                'acp-server PBC worker scheduler tick failed:',
+                error instanceof Error ? error.message : String(error)
+              )
+            })
             .finally(() => {
-              jobsTickInProgress = false
+              schedulerTickInProgress = false
             })
         }, DEFAULT_JOBS_SCHEDULER_INTERVAL_MS)
       : undefined
@@ -685,8 +1010,8 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
       if (inputQueueDispatcher !== undefined) {
         await inputQueueDispatcher.stop()
       }
-      if (jobsSchedulerTimer !== undefined) {
-        clearInterval(jobsSchedulerTimer)
+      if (schedulerTimer !== undefined) {
+        clearInterval(schedulerTimer)
       }
       bunServer.stop(true)
       wrkqStore.close()
