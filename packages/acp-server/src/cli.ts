@@ -54,6 +54,11 @@ const DEFAULT_COORD_DB_PATH = '/Users/lherron/praesidium/var/db/acp-coordination
 const DEFAULT_PORT = 18470
 const DEFAULT_HOST = '127.0.0.1'
 const DEFAULT_ACTOR = 'acp-server'
+// PBC continuation worker launches participant turns as real provisioned agents.
+// Draft (agent role) and pressure reviewer must be DISTINCT for separation-of-duty.
+// Overridable per deployment; a task's explicit roleMap still takes precedence.
+const PBC_DRAFT_AGENT = process.env['ACP_PBC_DRAFT_AGENT']?.trim() || 'larry'
+const PBC_REVIEWER_AGENT = process.env['ACP_PBC_REVIEWER_AGENT']?.trim() || 'curly'
 const DEFAULT_JOBS_SCHEDULER_INTERVAL_MS = 5_000
 const DEFAULT_INTERFACE_DISPATCHER_INTERVAL_MS = 2_000
 const DEFAULT_INTERFACE_DISPATCHER_STALE_TIMEOUT_MS = 600_000 // 10 minutes
@@ -477,12 +482,12 @@ function createPbcWorkerRunner(input: {
     await runPbcContinuationWorker(port, {
       taskId: job.taskId,
       idempotencyKey: job.idempotencyKey,
-      actor: actorWireForRole(input.wrkqStore, input.options, job.taskId, 'agent'),
-      pressureActor: actorWireForRole(
+      actor: pbcActorWireForRole(input.wrkqStore, job.taskId, 'agent', PBC_DRAFT_AGENT),
+      pressureActor: pbcActorWireForRole(
         input.wrkqStore,
-        input.options,
         job.taskId,
-        'pressure_reviewer'
+        'pressure_reviewer',
+        PBC_REVIEWER_AGENT
       ),
       jobId: job.jobId,
     })
@@ -618,15 +623,6 @@ async function readPbcWorkerProjection(
   }
 }
 
-function actorWireForRole(
-  wrkqStore: WrkqStore,
-  options: AcpServerCliOptions,
-  taskId: string,
-  role: string
-): string {
-  return `agent:${agentIdForRole(wrkqStore, options, taskId, role)}`
-}
-
 function agentIdForRole(
   wrkqStore: WrkqStore,
   options: AcpServerCliOptions,
@@ -636,6 +632,21 @@ function agentIdForRole(
   const task = wrkqStore.taskRepo.getTask(taskId)
   const roleMap = wrkqStore.roleAssignmentRepo.getRoleMap(taskId) ?? task?.roleMap ?? {}
   return roleMap[role]?.trim() || roleMap['agent']?.trim() || options.actor
+}
+
+// PBC worker participant resolution: a task's explicit roleMap wins; otherwise
+// fall back to the configured PBC default agent (NOT the server identity), so the
+// launched runtime resolves a real provisioned agent profile.
+function pbcActorWireForRole(
+  wrkqStore: WrkqStore,
+  taskId: string,
+  role: string,
+  fallbackAgentId: string
+): string {
+  const task = wrkqStore.taskRepo.getTask(taskId)
+  const roleMap = wrkqStore.roleAssignmentRepo.getRoleMap(taskId) ?? task?.roleMap ?? {}
+  const id = roleMap[role]?.trim() || fallbackAgentId
+  return `agent:${id}`
 }
 
 function scopeRefForWorkerRole(
