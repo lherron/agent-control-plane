@@ -500,6 +500,114 @@ describe('buildPbcTaskProjection — product actions shape and enablement (RED, 
 // §3 — diagnostics.legalTransitions invariant (GREEN — pins existing behavior)
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// §4 — intake artifact .data normalization from .facts (RED — T-03151)
+//
+// start.ts writes intake_metadata with `facts: intake` (no `data`).
+// The T-03110 tests modeled intake with `data:` so they pass; the REAL shape
+// is facts-only. buildArtifacts() must normalize: for intake_metadata, set
+// data = data ?? facts so .data is always first-class.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('buildPbcTaskProjection — intake artifact .data normalized from .facts (RED, T-03151)', () => {
+  test('[RED] intake_metadata with facts-only (real start.ts shape) → artifacts.intake.data.rawFeedback populated', () => {
+    // This is the REAL shape that start.ts produces:
+    //   wrkf.evidence.add({ kind: 'intake_metadata', facts: intake })  — no `data`
+    const next = makeNext({ status: 'active', phase: 'behavior_note' })
+    const evidence: EvidenceSnap[] = [
+      {
+        id: 'ev-intake-real',
+        kind: 'intake_metadata',
+        // NOTE: facts only, NO data — mirrors the real start.ts write
+        facts: { rawFeedback: 'Double-click save is broken', source: 'user' },
+        raw: {},
+      },
+    ]
+
+    const projection = buildWithEvidence({ taskId: 'T-unit-51', next, evidence })
+
+    // RED: currently toArtifactView passes facts through but does NOT set data.
+    // After the fix (data = data ?? facts for intake_metadata), data must equal facts.
+    expect(projection.artifacts['intake']).toBeDefined()
+    const intake = projection.artifacts['intake'] as Record<string, unknown>
+    expect(intake['data']).toBeDefined()
+    expect((intake['data'] as Record<string, unknown>)['rawFeedback']).toBe(
+      'Double-click save is broken'
+    )
+    expect((intake['data'] as Record<string, unknown>)['source']).toBe('user')
+  })
+
+  test('[RED] intake_metadata with both facts and data → artifacts.intake.data uses data (not overwritten by facts)', () => {
+    // Edge case: if both present, data wins (data ?? facts means data takes precedence)
+    const next = makeNext({ status: 'active', phase: 'behavior_note' })
+    const evidence: EvidenceSnap[] = [
+      {
+        id: 'ev-intake-both',
+        kind: 'intake_metadata',
+        data: { rawFeedback: 'From data field', source: 'explicit' },
+        facts: { rawFeedback: 'From facts field', source: 'should-be-ignored' },
+        raw: {},
+      },
+    ]
+
+    const projection = buildWithEvidence({ taskId: 'T-unit-52', next, evidence })
+
+    expect(projection.artifacts['intake']).toBeDefined()
+    const intake = projection.artifacts['intake'] as Record<string, unknown>
+    // data is present, so it should NOT be overwritten by facts
+    expect((intake['data'] as Record<string, unknown>)['rawFeedback']).toBe('From data field')
+    expect((intake['data'] as Record<string, unknown>)['source']).toBe('explicit')
+  })
+
+  test('[GREEN guard] non-intake kind (pbc_draft) with data → artifacts.draft.data still reads from .data', () => {
+    // Guard: the facts→data normalization must ONLY apply to intake_metadata.
+    // Other kinds that use `data` must continue to read from `.data` unchanged.
+    const next = makeNext({ status: 'active', phase: 'behavior_note' })
+    const evidence: EvidenceSnap[] = [
+      {
+        id: 'ev-draft-001',
+        kind: 'pbc_draft',
+        data: { content: 'Draft content here', sections: ['scope', 'criteria'] },
+        raw: {},
+      },
+    ]
+
+    const projection = buildWithEvidence({ taskId: 'T-unit-53', next, evidence })
+
+    expect(projection.artifacts['draft']).toBeDefined()
+    const draft = projection.artifacts['draft'] as Record<string, unknown>
+    expect(draft['data']).toBeDefined()
+    expect((draft['data'] as Record<string, unknown>)['content']).toBe('Draft content here')
+  })
+
+  test('[GREEN guard] non-intake kind (pbc_draft) with facts only → artifacts.draft.data remains undefined (no normalization)', () => {
+    // Guard: facts-only normalization must NOT bleed into non-intake kinds.
+    // A pbc_draft with only `facts` should NOT have its facts promoted to .data.
+    const next = makeNext({ status: 'active', phase: 'behavior_note' })
+    const evidence: EvidenceSnap[] = [
+      {
+        id: 'ev-draft-facts',
+        kind: 'pbc_draft',
+        facts: { verdict: 'too_vague' },
+        raw: {},
+      },
+    ]
+
+    const projection = buildWithEvidence({ taskId: 'T-unit-54', next, evidence })
+
+    expect(projection.artifacts['draft']).toBeDefined()
+    const draft = projection.artifacts['draft'] as Record<string, unknown>
+    // pbc_draft has no `data` — and facts must NOT be promoted to data for non-intake kinds
+    expect(draft['data']).toBeUndefined()
+    expect(draft['facts']).toBeDefined()
+    expect((draft['facts'] as Record<string, unknown>)['verdict']).toBe('too_vague')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// §3 — diagnostics.legalTransitions invariant (GREEN — pins existing behavior)
+// ─────────────────────────────────────────────────────────────────────────────
+
 describe('buildPbcTaskProjection — diagnostics.legalTransitions unchanged (GREEN guard)', () => {
   test('raw wrkf transition names remain in diagnostics.legalTransitions', () => {
     const next = makeNext({
