@@ -155,6 +155,12 @@ export async function writeEvidenceAndSatisfyObligations(
 
     for (const directive of directives) {
       const id = resolveObligationId(directive, open, policy)
+      // Skip a by-kind directive that matched no open obligation (sentinel null).
+      // Agent output may carry spurious satisfyObligations for evidence-only kinds;
+      // skipping keeps the evidence write durable instead of rolling back the ingest.
+      if (id === null) {
+        continue
+      }
       const evidenceId = evidenceAdded[directive.evidenceIndex]?.id
       const satisfied = await port.obligation.satisfy({
         task: input.task,
@@ -176,11 +182,20 @@ export async function writeEvidenceAndSatisfyObligations(
   return { evidenceAdded, obligationsSatisfied, next }
 }
 
+/**
+ * Resolve the obligation id a directive targets.
+ *
+ * Returns `null` as a SKIP sentinel: a by-kind directive (allowObligationKindLookup
+ * permitted) that matches no open obligation is a no-op — agent output may carry
+ * spurious satisfyObligations for evidence-only kinds, and those must not fail the
+ * ingest. An explicit obligationId is always returned as-is (stays strict — a bad
+ * explicit id surfaces downstream at obligation.satisfy).
+ */
 function resolveObligationId(
   directive: SatisfyObligationDirective,
   open: ObligationRecord[],
   policy: EvidenceWritePolicy
-): string {
+): string | null {
   if (directive.obligationId !== undefined) {
     return directive.obligationId
   }
@@ -190,7 +205,8 @@ function resolveObligationId(
     }
     const match = open.find((o) => o.kind === directive.obligationKind && o.status === 'open')
     if (match === undefined) {
-      throw new Error(`no open obligation matching kind "${directive.obligationKind}" to satisfy`)
+      // No open obligation of this kind → skip the directive (evidence still written).
+      return null
     }
     return match.id
   }

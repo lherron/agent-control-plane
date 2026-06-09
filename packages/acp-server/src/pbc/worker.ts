@@ -1,4 +1,5 @@
 import { deliverWrkfEffects } from '../wrkf/effect-delivery.js'
+import type { ParticipantOutput } from '../wrkf/runtime/evidence-writer.js'
 import { parsePbcParticipantOutput } from '../wrkf/packs/pbc/output-parser.js'
 import {
   PARTICIPANT_OUTPUT_SCHEMA,
@@ -191,12 +192,15 @@ async function runLoop(
     })
     const wrkfRunId = recordId(run)
 
+    // Existing evidence (with ids) so the prompt can surface linkage ids the
+    // participant must copy into evidence `data` (reviewedDraftEvidenceId, …).
+    const priorEvidence = await readEvidenceTimeline(port, input.taskId)
     const launch = await port.launchAcpRun({
       taskId: input.taskId,
       role: participant.role,
       actor: participant.actor,
       idempotencyKey: `${input.idempotencyKey}:launch:${next.instance.revision}`,
-      prompt: compileWorkerPrompt(input.taskId, participant.role, participant.actor, next),
+      prompt: compileWorkerPrompt(input.taskId, participant.role, participant.actor, next, priorEvidence),
     })
 
     await port.run.bindExternal({
@@ -223,12 +227,18 @@ async function runLoop(
     }
 
     try {
-      const participantOutput = await parsePbcParticipantOutput({
+      const parsedOutput = await parsePbcParticipantOutput({
         text: finalText,
         role: participant.role,
         actor: participant.actor,
         next,
       })
+      // General agents (larry/curly) emit output that does not quite conform to
+      // the strict wrkf evidence contract: they invent satisfyObligations for
+      // obligations that are not open, and nest non-scalar values in evidence
+      // facts. Either makes ingestion throw and fails the whole autonomous job.
+      // Normalize the output to the contract before ingesting (T-03554).
+      const participantOutput = normalizeParticipantOutput(parsedOutput, next)
       const capture = await captureAndIngestParticipantOutput(
         port as Parameters<typeof captureAndIngestParticipantOutput>[0],
         {
@@ -447,13 +457,106 @@ const STRICT_OUTPUT_DIRECTIVE = [
   '- Emit exactly ONE JSON object — never two.',
 ].join('\n')
 
+/**
+ * Coerce general-agent participant output into the strict wrkf evidence
+ * contract: drop unmatched satisfyObligations directives and flatten non-scalar
+ * evidence facts. Both gaps otherwise throw during ingestion and fail the whole
+ * autonomous job (T-03554).
+ */
+function normalizeParticipantOutput(
+  output: ParticipantOutput,
+  next: NextActionResponse
+): ParticipantOutput {
+  return flattenEvidenceFacts(sanitizeSatisfyObligations(output, next))
+}
+
+/**
+ * wrkf requires evidence `facts` values to be flat: a scalar, or an array of
+ * scalars. Nested objects and arrays-of-arrays/objects are rejected. General
+ * agents routinely nest structured payloads here. JSON-stringify any non-scalar
+ * value so the information survives as a string while satisfying the contract.
+ */
+function flattenEvidenceFacts(output: ParticipantOutput): ParticipantOutput {
+  let changed = false
+  const evidence = output.evidence.map((item) => {
+    if (item.facts === undefined) {
+      return item
+    }
+    let factsChanged = false
+    const flattened: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(item.facts)) {
+      const flat = flattenFactValue(value)
+      if (flat !== value) {
+        factsChanged = true
+      }
+      flattened[key] = flat
+    }
+    if (!factsChanged) {
+      return item
+    }
+    changed = true
+    return { ...item, facts: flattened }
+  })
+  return changed ? { ...output, evidence } : output
+}
+
+/** A scalar fact value passes through; anything else is JSON-stringified. */
+function flattenFactValue(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') {
+    return value
+  }
+  if (Array.isArray(value) && value.every(isScalar)) {
+    return value
+  }
+  return JSON.stringify(value)
+}
+
+function isScalar(value: unknown): boolean {
+  return value === null || typeof value !== 'object'
+}
+
+/**
+ * Drop satisfyObligations directives that cannot be matched to a currently-open
+ * obligation. General participant agents routinely emit a satisfy directive for
+ * evidence they just produced even when there is no corresponding open
+ * obligation; ingestion would otherwise throw and fail the whole autonomous job.
+ * A directive is KEPT only when it targets an open obligation by id or by kind.
+ */
+function sanitizeSatisfyObligations(
+  output: ParticipantOutput,
+  next: NextActionResponse
+): ParticipantOutput {
+  const directives = output.satisfyObligations
+  if (directives === undefined || directives.length === 0) {
+    return output
+  }
+  const open = next.openObligations.filter((obligation) => obligation.status === 'open')
+  const openIds = new Set(open.map((obligation) => obligation.id))
+  const openKinds = new Set(open.map((obligation) => obligation.kind))
+  const kept = directives.filter((directive) => {
+    if (directive.obligationId !== undefined) {
+      return openIds.has(directive.obligationId)
+    }
+    if (directive.obligationKind !== undefined) {
+      return openKinds.has(directive.obligationKind)
+    }
+    return false
+  })
+  if (kept.length === directives.length) {
+    return output
+  }
+  const { satisfyObligations: _dropped, ...rest } = output
+  return kept.length > 0 ? { ...rest, satisfyObligations: kept } : rest
+}
+
 function compileWorkerPrompt(
   taskId: string,
   role: string,
   actor: string,
-  next: NextActionResponse
+  next: NextActionResponse,
+  priorEvidence: EvidenceRecord[] = []
 ): string {
-  const templatePrompt = tryCompileTemplatePrompt(taskId, role, actor, next)
+  const templatePrompt = tryCompileTemplatePrompt(taskId, role, actor, next, priorEvidence)
   if (templatePrompt !== undefined) {
     return [templatePrompt, '', STRICT_OUTPUT_DIRECTIVE].join('\n')
   }
@@ -489,7 +592,8 @@ function tryCompileTemplatePrompt(
   taskId: string,
   role: string,
   actor: string,
-  next: NextActionResponse
+  next: NextActionResponse,
+  priorEvidence: EvidenceRecord[] = []
 ): string | undefined {
   const rawTemplate = next.instance.template
   if (rawTemplate === undefined) {
@@ -503,7 +607,7 @@ function tryCompileTemplatePrompt(
       role,
       actor,
       next,
-      evidenceSummaries: [],
+      evidenceSummaries: priorEvidence,
       obligations: next.openObligations,
     })
   } catch {

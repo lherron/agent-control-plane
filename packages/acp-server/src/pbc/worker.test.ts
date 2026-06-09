@@ -145,6 +145,7 @@ function makeFakeWorkerPort(
     transitionShouldThrow?: (transition: string) => Error | undefined
     launchRunIdSequence?: string[]
     includeJobs?: boolean
+    obligationsForList?: Array<{ id: string; kind: string; status: string }>
   } = {}
 ): FakeWorkerPort {
   const _calls: SpyCall[] = []
@@ -200,7 +201,7 @@ function makeFakeWorkerPort(
     obligation: {
       list: async (params: { task: string }) => {
         _calls.push({ method: 'obligation.list', params })
-        return []
+        return (opts.obligationsForList ?? []).map((o) => makeObligationRecord(o.id, o.kind, o.status))
       },
       satisfy: async (params: { task: string; id: string; evidenceId?: string }) => {
         _calls.push({ method: 'obligation.satisfy', params })
@@ -1931,5 +1932,165 @@ describe('runPbcContinuationWorker — timeout: max-wait exceeded (T-03527 behav
     expect(port._calls.some((c) => c.method === 'run.fail')).toBe(true)
     // run.finish must NOT be called (the run did not succeed)
     expect(port._calls.some((c) => c.method === 'run.finish')).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// satisfyObligations sanitization (T-03554)
+//
+// General participant agents (larry/curly) routinely invent a satisfyObligations
+// directive for evidence they just produced even when NO such obligation is open
+// at this revision. Unsanitized, ingestion throws ("no open obligation matching
+// kind …") and fails the whole autonomous job. The worker must drop directives
+// that do not target a currently-open obligation; matching directives are kept.
+// ---------------------------------------------------------------------------
+
+describe('runPbcContinuationWorker — satisfyObligations sanitization (T-03554)', () => {
+  test('drops a satisfyObligations directive whose kind has no open obligation (job not failed)', async () => {
+    const finalText = JSON.stringify({
+      evidence: [{ kind: 'behavior_note', summary: 'larry ready' }],
+      // larry invents this — there is NO open behavior_note obligation
+      satisfyObligations: [{ obligationKind: 'behavior_note', evidenceIndex: 0 }],
+      proposedTransition: 'collect_behavior_note',
+    })
+    const port = makeFakeWorkerPort({
+      finalText,
+      nextSequence: [
+        makeNextRaw({
+          status: 'active',
+          phase: 'behavior_note',
+          revision: 1,
+          actions: [{ transition: 'draft_pbc' }],
+          openObligations: [],
+        }),
+        makeNextRaw({
+          status: 'active',
+          phase: 'behavior_note',
+          revision: 2,
+          actions: [{ transition: 'draft_pbc' }],
+          openObligations: [],
+        }),
+        makeNextRaw({ status: 'closed', phase: 'finalized', revision: 3, actions: [] }),
+      ],
+    })
+
+    const result = await runPbcContinuationWorker(port, {
+      taskId: 'T-00001',
+      idempotencyKey: 'worker-sanitize-drop',
+      actor: 'agent:pbc-writer',
+    } satisfies PbcContinuationWorkerInput)
+
+    expect(result.finalStatus).not.toBe('failed')
+    // evidence is still ingested
+    expect(port._calls.some((c) => c.method === 'evidence.add')).toBe(true)
+    // the bogus directive was dropped → no satisfy attempt, no failure
+    expect(port._calls.some((c) => c.method === 'obligation.satisfy')).toBe(false)
+    expect(port._calls.some((c) => c.method === 'run.fail')).toBe(false)
+  })
+
+  test('keeps a satisfyObligations directive that matches an open obligation', async () => {
+    const finalText = JSON.stringify({
+      evidence: [{ kind: 'behavior_note', summary: 'answer' }],
+      satisfyObligations: [{ obligationKind: 'behavior_note', evidenceIndex: 0 }],
+    })
+    const port = makeFakeWorkerPort({
+      finalText,
+      // ingest re-lists obligations via port.obligation.list — keep it consistent
+      // with next.openObligations so a KEPT directive can actually be satisfied
+      obligationsForList: [{ id: 'obl_b1', kind: 'behavior_note', status: 'open' }],
+      nextSequence: [
+        makeNextRaw({
+          status: 'active',
+          phase: 'behavior_note',
+          revision: 1,
+          actions: [{ transition: 'draft_pbc' }],
+          openObligations: [{ id: 'obl_b1', kind: 'behavior_note', status: 'open' }],
+        }),
+        makeNextRaw({
+          status: 'active',
+          phase: 'behavior_note',
+          revision: 2,
+          actions: [{ transition: 'draft_pbc' }],
+          openObligations: [],
+        }),
+        makeNextRaw({ status: 'closed', phase: 'finalized', revision: 3, actions: [] }),
+      ],
+    })
+
+    await runPbcContinuationWorker(port, {
+      taskId: 'T-00001',
+      idempotencyKey: 'worker-sanitize-keep',
+      actor: 'agent:pbc-writer',
+    } satisfies PbcContinuationWorkerInput)
+
+    // the matching directive is preserved → satisfy IS attempted
+    expect(port._calls.some((c) => c.method === 'obligation.satisfy')).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Evidence facts flattening (T-03554)
+//
+// wrkf rejects evidence facts whose values are nested objects or arrays of
+// non-scalars ("facts.X must be flat"). General agents routinely nest structured
+// payloads. The worker must flatten non-scalar fact values (JSON-stringify) so
+// ingestion succeeds; scalar values and arrays-of-scalars pass through.
+// ---------------------------------------------------------------------------
+
+describe('runPbcContinuationWorker — evidence facts flattening (T-03554)', () => {
+  test('nested fact values are flattened so ingestion does not fail', async () => {
+    const finalText = JSON.stringify({
+      evidence: [
+        {
+          kind: 'behavior_note',
+          summary: 'larry ready',
+          facts: {
+            // nested object — must be flattened
+            commands: { run: ['hrcchat info', 'wrkq info'] },
+            // array of scalars — must pass through unchanged
+            tags: ['startup', 'ready'],
+            // scalar — unchanged
+            status: 'waiting_for_request',
+          },
+        },
+      ],
+    })
+    const port = makeFakeWorkerPort({
+      finalText,
+      nextSequence: [
+        makeNextRaw({
+          status: 'active',
+          phase: 'behavior_note',
+          revision: 1,
+          actions: [{ transition: 'draft_pbc' }],
+        }),
+        makeNextRaw({
+          status: 'active',
+          phase: 'behavior_note',
+          revision: 2,
+          actions: [{ transition: 'draft_pbc' }],
+        }),
+        makeNextRaw({ status: 'closed', phase: 'finalized', revision: 3, actions: [] }),
+      ],
+    })
+
+    const result = await runPbcContinuationWorker(port, {
+      taskId: 'T-00001',
+      idempotencyKey: 'worker-flatten-facts',
+      actor: 'agent:pbc-writer',
+    } satisfies PbcContinuationWorkerInput)
+
+    expect(result.finalStatus).not.toBe('failed')
+
+    const addCall = port._calls.find((c) => c.method === 'evidence.add')
+    expect(addCall).toBeDefined()
+    const facts = (addCall!.params as Record<string, unknown>)['facts'] as Record<string, unknown>
+    // nested object → JSON string
+    expect(typeof facts['commands']).toBe('string')
+    expect(facts['commands']).toBe(JSON.stringify({ run: ['hrcchat info', 'wrkq info'] }))
+    // array of scalars → unchanged
+    expect(facts['tags']).toEqual(['startup', 'ready'])
+    // scalar → unchanged
+    expect(facts['status']).toBe('waiting_for_request')
   })
 })

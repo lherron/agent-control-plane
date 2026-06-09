@@ -32,6 +32,70 @@ export interface PromptCompileInput {
 /** Evidence kinds that only a product_owner participant may legitimately produce. */
 const PRODUCT_OWNER_EVIDENCE_KINDS = ['clarification_response', 'patch_decision']
 
+/** Roles driven by the autonomous worker (vs. human /input product_owner). */
+const AGENT_PARTICIPANT_ROLES = ['agent', 'pressure_reviewer']
+
+/**
+ * Exact per-phase evidence the autonomous participant MUST emit in a single turn,
+ * keyed by the workflow phase (next.instance.state.phase). The shapes mirror the
+ * PBC evidence policy (required facts) and the freshness gate (linkage ids carried
+ * in `data`). Embedding them verbatim is what lets a general agent (larry/curly)
+ * produce complete, valid output so the workflow advances autonomously (T-03595).
+ */
+interface PhaseEvidenceItem {
+  /** When 'conditional', only emit it when `when` holds. */
+  required: 'always' | 'conditional'
+  when?: string
+  /** A concrete JSON example of the evidence record to emit. */
+  example: string
+}
+
+const PER_PHASE_EVIDENCE: Record<string, { intro: string; items: PhaseEvidenceItem[] }> = {
+  behavior_note: {
+    intro:
+      'You are in the behavior_note phase. Emit BOTH evidence records below in this single turn:',
+    items: [
+      {
+        required: 'always',
+        example:
+          '{ "kind": "behavior_note", "summary": "<one-line summary>", "facts": { "content": "<the normalized, testable behavior the PBC will capture>" } }',
+      },
+      {
+        required: 'always',
+        example:
+          '{ "kind": "pre_interview_analysis", "summary": "<one-line summary>", "facts": { "clarification_needed": false } }  // set clarification_needed:true ONLY if you genuinely cannot draft a PBC without a product_owner decision',
+      },
+    ],
+  },
+  pbc_draft: {
+    intro: 'You are in the pbc_draft phase. Emit this evidence record in this single turn:',
+    items: [
+      {
+        required: 'always',
+        example:
+          '{ "kind": "pbc_draft", "summary": "<one-line summary>", "facts": { "content": "<the full PBC draft text>", "iteration": 1 }, "data": { "basedOnBehaviorNoteId": "<id of the behavior_note evidence shown under \'Evidence already on this task\'>" } }',
+      },
+    ],
+  },
+  pressure: {
+    intro:
+      'You are in the pressure phase. Emit pressure_pass (always), and ALSO pbc_final when (and only when) the verdict is "ready", in this single turn:',
+    items: [
+      {
+        required: 'always',
+        example:
+          '{ "kind": "pressure_pass", "summary": "<one-line summary>", "facts": { "verdict": "ready" | "needs_patch" | "too_vague" }, "data": { "reviewedDraftEvidenceId": "<id of the pbc_draft you reviewed, from \'Evidence already on this task\'>" } }',
+      },
+      {
+        required: 'conditional',
+        when: 'verdict is "ready"',
+        example:
+          '{ "kind": "pbc_final", "summary": "<one-line summary>", "facts": { "content": "<the finalized PBC>" }, "data": { "basedOnDraftEvidenceId": "<the same pbc_draft id>" } }',
+      },
+    ],
+  },
+}
+
 /**
  * The exact participant output contract, embedded verbatim in the prompt so the
  * participant returns a parseable ParticipantOutput (SPEC §4.8).
@@ -75,7 +139,11 @@ export function compilePbcPrompt(input: PromptCompileInput): string {
   if (phase !== undefined) {
     const lines: string[] = ['## Current phase guidance', '', phase.agentInstruction]
     if (phase.expectedEvidence.length > 0) {
-      lines.push('', 'Expected evidence:')
+      lines.push(
+        '',
+        'Expected evidence — produce EVERY one of these evidence kinds in this single turn',
+        '(the workflow cannot advance until all are present):'
+      )
       for (const item of phase.expectedEvidence) {
         lines.push(`- ${item}`)
       }
@@ -92,6 +160,33 @@ export function compilePbcPrompt(input: PromptCompileInput): string {
         lines.push(`- ${item}`)
       }
     }
+    sections.push(lines.join('\n'))
+  }
+
+  // --- exact per-phase required evidence (completeness contract) -------------
+  // Embed the precise evidence records the participant must emit this turn so a
+  // general agent produces complete, valid output (T-03595). Only for the
+  // worker-driven participant roles — product_owner /input is human and handled
+  // separately.
+  const phaseEvidence = PER_PHASE_EVIDENCE[state.phase]
+  if (phaseEvidence !== undefined && AGENT_PARTICIPANT_ROLES.includes(input.role)) {
+    const lines: string[] = [
+      '## Required evidence for this phase — emit EVERY applicable item in THIS ONE turn',
+      '',
+      phaseEvidence.intro,
+      '',
+    ]
+    for (const item of phaseEvidence.items) {
+      const tag =
+        item.required === 'conditional' && item.when !== undefined
+          ? ` (ONLY when ${item.when})`
+          : ' (required)'
+      lines.push(`-${tag}`, '```json', item.example, '```')
+    }
+    lines.push(
+      '',
+      'Copy any `data` linkage ids verbatim from the "Evidence already on this task" section below — do not invent ids. The workflow cannot advance until every required evidence record above is present.'
+    )
     sections.push(lines.join('\n'))
   }
 
@@ -162,7 +257,9 @@ export function compilePbcPrompt(input: PromptCompileInput): string {
     const lines: string[] = ['## Evidence already on this task', '']
     for (const evidence of input.evidenceSummaries) {
       const summary = evidence.summary !== undefined ? ` — ${evidence.summary}` : ''
-      lines.push(`- ${evidence.kind}${summary}`)
+      // Surface the evidence id so the participant can copy it into the `data`
+      // linkage fields (reviewedDraftEvidenceId, basedOnDraftEvidenceId, …).
+      lines.push(`- ${evidence.kind} (id: ${evidence.id})${summary}`)
     }
     sections.push(lines.join('\n'))
   }
@@ -181,6 +278,10 @@ export function compilePbcPrompt(input: PromptCompileInput): string {
   )
 
   // --- system-level guardrails ----------------------------------------------
+  const isAgentParticipant = AGENT_PARTICIPANT_ROLES.includes(input.role)
+  const obligationGuardrail = isAgentParticipant
+    ? '- EVIDENCE ONLY: you are an agent participant. OMIT `satisfyObligations` entirely (return evidence only). Obligation satisfaction is reserved for human product_owner /input — never emit a `satisfyObligations` directive for evidence you produced.'
+    : '- Only set `satisfyObligations` for obligations explicitly listed under "## Open obligations" above. If there are no open obligations, OMIT `satisfyObligations` entirely — do not invent an obligation for evidence you just produced.'
   sections.push(
     [
       '## Guardrails',
@@ -189,6 +290,8 @@ export function compilePbcPrompt(input: PromptCompileInput): string {
       '- Do not apply transitions yourself. The harness applies transitions after validating your output.',
       '- All evidence must be grounded in the actual task context — do not invent facts.',
       '- You must NOT fabricate or synthesize product_owner obligation evidence (e.g. clarification_response, patch_decision). Only a product_owner actor may produce it.',
+      obligationGuardrail,
+      '- Evidence `facts` MUST be flat: each value is a scalar (string/number/boolean/null) or an array of scalars. Do NOT nest objects or arrays inside a fact value.',
     ].join('\n')
   )
 
