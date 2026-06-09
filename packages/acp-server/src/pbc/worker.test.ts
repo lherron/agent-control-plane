@@ -123,22 +123,28 @@ function makeEffectRecord(id: string, kind: string, status: string): Record<stri
  * opts.nextSequence        — successive next() calls return these in order. Repeats last.
  * opts.finalText           — text returned by getFinalAssistantText (all calls)
  * opts.finalTextByRunId    — per-acpRunId text override (takes precedence over finalText)
+ * opts.finalTextSequence   — successive texts returned by getFinalAssistantText. Repeats last.
+ *                            Takes precedence over finalText and finalTextByRunId.
  * opts.effects             — pending effects returned by effect.list
  * opts.evidence            — timeline returned by evidence.list
  * opts.captureStore        — pre-populated capture records (for crash/replay tests)
  * opts.transitionShouldThrow — hook to simulate crash at transition.apply
  * opts.launchRunIdSequence — successive acpRunIds returned by launchAcpRun. Repeats last.
+ * opts.includeJobs         — include jobs.acquireLease / jobs.transition / jobs.renewLease spy
+ *                            in the returned port (default false to preserve existing test compat)
  */
 function makeFakeWorkerPort(
   opts: {
     nextSequence?: Array<Record<string, unknown>>
     finalText?: string | undefined
     finalTextByRunId?: Record<string, string | undefined>
+    finalTextSequence?: Array<string | undefined>
     effects?: Array<{ id: string; kind: string; status: string }>
     evidence?: Array<Record<string, unknown>>
     captureStore?: Record<string, unknown>
     transitionShouldThrow?: (transition: string) => Error | undefined
     launchRunIdSequence?: string[]
+    includeJobs?: boolean
   } = {}
 ): FakeWorkerPort {
   const _calls: SpyCall[] = []
@@ -293,12 +299,53 @@ function makeFakeWorkerPort(
     },
 
     getFinalAssistantText: (acpRunId: string): string | undefined => {
-      _calls.push({ method: 'getFinalAssistantText', params: { acpRunId } })
-      if (opts.finalTextByRunId !== undefined && acpRunId in opts.finalTextByRunId) {
-        return opts.finalTextByRunId[acpRunId]
+      // Determine result BEFORE pushing to _calls (so call-count-based indexing is correct)
+      let result: string | undefined
+      if (opts.finalTextSequence !== undefined) {
+        const callCount = _calls.filter((c) => c.method === 'getFinalAssistantText').length
+        const seq = opts.finalTextSequence
+        result = callCount < seq.length ? seq[callCount] : seq[seq.length - 1]
+      } else if (opts.finalTextByRunId !== undefined && acpRunId in opts.finalTextByRunId) {
+        result = opts.finalTextByRunId[acpRunId]
+      } else {
+        result = opts.finalText
       }
-      return opts.finalText
+      _calls.push({ method: 'getFinalAssistantText', params: { acpRunId } })
+      return result
     },
+
+    ...(opts.includeJobs === true
+      ? {
+          jobs: {
+            acquireLease: async (params: {
+              jobId: string
+              leaseOwner: string
+              leaseExpiresAt: string
+            }) => {
+              _calls.push({ method: 'jobs.acquireLease', params })
+              return { acquired: true, job: { jobId: params.jobId } }
+            },
+            transition: async (params: {
+              jobId: string
+              toStatus: 'succeeded' | 'failed' | 'cancelled'
+              resultJson?: unknown
+              errorJson?: unknown
+              stopReason?: string
+            }) => {
+              _calls.push({ method: 'jobs.transition', params })
+              return { jobId: params.jobId, status: params.toStatus }
+            },
+            renewLease: async (params: {
+              jobId: string
+              leaseOwner: string
+              leaseExpiresAt: string
+            }) => {
+              _calls.push({ method: 'jobs.renewLease', params })
+              return { jobId: params.jobId }
+            },
+          },
+        }
+      : {}),
   }
 }
 
@@ -1533,5 +1580,355 @@ describe('PbcContinuationWorkerPort type contract', () => {
     // Type-only assertion: compile failure = red (structural mismatch)
     const port: PbcContinuationWorkerPort = makeFakeWorkerPort() as unknown as PbcContinuationWorkerPort
     expect(port).toBeDefined()
+  })
+})
+
+// ===========================================================================
+// 8. RESUMABLE AWAITING — RED tests for T-03527
+//
+// These tests are RED against the current implementation (worker.ts lines 196-200)
+// which immediately calls run.fail + returns 'missing_final_assistant_text' when
+// getFinalAssistantText returns empty — regardless of whether the participant turn
+// has had time to complete.
+//
+// The correct (post-fix) behaviour is:
+//  • Within the max-wait window: keep the job alive, renew the lease, return
+//    stopReason='awaiting_participant_output' (non-terminal).
+//  • On a subsequent tick where text IS available: process normally (idempotent launch).
+//  • After max-wait exceeded: fail with 'missing_final_assistant_text'.
+//
+// DECISION comment (C-03853): resumable / non-blocking approach.
+// ===========================================================================
+
+describe('runPbcContinuationWorker — awaiting: empty text within wait window (T-03527 behavior 1)', () => {
+  // ── Core: non-terminal result when text not yet available ──────────────────
+
+  test('empty getFinalAssistantText → stopReason awaiting_participant_output, not failed', async () => {
+    const port = makeFakeWorkerPort({
+      finalText: undefined,
+      nextSequence: [
+        makeNextRaw({
+          status: 'active',
+          phase: 'behavior_note',
+          revision: 1,
+          actions: [{ transition: 'draft_pbc' }],
+        }),
+      ],
+    })
+
+    const result = await runPbcContinuationWorker(port, {
+      taskId: 'T-00001',
+      idempotencyKey: 'worker-await-01',
+      actor: 'agent:pbc-writer',
+    })
+
+    // Must return non-terminal "still waiting" result
+    expect(result.stopReason).toBe('awaiting_participant_output')
+    expect(result.finalStatus).not.toBe('failed')
+  })
+
+  test('empty getFinalAssistantText → evidence.add NOT called', async () => {
+    const port = makeFakeWorkerPort({
+      finalText: undefined,
+      nextSequence: [
+        makeNextRaw({
+          status: 'active',
+          phase: 'behavior_note',
+          revision: 1,
+          actions: [{ transition: 'draft_pbc' }],
+        }),
+      ],
+    })
+
+    await runPbcContinuationWorker(port, {
+      taskId: 'T-00001',
+      idempotencyKey: 'worker-await-02',
+      actor: 'agent:pbc-writer',
+    })
+
+    expect(port._calls.some((c) => c.method === 'evidence.add')).toBe(false)
+  })
+
+  test('empty getFinalAssistantText → transition.apply NOT called', async () => {
+    const port = makeFakeWorkerPort({
+      finalText: undefined,
+      nextSequence: [
+        makeNextRaw({
+          status: 'active',
+          phase: 'behavior_note',
+          revision: 1,
+          actions: [{ transition: 'draft_pbc' }],
+        }),
+      ],
+    })
+
+    await runPbcContinuationWorker(port, {
+      taskId: 'T-00001',
+      idempotencyKey: 'worker-await-03',
+      actor: 'agent:pbc-writer',
+    })
+
+    expect(port._calls.some((c) => c.method === 'transition.apply')).toBe(false)
+  })
+
+  test('empty getFinalAssistantText → run.fail NOT called (participant turn is still live)', async () => {
+    const port = makeFakeWorkerPort({
+      finalText: undefined,
+      nextSequence: [
+        makeNextRaw({
+          status: 'active',
+          phase: 'behavior_note',
+          revision: 1,
+          actions: [{ transition: 'draft_pbc' }],
+        }),
+      ],
+    })
+
+    await runPbcContinuationWorker(port, {
+      taskId: 'T-00001',
+      idempotencyKey: 'worker-await-04',
+      actor: 'agent:pbc-writer',
+    })
+
+    // run.fail must NOT be called: the participant (larry) is still running
+    expect(port._calls.some((c) => c.method === 'run.fail')).toBe(false)
+  })
+
+  // ── Job lease: renewed when awaiting, NOT transitioned to terminal ─────────
+
+  test('awaiting: jobs.renewLease called and jobs.transition NOT called (job stays alive)', async () => {
+    const port = makeFakeWorkerPort({
+      finalText: undefined,
+      includeJobs: true,
+      nextSequence: [
+        makeNextRaw({
+          status: 'active',
+          phase: 'behavior_note',
+          revision: 1,
+          actions: [{ transition: 'draft_pbc' }],
+        }),
+      ],
+    })
+
+    await runPbcContinuationWorker(port, {
+      taskId: 'T-00001',
+      idempotencyKey: 'worker-await-05',
+      actor: 'agent:pbc-writer',
+      jobId: 'job_await_test',
+      leaseOwner: 'test-scheduler',
+    })
+
+    // Lease must be renewed (not failed): job stays alive so the next tick can re-check
+    expect(port._calls.some((c) => c.method === 'jobs.renewLease')).toBe(true)
+    // Must NOT transition job to a terminal status
+    const terminalTransition = port._calls.find(
+      (c) =>
+        c.method === 'jobs.transition' &&
+        ['succeeded', 'failed', 'cancelled'].includes(
+          String((c.params as Record<string, unknown>)['toStatus'])
+        )
+    )
+    expect(terminalTransition).toBeUndefined()
+  })
+})
+
+describe('runPbcContinuationWorker — resume: subsequent invocation with text (T-03527 behavior 2)', () => {
+  // ── Resume: first invocation awaits; second invocation processes normally ──
+
+  test('resume: first invocation returns awaiting; second invocation (text now available) ingests evidence + applies transition', async () => {
+    // getFinalAssistantText: first call → undefined, subsequent calls → text
+    const port = makeFakeWorkerPort({
+      finalTextSequence: [undefined, behaviorNoteText(), behaviorNoteText()],
+      // Same acpRunId returned both times (idempotent launch)
+      launchRunIdSequence: ['acp_run_resume_1', 'acp_run_resume_1'],
+      nextSequence: [
+        // First invocation reads this
+        makeNextRaw({
+          status: 'active',
+          phase: 'behavior_note',
+          revision: 1,
+          actions: [{ transition: 'draft_pbc' }],
+        }),
+        // Second invocation + post-evidence re-read
+        makeNextRaw({
+          status: 'active',
+          phase: 'behavior_note',
+          revision: 1,
+          actions: [{ transition: 'draft_pbc' }],
+        }),
+        makeNextRaw({
+          status: 'active',
+          phase: 'behavior_note',
+          revision: 2,
+          actions: [{ transition: 'draft_pbc' }],
+        }),
+        makeNextRaw({ status: 'closed', phase: 'finalized', revision: 3, actions: [] }),
+      ],
+    })
+
+    const input: PbcContinuationWorkerInput = {
+      taskId: 'T-00001',
+      idempotencyKey: 'worker-resume-01',
+      actor: 'agent:pbc-writer',
+    }
+
+    // First invocation: participant output not yet available
+    const result1 = await runPbcContinuationWorker(port, input)
+    // RED: current code returns 'missing_final_assistant_text' + finalStatus='failed'
+    expect(result1.stopReason).toBe('awaiting_participant_output')
+    expect(result1.finalStatus).not.toBe('failed')
+
+    // Second invocation: text now available — must process normally
+    const result2 = await runPbcContinuationWorker(port, input)
+    expect(result2.finalStatus).toBe('succeeded')
+
+    // Evidence must be ingested on the second invocation
+    expect(port._calls.some((c) => c.method === 'evidence.add')).toBe(true)
+    // Transition must be applied
+    expect(port._calls.some((c) => c.method === 'transition.apply')).toBe(true)
+  })
+
+  test('resume: launchAcpRun called with the SAME idempotency key on both invocations (idempotent, no new turn)', async () => {
+    const port = makeFakeWorkerPort({
+      finalTextSequence: [undefined, behaviorNoteText()],
+      launchRunIdSequence: ['acp_run_resume_2', 'acp_run_resume_2'],
+      nextSequence: [
+        makeNextRaw({
+          status: 'active',
+          phase: 'behavior_note',
+          revision: 1,
+          actions: [{ transition: 'draft_pbc' }],
+        }),
+        makeNextRaw({
+          status: 'active',
+          phase: 'behavior_note',
+          revision: 1,
+          actions: [{ transition: 'draft_pbc' }],
+        }),
+        makeNextRaw({
+          status: 'active',
+          phase: 'behavior_note',
+          revision: 2,
+          actions: [{ transition: 'draft_pbc' }],
+        }),
+        makeNextRaw({ status: 'closed', phase: 'finalized', revision: 3, actions: [] }),
+      ],
+    })
+
+    const input: PbcContinuationWorkerInput = {
+      taskId: 'T-00001',
+      idempotencyKey: 'worker-resume-02',
+      actor: 'agent:pbc-writer',
+    }
+
+    // Two invocations with the same input
+    await runPbcContinuationWorker(port, input)
+    await runPbcContinuationWorker(port, input)
+
+    // All launchAcpRun calls must use the SAME idempotency key
+    // (idempotent on :launch:revision — no new turn started on resume)
+    const launchCalls = port._calls.filter((c) => c.method === 'launchAcpRun')
+    expect(launchCalls.length).toBeGreaterThanOrEqual(1)
+    const launchKeys = launchCalls.map(
+      (c) => (c.params as Record<string, unknown>)['idempotencyKey']
+    )
+    const uniqueKeys = new Set(launchKeys)
+    expect(uniqueKeys.size).toBe(1) // all calls share the same idempotency key
+  })
+})
+
+describe('runPbcContinuationWorker — timeout: max-wait exceeded (T-03527 behavior 3)', () => {
+  // ── Timeout: after max-wait, fails with missing_final_assistant_text ───────
+  //
+  // The worker must track WHEN it started waiting (via captures) and compare
+  // against the configured timeout. Pre-seeding captures with a timestamp far
+  // in the past simulates the "already waited too long" scenario.
+  //
+  // The RED assertion below: captures.get must be called for an elapsed-time
+  // tracking key (contains 'wait' / 'await' / 'elapsed' / 'since').
+  // Current code never checks captures when text is undefined — it fails immediately.
+
+  test('timeout exceeded → fails with missing_final_assistant_text AND elapsed time was checked via captures', async () => {
+    // Pre-seed captures to simulate that output-wait began 10 minutes ago
+    const TEN_MINUTES_AGO = new Date(Date.now() - 10 * 60 * 1000).toISOString()
+    const captureStore: Record<string, unknown> = {
+      // Cover plausible key shapes the implementation might use:
+      'worker-timeout-01:output-wait-started-at:1': TEN_MINUTES_AGO,
+      'worker-timeout-01:output-wait-start:1': TEN_MINUTES_AGO,
+      'worker-timeout-01:awaiting-since:1': TEN_MINUTES_AGO,
+      'worker-timeout-01:participant-wait-start:1': TEN_MINUTES_AGO,
+    }
+
+    const port = makeFakeWorkerPort({
+      finalText: undefined,
+      captureStore,
+      nextSequence: [
+        makeNextRaw({
+          status: 'active',
+          phase: 'behavior_note',
+          revision: 1,
+          actions: [{ transition: 'draft_pbc' }],
+        }),
+      ],
+    })
+
+    const result = await runPbcContinuationWorker(port, {
+      taskId: 'T-00001',
+      idempotencyKey: 'worker-timeout-01',
+      actor: 'agent:pbc-writer',
+    })
+
+    // Timeout path: fails with the canonical missing-text error
+    expect(result.stopReason).toBe('missing_final_assistant_text')
+    expect(result.finalStatus).toBe('failed')
+
+    // RED assertion: the implementation MUST check captures for elapsed time
+    // (so it can distinguish "within window" from "timeout exceeded").
+    // Current code never calls captures.get when text is undefined.
+    const captureGetCalls = port._calls.filter((c) => c.method === 'captures.get')
+    const elapsedKeyCall = captureGetCalls.find((c) => {
+      const key = String((c.params as Record<string, unknown>)['captureKey'] ?? '')
+      return (
+        key.includes('wait') ||
+        key.includes('await') ||
+        key.includes('elapsed') ||
+        key.includes('since')
+      )
+    })
+    expect(elapsedKeyCall).toBeDefined()
+  })
+
+  test('timeout: run.fail IS called when timeout exceeded (open run must be cleaned up)', async () => {
+    const TEN_MINUTES_AGO = new Date(Date.now() - 10 * 60 * 1000).toISOString()
+    const captureStore: Record<string, unknown> = {
+      'worker-timeout-02:output-wait-started-at:1': TEN_MINUTES_AGO,
+      'worker-timeout-02:output-wait-start:1': TEN_MINUTES_AGO,
+      'worker-timeout-02:awaiting-since:1': TEN_MINUTES_AGO,
+      'worker-timeout-02:participant-wait-start:1': TEN_MINUTES_AGO,
+    }
+
+    const port = makeFakeWorkerPort({
+      finalText: undefined,
+      captureStore,
+      nextSequence: [
+        makeNextRaw({
+          status: 'active',
+          phase: 'behavior_note',
+          revision: 1,
+          actions: [{ transition: 'draft_pbc' }],
+        }),
+      ],
+    })
+
+    await runPbcContinuationWorker(port, {
+      taskId: 'T-00001',
+      idempotencyKey: 'worker-timeout-02',
+      actor: 'agent:pbc-writer',
+    })
+
+    // On timeout (not on every awaiting tick), run.fail must be called
+    expect(port._calls.some((c) => c.method === 'run.fail')).toBe(true)
+    // run.finish must NOT be called (the run did not succeed)
+    expect(port._calls.some((c) => c.method === 'run.finish')).toBe(false)
   })
 })

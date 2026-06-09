@@ -312,6 +312,123 @@ describe('createPbcWorkerScheduler — disabled path (no tick)', () => {
   })
 })
 
+// ===========================================================================
+// AWAITING-OUTPUT RE-PICK — RED tests for T-03527 (behavior 4)
+//
+// Contract gap: the current scheduler only calls listByStatus('queued').
+// A job that is 'running' with an EXPIRED lease (because the worker returned
+// 'awaiting_participant_output' on the previous tick and let the lease expire)
+// is NOT picked up by the current scheduler. The scheduler must also re-pick
+// running jobs whose leases have expired.
+//
+// acquireLease() already supports this case:
+//   canAcquire = status === 'queued' || (status === 'running' && leaseExpired)
+// The gap is solely in tick(): it must also enumerate running-expired jobs.
+// ===========================================================================
+
+describe('createPbcWorkerScheduler — awaiting-output re-pick (T-03527 behavior 4)', () => {
+  let store: AcpStateStore
+
+  beforeEach(() => {
+    store = openAcpStateStore({ dbPath: ':memory:' })
+  })
+
+  afterEach(() => {
+    store.close()
+  })
+
+  test('scheduler re-picks a running job with an expired lease on the next tick (mid-await scenario)', async () => {
+    // Arrange: admit a job (starts as 'queued')
+    const job = admitJob(store, { taskId: 'T-sched-await-01' })
+
+    let workerCallCount = 0
+    const scheduler = createPbcWorkerScheduler({
+      stateStore: store,
+      runWorker: async (j) => {
+        workerCallCount++
+        // Simulate "awaiting": leave job as 'running' but renew lease to ALREADY-EXPIRED
+        // (1ms in the past) so the next tick can re-acquire it.
+        store.pbcContinuationJobs.renewLease({
+          jobId: j.jobId,
+          leaseOwner: 'pbc-continuation-worker-scheduler',
+          leaseExpiresAt: new Date(Date.now() - 1).toISOString(),
+        })
+      },
+    })
+
+    // First tick: picks up the queued job
+    await scheduler.tick()
+    expect(workerCallCount).toBe(1)
+
+    // Verify the job is now 'running' with an expired lease
+    const jobAfterFirst = store.pbcContinuationJobs.get(job.jobId)!
+    expect(jobAfterFirst.status).toBe('running')
+    expect(jobAfterFirst.leaseExpiresAt! <= new Date().toISOString()).toBe(true)
+
+    // Second tick: job is 'running' with expired lease → scheduler MUST re-pick it
+    // RED: current scheduler only lists 'queued', so workerCallCount stays at 1
+    await scheduler.tick()
+    expect(workerCallCount).toBe(2)
+  })
+
+  test('scheduler does NOT re-pick a running job whose lease is still active', async () => {
+    // Sanity guard: active-lease running jobs must not be double-invoked
+    admitJob(store, { taskId: 'T-sched-await-02' })
+
+    let workerCallCount = 0
+    const scheduler = createPbcWorkerScheduler({
+      stateStore: store,
+      runWorker: async () => {
+        workerCallCount++
+        // Worker does NOT renew/expire the lease → lease remains active until it
+        // naturally expires (based on leaseMs option, which defaults to 5 min)
+      },
+      leaseMs: 10 * 60 * 1000, // 10-minute lease → far from expiry during the test
+    })
+
+    await scheduler.tick() // first tick: picks queued job, lease acquired (active)
+    expect(workerCallCount).toBe(1)
+
+    await scheduler.tick() // second tick: lease still active → must NOT re-pick
+    expect(workerCallCount).toBe(1) // unchanged
+  })
+
+  test('scheduler re-picks multiple running-expired-lease jobs in a single tick', async () => {
+    const job1 = admitJob(store, { taskId: 'T-sched-await-multi-01', key: 'km1' })
+    const job2 = admitJob(store, { taskId: 'T-sched-await-multi-02', key: 'km2' })
+
+    const processedIds: string[] = []
+    const EXPIRED = new Date(Date.now() - 1).toISOString()
+
+    // Manually put both jobs into 'running' with expired leases
+    // (simulates two jobs that previously returned 'awaiting_participant_output')
+    store.pbcContinuationJobs.acquireLease({
+      jobId: job1.jobId,
+      leaseOwner: 'pbc-continuation-worker-scheduler',
+      leaseExpiresAt: EXPIRED,
+    })
+    store.pbcContinuationJobs.acquireLease({
+      jobId: job2.jobId,
+      leaseOwner: 'pbc-continuation-worker-scheduler',
+      leaseExpiresAt: EXPIRED,
+    })
+
+    const scheduler = createPbcWorkerScheduler({
+      stateStore: store,
+      runWorker: async (j) => {
+        processedIds.push(j.jobId)
+      },
+    })
+
+    // Both jobs are running-with-expired-lease; no queued jobs
+    // RED: current scheduler finds 0 queued → calls runWorker 0 times
+    await scheduler.tick()
+    expect(processedIds).toContain(job1.jobId)
+    expect(processedIds).toContain(job2.jobId)
+    expect(processedIds).toHaveLength(2)
+  })
+})
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Type contract
 // ─────────────────────────────────────────────────────────────────────────────
