@@ -433,7 +433,9 @@ function participantFor(
         explicitRole === 'pressure_reviewer' ? (input.pressureActor ?? input.actor) : input.actor,
     }
   }
-  if (next.instance.state.phase === 'pbc_draft') {
+  // The pressure phase is reviewed by a DISTINCT reviewer (SoD). Every other
+  // active phase (intake, behavior_note, pbc_draft) is the draft writer's turn.
+  if (next.instance.state.phase === 'pressure') {
     return { role: 'pressure_reviewer', actor: input.pressureActor ?? input.actor }
   }
   return { role: 'agent', actor: input.actor }
