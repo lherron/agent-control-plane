@@ -475,6 +475,7 @@ function createPbcWorkerRunner(input: {
           acpRunId
         ),
       jobs: {
+        renewLease: (params) => input.deps.stateStore!.pbcContinuationJobs.renewLease(params),
         transition: (params) => input.deps.stateStore!.pbcContinuationJobs.transition(params),
       },
     }
@@ -490,6 +491,7 @@ function createPbcWorkerRunner(input: {
         PBC_REVIEWER_AGENT
       ),
       jobId: job.jobId,
+      ...(job.leaseOwner !== undefined ? { leaseOwner: job.leaseOwner } : {}),
     })
   }
 }

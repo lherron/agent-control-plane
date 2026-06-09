@@ -12,8 +12,10 @@ import {
 
 const DEFAULT_MAX_TURNS = 20
 const DEFAULT_LEASE_MS = 5 * 60 * 1000
+const DEFAULT_OUTPUT_TIMEOUT_MS = 5 * 60 * 1000
+const DEFAULT_AWAITING_RECHECK_LEASE_MS = 1_000
 
-export type PbcContinuationWorkerFinalStatus = 'succeeded' | 'failed'
+export type PbcContinuationWorkerFinalStatus = 'succeeded' | 'failed' | 'running'
 
 export type PbcContinuationWorkerInput = {
   taskId: string
@@ -114,6 +116,11 @@ export interface PbcContinuationWorkerPort {
       errorJson?: unknown
       stopReason?: string
     }): unknown | Promise<unknown>
+    renewLease?(params: {
+      jobId: string
+      leaseOwner: string
+      leaseExpiresAt: string
+    }): unknown | Promise<unknown>
   }
 }
 
@@ -195,6 +202,17 @@ async function runLoop(
 
     const finalText = await port.getFinalAssistantText(launch.acpRunId)
     if (finalText === undefined || finalText.trim().length === 0) {
+      const waiting = await handleMissingParticipantOutput(port, input, next.instance.revision)
+      if (waiting === 'awaiting') {
+        return resultFor(
+          input.taskId,
+          turnsCompleted,
+          'awaiting_participant_output',
+          'running',
+          next
+        )
+      }
+
       await port.run.fail({ runId: wrkfRunId, summary: 'no final assistant text available' })
       return resultFor(input.taskId, turnsCompleted, 'missing_final_assistant_text', 'failed', next)
     }
@@ -272,6 +290,120 @@ async function runLoop(
   }
 
   return resultFor(input.taskId, turnsCompleted, 'max_turns', 'succeeded', latestNext)
+}
+
+async function handleMissingParticipantOutput(
+  port: PbcContinuationWorkerPort,
+  input: PbcContinuationWorkerInput,
+  revision: number
+): Promise<'awaiting' | 'timed_out'> {
+  const captureKey = outputWaitCaptureKey(input.idempotencyKey, revision)
+  const existing = await port.captures.get(captureKey)
+  const nowMs = Date.now()
+  const startedAtMs = readWaitStartedAtMs(existing)
+
+  if (startedAtMs !== undefined && nowMs - startedAtMs >= readOutputTimeoutMs()) {
+    return 'timed_out'
+  }
+
+  if (startedAtMs === undefined) {
+    await port.captures.set(captureKey, outputWaitCaptureRecord(new Date(nowMs).toISOString()))
+  }
+
+  if (input.jobId !== undefined && port.jobs?.renewLease !== undefined) {
+    const leaseMs = Math.min(input.leaseMs ?? DEFAULT_LEASE_MS, DEFAULT_AWAITING_RECHECK_LEASE_MS)
+    await port.jobs.renewLease({
+      jobId: input.jobId,
+      leaseOwner: input.leaseOwner ?? 'pbc-continuation-worker',
+      leaseExpiresAt: new Date(nowMs + leaseMs).toISOString(),
+    })
+  }
+
+  return 'awaiting'
+}
+
+function outputWaitCaptureKey(idempotencyKey: string, revision: number): string {
+  return `${idempotencyKey}:output-wait-started-at:${revision}`
+}
+
+function readWaitStartedAtMs(value: unknown): number | undefined {
+  const evidenceStartedAt = readWaitStartedAtFromCaptureRecord(value)
+  const raw =
+    evidenceStartedAt !== undefined
+      ? evidenceStartedAt
+      : typeof value === 'string'
+      ? value
+      : typeof value === 'object' && value !== null
+        ? readString(value as Record<string, unknown>, 'startedAt') ??
+          readString(value as Record<string, unknown>, 'started_at') ??
+          readString(value as Record<string, unknown>, 'value')
+        : undefined
+  if (raw === undefined) {
+    return undefined
+  }
+  const parsed = Date.parse(raw)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+function outputWaitCaptureRecord(startedAt: string): {
+  status: 'ingested'
+  evidenceAdded: Array<Record<string, unknown>>
+  obligationsSatisfied: []
+} {
+  return {
+    status: 'ingested',
+    evidenceAdded: [
+      {
+        id: `output-wait:${startedAt}`,
+        kind: 'output_wait_started',
+        raw: {},
+        data: { startedAt },
+      },
+    ],
+    obligationsSatisfied: [],
+  }
+}
+
+function readWaitStartedAtFromCaptureRecord(value: unknown): string | undefined {
+  if (typeof value !== 'object' || value === null) {
+    return undefined
+  }
+  const evidenceAdded = (value as Record<string, unknown>)['evidenceAdded']
+  if (!Array.isArray(evidenceAdded)) {
+    return undefined
+  }
+  for (const evidence of evidenceAdded) {
+    if (typeof evidence !== 'object' || evidence === null) {
+      continue
+    }
+    const record = evidence as Record<string, unknown>
+    const data = record['data']
+    if (typeof data === 'object' && data !== null) {
+      const startedAt = readString(data as Record<string, unknown>, 'startedAt')
+      if (startedAt !== undefined) {
+        return startedAt
+      }
+    }
+    const id = readString(record, 'id')
+    if (id?.startsWith('output-wait:') === true) {
+      return id.slice('output-wait:'.length)
+    }
+  }
+  return undefined
+}
+
+function readString(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key]
+  return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
+function readOutputTimeoutMs(): number {
+  const raw = process.env['ACP_PBC_WORKER_OUTPUT_TIMEOUT']?.trim()
+  if (raw === undefined || raw.length === 0) {
+    return DEFAULT_OUTPUT_TIMEOUT_MS
+  }
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_OUTPUT_TIMEOUT_MS
 }
 
 function participantFor(
@@ -363,6 +495,9 @@ async function persistJobResult(
   input: PbcContinuationWorkerInput,
   result: PbcContinuationWorkerResult
 ): Promise<void> {
+  if (result.finalStatus === 'running') {
+    return
+  }
   if (input.jobId === undefined || port.jobs?.transition === undefined) {
     return
   }

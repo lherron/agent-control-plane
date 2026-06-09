@@ -1281,9 +1281,9 @@ describe('runPbcContinuationWorker — crash/replay', () => {
     expect(deliverCalls).toHaveLength(0)
   })
 
-  // ── run.fail on HRC text missing ───────────────────────────────────────────
+  // ── first missing HRC text awaits participant output ───────────────────────
 
-  test('run.fail called and worker stops when getFinalAssistantText returns undefined', async () => {
+  test('run.fail is not called on first missing getFinalAssistantText while participant turn is live', async () => {
     const port = makeFakeWorkerPort({
       finalText: undefined, // no text → worker fails the run
       nextSequence: [
@@ -1302,16 +1302,17 @@ describe('runPbcContinuationWorker — crash/replay', () => {
       actor: 'agent:pbc-writer',
     } satisfies PbcContinuationWorkerInput)
 
-    // run.fail must be called (open run must not be orphaned)
+    // run.fail must NOT be called: the participant turn may still be running.
     const failCall = port._calls.find((c) => c.method === 'run.fail')
-    expect(failCall).toBeDefined()
+    expect(failCall).toBeUndefined()
 
     // run.finish must NOT be called
     const finishCall = port._calls.find((c) => c.method === 'run.finish')
     expect(finishCall).toBeUndefined()
 
-    // Worker reports failed status
-    expect(result.finalStatus).toBe('failed')
+    // Worker reports non-terminal await status. Timeout tests cover eventual run.fail.
+    expect(result.stopReason).toBe('awaiting_participant_output')
+    expect(result.finalStatus).not.toBe('failed')
   })
 })
 

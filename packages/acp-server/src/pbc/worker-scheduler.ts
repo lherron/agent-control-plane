@@ -22,9 +22,12 @@ export function createPbcWorkerScheduler(
 
   return {
     async tick(): Promise<void> {
-      const queuedJobs = options.stateStore.pbcContinuationJobs.listByStatus('queued')
+      const candidateJobs = [
+        ...options.stateStore.pbcContinuationJobs.listByStatus('queued'),
+        ...options.stateStore.pbcContinuationJobs.listByStatus('running'),
+      ]
 
-      for (const job of queuedJobs) {
+      for (const job of candidateJobs) {
         const lease = options.stateStore.pbcContinuationJobs.acquireLease({
           jobId: job.jobId,
           leaseOwner,
