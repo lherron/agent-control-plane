@@ -115,6 +115,13 @@ export interface PbcContinuationWorkerPort {
     prompt?: string
   }): Promise<{ acpRunId: string }>
   getFinalAssistantText(acpRunId: string): string | undefined | Promise<string | undefined>
+  /**
+   * Terminal-state probe for the launched ACP run (HRC run status underneath).
+   * Lets the worker distinguish "run still in flight" from "run completed with
+   * an empty final message" — the latter must count as a completed turn because
+   * participants record evidence via direct wrkf calls, not assistant text.
+   */
+  getRunStatus?(acpRunId: string): string | undefined | Promise<string | undefined>
   jobs?: {
     acquireLease?(params: {
       jobId: string
@@ -241,19 +248,27 @@ async function runLoop(
     // final text; empty text means the run is still in flight (resume) or died.
     const finalText = await port.getFinalAssistantText(launch.acpRunId)
     if (finalText === undefined || finalText.trim().length === 0) {
-      const waiting = await handleMissingParticipantOutput(port, input, revision)
-      if (waiting === 'awaiting') {
-        return resultFor(
-          input.taskId,
-          progress.turnsCompleted,
-          'awaiting_participant_output',
-          'running',
-          next
-        )
-      }
+      // An HRC run that already reached a terminal completed state will never
+      // produce more text — the participant did its work via direct wrkf calls
+      // and ended with an empty message (T-04024). Count the turn and let the
+      // evidence re-read below drive the transition instead of waiting.
+      const runStatus =
+        port.getRunStatus !== undefined ? await port.getRunStatus(launch.acpRunId) : undefined
+      if (runStatus !== 'completed') {
+        const waiting = await handleMissingParticipantOutput(port, input, revision)
+        if (waiting === 'awaiting') {
+          return resultFor(
+            input.taskId,
+            progress.turnsCompleted,
+            'awaiting_participant_output',
+            'running',
+            next
+          )
+        }
 
-      await port.run.fail({ runId: wrkfRunId, summary: 'no final assistant text available' })
-      return resultFor(input.taskId, progress.turnsCompleted, 'missing_final_assistant_text', 'failed', next)
+        await port.run.fail({ runId: wrkfRunId, summary: 'no final assistant text available' })
+        return resultFor(input.taskId, progress.turnsCompleted, 'missing_final_assistant_text', 'failed', next)
+      }
     }
 
     await port.run.finish({ runId: wrkfRunId, status: 'completed' })

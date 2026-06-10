@@ -47,7 +47,7 @@ import { getRunFinalAssistantText } from './jobs/run-final-output.js'
 import { resolveLaunchIntent } from './launch-role-scoped.js'
 import { createPbcWorkerScheduler } from './pbc/worker-scheduler.js'
 import { type PbcContinuationWorkerPort, runPbcContinuationWorker } from './pbc/worker.js'
-import { createRealLauncher } from './real-launcher.js'
+import { createRealLauncher, readRunStatus } from './real-launcher.js'
 import { createWrkfClientLifecycle } from './wrkf/client-lifecycle.js'
 
 const DEFAULT_COORD_DB_PATH = '/Users/lherron/praesidium/var/db/acp-coordination.db'
@@ -474,6 +474,13 @@ function createPbcWorkerRunner(input: {
           },
           acpRunId
         ),
+      getRunStatus: (acpRunId) => {
+        const acpRun = input.deps.runStore.getRun(acpRunId)
+        if (acpRun?.hrcRunId === undefined) {
+          return undefined
+        }
+        return readRunStatus(resolveDatabasePath(), acpRun.hrcRunId)?.status
+      },
       jobs: {
         renewLease: (params) => input.deps.stateStore!.pbcContinuationJobs.renewLease(params),
         transition: (params) => input.deps.stateStore!.pbcContinuationJobs.transition(params),

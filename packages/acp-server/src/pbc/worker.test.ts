@@ -146,6 +146,7 @@ function makeFakeWorkerPort(
     launchRunIdSequence?: string[]
     includeJobs?: boolean
     obligationsForList?: Array<{ id: string; kind: string; status: string }>
+    runStatus?: string
   } = {}
 ): FakeWorkerPort {
   const _calls: SpyCall[] = []
@@ -314,6 +315,15 @@ function makeFakeWorkerPort(
       _calls.push({ method: 'getFinalAssistantText', params: { acpRunId } })
       return result
     },
+
+    ...(opts.runStatus !== undefined
+      ? {
+          getRunStatus: (acpRunId: string): string | undefined => {
+            _calls.push({ method: 'getRunStatus', params: { acpRunId } })
+            return opts.runStatus
+          },
+        }
+      : {}),
 
     ...(opts.includeJobs === true
       ? {
@@ -891,6 +901,50 @@ describe('runPbcContinuationWorker — pressure phase', () => {
     expect((applyCall?.params as Record<string, unknown>)['role']).toBe('pressure_reviewer')
     expect((applyCall?.params as Record<string, unknown>)['actor']).toBe('agent:pressure-reviewer')
     expect(result.stopReason).toBe('closed')
+  })
+
+  test('empty final text + terminal HRC run → turn counts as complete, finalize applied (T-04024)', async () => {
+    // The participant recorded evidence via direct wrkf calls but ended its turn
+    // with an empty assistant message. The HRC run is COMPLETED, so the worker
+    // must not wait for text that will never arrive.
+    const port = makeFakeWorkerPort({
+      finalText: '',
+      runStatus: 'completed',
+      evidence: freshDraftAndPressureTimeline(),
+      nextSequence: [
+        makeNextRaw({
+          status: 'active',
+          phase: 'pressure',
+          revision: 5,
+          contextHash: 'sha256:ctx5',
+          actions: [{ transition: 'finalize_ready_pbc' }],
+        }),
+        makeNextRaw({
+          status: 'active',
+          phase: 'pressure',
+          revision: 5,
+          contextHash: 'sha256:ctx5',
+          actions: [{ transition: 'finalize_ready_pbc' }],
+        }),
+        makeNextRaw({ status: 'closed', phase: 'finalized', revision: 6, actions: [] }),
+      ],
+    })
+
+    const result = await runPbcContinuationWorker(port, {
+      taskId: 'T-00001',
+      idempotencyKey: 'worker-empty-text-terminal',
+      actor: 'agent:pbc-writer',
+      pressureActor: 'agent:pressure-reviewer',
+    } satisfies PbcContinuationWorkerInput)
+
+    const applyCall = port._calls.find(
+      (c) =>
+        c.method === 'transition.apply' &&
+        (c.params as Record<string, unknown>)['transition'] === 'finalize_ready_pbc'
+    )
+    expect(applyCall).toBeDefined()
+    expect(result.stopReason).toBe('closed')
+    expect(result.turnsCompleted).toBeGreaterThanOrEqual(1)
   })
 
   test('thrown error after a completed turn reports the real turnsCompleted, not 0', async () => {
