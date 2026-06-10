@@ -54,7 +54,27 @@ export type PbcTaskProjection = {
   artifacts: Record<string, unknown>
   obligations: Array<{ id: string; kind: string; status: string; prompt?: string }>
   actions: Array<{ kind: string; enabled: boolean }>
-  activeJob?: { id: string; status: string; startedAt?: string; finishedAt?: string; error?: unknown }
+  activeJob?: {
+    id: string
+    status: string
+    startedAt?: string
+    finishedAt?: string
+    stopReason?: string
+    error?: unknown
+  }
+  /**
+   * Latest TERMINAL-FAILED continuation job when no job is running/queued and
+   * the workflow is still open. Lets fresh page loads distinguish "a run
+   * failed" from "no run in progress" without a client-side latch (T-04045).
+   */
+  lastJob?: {
+    id: string
+    status: string
+    startedAt?: string
+    finishedAt?: string
+    stopReason?: string
+    error?: unknown
+  }
   effects: Array<{ id: string; kind: string; status: string; retryable?: boolean }>
   diagnostics: {
     pack: 'pbc'
@@ -210,12 +230,13 @@ function currentInputForScreen(screen: PbcScreen): PbcTaskProjection['currentInp
   return undefined
 }
 
-function projectActiveJob(job: PbcContinuationJob): NonNullable<PbcTaskProjection['activeJob']> {
+function projectJob(job: PbcContinuationJob): NonNullable<PbcTaskProjection['activeJob']> {
   return {
     id: job.jobId,
     status: job.status,
     ...(job.startedAt !== undefined ? { startedAt: job.startedAt } : {}),
     ...(job.finishedAt !== undefined ? { finishedAt: job.finishedAt } : {}),
+    ...(job.stopReason !== undefined ? { stopReason: job.stopReason } : {}),
     ...(job.errorJson !== undefined ? { error: job.errorJson } : {}),
   }
 }
@@ -238,6 +259,8 @@ export type BuildPbcTaskProjectionInput = {
   next: NextActionResponse
   task?: unknown
   job?: PbcContinuationJob | undefined
+  /** Latest terminal-failed job, surfaced only when `job` is absent (T-04045). */
+  lastJob?: PbcContinuationJob | undefined
   /** Task evidence timeline (oldest→newest) used to populate `artifacts`. */
   evidence?: PbcArtifactEvidence[]
 }
@@ -278,7 +301,10 @@ export function buildPbcTaskProjection(input: BuildPbcTaskProjectionInput): PbcT
       status: obligation.status,
     })),
     actions: buildProductActions(screen, next.pendingEffects),
-    ...(input.job !== undefined ? { activeJob: projectActiveJob(input.job) } : {}),
+    ...(input.job !== undefined ? { activeJob: projectJob(input.job) } : {}),
+    ...(input.job === undefined && input.lastJob !== undefined
+      ? { lastJob: projectJob(input.lastJob) }
+      : {}),
     effects: next.pendingEffects.map((effect) => ({
       id: effect.id,
       kind: effect.kind,

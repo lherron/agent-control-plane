@@ -32,6 +32,22 @@ function findActiveJob(
   return active[active.length - 1]
 }
 
+/**
+ * Latest terminal-FAILED job for the task, surfaced only when nothing is
+ * running/queued so fresh page loads can tell "a run failed" from "no run in
+ * progress" (T-04045). Succeeded/cancelled jobs are not interesting here.
+ */
+function findLastFailedJob(
+  stateStore: AcpStateStore | undefined,
+  taskId: string
+): PbcContinuationJob | undefined {
+  if (stateStore === undefined) {
+    return undefined
+  }
+  const latest = stateStore.pbcContinuationJobs.latestForTask(taskId)
+  return latest?.status === 'failed' ? latest : undefined
+}
+
 export const handlePbcGetTask: RouteHandler = async (context) => {
   const taskId = requirePbcTaskId(context.params)
   const wrkf = requirePbcWrkf(context.deps)
@@ -42,8 +58,9 @@ export const handlePbcGetTask: RouteHandler = async (context) => {
     const evidence = await readPbcEvidence(wrkf, taskId)
     const taskMeta = isRecord(inspected) ? inspected['task'] : undefined
     const job = findActiveJob(context.deps.stateStore, taskId)
+    const lastJob = job === undefined ? findLastFailedJob(context.deps.stateStore, taskId) : undefined
     return Response.json(
-      buildPbcTaskProjection({ taskId, next, task: taskMeta, job, evidence }),
+      buildPbcTaskProjection({ taskId, next, task: taskMeta, job, lastJob, evidence }),
       { status: 200 }
     )
   } catch (error) {

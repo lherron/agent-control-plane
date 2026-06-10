@@ -1102,6 +1102,68 @@ describe('contextHash is diagnostics-only — NOT a required mutation input (RED
     )
   })
 
+  test('[RED T-04045] failed terminal job surfaces as lastJob with stopReason when no active job', async () => {
+    const wrkf = makeProductFakePort({ next: async () => BEHAVIOR_NOTE_NEXT })
+
+    await withWiredServer(
+      async (fixture) => {
+        const { job } = fixture.stateStore.pbcContinuationJobs.admit({
+          taskId: TASK,
+          workflowRef: PBC_WORKFLOW_REF,
+          revisionAtAdmission: '3',
+          idempotencyKey: 'lastjob-test-1',
+        })
+        fixture.stateStore.pbcContinuationJobs.transition({
+          jobId: job.jobId,
+          toStatus: 'failed',
+          stopReason: 'missing_final_assistant_text',
+        })
+
+        const response = await fixture.request({
+          method: 'GET',
+          path: `/v1/pbc/tasks/${TASK}`,
+        })
+        expect(response.status).toBe(200)
+        const body = await fixture.json<Record<string, unknown>>(response)
+
+        // No running/queued job → activeJob absent, but the terminal failure
+        // must stay visible so fresh page loads can tell "failed" from "idle".
+        expect(body['activeJob']).toBeUndefined()
+        const lastJob = body['lastJob'] as Record<string, unknown>
+        expect(lastJob).toBeDefined()
+        expect(lastJob['id']).toBe(job.jobId)
+        expect(lastJob['status']).toBe('failed')
+        expect(lastJob['stopReason']).toBe('missing_final_assistant_text')
+      },
+      { wrkf }
+    )
+  })
+
+  test('[RED T-04045] running job still projects as activeJob, no lastJob duplicate', async () => {
+    const wrkf = makeProductFakePort({ next: async () => BEHAVIOR_NOTE_NEXT })
+
+    await withWiredServer(
+      async (fixture) => {
+        fixture.stateStore.pbcContinuationJobs.admit({
+          taskId: TASK,
+          workflowRef: PBC_WORKFLOW_REF,
+          revisionAtAdmission: '3',
+          idempotencyKey: 'lastjob-test-2',
+        })
+
+        const response = await fixture.request({
+          method: 'GET',
+          path: `/v1/pbc/tasks/${TASK}`,
+        })
+        expect(response.status).toBe(200)
+        const body = await fixture.json<Record<string, unknown>>(response)
+        expect(body['activeJob']).toBeDefined()
+        expect(body['lastJob']).toBeUndefined()
+      },
+      { wrkf }
+    )
+  })
+
   test('[RED] projection contextHash lives under instance or diagnostics, NOT at top-level', async () => {
     const wrkf = makeProductFakePort({ next: async () => BEHAVIOR_NOTE_NEXT })
 

@@ -254,6 +254,20 @@ export class PbcContinuationJobsRepo {
     })()
   }
 
+  /** Most recently updated job for a task, regardless of status. */
+  latestForTask(taskId: string): PbcContinuationJob | undefined {
+    const row = this.context.sqlite
+      .prepare(
+        `SELECT ${SELECT_COLUMNS} FROM pbc_continuation_jobs
+          WHERE task_id = ?
+       ORDER BY updated_at DESC, job_id DESC
+          LIMIT 1`
+      )
+      .get(taskId) as PbcContinuationJobRow | undefined
+
+    return row === undefined ? undefined : mapRow(row)
+  }
+
   listByStatus(status: PbcContinuationJobStatus): readonly PbcContinuationJob[] {
     const rows = this.context.sqlite
       .prepare(
