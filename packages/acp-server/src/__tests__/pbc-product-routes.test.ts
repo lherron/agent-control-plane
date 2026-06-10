@@ -1240,6 +1240,41 @@ describe('POST /v1/pbc/tasks/:taskId/input — human actor + screen checks (RED)
     )
   })
 
+  test('[RED T-04112] missing idempotencyKey → 400 BEFORE any wrkf writes (no evidence, no transition)', async () => {
+    const wrkf = makeProductFakePort({
+      next: async () => CLARIFICATION_NEXT,
+      obligationList: async () => [
+        { id: 'obl-clarif-1', kind: 'clarification_response', status: 'open' },
+      ],
+    })
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'POST',
+          path: `/v1/pbc/tasks/${TASK}/input`,
+          headers: { 'x-acp-actor': HUMAN_ACTOR },
+          body: {
+            // idempotencyKey deliberately omitted
+            kind: 'clarification_response',
+            data: { answer: 'half-apply must not happen' },
+          },
+        })
+        expect(response.status).toBe(400)
+
+        // The half-apply is the bug: nothing may be written before the reject.
+        const writeCalls = wrkf._calls.filter(
+          (c) =>
+            c.method === 'evidence.add' ||
+            c.method === 'transition.apply' ||
+            c.method === 'obligation.satisfy'
+        )
+        expect(writeCalls).toEqual([])
+      },
+      { wrkf }
+    )
+  })
+
   test('[RED] AGENT actor on /input → 403 (agent role rejected for clarification_response)', async () => {
     const wrkf = makeProductFakePort({
       next: async () => CLARIFICATION_NEXT,

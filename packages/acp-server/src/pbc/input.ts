@@ -91,6 +91,10 @@ export const handlePbcInput: RouteHandler = async (context) => {
 
   const body = requireRecord(await parseJsonBody(context.request))
   const kind = requireTrimmedStringField(body, 'kind')
+  // Validate up-front, BEFORE any wrkf writes — parsing this only at job
+  // admission half-applied the input (evidence + transition committed, then
+  // 400) and left the workflow advanced but stalled (T-04112).
+  const idempotencyKey = requireTrimmedStringField(body, 'idempotencyKey')
   const data = isRecord(body['data']) ? (body['data'] as Record<string, unknown>) : {}
 
   try {
@@ -166,7 +170,7 @@ export const handlePbcInput: RouteHandler = async (context) => {
       ? admitPbcContinuationJob(stateStore, {
           taskId,
           revision: after.instance.revision,
-          idempotencyKey: requireTrimmedStringField(body, 'idempotencyKey'),
+          idempotencyKey,
         })
       : undefined
 
