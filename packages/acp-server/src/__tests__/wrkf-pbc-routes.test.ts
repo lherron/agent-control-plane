@@ -317,7 +317,7 @@ describe('GET /v1/wrkf/pbc/tasks/:task/inspect — read-only inspection (RED)', 
         expect(response.status).toBe(200)
         const body = await fixture.json<Record<string, unknown>>(response)
         expect(body['task']).toBeDefined()
-        expect(body['workflowRef']).toBe('pbc-progressive-refinement@5')
+        expect(body['workflowRef']).toBe('pbc-progressive-refinement@9')
         expect(body['instance']).toBeDefined()
         expect(body['next']).toBeDefined()
       },
@@ -435,7 +435,7 @@ describe('POST /v1/wrkf/pbc/tasks/:task/run-step — one participant action (RED
         expect(response.status).toBe(200)
         const body = await fixture.json<Record<string, unknown>>(response)
         expect(body['task']).toBe(TASK)
-        expect(body['workflowRef']).toBe('pbc-progressive-refinement@5')
+        expect(body['workflowRef']).toBe('pbc-progressive-refinement@9')
         expect(body['instance']).toBeDefined()
         expect(body['next']).toBeDefined()
       },
@@ -795,7 +795,7 @@ describe('POST /v1/wrkf/pbc/tasks/:task/approve-transition (RED)', () => {
         expect(response.status).toBe(200)
         const body = await fixture.json<Record<string, unknown>>(response)
         expect(body['task']).toBe(TASK)
-        expect(body['workflowRef']).toBe('pbc-progressive-refinement@5')
+        expect(body['workflowRef']).toBe('pbc-progressive-refinement@9')
         expect(body['transitionApplied']).toBeDefined()
       },
       { wrkf }

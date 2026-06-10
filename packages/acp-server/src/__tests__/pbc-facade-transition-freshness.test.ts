@@ -42,7 +42,7 @@ import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
 
 const TASK = 'T-09200'
 const HUMAN_ACTOR = JSON.stringify({ kind: 'human', id: 'user:product-owner' })
-const PBC_WORKFLOW_REF = 'pbc-progressive-refinement@5'
+const PBC_WORKFLOW_REF = 'pbc-progressive-refinement@9'
 
 // ─── Bumping-fake state type ──────────────────────────────────────────────────
 

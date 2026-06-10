@@ -78,6 +78,7 @@ export type ChooseTransitionResult =
   | {
       transition: string
       actor?: string | undefined
+      role?: string | undefined
     }
   | {
       blocked: true

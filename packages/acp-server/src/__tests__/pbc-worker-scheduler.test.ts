@@ -51,7 +51,7 @@ import {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const PBC_WORKFLOW_REF = 'pbc-progressive-refinement@5'
+const PBC_WORKFLOW_REF = 'pbc-progressive-refinement@9'
 
 function admitJob(
   store: AcpStateStore,

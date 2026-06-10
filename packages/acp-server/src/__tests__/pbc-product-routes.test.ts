@@ -22,7 +22,7 @@
  *   POST /v1/pbc/tasks/:taskId/effects/reconcile  — src/pbc/effects.ts (operator)
  *
  * Hard constraints (from daedalus spec):
- *   - requiredPack: 'pbc', requiredWorkflowRef: 'pbc-progressive-refinement@5'
+ *   - requiredPack: 'pbc', requiredWorkflowRef: 'pbc-progressive-refinement@9'
  *   - NEVER expose raw transition IDs, contextHash, obligation wire shapes as required
  *     mutation inputs. body carries form data only.
  *   - actor comes from auth/middleware (x-acp-actor header), NOT from untrusted body.
@@ -41,7 +41,7 @@
  * PbcTaskProjection shape (spec lines 887-977):
  *   source: 'wrkf'
  *   taskId: string
- *   workflowRef: 'pbc-progressive-refinement@5'
+ *   workflowRef: 'pbc-progressive-refinement@9'
  *   task: { title?, state?, projectId?, containerId?, url? }
  *   instance: { id, status, phase, revision, contextHash? (diagnostics only), stale? }
  *   screen: 'starting'|'working'|'clarification'|'patch_decision'|'finalized'|'disposed'|'blocked'|'error'
@@ -67,7 +67,7 @@ const TASK = 'T-09100'
 const IDEMPOTENCY_KEY = 'pbc-product-test-001'
 const HUMAN_ACTOR = JSON.stringify({ kind: 'human', id: 'user:product-owner' })
 const AGENT_ACTOR = JSON.stringify({ kind: 'agent', id: 'agent:pbc-writer' })
-const PBC_WORKFLOW_REF = 'pbc-progressive-refinement@5'
+const PBC_WORKFLOW_REF = 'pbc-progressive-refinement@9'
 
 // ─── Canned wrkf responses ────────────────────────────────────────────────────
 

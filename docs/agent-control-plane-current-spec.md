@@ -201,7 +201,6 @@ Treat as historical or migration material unless current source says otherwise:
 - `HEURISTIC_LEARNING_IMPLEMENTATION.md`
 - `HEURISTIC_LEARNING_E2E_RUNBOOK.md`
 - `HRC_SPLIT_IMPL.md`
-- `GBRAIN_IMPL.md`
 - `specs/archived/**`
 - `specs/acp-task-timeline-cli.md`
 - `specs/acp-task-timeline-with-hrc.md`

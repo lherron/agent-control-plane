@@ -54,12 +54,12 @@ const NEXT_ACTION_MODEL = {
 
 describe('PBC template model projection', () => {
   test('exports the Phase 1 default template ref', () => {
-    expect(PBC_WORKFLOW_TEMPLATE_REF).toBe('pbc-progressive-refinement@5')
+    expect(PBC_WORKFLOW_TEMPLATE_REF).toBe('pbc-progressive-refinement@9')
   })
 
   test('projects nextActionModel from workflow.show and supports phase/transition lookup', () => {
     const model = projectPbcTemplateModelFromWorkflowShow({
-      ref: 'pbc-progressive-refinement@5',
+      ref: 'pbc-progressive-refinement@9',
       nextActionModel: NEXT_ACTION_MODEL,
     })
 

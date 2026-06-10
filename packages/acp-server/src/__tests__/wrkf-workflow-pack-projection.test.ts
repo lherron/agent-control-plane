@@ -159,7 +159,7 @@ describe('P2a: GET /v1/tasks/:taskId — projection includes pack block', () => 
   // (no hash supplied here — hash-free case; pbcManifest returns supported:true).
   //
   describe('PBC workflow inspect → pack resolved as supported level-3 (RED: pack field absent)', () => {
-    test('GET returns 200 with pack field present when wrkf reports pbc-progressive-refinement@5', async () => {
+    test('GET returns 200 with pack field present when wrkf reports pbc-progressive-refinement@9', async () => {
       await withWiredServer(
         async (fixture) => {
           const response = await fixture.request({
@@ -174,13 +174,13 @@ describe('P2a: GET /v1/tasks/:taskId — projection includes pack block', () => 
         {
           wrkf: makePackTestWrkfPort({
             templateId: 'pbc-progressive-refinement',
-            templateVersion: '5',
+            templateVersion: '9',
           }),
         }
       )
     })
 
-    test('pack block has supported:true and level:3 for pbc-progressive-refinement@5', async () => {
+    test('pack block has supported:true and level:3 for pbc-progressive-refinement@9', async () => {
       await withWiredServer(
         async (fixture) => {
           const response = await fixture.request({
@@ -199,13 +199,13 @@ describe('P2a: GET /v1/tasks/:taskId — projection includes pack block', () => 
         {
           wrkf: makePackTestWrkfPort({
             templateId: 'pbc-progressive-refinement',
-            templateVersion: '5',
+            templateVersion: '9',
           }),
         }
       )
     })
 
-    test('pack block id is "pbc" for pbc-progressive-refinement@5', async () => {
+    test('pack block id is "pbc" for pbc-progressive-refinement@9', async () => {
       await withWiredServer(
         async (fixture) => {
           const response = await fixture.request({
@@ -222,7 +222,7 @@ describe('P2a: GET /v1/tasks/:taskId — projection includes pack block', () => 
         {
           wrkf: makePackTestWrkfPort({
             templateId: 'pbc-progressive-refinement',
-            templateVersion: '5',
+            templateVersion: '9',
           }),
         }
       )
@@ -338,7 +338,7 @@ describe('P2a: GET /v1/tasks/:taskId — projection includes pack block', () => 
         {
           wrkf: makePackTestWrkfPort({
             templateId: 'pbc-progressive-refinement',
-            templateVersion: '5',
+            templateVersion: '9',
           }),
         }
       )

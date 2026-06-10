@@ -476,7 +476,7 @@ describe('runPbcContinuationWorker — behavior_note phase', () => {
     expect(result.turnsCompleted).toBeGreaterThanOrEqual(1)
   })
 
-  test('behavior_note: evidence.add called for behavior_note AND pre_interview_analysis', async () => {
+  test('behavior_note: worker does NOT call evidence.add (the agent records directly); launches the turn and applies draft_pbc', async () => {
     const port = makeFakeWorkerPort({
       finalText: behaviorNoteText({ clarificationNeeded: false }),
       nextSequence: [
@@ -502,15 +502,20 @@ describe('runPbcContinuationWorker — behavior_note phase', () => {
       actor: 'agent:pbc-writer',
     } satisfies PbcContinuationWorkerInput)
 
-    const evidenceKinds = port._calls
-      .filter((c) => c.method === 'evidence.add')
-      .map((c) => (c.params as Record<string, unknown>)['kind'])
-
-    expect(evidenceKinds).toContain('behavior_note')
-    expect(evidenceKinds).toContain('pre_interview_analysis')
+    // The worker no longer ingests evidence — the agent records it directly.
+    expect(port._calls.filter((c) => c.method === 'evidence.add')).toHaveLength(0)
+    // The worker launches the participant turn ...
+    expect(port._calls.some((c) => c.method === 'launchAcpRun')).toBe(true)
+    // ... and applies the draft_pbc transition.
+    const applyCall = port._calls.find(
+      (c) =>
+        c.method === 'transition.apply' &&
+        (c.params as Record<string, unknown>)['transition'] === 'draft_pbc'
+    )
+    expect(applyCall).toBeDefined()
   })
 
-  test('behavior_note: run.finish called AFTER evidence ingestion', async () => {
+  test('run.finish (status completed) is called after the turn and before transition.apply', async () => {
     const port = makeFakeWorkerPort({
       finalText: behaviorNoteText({ clarificationNeeded: false }),
       nextSequence: [
@@ -536,12 +541,16 @@ describe('runPbcContinuationWorker — behavior_note phase', () => {
       actor: 'agent:pbc-writer',
     } satisfies PbcContinuationWorkerInput)
 
-    const methods = port._calls.map((c) => c.method)
-    const evidenceIdx = methods.indexOf('evidence.add')
-    const finishIdx = methods.indexOf('run.finish')
+    const launchIdx = port._calls.findIndex((c) => c.method === 'launchAcpRun')
+    const finishIdx = port._calls.findIndex((c) => c.method === 'run.finish')
+    const transitionIdx = port._calls.findIndex((c) => c.method === 'transition.apply')
 
-    expect(evidenceIdx).toBeGreaterThan(-1)
-    expect(finishIdx).toBeGreaterThan(evidenceIdx)
+    expect(launchIdx).toBeGreaterThan(-1)
+    expect(finishIdx).toBeGreaterThan(launchIdx)
+    expect(transitionIdx).toBeGreaterThan(finishIdx)
+
+    const finishCall = port._calls.find((c) => c.method === 'run.finish')!
+    expect((finishCall.params as Record<string, unknown>)['status']).toBe('completed')
   })
 
   test('behavior_note: transition uses fresh contextHash from re-read next (not stale)', async () => {
@@ -668,7 +677,7 @@ describe('runPbcContinuationWorker — behavior_note phase', () => {
 
   // ── run.start called before evidence ingest ────────────────────────────────
 
-  test('run.start is called before evidence ingest in each turn', async () => {
+  test('run.start is called before launchAcpRun in each turn', async () => {
     const port = makeFakeWorkerPort({
       finalText: behaviorNoteText({ clarificationNeeded: false }),
       nextSequence: [
@@ -694,12 +703,11 @@ describe('runPbcContinuationWorker — behavior_note phase', () => {
       actor: 'agent:pbc-writer',
     } satisfies PbcContinuationWorkerInput)
 
-    const methods = port._calls.map((c) => c.method)
-    const runStartIdx = methods.indexOf('run.start')
-    const evidenceIdx = methods.indexOf('evidence.add')
+    const runStartIdx = port._calls.findIndex((c) => c.method === 'run.start')
+    const launchIdx = port._calls.findIndex((c) => c.method === 'launchAcpRun')
 
     expect(runStartIdx).toBeGreaterThan(-1)
-    expect(evidenceIdx).toBeGreaterThan(runStartIdx)
+    expect(launchIdx).toBeGreaterThan(runStartIdx)
   })
 
   // ── stopReason closed ──────────────────────────────────────────────────────
@@ -777,9 +785,56 @@ describe('runPbcContinuationWorker — behavior_note phase', () => {
     } satisfies PbcContinuationWorkerInput)
 
     expect(result.stopReason).toBe('blocked_or_ambiguous')
-    expect(result.turnsCompleted).toBe(1)
+    // The phase has no candidate transition, so choosePbcTransition stays blocked
+    // and the worker re-launches the same phase up to the retry budget before
+    // giving up — at least one turn completed.
+    expect(result.turnsCompleted).toBeGreaterThanOrEqual(1)
     expect(port._calls.find((c) => c.method === 'run.start')).toBeDefined()
     expect(port._calls.find((c) => c.method === 'launchAcpRun')).toBeDefined()
+  })
+
+  // ── retry: a turn that leaves the phase incomplete is re-launched (T-03775) ─
+
+  test('retries the same phase when the first turn leaves no legal transition, then advances', async () => {
+    const port = makeFakeWorkerPort({
+      finalText: behaviorNoteText(),
+      nextSequence: [
+        // iter1 start — behavior_note, rev 1, no transition yet
+        makeNextRaw({ status: 'active', phase: 'behavior_note', revision: 1, actions: [] }),
+        // iter1 post-turn — still no legal transition → blocked → RETRY
+        makeNextRaw({ status: 'active', phase: 'behavior_note', revision: 1, actions: [] }),
+        // iter2 (retry) start — same revision
+        makeNextRaw({ status: 'active', phase: 'behavior_note', revision: 1, actions: [] }),
+        // iter2 post-turn — the (retried) agent recorded evidence → transition now legal
+        makeNextRaw({
+          status: 'active',
+          phase: 'behavior_note',
+          revision: 1,
+          actions: [{ transition: 'draft_pbc' }],
+        }),
+        // after transition + next iter start — closed → stop
+        makeNextRaw({ status: 'closed', phase: 'finalized', actions: [] }),
+      ],
+    })
+
+    const result = await runPbcContinuationWorker(port, {
+      taskId: 'T-00001',
+      idempotencyKey: 'worker-retry',
+      actor: 'agent:pbc-writer',
+    } satisfies PbcContinuationWorkerInput)
+
+    // Two launches: the first (blocked) and the retry that advanced.
+    const launches = port._calls.filter((c) => c.method === 'launchAcpRun')
+    expect(launches.length).toBe(2)
+    // The retry launch carries a distinct :retry: idempotency suffix so a NEW HRC
+    // turn actually runs (same key would resume the prior run — the T-03775 bug).
+    expect(String(launches[0]?.params['idempotencyKey'])).not.toContain(':retry:')
+    expect(String(launches[1]?.params['idempotencyKey'])).toContain(':retry:1')
+    // The phase advanced on the retry.
+    const transitions = port._calls.filter((c) => c.method === 'transition.apply')
+    expect(transitions.length).toBe(1)
+    expect(transitions[0]?.params['transition']).toBe('draft_pbc')
+    expect(result.finalStatus).toBe('succeeded')
   })
 })
 
@@ -831,7 +886,49 @@ describe('runPbcContinuationWorker — pressure phase', () => {
         (c.params as Record<string, unknown>)['transition'] === 'finalize_ready_pbc'
     )
     expect(applyCall).toBeDefined()
+    // Finalization is applied by the reviewer actor under its bound wrkf role —
+    // role=agent + reviewer actor is rejected by wrkf's role-binding gate (T-03778).
+    expect((applyCall?.params as Record<string, unknown>)['role']).toBe('pressure_reviewer')
+    expect((applyCall?.params as Record<string, unknown>)['actor']).toBe('agent:pressure-reviewer')
     expect(result.stopReason).toBe('closed')
+  })
+
+  test('thrown error after a completed turn reports the real turnsCompleted, not 0', async () => {
+    const port = makeFakeWorkerPort({
+      finalText: pbcFinalText('ev_draft_1', 'ev_pp_1'),
+      evidence: freshDraftAndPressureTimeline(),
+      nextSequence: [
+        makeNextRaw({
+          status: 'active',
+          phase: 'pressure',
+          revision: 5,
+          contextHash: 'sha256:ctx5',
+          actions: [{ transition: 'finalize_ready_pbc' }],
+        }),
+        makeNextRaw({
+          status: 'active',
+          phase: 'pressure',
+          revision: 6,
+          contextHash: 'sha256:ctx6',
+          actions: [{ transition: 'finalize_ready_pbc' }],
+        }),
+      ],
+      transitionShouldThrow: (transition) =>
+        transition === 'finalize_ready_pbc' ? new Error('wrkf rejected transition') : undefined,
+    })
+
+    const result = await runPbcContinuationWorker(port, {
+      taskId: 'T-00001',
+      idempotencyKey: 'worker-turns-not-masked',
+      actor: 'agent:pbc-writer',
+      pressureActor: 'agent:pressure-reviewer',
+    } satisfies PbcContinuationWorkerInput)
+
+    expect(result.finalStatus).toBe('failed')
+    expect(result.stopReason).toContain('wrkf rejected transition')
+    // The pressure turn DID complete before the transition blew up; the
+    // result must not mask that as zero turns (T-03778 secondary finding).
+    expect(result.turnsCompleted).toBe(1)
   })
 
   // ── pressure freshness guard blocks stale finalize ─────────────────────────
@@ -1069,56 +1166,6 @@ describe('runPbcContinuationWorker — pressure phase', () => {
 describe('runPbcContinuationWorker — crash/replay', () => {
   // ── crash after evidence write before transition → no duplicate evidence ───
 
-  test('crash after evidence write: replay returns existing evidence IDs, no duplicate evidence.add', async () => {
-    // Pre-populate captures as if first run wrote evidence before crash
-    const existingEvidenceId = 'ev_existing_bn_1'
-    const captureKey = 'worker-crash-replay:participant-output:T-00001'
-    const preSeededCapture = {
-      status: 'ingested',
-      evidenceAdded: [{ id: existingEvidenceId, kind: 'behavior_note', raw: {} }],
-      obligationsSatisfied: [],
-    }
-
-    const port = makeFakeWorkerPort({
-      captureStore: { [captureKey]: preSeededCapture },
-      finalText: behaviorNoteText({ clarificationNeeded: false }),
-      nextSequence: [
-        // Crash happened after evidence was written at revision 2, before transition
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 2,
-          contextHash: 'sha256:ctx2',
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        // re-read after capture replay (same revision, transition still legal)
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 2,
-          contextHash: 'sha256:ctx2',
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        // post-transition
-        makeNextRaw({ status: 'closed', phase: 'finalized', revision: 3, actions: [] }),
-      ],
-    })
-
-    await runPbcContinuationWorker(port, {
-      taskId: 'T-00001',
-      idempotencyKey: 'worker-crash-replay',
-      actor: 'agent:pbc-writer',
-    } satisfies PbcContinuationWorkerInput)
-
-    // evidence.add must NOT be called again (replay)
-    const evidenceAddCalls = port._calls.filter((c) => c.method === 'evidence.add')
-    expect(evidenceAddCalls).toHaveLength(0)
-
-    // captures.get must be called (checking idempotency store)
-    const captureGetCalls = port._calls.filter((c) => c.method === 'captures.get')
-    expect(captureGetCalls.length).toBeGreaterThan(0)
-  })
-
   test('crash after evidence write: transition still applied (replay does not skip transition)', async () => {
     const existingEvidenceId = 'ev_existing_bn_1'
     const captureKey = 'worker-crash-trans:participant-output:T-00001'
@@ -1160,48 +1207,6 @@ describe('runPbcContinuationWorker — crash/replay', () => {
     const applyCall = port._calls.find((c) => c.method === 'transition.apply')
     expect(applyCall).toBeDefined()
     expect((applyCall!.params as Record<string, unknown>)['transition']).toBe('draft_pbc')
-  })
-
-  // ── first run: captures.set called after successful evidence ingest ─────────
-
-  test('successful ingest: captures.set called with ingested evidence IDs', async () => {
-    const captureStore: Record<string, unknown> = {}
-
-    const port = makeFakeWorkerPort({
-      captureStore,
-      finalText: behaviorNoteText({ clarificationNeeded: false }),
-      nextSequence: [
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 1,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 2,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        makeNextRaw({ status: 'closed', phase: 'finalized', revision: 3, actions: [] }),
-      ],
-    })
-
-    await runPbcContinuationWorker(port, {
-      taskId: 'T-00001',
-      idempotencyKey: 'worker-capture-set',
-      actor: 'agent:pbc-writer',
-    } satisfies PbcContinuationWorkerInput)
-
-    // captures.set must be called after successful ingest
-    const setCalls = port._calls.filter((c) => c.method === 'captures.set')
-    expect(setCalls.length).toBeGreaterThan(0)
-
-    // The capture record must include evidence IDs
-    const setCall = setCalls[0]!
-    const record = (setCall.params as Record<string, unknown>)['record'] as Record<string, unknown>
-    expect(record['status']).toBe('ingested')
-    expect(Array.isArray(record['evidenceAdded'])).toBe(true)
   })
 
   // ── crash after transition before effects → effect delivery replay ─────────
@@ -1737,7 +1742,7 @@ describe('runPbcContinuationWorker — awaiting: empty text within wait window (
 describe('runPbcContinuationWorker — resume: subsequent invocation with text (T-03527 behavior 2)', () => {
   // ── Resume: first invocation awaits; second invocation processes normally ──
 
-  test('resume: first invocation returns awaiting; second invocation (text now available) ingests evidence + applies transition', async () => {
+  test('resume: first invocation returns awaiting; second invocation (text now available) applies transition', async () => {
     // getFinalAssistantText: first call → undefined, subsequent calls → text
     const port = makeFakeWorkerPort({
       finalTextSequence: [undefined, behaviorNoteText(), behaviorNoteText()],
@@ -1784,9 +1789,7 @@ describe('runPbcContinuationWorker — resume: subsequent invocation with text (
     const result2 = await runPbcContinuationWorker(port, input)
     expect(result2.finalStatus).toBe('succeeded')
 
-    // Evidence must be ingested on the second invocation
-    expect(port._calls.some((c) => c.method === 'evidence.add')).toBe(true)
-    // Transition must be applied
+    // Transition must be applied on the second invocation
     expect(port._calls.some((c) => c.method === 'transition.apply')).toBe(true)
   })
 
@@ -1932,166 +1935,6 @@ describe('runPbcContinuationWorker — timeout: max-wait exceeded (T-03527 behav
     expect(port._calls.some((c) => c.method === 'run.fail')).toBe(true)
     // run.finish must NOT be called (the run did not succeed)
     expect(port._calls.some((c) => c.method === 'run.finish')).toBe(false)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// satisfyObligations sanitization (T-03554)
-//
-// General participant agents (larry/curly) routinely invent a satisfyObligations
-// directive for evidence they just produced even when NO such obligation is open
-// at this revision. Unsanitized, ingestion throws ("no open obligation matching
-// kind …") and fails the whole autonomous job. The worker must drop directives
-// that do not target a currently-open obligation; matching directives are kept.
-// ---------------------------------------------------------------------------
-
-describe('runPbcContinuationWorker — satisfyObligations sanitization (T-03554)', () => {
-  test('drops a satisfyObligations directive whose kind has no open obligation (job not failed)', async () => {
-    const finalText = JSON.stringify({
-      evidence: [{ kind: 'behavior_note', summary: 'larry ready' }],
-      // larry invents this — there is NO open behavior_note obligation
-      satisfyObligations: [{ obligationKind: 'behavior_note', evidenceIndex: 0 }],
-      proposedTransition: 'collect_behavior_note',
-    })
-    const port = makeFakeWorkerPort({
-      finalText,
-      nextSequence: [
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 1,
-          actions: [{ transition: 'draft_pbc' }],
-          openObligations: [],
-        }),
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 2,
-          actions: [{ transition: 'draft_pbc' }],
-          openObligations: [],
-        }),
-        makeNextRaw({ status: 'closed', phase: 'finalized', revision: 3, actions: [] }),
-      ],
-    })
-
-    const result = await runPbcContinuationWorker(port, {
-      taskId: 'T-00001',
-      idempotencyKey: 'worker-sanitize-drop',
-      actor: 'agent:pbc-writer',
-    } satisfies PbcContinuationWorkerInput)
-
-    expect(result.finalStatus).not.toBe('failed')
-    // evidence is still ingested
-    expect(port._calls.some((c) => c.method === 'evidence.add')).toBe(true)
-    // the bogus directive was dropped → no satisfy attempt, no failure
-    expect(port._calls.some((c) => c.method === 'obligation.satisfy')).toBe(false)
-    expect(port._calls.some((c) => c.method === 'run.fail')).toBe(false)
-  })
-
-  test('keeps a satisfyObligations directive that matches an open obligation', async () => {
-    const finalText = JSON.stringify({
-      evidence: [{ kind: 'behavior_note', summary: 'answer' }],
-      satisfyObligations: [{ obligationKind: 'behavior_note', evidenceIndex: 0 }],
-    })
-    const port = makeFakeWorkerPort({
-      finalText,
-      // ingest re-lists obligations via port.obligation.list — keep it consistent
-      // with next.openObligations so a KEPT directive can actually be satisfied
-      obligationsForList: [{ id: 'obl_b1', kind: 'behavior_note', status: 'open' }],
-      nextSequence: [
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 1,
-          actions: [{ transition: 'draft_pbc' }],
-          openObligations: [{ id: 'obl_b1', kind: 'behavior_note', status: 'open' }],
-        }),
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 2,
-          actions: [{ transition: 'draft_pbc' }],
-          openObligations: [],
-        }),
-        makeNextRaw({ status: 'closed', phase: 'finalized', revision: 3, actions: [] }),
-      ],
-    })
-
-    await runPbcContinuationWorker(port, {
-      taskId: 'T-00001',
-      idempotencyKey: 'worker-sanitize-keep',
-      actor: 'agent:pbc-writer',
-    } satisfies PbcContinuationWorkerInput)
-
-    // the matching directive is preserved → satisfy IS attempted
-    expect(port._calls.some((c) => c.method === 'obligation.satisfy')).toBe(true)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Evidence facts flattening (T-03554)
-//
-// wrkf rejects evidence facts whose values are nested objects or arrays of
-// non-scalars ("facts.X must be flat"). General agents routinely nest structured
-// payloads. The worker must flatten non-scalar fact values (JSON-stringify) so
-// ingestion succeeds; scalar values and arrays-of-scalars pass through.
-// ---------------------------------------------------------------------------
-
-describe('runPbcContinuationWorker — evidence facts flattening (T-03554)', () => {
-  test('nested fact values are flattened so ingestion does not fail', async () => {
-    const finalText = JSON.stringify({
-      evidence: [
-        {
-          kind: 'behavior_note',
-          summary: 'larry ready',
-          facts: {
-            // nested object — must be flattened
-            commands: { run: ['hrcchat info', 'wrkq info'] },
-            // array of scalars — must pass through unchanged
-            tags: ['startup', 'ready'],
-            // scalar — unchanged
-            status: 'waiting_for_request',
-          },
-        },
-      ],
-    })
-    const port = makeFakeWorkerPort({
-      finalText,
-      nextSequence: [
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 1,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 2,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        makeNextRaw({ status: 'closed', phase: 'finalized', revision: 3, actions: [] }),
-      ],
-    })
-
-    const result = await runPbcContinuationWorker(port, {
-      taskId: 'T-00001',
-      idempotencyKey: 'worker-flatten-facts',
-      actor: 'agent:pbc-writer',
-    } satisfies PbcContinuationWorkerInput)
-
-    expect(result.finalStatus).not.toBe('failed')
-
-    const addCall = port._calls.find((c) => c.method === 'evidence.add')
-    expect(addCall).toBeDefined()
-    const facts = (addCall!.params as Record<string, unknown>)['facts'] as Record<string, unknown>
-    // nested object → JSON string
-    expect(typeof facts['commands']).toBe('string')
-    expect(facts['commands']).toBe(JSON.stringify({ run: ['hrcchat info', 'wrkq info'] }))
-    // array of scalars → unchanged
-    expect(facts['tags']).toEqual(['startup', 'ready'])
-    // scalar → unchanged
-    expect(facts['status']).toBe('waiting_for_request')
   })
 })
 
@@ -2332,7 +2175,7 @@ describe('runPbcContinuationWorker — worker prompt content (T-03678)', () => {
   // These are already appended by compileWorkerPrompt / compilePbcPrompt today.
   // This test MUST STAY GREEN through the fix and serve as a regression guard.
 
-  test('compiled prompt always contains the strict-JSON output directive and ParticipantOutput schema [GREEN]', async () => {
+  test('compiled prompt instructs the wrkf evidence loop, not a JSON-emit contract', async () => {
     const port = makeFakeWorkerPort({
       finalText: undefined,
       evidence: [],
@@ -2353,10 +2196,13 @@ describe('runPbcContinuationWorker — worker prompt content (T-03678)', () => {
 
     const prompt = extractLaunchPrompt(port)
     expect(prompt).toBeDefined()
-    // GREEN: STRICT_OUTPUT_DIRECTIVE is always appended by compileWorkerPrompt
-    expect(prompt).toContain('## Output contract — STRICT')
-    // GREEN: PARTICIPANT_OUTPUT_SCHEMA is always embedded by compilePbcPrompt
-    expect(prompt).toContain('interface ParticipantOutput')
+    // The agent records evidence by driving the wrkf CLI directly.
+    expect(prompt).toContain('wrkf evidence add')
+    expect(prompt).toContain('wrkf next')
+    expect(prompt).toContain('Do NOT run `wrkf transition`')
+    // The old strict-JSON-emit contract is gone.
+    expect(prompt).not.toContain('## Output contract — STRICT')
+    expect(prompt).not.toContain('ParticipantOutput')
   })
 })
 

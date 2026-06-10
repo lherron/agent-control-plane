@@ -20,9 +20,9 @@
  *     }
  *
  *   packs/pbc/manifest.ts — set claimed signal in supports():
- *     - workflowRef === 'pbc-progressive-refinement@5', hash OK  → { claimed:true, supported:true,  level:3 }
- *     - workflowRef === 'pbc-progressive-refinement@5', hash bad → { claimed:true, supported:false, level:0, reason:'template-hash-mismatch' }
- *     - workflowRef !== 'pbc-progressive-refinement@5'           → { claimed:false, supported:false, level:0 }
+ *     - workflowRef === 'pbc-progressive-refinement@9', hash OK  → { claimed:true, supported:true,  level:3 }
+ *     - workflowRef === 'pbc-progressive-refinement@9', hash bad → { claimed:true, supported:false, level:0, reason:'template-hash-mismatch' }
+ *     - workflowRef !== 'pbc-progressive-refinement@9'           → { claimed:false, supported:false, level:0 }
  *
  *   workflow-pack-registry.ts — update resolve() priority:
  *     1. First pack returning supported:true → { pack, support }  (unchanged)
@@ -48,28 +48,28 @@ import { WorkflowPackRegistry } from './workflow-pack-registry.js'
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('WorkflowPackRegistry.resolve()', () => {
-  // ── 1. Registered PBC manifest resolves for pbc-progressive-refinement@5 ──
+  // ── 1. Registered PBC manifest resolves for pbc-progressive-refinement@9 ──
   //
   // RED because: WorkflowPackRegistry and pbcManifest do not exist yet.
   // GREEN once: registry.register(pbcManifest) and resolve() delegates to pbcManifest.supports().
   //
-  describe('pbc-progressive-refinement@5 → supported: true, level: 3 (RED: modules absent)', () => {
-    test('resolve returns supported:true level:3 for workflowRef pbc-progressive-refinement@5 when pbcManifest is registered', () => {
+  describe('pbc-progressive-refinement@9 → supported: true, level: 3 (RED: modules absent)', () => {
+    test('resolve returns supported:true level:3 for workflowRef pbc-progressive-refinement@9 when pbcManifest is registered', () => {
       const registry = new WorkflowPackRegistry()
       registry.register(pbcManifest)
 
-      const result = registry.resolve({ workflowRef: 'pbc-progressive-refinement@5' })
+      const result = registry.resolve({ workflowRef: 'pbc-progressive-refinement@9' })
 
       expect(result.support.supported).toBe(true)
       expect(result.support.level).toBe(3)
       expect(result.pack).toBeDefined()
     })
 
-    test('resolved pack.id is "pbc" for pbc-progressive-refinement@5', () => {
+    test('resolved pack.id is "pbc" for pbc-progressive-refinement@9', () => {
       const registry = new WorkflowPackRegistry()
       registry.register(pbcManifest)
 
-      const result = registry.resolve({ workflowRef: 'pbc-progressive-refinement@5' })
+      const result = registry.resolve({ workflowRef: 'pbc-progressive-refinement@9' })
 
       expect(result.pack?.id).toBe('pbc')
     })
@@ -123,7 +123,7 @@ describe('pbcManifest.supports()', () => {
   describe('template-hash mismatch → supported:false, reason:template-hash-mismatch (RED: manifest absent)', () => {
     test('supports() with wrong templateHash returns supported:false level:0 reason:template-hash-mismatch', () => {
       const result = pbcManifest.supports({
-        workflowRef: 'pbc-progressive-refinement@5',
+        workflowRef: 'pbc-progressive-refinement@9',
         // A hash that is clearly not the real PBC template hash
         templateHash: 'sha256:0000000000000000000000000000000000000000000000000000000000000000',
       })
@@ -135,7 +135,7 @@ describe('pbcManifest.supports()', () => {
 
     test('hash mismatch result is NOT best-effort (level must be 0, not 1)', () => {
       const result = pbcManifest.supports({
-        workflowRef: 'pbc-progressive-refinement@5',
+        workflowRef: 'pbc-progressive-refinement@9',
         templateHash: 'sha256:deadbeef00000000000000000000000000000000000000000000000000000000',
       })
 
@@ -152,9 +152,9 @@ describe('pbcManifest.supports()', () => {
   //             (hash-pinning only fires when a hash IS provided and mismatches).
   //
   describe('no templateHash → supported:true level:3 (RED: manifest absent)', () => {
-    test('supports() without templateHash returns supported:true level:3 for pbc-progressive-refinement@5', () => {
+    test('supports() without templateHash returns supported:true level:3 for pbc-progressive-refinement@9', () => {
       const result = pbcManifest.supports({
-        workflowRef: 'pbc-progressive-refinement@5',
+        workflowRef: 'pbc-progressive-refinement@9',
         // No templateHash — hash-pin guard must NOT fire
       })
 
@@ -170,7 +170,7 @@ describe('pbcManifest.supports()', () => {
   //             { supported: false, level: 0 } for any ref it doesn't claim.
   //
   describe('unknown workflowRef → supported:false level:0 (RED: manifest absent)', () => {
-    test('supports() returns supported:false for workflowRef that is not pbc-progressive-refinement@5', () => {
+    test('supports() returns supported:false for workflowRef that is not pbc-progressive-refinement@9', () => {
       const result = pbcManifest.supports({
         workflowRef: 'agent-tasker-feature-request@3',
       })
@@ -268,7 +268,7 @@ describe('WorkflowPackRegistry.resolve() — claimed-but-blocked semantic (T-024
       })
 
       const result = registry.resolve({
-        workflowRef: 'pbc-progressive-refinement@5',
+        workflowRef: 'pbc-progressive-refinement@9',
         templateHash: 'sha256:0000000000000000000000000000000000000000000000000000000000000000',
       })
 
@@ -286,7 +286,7 @@ describe('WorkflowPackRegistry.resolve() — claimed-but-blocked semantic (T-024
       })
 
       const result = registry.resolve({
-        workflowRef: 'pbc-progressive-refinement@5',
+        workflowRef: 'pbc-progressive-refinement@9',
         templateHash: 'sha256:deadbeef00000000000000000000000000000000000000000000000000000000',
       })
 
@@ -304,7 +304,7 @@ describe('WorkflowPackRegistry.resolve() — claimed-but-blocked semantic (T-024
       })
 
       const result = registry.resolve({
-        workflowRef: 'pbc-progressive-refinement@5',
+        workflowRef: 'pbc-progressive-refinement@9',
         templateHash: 'sha256:deadbeef00000000000000000000000000000000000000000000000000000000',
       })
 
@@ -325,7 +325,7 @@ describe('WorkflowPackRegistry.resolve() — claimed-but-blocked semantic (T-024
       registry.register(pbcManifest)
 
       const result = registry.resolve({
-        workflowRef: 'pbc-progressive-refinement@5',
+        workflowRef: 'pbc-progressive-refinement@9',
         templateHash: 'sha256:0000000000000000000000000000000000000000000000000000000000000000',
       })
 
@@ -338,7 +338,7 @@ describe('WorkflowPackRegistry.resolve() — claimed-but-blocked semantic (T-024
       registry.register(pbcManifest)
 
       const result = registry.resolve({
-        workflowRef: 'pbc-progressive-refinement@5',
+        workflowRef: 'pbc-progressive-refinement@9',
         templateHash: 'sha256:0000000000000000000000000000000000000000000000000000000000000000',
       })
 
@@ -351,7 +351,7 @@ describe('WorkflowPackRegistry.resolve() — claimed-but-blocked semantic (T-024
       registry.register(pbcManifest)
 
       const result = registry.resolve({
-        workflowRef: 'pbc-progressive-refinement@5',
+        workflowRef: 'pbc-progressive-refinement@9',
         templateHash: 'sha256:0000000000000000000000000000000000000000000000000000000000000000',
       })
 
@@ -403,7 +403,7 @@ describe('WorkflowPackRegistry.resolve() — claimed-but-blocked semantic (T-024
 // tsc; Bun transpiles without type checking — undefined at runtime → fail red).
 //
 // GREEN once: WorkflowPackSupport gains `claimed?: boolean`; pbcManifest sets
-// claimed:true when workflowRef === 'pbc-progressive-refinement@5' (any hash),
+// claimed:true when workflowRef === 'pbc-progressive-refinement@9' (any hash),
 // claimed:false (or absent) for all other refs.
 //
 describe('pbcManifest.supports() — claimed signal (T-02402)', () => {
@@ -413,9 +413,9 @@ describe('pbcManifest.supports() — claimed signal (T-02402)', () => {
   // GREEN once: supports() sets claimed:true for the pbc ref.
   //
   describe('claimed:true when ref matches and hash is correct (RED: claimed absent)', () => {
-    test('supports() sets claimed:true for pbc-progressive-refinement@5 with no templateHash', () => {
+    test('supports() sets claimed:true for pbc-progressive-refinement@9 with no templateHash', () => {
       const result = pbcManifest.supports({
-        workflowRef: 'pbc-progressive-refinement@5',
+        workflowRef: 'pbc-progressive-refinement@9',
         // No hash — should return { claimed:true, supported:true, level:3 }
       })
 
@@ -434,7 +434,7 @@ describe('pbcManifest.supports() — claimed signal (T-02402)', () => {
   describe('claimed:true when ref matches but hash mismatches (RED: claimed absent)', () => {
     test('supports() sets claimed:true for pbc ref with mismatched templateHash', () => {
       const result = pbcManifest.supports({
-        workflowRef: 'pbc-progressive-refinement@5',
+        workflowRef: 'pbc-progressive-refinement@9',
         templateHash: 'sha256:0000000000000000000000000000000000000000000000000000000000000000',
       })
 

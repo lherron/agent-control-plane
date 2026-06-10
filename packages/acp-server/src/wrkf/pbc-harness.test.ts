@@ -34,7 +34,7 @@
  *     allowProductOwnerSimulation?: boolean }
  *
  * PbcHarnessResult shape (SPEC §4.7 — MUST include latest revision+contextHash after any write):
- *   { task: string; workflowRef: 'pbc-progressive-refinement@5';
+ *   { task: string; workflowRef: 'pbc-progressive-refinement@9';
  *     instance: { status: string; phase: string; revision: number; contextHash: string; stale?: boolean };
  *     next: { actions: unknown[]; blockedTransitions: unknown[]; openObligations: unknown[]; pendingEffects: unknown[] };
  *     runs: { started?: unknown; boundExternal?: unknown; finished?: unknown; failed?: unknown };
@@ -666,7 +666,7 @@ describe('runStep', () => {
     expect(result.task).toBe('T-42000')
   })
 
-  test('result.workflowRef is pbc-progressive-refinement@5', async () => {
+  test('result.workflowRef is pbc-progressive-refinement@9', async () => {
     const port = makeFakePort()
     const result = await runStep(port, {
       task: 'T-00001',
@@ -676,7 +676,7 @@ describe('runStep', () => {
       launchRuntime: false,
       participantOutput: { evidence: [] },
     } satisfies RunStepRequest)
-    expect(result.workflowRef).toBe('pbc-progressive-refinement@5')
+    expect(result.workflowRef).toBe('pbc-progressive-refinement@9')
   })
 
   test('result.runs.started is populated from run.start response', async () => {
@@ -1570,7 +1570,7 @@ describe('runUntilBlocked', () => {
 
   // ── PbcHarnessResult ─────────────────────────────────────────────────────
 
-  test('result.workflowRef is pbc-progressive-refinement@5', async () => {
+  test('result.workflowRef is pbc-progressive-refinement@9', async () => {
     const port = makeFakePort({
       nextSequence: [makeNextRaw({ status: 'closed', phase: 'finalized', actions: [] })],
     })
@@ -1579,7 +1579,7 @@ describe('runUntilBlocked', () => {
       actor: 'agent:pbc-writer',
       idempotencyKey: 'autopilot-wfref',
     } satisfies RunUntilBlockedRequest)
-    expect(result.workflowRef).toBe('pbc-progressive-refinement@5')
+    expect(result.workflowRef).toBe('pbc-progressive-refinement@9')
   })
 
   test('result.stopReason is always present in runUntilBlocked result', async () => {

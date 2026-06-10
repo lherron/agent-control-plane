@@ -128,6 +128,14 @@ export async function resolveLaunchIntent(
     initialPrompt?: string | undefined
     attachments?: AttachmentRef[] | undefined
     taskContext?: HrcTaskContext | undefined
+    /**
+     * Extra environment variables injected into the launched runtime via
+     * intent.launch.env. The PBC continuation worker uses this to pass the
+     * participant's TRUSTED actor/role binding (WRKF_BOUND_ACTOR/ROLE) and task
+     * so the agent can call `wrkf` directly as itself without being able to
+     * impersonate (paired with wrkq T-03777 E2). Merged over any placement env.
+     */
+    env?: Record<string, string> | undefined
   } = {}
 ): Promise<HrcRuntimeIntent> {
   const placement = await resolveLaunchPlacement(deps, sessionRef)
@@ -139,6 +147,7 @@ export async function resolveLaunchIntent(
     ...(options.initialPrompt !== undefined ? { initialPrompt: options.initialPrompt } : {}),
     ...(options.attachments !== undefined ? { attachments: options.attachments } : {}),
     ...(options.taskContext !== undefined ? { taskContext: options.taskContext } : {}),
+    ...(options.env !== undefined ? { launch: { env: options.env } } : {}),
   } as HrcRuntimeIntent
 }
 

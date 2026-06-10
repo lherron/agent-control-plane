@@ -21,7 +21,7 @@ import {
 import type { ChooseTransitionFn, WorkflowPack } from './runtime/workflow-pack.js'
 import { type ParticipantOutput } from './pbc-evidence.js'
 
-const WORKFLOW_REF = 'pbc-progressive-refinement@5'
+const WORKFLOW_REF = 'pbc-progressive-refinement@9'
 
 const legacyRunStepPack: WorkflowPack = {
   ...pbcManifest,
@@ -66,7 +66,7 @@ export interface RunUntilBlockedRequest {
 }
 
 export interface PbcHarnessResult extends Omit<WorkflowHarnessResult, 'workflowRef'> {
-  workflowRef: 'pbc-progressive-refinement@5'
+  workflowRef: 'pbc-progressive-refinement@9'
 }
 
 export async function runStep(

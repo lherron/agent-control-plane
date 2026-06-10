@@ -61,10 +61,9 @@ Enforced by `bun run check:boundaries`:
 - ACP source may import ASP and HRC packages by name from Verdaccio.
 - ACP source **must not** reach into HRC implementation internals via
   subpath imports like `hrc-server/src/...` or relative path traversals.
-- ACP source **must not** reference HRC-only feature identifiers
-  (`enrichTurnPromptForBrain`, `brain-enricher`, `gbrain`) — this is a
-  content scan, not just an import scan. The HRC brain-enricher is an
-  HRC-internal feature; ACP should never couple to it.
+- ACP source **must not** reference HRC-only feature identifiers; this is a
+  content scan, not just an import scan. HRC-internal enrichment features should
+  never become ACP coupling points.
 
 ## ACP Server Lifecycle
 

@@ -53,7 +53,7 @@ interface PhaseEvidenceItem {
 const PER_PHASE_EVIDENCE: Record<string, { intro: string; items: PhaseEvidenceItem[] }> = {
   behavior_note: {
     intro:
-      'You are in the behavior_note phase. Emit BOTH evidence records below in this single turn:',
+      'You are in the behavior_note phase. Record BOTH evidence records below this turn (one `wrkf evidence add` per record):',
     items: [
       {
         required: 'always',
@@ -68,7 +68,7 @@ const PER_PHASE_EVIDENCE: Record<string, { intro: string; items: PhaseEvidenceIt
     ],
   },
   pbc_draft: {
-    intro: 'You are in the pbc_draft phase. Emit this evidence record in this single turn:',
+    intro: 'You are in the pbc_draft phase. Record this evidence record this turn (via `wrkf evidence add`):',
     items: [
       {
         required: 'always',
@@ -79,7 +79,7 @@ const PER_PHASE_EVIDENCE: Record<string, { intro: string; items: PhaseEvidenceIt
   },
   pressure: {
     intro:
-      'You are in the pressure phase. Emit pressure_pass (always), and ALSO pbc_final when (and only when) the verdict is "ready", in this single turn:',
+      'You are in the pressure phase. Record pressure_pass (always), and ALSO pbc_final when (and only when) the verdict is "ready", this turn (one `wrkf evidence add` per record):',
     items: [
       {
         required: 'always',
@@ -90,7 +90,7 @@ const PER_PHASE_EVIDENCE: Record<string, { intro: string; items: PhaseEvidenceIt
         required: 'conditional',
         when: 'verdict is "ready"',
         example:
-          '{ "kind": "pbc_final", "summary": "<one-line summary>", "facts": { "content": "<the finalized PBC>" }, "data": { "basedOnDraftEvidenceId": "<the same pbc_draft id>" } }',
+          '{ "kind": "pbc_final", "summary": "<one-line summary>", "facts": { "content": "<the finalized PBC>" }, "data": { "basedOnDraftEvidenceId": "<the same pbc_draft id>", "basedOnPressurePassEvidenceId": "<the pressure_pass id you just recorded>" } }',
       },
     ],
   },
@@ -227,8 +227,10 @@ export function buildPbcContextSection(
 }
 
 /**
- * The exact participant output contract, embedded verbatim in the prompt so the
- * participant returns a parseable ParticipantOutput (SPEC §4.8).
+ * The exact participant output contract, retained for the human /input path
+ * (mapPbcHumanInput) and any consumer that still parses free-text
+ * ParticipantOutput. The autonomous participant no longer emits this — it records
+ * evidence by calling `wrkf evidence add` directly (see WRKF_EVIDENCE_LOOP).
  */
 export const PARTICIPANT_OUTPUT_SCHEMA = `interface ParticipantOutput {
   evidence: Array<{
@@ -247,6 +249,65 @@ export const PARTICIPANT_OUTPUT_SCHEMA = `interface ParticipantOutput {
   proposedTransition?: string; // a transition you RECOMMEND (harness decides)
   summary?: string;            // overall summary of this turn
 }`
+
+/**
+ * The standing instructions that tell the autonomous participant to record its
+ * evidence by calling the `wrkf` CLI directly during this turn, and to
+ * self-correct against the engine's validation errors before ending the turn.
+ * Replaces the old "emit exactly one JSON object" contract. `wrkf` already runs
+ * the template validators at add time and returns precise, fixable errors; the
+ * worker (not the participant) applies transitions afterward.
+ *
+ * The participant's actor/role are pinned by the launching worker (trusted
+ * binding) — it MUST NOT pass --actor/--role.
+ */
+export function buildWrkfEvidenceLoop(task: string): string {
+  return [
+    '## How to record your evidence — call `wrkf` directly',
+    '',
+    'You record evidence by running the `wrkf` CLI in this turn. The engine',
+    'validates each record AT ADD TIME and returns a precise error if it is wrong;',
+    'read the error, fix the command, and re-run it. Do NOT end your turn until the',
+    'phase is satisfied. The worker applies the transition afterward — you do not.',
+    '',
+    '1. See exactly what is required (and why):',
+    '   ```',
+    `   wrkf next ${task} --json`,
+    '   ```',
+    '   Read `actions[].why` and `blockedTransitions[].blocksOn[]` — they name the',
+    '   evidence kind(s) still missing for this phase.',
+    '',
+    '2. Look up the exact contract for each kind (required facts, enums, linkage',
+    '   refs) and the live linkage ids you must reference (do NOT invent ids):',
+    '   ```',
+    `   wrkf evidence schema ${task} --kind <kind> --json`,
+    `   wrkf evidence list ${task} --json`,
+    '   ```',
+    '',
+    '3. Record EACH required evidence record (see the per-phase list below). Always',
+    '   pass `--json` so errors come back structured:',
+    '   ```',
+    `   wrkf evidence add ${task} --kind <kind> --ref pbc --json \\`,
+    "     --summary '<one-line summary>' \\",
+    "     --facts '<facts JSON>' --data '<data JSON>'",
+    '   ```',
+    '   - `--facts` / `--data` take a single JSON object (omit `--data` when the',
+    '     record has none). `facts` values must be flat scalars or arrays of scalars.',
+    '   - On failure `wrkf` exits nonzero and prints `{"error":{code,field,message,',
+    '     expected,allowed,fix}}` on stdout. READ the `fix`/`expected`/`allowed`',
+    '     fields, correct the command, and run it again. Iterating until accepted is',
+    '     expected — do NOT give up after one rejection.',
+    '',
+    '4. Confirm the phase is complete before ending your turn:',
+    '   ```',
+    `   wrkf next ${task} --json`,
+    '   ```',
+    '   The phase is done when no blocker references an evidence kind you produce.',
+    '',
+    'Do NOT pass `--actor` or `--role` — your identity is set for you.',
+    'Do NOT run `wrkf transition` — the worker decides and applies transitions.',
+  ].join('\n')
+}
 
 export function compilePbcPrompt(input: PromptCompileInput): string {
   const sections: string[] = []
@@ -314,9 +375,12 @@ export function compilePbcPrompt(input: PromptCompileInput): string {
   const phaseEvidence = PER_PHASE_EVIDENCE[state.phase]
   if (phaseEvidence !== undefined && AGENT_PARTICIPANT_ROLES.includes(input.role)) {
     const lines: string[] = [
-      '## Required evidence for this phase — emit EVERY applicable item in THIS ONE turn',
+      '## Required evidence for this phase — record EVERY applicable item in THIS ONE turn',
       '',
       phaseEvidence.intro,
+      '',
+      'Each record below is the SHAPE to pass to `wrkf evidence add` (its `kind`,',
+      '`facts`, and `data`). Add one record per command.',
       '',
     ]
     for (const item of phaseEvidence.items) {
@@ -328,7 +392,7 @@ export function compilePbcPrompt(input: PromptCompileInput): string {
     }
     lines.push(
       '',
-      'Copy any `data` linkage ids verbatim from the "Evidence already on this task" section below — do not invent ids. The workflow cannot advance until every required evidence record above is present.'
+      'Copy any `data` linkage ids verbatim from `wrkf evidence list` / the "Evidence already on this task" section below — do not invent ids. The workflow cannot advance until every required evidence record above is present.'
     )
     sections.push(lines.join('\n'))
   }
@@ -407,34 +471,19 @@ export function compilePbcPrompt(input: PromptCompileInput): string {
     sections.push(lines.join('\n'))
   }
 
-  // --- participant output schema --------------------------------------------
-  sections.push(
-    [
-      '## Required output format',
-      '',
-      'Return a single ParticipantOutput JSON object matching this schema exactly:',
-      '',
-      '```ts',
-      PARTICIPANT_OUTPUT_SCHEMA,
-      '```',
-    ].join('\n')
-  )
+  // --- how to record evidence: the wrkf loop --------------------------------
+  sections.push(buildWrkfEvidenceLoop(input.task))
 
   // --- system-level guardrails ----------------------------------------------
-  const isAgentParticipant = AGENT_PARTICIPANT_ROLES.includes(input.role)
-  const obligationGuardrail = isAgentParticipant
-    ? '- EVIDENCE ONLY: you are an agent participant. OMIT `satisfyObligations` entirely (return evidence only). Obligation satisfaction is reserved for human product_owner /input — never emit a `satisfyObligations` directive for evidence you produced.'
-    : '- Only set `satisfyObligations` for obligations explicitly listed under "## Open obligations" above. If there are no open obligations, OMIT `satisfyObligations` entirely — do not invent an obligation for evidence you just produced.'
   sections.push(
     [
       '## Guardrails',
       '',
-      '- Do not call wrkf directly. You produce evidence and recommendations; the harness writes them to wrkf.',
-      '- Do not apply transitions yourself. The harness applies transitions after validating your output.',
+      '- Record evidence ONLY via `wrkf evidence add`. Do not apply transitions — `wrkf transition` is the worker\'s job.',
       '- All evidence must be grounded in the actual task context — do not invent facts.',
-      '- You must NOT fabricate or synthesize product_owner obligation evidence (e.g. clarification_response, patch_decision). Only a product_owner actor may produce it.',
-      obligationGuardrail,
+      '- You must NOT add product_owner evidence (e.g. clarification_response, patch_decision). Only a product_owner actor may produce it; the engine will reject it from you.',
       '- Evidence `facts` MUST be flat: each value is a scalar (string/number/boolean/null) or an array of scalars. Do NOT nest objects or arrays inside a fact value.',
+      '- Do not pass `--actor` or `--role`; your identity is bound for you.',
     ].join('\n')
   )
 

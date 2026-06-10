@@ -4,7 +4,7 @@ import { projectNextActionResponse } from '../wrkf/projections.js'
 
 import { mapPbcRouteError, requirePbcTaskParam, requireWrkf } from './wrkf-pbc-shared.js'
 
-const WORKFLOW_REF = 'pbc-progressive-refinement@5'
+const WORKFLOW_REF = 'pbc-progressive-refinement@9'
 
 export const handleWrkfPbcInspect: RouteHandler = async ({ params, deps }) => {
   const task = requirePbcTaskParam(params)

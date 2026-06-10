@@ -549,8 +549,19 @@ async function launchPbcWorkerAcpRun(input: {
     throw new Error('PBC continuation worker launch claim was not acquired')
   }
 
+  // Inject the participant's actor/role + task so the agent's direct `wrkf`
+  // calls (next -> evidence add) default to the right identity WITHOUT passing
+  // --actor/--role. wrkf reads WRKF_ACTOR/WRKF_ROLE as defaults (actorDefault/
+  // roleDefault). NOTE: this is NOT an authority boundary — wrkq T-03777 trimmed
+  // E2 (trusted binding) out, and these are overridable. The real anti-fabrication
+  // gate stays in ACP's evidence policy on the human /input path.
   const intent = await resolveLaunchIntent(input.deps, sessionRef, {
     ...(input.prompt !== undefined ? { initialPrompt: input.prompt } : {}),
+    env: {
+      WRKF_ACTOR: actor.id,
+      WRKF_ROLE: input.role,
+      WRKF_TASK: input.taskId,
+    },
   })
   let launched: Awaited<ReturnType<NonNullable<ResolvedAcpServerDeps['launchRoleScopedRun']>>>
   try {

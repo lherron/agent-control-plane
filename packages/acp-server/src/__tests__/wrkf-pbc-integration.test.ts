@@ -40,7 +40,7 @@ const HOME = process.env['HOME'] ?? '/Users/lherron'
 const WRKF_BIN = process.env['WRKF_BIN'] ?? `${HOME}/.local/bin/wrkf`
 const WRKQ_DB_PATH = process.env['WRKQ_DB_PATH'] ?? `${HOME}/praesidium/var/db/wrkq.db`
 const PBC_TEMPLATE_PATH = `${HOME}/praesidium/wrkq/pbc/workflow-template.json`
-const PBC_WORKFLOW_REF = 'pbc-progressive-refinement@5'
+const PBC_WORKFLOW_REF = 'pbc-progressive-refinement@9'
 
 // ── Actors ────────────────────────────────────────────────────────────────────
 
@@ -246,14 +246,14 @@ describe('Phase 7 Integration — workflow install/show + task.attach', () => {
   })
 
   test(
-    'workflow.install returns id=pbc-progressive-refinement, version=5',
+    'workflow.install returns id=pbc-progressive-refinement, version=9',
     async () => {
       const result = (await lc.wrkf!.workflow.install({ path: PBC_TEMPLATE_PATH })) as Record<
         string,
         unknown
       >
       expect(result['id']).toBe('pbc-progressive-refinement')
-      expect(String(result['version'])).toBe('5')
+      expect(String(result['version'])).toBe('9')
       // installed is true (first time) or false (already current) — both valid
       expect(typeof result['installed']).toBe('boolean')
     },
@@ -270,7 +270,7 @@ describe('Phase 7 Integration — workflow install/show + task.attach', () => {
       >
       const template = result['template'] as Record<string, unknown>
       expect(template['id']).toBe('pbc-progressive-refinement')
-      expect(String(template['version'])).toBe('5')
+      expect(String(template['version'])).toBe('9')
       // nextActionModel must be present (spec §4.8 — compiler reads from it)
       expect(template['nextActionModel']).toBeDefined()
     },
@@ -327,7 +327,7 @@ describe('Phase 7 Integration — Paths 2-4: ready path + effect delivery', () =
       })
 
       expect(result.task).toBe(task)
-      expect(result.workflowRef).toBe('pbc-progressive-refinement@5')
+      expect(result.workflowRef).toBe('pbc-progressive-refinement@9')
       expect(result.runs.started).toBeDefined()
       expect(result.runs.finished).toBeDefined()
       expect(result.runs.failed).toBeUndefined()

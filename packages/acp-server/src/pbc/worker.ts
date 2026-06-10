@@ -1,15 +1,12 @@
 import { deliverWrkfEffects } from '../wrkf/effect-delivery.js'
-import type { ParticipantOutput } from '../wrkf/runtime/evidence-writer.js'
-import { parsePbcParticipantOutput } from '../wrkf/packs/pbc/output-parser.js'
 import {
-  PARTICIPANT_OUTPUT_SCHEMA,
   buildPbcContextSection,
+  buildWrkfEvidenceLoop,
   compilePbcPrompt,
 } from '../wrkf/packs/pbc/prompt-compiler.js'
 import { projectPbcTemplateModelFromWorkflowShow } from '../wrkf/packs/pbc/template-model.js'
 import { choosePbcTransition } from '../wrkf/packs/pbc/transition-policy.js'
 import { pbcWorkerPolicy } from '../wrkf/packs/pbc/worker-policy.js'
-import { captureAndIngestParticipantOutput } from '../wrkf/participant-output.js'
 import {
   type EvidenceRecord,
   type NextActionResponse,
@@ -18,6 +15,14 @@ import {
 } from '../wrkf/projections.js'
 
 const DEFAULT_MAX_TURNS = 20
+/**
+ * How many times the worker re-launches the participant for the SAME phase when
+ * its turn completed but left the phase's required evidence missing (flaky LLM
+ * output). Overridable via ACP_PBC_WORKER_TURN_RETRIES. The agent now records
+ * evidence via `wrkf` directly and self-corrects in-turn, so a small retry
+ * budget covers residual variance; DEFAULT_MAX_TURNS is the hard backstop.
+ */
+const DEFAULT_TURN_RETRIES = 2
 const DEFAULT_LEASE_MS = 5 * 60 * 1000
 const DEFAULT_OUTPUT_TIMEOUT_MS = 5 * 60 * 1000
 const DEFAULT_AWAITING_RECHECK_LEASE_MS = 1_000
@@ -149,10 +154,11 @@ export async function runPbcContinuationWorker(
   }
 
   let result: PbcContinuationWorkerResult
+  const progress = { turnsCompleted: 0 }
   try {
-    result = await runLoop(port, input)
+    result = await runLoop(port, input, progress)
   } catch (error) {
-    result = resultFor(input.taskId, 0, errorMessage(error), 'failed')
+    result = resultFor(input.taskId, progress.turnsCompleted, errorMessage(error), 'failed')
   }
 
   await persistJobResult(port, input, result)
@@ -161,13 +167,19 @@ export async function runPbcContinuationWorker(
 
 async function runLoop(
   port: PbcContinuationWorkerPort,
-  input: PbcContinuationWorkerInput
+  input: PbcContinuationWorkerInput,
+  progress: { turnsCompleted: number }
 ): Promise<PbcContinuationWorkerResult> {
   const maxTurns = Math.max(0, Math.floor(input.maxTurns ?? DEFAULT_MAX_TURNS))
-  let turnsCompleted = 0
+  const maxRetries = readTurnRetries()
   let latestNext: NextActionResponse | undefined
+  // Retry budget already spent re-launching the participant for a given workflow
+  // revision (phase). Evidence.add does not bump the revision, so a turn that
+  // leaves the phase incomplete keeps the same revision and we retry under this
+  // key; a transition (progress) moves to a new revision and resets the budget.
+  const retriesByRevision = new Map<number, number>()
 
-  while (turnsCompleted < maxTurns) {
+  while (progress.turnsCompleted < maxTurns) {
     const next = await readNext(port, input.taskId, 'agent')
     latestNext = next
 
@@ -181,42 +193,59 @@ async function runLoop(
     })
 
     if (policy.kind === 'stop') {
-      return resultFor(input.taskId, turnsCompleted, policy.reason, 'succeeded', latestNext)
+      return resultFor(input.taskId, progress.turnsCompleted, policy.reason, 'succeeded', latestNext)
     }
 
     const participant = participantFor(input, next)
+    const revision = next.instance.revision
+    // A fresh idempotency-key suffix per retry attempt forces a NEW HRC turn
+    // (same key would resume the prior run and never re-prompt — the T-03775 bug).
+    const attempt = retriesByRevision.get(revision) ?? 0
+    const attemptSuffix = attempt === 0 ? '' : `:retry:${attempt}`
+
     const run = await port.run.start({
       task: input.taskId,
       role: participant.role,
       actor: participant.actor,
-      idempotencyKey: `${input.idempotencyKey}:run:${next.instance.revision}`,
+      idempotencyKey: `${input.idempotencyKey}:run:${revision}${attemptSuffix}`,
     })
     const wrkfRunId = recordId(run)
 
     // Existing evidence (with ids) so the prompt can surface linkage ids the
-    // participant must copy into evidence `data` (reviewedDraftEvidenceId, …).
+    // participant must copy into evidence `data` (reviewedDraftEvidenceId, …)
+    // when it calls `wrkf evidence add`.
     const priorEvidence = await readEvidenceTimeline(port, input.taskId)
     const launch = await port.launchAcpRun({
       taskId: input.taskId,
       role: participant.role,
       actor: participant.actor,
-      idempotencyKey: `${input.idempotencyKey}:launch:${next.instance.revision}`,
-      prompt: compileWorkerPrompt(input.taskId, participant.role, participant.actor, next, priorEvidence),
+      idempotencyKey: `${input.idempotencyKey}:launch:${revision}${attemptSuffix}`,
+      prompt: compileWorkerPrompt(
+        input.taskId,
+        participant.role,
+        participant.actor,
+        next,
+        priorEvidence,
+        attempt > 0
+      ),
     })
 
     await port.run.bindExternal({
       runId: wrkfRunId,
       externalRunRef: launch.acpRunId,
-      idempotencyKey: `${input.idempotencyKey}:bindExternal:${next.instance.revision}`,
+      idempotencyKey: `${input.idempotencyKey}:bindExternal:${revision}${attemptSuffix}`,
     })
 
+    // The participant records its evidence by calling `wrkf` directly during the
+    // turn (no stdout JSON to parse). The turn is COMPLETE when its run produces
+    // final text; empty text means the run is still in flight (resume) or died.
     const finalText = await port.getFinalAssistantText(launch.acpRunId)
     if (finalText === undefined || finalText.trim().length === 0) {
-      const waiting = await handleMissingParticipantOutput(port, input, next.instance.revision)
+      const waiting = await handleMissingParticipantOutput(port, input, revision)
       if (waiting === 'awaiting') {
         return resultFor(
           input.taskId,
-          turnsCompleted,
+          progress.turnsCompleted,
           'awaiting_participant_output',
           'running',
           next
@@ -224,49 +253,15 @@ async function runLoop(
       }
 
       await port.run.fail({ runId: wrkfRunId, summary: 'no final assistant text available' })
-      return resultFor(input.taskId, turnsCompleted, 'missing_final_assistant_text', 'failed', next)
+      return resultFor(input.taskId, progress.turnsCompleted, 'missing_final_assistant_text', 'failed', next)
     }
 
-    try {
-      const parsedOutput = await parsePbcParticipantOutput({
-        text: finalText,
-        role: participant.role,
-        actor: participant.actor,
-        next,
-      })
-      // General agents (larry/curly) emit output that does not quite conform to
-      // the strict wrkf evidence contract: they invent satisfyObligations for
-      // obligations that are not open, and nest non-scalar values in evidence
-      // facts. Either makes ingestion throw and fails the whole autonomous job.
-      // Normalize the output to the contract before ingesting (T-03554).
-      const participantOutput = normalizeParticipantOutput(parsedOutput, next)
-      const capture = await captureAndIngestParticipantOutput(
-        port as Parameters<typeof captureAndIngestParticipantOutput>[0],
-        {
-          task: input.taskId,
-          role: participant.role,
-          actor: participant.actor,
-          captureKey: `${input.idempotencyKey}:participant-output:${input.taskId}`,
-          mode: 'supplied',
-          participantOutput,
-        }
-      )
-      if (capture.next !== undefined) {
-        latestNext = capture.next
-      }
-      await port.run.finish({
-        runId: wrkfRunId,
-        status: 'completed',
-        ...(participantOutput.summary !== undefined ? { summary: participantOutput.summary } : {}),
-      })
-    } catch (error) {
-      await port.run.fail({ runId: wrkfRunId, summary: errorMessage(error) })
-      return resultFor(input.taskId, turnsCompleted, errorMessage(error), 'failed', latestNext)
-    }
+    await port.run.finish({ runId: wrkfRunId, status: 'completed' })
+    progress.turnsCompleted++
 
-    turnsCompleted++
-
-    const fresh = latestNext ?? (await readNext(port, input.taskId, 'agent'))
+    // Re-read AFTER the turn — the participant mutated wrkf out-of-band via
+    // `wrkf evidence add`, so the launch-time `next` is stale.
+    const fresh = await readNext(port, input.taskId, 'agent')
     latestNext = fresh
     const evidenceTimeline = await readEvidenceTimeline(port, input.taskId)
     const chosen = await choosePbcTransition({
@@ -279,19 +274,31 @@ async function runLoop(
       evidenceTimeline,
     })
 
-    if (chosen === undefined) {
-      return resultFor(input.taskId, turnsCompleted, 'blocked_or_ambiguous', 'succeeded', fresh)
+    const blocked =
+      chosen === undefined || (typeof chosen === 'object' && 'blocked' in chosen)
+    if (blocked) {
+      // The turn completed but the phase's required evidence is still missing
+      // (flaky participant output). Retry the SAME phase before giving up, as
+      // long as we have budget and the workflow has not moved on (T-03775).
+      const spent = attempt + 1
+      if (spent <= maxRetries && fresh.instance.revision === revision) {
+        retriesByRevision.set(revision, spent)
+        continue
+      }
+      const reason = chosen === undefined ? 'blocked_or_ambiguous' : chosen.reason
+      return resultFor(input.taskId, progress.turnsCompleted, reason, 'succeeded', fresh)
     }
-    if (typeof chosen === 'object' && 'blocked' in chosen) {
-      return resultFor(input.taskId, turnsCompleted, chosen.reason, 'succeeded', fresh)
-    }
+
+    // Progress is being made for this revision — clear its retry budget.
+    retriesByRevision.delete(revision)
 
     const transition = typeof chosen === 'string' ? chosen : chosen.transition
     const transitionActor = typeof chosen === 'string' ? input.actor : (chosen.actor ?? input.actor)
+    const transitionRole = typeof chosen === 'string' ? 'agent' : (chosen.role ?? 'agent')
     await port.transition.apply({
       task: input.taskId,
       transition,
-      role: 'agent',
+      role: transitionRole,
       actor: transitionActor,
       expectRevision: fresh.instance.revision,
       contextHash: fresh.instance.contextHash ?? '',
@@ -305,7 +312,7 @@ async function runLoop(
     latestNext = afterTransition
   }
 
-  return resultFor(input.taskId, turnsCompleted, 'max_turns', 'succeeded', latestNext)
+  return resultFor(input.taskId, progress.turnsCompleted, 'max_turns', 'succeeded', latestNext)
 }
 
 async function handleMissingParticipantOutput(
@@ -422,6 +429,15 @@ function readOutputTimeoutMs(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_OUTPUT_TIMEOUT_MS
 }
 
+function readTurnRetries(): number {
+  const raw = process.env['ACP_PBC_WORKER_TURN_RETRIES']?.trim()
+  if (raw === undefined || raw.length === 0) {
+    return DEFAULT_TURN_RETRIES
+  }
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : DEFAULT_TURN_RETRIES
+}
+
 function participantFor(
   input: PbcContinuationWorkerInput,
   next: NextActionResponse
@@ -442,132 +458,45 @@ function participantFor(
   return { role: 'agent', actor: input.actor }
 }
 
-/**
- * The non-negotiable output rule appended to every worker prompt. The
- * participant agents (larry/curly) are general agents that habitually wrap JSON
- * in prose or a ```json fence; the parser now tolerates a single fence, but we
- * still ask for bare JSON to keep ingestion deterministic (T-03554).
- */
-const STRICT_OUTPUT_DIRECTIVE = [
-  '## Output contract — STRICT',
+/** A short note prepended to a retry-launch prompt so the participant knows its
+ * prior turn left the phase incomplete and should fill only the gap. */
+const RETRY_PROMPT_NOTE = [
+  '## Retry — the previous attempt left this phase incomplete',
   '',
-  'Your ENTIRE response MUST be exactly one JSON object that matches the',
-  'ParticipantOutput schema below. Nothing else.',
-  '',
-  '- Do NOT add any prose before or after the JSON.',
-  '- Do NOT wrap the JSON in a markdown code fence (no ```json, no ```).',
-  '- The first character of your response must be `{` and the last must be `}`.',
-  '- Emit exactly ONE JSON object — never two.',
+  'A prior turn this phase did not record all required evidence. Run',
+  '`wrkf next <task> --json` first: any evidence you already added is still there,',
+  'so add ONLY the record(s) still reported missing, then confirm the phase is',
+  'complete before ending your turn.',
 ].join('\n')
-
-/**
- * Coerce general-agent participant output into the strict wrkf evidence
- * contract: drop unmatched satisfyObligations directives and flatten non-scalar
- * evidence facts. Both gaps otherwise throw during ingestion and fail the whole
- * autonomous job (T-03554).
- */
-function normalizeParticipantOutput(
-  output: ParticipantOutput,
-  next: NextActionResponse
-): ParticipantOutput {
-  return flattenEvidenceFacts(sanitizeSatisfyObligations(output, next))
-}
-
-/**
- * wrkf requires evidence `facts` values to be flat: a scalar, or an array of
- * scalars. Nested objects and arrays-of-arrays/objects are rejected. General
- * agents routinely nest structured payloads here. JSON-stringify any non-scalar
- * value so the information survives as a string while satisfying the contract.
- */
-function flattenEvidenceFacts(output: ParticipantOutput): ParticipantOutput {
-  let changed = false
-  const evidence = output.evidence.map((item) => {
-    if (item.facts === undefined) {
-      return item
-    }
-    let factsChanged = false
-    const flattened: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(item.facts)) {
-      const flat = flattenFactValue(value)
-      if (flat !== value) {
-        factsChanged = true
-      }
-      flattened[key] = flat
-    }
-    if (!factsChanged) {
-      return item
-    }
-    changed = true
-    return { ...item, facts: flattened }
-  })
-  return changed ? { ...output, evidence } : output
-}
-
-/** A scalar fact value passes through; anything else is JSON-stringified. */
-function flattenFactValue(value: unknown): unknown {
-  if (value === null || typeof value !== 'object') {
-    return value
-  }
-  if (Array.isArray(value) && value.every(isScalar)) {
-    return value
-  }
-  return JSON.stringify(value)
-}
-
-function isScalar(value: unknown): boolean {
-  return value === null || typeof value !== 'object'
-}
-
-/**
- * Drop satisfyObligations directives that cannot be matched to a currently-open
- * obligation. General participant agents routinely emit a satisfy directive for
- * evidence they just produced even when there is no corresponding open
- * obligation; ingestion would otherwise throw and fail the whole autonomous job.
- * A directive is KEPT only when it targets an open obligation by id or by kind.
- */
-function sanitizeSatisfyObligations(
-  output: ParticipantOutput,
-  next: NextActionResponse
-): ParticipantOutput {
-  const directives = output.satisfyObligations
-  if (directives === undefined || directives.length === 0) {
-    return output
-  }
-  const open = next.openObligations.filter((obligation) => obligation.status === 'open')
-  const openIds = new Set(open.map((obligation) => obligation.id))
-  const openKinds = new Set(open.map((obligation) => obligation.kind))
-  const kept = directives.filter((directive) => {
-    if (directive.obligationId !== undefined) {
-      return openIds.has(directive.obligationId)
-    }
-    if (directive.obligationKind !== undefined) {
-      return openKinds.has(directive.obligationKind)
-    }
-    return false
-  })
-  if (kept.length === directives.length) {
-    return output
-  }
-  const { satisfyObligations: _dropped, ...rest } = output
-  return kept.length > 0 ? { ...rest, satisfyObligations: kept } : rest
-}
 
 function compileWorkerPrompt(
   taskId: string,
   role: string,
   actor: string,
   next: NextActionResponse,
-  priorEvidence: EvidenceRecord[] = []
+  priorEvidence: EvidenceRecord[] = [],
+  isRetry = false
+): string {
+  const base = compileWorkerPromptBase(taskId, role, actor, next, priorEvidence)
+  return isRetry ? [RETRY_PROMPT_NOTE, '', base].join('\n') : base
+}
+
+function compileWorkerPromptBase(
+  taskId: string,
+  role: string,
+  actor: string,
+  next: NextActionResponse,
+  priorEvidence: EvidenceRecord[]
 ): string {
   const templatePrompt = tryCompileTemplatePrompt(taskId, role, actor, next, priorEvidence)
   if (templatePrompt !== undefined) {
-    return [templatePrompt, '', STRICT_OUTPUT_DIRECTIVE].join('\n')
+    return templatePrompt
   }
 
-  // Fallback: template model not available on the `next` projection. Still
-  // embed the CONTEXT section (raw product feedback + per-phase prior-evidence
-  // content) so the agent is NOT content-blind, plus the participant-output
-  // schema + the strict directive so it knows the exact contract (T-03755).
+  // Fallback: template model not available on the `next` projection. Still embed
+  // the CONTEXT section (raw product feedback + per-phase prior-evidence content)
+  // so the agent is NOT content-blind, plus the `wrkf` evidence loop so it knows
+  // exactly how to record evidence (T-03755 / direct-wrkf).
   const actions = transitionNames(next).join(', ') || '(none)'
   const contextSection = buildPbcContextSection(next.instance.state.phase, priorEvidence)
   return [
@@ -577,14 +506,10 @@ function compileWorkerPrompt(
     `Role: ${role}`,
     `Actor: ${actor}`,
     `Workflow state: ${next.instance.state.status}/${next.instance.state.phase}`,
-    `Candidate transitions: ${actions}`,
+    `Candidate transitions (the worker will apply one): ${actions}`,
     ...(contextSection !== undefined ? ['', contextSection] : []),
     '',
-    STRICT_OUTPUT_DIRECTIVE,
-    '',
-    '```ts',
-    PARTICIPANT_OUTPUT_SCHEMA,
-    '```',
+    buildWrkfEvidenceLoop(taskId),
   ].join('\n')
 }
 

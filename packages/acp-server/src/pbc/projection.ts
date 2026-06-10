@@ -19,7 +19,7 @@ import { isRecord } from '../parsers/body.js'
 import { currentRevisionWindow, latestOfKind } from '../wrkf/packs/pbc/freshness.js'
 import type { NextActionResponse } from '../wrkf/projections.js'
 
-export const PBC_WORKFLOW_REF = 'pbc-progressive-refinement@5'
+export const PBC_WORKFLOW_REF = 'pbc-progressive-refinement@9'
 
 export type PbcScreen =
   | 'starting'

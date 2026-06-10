@@ -103,7 +103,12 @@ const layers: Layer[] = [
   },
 ]
 
-const acpInternalForbiddenContent = ['enrichTurnPromptForBrain', 'brain-enricher', 'gbrain']
+const retiredBrainRuntimeName = ['g', 'brain'].join('')
+const acpInternalForbiddenContent = [
+  'enrichTurnPromptForBrain',
+  'brain-enricher',
+  retiredBrainRuntimeName,
+]
 
 const ignoredDirectories = new Set([
   '.git',

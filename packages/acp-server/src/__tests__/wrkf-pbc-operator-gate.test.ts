@@ -90,7 +90,7 @@ function makeMinimalWrkfPort(): AcpWrkfWorkflowPort {
     task: {
       attach: async (params) => ({
         task: (params as Record<string, unknown>)['task'],
-        workflowRef: 'pbc-progressive-refinement@5',
+        workflowRef: 'pbc-progressive-refinement@9',
       }),
       inspect: async (params) => ({
         task: { taskId: (params as Record<string, unknown>)['task'] },

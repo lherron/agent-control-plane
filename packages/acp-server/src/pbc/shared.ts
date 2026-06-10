@@ -2,7 +2,7 @@
  * Shared helpers for the /v1/pbc/* product facade (Phase 3, T-02864).
  *
  * These wrap the generic wrkf runtime with requiredPack:'pbc' +
- * requiredWorkflowRef:'pbc-progressive-refinement@5'. The product routes never
+ * requiredWorkflowRef:'pbc-progressive-refinement@9'. The product routes never
  * accept raw transition IDs / contextHash / obligation wire shapes as required
  * mutation inputs — body carries form data only; the server decides authority.
  */

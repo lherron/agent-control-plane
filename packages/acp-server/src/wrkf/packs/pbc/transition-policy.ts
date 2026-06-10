@@ -65,7 +65,10 @@ export const choosePbcTransition: ChooseTransitionFn = (
     ) {
       return undefined
     }
-    return { transition, actor: input.reviewerActor }
+    // The reviewer actor is only bound to the pressure_reviewer role; applying
+    // with role=agent trips wrkf's role-binding gate (T-03778). Requires the
+    // template to list pressure_reviewer in the finalization transitions' `by`.
+    return { transition, actor: input.reviewerActor, role: 'pressure_reviewer' }
   }
 
   return transition

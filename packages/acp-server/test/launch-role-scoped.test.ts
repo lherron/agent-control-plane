@@ -4,7 +4,7 @@ import type { HrcRuntimeIntent } from 'hrc-core'
 
 import { createTestTask } from '../../acp-core/test/fixtures/in-memory-stores.js'
 import { resolveAcpServerDeps } from '../src/deps.js'
-import { launchRoleScopedTaskRun } from '../src/index.js'
+import { launchRoleScopedTaskRun, resolveLaunchIntent } from '../src/index.js'
 import { withWiredServer } from './fixtures/wired-server.js'
 
 describe('launchRoleScopedTaskRun', () => {
@@ -91,6 +91,60 @@ describe('launchRoleScopedTaskRun', () => {
           role: 'tester',
         })
       ).rejects.toThrow('no launcher wired')
+    })
+  })
+})
+
+describe('resolveLaunchIntent env injection', () => {
+  test('threads the env option into intent.launch.env, merging nothing else away', async () => {
+    await withWiredServer(async (fixture) => {
+      const deps = resolveAcpServerDeps({
+        wrkqStore: fixture.wrkqStore,
+        coordStore: fixture.coordStore,
+        interfaceStore: fixture.interfaceStore,
+        inputAttemptStore: fixture.inputAttemptStore,
+        runStore: fixture.runStore,
+        runtimeResolver: async () => ({ agentRoot: '/tmp/agents/pbc-writer' }),
+      })
+
+      const intent = await resolveLaunchIntent(
+        deps,
+        {
+          scopeRef: `agent:pbc-writer:project:${fixture.seed.projectId}:task:T-42100:role:agent`,
+          laneRef: 'main',
+        },
+        {
+          initialPrompt: 'do the thing',
+          env: { WRKF_ACTOR: 'pbc-writer', WRKF_ROLE: 'agent', WRKF_TASK: 'T-42100' },
+        }
+      )
+
+      expect(intent.launch?.env).toMatchObject({
+        WRKF_ACTOR: 'pbc-writer',
+        WRKF_ROLE: 'agent',
+        WRKF_TASK: 'T-42100',
+      })
+      expect(intent.initialPrompt).toBe('do the thing')
+    })
+  })
+
+  test('omits launch.env when no env option is supplied', async () => {
+    await withWiredServer(async (fixture) => {
+      const deps = resolveAcpServerDeps({
+        wrkqStore: fixture.wrkqStore,
+        coordStore: fixture.coordStore,
+        interfaceStore: fixture.interfaceStore,
+        inputAttemptStore: fixture.inputAttemptStore,
+        runStore: fixture.runStore,
+        runtimeResolver: async () => ({ agentRoot: '/tmp/agents/pbc-writer' }),
+      })
+
+      const intent = await resolveLaunchIntent(deps, {
+        scopeRef: `agent:pbc-writer:project:${fixture.seed.projectId}:task:T-42101:role:agent`,
+        laneRef: 'main',
+      })
+
+      expect(intent.launch?.env).toBeUndefined()
     })
   })
 })

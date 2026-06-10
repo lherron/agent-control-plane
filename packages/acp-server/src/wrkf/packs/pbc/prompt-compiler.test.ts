@@ -241,27 +241,32 @@ describe('compilePbcPrompt', () => {
     expect(result).toContain('patch_decision')
   })
 
-  // --- ParticipantOutput schema ---------------------------------------------
+  // --- wrkf evidence loop (direct-wrkf recording) ---------------------------
 
-  test('embeds the ParticipantOutput schema with evidence array field', () => {
+  test('instructs the participant to record evidence via wrkf evidence add', () => {
     const result = compilePbcPrompt(BASE_INPUT)
-    // The schema must include the "evidence" field description
-    expect(result).toContain('evidence')
+    expect(result).toContain('wrkf evidence add')
   })
 
-  test('embeds the ParticipantOutput schema with proposedTransition field', () => {
+  test('tells the participant to run wrkf next to discover required evidence', () => {
     const result = compilePbcPrompt(BASE_INPUT)
-    expect(result).toContain('proposedTransition')
+    expect(result).toContain('wrkf next')
   })
 
-  test('embeds the ParticipantOutput schema with satisfyObligations field', () => {
+  test('points the participant at wrkf evidence schema for the kind contract', () => {
     const result = compilePbcPrompt(BASE_INPUT)
-    expect(result).toContain('satisfyObligations')
+    expect(result).toContain('wrkf evidence schema')
   })
 
-  test('embeds the ParticipantOutput schema with summary field', () => {
+  test('instructs use of --json so validation errors come back structured', () => {
     const result = compilePbcPrompt(BASE_INPUT)
-    expect(result).toContain('summary')
+    expect(result).toContain('--json')
+    expect(result).toContain('fix')
+  })
+
+  test('does NOT instruct the participant to apply transitions itself', () => {
+    const result = compilePbcPrompt(BASE_INPUT)
+    expect(result).toContain('Do NOT run `wrkf transition`')
   })
 
   // --- system-level guardrails ----------------------------------------------
