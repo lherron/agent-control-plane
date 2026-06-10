@@ -580,9 +580,9 @@ describe('buildPbcTaskProjection — intake artifact .data normalized from .fact
     expect((draft['data'] as Record<string, unknown>)['content']).toBe('Draft content here')
   })
 
-  test('[GREEN guard] non-intake kind (pbc_draft) with facts only → artifacts.draft.data remains undefined (no normalization)', () => {
-    // Guard: facts-only normalization must NOT bleed into non-intake kinds.
-    // A pbc_draft with only `facts` should NOT have its facts promoted to .data.
+  test('any kind with facts only → facts promoted to .data (T-03658 supersedes the intake-only scope)', () => {
+    // T-03151 scoped normalization to intake_metadata; T-03658 broadens it: for
+    // ANY kind, data = data ?? facts so `.data` is uniformly populated.
     const next = makeNext({ status: 'active', phase: 'behavior_note' })
     const evidence: EvidenceSnap[] = [
       {
@@ -597,10 +597,74 @@ describe('buildPbcTaskProjection — intake artifact .data normalized from .fact
 
     expect(projection.artifacts['draft']).toBeDefined()
     const draft = projection.artifacts['draft'] as Record<string, unknown>
-    // pbc_draft has no `data` — and facts must NOT be promoted to data for non-intake kinds
-    expect(draft['data']).toBeUndefined()
-    expect(draft['facts']).toBeDefined()
+    expect((draft['data'] as Record<string, unknown>)['verdict']).toBe('too_vague')
     expect((draft['facts'] as Record<string, unknown>)['verdict']).toBe('too_vague')
+  })
+})
+
+describe('buildPbcTaskProjection — human-form kinds .data normalized from .facts (RED, T-03658)', () => {
+  test('[RED] disposition_decision with facts-only (real dispose handler shape) → artifacts.disposition.data populated', () => {
+    const next = makeNext({ status: 'closed', phase: 'disposed' })
+    const evidence: EvidenceSnap[] = [
+      {
+        id: 'ev-dispo-real',
+        kind: 'disposition_decision',
+        facts: { resolution: 'duplicate', reason: 'Covered by T-01234' },
+        raw: {},
+      },
+    ]
+
+    const projection = buildWithEvidence({ taskId: 'T-unit-58a', next, evidence })
+
+    const dispo = projection.artifacts['disposition'] as Record<string, unknown>
+    expect(dispo).toBeDefined()
+    expect((dispo['data'] as Record<string, unknown>)['resolution']).toBe('duplicate')
+    expect((dispo['data'] as Record<string, unknown>)['reason']).toBe('Covered by T-01234')
+  })
+
+  test('[RED] clarification_response + patch_decision with facts-only → .data populated', () => {
+    const next = makeNext({ status: 'active', phase: 'pbc_draft' })
+    const evidence: EvidenceSnap[] = [
+      {
+        id: 'ev-clarif-real',
+        kind: 'clarification_response',
+        facts: { answer: 'Only the lock screen preview leaks' },
+        raw: {},
+      },
+      {
+        id: 'ev-patch-real',
+        kind: 'patch_decision',
+        facts: { route: 'finalize' },
+        raw: {},
+      },
+    ]
+
+    const projection = buildWithEvidence({ taskId: 'T-unit-58b', next, evidence })
+
+    const clarif = projection.artifacts['clarificationResponse'] as Record<string, unknown>
+    expect((clarif['data'] as Record<string, unknown>)['answer']).toBe(
+      'Only the lock screen preview leaks'
+    )
+    const patch = projection.artifacts['patchDecision'] as Record<string, unknown>
+    expect((patch['data'] as Record<string, unknown>)['route']).toBe('finalize')
+  })
+
+  test('data precedence kept when both present (any kind)', () => {
+    const next = makeNext({ status: 'active', phase: 'pbc_draft' })
+    const evidence: EvidenceSnap[] = [
+      {
+        id: 'ev-clarif-both',
+        kind: 'clarification_response',
+        data: { answer: 'from data' },
+        facts: { answer: 'from facts' },
+        raw: {},
+      },
+    ]
+
+    const projection = buildWithEvidence({ taskId: 'T-unit-58c', next, evidence })
+
+    const clarif = projection.artifacts['clarificationResponse'] as Record<string, unknown>
+    expect((clarif['data'] as Record<string, unknown>)['answer']).toBe('from data')
   })
 })
 

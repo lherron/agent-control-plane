@@ -140,11 +140,11 @@ const PRODUCT_ACTION_KINDS = [
 ] as const
 
 function toArtifactView(evidence: PbcArtifactEvidence): ArtifactView {
-  // start.ts writes intake_metadata with `facts: intake` (no `data`). Normalize
-  // ONLY the intake artifact so its payload is first-class under `.data` like
-  // every other kind (data wins when both present). Other kinds are unchanged.
-  const data =
-    evidence.kind === 'intake_metadata' ? (evidence.data ?? evidence.facts) : evidence.data
+  // Human-form/start-seeded kinds (intake_metadata, disposition_decision,
+  // clarification_response, patch_decision) write their payload via `facts`.
+  // Normalize uniformly: `.data` is always populated, data wins when both
+  // present (T-03151 intake-only, broadened to all kinds by T-03658).
+  const data = evidence.data ?? evidence.facts
   return {
     id: evidence.id,
     kind: evidence.kind,
