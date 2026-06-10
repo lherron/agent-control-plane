@@ -106,7 +106,13 @@ export const handlePbcInput: RouteHandler = async (context) => {
 
     // Map form input → evidence via the PBC pack (no raw wire shapes from body).
     const text = inputText(kind, data)
-    const mapped = await mapPbcHumanInput({ text, role: 'product_owner', actor: actorString, next })
+    const mapped = await mapPbcHumanInput({
+      text,
+      data,
+      role: 'product_owner',
+      actor: actorString,
+      next,
+    })
 
     const evidenceIds: Array<string | undefined> = []
     for (const evidence of mapped.evidence) {

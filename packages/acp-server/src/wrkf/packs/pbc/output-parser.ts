@@ -4,11 +4,24 @@ import type { ParticipantOutput } from '../../runtime/evidence-writer.js'
 export const parsePbcParticipantOutput: ParseParticipantOutputFn = ({ text }) =>
   parseStrictParticipantOutput(text)
 
-export const mapPbcHumanInput: MapHumanInputFn = ({ text, next }) => {
+export const mapPbcHumanInput: MapHumanInputFn = ({ text, data, next }) => {
   const state = `${next.instance.state.status}/${next.instance.state.phase}`
   if (state === 'waiting/clarification') {
+    // Record the structured answer in facts — summary alone loses
+    // acceptedDefault, and downstream readers need `.data` populated (T-04091).
+    const answer = typeof data?.['answer'] === 'string' ? data['answer'] : text
+    const acceptedDefault = data?.['acceptedDefault']
     return {
-      evidence: [{ kind: 'clarification_response', summary: text }],
+      evidence: [
+        {
+          kind: 'clarification_response',
+          summary: text,
+          facts: {
+            answer,
+            ...(typeof acceptedDefault === 'boolean' ? { acceptedDefault } : {}),
+          },
+        },
+      ],
       satisfyObligations: [{ obligationKind: 'clarification_response', evidenceIndex: 0 }],
     }
   }

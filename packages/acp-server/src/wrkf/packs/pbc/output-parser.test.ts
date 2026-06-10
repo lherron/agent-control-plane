@@ -33,7 +33,7 @@
 
 import { describe, expect, test } from 'bun:test'
 
-import { parseStrictParticipantOutput } from './output-parser.js'
+import { mapPbcHumanInput, parseStrictParticipantOutput } from './output-parser.js'
 import type { ParticipantOutput } from '../../runtime/evidence-writer.js'
 
 // ---------------------------------------------------------------------------
@@ -256,5 +256,58 @@ describe('parseStrictParticipantOutput — shape validation after fence extracti
     expect(() => parseStrictParticipantOutput(fenced)).toThrow(
       /participant output JSON does not match the required shape/
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// T-04091 — clarification answers must land in facts (acceptedDefault was lost)
+// ---------------------------------------------------------------------------
+
+describe('mapPbcHumanInput — clarification_response records facts (RED, T-04091)', () => {
+  const makeNext = (status: string, phase: string) =>
+    ({
+      instance: { id: 'wfi_x', state: { status, phase }, revision: 3 },
+      actions: [],
+      openObligations: [],
+      pendingEffects: [],
+    }) as never
+
+  test('[RED] clarification input with structured data → facts {answer, acceptedDefault}', async () => {
+    const mapped = await mapPbcHumanInput({
+      text: 'Only the lock screen preview leaks',
+      data: { answer: 'Only the lock screen preview leaks', acceptedDefault: true },
+      role: 'product_owner',
+      actor: 'human:lance',
+      next: makeNext('waiting', 'clarification'),
+    })
+    const evidence = mapped.evidence[0]
+    expect(evidence?.kind).toBe('clarification_response')
+    expect(evidence?.summary).toBe('Only the lock screen preview leaks')
+    expect(evidence?.facts).toEqual({
+      answer: 'Only the lock screen preview leaks',
+      acceptedDefault: true,
+    })
+  })
+
+  test('[RED] clarification input without structured data → facts {answer} from text', async () => {
+    const mapped = await mapPbcHumanInput({
+      text: 'free-form answer',
+      role: 'product_owner',
+      actor: 'human:lance',
+      next: makeNext('waiting', 'clarification'),
+    })
+    const evidence = mapped.evidence[0]
+    expect(evidence?.facts).toEqual({ answer: 'free-form answer' })
+  })
+
+  test('patch_decision facts unchanged by data threading', async () => {
+    const mapped = await mapPbcHumanInput({
+      text: 'revise',
+      data: { route: 'revise' },
+      role: 'product_owner',
+      actor: 'human:lance',
+      next: makeNext('waiting', 'patch_decision'),
+    })
+    expect(mapped.evidence[0]?.facts).toEqual({ route: 'revise' })
   })
 })

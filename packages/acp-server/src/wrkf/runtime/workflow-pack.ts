@@ -68,6 +68,8 @@ export type ParseParticipantOutputFn = (input: {
 
 export type MapHumanInputFn = (input: {
   text: string
+  /** Structured form payload as submitted (e.g. {answer, acceptedDefault}). */
+  data?: Record<string, unknown> | undefined
   role: string
   actor: string
   next: NextActionResponse
