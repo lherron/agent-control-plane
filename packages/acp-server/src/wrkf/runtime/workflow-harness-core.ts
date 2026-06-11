@@ -6,12 +6,12 @@ import {
   projectEvidenceRecord,
   projectNextActionResponse,
 } from '../projections.js'
-import { type CapturePort, captureAndIngest } from './participant-capture.js'
 import {
   type EvidenceWritePolicy,
   type ParticipantOutput,
   writeEvidenceAndSatisfyObligations,
 } from './evidence-writer.js'
+import { type CapturePort, captureAndIngest } from './participant-capture.js'
 import type { WorkflowPack } from './workflow-pack.js'
 
 const DEFAULT_MAX_TURNS = 50

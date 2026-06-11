@@ -13,6 +13,7 @@ import {
 import { handleCreateMembership, handleListMemberships } from '../handlers/admin-memberships.js'
 import { handleCreateAdminProject, handleListAdminProjects } from '../handlers/admin-projects.js'
 import { handleAppendSystemEvent, handleListSystemEvents } from '../handlers/admin-system-events.js'
+import { handleCreateAgentPulpitMessage } from '../handlers/agent-pulpit-messages.js'
 import { handleListConversationThreads } from '../handlers/conversation-threads.js'
 import { handleCreateCoordinationMessage } from '../handlers/coordination-messages.js'
 import { handleListFailedDeliveries } from '../handlers/delivery-list-failed.js'
@@ -79,6 +80,7 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
       '/v1/interface/messages',
       handleCreateInterfaceMessage
     ),
+    [exactRouteKey('POST', '/v1/agent-pulpit/messages')]: handleCreateAgentPulpitMessage,
     [exactRouteKey('POST', '/v1/workflow-interact-runs')]: handleCreateWorkflowInteractRun,
     [exactRouteKey('POST', '/v1/workflow-participant-runs')]: handleCreateWorkflowParticipantRun,
     [exactRouteKey('POST', '/v1/inputs')]: maybeWrapMutatingRoute(

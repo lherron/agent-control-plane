@@ -208,10 +208,7 @@ describe('WorkflowPackRegistry source boundary: no PBC strings in runtime/', () 
     // Dynamic import avoids the module-not-found error for the source text check.
     // We read the source as text to verify the boundary.
     const { readFileSync } = await import('node:fs')
-    const src = readFileSync(
-      new URL('./workflow-pack-registry.ts', import.meta.url),
-      'utf-8'
-    )
+    const src = readFileSync(new URL('./workflow-pack-registry.ts', import.meta.url), 'utf-8')
     // These strings are only allowed in packs/pbc/manifest.ts
     expect(src).not.toMatch(/pbc/i)
     expect(src).not.toMatch(/progressive.refinement/i)
@@ -222,10 +219,7 @@ describe('WorkflowPackRegistry source boundary: no PBC strings in runtime/', () 
 
   test('workflow-pack.ts source must not contain pbc-specific strings', async () => {
     const { readFileSync } = await import('node:fs')
-    const src = readFileSync(
-      new URL('./workflow-pack.ts', import.meta.url),
-      'utf-8'
-    )
+    const src = readFileSync(new URL('./workflow-pack.ts', import.meta.url), 'utf-8')
     expect(src).not.toMatch(/pbc/i)
     expect(src).not.toMatch(/progressive.refinement/i)
     expect(src).not.toMatch(/pressure/i)

@@ -1,5 +1,5 @@
-import type { MapHumanInputFn, ParseParticipantOutputFn } from '../../runtime/workflow-pack.js'
 import type { ParticipantOutput } from '../../runtime/evidence-writer.js'
+import type { MapHumanInputFn, ParseParticipantOutputFn } from '../../runtime/workflow-pack.js'
 
 export const parsePbcParticipantOutput: ParseParticipantOutputFn = ({ text }) =>
   parseStrictParticipantOutput(text)

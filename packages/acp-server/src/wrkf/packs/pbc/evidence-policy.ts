@@ -15,10 +15,7 @@
  *   - Permit obligation satisfaction by kind lookup.
  */
 
-import type {
-  EvidenceWritePolicy,
-  ParticipantOutput,
-} from '../../runtime/evidence-writer.js'
+import type { EvidenceWritePolicy, ParticipantOutput } from '../../runtime/evidence-writer.js'
 import { PRODUCT_OWNER_EVIDENCE_KINDS } from './prompt-compiler.js'
 
 // ---------------------------------------------------------------------------
@@ -108,9 +105,7 @@ export interface PbcEvidencePolicyOptions {
   allowProductOwnerSimulation?: boolean
 }
 
-export function makePbcEvidencePolicy(
-  options: PbcEvidencePolicyOptions = {}
-): EvidenceWritePolicy {
+export function makePbcEvidencePolicy(options: PbcEvidencePolicyOptions = {}): EvidenceWritePolicy {
   return {
     validate(output, ctx) {
       // 1. Product-owner fabrication gate (before any write).

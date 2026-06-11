@@ -123,10 +123,6 @@ function makeRunRecord(id: string): Record<string, unknown> {
   return { id, status: 'active' }
 }
 
-function makeEvidenceRecord(id: string, kind: string): Record<string, unknown> {
-  return { id, kind, raw: {} }
-}
-
 function makeEvidenceSnapshot(
   id: string,
   kind: string,

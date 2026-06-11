@@ -160,11 +160,12 @@ Notes:
 Run from `packages/acp-viewer`:
 
 ```bash
-bun run dev -- --host 127.0.0.1
+bun run dev
 ```
 
-Then open the relevant `http://127.0.0.1:5174/...` route. Reuse the port if
-already running.
+The dev server binds `0.0.0.0:18471` with `strictPort`, proxying `/v1` to the
+local ACP server at `127.0.0.1:18470`. Open the relevant
+`http://127.0.0.1:18471/...` route.
 
 ## Conformance Tests
 

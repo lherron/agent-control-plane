@@ -6,8 +6,8 @@ import type {
   WrkfRouteIdempotencyRepo,
 } from 'acp-state-store'
 
-import type { EvidenceRecord, ObligationRecord } from './projections.js'
 import type { CaptureRecord } from './participant-output.js'
+import type { EvidenceRecord, ObligationRecord } from './projections.js'
 
 /**
  * Generalized wrkf route idempotency contract (formerly PbcRouteIdempotencyStore).

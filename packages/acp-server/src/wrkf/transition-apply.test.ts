@@ -83,7 +83,9 @@ type SpyCall = { method: string; params: unknown }
 type FakeTransitionApplyPort = TransitionApplyPort & { _calls: SpyCall[] }
 
 /** Build a minimal next() response with given revision/contextHash */
-function makeNextRaw(opts: { revision?: number; contextHash?: string } = {}): Record<string, unknown> {
+function makeNextRaw(
+  opts: { revision?: number; contextHash?: string } = {}
+): Record<string, unknown> {
   return {
     instance: {
       state: { status: 'active', phase: 'intake' },
@@ -182,7 +184,9 @@ describe('P1-D5: applyFreshTransition is exported from transition-apply.ts', () 
 
 describe('P1-D5: applyFreshTransition — always reads next before applying', () => {
   test('calls next({task}) before transition.apply', async () => {
-    const port = makeFakePort({ nextSequence: [makeNextRaw({ revision: 5, contextHash: 'sha256:ctx5' })] })
+    const port = makeFakePort({
+      nextSequence: [makeNextRaw({ revision: 5, contextHash: 'sha256:ctx5' })],
+    })
     const input: ApplyFreshTransitionInput = {
       task: TASK,
       transition: 'submit',
@@ -273,7 +277,7 @@ describe('P1-D5: applyFreshTransition — retries once on stale mismatch', () =>
     const FRESH_REVISION = 8
     const port = makeFakePort({
       nextSequence: [
-        makeNextRaw({ revision: 5 }),        // first next read (stale)
+        makeNextRaw({ revision: 5 }), // first next read (stale)
         makeNextRaw({ revision: FRESH_REVISION }), // second next read (fresh)
         makeNextRaw({ revision: FRESH_REVISION }), // third read after success
       ],
@@ -336,9 +340,7 @@ describe('P1-D5: applyFreshTransition — retries once on stale mismatch', () =>
   test('does NOT retry on non-stale errors (e.g. WRKF_ROLE_DENIED) — propagates immediately', async () => {
     const port = makeFakePort({
       nextSequence: [makeNextRaw()],
-      applyShouldThrowSequence: [
-        makeWrkfError('WRKF_ROLE_DENIED', 'role not permitted'),
-      ],
+      applyShouldThrowSequence: [makeWrkfError('WRKF_ROLE_DENIED', 'role not permitted')],
     })
     const input: ApplyFreshTransitionInput = {
       task: TASK,
@@ -349,7 +351,9 @@ describe('P1-D5: applyFreshTransition — retries once on stale mismatch', () =>
     }
 
     // RED: TypeError. After impl: rejects with WRKF_ROLE_DENIED.
-    await expect(applyFreshTransition(port, input)).rejects.toMatchObject({ code: 'WRKF_ROLE_DENIED' })
+    await expect(applyFreshTransition(port, input)).rejects.toMatchObject({
+      code: 'WRKF_ROLE_DENIED',
+    })
 
     // transition.apply called only once (no retry)
     const applyCalls = port._calls.filter((c) => c.method === 'transition.apply')
@@ -359,7 +363,11 @@ describe('P1-D5: applyFreshTransition — retries once on stale mismatch', () =>
   test('retry also fails with WRKF_STALE_REVISION — propagates the second error', async () => {
     // SPEC: retry exactly once. If second attempt also fails, propagate it.
     const port = makeFakePort({
-      nextSequence: [makeNextRaw({ revision: 5 }), makeNextRaw({ revision: 6 }), makeNextRaw({ revision: 7 })],
+      nextSequence: [
+        makeNextRaw({ revision: 5 }),
+        makeNextRaw({ revision: 6 }),
+        makeNextRaw({ revision: 7 }),
+      ],
       applyShouldThrowSequence: [
         makeWrkfError('WRKF_STALE_REVISION', 'first stale'),
         makeWrkfError('WRKF_STALE_REVISION', 'second stale — propagate'),
@@ -374,7 +382,9 @@ describe('P1-D5: applyFreshTransition — retries once on stale mismatch', () =>
     }
 
     // RED: TypeError. After impl: rejects with WRKF_STALE_REVISION (second error).
-    await expect(applyFreshTransition(port, input)).rejects.toMatchObject({ code: 'WRKF_STALE_REVISION' })
+    await expect(applyFreshTransition(port, input)).rejects.toMatchObject({
+      code: 'WRKF_STALE_REVISION',
+    })
 
     // transition.apply called exactly twice
     const applyCalls = port._calls.filter((c) => c.method === 'transition.apply')
@@ -413,10 +423,7 @@ describe('P1-D5: applyFreshTransition — re-reads next after success', () => {
   test('result.instance contains post-apply revision from the re-read next', async () => {
     const POST_APPLY_REVISION = 9
     const port = makeFakePort({
-      nextSequence: [
-        makeNextRaw({ revision: 5 }),
-        makeNextRaw({ revision: POST_APPLY_REVISION }),
-      ],
+      nextSequence: [makeNextRaw({ revision: 5 }), makeNextRaw({ revision: POST_APPLY_REVISION })],
     })
     const input: ApplyFreshTransitionInput = {
       task: TASK,

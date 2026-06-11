@@ -78,9 +78,7 @@ const INTAKE_NEXT = {
     revision: 0,
     contextHash: 'sha256:ctx-intake-0',
   },
-  actions: [
-    { id: 'normalize_feedback', transition: 'normalize_feedback', role: 'agent' },
-  ],
+  actions: [{ id: 'normalize_feedback', transition: 'normalize_feedback', role: 'agent' }],
   blockedTransitions: [],
   openObligations: [],
   pendingEffects: [],
@@ -207,7 +205,9 @@ function makeProductFakePort(overrides: FakeProductPortOverrides = {}): Instrume
         _calls.push({ method: 'task.inspect', params })
         if (overrides.taskInspect !== undefined) return overrides.taskInspect()
         // Default: no instance yet (not attached)
-        return { task: { taskId: (params as Record<string, unknown>)['task'], title: 'Test PBC Task' } }
+        return {
+          task: { taskId: (params as Record<string, unknown>)['task'], title: 'Test PBC Task' },
+        }
       },
       timeline: boom('task.timeline'),
       refresh: boom('task.refresh'),
@@ -224,7 +224,11 @@ function makeProductFakePort(overrides: FakeProductPortOverrides = {}): Instrume
       add: async (params) => {
         _calls.push({ method: 'evidence.add', params })
         if (overrides.evidenceAdd !== undefined) return overrides.evidenceAdd()
-        return { id: `ev-${_calls.length}`, kind: (params as Record<string, unknown>)['kind'], task: TASK }
+        return {
+          id: `ev-${_calls.length}`,
+          kind: (params as Record<string, unknown>)['kind'],
+          task: TASK,
+        }
       },
       list: async (params) => {
         _calls.push({ method: 'evidence.list', params })
@@ -258,7 +262,7 @@ function makeProductFakePort(overrides: FakeProductPortOverrides = {}): Instrume
         return {
           task: (params as Record<string, unknown>)['task'],
           transition: (params as Record<string, unknown>)['transition'],
-          revision: ((params as Record<string, unknown>)['expectRevision'] as number ?? 0) + 1,
+          revision: (((params as Record<string, unknown>)['expectRevision'] as number) ?? 0) + 1,
         }
       },
     },
@@ -563,7 +567,9 @@ describe('POST /v1/pbc/tasks/:taskId/start — durable idempotency (RED)', () =>
         })
         expect(first.status).toBe(200)
 
-        const evidenceAddCountAfterFirst = wrkf._calls.filter((c) => c.method === 'evidence.add').length
+        const evidenceAddCountAfterFirst = wrkf._calls.filter(
+          (c) => c.method === 'evidence.add'
+        ).length
 
         // Replay: no new evidence.add
         const second = await fixture.request({
@@ -573,7 +579,9 @@ describe('POST /v1/pbc/tasks/:taskId/start — durable idempotency (RED)', () =>
         })
         expect(second.status).toBe(200)
 
-        const evidenceAddCountAfterSecond = wrkf._calls.filter((c) => c.method === 'evidence.add').length
+        const evidenceAddCountAfterSecond = wrkf._calls.filter(
+          (c) => c.method === 'evidence.add'
+        ).length
         expect(evidenceAddCountAfterSecond).toBe(evidenceAddCountAfterFirst)
       },
       { wrkf }
@@ -857,7 +865,8 @@ describe('POST /v1/pbc/tasks/:taskId/start — REAL flat inspect shape (T-03072)
   test('[RED] closed PBC instance in REAL flat shape → 409 INSTANCE_CLOSED', async () => {
     // status at TOP-LEVEL inspected.status (no instance wrapper), ref via templateId@templateVersion.
     const wrkf = makeProductFakePort({
-      taskInspect: async () => realFlatInspect({ status: 'closed', phase: 'finalized', revision: 4 }),
+      taskInspect: async () =>
+        realFlatInspect({ status: 'closed', phase: 'finalized', revision: 4 }),
     })
 
     await withWiredServer(
@@ -1024,8 +1033,14 @@ describe('GET /v1/pbc/tasks/:taskId — PbcTaskProjection shape (RED)', () => {
 
   test('[RED] screen is a valid PBC screen value', async () => {
     const validScreens = [
-      'starting', 'working', 'clarification', 'patch_decision',
-      'finalized', 'disposed', 'blocked', 'error',
+      'starting',
+      'working',
+      'clarification',
+      'patch_decision',
+      'finalized',
+      'disposed',
+      'blocked',
+      'error',
     ]
     const wrkf = makeProductFakePort({ next: async () => BEHAVIOR_NOTE_NEXT })
 
@@ -1404,7 +1419,11 @@ describe('POST /v1/pbc/tasks/:taskId/input — human actor + screen checks (RED)
         const transitionNames = applyCalls.map(
           (c) => (c.params as Record<string, unknown>)['transition']
         )
-        expect(transitionNames.some((t) => String(t).includes('answer_clarification') || String(t).includes('clarification'))).toBe(true)
+        expect(
+          transitionNames.some(
+            (t) => String(t).includes('answer_clarification') || String(t).includes('clarification')
+          )
+        ).toBe(true)
       },
       { wrkf }
     )
@@ -1873,9 +1892,7 @@ describe('GET /v1/pbc/jobs/:jobId — job status (RED)', () => {
 describe('POST /v1/pbc/tasks/:taskId/effects/reconcile — operator route (RED)', () => {
   test('[RED] returns 200 with reconcile result', async () => {
     const wrkf = makeProductFakePort({
-      effectList: async () => [
-        { id: 'eff-001', kind: 'set_task_state', status: 'pending' },
-      ],
+      effectList: async () => [{ id: 'eff-001', kind: 'set_task_state', status: 'pending' }],
     })
 
     await withWiredServer(
@@ -2142,7 +2159,10 @@ describe('GET /v1/pbc/tasks/:taskId — artifacts populated from evidence (RED, 
         // RED: artifacts is {} — intake must be populated but is missing
         expect(artifacts['intake']).toBeDefined()
         const intake = artifacts['intake'] as Record<string, unknown>
-        expect(intake['data']).toEqual({ title: 'Fix login button', description: 'Mobile UX issue' })
+        expect(intake['data']).toEqual({
+          title: 'Fix login button',
+          description: 'Mobile UX issue',
+        })
       },
       { wrkf }
     )
@@ -2169,7 +2189,9 @@ describe('GET /v1/pbc/tasks/:taskId — artifacts populated from evidence (RED, 
         // RED: artifacts.behaviorNote must be defined from evidence
         expect(artifacts['behaviorNote']).toBeDefined()
         const bn = artifacts['behaviorNote'] as Record<string, unknown>
-        expect((bn['data'] as Record<string, unknown>)['notes']).toBe('User double-taps save button')
+        expect((bn['data'] as Record<string, unknown>)['notes']).toBe(
+          'User double-taps save button'
+        )
       },
       { wrkf }
     )
@@ -2632,7 +2654,9 @@ describe('GET /v1/pbc/tasks/:taskId — product actions shape and enablement (RE
       actions: [{ id: 'draft_pbc', transition: 'draft_pbc', role: 'agent' }],
       blockedTransitions: [],
       openObligations: [],
-      pendingEffects: [{ id: 'eff-001', kind: 'set_task_state', status: 'failed', retryable: true }],
+      pendingEffects: [
+        { id: 'eff-001', kind: 'set_task_state', status: 'failed', retryable: true },
+      ],
     }
     const wrkf = makeProductFakePort({ next: async () => nextWithRetryableEffect })
 

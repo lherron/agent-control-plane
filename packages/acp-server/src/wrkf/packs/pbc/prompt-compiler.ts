@@ -10,12 +10,8 @@
  * The harness (not the participant) writes to wrkf and applies transitions.
  */
 
-import {
-  type PbcTemplateModel,
-  getPhaseGuidance,
-  getTransitionGuidance,
-} from './template-model.js'
 import type { EvidenceRecord, NextActionResponse, ObligationRecord } from '../../projections.js'
+import { type PbcTemplateModel, getPhaseGuidance, getTransitionGuidance } from './template-model.js'
 
 export interface PromptCompileInput {
   template: PbcTemplateModel
@@ -68,7 +64,8 @@ const PER_PHASE_EVIDENCE: Record<string, { intro: string; items: PhaseEvidenceIt
     ],
   },
   pbc_draft: {
-    intro: 'You are in the pbc_draft phase. Record this evidence record this turn (via `wrkf evidence add`):',
+    intro:
+      'You are in the pbc_draft phase. Record this evidence record this turn (via `wrkf evidence add`):',
     items: [
       {
         required: 'always',
@@ -479,7 +476,7 @@ export function compilePbcPrompt(input: PromptCompileInput): string {
     [
       '## Guardrails',
       '',
-      '- Record evidence ONLY via `wrkf evidence add`. Do not apply transitions — `wrkf transition` is the worker\'s job.',
+      "- Record evidence ONLY via `wrkf evidence add`. Do not apply transitions — `wrkf transition` is the worker's job.",
       '- All evidence must be grounded in the actual task context — do not invent facts.',
       '- You must NOT add product_owner evidence (e.g. clarification_response, patch_decision). Only a product_owner actor may produce it; the engine will reject it from you.',
       '- Evidence `facts` MUST be flat: each value is a scalar (string/number/boolean/null) or an array of scalars. Do NOT nest objects or arrays inside a fact value.',

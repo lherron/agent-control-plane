@@ -33,8 +33,8 @@
 
 import { describe, expect, test } from 'bun:test'
 
-import { mapPbcHumanInput, parseStrictParticipantOutput } from './output-parser.js'
 import type { ParticipantOutput } from '../../runtime/evidence-writer.js'
+import { mapPbcHumanInput, parseStrictParticipantOutput } from './output-parser.js'
 
 // ---------------------------------------------------------------------------
 // Shared fixture — a minimal valid ParticipantOutput object
@@ -147,15 +147,7 @@ describe('parseStrictParticipantOutput — single fenced block with prose [RED]'
   })
 
   test('[RED] prose before and after a single bare ``` fence — parses the fenced JSON', () => {
-    const input = [
-      'Analysis complete.',
-      '',
-      '```',
-      VALID_JSON,
-      '```',
-      '',
-      'Done.',
-    ].join('\n')
+    const input = ['Analysis complete.', '', '```', VALID_JSON, '```', '', 'Done.'].join('\n')
     expect(() => parseStrictParticipantOutput(input)).not.toThrow()
     const result = parseStrictParticipantOutput(input)
     expect(result).toEqual(VALID_OUTPUT)
@@ -176,15 +168,7 @@ describe('parseStrictParticipantOutput — multiple JSON objects REJECTED [GREEN
   })
 
   test('[GREEN] two ```json fenced blocks throws', () => {
-    const two = [
-      '```json',
-      VALID_JSON,
-      '```',
-      '',
-      '```json',
-      VALID_JSON,
-      '```',
-    ].join('\n')
+    const two = ['```json', VALID_JSON, '```', '', '```json', VALID_JSON, '```'].join('\n')
     expect(() => parseStrictParticipantOutput(two)).toThrow()
   })
 

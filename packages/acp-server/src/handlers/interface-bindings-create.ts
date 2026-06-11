@@ -33,6 +33,7 @@ export const handleCreateInterfaceBinding: RouteHandler = async ({ request, deps
   const body = requireRecord(await parseJsonBody(request))
   const sessionRef = parseSessionRefField(body, 'sessionRef')
   const gatewayId = requireTrimmedStringField(body, 'gatewayId')
+  const gatewayType = readOptionalTrimmedStringField(body, 'gatewayType') ?? 'unknown'
   const conversationRef = requireTrimmedStringField(body, 'conversationRef')
   const threadRef = readOptionalTrimmedStringField(body, 'threadRef')
   const bodyProjectId = readOptionalTrimmedStringField(body, 'projectId')
@@ -67,6 +68,7 @@ export const handleCreateInterfaceBinding: RouteHandler = async ({ request, deps
   const saved = deps.interfaceStore.bindings.upsertByLookup({
     bindingId: existing?.bindingId ?? `ifb_${randomUUID().replace(/-/g, '').slice(0, 12)}`,
     gatewayId,
+    gatewayType,
     conversationRef,
     ...(threadRef !== undefined ? { threadRef } : {}),
     scopeRef: sessionRef.scopeRef,

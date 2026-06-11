@@ -12,6 +12,7 @@ export async function runAdminInterfaceBindingListCommand(
     booleanFlags: ['--json'],
     stringFlags: [
       '--gateway',
+      '--gateway-type',
       '--conversation-ref',
       '--thread-ref',
       '--project',
@@ -25,6 +26,9 @@ export async function runAdminInterfaceBindingListCommand(
   const response = await client.listInterfaceBindings({
     ...(parsed.stringFlags['--gateway'] !== undefined
       ? { gatewayId: requireStringFlag(parsed, '--gateway') }
+      : {}),
+    ...(parsed.stringFlags['--gateway-type'] !== undefined
+      ? { gatewayType: requireStringFlag(parsed, '--gateway-type') }
       : {}),
     ...(parsed.stringFlags['--conversation-ref'] !== undefined
       ? { conversationRef: requireStringFlag(parsed, '--conversation-ref') }

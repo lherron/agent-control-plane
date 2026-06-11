@@ -49,6 +49,7 @@ export function toApiInterfaceBinding(binding: StoredInterfaceBinding): ApiInter
   return {
     bindingId: binding.bindingId,
     gatewayId: binding.gatewayId,
+    gatewayType: binding.gatewayType,
     conversationRef: binding.conversationRef,
     ...(binding.threadRef !== undefined ? { threadRef: binding.threadRef } : {}),
     sessionRef: {

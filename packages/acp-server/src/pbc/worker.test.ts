@@ -150,7 +150,9 @@ function makeFakeWorkerPort(
   } = {}
 ): FakeWorkerPort {
   const _calls: SpyCall[] = []
-  const nextSeq = opts.nextSequence ?? [makeNextRaw({ status: 'closed', phase: 'finalized', actions: [] })]
+  const nextSeq = opts.nextSequence ?? [
+    makeNextRaw({ status: 'closed', phase: 'finalized', actions: [] }),
+  ]
   let nextCallIdx = 0
   const pendingEffects = opts.effects ?? []
   const evidenceTimeline: Record<string, unknown>[] = [...(opts.evidence ?? [])]
@@ -202,7 +204,9 @@ function makeFakeWorkerPort(
     obligation: {
       list: async (params: { task: string }) => {
         _calls.push({ method: 'obligation.list', params })
-        return (opts.obligationsForList ?? []).map((o) => makeObligationRecord(o.id, o.kind, o.status))
+        return (opts.obligationsForList ?? []).map((o) =>
+          makeObligationRecord(o.id, o.kind, o.status)
+        )
       },
       satisfy: async (params: { task: string; id: string; evidenceId?: string }) => {
         _calls.push({ method: 'obligation.satisfy', params })
@@ -605,9 +609,7 @@ describe('runPbcContinuationWorker — behavior_note phase', () => {
     const port = makeFakeWorkerPort({
       // Only ask_clarification available (clarification_needed path)
       finalText: JSON.stringify({
-        evidence: [
-          { kind: 'behavior_note', summary: 'ambiguous behavior' },
-        ],
+        evidence: [{ kind: 'behavior_note', summary: 'ambiguous behavior' }],
       }),
       nextSequence: [
         // behavior_note: only ask_clarification available
@@ -1209,7 +1211,11 @@ describe('runPbcContinuationWorker — pressure phase', () => {
     expect(transitionIdx).toBeGreaterThan(-1)
     expect(effectListIdx).toBeGreaterThan(transitionIdx)
     expect(effectDeliverIdx).toBeGreaterThan(effectListIdx)
-    expect((port._calls.find((c) => c.method === 'effect.deliver')!.params as Record<string, unknown>)['effectId']).toBe('eff_finalize_1')
+    expect(
+      (port._calls.find((c) => c.method === 'effect.deliver')!.params as Record<string, unknown>)[
+        'effectId'
+      ]
+    ).toBe('eff_finalize_1')
   })
 })
 
@@ -1300,9 +1306,7 @@ describe('runPbcContinuationWorker — crash/replay', () => {
     } satisfies PbcContinuationWorkerInput)
 
     const deliverCalls = port._calls.filter((c) => c.method === 'effect.deliver')
-    const deliveredIds = deliverCalls.map(
-      (c) => (c.params as Record<string, unknown>)['effectId']
-    )
+    const deliveredIds = deliverCalls.map((c) => (c.params as Record<string, unknown>)['effectId'])
 
     // Each pending effect delivered exactly once
     expect(deliveredIds.filter((id) => id === 'eff_replay_1')).toHaveLength(1)
@@ -1545,7 +1549,9 @@ describe('runPbcContinuationWorker — result model', () => {
 
   test('result.turnsCompleted is 0 when stopped immediately (closed)', async () => {
     const port = makeFakeWorkerPort({
-      nextSequence: [makeNextRaw({ status: 'closed', phase: 'finalized', revision: 5, actions: [] })],
+      nextSequence: [
+        makeNextRaw({ status: 'closed', phase: 'finalized', revision: 5, actions: [] }),
+      ],
     })
 
     const result = await runPbcContinuationWorker(port, {
@@ -1639,7 +1645,8 @@ describe('runPbcContinuationWorker — result model', () => {
 describe('PbcContinuationWorkerPort type contract', () => {
   test('makeFakeWorkerPort satisfies PbcContinuationWorkerPort structural type', () => {
     // Type-only assertion: compile failure = red (structural mismatch)
-    const port: PbcContinuationWorkerPort = makeFakeWorkerPort() as unknown as PbcContinuationWorkerPort
+    const port: PbcContinuationWorkerPort =
+      makeFakeWorkerPort() as unknown as PbcContinuationWorkerPort
     expect(port).toBeDefined()
   })
 })
@@ -2036,15 +2043,13 @@ const PROMPT_CONTENT_TEMPLATE: Record<string, unknown> = {
         avoid: [],
       },
       'active/pbc_draft': {
-        agentInstruction:
-          'Draft the PBC grounded in the behavior note and clarification response.',
+        agentInstruction: 'Draft the PBC grounded in the behavior note and clarification response.',
         expectedEvidence: ['pbc_draft'],
         blockedBy: [],
         avoid: [],
       },
       'active/pressure': {
-        agentInstruction:
-          'Review the pbc_draft and produce pressure_pass evidence.',
+        agentInstruction: 'Review the pbc_draft and produce pressure_pass evidence.',
         expectedEvidence: ['pressure_pass', 'pbc_final when ready'],
         blockedBy: [],
         avoid: [],

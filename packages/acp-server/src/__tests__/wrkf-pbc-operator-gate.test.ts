@@ -73,11 +73,9 @@ const NON_OPERATOR_OPTS = {
 // Minimal wrkf fake port
 
 function makeMinimalWrkfPort(): AcpWrkfWorkflowPort {
-  const boom =
-    (name: string) =>
-    (): never => {
-      throw new Error(`minimal wrkf port: '${name}' must not be called in this scenario`)
-    }
+  const boom = (name: string) => (): never => {
+    throw new Error(`minimal wrkf port: '${name}' must not be called in this scenario`)
+  }
 
   return {
     workflow: {

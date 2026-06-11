@@ -6,20 +6,32 @@ export type WebhookPayload = {
   username?: string | undefined
   avatar_url?: string | undefined
   avatarURL?: string | undefined
+  webhookAvatar?: WebhookAvatarOverride | undefined
   files?: unknown[] | undefined
   components?: unknown[] | undefined
+}
+
+export type WebhookAvatarOverride = {
+  key: string
+  data: Buffer
 }
 
 export type WebhookMessage = {
   id: string
 }
 
-type DiscordWebhookSendPayload = Omit<WebhookPayload, 'avatar_url' | 'avatarURL'> & {
+type DiscordWebhookSendPayload = Omit<
+  WebhookPayload,
+  'avatar_url' | 'avatarURL' | 'webhookAvatar'
+> & {
   avatarURL?: string | undefined
   threadId?: string | undefined
 }
 
-type DiscordWebhookEditPayload = Omit<WebhookPayload, 'avatar_url' | 'avatarURL' | 'username'> & {
+type DiscordWebhookEditPayload = Omit<
+  WebhookPayload,
+  'avatar_url' | 'avatarURL' | 'username' | 'webhookAvatar'
+> & {
   threadId?: string | undefined
 }
 
@@ -33,6 +45,7 @@ export type ManagedWebhook = {
   id: string
   token?: string | null | undefined
   name?: string | null | undefined
+  edit?(options: { avatar?: Buffer | string | null | undefined }): Promise<ManagedWebhook>
   send(payload: DiscordWebhookSendPayload): Promise<WebhookMessage>
   editMessage(messageId: string, payload: DiscordWebhookEditPayload): Promise<WebhookMessage>
 }
@@ -94,7 +107,7 @@ function webhookValues(collection: WebhookCollection): Iterable<ManagedWebhook> 
 }
 
 function normalizeSendPayload(payload: WebhookPayload): DiscordWebhookSendPayload {
-  const { avatar_url: avatarUrl, avatarURL, ...rest } = payload
+  const { avatar_url: avatarUrl, avatarURL, webhookAvatar: _webhookAvatar, ...rest } = payload
   const normalized: DiscordWebhookSendPayload = { ...rest }
   const resolvedAvatarURL = avatarURL ?? avatarUrl
   if (resolvedAvatarURL !== undefined) {
@@ -104,7 +117,13 @@ function normalizeSendPayload(payload: WebhookPayload): DiscordWebhookSendPayloa
 }
 
 function normalizeEditPayload(payload: WebhookPayload): DiscordWebhookEditPayload {
-  const { username: _username, avatar_url: _avatarUrl, avatarURL: _avatarURL, ...rest } = payload
+  const {
+    username: _username,
+    avatar_url: _avatarUrl,
+    avatarURL: _avatarURL,
+    webhookAvatar: _webhookAvatar,
+    ...rest
+  } = payload
   return rest
 }
 
@@ -155,6 +174,7 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
   const sleep = options.sleep ?? defaultSleep
   const cache = new Map<string, ManagedWebhook>()
   const queues = new Map<string, Promise<void>>()
+  const webhookAvatarKeys = new Map<string, string>()
 
   async function fetchTextChannel(channelId: string): Promise<WebhookChannel> {
     const channel = await options.client.channels.fetch(channelId)
@@ -334,10 +354,30 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
     })
   }
 
+  async function ensureWebhookAvatar(
+    webhook: ManagedWebhook,
+    avatar: WebhookAvatarOverride | undefined
+  ): Promise<void> {
+    if (avatar === undefined || webhookAvatarKeys.get(webhook.id) === avatar.key) {
+      return
+    }
+
+    if (typeof webhook.edit !== 'function') {
+      throw new Error(`Discord webhook ${webhook.id} does not support avatar edits`)
+    }
+
+    await webhook.edit({ avatar: avatar.data })
+    webhookAvatarKeys.set(webhook.id, avatar.key)
+    log.info('gw.discord.webhook.avatar', {
+      data: { webhookId: webhook.id, avatarKey: avatar.key, outcome: 'updated' },
+    })
+  }
+
   return {
     getOrCreateWebhook,
     async send(channelId, payload) {
       let resolvedWebhookId: string | undefined
+      const webhookAvatar = payload.webhookAvatar
       try {
         const threadId = await resolveThreadIdForPost(channelId)
         const sendPayload = {
@@ -346,7 +386,7 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
         }
         const message = await runWebhookOperation(channelId, undefined, (webhook) => {
           resolvedWebhookId = webhook.id
-          return webhook.send(sendPayload)
+          return ensureWebhookAvatar(webhook, webhookAvatar).then(() => webhook.send(sendPayload))
         })
         log.info('gw.discord.webhook.send', {
           data: {

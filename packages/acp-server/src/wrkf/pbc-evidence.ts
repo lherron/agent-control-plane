@@ -24,12 +24,12 @@
  */
 
 import { makePbcEvidencePolicy } from './packs/pbc/evidence-policy.js'
+import type { EvidenceRecord, NextActionResponse, ObligationRecord } from './projections.js'
 import {
   type EvidenceWriterPort,
   type ParticipantOutput,
   writeEvidenceAndSatisfyObligations,
 } from './runtime/evidence-writer.js'
-import type { EvidenceRecord, NextActionResponse, ObligationRecord } from './projections.js'
 
 // ---------------------------------------------------------------------------
 // Re-exported generic contract (kept on the historical pbc-evidence path).

@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
+import { openInterfaceStore } from '../src/index.js'
+import Database from '../src/sqlite.js'
 import { withInterfaceStore } from './helpers.js'
 
 describe('BindingRepo', () => {
@@ -96,6 +101,7 @@ describe('BindingRepo', () => {
       expect(store.bindings.list({ gatewayId: 'discord_prod', projectId: 'P-2' })).toEqual([
         expect.objectContaining({ bindingId: 'bind-2' }),
       ])
+      expect(store.bindings.list({ gatewayType: 'unknown' })).toHaveLength(2)
       expect(
         store.bindings.list({
           gatewayId: 'discord_prod',
@@ -104,6 +110,90 @@ describe('BindingRepo', () => {
         })
       ).toEqual([expect.objectContaining({ bindingId: 'bind-2' })])
     })
+  })
+
+  test('resolves active project-level primary candidates by gateway type', () => {
+    withInterfaceStore(({ store }) => {
+      store.bindings.create({
+        bindingId: 'bind-primary',
+        gatewayId: 'acp-discord-smoke',
+        gatewayType: 'discord',
+        conversationRef: 'channel:primary',
+        scopeRef: 'agent:mneme:project:media-ingest',
+        laneRef: 'main',
+        projectId: 'media-ingest',
+        status: 'active',
+        createdAt: '2026-06-10T00:00:00.000Z',
+        updatedAt: '2026-06-10T00:00:00.000Z',
+      })
+      store.bindings.create({
+        bindingId: 'bind-task',
+        gatewayId: 'acp-discord-smoke',
+        gatewayType: 'discord',
+        conversationRef: 'channel:task',
+        scopeRef: 'agent:mneme:project:media-ingest:task:T-1',
+        laneRef: 'main',
+        projectId: 'media-ingest',
+        status: 'active',
+        createdAt: '2026-06-10T00:01:00.000Z',
+        updatedAt: '2026-06-10T00:01:00.000Z',
+      })
+
+      expect(
+        store.bindings.listPrimaryCandidates({
+          gatewayType: 'discord',
+          agentId: 'mneme',
+          projectId: 'media-ingest',
+          laneRef: 'main',
+        })
+      ).toEqual([expect.objectContaining({ bindingId: 'bind-primary' })])
+    })
+  })
+
+  test('legacy migration preserves and backfills gateway_type through constraint tightening', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'acp-interface-store-legacy-'))
+    const dbPath = join(directory, 'interface.sqlite')
+    const sqlite = new Database(dbPath)
+    try {
+      sqlite.exec(`
+        CREATE TABLE interface_bindings (
+          binding_id TEXT PRIMARY KEY,
+          gateway_id TEXT NOT NULL,
+          conversation_ref TEXT NOT NULL,
+          thread_ref TEXT,
+          scope_ref TEXT NOT NULL,
+          lane_ref TEXT NOT NULL,
+          project_id TEXT,
+          status TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO interface_bindings (
+          binding_id, gateway_id, conversation_ref, thread_ref, scope_ref, lane_ref,
+          project_id, status, created_at, updated_at
+        ) VALUES (
+          'ifb_legacy_smoke', 'acp-discord-smoke', 'channel:mneme', NULL,
+          'agent:mneme:project:media-ingest', 'main', 'media-ingest', 'active',
+          '2026-06-10T00:00:00.000Z', '2026-06-10T00:00:00.000Z'
+        );
+      `)
+      sqlite.close()
+
+      const store = openInterfaceStore({ dbPath })
+      try {
+        const binding = store.bindings.getById('ifb_legacy_smoke')
+        expect(binding).toMatchObject({
+          bindingId: 'ifb_legacy_smoke',
+          gatewayType: 'discord',
+          agentId: 'mneme',
+          projectId: 'media-ingest',
+        })
+      } finally {
+        store.close()
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 
   test('rejects bindings without a project segment in scopeRef', () => {

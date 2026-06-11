@@ -44,10 +44,7 @@ import { type AcpStateStore, type PbcContinuationJob, openAcpStateStore } from '
 // ─── RED IMPORT ──────────────────────────────────────────────────────────────
 // This import will FAIL until src/pbc/worker-scheduler.ts is created.
 // Every test in this file is RED for that reason.
-import {
-  type PbcWorkerScheduler,
-  createPbcWorkerScheduler,
-} from '../pbc/worker-scheduler.js'
+import { type PbcWorkerScheduler, createPbcWorkerScheduler } from '../pbc/worker-scheduler.js'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 

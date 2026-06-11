@@ -5,11 +5,13 @@ type WebhookPayload = {
   username?: string | undefined
   avatar_url?: string | undefined
   avatarURL?: string | undefined
+  webhookAvatar?: { key: string; data: Buffer } | undefined
 }
 
 class FakeWebhookClient {
   readonly sends: WebhookPayload[] = []
   readonly edits: Array<{ messageId: string; payload: WebhookPayload }> = []
+  readonly avatarEdits: Array<{ avatar?: Buffer | string | null | undefined }> = []
   readonly attempts: string[] = []
   queuedErrors: unknown[] = []
 
@@ -30,6 +32,11 @@ class FakeWebhookClient {
   async editMessage(messageId: string, payload: WebhookPayload): Promise<{ id: string }> {
     this.edits.push({ messageId, payload })
     return { id: messageId }
+  }
+
+  async edit(input: { avatar?: Buffer | string | null | undefined }): Promise<this> {
+    this.avatarEdits.push(input)
+    return this
   }
 }
 
@@ -213,6 +220,30 @@ describe('Discord webhook payloads', () => {
         content: 'legacy agent message',
         username: 'larry',
         avatarURL: 'https://example.test/larry.png',
+      },
+    ])
+  })
+
+  test('applies local profile avatar bytes to the webhook before send', async () => {
+    const { createWebhookManager } = await loadWebhooksModule()
+    const client = new FakeClient()
+    const channel = new FakeChannel('chan_avatar_bytes')
+    client.addChannel(channel)
+    const manager = createWebhookManager({ client, webhookName: 'agent-pulpit' })
+    const avatar = Buffer.from('fake-png-bytes')
+
+    await manager.send(channel.id, {
+      content: 'agent message',
+      username: 'cody',
+      webhookAvatar: { key: 'cody:/v1/assets/agents/cody/pfp.png', data: avatar },
+    })
+
+    const webhook = await manager.getOrCreateWebhook(channel.id)
+    expect(webhook.avatarEdits).toEqual([{ avatar }])
+    expect(webhook.sends).toEqual([
+      {
+        content: 'agent message',
+        username: 'cody',
       },
     ])
   })

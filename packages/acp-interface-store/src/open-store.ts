@@ -53,6 +53,7 @@ function initializeSchema(sqlite: SqliteDatabase): void {
     CREATE TABLE IF NOT EXISTS interface_bindings (
       binding_id TEXT PRIMARY KEY,
       gateway_id TEXT NOT NULL,
+      gateway_type TEXT NOT NULL DEFAULT 'unknown',
       conversation_ref TEXT NOT NULL,
       thread_ref TEXT,
       scope_ref TEXT NOT NULL,
@@ -129,6 +130,15 @@ function initializeSchema(sqlite: SqliteDatabase): void {
     CREATE INDEX IF NOT EXISTS delivery_requests_run_idx
       ON delivery_requests (run_id, created_at);
 
+    CREATE TABLE IF NOT EXISTS delivery_request_idempotency (
+      route TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL,
+      fingerprint_hash TEXT NOT NULL,
+      delivery_request_id TEXT NOT NULL REFERENCES delivery_requests(delivery_request_id),
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (route, idempotency_key)
+    );
+
     CREATE TABLE IF NOT EXISTS last_delivery_context (
       scope_ref TEXT NOT NULL,
       lane_ref TEXT NOT NULL,
@@ -167,6 +177,8 @@ function initializeSchema(sqlite: SqliteDatabase): void {
     'delivery_requests',
     'linked_failure_id TEXT REFERENCES delivery_requests(delivery_request_id)'
   )
+  addColumnIfMissing(sqlite, 'interface_bindings', "gateway_type TEXT NOT NULL DEFAULT 'unknown'")
+  backfillGatewayType(sqlite)
 
   const actorColumns = [
     ['interface_bindings', 'actor_kind TEXT'],
@@ -202,6 +214,7 @@ function initializeSchema(sqlite: SqliteDatabase): void {
 
   migrateStructuredScopeColumns(sqlite)
   tightenInterfaceBindingsConstraints(sqlite)
+  ensureInterfaceBindingIndexes(sqlite)
 }
 
 /**
@@ -252,6 +265,7 @@ function tightenInterfaceBindingsConstraints(sqlite: SqliteDatabase): void {
     CREATE TABLE interface_bindings_new (
       binding_id TEXT PRIMARY KEY,
       gateway_id TEXT NOT NULL,
+      gateway_type TEXT NOT NULL DEFAULT 'unknown',
       conversation_ref TEXT NOT NULL,
       thread_ref TEXT,
       lane_ref TEXT NOT NULL,
@@ -270,13 +284,13 @@ function tightenInterfaceBindingsConstraints(sqlite: SqliteDatabase): void {
     );
 
     INSERT INTO interface_bindings_new (
-      binding_id, gateway_id, conversation_ref, thread_ref, lane_ref,
+      binding_id, gateway_id, gateway_type, conversation_ref, thread_ref, lane_ref,
       agent_id, project_id, task_id, role_name,
       status, actor_kind, actor_id, actor_display_name,
       created_at, updated_at
     )
     SELECT
-      binding_id, gateway_id, conversation_ref, thread_ref, lane_ref,
+      binding_id, gateway_id, COALESCE(NULLIF(gateway_type, ''), 'unknown'), conversation_ref, thread_ref, lane_ref,
       agent_id, project_id, task_id, role_name,
       status, actor_kind, actor_id, actor_display_name,
       created_at, updated_at
@@ -295,7 +309,26 @@ function tightenInterfaceBindingsConstraints(sqlite: SqliteDatabase): void {
     CREATE INDEX IF NOT EXISTS interface_bindings_by_scope_idx
       ON interface_bindings (agent_id, project_id, task_id, role_name, lane_ref);
 
+    CREATE INDEX IF NOT EXISTS interface_bindings_primary_resolution_idx
+      ON interface_bindings (gateway_type, status, agent_id, project_id, task_id, role_name, lane_ref);
+
     COMMIT;
+  `)
+}
+
+function backfillGatewayType(sqlite: SqliteDatabase): void {
+  sqlite.exec(`
+    UPDATE interface_bindings
+       SET gateway_type = 'discord'
+     WHERE gateway_id = 'acp-discord-smoke'
+       AND (gateway_type IS NULL OR gateway_type = '' OR gateway_type = 'unknown');
+  `)
+}
+
+function ensureInterfaceBindingIndexes(sqlite: SqliteDatabase): void {
+  sqlite.exec(`
+    CREATE INDEX IF NOT EXISTS interface_bindings_primary_resolution_idx
+      ON interface_bindings (gateway_type, status, agent_id, project_id, task_id, role_name, lane_ref);
   `)
 }
 

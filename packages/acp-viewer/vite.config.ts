@@ -14,8 +14,18 @@ export default defineConfig({
   },
   server: {
     host: '0.0.0.0',
-    port: 5174,
-    allowedHosts: ['max3', 'max3.local', '.local', '.tail'],
+    port: 18471,
+    strictPort: true,
+    allowedHosts: [
+      'max3',
+      'max3.lan',
+      'max3.local',
+      'max3.tail53cc3b.ts.net',
+      '.lan',
+      '.local',
+      '.tail',
+      '.ts.net',
+    ],
     proxy: {
       '/v1': {
         target: 'http://127.0.0.1:18470',

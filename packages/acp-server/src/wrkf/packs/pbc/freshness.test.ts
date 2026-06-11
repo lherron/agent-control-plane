@@ -102,7 +102,9 @@ function pbcFinal(
 }
 
 /** Convenience: assert blocked=true and extract reason. */
-function assertBlocked(result: PbcFreshnessResult): asserts result is { blocked: true; reason: string } {
+function assertBlocked(
+  result: PbcFreshnessResult
+): asserts result is { blocked: true; reason: string } {
   expect(result.blocked).toBe(true)
 }
 
@@ -120,7 +122,10 @@ describe('run_pressure_pass freshness (Invariant 2)', () => {
       // ← revision boundary here; no pbc_draft follows
     ]
 
-    const result = checkPbcFreshness({ evidenceTimeline: timeline, transition: 'run_pressure_pass' })
+    const result = checkPbcFreshness({
+      evidenceTimeline: timeline,
+      transition: 'run_pressure_pass',
+    })
 
     assertBlocked(result)
     expect(result.reason).toMatch(/stale|pre.?revise|boundary|fresh.*draft|draft.*fresh/i)
@@ -134,7 +139,10 @@ describe('run_pressure_pass freshness (Invariant 2)', () => {
       // ← no new pbc_draft after this boundary
     ]
 
-    const result = checkPbcFreshness({ evidenceTimeline: timeline, transition: 'run_pressure_pass' })
+    const result = checkPbcFreshness({
+      evidenceTimeline: timeline,
+      transition: 'run_pressure_pass',
+    })
 
     assertBlocked(result)
     expect(result.reason).toMatch(/stale|pre.?revise|boundary|fresh.*draft|draft.*fresh/i)
@@ -147,7 +155,10 @@ describe('run_pressure_pass freshness (Invariant 2)', () => {
       draft('ev_draft_fresh'), // fresh draft written after the boundary
     ]
 
-    const result = checkPbcFreshness({ evidenceTimeline: timeline, transition: 'run_pressure_pass' })
+    const result = checkPbcFreshness({
+      evidenceTimeline: timeline,
+      transition: 'run_pressure_pass',
+    })
 
     expect(result.blocked).toBe(false)
   })
@@ -158,7 +169,10 @@ describe('run_pressure_pass freshness (Invariant 2)', () => {
       // no revision boundary yet — first cycle
     ]
 
-    const result = checkPbcFreshness({ evidenceTimeline: timeline, transition: 'run_pressure_pass' })
+    const result = checkPbcFreshness({
+      evidenceTimeline: timeline,
+      transition: 'run_pressure_pass',
+    })
 
     expect(result.blocked).toBe(false)
   })
@@ -179,7 +193,10 @@ describe('finalize_ready_pbc stale pressure_pass (Invariant 3)', () => {
       }),
     ]
 
-    const result = checkPbcFreshness({ evidenceTimeline: timeline, transition: 'finalize_ready_pbc' })
+    const result = checkPbcFreshness({
+      evidenceTimeline: timeline,
+      transition: 'finalize_ready_pbc',
+    })
 
     assertBlocked(result)
     expect(result.reason).toMatch(/stale|mismatch|reviewed.*draft|draft.*reviewed/i)
@@ -194,7 +211,10 @@ describe('finalize_ready_pbc stale pressure_pass (Invariant 3)', () => {
       }),
     ]
 
-    const result = checkPbcFreshness({ evidenceTimeline: timeline, transition: 'finalize_ready_pbc' })
+    const result = checkPbcFreshness({
+      evidenceTimeline: timeline,
+      transition: 'finalize_ready_pbc',
+    })
 
     expect(result.blocked).toBe(false)
   })
@@ -212,7 +232,10 @@ describe('finalize_ready_pbc stale pressure_pass (Invariant 3)', () => {
       }),
     ]
 
-    const result = checkPbcFreshness({ evidenceTimeline: timeline, transition: 'finalize_ready_pbc' })
+    const result = checkPbcFreshness({
+      evidenceTimeline: timeline,
+      transition: 'finalize_ready_pbc',
+    })
 
     assertBlocked(result)
   })
@@ -236,7 +259,10 @@ describe('finalize_ready_pbc stale pbc_final draft reference (Invariant 4)', () 
       }),
     ]
 
-    const result = checkPbcFreshness({ evidenceTimeline: timeline, transition: 'finalize_ready_pbc' })
+    const result = checkPbcFreshness({
+      evidenceTimeline: timeline,
+      transition: 'finalize_ready_pbc',
+    })
 
     assertBlocked(result)
     expect(result.reason).toMatch(/stale|mismatch|based.*draft|draft.*based/i)
@@ -261,7 +287,10 @@ describe('finalize_ready_pbc stale pbc_final pressure_pass reference (Invariant 
       }),
     ]
 
-    const result = checkPbcFreshness({ evidenceTimeline: timeline, transition: 'finalize_ready_pbc' })
+    const result = checkPbcFreshness({
+      evidenceTimeline: timeline,
+      transition: 'finalize_ready_pbc',
+    })
 
     assertBlocked(result)
     expect(result.reason).toMatch(/stale|mismatch|pressure.*pass|based.*pressure/i)
@@ -280,8 +309,8 @@ describe('finalize_after_patch_decision after patch revise (Invariant 6)', () =>
       draft('ev_draft_1'),
       pressurePass('ev_pp_1', { verdict: 'needs_patch', reviewedDraftEvidenceId: 'ev_draft_1' }),
       patchDecision('ev_pd_old_finalize', 'finalize'), // OLD finalize — pre-boundary
-      patchDecision('ev_pd_revise', 'revise'),          // revise boundary — supersedes old finalize
-      draft('ev_draft_2'),                              // fresh draft after revise
+      patchDecision('ev_pd_revise', 'revise'), // revise boundary — supersedes old finalize
+      draft('ev_draft_2'), // fresh draft after revise
       pressurePass('ev_pp_2', {
         verdict: 'needs_patch',
         reviewedDraftEvidenceId: 'ev_draft_2',
@@ -302,7 +331,7 @@ describe('finalize_after_patch_decision after patch revise (Invariant 6)', () =>
     const timeline: PbcEvidenceSnapshot[] = [
       draft('ev_draft_1'),
       pressurePass('ev_pp_1', { verdict: 'needs_patch', reviewedDraftEvidenceId: 'ev_draft_1' }),
-      patchDecision('ev_pd_revise', 'revise'),           // revise boundary
+      patchDecision('ev_pd_revise', 'revise'), // revise boundary
       draft('ev_draft_2'),
       pressurePass('ev_pp_2', {
         verdict: 'needs_patch',
@@ -335,18 +364,22 @@ describe('happy path (fresh artifacts, all refs match)', () => {
       }),
     ]
 
-    const result = checkPbcFreshness({ evidenceTimeline: timeline, transition: 'finalize_ready_pbc' })
+    const result = checkPbcFreshness({
+      evidenceTimeline: timeline,
+      transition: 'finalize_ready_pbc',
+    })
 
     expect(result.blocked).toBe(false)
   })
 
   test('happy path: run_pressure_pass before pbc_final (no refs to check yet)', () => {
     // Requesting run_pressure_pass on first cycle — just one draft, no prior revise
-    const timeline: PbcEvidenceSnapshot[] = [
-      draft('ev_d1'),
-    ]
+    const timeline: PbcEvidenceSnapshot[] = [draft('ev_d1')]
 
-    const result = checkPbcFreshness({ evidenceTimeline: timeline, transition: 'run_pressure_pass' })
+    const result = checkPbcFreshness({
+      evidenceTimeline: timeline,
+      transition: 'run_pressure_pass',
+    })
 
     expect(result.blocked).toBe(false)
   })
@@ -366,7 +399,10 @@ describe('happy path (fresh artifacts, all refs match)', () => {
       }),
     ]
 
-    const result = checkPbcFreshness({ evidenceTimeline: timeline, transition: 'finalize_ready_pbc' })
+    const result = checkPbcFreshness({
+      evidenceTimeline: timeline,
+      transition: 'finalize_ready_pbc',
+    })
 
     expect(result.blocked).toBe(false)
   })

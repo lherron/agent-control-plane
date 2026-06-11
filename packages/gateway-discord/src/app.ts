@@ -37,6 +37,7 @@ import { classifyDiscordError, httpErrorField } from './discord-errors.js'
 import { adaptHrcLifecycleEvent, canonicalSessionRefFromEvent } from './hrc-event-adapter.js'
 import {
   type DiscordAgentMessageIdentity,
+  type DiscordWebhookAvatar,
   avatarFor,
   formatSessionSubtext,
   identityFromSessionRef,
@@ -118,12 +119,94 @@ function truncateReason(reason: string): string {
   return `${reason.slice(0, MAX_INGRESS_FAILURE_REASON_CHARS - 1)}…`
 }
 
-function resolveMessageIdentity(sessionRef: InterfaceSessionRef): DiscordAgentMessageIdentity {
+function defaultMessageIdentity(sessionRef: InterfaceSessionRef): DiscordAgentMessageIdentity {
   const identity = identityFromSessionRef(sessionRef)
   return {
     agentId: identity.agentId,
     subtext: formatSessionSubtext(sessionRef),
     avatarUrl: avatarFor(identity.agentId),
+  }
+}
+
+type AgentProfilePayload = {
+  avatarUrl?: string | null | undefined
+}
+
+type AgentProfileResponse = {
+  agent?: { profile?: AgentProfilePayload | undefined } | undefined
+}
+
+type AgentAvatarResolution =
+  | { kind: 'remote-url'; avatarUrl: string }
+  | { kind: 'webhook-avatar'; webhookAvatar: DiscordWebhookAvatar }
+
+function trimmedAvatarUrl(avatarUrl: string | null | undefined): string | undefined {
+  const trimmed = avatarUrl?.trim()
+  if (!trimmed) {
+    return undefined
+  }
+  return trimmed
+}
+
+function normalizeRemoteProfileAvatarUrl(
+  baseUrl: string,
+  avatarUrl: string | null | undefined
+): string | undefined {
+  const trimmed = trimmedAvatarUrl(avatarUrl)
+  if (trimmed === undefined) {
+    return undefined
+  }
+
+  try {
+    const url = new URL(trimmed)
+    const base = new URL(baseUrl)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return undefined
+    }
+    if (url.origin === base.origin) {
+      return undefined
+    }
+    return url.toString()
+  } catch {
+    return undefined
+  }
+}
+
+function resolveProfileAvatarAssetUrl(
+  baseUrl: string,
+  avatarUrl: string | null | undefined
+): string | undefined {
+  const trimmed = trimmedAvatarUrl(avatarUrl)
+  if (trimmed === undefined) {
+    return undefined
+  }
+
+  try {
+    const base = new URL(baseUrl)
+    if (trimmed.startsWith('/')) {
+      return new URL(trimmed, base).toString()
+    }
+
+    const url = new URL(trimmed)
+    if (url.origin === base.origin) {
+      return url.toString()
+    }
+  } catch {
+    return undefined
+  }
+
+  return undefined
+}
+
+function webhookIdentityPayload(identity: DiscordAgentMessageIdentity): {
+  username: string
+  avatarURL?: string | undefined
+  webhookAvatar?: DiscordWebhookAvatar | undefined
+} {
+  return {
+    username: identity.agentId,
+    ...(identity.avatarUrl !== undefined ? { avatarURL: identity.avatarUrl } : {}),
+    ...(identity.webhookAvatar !== undefined ? { webhookAvatar: identity.webhookAvatar } : {}),
   }
 }
 
@@ -401,6 +484,7 @@ export class GatewayDiscordApp {
   private readonly sessionEventsManager: SessionEventsManager
   private readonly keywordRoutesByMessageId = new Map<string, IngressRoute>()
   private readonly activePlaceholdersByMessageId = new Map<string, PendingPlaceholder>()
+  private readonly agentAvatarCache = new Map<string, AgentAvatarResolution | undefined>()
   private readonly createdClient: boolean
   private readonly onMessageCreateBound: (message: Message) => Promise<void>
   private readonly onMessageReactionAddBound: (
@@ -992,6 +1076,7 @@ export class GatewayDiscordApp {
 
     await this.postJson('/v1/interface/bindings', {
       gatewayId: this.gatewayId,
+      gatewayType: 'discord',
       conversationRef,
       threadRef: route.conversation.threadRef,
       sessionRef: {
@@ -1720,6 +1805,87 @@ export class GatewayDiscordApp {
     return undefined
   }
 
+  private async resolveMessageIdentity(
+    sessionRef: InterfaceSessionRef
+  ): Promise<DiscordAgentMessageIdentity> {
+    const identity = defaultMessageIdentity(sessionRef)
+    const profileAvatar = await this.resolveAgentAvatar(identity.agentId)
+    if (profileAvatar?.kind === 'remote-url') {
+      return { ...identity, avatarUrl: profileAvatar.avatarUrl }
+    }
+    if (profileAvatar?.kind === 'webhook-avatar') {
+      return {
+        agentId: identity.agentId,
+        subtext: identity.subtext,
+        webhookAvatar: profileAvatar.webhookAvatar,
+      }
+    }
+    return identity
+  }
+
+  private async resolveAgentAvatar(agentId: string): Promise<AgentAvatarResolution | undefined> {
+    if (this.agentAvatarCache.has(agentId)) {
+      return this.agentAvatarCache.get(agentId)
+    }
+
+    let avatar: AgentAvatarResolution | undefined
+    try {
+      const payload = await this.fetchJson<AgentProfileResponse>(
+        `/v1/admin/agents/${encodeURIComponent(agentId)}`
+      )
+      const profileAvatarUrl = payload.agent?.profile?.avatarUrl
+      const remoteAvatarUrl = normalizeRemoteProfileAvatarUrl(this.acpBaseUrl, profileAvatarUrl)
+      if (remoteAvatarUrl !== undefined) {
+        avatar = { kind: 'remote-url', avatarUrl: remoteAvatarUrl }
+      } else {
+        const assetUrl = resolveProfileAvatarAssetUrl(this.acpBaseUrl, profileAvatarUrl)
+        const webhookAvatar =
+          assetUrl !== undefined
+            ? await this.fetchProfileWebhookAvatar(agentId, profileAvatarUrl, assetUrl)
+            : undefined
+        if (webhookAvatar !== undefined) {
+          avatar = { kind: 'webhook-avatar', webhookAvatar }
+        }
+      }
+    } catch (error) {
+      log.debug('gw.discord.agent_profile_avatar.unavailable', {
+        message: 'Falling back to generated avatar because agent profile avatar was unavailable',
+        trace: { gatewayId: this.gatewayId },
+        data: { agentId },
+        err: { message: error instanceof Error ? error.message : String(error) },
+      })
+    }
+
+    this.agentAvatarCache.set(agentId, avatar)
+    return avatar
+  }
+
+  private async fetchProfileWebhookAvatar(
+    agentId: string,
+    profileAvatarUrl: string | null | undefined,
+    assetUrl: string
+  ): Promise<DiscordWebhookAvatar | undefined> {
+    const response = await this.fetchImpl(assetUrl)
+    if (!response.ok) {
+      throw new Error(`Profile avatar request failed: ${response.status} ${await response.text()}`)
+    }
+
+    const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
+    if (!contentType.startsWith('image/')) {
+      throw new Error(`Profile avatar is not an image: ${contentType || 'missing content-type'}`)
+    }
+
+    const bytes = Buffer.from(await response.arrayBuffer())
+    if (bytes.length === 0) {
+      throw new Error('Profile avatar response was empty')
+    }
+
+    return {
+      key: `${agentId}:${trimmedAvatarUrl(profileAvatarUrl) ?? assetUrl}`,
+      data: bytes,
+    }
+  }
+
   private async processDelivery(delivery: DeliveryRequest): Promise<void> {
     try {
       await this.deliverToDiscord(delivery)
@@ -1747,8 +1913,8 @@ export class GatewayDiscordApp {
         ? this.sessionEventsManager.getRunState(deliverySessionRef, hrcRunId)
         : undefined
 
-    // Resolve agent identity from the delivery's sessionRef
-    const identity = resolveMessageIdentity(delivery.sessionRef)
+    // Resolve agent identity from the delivery's sessionRef.
+    const identity = await this.resolveMessageIdentity(delivery.sessionRef)
     const messageIdentity = placeholder?.identity ?? identity
     const plan = planFinalDeliveryWrite({
       delivery,
@@ -1814,8 +1980,7 @@ export class GatewayDiscordApp {
       try {
         await this.webhooks.send(targetChannelId, {
           content: chunkContent,
-          username: messageIdentity.agentId,
-          avatarURL: messageIdentity.avatarUrl,
+          ...webhookIdentityPayload(messageIdentity),
           ...chunkFiles,
         })
       } catch (error) {
@@ -1881,8 +2046,7 @@ export class GatewayDiscordApp {
     const primaryFiles = plan.chunks.length === 1 ? filesPayload : {}
     await this.webhooks.editMessage(ui.channelId, ui.id, ui.webhookId ?? '', {
       content: firstChunk,
-      username: identity.agentId,
-      avatarURL: identity.avatarUrl,
+      ...webhookIdentityPayload(identity),
       ...primaryFiles,
     })
 
@@ -1894,8 +2058,7 @@ export class GatewayDiscordApp {
       const chunkFiles = isLastChunk ? filesPayload : {}
       await this.webhooks.send(ui.channelId, {
         content: chunk,
-        username: identity.agentId,
-        avatarURL: identity.avatarUrl,
+        ...webhookIdentityPayload(identity),
         ...chunkFiles,
       })
     }
@@ -1917,11 +2080,10 @@ export class GatewayDiscordApp {
 
       if (input.sessionRef) {
         // Agent-originated: post via webhook with agent identity
-        const identity = resolveMessageIdentity(input.sessionRef)
+        const identity = await this.resolveMessageIdentity(input.sessionRef)
         const sent = await this.webhooks.send(input.channelId, {
           content: `-# ${identity.subtext}\n⏳ **Processing:** ${promptPreview}`,
-          username: identity.agentId,
-          avatarURL: identity.avatarUrl,
+          ...webhookIdentityPayload(identity),
         })
 
         const webhook = await this.webhooks.getOrCreateWebhook(input.channelId)

@@ -200,7 +200,13 @@ async function runLoop(
     })
 
     if (policy.kind === 'stop') {
-      return resultFor(input.taskId, progress.turnsCompleted, policy.reason, 'succeeded', latestNext)
+      return resultFor(
+        input.taskId,
+        progress.turnsCompleted,
+        policy.reason,
+        'succeeded',
+        latestNext
+      )
     }
 
     const participant = participantFor(input, next)
@@ -267,7 +273,13 @@ async function runLoop(
         }
 
         await port.run.fail({ runId: wrkfRunId, summary: 'no final assistant text available' })
-        return resultFor(input.taskId, progress.turnsCompleted, 'missing_final_assistant_text', 'failed', next)
+        return resultFor(
+          input.taskId,
+          progress.turnsCompleted,
+          'missing_final_assistant_text',
+          'failed',
+          next
+        )
       }
     }
 
@@ -289,8 +301,7 @@ async function runLoop(
       evidenceTimeline,
     })
 
-    const blocked =
-      chosen === undefined || (typeof chosen === 'object' && 'blocked' in chosen)
+    const blocked = chosen === undefined || (typeof chosen === 'object' && 'blocked' in chosen)
     if (blocked) {
       // The turn completed but the phase's required evidence is still missing
       // (flaky participant output). Retry the SAME phase before giving up, as
@@ -370,12 +381,12 @@ function readWaitStartedAtMs(value: unknown): number | undefined {
     evidenceStartedAt !== undefined
       ? evidenceStartedAt
       : typeof value === 'string'
-      ? value
-      : typeof value === 'object' && value !== null
-        ? readString(value as Record<string, unknown>, 'startedAt') ??
-          readString(value as Record<string, unknown>, 'started_at') ??
-          readString(value as Record<string, unknown>, 'value')
-        : undefined
+        ? value
+        : typeof value === 'object' && value !== null
+          ? (readString(value as Record<string, unknown>, 'startedAt') ??
+            readString(value as Record<string, unknown>, 'started_at') ??
+            readString(value as Record<string, unknown>, 'value'))
+          : undefined
   if (raw === undefined) {
     return undefined
   }

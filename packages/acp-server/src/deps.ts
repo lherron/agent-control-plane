@@ -38,9 +38,9 @@ import type { JobExecPolicy } from './jobs/exec-policy.js'
 import {
   InMemoryWrkfParticipantCaptureStore,
   InMemoryWrkfRouteIdempotencyStore,
-  createDurableWrkfStores,
   type WrkfParticipantCaptureStore,
   type WrkfRouteIdempotencyStore,
+  createDurableWrkfStores,
 } from './wrkf/pbc-route-idempotency-store.js'
 import type { AcpWrkfWorkflowPort } from './wrkf/port.js'
 
@@ -196,7 +196,8 @@ export type AuthorizeFn = (
 export function resolveAcpServerDeps(deps: AcpServerDeps): ResolvedAcpServerDeps {
   const stateStore = deps.stateStore
   const useStateInputStores = deps.inputAttemptStore === undefined && deps.runStore === undefined
-  const durableWrkfStores = stateStore !== undefined ? createDurableWrkfStores(stateStore) : undefined
+  const durableWrkfStores =
+    stateStore !== undefined ? createDurableWrkfStores(stateStore) : undefined
 
   return {
     ...deps,

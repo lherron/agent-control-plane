@@ -49,9 +49,15 @@ function assertBindingScope(binding: InterfaceBinding): void {
   }
 }
 
+function normalizeGatewayType(binding: InterfaceBinding): string {
+  const value = (binding as InterfaceBinding & { gatewayType?: string | undefined }).gatewayType
+  return value !== undefined && value.trim().length > 0 ? value.trim() : 'unknown'
+}
+
 type InterfaceBindingRow = {
   binding_id: string
   gateway_id: string
+  gateway_type: string
   conversation_ref: string
   thread_ref: string | null
   lane_ref: string
@@ -77,6 +83,7 @@ function mapInterfaceBindingRow(row: InterfaceBindingRow): InterfaceBinding {
   return {
     bindingId: row.binding_id,
     gatewayId: row.gateway_id,
+    gatewayType: row.gateway_type,
     conversationRef: row.conversation_ref,
     threadRef: toOptionalString(row.thread_ref),
     scopeRef,
@@ -124,6 +131,7 @@ export class BindingRepo {
         `INSERT INTO interface_bindings (
            binding_id,
            gateway_id,
+           gateway_type,
            conversation_ref,
            thread_ref,
            lane_ref,
@@ -134,11 +142,12 @@ export class BindingRepo {
            status,
            created_at,
            updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         binding.bindingId,
         binding.gatewayId,
+        normalizeGatewayType(binding),
         binding.conversationRef,
         binding.threadRef ?? null,
         binding.laneRef,
@@ -166,7 +175,8 @@ export class BindingRepo {
       this.context.sqlite
         .prepare(
           `UPDATE interface_bindings
-              SET lane_ref = ?,
+              SET gateway_type = ?,
+                  lane_ref = ?,
                   project_id = ?,
                   agent_id = ?,
                   task_id = ?,
@@ -176,6 +186,7 @@ export class BindingRepo {
             WHERE binding_id = ?`
         )
         .run(
+          normalizeGatewayType(binding),
           binding.laneRef,
           structured.projectId,
           structured.agentId,
@@ -199,6 +210,11 @@ export class BindingRepo {
       params.push(filters.gatewayId)
     }
 
+    if (filters.gatewayType !== undefined) {
+      where.push('gateway_type = ?')
+      params.push(filters.gatewayType)
+    }
+
     if (filters.conversationRef !== undefined) {
       where.push('conversation_ref = ?')
       params.push(filters.conversationRef)
@@ -214,10 +230,26 @@ export class BindingRepo {
       params.push(filters.projectId)
     }
 
+    if (filters.agentId !== undefined) {
+      where.push('agent_id = ?')
+      params.push(filters.agentId)
+    }
+
+    if (filters.laneRef !== undefined) {
+      where.push('lane_ref = ?')
+      params.push(filters.laneRef)
+    }
+
+    if (filters.status !== undefined) {
+      where.push('status = ?')
+      params.push(filters.status)
+    }
+
     const rows = this.context.sqlite
       .prepare(
         `SELECT binding_id,
                 gateway_id,
+                gateway_type,
                 conversation_ref,
                 thread_ref,
                 lane_ref,
@@ -242,6 +274,7 @@ export class BindingRepo {
       .prepare(
         `SELECT binding_id,
                 gateway_id,
+                gateway_type,
                 conversation_ref,
                 thread_ref,
                 lane_ref,
@@ -274,6 +307,47 @@ export class BindingRepo {
     })
   }
 
+  listPrimaryCandidates(input: {
+    gatewayType: string
+    agentId: string
+    projectId: string
+    laneRef: string
+  }): InterfaceBinding[] {
+    const rows = this.context.sqlite
+      .prepare(
+        `SELECT binding_id,
+                gateway_id,
+                gateway_type,
+                conversation_ref,
+                thread_ref,
+                lane_ref,
+                project_id,
+                agent_id,
+                task_id,
+                role_name,
+                status,
+                created_at,
+                updated_at
+           FROM interface_bindings
+          WHERE gateway_type = ?
+            AND status = 'active'
+            AND agent_id = ?
+            AND project_id = ?
+            AND lane_ref = ?
+            AND task_id IS NULL
+            AND role_name IS NULL
+          ORDER BY created_at ASC, binding_id ASC`
+      )
+      .all(
+        input.gatewayType,
+        input.agentId,
+        input.projectId,
+        input.laneRef
+      ) as InterfaceBindingRow[]
+
+    return rows.map(mapInterfaceBindingRow)
+  }
+
   private loadByLookup(lookup: InterfaceBindingLookup): InterfaceBinding | undefined {
     const row =
       lookup.threadRef === undefined
@@ -281,6 +355,7 @@ export class BindingRepo {
             .prepare(
               `SELECT binding_id,
                     gateway_id,
+                    gateway_type,
                     conversation_ref,
                     thread_ref,
                     lane_ref,
@@ -302,6 +377,7 @@ export class BindingRepo {
             .prepare(
               `SELECT binding_id,
                     gateway_id,
+                    gateway_type,
                     conversation_ref,
                     thread_ref,
                     lane_ref,
@@ -332,6 +408,7 @@ export class BindingRepo {
             .prepare(
               `SELECT binding_id,
                     gateway_id,
+                    gateway_type,
                     conversation_ref,
                     thread_ref,
                     lane_ref,
@@ -354,6 +431,7 @@ export class BindingRepo {
             .prepare(
               `SELECT binding_id,
                     gateway_id,
+                    gateway_type,
                     conversation_ref,
                     thread_ref,
                     lane_ref,

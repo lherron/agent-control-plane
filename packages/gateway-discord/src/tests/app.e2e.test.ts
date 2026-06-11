@@ -54,6 +54,7 @@ class FakeSentMessage {
 class FakeWebhook {
   readonly sent: Array<FakeWebhookSendPayload & { message: FakeSentMessage }> = []
   readonly edits: Array<{ messageId: string; payload: FakeWebhookSendPayload }> = []
+  readonly avatarEdits: Array<{ avatar?: Buffer | string | null | undefined }> = []
   private nextId = 1
 
   constructor(
@@ -77,6 +78,11 @@ class FakeWebhook {
     const payload = typeof input === 'string' ? { content: input } : input
     this.edits.push({ messageId, payload })
     return new FakeSentMessage(messageId, this.channelId, payload.content)
+  }
+
+  async edit(input: { avatar?: Buffer | string | null | undefined }): Promise<this> {
+    this.avatarEdits.push(input)
+    return this
   }
 }
 
@@ -1154,6 +1160,62 @@ describe('GatewayDiscordApp local e2e', () => {
     })
   })
 
+  test('uses the agent profile avatar for fresh webhook deliveries', async () => {
+    const channel = new FakeChannel('chan_profile_avatar')
+    const client = new FakeClient()
+    client.addChannel(channel)
+
+    const app = new GatewayDiscordApp({
+      acpBaseUrl: 'http://acp.test',
+      gatewayId: 'discord_prod',
+      client: client as never,
+      fetchImpl: createFetch(async (request) => {
+        const url = new URL(request.url)
+        if (url.pathname === '/v1/admin/agents/cody') {
+          return Response.json({
+            agent: {
+              agentId: 'cody',
+              profile: { avatarUrl: '/v1/assets/agents/cody/pfp.png' },
+            },
+          })
+        }
+        if (url.pathname === '/v1/assets/agents/cody/pfp.png') {
+          return new Response(Buffer.from('fake-png-bytes'), {
+            headers: { 'content-type': 'image/png' },
+          })
+        }
+
+        return Response.json({ bindings: [] })
+      }),
+    })
+
+    const delivery: DeliveryRequest = {
+      deliveryRequestId: 'dr_profile_avatar',
+      gatewayId: 'discord_prod',
+      bindingId: 'ifb_profile_avatar',
+      sessionRef: {
+        scopeRef: 'agent:cody:project:agent-spaces',
+        laneRef: 'main',
+      },
+      conversationRef: `channel:${channel.id}`,
+      body: { kind: 'text/markdown', text: 'Profile avatar delivery.' },
+      status: 'queued',
+      createdAt: '2026-06-10T15:00:00.000Z',
+    }
+
+    await (
+      app as unknown as { deliverToDiscord(delivery: DeliveryRequest): Promise<void> }
+    ).deliverToDiscord(delivery)
+
+    const webhook = [...channel.webhooks.values()].find((w) => w.name === 'agent-pulpit')
+    expect(webhook).toBeDefined()
+    expect(webhook?.sent).toHaveLength(1)
+    expect(webhook?.sent[0]?.username).toBe('cody')
+    expect(webhook?.sent[0]?.avatar_url ?? webhook?.sent[0]?.avatarURL).toBeUndefined()
+    expect(webhook?.avatarEdits).toHaveLength(1)
+    expect(webhook?.avatarEdits[0]?.avatar).toEqual(Buffer.from('fake-png-bytes'))
+  })
+
   test('attaches render-frame image and media files when editing a placeholder', async () => {
     const priorFetch = globalThis.fetch
     globalThis.fetch = (async () =>
@@ -1287,7 +1349,7 @@ describe('GatewayDiscordApp local e2e', () => {
     }
   })
 
-  test('creates placeholders through the agent webhook with editable webhook metadata', async () => {
+  test('creates placeholders through the agent webhook with the profile avatar', async () => {
     const channel = new FakeChannel('chan_placeholder_identity')
     const client = new FakeClient()
     client.addChannel(channel)
@@ -1296,7 +1358,24 @@ describe('GatewayDiscordApp local e2e', () => {
       acpBaseUrl: 'http://acp.test',
       gatewayId: 'discord_prod',
       client: client as never,
-      fetchImpl: createFetch(async () => Response.json({ bindings: [] })),
+      fetchImpl: createFetch(async (request) => {
+        const url = new URL(request.url)
+        if (url.pathname === '/v1/admin/agents/cody') {
+          return Response.json({
+            agent: {
+              agentId: 'cody',
+              profile: { avatarUrl: '/v1/assets/agents/cody/pfp.png' },
+            },
+          })
+        }
+        if (url.pathname === '/v1/assets/agents/cody/pfp.png') {
+          return new Response(Buffer.from('fake-png-bytes'), {
+            headers: { 'content-type': 'image/png' },
+          })
+        }
+
+        return Response.json({ bindings: [] })
+      }),
     })
 
     const placeholder = await (
@@ -1311,7 +1390,12 @@ describe('GatewayDiscordApp local e2e', () => {
               id: string
               channelId: string
               webhookId: string
-              identity: { agentId: string; subtext: string; avatarUrl: string }
+              identity: {
+                agentId: string
+                subtext: string
+                avatarUrl?: string | undefined
+                webhookAvatar?: { key: string; data: Buffer } | undefined
+              }
             })
           | undefined
         >
@@ -1333,9 +1417,9 @@ describe('GatewayDiscordApp local e2e', () => {
     expect(webhook).toBeDefined()
     expect(webhook?.sent).toHaveLength(1)
     expect(webhook?.sent[0]?.username).toBe('cody')
-    expect(webhook?.sent[0]?.avatar_url ?? webhook?.sent[0]?.avatarURL).toBe(
-      'https://api.dicebear.com/7.x/bottts/png?seed=cody'
-    )
+    expect(webhook?.sent[0]?.avatar_url ?? webhook?.sent[0]?.avatarURL).toBeUndefined()
+    expect(webhook?.avatarEdits).toHaveLength(1)
+    expect(webhook?.avatarEdits[0]?.avatar).toEqual(Buffer.from('fake-png-bytes'))
     expect(webhook?.sent[0]?.content).toBe(
       '-# cody@agent-spaces:T-04321~main\n⏳ **Processing:** Please do the work'
     )
@@ -1347,7 +1431,10 @@ describe('GatewayDiscordApp local e2e', () => {
       identity: {
         agentId: 'cody',
         subtext: 'cody@agent-spaces:T-04321~main',
-        avatarUrl: 'https://api.dicebear.com/7.x/bottts/png?seed=cody',
+        webhookAvatar: {
+          key: 'cody:/v1/assets/agents/cody/pfp.png',
+          data: Buffer.from('fake-png-bytes'),
+        },
       },
     })
   })

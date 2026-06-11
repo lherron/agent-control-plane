@@ -56,7 +56,9 @@ interface RawEffect {
 }
 
 function makeLeaseConflictError(): Error & { code: string } {
-  const err = new Error('WRKF_LEASE_CONFLICT: effect lease already held') as Error & { code: string }
+  const err = new Error('WRKF_LEASE_CONFLICT: effect lease already held') as Error & {
+    code: string
+  }
   err.code = 'WRKF_LEASE_CONFLICT'
   return err
 }

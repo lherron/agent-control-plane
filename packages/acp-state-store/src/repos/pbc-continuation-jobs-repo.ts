@@ -133,11 +133,9 @@ export class PbcContinuationJobsRepo {
       const job = this.require(input.jobId)
       const now = new Date().toISOString()
 
-      const leaseExpired =
-        job.leaseExpiresAt !== undefined && job.leaseExpiresAt <= now
+      const leaseExpired = job.leaseExpiresAt !== undefined && job.leaseExpiresAt <= now
 
-      const canAcquire =
-        job.status === 'queued' || (job.status === 'running' && leaseExpired)
+      const canAcquire = job.status === 'queued' || (job.status === 'running' && leaseExpired)
 
       if (!canAcquire) {
         return { job, acquired: false }
@@ -223,9 +221,7 @@ export class PbcContinuationJobsRepo {
     return this.context.sqlite.transaction(() => {
       const job = this.require(input.jobId)
       if (TERMINAL_STATUSES.has(job.status)) {
-        throw new Error(
-          `cannot transition job ${input.jobId} from terminal status ${job.status}`
-        )
+        throw new Error(`cannot transition job ${input.jobId} from terminal status ${job.status}`)
       }
 
       const now = new Date().toISOString()

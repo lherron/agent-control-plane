@@ -5,7 +5,6 @@ import {
   isRecord,
   parseJsonBody,
   readOptionalArrayField,
-  readOptionalRecordField,
   readOptionalTrimmedStringField,
   requireNumberField,
   requireRecord,

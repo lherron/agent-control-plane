@@ -92,8 +92,7 @@ function makeFakeWrkfPort(
     obligation: {
       list: notCalled('obligation.list'),
       show: notCalled('obligation.show'),
-      satisfy:
-        overrides.obligationSatisfy ?? (async (_params) => CANNED_SATISFY_RESULT),
+      satisfy: overrides.obligationSatisfy ?? (async (_params) => CANNED_SATISFY_RESULT),
       waive: notCalled('obligation.waive'),
       cancel: notCalled('obligation.cancel'),
     },
@@ -432,7 +431,10 @@ describe('P1-D3: POST satisfy — error handling', () => {
       {
         wrkf: makeFakeWrkfPort({
           obligationSatisfy: async (_params) => {
-            throw new WrkfError('WRKF_VALIDATION', 'obligation cannot be satisfied in current state')
+            throw new WrkfError(
+              'WRKF_VALIDATION',
+              'obligation cannot be satisfied in current state'
+            )
           },
         }),
       }

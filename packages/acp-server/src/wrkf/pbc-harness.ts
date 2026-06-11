@@ -6,8 +6,9 @@
  * the PBC pack and preserves the historical request/result surface.
  */
 
-import { pbcManifest } from './packs/pbc/manifest.js'
 import { makePbcEvidencePolicy } from './packs/pbc/evidence-policy.js'
+import { pbcManifest } from './packs/pbc/manifest.js'
+import type { ParticipantOutput } from './pbc-evidence.js'
 import {
   type TransitionPolicy,
   type WorkflowApproveTransitionRequest,
@@ -19,7 +20,6 @@ import {
   runWorkflowUntilBlocked,
 } from './runtime/workflow-harness-core.js'
 import type { ChooseTransitionFn, WorkflowPack } from './runtime/workflow-pack.js'
-import { type ParticipantOutput } from './pbc-evidence.js'
 
 const WORKFLOW_REF = 'pbc-progressive-refinement@9'
 
@@ -79,7 +79,9 @@ export async function runStep(
     actor: input.actor,
     idempotencyKey: input.idempotencyKey,
     ...(input.launchRuntime !== undefined ? { launchRuntime: input.launchRuntime } : {}),
-    ...(input.participantOutput !== undefined ? { participantOutput: input.participantOutput } : {}),
+    ...(input.participantOutput !== undefined
+      ? { participantOutput: input.participantOutput }
+      : {}),
     ...(input.transitionPolicy !== undefined ? { transitionPolicy: input.transitionPolicy } : {}),
     ...(input.scopeRef !== undefined ? { scopeRef: input.scopeRef } : {}),
     ...(input.laneRef !== undefined ? { laneRef: input.laneRef } : {}),
@@ -144,7 +146,9 @@ export async function runUntilBlocked(
         task: input.task,
         actor: input.actor,
         ...(input.pressureActor !== undefined ? { reviewerActor: input.pressureActor } : {}),
-        ...(input.productOwnerActor !== undefined ? { alternateActor: input.productOwnerActor } : {}),
+        ...(input.productOwnerActor !== undefined
+          ? { alternateActor: input.productOwnerActor }
+          : {}),
         idempotencyKey: input.idempotencyKey,
         ...(input.maxTurns !== undefined ? { maxTurns: input.maxTurns } : {}),
         ...(input.allowDisposition !== undefined
@@ -165,8 +169,9 @@ function asPbcResult(result: WorkflowHarnessResult): PbcHarnessResult {
 function chooseLegacySingleSafeTransition(
   input: Parameters<ChooseTransitionFn>[0]
 ): ReturnType<ChooseTransitionFn> {
-  const candidates = (input.candidateTransitions ?? [])
-    .filter((transition) => input.allowExplicitOnly === true || !transition.startsWith('dispose_'))
+  const candidates = (input.candidateTransitions ?? []).filter(
+    (transition) => input.allowExplicitOnly === true || !transition.startsWith('dispose_')
+  )
 
   return candidates.length === 1 ? candidates[0] : undefined
 }

@@ -129,7 +129,10 @@ export function latestOfKind<T extends PbcEvidenceSnapshot>(
   return undefined
 }
 
-function stringField(record: Record<string, unknown> | undefined, field: string): string | undefined {
+function stringField(
+  record: Record<string, unknown> | undefined,
+  field: string
+): string | undefined {
   const value = record?.[field]
   return typeof value === 'string' ? value : undefined
 }

@@ -42,16 +42,6 @@ const TASK_ID = 'T-P1D1-001'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-class WrkfError extends Error {
-  constructor(
-    public readonly code: string,
-    message: string
-  ) {
-    super(message)
-    this.name = 'WrkfError'
-  }
-}
-
 function makeFakeWrkfPort(
   overrides: {
     evidenceAdd?: ((params: Record<string, unknown>) => Promise<unknown>) | undefined
@@ -205,7 +195,6 @@ describe('P1-D1: POST /v1/tasks/:taskId/evidence — ref is optional', () => {
       }
     )
   })
-
 })
 
 // ╔══════════════════════════════════════════════════════════════════════════════╗
@@ -282,7 +271,10 @@ describe('P1-D1: POST /v1/tasks/:taskId/evidence — data forwarded to wrkf', ()
 
   test('data array value is forwarded to evidence.add', async () => {
     let capturedArgs: Record<string, unknown> | null = null
-    const DATA_ARRAY = [{ step: 1, result: 'ok' }, { step: 2, result: 'ok' }]
+    const DATA_ARRAY = [
+      { step: 1, result: 'ok' },
+      { step: 2, result: 'ok' },
+    ]
 
     await withWiredServer(
       async (fixture) => {

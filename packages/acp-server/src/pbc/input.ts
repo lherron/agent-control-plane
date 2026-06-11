@@ -13,11 +13,16 @@
 import type { Actor } from 'acp-core'
 
 import { forbidden, json, unprocessable } from '../http.js'
-import { isRecord, parseJsonBody, requireRecord, requireTrimmedStringField } from '../parsers/body.js'
+import {
+  isRecord,
+  parseJsonBody,
+  requireRecord,
+  requireTrimmedStringField,
+} from '../parsers/body.js'
 import type { RouteHandler } from '../routing/route-context.js'
 import { mapPbcHumanInput } from '../wrkf/packs/pbc/output-parser.js'
 import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
-import { projectObligationRecord, type NextActionResponse } from '../wrkf/projections.js'
+import { type NextActionResponse, projectObligationRecord } from '../wrkf/projections.js'
 import { applyFreshTransition } from '../wrkf/transition-apply.js'
 
 import { buildPbcTaskProjection, deriveScreen } from './projection.js'
@@ -74,7 +79,9 @@ async function findObligationId(
   const records = Array.isArray(listed)
     ? listed.map((entry, index) => projectObligationRecord(entry, `obligation[${index}]`))
     : next.openObligations
-  const match = records.find((obligation) => obligation.kind === kind && obligation.status === 'open')
+  const match = records.find(
+    (obligation) => obligation.kind === kind && obligation.status === 'open'
+  )
   return match?.id ?? next.openObligations.find((o) => o.kind === kind)?.id
 }
 

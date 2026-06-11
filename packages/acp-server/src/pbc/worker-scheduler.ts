@@ -14,9 +14,7 @@ export type PbcWorkerSchedulerOptions = {
   leaseMs?: number | undefined
 }
 
-export function createPbcWorkerScheduler(
-  options: PbcWorkerSchedulerOptions
-): PbcWorkerScheduler {
+export function createPbcWorkerScheduler(options: PbcWorkerSchedulerOptions): PbcWorkerScheduler {
   const leaseOwner = options.leaseOwner ?? DEFAULT_LEASE_OWNER
   const leaseMs = options.leaseMs ?? DEFAULT_LEASE_MS
 

@@ -15,7 +15,7 @@ import { openCoordinationStore } from 'coordination-substrate'
 import { resolveControlSocketPath, resolveDatabasePath } from 'hrc-core'
 import { HrcClient } from 'hrc-sdk'
 import { buildRuntimeBundleRef, getAgentsRoot, resolveAgentPlacementPaths } from 'spaces-config'
-import { type WrkqStore, WrkqSchemaMissingError, openWrkqStore } from 'wrkq-lib'
+import { WrkqSchemaMissingError, type WrkqStore, openWrkqStore } from 'wrkq-lib'
 
 import { createAccessLogger } from './access-log.js'
 import { createAcpServer } from './create-acp-server.js'
@@ -412,7 +412,12 @@ function createPbcWorkerRunner(input: {
   options: AcpServerCliOptions
 }): ((job: PbcContinuationJob) => Promise<void>) | undefined {
   const wrkf = input.deps.wrkf
-  if (wrkf === undefined || input.deps.launchRoleScopedRun === undefined) {
+  const stateStore = input.deps.stateStore
+  if (
+    wrkf === undefined ||
+    input.deps.launchRoleScopedRun === undefined ||
+    stateStore === undefined
+  ) {
     return undefined
   }
 
@@ -482,8 +487,8 @@ function createPbcWorkerRunner(input: {
         return readRunStatus(resolveDatabasePath(), acpRun.hrcRunId)?.status
       },
       jobs: {
-        renewLease: (params) => input.deps.stateStore!.pbcContinuationJobs.renewLease(params),
-        transition: (params) => input.deps.stateStore!.pbcContinuationJobs.transition(params),
+        renewLease: (params) => stateStore.pbcContinuationJobs.renewLease(params),
+        transition: (params) => stateStore.pbcContinuationJobs.transition(params),
       },
     }
 
@@ -525,7 +530,13 @@ async function launchPbcWorkerAcpRun(input: {
     id: agentIdForRole(input.wrkqStore, input.options, input.taskId, input.role),
   }
   const sessionRef = normalizeSessionRef({
-    scopeRef: scopeRefForWorkerRole(input.wrkqStore, input.options, input.taskId, input.role, actor),
+    scopeRef: scopeRefForWorkerRole(
+      input.wrkqStore,
+      input.options,
+      input.taskId,
+      input.role,
+      actor
+    ),
     laneRef: 'main',
   })
   const { run: acpRun, created } = input.deps.runStore.createOrGetRun({
@@ -638,8 +649,7 @@ async function readPbcWorkerProjection(
       readString(inspectedRecord, 'templateId') ??
       job.workflowRef,
     revision:
-      readNumber(instance, 'revision') ??
-      (Number.isFinite(parsedRevision) ? parsedRevision : 0),
+      readNumber(instance, 'revision') ?? (Number.isFinite(parsedRevision) ? parsedRevision : 0),
   }
 }
 
@@ -702,15 +712,23 @@ function recordId(record: unknown): string {
 }
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : undefined
+  return typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>)
+    : undefined
 }
 
-function readString(record: Record<string, unknown> | undefined, field: string): string | undefined {
+function readString(
+  record: Record<string, unknown> | undefined,
+  field: string
+): string | undefined {
   const value = record?.[field]
   return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
-function readNumber(record: Record<string, unknown> | undefined, field: string): number | undefined {
+function readNumber(
+  record: Record<string, unknown> | undefined,
+  field: string
+): number | undefined {
   const value = record?.[field]
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }

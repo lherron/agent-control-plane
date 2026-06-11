@@ -31,12 +31,12 @@
  *     obligation.satisfy (wrkf does NOT dedup evidence).
  */
 
+import { type ParticipantOutput, ingestEvidenceAndSatisfyObligations } from './pbc-evidence.js'
 import {
   type CaptureMode,
   type CapturePort,
   captureAndIngest,
 } from './runtime/participant-capture.js'
-import { type ParticipantOutput, ingestEvidenceAndSatisfyObligations } from './pbc-evidence.js'
 
 // ---------------------------------------------------------------------------
 // Re-exported generic capture contract (kept on the historical path).

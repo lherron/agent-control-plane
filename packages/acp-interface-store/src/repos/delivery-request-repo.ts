@@ -5,6 +5,8 @@ import { randomUUID } from 'node:crypto'
 import type {
   DeliveryFailureInput,
   DeliveryRequest,
+  EnqueueDeliveryRequestIdempotencyInput,
+  EnqueueDeliveryRequestIdempotencyResult,
   EnqueueDeliveryRequestInput,
   ListFailedDeliveryRequestsInput,
   RequeueDeliveryRequestResult,
@@ -275,6 +277,70 @@ export class DeliveryRequestRepo {
       )
 
     return this.require(input.deliveryRequestId)
+  }
+
+  enqueueIdempotent(
+    input: EnqueueDeliveryRequestIdempotencyInput
+  ): EnqueueDeliveryRequestIdempotencyResult {
+    return this.context.sqlite.transaction(() => {
+      const existing = this.context.sqlite
+        .prepare(
+          `SELECT fingerprint_hash,
+                  delivery_request_id
+             FROM delivery_request_idempotency
+            WHERE route = ?
+              AND idempotency_key = ?`
+        )
+        .get(input.route, input.idempotencyKey) as
+        | { fingerprint_hash: string; delivery_request_id: string }
+        | undefined
+
+      if (existing !== undefined) {
+        if (existing.fingerprint_hash !== input.fingerprintHash) {
+          return {
+            ok: false,
+            code: 'idempotency_conflict',
+            existingDeliveryRequestId: existing.delivery_request_id,
+          } satisfies EnqueueDeliveryRequestIdempotencyResult
+        }
+
+        const delivery = this.get(existing.delivery_request_id)
+        if (delivery === undefined) {
+          return {
+            ok: false,
+            code: 'delivery_not_found',
+            existingDeliveryRequestId: existing.delivery_request_id,
+          } satisfies EnqueueDeliveryRequestIdempotencyResult
+        }
+
+        return {
+          ok: true,
+          created: false,
+          delivery,
+        } satisfies EnqueueDeliveryRequestIdempotencyResult
+      }
+
+      const delivery = this.enqueue(input)
+      this.context.sqlite
+        .prepare(
+          `INSERT INTO delivery_request_idempotency (
+             route,
+             idempotency_key,
+             fingerprint_hash,
+             delivery_request_id,
+             created_at
+           ) VALUES (?, ?, ?, ?, ?)`
+        )
+        .run(
+          input.route,
+          input.idempotencyKey,
+          input.fingerprintHash,
+          delivery.deliveryRequestId,
+          input.createdAt
+        )
+
+      return { ok: true, created: true, delivery } satisfies EnqueueDeliveryRequestIdempotencyResult
+    })()
   }
 
   listQueuedForGateway(gatewayId: string): DeliveryRequest[] {

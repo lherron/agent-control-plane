@@ -95,7 +95,9 @@ function buildApplyParams(
     ...(input.role !== undefined ? { role: input.role } : {}),
     ...(input.actor !== undefined ? { actor: input.actor } : {}),
     expectRevision: fresh.instance.revision,
-    ...(fresh.instance.contextHash !== undefined ? { contextHash: fresh.instance.contextHash } : {}),
+    ...(fresh.instance.contextHash !== undefined
+      ? { contextHash: fresh.instance.contextHash }
+      : {}),
     idempotencyKey: `${input.routeKey ?? input.task}:transition:${input.transition}:${fresh.instance.revision}`,
     ...(input.runChecks !== undefined ? { runChecks: input.runChecks } : {}),
   }

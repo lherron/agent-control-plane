@@ -19,6 +19,9 @@ export const handleListInterfaceBindings: RouteHandler = async ({ url, deps }) =
     ...(readOptionalQueryParam(url, 'gatewayId') !== undefined
       ? { gatewayId: readOptionalQueryParam(url, 'gatewayId') }
       : {}),
+    ...(readOptionalQueryParam(url, 'gatewayType') !== undefined
+      ? { gatewayType: readOptionalQueryParam(url, 'gatewayType') }
+      : {}),
     ...(readOptionalQueryParam(url, 'conversationRef') !== undefined
       ? { conversationRef: readOptionalQueryParam(url, 'conversationRef') }
       : {}),

@@ -5,9 +5,9 @@
  * Surfaces an active continuation job when one exists.
  */
 
+import type { AcpStateStore, PbcContinuationJob } from 'acp-state-store'
 import { isRecord } from '../parsers/body.js'
 import type { RouteHandler } from '../routing/route-context.js'
-import type { AcpStateStore, PbcContinuationJob } from 'acp-state-store'
 
 import { buildPbcTaskProjection } from './projection.js'
 import {
@@ -58,7 +58,8 @@ export const handlePbcGetTask: RouteHandler = async (context) => {
     const evidence = await readPbcEvidence(wrkf, taskId)
     const taskMeta = isRecord(inspected) ? inspected['task'] : undefined
     const job = findActiveJob(context.deps.stateStore, taskId)
-    const lastJob = job === undefined ? findLastFailedJob(context.deps.stateStore, taskId) : undefined
+    const lastJob =
+      job === undefined ? findLastFailedJob(context.deps.stateStore, taskId) : undefined
     return Response.json(
       buildPbcTaskProjection({ taskId, next, task: taskMeta, job, lastJob, evidence }),
       { status: 200 }

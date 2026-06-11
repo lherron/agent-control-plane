@@ -3,7 +3,7 @@ import type { InterfaceBinding } from 'acp-core'
 function renderBinding(binding: InterfaceBinding): string {
   const lines = [
     `${binding.bindingId} ${binding.status}`,
-    `  gateway: ${binding.gatewayId}`,
+    `  gateway: ${binding.gatewayId} (${binding.gatewayType ?? 'unknown'})`,
     `  conversation: ${binding.conversationRef}`,
     `  session: ${binding.sessionRef.scopeRef} (${binding.sessionRef.laneRef})`,
   ]

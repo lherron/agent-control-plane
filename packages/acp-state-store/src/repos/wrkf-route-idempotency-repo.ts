@@ -48,7 +48,9 @@ function mapRow(row: WrkfRouteIdempotencyRow): WrkfRouteIdempotencyRecord {
     idempotencyKey: row.idempotency_key,
     bodyHash: row.body_hash,
     status: row.status,
-    ...(row.response_json !== null ? { responseJson: JSON.parse(row.response_json) as unknown } : {}),
+    ...(row.response_json !== null
+      ? { responseJson: JSON.parse(row.response_json) as unknown }
+      : {}),
     ...(row.error_json !== null ? { errorJson: JSON.parse(row.error_json) as unknown } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,

@@ -32,8 +32,8 @@
 import { describe, expect, test } from 'bun:test'
 
 import {
-  type EvidenceWriterPort,
   type EvidenceWritePolicy,
+  type EvidenceWriterPort,
   writeEvidenceAndSatisfyObligations,
 } from './evidence-writer.js'
 
@@ -123,88 +123,82 @@ describe('satisfyObligations by-kind: no matching open obligation → skip direc
    * is evidence-only — no obligation of that kind is ever open — so the lookup
    * finds nothing and currently throws, losing the ingest.
    */
-  test(
-    'evidence is written and directive is skipped — no throw, no satisfy call [RED: currently throws]',
-    async () => {
-      const port = makePort({
-        obligations: [], // no open obligation of any kind
-      })
-      const policy: EvidenceWritePolicy = { allowObligationKindLookup: true }
+  test('evidence is written and directive is skipped — no throw, no satisfy call [RED: currently throws]', async () => {
+    const port = makePort({
+      obligations: [], // no open obligation of any kind
+    })
+    const policy: EvidenceWritePolicy = { allowObligationKindLookup: true }
 
-      const result = await writeEvidenceAndSatisfyObligations(
-        port,
-        {
-          task: 'task-behavior-note',
-          role: 'larry',
-          actor: 'larry',
-          participantOutput: {
-            evidence: [{ kind: 'behavior_note', summary: 'agent followed policy constraints' }],
-            satisfyObligations: [
-              // spurious: behavior_note is evidence-only, never an obligation
-              { obligationKind: 'behavior_note', evidenceIndex: 0 },
-            ],
-          },
+    const result = await writeEvidenceAndSatisfyObligations(
+      port,
+      {
+        task: 'task-behavior-note',
+        role: 'larry',
+        actor: 'larry',
+        participantOutput: {
+          evidence: [{ kind: 'behavior_note', summary: 'agent followed policy constraints' }],
+          satisfyObligations: [
+            // spurious: behavior_note is evidence-only, never an obligation
+            { obligationKind: 'behavior_note', evidenceIndex: 0 },
+          ],
         },
-        policy
-      )
+      },
+      policy
+    )
 
-      // Evidence MUST be written
-      const addCalls = port._calls.filter((c) => c.method === 'evidence.add')
-      expect(addCalls).toHaveLength(1)
-      expect(result.evidenceAdded).toHaveLength(1)
-      expect(result.evidenceAdded[0]!.kind).toBe('behavior_note')
+    // Evidence MUST be written
+    const addCalls = port._calls.filter((c) => c.method === 'evidence.add')
+    expect(addCalls).toHaveLength(1)
+    expect(result.evidenceAdded).toHaveLength(1)
+    expect(result.evidenceAdded[0]!.kind).toBe('behavior_note')
 
-      // Directive MUST be skipped — no satisfy call
-      const satisfyCalls = port._calls.filter((c) => c.method === 'obligation.satisfy')
-      expect(satisfyCalls).toHaveLength(0)
-      expect(result.obligationsSatisfied).toHaveLength(0)
-    }
-  )
+    // Directive MUST be skipped — no satisfy call
+    const satisfyCalls = port._calls.filter((c) => c.method === 'obligation.satisfy')
+    expect(satisfyCalls).toHaveLength(0)
+    expect(result.obligationsSatisfied).toHaveLength(0)
+  })
 
   /**
    * Variant: multiple evidence items, mixed directives — one by-kind with no
    * match (behavior_note → skip), ensuring the non-matching directive does not
    * block evidence writes for the OTHER evidence items either.
    */
-  test(
-    'multiple evidence items: no-match by-kind directive skipped, all evidence still written [RED: currently throws]',
-    async () => {
-      const port = makePort({
-        obligations: [], // still no open obligations
-      })
-      const policy: EvidenceWritePolicy = { allowObligationKindLookup: true }
+  test('multiple evidence items: no-match by-kind directive skipped, all evidence still written [RED: currently throws]', async () => {
+    const port = makePort({
+      obligations: [], // still no open obligations
+    })
+    const policy: EvidenceWritePolicy = { allowObligationKindLookup: true }
 
-      const result = await writeEvidenceAndSatisfyObligations(
-        port,
-        {
-          task: 'task-multi-evidence',
-          role: 'larry',
-          actor: 'larry',
-          participantOutput: {
-            evidence: [
-              { kind: 'behavior_note', summary: 'first note' },
-              { kind: 'pre_interview_analysis', summary: 'analysis text' },
-            ],
-            satisfyObligations: [
-              { obligationKind: 'behavior_note', evidenceIndex: 0 },
-              { obligationKind: 'pre_interview_analysis', evidenceIndex: 1 },
-            ],
-          },
+    const result = await writeEvidenceAndSatisfyObligations(
+      port,
+      {
+        task: 'task-multi-evidence',
+        role: 'larry',
+        actor: 'larry',
+        participantOutput: {
+          evidence: [
+            { kind: 'behavior_note', summary: 'first note' },
+            { kind: 'pre_interview_analysis', summary: 'analysis text' },
+          ],
+          satisfyObligations: [
+            { obligationKind: 'behavior_note', evidenceIndex: 0 },
+            { obligationKind: 'pre_interview_analysis', evidenceIndex: 1 },
+          ],
         },
-        policy
-      )
+      },
+      policy
+    )
 
-      // Both evidence items MUST be written
-      const addCalls = port._calls.filter((c) => c.method === 'evidence.add')
-      expect(addCalls).toHaveLength(2)
-      expect(result.evidenceAdded).toHaveLength(2)
+    // Both evidence items MUST be written
+    const addCalls = port._calls.filter((c) => c.method === 'evidence.add')
+    expect(addCalls).toHaveLength(2)
+    expect(result.evidenceAdded).toHaveLength(2)
 
-      // Both directives MUST be skipped
-      const satisfyCalls = port._calls.filter((c) => c.method === 'obligation.satisfy')
-      expect(satisfyCalls).toHaveLength(0)
-      expect(result.obligationsSatisfied).toHaveLength(0)
-    }
-  )
+    // Both directives MUST be skipped
+    const satisfyCalls = port._calls.filter((c) => c.method === 'obligation.satisfy')
+    expect(satisfyCalls).toHaveLength(0)
+    expect(result.obligationsSatisfied).toHaveLength(0)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -219,50 +213,47 @@ describe('satisfyObligations by-kind: matching open obligation → satisfied (T-
    * a satisfyObligations directive by kind. An open clarification_response
    * obligation exists → it must be satisfied.
    */
-  test(
-    'open obligation found by kind is satisfied and evidence is written [GREEN: must stay green]',
-    async () => {
-      const port = makePort({
-        obligations: [
-          { id: 'obl-clarification-001', kind: 'clarification_response', status: 'open' },
-        ],
-      })
-      const policy: EvidenceWritePolicy = { allowObligationKindLookup: true }
+  test('open obligation found by kind is satisfied and evidence is written [GREEN: must stay green]', async () => {
+    const port = makePort({
+      obligations: [
+        { id: 'obl-clarification-001', kind: 'clarification_response', status: 'open' },
+      ],
+    })
+    const policy: EvidenceWritePolicy = { allowObligationKindLookup: true }
 
-      const result = await writeEvidenceAndSatisfyObligations(
-        port,
-        {
-          task: 'task-clarification',
-          role: 'human',
-          actor: 'user-1',
-          participantOutput: {
-            evidence: [
-              {
-                kind: 'clarification_response',
-                summary: 'here is my clarification',
-                facts: { clarification_needed: false },
-              },
-            ],
-            satisfyObligations: [{ obligationKind: 'clarification_response', evidenceIndex: 0 }],
-          },
+    const result = await writeEvidenceAndSatisfyObligations(
+      port,
+      {
+        task: 'task-clarification',
+        role: 'human',
+        actor: 'user-1',
+        participantOutput: {
+          evidence: [
+            {
+              kind: 'clarification_response',
+              summary: 'here is my clarification',
+              facts: { clarification_needed: false },
+            },
+          ],
+          satisfyObligations: [{ obligationKind: 'clarification_response', evidenceIndex: 0 }],
         },
-        policy
-      )
+      },
+      policy
+    )
 
-      // Evidence written
-      const addCalls = port._calls.filter((c) => c.method === 'evidence.add')
-      expect(addCalls).toHaveLength(1)
-      expect(result.evidenceAdded).toHaveLength(1)
+    // Evidence written
+    const addCalls = port._calls.filter((c) => c.method === 'evidence.add')
+    expect(addCalls).toHaveLength(1)
+    expect(result.evidenceAdded).toHaveLength(1)
 
-      // Obligation satisfied with the matched id
-      const satisfyCalls = port._calls.filter((c) => c.method === 'obligation.satisfy')
-      expect(satisfyCalls).toHaveLength(1)
-      const satisfyParams = satisfyCalls[0]!.params as { id: string; task: string }
-      expect(satisfyParams.id).toBe('obl-clarification-001')
-      expect(result.obligationsSatisfied).toHaveLength(1)
-      expect(result.obligationsSatisfied[0]!.id).toBe('obl-clarification-001')
-    }
-  )
+    // Obligation satisfied with the matched id
+    const satisfyCalls = port._calls.filter((c) => c.method === 'obligation.satisfy')
+    expect(satisfyCalls).toHaveLength(1)
+    const satisfyParams = satisfyCalls[0]!.params as { id: string; task: string }
+    expect(satisfyParams.id).toBe('obl-clarification-001')
+    expect(result.obligationsSatisfied).toHaveLength(1)
+    expect(result.obligationsSatisfied[0]!.id).toBe('obl-clarification-001')
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -278,38 +269,35 @@ describe('satisfyObligations with explicit obligationId that does not exist (T-0
    * no longer exists (race, stale client) gets an error — this is intentional
    * to surface bad explicit ids rather than silently swallow them.
    */
-  test(
-    'explicit bad obligationId propagates the error — strict path unchanged [GREEN: must stay green]',
-    async () => {
-      const port = makePort({
-        obligations: [], // no obligations at all → satisfy will throw for any id
-      })
-      const policy: EvidenceWritePolicy = { allowObligationKindLookup: true }
+  test('explicit bad obligationId propagates the error — strict path unchanged [GREEN: must stay green]', async () => {
+    const port = makePort({
+      obligations: [], // no obligations at all → satisfy will throw for any id
+    })
+    const policy: EvidenceWritePolicy = { allowObligationKindLookup: true }
 
-      await expect(
-        writeEvidenceAndSatisfyObligations(
-          port,
-          {
-            task: 'task-bad-id',
-            role: 'larry',
-            actor: 'larry',
-            participantOutput: {
-              evidence: [{ kind: 'some_evidence', summary: 'something' }],
-              satisfyObligations: [
-                // explicit id that doesn't exist → must still throw
-                { obligationId: 'nonexistent-obl-id', evidenceIndex: 0 },
-              ],
-            },
+    await expect(
+      writeEvidenceAndSatisfyObligations(
+        port,
+        {
+          task: 'task-bad-id',
+          role: 'larry',
+          actor: 'larry',
+          participantOutput: {
+            evidence: [{ kind: 'some_evidence', summary: 'something' }],
+            satisfyObligations: [
+              // explicit id that doesn't exist → must still throw
+              { obligationId: 'nonexistent-obl-id', evidenceIndex: 0 },
+            ],
           },
-          policy
-        )
-      ).rejects.toThrow()
+        },
+        policy
+      )
+    ).rejects.toThrow()
 
-      // Verify satisfy WAS attempted with the explicit id (not silently skipped)
-      const satisfyCalls = port._calls.filter((c) => c.method === 'obligation.satisfy')
-      expect(satisfyCalls).toHaveLength(1)
-      const satisfyParams = satisfyCalls[0]!.params as { id: string }
-      expect(satisfyParams.id).toBe('nonexistent-obl-id')
-    }
-  )
+    // Verify satisfy WAS attempted with the explicit id (not silently skipped)
+    const satisfyCalls = port._calls.filter((c) => c.method === 'obligation.satisfy')
+    expect(satisfyCalls).toHaveLength(1)
+    const satisfyParams = satisfyCalls[0]!.params as { id: string }
+    expect(satisfyParams.id).toBe('nonexistent-obl-id')
+  })
 })

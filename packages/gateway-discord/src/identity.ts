@@ -14,7 +14,13 @@ export type DiscordAgentIdentity = {
 export type DiscordAgentMessageIdentity = {
   agentId: string
   subtext: string
-  avatarUrl: string
+  avatarUrl?: string | undefined
+  webhookAvatar?: DiscordWebhookAvatar | undefined
+}
+
+export type DiscordWebhookAvatar = {
+  key: string
+  data: Buffer
 }
 
 export function identityFromSessionRef(sessionRef: DiscordSessionRef): DiscordAgentIdentity {

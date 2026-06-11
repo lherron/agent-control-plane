@@ -5,6 +5,7 @@ import type {
   AdminMembership,
   AdminProject,
   AgentHeartbeat,
+  DeliveryRequest,
   EffectIntent,
   EvidenceInput,
   InterfaceBinding,
@@ -78,6 +79,11 @@ export type ListInterfaceBindingsResponse = {
 
 export type UpsertInterfaceBindingResponse = {
   binding: InterfaceBinding
+}
+
+export type CreateAgentPulpitMessageResponse = {
+  idempotencyKey: string
+  delivery: DeliveryRequest
 }
 
 export type CreateAgentResponse = {
@@ -224,6 +230,7 @@ export interface AcpClient {
   listTransitions(input: { taskId: string }): Promise<never>
   listInterfaceBindings(input: {
     gatewayId?: string | undefined
+    gatewayType?: string | undefined
     conversationRef?: string | undefined
     threadRef?: string | undefined
     projectId?: string | undefined
@@ -231,6 +238,7 @@ export interface AcpClient {
   upsertInterfaceBinding(input: {
     actorAgentId?: string | undefined
     gatewayId: string
+    gatewayType?: string | undefined
     conversationRef: string
     threadRef?: string | undefined
     projectId?: string | undefined
@@ -240,6 +248,16 @@ export interface AcpClient {
     }
     status?: 'active' | 'disabled' | undefined
   }): Promise<UpsertInterfaceBindingResponse>
+  createAgentPulpitMessage(input: {
+    actorAgentId?: string | undefined
+    bindingId?: string | undefined
+    gatewayType?: string | undefined
+    agentId?: string | undefined
+    projectId?: string | undefined
+    laneRef?: string | undefined
+    text: string
+    idempotencyKey: string
+  }): Promise<CreateAgentPulpitMessageResponse>
   createAgent(input: {
     actorAgentId: string
     agentId: string
@@ -539,6 +557,9 @@ export function createHttpClient(
       if (input.gatewayId !== undefined) {
         query.set('gatewayId', input.gatewayId)
       }
+      if (input.gatewayType !== undefined) {
+        query.set('gatewayType', input.gatewayType)
+      }
       if (input.conversationRef !== undefined) {
         query.set('conversationRef', input.conversationRef)
       }
@@ -563,6 +584,7 @@ export function createHttpClient(
         ...(input.actorAgentId !== undefined ? { actorAgentId: input.actorAgentId } : {}),
         body: {
           gatewayId: input.gatewayId,
+          ...(input.gatewayType !== undefined ? { gatewayType: input.gatewayType } : {}),
           conversationRef: input.conversationRef,
           ...(input.threadRef !== undefined ? { threadRef: input.threadRef } : {}),
           ...(input.projectId !== undefined ? { projectId: input.projectId } : {}),
@@ -573,6 +595,23 @@ export function createHttpClient(
               : {}),
           },
           ...(input.status !== undefined ? { status: input.status } : {}),
+        },
+      })
+    },
+
+    createAgentPulpitMessage(input) {
+      return request<CreateAgentPulpitMessageResponse>({
+        method: 'POST',
+        path: '/v1/agent-pulpit/messages',
+        ...(input.actorAgentId !== undefined ? { actorAgentId: input.actorAgentId } : {}),
+        body: {
+          ...(input.bindingId !== undefined ? { bindingId: input.bindingId } : {}),
+          ...(input.gatewayType !== undefined ? { gatewayType: input.gatewayType } : {}),
+          ...(input.agentId !== undefined ? { agentId: input.agentId } : {}),
+          ...(input.projectId !== undefined ? { projectId: input.projectId } : {}),
+          ...(input.laneRef !== undefined ? { laneRef: input.laneRef } : {}),
+          text: input.text,
+          idempotencyKey: input.idempotencyKey,
         },
       })
     },

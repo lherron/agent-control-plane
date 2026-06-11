@@ -134,7 +134,11 @@ type PbcContinuationJobsRepo = {
     leaseOwner: string
     leaseExpiresAt: string
   }): AcquireLeaseResult
-  renewLease(input: { jobId: string; leaseOwner: string; leaseExpiresAt: string }): PbcContinuationJob
+  renewLease(input: {
+    jobId: string
+    leaseOwner: string
+    leaseExpiresAt: string
+  }): PbcContinuationJob
   releaseLease(input: { jobId: string; leaseOwner: string }): PbcContinuationJob
   transition(input: {
     jobId: string
@@ -335,7 +339,11 @@ describe('PbcContinuationJobsRepo.acquireLease (Phase 4a red)', () => {
     try {
       const repo = getRepo(store)
       const { job } = repo.admit(BASE_ADMIT)
-      const result = repo.acquireLease({ jobId: job.jobId, leaseOwner: LEASE_OWNER, leaseExpiresAt: LEASE_EXPIRES })
+      const result = repo.acquireLease({
+        jobId: job.jobId,
+        leaseOwner: LEASE_OWNER,
+        leaseExpiresAt: LEASE_EXPIRES,
+      })
       expect(result.acquired).toBe(true)
     } finally {
       store.close()
@@ -347,7 +355,11 @@ describe('PbcContinuationJobsRepo.acquireLease (Phase 4a red)', () => {
     try {
       const repo = getRepo(store)
       const { job } = repo.admit(BASE_ADMIT)
-      const { job: leased } = repo.acquireLease({ jobId: job.jobId, leaseOwner: LEASE_OWNER, leaseExpiresAt: LEASE_EXPIRES })
+      const { job: leased } = repo.acquireLease({
+        jobId: job.jobId,
+        leaseOwner: LEASE_OWNER,
+        leaseExpiresAt: LEASE_EXPIRES,
+      })
       expect(leased.status).toBe('running')
       expect(leased.leaseOwner).toBe(LEASE_OWNER)
       expect(leased.leaseExpiresAt).toBe(LEASE_EXPIRES)
@@ -362,8 +374,16 @@ describe('PbcContinuationJobsRepo.acquireLease (Phase 4a red)', () => {
     try {
       const repo = getRepo(store)
       const { job } = repo.admit(BASE_ADMIT)
-      repo.acquireLease({ jobId: job.jobId, leaseOwner: LEASE_OWNER, leaseExpiresAt: LEASE_EXPIRES })
-      const r2 = repo.acquireLease({ jobId: job.jobId, leaseOwner: 'worker-node-02', leaseExpiresAt: LEASE_EXPIRES })
+      repo.acquireLease({
+        jobId: job.jobId,
+        leaseOwner: LEASE_OWNER,
+        leaseExpiresAt: LEASE_EXPIRES,
+      })
+      const r2 = repo.acquireLease({
+        jobId: job.jobId,
+        leaseOwner: 'worker-node-02',
+        leaseExpiresAt: LEASE_EXPIRES,
+      })
       expect(r2.acquired).toBe(false)
     } finally {
       store.close()
@@ -375,9 +395,17 @@ describe('PbcContinuationJobsRepo.acquireLease (Phase 4a red)', () => {
     try {
       const repo = getRepo(store)
       const { job } = repo.admit(BASE_ADMIT)
-      repo.acquireLease({ jobId: job.jobId, leaseOwner: LEASE_OWNER, leaseExpiresAt: LEASE_EXPIRES })
+      repo.acquireLease({
+        jobId: job.jobId,
+        leaseOwner: LEASE_OWNER,
+        leaseExpiresAt: LEASE_EXPIRES,
+      })
       repo.transition({ jobId: job.jobId, toStatus: 'succeeded', resultJson: { ok: true } })
-      const r2 = repo.acquireLease({ jobId: job.jobId, leaseOwner: 'worker-node-02', leaseExpiresAt: LEASE_EXPIRES })
+      const r2 = repo.acquireLease({
+        jobId: job.jobId,
+        leaseOwner: 'worker-node-02',
+        leaseExpiresAt: LEASE_EXPIRES,
+      })
       expect(r2.acquired).toBe(false)
     } finally {
       store.close()
@@ -389,7 +417,11 @@ describe('PbcContinuationJobsRepo.acquireLease (Phase 4a red)', () => {
     try {
       const repo = getRepo(store)
       const { job } = repo.admit(BASE_ADMIT)
-      repo.acquireLease({ jobId: job.jobId, leaseOwner: LEASE_OWNER, leaseExpiresAt: LEASE_EXPIRES })
+      repo.acquireLease({
+        jobId: job.jobId,
+        leaseOwner: LEASE_OWNER,
+        leaseExpiresAt: LEASE_EXPIRES,
+      })
       const running = repo.listByStatus('running')
       expect(running.some((j) => j.jobId === job.jobId)).toBe(true)
     } finally {
@@ -406,9 +438,17 @@ describe('PbcContinuationJobsRepo.renewLease (Phase 4a red)', () => {
     try {
       const repo = getRepo(store)
       const { job } = repo.admit(BASE_ADMIT)
-      repo.acquireLease({ jobId: job.jobId, leaseOwner: LEASE_OWNER, leaseExpiresAt: LEASE_EXPIRES })
+      repo.acquireLease({
+        jobId: job.jobId,
+        leaseOwner: LEASE_OWNER,
+        leaseExpiresAt: LEASE_EXPIRES,
+      })
       const newExpiry = '2099-01-01T00:15:00.000Z'
-      const renewed = repo.renewLease({ jobId: job.jobId, leaseOwner: LEASE_OWNER, leaseExpiresAt: newExpiry })
+      const renewed = repo.renewLease({
+        jobId: job.jobId,
+        leaseOwner: LEASE_OWNER,
+        leaseExpiresAt: newExpiry,
+      })
       expect(renewed.leaseExpiresAt).toBe(newExpiry)
       expect(renewed.leaseOwner).toBe(LEASE_OWNER)
       expect(renewed.status).toBe('running')
@@ -422,9 +462,17 @@ describe('PbcContinuationJobsRepo.renewLease (Phase 4a red)', () => {
     try {
       const repo = getRepo(store)
       const { job } = repo.admit(BASE_ADMIT)
-      repo.acquireLease({ jobId: job.jobId, leaseOwner: LEASE_OWNER, leaseExpiresAt: LEASE_EXPIRES })
+      repo.acquireLease({
+        jobId: job.jobId,
+        leaseOwner: LEASE_OWNER,
+        leaseExpiresAt: LEASE_EXPIRES,
+      })
       expect(() =>
-        repo.renewLease({ jobId: job.jobId, leaseOwner: 'wrong-owner', leaseExpiresAt: LEASE_EXPIRES })
+        repo.renewLease({
+          jobId: job.jobId,
+          leaseOwner: 'wrong-owner',
+          leaseExpiresAt: LEASE_EXPIRES,
+        })
       ).toThrow()
     } finally {
       store.close()
@@ -440,7 +488,11 @@ describe('PbcContinuationJobsRepo.releaseLease (Phase 4a red)', () => {
     try {
       const repo = getRepo(store)
       const { job } = repo.admit(BASE_ADMIT)
-      repo.acquireLease({ jobId: job.jobId, leaseOwner: LEASE_OWNER, leaseExpiresAt: LEASE_EXPIRES })
+      repo.acquireLease({
+        jobId: job.jobId,
+        leaseOwner: LEASE_OWNER,
+        leaseExpiresAt: LEASE_EXPIRES,
+      })
       const released = repo.releaseLease({ jobId: job.jobId, leaseOwner: LEASE_OWNER })
       expect(released.status).toBe('queued')
       expect(released.leaseOwner).toBeUndefined()
@@ -455,10 +507,12 @@ describe('PbcContinuationJobsRepo.releaseLease (Phase 4a red)', () => {
     try {
       const repo = getRepo(store)
       const { job } = repo.admit(BASE_ADMIT)
-      repo.acquireLease({ jobId: job.jobId, leaseOwner: LEASE_OWNER, leaseExpiresAt: LEASE_EXPIRES })
-      expect(() =>
-        repo.releaseLease({ jobId: job.jobId, leaseOwner: 'wrong-owner' })
-      ).toThrow()
+      repo.acquireLease({
+        jobId: job.jobId,
+        leaseOwner: LEASE_OWNER,
+        leaseExpiresAt: LEASE_EXPIRES,
+      })
+      expect(() => repo.releaseLease({ jobId: job.jobId, leaseOwner: 'wrong-owner' })).toThrow()
     } finally {
       store.close()
     }
@@ -469,10 +523,18 @@ describe('PbcContinuationJobsRepo.releaseLease (Phase 4a red)', () => {
     try {
       const repo = getRepo(store)
       const { job } = repo.admit(BASE_ADMIT)
-      repo.acquireLease({ jobId: job.jobId, leaseOwner: LEASE_OWNER, leaseExpiresAt: LEASE_EXPIRES })
+      repo.acquireLease({
+        jobId: job.jobId,
+        leaseOwner: LEASE_OWNER,
+        leaseExpiresAt: LEASE_EXPIRES,
+      })
       repo.releaseLease({ jobId: job.jobId, leaseOwner: LEASE_OWNER })
 
-      const r2 = repo.acquireLease({ jobId: job.jobId, leaseOwner: 'worker-node-02', leaseExpiresAt: LEASE_EXPIRES })
+      const r2 = repo.acquireLease({
+        jobId: job.jobId,
+        leaseOwner: 'worker-node-02',
+        leaseExpiresAt: LEASE_EXPIRES,
+      })
       expect(r2.acquired).toBe(true)
       expect(r2.job.attempt).toBe(2)
     } finally {
@@ -489,8 +551,16 @@ describe('PbcContinuationJobsRepo.transition — terminal status (Phase 4a red)'
     try {
       const repo = getRepo(store)
       const { job } = repo.admit(BASE_ADMIT)
-      repo.acquireLease({ jobId: job.jobId, leaseOwner: LEASE_OWNER, leaseExpiresAt: LEASE_EXPIRES })
-      const done = repo.transition({ jobId: job.jobId, toStatus: 'succeeded', resultJson: { outputs: ['out_001'] } })
+      repo.acquireLease({
+        jobId: job.jobId,
+        leaseOwner: LEASE_OWNER,
+        leaseExpiresAt: LEASE_EXPIRES,
+      })
+      const done = repo.transition({
+        jobId: job.jobId,
+        toStatus: 'succeeded',
+        resultJson: { outputs: ['out_001'] },
+      })
       expect(done.status).toBe('succeeded')
       expect(done.resultJson).toEqual({ outputs: ['out_001'] })
       expect(done.finishedAt).toBeDefined()
@@ -504,8 +574,16 @@ describe('PbcContinuationJobsRepo.transition — terminal status (Phase 4a red)'
     try {
       const repo = getRepo(store)
       const { job } = repo.admit(BASE_ADMIT)
-      repo.acquireLease({ jobId: job.jobId, leaseOwner: LEASE_OWNER, leaseExpiresAt: LEASE_EXPIRES })
-      const failed = repo.transition({ jobId: job.jobId, toStatus: 'failed', errorJson: { code: 'TIMEOUT' } })
+      repo.acquireLease({
+        jobId: job.jobId,
+        leaseOwner: LEASE_OWNER,
+        leaseExpiresAt: LEASE_EXPIRES,
+      })
+      const failed = repo.transition({
+        jobId: job.jobId,
+        toStatus: 'failed',
+        errorJson: { code: 'TIMEOUT' },
+      })
       expect(failed.status).toBe('failed')
       expect(failed.errorJson).toEqual({ code: 'TIMEOUT' })
       expect(failed.finishedAt).toBeDefined()
@@ -519,7 +597,11 @@ describe('PbcContinuationJobsRepo.transition — terminal status (Phase 4a red)'
     try {
       const repo = getRepo(store)
       const { job } = repo.admit(BASE_ADMIT)
-      const cancelled = repo.transition({ jobId: job.jobId, toStatus: 'cancelled', stopReason: 'task-aborted' })
+      const cancelled = repo.transition({
+        jobId: job.jobId,
+        toStatus: 'cancelled',
+        stopReason: 'task-aborted',
+      })
       expect(cancelled.status).toBe('cancelled')
       expect(cancelled.stopReason).toBe('task-aborted')
     } finally {
@@ -532,7 +614,11 @@ describe('PbcContinuationJobsRepo.transition — terminal status (Phase 4a red)'
     try {
       const repo = getRepo(store)
       const { job } = repo.admit(BASE_ADMIT)
-      repo.acquireLease({ jobId: job.jobId, leaseOwner: LEASE_OWNER, leaseExpiresAt: LEASE_EXPIRES })
+      repo.acquireLease({
+        jobId: job.jobId,
+        leaseOwner: LEASE_OWNER,
+        leaseExpiresAt: LEASE_EXPIRES,
+      })
       repo.transition({ jobId: job.jobId, toStatus: 'succeeded', resultJson: { ok: true } })
       const found = repo.get(job.jobId)
       expect(found?.status).toBe('succeeded')
@@ -547,7 +633,11 @@ describe('PbcContinuationJobsRepo.transition — terminal status (Phase 4a red)'
     try {
       const repo = getRepo(store)
       const { job } = repo.admit(BASE_ADMIT)
-      repo.acquireLease({ jobId: job.jobId, leaseOwner: LEASE_OWNER, leaseExpiresAt: LEASE_EXPIRES })
+      repo.acquireLease({
+        jobId: job.jobId,
+        leaseOwner: LEASE_OWNER,
+        leaseExpiresAt: LEASE_EXPIRES,
+      })
       repo.transition({ jobId: job.jobId, toStatus: 'succeeded', resultJson: { ok: true } })
       expect(() =>
         repo.transition({ jobId: job.jobId, toStatus: 'failed', errorJson: { code: 'RE-ENTER' } })
@@ -562,7 +652,11 @@ describe('PbcContinuationJobsRepo.transition — terminal status (Phase 4a red)'
     try {
       const repo = getRepo(store)
       const { job } = repo.admit(BASE_ADMIT)
-      repo.acquireLease({ jobId: job.jobId, leaseOwner: LEASE_OWNER, leaseExpiresAt: LEASE_EXPIRES })
+      repo.acquireLease({
+        jobId: job.jobId,
+        leaseOwner: LEASE_OWNER,
+        leaseExpiresAt: LEASE_EXPIRES,
+      })
       repo.transition({ jobId: job.jobId, toStatus: 'failed', errorJson: { code: 'ERR' } })
       expect(() =>
         repo.transition({ jobId: job.jobId, toStatus: 'succeeded', resultJson: {} })
@@ -595,8 +689,16 @@ describe('PbcContinuationJobsRepo — replay returns prior result (Phase 4a red)
     try {
       const repo = getRepo(store)
       const r1 = repo.admit(BASE_ADMIT)
-      repo.acquireLease({ jobId: r1.job.jobId, leaseOwner: LEASE_OWNER, leaseExpiresAt: LEASE_EXPIRES })
-      repo.transition({ jobId: r1.job.jobId, toStatus: 'succeeded', resultJson: { finalOutput: 'X' } })
+      repo.acquireLease({
+        jobId: r1.job.jobId,
+        leaseOwner: LEASE_OWNER,
+        leaseExpiresAt: LEASE_EXPIRES,
+      })
+      repo.transition({
+        jobId: r1.job.jobId,
+        toStatus: 'succeeded',
+        resultJson: { finalOutput: 'X' },
+      })
 
       // Crash-recovery: admit again with same composite key → should replay, not create duplicate
       const r2 = repo.admit(BASE_ADMIT)
@@ -614,7 +716,11 @@ describe('PbcContinuationJobsRepo — replay returns prior result (Phase 4a red)
     try {
       const repo = getRepo(store)
       const r1 = repo.admit(BASE_ADMIT)
-      repo.acquireLease({ jobId: r1.job.jobId, leaseOwner: LEASE_OWNER, leaseExpiresAt: LEASE_EXPIRES })
+      repo.acquireLease({
+        jobId: r1.job.jobId,
+        leaseOwner: LEASE_OWNER,
+        leaseExpiresAt: LEASE_EXPIRES,
+      })
       repo.transition({ jobId: r1.job.jobId, toStatus: 'failed', errorJson: { code: 'TIMED_OUT' } })
 
       const r2 = repo.admit(BASE_ADMIT)

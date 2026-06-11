@@ -1,23 +1,16 @@
-import type { ChooseTransitionFn, ChooseTransitionResult } from '../../runtime/workflow-pack.js'
 import type { NextActionResponse } from '../../projections.js'
+import type { ChooseTransitionFn, ChooseTransitionResult } from '../../runtime/workflow-pack.js'
 import { type PbcEvidenceSnapshot, checkPbcFreshness } from './freshness.js'
 
 type PbcTransitionInput = Parameters<ChooseTransitionFn>[0]
 
 const DISPOSITION_PREFIX = 'dispose_from_'
 
-const FINALIZATION_TRANSITIONS = new Set([
-  'finalize_ready_pbc',
-  'finalize_after_patch_decision',
-])
+const FINALIZATION_TRANSITIONS = new Set(['finalize_ready_pbc', 'finalize_after_patch_decision'])
 
 const TRANSITIONS_BY_STATE: Record<string, string[]> = {
   'open/intake': ['normalize_feedback'],
-  'active/behavior_note': [
-    'ask_clarification',
-    'draft_pbc',
-    'dispose_from_behavior_note',
-  ],
+  'active/behavior_note': ['ask_clarification', 'draft_pbc', 'dispose_from_behavior_note'],
   'waiting/clarification': ['answer_clarification'],
   'active/pbc_draft': ['run_pressure_pass', 'dispose_from_pbc_draft'],
   'active/pressure': [
@@ -36,7 +29,9 @@ export const choosePbcTransition: ChooseTransitionFn = (
   const allowed = TRANSITIONS_BY_STATE[current] ?? []
   const legal = (input.candidateTransitions ?? transitionsFromNext(input.next))
     .filter((transition) => allowed.includes(transition))
-    .filter((transition) => input.allowExplicitOnly === true || !isDispositionTransition(transition))
+    .filter(
+      (transition) => input.allowExplicitOnly === true || !isDispositionTransition(transition)
+    )
 
   if (legal.length !== 1) {
     return undefined

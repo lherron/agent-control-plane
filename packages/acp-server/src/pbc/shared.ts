@@ -17,9 +17,9 @@ import { deliverWrkfEffects } from '../wrkf/effect-delivery.js'
 import { wrkfErrorToHttpStatus } from '../wrkf/errors.js'
 import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
 import {
+  type NextActionResponse,
   projectEvidenceRecord,
   projectNextActionResponse,
-  type NextActionResponse,
 } from '../wrkf/projections.js'
 
 import { PBC_WORKFLOW_REF, type PbcArtifactEvidence } from './projection.js'
@@ -123,9 +123,6 @@ export function admitPbcContinuationJob(
 }
 
 /** Deliver any pending wrkf effects for the task (no-op when none pending). */
-export async function deliverPbcEffects(
-  wrkf: AcpWrkfWorkflowPort,
-  taskId: string
-): Promise<void> {
+export async function deliverPbcEffects(wrkf: AcpWrkfWorkflowPort, taskId: string): Promise<void> {
   await deliverWrkfEffects(wrkf, { task: taskId })
 }

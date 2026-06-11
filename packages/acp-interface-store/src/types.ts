@@ -34,6 +34,7 @@ export type OutboundAttachmentState = 'pending' | 'consumed' | 'delivered' | 'fa
 export type InterfaceBinding = {
   bindingId: string
   gatewayId: string
+  gatewayType: string
   conversationRef: string
   threadRef?: string | undefined
   scopeRef: string
@@ -55,9 +56,13 @@ export type InterfaceBindingLookup = {
 
 export type InterfaceBindingListFilters = {
   gatewayId?: string | undefined
+  gatewayType?: string | undefined
   conversationRef?: string | undefined
   threadRef?: string | undefined
   projectId?: string | undefined
+  agentId?: string | undefined
+  laneRef?: string | undefined
+  status?: InterfaceBindingStatus | undefined
 }
 
 export type InterfaceMessageSource = {
@@ -137,6 +142,21 @@ export type EnqueueDeliveryRequestInput = {
   outcome?: DeliveryOutcome | undefined
   createdAt: string
 }
+
+export type EnqueueDeliveryRequestIdempotencyInput = EnqueueDeliveryRequestInput & {
+  route: string
+  idempotencyKey: string
+  fingerprintHash: string
+}
+
+export type EnqueueDeliveryRequestIdempotencyResult =
+  | { ok: true; created: true; delivery: DeliveryRequest }
+  | { ok: true; created: false; delivery: DeliveryRequest }
+  | {
+      ok: false
+      code: 'idempotency_conflict' | 'delivery_not_found'
+      existingDeliveryRequestId?: string | undefined
+    }
 
 export type RecordIfNewMessageSourceResult = {
   created: boolean

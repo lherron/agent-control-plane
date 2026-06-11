@@ -9,6 +9,7 @@ import { runAdminInterfaceBindingDisableCommand } from './commands/admin-interfa
 import { runAdminInterfaceBindingLintCommand } from './commands/admin-interface-binding-lint.js'
 import { runAdminInterfaceBindingListCommand } from './commands/admin-interface-binding-list.js'
 import { runAdminInterfaceBindingSetCommand } from './commands/admin-interface-binding-set.js'
+import { runAgentPulpitCommand } from './commands/agent-pulpit.js'
 import { runAgentCommand } from './commands/agent.js'
 import { runDeliveryCommand } from './commands/delivery.js'
 import { runHeartbeatCommand } from './commands/heartbeat.js'
@@ -277,6 +278,7 @@ function addAdminCommands(program: Command, deps: CommandDependencies): void {
 
   common(binding.command('list').description('list interface bindings'))
     .option('--gateway <id>')
+    .option('--gateway-type <type>')
     .option('--conversation-ref <ref>')
     .option('--thread-ref <ref>')
     .option('--project <projectId>')
@@ -284,6 +286,7 @@ function addAdminCommands(program: Command, deps: CommandDependencies): void {
 
   common(binding.command('set').description('upsert one interface binding'))
     .requiredOption('--gateway <id>')
+    .option('--gateway-type <type>')
     .requiredOption('--conversation-ref <ref>')
     .option('--thread-ref <ref>')
     .option('--project <projectId>')
@@ -457,6 +460,17 @@ function addRuntimeCommands(program: Command, deps: CommandDependencies): void {
     .option('--contribution-semantics <append_context|interrupt_and_continue>')
     .option('--no-dispatch')
     .action(runLeaf(deps, [], runSendCommand))
+
+  const agentPulpit = program.command('agent-pulpit').description('send agent pulpit messages')
+  common(agentPulpit.command('send').description('enqueue an agent pulpit message'))
+    .option('--binding <bindingId>')
+    .option('--gateway-type <type>')
+    .option('--agent <agentId>')
+    .option('--project <projectId>')
+    .option('--lane-ref <laneRef>')
+    .requiredOption('--text <text>')
+    .option('--idempotency-key <key>')
+    .action(runLeaf(deps, ['send'], runAgentPulpitCommand))
 
   tabular(program.command('tail').description('live-stream session events'))
     .option('--session <sessionId>')

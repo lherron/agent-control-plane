@@ -12,14 +12,14 @@
  *   7. Return PbcTaskProjection + job.
  */
 
+import { withPbcRouteIdempotency } from '../handlers/wrkf-pbc-shared.js'
 import { AcpHttpError } from '../http.js'
 import { isRecord } from '../parsers/body.js'
 import type { RouteHandler } from '../routing/route-context.js'
-import { withPbcRouteIdempotency } from '../handlers/wrkf-pbc-shared.js'
 import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
 import { applyFreshTransition } from '../wrkf/transition-apply.js'
 
-import { buildPbcTaskProjection, PBC_WORKFLOW_REF } from './projection.js'
+import { PBC_WORKFLOW_REF, buildPbcTaskProjection } from './projection.js'
 import {
   admitPbcContinuationJob,
   deliverPbcEffects,
@@ -111,14 +111,6 @@ function instanceWorkflowRef(instance: Record<string, unknown>): string | undefi
     return version === undefined ? template['id'] : `${template['id']}@${String(version)}`
   }
   return undefined
-}
-
-function instancePhase(instance: Record<string, unknown>): string {
-  const state = instance['state']
-  if (isRecord(state) && typeof state['phase'] === 'string') {
-    return state['phase']
-  }
-  return typeof instance['phase'] === 'string' ? (instance['phase'] as string) : ''
 }
 
 async function maybeNormalizeFeedback(

@@ -34,7 +34,7 @@
 
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
@@ -109,9 +109,11 @@ describe('wrkf generic non-PBC smoke (T-02589)', () => {
 
     // Isolated, freshly-migrated wrkq DB so the schema matches the wrkf binary.
     // cwd = tmpDir so wrkqadm's .gitignore bookkeeping stays out of the repo.
-    const childEnv = { ...process.env }
-    delete childEnv['ASP_PROJECT']
-    delete childEnv['WRKQ_DB_PATH']
+    const childEnv = {
+      ...process.env,
+      ASP_PROJECT: undefined,
+      WRKQ_DB_PATH: undefined,
+    }
 
     const init = Bun.spawnSync([WRKQADM_BIN, '--db', dbPath, 'init'], {
       cwd: tmpDir,
@@ -134,7 +136,17 @@ describe('wrkf generic non-PBC smoke (T-02589)', () => {
 
     // Create a fresh wrkq task in the isolated DB and attach the workflow.
     const touch = Bun.spawnSync(
-      [WRKQ_BIN, '--db', dbPath, '--as', 'local-human', 'touch', '--project', 'inbox', 'demo-smoke'],
+      [
+        WRKQ_BIN,
+        '--db',
+        dbPath,
+        '--as',
+        'local-human',
+        'touch',
+        '--project',
+        'inbox',
+        'demo-smoke',
+      ],
       { cwd: tmpDir, env: childEnv }
     )
     const touchOut = `${touch.stdout.toString()} ${touch.stderr.toString()}`

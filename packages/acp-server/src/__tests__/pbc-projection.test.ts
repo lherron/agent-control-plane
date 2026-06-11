@@ -43,10 +43,7 @@
 
 import { describe, expect, test } from 'bun:test'
 
-import {
-  buildPbcTaskProjection,
-  type BuildPbcTaskProjectionInput,
-} from '../pbc/projection.js'
+import { type BuildPbcTaskProjectionInput, buildPbcTaskProjection } from '../pbc/projection.js'
 import type { NextActionResponse } from '../wrkf/projections.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -458,7 +455,9 @@ describe('buildPbcTaskProjection — product actions shape and enablement (RED, 
       status: 'active',
       phase: 'behavior_note',
       actions: [{ id: 'draft_pbc', transition: 'draft_pbc' }],
-      pendingEffects: [{ id: 'eff-001', kind: 'set_task_state', status: 'failed', retryable: true }],
+      pendingEffects: [
+        { id: 'eff-001', kind: 'set_task_state', status: 'failed', retryable: true },
+      ],
     })
     const projection = buildPbcTaskProjection({ taskId: 'T-unit-30', next })
     const retryAction = projection.actions.find((a) => a.kind === 'retry_effect_delivery')

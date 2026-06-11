@@ -19,8 +19,8 @@
 
 import { describe, expect, test } from 'bun:test'
 
-import { pbcWorkerPolicy } from './worker-policy.js'
 import type { NextActionResponse } from '../../projections.js'
+import { pbcWorkerPolicy } from './worker-policy.js'
 
 // ---------------------------------------------------------------------------
 // Helpers — build typed NextActionResponse objects directly
@@ -203,9 +203,7 @@ describe('pbcWorkerPolicy — genuine stop conditions remain [GREEN]', () => {
       phase: 'pressure',
       actions: [{ transition: 'finalize_ready_pbc' }],
     })
-    const result = pbcWorkerPolicy(
-      makePolicyInput(next, { actor: 'agent:pbc-writer' })
-    )
+    const result = pbcWorkerPolicy(makePolicyInput(next, { actor: 'agent:pbc-writer' }))
     expect(result).toMatchObject({ kind: 'stop', reason: 'requires_distinct_pressure_reviewer' })
   })
 })

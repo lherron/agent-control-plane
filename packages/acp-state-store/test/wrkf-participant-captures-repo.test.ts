@@ -245,7 +245,11 @@ describe('WrkfParticipantCapturesRepo.setOrConflict — replay (Phase 4a red)', 
       const repo = getRepo(store)
       repo.setOrConflict(BASE)
       const finalEvidenceIds = ['ev_001', 'ev_002', 'ev_003']
-      repo.complete({ captureKey: BASE.captureKey, evidenceIds: finalEvidenceIds, obligationIds: [] })
+      repo.complete({
+        captureKey: BASE.captureKey,
+        evidenceIds: finalEvidenceIds,
+        obligationIds: [],
+      })
 
       const r2 = repo.setOrConflict(BASE) as Extract<SetOrConflictResult, { state: 'replay' }>
       expect(r2.state).toBe('replay')

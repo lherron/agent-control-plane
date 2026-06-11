@@ -8,6 +8,7 @@ export type InterfaceBindingStatus = 'active' | 'disabled'
 export interface InterfaceBinding {
   bindingId: string
   gatewayId: string
+  gatewayType: string
   conversationRef: string
   threadRef?: string | undefined
   sessionRef: InterfaceSessionRef

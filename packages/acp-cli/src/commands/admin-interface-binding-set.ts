@@ -11,6 +11,7 @@ export async function runAdminInterfaceBindingSetCommand(
     booleanFlags: ['--json'],
     stringFlags: [
       '--gateway',
+      '--gateway-type',
       '--conversation-ref',
       '--thread-ref',
       '--project',
@@ -27,6 +28,9 @@ export async function runAdminInterfaceBindingSetCommand(
   const client = createAdminClient(parsed, deps)
   const response = await client.upsertInterfaceBinding({
     gatewayId: requireStringFlag(parsed, '--gateway'),
+    ...(parsed.stringFlags['--gateway-type'] !== undefined
+      ? { gatewayType: requireStringFlag(parsed, '--gateway-type') }
+      : {}),
     conversationRef: requireStringFlag(parsed, '--conversation-ref'),
     ...(parsed.stringFlags['--thread-ref'] !== undefined
       ? { threadRef: requireStringFlag(parsed, '--thread-ref') }

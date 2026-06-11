@@ -89,9 +89,9 @@ function makeBumpingPort(initial: FakeWrkfState): BumpingPort {
   }
 
   function contextMismatchError(): Error & { code: string } {
-    const error = new Error(
-      `context hash mismatch: expected ${state.contextHash}`
-    ) as Error & { code: string }
+    const error = new Error(`context hash mismatch: expected ${state.contextHash}`) as Error & {
+      code: string
+    }
     error.code = 'WRKF_CONTEXT_MISMATCH'
     return error
   }
@@ -132,7 +132,10 @@ function makeBumpingPort(initial: FakeWrkfState): BumpingPort {
       inspect: async (params) => {
         _calls.push({ method: 'task.inspect', params })
         return {
-          task: { taskId: (params as Record<string, unknown>)['task'], title: 'Freshness test task' },
+          task: {
+            taskId: (params as Record<string, unknown>)['task'],
+            title: 'Freshness test task',
+          },
           instance: {
             id: 'inst-fresh-001',
             workflowRef: PBC_WORKFLOW_REF,
@@ -159,7 +162,11 @@ function makeBumpingPort(initial: FakeWrkfState): BumpingPort {
         },
         actions: state.actions.map((a) => ({ id: a.id, transition: a.transition, role: a.role })),
         blockedTransitions: [],
-        openObligations: state.openObligations.map((o) => ({ id: o.id, kind: o.kind, status: o.status })),
+        openObligations: state.openObligations.map((o) => ({
+          id: o.id,
+          kind: o.kind,
+          status: o.status,
+        })),
         pendingEffects: [],
       }
     },
@@ -810,7 +817,9 @@ describe('bumping fake correctness — transition.apply rejects stale contextHas
 
     // Re-read next() to get the post-bump contextHash.
     const freshNext = await wrkf.next({ task: TASK, role: 'agent' })
-    const freshHash = ((freshNext as Record<string, unknown>)['instance'] as Record<string, unknown>)['contextHash'] as string
+    const freshHash = (
+      (freshNext as Record<string, unknown>)['instance'] as Record<string, unknown>
+    )['contextHash'] as string
 
     // Applying with the fresh hash should succeed.
     let threw = false

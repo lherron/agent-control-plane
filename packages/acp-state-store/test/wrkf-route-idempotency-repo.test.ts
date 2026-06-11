@@ -187,8 +187,16 @@ describe('WrkfRouteIdempotencyRepo.admitOrReplay — fresh (Phase 4a red)', () =
     const store = openAcpStateStore({ dbPath: ':memory:' })
     try {
       const repo = getRepo(store)
-      const r1 = repo.admitOrReplay({ ...BASE_KEY, idempotencyKey: 'key-one', bodyHash: 'hash-aaa' })
-      const r2 = repo.admitOrReplay({ ...BASE_KEY, idempotencyKey: 'key-two', bodyHash: 'hash-bbb' })
+      const r1 = repo.admitOrReplay({
+        ...BASE_KEY,
+        idempotencyKey: 'key-one',
+        bodyHash: 'hash-aaa',
+      })
+      const r2 = repo.admitOrReplay({
+        ...BASE_KEY,
+        idempotencyKey: 'key-two',
+        bodyHash: 'hash-bbb',
+      })
       expect(r1.state).toBe('admitted')
       expect(r2.state).toBe('admitted')
     } finally {
