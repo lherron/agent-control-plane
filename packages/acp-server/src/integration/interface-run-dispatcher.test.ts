@@ -26,6 +26,72 @@ afterEach(() => {
 })
 
 describe('interface run dispatcher stale activity window', () => {
+  test('finalizes a completed headless run even without an interface delivery source', async () => {
+    const hrc = createHrcDb()
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-interface-dispatch-'))
+    fixtureDirs.push(fixtureDir)
+    const interfaceStore = openInterfaceStore({ dbPath: join(fixtureDir, 'interface.sqlite') })
+    const runStore = new InMemoryRunStore()
+    const sessionRef = {
+      scopeRef: 'agent:cody:project:taskboard:task:primary',
+      laneRef: 'lane:ui-concierge' as const,
+    }
+    const run = runStore.createRun({
+      sessionRef,
+      status: 'running',
+      metadata: {
+        content: 'diagnostic only: reply exactly ACP-UI-CONCIERGE-LANE-DIAG',
+      },
+    })
+    runStore.updateRun(run.runId, {
+      hrcRunId: 'hrc-run-concierge',
+      hostSessionId: 'hsid-concierge',
+      generation: 1,
+      runtimeId: 'rt-concierge',
+      transport: 'headless',
+    })
+    insertRunStatus(hrc.db, {
+      runId: 'hrc-run-concierge',
+      hostSessionId: 'hsid-concierge',
+      runtimeId: 'rt-concierge',
+      scopeRef: sessionRef.scopeRef,
+      laneRef: sessionRef.laneRef,
+      generation: 1,
+      transport: 'headless',
+      status: 'completed',
+    })
+    insertAssistantMessage(hrc.db, {
+      hrcSeq: 11,
+      hostSessionId: 'hsid-concierge',
+      scopeRef: sessionRef.scopeRef,
+      laneRef: sessionRef.laneRef,
+      generation: 1,
+      runId: 'hrc-run-concierge',
+      text: 'ACP-UI-CONCIERGE-LANE-DIAG',
+    })
+    insertTurnCompleted(hrc.db, {
+      hrcSeq: 12,
+      hostSessionId: 'hsid-concierge',
+      scopeRef: sessionRef.scopeRef,
+      laneRef: sessionRef.laneRef,
+      generation: 1,
+      runId: 'hrc-run-concierge',
+    })
+
+    const dispatcher = dispatcherModule.createInterfaceRunDispatcher({
+      runStore,
+      interfaceStore,
+      hrcDbPath: hrc.hrcDbPath,
+      config: { intervalMs: 1, staleTimeoutMs: 60_000 },
+    })
+
+    await dispatcher.runOnce()
+
+    expect(interfaceStore.deliveries.listQueuedForGateway('discord_prod')).toHaveLength(0)
+    expect(runStore.getRun(run.runId)?.status).toBe('completed')
+    interfaceStore.close()
+  })
+
   test('tmux runs do not finalize delivery on the first assistant message before turn completion', async () => {
     const hrc = createHrcDb()
     const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-interface-dispatch-'))
@@ -346,6 +412,26 @@ function createHrcDb(): { db: Database; hrcDbPath: string } {
   const hrcDbPath = join(fixtureDir, 'hrc.sqlite')
   const db = new Database(hrcDbPath)
   db.exec(`
+    CREATE TABLE runs (
+      run_id TEXT PRIMARY KEY,
+      host_session_id TEXT NOT NULL,
+      runtime_id TEXT,
+      scope_ref TEXT NOT NULL,
+      lane_ref TEXT NOT NULL,
+      generation INTEGER NOT NULL,
+      transport TEXT NOT NULL,
+      status TEXT NOT NULL,
+      accepted_at TEXT,
+      started_at TEXT,
+      completed_at TEXT,
+      updated_at TEXT NOT NULL,
+      error_code TEXT,
+      error_message TEXT,
+      operation_id TEXT,
+      invocation_id TEXT,
+      dispatched_input_id TEXT
+    );
+
     CREATE TABLE hrc_events (
       hrc_seq INTEGER PRIMARY KEY AUTOINCREMENT,
       stream_seq INTEGER NOT NULL UNIQUE,
@@ -368,6 +454,58 @@ function createHrcDb(): { db: Database; hrcDbPath: string } {
     );
   `)
   return { db, hrcDbPath }
+}
+
+function insertRunStatus(
+  db: Database,
+  input: {
+    runId: string
+    hostSessionId: string
+    runtimeId?: string | undefined
+    scopeRef: string
+    laneRef: string
+    generation: number
+    transport: string
+    status: string
+    errorCode?: string | undefined
+    errorMessage?: string | undefined
+  }
+): void {
+  const now = new Date().toISOString()
+  db.run(
+    `INSERT INTO runs (
+      run_id,
+      host_session_id,
+      runtime_id,
+      scope_ref,
+      lane_ref,
+      generation,
+      transport,
+      status,
+      accepted_at,
+      started_at,
+      completed_at,
+      updated_at,
+      error_code,
+      error_message
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    input.runId,
+    input.hostSessionId,
+    input.runtimeId ?? null,
+    input.scopeRef,
+    input.laneRef,
+    input.generation,
+    input.transport,
+    input.status,
+    now,
+    now,
+    input.status === 'completed' || input.status === 'failed' || input.status === 'cancelled'
+      ? now
+      : null,
+    now,
+    input.errorCode ?? null,
+    input.errorMessage ?? null
+  )
 }
 
 function insertHrcEvent(

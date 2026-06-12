@@ -30,13 +30,13 @@
     "acp-core": "*",
     "acp-ops-projection": "*",
     "acp-server": "*",
-    "agent-action-render": "0.1.0-dev.20260610131706",
-    "agent-scope": "0.1.1-dev.20260610125824",
+    "agent-action-render": "0.1.0-dev.20260612100523",
+    "agent-scope": "0.1.1-dev.20260611173655",
     "chalk": "^5.6.2",
-    "cli-kit": "0.1.1-dev.20260610125824",
+    "cli-kit": "0.1.1-dev.20260611173655",
     "commander": "^14.0.0",
     "gateway-discord": "*",
-    "spaces-config": "0.1.1-dev.20260610125824",
+    "spaces-config": "0.1.1-dev.20260611173655",
     "wrkq-lib": "*"
   },
   "devDependencies": {

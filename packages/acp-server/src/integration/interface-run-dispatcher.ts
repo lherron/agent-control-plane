@@ -74,7 +74,12 @@ export function createInterfaceRunDispatcher(
 
   async function reconcileRun(run: StoredRun): Promise<void> {
     const source = readInterfaceRunSource(run)
-    if (source === undefined) {
+
+    // Runs with a concrete HRC run id can be finalized from HRC terminal state
+    // even when they have no interface delivery target. Without this, headless
+    // ACP inputs that are not Discord-bound stay "running" forever and block
+    // subsequent input admission for the session.
+    if (source === undefined && run.hrcRunId === undefined) {
       return
     }
 
@@ -141,7 +146,7 @@ export function createInterfaceRunDispatcher(
         }
         return handleFailureOrSkip(run, source, runFailed, errorCode, errorMessage)
       }
-    } else if (run.hostSessionId !== undefined) {
+    } else if (source !== undefined && run.hostSessionId !== undefined) {
       // Tmux path: live-progress delivery owns in-flight rendering. Do not
       // treat the first assistant message as final; multi-step agentic turns
       // can emit many turn.message events and can pause on interactive tools
@@ -181,7 +186,7 @@ export function createInterfaceRunDispatcher(
     }
 
     // Success path: enqueue delivery + mark run completed
-    if (assistantMessage !== undefined) {
+    if (assistantMessage !== undefined && source !== undefined) {
       const visible = toCompletedVisibleAssistantMessage(assistantMessage)
       if (visible !== undefined) {
         if (hasFinalDelivery(run.runId)) {

@@ -60,7 +60,7 @@ function createFreshTask(label: string): string {
   const n = ++_taskCounter
   const slug = `pbc-int-${process.pid}-${n}`
   const result = Bun.spawnSync(
-    ['wrkq', 'touch', `inbox/${slug}`, '-t', `PBC Integration (${label} #${n})`],
+    ['wrkq', '--as', 'cody', 'touch', `inbox/${slug}`, '-t', `PBC Integration (${label} #${n})`],
     { env: process.env }
   )
   const stdout = result.stdout.toString()
