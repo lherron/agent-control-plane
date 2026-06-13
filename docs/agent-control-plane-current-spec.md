@@ -142,6 +142,77 @@ dispatch steps, or gateway bindings. The input admission path records attempts,
 queue/apply state, session admission sequence, and stale/lease behavior in the
 ACP state store.
 
+## Event Webhooks And Jobs
+
+ACP has one canonical event webhook envelope, `AcpWebhookEvent`, defined in
+`acp-core`. `POST /v1/webhooks/events` accepts this normalized v1 envelope:
+
+```json
+{
+  "schema_version": 1,
+  "source": "media-ingest",
+  "event_id": "evt_123",
+  "event_seq": 123,
+  "event": "transcript.completed",
+  "occurred_at": "2026-06-13T00:00:00Z",
+  "origin": { "actor": "system:media-ingest", "kind": "system" },
+  "subject": { "type": "transcript", "id": "tr_123" },
+  "payload": { "backend": "mlx" }
+}
+```
+
+`POST /v1/webhooks/wrkq` remains a compatibility adapter for wrkq v2 payloads.
+It validates the wrkq shape, adapts it into `AcpWebhookEvent`, and stores the
+normalized payload. Scheduler evaluation reads the normalized model; it must not
+assume inbox payloads are wrkq-only.
+
+Webhook ingest is durable and idempotent by `(source,event_id)`. The current
+SQLite key is the canonical string `source:event_id`, so producer-local ids from
+different sources cannot suppress each other. Producer `event_seq` is
+source-local provenance, not a cross-source total order. The current inbox drain
+orders by `event_seq`, but correctness must not depend on global ordering across
+sources.
+
+Event jobs use `trigger.kind = "event"` and must declare `trigger.source`.
+Evaluation first compares `trigger.source` to the normalized event `source`.
+Only then are match predicates evaluated. Supported match predicates are:
+
+- `event`: string or string array.
+- `subject.type`: string or string array, represented as
+  `{ "subject": { "type": "transcript" } }`.
+- wrkq compatibility fields: `transition`, `project_scope_id`,
+  `container_path`, `labels`, and `kind`, evaluated against the normalized
+  event payload.
+- `origin.actor` and `origin.kind`.
+- `payload` path predicates using dot-separated paths with up to eight segments,
+  for example `{ "payload": { "backend": { "eq": "mlx" } } }`. Each predicate
+  supports deterministic `eq`, `anyOf`, and `exists` over JSON scalar values.
+  Arbitrary expressions are not supported.
+
+Event-triggered jobs still dispatch through the existing input path and may not
+be broadened into multi-step `flow` jobs. The action snapshot is resolved before
+minting a `JobRun`; dispatch consumes the resolved snapshot on the `JobRun`, not
+live templated job fields.
+
+Authority-bearing templates fail closed. `scopeRef` and `laneRef` templates can
+use only explicit structural variables allowlisted per source. v1 allows wrkq
+`project_scope_id` and `ticket_id` for compatibility and denies payload-derived
+structural variables for other sources. Generic event jobs should use static
+scope/lane targets unless ACP adds a source-specific structural allowlist.
+Payload values may be interpolated only into input/prompt content through
+`{{payload.path}}`, with per-field and total-size caps plus control-character
+sanitization. Unknown or missing variables fail the job match as a template
+error.
+
+Cooldowns use a deterministic `targetKey`, stored in the existing
+`target_task_id` column until that schema name is renamed. For wrkq the target
+key is `ticket_id`; for generic events it is `subject.type:subject.id` when
+present, otherwise the canonical event id. This prevents cooldowns from becoming
+silently inoperative for generic producers.
+
+Both webhook routes are loopback-trusted only for v1. They are not internet-safe
+without source authentication/signing.
+
 ## CLI Surfaces
 
 Use `acp --help` and subcommand help as the source of truth for flags. The

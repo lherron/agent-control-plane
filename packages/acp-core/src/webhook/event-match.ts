@@ -1,5 +1,11 @@
-import type { EventMatch, EventOriginMatch } from './job-trigger.js'
-import type { WrkqWebhookEvent } from './wrkq-event.js'
+import type { AcpWebhookEvent } from './acp-event.js'
+import type {
+  EventMatch,
+  EventOriginMatch,
+  EventSubjectMatch,
+  JsonScalar,
+  PayloadPathPredicate,
+} from './job-trigger.js'
 
 /**
  * Compile a glob (supporting `*` and `**` and `?`) into a RegExp. `**` matches
@@ -35,15 +41,39 @@ function matchesEvent(match: EventMatch['event'], event: string): boolean {
   return Array.isArray(match) ? match.includes(event) : match === event
 }
 
-function matchesTransition(match: EventMatch['transition'], event: WrkqWebhookEvent): boolean {
+function payloadRecord(event: AcpWebhookEvent): Readonly<Record<string, unknown>> {
+  return event.payload
+}
+
+function matchesSubject(match: EventSubjectMatch | undefined, event: AcpWebhookEvent): boolean {
   if (match === undefined) {
     return true
   }
-  const transition = event.transition ?? undefined
+  if (match.type !== undefined) {
+    const subjectType = event.subject?.type
+    if (typeof subjectType !== 'string') {
+      return false
+    }
+    return Array.isArray(match.type) ? match.type.includes(subjectType) : match.type === subjectType
+  }
+  return true
+}
+
+function matchesTransition(match: EventMatch['transition'], event: AcpWebhookEvent): boolean {
+  if (match === undefined) {
+    return true
+  }
+  const rawTransition = payloadRecord(event)['transition']
   // A transition predicate requires the event to actually carry a transition.
-  if (transition === null || transition === undefined) {
+  if (
+    rawTransition === null ||
+    rawTransition === undefined ||
+    typeof rawTransition !== 'object' ||
+    Array.isArray(rawTransition)
+  ) {
     return false
   }
+  const transition = rawTransition as { from?: unknown; to?: unknown }
   if (match.to !== undefined && transition.to !== match.to) {
     return false
   }
@@ -71,7 +101,7 @@ function actorKind(actor: string): string {
   return idx === -1 ? actor : actor.slice(0, idx)
 }
 
-function matchesOrigin(match: EventOriginMatch | undefined, event: WrkqWebhookEvent): boolean {
+function matchesOrigin(match: EventOriginMatch | undefined, event: AcpWebhookEvent): boolean {
   if (match === undefined) {
     return true
   }
@@ -85,40 +115,120 @@ function matchesOrigin(match: EventOriginMatch | undefined, event: WrkqWebhookEv
       return false
     }
   }
-  if (match.kind !== undefined && actorKind(actor) !== match.kind) {
+  const kind = event.origin?.kind ?? actorKind(actor)
+  if (match.kind !== undefined && kind !== match.kind) {
     return false
   }
   return true
 }
 
+function payloadValueAtPath(
+  payload: Readonly<Record<string, unknown>>,
+  path: string
+): { exists: boolean; value: unknown } {
+  let current: unknown = payload
+  for (const segment of path.split('.')) {
+    if (current === null || typeof current !== 'object' || Array.isArray(current)) {
+      return { exists: false, value: undefined }
+    }
+    if (!Object.prototype.hasOwnProperty.call(current, segment)) {
+      return { exists: false, value: undefined }
+    }
+    current = (current as Record<string, unknown>)[segment]
+  }
+  return { exists: true, value: current }
+}
+
+function isJsonScalar(value: unknown): value is JsonScalar {
+  return (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  )
+}
+
+function scalarEqual(left: unknown, right: JsonScalar): boolean {
+  return isJsonScalar(left) && Object.is(left, right)
+}
+
+function matchesPayloadPredicate(
+  predicate: PayloadPathPredicate,
+  found: { exists: boolean; value: unknown }
+): boolean {
+  if (predicate.exists !== undefined && found.exists !== predicate.exists) {
+    return false
+  }
+  if (predicate.eq !== undefined && (!found.exists || !scalarEqual(found.value, predicate.eq))) {
+    return false
+  }
+  if (
+    predicate.anyOf !== undefined &&
+    (!found.exists || !predicate.anyOf.some((candidate) => scalarEqual(found.value, candidate)))
+  ) {
+    return false
+  }
+  return true
+}
+
+function matchesPayload(
+  predicates: EventMatch['payload'],
+  payload: Readonly<Record<string, unknown>>
+): boolean {
+  if (predicates === undefined) {
+    return true
+  }
+  for (const [path, predicate] of Object.entries(predicates)) {
+    if (!matchesPayloadPredicate(predicate, payloadValueAtPath(payload, path))) {
+      return false
+    }
+  }
+  return true
+}
+
 /**
- * Pure predicate: does this wrkq event satisfy the job's EventMatch? Every
+ * Pure predicate: does this normalized ACP event satisfy the job's EventMatch? Every
  * present field is ANDed; an absent field is a wildcard. No I/O, no payload
- * mutation — the dispatch tail stays wrkq-agnostic and only mints on `true`.
+ * mutation — the dispatch tail stays source-agnostic and only mints on `true`.
  */
-export function evaluateEventMatch(match: EventMatch, event: WrkqWebhookEvent): boolean {
+export function evaluateEventMatch(match: EventMatch, event: AcpWebhookEvent): boolean {
   if (!matchesEvent(match.event, event.event)) {
+    return false
+  }
+  if (!matchesSubject(match.subject, event)) {
     return false
   }
   if (!matchesTransition(match.transition, event)) {
     return false
   }
-  if (match.project_scope_id !== undefined && event.project_scope_id !== match.project_scope_id) {
+  const payload = payloadRecord(event)
+  if (
+    match.project_scope_id !== undefined &&
+    payload['project_scope_id'] !== match.project_scope_id
+  ) {
     return false
   }
   if (match.container_path !== undefined) {
-    const path = event.container_path
+    const path = payload['container_path']
     if (typeof path !== 'string' || !globToRegExp(match.container_path).test(path)) {
       return false
     }
   }
-  if (match.kind !== undefined && event.kind !== match.kind) {
+  if (match.kind !== undefined && payload['kind'] !== match.kind) {
     return false
   }
-  if (!matchesLabels(match.labels, event.labels)) {
+  if (
+    !matchesLabels(
+      match.labels,
+      Array.isArray(payload['labels']) ? (payload['labels'] as string[]) : undefined
+    )
+  ) {
     return false
   }
   if (!matchesOrigin(match.origin, event)) {
+    return false
+  }
+  if (!matchesPayload(match.payload, payload)) {
     return false
   }
   return true

@@ -1844,6 +1844,8 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
     input: InsertInboxEventInput
   ): { event: InboxEventRecord; inserted: boolean } => {
     const now = new Date().toISOString()
+    const source = input.source ?? 'wrkq'
+    const canonicalEventId = `${source}:${input.eventId}`
     const result = sqlite
       .prepare(
         `
@@ -1854,9 +1856,9 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
         `
       )
       .run(
-        input.eventId,
+        canonicalEventId,
         input.eventSeq,
-        input.source ?? 'wrkq',
+        source,
         input.event,
         input.occurredAt ?? null,
         JSON.stringify(input.payload),
@@ -1864,9 +1866,9 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
         now,
         now
       )
-    const event = getInboxEvent(input.eventId).event
+    const event = getInboxEvent(canonicalEventId).event
     if (event === undefined) {
-      throw new Error(`event inbox row not found after insert: ${input.eventId}`)
+      throw new Error(`event inbox row not found after insert: ${canonicalEventId}`)
     }
     return { event, inserted: result.changes > 0 }
   }

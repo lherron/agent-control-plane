@@ -1,8 +1,8 @@
 import {
   evaluateEventMatch,
   isAgentOriginEvent,
+  parseAcpWebhookEvent,
   parseDurationToMs,
-  parseWrkqWebhookEvent,
   resolveEventAction,
 } from 'acp-core'
 
@@ -28,11 +28,17 @@ function evaluateEventJob(job: JobRecord, inboxEvent: InboxEventRecord): EventJo
     return { decision: 'skip', reason: 'match_false' }
   }
 
-  const parsed = parseWrkqWebhookEvent(inboxEvent.payload)
+  const parsed = parseAcpWebhookEvent(inboxEvent.payload)
   if (!parsed.ok) {
     return { decision: 'skip', reason: 'match_false' }
   }
   const event = parsed.event
+
+  // Source is the first match boundary. Other predicates must never run for a
+  // different producer with a coincidentally similar payload shape.
+  if (trigger.source !== event.source) {
+    return { decision: 'skip', reason: 'match_false' }
+  }
 
   // 1. Match predicate.
   if (!evaluateEventMatch(trigger.match, event)) {
@@ -70,14 +76,13 @@ function evaluateEventJob(job: JobRecord, inboxEvent: InboxEventRecord): EventJo
       kind: 'webhook',
       source: trigger.source,
       eventId: event.event_id,
+      canonicalEventId: event.canonical_event_id,
       eventSeq: event.event_seq,
       event: event.event,
-      ...(event.ticket_id !== undefined ? { ticketId: event.ticket_id } : {}),
+      ...(event.subject !== undefined ? { subject: event.subject } : {}),
       ...(event.origin?.actor !== undefined ? { originActor: event.origin.actor } : {}),
     },
-    ...(resolved.resolved.targetTaskId !== undefined
-      ? { targetTaskId: resolved.resolved.targetTaskId }
-      : {}),
+    targetTaskId: resolved.resolved.targetKey,
     ...(cooldownMs !== undefined ? { cooldownMs } : {}),
   }
 }

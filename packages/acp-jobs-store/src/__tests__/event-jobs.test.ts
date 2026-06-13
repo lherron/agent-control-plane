@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 
 import {
+  type AcpWebhookEvent,
+  adaptWrkqWebhookEvent,
   evaluateEventMatch,
   isAgentOriginEvent,
+  parseAcpWebhookEvent,
   parseDurationToMs,
-  parseWrkqWebhookEvent,
   resolveEventAction,
 } from 'acp-core'
 
@@ -22,8 +24,11 @@ const evaluateEventJob: EvaluateEventJob = ({ job, event }) => {
   if (trigger.kind !== 'event') {
     return { decision: 'skip', reason: 'match_false' }
   }
-  const parsed = parseWrkqWebhookEvent(event.payload)
+  const parsed = parseAcpWebhookEvent(event.payload)
   if (!parsed.ok) {
+    return { decision: 'skip', reason: 'match_false' }
+  }
+  if (trigger.source !== parsed.event.source) {
     return { decision: 'skip', reason: 'match_false' }
   }
   if (!evaluateEventMatch(trigger.match, parsed.event)) {
@@ -53,13 +58,12 @@ const evaluateEventJob: EvaluateEventJob = ({ job, event }) => {
     },
     source: {
       kind: 'webhook',
-      source: 'wrkq',
+      source: parsed.event.source,
       eventId: parsed.event.event_id,
+      canonicalEventId: parsed.event.canonical_event_id,
       eventSeq: parsed.event.event_seq,
     },
-    ...(resolved.resolved.targetTaskId !== undefined
-      ? { targetTaskId: resolved.resolved.targetTaskId }
-      : {}),
+    targetTaskId: resolved.resolved.targetKey,
     ...(cooldownMs !== undefined ? { cooldownMs } : {}),
   }
 }
@@ -74,6 +78,20 @@ const wrkqEvent = (overrides: Record<string, unknown> = {}) => ({
   ticket_id: 'T-00042',
   project_scope_id: 'acp',
   transition: { from: null, to: 'idea' },
+  ...overrides,
+})
+
+const genericEvent = (overrides: Partial<AcpWebhookEvent> = {}): AcpWebhookEvent => ({
+  schema_version: 1,
+  source: 'media-ingest',
+  event_id: 'evt_transcript_1',
+  canonical_event_id: 'media-ingest:evt_transcript_1',
+  event_seq: 1,
+  event: 'transcript.completed',
+  occurred_at: '2026-06-13T00:00:00Z',
+  origin: { actor: 'system:media-ingest', kind: 'system' },
+  subject: { type: 'transcript', id: 'tr_1' },
+  payload: { transcript_id: 'tr_1', backend: 'mlx', model_id: 'voxtral' },
   ...overrides,
 })
 
@@ -108,13 +126,16 @@ function makeDispatchRecorder() {
 
 async function ingestAndTick(
   store: JobsStore,
-  payload: Record<string, unknown>,
+  payload: Readonly<Record<string, unknown>>,
   now = '2026-06-07T01:00:00Z'
 ) {
+  const parsed = parseAcpWebhookEvent(payload)
+  const source = parsed.ok ? parsed.event.source : undefined
   store.insertInboxEvent({
     eventId: String(payload['event_id']),
     eventSeq: Number(payload['event_seq']),
     event: String(payload['event']),
+    ...(source !== undefined ? { source } : {}),
     payload,
   })
   const recorder = makeDispatchRecorder()
@@ -175,19 +196,21 @@ describe('schedule-claim footgun (reviewer check #1)', () => {
 })
 
 describe('event_inbox idempotency', () => {
-  test('duplicate event_id does not create a second inbox row', () => {
+  test('duplicate source/event_id does not create a second inbox row', () => {
     const store = createInMemoryJobsStore()
     const first = store.insertInboxEvent({
       eventId: 'evt_9',
       eventSeq: 9,
+      source: 'wrkq',
       event: 'created',
-      payload: wrkqEvent({ event_id: 'evt_9', event_seq: 9 }),
+      payload: adaptWrkqWebhookEvent(wrkqEvent({ event_id: 'evt_9', event_seq: 9 })),
     })
     const second = store.insertInboxEvent({
       eventId: 'evt_9',
       eventSeq: 9,
+      source: 'wrkq',
       event: 'created',
-      payload: wrkqEvent({ event_id: 'evt_9', event_seq: 9 }),
+      payload: adaptWrkqWebhookEvent(wrkqEvent({ event_id: 'evt_9', event_seq: 9 })),
     })
     expect(first.inserted).toBe(true)
     expect(second.inserted).toBe(false)
@@ -195,6 +218,32 @@ describe('event_inbox idempotency', () => {
       c: number
     }
     expect(count.c).toBe(1)
+    expect(first.event.eventId).toBe('wrkq:evt_9')
+  })
+
+  test('same producer event_id from different sources does not collide', () => {
+    const store = createInMemoryJobsStore()
+    store.insertInboxEvent({
+      eventId: 'evt_shared',
+      eventSeq: 1,
+      source: 'wrkq',
+      event: 'created',
+      payload: adaptWrkqWebhookEvent(wrkqEvent({ event_id: 'evt_shared', event_seq: 1 })),
+    })
+    store.insertInboxEvent({
+      eventId: 'evt_shared',
+      eventSeq: 1,
+      source: 'media-ingest',
+      event: 'transcript.completed',
+      payload: genericEvent({
+        event_id: 'evt_shared',
+        canonical_event_id: 'media-ingest:evt_shared',
+      }),
+    })
+    const rows = store.sqlite
+      .prepare('SELECT event_id FROM event_inbox ORDER BY event_id ASC')
+      .all() as Array<{ event_id: string }>
+    expect(rows.map((row) => row.event_id)).toEqual(['media-ingest:evt_shared', 'wrkq:evt_shared'])
   })
 
   test('claimPending drains by event_seq and marks leased', () => {
@@ -202,21 +251,23 @@ describe('event_inbox idempotency', () => {
     store.insertInboxEvent({
       eventId: 'b',
       eventSeq: 2,
+      source: 'wrkq',
       event: 'created',
-      payload: wrkqEvent({ event_id: 'b', event_seq: 2 }),
+      payload: adaptWrkqWebhookEvent(wrkqEvent({ event_id: 'b', event_seq: 2 })),
     })
     store.insertInboxEvent({
       eventId: 'a',
       eventSeq: 1,
+      source: 'wrkq',
       event: 'created',
-      payload: wrkqEvent({ event_id: 'a', event_seq: 1 }),
+      payload: adaptWrkqWebhookEvent(wrkqEvent({ event_id: 'a', event_seq: 1 })),
     })
     const claimed = store.claimPendingInboxEvents({
       now: 'now',
       leaseOwner: 'me',
       leaseExpiresAt: 'later',
     })
-    expect(claimed.map((e) => e.eventId)).toEqual(['a', 'b'])
+    expect(claimed.map((e) => e.eventId)).toEqual(['wrkq:a', 'wrkq:b'])
     expect(claimed[0]?.status).toBe('leased')
   })
 })
@@ -226,7 +277,7 @@ describe('event-claim minting', () => {
     const store = createInMemoryJobsStore()
     store.createJob(eventJob({ slug: 'job-a' }))
     store.createJob(eventJob({ slug: 'job-b' }))
-    const { runs, calls } = await ingestAndTick(store, wrkqEvent())
+    const { runs, calls } = await ingestAndTick(store, adaptWrkqWebhookEvent(wrkqEvent()))
 
     const minted = runs.filter((r) => r.triggeredBy === 'webhook')
     expect(minted).toHaveLength(2)
@@ -237,7 +288,7 @@ describe('event-claim minting', () => {
     // both resolved to the same target session but different runs
     expect(calls.every((c) => c.scopeRef === 'agent:clod:project:acp:task:T-00042')).toBe(true)
 
-    const matches = store.listEventJobMatches({ sourceEventId: 'evt_1' }).matches
+    const matches = store.listEventJobMatches({ sourceEventId: 'wrkq:evt_1' }).matches
     expect(matches).toHaveLength(2)
     expect(matches.every((m) => m.outcome === 'minted')).toBe(true)
   })
@@ -245,7 +296,7 @@ describe('event-claim minting', () => {
   test('persists a resolved snapshot + source provenance on the JobRun', async () => {
     const store = createInMemoryJobsStore()
     store.createJob(eventJob())
-    const { runs } = await ingestAndTick(store, wrkqEvent())
+    const { runs } = await ingestAndTick(store, adaptWrkqWebhookEvent(wrkqEvent()))
     const minted = runs.find((r) => r.triggeredBy === 'webhook')
     expect(minted).toBeDefined()
     const persisted = store.getJobRun(minted!.jobRunId).jobRun
@@ -258,8 +309,8 @@ describe('event-claim minting', () => {
   test('the inbox event is marked processed after a tick', async () => {
     const store = createInMemoryJobsStore()
     store.createJob(eventJob())
-    await ingestAndTick(store, wrkqEvent())
-    expect(store.getInboxEvent('evt_1').event?.status).toBe('processed')
+    await ingestAndTick(store, adaptWrkqWebhookEvent(wrkqEvent()))
+    expect(store.getInboxEvent('wrkq:evt_1').event?.status).toBe('processed')
   })
 
   test('agent-origin event is blocked by default; opt-in mints (check #4)', async () => {
@@ -276,10 +327,13 @@ describe('event-claim minting', () => {
         },
       })
     )
-    const { runs } = await ingestAndTick(store, wrkqEvent({ origin: { actor: 'agent:clod' } }))
+    const { runs } = await ingestAndTick(
+      store,
+      adaptWrkqWebhookEvent(wrkqEvent({ origin: { actor: 'agent:clod' } }))
+    )
     expect(runs.filter((r) => r.triggeredBy === 'webhook')).toHaveLength(1)
 
-    const matches = store.listEventJobMatches({ sourceEventId: 'evt_1' }).matches
+    const matches = store.listEventJobMatches({ sourceEventId: 'wrkq:evt_1' }).matches
     const blocked = matches.find((m) => m.outcome === 'skipped')
     expect(blocked?.reason).toBe('agent_origin_blocked')
   })
@@ -291,14 +345,14 @@ describe('event-claim minting', () => {
       eventJob({ slug: 'bad-job', scopeRef: 'agent:clod:project:{{nope}}:task:{{ticket_id}}' })
     )
     store.createJob(eventJob({ slug: 'good-job' }))
-    const { runs } = await ingestAndTick(store, wrkqEvent())
+    const { runs } = await ingestAndTick(store, adaptWrkqWebhookEvent(wrkqEvent()))
 
     expect(runs.filter((r) => r.triggeredBy === 'webhook')).toHaveLength(1)
-    const matches = store.listEventJobMatches({ sourceEventId: 'evt_1' }).matches
+    const matches = store.listEventJobMatches({ sourceEventId: 'wrkq:evt_1' }).matches
     expect(matches.find((m) => m.outcome === 'skipped')?.reason).toBe('template_error')
     expect(matches.filter((m) => m.outcome === 'minted')).toHaveLength(1)
     // The event still reached every job and is processed.
-    expect(store.getInboxEvent('evt_1').event?.status).toBe('processed')
+    expect(store.getInboxEvent('wrkq:evt_1').event?.status).toBe('processed')
   })
 
   test('non-matching job records match_false (no silent skip)', async () => {
@@ -309,8 +363,8 @@ describe('event-claim minting', () => {
         trigger: { kind: 'event', source: 'wrkq', match: { event: 'archived' } },
       })
     )
-    await ingestAndTick(store, wrkqEvent())
-    const matches = store.listEventJobMatches({ sourceEventId: 'evt_1' }).matches
+    await ingestAndTick(store, adaptWrkqWebhookEvent(wrkqEvent()))
+    const matches = store.listEventJobMatches({ sourceEventId: 'wrkq:evt_1' }).matches
     expect(matches).toHaveLength(1)
     expect(matches[0]?.outcome).toBe('skipped')
     expect(matches[0]?.reason).toBe('match_false')
@@ -331,19 +385,53 @@ describe('event-claim minting', () => {
     )
     const first = await ingestAndTick(
       store,
-      wrkqEvent({ event_id: 'evt_a', event_seq: 1 }),
+      adaptWrkqWebhookEvent(wrkqEvent({ event_id: 'evt_a', event_seq: 1 })),
       '2026-06-07T01:00:00Z'
     )
     expect(first.runs.filter((r) => r.triggeredBy === 'webhook')).toHaveLength(1)
 
     const second = await ingestAndTick(
       store,
-      wrkqEvent({ event_id: 'evt_b', event_seq: 2 }),
+      adaptWrkqWebhookEvent(wrkqEvent({ event_id: 'evt_b', event_seq: 2 })),
       '2026-06-07T01:30:00Z'
     )
     expect(second.runs.filter((r) => r.triggeredBy === 'webhook')).toHaveLength(0)
-    const matches = store.listEventJobMatches({ sourceEventId: 'evt_b' }).matches
+    const matches = store.listEventJobMatches({ sourceEventId: 'wrkq:evt_b' }).matches
     expect(matches[0]?.reason).toBe('cooldown')
+  })
+
+  test('generic targetKey cooldown uses subject type and id', async () => {
+    const store = createInMemoryJobsStore()
+    store.createJob({
+      projectId: 'media-ingest',
+      agentId: 'mneme',
+      scopeRef: 'agent:mneme:project:media-ingest:task:primary',
+      trigger: {
+        kind: 'event',
+        source: 'media-ingest',
+        match: { event: 'transcript.completed', subject: { type: 'transcript' } },
+        cooldown: '1h',
+      },
+      input: { content: 'Transcript {{payload.transcript_id}} completed' },
+    })
+    const first = await ingestAndTick(store, genericEvent(), '2026-06-13T01:00:00Z')
+    expect(first.runs.filter((r) => r.triggeredBy === 'webhook')).toHaveLength(1)
+
+    const second = await ingestAndTick(
+      store,
+      genericEvent({
+        event_id: 'evt_transcript_2',
+        canonical_event_id: 'media-ingest:evt_transcript_2',
+        event_seq: 2,
+      }),
+      '2026-06-13T01:30:00Z'
+    )
+    expect(second.runs.filter((r) => r.triggeredBy === 'webhook')).toHaveLength(0)
+    const matches = store.listEventJobMatches({
+      sourceEventId: 'media-ingest:evt_transcript_2',
+    }).matches
+    expect(matches[0]?.reason).toBe('cooldown')
+    expect(matches[0]?.targetTaskId).toBe('transcript:tr_1')
   })
 })
 
@@ -352,7 +440,7 @@ describe('mint idempotency (drain-retry safe)', () => {
     const store = createInMemoryJobsStore()
     const job = store.createJob(eventJob()).job
     const args = {
-      sourceEventId: 'evt_1',
+      sourceEventId: 'wrkq:evt_1',
       eventSeq: 1,
       jobId: job.jobId,
       resolvedScopeRef: 'agent:clod:project:acp:task:T-00042',
@@ -373,12 +461,12 @@ describe('mint idempotency (drain-retry safe)', () => {
   test('re-ticking a duplicate POST does not double-mint or re-dispatch (check #2)', async () => {
     const store = createInMemoryJobsStore()
     store.createJob(eventJob())
-    const first = await ingestAndTick(store, wrkqEvent())
+    const first = await ingestAndTick(store, adaptWrkqWebhookEvent(wrkqEvent()))
     expect(first.calls).toHaveLength(1)
     // Duplicate POST: same event_id re-ingested, then tick again.
-    const second = await ingestAndTick(store, wrkqEvent())
+    const second = await ingestAndTick(store, adaptWrkqWebhookEvent(wrkqEvent()))
     expect(second.calls).toHaveLength(0)
-    const matches = store.listEventJobMatches({ sourceEventId: 'evt_1' }).matches
+    const matches = store.listEventJobMatches({ sourceEventId: 'wrkq:evt_1' }).matches
     expect(matches).toHaveLength(1)
   })
 })

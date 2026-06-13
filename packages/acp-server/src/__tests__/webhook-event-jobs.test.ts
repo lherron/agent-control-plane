@@ -5,6 +5,7 @@ import { createInMemoryJobsStore } from 'acp-jobs-store'
 import type { Actor } from 'acp-core'
 import type { ResolvedAcpServerDeps } from '../deps.js'
 import { handleCreateAdminJob, handlePatchAdminJob } from '../handlers/admin-jobs.js'
+import { handleAcpEventWebhook } from '../handlers/webhooks-events.js'
 import { handleWrkqWebhook } from '../handlers/webhooks-wrkq.js'
 import { errorResponse } from '../http.js'
 
@@ -128,7 +129,7 @@ describe('admin jobs trigger union', () => {
       handleCreateAdminJob,
       jsonRequest('POST', '/v1/admin/jobs', {
         ...EVENT_JOB_BODY,
-        trigger: { kind: 'event', source: 'github', match: {} },
+        trigger: { kind: 'event', source: 'Bad Source', match: {} },
       }),
       deps
     )
@@ -157,7 +158,7 @@ describe('POST /v1/webhooks/wrkq', () => {
       deps
     )
     expect(first.status).toBe(204)
-    expect(jobsStore.getInboxEvent('evt_7').event).toBeDefined()
+    expect(jobsStore.getInboxEvent('wrkq:evt_7').event).toBeDefined()
 
     const dup = await call(
       handleWrkqWebhook,
@@ -176,6 +177,54 @@ describe('POST /v1/webhooks/wrkq', () => {
     const res = await call(
       handleWrkqWebhook,
       jsonRequest('POST', '/v1/webhooks/wrkq', { ...payload, schema_version: 1 }),
+      deps
+    )
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('POST /v1/webhooks/events', () => {
+  const payload = {
+    schema_version: 1,
+    source: 'media-ingest',
+    event_id: 'evt_transcript_7',
+    event_seq: 7,
+    event: 'transcript.completed',
+    occurred_at: '2026-06-13T00:00:00Z',
+    origin: { actor: 'system:media-ingest', kind: 'system' },
+    subject: { type: 'transcript', id: 'tr_7' },
+    payload: { transcript_id: 'tr_7', backend: 'mlx' },
+  }
+
+  test('valid v1 payload → 204 + source-qualified inbox row; duplicate remains 204', async () => {
+    const { jobsStore, deps } = makeDeps()
+    const first = await call(
+      handleAcpEventWebhook,
+      jsonRequest('POST', '/v1/webhooks/events', payload),
+      deps
+    )
+    expect(first.status).toBe(204)
+    const row = jobsStore.getInboxEvent('media-ingest:evt_transcript_7').event
+    expect(row).toBeDefined()
+    expect(row?.source).toBe('media-ingest')
+
+    const dup = await call(
+      handleAcpEventWebhook,
+      jsonRequest('POST', '/v1/webhooks/events', payload),
+      deps
+    )
+    expect(dup.status).toBe(204)
+    const count = jobsStore.sqlite.prepare('SELECT COUNT(*) AS c FROM event_inbox').get() as {
+      c: number
+    }
+    expect(count.c).toBe(1)
+  })
+
+  test('invalid generic envelope → 400', async () => {
+    const { deps } = makeDeps()
+    const res = await call(
+      handleAcpEventWebhook,
+      jsonRequest('POST', '/v1/webhooks/events', { ...payload, source: 'Media Ingest' }),
       deps
     )
     expect(res.status).toBe(400)

@@ -14,6 +14,8 @@ import { isRecord } from '../internal/guards.js'
 export type EventMatch = {
   /** Event type(s) to match: "created" | "updated" | ... (string or any-of list). */
   event?: string | string[] | undefined
+  /** Match canonical subject fields. */
+  subject?: EventSubjectMatch | undefined
   /** Match the state transition. `from` may be explicitly null (e.g. created). */
   transition?: { from?: string | null | undefined; to?: string | undefined } | undefined
   /** Exact match on the root container slug (scope-ref ready). */
@@ -26,6 +28,20 @@ export type EventMatch = {
   kind?: string | undefined
   /** Filter on the mutation's origin (e.g. only human-created tasks). */
   origin?: EventOriginMatch | undefined
+  /** Deterministic bounded payload path predicates. No expressions. */
+  payload?: Record<string, PayloadPathPredicate> | undefined
+}
+
+export type JsonScalar = string | number | boolean | null
+
+export type PayloadPathPredicate = {
+  eq?: JsonScalar | undefined
+  anyOf?: JsonScalar[] | undefined
+  exists?: boolean | undefined
+}
+
+export type EventSubjectMatch = {
+  type?: string | string[] | undefined
 }
 
 export type EventOriginMatch = {
@@ -50,7 +66,7 @@ export type OriginPolicy = {
 
 export type EventTrigger = {
   kind: 'event'
-  source: 'wrkq'
+  source: string
   match: EventMatch
   /** Loop/cascade control. Defaults to { agent: 'deny' } when absent. */
   originPolicy?: OriginPolicy | undefined
@@ -72,15 +88,29 @@ function isStringArray(value: unknown): value is string[] {
 
 const EVENT_MATCH_KEYS = new Set([
   'event',
+  'subject',
   'transition',
   'project_scope_id',
   'container_path',
   'labels',
   'kind',
   'origin',
+  'payload',
 ])
 
 const ORIGIN_KINDS = new Set(['human', 'agent', 'system'])
+const SOURCE_PATTERN = /^[a-z][a-z0-9._-]{0,79}$/
+const PAYLOAD_PATH_PATTERN = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+){0,7}$/
+const FORBIDDEN_PAYLOAD_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor'])
+
+function isJsonScalar(value: unknown): value is JsonScalar {
+  return (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  )
+}
 
 function validateEventOrigin(value: unknown, errors: string[]): EventOriginMatch | undefined {
   if (!isRecord(value)) {
@@ -108,6 +138,92 @@ function validateEventOrigin(value: unknown, errors: string[]): EventOriginMatch
   return origin
 }
 
+function validateEventSubject(value: unknown, errors: string[]): EventSubjectMatch | undefined {
+  if (!isRecord(value)) {
+    errors.push('trigger.match.subject must be an object')
+    return undefined
+  }
+  const subject: EventSubjectMatch = {}
+  for (const key of Object.keys(value)) {
+    if (key !== 'type') {
+      errors.push(`trigger.match.subject has unknown key: ${key}`)
+    }
+  }
+  if (value['type'] !== undefined) {
+    const type = value['type']
+    if (typeof type === 'string') {
+      subject.type = type
+    } else if (isStringArray(type) && type.length > 0) {
+      subject.type = type
+    } else {
+      errors.push('trigger.match.subject.type must be a non-empty string or string[]')
+    }
+  }
+  return subject
+}
+
+function validatePayloadPath(path: string, errors: string[]): boolean {
+  if (!PAYLOAD_PATH_PATTERN.test(path)) {
+    errors.push(`trigger.match.payload has invalid path: ${path}`)
+    return false
+  }
+  if (path.split('.').some((segment) => FORBIDDEN_PAYLOAD_SEGMENTS.has(segment))) {
+    errors.push(`trigger.match.payload has forbidden path segment: ${path}`)
+    return false
+  }
+  return true
+}
+
+function validatePayloadPredicate(
+  path: string,
+  value: unknown,
+  errors: string[]
+): PayloadPathPredicate | undefined {
+  if (!isRecord(value)) {
+    errors.push(`trigger.match.payload.${path} must be an object`)
+    return undefined
+  }
+  const predicate: PayloadPathPredicate = {}
+  for (const key of Object.keys(value)) {
+    if (key !== 'eq' && key !== 'anyOf' && key !== 'exists') {
+      errors.push(`trigger.match.payload.${path} has unknown key: ${key}`)
+    }
+  }
+  if (value['eq'] !== undefined) {
+    if (isJsonScalar(value['eq'])) {
+      predicate.eq = value['eq']
+    } else {
+      errors.push(`trigger.match.payload.${path}.eq must be a JSON scalar`)
+    }
+  }
+  if (value['anyOf'] !== undefined) {
+    if (
+      Array.isArray(value['anyOf']) &&
+      value['anyOf'].length > 0 &&
+      value['anyOf'].every(isJsonScalar)
+    ) {
+      predicate.anyOf = value['anyOf']
+    } else {
+      errors.push(`trigger.match.payload.${path}.anyOf must be a non-empty JSON scalar[]`)
+    }
+  }
+  if (value['exists'] !== undefined) {
+    if (typeof value['exists'] === 'boolean') {
+      predicate.exists = value['exists']
+    } else {
+      errors.push(`trigger.match.payload.${path}.exists must be a boolean`)
+    }
+  }
+  if (
+    predicate.eq === undefined &&
+    predicate.anyOf === undefined &&
+    predicate.exists === undefined
+  ) {
+    errors.push(`trigger.match.payload.${path} must declare eq, anyOf, or exists`)
+  }
+  return predicate
+}
+
 function validateEventMatch(value: unknown, errors: string[]): EventMatch | undefined {
   if (!isRecord(value)) {
     errors.push('trigger.match must be an object')
@@ -130,6 +246,13 @@ function validateEventMatch(value: unknown, errors: string[]): EventMatch | unde
       match.event = event
     } else {
       errors.push('trigger.match.event must be a non-empty string or string[]')
+    }
+  }
+
+  if (value['subject'] !== undefined) {
+    const subject = validateEventSubject(value['subject'], errors)
+    if (subject !== undefined) {
+      match.subject = subject
     }
   }
 
@@ -192,6 +315,25 @@ function validateEventMatch(value: unknown, errors: string[]): EventMatch | unde
     }
   }
 
+  if (value['payload'] !== undefined) {
+    const payload = value['payload']
+    if (!isRecord(payload)) {
+      errors.push('trigger.match.payload must be an object')
+    } else {
+      const predicates: Record<string, PayloadPathPredicate> = {}
+      for (const [path, predicateValue] of Object.entries(payload)) {
+        if (!validatePayloadPath(path, errors)) {
+          continue
+        }
+        const predicate = validatePayloadPredicate(path, predicateValue, errors)
+        if (predicate !== undefined) {
+          predicates[path] = predicate
+        }
+      }
+      match.payload = predicates
+    }
+  }
+
   return match
 }
 
@@ -226,8 +368,9 @@ export function validateJobTrigger(value: unknown): ValidateJobTriggerResult {
   }
 
   if (kind === 'event') {
-    if (value['source'] !== 'wrkq') {
-      errors.push("trigger.source must be 'wrkq' for event triggers")
+    const source = value['source']
+    if (typeof source !== 'string' || !SOURCE_PATTERN.test(source)) {
+      errors.push('trigger.source must match /^[a-z][a-z0-9._-]{0,79}$/ for event triggers')
     }
     const match = validateEventMatch(value['match'], errors)
 
@@ -258,7 +401,7 @@ export function validateJobTrigger(value: unknown): ValidateJobTriggerResult {
     }
     const trigger: EventTrigger = {
       kind: 'event',
-      source: 'wrkq',
+      source: typeof source === 'string' ? source : '',
       match,
       ...(originPolicy !== undefined ? { originPolicy } : {}),
       ...(cooldown !== undefined ? { cooldown } : {}),

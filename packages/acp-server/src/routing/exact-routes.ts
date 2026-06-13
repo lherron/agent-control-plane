@@ -40,6 +40,7 @@ import { handleSessionRefEvents } from '../handlers/session-refs-events.js'
 import { handleListSessions } from '../handlers/sessions-list.js'
 import { handleResetSession } from '../handlers/sessions-reset.js'
 import { handleResolveSession } from '../handlers/sessions-resolve.js'
+import { handleAcpEventWebhook } from '../handlers/webhooks-events.js'
 import { handleWrkqWebhook } from '../handlers/webhooks-wrkq.js'
 import { handleCreateWorkflowInteractRun } from '../handlers/workflow-interact-runs.js'
 import { handleCreateWorkflowParticipantRun } from '../handlers/workflow-participant-runs.js'
@@ -167,6 +168,7 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
       handleWrkfPbcDeliverEffects
     ),
     // Loopback-trusted webhook ingest (no actor/authz wrapper).
+    [exactRouteKey('POST', '/v1/webhooks/events')]: handleAcpEventWebhook,
     [exactRouteKey('POST', '/v1/webhooks/wrkq')]: handleWrkqWebhook,
   }
 }

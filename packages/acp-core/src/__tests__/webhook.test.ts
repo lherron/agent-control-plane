@@ -1,9 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 
 import {
+  type AcpWebhookEvent,
   type WrkqWebhookEvent,
+  adaptWrkqWebhookEvent,
   evaluateEventMatch,
   isAgentOriginEvent,
+  parseAcpWebhookEvent,
   parseDurationToMs,
   parseWrkqWebhookEvent,
   resolveEventAction,
@@ -30,6 +33,27 @@ function event(overrides: Partial<WrkqWebhookEvent> = {}): WrkqWebhookEvent {
   }
 }
 
+function acpEvent(overrides: Partial<AcpWebhookEvent> = {}): AcpWebhookEvent {
+  return {
+    schema_version: 1,
+    source: 'media-ingest',
+    event_id: 'transcript-1',
+    canonical_event_id: 'media-ingest:transcript-1',
+    event_seq: 1,
+    event: 'transcript.completed',
+    occurred_at: '2026-06-13T00:00:00Z',
+    origin: { actor: 'system:media-ingest', kind: 'system' },
+    subject: { type: 'transcript', id: 'tr_1' },
+    payload: {
+      transcript_id: 'tr_1',
+      backend: 'mlx',
+      model_id: 'voxtral',
+      nested: { status: 'ready' },
+    },
+    ...overrides,
+  }
+}
+
 describe('parseWrkqWebhookEvent', () => {
   test('accepts a valid v2 payload', () => {
     const result = parseWrkqWebhookEvent(event())
@@ -49,71 +73,127 @@ describe('parseWrkqWebhookEvent', () => {
   })
 })
 
+describe('parseAcpWebhookEvent + wrkq adapter', () => {
+  test('accepts a valid generic v1 envelope', () => {
+    const result = parseAcpWebhookEvent(acpEvent())
+    expect(result.ok).toBe(true)
+  })
+
+  test('rejects malformed generic identity/source/seq/payload', () => {
+    expect(parseAcpWebhookEvent({ ...acpEvent(), source: 'Bad Source' }).ok).toBe(false)
+    expect(parseAcpWebhookEvent({ ...acpEvent(), event_id: '' }).ok).toBe(false)
+    expect(parseAcpWebhookEvent({ ...acpEvent(), event_seq: 1.2 }).ok).toBe(false)
+    expect(parseAcpWebhookEvent({ ...acpEvent(), payload: [] }).ok).toBe(false)
+  })
+
+  test('adapts wrkq v2 into the canonical model while preserving wrkq fields', () => {
+    const adapted = adaptWrkqWebhookEvent(event())
+    expect(adapted.source).toBe('wrkq')
+    expect(adapted.canonical_event_id).toBe('wrkq:evt_1')
+    expect(adapted.subject).toEqual({ type: 'task', id: 'T-00042' })
+    expect(adapted.payload['ticket_id']).toBe('T-00042')
+    expect(adapted.payload['project_scope_id']).toBe('agent-control-plane')
+  })
+})
+
 describe('evaluateEventMatch', () => {
   test('matches event + transition.to + project_scope_id', () => {
     expect(
       evaluateEventMatch(
         { event: 'created', transition: { to: 'idea' }, project_scope_id: 'agent-control-plane' },
-        event()
+        adaptWrkqWebhookEvent(event())
       )
     ).toBe(true)
   })
 
   test('transition.from null matches a creation transition', () => {
-    expect(evaluateEventMatch({ transition: { from: null, to: 'idea' } }, event())).toBe(true)
-    expect(evaluateEventMatch({ transition: { from: 'open', to: 'idea' } }, event())).toBe(false)
+    expect(
+      evaluateEventMatch({ transition: { from: null, to: 'idea' } }, adaptWrkqWebhookEvent(event()))
+    ).toBe(true)
+    expect(
+      evaluateEventMatch(
+        { transition: { from: 'open', to: 'idea' } },
+        adaptWrkqWebhookEvent(event())
+      )
+    ).toBe(false)
   })
 
   test('event list (any-of) matches', () => {
-    expect(evaluateEventMatch({ event: ['updated', 'created'] }, event())).toBe(true)
-    expect(evaluateEventMatch({ event: ['updated', 'moved'] }, event())).toBe(false)
+    expect(
+      evaluateEventMatch({ event: ['updated', 'created'] }, adaptWrkqWebhookEvent(event()))
+    ).toBe(true)
+    expect(
+      evaluateEventMatch({ event: ['updated', 'moved'] }, adaptWrkqWebhookEvent(event()))
+    ).toBe(false)
   })
 
   test('transition predicate requires the event to carry a transition', () => {
-    expect(evaluateEventMatch({ transition: { to: 'idea' } }, event({ transition: null }))).toBe(
-      false
-    )
+    expect(
+      evaluateEventMatch(
+        { transition: { to: 'idea' } },
+        adaptWrkqWebhookEvent(event({ transition: null }))
+      )
+    ).toBe(false)
   })
 
   test('container_path glob and labels subset', () => {
-    expect(evaluateEventMatch({ container_path: 'agent-control-plane/**' }, event())).toBe(true)
-    expect(evaluateEventMatch({ container_path: 'other/**' }, event())).toBe(false)
-    expect(evaluateEventMatch({ labels: ['research'] }, event())).toBe(true)
-    expect(evaluateEventMatch({ labels: ['research', 'missing'] }, event())).toBe(false)
+    expect(
+      evaluateEventMatch(
+        { container_path: 'agent-control-plane/**' },
+        adaptWrkqWebhookEvent(event())
+      )
+    ).toBe(true)
+    expect(evaluateEventMatch({ container_path: 'other/**' }, adaptWrkqWebhookEvent(event()))).toBe(
+      false
+    )
+    expect(evaluateEventMatch({ labels: ['research'] }, adaptWrkqWebhookEvent(event()))).toBe(true)
+    expect(
+      evaluateEventMatch({ labels: ['research', 'missing'] }, adaptWrkqWebhookEvent(event()))
+    ).toBe(false)
   })
 
   test('empty match is a wildcard', () => {
-    expect(evaluateEventMatch({}, event())).toBe(true)
+    expect(evaluateEventMatch({}, adaptWrkqWebhookEvent(event()))).toBe(true)
   })
 
   test('origin.actor exact match', () => {
-    expect(evaluateEventMatch({ origin: { actor: 'human:lance' } }, event())).toBe(true)
+    expect(
+      evaluateEventMatch({ origin: { actor: 'human:lance' } }, adaptWrkqWebhookEvent(event()))
+    ).toBe(true)
     expect(
       evaluateEventMatch(
         { origin: { actor: 'human:lance' } },
-        event({ origin: { actor: 'agent:cody' } })
+        adaptWrkqWebhookEvent(event({ origin: { actor: 'agent:cody' } }))
       )
     ).toBe(false)
   })
 
   test('origin.kind match (human vs agent vs bare system)', () => {
-    expect(evaluateEventMatch({ origin: { kind: 'human' } }, event())).toBe(true)
+    expect(evaluateEventMatch({ origin: { kind: 'human' } }, adaptWrkqWebhookEvent(event()))).toBe(
+      true
+    )
     expect(
-      evaluateEventMatch({ origin: { kind: 'human' } }, event({ origin: { actor: 'agent:cody' } }))
+      evaluateEventMatch(
+        { origin: { kind: 'human' } },
+        adaptWrkqWebhookEvent(event({ origin: { actor: 'agent:cody' } }))
+      )
     ).toBe(false)
     expect(
-      evaluateEventMatch({ origin: { kind: 'system' } }, event({ origin: { actor: 'system' } }))
+      evaluateEventMatch(
+        { origin: { kind: 'system' } },
+        adaptWrkqWebhookEvent(event({ origin: { actor: 'system' } }))
+      )
     ).toBe(true)
     expect(
       evaluateEventMatch(
         { origin: { kind: 'system' } },
-        event({ origin: { actor: 'system:wrkq-system' } })
+        adaptWrkqWebhookEvent(event({ origin: { actor: 'system:wrkq-system' } }))
       )
     ).toBe(true)
   })
 
   test('"draft created by lance" composite match (the cody-review job)', () => {
-    const draftByLance = event({ transition: { from: null, to: 'draft' } })
+    const draftByLance = adaptWrkqWebhookEvent(event({ transition: { from: null, to: 'draft' } }))
     const match = {
       event: 'created',
       transition: { to: 'draft' },
@@ -124,19 +204,47 @@ describe('evaluateEventMatch', () => {
     expect(
       evaluateEventMatch(
         match,
-        event({ transition: { to: 'draft' }, origin: { actor: 'agent:rex' } })
+        adaptWrkqWebhookEvent(
+          event({ transition: { to: 'draft' }, origin: { actor: 'agent:rex' } })
+        )
       )
     ).toBe(false)
     // lance but not draft → no match
-    expect(evaluateEventMatch(match, event({ transition: { to: 'open' } }))).toBe(false)
+    expect(
+      evaluateEventMatch(match, adaptWrkqWebhookEvent(event({ transition: { to: 'open' } })))
+    ).toBe(false)
+  })
+
+  test('matches generic subject.type and payload eq/anyOf/exists predicates', () => {
+    const match = {
+      event: 'transcript.completed',
+      subject: { type: 'transcript' },
+      origin: { kind: 'system' },
+      payload: {
+        backend: { eq: 'mlx' },
+        model_id: { anyOf: ['voxtral', 'whisper'] },
+        'nested.status': { exists: true },
+      },
+    }
+    expect(evaluateEventMatch(match, acpEvent())).toBe(true)
+    expect(evaluateEventMatch(match, acpEvent({ subject: { type: 'episode', id: 'ep_1' } }))).toBe(
+      false
+    )
+    expect(evaluateEventMatch(match, acpEvent({ payload: { backend: 'other' } }))).toBe(false)
   })
 })
 
 describe('isAgentOriginEvent', () => {
   test('detects agent origin', () => {
-    expect(isAgentOriginEvent(event({ origin: { actor: 'agent:clod' } }))).toBe(true)
-    expect(isAgentOriginEvent(event({ origin: { actor: 'human:lance' } }))).toBe(false)
-    expect(isAgentOriginEvent(event({ origin: { actor: 'system' } }))).toBe(false)
+    expect(
+      isAgentOriginEvent(adaptWrkqWebhookEvent(event({ origin: { actor: 'agent:clod' } })))
+    ).toBe(true)
+    expect(
+      isAgentOriginEvent(adaptWrkqWebhookEvent(event({ origin: { actor: 'human:lance' } })))
+    ).toBe(false)
+    expect(isAgentOriginEvent(adaptWrkqWebhookEvent(event({ origin: { actor: 'system' } })))).toBe(
+      false
+    )
   })
 })
 
@@ -145,14 +253,14 @@ describe('resolveEventAction (fail-closed)', () => {
     const result = resolveEventAction({
       scopeRefTemplate: 'agent:clod:project:{{project_scope_id}}:task:{{ticket_id}}',
       inputTemplate: { content: 'Research {{title}} ({{ticket_id}})' },
-      event: event(),
+      event: adaptWrkqWebhookEvent(event()),
     })
     expect(result.ok).toBe(true)
     if (result.ok) {
       expect(result.resolved.scopeRef).toBe('agent:clod:project:agent-control-plane:task:T-00042')
       expect(result.resolved.laneRef).toBe('main')
       expect(result.resolved.input['content']).toBe('Research Investigate widget (T-00042)')
-      expect(result.resolved.targetTaskId).toBe('T-00042')
+      expect(result.resolved.targetKey).toBe('T-00042')
     }
   })
 
@@ -160,7 +268,7 @@ describe('resolveEventAction (fail-closed)', () => {
     const result = resolveEventAction({
       scopeRefTemplate: 'agent:clod:project:{{project_scope_id}}:task:{{ticket_id}}',
       inputTemplate: { content: 'x' },
-      event: event({ ticket_id: undefined }),
+      event: adaptWrkqWebhookEvent(event({ ticket_id: undefined })),
     })
     expect(result.ok).toBe(false)
   })
@@ -169,7 +277,7 @@ describe('resolveEventAction (fail-closed)', () => {
     const result = resolveEventAction({
       scopeRefTemplate: 'agent:clod:project:{{project_scope_id}}:task:{{ticket_id}}',
       inputTemplate: { content: 'Hello {{unknown_var}}' },
-      event: event(),
+      event: adaptWrkqWebhookEvent(event()),
     })
     expect(result.ok).toBe(false)
   })
@@ -178,7 +286,7 @@ describe('resolveEventAction (fail-closed)', () => {
     const result = resolveEventAction({
       scopeRefTemplate: 'not a scope ref {{ticket_id}}',
       inputTemplate: { content: 'x' },
-      event: event(),
+      event: adaptWrkqWebhookEvent(event()),
     })
     expect(result.ok).toBe(false)
   })
@@ -188,11 +296,32 @@ describe('resolveEventAction (fail-closed)', () => {
     const result = resolveEventAction({
       scopeRefTemplate: 'agent:clod:project:{{project_scope_id}}:task:{{ticket_id}}',
       inputTemplate: { content: '{{title}}' },
-      event: event({ title: longTitle }),
+      event: adaptWrkqWebhookEvent(event({ title: longTitle })),
     })
     expect(result.ok).toBe(true)
     if (result.ok) {
       expect((result.resolved.input['content'] as string).length).toBeLessThanOrEqual(500)
+    }
+  })
+
+  test('generic source denies payload in structural templates but allows capped payload content', () => {
+    const denied = resolveEventAction({
+      scopeRefTemplate: 'agent:mneme:project:{{payload.project}}:task:primary',
+      inputTemplate: { content: 'x' },
+      event: acpEvent({ payload: { project: 'media-ingest' } }),
+    })
+    expect(denied.ok).toBe(false)
+
+    const resolved = resolveEventAction({
+      scopeRefTemplate: 'agent:mneme:project:media-ingest:task:primary',
+      inputTemplate: { content: 'Transcript {{payload.transcript_id}} via {{payload.backend}}' },
+      event: acpEvent(),
+    })
+    expect(resolved.ok).toBe(true)
+    if (resolved.ok) {
+      expect(resolved.resolved.scopeRef).toBe('agent:mneme:project:media-ingest:task:primary')
+      expect(resolved.resolved.input['content']).toBe('Transcript tr_1 via mlx')
+      expect(resolved.resolved.targetKey).toBe('transcript:tr_1')
     }
   })
 })
@@ -214,14 +343,41 @@ describe('validateJobTrigger', () => {
     expect(result.valid).toBe(true)
   })
 
-  test('rejects event trigger without wrkq source', () => {
-    expect(validateJobTrigger({ kind: 'event', source: 'github', match: {} }).valid).toBe(false)
+  test('accepts a generic event trigger source', () => {
+    expect(
+      validateJobTrigger({
+        kind: 'event',
+        source: 'media-ingest',
+        match: {
+          event: 'transcript.completed',
+          subject: { type: 'transcript' },
+          payload: { backend: { eq: 'mlx' } },
+        },
+      }).valid
+    ).toBe(true)
   })
 
   test('rejects unknown kind and bad cooldown', () => {
     expect(validateJobTrigger({ kind: 'cron', cron: '0 * * * *' }).valid).toBe(false)
     expect(
       validateJobTrigger({ kind: 'event', source: 'wrkq', match: {}, cooldown: 'soon' }).valid
+    ).toBe(false)
+  })
+
+  test('rejects invalid matcher syntax', () => {
+    expect(
+      validateJobTrigger({
+        kind: 'event',
+        source: 'media-ingest',
+        match: { payload: { 'bad path': { eq: 'x' } } },
+      }).valid
+    ).toBe(false)
+    expect(
+      validateJobTrigger({
+        kind: 'event',
+        source: 'Media Ingest',
+        match: {},
+      }).valid
     ).toBe(false)
   })
 })

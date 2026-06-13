@@ -217,22 +217,32 @@ export type {
 } from './coordination-messages.js'
 
 export {
+  adaptWrkqWebhookEvent,
+  canonicalAcpEventId,
   evaluateEventMatch,
   isAgentOriginEvent,
   normalizeAgentActor,
+  parseAcpWebhookEvent,
   parseDurationToMs,
   parseWrkqWebhookEvent,
   resolveEventAction,
   validateJobTrigger,
 } from './webhook/index.js'
 export type {
+  AcpWebhookEvent,
+  AcpWebhookOrigin,
+  AcpWebhookSubject,
   EventMatch,
   EventOriginMatch,
+  EventSubjectMatch,
   EventTrigger,
+  JsonScalar,
   JobTrigger,
   JobTriggerKind,
   OriginPolicy,
+  ParseAcpWebhookEventResult,
   ParseWrkqWebhookEventResult,
+  PayloadPathPredicate,
   ResolvedEventAction,
   ResolveEventActionResult,
   ScheduleTrigger,
