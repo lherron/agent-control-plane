@@ -36,8 +36,8 @@
     "acp-state-store": "*",
     "agent-scope": "0.1.1-dev.20260611173655",
     "coordination-substrate": "*",
-    "hrc-core": "0.1.0-dev.20260612100523",
-    "hrc-sdk": "0.1.0-dev.20260612100523",
+    "hrc-core": "0.1.0-dev.20260612121706",
+    "hrc-sdk": "0.1.0-dev.20260612121706",
     "spaces-config": "0.1.1-dev.20260611173655",
     "spaces-runtime": "0.1.1-dev.20260611173655",
     "wrkq-lib": "*"

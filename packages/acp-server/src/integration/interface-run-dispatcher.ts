@@ -9,6 +9,7 @@ import type { RunStore, StoredRun } from '../domain/run-store.js'
 import { isRecord } from '../parsers/body.js'
 import {
   hasHrcAcceptedRunSince,
+  launchCorrelationUntilIso,
   readCompletedAssistantMessageAfterSeq,
   readCompletedAssistantMessageFromHrcEvents,
   readRunStatus,
@@ -103,11 +104,19 @@ export function createInterfaceRunDispatcher(
         // SDK-headless dispatchTurn blocks until the HRC turn completes, so a
         // long-running turn can leave the ACP run pending+no-hrcRunId well past
         // the dispatch timeout even though HRC accepted and is actively
-        // processing it. Treat any HRC run accepted on the same host session
-        // since this ACP run was created as evidence the launch succeeded.
+        // processing it. Treat an HRC run accepted on the same host session
+        // within a bounded window after this ACP run was created as evidence the
+        // launch succeeded. The window bound is essential: without it, an
+        // UNRELATED turn dispatched hours later keeps a long-dead pending run
+        // alive, jamming the lane's input queue forever (T-04297 follow-up).
         const launchObserved =
           run.hostSessionId !== undefined &&
-          hasHrcAcceptedRunSince(hrcDbPath, run.hostSessionId, run.createdAt)
+          hasHrcAcceptedRunSince(
+            hrcDbPath,
+            run.hostSessionId,
+            run.createdAt,
+            launchCorrelationUntilIso(run.createdAt)
+          )
         if (!launchObserved) {
           runFailed = true
           errorCode = 'dispatch_timeout'

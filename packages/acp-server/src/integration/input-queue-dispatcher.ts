@@ -9,7 +9,10 @@ import {
   isRuntimeBusyError,
 } from '../input-admission/runtime-busy.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
-import { hasHrcAcceptedRunSince as defaultHasHrcAcceptedRunSince } from '../real-launcher.js'
+import {
+  hasHrcAcceptedRunSince as defaultHasHrcAcceptedRunSince,
+  launchCorrelationUntilIso,
+} from '../real-launcher.js'
 
 export type InputQueueDispatcher = {
   start(): void
@@ -39,7 +42,7 @@ export type InputQueueDispatcherDeps = Pick<
   config: InputQueueDispatcherConfig
   hrcDbPath?: string | undefined
   hasHrcAcceptedRunSince?:
-    | ((hrcDbPath: string, hostSessionId: string, since: string) => boolean)
+    | ((hrcDbPath: string, hostSessionId: string, since: string, until?: string) => boolean)
     | undefined
 }
 
@@ -59,7 +62,7 @@ type ClassifyStalePendingRunBlockerInput = {
   timeoutMs: number
   hrcDbPath?: string | undefined
   hasHrcAcceptedRunSince?:
-    | ((hrcDbPath: string, hostSessionId: string, since: string) => boolean)
+    | ((hrcDbPath: string, hostSessionId: string, since: string, until?: string) => boolean)
     | undefined
 }
 
@@ -100,7 +103,12 @@ function classifyStalePendingRunBlocker(
   if (
     hrcDbPath !== undefined &&
     run.hostSessionId !== undefined &&
-    hasHrcAcceptedRunSince(hrcDbPath, run.hostSessionId, run.createdAt)
+    hasHrcAcceptedRunSince(
+      hrcDbPath,
+      run.hostSessionId,
+      run.createdAt,
+      launchCorrelationUntilIso(run.createdAt)
+    )
   ) {
     return undefined
   }

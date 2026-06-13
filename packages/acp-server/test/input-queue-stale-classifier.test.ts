@@ -10,6 +10,7 @@ import {
 } from '../src/index.js'
 import * as inputQueueDispatcherModule from '../src/integration/input-queue-dispatcher.js'
 import { createInputQueueDispatcher } from '../src/integration/input-queue-dispatcher.js'
+import { LAUNCH_CORRELATION_WINDOW_MS } from '../src/real-launcher.js'
 
 type DispatcherDeps = Parameters<typeof createInputQueueDispatcher>[0]
 type DispatcherTestHooks = {
@@ -18,7 +19,12 @@ type DispatcherTestHooks = {
     siblings: readonly StoredRun[]
     timeoutMs: number
     hrcDbPath?: string | undefined
-    hasHrcAcceptedRunSince?: (hrcDbPath: string, hostSessionId: string, since: string) => boolean
+    hasHrcAcceptedRunSince?: (
+      hrcDbPath: string,
+      hostSessionId: string,
+      since: string,
+      until?: string
+    ) => boolean
   }) => 'no_correlation' | 'partial_correlation' | undefined
   sameSessionHasActiveRun: (deps: DispatcherDeps, item: InputQueueItem) => boolean
 }
@@ -26,7 +32,12 @@ type DispatcherTestHooks = {
 function createDeps(
   overrides: Partial<DispatcherDeps> & {
     hrcDbPath?: string | undefined
-    hasHrcAcceptedRunSince?: (hrcDbPath: string, hostSessionId: string, since: string) => boolean
+    hasHrcAcceptedRunSince?: (
+      hrcDbPath: string,
+      hostSessionId: string,
+      since: string,
+      until?: string
+    ) => boolean
   } = {}
 ): DispatcherDeps {
   const deps = {
@@ -147,11 +158,16 @@ describe('input queue stale pending classifier', () => {
   })
 
   test('R4 HRC accepted-run evidence protects a partial-correlation run without ACP siblings', async () => {
-    const acceptedChecks: Array<{ hrcDbPath: string; hostSessionId: string; since: string }> = []
+    const acceptedChecks: Array<{
+      hrcDbPath: string
+      hostSessionId: string
+      since: string
+      until?: string
+    }> = []
     const deps = createDeps({
       hrcDbPath: '/tmp/hrc-r4.sqlite',
-      hasHrcAcceptedRunSince: (hrcDbPath, hostSessionId, since) => {
-        acceptedChecks.push({ hrcDbPath, hostSessionId, since })
+      hasHrcAcceptedRunSince: (hrcDbPath, hostSessionId, since, until) => {
+        acceptedChecks.push({ hrcDbPath, hostSessionId, since, until })
         return true
       },
     })
@@ -165,14 +181,51 @@ describe('input queue stale pending classifier', () => {
     await letRunBecomeStale()
     await createInputQueueDispatcher(deps).runOnce()
 
+    // T-04297 follow-up: the launch-evidence query is now BOUNDED — the `until`
+    // edge is createdAt + LAUNCH_CORRELATION_WINDOW_MS (5 min), so unrelated
+    // later turns on the same host session cannot resurrect a dead pending run.
     expect(acceptedChecks).toEqual([
       {
         hrcDbPath: '/tmp/hrc-r4.sqlite',
         hostSessionId: 'hsid-r4-parked',
         since: partial.createdAt,
+        until: new Date(Date.parse(partial.createdAt) + LAUNCH_CORRELATION_WINDOW_MS).toISOString(),
       },
     ])
     expect(deps.runStore.getRun(parked.runId)?.status).toBe('pending')
+  })
+
+  test('T-04297 unrelated later HRC run (outside the window) does NOT protect the blocker; queue unjams', async () => {
+    // Simulate the real incident: a pending ACP run that never launched, with an
+    // HRC run accepted on the same host session but FAR outside the correlation
+    // window (the 15:03 failure vs. unrelated 17:18 turns). The bounded query
+    // returns false for that out-of-window evidence, so the blocker is failed.
+    const deps = createDeps({
+      hrcDbPath: '/tmp/hrc-t04297.sqlite',
+      hasHrcAcceptedRunSince: (_hrcDbPath, _hostSessionId, since, until) => {
+        // Out-of-window evidence: an HRC run accepted 2h after `since`, i.e.
+        // AFTER `until`. A correctly-bounded query finds nothing → returns false.
+        const acceptedAtMs = Date.parse(since) + 2 * 60 * 60_000
+        if (until === undefined) {
+          return true
+        }
+        return acceptedAtMs < Date.parse(until)
+      },
+    })
+    const sessionRef = {
+      scopeRef: 'agent:mneme:project:media-ingest:task:primary',
+      laneRef: 'main',
+    }
+    const blocker = deps.runStore.createRun({ sessionRef, status: 'pending' })
+    deps.runStore.updateRun(blocker.runId, { hostSessionId: 'hsid-mneme-primary' })
+
+    await letRunBecomeStale()
+    await createInputQueueDispatcher(deps).runOnce()
+
+    expect(deps.runStore.getRun(blocker.runId)).toMatchObject({
+      status: 'failed',
+      errorCode: 'dispatch_timeout',
+    })
   })
 
   test('R4 classifier returns undefined when HRC accepted-run evidence exists', async () => {

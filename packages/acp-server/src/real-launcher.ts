@@ -636,23 +636,70 @@ async function pollCompletedAssistantMessage(options: {
   return readCompletedAssistantMessageFromHrcEvents(options.hrcDbPath, options.runId)
 }
 
+// A genuine launch is ACCEPTED by HRC within seconds of the ACP run being
+// created (acceptance happens at turn start, NOT completion — even a fully cold
+// runtime+broker provision is well under a minute). 5 minutes is ~10x headroom
+// for cold-start/load, while rejecting unrelated turns dispatched far later that
+// would otherwise falsely "prove" a long-dead pending run launched (T-04297
+// follow-up: a 15:03 failed turn was kept "launched" by 17:18 e2e turns on the
+// same host session, jamming every subsequent Discord message into a
+// non-draining queue).
+export const LAUNCH_CORRELATION_WINDOW_MS = 5 * 60_000
+
+/**
+ * Upper bound (exclusive) for `hasHrcAcceptedRunSince` launch evidence: the HRC
+ * run must have been accepted within LAUNCH_CORRELATION_WINDOW_MS of the ACP run
+ * being created. Returns undefined for an unparseable timestamp (caller then
+ * falls back to the unbounded, lower-edge-only query).
+ */
+export function launchCorrelationUntilIso(createdAtIso: string): string | undefined {
+  const createdMs = Date.parse(createdAtIso)
+  if (Number.isNaN(createdMs)) {
+    return undefined
+  }
+  return new Date(createdMs + LAUNCH_CORRELATION_WINDOW_MS).toISOString()
+}
+
 export function hasHrcAcceptedRunSince(
   hrcDbPath: string,
   hostSessionId: string,
-  sinceIso: string
+  sinceIso: string,
+  // Upper bound (exclusive) on `accepted_at`. Without it, a run accepted at ANY
+  // later time on the same host session counts as launch evidence — so an
+  // UNRELATED turn dispatched hours later keeps a long-dead pending run alive,
+  // and that phantom run blocks the whole lane's queue forever (T-04297 follow-up:
+  // a 15:03 failed turn was kept "launched" by 17:18 e2e turns on the same host
+  // session, jamming every subsequent Discord message into a non-draining queue).
+  // Callers pass `createdAt + LAUNCH_CORRELATION_WINDOW_MS`: a genuine launch is
+  // ACCEPTED by HRC within seconds of the ACP run being created, so a tight
+  // window admits real launches while rejecting unrelated later activity.
+  untilIso?: string
 ): boolean {
   const db = new Database(hrcDbPath, { readonly: true })
   try {
-    const row = db
-      .query<{ runId: string }, [string, string]>(
-        `SELECT run_id AS runId
-          FROM runs
-          WHERE host_session_id = ?
-            AND accepted_at IS NOT NULL
-            AND accepted_at >= ?
-          LIMIT 1`
-      )
-      .get(hostSessionId, sinceIso)
+    const row =
+      untilIso === undefined
+        ? db
+            .query<{ runId: string }, [string, string]>(
+              `SELECT run_id AS runId
+                FROM runs
+                WHERE host_session_id = ?
+                  AND accepted_at IS NOT NULL
+                  AND accepted_at >= ?
+                LIMIT 1`
+            )
+            .get(hostSessionId, sinceIso)
+        : db
+            .query<{ runId: string }, [string, string, string]>(
+              `SELECT run_id AS runId
+                FROM runs
+                WHERE host_session_id = ?
+                  AND accepted_at IS NOT NULL
+                  AND accepted_at >= ?
+                  AND accepted_at < ?
+                LIMIT 1`
+            )
+            .get(hostSessionId, sinceIso, untilIso)
     return row !== null && row !== undefined
   } catch {
     return false
