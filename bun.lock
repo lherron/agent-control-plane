@@ -154,7 +154,7 @@
         "acp-server": "./src/cli.ts",
       },
       "dependencies": {
-        "@wrkq/client": "0.1.0-dev.20260614205839",
+        "@wrkq/client": "0.1.0-dev.20260615090809",
         "acp-admin-store": "*",
         "acp-conversation": "*",
         "acp-core": "*",
@@ -727,7 +727,7 @@
 
     "@vladfrangu/async_event_emitter": ["@vladfrangu/async_event_emitter@2.4.7", "http://127.0.0.1:4873/@vladfrangu/async_event_emitter/-/async_event_emitter-2.4.7.tgz", {}, "sha512-Xfe6rpCTxSxfbswi/W/Pz7zp1WWSNn4A0eW4mLkQUewCrXXtMj31lCg+iQyTkh/CkusZSq9eDflu7tjEDXUY6g=="],
 
-    "@wrkq/client": ["@wrkq/client@0.1.0-dev.20260614205839", "http://127.0.0.1:4873/@wrkq/client/-/client-0.1.0-dev.20260614205839.tgz", {}, "sha512-EYsmr7o5EuXd3Oia/P8SkBiieDKuUKbzcBIyLCXASV8hkbiCccBftjLbjEUcoP8MpMR/xN97T0EHWL8LMRgWCA=="],
+    "@wrkq/client": ["@wrkq/client@0.1.0-dev.20260615090809", "http://127.0.0.1:4873/@wrkq/client/-/client-0.1.0-dev.20260615090809.tgz", {}, "sha512-ZXa9qw9LQewVB2fkDRdJmjYF40+cMY3nrCCg+BZ9fDr/PI9DoFj6VuHQEB8xyxk3a9zlMAS6MzPh4PDA42GGeg=="],
 
     "acp-admin-store": ["acp-admin-store@workspace:packages/acp-admin-store"],
 

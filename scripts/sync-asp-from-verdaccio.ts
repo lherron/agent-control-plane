@@ -34,7 +34,14 @@ const HRC_PACKAGES = [
 ] as const
 
 type HrcPackage = (typeof HRC_PACKAGES)[number]
-type SyncPackage = AspPackage | HrcPackage
+
+// @wrkq/client tracks its own independent dev-timestamp stream (0.1.0-dev.*),
+// separate from ASP (0.1.1-dev.*) and HRC (0.1.0-dev.*) — so it is its OWN
+// coherence group rather than being merged into either set.
+const WRKQ_PACKAGES = ['@wrkq/client'] as const
+
+type WrkqPackage = (typeof WRKQ_PACKAGES)[number]
+type SyncPackage = AspPackage | HrcPackage | WrkqPackage
 
 type Manifest = {
   name?: string
@@ -206,7 +213,8 @@ async function verifyInstalled(latest: Map<SyncPackage, string>, label: string):
 async function syncAsp(): Promise<void> {
   const latestAsp = await latestPackageVersions(ASP_PACKAGES, 'ASP')
   const latestHrc = await latestPackageVersions(HRC_PACKAGES, 'HRC')
-  const latest = new Map<SyncPackage, string>([...latestAsp, ...latestHrc])
+  const latestWrkq = await latestPackageVersions(WRKQ_PACKAGES, 'WRKQ')
+  const latest = new Map<SyncPackage, string>([...latestAsp, ...latestHrc, ...latestWrkq])
   const changed = await syncManifests(latest)
   const installedLatest = await installedPackagesAreLatest(latest)
 
@@ -229,7 +237,7 @@ async function syncAsp(): Promise<void> {
 
   await verifyInstalled(latest, 'ASP/HRC')
   console.log(
-    `ASP_SYNC  ${ASP_PACKAGES[0]}@${latestAsp.get(ASP_PACKAGES[0])}  HRC_SYNC ${HRC_PACKAGES[1]}@${latestHrc.get(HRC_PACKAGES[1])}`
+    `ASP_SYNC  ${ASP_PACKAGES[0]}@${latestAsp.get(ASP_PACKAGES[0])}  HRC_SYNC ${HRC_PACKAGES[1]}@${latestHrc.get(HRC_PACKAGES[1])}  WRKQ_SYNC ${WRKQ_PACKAGES[0]}@${latestWrkq.get(WRKQ_PACKAGES[0])}`
   )
 }
 
