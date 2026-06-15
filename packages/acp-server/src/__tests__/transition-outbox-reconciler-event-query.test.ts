@@ -2,7 +2,8 @@
  * RED TESTS — P2c: transition-outbox reconciler on wrkf.event.query (T-04794)
  *
  * All tests fail at runtime because reconcileTransitionOutbox still uses the
- * OLD raw-SQLite scan (wrkqStore.sqlite.prepare) instead of wrkf.event.query.
+ * OLD raw-SQLite scan (prepared SQL on the wrkq store sqlite handle) instead of
+ * wrkf.event.query.
  * We call the existing function with the NEW expected signature — it crashes
  * with "TypeError: Cannot read properties of undefined (reading 'sqlite')"
  * because input.wrkqStore is not supplied. That is the canonical RED signal.
@@ -27,7 +28,7 @@
  *
  * Where WrkfEventFacade = { query(params?: WrkfEventQueryParams): Promise<WrkfEventQueryResult> }
  *
- * Scan phase (replaces scanEligibleTransitions / wrkqStore.sqlite.prepare):
+ * Scan phase (replaces scanEligibleTransitions / the old raw-sqlite prepare):
  *   client.wrkf.event.query({
  *     eventType: 'workflow.transitioned',
  *     fromPhase: 'red',
@@ -75,11 +76,11 @@ import {
 
 import type { WrkfEventQueryParams, WrkfEventQueryResult, WrkfTransitionEvent } from '@wrkq/client'
 
+import { buildTesterSessionRef } from '../integration/handoff-on-transition.js'
 import {
   type ReconcileTransitionOutboxResult,
   reconcileTransitionOutbox,
 } from '../integration/transition-outbox-reconciler.js'
-import { buildTesterSessionRef } from '../integration/handoff-on-transition.js'
 
 // ─── NEW expected input type (P2c shape — what the impl WILL accept after rewrite) ──
 
@@ -101,7 +102,7 @@ type ReconcileViaEventQueryInput = {
  * Cast the existing reconcileTransitionOutbox to the expected P2c signature.
  *
  * RED: calling this with the new params fails at runtime because the current
- * impl calls input.wrkqStore.sqlite.prepare(...) and wrkqStore is undefined.
+ * impl calls input.wrkqStore's raw sqlite prepare(...) and wrkqStore is undefined.
  * That TypeError IS the red failure — it proves the impl still uses raw SQLite.
  */
 const reconcileViaEventQuery = reconcileTransitionOutbox as unknown as (
@@ -191,7 +192,10 @@ function makeTransitionEvent(
 }
 
 const EVENT_A = makeTransitionEvent({ id: 'wfe_p2c_001' })
-const EVENT_B = makeTransitionEvent({ id: 'wfe_p2c_002', task: { ...makeTransitionEvent({ id: 'wfe_p2c_002' }).task, id: TASK_ID_2 } })
+const EVENT_B = makeTransitionEvent({
+  id: 'wfe_p2c_002',
+  task: { ...makeTransitionEvent({ id: 'wfe_p2c_002' }).task, id: TASK_ID_2 },
+})
 
 /** Event with NO matching tester binding (forward role model: tester not bound) */
 const EVENT_NO_TESTER = makeTransitionEvent({
@@ -212,7 +216,10 @@ function queryResult(
 }
 
 /** Fake WrkfEventFacade with configurable page responses */
-type PagedResponse = { result: WrkfEventQueryResult; assertParams?: (p: WrkfEventQueryParams) => void }
+type PagedResponse = {
+  result: WrkfEventQueryResult
+  assertParams?: (p: WrkfEventQueryParams) => void
+}
 
 function makeFakeWrkfEvent(pages: PagedResponse[]): {
   facade: { query(params?: WrkfEventQueryParams): Promise<WrkfEventQueryResult> }
@@ -250,7 +257,12 @@ function makeBrokenCoordStore(message: string, real: CoordinationStore): Coordin
                 throw new Error(message)
               }
             }
-            return Reflect.get(_t, sqliteProp)
+            // Pass reads (e.g. the idempotency precheck's query/prepare) through
+            // to the real sqlite, BOUND to it — bun:sqlite methods use private
+            // fields and break if invoked with the Proxy as `this`. Only the
+            // write transaction is rigged to throw.
+            const value = Reflect.get(_t, sqliteProp)
+            return typeof value === 'function' ? value.bind(_t) : value
           },
         })
       }
@@ -569,7 +581,10 @@ describe('Section 2 — Drain pending outbox: pre-seeded entry → coordination 
       projectId: PROJECT_ID,
       taskId: TASK_ID,
     })
-    const wakes = listPendingWakes(coordStore, { projectId: PROJECT_ID, sessionRef: testerSessionRef })
+    const wakes = listPendingWakes(coordStore, {
+      projectId: PROJECT_ID,
+      sessionRef: testerSessionRef,
+    })
     expect(wakes.length).toBeGreaterThanOrEqual(1)
     expect(wakes[0]?.sessionRef).toEqual(testerSessionRef)
   })
@@ -803,7 +818,10 @@ describe('Section 4 — Concurrent-drain idempotency: no duplicate handoff for s
       projectId: PROJECT_ID,
       taskId: TASK_ID,
     })
-    const wakes = listPendingWakes(coordStore, { projectId: PROJECT_ID, sessionRef: testerSessionRef })
+    const wakes = listPendingWakes(coordStore, {
+      projectId: PROJECT_ID,
+      sessionRef: testerSessionRef,
+    })
     const wake = wakes[0]
     // dedupeKey must be the transition-event id for idempotency
     expect(wake?.dedupeKey).toBe(EVENT_A.id)
@@ -817,7 +835,8 @@ describe('Section 4 — Concurrent-drain idempotency: no duplicate handoff for s
 // the event id — real binary uses base64-encoded JSON pagination state).
 
 describe('Section 5 — Cursor/limit paging over wrkf.event.query (P2c red)', () => {
-  const NEXT_CURSOR = 'eyJzb3J0X2ZpZWxkcyI6WyJjcmVhdGVkX2F0Il0sImxhc3RfdmFsdWVzIjpbIjIwMjYtMDYtMTVUMTA6MDA6MDBaIl0sImxhc3RfaWQiOiJ3ZmVfcDJjXzAwMSJ9'
+  const NEXT_CURSOR =
+    'eyJzb3J0X2ZpZWxkcyI6WyJjcmVhdGVkX2F0Il0sImxhc3RfdmFsdWVzIjpbIjIwMjYtMDYtMTVUMTA6MDA6MDBaIl0sImxhc3RfaWQiOiJ3ZmVfcDJjXzAwMSJ9'
 
   test('[RED] when hasMore=true, reconciler calls query again with nextCursor', async () => {
     const stateStore = openStateStore()
@@ -1015,7 +1034,10 @@ describe('Section 6 — Crash-recovery: transition committed while ACP was down 
       projectId: PROJECT_ID,
       taskId: TASK_ID,
     })
-    const wakes = listPendingWakes(coordStore, { projectId: PROJECT_ID, sessionRef: testerSessionRef })
+    const wakes = listPendingWakes(coordStore, {
+      projectId: PROJECT_ID,
+      sessionRef: testerSessionRef,
+    })
     expect(wakes).toHaveLength(1)
     expect(wakes[0]?.state).toBe('queued')
   })
@@ -1098,9 +1120,7 @@ describe('Section 7 — boundRole semantics: no forward tester binding → NOT e
     const stateStore = openStateStore()
     const coordStore = openCoordStore()
 
-    const { facade } = makeFakeWrkfEvent([
-      { result: queryResult([EVENT_A, EVENT_NO_TESTER]) },
-    ])
+    const { facade } = makeFakeWrkfEvent([{ result: queryResult([EVENT_A, EVENT_NO_TESTER]) }])
 
     try {
       await reconcileViaEventQuery({ wrkfEvent: facade, stateStore, coordStore })

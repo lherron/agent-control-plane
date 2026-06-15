@@ -64,7 +64,7 @@ function mapTransitionOutboxRow(row: TransitionOutboxRow): TransitionOutboxRecor
     ...(row.leased_at !== null ? { leasedAt: row.leased_at } : {}),
     ...(row.delivered_at !== null ? { deliveredAt: row.delivered_at } : {}),
     attempts: row.attempts,
-    ...(row.last_error !== null ? { lastError: row.last_error } : {}),
+    lastError: row.last_error,
     createdAt: row.created_at,
   }
 }
