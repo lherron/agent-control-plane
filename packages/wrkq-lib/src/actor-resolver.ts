@@ -1,3 +1,4 @@
+import { nextSequentialId } from './repos/shared.js'
 import type { SqliteDatabase } from './sqlite.js'
 
 export interface StoreActorIdentity {
@@ -7,10 +8,6 @@ export interface StoreActorIdentity {
 
 type ActorRow = {
   uuid: string
-}
-
-type NextActorIdRow = {
-  id: string
 }
 
 export class ActorResolver {
@@ -44,15 +41,7 @@ export class ActorResolver {
       return existing.uuid
     }
 
-    const nextActorId = (
-      this.sqlite
-        .prepare(
-          `SELECT printf('A-%05d', COALESCE(MAX(CAST(substr(id, 3) AS INTEGER)), 0) + 1) AS id
-             FROM actors
-            WHERE id GLOB 'A-[0-9]*'`
-        )
-        .get() as NextActorIdRow
-    ).id
+    const nextActorId = nextSequentialId(this.sqlite, 'actors', 'A')
 
     this.sqlite
       .prepare('INSERT INTO actors (id, slug, display_name, role) VALUES (?, ?, ?, ?)')

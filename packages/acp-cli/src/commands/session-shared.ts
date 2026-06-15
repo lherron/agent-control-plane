@@ -18,6 +18,14 @@ function normalizeSessionInput(
   }
 }
 
+export function normalizeActorId(raw: string): string {
+  const trimmed = raw.trim()
+  if (trimmed.startsWith('agent:')) {
+    return trimmed.slice('agent:'.length)
+  }
+  return trimmed
+}
+
 export function readSessionRefFlags(
   parsed: ParsedArgs,
   options: {

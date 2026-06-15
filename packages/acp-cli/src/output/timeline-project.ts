@@ -8,6 +8,7 @@ import type {
 } from 'acp-core'
 
 import type { GetTaskResponse, WrkfRun } from '../http-client.js'
+import { asRecord, parseDeliveryRef, stringField } from './json-narrow.js'
 
 export type TimelineCategory =
   | 'transition'
@@ -96,17 +97,6 @@ export type TaskTimelineProjection = {
   hrcDetail?: 'summary' | 'events' | 'full' | undefined
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {}
-}
-
-function stringField(record: Record<string, unknown>, field: string): string | undefined {
-  const value = record[field]
-  return typeof value === 'string' && value.length > 0 ? value : undefined
-}
-
 function categoryFor(type: string): TimelineCategory {
   if (type.startsWith('transition.')) return 'transition'
   if (type.startsWith('evidence.')) return 'evidence'
@@ -189,25 +179,6 @@ function versionDeltaFor(event: WorkflowEvent): { from: number; to: number } | u
     return undefined
   }
   return { from: event.observedTaskVersion, to: event.nextTaskVersion }
-}
-
-function parseDeliveryRef(
-  ref: string | undefined
-): { scopeRef?: string | undefined; laneRef?: string | undefined } | undefined {
-  if (ref === undefined || ref.length === 0) return undefined
-  try {
-    const parsed = JSON.parse(ref) as unknown
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-      return undefined
-    }
-    const record = parsed as Record<string, unknown>
-    return {
-      ...(typeof record['scopeRef'] === 'string' ? { scopeRef: record['scopeRef'] } : {}),
-      ...(typeof record['laneRef'] === 'string' ? { laneRef: record['laneRef'] } : {}),
-    }
-  } catch {
-    return undefined
-  }
 }
 
 function scopeFor(event: WorkflowEvent, runs: readonly WrkfRun[]): string | undefined {

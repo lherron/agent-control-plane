@@ -94,12 +94,6 @@ export function parseWrkqWebhookEvent(body: unknown): ParseWrkqWebhookEventResul
   return { ok: true, event: body as WrkqWebhookEvent }
 }
 
-/** True when the event's origin actor is an agent (`agent:*`). */
-export function isAgentOriginEvent(event: WrkqWebhookEvent): boolean {
-  const actor = event.origin?.actor
-  return typeof actor === 'string' && actor.startsWith('agent:')
-}
-
 /**
  * Normalize an origin actor / job agentId for comparison. The webhook origin
  * carries a kind-prefixed slug ("agent:clod") while a job carries a bare agentId

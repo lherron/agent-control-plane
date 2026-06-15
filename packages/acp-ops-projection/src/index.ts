@@ -241,18 +241,14 @@ function isRejectionKind(event: HrcLifecycleEvent): boolean {
 function deriveFamily(event: HrcLifecycleEvent): DashboardEventFamily {
   const type = payloadType(event)
 
-  if (type === 'message_start' || type === 'message_update' || type === 'message_end') {
+  if (isMessageType(type)) {
     // A user-prompt turn (e.g. turn.user_prompt) rides the message_end shape with
     // role:'user'. Route it to the input family so it reads distinctly from the
     // agent's own messages instead of blending into the assistant stream.
     return readString(payloadMessageRecord(event)?.['role']) === 'user' ? 'input' : 'agent_message'
   }
 
-  if (
-    type === 'tool_execution_start' ||
-    type === 'tool_execution_update' ||
-    type === 'tool_execution_end'
-  ) {
+  if (isToolType(type)) {
     return 'tool'
   }
 

@@ -17,9 +17,10 @@ import type { PbcContinuationJob } from 'acp-state-store'
 
 import { isRecord } from '../parsers/body.js'
 import { currentRevisionWindow, latestOfKind } from '../wrkf/packs/pbc/freshness.js'
+import { PBC_WORKFLOW_TEMPLATE_REF } from '../wrkf/packs/pbc/template-model.js'
 import type { NextActionResponse } from '../wrkf/projections.js'
 
-export const PBC_WORKFLOW_REF = 'pbc-progressive-refinement@9'
+export const PBC_WORKFLOW_REF = PBC_WORKFLOW_TEMPLATE_REF
 
 export type PbcScreen =
   | 'starting'

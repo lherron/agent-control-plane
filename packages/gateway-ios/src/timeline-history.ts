@@ -30,7 +30,6 @@ type ParsedHistoryQuery = {
   beforeHrcSeq?: number | undefined
   beforeMessageSeq?: number | undefined
   limit: number
-  raw: boolean
 }
 
 class HistoryRequestError extends Error {
@@ -103,6 +102,10 @@ export function parseHistoryQuery(url: URL): ParsedHistoryQuery {
     })
   }
 
+  // `raw` is currently unused by the history response, but still validated so a
+  // malformed `?raw=` value continues to reject with a 400 (behavior preserved).
+  parseBool(url.searchParams.get('raw'), 'raw')
+
   return {
     sessionRef,
     scopeRef,
@@ -115,7 +118,6 @@ export function parseHistoryQuery(url: URL): ParsedHistoryQuery {
       'beforeMessageSeq'
     ),
     limit: parseLimit(url.searchParams.get('limit')),
-    raw: parseBool(url.searchParams.get('raw'), 'raw'),
   }
 }
 
@@ -293,7 +295,6 @@ export async function projectPastWindow(
     beforeHrcSeq: opts.beforeHrcSeq,
     beforeMessageSeq: opts.beforeMessageSeq,
     limit: opts.limit,
-    raw: false,
   }
 
   const [eventsDescending, messagesDescending] = await Promise.all([
@@ -324,7 +325,6 @@ export async function getTimelineHistoryPage(
   url: URL
 ): Promise<HistoryPage> {
   const query = parseHistoryQuery(url)
-  void query.raw
 
   // If hostSessionId is omitted, resolve only this sessionRef lineage to its
   // active/latest generation. Do not broaden history to every generation.

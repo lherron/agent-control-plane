@@ -395,6 +395,12 @@ function ensureMigrationTable(sqlite: SqliteDatabase): void {
   `)
 }
 
+const PROFILE_ARRAY_LIMIT = 16
+const PROFILE_ARRAY_ITEM_LIMIT = 80
+
+const SQLITE_BUSY_TIMEOUT_MS = 5000
+const IDENTITY_ID_HEX_LENGTH = 16
+
 function createSqliteDatabase(dbPath: string): SqliteDatabase {
   if (!isEphemeralPath(dbPath)) {
     mkdirSync(dirname(dbPath), { recursive: true })
@@ -434,11 +440,23 @@ function parseJsonValue<T>(value: string): T {
   return JSON.parse(value) as T
 }
 
-const PROFILE_ARRAY_LIMIT = 16
-const PROFILE_ARRAY_ITEM_LIMIT = 80
-
-const SQLITE_BUSY_TIMEOUT_MS = 5000
-const IDENTITY_ID_HEX_LENGTH = 16
+// Builds a `WHERE <col> <op> ? AND ...` fragment plus its bound params from a
+// list of (column, op, value) filters, skipping entries whose value is
+// undefined. Returns an empty clause when no filters are active. The fragment
+// and param order are byte-identical to inlining the same filters in sequence.
+function buildWhereClause(
+  filters: ReadonlyArray<readonly [column: string, op: string, value: string | undefined]>
+): { whereClause: string; values: string[] } {
+  const clauses: string[] = []
+  const values: string[] = []
+  for (const [column, op, value] of filters) {
+    if (value === undefined) continue
+    clauses.push(`${column} ${op} ?`)
+    values.push(value)
+  }
+  const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : ''
+  return { whereClause, values }
+}
 
 function generateIdentityId(): string {
   return `ifid_${randomUUID().replace(/-/g, '').slice(0, IDENTITY_ID_HEX_LENGTH)}`
@@ -541,6 +559,9 @@ function profileScalarFromStorage(
   try {
     return validator(value, fieldName) ?? undefined
   } catch {
+    // Deliberate read-tolerance: stored values may predate a validation
+    // tightening. Drop (treat as absent) rather than failing the read so
+    // legacy rows remain loadable. Do NOT convert this to a throw.
     return undefined
   }
 }
@@ -1008,25 +1029,19 @@ function createMembershipsStore(sqlite: SqliteDatabase): MembershipsStore {
           serializeImmutableActorStamp(input.actor)
         )
 
-      return (sqlite
+      const row = sqlite
         .prepare(
           `SELECT project_id, agent_id, role, created_at, actor_stamp
            FROM memberships
            WHERE project_id = ? AND agent_id = ?`
         )
-        .get(input.projectId, input.agentId) as MembershipRow | undefined)
-        ? toAdminMembership(
-            sqlite
-              .prepare(
-                `SELECT project_id, agent_id, role, created_at, actor_stamp
-                 FROM memberships
-                 WHERE project_id = ? AND agent_id = ?`
-              )
-              .get(input.projectId, input.agentId) as MembershipRow
-          )
-        : (() => {
-            throw new Error('membership insert failed')
-          })()
+        .get(input.projectId, input.agentId) as MembershipRow | undefined
+
+      if (row === undefined) {
+        throw new Error('membership insert failed')
+      }
+
+      return toAdminMembership(row)
     },
 
     listByProject(projectId) {
@@ -1118,19 +1133,10 @@ function createInterfaceIdentitiesStore(sqlite: SqliteDatabase): InterfaceIdenti
     },
 
     list(filters = {}) {
-      const clauses: string[] = []
-      const values: string[] = []
-
-      if (filters.gatewayId !== undefined) {
-        clauses.push('gateway_id = ?')
-        values.push(filters.gatewayId)
-      }
-      if (filters.externalId !== undefined) {
-        clauses.push('external_id = ?')
-        values.push(filters.externalId)
-      }
-
-      const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : ''
+      const { whereClause, values } = buildWhereClause([
+        ['gateway_id', '=', filters.gatewayId],
+        ['external_id', '=', filters.externalId],
+      ])
       return (
         sqlite
           .prepare(
@@ -1196,27 +1202,12 @@ function createSystemEventsStore(sqlite: SqliteDatabase): SystemEventsStore {
     },
 
     list(filters) {
-      const clauses: string[] = []
-      const params: Array<string> = []
-
-      if (filters?.projectId !== undefined) {
-        clauses.push('project_id = ?')
-        params.push(filters.projectId)
-      }
-      if (filters?.kind !== undefined) {
-        clauses.push('kind = ?')
-        params.push(filters.kind)
-      }
-      if (filters?.occurredAfter !== undefined) {
-        clauses.push('occurred_at > ?')
-        params.push(filters.occurredAfter)
-      }
-      if (filters?.occurredBefore !== undefined) {
-        clauses.push('occurred_at < ?')
-        params.push(filters.occurredBefore)
-      }
-
-      const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : ''
+      const { whereClause, values } = buildWhereClause([
+        ['project_id', '=', filters?.projectId],
+        ['kind', '=', filters?.kind],
+        ['occurred_at', '>', filters?.occurredAfter],
+        ['occurred_at', '<', filters?.occurredBefore],
+      ])
       return (
         sqlite
           .prepare(
@@ -1225,7 +1216,7 @@ function createSystemEventsStore(sqlite: SqliteDatabase): SystemEventsStore {
            ${whereClause}
            ORDER BY occurred_at ASC, event_id ASC`
           )
-          .all(...params) as SystemEventRow[]
+          .all(...values) as SystemEventRow[]
       ).map(toSystemEvent)
     },
   }

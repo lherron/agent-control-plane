@@ -6,7 +6,7 @@ import {
   mapEvidenceToWriteRecord,
 } from '../mapping/evidence-row.js'
 import type { RepoContext } from './shared.js'
-import { findTaskUuid, requireTaskLookup } from './shared.js'
+import { findTaskUuid, nextEvidenceSeq, requireTaskLookup } from './shared.js'
 
 export class EvidenceRepo implements EvidenceStore {
   constructor(private readonly context: RepoContext) {}
@@ -62,8 +62,11 @@ export class EvidenceRepo implements EvidenceStore {
          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
 
+      const defaultActor = this.context.actorResolver.getDefaultActor()
+      const batchTimestamp = new Date().toISOString()
+      let nextSeq = nextEvidenceSeq(this.context.sqlite)
+
       for (const item of items) {
-        const defaultActor = this.context.actorResolver.getDefaultActor()
         const actorUuid = this.context.actorResolver.resolveActorUuid({
           agentId: item.producedBy?.agentId ?? defaultActor.agentId,
           ...(item.producedBy?.agentId === undefined && defaultActor.displayName !== undefined
@@ -74,18 +77,11 @@ export class EvidenceRepo implements EvidenceStore {
         const record = mapEvidenceToWriteRecord({
           evidence: item,
           producedByActorUuid: actorUuid,
-          defaultTimestamp: new Date().toISOString(),
+          defaultTimestamp: batchTimestamp,
           defaultRole: 'agent',
         })
-        const evidenceId = (
-          this.context.sqlite
-            .prepare(
-              `SELECT printf('EV-%05d', COALESCE(MAX(CAST(substr(id, 4) AS INTEGER)), 0) + 1) AS id
-                 FROM evidence_items
-                WHERE id GLOB 'EV-[0-9]*'`
-            )
-            .get() as { id: string }
-        ).id
+        const evidenceId = `EV-${String(nextSeq).padStart(5, '0')}`
+        nextSeq += 1
 
         insert.run(
           evidenceId,

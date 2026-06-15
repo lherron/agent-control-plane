@@ -762,6 +762,26 @@ function isEphemeralPath(path: string): boolean {
   return path === '' || path === ':memory:'
 }
 
+/**
+ * Resolves a nullable patch column: when the key is present on the patch object
+ * the supplied value (coalesced to null) wins, otherwise the existing row value
+ * is kept. Encodes the `key in patch ? (patch[key] ?? null) : existing` idiom.
+ */
+function pickNullable<T>(
+  hasKey: boolean,
+  value: T | null | undefined,
+  existing: T | null
+): T | null {
+  return hasKey ? (value ?? null) : existing
+}
+
+// Companion to `pickNullable` for the non-nullable patch idiom: take the
+// patched value when present, otherwise fall back to the existing column.
+// Behaviorally identical to `value ?? existing`.
+function coalesce<T>(value: T | null | undefined, existing: T): T {
+  return value ?? existing
+}
+
 function ensureMigrationTable(sqlite: SqliteDatabase): void {
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS acp_jobs_store_migrations (
@@ -1319,9 +1339,9 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
         flow !== undefined ? JSON.stringify(flow) : null,
         disabled ? 1 : 0,
         columns.nextFireAt,
-        patch.actor?.kind ?? existing.actor_kind,
-        patch.actor?.id ?? existing.actor_id,
-        patch.actor?.displayName ?? existing.actor_display_name,
+        coalesce(patch.actor?.kind, existing.actor_kind),
+        coalesce(patch.actor?.id, existing.actor_id),
+        coalesce(patch.actor?.displayName, existing.actor_display_name),
         patch.actorStamp ??
           (patch.actor !== undefined ? actorToStamp(patch.actor) : existing.actor_stamp),
         now,
@@ -1431,12 +1451,19 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
       throw new Error(`job run not found: ${jobRunId}`)
     }
 
-    const nextLeaseOwner = 'leaseOwner' in patch ? (patch.leaseOwner ?? null) : existing.lease_owner
-    const nextLeaseExpiresAt =
-      'leaseExpiresAt' in patch ? (patch.leaseExpiresAt ?? null) : existing.lease_expires_at
-    const nextClaimedAt = patch.claimedAt ?? existing.claimed_at
-    const nextDispatchedAt = patch.dispatchedAt ?? existing.dispatched_at
-    const nextCompletedAt = patch.completedAt ?? existing.completed_at
+    const nextLeaseOwner = pickNullable(
+      'leaseOwner' in patch,
+      patch.leaseOwner,
+      existing.lease_owner
+    )
+    const nextLeaseExpiresAt = pickNullable(
+      'leaseExpiresAt' in patch,
+      patch.leaseExpiresAt,
+      existing.lease_expires_at
+    )
+    const nextClaimedAt = coalesce(patch.claimedAt, existing.claimed_at)
+    const nextDispatchedAt = coalesce(patch.dispatchedAt, existing.dispatched_at)
+    const nextCompletedAt = coalesce(patch.completedAt, existing.completed_at)
     const now = new Date().toISOString()
 
     sqlite
@@ -1462,19 +1489,19 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
         `
       )
       .run(
-        patch.status ?? existing.status,
-        patch.inputAttemptId ?? existing.input_attempt_id,
-        patch.runId ?? existing.run_id,
-        patch.errorCode ?? existing.error_code,
-        patch.errorMessage ?? existing.error_message,
+        coalesce(patch.status, existing.status),
+        coalesce(patch.inputAttemptId, existing.input_attempt_id),
+        coalesce(patch.runId, existing.run_id),
+        coalesce(patch.errorCode, existing.error_code),
+        coalesce(patch.errorMessage, existing.error_message),
         nextLeaseOwner,
         nextLeaseExpiresAt,
         nextClaimedAt,
         nextDispatchedAt,
         nextCompletedAt,
-        patch.actor?.kind ?? existing.actor_kind,
-        patch.actor?.id ?? existing.actor_id,
-        patch.actor?.displayName ?? existing.actor_display_name,
+        coalesce(patch.actor?.kind, existing.actor_kind),
+        coalesce(patch.actor?.id, existing.actor_id),
+        coalesce(patch.actor?.displayName, existing.actor_display_name),
         patch.actorStamp ??
           (patch.actor !== undefined ? actorToStamp(patch.actor) : existing.actor_stamp),
         now,
@@ -1566,23 +1593,35 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
       throw new Error(`job step run not found: ${jobRunId}/${phase}/${stepId}/${attempt}`)
     }
 
-    const nextInputAttemptId =
-      'inputAttemptId' in patch ? (patch.inputAttemptId ?? null) : existing.input_attempt_id
-    const nextRunId = 'runId' in patch ? (patch.runId ?? null) : existing.run_id
-    const nextResultBlock =
-      'resultBlock' in patch ? (patch.resultBlock ?? null) : existing.result_block
+    const nextInputAttemptId = pickNullable(
+      'inputAttemptId' in patch,
+      patch.inputAttemptId,
+      existing.input_attempt_id
+    )
+    const nextRunId = pickNullable('runId' in patch, patch.runId, existing.run_id)
+    const nextResultBlock = pickNullable(
+      'resultBlock' in patch,
+      patch.resultBlock,
+      existing.result_block
+    )
     const nextResultJson =
       'result' in patch
         ? patch.result === null || patch.result === undefined
           ? null
           : JSON.stringify(patch.result)
         : existing.result_json
-    const nextErrorCode = 'error' in patch ? (patch.error?.code ?? null) : existing.error_code
-    const nextErrorMessage =
-      'error' in patch ? (patch.error?.message ?? null) : existing.error_message
-    const nextStartedAt = 'startedAt' in patch ? (patch.startedAt ?? null) : existing.started_at
-    const nextCompletedAt =
-      'completedAt' in patch ? (patch.completedAt ?? null) : existing.completed_at
+    const nextErrorCode = pickNullable('error' in patch, patch.error?.code, existing.error_code)
+    const nextErrorMessage = pickNullable(
+      'error' in patch,
+      patch.error?.message,
+      existing.error_message
+    )
+    const nextStartedAt = pickNullable('startedAt' in patch, patch.startedAt, existing.started_at)
+    const nextCompletedAt = pickNullable(
+      'completedAt' in patch,
+      patch.completedAt,
+      existing.completed_at
+    )
     const now = new Date().toISOString()
 
     sqlite
@@ -1603,7 +1642,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
         `
       )
       .run(
-        patch.status ?? existing.status,
+        coalesce(patch.status, existing.status),
         nextInputAttemptId,
         nextRunId,
         nextResultBlock,
@@ -2097,7 +2136,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
     return { matches: rows.map((row) => toEventJobMatchRecord(row)) }
   }
 
-  const store = {
+  const store: JobsStore = {
     sqlite,
     migrations: {
       applied: listAppliedJobsStoreMigrations(sqlite),
@@ -2158,7 +2197,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
     mintEventJobRun,
     listEventJobMatches,
     runInTransaction<T>(fn: (innerStore: JobsStore) => T): T {
-      const transaction = sqlite.transaction(() => fn(store as JobsStore))
+      const transaction = sqlite.transaction(() => fn(store))
       return transaction()
     },
     close(): void {

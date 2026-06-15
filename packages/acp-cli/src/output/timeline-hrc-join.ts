@@ -1,6 +1,7 @@
 import type { HrcEvent, HrcStoreReader } from '../hrc-store-reader.js'
 import type { GetTaskResponse, WrkfRun } from '../http-client.js'
 import { hrcEventToTimelineRow } from './hrc-event-to-row.js'
+import { asRecord, parseDeliveryRef, stringField } from './json-narrow.js'
 import type {
   AcpTimelineRow,
   HrcTimelineRow,
@@ -39,17 +40,6 @@ type RunHrcBinding = {
   hrcRunId: string
   scopeRef?: string | undefined
   laneRef?: string | undefined
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {}
-}
-
-function stringField(record: Record<string, unknown>, field: string): string | undefined {
-  const value = record[field]
-  return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
 function runIdFor(row: AcpTimelineRow): string | undefined {
@@ -133,31 +123,12 @@ function hrcRowsForBlock(block: HrcJoinBlock, detail: HrcDetailMode): HrcTimelin
   return rows
 }
 
-function tryParseDeliveryRef(
-  ref: string | undefined
-): { scopeRef?: string | undefined; laneRef?: string | undefined } | undefined {
-  if (ref === undefined || ref.length === 0) return undefined
-  try {
-    const parsed = JSON.parse(ref) as unknown
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-      return undefined
-    }
-    const record = parsed as Record<string, unknown>
-    return {
-      ...(typeof record['scopeRef'] === 'string' ? { scopeRef: record['scopeRef'] } : {}),
-      ...(typeof record['laneRef'] === 'string' ? { laneRef: record['laneRef'] } : {}),
-    }
-  } catch {
-    return undefined
-  }
-}
-
 function runDerivedBindings(response: GetTaskResponse): RunHrcBinding[] {
   const runs = (response.runs as WrkfRun[] | undefined) ?? []
   return runs
     .filter((run) => run.externalRunRef !== undefined && run.externalRunRef.length > 0)
     .map((run) => {
-      const delivery = tryParseDeliveryRef(run.deliveryRef)
+      const delivery = parseDeliveryRef(run.deliveryRef)
       return {
         id: run.id,
         hrcRunId: run.externalRunRef as string,

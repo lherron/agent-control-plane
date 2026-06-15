@@ -1,5 +1,5 @@
 import type { RouteObject } from 'react-router-dom'
-import { SchedulerPage } from './scheduler-page'
+import { SchedulerStatePage } from './pages/scheduler-state'
 
 export const schedulerRoutes: RouteObject[] = [
   {
@@ -7,7 +7,7 @@ export const schedulerRoutes: RouteObject[] = [
     children: [
       {
         index: true,
-        element: <SchedulerPage />,
+        element: <SchedulerStatePage />,
       },
     ],
   },

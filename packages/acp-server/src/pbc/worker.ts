@@ -13,6 +13,7 @@ import {
   projectEvidenceRecord,
   projectNextActionResponse,
 } from '../wrkf/projections.js'
+import { readOptionalString as readString } from '../wrkf/value.js'
 
 const DEFAULT_MAX_TURNS = 20
 /**
@@ -439,11 +440,6 @@ function readWaitStartedAtFromCaptureRecord(value: unknown): string | undefined 
     }
   }
   return undefined
-}
-
-function readString(record: Record<string, unknown>, key: string): string | undefined {
-  const value = record[key]
-  return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
 function readOutputTimeoutMs(): number {

@@ -16,6 +16,7 @@ import type { UnifiedSessionEvent } from 'spaces-runtime'
 
 import type { LaunchRoleScopedRun, RunStore } from './deps.js'
 import type { DispatchFence, UpdateRunInput } from './domain/run-store.js'
+import { readOptionalString as readString } from './wrkf/value.js'
 
 const DEFAULT_WAIT_TIMEOUT_MS = 180_000
 const DEFAULT_POLL_INTERVAL_MS = 500
@@ -1263,9 +1264,4 @@ function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {}
-}
-
-function readString(record: Record<string, unknown>, key: string): string | undefined {
-  const value = record[key]
-  return typeof value === 'string' && value.length > 0 ? value : undefined
 }

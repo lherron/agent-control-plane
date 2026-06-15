@@ -9,6 +9,20 @@ import type {
 import type { RepoContext } from './shared.js'
 import { toOptionalString } from './shared.js'
 
+const BINDING_COLUMNS = `binding_id,
+                gateway_id,
+                gateway_type,
+                conversation_ref,
+                thread_ref,
+                lane_ref,
+                project_id,
+                agent_id,
+                task_id,
+                role_name,
+                status,
+                created_at,
+                updated_at`
+
 function buildScopeRef(parts: {
   agentId: string
   projectId: string
@@ -247,19 +261,7 @@ export class BindingRepo {
 
     const rows = this.context.sqlite
       .prepare(
-        `SELECT binding_id,
-                gateway_id,
-                gateway_type,
-                conversation_ref,
-                thread_ref,
-                lane_ref,
-                project_id,
-                agent_id,
-                task_id,
-                role_name,
-                status,
-                created_at,
-                updated_at
+        `SELECT ${BINDING_COLUMNS}
            FROM interface_bindings
           ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}
           ORDER BY created_at ASC, binding_id ASC`
@@ -272,19 +274,7 @@ export class BindingRepo {
   getById(bindingId: string): InterfaceBinding | undefined {
     const row = this.context.sqlite
       .prepare(
-        `SELECT binding_id,
-                gateway_id,
-                gateway_type,
-                conversation_ref,
-                thread_ref,
-                lane_ref,
-                project_id,
-                agent_id,
-                task_id,
-                role_name,
-                status,
-                created_at,
-                updated_at
+        `SELECT ${BINDING_COLUMNS}
            FROM interface_bindings
           WHERE binding_id = ?`
       )
@@ -315,19 +305,7 @@ export class BindingRepo {
   }): InterfaceBinding[] {
     const rows = this.context.sqlite
       .prepare(
-        `SELECT binding_id,
-                gateway_id,
-                gateway_type,
-                conversation_ref,
-                thread_ref,
-                lane_ref,
-                project_id,
-                agent_id,
-                task_id,
-                role_name,
-                status,
-                created_at,
-                updated_at
+        `SELECT ${BINDING_COLUMNS}
            FROM interface_bindings
           WHERE gateway_type = ?
             AND status = 'active'
@@ -353,19 +331,7 @@ export class BindingRepo {
       lookup.threadRef === undefined
         ? (this.context.sqlite
             .prepare(
-              `SELECT binding_id,
-                    gateway_id,
-                    gateway_type,
-                    conversation_ref,
-                    thread_ref,
-                    lane_ref,
-                    project_id,
-                    agent_id,
-                    task_id,
-                    role_name,
-                    status,
-                    created_at,
-                    updated_at
+              `SELECT ${BINDING_COLUMNS}
                FROM interface_bindings
               WHERE gateway_id = ?
                 AND conversation_ref = ?
@@ -375,19 +341,7 @@ export class BindingRepo {
             .get(lookup.gatewayId, lookup.conversationRef) as InterfaceBindingRow | undefined)
         : (this.context.sqlite
             .prepare(
-              `SELECT binding_id,
-                    gateway_id,
-                    gateway_type,
-                    conversation_ref,
-                    thread_ref,
-                    lane_ref,
-                    project_id,
-                    agent_id,
-                    task_id,
-                    role_name,
-                    status,
-                    created_at,
-                    updated_at
+              `SELECT ${BINDING_COLUMNS}
                FROM interface_bindings
               WHERE gateway_id = ?
                 AND conversation_ref = ?
@@ -406,19 +360,7 @@ export class BindingRepo {
       lookup.threadRef === undefined
         ? (this.context.sqlite
             .prepare(
-              `SELECT binding_id,
-                    gateway_id,
-                    gateway_type,
-                    conversation_ref,
-                    thread_ref,
-                    lane_ref,
-                    project_id,
-                    agent_id,
-                    task_id,
-                    role_name,
-                    status,
-                    created_at,
-                    updated_at
+              `SELECT ${BINDING_COLUMNS}
                FROM interface_bindings
               WHERE gateway_id = ?
                 AND conversation_ref = ?
@@ -429,19 +371,7 @@ export class BindingRepo {
             .get(lookup.gatewayId, lookup.conversationRef) as InterfaceBindingRow | undefined)
         : (this.context.sqlite
             .prepare(
-              `SELECT binding_id,
-                    gateway_id,
-                    gateway_type,
-                    conversation_ref,
-                    thread_ref,
-                    lane_ref,
-                    project_id,
-                    agent_id,
-                    task_id,
-                    role_name,
-                    status,
-                    created_at,
-                    updated_at
+              `SELECT ${BINDING_COLUMNS}
                FROM interface_bindings
               WHERE gateway_id = ?
                 AND conversation_ref = ?

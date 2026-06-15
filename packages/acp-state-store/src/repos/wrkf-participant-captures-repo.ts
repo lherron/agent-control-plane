@@ -1,4 +1,5 @@
 import type { RepoContext } from './shared.js'
+import { parseStringArray } from './shared.js'
 
 export type WrkfParticipantCaptureStatus = 'pending' | 'completed'
 
@@ -41,14 +42,6 @@ type WrkfParticipantCaptureRow = {
   status: WrkfParticipantCaptureStatus
   created_at: string
   updated_at: string
-}
-
-function parseStringArray(value: string): string[] {
-  const parsed = JSON.parse(value) as unknown
-  if (!Array.isArray(parsed)) {
-    throw new Error('Expected JSON array payload')
-  }
-  return parsed as string[]
 }
 
 function mapRow(row: WrkfParticipantCaptureRow): WrkfParticipantCaptureRecord {

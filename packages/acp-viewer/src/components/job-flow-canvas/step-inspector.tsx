@@ -1,4 +1,5 @@
 import { Pill, StatusDot } from '@/components/primitives'
+import { runStatusTone as statusTone } from '@/lib/tone'
 import type { JobRunRecord, JobStepRunRecord, NormalizedFlowStep } from '@/types/api'
 import { useState } from 'react'
 
@@ -25,13 +26,6 @@ function KV({ k, children }: { k: string; children: React.ReactNode }) {
       <span className="text-[12px] text-ink min-w-0 break-words">{children}</span>
     </div>
   )
-}
-
-function statusTone(status: string): 'success' | 'destructive' | 'warn' | 'muted' {
-  if (status === 'succeeded') return 'success'
-  if (status === 'failed') return 'destructive'
-  if (status === 'skipped') return 'warn'
-  return 'muted'
 }
 
 export function StepInspector({ step, stepRuns, latestRuns }: StepInspectorProps) {

@@ -34,7 +34,7 @@ function isEphemeralPath(path: string): boolean {
   return path === '' || path === ':memory:'
 }
 
-function addColumnIfMissing(sqlite: SqliteDatabase, table: string, columnDef: string): void {
+function addColumnIfMissing(sqlite: SqliteDatabase, table: string, columnDef: string): boolean {
   const columnName = columnDef.split(' ')[0]
   const existing = sqlite
     .prepare(
@@ -45,7 +45,9 @@ function addColumnIfMissing(sqlite: SqliteDatabase, table: string, columnDef: st
     .get(columnName)
   if (existing === undefined) {
     sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${columnDef};`)
+    return true
   }
+  return false
 }
 
 function initializeSchema(sqlite: SqliteDatabase): void {
@@ -341,16 +343,7 @@ function migrateStructuredScopeColumns(sqlite: SqliteDatabase): void {
 
   let didAdd = false
   for (const [table, columnDef] of structuredColumns) {
-    const columnName = columnDef.split(' ')[0]
-    const existing = sqlite
-      .prepare(
-        `SELECT name
-           FROM pragma_table_info('${table}')
-          WHERE name = ?`
-      )
-      .get(columnName)
-    if (existing === undefined) {
-      sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${columnDef};`)
+    if (addColumnIfMissing(sqlite, table, columnDef)) {
       didAdd = true
     }
   }

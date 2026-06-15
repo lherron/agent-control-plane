@@ -241,40 +241,83 @@ function serializeOutcomeDetails(outcome: EnqueueDeliveryRequestInput['outcome']
   return Object.keys(details).length > 0 ? JSON.stringify(details) : null
 }
 
+type DeliveryRowInsert = {
+  deliveryRequestId: string
+  linkedFailureId: string | null
+  actor: Actor
+  gatewayId: string
+  bindingId: string
+  scopeRef: string
+  laneRef: string
+  runId?: string | undefined
+  inputAttemptId?: string | undefined
+  conversationRef: string
+  threadRef?: string | undefined
+  replyToMessageRef?: string | undefined
+  bodyKind: EnqueueDeliveryRequestInput['bodyKind']
+  bodyText: string
+  bodyAttachments?: AttachmentRef[] | undefined
+  outcome?: EnqueueDeliveryRequestInput['outcome']
+  createdAt: string
+}
+
 export class DeliveryRequestRepo {
   constructor(private readonly context: RepoContext) {}
 
-  enqueue(input: EnqueueDeliveryRequestInput): DeliveryRequest {
-    const actor = input.actor ?? { kind: 'system', id: 'acp-local' }
+  private insertQueuedRow(row: DeliveryRowInsert): void {
     this.context.sqlite
       .prepare(
         `INSERT INTO delivery_requests (
            ${DELIVERY_REQUEST_INSERT_COLUMNS}
-         ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)`
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)`
       )
       .run(
-        input.deliveryRequestId,
-        actor.kind,
-        actor.id,
-        actor.displayName ?? null,
-        input.gatewayId,
-        input.bindingId,
-        input.scopeRef,
-        input.laneRef,
-        input.runId ?? null,
-        input.inputAttemptId ?? null,
-        input.conversationRef,
-        input.threadRef ?? null,
-        input.replyToMessageRef ?? null,
-        input.bodyKind,
-        input.bodyText,
-        serializeBodyAttachments(input.bodyAttachments),
-        input.outcome?.state ?? null,
-        input.outcome?.state === 'degraded' ? input.outcome.reason : null,
-        input.outcome?.state === 'degraded' ? (input.outcome.source ?? null) : null,
-        serializeOutcomeDetails(input.outcome),
-        input.createdAt
+        row.deliveryRequestId,
+        row.linkedFailureId,
+        row.actor.kind,
+        row.actor.id,
+        row.actor.displayName ?? null,
+        row.gatewayId,
+        row.bindingId,
+        row.scopeRef,
+        row.laneRef,
+        row.runId ?? null,
+        row.inputAttemptId ?? null,
+        row.conversationRef,
+        row.threadRef ?? null,
+        row.replyToMessageRef ?? null,
+        row.bodyKind,
+        row.bodyText,
+        serializeBodyAttachments(row.bodyAttachments),
+        row.outcome?.state ?? null,
+        row.outcome?.state === 'degraded' ? row.outcome.reason : null,
+        row.outcome?.state === 'degraded' ? (row.outcome.source ?? null) : null,
+        serializeOutcomeDetails(row.outcome),
+        row.createdAt
       )
+  }
+
+  enqueue(input: EnqueueDeliveryRequestInput): DeliveryRequest {
+    const actor = input.actor ?? { kind: 'system', id: 'acp-local' }
+    this.insertQueuedRow({
+      deliveryRequestId: input.deliveryRequestId,
+      linkedFailureId: null,
+      actor,
+      gatewayId: input.gatewayId,
+      bindingId: input.bindingId,
+      scopeRef: input.scopeRef,
+      laneRef: input.laneRef,
+      runId: input.runId,
+      inputAttemptId: input.inputAttemptId,
+      conversationRef: input.conversationRef,
+      threadRef: input.threadRef,
+      replyToMessageRef: input.replyToMessageRef,
+      bodyKind: input.bodyKind,
+      bodyText: input.bodyText,
+      bodyAttachments: input.bodyAttachments,
+      outcome: input.outcome,
+      createdAt: input.createdAt,
+    })
 
     return this.require(input.deliveryRequestId)
   }
@@ -509,36 +552,25 @@ export class DeliveryRequestRepo {
         .slice(0, REQUEUED_ID_SLICE_LENGTH)}`
       const createdAt = new Date().toISOString()
 
-      this.context.sqlite
-        .prepare(
-          `INSERT INTO delivery_requests (
-             ${DELIVERY_REQUEST_INSERT_COLUMNS}
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)`
-        )
-        .run(
-          requeuedDeliveryRequestId,
-          source.deliveryRequestId,
-          source.actor.kind,
-          source.actor.id,
-          source.actor.displayName ?? null,
-          source.gatewayId,
-          source.bindingId,
-          source.scopeRef,
-          source.laneRef,
-          source.runId ?? null,
-          source.inputAttemptId ?? null,
-          source.conversationRef,
-          source.threadRef ?? null,
-          source.replyToMessageRef ?? null,
-          source.bodyKind,
-          source.bodyText,
-          serializeBodyAttachments(source.bodyAttachments),
-          source.outcome?.state ?? null,
-          source.outcome?.state === 'degraded' ? source.outcome.reason : null,
-          source.outcome?.state === 'degraded' ? (source.outcome.source ?? null) : null,
-          serializeOutcomeDetails(source.outcome),
-          createdAt
-        )
+      this.insertQueuedRow({
+        deliveryRequestId: requeuedDeliveryRequestId,
+        linkedFailureId: source.deliveryRequestId,
+        actor: source.actor,
+        gatewayId: source.gatewayId,
+        bindingId: source.bindingId,
+        scopeRef: source.scopeRef,
+        laneRef: source.laneRef,
+        runId: source.runId,
+        inputAttemptId: source.inputAttemptId,
+        conversationRef: source.conversationRef,
+        threadRef: source.threadRef,
+        replyToMessageRef: source.replyToMessageRef,
+        bodyKind: source.bodyKind,
+        bodyText: source.bodyText,
+        bodyAttachments: source.bodyAttachments,
+        outcome: source.outcome,
+        createdAt,
+      })
 
       return {
         ok: true,

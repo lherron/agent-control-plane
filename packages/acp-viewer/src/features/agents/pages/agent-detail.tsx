@@ -1,5 +1,6 @@
 import { BackLink, ErrorBanner, PageLoading, Pill, StatusDot } from '@/components/primitives'
 import { cn } from '@/lib/cn'
+import { heartbeatTone } from '@/lib/tone'
 import { useQuery } from '@tanstack/react-query'
 import type { CSSProperties } from 'react'
 import { useState } from 'react'
@@ -38,13 +39,6 @@ const TABS: ReadonlyArray<{ id: AgentTab; label: string }> = [
   { id: 'raw', label: 'Raw' },
 ]
 
-function hbTone(status: string): 'success' | 'destructive' | 'warn' | 'muted' {
-  if (status === 'alive') return 'success'
-  if (status === 'stale') return 'warn'
-  if (status === 'dead' || status === 'down') return 'destructive'
-  return 'muted'
-}
-
 export function AgentDetailPage() {
   const { agentId } = useParams()
   const [activeTab, setActiveTab] = useState<AgentTab>('overview')
@@ -71,7 +65,7 @@ export function AgentDetailPage() {
     heartbeat: heartbeatQuery.data ?? detailQuery.data.heartbeat,
   }
   const hb = heartbeatStatus(detail.heartbeat)
-  const tone = hbTone(hb)
+  const tone = heartbeatTone(hb)
   const personality = agentPersonality(
     detail.agent.agentId,
     detail.agent.profile,

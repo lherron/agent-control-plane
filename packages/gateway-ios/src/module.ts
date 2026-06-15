@@ -9,6 +9,7 @@
 
 import type { Server } from 'bun'
 import { HrcClient } from 'hrc-sdk'
+import { DEFAULT_GATEWAY_ID, DEFAULT_HOST, DEFAULT_PORT } from './config.js'
 import { createLogger } from './logger.js'
 import { type WsData, createGatewayIosServeConfig } from './routes.js'
 import { createSessionIndex } from './session-index.js'
@@ -29,9 +30,9 @@ export type GatewayIosModule = {
 }
 
 export function createGatewayIosModule(options: GatewayIosModuleOptions): GatewayIosModule {
-  const host = options.host ?? '127.0.0.1'
-  const port = options.port ?? 18480
-  const gatewayId = options.gatewayId ?? 'ios-local'
+  const host = options.host ?? DEFAULT_HOST
+  const port = options.port ?? DEFAULT_PORT
+  const gatewayId = options.gatewayId ?? DEFAULT_GATEWAY_ID
   const bearerToken = options.bearerToken
 
   let server: Server<WsData> | undefined

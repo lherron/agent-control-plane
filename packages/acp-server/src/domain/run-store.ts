@@ -4,6 +4,8 @@ import type { Actor, Run } from 'acp-core'
 import { RunCorrelationConflictError, deriveRunId } from 'acp-state-store'
 import type { SessionRef } from 'agent-scope'
 
+import { readRecord } from '../wrkf/value.js'
+
 export { RunCorrelationConflictError, deriveRunId } from 'acp-state-store'
 
 export type CreateOrGetRunInput = {
@@ -286,10 +288,4 @@ export class InMemoryRunStore implements RunStore {
     this.runs.set(runId, next)
     return structuredClone(next)
   }
-}
-
-function readRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined
 }

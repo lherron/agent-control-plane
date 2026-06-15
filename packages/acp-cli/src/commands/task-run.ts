@@ -11,6 +11,7 @@ import {
   requireNoPositionals,
   requireStringFlag,
 } from './options.js'
+import { normalizeActorId } from './session-shared.js'
 import {
   type CommandDependencies,
   type CommandOutput,
@@ -19,14 +20,6 @@ import {
   resolveEnv,
   resolveServerUrl,
 } from './shared.js'
-
-function normalizeActorId(raw: string): string {
-  const trimmed = raw.trim()
-  if (trimmed.startsWith('agent:')) {
-    return trimmed.slice('agent:'.length)
-  }
-  return trimmed
-}
 
 function parseHarness(raw: string | undefined): Record<string, unknown> | undefined {
   if (raw === undefined) {

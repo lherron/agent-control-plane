@@ -2,30 +2,14 @@ import { describe, expect, test } from 'bun:test'
 
 import type { Actor, ConversationTurnRenderState } from 'acp-core'
 
-import { type ConversationStore, createInMemoryConversationStore } from '../index.js'
+import {
+  type ConversationStore,
+  type ConversationTurnLinks,
+  type StoredConversationTurn,
+  createInMemoryConversationStore,
+} from '../index.js'
 
 type TurnRole = 'human' | 'assistant' | 'system'
-
-type ConversationTurnLinks = {
-  inputAttemptId?: string | undefined
-  runId?: string | undefined
-  taskId?: string | undefined
-  handoffId?: string | undefined
-  deliveryRequestId?: string | undefined
-  coordinationEventId?: string | undefined
-}
-
-type StoredConversationTurn = {
-  turnId: string
-  threadId: string
-  role: TurnRole
-  body: string
-  renderState: ConversationTurnRenderState
-  links?: ConversationTurnLinks | undefined
-  actor?: Actor | undefined
-  sentAt: string
-  failureReason?: string | undefined
-}
 
 type TurnStoreApi = {
   createTurn(input: {

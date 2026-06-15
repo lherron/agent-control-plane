@@ -247,6 +247,30 @@ type TurnRow = {
   failureReason: string | null
 }
 
+// Maps each `ConversationTurnLinks` field to its `conversation_turns` column.
+// Single source of truth for the read (`turnRowToTurn`) and merge (`attachLinks`)
+// arms; the positional INSERT in `createTurn` is left explicit on purpose so its
+// bind order stays visually pinned to the VALUES placeholders.
+const LINK_FIELDS: readonly {
+  key: keyof ConversationTurnLinks
+  column: keyof Pick<
+    TurnRow,
+    | 'linksInputAttemptId'
+    | 'linksRunId'
+    | 'linksTaskId'
+    | 'linksHandoffId'
+    | 'linksDeliveryRequestId'
+    | 'linksCoordinationEventId'
+  >
+}[] = [
+  { key: 'inputAttemptId', column: 'linksInputAttemptId' },
+  { key: 'runId', column: 'linksRunId' },
+  { key: 'taskId', column: 'linksTaskId' },
+  { key: 'handoffId', column: 'linksHandoffId' },
+  { key: 'deliveryRequestId', column: 'linksDeliveryRequestId' },
+  { key: 'coordinationEventId', column: 'linksCoordinationEventId' },
+]
+
 function threadRowToThread(row: ThreadRow): ConversationThread {
   return {
     threadId: row.threadId,
@@ -270,29 +294,12 @@ function threadRowToThread(row: ThreadRow): ConversationThread {
 function turnRowToTurn(row: TurnRow): StoredConversationTurn {
   const links: ConversationTurnLinks = {}
   let hasLinks = false
-  if (row.linksInputAttemptId !== null) {
-    links.inputAttemptId = row.linksInputAttemptId
-    hasLinks = true
-  }
-  if (row.linksRunId !== null) {
-    links.runId = row.linksRunId
-    hasLinks = true
-  }
-  if (row.linksTaskId !== null) {
-    links.taskId = row.linksTaskId
-    hasLinks = true
-  }
-  if (row.linksHandoffId !== null) {
-    links.handoffId = row.linksHandoffId
-    hasLinks = true
-  }
-  if (row.linksDeliveryRequestId !== null) {
-    links.deliveryRequestId = row.linksDeliveryRequestId
-    hasLinks = true
-  }
-  if (row.linksCoordinationEventId !== null) {
-    links.coordinationEventId = row.linksCoordinationEventId
-    hasLinks = true
+  for (const { key, column } of LINK_FIELDS) {
+    const value = row[column]
+    if (value !== null) {
+      links[key] = value
+      hasLinks = true
+    }
   }
 
   return {
@@ -492,29 +499,12 @@ export function openSqliteConversationStore(
       const updates: string[] = []
       const params: unknown[] = []
 
-      if (links.inputAttemptId !== undefined && row.linksInputAttemptId === null) {
-        updates.push('linksInputAttemptId = ?')
-        params.push(links.inputAttemptId)
-      }
-      if (links.runId !== undefined && row.linksRunId === null) {
-        updates.push('linksRunId = ?')
-        params.push(links.runId)
-      }
-      if (links.taskId !== undefined && row.linksTaskId === null) {
-        updates.push('linksTaskId = ?')
-        params.push(links.taskId)
-      }
-      if (links.handoffId !== undefined && row.linksHandoffId === null) {
-        updates.push('linksHandoffId = ?')
-        params.push(links.handoffId)
-      }
-      if (links.deliveryRequestId !== undefined && row.linksDeliveryRequestId === null) {
-        updates.push('linksDeliveryRequestId = ?')
-        params.push(links.deliveryRequestId)
-      }
-      if (links.coordinationEventId !== undefined && row.linksCoordinationEventId === null) {
-        updates.push('linksCoordinationEventId = ?')
-        params.push(links.coordinationEventId)
+      for (const { key, column } of LINK_FIELDS) {
+        const value = links[key]
+        if (value !== undefined && row[column] === null) {
+          updates.push(`${column} = ?`)
+          params.push(value)
+        }
       }
 
       if (updates.length > 0) {
@@ -547,9 +537,13 @@ export function openSqliteConversationStore(
     },
 
     findTurnByLink(field, value) {
-      const row = sqlite
-        .prepare(`SELECT * FROM conversation_turns WHERE ${field} = ? LIMIT 1`)
-        .get(value) as TurnRow | undefined
+      // Static dispatch: each branch is a fixed query string, so the column is
+      // chosen from a closed set rather than interpolated from the argument.
+      const sql =
+        field === 'linksRunId'
+          ? 'SELECT * FROM conversation_turns WHERE linksRunId = ? LIMIT 1'
+          : 'SELECT * FROM conversation_turns WHERE linksDeliveryRequestId = ? LIMIT 1'
+      const row = sqlite.prepare(sql).get(value) as TurnRow | undefined
       return row !== undefined ? turnRowToTurn(row) : undefined
     },
   }

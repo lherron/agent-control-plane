@@ -1,6 +1,6 @@
 import type { LoggedTransitionRecord, TransitionLogStore } from 'acp-core'
 
-import { parseJsonValue } from '../json.js'
+import { isRecord, parseJsonValue } from '../json.js'
 import {
   type TransitionRow,
   mapTransitionRow,
@@ -44,10 +44,7 @@ function findTransitionEvidenceItemUuids(
     }
 
     const details = parseJsonValue(row.meta)
-    const waiverKind =
-      details !== undefined && typeof details === 'object' && details !== null
-        ? (details as Record<string, unknown>)['waiverKind']
-        : undefined
+    const waiverKind = isRecord(details) ? details['waiverKind'] : undefined
     if (typeof waiverKind === 'string' && waivedKinds.has(waiverKind)) {
       cited.add(row.uuid)
     }

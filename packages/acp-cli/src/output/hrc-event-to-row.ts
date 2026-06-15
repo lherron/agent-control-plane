@@ -9,19 +9,9 @@ import {
 } from 'agent-action-render'
 
 import type { HrcEvent } from '../hrc-store-reader.js'
+import { asRecord, stringField } from './json-narrow.js'
 import type { HrcDetailMode } from './timeline-hrc-join.js'
 import type { HrcTimelineRow } from './timeline-project.js'
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {}
-}
-
-function stringField(record: Record<string, unknown>, field: string): string | undefined {
-  const value = record[field]
-  return typeof value === 'string' && value.length > 0 ? value : undefined
-}
 
 function boolField(record: Record<string, unknown>, field: string): boolean | undefined {
   const value = record[field]

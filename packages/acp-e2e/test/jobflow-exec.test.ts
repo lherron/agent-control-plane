@@ -1,188 +1,45 @@
-import { Database } from 'bun:sqlite'
 import { describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { createInMemoryJobsStore } from 'acp-jobs-store'
-import { type AcpServerDeps, InMemoryInputAttemptStore, InMemoryRunStore } from 'acp-server'
+import { type AcpServerDeps, InMemoryRunStore } from 'acp-server'
 
+import {
+  type FlowLaunchOutcome,
+  type LaunchCall,
+  RecordingInputAttemptStore,
+  createFlowJob as createFlowJobBase,
+  createHeadlessHrcDb as createHeadlessHrcDbBase,
+  createTerminalFlowLauncher as createTerminalFlowLauncherBase,
+  getJobRun,
+  runJob,
+} from './fixtures/jobflow-stack.js'
 import { type SeedStack, withSeedStack } from './fixtures/seed-stack.js'
 
-type LaunchCall = Parameters<NonNullable<AcpServerDeps['launchRoleScopedRun']>>[0]
+const EXEC_HRC_PREFIX = 'acp-e2e-jobflow-exec-'
+const EXEC_SESSION_ID = 'session-jobflow-exec-e2e'
+const EXEC_SCOPE_REF_TASK = 'T-01321'
+const EXEC_JOB_CONTENT = 'run the jobflow exec acceptance test'
 
-type FlowLaunchOutcome = {
-  status: 'completed' | 'failed' | 'cancelled'
-  text: string
-}
-
-type HeadlessHrcFixture = {
-  db: Database
-  hrcDbPath: string
-  cleanup(): void
-}
-
-type JobRunPayload = {
-  jobRun: {
-    jobRunId: string
-    status: string
-    errorCode?: string | undefined
-    steps: Array<{
-      phase: string
-      stepId: string
-      status: string
-      attempt: number
-      inputAttemptId?: string | undefined
-      runId?: string | undefined
-      result?: Record<string, unknown> | undefined
-      resultBlock?: string | undefined
-      error?: { code: string; message: string } | undefined
-    }>
-  }
-}
-
-class RecordingInputAttemptStore extends InMemoryInputAttemptStore {
-  readonly calls: Array<Parameters<InMemoryInputAttemptStore['createAttempt']>[0]> = []
-
-  override createAttempt(input: Parameters<InMemoryInputAttemptStore['createAttempt']>[0]) {
-    this.calls.push(input)
-    return super.createAttempt(input)
-  }
-}
-
-function createHeadlessHrcDb(): HeadlessHrcFixture {
-  const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-e2e-jobflow-exec-'))
-  const hrcDbPath = join(fixtureDir, 'hrc.sqlite')
-  const db = new Database(hrcDbPath)
-
-  db.exec(`
-    CREATE TABLE runs (
-      run_id TEXT PRIMARY KEY,
-      status TEXT NOT NULL,
-      error_code TEXT,
-      error_message TEXT
-    );
-    CREATE TABLE events (
-      seq INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id TEXT,
-      event_kind TEXT NOT NULL,
-      event_json TEXT NOT NULL
-    );
-    CREATE TABLE hrc_events (
-      hrc_seq INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id TEXT,
-      event_kind TEXT NOT NULL,
-      payload_json TEXT NOT NULL
-    );
-  `)
-
-  return {
-    db,
-    hrcDbPath,
-    cleanup() {
-      db.close()
-      rmSync(fixtureDir, { recursive: true, force: true })
-    },
-  }
-}
-
-function insertTerminalHrcRun(
-  hrc: HeadlessHrcFixture,
-  hrcRunId: string,
-  outcome: FlowLaunchOutcome
-): void {
-  hrc.db
-    .prepare(
-      'INSERT INTO runs (run_id, status, error_code, error_message) VALUES (?, ?, NULL, NULL)'
-    )
-    .run(hrcRunId, outcome.status)
-  hrc.db.prepare('INSERT INTO events (run_id, event_kind, event_json) VALUES (?, ?, ?)').run(
-    hrcRunId,
-    'message_end',
-    JSON.stringify({
-      type: 'message_end',
-      message: {
-        role: 'assistant',
-        content: [{ type: 'text', text: outcome.text }],
-      },
-    })
-  )
-  hrc.db
-    .prepare('INSERT INTO hrc_events (run_id, event_kind, payload_json) VALUES (?, ?, ?)')
-    .run(hrcRunId, 'turn.completed', JSON.stringify({ finalOutput: outcome.text }))
+function createHeadlessHrcDb() {
+  return createHeadlessHrcDbBase(EXEC_HRC_PREFIX)
 }
 
 function createTerminalFlowLauncher(
-  hrc: HeadlessHrcFixture,
+  hrc: Parameters<typeof createTerminalFlowLauncherBase>[0],
   outcomes: FlowLaunchOutcome[],
   calls: LaunchCall[]
 ): NonNullable<AcpServerDeps['launchRoleScopedRun']> {
-  return async (input) => {
-    calls.push(input)
-    if (input.acpRunId === undefined) {
-      throw new Error('expected flow step dispatch to provide acpRunId')
-    }
-
-    const outcome = outcomes.shift()
-    if (outcome === undefined) {
-      throw new Error(`no fake outcome configured for run ${input.acpRunId}`)
-    }
-
-    const hrcRunId = `hrc-${input.acpRunId}`
-    insertTerminalHrcRun(hrc, hrcRunId, outcome)
-    input.runStore?.updateRun(input.acpRunId, {
-      status: outcome.status,
-      hrcRunId,
-      hostSessionId: 'session-jobflow-exec-e2e',
-    })
-
-    return {
-      runId: hrcRunId,
-      sessionId: 'session-jobflow-exec-e2e',
-    }
-  }
+  return createTerminalFlowLauncherBase(hrc, outcomes, calls, { sessionId: EXEC_SESSION_ID })
 }
 
 async function createFlowJob(stack: SeedStack, flow: Record<string, unknown>): Promise<string> {
-  const response = await stack.cli.request({
-    method: 'POST',
-    path: '/v1/admin/jobs',
-    body: {
-      agentId: 'larry',
-      projectId: stack.seed.projectId,
-      scopeRef: `agent:larry:project:${stack.seed.projectId}:task:T-01321:role:implementer`,
-      laneRef: 'main',
-      schedule: { cron: '*/5 * * * *' },
-      input: { content: 'run the jobflow exec acceptance test' },
-      flow,
-    },
+  return createFlowJobBase(stack, flow, {
+    scopeRefTask: EXEC_SCOPE_REF_TASK,
+    content: EXEC_JOB_CONTENT,
   })
-  const payload = (await response.json()) as { job: { jobId: string } }
-
-  expect(response.status).toBe(201)
-  return payload.job.jobId
-}
-
-async function runJob(stack: SeedStack, jobId: string): Promise<string> {
-  const response = await stack.cli.request({
-    method: 'POST',
-    path: `/v1/admin/jobs/${jobId}/run`,
-  })
-  const payload = (await response.json()) as { jobRun: { jobRunId: string } }
-
-  expect(response.status).toBe(202)
-  return payload.jobRun.jobRunId
-}
-
-async function getJobRun(stack: SeedStack, jobRunId: string): Promise<JobRunPayload> {
-  const response = await stack.cli.request({
-    method: 'GET',
-    path: `/v1/job-runs/${jobRunId}`,
-  })
-  const payload = (await response.json()) as JobRunPayload
-
-  expect(response.status).toBe(200)
-  return payload
 }
 
 function createRuntimeResolver(cwd: string): NonNullable<AcpServerDeps['runtimeResolver']> {

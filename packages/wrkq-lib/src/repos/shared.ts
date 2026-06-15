@@ -48,6 +48,41 @@ export function getTaskLookup(sqlite: SqliteDatabase, taskId: string): TaskLooku
     | undefined
 }
 
+/**
+ * Computes the next zero-padded sequential business ID for a prefixed id column
+ * (e.g. `A-00001`, `EV-00001`). The numeric suffix begins immediately after the
+ * `${prefix}-` separator, so the `substr` offset is `prefix.length + 2` (1-based
+ * SQLite offset past the prefix and the `-`).
+ */
+export function nextSequentialId(sqlite: SqliteDatabase, table: string, prefix: string): string {
+  const substrOffset = prefix.length + 2
+  const row = sqlite
+    .prepare(
+      `SELECT printf('${prefix}-%05d', COALESCE(MAX(CAST(substr(id, ${substrOffset}) AS INTEGER)), 0) + 1) AS id
+         FROM ${table}
+        WHERE id GLOB '${prefix}-[0-9]*'`
+    )
+    .get() as { id: string }
+  return row.id
+}
+
+/**
+ * Returns the starting numeric suffix for the next `EV-%05d` evidence id (i.e.
+ * `MAX(numeric suffix) + 1`). Callers appending a batch within a single
+ * transaction can seed this once and increment in-process to avoid a per-item
+ * MAX scan, reproducing the same monotonic sequence a per-item query yields.
+ */
+export function nextEvidenceSeq(sqlite: SqliteDatabase): number {
+  const row = sqlite
+    .prepare(
+      `SELECT COALESCE(MAX(CAST(substr(id, 4) AS INTEGER)), 0) + 1 AS seq
+         FROM evidence_items
+        WHERE id GLOB 'EV-[0-9]*'`
+    )
+    .get() as { seq: number }
+  return row.seq
+}
+
 export function findTaskUuid(sqlite: SqliteDatabase, taskId: string): string | undefined {
   const task = sqlite.prepare('SELECT uuid FROM tasks WHERE id = ?').get(taskId) as
     | { uuid: string }

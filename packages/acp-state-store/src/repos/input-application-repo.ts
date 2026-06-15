@@ -35,6 +35,26 @@ type InputApplicationRow = {
   updated_at: string
 }
 
+/**
+ * Column projection for `input_applications` SELECTs, in the order
+ * {@link InputApplicationRow} reads them. Single source so the per-query
+ * SELECTs cannot drift apart.
+ */
+const INPUT_APPLICATION_SELECT_SQL = `SELECT input_application_id,
+                   input_attempt_id,
+                   target_run_id,
+                   hrc_run_id,
+                   host_session_id,
+                   generation,
+                   runtime_id,
+                   status,
+                   delivery_attempts,
+                   last_error_code,
+                   last_error_message,
+                   created_at,
+                   updated_at
+              FROM input_applications`
+
 function mapRow(row: InputApplicationRow): InputApplication {
   return {
     inputApplicationId: row.input_application_id,
@@ -94,7 +114,7 @@ export class InputApplicationRepo {
 
   getById(inputApplicationId: string): InputApplication | undefined {
     const row = this.context.sqlite
-      .prepare(`${this.selectSql()} WHERE input_application_id = ?`)
+      .prepare(`${INPUT_APPLICATION_SELECT_SQL} WHERE input_application_id = ?`)
       .get(inputApplicationId) as InputApplicationRow | undefined
 
     return row === undefined ? undefined : mapRow(row)
@@ -102,7 +122,9 @@ export class InputApplicationRepo {
 
   listPending(): readonly InputApplication[] {
     const rows = this.context.sqlite
-      .prepare(`${this.selectSql()} WHERE status = ? ORDER BY created_at, input_application_id`)
+      .prepare(
+        `${INPUT_APPLICATION_SELECT_SQL} WHERE status = ? ORDER BY created_at, input_application_id`
+      )
       .all('pending') as InputApplicationRow[]
 
     return rows.map(mapRow)
@@ -163,23 +185,6 @@ export class InputApplicationRepo {
       throw new Error(`input application not found: ${inputApplicationId}`)
     }
     return application
-  }
-
-  private selectSql(): string {
-    return `SELECT input_application_id,
-                   input_attempt_id,
-                   target_run_id,
-                   hrc_run_id,
-                   host_session_id,
-                   generation,
-                   runtime_id,
-                   status,
-                   delivery_attempts,
-                   last_error_code,
-                   last_error_message,
-                   created_at,
-                   updated_at
-              FROM input_applications`
   }
 }
 

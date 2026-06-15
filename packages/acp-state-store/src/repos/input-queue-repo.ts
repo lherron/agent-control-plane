@@ -30,6 +30,31 @@ type InputQueueRow = {
   updated_at: string
 }
 
+/**
+ * Column projection for `input_queue` SELECTs, in the order
+ * {@link InputQueueRow} reads them. Single source so the per-query
+ * SELECTs cannot drift apart.
+ */
+const INPUT_QUEUE_SELECT_SQL = `SELECT queue_item_id,
+                   input_attempt_id,
+                   run_id,
+                   scope_ref,
+                   lane_ref,
+                   seq,
+                   status,
+                   reset_policy,
+                   expected_host_session_id,
+                   expected_generation,
+                   not_before_at,
+                   leased_at,
+                   lease_owner,
+                   attempts,
+                   last_error_code,
+                   last_error_message,
+                   created_at,
+                   updated_at
+              FROM input_queue`
+
 function mapRow(row: InputQueueRow): InputQueueItem {
   return {
     queueItemId: row.queue_item_id,
@@ -102,16 +127,16 @@ export class InputQueueRepo {
 
   getById(queueItemId: string): InputQueueItem | undefined {
     const row = this.context.sqlite
-      .prepare(`${this.selectSql()} WHERE queue_item_id = ?`)
+      .prepare(`${INPUT_QUEUE_SELECT_SQL} WHERE queue_item_id = ?`)
       .get(queueItemId) as InputQueueRow | undefined
 
     return row === undefined ? undefined : mapRow(row)
   }
 
   getByRunId(runId: string): InputQueueItem | undefined {
-    const row = this.context.sqlite.prepare(`${this.selectSql()} WHERE run_id = ?`).get(runId) as
-      | InputQueueRow
-      | undefined
+    const row = this.context.sqlite
+      .prepare(`${INPUT_QUEUE_SELECT_SQL} WHERE run_id = ?`)
+      .get(runId) as InputQueueRow | undefined
 
     return row === undefined ? undefined : mapRow(row)
   }
@@ -120,7 +145,7 @@ export class InputQueueRepo {
     const now = new Date().toISOString()
     const rows = this.context.sqlite
       .prepare(
-        `${this.selectSql()}
+        `${INPUT_QUEUE_SELECT_SQL}
           WHERE status = 'queued'
             AND (not_before_at IS NULL OR not_before_at <= ?)
        ORDER BY scope_ref ASC, lane_ref ASC, seq ASC
@@ -137,7 +162,7 @@ export class InputQueueRepo {
     const now = new Date().toISOString()
     const rows = this.context.sqlite
       .prepare(
-        `${this.selectSql()}
+        `${INPUT_QUEUE_SELECT_SQL}
           WHERE status = 'queued'
             AND (not_before_at IS NULL OR not_before_at <= ?)
             AND seq = (
@@ -159,7 +184,7 @@ export class InputQueueRepo {
   getHead(scopeRef: string, laneRef: string): InputQueueItem | undefined {
     const row = this.context.sqlite
       .prepare(
-        `${this.selectSql()}
+        `${INPUT_QUEUE_SELECT_SQL}
           WHERE scope_ref = ?
             AND lane_ref = ?
             AND status IN ('queued', 'leased', 'dispatching')
@@ -174,7 +199,7 @@ export class InputQueueRepo {
   listForSession(scopeRef: string, laneRef: string): readonly InputQueueItem[] {
     const rows = this.context.sqlite
       .prepare(
-        `${this.selectSql()}
+        `${INPUT_QUEUE_SELECT_SQL}
           WHERE scope_ref = ?
             AND lane_ref = ?
        ORDER BY seq ASC`
@@ -221,27 +246,5 @@ export class InputQueueRepo {
       throw new Error(`input queue item not found: ${queueItemId}`)
     }
     return item
-  }
-
-  private selectSql(): string {
-    return `SELECT queue_item_id,
-                   input_attempt_id,
-                   run_id,
-                   scope_ref,
-                   lane_ref,
-                   seq,
-                   status,
-                   reset_policy,
-                   expected_host_session_id,
-                   expected_generation,
-                   not_before_at,
-                   leased_at,
-                   lease_owner,
-                   attempts,
-                   last_error_code,
-                   last_error_message,
-                   created_at,
-                   updated_at
-              FROM input_queue`
   }
 }

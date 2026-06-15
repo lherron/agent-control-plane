@@ -86,31 +86,51 @@ const CANCEL_REACTION_NAMES = new Set(['x', 'cancel', '❌', '✖', '✕', '✖�
  * body isn't JSON or doesn't fit the shape, return the raw text trimmed so we
  * never surface nothing.
  */
+/**
+ * Build the Discord files payload for a render frame's image and media
+ * attachments. Returns `{ files }` when there are attachments, otherwise an
+ * empty object so it can be spread into a webhook payload unconditionally.
+ */
+async function buildFrameFilesPayload(frame: RenderFrame) {
+  const imageAttachments = extractImagesFromFrame(frame)
+  const mediaRefs = extractMediaRefsFromFrame(frame)
+  const mediaFiles = await fetchMediaAttachments(mediaRefs, undefined)
+  const discordFiles = [...createDiscordAttachments(imageAttachments), ...mediaFiles]
+  return discordFiles.length > 0 ? { files: discordFiles } : {}
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>)
+    : undefined
+}
+
+function pickNonEmptyString(obj: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = obj?.[key]
+  if (typeof value === 'string' && value.trim()) {
+    return value.trim()
+  }
+  return undefined
+}
+
 function extractIngressFailureReason(body: string): string | undefined {
   const trimmed = body.trim()
   if (!trimmed) return undefined
+
   let parsed: unknown
   try {
     parsed = JSON.parse(trimmed)
   } catch {
     return truncateReason(trimmed)
   }
-  if (typeof parsed === 'object' && parsed !== null) {
-    const err = (parsed as { error?: unknown }).error
-    if (typeof err === 'object' && err !== null) {
-      const details = (err as { details?: unknown }).details
-      if (typeof details === 'object' && details !== null) {
-        const cause = (details as { cause?: unknown }).cause
-        if (typeof cause === 'string' && cause.trim()) {
-          return truncateReason(cause.trim())
-        }
-      }
-      const message = (err as { message?: unknown }).message
-      if (typeof message === 'string' && message.trim()) {
-        return truncateReason(message.trim())
-      }
-    }
-  }
+
+  const err = asRecord(asRecord(parsed)?.['error'])
+  // Prefer `details.cause` (most specific), fall back to `error.message`.
+  const cause = pickNonEmptyString(asRecord(err?.['details']), 'cause')
+  if (cause) return truncateReason(cause)
+  const message = pickNonEmptyString(err, 'message')
+  if (message) return truncateReason(message)
+
   return truncateReason(trimmed)
 }
 
@@ -1966,12 +1986,7 @@ export class GatewayDiscordApp {
       throw new Error(`Unsupported Discord conversationRef: ${delivery.conversationRef}`)
     }
 
-    // Extract image and media attachments from the frame
-    const imageAttachments = extractImagesFromFrame(plan.frame)
-    const mediaRefs = extractMediaRefsFromFrame(plan.frame)
-    const mediaFiles = await fetchMediaAttachments(mediaRefs, undefined)
-    const discordFiles = [...createDiscordAttachments(imageAttachments), ...mediaFiles]
-    const filesPayload = discordFiles.length > 0 ? { files: discordFiles } : {}
+    const filesPayload = await buildFrameFilesPayload(plan.frame)
 
     for (let index = 0; index < plan.chunks.length; index += 1) {
       const isLastChunk = index === plan.chunks.length - 1
@@ -2032,12 +2047,7 @@ export class GatewayDiscordApp {
   ): Promise<void> {
     if (!ui.channelId) return
 
-    // Extract image and media attachments from the frame
-    const imageAttachments = extractImagesFromFrame(plan.frame)
-    const mediaRefs = extractMediaRefsFromFrame(plan.frame)
-    const mediaFiles = await fetchMediaAttachments(mediaRefs, undefined)
-    const discordFiles = [...createDiscordAttachments(imageAttachments), ...mediaFiles]
-    const filesPayload = discordFiles.length > 0 ? { files: discordFiles } : {}
+    const filesPayload = await buildFrameFilesPayload(plan.frame)
 
     // Edit the placeholder message with the first chunk (prefix already included).
     // Use the explicit 4-arg editMessage(channelId, messageId, webhookId, payload)

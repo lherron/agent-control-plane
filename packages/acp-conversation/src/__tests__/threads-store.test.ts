@@ -2,20 +2,12 @@ import { describe, expect, test } from 'bun:test'
 
 import type { SessionRef } from 'agent-scope'
 
-import { type ConversationStore, createInMemoryConversationStore } from '../index.js'
-
-type ConversationAudience = 'human' | 'operator' | 'internal'
-
-type ConversationThread = {
-  threadId: string
-  gatewayId: string
-  conversationRef: string
-  threadRef?: string | undefined
-  createdAt: string
-  sessionRef?: SessionRef | undefined
-  title?: string | undefined
-  audience: ConversationAudience
-}
+import {
+  type ConversationAudience,
+  type ConversationStore,
+  type ConversationThread,
+  createInMemoryConversationStore,
+} from '../index.js'
 
 type ThreadStoreApi = {
   createOrGetThread(input: {

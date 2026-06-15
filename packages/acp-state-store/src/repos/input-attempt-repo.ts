@@ -91,6 +91,9 @@ export class InputAttemptRepo {
   private readonly hasLegacyActorAgentIdColumn: boolean
 
   constructor(private readonly context: RepoContext) {
+    // Invariant: open-store.ts runs all schema migrations BEFORE constructing
+    // repos, so probing the column shape once at construction is safe — the
+    // schema cannot change underneath a live repo instance.
     this.hasLegacyActorAgentIdColumn = (
       this.context.sqlite.prepare('PRAGMA table_info(input_attempts)').all() as TableInfoRow[]
     ).some((row) => row.name === 'actor_agent_id')
@@ -145,77 +148,46 @@ export class InputAttemptRepo {
         ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
       }
 
-      if (this.hasLegacyActorAgentIdColumn) {
-        this.context.sqlite
-          .prepare(
-            `INSERT INTO input_attempts (
-               input_attempt_id,
-               run_id,
-               scope_ref,
-               lane_ref,
-               task_id,
-               idempotency_key,
-               fingerprint,
-               content,
-               actor_kind,
-               actor_id,
-               actor_display_name,
-               actor_agent_id,
-               metadata_json,
-               created_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          )
-          .run(
-            inputAttempt.inputAttemptId,
-            associatedRunId ?? null,
-            inputAttempt.scopeRef,
-            inputAttempt.laneRef,
-            inputAttempt.taskId ?? null,
-            inputAttempt.idempotencyKey ?? null,
-            fingerprint,
-            input.content,
-            actor.kind,
-            actor.id,
-            actor.displayName ?? null,
-            actor.id,
-            inputAttempt.metadata === undefined ? null : JSON.stringify(inputAttempt.metadata),
-            inputAttempt.createdAt
-          )
-      } else {
-        this.context.sqlite
-          .prepare(
-            `INSERT INTO input_attempts (
-               input_attempt_id,
-               run_id,
-               scope_ref,
-               lane_ref,
-               task_id,
-               idempotency_key,
-               fingerprint,
-               content,
-               actor_kind,
-               actor_id,
-               actor_display_name,
-               metadata_json,
-               created_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          )
-          .run(
-            inputAttempt.inputAttemptId,
-            associatedRunId ?? null,
-            inputAttempt.scopeRef,
-            inputAttempt.laneRef,
-            inputAttempt.taskId ?? null,
-            inputAttempt.idempotencyKey ?? null,
-            fingerprint,
-            input.content,
-            actor.kind,
-            actor.id,
-            actor.displayName ?? null,
-            inputAttempt.metadata === undefined ? null : JSON.stringify(inputAttempt.metadata),
-            inputAttempt.createdAt
-          )
-      }
+      // Old DBs carry a legacy `actor_agent_id` column (see open-store.ts
+      // migrations); when present it is written through with `actor.id` to stay
+      // back-compatible. The column/placeholder/value triplet is assembled
+      // conditionally so both shapes run through one prepared statement.
+      const columns = [
+        'input_attempt_id',
+        'run_id',
+        'scope_ref',
+        'lane_ref',
+        'task_id',
+        'idempotency_key',
+        'fingerprint',
+        'content',
+        'actor_kind',
+        'actor_id',
+        'actor_display_name',
+        ...(this.hasLegacyActorAgentIdColumn ? ['actor_agent_id'] : []),
+        'metadata_json',
+        'created_at',
+      ]
+      const values = [
+        inputAttempt.inputAttemptId,
+        associatedRunId ?? null,
+        inputAttempt.scopeRef,
+        inputAttempt.laneRef,
+        inputAttempt.taskId ?? null,
+        inputAttempt.idempotencyKey ?? null,
+        fingerprint,
+        input.content,
+        actor.kind,
+        actor.id,
+        actor.displayName ?? null,
+        ...(this.hasLegacyActorAgentIdColumn ? [actor.id] : []),
+        inputAttempt.metadata === undefined ? null : JSON.stringify(inputAttempt.metadata),
+        inputAttempt.createdAt,
+      ]
+      const placeholders = columns.map(() => '?').join(', ')
+      this.context.sqlite
+        .prepare(`INSERT INTO input_attempts (${columns.join(', ')}) VALUES (${placeholders})`)
+        .run(...values)
 
       return {
         inputAttempt,

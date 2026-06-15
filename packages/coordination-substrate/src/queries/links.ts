@@ -1,6 +1,7 @@
 import type { SQLQueryBindings } from 'bun:sqlite'
 
 import type { CoordinationStore } from '../storage/open-store.js'
+import { LINK_COLUMNS } from '../storage/records.js'
 import { parseJson } from '../util/json.js'
 
 export type CoordinationEventLinkRecord = {
@@ -70,14 +71,7 @@ export function listEventLinks(
         SELECT
           l.event_id,
           l.project_id,
-          e.seq,
-          l.task_id,
-          l.run_id,
-          l.session_id,
-          l.delivery_request_id,
-          l.artifact_refs,
-          l.conversation_thread_id,
-          l.conversation_turn_id
+          e.seq,${LINK_COLUMNS}
         FROM coordination_event_links l
         INNER JOIN coordination_events e ON e.event_id = l.event_id
         WHERE ${conditions.join(' AND ')}

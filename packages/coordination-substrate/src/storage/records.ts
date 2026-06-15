@@ -82,9 +82,34 @@ type ParticipantRow = {
   participant: string
 }
 
+type ParticipantByEventRow = {
+  event_id: string
+  participant: string
+}
+
 type EventIdRow = {
   event_id: string
 }
+
+// SQLite's default bound-parameter limit (SQLITE_MAX_VARIABLE_NUMBER) is 999;
+// chunk IN (...) batches well under it.
+const PARTICIPANT_IN_CHUNK_SIZE = 500
+
+/**
+ * The `coordination_event_links` columns selected by every link-reading query,
+ * in a fixed order, aliased to the `l.` join target. Shared so the link column
+ * set has a single source of truth across `getJoinedEventRow`, `listEvents`, and
+ * `listEventLinks`; the row -> object parse policies remain per-call-site and are
+ * intentionally NOT shared (they differ in null-vs-undefined emission).
+ */
+export const LINK_COLUMNS = `
+        l.task_id,
+        l.run_id,
+        l.session_id,
+        l.delivery_request_id,
+        l.artifact_refs,
+        l.conversation_thread_id,
+        l.conversation_turn_id`
 
 export function listParticipantsForEvent(sqlite: Database, eventId: string): ParticipantRef[] {
   return sqlite
@@ -93,6 +118,44 @@ export function listParticipantsForEvent(sqlite: Database, eventId: string): Par
     )
     .all(eventId)
     .map((row) => JSON.parse(row.participant) as ParticipantRef)
+}
+
+/**
+ * Batched counterpart to {@link listParticipantsForEvent}: fetches participants
+ * for many events in chunked IN (...) queries instead of one query per event,
+ * preserving the per-event `ORDER BY participant ASC` ordering. Returns a map
+ * keyed by event_id; events with no participants are simply absent from the map.
+ */
+export function listParticipantsForEvents(
+  sqlite: Database,
+  eventIds: string[]
+): Map<string, ParticipantRef[]> {
+  const byEvent = new Map<string, ParticipantRef[]>()
+  if (eventIds.length === 0) {
+    return byEvent
+  }
+
+  for (let offset = 0; offset < eventIds.length; offset += PARTICIPANT_IN_CHUNK_SIZE) {
+    const chunk = eventIds.slice(offset, offset + PARTICIPANT_IN_CHUNK_SIZE)
+    const placeholders = chunk.map(() => '?').join(', ')
+    const rows = sqlite
+      .query<ParticipantByEventRow, string[]>(
+        `SELECT event_id, participant FROM coordination_event_participants WHERE event_id IN (${placeholders}) ORDER BY participant ASC`
+      )
+      .all(...chunk)
+
+    for (const row of rows) {
+      const participant = JSON.parse(row.participant) as ParticipantRef
+      const list = byEvent.get(row.event_id)
+      if (list) {
+        list.push(participant)
+      } else {
+        byEvent.set(row.event_id, [participant])
+      }
+    }
+  }
+
+  return byEvent
 }
 
 export function hydrateCoordinationEvent(
@@ -188,14 +251,7 @@ export function getJoinedEventRow(
         e.source,
         e.meta,
         e.idempotency_key,
-        l.project_id,
-        l.task_id,
-        l.run_id,
-        l.session_id,
-        l.delivery_request_id,
-        l.artifact_refs,
-        l.conversation_thread_id,
-        l.conversation_turn_id
+        l.project_id,${LINK_COLUMNS}
       FROM coordination_events e
       LEFT JOIN coordination_event_links l ON l.event_id = e.event_id
       WHERE e.event_id = ?

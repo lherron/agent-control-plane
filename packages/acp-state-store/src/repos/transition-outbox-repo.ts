@@ -6,7 +6,7 @@ import type {
   TransitionOutboxStatus,
 } from '../types.js'
 import type { RepoContext } from './shared.js'
-import { DEFAULT_SYSTEM_ACTOR, parseJsonRecord, toOptionalString } from './shared.js'
+import { DEFAULT_SYSTEM_ACTOR, parseJsonRecord } from './shared.js'
 
 type TransitionOutboxRow = {
   transition_event_id: string
@@ -26,11 +26,28 @@ type TransitionOutboxRow = {
   created_at: string
 }
 
-function mapTransitionOutboxRow(row: TransitionOutboxRow): TransitionOutboxRecord {
-  const leasedAt = toOptionalString(row.leased_at)
-  const deliveredAt = toOptionalString(row.delivered_at)
-  const lastError = toOptionalString(row.last_error)
+/**
+ * Column projection for `transition_outbox` SELECTs, in the order
+ * {@link TransitionOutboxRow} reads them. Single source so the `leaseNext` and
+ * `get` queries cannot drift apart.
+ */
+const TRANSITION_OUTBOX_COLUMNS = `transition_event_id,
+        task_id,
+        project_id,
+        from_phase,
+        to_phase,
+        actor_kind,
+        actor_id,
+        actor_display_name,
+        payload_json,
+        status,
+        leased_at,
+        delivered_at,
+        attempts,
+        last_error,
+        created_at`
 
+function mapTransitionOutboxRow(row: TransitionOutboxRow): TransitionOutboxRecord {
   return {
     transitionEventId: row.transition_event_id,
     taskId: row.task_id,
@@ -44,10 +61,10 @@ function mapTransitionOutboxRow(row: TransitionOutboxRow): TransitionOutboxRecor
     },
     payload: parseJsonRecord(row.payload_json) ?? {},
     status: row.status,
-    ...(leasedAt !== undefined ? { leasedAt } : {}),
-    ...(deliveredAt !== undefined ? { deliveredAt } : {}),
+    ...(row.leased_at !== null ? { leasedAt: row.leased_at } : {}),
+    ...(row.delivered_at !== null ? { deliveredAt: row.delivered_at } : {}),
     attempts: row.attempts,
-    ...(lastError !== undefined ? { lastError } : {}),
+    ...(row.last_error !== null ? { lastError: row.last_error } : {}),
     createdAt: row.created_at,
   }
 }
@@ -99,21 +116,7 @@ export class TransitionOutboxRepo {
     return this.context.sqlite.transaction(() => {
       const next = this.context.sqlite
         .prepare(
-          `SELECT transition_event_id,
-                  task_id,
-                  project_id,
-                  from_phase,
-                  to_phase,
-                  actor_kind,
-                  actor_id,
-                  actor_display_name,
-                  payload_json,
-                  status,
-                  leased_at,
-                  delivered_at,
-                  attempts,
-                  last_error,
-                  created_at
+          `SELECT ${TRANSITION_OUTBOX_COLUMNS}
              FROM transition_outbox
             WHERE status IN ('pending', 'leased')
          ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END ASC,
@@ -178,21 +181,7 @@ export class TransitionOutboxRepo {
   get(transitionEventId: string): TransitionOutboxRecord | undefined {
     const row = this.context.sqlite
       .prepare(
-        `SELECT transition_event_id,
-                task_id,
-                project_id,
-                from_phase,
-                to_phase,
-                actor_kind,
-                actor_id,
-                actor_display_name,
-                payload_json,
-                status,
-                leased_at,
-                delivered_at,
-                attempts,
-                last_error,
-                created_at
+        `SELECT ${TRANSITION_OUTBOX_COLUMNS}
            FROM transition_outbox
           WHERE transition_event_id = ?`
       )

@@ -28,6 +28,44 @@ export function deriveRunId(wrkfRunId: string): string {
 /** Conflict fields compared on replay. wrkfInstanceId is intentionally excluded. */
 const RUN_CORRELATION_CONFLICT_FIELDS = ['wrkfTaskId', 'wrkfRunId', 'workflowRef', 'role'] as const
 
+/**
+ * `updateRun` patch keys that map 1:1 onto {@link StoredRun} and follow the
+ * uniform "apply iff present-and-defined" rule. `status` is handled separately
+ * because absence/undefined falls back to the current status rather than no-op.
+ */
+const RUN_PATCH_PASSTHROUGH_KEYS = [
+  'hrcRunId',
+  'hostSessionId',
+  'generation',
+  'runtimeId',
+  'transport',
+  'errorCode',
+  'errorMessage',
+  'metadata',
+  'afterHrcSeq',
+] as const satisfies readonly (keyof UpdateRunInput & keyof StoredRun)[]
+
+/**
+ * Build the partial overlay for the passthrough keys, preserving the original
+ * ladder's semantics exactly: a key absent from `patch` is left untouched, a
+ * key present but `undefined` is a no-op (NOT a clear), and a key present with a
+ * value is applied.
+ */
+function applyDefinedRunPatch(patch: UpdateRunInput): Partial<StoredRun> {
+  const overlay: Partial<StoredRun> = {}
+  for (const key of RUN_PATCH_PASSTHROUGH_KEYS) {
+    if (key in patch) {
+      const value = patch[key]
+      if (value !== undefined) {
+        // Same-named, same-typed keys on both sides; the per-key narrowing is
+        // erased by the loop, so a single assignment cast is required here.
+        ;(overlay as Record<string, unknown>)[key] = value
+      }
+    }
+  }
+  return overlay
+}
+
 function assertRunCorrelationMatches(
   runId: string,
   existing: Record<string, unknown> | undefined,
@@ -427,51 +465,7 @@ export class RunRepo {
       const next: StoredRun = {
         ...current,
         ...('status' in patch ? { status: patch.status ?? current.status } : {}),
-        ...('hrcRunId' in patch
-          ? patch.hrcRunId === undefined
-            ? {}
-            : { hrcRunId: patch.hrcRunId }
-          : {}),
-        ...('hostSessionId' in patch
-          ? patch.hostSessionId === undefined
-            ? {}
-            : { hostSessionId: patch.hostSessionId }
-          : {}),
-        ...('generation' in patch
-          ? patch.generation === undefined
-            ? {}
-            : { generation: patch.generation }
-          : {}),
-        ...('runtimeId' in patch
-          ? patch.runtimeId === undefined
-            ? {}
-            : { runtimeId: patch.runtimeId }
-          : {}),
-        ...('transport' in patch
-          ? patch.transport === undefined
-            ? {}
-            : { transport: patch.transport }
-          : {}),
-        ...('errorCode' in patch
-          ? patch.errorCode === undefined
-            ? {}
-            : { errorCode: patch.errorCode }
-          : {}),
-        ...('errorMessage' in patch
-          ? patch.errorMessage === undefined
-            ? {}
-            : { errorMessage: patch.errorMessage }
-          : {}),
-        ...('metadata' in patch
-          ? patch.metadata === undefined
-            ? {}
-            : { metadata: patch.metadata }
-          : {}),
-        ...('afterHrcSeq' in patch
-          ? patch.afterHrcSeq === undefined
-            ? {}
-            : { afterHrcSeq: patch.afterHrcSeq }
-          : {}),
+        ...applyDefinedRunPatch(patch),
         updatedAt: new Date().toISOString(),
       }
 
