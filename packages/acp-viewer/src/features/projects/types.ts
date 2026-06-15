@@ -1,9 +1,4 @@
-import type { AgentSummary, InterfaceBindingSummary, ProjectSummary } from '@/types/api'
-
-export interface ProvenanceItem {
-  source: string
-  available: boolean
-}
+import type { AgentSummary, InterfaceBindingSummary, ProjectSummary, ProvenanceEntry } from '@/types/api'
 
 export interface ProjectMembership {
   agentId: string
@@ -64,5 +59,5 @@ export interface ProjectDetailState {
   jobs: ProjectJobSummary[]
   interfaceBindings: InterfaceBindingSummary[]
   recentSystemEvents: ProjectSystemEvent[]
-  provenance: ProvenanceItem[]
+  provenance: ProvenanceEntry[]
 }

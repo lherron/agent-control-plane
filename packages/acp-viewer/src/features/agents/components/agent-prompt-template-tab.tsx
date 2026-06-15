@@ -1,9 +1,9 @@
 import { EmptyState, ErrorBanner, FieldRow, Pill, SectionHeader } from '@/components/primitives'
+import { getAgentSystemPrompt } from '@/lib/api'
 import type { AgentSystemPromptInspection, ContextPromptSection, ContextRunMode } from '@/types/api'
 import { useQuery } from '@tanstack/react-query'
 import { Braces } from 'lucide-react'
 import { useState } from 'react'
-import { fetchAgentSystemPrompt } from '../data'
 import type { AgentDetailState } from '../types'
 import {
   PromptControlStrip,
@@ -25,7 +25,7 @@ export function AgentPromptTemplateTab({ detail }: Props) {
   const query = useQuery({
     queryKey: ['agents', detail.agent.agentId, 'system-prompt', runMode, projectId],
     queryFn: () =>
-      fetchAgentSystemPrompt(detail.agent.agentId, {
+      getAgentSystemPrompt(detail.agent.agentId, {
         runMode,
         ...(projectId.length > 0 ? { projectId } : {}),
       }),
