@@ -13,8 +13,6 @@ import {
   GatewayDiscordApp,
   envNumber,
 } from 'gateway-discord'
-import { WrkqSchemaMissingError } from 'wrkq-lib'
-
 import { CliServerError, CliUsageError, printText } from './cli-runtime.js'
 import { printJson } from './print.js'
 
@@ -450,11 +448,6 @@ async function serverForeground(args: readonly string[]): Promise<void> {
     try {
       await unlink(paths.pidPath)
     } catch {}
-    if (error instanceof WrkqSchemaMissingError) {
-      throw new CliServerError(
-        `${error.message}\nRequired migration: 000013_task_workflow_schema.sql`
-      )
-    }
     throw error
   }
 }

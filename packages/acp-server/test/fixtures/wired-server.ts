@@ -5,12 +5,12 @@ import { type InterfaceStore, openInterfaceStore } from 'acp-interface-store'
 import { type AcpStateStore, openAcpStateStore } from 'acp-state-store'
 
 import { type CoordinationStore, openCoordinationStore } from 'coordination-substrate'
-import { type WrkqStore, openWrkqStore } from 'wrkq-lib'
 
 import {
-  type SeededWrkqFixture,
-  createSeededWrkqDb,
-} from '../../../wrkq-lib/test/fixtures/seed-wrkq-db.js'
+  type InMemoryWrkqStoreAdapter,
+  WRKQ_TEST_SEED,
+  createInMemoryWrkqStoreAdapter,
+} from '../../../acp-core/test/fixtures/wrkq-store-adapter.js'
 import {
   type AcpServerDeps,
   InMemoryInputAttemptStore,
@@ -29,20 +29,19 @@ export type WiredServerFixture = {
   handler(request: Request): Promise<Response>
   request(options: RequestOptions): Promise<Response>
   json<T>(response: Response): Promise<T>
-  wrkqStore: WrkqStore
+  wrkqStore: InMemoryWrkqStoreAdapter
   coordStore: CoordinationStore
   interfaceStore: InterfaceStore
   stateStore: AcpStateStore
   runStore: InMemoryRunStore
   inputAttemptStore: InMemoryInputAttemptStore
-  seed: SeededWrkqFixture['seed']
+  seed: typeof WRKQ_TEST_SEED
 }
 
 export async function withWiredServer<T>(
   run: (fixture: WiredServerFixture) => Promise<T> | T,
   overrides: Partial<Omit<AcpServerDeps, 'wrkqStore' | 'coordStore'>> = {}
 ): Promise<T> {
-  const seededWrkq = createSeededWrkqDb()
   const coordDirectory = mkdtempSync(join(tmpdir(), 'acp-server-'))
   const coordDbPath = join(coordDirectory, 'coordination.db')
   const interfaceDbPath = join(coordDirectory, 'acp-interface.db')
@@ -50,10 +49,7 @@ export async function withWiredServer<T>(
   const coordStore = openCoordinationStore(coordDbPath)
   const interfaceStore = openInterfaceStore({ dbPath: interfaceDbPath })
   const stateStore = openAcpStateStore({ dbPath: stateDbPath })
-  const wrkqStore = openWrkqStore({
-    dbPath: seededWrkq.dbPath,
-    actor: { agentId: 'acp-server' },
-  })
+  const wrkqStore = createInMemoryWrkqStoreAdapter()
   const runStore = new InMemoryRunStore()
   const inputAttemptStore = new InMemoryInputAttemptStore()
   const server = createAcpServer({
@@ -91,17 +87,15 @@ export async function withWiredServer<T>(
     stateStore,
     runStore,
     inputAttemptStore,
-    seed: seededWrkq.seed,
+    seed: WRKQ_TEST_SEED,
   }
 
   try {
     return await run(fixture)
   } finally {
     stateStore.close()
-    wrkqStore.close()
     coordStore.close()
     interfaceStore.close()
     rmSync(coordDirectory, { recursive: true, force: true })
-    seededWrkq.cleanup()
   }
 }

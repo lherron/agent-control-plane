@@ -42,7 +42,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { type InterfaceStore, openInterfaceStore } from 'acp-interface-store'
 import { type AcpStateStore, openAcpStateStore } from 'acp-state-store'
 import { type CoordinationStore, openCoordinationStore } from 'coordination-substrate'
-import { type WrkqStore, openWrkqStore } from 'wrkq-lib'
+import type { WrkqStoreAdapter } from 'wrkq-lib'
 
 import {
   type AcpServer,
@@ -77,7 +77,7 @@ describe('wrkf generic non-PBC smoke (T-02589)', () => {
   let dbPath: string
   let lc: WrkfLifecycle
   let server: AcpServer
-  let wrkqStore: WrkqStore
+  let wrkqStore: WrkqStoreAdapter
   let coordStore: CoordinationStore
   let interfaceStore: InterfaceStore
   let stateStore: AcpStateStore
@@ -165,7 +165,9 @@ describe('wrkf generic non-PBC smoke (T-02589)', () => {
     coordStore = openCoordinationStore(coordDbPath)
     interfaceStore = openInterfaceStore({ dbPath: interfaceDbPath })
     stateStore = openAcpStateStore({ dbPath: stateDbPath })
-    wrkqStore = openWrkqStore({ dbPath, actor: { agentId: 'acp-server' } })
+    // The wrkq store ports come from the SAME real WorkClient as the wrkf port
+    // (lc.store), over the same isolated DB — the production single-client wiring.
+    wrkqStore = lc.store as WrkqStoreAdapter
     server = createAcpServer({
       wrkqStore,
       coordStore,
@@ -181,7 +183,8 @@ describe('wrkf generic non-PBC smoke (T-02589)', () => {
     stateStore?.close()
     interfaceStore?.close()
     coordStore?.close()
-    wrkqStore?.close()
+    // wrkqStore (lc.store) holds no resources of its own; lc.close() closes the
+    // underlying WorkClient.
     if (lc !== undefined) {
       await lc.close()
     }
@@ -282,17 +285,36 @@ describe('wrkf generic non-PBC smoke (T-02589)', () => {
   )
 
   test(
-    'deliverWrkfEffects delivers the pending set_task_state effect generically',
+    'wrkf self-delivers the system set_task_state effect; generic deliverWrkfEffects is a correct no-op',
     async () => {
+      // FIDELITY GUARD (real-process): the demo-linear `submit` transition emits a
+      // `set_task_state` effect with role:"system". wrkf owns the wrkq task state
+      // (same SQLite DB) and APPLIES system effects itself at emission time — they
+      // surface from effect.list already `status:"delivered"` with a projection
+      // receipt (open→blocked). There is therefore NO pending effect for the
+      // generic acp-side deliverer (deliverWrkfEffects, which uses effect.list +
+      // effect.deliver) to deliver.
+      //
+      // This guards the real division of labour: if wrkf ever STOPS self-applying
+      // system effects, set_task_state would surface as `pending` and acp would be
+      // responsible for delivering it — this test would flag that contract change.
       const wrkf = lc.wrkf as AcpWrkfWorkflowPort
-      const result = await deliverWrkfEffects(wrkf, { task: taskId })
-      expect(result.delivered.length).toBeGreaterThan(0)
 
-      // Effect is no longer pending after delivery.
       const effectsRaw = await wrkf.effect.list({ task: taskId })
       const effects = (Array.isArray(effectsRaw) ? effectsRaw : []) as Json[]
-      const pending = effects.filter((e) => e['status'] === 'pending')
-      expect(pending.length).toBe(0)
+
+      const setStateEffects = effects.filter((e) => e['kind'] === 'set_task_state')
+      expect(setStateEffects.length).toBeGreaterThan(0)
+      // Every system set_task_state effect is self-delivered by wrkf (never pending).
+      for (const effect of setStateEffects) {
+        expect(effect['status']).toBe('delivered')
+        expect(effect['deliveredAt']).toBeDefined()
+      }
+
+      // The generic acp-side deliverer finds nothing pending and delivers nothing.
+      const result = await deliverWrkfEffects(wrkf, { task: taskId })
+      expect(result.delivered.length).toBe(0)
+      expect(effects.filter((e) => e['status'] === 'pending').length).toBe(0)
     },
     T
   )

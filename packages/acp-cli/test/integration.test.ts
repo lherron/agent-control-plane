@@ -3,11 +3,10 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { openWrkqStore } from 'wrkq-lib'
+import { createInMemoryWrkqStoreAdapter } from '../../acp-core/test/fixtures/wrkq-store-adapter.js'
 import { createAcpServer } from '../../acp-server/src/index.js'
 import { openCoordinationStore } from '../../coordination-substrate/src/index.js'
 
-import { createSeededWrkqDb } from '../../wrkq-lib/test/fixtures/seed-wrkq-db.js'
 import { main } from '../src/cli.js'
 
 type CliResult = {
@@ -103,20 +102,14 @@ async function runCli(
 
 describe('acp-cli integration', () => {
   test('manages interface bindings through admin commands', async () => {
-    const seededWrkq = createSeededWrkqDb()
     const coordDir = mkdtempSync(join(tmpdir(), 'acp-cli-'))
     const coordDbPath = join(coordDir, 'coordination.db')
     const coordStore = openCoordinationStore(coordDbPath)
-    const wrkqStore = openWrkqStore({
-      dbPath: seededWrkq.dbPath,
-      actor: { agentId: 'acp-cli-test' },
-    })
+    const wrkqStore = createInMemoryWrkqStoreAdapter()
     const server = createAcpServer({ wrkqStore, coordStore })
 
     cleanup = () => {
-      wrkqStore.close()
       coordStore.close()
-      seededWrkq.cleanup()
       rmSync(coordDir, { recursive: true, force: true })
     }
 

@@ -14,6 +14,7 @@ import {
   uniqueStoredAttachmentPath,
 } from '../attachments.js'
 import { AcpHttpError, json } from '../http.js'
+import { readOptionalTrimmedStringOrThrow } from '../internal/read-helpers.js'
 import {
   isRecord,
   parseJsonBody,
@@ -237,8 +238,16 @@ function readInterfaceRunSource(run: ReturnType<typeof requireRun>): InterfaceRu
     )
   }
 
-  const threadRef = readOptionalString(source, 'threadRef')
-  const replyToMessageRef = readOptionalString(source, 'replyToMessageRef')
+  const threadRef = readOptionalTrimmedStringOrThrow(
+    source,
+    'threadRef',
+    invalidInterfaceSourceField
+  )
+  const replyToMessageRef = readOptionalTrimmedStringOrThrow(
+    source,
+    'replyToMessageRef',
+    invalidInterfaceSourceField
+  )
   return {
     gatewayId: readRequiredString(source, 'gatewayId'),
     bindingId: readRequiredString(source, 'bindingId'),
@@ -264,20 +273,13 @@ function readRequiredString(record: Record<string, unknown>, field: string): str
   return value.trim()
 }
 
-function readOptionalString(record: Record<string, unknown>, field: string): string | undefined {
-  const value = record[field]
-  if (value === undefined) {
-    return undefined
-  }
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new AcpHttpError(
-      409,
-      'run_invalid_interface_source',
-      `interface source has invalid ${field}`,
-      { field }
-    )
-  }
-  return value.trim()
+function invalidInterfaceSourceField(field: string): Error {
+  return new AcpHttpError(
+    409,
+    'run_invalid_interface_source',
+    `interface source has invalid ${field}`,
+    { field }
+  )
 }
 
 function createDeliveryRequestId(runId: string): string {

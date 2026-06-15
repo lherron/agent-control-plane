@@ -20,10 +20,6 @@ export class BindingIndex {
     this.byKey = new Map(bindings.map((binding) => [conversationKey(binding), binding]))
   }
 
-  getProjectIdFor(lookup: DiscordConversationLookup): string | undefined {
-    return this.getBindingFor(lookup)?.projectId
-  }
-
   getBindingFor(lookup: DiscordConversationLookup): DiscordInterfaceBinding | undefined {
     const exact = this.byKey.get(conversationKey(lookup))
     if (exact) {
@@ -39,32 +35,6 @@ export class BindingIndex {
         conversationRef: lookup.conversationRef,
       })
     )
-  }
-
-  getBoundChannelIds(): Set<string> {
-    const channelIds = new Set<string>()
-    for (const binding of this.byKey.values()) {
-      const channelId = parseDiscordRef(binding.conversationRef, 'channel')
-      if (channelId) {
-        channelIds.add(channelId)
-      }
-    }
-    return channelIds
-  }
-
-  getChannelForProject(projectId: string): string | undefined {
-    for (const binding of this.byKey.values()) {
-      if (binding.projectId !== projectId) {
-        continue
-      }
-
-      const channelId = parseDiscordRef(binding.conversationRef, 'channel')
-      if (channelId) {
-        return channelId
-      }
-    }
-
-    return undefined
   }
 }
 

@@ -195,6 +195,38 @@ export function createGatewayIosWsHandlers(deps: GatewayIosRouteDeps) {
     hrcClient: deps.hrcClient,
   })
 
+  /**
+   * Resolve the lifecycle callbacks for a connection's route, each already
+   * bound to a proxy presenting the route-specific data. Returns undefined for
+   * an unknown/mismatched route so callers can reject it. Centralizes the
+   * route→handler dispatch that the open/message/close callbacks all share.
+   */
+  function resolveRouteHandler(data: WsData):
+    | {
+        open(ws: ServerWebSocket<WsData>): void
+        message(ws: ServerWebSocket<WsData>, message: string | Buffer): void
+        close(ws: ServerWebSocket<WsData>): void
+      }
+    | undefined {
+    if (data.route === 'timeline' && data.timeline) {
+      const routeData = data.timeline
+      return {
+        open: (ws) => timelineHandler.open(createWsProxy(ws, routeData)),
+        message: (ws, message) => timelineHandler.message(createWsProxy(ws, routeData), message),
+        close: (ws) => timelineHandler.close(createWsProxy(ws, routeData)),
+      }
+    }
+    if (data.route === 'diagnostics' && data.diagnostics) {
+      const routeData = data.diagnostics
+      return {
+        open: (ws) => diagnosticsHandler.open(createWsProxy(ws, routeData)),
+        message: (ws, message) => diagnosticsHandler.message(createWsProxy(ws, routeData), message),
+        close: (ws) => diagnosticsHandler.close(createWsProxy(ws, routeData)),
+      }
+    }
+    return undefined
+  }
+
   return {
     /**
      * Attempt WS upgrade. Returns:
@@ -250,44 +282,21 @@ export function createGatewayIosWsHandlers(deps: GatewayIosRouteDeps) {
     /** Bun.serve websocket config object. */
     websocket: {
       open(ws: ServerWebSocket<WsData>): void {
-        const { route } = ws.data
-
-        if (route === 'timeline' && ws.data.timeline) {
-          // Create a lightweight proxy that presents TimelineWsData to the handler
-          // while preserving the original WsData on the real ws object.
-          const proxy = createWsProxy(ws, ws.data.timeline)
-          timelineHandler.open(proxy)
-        } else if (route === 'diagnostics' && ws.data.diagnostics) {
-          const proxy = createWsProxy(ws, ws.data.diagnostics)
-          diagnosticsHandler.open(proxy)
-        } else {
-          log.warn('routes.ws_unknown_route', { data: { route } })
+        const handler = resolveRouteHandler(ws.data)
+        if (!handler) {
+          log.warn('routes.ws_unknown_route', { data: { route: ws.data.route } })
           ws.close(1008, 'Unknown route')
+          return
         }
+        handler.open(ws)
       },
 
       message(ws: ServerWebSocket<WsData>, message: string | Buffer): void {
-        const { route } = ws.data
-
-        if (route === 'timeline' && ws.data.timeline) {
-          const proxy = createWsProxy(ws, ws.data.timeline)
-          timelineHandler.message(proxy, message)
-        } else if (route === 'diagnostics' && ws.data.diagnostics) {
-          const proxy = createWsProxy(ws, ws.data.diagnostics)
-          diagnosticsHandler.message(proxy, message)
-        }
+        resolveRouteHandler(ws.data)?.message(ws, message)
       },
 
       close(ws: ServerWebSocket<WsData>, _code: number, _reason: string): void {
-        const { route } = ws.data
-
-        if (route === 'timeline' && ws.data.timeline) {
-          const proxy = createWsProxy(ws, ws.data.timeline)
-          timelineHandler.close(proxy)
-        } else if (route === 'diagnostics' && ws.data.diagnostics) {
-          const proxy = createWsProxy(ws, ws.data.diagnostics)
-          diagnosticsHandler.close(proxy)
-        }
+        resolveRouteHandler(ws.data)?.close(ws)
       },
     },
   }

@@ -190,7 +190,7 @@ export type TransitionOutboxRecord = {
   leasedAt?: string | undefined
   deliveredAt?: string | undefined
   attempts: number
-  lastError?: string | undefined
+  lastError: string | null
   createdAt: string
 }
 

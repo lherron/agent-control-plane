@@ -6,6 +6,21 @@ function invalidSessionRefError(): Error {
   return new Error('Wake requests require a canonical SessionRef with an explicit laneRef')
 }
 
+/**
+ * Validates that the given (scopeRef, laneRef) pair is already in canonical
+ * form (normalization is a no-op) and returns the normalized ref. Throws the
+ * shared invalid-session-ref error otherwise. Single enforcer of the
+ * canonical-encoding invariant for both the object and string parse paths.
+ */
+function assertCanonical(scopeRef: string, laneRef: string): SessionRef {
+  const normalized = normalizeSessionRef({ scopeRef, laneRef })
+  if (normalized.scopeRef !== scopeRef || normalized.laneRef !== laneRef) {
+    throw invalidSessionRefError()
+  }
+
+  return normalized
+}
+
 export function canonicalizeSessionRef(value: unknown): SessionRef {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw invalidSessionRefError()
@@ -18,12 +33,7 @@ export function canonicalizeSessionRef(value: unknown): SessionRef {
     throw invalidSessionRefError()
   }
 
-  const normalized = normalizeSessionRef({ scopeRef, laneRef })
-  if (normalized.scopeRef !== scopeRef || normalized.laneRef !== laneRef) {
-    throw invalidSessionRefError()
-  }
-
-  return normalized
+  return assertCanonical(scopeRef, laneRef)
 }
 
 export function formatCanonicalSessionRef(value: SessionRef): string {
@@ -39,13 +49,8 @@ export function parseCanonicalSessionRef(value: string): SessionRef {
 
   const scopeRef = value.slice(0, delimiterIndex)
   const laneRef = value.slice(delimiterIndex + 1)
-  const normalized = normalizeSessionRef({ scopeRef, laneRef })
 
-  if (`${normalized.scopeRef}${SESSION_REF_DELIMITER}${normalized.laneRef}` !== value) {
-    throw invalidSessionRefError()
-  }
-
-  return normalized
+  return assertCanonical(scopeRef, laneRef)
 }
 
 export function isCanonicalSessionRef(value: unknown): value is SessionRef {

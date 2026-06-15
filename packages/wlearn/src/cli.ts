@@ -152,42 +152,23 @@ function usage(): never {
   wlearn promotion submit --patch-bundle-json <json> --replay-report <id> --eval-report <id> --reviewer <kind:id> [--external-authority <kind:id>]`)
 }
 
+const COMMAND_HANDLERS: Record<string, (flags: Record<string, string>) => void> = {
+  'trace materialize': handleTraceMaterialize,
+  'replay run': handleReplayRun,
+  'hrc summarize-range': handleHrcSummarizeRange,
+  'playbook draft': handlePlaybookDraft,
+  'patch draft': handlePatchDraft,
+  'curate report': handleCurateReport,
+  'promotion submit': handlePromotionSubmit,
+}
+
 export function runWlearnCli(argv = process.argv.slice(2)): void {
   const { command, flags } = parseArgs(argv)
   const key = command.join(' ')
 
-  if (key === 'trace materialize') {
-    handleTraceMaterialize(flags)
-    return
-  }
-
-  if (key === 'replay run') {
-    handleReplayRun(flags)
-    return
-  }
-
-  if (key === 'hrc summarize-range') {
-    handleHrcSummarizeRange(flags)
-    return
-  }
-
-  if (key === 'playbook draft') {
-    handlePlaybookDraft(flags)
-    return
-  }
-
-  if (key === 'patch draft') {
-    handlePatchDraft(flags)
-    return
-  }
-
-  if (key === 'curate report') {
-    handleCurateReport(flags)
-    return
-  }
-
-  if (key === 'promotion submit') {
-    handlePromotionSubmit(flags)
+  const handler = COMMAND_HANDLERS[key]
+  if (handler !== undefined) {
+    handler(flags)
     return
   }
 
@@ -198,12 +179,16 @@ export function runWlearnCli(argv = process.argv.slice(2)): void {
   throw new Error(`unknown wlearn command: ${key}`)
 }
 
-if (import.meta.main) {
+export function main(argv = process.argv.slice(2)): void {
   try {
-    runWlearnCli()
+    runWlearnCli(argv)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     process.stderr.write(`${message}\n`)
     process.exit(1)
   }
+}
+
+if (import.meta.main) {
+  main()
 }

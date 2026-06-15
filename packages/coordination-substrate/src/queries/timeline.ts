@@ -5,7 +5,8 @@ import type { CoordinationStore } from '../storage/open-store.js'
 import {
   type CoordinationEventJoinedRow,
   hydrateCoordinationEvent,
-  listParticipantsForEvent,
+  LINK_COLUMNS,
+  listParticipantsForEvents,
 } from '../storage/records.js'
 import type { CoordinationEvent } from '../types/coordination-event.js'
 import type { ParticipantRef } from '../types/participant-ref.js'
@@ -85,14 +86,7 @@ export function listEvents(store: CoordinationStore, query: TimelineQuery): Coor
       e.meta,
       e.idempotency_key,
       l.event_id,
-      l.project_id,
-      l.task_id,
-      l.run_id,
-      l.session_id,
-      l.delivery_request_id,
-      l.artifact_refs,
-      l.conversation_thread_id,
-      l.conversation_turn_id
+      l.project_id,${LINK_COLUMNS}
     FROM coordination_events e
     LEFT JOIN coordination_event_links l ON l.event_id = e.event_id
     WHERE ${conditions.join(' AND ')}
@@ -107,7 +101,11 @@ export function listEvents(store: CoordinationStore, query: TimelineQuery): Coor
   const rows = store.sqlite
     .query<CoordinationEventJoinedRow, SQLQueryBindings[]>(sql)
     .all(...parameters)
+  const participantsByEvent = listParticipantsForEvents(
+    store.sqlite,
+    rows.map((row) => row.event_id)
+  )
   return rows.map((row) =>
-    hydrateCoordinationEvent(row, listParticipantsForEvent(store.sqlite, row.event_id))
+    hydrateCoordinationEvent(row, participantsByEvent.get(row.event_id) ?? [])
   )
 }

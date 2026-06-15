@@ -22,24 +22,14 @@ export function shortId(prefix: string): string {
   return `${prefix}${randomUUID().replace(/-/g, '').slice(0, SHORT_ID_LEN)}`
 }
 
-export function toOptionalString(value: string | null): string | undefined {
-  return value ?? undefined
-}
-
-export function toOptionalNumber(value: number | null): number | undefined {
-  return value ?? undefined
-}
-
-export function toOptionalBooleanFromInt(value: number | null): boolean | undefined {
-  if (value === null) {
-    return undefined
-  }
-
-  return value !== 0
+/** Append a `(column)` suffix to a parse-error message when a label is given. */
+function withParseContext(message: string, context?: string): string {
+  return context === undefined ? message : `${message} (${context})`
 }
 
 export function parseJsonRecord(
-  value: string | null
+  value: string | null,
+  context?: string
 ): Readonly<Record<string, unknown>> | undefined {
   if (value === null) {
     return undefined
@@ -47,8 +37,17 @@ export function parseJsonRecord(
 
   const parsed = JSON.parse(value) as unknown
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new Error('Expected JSON object payload')
+    throw new Error(withParseContext('Expected JSON object payload', context))
   }
 
   return parsed as Readonly<Record<string, unknown>>
+}
+
+export function parseStringArray(value: string, context?: string): string[] {
+  const parsed = JSON.parse(value) as unknown
+  if (!Array.isArray(parsed)) {
+    throw new Error(withParseContext('Expected JSON array payload', context))
+  }
+
+  return parsed as string[]
 }

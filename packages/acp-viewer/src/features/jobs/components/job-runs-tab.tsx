@@ -1,4 +1,5 @@
 import { EmptyState, Pill, StatusDot } from '@/components/primitives'
+import { runStatusTone as statusTone } from '@/lib/tone'
 import type { JobDetailResponse } from '@/types/api'
 import { Activity } from 'lucide-react'
 
@@ -17,13 +18,6 @@ function fmtDate(iso: string | undefined): string {
     minute: '2-digit',
     hour12: false,
   }).format(d)
-}
-
-function statusTone(status: string): 'success' | 'destructive' | 'warn' | 'muted' {
-  if (status === 'succeeded') return 'success'
-  if (status === 'failed') return 'destructive'
-  if (status === 'skipped') return 'warn'
-  return 'muted'
 }
 
 const GRID = '12px minmax(220px,1.4fr) 100px 110px minmax(160px,1fr) minmax(160px,1fr)'

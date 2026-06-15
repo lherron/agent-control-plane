@@ -2,7 +2,7 @@
   "name": "wrkq-lib",
   "version": "0.1.0",
   "private": true,
-  "description": "Thin TypeScript store layer over wrkq SQLite for ACP task workflows",
+  "description": "Thin async adapter mapping @wrkq/client RPC onto acp-core store ports",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -23,11 +23,10 @@
     "test": "bun test"
   },
   "dependencies": {
-    "acp-core": "*",
-    "better-sqlite3": "^11.10.0"
+    "@wrkq/client": "0.1.0-dev.20260615100439",
+    "acp-core": "*"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.12",
     "@types/bun": "latest",
     "typescript": "^5.8.3"
   }

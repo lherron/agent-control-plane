@@ -1,36 +1,20 @@
 /**
- * RED TEST — AcpWrkfWorkflowPort fake-client injection via deps.wrkf (W1 acceptance gate)
+ * AcpWrkfWorkflowPort fake-client injection via deps.wrkf + lifecycle/adapter contract.
  *
- * Why red: `@wrkf/client` is not installed in this workspace yet.
- * Bun throws CannotFindModule at file load; all tests below will fail.
- *
- * What larry must do to turn this green:
- *   1. Add `"@wrkf/client": "*"` to packages/acp-server/package.json dependencies
- *      and run `bun install` so the import resolves.
- *   2. Create packages/acp-server/src/wrkf/port.ts:
- *        import type { WrkfClient } from '@wrkf/client'
- *        export type AcpWrkfWorkflowPort = Pick<WrkfClient,
- *          'workflow'|'task'|'next'|'evidence'|'obligation'|'transition'|'run'|'effect'>
- *   3. Add `wrkf?: AcpWrkfWorkflowPort | undefined` to AcpServerDeps
- *      and `wrkf: AcpWrkfWorkflowPort` to ResolvedAcpServerDeps in deps.ts.
- *   4. Thread `wrkf` through resolveAcpServerDeps (must be a required resolved field,
- *      not just spread — production code should assert its presence).
- *   5. Wire a minimal test-probe route (GET /v1/wrkf/ping) that reads deps.wrkf
- *      and returns { wrkf: 'available' } so the injection is observable over HTTP.
- *      (This route may be removed after W-series testing; it must exist for W1 green.)
+ * The workflow port is sourced from `@wrkq/client` (the unified client), adapted
+ * onto the flat `AcpWrkfWorkflowPort` shape by `createWrkfClientLifecycle`. This
+ * suite verifies two seams:
+ *   1. The lifecycle adapter maps the flat port onto the namespaced client
+ *      (`client.wrkf.*` / `client.wrkq.*`) — see "adapter contract" below.
+ *   2. A fake AcpWrkfWorkflowPort injected through deps.wrkf is reachable by a
+ *      route handler (GET /v1/wrkf/ping).
  */
 
 import { describe, expect, test } from 'bun:test'
+import type { WorkClient } from '@wrkq/client'
 
-// ── RED IMPORT ──────────────────────────────────────────────────────────────
-// @wrkf/client is not installed; bun throws CannotFindModule on load → RED.
-// Once larry adds it to package.json + bun installs it, this resolves.
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-expect-error -- @wrkf/client not yet installed (W1 step 1)
-import { WrkfClient } from '@wrkf/client'
-// @ts-expect-error -- wrkf/port.ts does not exist yet (W1 step 2)
+import { createWrkfClientLifecycle } from '../wrkf/client-lifecycle.js'
 import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
-// ────────────────────────────────────────────────────────────────────────────
 
 import { withWiredServer } from '../../test/fixtures/wired-server.js'
 
@@ -94,11 +78,58 @@ function makeFakeWrkfPort(): AcpWrkfWorkflowPort {
   }
 }
 
-describe('@wrkf/client package surface', () => {
-  test('WrkfClient.spawn is a function (package import works)', () => {
-    // Verifies @wrkf/client is importable after larry adds the dep.
-    // This test is the first to fail when the package is not installed.
-    expect(typeof WrkfClient.spawn).toBe('function')
+describe('createWrkfClientLifecycle adapter contract (@wrkq/client → AcpWrkfWorkflowPort)', () => {
+  test('maps the flat port onto the namespaced client (client.wrkf.* / client.wrkq.*)', async () => {
+    const calls: Array<{ ns: string; method: string; params: unknown }> = []
+    const record =
+      (ns: string, method: string) =>
+      (params: unknown): Promise<unknown> => {
+        calls.push({ ns, method, params })
+        return Promise.resolve({ ok: true })
+      }
+
+    // Minimal fake WorkClient exposing only the namespaces the adapter touches here.
+    const fakeClient = {
+      wrkf: {
+        instance: { next: record('wrkf', 'instance.next') },
+        effect: { list: record('wrkf', 'effect.list') },
+      },
+      wrkq: {
+        workflow: { inspect: record('wrkq', 'workflow.inspect') },
+      },
+      call: (method: string, params: unknown): Promise<unknown> => {
+        calls.push({ ns: 'call', method, params })
+        return Promise.resolve({ ok: true })
+      },
+      close: (): Promise<void> => Promise.resolve(),
+      kill: (): void => {},
+    } as unknown as WorkClient
+
+    const lifecycle = await createWrkfClientLifecycle({
+      _createClient: () => Promise.resolve(fakeClient),
+      dbPath: '/tmp/wrkf-adapter-test.db',
+      clientInfo: { name: 'acp-server', version: '0.1.0' },
+    })
+
+    const wrkf = lifecycle.wrkf as AcpWrkfWorkflowPort
+
+    // next → client.wrkf.instance.next
+    await wrkf.next({ task: 'T-0001' })
+    // task.inspect → client.wrkq.workflow.inspect
+    await wrkf.task.inspect({ task: 'T-0001' })
+    // effect.list → client.wrkf.effect.list
+    await wrkf.effect.list({ task: 'T-0001' })
+    // task.syncMeta → client.call escape hatch (T-04764)
+    await wrkf.task.syncMeta({ task: 'T-0001' })
+
+    expect(calls).toEqual([
+      { ns: 'wrkf', method: 'instance.next', params: { task: 'T-0001' } },
+      { ns: 'wrkq', method: 'workflow.inspect', params: { task: 'T-0001' } },
+      { ns: 'wrkf', method: 'effect.list', params: { task: 'T-0001' } },
+      { ns: 'call', method: 'wrkf.task.syncMeta', params: { task: 'T-0001' } },
+    ])
+
+    await lifecycle.close()
   })
 })
 

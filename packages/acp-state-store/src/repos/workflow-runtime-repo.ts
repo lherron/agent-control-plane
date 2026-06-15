@@ -457,7 +457,21 @@ export class WorkflowRuntimeRepo {
     })(effectId)
   }
 
-  markEffectIntentDelivered(effectId: string): void {
+  /**
+   * Transition an effect intent to a terminal state and append the matching
+   * lifecycle event. No-op (matching the prior per-method guard) when the
+   * effect is absent or already in the target state.
+   */
+  private transitionEffectIntent(
+    effectId: string,
+    target: EffectRow['state'],
+    lifecycleEvent: (effect: EffectRow) => {
+      type: string
+      deliveryResult?: string | undefined
+      errorCode?: string | undefined
+      errorMessage?: string | undefined
+    }
+  ): void {
     const existing = this.context.sqlite
       .prepare(
         `SELECT effect_id, task_id, source_event_id, kind, payload_json, idempotency_key,
@@ -466,60 +480,36 @@ export class WorkflowRuntimeRepo {
           WHERE effect_id = ?`
       )
       .get(effectId) as EffectRow | undefined
-    if (existing === undefined || existing.state === 'delivered') {
+    if (existing === undefined || existing.state === target) {
       return
     }
     this.context.sqlite
       .prepare('UPDATE workflow_effect_intents SET state = ?, updated_at = ? WHERE effect_id = ?')
-      .run('delivered', new Date().toISOString(), effectId)
-    this.appendEffectLifecycleEvent(existing, {
+      .run(target, new Date().toISOString(), effectId)
+    this.appendEffectLifecycleEvent(existing, lifecycleEvent(existing))
+  }
+
+  markEffectIntentDelivered(effectId: string): void {
+    this.transitionEffectIntent(effectId, 'delivered', () => ({
       type: 'effect.intent.delivered',
       deliveryResult: 'delivered',
-    })
+    }))
   }
 
   markEffectIntentFailed(effectId: string): void {
-    const existing = this.context.sqlite
-      .prepare(
-        `SELECT effect_id, task_id, source_event_id, kind, payload_json, idempotency_key,
-                state, created_at, updated_at
-           FROM workflow_effect_intents
-          WHERE effect_id = ?`
-      )
-      .get(effectId) as EffectRow | undefined
-    if (existing === undefined || existing.state === 'failed') {
-      return
-    }
-    this.context.sqlite
-      .prepare('UPDATE workflow_effect_intents SET state = ?, updated_at = ? WHERE effect_id = ?')
-      .run('failed', new Date().toISOString(), effectId)
-    this.appendEffectLifecycleEvent(existing, {
+    this.transitionEffectIntent(effectId, 'failed', () => ({
       type: 'effect.intent.failed',
       deliveryResult: 'failed',
-    })
+    }))
   }
 
   markEffectIntentUnsupported(effectId: string): void {
-    const existing = this.context.sqlite
-      .prepare(
-        `SELECT effect_id, task_id, source_event_id, kind, payload_json, idempotency_key,
-                state, created_at, updated_at
-           FROM workflow_effect_intents
-          WHERE effect_id = ?`
-      )
-      .get(effectId) as EffectRow | undefined
-    if (existing === undefined || existing.state === 'unsupported') {
-      return
-    }
-    this.context.sqlite
-      .prepare('UPDATE workflow_effect_intents SET state = ?, updated_at = ? WHERE effect_id = ?')
-      .run('unsupported', new Date().toISOString(), effectId)
-    this.appendEffectLifecycleEvent(existing, {
+    this.transitionEffectIntent(effectId, 'unsupported', (existing) => ({
       type: 'effect.intent.unsupported',
       deliveryResult: 'unsupported',
       errorCode: 'unsupported_effect',
       errorMessage: `Unsupported workflow effect kind: ${existing.kind}`,
-    })
+    }))
   }
 
   loadSnapshot(): WorkflowKernelSnapshot {

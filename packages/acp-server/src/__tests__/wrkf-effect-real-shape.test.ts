@@ -1,7 +1,7 @@
 /**
  * REAL-PROCESS shape guard — W5: wrkf effect payload shapes (T-01935)
  *
- * These tests spin a REAL @wrkf/client against the canonical wrkq DB and
+ * These tests spin a REAL @wrkq/client against the canonical wrkq DB and
  * assert the actual shape of effect objects. They PASS NOW (they document
  * reality) and serve as a fidelity guard: if wrkf changes the effect payload
  * format, these tests catch it before the reconciler is broken.
@@ -85,7 +85,7 @@ const _EXPECTED_OBSERVER_DATA_KEYS = ['guardrails', 'instruction', 'targetLane']
 // REAL-PROCESS: wrkf effect list shape contract
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('W5 real-process: @wrkf/client effect shape contract (fidelity guard)', () => {
+describe('W5 real-process: @wrkq/client effect shape contract (fidelity guard)', () => {
   // ── Shape: effect object has required top-level keys ─────────────────────
   //
   // PASSES NOW. Guards against wrkf changing effect object structure.
@@ -249,8 +249,8 @@ describe('W5 real-process: @wrkf/client effect shape contract (fidelity guard)',
   // PASSES NOW (using an existing leased effect or verifying the key structure).
   // When a claim succeeds, the response must have {effects:[...], leaseToken:string}.
 
-  test('REAL-PROCESS: @wrkf/client effect.list returns an ARRAY (not {effects:[...]} wrapper)', async () => {
-    // FIDELITY GUARD: The @wrkf/client effect.list API returns a bare array of effects,
+  test('REAL-PROCESS: @wrkq/client effect.list returns an ARRAY (not {effects:[...]} wrapper)', async () => {
+    // FIDELITY GUARD: The @wrkq/client effect.list API returns a bare array of effects,
     // NOT an {effects:[...]} wrapper object. This differs from effect.claim which DOES
     // use an {effects:[...]} wrapper.
     //

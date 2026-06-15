@@ -11,7 +11,9 @@ import {
 } from 'acp-ops-projection'
 import type { HrcLifecycleEvent as CoreHrcLifecycleEvent, HrcSessionRecord } from 'hrc-core'
 
+import { readOptionalFiniteNumber as readNumber } from '../internal/read-helpers.js'
 import { isRecord } from '../parsers/body.js'
+import { readOptionalString as readString } from '../wrkf/value.js'
 
 export const DEFAULT_DASHBOARD_WINDOW_MS = 90_000
 export const DEFAULT_DASHBOARD_LIMIT_SESSIONS = 50
@@ -31,16 +33,6 @@ export type DashboardFilters = {
   runtimeId?: string | undefined
   runId?: string | undefined
   family?: DashboardEventFamily | string | undefined
-}
-
-function readString(record: ObjectRecord, key: string): string | undefined {
-  const value = record[key]
-  return typeof value === 'string' && value.length > 0 ? value : undefined
-}
-
-function readNumber(record: ObjectRecord, key: string): number | undefined {
-  const value = record[key]
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
 function readIntegerLike(record: ObjectRecord, key: string): number | undefined {

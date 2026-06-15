@@ -15,7 +15,7 @@ import { openCoordinationStore } from 'coordination-substrate'
 import { resolveControlSocketPath, resolveDatabasePath } from 'hrc-core'
 import { HrcClient } from 'hrc-sdk'
 import { buildRuntimeBundleRef, getAgentsRoot, resolveAgentPlacementPaths } from 'spaces-config'
-import { WrkqSchemaMissingError, type WrkqStore, openWrkqStore } from 'wrkq-lib'
+import type { WrkqStoreAdapter } from 'wrkq-lib'
 
 import { createAccessLogger } from './access-log.js'
 import { createAcpServer } from './create-acp-server.js'
@@ -41,6 +41,11 @@ import { InputAdmissionService } from './input-admission/input-admission-service
 import { createInputQueueDispatcher } from './integration/input-queue-dispatcher.js'
 import { createInterfaceRunDispatcher } from './integration/interface-run-dispatcher.js'
 import { createWakeDispatcher } from './integration/wake-dispatcher.js'
+import {
+  readOptionalFiniteNumber as readNumber,
+  readObjectRecord as readRecord,
+  readOptionalNonEmptyString as readString,
+} from './internal/read-helpers.js'
 import { createEventJobEvaluator } from './jobs/event-job-evaluator.js'
 import { advanceJobFlow } from './jobs/flow-engine.js'
 import { getRunFinalAssistantText } from './jobs/run-final-output.js'
@@ -408,15 +413,17 @@ export function resolveLauncherDeps(
 
 function createPbcWorkerRunner(input: {
   deps: ResolvedAcpServerDeps
-  wrkqStore: WrkqStore
+  wrkqStore: WrkqStoreAdapter | undefined
   options: AcpServerCliOptions
 }): ((job: PbcContinuationJob) => Promise<void>) | undefined {
   const wrkf = input.deps.wrkf
   const stateStore = input.deps.stateStore
+  const wrkqStore = input.wrkqStore
   if (
     wrkf === undefined ||
     input.deps.launchRoleScopedRun === undefined ||
-    stateStore === undefined
+    stateStore === undefined ||
+    wrkqStore === undefined
   ) {
     return undefined
   }
@@ -460,7 +467,7 @@ function createPbcWorkerRunner(input: {
         }
         return launchPbcWorkerAcpRun({
           deps: input.deps,
-          wrkqStore: input.wrkqStore,
+          wrkqStore,
           options: input.options,
           job,
           wrkfRunId: latestWrkfRunId,
@@ -492,16 +499,15 @@ function createPbcWorkerRunner(input: {
       },
     }
 
+    const [pbcActor, pbcPressureActor] = await Promise.all([
+      pbcActorWireForRole(wrkqStore, job.taskId, 'agent', PBC_DRAFT_AGENT),
+      pbcActorWireForRole(wrkqStore, job.taskId, 'pressure_reviewer', PBC_REVIEWER_AGENT),
+    ])
     await runPbcContinuationWorker(port, {
       taskId: job.taskId,
       idempotencyKey: job.idempotencyKey,
-      actor: pbcActorWireForRole(input.wrkqStore, job.taskId, 'agent', PBC_DRAFT_AGENT),
-      pressureActor: pbcActorWireForRole(
-        input.wrkqStore,
-        job.taskId,
-        'pressure_reviewer',
-        PBC_REVIEWER_AGENT
-      ),
+      actor: pbcActor,
+      pressureActor: pbcPressureActor,
       jobId: job.jobId,
       ...(job.leaseOwner !== undefined ? { leaseOwner: job.leaseOwner } : {}),
     })
@@ -510,7 +516,7 @@ function createPbcWorkerRunner(input: {
 
 async function launchPbcWorkerAcpRun(input: {
   deps: ResolvedAcpServerDeps
-  wrkqStore: WrkqStore
+  wrkqStore: WrkqStoreAdapter
   options: AcpServerCliOptions
   job: PbcContinuationJob
   wrkfRunId: string
@@ -525,12 +531,14 @@ async function launchPbcWorkerAcpRun(input: {
   }
 
   const projection = await readPbcWorkerProjection(input.deps, input.job)
-  const actor = actorFromWire(input.actor) ?? {
-    kind: 'agent',
-    id: agentIdForRole(input.wrkqStore, input.options, input.taskId, input.role),
-  }
+  const actor =
+    actorFromWire(input.actor) ??
+    ({
+      kind: 'agent',
+      id: await agentIdForRole(input.wrkqStore, input.options, input.taskId, input.role),
+    } as Actor)
   const sessionRef = normalizeSessionRef({
-    scopeRef: scopeRefForWorkerRole(
+    scopeRef: await scopeRefForWorkerRole(
       input.wrkqStore,
       input.options,
       input.taskId,
@@ -653,42 +661,42 @@ async function readPbcWorkerProjection(
   }
 }
 
-function agentIdForRole(
-  wrkqStore: WrkqStore,
+async function agentIdForRole(
+  wrkqStore: WrkqStoreAdapter,
   options: AcpServerCliOptions,
   taskId: string,
   role: string
-): string {
-  const task = wrkqStore.taskRepo.getTask(taskId)
-  const roleMap = wrkqStore.roleAssignmentRepo.getRoleMap(taskId) ?? task?.roleMap ?? {}
+): Promise<string> {
+  const task = await wrkqStore.taskStore.getTask(taskId)
+  const roleMap = (await wrkqStore.roleAssignmentStore.getRoleMap(taskId)) ?? task?.roleMap ?? {}
   return roleMap[role]?.trim() || roleMap['agent']?.trim() || options.actor
 }
 
 // PBC worker participant resolution: a task's explicit roleMap wins; otherwise
 // fall back to the configured PBC default agent (NOT the server identity), so the
 // launched runtime resolves a real provisioned agent profile.
-function pbcActorWireForRole(
-  wrkqStore: WrkqStore,
+async function pbcActorWireForRole(
+  wrkqStore: WrkqStoreAdapter,
   taskId: string,
   role: string,
   fallbackAgentId: string
-): string {
-  const task = wrkqStore.taskRepo.getTask(taskId)
-  const roleMap = wrkqStore.roleAssignmentRepo.getRoleMap(taskId) ?? task?.roleMap ?? {}
+): Promise<string> {
+  const task = await wrkqStore.taskStore.getTask(taskId)
+  const roleMap = (await wrkqStore.roleAssignmentStore.getRoleMap(taskId)) ?? task?.roleMap ?? {}
   const id = roleMap[role]?.trim() || fallbackAgentId
   return `agent:${id}`
 }
 
-function scopeRefForWorkerRole(
-  wrkqStore: WrkqStore,
+async function scopeRefForWorkerRole(
+  wrkqStore: WrkqStoreAdapter,
   options: AcpServerCliOptions,
   taskId: string,
   role: string,
   actor: Actor
-): string {
-  const task = wrkqStore.taskRepo.getTask(taskId)
+): Promise<string> {
+  const task = await wrkqStore.taskStore.getTask(taskId)
   const agentId =
-    actor.kind === 'agent' ? actor.id : agentIdForRole(wrkqStore, options, taskId, role)
+    actor.kind === 'agent' ? actor.id : await agentIdForRole(wrkqStore, options, taskId, role)
   const projectSegment = task?.projectId !== undefined ? `:project:${task.projectId}` : ''
   return `agent:${agentId}${projectSegment}:task:${taskId}:role:${role}`
 }
@@ -709,28 +717,6 @@ function actorFromWire(input: string): Actor | undefined {
 function recordId(record: unknown): string {
   const id = readRecord(record)?.['id']
   return typeof id === 'string' ? id : ''
-}
-
-function readRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null
-    ? (value as Record<string, unknown>)
-    : undefined
-}
-
-function readString(
-  record: Record<string, unknown> | undefined,
-  field: string
-): string | undefined {
-  const value = record?.[field]
-  return typeof value === 'string' && value.length > 0 ? value : undefined
-}
-
-function readNumber(
-  record: Record<string, unknown> | undefined,
-  field: string
-): number | undefined {
-  const value = record?.[field]
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
 function mergeMetadata(
@@ -760,10 +746,6 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     await mkdir(dirname(options.conversationDbPath), { recursive: true })
   }
 
-  const wrkqStore = openWrkqStore({
-    dbPath: options.wrkqDbPath,
-    actor: { agentId: options.actor },
-  })
   const coordStore = openCoordinationStore(options.coordDbPath)
   const interfaceStore = openInterfaceStore({
     dbPath: options.interfaceDbPath,
@@ -793,10 +775,14 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     clientInfo: { name: 'acp-server', version: ACP_SERVER_VERSION },
     wrkfDisabled: isEnabledEnvFlag(process.env['ACP_WRKF_DISABLED']),
   })
+  // The wrkq store ports are the @wrkq/client-backed adapter the lifecycle
+  // derives from its single shared WorkClient (undefined when wrkf is disabled).
+  // ACP no longer opens wrkq.db directly.
+  const wrkqStore = wrkfLifecycle.store
   const inputQueueMaxDepth = readPositiveIntegerEnv('ACP_INPUT_QUEUE_MAX_DEPTH')
   const inputQueueTtlMs = readPositiveIntegerEnv('ACP_INPUT_QUEUE_TTL_MS')
   const serverDeps = {
-    wrkqStore,
+    ...(wrkqStore !== undefined ? { wrkqStore } : {}),
     coordStore,
     ...(adminStore !== undefined ? { adminStore } : {}),
     ...(jobsStore !== undefined ? { jobsStore } : {}),
@@ -1063,7 +1049,8 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
         clearInterval(schedulerTimer)
       }
       bunServer.stop(true)
-      wrkqStore.close()
+      // The wrkq store adapter holds no resources of its own; the underlying
+      // WorkClient is closed by wrkfLifecycle.close() below.
       coordStore.close()
       adminStore?.close()
       jobsStore?.close()
@@ -1107,11 +1094,6 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
   } catch (error) {
     if (runtime !== undefined) {
       await runtime.shutdown()
-    }
-
-    if (error instanceof WrkqSchemaMissingError) {
-      console.error(`${error.message}\nRequired migration: 000013_task_workflow_schema.sql`)
-      return 1
     }
 
     console.error(error instanceof Error ? error.message : String(error))

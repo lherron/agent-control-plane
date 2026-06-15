@@ -4,6 +4,8 @@ import type { Actor, Run } from 'acp-core'
 import { RunCorrelationConflictError, deriveRunId } from 'acp-state-store'
 import type { SessionRef } from 'agent-scope'
 
+import { readRecord } from '../wrkf/value.js'
+
 export { RunCorrelationConflictError, deriveRunId } from 'acp-state-store'
 
 export type CreateOrGetRunInput = {
@@ -68,6 +70,21 @@ export type UpdateRunInput = {
   metadata?: Readonly<Record<string, unknown>> | undefined
   afterHrcSeq?: number | undefined
 }
+
+type DefinedRunPatch = Partial<
+  Pick<
+    StoredRun,
+    | 'hrcRunId'
+    | 'hostSessionId'
+    | 'generation'
+    | 'runtimeId'
+    | 'transport'
+    | 'errorCode'
+    | 'errorMessage'
+    | 'metadata'
+    | 'afterHrcSeq'
+  >
+>
 
 export interface RunStore {
   createRun(input: {
@@ -216,54 +233,21 @@ export class InMemoryRunStore implements RunStore {
       throw new Error(`run not found: ${runId}`)
     }
 
+    const definedPatch: DefinedRunPatch = {}
+    assignDefined(definedPatch, patch, 'hrcRunId')
+    assignDefined(definedPatch, patch, 'hostSessionId')
+    assignDefined(definedPatch, patch, 'generation')
+    assignDefined(definedPatch, patch, 'runtimeId')
+    assignDefined(definedPatch, patch, 'transport')
+    assignDefined(definedPatch, patch, 'errorCode')
+    assignDefined(definedPatch, patch, 'errorMessage')
+    assignDefined(definedPatch, patch, 'metadata')
+    assignDefined(definedPatch, patch, 'afterHrcSeq')
+
     const next: StoredRun = {
       ...run,
       ...('status' in patch ? { status: patch.status ?? run.status } : {}),
-      ...('hrcRunId' in patch
-        ? patch.hrcRunId === undefined
-          ? {}
-          : { hrcRunId: patch.hrcRunId }
-        : {}),
-      ...('hostSessionId' in patch
-        ? patch.hostSessionId === undefined
-          ? {}
-          : { hostSessionId: patch.hostSessionId }
-        : {}),
-      ...('generation' in patch
-        ? patch.generation === undefined
-          ? {}
-          : { generation: patch.generation }
-        : {}),
-      ...('runtimeId' in patch
-        ? patch.runtimeId === undefined
-          ? {}
-          : { runtimeId: patch.runtimeId }
-        : {}),
-      ...('transport' in patch
-        ? patch.transport === undefined
-          ? {}
-          : { transport: patch.transport }
-        : {}),
-      ...('errorCode' in patch
-        ? patch.errorCode === undefined
-          ? {}
-          : { errorCode: patch.errorCode }
-        : {}),
-      ...('errorMessage' in patch
-        ? patch.errorMessage === undefined
-          ? {}
-          : { errorMessage: patch.errorMessage }
-        : {}),
-      ...('metadata' in patch
-        ? patch.metadata === undefined
-          ? {}
-          : { metadata: patch.metadata }
-        : {}),
-      ...('afterHrcSeq' in patch
-        ? patch.afterHrcSeq === undefined
-          ? {}
-          : { afterHrcSeq: patch.afterHrcSeq }
-        : {}),
+      ...definedPatch,
       updatedAt: new Date().toISOString(),
     }
 
@@ -288,8 +272,15 @@ export class InMemoryRunStore implements RunStore {
   }
 }
 
-function readRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined
+function assignDefined<Key extends keyof DefinedRunPatch>(
+  target: DefinedRunPatch,
+  patch: UpdateRunInput,
+  key: Key
+): void {
+  if (key in patch) {
+    const value = patch[key]
+    if (value !== undefined) {
+      Object.assign(target, { [key]: value })
+    }
+  }
 }

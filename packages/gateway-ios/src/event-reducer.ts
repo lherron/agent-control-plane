@@ -651,6 +651,16 @@ function reduceEvent(state: ReducerState, event: HrcLifecycleEvent): FrameUpdate
 // Core reducer: process a single hrcchat message
 // ---------------------------------------------------------------------------
 
+/**
+ * Reduce a single hrcchat message.
+ *
+ * Deliberate high-water-only sink: messages do NOT currently produce frames.
+ * The `'message'` ReducerInput variant exists so the projector/history/pump can
+ * carry messages through the pipeline, but the only state this arm mutates is
+ * `highWaterMessageSeq` (for cursor advancement). It intentionally ignores the
+ * message body/id/createdAt and always returns a no-op. Do not assume a frame
+ * is produced from a message here.
+ */
 function reduceMessage(
   state: ReducerState,
   message: { messageSeq: number; messageId: string; body: string; createdAt: string }

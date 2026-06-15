@@ -26,10 +26,6 @@ function mapLastDeliveryContextRow(row: LastDeliveryContextRow): LastDeliveryRec
 export class LastDeliveryContextRepo {
   constructor(private readonly context: RepoContext) {}
 
-  record(sessionRef: SessionRef, record: LastDeliveryRecord): void {
-    this.recordAckedDelivery(sessionRef, record)
-  }
-
   recordAckedDelivery(sessionRef: SessionRef, record: LastDeliveryRecord): void {
     const canonicalSessionRef = normalizeSessionRef(sessionRef)
 
@@ -69,10 +65,6 @@ export class LastDeliveryContextRepo {
   recordFailedDelivery(sessionRef: SessionRef, record: FailedDeliveryRecord): void {
     void sessionRef
     void record
-  }
-
-  get(sessionRef: SessionRef): LastDeliveryRecord | undefined {
-    return this.getLastDelivery(sessionRef)
   }
 
   getLastDelivery(sessionRef: SessionRef): LastDeliveryRecord | undefined {

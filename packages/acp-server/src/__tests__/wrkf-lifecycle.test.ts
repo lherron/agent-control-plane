@@ -1,72 +1,32 @@
 /**
- * RED TEST — wrkf client lifecycle: startup fail-closed behavior (W1 acceptance gate)
+ * wrkf client lifecycle: startup fail-closed behavior.
  *
- * Why red: `packages/acp-server/src/wrkf/client-lifecycle.ts` does not exist yet.
- * Bun throws CannotFindModule at file load; all tests below will fail.
- *
- * What larry must create to turn this green:
- *   packages/acp-server/src/wrkf/client-lifecycle.ts
- *
- *   export interface WrkfLifecycleOptions {
- *     /** Path to the wrkf binary (default: WRKF_BIN env or 'wrkf') *\/
- *     command?: string | undefined
- *     /** Path to the wrkf database (WRKF_DB_PATH env) *\/
- *     dbPath: string
- *     clientInfo: { name: string; version: string }
- *   }
- *
- *   export interface WrkfLifecycle {
- *     /** The live, initialized port ready for injection into deps. *\/
- *     wrkf: AcpWrkfWorkflowPort
- *     /** Graceful shutdown — called on server close. *\/
- *     close(): Promise<void>
- *   }
- *
- *   /**
- *    * Spawn the wrkf binary, initialize the JSON-RPC session, and return the
- *    * ready lifecycle handle. THROWS if initialization fails (fail-closed).
- *    * NOTE: WrkfClient.spawn is synchronous; initialize() is async.
- *    *\/
- *   export async function createWrkfClientLifecycle(
- *     opts: WrkfLifecycleOptions
- *   ): Promise<WrkfLifecycle>
- *
- *   AND in cli.ts:
- *   - Call createWrkfClientLifecycle() during startup.
- *   - Propagate the error (do NOT catch-and-continue) → fail-closed.
- *   - Allow ACP_WRKF_DISABLED=1 to skip real spawn (test/local-dev mode).
- *   - Call lifecycle.close() during graceful shutdown.
+ * `createWrkfClientLifecycle` spawns the wrkf binary via `@wrkq/client`'s
+ * `createClient` (which runs the `rpc.initialize` handshake automatically) and
+ * returns the ready lifecycle handle, OR throws fail-closed if initialization
+ * fails. These unit tests inject the client factory (`_createClient`) so they do
+ * not depend on a real binary — the factory either rejects (init failure) or
+ * resolves a fake `WorkClient` exposing `close`/`kill`.
  */
 
 import { describe, expect, test } from 'bun:test'
+import type { WorkClient } from '@wrkq/client'
 
-// ── RED IMPORT ──────────────────────────────────────────────────────────────
-// client-lifecycle.ts does not exist; bun throws CannotFindModule → RED.
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-expect-error -- wrkf/client-lifecycle.ts does not exist yet (W1 deliverable)
 import { createWrkfClientLifecycle } from '../wrkf/client-lifecycle.js'
-// ────────────────────────────────────────────────────────────────────────────
 
 // ---------------------------------------------------------------------------
-// Helpers: minimal fake WrkfClient-like objects for lifecycle unit tests.
-// These do NOT depend on @wrkf/client being installed — they only rely on
-// the protocol shape (spawn-sync + initialize-async + close-async).
+// Helpers: minimal fake WorkClient factories for lifecycle unit tests.
+// `createClient` runs autoInitialize internally and rejects on handshake
+// failure, so a failing factory models the fail-closed path; a resolving
+// factory models a live, already-initialized client.
 // ---------------------------------------------------------------------------
 
-function makeInitializingClient(
-  initResult: 'success' | 'failure',
-  onClose?: () => void
-): { initialize: () => Promise<unknown>; close: () => Promise<void>; kill: () => void } {
-  return {
-    initialize(): Promise<unknown> {
-      if (initResult === 'failure') {
-        return Promise.reject(new Error('wrkf: binary not found or db unreadable'))
-      }
-      return Promise.resolve({
-        protocolVersion: '1.0',
-        serverInfo: { name: 'wrkf', version: '0.1.0' },
-      })
-    },
+function failingFactory(): () => Promise<WorkClient> {
+  return () => Promise.reject(new Error('wrkf: binary not found or db unreadable'))
+}
+
+function succeedingFactory(onClose?: () => void): () => Promise<WorkClient> {
+  const fake = {
     close(): Promise<void> {
       onClose?.()
       return Promise.resolve()
@@ -74,40 +34,37 @@ function makeInitializingClient(
     kill(): void {
       onClose?.()
     },
-  }
+  } as unknown as WorkClient
+  return () => Promise.resolve(fake)
 }
 
 // ---------------------------------------------------------------------------
 
 describe('createWrkfClientLifecycle — fail-closed startup', () => {
-  test('propagates initialize() rejection: startup must throw when wrkf fails to init', async () => {
+  test('propagates client creation rejection: startup must throw when wrkf fails to init', async () => {
     // Production requirement: if wrkf cannot initialize, acp-server must NOT start.
     // createWrkfClientLifecycle must NOT catch the error and return a half-initialized lifecycle.
     //
     // Simulated scenario: binary missing, db unreadable, protocol handshake failure.
-    const badClient = makeInitializingClient('failure')
-
     await expect(
       createWrkfClientLifecycle({
-        // Inject a pre-built client (test seam) instead of spawning a real binary.
-        _clientOverride: badClient,
+        // Inject a failing factory (test seam) instead of spawning a real binary.
+        _createClient: failingFactory(),
         dbPath: '/nonexistent/wrkf.db',
         clientInfo: { name: 'acp-server', version: '0.1.0' },
       })
     ).rejects.toThrow()
   })
 
-  test('returns a live WrkfLifecycle when initialize() succeeds', async () => {
-    const goodClient = makeInitializingClient('success')
-
+  test('returns a live WrkfLifecycle when the client initializes', async () => {
     const lifecycle = await createWrkfClientLifecycle({
-      _clientOverride: goodClient,
+      _createClient: succeedingFactory(),
       dbPath: '/tmp/wrkf-test.db',
       clientInfo: { name: 'acp-server', version: '0.1.0' },
     })
 
     expect(lifecycle).toBeDefined()
-    // The returned lifecycle exposes the port
+    // The returned lifecycle exposes the port adapter
     expect(lifecycle.wrkf).toBeDefined()
     // And provides a close() handle for graceful shutdown
     expect(typeof lifecycle.close).toBe('function')
@@ -117,28 +74,25 @@ describe('createWrkfClientLifecycle — fail-closed startup', () => {
   })
 
   test('close() is idempotent and does not throw', async () => {
-    const goodClient = makeInitializingClient('success')
     const lifecycle = await createWrkfClientLifecycle({
-      _clientOverride: goodClient,
+      _createClient: succeedingFactory(),
       dbPath: '/tmp/wrkf-test.db',
       clientInfo: { name: 'acp-server', version: '0.1.0' },
     })
 
-    // Must not throw on double close (graceful teardown path)
+    // Must not reject on double close (graceful teardown path)
     await lifecycle.close()
-    await expect(lifecycle.close()).resolves.not.toThrow()
+    await expect(lifecycle.close()).resolves.toBeUndefined()
   })
 })
 
 describe('createWrkfClientLifecycle — close on shutdown', () => {
   test('lifecycle.close() calls through to the underlying client close', async () => {
     let closeCalled = false
-    const goodClient = makeInitializingClient('success', () => {
-      closeCalled = true
-    })
-
     const lifecycle = await createWrkfClientLifecycle({
-      _clientOverride: goodClient,
+      _createClient: succeedingFactory(() => {
+        closeCalled = true
+      }),
       dbPath: '/tmp/wrkf-test.db',
       clientInfo: { name: 'acp-server', version: '0.1.0' },
     })

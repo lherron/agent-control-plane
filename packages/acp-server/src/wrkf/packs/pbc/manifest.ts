@@ -9,11 +9,12 @@
 
 import type { WorkflowPack, WorkflowPackSupport } from '../../runtime/workflow-pack.js'
 import { mapPbcHumanInput, parsePbcParticipantOutput } from './output-parser.js'
+import { PBC_WORKFLOW_TEMPLATE_REF } from './template-model.js'
 import { choosePbcTransition } from './transition-policy.js'
 import { pbcWorkerPolicy } from './worker-policy.js'
 
 /** The only workflow ref this pack claims. */
-const PBC_WORKFLOW_REF = 'pbc-progressive-refinement@9'
+const PBC_WORKFLOW_REF = PBC_WORKFLOW_TEMPLATE_REF
 
 /**
  * Installed template hash for pbc-progressive-refinement@9, in the `sha256:<hex>`

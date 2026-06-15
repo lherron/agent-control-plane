@@ -8,6 +8,7 @@
 
 import { makePbcEvidencePolicy } from './packs/pbc/evidence-policy.js'
 import { pbcManifest } from './packs/pbc/manifest.js'
+import { PBC_WORKFLOW_TEMPLATE_REF } from './packs/pbc/template-model.js'
 import type { ParticipantOutput } from './pbc-evidence.js'
 import {
   type TransitionPolicy,
@@ -21,7 +22,7 @@ import {
 } from './runtime/workflow-harness-core.js'
 import type { ChooseTransitionFn, WorkflowPack } from './runtime/workflow-pack.js'
 
-const WORKFLOW_REF = 'pbc-progressive-refinement@9'
+const WORKFLOW_REF = PBC_WORKFLOW_TEMPLATE_REF
 
 const legacyRunStepPack: WorkflowPack = {
   ...pbcManifest,
@@ -66,7 +67,7 @@ export interface RunUntilBlockedRequest {
 }
 
 export interface PbcHarnessResult extends Omit<WorkflowHarnessResult, 'workflowRef'> {
-  workflowRef: 'pbc-progressive-refinement@9'
+  workflowRef: typeof PBC_WORKFLOW_TEMPLATE_REF
 }
 
 export async function runStep(

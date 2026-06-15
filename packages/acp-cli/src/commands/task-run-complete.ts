@@ -7,6 +7,7 @@ import {
   requireNoPositionals,
   requireStringFlag,
 } from './options.js'
+import { normalizeActorId } from './session-shared.js'
 import {
   type CommandDependencies,
   type CommandOutput,
@@ -27,11 +28,7 @@ function resolveActorFromAs(
   if (raw === undefined || raw.trim().length === 0) {
     return undefined
   }
-  const trimmed = raw.trim()
-  if (trimmed.startsWith('agent:')) {
-    return trimmed.slice('agent:'.length)
-  }
-  return trimmed
+  return normalizeActorId(raw)
 }
 
 export async function runTaskRunCompleteCommand(

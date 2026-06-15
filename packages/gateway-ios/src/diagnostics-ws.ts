@@ -24,6 +24,7 @@ import { runEventPump } from './event-pump.js'
 import { createLogger } from './logger.js'
 import { resolveSessionGeneration } from './session-generation.js'
 import type { SessionGenerationClient } from './session-generation.js'
+import { parseCommonWsSelector } from './ws-selector.js'
 
 const log = createLogger({ component: 'diagnostics-ws' })
 
@@ -94,24 +95,17 @@ export function createDiagnosticsWsHandler(deps: DiagnosticsWsDeps) {
      * Returns the DiagnosticsWsData to attach, or null to reject.
      */
     parseUpgrade(url: URL): DiagnosticsWsData | null {
-      const sessionRef = url.searchParams.get('sessionRef')
-      if (!sessionRef) return null
+      const common = parseCommonWsSelector(url)
+      if (!common) return null
 
-      const hostSessionId = url.searchParams.get('hostSessionId')?.trim() || undefined
-      const generationRaw = url.searchParams.get('generation')
-      const generation =
-        generationRaw === null || generationRaw.trim().length === 0
-          ? undefined
-          : Number.parseInt(generationRaw, 10)
-      const fromHrcSeq = Number.parseInt(url.searchParams.get('fromHrcSeq') ?? '0', 10)
       const category = url.searchParams.get('category') ?? undefined
       const eventKind = url.searchParams.get('eventKind') ?? undefined
 
       return {
-        sessionRef,
-        hostSessionId,
-        generation: Number.isFinite(generation) ? generation : undefined,
-        fromHrcSeq: Number.isFinite(fromHrcSeq) ? fromHrcSeq : 0,
+        sessionRef: common.sessionRef,
+        hostSessionId: common.hostSessionId,
+        generation: common.generation,
+        fromHrcSeq: common.fromHrcSeq,
         category,
         eventKind,
         abortController: new AbortController(),

@@ -8,12 +8,12 @@ import { type AcpServer, type AcpServerDeps, createAcpServer } from 'acp-server'
 import { type AcpStateStore, openAcpStateStore } from 'acp-state-store'
 import type { SessionRef } from 'agent-scope'
 import { type CoordinationStore, openCoordinationStore } from 'coordination-substrate'
-import { ActorResolver, type WrkqStore, openWrkqStore } from 'wrkq-lib'
 
 import {
-  type SeededWrkqFixture,
-  createSeededWrkqDb,
-} from '../../../wrkq-lib/test/fixtures/seed-wrkq-db.js'
+  type StubWrkqStoreAdapter,
+  WRKQ_TEST_SEED,
+  createStubWrkqStoreAdapter,
+} from './wrkq-store-stub.js'
 
 type CliExitResult = {
   stdout: string
@@ -48,10 +48,9 @@ export type SeedStack = {
   coordStore: CoordinationStore
   interfaceStore: InterfaceStore
   stateStore: AcpStateStore
-  seed: SeededWrkqFixture['seed']
-  seededWrkq: SeededWrkqFixture
+  seed: typeof WRKQ_TEST_SEED
   server: AcpServer
-  wrkqStore: WrkqStore
+  wrkqStore: StubWrkqStoreAdapter
   cleanup(): void
 }
 
@@ -153,12 +152,6 @@ async function runCli(
   }
 }
 
-function ensureDemoActors(wrkqStore: WrkqStore): void {
-  const actorResolver = new ActorResolver(wrkqStore.sqlite, { agentId: 'acp-e2e' })
-  actorResolver.resolveActorUuid({ agentId: 'larry' })
-  actorResolver.resolveActorUuid({ agentId: 'curly' })
-}
-
 function defaultRuntimeResolver(): NonNullable<AcpServerDeps['runtimeResolver']> {
   return async (sessionRef: SessionRef) => ({
     agentRoot: `/tmp/${sessionRef.scopeRef.replace(/[^a-zA-Z0-9_-]+/g, '-')}`,
@@ -171,7 +164,6 @@ function defaultRuntimeResolver(): NonNullable<AcpServerDeps['runtimeResolver']>
 }
 
 export function createSeedStack(options: SeedStackOptions = {}): SeedStack {
-  const seededWrkq = createSeededWrkqDb()
   const coordDirectory = mkdtempSync(join(tmpdir(), 'acp-e2e-'))
   const coordDbPath = join(coordDirectory, 'coordination.db')
   const interfaceDbPath = join(coordDirectory, 'interface.db')
@@ -179,12 +171,7 @@ export function createSeedStack(options: SeedStackOptions = {}): SeedStack {
   const coordStore = openCoordinationStore(coordDbPath)
   const interfaceStore = openInterfaceStore({ dbPath: interfaceDbPath })
   const stateStore = openAcpStateStore({ dbPath: stateDbPath })
-  const wrkqStore = openWrkqStore({
-    dbPath: seededWrkq.dbPath,
-    actor: { agentId: 'acp-e2e' },
-  })
-
-  ensureDemoActors(wrkqStore)
+  const wrkqStore = createStubWrkqStoreAdapter()
 
   const serverDeps: AcpServerDeps & { hrcDbPath?: string | undefined } = {
     wrkqStore,
@@ -232,16 +219,13 @@ export function createSeedStack(options: SeedStackOptions = {}): SeedStack {
     coordStore,
     interfaceStore,
     stateStore,
-    seed: seededWrkq.seed,
-    seededWrkq,
+    seed: WRKQ_TEST_SEED,
     server,
     wrkqStore,
     cleanup() {
-      wrkqStore.close()
       coordStore.close()
       interfaceStore.close()
       stateStore.close()
-      seededWrkq.cleanup()
       rmSync(coordDirectory, { recursive: true, force: true })
     },
   }

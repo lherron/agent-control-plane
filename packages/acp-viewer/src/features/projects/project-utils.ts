@@ -1,35 +1,7 @@
+import { formatActor, formatDateTime } from '@/lib/format'
 import type { ProjectJobSummary } from './types'
 
-export function formatActor(value: unknown): string {
-  if (typeof value === 'string') {
-    return value
-  }
-
-  if (typeof value === 'object' && value !== null) {
-    const actor = value as { kind?: unknown; id?: unknown }
-    const kind = typeof actor.kind === 'string' ? actor.kind : 'actor'
-    const id = typeof actor.id === 'string' ? actor.id : undefined
-    return id === undefined ? kind : `${kind}:${id}`
-  }
-
-  return 'Unknown'
-}
-
-export function formatDateTime(value: string | null | undefined): string {
-  if (value === undefined || value === null || value.length === 0) {
-    return 'None'
-  }
-
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return value
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(date)
-}
+export { formatActor, formatDateTime }
 
 export function formatBoolean(value: boolean | undefined): string {
   return value === true ? 'Yes' : 'No'

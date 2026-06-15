@@ -1,9 +1,4 @@
-import type { AgentSummary, ProjectSummary } from '@/types/api'
-
-export interface ProvenanceItem {
-  source: string
-  available: boolean
-}
+import type { AgentSummary, ProjectSummary, ProvenanceEntry } from '@/types/api'
 
 export interface AgentHeartbeat {
   agentId: string
@@ -62,5 +57,5 @@ export interface AgentDetailState {
   jobs: AgentJobSummary[]
   heartbeat?: AgentHeartbeat | null | undefined
   scopeTargets: ScopeTarget[]
-  provenance: ProvenanceItem[]
+  provenance: ProvenanceEntry[]
 }

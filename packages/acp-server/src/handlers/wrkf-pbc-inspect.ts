@@ -1,10 +1,11 @@
 import { json } from '../http.js'
 import type { RouteHandler } from '../routing/route-context.js'
+import { PBC_WORKFLOW_TEMPLATE_REF } from '../wrkf/packs/pbc/template-model.js'
 import { projectNextActionResponse } from '../wrkf/projections.js'
 
 import { mapPbcRouteError, requirePbcTaskParam, requireWrkf } from './wrkf-pbc-shared.js'
 
-const WORKFLOW_REF = 'pbc-progressive-refinement@9'
+const WORKFLOW_REF = PBC_WORKFLOW_TEMPLATE_REF
 
 export const handleWrkfPbcInspect: RouteHandler = async ({ params, deps }) => {
   const task = requirePbcTaskParam(params)

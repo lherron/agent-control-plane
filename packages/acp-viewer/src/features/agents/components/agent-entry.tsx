@@ -1,4 +1,5 @@
 import { Pill, StatusDot } from '@/components/primitives'
+import { heartbeatTone } from '@/lib/tone'
 import type { AgentSummaryProfile } from '@/types/api'
 import { ArrowUpRight } from 'lucide-react'
 import type { CSSProperties, ReactNode } from 'react'
@@ -16,13 +17,6 @@ interface AgentEntryData {
   defaultProjectCount: number | undefined
   assignedJobsCount: number | undefined
   profile?: AgentSummaryProfile | undefined
-}
-
-function heartbeatTone(status: string): 'success' | 'destructive' | 'warn' | 'muted' {
-  if (status === 'alive') return 'success'
-  if (status === 'stale') return 'warn'
-  if (status === 'dead' || status === 'down') return 'destructive'
-  return 'muted'
 }
 
 /**

@@ -30,6 +30,7 @@ import { createReducerState, reduce } from './event-reducer.js'
 import { createLogger } from './logger.js'
 import { type TimelineHistoryClient, projectPastWindow } from './timeline-history.js'
 import type { ReducerInput } from './types.js'
+import { parseCommonWsSelector } from './ws-selector.js'
 
 const log = createLogger({ component: 'timeline-ws' })
 
@@ -78,24 +79,17 @@ export function createTimelineWsHandler(deps: TimelineWsDeps) {
      * Returns the TimelineWsData to attach, or null to reject.
      */
     parseUpgrade(url: URL): TimelineWsData | null {
-      const sessionRef = url.searchParams.get('sessionRef')
-      if (!sessionRef) return null
+      const common = parseCommonWsSelector(url)
+      if (!common) return null
 
-      const hostSessionId = url.searchParams.get('hostSessionId')?.trim() || undefined
-      const generationRaw = url.searchParams.get('generation')
-      const generation =
-        generationRaw === null || generationRaw.trim().length === 0
-          ? undefined
-          : Number.parseInt(generationRaw, 10)
-      const fromHrcSeq = Number.parseInt(url.searchParams.get('fromHrcSeq') ?? '0', 10)
       const fromMessageSeq = Number.parseInt(url.searchParams.get('fromMessageSeq') ?? '0', 10)
       const raw = url.searchParams.get('raw') === 'true'
 
       return {
-        sessionRef,
-        hostSessionId,
-        generation: Number.isFinite(generation) ? generation : undefined,
-        fromHrcSeq: Number.isFinite(fromHrcSeq) ? fromHrcSeq : 0,
+        sessionRef: common.sessionRef,
+        hostSessionId: common.hostSessionId,
+        generation: common.generation,
+        fromHrcSeq: common.fromHrcSeq,
         fromMessageSeq: Number.isFinite(fromMessageSeq) ? fromMessageSeq : 0,
         raw,
         abortController: new AbortController(),

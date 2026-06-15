@@ -1,6 +1,6 @@
 import type { CoordinationStore } from '../storage/open-store.js'
-import { getWakeById } from '../storage/records.js'
 import { WAKE_STATE, type WakeRequest } from '../types/wake-request.js'
+import { applyWakeTransition } from './transitions.js'
 
 export type LeaseWakeCommand = {
   wakeId: string
@@ -11,18 +11,13 @@ export function leaseWake(
   store: CoordinationStore,
   command: LeaseWakeCommand
 ): WakeRequest | undefined {
-  return store.sqlite.transaction((input: LeaseWakeCommand) => {
-    const existing = getWakeById(store.sqlite, input.wakeId)
-    if (!existing || existing.state !== WAKE_STATE.queued) {
-      return undefined
-    }
-
-    store.sqlite
-      .query(
-        'UPDATE wake_requests SET state = ?, leased_until = ?, updated_at = ? WHERE wake_id = ?'
-      )
-      .run(WAKE_STATE.leased, input.leasedUntil, input.leasedUntil, input.wakeId)
-
-    return getWakeById(store.sqlite, input.wakeId)
-  })(command)
+  // Preserves the existing behavior where `leased_until` and `updated_at` are
+  // both set to `leasedUntil` for a lease transition.
+  return applyWakeTransition(store, {
+    wakeId: command.wakeId,
+    from: new Set([WAKE_STATE.queued]),
+    to: WAKE_STATE.leased,
+    at: command.leasedUntil,
+    leasedUntil: command.leasedUntil,
+  })
 }

@@ -63,7 +63,7 @@
  *
  * ─── FAKE PORT PATTERN ────────────────────────────────────────────────────────
  * Uses a `_calls` spy (same pattern as pbc-evidence.test.ts / participant-output.test.ts).
- * Fake port is structural to PbcHarnessPort, not tied to @wrkf/client.
+ * Fake port is structural to PbcHarnessPort, not tied to @wrkq/client.
  */
 
 import { describe, expect, test } from 'bun:test'
