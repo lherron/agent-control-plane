@@ -155,6 +155,95 @@ describe('session dashboard reducer red contract', () => {
     )
   })
 
+  test('selectVisibleEvents applies every filter arm and preserves timestamp ordering', () => {
+    const events = [
+      baseEvent({
+        hrcSeq: 201,
+        ts: '2026-04-23T23:46:00.000Z',
+        sessionRef: { scopeRef: 'agent:larry', laneRef: 'main' },
+        hostSessionId: 'host-a',
+        runtimeId: 'runtime-a',
+        runId: 'run-a',
+        family: 'runtime',
+        severity: 'info',
+        label: 'Larry runtime',
+      }),
+      baseEvent({
+        hrcSeq: 202,
+        ts: '2026-04-23T23:47:00.000Z',
+        sessionRef: { scopeRef: 'agent:daedalus', laneRef: 'main' },
+        hostSessionId: 'host-b',
+        runtimeId: 'runtime-b',
+        runId: 'run-b',
+        family: 'tool',
+        severity: 'warning',
+        label: 'Daedalus tool',
+      }),
+      baseEvent({
+        hrcSeq: 203,
+        ts: '2026-04-23T23:48:00.000Z',
+        sessionRef: { scopeRef: 'agent:larry', laneRef: 'aux' },
+        hostSessionId: 'host-c',
+        runtimeId: 'runtime-a',
+        runId: 'run-c',
+        family: 'input',
+        severity: 'error',
+        label: 'Larry input',
+      }),
+      baseEvent({
+        hrcSeq: 204,
+        ts: '2026-04-23T23:49:00.000Z',
+        sessionRef: { scopeRef: 'agent:larry', laneRef: 'main' },
+        hostSessionId: 'host-a',
+        runtimeId: 'runtime-c',
+        family: 'delivery',
+        severity: 'success',
+        label: 'Larry delivery',
+      }),
+    ]
+    const state = events.reduce((current, event) => applyEvent(current, event), initialState())
+    const visibleIds = (filters: Parameters<typeof selectVisibleEvents>[1]) =>
+      selectVisibleEvents(state, filters).map((event) => event.id)
+
+    expect(visibleIds({})).toEqual(['hrc:201', 'hrc:202', 'hrc:203', 'hrc:204'])
+    expect(visibleIds({ scopeRef: 'agent:larry' })).toEqual(['hrc:201', 'hrc:203', 'hrc:204'])
+    expect(visibleIds({ laneRef: 'main' })).toEqual(['hrc:201', 'hrc:202', 'hrc:204'])
+    expect(visibleIds({ hostSessionId: 'host-a' })).toEqual(['hrc:201', 'hrc:204'])
+    expect(visibleIds({ runtimeId: 'runtime-a' })).toEqual(['hrc:201', 'hrc:203'])
+    expect(visibleIds({ runId: 'run-b' })).toEqual(['hrc:202'])
+    expect(visibleIds({ family: 'input' })).toEqual(['hrc:203'])
+    expect(visibleIds({ severity: 'warning' })).toEqual(['hrc:202'])
+    expect(visibleIds({ fromTs: '2026-04-23T23:47:00.000Z' })).toEqual([
+      'hrc:202',
+      'hrc:203',
+      'hrc:204',
+    ])
+    expect(visibleIds({ toTs: '2026-04-23T23:48:00.000Z' })).toEqual([
+      'hrc:201',
+      'hrc:202',
+      'hrc:203',
+    ])
+    expect(
+      visibleIds({
+        scopeRef: 'agent:larry',
+        laneRef: 'main',
+        hostSessionId: 'host-a',
+        runtimeId: 'runtime-c',
+        family: 'delivery',
+        severity: 'success',
+        fromTs: '2026-04-23T23:48:30.000Z',
+        toTs: '2026-04-23T23:49:30.000Z',
+      })
+    ).toEqual(['hrc:204'])
+    expect(visibleIds({ scopeRef: 'agent:missing' })).toEqual([])
+    expect(visibleIds({ fromTs: 'not-a-date', toTs: 'also-not-a-date' })).toEqual([
+      'hrc:201',
+      'hrc:202',
+      'hrc:203',
+      'hrc:204',
+    ])
+  })
+
   test('in-flight accepted and queued paths branch, applied rejoins, and rejected stays visible', () => {
     // SESSION_DASHBOARD.md §19.1: accepted/rejected/applied in-flight input paths are visible.
     const state = [
