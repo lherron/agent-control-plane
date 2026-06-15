@@ -56,7 +56,7 @@ function findTransitionEvidenceItemUuids(
 export class TransitionLogRepo implements TransitionLogStore {
   constructor(private readonly context: RepoContext) {}
 
-  listTransitions(taskId: string): readonly LoggedTransitionRecord[] {
+  async listTransitions(taskId: string): Promise<readonly LoggedTransitionRecord[]> {
     return this.context.sqlite.transaction((id: string) => {
       const taskUuid = findTaskUuid(this.context.sqlite, id)
 
@@ -86,7 +86,7 @@ export class TransitionLogRepo implements TransitionLogStore {
     })(taskId)
   }
 
-  appendTransition(taskId: string, transition: LoggedTransitionRecord): void {
+  async appendTransition(taskId: string, transition: LoggedTransitionRecord): Promise<void> {
     this.context.sqlite.transaction((id: string, recordInput: LoggedTransitionRecord) => {
       if (recordInput.taskId !== id) {
         throw new Error(

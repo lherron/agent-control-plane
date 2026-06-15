@@ -11,7 +11,7 @@ import { findTaskUuid, nextEvidenceSeq, requireTaskLookup } from './shared.js'
 export class EvidenceRepo implements EvidenceStore {
   constructor(private readonly context: RepoContext) {}
 
-  listEvidence(taskId: string): readonly EvidenceItem[] {
+  async listEvidence(taskId: string): Promise<readonly EvidenceItem[]> {
     return this.context.sqlite.transaction((id: string) => {
       const taskUuid = findTaskUuid(this.context.sqlite, id)
 
@@ -42,7 +42,7 @@ export class EvidenceRepo implements EvidenceStore {
     })(taskId)
   }
 
-  appendEvidence(taskId: string, evidence: readonly EvidenceItem[]): void {
+  async appendEvidence(taskId: string, evidence: readonly EvidenceItem[]): Promise<void> {
     this.context.sqlite.transaction((id: string, items: readonly EvidenceItem[]) => {
       const task = requireTaskLookup(this.context.sqlite, id)
       const insert = this.context.sqlite.prepare(

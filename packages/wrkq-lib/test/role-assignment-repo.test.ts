@@ -4,17 +4,17 @@ import { openWrkqStore } from '../src/index.js'
 import { withSeededWrkqDb } from './fixtures/seed-wrkq-db.js'
 
 describe('RoleAssignmentRepo', () => {
-  test('gets undefined for missing tasks', () => {
-    withSeededWrkqDb((fixture) => {
+  test('gets undefined for missing tasks', async () => {
+    await withSeededWrkqDb(async (fixture) => {
       const store = openWrkqStore({ dbPath: fixture.dbPath, actor: { agentId: 'cody' } })
-      expect(store.roleAssignmentRepo.getRoleMap('T-40402')).toBeUndefined()
+      expect(await store.roleAssignmentRepo.getRoleMap('T-40402')).toBeUndefined()
     })
   })
 
-  test('returns an empty role map when no assignments exist', () => {
-    withSeededWrkqDb((fixture) => {
+  test('returns an empty role map when no assignments exist', async () => {
+    await withSeededWrkqDb(async (fixture) => {
       const store = openWrkqStore({ dbPath: fixture.dbPath, actor: { agentId: 'cody' } })
-      store.taskRepo.createTask({
+      await store.taskRepo.createTask({
         taskId: 'T-10301',
         projectId: fixture.seed.projectId,
         kind: 'code_change',
@@ -27,14 +27,14 @@ describe('RoleAssignmentRepo', () => {
         version: 0,
       })
 
-      expect(store.roleAssignmentRepo.getRoleMap('T-10301')).toEqual({})
+      expect(await store.roleAssignmentRepo.getRoleMap('T-10301')).toEqual({})
     })
   })
 
-  test('sets and gets role assignments', () => {
-    withSeededWrkqDb((fixture) => {
+  test('sets and gets role assignments', async () => {
+    await withSeededWrkqDb(async (fixture) => {
       const store = openWrkqStore({ dbPath: fixture.dbPath, actor: { agentId: 'cody' } })
-      store.taskRepo.createTask({
+      await store.taskRepo.createTask({
         taskId: 'T-10302',
         projectId: fixture.seed.projectId,
         kind: 'code_change',
@@ -47,19 +47,19 @@ describe('RoleAssignmentRepo', () => {
         version: 0,
       })
 
-      store.roleAssignmentRepo.setRoleMap('T-10302', { implementer: 'larry', reviewer: 'moe' })
+      await store.roleAssignmentRepo.setRoleMap('T-10302', { implementer: 'larry', reviewer: 'moe' })
 
-      expect(store.roleAssignmentRepo.getRoleMap('T-10302')).toEqual({
+      expect(await store.roleAssignmentRepo.getRoleMap('T-10302')).toEqual({
         implementer: 'larry',
         reviewer: 'moe',
       })
     })
   })
 
-  test('replace-all semantics delete removed assignments', () => {
-    withSeededWrkqDb((fixture) => {
+  test('replace-all semantics delete removed assignments', async () => {
+    await withSeededWrkqDb(async (fixture) => {
       const store = openWrkqStore({ dbPath: fixture.dbPath, actor: { agentId: 'cody' } })
-      store.taskRepo.createTask({
+      await store.taskRepo.createTask({
         taskId: 'T-10303',
         projectId: fixture.seed.projectId,
         kind: 'code_change',
@@ -72,9 +72,9 @@ describe('RoleAssignmentRepo', () => {
         version: 0,
       })
 
-      store.roleAssignmentRepo.setRoleMap('T-10303', { tester: 'curly' })
+      await store.roleAssignmentRepo.setRoleMap('T-10303', { tester: 'curly' })
 
-      expect(store.roleAssignmentRepo.getRoleMap('T-10303')).toEqual({ tester: 'curly' })
+      expect(await store.roleAssignmentRepo.getRoleMap('T-10303')).toEqual({ tester: 'curly' })
     })
   })
 })

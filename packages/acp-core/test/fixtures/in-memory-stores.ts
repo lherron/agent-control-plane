@@ -75,7 +75,7 @@ export class InMemoryAcpWorkflowStore
   private readonly transitions = new Map<string, LoggedTransitionRecord[]>()
   private transitionSequence = 0
 
-  createTask(task: Task): Task {
+  async createTask(task: Task): Promise<Task> {
     const storedTask = clone(task)
     this.tasks.set(task.taskId, storedTask)
     this.evidence.set(task.taskId, [])
@@ -84,43 +84,43 @@ export class InMemoryAcpWorkflowStore
     return clone(storedTask)
   }
 
-  getTask(taskId: string): Task | undefined {
+  async getTask(taskId: string): Promise<Task | undefined> {
     const task = this.tasks.get(taskId)
     return task === undefined ? undefined : clone(task)
   }
 
-  updateTask(task: Task): Task {
+  async updateTask(task: Task): Promise<Task> {
     const storedTask = clone(task)
     this.tasks.set(task.taskId, storedTask)
     return clone(storedTask)
   }
 
-  listEvidence(taskId: string): readonly EvidenceItem[] {
+  async listEvidence(taskId: string): Promise<readonly EvidenceItem[]> {
     return clone(this.evidence.get(taskId) ?? [])
   }
 
-  appendEvidence(taskId: string, evidence: readonly EvidenceItem[]): void {
+  async appendEvidence(taskId: string, evidence: readonly EvidenceItem[]): Promise<void> {
     this.evidence.set(taskId, [...(this.evidence.get(taskId) ?? []), ...clone(evidence)])
   }
 
-  getRoleMap(taskId: string): RoleMap | undefined {
+  async getRoleMap(taskId: string): Promise<RoleMap | undefined> {
     const roleMap = this.roleMaps.get(taskId)
     return roleMap === undefined ? undefined : clone(roleMap)
   }
 
-  setRoleMap(taskId: string, roleMap: RoleMap): void {
+  async setRoleMap(taskId: string, roleMap: RoleMap): Promise<void> {
     this.roleMaps.set(taskId, clone(roleMap))
   }
 
-  listTransitions(taskId: string): readonly LoggedTransitionRecord[] {
+  async listTransitions(taskId: string): Promise<readonly LoggedTransitionRecord[]> {
     return clone(this.transitions.get(taskId) ?? [])
   }
 
-  appendTransition(taskId: string, transition: LoggedTransitionRecord): void {
+  async appendTransition(taskId: string, transition: LoggedTransitionRecord): Promise<void> {
     this.transitions.set(taskId, [...(this.transitions.get(taskId) ?? []), clone(transition)])
   }
 
-  transition(
+  async transition(
     taskId: string,
     input: {
       toPhase: string
@@ -129,7 +129,7 @@ export class InMemoryAcpWorkflowStore
       expectedVersion: number
       waivers?: readonly EvidenceItem[] | undefined
     }
-  ): StoreResult<Task> {
+  ): Promise<StoreResult<Task>> {
     const task = this.tasks.get(taskId)
     if (task === undefined) {
       return { error: { code: 'NOT_FOUND', message: `Task not found: ${taskId}` } }
@@ -157,7 +157,7 @@ export class InMemoryAcpWorkflowStore
       return { error: clone(validation.error) }
     }
 
-    this.appendEvidence(taskId, input.evidence)
+    await this.appendEvidence(taskId, input.evidence)
     const updatedTask = applyTransitionDecision({ ...task, roleMap }, validation.transition)
     this.tasks.set(taskId, clone(updatedTask))
 
@@ -168,7 +168,7 @@ export class InMemoryAcpWorkflowStore
       timestamp: new Date(Date.UTC(2026, 0, 1, 0, 0, this.transitionSequence)).toISOString(),
       ...validation.transition.record,
     }
-    this.appendTransition(taskId, loggedTransition)
+    await this.appendTransition(taskId, loggedTransition)
 
     return { task: clone(updatedTask), transitionEventId }
   }

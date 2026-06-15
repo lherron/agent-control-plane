@@ -23,7 +23,7 @@ const EMPTY_SPECIFICATION = ''
 export class TaskRepo implements TaskStore {
   constructor(private readonly context: RepoContext) {}
 
-  createTask(task: Task): Task {
+  async createTask(task: Task): Promise<Task> {
     return this.context.sqlite.transaction((input: Task) => {
       const project = resolveProjectReference(this.context.sqlite, input.projectId)
       const actorUuid = this.context.actorResolver.resolveDefaultActorUuid()
@@ -82,11 +82,11 @@ export class TaskRepo implements TaskStore {
     })(task)
   }
 
-  getTask(taskId: string): Task | undefined {
+  async getTask(taskId: string): Promise<Task | undefined> {
     return this.context.sqlite.transaction((id: string) => this.loadTaskByIdOrUndefined(id))(taskId)
   }
 
-  updateTask(task: Task): Task {
+  async updateTask(task: Task): Promise<Task> {
     return this.context.sqlite.transaction((input: Task) => {
       const existing = requireTaskLookup(this.context.sqlite, input.taskId)
       const project = resolveProjectReference(this.context.sqlite, input.projectId)

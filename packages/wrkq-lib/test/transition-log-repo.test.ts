@@ -20,10 +20,10 @@ function openTestDatabase(dbPath: string): TestDatabase {
 }
 
 describe('TransitionLogRepo', () => {
-  test('appends and lists transition records with actor metadata', () => {
-    withSeededWrkqDb((fixture) => {
+  test('appends and lists transition records with actor metadata', async () => {
+    await withSeededWrkqDb(async (fixture) => {
       const store = openWrkqStore({ dbPath: fixture.dbPath, actor: { agentId: 'cody' } })
-      store.taskRepo.createTask({
+      await store.taskRepo.createTask({
         taskId: 'T-10401',
         projectId: fixture.seed.projectId,
         kind: 'code_change',
@@ -36,7 +36,7 @@ describe('TransitionLogRepo', () => {
         version: 0,
       })
 
-      store.transitionLogRepo.appendTransition('T-10401', {
+      await store.transitionLogRepo.appendTransition('T-10401', {
         taskId: 'T-10401',
         transitionEventId: 'TR-90001',
         timestamp: '2026-04-19T12:05:00.000Z',
@@ -50,7 +50,7 @@ describe('TransitionLogRepo', () => {
         nextVersion: 1,
       })
 
-      expect(store.transitionLogRepo.listTransitions('T-10401')).toEqual([
+      expect(await store.transitionLogRepo.listTransitions('T-10401')).toEqual([
         {
           taskId: 'T-10401',
           transitionEventId: 'TR-90001',
@@ -68,10 +68,10 @@ describe('TransitionLogRepo', () => {
     })
   })
 
-  test('stores cited evidence UUIDs for matching evidence kinds', () => {
-    withSeededWrkqDb((fixture) => {
+  test('stores cited evidence UUIDs for matching evidence kinds', async () => {
+    await withSeededWrkqDb(async (fixture) => {
       const store = openWrkqStore({ dbPath: fixture.dbPath, actor: { agentId: 'cody' } })
-      store.taskRepo.createTask({
+      await store.taskRepo.createTask({
         taskId: 'T-10402',
         projectId: fixture.seed.projectId,
         kind: 'code_change',
@@ -83,7 +83,7 @@ describe('TransitionLogRepo', () => {
         roleMap: { implementer: 'larry' },
         version: 0,
       })
-      store.evidenceRepo.appendEvidence('T-10402', [
+      await store.evidenceRepo.appendEvidence('T-10402', [
         { kind: 'tdd_green_bundle', ref: 'artifact://green/1' },
         {
           kind: 'waiver',
@@ -92,7 +92,7 @@ describe('TransitionLogRepo', () => {
         },
       ])
 
-      store.transitionLogRepo.appendTransition('T-10402', {
+      await store.transitionLogRepo.appendTransition('T-10402', {
         taskId: 'T-10402',
         transitionEventId: 'TR-90002',
         timestamp: '2026-04-19T12:10:00.000Z',
@@ -117,10 +117,10 @@ describe('TransitionLogRepo', () => {
     })
   })
 
-  test('lists transitions in timestamp order', () => {
-    withSeededWrkqDb((fixture) => {
+  test('lists transitions in timestamp order', async () => {
+    await withSeededWrkqDb(async (fixture) => {
       const store = openWrkqStore({ dbPath: fixture.dbPath, actor: { agentId: 'cody' } })
-      store.taskRepo.createTask({
+      await store.taskRepo.createTask({
         taskId: 'T-10403',
         projectId: fixture.seed.projectId,
         kind: 'code_change',
@@ -132,7 +132,7 @@ describe('TransitionLogRepo', () => {
         roleMap: {},
         version: 0,
       })
-      store.transitionLogRepo.appendTransition('T-10403', {
+      await store.transitionLogRepo.appendTransition('T-10403', {
         taskId: 'T-10403',
         transitionEventId: 'TR-90003',
         timestamp: '2026-04-19T12:01:00.000Z',
@@ -145,7 +145,7 @@ describe('TransitionLogRepo', () => {
         expectedVersion: 0,
         nextVersion: 1,
       })
-      store.transitionLogRepo.appendTransition('T-10403', {
+      await store.transitionLogRepo.appendTransition('T-10403', {
         taskId: 'T-10403',
         transitionEventId: 'TR-90004',
         timestamp: '2026-04-19T12:02:00.000Z',
@@ -160,15 +160,17 @@ describe('TransitionLogRepo', () => {
       })
 
       expect(
-        store.transitionLogRepo.listTransitions('T-10403').map((item) => item.transitionEventId)
+        (await store.transitionLogRepo.listTransitions('T-10403')).map(
+          (item) => item.transitionEventId
+        )
       ).toEqual(['TR-90003', 'TR-90004'])
     })
   })
 
-  test('throws on missing task transition append', () => {
-    withSeededWrkqDb((fixture) => {
+  test('throws on missing task transition append', async () => {
+    await withSeededWrkqDb(async (fixture) => {
       const store = openWrkqStore({ dbPath: fixture.dbPath, actor: { agentId: 'cody' } })
-      expect(() =>
+      await expect(
         store.transitionLogRepo.appendTransition('T-40403', {
           taskId: 'T-40403',
           transitionEventId: 'TR-missing',
@@ -182,7 +184,7 @@ describe('TransitionLogRepo', () => {
           expectedVersion: 0,
           nextVersion: 1,
         })
-      ).toThrow(WrkqTaskNotFoundError)
+      ).rejects.toThrow(WrkqTaskNotFoundError)
     })
   })
 })

@@ -6,11 +6,11 @@ import { VersionConflictError, openWrkqStore } from '../src/index.js'
 import { withSeededWrkqDb } from './fixtures/seed-wrkq-db.js'
 
 describe('wrkq-lib integration', () => {
-  test('round-trips task, roles, evidence, transition, and optimistic concurrency', () => {
-    withSeededWrkqDb((fixture) => {
+  test('round-trips task, roles, evidence, transition, and optimistic concurrency', async () => {
+    await withSeededWrkqDb(async (fixture) => {
       const store = openWrkqStore({ dbPath: fixture.dbPath, actor: { agentId: 'acp-server' } })
 
-      const created = store.taskRepo.createTask({
+      const created = await store.taskRepo.createTask({
         taskId: 'T-10501',
         projectId: fixture.seed.projectSlug,
         kind: 'code_change',
@@ -24,19 +24,19 @@ describe('wrkq-lib integration', () => {
         meta: { intake: 'api' },
       })
 
-      store.roleAssignmentRepo.setRoleMap('T-10501', {
+      await store.roleAssignmentRepo.setRoleMap('T-10501', {
         triager: 'tracy',
         implementer: 'larry',
         tester: 'curly',
       })
-      store.evidenceRepo.appendEvidence('T-10501', [
+      await store.evidenceRepo.appendEvidence('T-10501', [
         {
           kind: 'tdd_green_bundle',
           ref: 'artifact://green/1',
           producedBy: { agentId: 'larry', role: 'implementer' },
         },
       ])
-      store.transitionLogRepo.appendTransition('T-10501', {
+      await store.transitionLogRepo.appendTransition('T-10501', {
         taskId: 'T-10501',
         transitionEventId: 'TR-90010',
         timestamp: '2026-04-19T12:15:00.000Z',
@@ -50,7 +50,7 @@ describe('wrkq-lib integration', () => {
         nextVersion: 1,
       })
 
-      const updated = store.taskRepo.updateTask({
+      const updated = await store.taskRepo.updateTask({
         ...created,
         phase: 'green',
         roleMap: { triager: 'tracy', implementer: 'larry', tester: 'curly' },
@@ -60,18 +60,18 @@ describe('wrkq-lib integration', () => {
       expect(updated.version).toBe(1)
       expect(updated.phase).toBe('green')
       expect(updated.roleMap).toEqual({ triager: 'tracy', implementer: 'larry', tester: 'curly' })
-      expect(store.evidenceRepo.listEvidence('T-10501')).toHaveLength(1)
-      expect(store.transitionLogRepo.listTransitions('T-10501')).toHaveLength(1)
-      expect(() => store.taskRepo.updateTask({ ...updated, version: 0 })).toThrow(
+      expect(await store.evidenceRepo.listEvidence('T-10501')).toHaveLength(1)
+      expect(await store.transitionLogRepo.listTransitions('T-10501')).toHaveLength(1)
+      await expect(store.taskRepo.updateTask({ ...updated, version: 0 })).rejects.toThrow(
         VersionConflictError
       )
     })
   })
 
-  test('works with acp-core transition validation', () => {
-    withSeededWrkqDb((fixture) => {
+  test('works with acp-core transition validation', async () => {
+    await withSeededWrkqDb(async (fixture) => {
       const store = openWrkqStore({ dbPath: fixture.dbPath, actor: { agentId: 'acp-server' } })
-      const task = store.taskRepo.createTask({
+      const task = await store.taskRepo.createTask({
         taskId: 'T-10502',
         projectId: fixture.seed.projectId,
         kind: 'code_change',
@@ -94,7 +94,7 @@ describe('wrkq-lib integration', () => {
           producedBy: { agentId: 'larry', role: 'implementer' },
         },
       ]
-      store.evidenceRepo.appendEvidence('T-10502', evidence)
+      await store.evidenceRepo.appendEvidence('T-10502', evidence)
 
       const validation = validateTransition({
         task,
@@ -110,18 +110,18 @@ describe('wrkq-lib integration', () => {
         return
       }
 
-      store.transitionLogRepo.appendTransition('T-10502', {
+      await store.transitionLogRepo.appendTransition('T-10502', {
         taskId: 'T-10502',
         transitionEventId: 'TR-90011',
         timestamp: '2026-04-19T12:20:00.000Z',
         ...validation.transition.record,
       })
       const decidedTask = applyTransitionDecision(task, validation.transition)
-      const updated = store.taskRepo.updateTask({ ...decidedTask, version: task.version })
+      const updated = await store.taskRepo.updateTask({ ...decidedTask, version: task.version })
 
       expect(updated.phase).toBe('green')
       expect(updated.version).toBe(1)
-      expect(store.transitionLogRepo.listTransitions('T-10502')).toHaveLength(1)
+      expect(await store.transitionLogRepo.listTransitions('T-10502')).toHaveLength(1)
     })
   })
 })

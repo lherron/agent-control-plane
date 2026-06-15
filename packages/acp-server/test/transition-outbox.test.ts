@@ -83,8 +83,8 @@ async function loadReconciler(cacheBust: string): Promise<TransitionOutboxReconc
   return (await import(modulePath)) as TransitionOutboxReconcilerModule
 }
 
-function createRedTask(fixture: TransitionOutboxFixture, taskId: string): Task {
-  const task = fixture.wrkqStore.taskRepo.createTask(
+async function createRedTask(fixture: TransitionOutboxFixture, taskId: string): Promise<Task> {
+  const task = await fixture.wrkqStore.taskRepo.createTask(
     createTestTask({
       taskId,
       projectId: fixture.seed.projectId,
@@ -93,28 +93,30 @@ function createRedTask(fixture: TransitionOutboxFixture, taskId: string): Task {
     })
   )
 
-  fixture.wrkqStore.evidenceRepo.appendEvidence(task.taskId, [createEvidence('tdd_green_bundle')])
+  await fixture.wrkqStore.evidenceRepo.appendEvidence(task.taskId, [
+    createEvidence('tdd_green_bundle'),
+  ])
   return task
 }
 
-function appendRedToGreenTransitionOnly(
+async function appendRedToGreenTransitionOnly(
   fixture: TransitionOutboxFixture,
   taskId: string,
   transitionEventId: string
-): LoggedTransitionRecord {
-  const task = fixture.wrkqStore.taskRepo.getTask(taskId)
+): Promise<LoggedTransitionRecord> {
+  const task = await fixture.wrkqStore.taskRepo.getTask(taskId)
   if (task === undefined) {
     throw new Error(`task not found: ${taskId}`)
   }
 
-  const roleMap = fixture.wrkqStore.roleAssignmentRepo.getRoleMap(taskId) ?? task.roleMap
+  const roleMap = (await fixture.wrkqStore.roleAssignmentRepo.getRoleMap(taskId)) ?? task.roleMap
   const preset = getPreset(task.workflowPreset ?? '', task.presetVersion ?? 0)
   const validation = validateTransition({
     task: { ...task, roleMap },
     preset,
     actor: { agentId: 'larry', role: 'implementer' },
     toPhase: 'green',
-    evidence: fixture.wrkqStore.evidenceRepo.listEvidence(taskId),
+    evidence: await fixture.wrkqStore.evidenceRepo.listEvidence(taskId),
     expectedVersion: task.version,
   })
 
@@ -130,9 +132,13 @@ function appendRedToGreenTransitionOnly(
   }
   const updatedTask = applyTransitionDecision({ ...task, roleMap }, validation.transition)
 
+  // The wrkq-lib repos are sync-backed (better-sqlite3); their now-async methods
+  // resolve synchronously, so both writes still commit inside this single
+  // better-sqlite3 transaction. Awaiting is impossible inside the synchronous
+  // transaction callback and unnecessary here.
   fixture.wrkqStore.runInTransaction((store) => {
-    store.taskRepo.updateTask({ ...updatedTask, roleMap, version: task.version })
-    store.transitionLogRepo.appendTransition(taskId, loggedTransition)
+    void store.taskRepo.updateTask({ ...updatedTask, roleMap, version: task.version })
+    void store.transitionLogRepo.appendTransition(taskId, loggedTransition)
   })
 
   return loggedTransition
@@ -233,8 +239,8 @@ function createFailingCoordStore(message: string): CoordinationStore {
 describe('transition outbox reconciler', () => {
   test('repairs crash between wrkq transition commit and outbox append by scanning history', async () => {
     await withTransitionOutboxFixture(async (fixture) => {
-      createRedTask(fixture, 'T-43001')
-      const transition = appendRedToGreenTransitionOnly(fixture, 'T-43001', 'TR-43001')
+      await createRedTask(fixture, 'T-43001')
+      const transition = await appendRedToGreenTransitionOnly(fixture, 'T-43001', 'TR-43001')
       const { reconcileTransitionOutbox } = await loadReconciler('scan-missing-row')
 
       expect(fixture.stateStore.transitionOutbox.get(transition.transitionEventId)).toBeUndefined()
@@ -257,8 +263,8 @@ describe('transition outbox reconciler', () => {
 
   test('drains pending outbox rows into coordination.db after a crash between outbox and coord append', async () => {
     await withTransitionOutboxFixture(async (fixture) => {
-      createRedTask(fixture, 'T-43002')
-      const transition = appendRedToGreenTransitionOnly(fixture, 'T-43002', 'TR-43002')
+      await createRedTask(fixture, 'T-43002')
+      const transition = await appendRedToGreenTransitionOnly(fixture, 'T-43002', 'TR-43002')
       appendOutboxRow(fixture, transition)
       const { reconcileTransitionOutbox } = await loadReconciler('drain-pending-row')
 
@@ -275,8 +281,8 @@ describe('transition outbox reconciler', () => {
 
   test('treats repeated outbox appends for the same transition_event_id as idempotent', async () => {
     await withTransitionOutboxFixture(async (fixture) => {
-      createRedTask(fixture, 'T-43003')
-      const transition = appendRedToGreenTransitionOnly(fixture, 'T-43003', 'TR-43003')
+      await createRedTask(fixture, 'T-43003')
+      const transition = await appendRedToGreenTransitionOnly(fixture, 'T-43003', 'TR-43003')
       appendOutboxRow(fixture, transition)
       appendOutboxRow(fixture, transition)
       const { reconcileTransitionOutbox } = await loadReconciler('append-idempotent')
@@ -300,8 +306,8 @@ describe('transition outbox reconciler', () => {
 
   test('records coord write failures on the outbox row and retries successfully on the next drain', async () => {
     await withTransitionOutboxFixture(async (fixture) => {
-      createRedTask(fixture, 'T-43004')
-      const transition = appendRedToGreenTransitionOnly(fixture, 'T-43004', 'TR-43004')
+      await createRedTask(fixture, 'T-43004')
+      const transition = await appendRedToGreenTransitionOnly(fixture, 'T-43004', 'TR-43004')
       appendOutboxRow(fixture, transition)
       const first = await loadReconciler('coord-failure-first-pass')
 
@@ -337,8 +343,8 @@ describe('transition outbox reconciler', () => {
 
   test('is safe to call concurrently without double-delivering one transition_event_id', async () => {
     await withTransitionOutboxFixture(async (fixture) => {
-      createRedTask(fixture, 'T-43005')
-      const transition = appendRedToGreenTransitionOnly(fixture, 'T-43005', 'TR-43005')
+      await createRedTask(fixture, 'T-43005')
+      const transition = await appendRedToGreenTransitionOnly(fixture, 'T-43005', 'TR-43005')
       appendOutboxRow(fixture, transition)
       const { reconcileTransitionOutbox } = await loadReconciler('concurrent-drain')
 

@@ -8,12 +8,12 @@ import {
 } from './fixtures/in-memory-stores.js'
 
 describe('task-core regression port', () => {
-  test('task CRUD preserves version 0 and preset pinning', () => {
+  test('task CRUD preserves version 0 and preset pinning', async () => {
     const store = new InMemoryAcpWorkflowStore()
 
-    store.createTask(createTestTask({ taskId: 'task-001', phase: 'red' }))
+    await store.createTask(createTestTask({ taskId: 'task-001', phase: 'red' }))
 
-    const task = store.getTask('task-001')
+    const task = await store.getTask('task-001')
 
     expect(task).toBeDefined()
     expect(task?.version).toBe(0)
@@ -21,17 +21,17 @@ describe('task-core regression port', () => {
     expect(task?.presetVersion).toBe(1)
   })
 
-  test('versioned transitions advance monotonically', () => {
+  test('versioned transitions advance monotonically', async () => {
     const store = new InMemoryAcpWorkflowStore()
-    store.createTask(createTestTask({ taskId: 'task-002', phase: 'red' }))
+    await store.createTask(createTestTask({ taskId: 'task-002', phase: 'red' }))
 
-    const first = store.transition('task-002', {
+    const first = await store.transition('task-002', {
       toPhase: 'green',
       actor: { agentId: 'larry', role: 'implementer' },
       evidence: [createEvidence('tdd_green_bundle')],
       expectedVersion: 0,
     })
-    const second = store.transition('task-002', {
+    const second = await store.transition('task-002', {
       toPhase: 'verified',
       actor: { agentId: 'curly', role: 'tester' },
       evidence: [createEvidence('qa_bundle')],
@@ -46,11 +46,11 @@ describe('task-core regression port', () => {
     }
   })
 
-  test('stale expectedVersion detects version conflicts', () => {
+  test('stale expectedVersion detects version conflicts', async () => {
     const store = new InMemoryAcpWorkflowStore()
-    store.createTask(createTestTask({ taskId: 'task-003', phase: 'red' }))
+    await store.createTask(createTestTask({ taskId: 'task-003', phase: 'red' }))
 
-    const first = store.transition('task-003', {
+    const first = await store.transition('task-003', {
       toPhase: 'green',
       actor: { agentId: 'larry', role: 'implementer' },
       evidence: [createEvidence('tdd_green_bundle')],
@@ -58,7 +58,7 @@ describe('task-core regression port', () => {
     })
     expect('task' in first).toBe(true)
 
-    const stale = store.transition('task-003', {
+    const stale = await store.transition('task-003', {
       toPhase: 'verified',
       actor: { agentId: 'curly', role: 'tester' },
       evidence: [createEvidence('qa_bundle')],
@@ -71,11 +71,11 @@ describe('task-core regression port', () => {
     }
   })
 
-  test('preset-driven transitions require evidence', () => {
+  test('preset-driven transitions require evidence', async () => {
     const store = new InMemoryAcpWorkflowStore()
-    store.createTask(createTestTask({ taskId: 'task-004', phase: 'red' }))
+    await store.createTask(createTestTask({ taskId: 'task-004', phase: 'red' }))
 
-    const result = store.transition('task-004', {
+    const result = await store.transition('task-004', {
       toPhase: 'green',
       actor: { agentId: 'larry', role: 'implementer' },
       evidence: [],
@@ -89,18 +89,18 @@ describe('task-core regression port', () => {
     }
   })
 
-  test('preset objects are immutable and task pins survive transitions', () => {
+  test('preset objects are immutable and task pins survive transitions', async () => {
     const store = new InMemoryAcpWorkflowStore()
-    store.createTask(createTestTask({ taskId: 'task-005', phase: 'red' }))
+    await store.createTask(createTestTask({ taskId: 'task-005', phase: 'red' }))
 
-    const result = store.transition('task-005', {
+    const result = await store.transition('task-005', {
       toPhase: 'green',
       actor: { agentId: 'larry', role: 'implementer' },
       evidence: [createEvidence('tdd_green_bundle')],
       expectedVersion: 0,
     })
     const preset = getPreset('code_defect_fastlane', 1)
-    const task = store.getTask('task-005')
+    const task = await store.getTask('task-005')
 
     expect(Object.isFrozen(preset)).toBe(true)
     expect(Object.isFrozen(preset.guidance['green']?.agentHints)).toBe(true)
@@ -112,17 +112,17 @@ describe('task-core regression port', () => {
     expect(task?.presetVersion).toBe(1)
   })
 
-  test('transition history is recorded in order and unknown tasks return NOT_FOUND', () => {
+  test('transition history is recorded in order and unknown tasks return NOT_FOUND', async () => {
     const store = new InMemoryAcpWorkflowStore()
-    store.createTask(createTestTask({ taskId: 'task-006', phase: 'red' }))
+    await store.createTask(createTestTask({ taskId: 'task-006', phase: 'red' }))
 
-    store.transition('task-006', {
+    await store.transition('task-006', {
       toPhase: 'green',
       actor: { agentId: 'larry', role: 'implementer' },
       evidence: [createEvidence('tdd_green_bundle')],
       expectedVersion: 0,
     })
-    store.transition('task-006', {
+    await store.transition('task-006', {
       toPhase: 'verified',
       actor: { agentId: 'curly', role: 'tester' },
       evidence: [createEvidence('qa_bundle')],

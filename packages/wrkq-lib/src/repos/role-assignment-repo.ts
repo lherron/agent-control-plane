@@ -6,7 +6,7 @@ import { findTaskUuid, loadRoleMap, replaceRoleMap, requireTaskLookup } from './
 export class RoleAssignmentRepo implements RoleAssignmentStore {
   constructor(private readonly context: RepoContext) {}
 
-  getRoleMap(taskId: string): RoleMap | undefined {
+  async getRoleMap(taskId: string): Promise<RoleMap | undefined> {
     return this.context.sqlite.transaction((id: string) => {
       const taskUuid = findTaskUuid(this.context.sqlite, id)
 
@@ -18,7 +18,7 @@ export class RoleAssignmentRepo implements RoleAssignmentStore {
     })(taskId)
   }
 
-  setRoleMap(taskId: string, roleMap: RoleMap): void {
+  async setRoleMap(taskId: string, roleMap: RoleMap): Promise<void> {
     this.context.sqlite.transaction((id: string, nextRoleMap: RoleMap) => {
       const task = requireTaskLookup(this.context.sqlite, id)
       replaceRoleMap(this.context.sqlite, this.context.actorResolver, task.uuid, nextRoleMap)

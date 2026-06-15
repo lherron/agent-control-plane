@@ -46,21 +46,21 @@ function createTask(overrides: Partial<Task> = {}): Task {
 }
 
 describe('TaskRepo', () => {
-  test('creates and reads a preset-driven task with role assignments', () => {
-    withSeededWrkqDb((fixture) => {
+  test('creates and reads a preset-driven task with role assignments', async () => {
+    await withSeededWrkqDb(async (fixture) => {
       const store = openWrkqStore({
         dbPath: fixture.dbPath,
         actor: { agentId: 'cody', displayName: 'Cody' },
       })
 
-      const created = store.taskRepo.createTask(
+      const created = await store.taskRepo.createTask(
         createTask({
           taskId: 'T-10101',
           projectId: fixture.seed.projectSlug,
           meta: { severity: 's2' },
         })
       )
-      const loaded = store.taskRepo.getTask('T-10101')
+      const loaded = await store.taskRepo.getTask('T-10101')
 
       expect(created.taskId).toBe('T-10101')
       expect(created.projectId).toBe(fixture.seed.projectId)
@@ -73,19 +73,19 @@ describe('TaskRepo', () => {
     })
   })
 
-  test('returns undefined for a missing task', () => {
-    withSeededWrkqDb((fixture) => {
+  test('returns undefined for a missing task', async () => {
+    await withSeededWrkqDb(async (fixture) => {
       const store = openWrkqStore({ dbPath: fixture.dbPath, actor: { agentId: 'cody' } })
-      expect(store.taskRepo.getTask('T-40404')).toBeUndefined()
+      expect(await store.taskRepo.getTask('T-40404')).toBeUndefined()
     })
   })
 
-  test('updates a task and bumps the version via etag', () => {
-    withSeededWrkqDb((fixture) => {
+  test('updates a task and bumps the version via etag', async () => {
+    await withSeededWrkqDb(async (fixture) => {
       const store = openWrkqStore({ dbPath: fixture.dbPath, actor: { agentId: 'cody' } })
-      store.taskRepo.createTask(createTask({ taskId: 'T-10102' }))
+      await store.taskRepo.createTask(createTask({ taskId: 'T-10102' }))
 
-      const updated = store.taskRepo.updateTask(
+      const updated = await store.taskRepo.updateTask(
         createTask({
           taskId: 'T-10102',
           projectId: fixture.seed.secondaryProjectId,
@@ -108,20 +108,20 @@ describe('TaskRepo', () => {
     })
   })
 
-  test('throws VersionConflictError on stale task update', () => {
-    withSeededWrkqDb((fixture) => {
+  test('throws VersionConflictError on stale task update', async () => {
+    await withSeededWrkqDb(async (fixture) => {
       const store = openWrkqStore({ dbPath: fixture.dbPath, actor: { agentId: 'cody' } })
-      store.taskRepo.createTask(createTask({ taskId: 'T-10103' }))
-      store.taskRepo.updateTask(createTask({ taskId: 'T-10103', version: 0 }))
+      await store.taskRepo.createTask(createTask({ taskId: 'T-10103' }))
+      await store.taskRepo.updateTask(createTask({ taskId: 'T-10103', version: 0 }))
 
-      expect(() =>
+      await expect(
         store.taskRepo.updateTask(createTask({ taskId: 'T-10103', version: 0 }))
-      ).toThrow(VersionConflictError)
+      ).rejects.toThrow(VersionConflictError)
     })
   })
 
-  test('passes through non-ACP wrkq task states when reading', () => {
-    withSeededWrkqDb((fixture) => {
+  test('passes through non-ACP wrkq task states when reading', async () => {
+    await withSeededWrkqDb(async (fixture) => {
       const sqlite = openTestDatabase(fixture.dbPath)
       sqlite
         .prepare(
@@ -159,7 +159,7 @@ describe('TaskRepo', () => {
       sqlite.close()
 
       const store = openWrkqStore({ dbPath: fixture.dbPath, actor: { agentId: 'cody' } })
-      const loaded = store.taskRepo.getTask('T-10104')
+      const loaded = await store.taskRepo.getTask('T-10104')
 
       expect(loaded?.lifecycleState).toBe('idea')
       expect(loaded?.version).toBe(7)
@@ -167,10 +167,10 @@ describe('TaskRepo', () => {
     })
   })
 
-  test('supports non-preset tasks with empty ACP phase and NULL wrkq phase', () => {
-    withSeededWrkqDb((fixture) => {
+  test('supports non-preset tasks with empty ACP phase and NULL wrkq phase', async () => {
+    await withSeededWrkqDb(async (fixture) => {
       const store = openWrkqStore({ dbPath: fixture.dbPath, actor: { agentId: 'cody' } })
-      const created = store.taskRepo.createTask(
+      const created = await store.taskRepo.createTask(
         createTask({
           taskId: 'T-10105',
           workflowPreset: undefined,

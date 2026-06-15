@@ -161,11 +161,13 @@ export function createSeededWrkqDb(): SeededWrkqFixture {
   }
 }
 
-export function withSeededWrkqDb<T>(run: (fixture: SeededWrkqFixture) => T): T {
+export async function withSeededWrkqDb<T>(
+  run: (fixture: SeededWrkqFixture) => T | Promise<T>
+): Promise<T> {
   const fixture = createSeededWrkqDb()
 
   try {
-    return run(fixture)
+    return await run(fixture)
   } finally {
     fixture.cleanup()
   }

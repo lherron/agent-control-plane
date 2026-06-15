@@ -497,16 +497,15 @@ function createPbcWorkerRunner(input: {
       },
     }
 
+    const [pbcActor, pbcPressureActor] = await Promise.all([
+      pbcActorWireForRole(input.wrkqStore, job.taskId, 'agent', PBC_DRAFT_AGENT),
+      pbcActorWireForRole(input.wrkqStore, job.taskId, 'pressure_reviewer', PBC_REVIEWER_AGENT),
+    ])
     await runPbcContinuationWorker(port, {
       taskId: job.taskId,
       idempotencyKey: job.idempotencyKey,
-      actor: pbcActorWireForRole(input.wrkqStore, job.taskId, 'agent', PBC_DRAFT_AGENT),
-      pressureActor: pbcActorWireForRole(
-        input.wrkqStore,
-        job.taskId,
-        'pressure_reviewer',
-        PBC_REVIEWER_AGENT
-      ),
+      actor: pbcActor,
+      pressureActor: pbcPressureActor,
       jobId: job.jobId,
       ...(job.leaseOwner !== undefined ? { leaseOwner: job.leaseOwner } : {}),
     })
@@ -530,12 +529,14 @@ async function launchPbcWorkerAcpRun(input: {
   }
 
   const projection = await readPbcWorkerProjection(input.deps, input.job)
-  const actor = actorFromWire(input.actor) ?? {
-    kind: 'agent',
-    id: agentIdForRole(input.wrkqStore, input.options, input.taskId, input.role),
-  }
+  const actor =
+    actorFromWire(input.actor) ??
+    ({
+      kind: 'agent',
+      id: await agentIdForRole(input.wrkqStore, input.options, input.taskId, input.role),
+    } as Actor)
   const sessionRef = normalizeSessionRef({
-    scopeRef: scopeRefForWorkerRole(
+    scopeRef: await scopeRefForWorkerRole(
       input.wrkqStore,
       input.options,
       input.taskId,
@@ -658,42 +659,42 @@ async function readPbcWorkerProjection(
   }
 }
 
-function agentIdForRole(
+async function agentIdForRole(
   wrkqStore: WrkqStore,
   options: AcpServerCliOptions,
   taskId: string,
   role: string
-): string {
-  const task = wrkqStore.taskRepo.getTask(taskId)
-  const roleMap = wrkqStore.roleAssignmentRepo.getRoleMap(taskId) ?? task?.roleMap ?? {}
+): Promise<string> {
+  const task = await wrkqStore.taskRepo.getTask(taskId)
+  const roleMap = (await wrkqStore.roleAssignmentRepo.getRoleMap(taskId)) ?? task?.roleMap ?? {}
   return roleMap[role]?.trim() || roleMap['agent']?.trim() || options.actor
 }
 
 // PBC worker participant resolution: a task's explicit roleMap wins; otherwise
 // fall back to the configured PBC default agent (NOT the server identity), so the
 // launched runtime resolves a real provisioned agent profile.
-function pbcActorWireForRole(
+async function pbcActorWireForRole(
   wrkqStore: WrkqStore,
   taskId: string,
   role: string,
   fallbackAgentId: string
-): string {
-  const task = wrkqStore.taskRepo.getTask(taskId)
-  const roleMap = wrkqStore.roleAssignmentRepo.getRoleMap(taskId) ?? task?.roleMap ?? {}
+): Promise<string> {
+  const task = await wrkqStore.taskRepo.getTask(taskId)
+  const roleMap = (await wrkqStore.roleAssignmentRepo.getRoleMap(taskId)) ?? task?.roleMap ?? {}
   const id = roleMap[role]?.trim() || fallbackAgentId
   return `agent:${id}`
 }
 
-function scopeRefForWorkerRole(
+async function scopeRefForWorkerRole(
   wrkqStore: WrkqStore,
   options: AcpServerCliOptions,
   taskId: string,
   role: string,
   actor: Actor
-): string {
-  const task = wrkqStore.taskRepo.getTask(taskId)
+): Promise<string> {
+  const task = await wrkqStore.taskRepo.getTask(taskId)
   const agentId =
-    actor.kind === 'agent' ? actor.id : agentIdForRole(wrkqStore, options, taskId, role)
+    actor.kind === 'agent' ? actor.id : await agentIdForRole(wrkqStore, options, taskId, role)
   const projectSegment = task?.projectId !== undefined ? `:project:${task.projectId}` : ''
   return `agent:${agentId}${projectSegment}:task:${taskId}:role:${role}`
 }
