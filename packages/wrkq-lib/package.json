@@ -29,6 +29,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
     "@types/bun": "latest",
+    "@wrkq/client": "0.1.0-dev.20260615100439",
     "typescript": "^5.8.3"
   }
 }

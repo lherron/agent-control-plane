@@ -1,5 +1,6 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "agent-control-plane",
@@ -289,6 +290,7 @@
       "devDependencies": {
         "@types/better-sqlite3": "^7.6.12",
         "@types/bun": "latest",
+        "@wrkq/client": "0.1.0-dev.20260615100439",
         "typescript": "^5.8.3",
       },
     },
@@ -1335,6 +1337,8 @@
     "string-width/strip-ansi": ["strip-ansi@6.0.1", "http://127.0.0.1:4873/strip-ansi/-/strip-ansi-6.0.1.tgz", { "dependencies": { "ansi-regex": "^5.0.1" } }, "sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A=="],
 
     "wrap-ansi/strip-ansi": ["strip-ansi@6.0.1", "http://127.0.0.1:4873/strip-ansi/-/strip-ansi-6.0.1.tgz", { "dependencies": { "ansi-regex": "^5.0.1" } }, "sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A=="],
+
+    "wrkq-lib/@wrkq/client": ["@wrkq/client@0.1.0-dev.20260615100439", "http://127.0.0.1:4873/@wrkq/client/-/client-0.1.0-dev.20260615100439.tgz", {}, "sha512-KnZ5LdUsdkQAg2+XWX6kF7OBOmVuQODQy8KDi0XZ1SGwswh2/zD0yoqDi9VZHt52vpmB7cthufdwin7Nt+VNMA=="],
 
     "cliui/strip-ansi/ansi-regex": ["ansi-regex@5.0.1", "http://127.0.0.1:4873/ansi-regex/-/ansi-regex-5.0.1.tgz", {}, "sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ=="],
 
