@@ -18,6 +18,69 @@ import {
 } from './parsers/body.js'
 
 import type { RouteHandler } from './routing/route-context.js'
+import type { AcpWrkfWorkflowPort } from './wrkf/port.js'
+
+type WorkflowInstanceFacts = {
+  preset: string
+  presetVersion: number
+  phase: string | null
+}
+
+/**
+ * Read the workflow preset/version/phase from the wrkf instance for a task.
+ *
+ * `wrkf.task.inspect` returns the flat instance record (the lifecycle adapter
+ * unwraps `wrkq.workflow.inspect`'s `{ instance }` envelope): `templateId` →
+ * preset, `templateVersion` (a STRING in the real binary) → presetVersion,
+ * `phase`. Returns undefined when no workflow instance is attached (inspect
+ * throws "workflow instance not found") or the record lacks a usable preset —
+ * the caller treats that as "task not pinned to a workflow preset".
+ */
+async function readWorkflowInstanceFacts(
+  wrkf: AcpWrkfWorkflowPort,
+  taskId: string
+): Promise<WorkflowInstanceFacts | undefined> {
+  let inspected: unknown
+  try {
+    inspected = await wrkf.task.inspect({ task: taskId })
+  } catch {
+    return undefined
+  }
+
+  if (!isRecord(inspected)) {
+    return undefined
+  }
+
+  const preset = readOptionalString(inspected, 'templateId')
+  if (preset === undefined) {
+    return undefined
+  }
+
+  const presetVersion = coerceVersion(inspected['templateVersion'])
+  if (presetVersion === undefined) {
+    return undefined
+  }
+
+  const phaseValue = inspected['phase']
+  const phase = typeof phaseValue === 'string' && phaseValue.length > 0 ? phaseValue : null
+
+  return { preset, presetVersion, phase }
+}
+
+function coerceVersion(raw: unknown): number | undefined {
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return raw
+  }
+
+  if (typeof raw === 'string' && raw.trim() !== '') {
+    const parsed = Number(raw)
+    if (Number.isFinite(parsed)) {
+      return parsed
+    }
+  }
+
+  return undefined
+}
 
 // Narrow dependency surface for launch placement/intent resolution.
 // Call sites without full ResolvedAcpServerDeps (queue + wake dispatchers)
@@ -45,8 +108,20 @@ export async function launchRoleScopedTaskRun(
     throw new Error('acp-server launchRoleScopedRun: no wrkq store wired (wrkf disabled)')
   }
 
+  if (deps.wrkf === undefined) {
+    throw new Error('acp-server launchRoleScopedRun: no wrkf workflow port wired (wrkf disabled)')
+  }
+
   const task = requireTask(await deps.wrkqStore.taskStore.getTask(input.taskId), input.taskId)
-  if (task.workflowPreset === undefined || task.presetVersion === undefined) {
+
+  // Forward role model (epic T-04763 P2e): the workflow preset/version/phase live
+  // on the wrkf INSTANCE, not the task record. The @wrkq/client store adapter's
+  // getTask no longer returns task.workflowPreset/presetVersion/phase, so source
+  // them from the instance via wrkf.task.inspect (→ wrkq.workflow.inspect,
+  // unwrapped to the flat instance record). No instance attached → the task is
+  // not pinned to a workflow preset (the guard stays meaningful).
+  const instance = await readWorkflowInstanceFacts(deps.wrkf, input.taskId)
+  if (instance === undefined) {
     unprocessable(
       'workflow_preset_required',
       `task ${input.taskId} is not pinned to a workflow preset`,
@@ -103,10 +178,16 @@ export async function launchRoleScopedTaskRun(
     )
   }
 
-  const preset = deps.presetRegistry.getPreset(task.workflowPreset, task.presetVersion)
+  const preset = deps.presetRegistry.getPreset(instance.preset, instance.presetVersion)
   const computedContext = computeTaskContext({
     preset,
-    task: { ...task, roleMap },
+    task: {
+      ...task,
+      roleMap,
+      workflowPreset: instance.preset,
+      presetVersion: instance.presetVersion,
+      phase: instance.phase,
+    },
     role: input.role,
   })
   const taskContext: HrcTaskContext = {
