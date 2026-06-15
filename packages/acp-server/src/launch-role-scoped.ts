@@ -7,6 +7,10 @@ import type { ResolvedAcpServerDeps } from './deps.js'
 import { parseSessionRefField, requireTask } from './handlers/shared.js'
 import { badRequest, json, notFound, unprocessable } from './http.js'
 import {
+  readOptionalPlainRecord as readOptionalRecord,
+  readOptionalNonEmptyString as readOptionalString,
+} from './internal/read-helpers.js'
+import {
   isRecord,
   parseJsonBody,
   requireRecord,
@@ -268,20 +272,4 @@ function readOptionalBundle(
   }
 
   return bundle as HrcRuntimeIntent['placement']['bundle']
-}
-
-function readOptionalString(
-  input: Record<string, unknown> | undefined,
-  field: string
-): string | undefined {
-  const value = input?.[field]
-  return typeof value === 'string' && value.length > 0 ? value : undefined
-}
-
-function readOptionalRecord(
-  input: Record<string, unknown> | undefined,
-  field: string
-): Record<string, unknown> | undefined {
-  const value = input?.[field]
-  return isRecord(value) ? value : undefined
 }

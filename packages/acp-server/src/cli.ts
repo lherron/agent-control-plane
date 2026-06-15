@@ -41,6 +41,11 @@ import { InputAdmissionService } from './input-admission/input-admission-service
 import { createInputQueueDispatcher } from './integration/input-queue-dispatcher.js'
 import { createInterfaceRunDispatcher } from './integration/interface-run-dispatcher.js'
 import { createWakeDispatcher } from './integration/wake-dispatcher.js'
+import {
+  readOptionalFiniteNumber as readNumber,
+  readObjectRecord as readRecord,
+  readOptionalNonEmptyString as readString,
+} from './internal/read-helpers.js'
 import { createEventJobEvaluator } from './jobs/event-job-evaluator.js'
 import { advanceJobFlow } from './jobs/flow-engine.js'
 import { getRunFinalAssistantText } from './jobs/run-final-output.js'
@@ -709,28 +714,6 @@ function actorFromWire(input: string): Actor | undefined {
 function recordId(record: unknown): string {
   const id = readRecord(record)?.['id']
   return typeof id === 'string' ? id : ''
-}
-
-function readRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null
-    ? (value as Record<string, unknown>)
-    : undefined
-}
-
-function readString(
-  record: Record<string, unknown> | undefined,
-  field: string
-): string | undefined {
-  const value = record?.[field]
-  return typeof value === 'string' && value.length > 0 ? value : undefined
-}
-
-function readNumber(
-  record: Record<string, unknown> | undefined,
-  field: string
-): number | undefined {
-  const value = record?.[field]
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
 function mergeMetadata(

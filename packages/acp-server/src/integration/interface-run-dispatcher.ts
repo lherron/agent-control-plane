@@ -6,6 +6,7 @@ import type { UnifiedSessionEvent } from 'spaces-runtime'
 import { toCompletedVisibleAssistantMessage } from '../delivery/visible-assistant-messages.js'
 import type { ConversationStore } from '../deps.js'
 import type { RunStore, StoredRun } from '../domain/run-store.js'
+import { readOptionalTrimmedRawString as readString } from '../internal/read-helpers.js'
 import { isRecord } from '../parsers/body.js'
 import {
   hasHrcAcceptedRunSince,
@@ -561,14 +562,6 @@ function readInterfaceRunSource(run: StoredRun): InterfaceRunSource | undefined 
     messageRef,
     ...(replyToMessageRef !== undefined ? { replyToMessageRef } : {}),
   }
-}
-
-function readString(record: Record<string, unknown>, field: string): string | undefined {
-  const value = record[field]
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    return undefined
-  }
-  return value
 }
 
 function createDeliveryRequestId(runId: string, ordinal: number): string {

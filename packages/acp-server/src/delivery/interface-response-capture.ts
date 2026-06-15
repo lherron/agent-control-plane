@@ -5,6 +5,7 @@ import type { InterfaceStore, OutboundAttachment } from 'acp-interface-store'
 import type { UnifiedSessionEvent } from 'spaces-runtime'
 
 import type { RunStore } from '../domain/run-store.js'
+import { readOptionalTrimmedRawStringOrThrow } from '../internal/read-helpers.js'
 import { isRecord } from '../parsers/body.js'
 
 import { toCompletedVisibleAssistantMessage } from './visible-assistant-messages.js'
@@ -193,8 +194,16 @@ function readInterfaceRunSource(run: Run): InterfaceRunSource | undefined {
     return undefined
   }
 
-  const threadRef = readOptionalString(interfaceSource, 'threadRef')
-  const replyToMessageRef = readOptionalString(interfaceSource, 'replyToMessageRef')
+  const threadRef = readOptionalTrimmedRawStringOrThrow(
+    interfaceSource,
+    'threadRef',
+    invalidInterfaceSourceField
+  )
+  const replyToMessageRef = readOptionalTrimmedRawStringOrThrow(
+    interfaceSource,
+    'replyToMessageRef',
+    invalidInterfaceSourceField
+  )
 
   return {
     gatewayId: readRequiredString(interfaceSource, 'gatewayId'),
@@ -215,15 +224,6 @@ function readRequiredString(record: Record<string, unknown>, field: string): str
   return value
 }
 
-function readOptionalString(record: Record<string, unknown>, field: string): string | undefined {
-  const value = record[field]
-  if (value === undefined) {
-    return undefined
-  }
-
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new Error(`interface response capture metadata has invalid ${field}`)
-  }
-
-  return value
+function invalidInterfaceSourceField(field: string): Error {
+  return new Error(`interface response capture metadata has invalid ${field}`)
 }

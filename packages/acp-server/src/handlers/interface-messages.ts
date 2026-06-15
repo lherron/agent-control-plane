@@ -6,6 +6,7 @@ import { createInterfaceResponseCapture } from '../delivery/interface-response-c
 import { toCompletedVisibleAssistantMessage } from '../delivery/visible-assistant-messages.js'
 import { AcpHttpError, badRequest, json } from '../http.js'
 import { InputAdmissionService } from '../input-admission/input-admission-service.js'
+import { readPlainRecordOrEmpty as readRecord } from '../internal/read-helpers.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
 import {
   parseJsonBody,
@@ -427,10 +428,4 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
     },
     createdAttempt.created ? 201 : 200
   )
-}
-
-function readRecord(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {}
 }
