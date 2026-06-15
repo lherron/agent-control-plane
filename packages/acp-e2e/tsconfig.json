@@ -7,6 +7,6 @@
     "emitDeclarationOnly": true,
     "noEmit": false
   },
-  "include": ["test/**/*.ts", "../wrkq-lib/test/fixtures/seed-wrkq-db.ts"],
+  "include": ["test/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

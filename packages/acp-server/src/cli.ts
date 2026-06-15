@@ -15,7 +15,7 @@ import { openCoordinationStore } from 'coordination-substrate'
 import { resolveControlSocketPath, resolveDatabasePath } from 'hrc-core'
 import { HrcClient } from 'hrc-sdk'
 import { buildRuntimeBundleRef, getAgentsRoot, resolveAgentPlacementPaths } from 'spaces-config'
-import { WrkqSchemaMissingError, type WrkqStore, openWrkqStore } from 'wrkq-lib'
+import type { WrkqStoreAdapter } from 'wrkq-lib'
 
 import { createAccessLogger } from './access-log.js'
 import { createAcpServer } from './create-acp-server.js'
@@ -413,15 +413,17 @@ export function resolveLauncherDeps(
 
 function createPbcWorkerRunner(input: {
   deps: ResolvedAcpServerDeps
-  wrkqStore: WrkqStore
+  wrkqStore: WrkqStoreAdapter | undefined
   options: AcpServerCliOptions
 }): ((job: PbcContinuationJob) => Promise<void>) | undefined {
   const wrkf = input.deps.wrkf
   const stateStore = input.deps.stateStore
+  const wrkqStore = input.wrkqStore
   if (
     wrkf === undefined ||
     input.deps.launchRoleScopedRun === undefined ||
-    stateStore === undefined
+    stateStore === undefined ||
+    wrkqStore === undefined
   ) {
     return undefined
   }
@@ -465,7 +467,7 @@ function createPbcWorkerRunner(input: {
         }
         return launchPbcWorkerAcpRun({
           deps: input.deps,
-          wrkqStore: input.wrkqStore,
+          wrkqStore,
           options: input.options,
           job,
           wrkfRunId: latestWrkfRunId,
@@ -498,8 +500,8 @@ function createPbcWorkerRunner(input: {
     }
 
     const [pbcActor, pbcPressureActor] = await Promise.all([
-      pbcActorWireForRole(input.wrkqStore, job.taskId, 'agent', PBC_DRAFT_AGENT),
-      pbcActorWireForRole(input.wrkqStore, job.taskId, 'pressure_reviewer', PBC_REVIEWER_AGENT),
+      pbcActorWireForRole(wrkqStore, job.taskId, 'agent', PBC_DRAFT_AGENT),
+      pbcActorWireForRole(wrkqStore, job.taskId, 'pressure_reviewer', PBC_REVIEWER_AGENT),
     ])
     await runPbcContinuationWorker(port, {
       taskId: job.taskId,
@@ -514,7 +516,7 @@ function createPbcWorkerRunner(input: {
 
 async function launchPbcWorkerAcpRun(input: {
   deps: ResolvedAcpServerDeps
-  wrkqStore: WrkqStore
+  wrkqStore: WrkqStoreAdapter
   options: AcpServerCliOptions
   job: PbcContinuationJob
   wrkfRunId: string
@@ -660,13 +662,13 @@ async function readPbcWorkerProjection(
 }
 
 async function agentIdForRole(
-  wrkqStore: WrkqStore,
+  wrkqStore: WrkqStoreAdapter,
   options: AcpServerCliOptions,
   taskId: string,
   role: string
 ): Promise<string> {
-  const task = await wrkqStore.taskRepo.getTask(taskId)
-  const roleMap = (await wrkqStore.roleAssignmentRepo.getRoleMap(taskId)) ?? task?.roleMap ?? {}
+  const task = await wrkqStore.taskStore.getTask(taskId)
+  const roleMap = (await wrkqStore.roleAssignmentStore.getRoleMap(taskId)) ?? task?.roleMap ?? {}
   return roleMap[role]?.trim() || roleMap['agent']?.trim() || options.actor
 }
 
@@ -674,25 +676,25 @@ async function agentIdForRole(
 // fall back to the configured PBC default agent (NOT the server identity), so the
 // launched runtime resolves a real provisioned agent profile.
 async function pbcActorWireForRole(
-  wrkqStore: WrkqStore,
+  wrkqStore: WrkqStoreAdapter,
   taskId: string,
   role: string,
   fallbackAgentId: string
 ): Promise<string> {
-  const task = await wrkqStore.taskRepo.getTask(taskId)
-  const roleMap = (await wrkqStore.roleAssignmentRepo.getRoleMap(taskId)) ?? task?.roleMap ?? {}
+  const task = await wrkqStore.taskStore.getTask(taskId)
+  const roleMap = (await wrkqStore.roleAssignmentStore.getRoleMap(taskId)) ?? task?.roleMap ?? {}
   const id = roleMap[role]?.trim() || fallbackAgentId
   return `agent:${id}`
 }
 
 async function scopeRefForWorkerRole(
-  wrkqStore: WrkqStore,
+  wrkqStore: WrkqStoreAdapter,
   options: AcpServerCliOptions,
   taskId: string,
   role: string,
   actor: Actor
 ): Promise<string> {
-  const task = await wrkqStore.taskRepo.getTask(taskId)
+  const task = await wrkqStore.taskStore.getTask(taskId)
   const agentId =
     actor.kind === 'agent' ? actor.id : await agentIdForRole(wrkqStore, options, taskId, role)
   const projectSegment = task?.projectId !== undefined ? `:project:${task.projectId}` : ''
@@ -744,10 +746,6 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     await mkdir(dirname(options.conversationDbPath), { recursive: true })
   }
 
-  const wrkqStore = openWrkqStore({
-    dbPath: options.wrkqDbPath,
-    actor: { agentId: options.actor },
-  })
   const coordStore = openCoordinationStore(options.coordDbPath)
   const interfaceStore = openInterfaceStore({
     dbPath: options.interfaceDbPath,
@@ -777,10 +775,14 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     clientInfo: { name: 'acp-server', version: ACP_SERVER_VERSION },
     wrkfDisabled: isEnabledEnvFlag(process.env['ACP_WRKF_DISABLED']),
   })
+  // The wrkq store ports are the @wrkq/client-backed adapter the lifecycle
+  // derives from its single shared WorkClient (undefined when wrkf is disabled).
+  // ACP no longer opens wrkq.db directly.
+  const wrkqStore = wrkfLifecycle.store
   const inputQueueMaxDepth = readPositiveIntegerEnv('ACP_INPUT_QUEUE_MAX_DEPTH')
   const inputQueueTtlMs = readPositiveIntegerEnv('ACP_INPUT_QUEUE_TTL_MS')
   const serverDeps = {
-    wrkqStore,
+    ...(wrkqStore !== undefined ? { wrkqStore } : {}),
     coordStore,
     ...(adminStore !== undefined ? { adminStore } : {}),
     ...(jobsStore !== undefined ? { jobsStore } : {}),
@@ -1047,7 +1049,8 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
         clearInterval(schedulerTimer)
       }
       bunServer.stop(true)
-      wrkqStore.close()
+      // The wrkq store adapter holds no resources of its own; the underlying
+      // WorkClient is closed by wrkfLifecycle.close() below.
       coordStore.close()
       adminStore?.close()
       jobsStore?.close()
@@ -1091,11 +1094,6 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
   } catch (error) {
     if (runtime !== undefined) {
       await runtime.shutdown()
-    }
-
-    if (error instanceof WrkqSchemaMissingError) {
-      console.error(`${error.message}\nRequired migration: 000013_task_workflow_schema.sql`)
-      return 1
     }
 
     console.error(error instanceof Error ? error.message : String(error))

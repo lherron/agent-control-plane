@@ -1,11 +1,6 @@
+import { WorkRpcError } from '@wrkq/client'
 import { ActorValidationError } from 'acp-core'
 import { InputAttemptConflictError } from 'acp-state-store'
-import {
-  VersionConflictError,
-  WrkqProjectNotFoundError,
-  WrkqSchemaMissingError,
-  WrkqTaskNotFoundError,
-} from 'wrkq-lib'
 
 export type AcpErrorBody = {
   error: {
@@ -46,6 +41,26 @@ export class AcpHttpError extends Error {
 
 export function json(body: unknown, status = 200): Response {
   return Response.json(body, { status })
+}
+
+/**
+ * Map a wrkq/wrkf `WorkRpcError.domainCode` onto the ACP HTTP error boundary.
+ * Not-found → 404; CAS / idempotency conflicts → 409; every other domain error
+ * (validation, guard/blocker, forbidden, schema-behind) → 422. This replaces the
+ * deleted wrkq-lib error hierarchy (we do NOT recreate those lookalike classes).
+ */
+function httpStatusForWorkRpcDomainCode(domainCode: string): number {
+  if (domainCode.endsWith('_NOT_FOUND')) {
+    return 404
+  }
+  if (
+    domainCode.endsWith('_CONFLICT') ||
+    domainCode.includes('STALE') ||
+    domainCode.includes('IDEMPOTENCY')
+  ) {
+    return 409
+  }
+  return 422
 }
 
 export function badRequest(message: string, details?: Record<string, unknown>): never {
@@ -91,27 +106,21 @@ export function errorResponse(error: unknown): Response {
     )
   }
 
-  if (error instanceof WrkqTaskNotFoundError || error instanceof WrkqProjectNotFoundError) {
+  // wrkq/wrkf domain errors arrive as a single typed WorkRpcError carrying a
+  // stable `domainCode` (WRKQ_/WRKF_*). Map it onto existing HTTP boundaries.
+  // Protocol errors (domainCode undefined) fall through to the generic handler.
+  if (error instanceof WorkRpcError && error.domainCode !== undefined) {
+    const domainCode = error.domainCode
+    const status = httpStatusForWorkRpcDomainCode(domainCode)
     return json(
       {
         error: {
-          code: 'not_found',
+          code: domainCode,
           message: error.message,
+          ...(error.data !== undefined ? { details: { ...error.data } } : {}),
         },
       } satisfies AcpErrorBody,
-      404
-    )
-  }
-
-  if (error instanceof VersionConflictError) {
-    return json(
-      {
-        error: {
-          code: 'version_conflict',
-          message: error.message,
-        },
-      } satisfies AcpErrorBody,
-      422
+      status
     )
   }
 
@@ -125,19 +134,6 @@ export function errorResponse(error: unknown): Response {
         },
       } satisfies AcpErrorBody,
       409
-    )
-  }
-
-  if (error instanceof WrkqSchemaMissingError) {
-    return json(
-      {
-        error: {
-          code: 'wrkq_schema_missing',
-          message: error.message,
-          details: { missing: [...error.missing] },
-        },
-      } satisfies AcpErrorBody,
-      500
     )
   }
 

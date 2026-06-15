@@ -10,7 +10,7 @@ import { withWiredServer } from './fixtures/wired-server.js'
 describe('launchRoleScopedTaskRun', () => {
   test('computes taskContext and forwards it to launchRoleScopedRun', async () => {
     await withWiredServer(async (fixture) => {
-      const task = await fixture.wrkqStore.taskRepo.createTask(
+      const task = await fixture.wrkqStore.taskStore.createTask(
         createTestTask({
           taskId: 'T-42001',
           projectId: fixture.seed.projectId,
@@ -68,7 +68,7 @@ describe('launchRoleScopedTaskRun', () => {
 
   test('throws a clear error when no launcher is wired', async () => {
     await withWiredServer(async (fixture) => {
-      const task = await fixture.wrkqStore.taskRepo.createTask(
+      const task = await fixture.wrkqStore.taskStore.createTask(
         createTestTask({ taskId: 'T-42002', projectId: fixture.seed.projectId, phase: 'green' })
       )
 

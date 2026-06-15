@@ -20,7 +20,7 @@ import type {
 } from 'hrc-core'
 import type { HrcClient } from 'hrc-sdk'
 import type { UnifiedSessionEvent } from 'spaces-runtime'
-import type { WrkqStore } from 'wrkq-lib'
+import type { WrkqStoreAdapter } from 'wrkq-lib'
 
 import {
   InMemoryInputAdmissionStore,
@@ -129,7 +129,11 @@ export type AcpHrcClient = Pick<
 }
 
 export interface AcpServerDeps {
-  wrkqStore: WrkqStore
+  // The four acp-core store ports, served by the @wrkq/client-backed adapter
+  // (wrkq-lib createWrkqStoreAdapter). Optional: when wrkf is disabled
+  // (ACP_WRKF_DISABLED) there is no client and thus no wrkq store — the server
+  // runs degraded (no task/role-backed launch). ACP never opens wrkq.db itself.
+  wrkqStore?: WrkqStoreAdapter | undefined
   coordStore: CoordinationStore
   defaultActor?: Actor | undefined
   adminStore?: AdminStore | undefined

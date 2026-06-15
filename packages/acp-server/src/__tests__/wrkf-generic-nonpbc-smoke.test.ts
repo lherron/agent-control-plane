@@ -42,7 +42,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { type InterfaceStore, openInterfaceStore } from 'acp-interface-store'
 import { type AcpStateStore, openAcpStateStore } from 'acp-state-store'
 import { type CoordinationStore, openCoordinationStore } from 'coordination-substrate'
-import { type WrkqStore, openWrkqStore } from 'wrkq-lib'
+import type { WrkqStoreAdapter } from 'wrkq-lib'
 
 import {
   type AcpServer,
@@ -77,7 +77,7 @@ describe('wrkf generic non-PBC smoke (T-02589)', () => {
   let dbPath: string
   let lc: WrkfLifecycle
   let server: AcpServer
-  let wrkqStore: WrkqStore
+  let wrkqStore: WrkqStoreAdapter
   let coordStore: CoordinationStore
   let interfaceStore: InterfaceStore
   let stateStore: AcpStateStore
@@ -165,7 +165,9 @@ describe('wrkf generic non-PBC smoke (T-02589)', () => {
     coordStore = openCoordinationStore(coordDbPath)
     interfaceStore = openInterfaceStore({ dbPath: interfaceDbPath })
     stateStore = openAcpStateStore({ dbPath: stateDbPath })
-    wrkqStore = openWrkqStore({ dbPath, actor: { agentId: 'acp-server' } })
+    // The wrkq store ports come from the SAME real WorkClient as the wrkf port
+    // (lc.store), over the same isolated DB — the production single-client wiring.
+    wrkqStore = lc.store as WrkqStoreAdapter
     server = createAcpServer({
       wrkqStore,
       coordStore,
@@ -181,7 +183,8 @@ describe('wrkf generic non-PBC smoke (T-02589)', () => {
     stateStore?.close()
     interfaceStore?.close()
     coordStore?.close()
-    wrkqStore?.close()
+    // wrkqStore (lc.store) holds no resources of its own; lc.close() closes the
+    // underlying WorkClient.
     if (lc !== undefined) {
       await lc.close()
     }

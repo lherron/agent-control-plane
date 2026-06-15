@@ -41,7 +41,11 @@ export async function launchRoleScopedTaskRun(
     throw new Error('acp-server launchRoleScopedRun: no launcher wired')
   }
 
-  const task = requireTask(await deps.wrkqStore.taskRepo.getTask(input.taskId), input.taskId)
+  if (deps.wrkqStore === undefined) {
+    throw new Error('acp-server launchRoleScopedRun: no wrkq store wired (wrkf disabled)')
+  }
+
+  const task = requireTask(await deps.wrkqStore.taskStore.getTask(input.taskId), input.taskId)
   if (task.workflowPreset === undefined || task.presetVersion === undefined) {
     unprocessable(
       'workflow_preset_required',
@@ -50,7 +54,8 @@ export async function launchRoleScopedTaskRun(
     )
   }
 
-  const roleMap = (await deps.wrkqStore.roleAssignmentRepo.getRoleMap(input.taskId)) ?? task.roleMap
+  const roleMap =
+    (await deps.wrkqStore.roleAssignmentStore.getRoleMap(input.taskId)) ?? task.roleMap
   const assignedAgentId = roleMap[input.role]?.trim()
   if (!assignedAgentId) {
     unprocessable(
