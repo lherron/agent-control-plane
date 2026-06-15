@@ -1691,11 +1691,49 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
     return { jobStepRun: row === undefined ? undefined : toJobStepRunRecord(row) }
   }
 
-  const claimDueJobRuns = (input: ClaimDueJobRunsInput): { jobRuns: JobRunRecord[] } => {
-    const claimed = sqlite.transaction(() => {
+  /**
+   * Shared optimistic claim-and-lease loop used by `claimDueJobRuns` and
+   * `claimPendingInboxEvents`. It runs inside a single transaction: select
+   * candidate ids, then per-candidate run a conditional `UPDATE ... WHERE
+   * <still-claimable>`, skip rows another worker already took (`changes === 0`),
+   * re-read each winning row, and collect the materialized records.
+   *
+   * It ONLY factors the control flow — every call site supplies its own exact
+   * SQL strings, parameter vectors, and re-read closure, so the distinct WHERE
+   * predicates (job_runs adds `triggered_at <= ?`; event_inbox does
+   * `attempts + 1`), ordering, and projections are preserved verbatim per
+   * caller. See the characterization tests in
+   * `__tests__/claim-lease.characterization.test.ts`.
+   */
+  const claimWithLease = <Candidate, Result>(spec: {
+    selectSql: string
+    selectParams: readonly unknown[]
+    claimSql: string
+    claimParams: (candidate: Candidate) => readonly unknown[]
+    reread: (candidate: Candidate) => Result | undefined
+  }): Result[] =>
+    sqlite.transaction(() => {
       const candidates = sqlite
-        .prepare(
-          `
+        .prepare(spec.selectSql)
+        .all(...spec.selectParams) as Candidate[]
+
+      const results: Result[] = []
+      for (const candidate of candidates) {
+        const changed = sqlite.prepare(spec.claimSql).run(...spec.claimParams(candidate))
+        if (changed.changes === 0) {
+          continue
+        }
+        const record = spec.reread(candidate)
+        if (record !== undefined) {
+          results.push(record)
+        }
+      }
+      return results
+    })()
+
+  const claimDueJobRuns = (input: ClaimDueJobRunsInput): { jobRuns: JobRunRecord[] } => {
+    const jobRuns = claimWithLease<{ job_run_id: string }, JobRunRecord>({
+      selectSql: `
             SELECT job_run_id
             FROM job_runs
             WHERE triggered_at <= ?
@@ -1705,15 +1743,9 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
               )
             ORDER BY triggered_at ASC, job_run_id ASC
             LIMIT ?
-          `
-        )
-        .all(input.now, input.now, input.limit) as Array<{ job_run_id: string }>
-
-      const results: JobRunRecord[] = []
-      for (const candidate of candidates) {
-        const changed = sqlite
-          .prepare(
-            `
+          `,
+      selectParams: [input.now, input.now, input.limit],
+      claimSql: `
               UPDATE job_runs
               SET status = 'claimed',
                   lease_owner = ?,
@@ -1726,32 +1758,23 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
                   status = 'pending'
                   OR (status = 'claimed' AND (lease_expires_at IS NULL OR lease_expires_at <= ?))
                 )
-            `
-          )
-          .run(
-            input.leaseOwner,
-            input.leaseExpiresAt,
-            input.now,
-            input.now,
-            candidate.job_run_id,
-            input.now,
-            input.now
-          )
-
-        if (changed.changes === 0) {
-          continue
-        }
-
+            `,
+      claimParams: (candidate) => [
+        input.leaseOwner,
+        input.leaseExpiresAt,
+        input.now,
+        input.now,
+        candidate.job_run_id,
+        input.now,
+        input.now,
+      ],
+      reread: (candidate) => {
         const row = getJobRunRow(sqlite, candidate.job_run_id)
-        if (row !== undefined) {
-          results.push(toJobRunRecord(row))
-        }
-      }
+        return row === undefined ? undefined : toJobRunRecord(row)
+      },
+    })
 
-      return results
-    })()
-
-    return { jobRuns: claimed }
+    return { jobRuns }
   }
 
   const createJobRun = (
@@ -1914,25 +1937,17 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
 
   const claimPendingInboxEvents = (input: ClaimInboxEventsInput): InboxEventRecord[] => {
     const limit = input.limit ?? DEFAULT_INBOX_CLAIM_LIMIT
-    return sqlite.transaction(() => {
-      const candidates = sqlite
-        .prepare(
-          `
+    return claimWithLease<{ event_id: string }, InboxEventRecord>({
+      selectSql: `
             SELECT event_id
             FROM event_inbox
             WHERE status = 'pending'
                OR (status = 'leased' AND (lease_expires_at IS NULL OR lease_expires_at <= ?))
             ORDER BY event_seq ASC
             LIMIT ?
-          `
-        )
-        .all(input.now, limit) as Array<{ event_id: string }>
-
-      const claimed: InboxEventRecord[] = []
-      for (const candidate of candidates) {
-        const changed = sqlite
-          .prepare(
-            `
+          `,
+      selectParams: [input.now, limit],
+      claimSql: `
               UPDATE event_inbox
               SET status = 'leased',
                   lease_owner = ?,
@@ -1944,19 +1959,16 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
                   status = 'pending'
                   OR (status = 'leased' AND (lease_expires_at IS NULL OR lease_expires_at <= ?))
                 )
-            `
-          )
-          .run(input.leaseOwner, input.leaseExpiresAt, input.now, candidate.event_id, input.now)
-        if (changed.changes === 0) {
-          continue
-        }
-        const event = getInboxEvent(candidate.event_id).event
-        if (event !== undefined) {
-          claimed.push(event)
-        }
-      }
-      return claimed
-    })()
+            `,
+      claimParams: (candidate) => [
+        input.leaseOwner,
+        input.leaseExpiresAt,
+        input.now,
+        candidate.event_id,
+        input.now,
+      ],
+      reread: (candidate) => getInboxEvent(candidate.event_id).event,
+    })
   }
 
   const markInboxEventProcessed = (eventId: string, now?: string | undefined): void => {
