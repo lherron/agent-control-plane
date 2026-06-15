@@ -3,13 +3,13 @@
  *
  * Root cause:
  *   handleGetWorkflowTask reads `inspected.task` and `inspected.instance` from
- *   wrkf.task.inspect(), but the REAL @wrkf/client.task.inspect() returns a FLAT object
+ *   wrkf.task.inspect(), but the REAL @wrkq/client.task.inspect() returns a FLAT object
  *   with NO task/instance wrapper. The old W2a fake returned canned {task, instance},
  *   masking this divergence. Result:
  *     - GET /v1/tasks/:taskId returns task: undefined / instance: undefined
  *     - `acp task show --task <wrkf-task>` (non-JSON) crashes on `task.taskId` (undefined)
  *
- * Real @wrkf/client shapes (captured from `wrkf task inspect T-01489 --json`):
+ * Real @wrkq/client shapes (captured from `wrkf task inspect T-01489 --json`):
  *
  *   task.inspect returns FLAT:
  *     keys = [id, taskUuid, taskRef, projectId, templateId, templateVersion, templateHash,
@@ -28,9 +28,9 @@
  *   (both undefined when the flat shape is returned), so body.task and body.instance are absent
  *   from the JSON response. Pass once impl maps the real inspect keys to the ACP projection.
  *
- * TEST KIND 2: Real-process @wrkf/client shape contract (fidelity guard)
+ * TEST KIND 2: Real-process @wrkq/client shape contract (fidelity guard)
  *
- *   Spins a real @wrkf/client against the canonical wrkq DB and asserts the actual top-level
+ *   Spins a real @wrkq/client against the canonical wrkq DB and asserts the actual top-level
  *   keys of task.inspect and next. These tests PASS now (they document reality). Their purpose
  *   is a fidelity guard: if the real client shape ever changes, these tests catch it; and they
  *   prevent future fakes from diverging silently (the old W2a fake was the root cause here).
@@ -40,7 +40,7 @@
  * What the impl must change in packages/acp-server/src/handlers/workflow-tasks.ts:
  *
  *   1. DO NOT read inspected.task or inspected.instance — those keys don't exist in the
- *      real @wrkf/client response. inspected IS the instance record.
+ *      real @wrkq/client response. inspected IS the instance record.
  *
  *   2. Build the `task` projection from the flat inspect fields:
  *        taskId     : use the :taskId route param (or parse from `inspected.taskRef`)
@@ -320,9 +320,9 @@ describe('W2a real inspect shape — handler must project body.task from flat in
 })
 
 // ═════════════════════════════════════════════════════════════════════════════
-// TEST KIND 2: Real-process @wrkf/client shape contract (fidelity guard)
+// TEST KIND 2: Real-process @wrkq/client shape contract (fidelity guard)
 //
-// These tests spin a REAL @wrkf/client subprocess against the canonical wrkq DB.
+// These tests spin a REAL @wrkq/client subprocess against the canonical wrkq DB.
 // They document the actual client shapes so future fakes can never silently diverge.
 //
 // Expected to PASS now (they observe reality, not assert what the handler does).
@@ -384,7 +384,7 @@ const EXPECTED_INSTANCE_KEYS = [
   'stale',
 ] as const
 
-describe('W2a real-process: @wrkf/client task.inspect + next shape contract (fidelity guard)', () => {
+describe('W2a real-process: @wrkq/client task.inspect + next shape contract (fidelity guard)', () => {
   // ── 2a. task.inspect returns FLAT — no task/instance wrapper ──────────────
   //
   // PASSES now (documenting reality). This is the FIDELITY GUARD:

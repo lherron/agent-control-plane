@@ -303,7 +303,7 @@ describe('W2a: GET /v1/tasks/:taskId — wrkf projection', () => {
   // Reproduces live bug reported by Larry: GET /v1/tasks/T-01931 where T-01931
   // exists in ACP but has no corresponding wrkf instance.
   //
-  // Root cause: the real @wrkf/client throws a raw SyntaxError from JSON.parse(undefined)
+  // Root cause: the real @wrkq/client throws a raw SyntaxError from JSON.parse(undefined)
   // when the wrkf process returns a response with no body for an unknown task.
   // In the W2a handler catch block, isWrkfError() does not match SyntaxError (it has no
   // .code property) → the catch block falls through to `throw error` → the ACP global
@@ -325,7 +325,7 @@ describe('W2a: GET /v1/tasks/:taskId — wrkf projection', () => {
   //
   describe('task.inspect transport error → 404 WRKF_NOT_FOUND (RED: SyntaxError escapes handler → 500 internal_error)', () => {
     test('task.inspect throws SyntaxError (JSON.parse undefined) → HTTP 404, not 500 (live repro: T-01931 no wrkf instance)', async () => {
-      // Simulate what @wrkf/client does when the wrkf process returns no body for a
+      // Simulate what @wrkq/client does when the wrkf process returns no body for a
       // task that has no wrkf instance: JSON.parse(undefined) → SyntaxError.
       const transportError = new SyntaxError(
         'Unexpected token u in JSON at position 0' // JSON.parse(undefined)

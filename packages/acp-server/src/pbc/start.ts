@@ -54,7 +54,7 @@ function isNoWorkflowInstanceError(error: unknown): boolean {
  * shapes:
  *   - NESTED ({ task, instance }) — used by older unit fakes; `inspected.instance`
  *     carries `workflowRef` + `state.status`.
- *   - FLAT (REAL @wrkf/client) — NO `task`/`instance` wrapper; the inspected record
+ *   - FLAT (REAL @wrkq/client) — NO `task`/`instance` wrapper; the inspected record
  *     IS the instance: top-level `status`/`phase`/`revision` and `templateId` +
  *     `templateVersion` (see wrkf-real-inspect-shape.test.ts). The live closed-start
  *     bug (T-03072) was that the guard only looked at `inspected.instance`, missed
