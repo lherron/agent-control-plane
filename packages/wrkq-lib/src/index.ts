@@ -1,5 +1,7 @@
 export { ActorResolver } from './actor-resolver.js'
 export type { StoreActorIdentity } from './actor-resolver.js'
+export { createWrkqStoreAdapter } from './adapter.js'
+export type { WrkqStoreAdapter } from './adapter.js'
 export {
   VersionConflictError,
   WrkqProjectNotFoundError,

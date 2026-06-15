@@ -1,4 +1,5 @@
 import { type CreateClientOptions, type WorkClient, createClient } from '@wrkq/client'
+import { type WrkqStoreAdapter, createWrkqStoreAdapter } from 'wrkq-lib'
 
 import type { AcpWrkfWorkflowPort } from './port.js'
 
@@ -18,6 +19,12 @@ export interface WrkfLifecycleOptions {
 
 export interface WrkfLifecycle {
   wrkf: AcpWrkfWorkflowPort | undefined
+  /**
+   * The four acp-core store ports (task/evidence/role/transition), derived from
+   * the SAME shared `WorkClient` as `wrkf` above (T-04784, daedalus single-client
+   * constraint). `undefined` when wrkf is disabled.
+   */
+  store: WrkqStoreAdapter | undefined
   close(): Promise<void>
 }
 
@@ -27,6 +34,7 @@ export async function createWrkfClientLifecycle(
   if (opts.wrkfDisabled) {
     return {
       wrkf: undefined,
+      store: undefined,
       async close(): Promise<void> {},
     }
   }
@@ -44,6 +52,9 @@ export async function createWrkfClientLifecycle(
   let closed = false
   return {
     wrkf: createWrkfPortAdapter(client),
+    // Both the wrkf workflow port and the wrkq store adapter are derived from
+    // this one client — the Phase-1 lifecycle owns the single shared WorkClient.
+    store: createWrkqStoreAdapter(client),
     async close(): Promise<void> {
       if (closed) {
         return
