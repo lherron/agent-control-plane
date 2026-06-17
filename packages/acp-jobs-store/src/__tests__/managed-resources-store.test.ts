@@ -50,8 +50,7 @@ const OWNER_SCOPE = 'agent:smokey:project:agent-spaces'
 
 /** Scheduled-job resource — matches expected-plan.json resource[0]. */
 const SCHEDULED_JOB: ApplyManagedJobInput = {
-  projectionId:
-    'agent-directory:agent:smokey:project:agent-spaces:scheduled-job:daily-triage',
+  projectionId: 'agent-directory:agent:smokey:project:agent-spaces:scheduled-job:daily-triage',
   projectionPk: 'agent-smokey.daily-triage',
   sourceOwnerScopeRef: OWNER_SCOPE,
   resourceName: 'daily-triage',
@@ -79,8 +78,7 @@ const SCHEDULED_JOB: ApplyManagedJobInput = {
 
 /** Event-hook resource — matches expected-plan.json resource[2]. */
 const EVENT_HOOK: ApplyManagedJobInput = {
-  projectionId:
-    'agent-directory:agent:smokey:project:agent-spaces:event-hook:wrkq-needs-smoketest',
+  projectionId: 'agent-directory:agent:smokey:project:agent-spaces:event-hook:wrkq-needs-smoketest',
   projectionPk: 'agent-smokey.wrkq-needs-smoketest',
   sourceOwnerScopeRef: OWNER_SCOPE,
   resourceName: 'wrkq-needs-smoketest',
@@ -183,8 +181,7 @@ describe('managed_resource_provenance_jobs schema (Phase D — store layer)', ()
       .all() as Array<{ name: string; sql: string }>
     const hasUnique = indexes.some(
       (i) =>
-        i.sql?.toUpperCase().includes('UNIQUE') &&
-        i.sql?.toLowerCase().includes('projection_id')
+        i.sql?.toUpperCase().includes('UNIQUE') && i.sql?.toLowerCase().includes('projection_id')
     )
     expect(hasUnique).toBe(true)
   })
@@ -298,8 +295,16 @@ describe('idempotent reapply (Phase D invariant)', () => {
     expect(applyManagedJob(store, SCHEDULED_JOB).outcome).toBe('noop')
 
     // Exactly one job row and one provenance row
-    expect(store.listJobs().jobs.filter((j) => j.slug === 'agent-smokey.daily-triage')).toHaveLength(1)
+    expect(
+      store.listJobs().jobs.filter((j) => j.slug === 'agent-smokey.daily-triage')
+    ).toHaveLength(1)
     expect(getManagedJobProvenance(store, SCHEDULED_JOB.projectionId)).toBeDefined()
+  })
+
+  test('event-hook with source-only trigger.target produces noop on reapply', () => {
+    const store = freshStore()
+    expect(applyManagedJob(store, EVENT_HOOK).outcome).toBe('created')
+    expect(applyManagedJob(store, EVENT_HOOK).outcome).toBe('noop')
   })
 
   test('reapply preserves the original jobId (stable projection identity)', () => {
@@ -318,8 +323,8 @@ describe('idempotent reapply (Phase D invariant)', () => {
 
     const changed: ApplyManagedJobInput = {
       ...SCHEDULED_JOB,
-      sourceHash: 'sha256-canonical-json/v1:' + 'a'.repeat(64),
-      desiredProjectionHash: 'sha256-canonical-json/v1:' + 'b'.repeat(64),
+      sourceHash: `sha256-canonical-json/v1:${'a'.repeat(64)}`,
+      desiredProjectionHash: `sha256-canonical-json/v1:${'b'.repeat(64)}`,
       desiredJson: { ...SCHEDULED_JOB.desiredJson, title: 'Daily triage (revised)' },
     }
     const result = applyManagedJob(store, changed)
@@ -419,6 +424,13 @@ describe('drift detection (Phase D invariant)', () => {
     expect(drift.hasDrift).toBe(false)
   })
 
+  test('detectJobDrift returns no drift for a fresh event-hook with trigger.target', () => {
+    const store = freshStore()
+    applyManagedJob(store, EVENT_HOOK)
+    const drift = detectJobDrift(store, EVENT_HOOK.projectionId)
+    expect(drift.hasDrift).toBe(false)
+  })
+
   test('detectJobDrift reports drift after out-of-band mutation', () => {
     const store = freshStore()
     const created = applyManagedJob(store, SCHEDULED_JOB)
@@ -449,11 +461,7 @@ describe('disable-only missing-source behavior (Phase D invariant)', () => {
     const created = applyManagedJob(store, SCHEDULED_JOB)
     if (created.outcome !== 'created') throw new Error('expected created')
 
-    const { job: disabled } = disableManagedJob(
-      store,
-      SCHEDULED_JOB.projectionId,
-      'source_missing'
-    )
+    const { job: disabled } = disableManagedJob(store, SCHEDULED_JOB.projectionId, 'source_missing')
     expect(disabled.disabled).toBe(true)
 
     // Job still exists — not archived — history preserved
@@ -488,9 +496,7 @@ describe('disable-only missing-source behavior (Phase D invariant)', () => {
     disableManagedJob(store, EVENT_HOOK.projectionId, 'source_missing')
 
     const rows = store.sqlite
-      .prepare(
-        "SELECT event_id FROM event_inbox WHERE event_id = 'wrkq:evt_pre_disable'"
-      )
+      .prepare("SELECT event_id FROM event_inbox WHERE event_id = 'wrkq:evt_pre_disable'")
       .all() as Array<{ event_id: string }>
     expect(rows).toHaveLength(1)
   })
@@ -613,9 +619,7 @@ describe('reconcile must not mutate event runtime facts (Phase D invariant)', ()
     applyManagedJob(store, EVENT_HOOK)
 
     const rows = store.sqlite
-      .prepare(
-        "SELECT event_id, status FROM event_inbox WHERE event_id = 'wrkq:evt_pre_apply'"
-      )
+      .prepare("SELECT event_id, status FROM event_inbox WHERE event_id = 'wrkq:evt_pre_apply'")
       .all() as Array<{ event_id: string; status: string }>
     expect(rows).toHaveLength(1)
     expect(rows[0]?.status).toBe('pending')
@@ -626,7 +630,9 @@ describe('reconcile must not mutate event runtime facts (Phase D invariant)', ()
     applyManagedJob(store, EVENT_HOOK)
 
     // Locate the created job
-    const hookJob = store.listJobs().jobs.find((j) => j.slug === 'agent-smokey.wrkq-needs-smoketest')
+    const hookJob = store
+      .listJobs()
+      .jobs.find((j) => j.slug === 'agent-smokey.wrkq-needs-smoketest')
     if (!hookJob) throw new Error('event-hook job not found')
 
     // Seed a historical match outcome (simulates a prior event processing cycle)
@@ -641,13 +647,15 @@ describe('reconcile must not mutate event runtime facts (Phase D invariant)', ()
       targetTaskId: 'T-00001',
     })
 
-    const beforeMatches = store.listEventJobMatches({ sourceEventId: 'wrkq:evt_historical' }).matches
+    const beforeMatches = store.listEventJobMatches({
+      sourceEventId: 'wrkq:evt_historical',
+    }).matches
 
     // Reapply with an updated title (simulates a plan change)
     const updated: ApplyManagedJobInput = {
       ...EVENT_HOOK,
-      sourceHash: 'sha256-canonical-json/v1:' + 'c'.repeat(64),
-      desiredProjectionHash: 'sha256-canonical-json/v1:' + 'd'.repeat(64),
+      sourceHash: `sha256-canonical-json/v1:${'c'.repeat(64)}`,
+      desiredProjectionHash: `sha256-canonical-json/v1:${'d'.repeat(64)}`,
       desiredJson: {
         ...EVENT_HOOK.desiredJson,
         title: 'Smokey handles wrkq needs_smoketest (updated)',
@@ -664,7 +672,9 @@ describe('reconcile must not mutate event runtime facts (Phase D invariant)', ()
     const store = freshStore()
     applyManagedJob(store, EVENT_HOOK)
 
-    const hookJob = store.listJobs().jobs.find((j) => j.slug === 'agent-smokey.wrkq-needs-smoketest')
+    const hookJob = store
+      .listJobs()
+      .jobs.find((j) => j.slug === 'agent-smokey.wrkq-needs-smoketest')
     if (!hookJob) throw new Error('event-hook job not found')
 
     // Seed a historical job run

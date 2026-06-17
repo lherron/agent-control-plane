@@ -343,7 +343,8 @@ function liveProjectionFromJob(
   live['title'] = job.description
 
   if (job.trigger.kind === 'event') {
-    live['trigger'] = job.trigger
+    const desiredTrigger = isRecord(desiredJson['trigger']) ? desiredJson['trigger'] : {}
+    live['trigger'] = { ...desiredTrigger, ...job.trigger }
   } else {
     live['trigger'] = { kind: 'schedule' }
     live['schedule'] = job.schedule
