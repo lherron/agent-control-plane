@@ -1,5 +1,16 @@
 export { openInterfaceStore } from './open-store.js'
 export type { InterfaceStore, OpenInterfaceStoreOptions } from './open-store.js'
+export {
+  applyManagedBinding,
+  detectBindingDrift,
+  disableManagedBinding,
+  getManagedBindingProvenance,
+  listManagedBindingProvenances,
+  type ApplyManagedBindingInput,
+  type ApplyManagedBindingResult,
+  type DriftReport as ManagedBindingDriftReport,
+  type ManagedBindingProvenanceRecord,
+} from './managed-resources.js'
 export { DeliveryTargetResolver } from './delivery-target-resolver.js'
 export { BindingRepo } from './repos/binding-repo.js'
 export { DeliveryRequestRepo } from './repos/delivery-request-repo.js'

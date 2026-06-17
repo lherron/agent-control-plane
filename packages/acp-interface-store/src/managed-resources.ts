@@ -471,6 +471,26 @@ export function getManagedBindingProvenance(
   return row === undefined ? undefined : rowToProvenance(row)
 }
 
+export function listManagedBindingProvenances(
+  store: InterfaceStore,
+  filter?: { ownerScopeRef?: string | undefined } | undefined
+): ManagedBindingProvenanceRecord[] {
+  const rows =
+    filter?.ownerScopeRef === undefined
+      ? (store.sqlite
+          .prepare('SELECT * FROM managed_resource_provenance_interface ORDER BY created_at ASC')
+          .all() as ProvenanceInterfaceRow[])
+      : (store.sqlite
+          .prepare(
+            `SELECT *
+               FROM managed_resource_provenance_interface
+              WHERE source_owner_scope_ref = ?
+              ORDER BY created_at ASC`
+          )
+          .all(filter.ownerScopeRef) as ProvenanceInterfaceRow[])
+  return rows.map(rowToProvenance)
+}
+
 export function detectBindingDrift(store: InterfaceStore, projectionId: string): DriftReport {
   const row = getProvenanceRow(store, projectionId)
   if (row === undefined) {

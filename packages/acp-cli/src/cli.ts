@@ -9,6 +9,10 @@ import { runAdminInterfaceBindingDisableCommand } from './commands/admin-interfa
 import { runAdminInterfaceBindingLintCommand } from './commands/admin-interface-binding-lint.js'
 import { runAdminInterfaceBindingListCommand } from './commands/admin-interface-binding-list.js'
 import { runAdminInterfaceBindingSetCommand } from './commands/admin-interface-binding-set.js'
+import {
+  runAdminManagedResourceApplyCommand,
+  runAdminManagedResourceStatusCommand,
+} from './commands/admin-managed-resource.js'
 import { runAgentPulpitCommand } from './commands/agent-pulpit.js'
 import { runAgentCommand } from './commands/agent.js'
 import { runDeliveryCommand } from './commands/delivery.js'
@@ -315,6 +319,16 @@ function addAdminCommands(program: Command, deps: CommandDependencies): void {
     .option('--input-application-id <id>')
     .option('--all-pending')
     .action(runLeaf(deps, [], runAdminContributionsReconcileCommand))
+
+  const managedResource = admin
+    .command('managed-resource')
+    .description('apply or inspect managed runtime resources')
+  common(managedResource.command('apply').description('apply a managed resource plan'))
+    .requiredOption('--in <file>', 'managed resource plan JSON')
+    .action(runLeaf(deps, [], runAdminManagedResourceApplyCommand))
+  common(managedResource.command('status').description('inspect managed resource status'))
+    .requiredOption('--in <file>', 'managed resource plan JSON')
+    .action(runLeaf(deps, [], runAdminManagedResourceStatusCommand))
 }
 
 function addGovernanceCommands(program: Command, deps: CommandDependencies): void {

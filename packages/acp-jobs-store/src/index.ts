@@ -52,6 +52,18 @@ export {
 } from './flow-validation.js'
 export { isValidCron, nextFireAfter } from './cron.js'
 export {
+  applyManagedJob,
+  detectJobDrift,
+  disableManagedJob,
+  getManagedJobProvenance,
+  listManagedJobProvenances,
+  type ApplyManagedJobInput,
+  type ApplyManagedJobResult,
+  type ManagedJobProvenanceRecord,
+  type ResourceKindJob,
+  type DriftReport as ManagedJobDriftReport,
+} from './managed-resources.js'
+export {
   createJobsScheduler,
   tickJobsScheduler,
   type AdvanceFlowJobRun,

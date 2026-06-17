@@ -9,6 +9,15 @@ function readBodyString(body: unknown, field: string): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined
 }
 
+function readPlanOwnerScopeRef(body: unknown): string | undefined {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return undefined
+  }
+
+  const plan = (body as Record<string, unknown>)['plan']
+  return readBodyString(plan, 'sourceOwnerScopeRef')
+}
+
 export const mutatingRouteSpecs: Record<string, ActorAndAuthzSpec> = {
   'GET /v1/wrkf/pbc/tasks/:task/inspect': {
     operation: 'wrkf.pbc.inspect',
@@ -66,6 +75,20 @@ export const mutatingRouteSpecs: Record<string, ActorAndAuthzSpec> = {
     resource: ({ body }) => ({
       kind: 'input-application',
       id: readBodyString(body, 'inputApplicationId'),
+    }),
+  },
+  'POST /v1/admin/managed-resources/apply': {
+    operation: 'admin.managed-resources.apply',
+    resource: ({ body }) => ({
+      kind: 'project',
+      id: readPlanOwnerScopeRef(body),
+    }),
+  },
+  'POST /v1/admin/managed-resources/status': {
+    operation: 'admin.managed-resources.status',
+    resource: ({ body }) => ({
+      kind: 'project',
+      id: readBodyString(body, 'ownerScopeRef'),
     }),
   },
   'PATCH /v1/admin/jobs/:jobId': {

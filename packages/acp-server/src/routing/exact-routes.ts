@@ -21,6 +21,10 @@ import { handleCreateInput } from '../handlers/inputs.js'
 import { handleCreateInterfaceBinding } from '../handlers/interface-bindings-create.js'
 import { handleListInterfaceBindings } from '../handlers/interface-bindings-list.js'
 import { handleCreateInterfaceMessage } from '../handlers/interface-messages.js'
+import {
+  handleApplyManagedResources,
+  handleGetManagedResourcesStatus,
+} from '../handlers/managed-resources.js'
 import { handleCreateMessage } from '../handlers/messages.js'
 import {
   handleMobileDashboard,
@@ -134,6 +138,16 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
       'POST',
       '/v1/admin/contributions/reconcile',
       handleReconcileAdminContributions
+    ),
+    [exactRouteKey('POST', '/v1/admin/managed-resources/apply')]: maybeWrapMutatingRoute(
+      'POST',
+      '/v1/admin/managed-resources/apply',
+      handleApplyManagedResources
+    ),
+    [exactRouteKey('POST', '/v1/admin/managed-resources/status')]: maybeWrapMutatingRoute(
+      'POST',
+      '/v1/admin/managed-resources/status',
+      handleGetManagedResourcesStatus
     ),
     [exactRouteKey('GET', '/v1/admin/jobs')]: handleListAdminJobs,
     [exactRouteKey('GET', '/v1/admin/jobs/scheduler')]: handleGetSchedulerState,
