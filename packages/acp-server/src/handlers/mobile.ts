@@ -1574,7 +1574,7 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
   }
 
   const generation = Number.parseInt(parsedURL.searchParams.get('generation') ?? '', 10)
-  const fromMessageSeq = parseMobileMessageCursor(parsedURL)
+  let fromMessageSeq = parseMobileMessageCursor(parsedURL)
   const raw = parseMobileRawFlag(parsedURL)
   const cursor = parseMobileEventCursor(parsedURL)
   const options = {
@@ -1630,6 +1630,16 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
     ])
     const history = historyPage(historyEvents, historyMessages, raw, sessionRefValue)
     liveFrameSeq = (history.frames.at(-1)?.frameSeq ?? 0) + 1
+    // The snapshot establishes the baseline up to history.newestCursor. Advance
+    // the live follow cursors to that high-water so pumpEvents/pumpMessages do
+    // not re-emit already-snapshotted events/messages as fresh live frames
+    // (which would append stale, out-of-order content below the snapshot).
+    if (options.fromSeq === undefined || history.newestCursor.hrcSeq > options.fromSeq) {
+      options.fromSeq = history.newestCursor.hrcSeq
+    }
+    if (history.newestCursor.messageSeq > fromMessageSeq) {
+      fromMessageSeq = history.newestCursor.messageSeq
+    }
     sendMobileJsonEnvelope(ws, {
       type: 'snapshot',
       session,
