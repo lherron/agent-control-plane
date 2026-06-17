@@ -104,7 +104,7 @@ function initializeSchema(sqlite: SqliteDatabase): void {
       conversation_ref TEXT NOT NULL,
       thread_ref TEXT,
       reply_to_message_ref TEXT,
-      body_kind TEXT NOT NULL CHECK (body_kind IN ('text/markdown')),
+      body_kind TEXT NOT NULL CHECK (body_kind IN ('text/markdown', 'text')),
       body_text TEXT NOT NULL,
       body_attachments_json TEXT,
       outcome_state TEXT,
@@ -113,8 +113,10 @@ function initializeSchema(sqlite: SqliteDatabase): void {
       actor_kind TEXT,
       actor_id TEXT,
       actor_display_name TEXT,
+      actor_stamp TEXT,
       status TEXT NOT NULL CHECK (status IN ('queued', 'delivering', 'delivered', 'failed')),
       created_at TEXT NOT NULL,
+      updated_at TEXT,
       delivered_at TEXT,
       failure_code TEXT,
       failure_message TEXT
@@ -172,6 +174,45 @@ function initializeSchema(sqlite: SqliteDatabase): void {
 
     CREATE INDEX IF NOT EXISTS outbound_attachments_run_state_idx
       ON outbound_attachments (runId, state);
+
+    CREATE TABLE IF NOT EXISTS managed_resource_provenance_interface (
+      provenance_id TEXT PRIMARY KEY,
+      projection_id TEXT NOT NULL,
+      projection_pk TEXT NOT NULL,
+      projection_row_fingerprint TEXT,
+      projection_row_updated_at TEXT,
+      binding_id TEXT NOT NULL,
+      source_owner_scope_ref TEXT NOT NULL,
+      resource_name TEXT NOT NULL,
+      source_path TEXT NOT NULL,
+      source_hash TEXT NOT NULL,
+      desired_projection_hash TEXT NOT NULL,
+      desired_projection_json TEXT NOT NULL,
+      resource_kind TEXT NOT NULL CHECK (resource_kind = 'interface-binding'),
+      managed_by TEXT NOT NULL DEFAULT 'agent-directory',
+      source_version INTEGER NOT NULL DEFAULT 1,
+      state TEXT NOT NULL CHECK (state IN ('active', 'disabled')),
+      applied_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS managed_resource_provenance_interface_projection_id_unique
+      ON managed_resource_provenance_interface (projection_id);
+
+    CREATE UNIQUE INDEX IF NOT EXISTS managed_resource_provenance_interface_projection_pk_unique
+      ON managed_resource_provenance_interface (projection_pk);
+
+    CREATE UNIQUE INDEX IF NOT EXISTS managed_resource_provenance_interface_source_identity_unique
+      ON managed_resource_provenance_interface (
+        managed_by,
+        source_owner_scope_ref,
+        resource_kind,
+        resource_name
+      );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS managed_resource_provenance_interface_binding_id_unique
+      ON managed_resource_provenance_interface (binding_id);
   `)
 
   addColumnIfMissing(
@@ -202,6 +243,8 @@ function initializeSchema(sqlite: SqliteDatabase): void {
   }
 
   addColumnIfMissing(sqlite, 'delivery_requests', 'body_attachments_json TEXT')
+  addColumnIfMissing(sqlite, 'delivery_requests', 'actor_stamp TEXT')
+  addColumnIfMissing(sqlite, 'delivery_requests', 'updated_at TEXT')
 
   const deliveryOutcomeColumns = [
     ['delivery_requests', 'outcome_state TEXT'],

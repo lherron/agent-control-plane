@@ -647,6 +647,49 @@ export const jobsStoreMigrations: readonly JobsStoreMigration[] = [
         ON event_job_matches (source_event_id);
     `,
   },
+  {
+    id: '006_managed_resource_provenance_jobs',
+    sql: `
+      CREATE TABLE IF NOT EXISTS managed_resource_provenance_jobs (
+        provenance_id TEXT PRIMARY KEY,
+        projection_id TEXT NOT NULL,
+        projection_pk TEXT NOT NULL,
+        projection_row_fingerprint TEXT,
+        projection_row_updated_at TEXT,
+        job_id TEXT NOT NULL,
+        source_owner_scope_ref TEXT NOT NULL,
+        resource_name TEXT NOT NULL,
+        source_path TEXT NOT NULL,
+        source_hash TEXT NOT NULL,
+        desired_projection_hash TEXT NOT NULL,
+        desired_projection_json TEXT NOT NULL,
+        resource_kind TEXT NOT NULL CHECK (resource_kind IN ('scheduled-job', 'event-hook')),
+        managed_by TEXT NOT NULL DEFAULT 'agent-directory',
+        source_version INTEGER NOT NULL DEFAULT 1,
+        state TEXT NOT NULL CHECK (state IN ('active', 'disabled')),
+        applied_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS managed_resource_provenance_jobs_projection_id_unique
+        ON managed_resource_provenance_jobs (projection_id);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS managed_resource_provenance_jobs_projection_pk_unique
+        ON managed_resource_provenance_jobs (projection_pk);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS managed_resource_provenance_jobs_source_identity_unique
+        ON managed_resource_provenance_jobs (
+          managed_by,
+          source_owner_scope_ref,
+          resource_kind,
+          resource_name
+        );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS managed_resource_provenance_jobs_job_id_unique
+        ON managed_resource_provenance_jobs (job_id);
+    `,
+  },
 ]
 
 export interface OpenSqliteJobsStoreOptions {
@@ -846,8 +889,56 @@ function rowToActor(row: {
   }
 }
 
+function normalizeIsoSecondsCooldownForCore(value: unknown): unknown {
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    (value as Record<string, unknown>)['kind'] === 'event'
+  ) {
+    const record = value as Record<string, unknown>
+    const cooldown = record['cooldown']
+    const match = typeof cooldown === 'string' ? /^PT([1-9][0-9]*)S$/.exec(cooldown) : null
+    if (match !== null) {
+      return { ...record, cooldown: `${match[1]}s` }
+    }
+  }
+  return value
+}
+
+function validateStoreJobTrigger(
+  value: unknown
+): { valid: true; trigger: JobTrigger } | { valid: false; errors: string[] } {
+  const validation = validateJobTrigger(value)
+  if (validation.valid) {
+    return validation
+  }
+
+  const normalized = normalizeIsoSecondsCooldownForCore(value)
+  if (normalized === value) {
+    return validation
+  }
+
+  const normalizedValidation = validateJobTrigger(normalized)
+  if (!normalizedValidation.valid) {
+    return validation
+  }
+
+  const originalCooldown =
+    typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)['cooldown']
+      : undefined
+  return {
+    valid: true,
+    trigger: {
+      ...normalizedValidation.trigger,
+      ...(typeof originalCooldown === 'string' ? { cooldown: originalCooldown } : {}),
+    } as JobTrigger,
+  }
+}
+
 function parseTriggerJson(value: string): JobTrigger {
-  const validation = validateJobTrigger(JSON.parse(value) as unknown)
+  const validation = validateStoreJobTrigger(JSON.parse(value) as unknown)
   if (!validation.valid) {
     throw new Error(`stored trigger is invalid: ${validation.errors.join('; ')}`)
   }
@@ -1051,7 +1142,7 @@ function resolveTrigger(input: {
   schedule?: JobSchedule | undefined
 }): JobTrigger {
   if (input.trigger !== undefined) {
-    const validation = validateJobTrigger(input.trigger)
+    const validation = validateStoreJobTrigger(input.trigger)
     if (!validation.valid) {
       throw new Error(`invalid trigger: ${validation.errors.join('; ')}`)
     }
@@ -1713,9 +1804,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
     reread: (candidate: Candidate) => Result | undefined
   }): Result[] =>
     sqlite.transaction(() => {
-      const candidates = sqlite
-        .prepare(spec.selectSql)
-        .all(...spec.selectParams) as Candidate[]
+      const candidates = sqlite.prepare(spec.selectSql).all(...spec.selectParams) as Candidate[]
 
       const results: Result[] = []
       for (const candidate of candidates) {

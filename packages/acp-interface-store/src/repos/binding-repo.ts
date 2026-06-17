@@ -283,6 +283,10 @@ export class BindingRepo {
     return row === undefined ? undefined : mapInterfaceBindingRow(row)
   }
 
+  findById(bindingId: string): InterfaceBinding | undefined {
+    return this.getById(bindingId)
+  }
+
   resolve(lookup: InterfaceBindingLookup): InterfaceBinding | undefined {
     if (lookup.threadRef !== undefined) {
       const threadMatch = this.loadActiveByLookup(lookup)
