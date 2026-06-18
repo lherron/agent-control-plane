@@ -58,14 +58,14 @@ const SCHEDULED_JOB: ApplyManagedJobInput = {
   sourceHash:
     'sha256-canonical-json/v1:4bc88e59a4360da45d0b98a6d33cc547548c44c8d33a852f3ff398a3e7994342',
   desiredProjectionHash:
-    'sha256-canonical-json/v1:3758089897d52bfbee7733baa4159ba207265b4cb2791f0b9f7605488b45c5eb',
+    'sha256-canonical-json/v1:f144cdf218cafb31379bf256c86b0bfad0da28d2984b9ee0e12a700a327e9d7f',
   desiredJson: {
     kind: 'scheduled-job',
     slug: 'agent-smokey.daily-triage',
     projectId: 'agent-spaces',
     agentId: 'smokey',
     scopeRef: 'agent:smokey:project:agent-spaces:task:primary',
-    laneRef: 'agent:smokey:project:agent-spaces:task:primary~main',
+    laneRef: 'main',
     title: 'Daily triage',
     disabled: false,
     trigger: { kind: 'schedule' },
@@ -84,16 +84,16 @@ const EVENT_HOOK: ApplyManagedJobInput = {
   resourceName: 'wrkq-needs-smoketest',
   sourcePath: 'agents/smokey/event-hooks/wrkq-needs-smoketest.toml',
   sourceHash:
-    'sha256-canonical-json/v1:7ceae7837bb0307b5f90f820b48121bb38a2263b45759d3e3ae7d7e2a43d8633',
+    'sha256-canonical-json/v1:9b3fc7d28216002bfa76d9706fdbbd93925b75134bfbeac6c67d8e76fcf59021',
   desiredProjectionHash:
-    'sha256-canonical-json/v1:a1e266bcd9422e1f472601c50a27817051de7ba40d07a9bf9be88c6395885e46',
+    'sha256-canonical-json/v1:4a6069908b96fe71d414f02478a8bdb1cad0030e0167b748f7e38531b3f8a5b8',
   desiredJson: {
     kind: 'event-triggered-job',
     slug: 'agent-smokey.wrkq-needs-smoketest',
     projectId: 'agent-spaces',
     agentId: 'smokey',
     scopeRef: 'agent:smokey:project:agent-spaces:task:{{ticket_id}}',
-    laneRef: 'agent:smokey:project:agent-spaces:task:{{ticket_id}}~main',
+    laneRef: 'main',
     title: 'Smokey handles wrkq needs_smoketest',
     disabled: false,
     trigger: {
@@ -103,7 +103,7 @@ const EVENT_HOOK: ApplyManagedJobInput = {
         event: ['updated', 'transitioned'],
         project_scope_id: 'agent-spaces',
         kind: 'task',
-        transition: { to: 'needs_smoketest' },
+        transition: { to: 'in_progress' },
       },
       target: {
         project: '{{ project_scope_id }}',
@@ -561,7 +561,7 @@ describe('event-hook cooldown validation (Phase D invariant)', () => {
             event: ['updated', 'transitioned'],
             project_scope_id: 'agent-spaces',
             kind: 'task',
-            transition: { to: 'needs_smoketest' },
+            transition: { to: 'in_progress' },
           },
           target: {
             project: '{{ project_scope_id }}',
@@ -641,7 +641,7 @@ describe('reconcile must not mutate event runtime facts (Phase D invariant)', ()
       eventSeq: 1,
       jobId: hookJob.jobId,
       resolvedScopeRef: 'agent:smokey:project:agent-spaces:task:T-00001',
-      resolvedLaneRef: 'agent:smokey:project:agent-spaces:task:T-00001~main',
+      resolvedLaneRef: 'main',
       resolvedInput: { content: 'Run the smoke-test workflow for T-00001.' },
       source: { kind: 'webhook', source: 'wrkq', eventId: 'wrkq:evt_historical', eventSeq: 1 },
       targetTaskId: 'T-00001',
@@ -683,7 +683,7 @@ describe('reconcile must not mutate event runtime facts (Phase D invariant)', ()
       eventSeq: 1,
       jobId: hookJob.jobId,
       resolvedScopeRef: 'agent:smokey:project:agent-spaces:task:T-00002',
-      resolvedLaneRef: 'agent:smokey:project:agent-spaces:task:T-00002~main',
+      resolvedLaneRef: 'main',
       resolvedInput: { content: 'Run the smoke-test workflow for T-00002.' },
       source: { kind: 'webhook' },
       targetTaskId: 'T-00002',

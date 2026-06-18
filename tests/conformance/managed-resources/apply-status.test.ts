@@ -49,8 +49,7 @@ const FIXTURE_PATH = join(import.meta.dir, '../../fixtures/resources/asp-plan-v1
 function loadCanonicalPlan(): ManagedResourcesPlan {
   if (!existsSync(FIXTURE_PATH)) {
     throw new Error(
-      `Canonical ASP plan fixture not found at ${FIXTURE_PATH}. ` +
-        'Copy agent-spaces packages/config/src/__fixtures__/resources/expected-plan.json here.'
+      `Canonical ASP plan fixture not found at ${FIXTURE_PATH}. Copy agent-spaces packages/config/src/__fixtures__/resources/expected-plan.json here.`
     )
   }
   return JSON.parse(readFileSync(FIXTURE_PATH, 'utf-8')) as ManagedResourcesPlan
@@ -142,9 +141,7 @@ describe('plan schema validation (Phase E invariant)', () => {
 
   test('plan with resource having lastReconciledAt != pending-apply is rejected', () => {
     const badResources = CANONICAL_PLAN.resources.map((r, i) =>
-      i === 0
-        ? { ...r, lastReconciledAt: '2026-06-17T22:00:00Z' }
-        : r
+      i === 0 ? { ...r, lastReconciledAt: '2026-06-17T22:00:00Z' } : r
     )
     const bad = { ...CANONICAL_PLAN, resources: badResources }
     const result = validateManagedResourcesPlan(bad)
@@ -172,7 +169,10 @@ describe('cooldown validation — reject before apply (Phase E invariant)', () =
             desiredJson: {
               ...r.desiredJson,
               trigger: {
-                ...(r.desiredJson as Record<string, unknown>)['trigger'] as Record<string, unknown>,
+                ...((r.desiredJson as Record<string, unknown>)['trigger'] as Record<
+                  string,
+                  unknown
+                >),
                 cooldown: { minutes: 5 }, // TOML object — not a duration string
               },
             },
@@ -190,7 +190,10 @@ describe('cooldown validation — reject before apply (Phase E invariant)', () =
   test('plan containing an event-hook with absent cooldown is rejected before apply', async () => {
     const badResources = CANONICAL_PLAN.resources.map((r) => {
       if (r.resourceKind !== 'event-hook') return r
-      const trigger = (r.desiredJson as Record<string, unknown>)['trigger'] as Record<string, unknown>
+      const trigger = (r.desiredJson as Record<string, unknown>)['trigger'] as Record<
+        string,
+        unknown
+      >
       const { cooldown: _omit, ...triggerWithoutCooldown } = trigger
       return {
         ...r,
@@ -216,7 +219,10 @@ describe('cooldown validation — reject before apply (Phase E invariant)', () =
             desiredJson: {
               ...r.desiredJson,
               trigger: {
-                ...(r.desiredJson as Record<string, unknown>)['trigger'] as Record<string, unknown>,
+                ...((r.desiredJson as Record<string, unknown>)['trigger'] as Record<
+                  string,
+                  unknown
+                >),
                 cooldown: 'soon', // not parseable as a duration
               },
             },

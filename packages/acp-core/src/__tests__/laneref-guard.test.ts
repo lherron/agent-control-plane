@@ -26,10 +26,7 @@ import { normalizeSessionRef } from 'agent-scope'
 // ---------------------------------------------------------------------------
 
 // Path from packages/acp-core/src/__tests__/ up to repo root, then into tests/
-const FIXTURE_PATH = join(
-  import.meta.dir,
-  '../../../../tests/fixtures/resources/asp-plan-v1.json'
-)
+const FIXTURE_PATH = join(import.meta.dir, '../../../../tests/fixtures/resources/asp-plan-v1.json')
 
 type ResourceEntry = {
   resourceKind: string
@@ -137,8 +134,6 @@ describe('normalizeSessionRef validator proof — OLD form rejected, bare form a
 
   test('bare "main" laneRef is ACCEPTED by normalizeSessionRef (valid post-fix form)', () => {
     // This is the form that T-04889 will vendor into the fixture.
-    expect(() =>
-      normalizeSessionRef({ scopeRef: VALID_SCOPE_REF, laneRef: 'main' })
-    ).not.toThrow()
+    expect(() => normalizeSessionRef({ scopeRef: VALID_SCOPE_REF, laneRef: 'main' })).not.toThrow()
   })
 })

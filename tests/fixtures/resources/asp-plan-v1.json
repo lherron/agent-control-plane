@@ -16,14 +16,14 @@
       "resourceName": "daily-triage",
       "sourcePath": "agents/smokey/schedules/daily-triage.toml",
       "sourceHash": "sha256-canonical-json/v1:4bc88e59a4360da45d0b98a6d33cc547548c44c8d33a852f3ff398a3e7994342",
-      "desiredProjectionHash": "sha256-canonical-json/v1:3758089897d52bfbee7733baa4159ba207265b4cb2791f0b9f7605488b45c5eb",
+      "desiredProjectionHash": "sha256-canonical-json/v1:f144cdf218cafb31379bf256c86b0bfad0da28d2984b9ee0e12a700a327e9d7f",
       "desiredJson": {
         "kind": "scheduled-job",
         "slug": "agent-smokey.daily-triage",
         "projectId": "agent-spaces",
         "agentId": "smokey",
         "scopeRef": "agent:smokey:project:agent-spaces:task:primary",
-        "laneRef": "agent:smokey:project:agent-spaces:task:primary~main",
+        "laneRef": "main",
         "title": "Daily triage",
         "disabled": false,
         "trigger": {
@@ -55,7 +55,7 @@
       "resourceName": "discord-smoke",
       "sourcePath": "agents/smokey/channels/discord-smoke.toml",
       "sourceHash": "sha256-canonical-json/v1:ea43e293de6565579fd5ffdf2fb9c3e9eea8ea7d1a8213c7b6d3cb3cfd737870",
-      "desiredProjectionHash": "sha256-canonical-json/v1:6f6bdc51f0ceb99fc7450ac1e25a215440a0e63e4eecbed67dba3ca807869dd0",
+      "desiredProjectionHash": "sha256-canonical-json/v1:b831ab64b39dca07221d896c95db24399374ed7e92449ed620758bd3f5ffa81e",
       "desiredJson": {
         "kind": "interface-binding",
         "bindingId": "agent-smokey.discord-smoke",
@@ -69,7 +69,7 @@
           "taskId": "primary",
           "roleName": "coordinator",
           "scopeRef": "agent:smokey:project:agent-spaces:task:primary",
-          "laneRef": "agent:smokey:project:agent-spaces:task:primary~main"
+          "laneRef": "main"
         },
         "status": "active"
       },
@@ -88,26 +88,29 @@
       "sourceOwnerScopeRef": "agent:smokey:project:agent-spaces",
       "resourceName": "wrkq-needs-smoketest",
       "sourcePath": "agents/smokey/event-hooks/wrkq-needs-smoketest.toml",
-      "sourceHash": "sha256-canonical-json/v1:7ceae7837bb0307b5f90f820b48121bb38a2263b45759d3e3ae7d7e2a43d8633",
-      "desiredProjectionHash": "sha256-canonical-json/v1:a1e266bcd9422e1f472601c50a27817051de7ba40d07a9bf9be88c6395885e46",
+      "sourceHash": "sha256-canonical-json/v1:9b3fc7d28216002bfa76d9706fdbbd93925b75134bfbeac6c67d8e76fcf59021",
+      "desiredProjectionHash": "sha256-canonical-json/v1:4a6069908b96fe71d414f02478a8bdb1cad0030e0167b748f7e38531b3f8a5b8",
       "desiredJson": {
         "kind": "event-triggered-job",
         "slug": "agent-smokey.wrkq-needs-smoketest",
         "projectId": "agent-spaces",
         "agentId": "smokey",
         "scopeRef": "agent:smokey:project:agent-spaces:task:{{ticket_id}}",
-        "laneRef": "agent:smokey:project:agent-spaces:task:{{ticket_id}}~main",
+        "laneRef": "main",
         "title": "Smokey handles wrkq needs_smoketest",
         "disabled": false,
         "trigger": {
           "kind": "event",
           "source": "wrkq",
           "match": {
-            "event": ["updated", "transitioned"],
+            "event": [
+              "updated",
+              "transitioned"
+            ],
             "project_scope_id": "agent-spaces",
             "kind": "task",
             "transition": {
-              "to": "needs_smoketest"
+              "to": "in_progress"
             }
           },
           "target": {

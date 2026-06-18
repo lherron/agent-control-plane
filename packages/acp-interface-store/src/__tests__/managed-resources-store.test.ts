@@ -45,8 +45,7 @@ const OWNER_SCOPE = 'agent:smokey:project:agent-spaces'
 
 /** Interface-binding resource — matches expected-plan.json resource[1]. */
 const DISCORD_BINDING: ApplyManagedBindingInput = {
-  projectionId:
-    'agent-directory:agent:smokey:project:agent-spaces:interface-binding:discord-smoke',
+  projectionId: 'agent-directory:agent:smokey:project:agent-spaces:interface-binding:discord-smoke',
   projectionPk: 'agent-smokey.discord-smoke',
   sourceOwnerScopeRef: OWNER_SCOPE,
   resourceName: 'discord-smoke',
@@ -54,7 +53,7 @@ const DISCORD_BINDING: ApplyManagedBindingInput = {
   sourceHash:
     'sha256-canonical-json/v1:ea43e293de6565579fd5ffdf2fb9c3e9eea8ea7d1a8213c7b6d3cb3cfd737870',
   desiredProjectionHash:
-    'sha256-canonical-json/v1:6f6bdc51f0ceb99fc7450ac1e25a215440a0e63e4eecbed67dba3ca807869dd0',
+    'sha256-canonical-json/v1:b831ab64b39dca07221d896c95db24399374ed7e92449ed620758bd3f5ffa81e',
   desiredJson: {
     kind: 'interface-binding',
     bindingId: 'agent-smokey.discord-smoke',
@@ -68,7 +67,7 @@ const DISCORD_BINDING: ApplyManagedBindingInput = {
       taskId: 'primary',
       roleName: 'coordinator',
       scopeRef: 'agent:smokey:project:agent-spaces:task:primary',
-      laneRef: 'agent:smokey:project:agent-spaces:task:primary~main',
+      laneRef: 'main',
     },
     status: 'active',
   },
@@ -78,14 +77,13 @@ const DISCORD_BINDING: ApplyManagedBindingInput = {
 
 /** A second distinct binding used for multi-resource tests. */
 const ALT_BINDING: ApplyManagedBindingInput = {
-  projectionId:
-    'agent-directory:agent:smokey:project:agent-spaces:interface-binding:ios-smoke',
+  projectionId: 'agent-directory:agent:smokey:project:agent-spaces:interface-binding:ios-smoke',
   projectionPk: 'agent-smokey.ios-smoke',
   sourceOwnerScopeRef: OWNER_SCOPE,
   resourceName: 'ios-smoke',
   sourcePath: 'agents/smokey/channels/ios-smoke.toml',
-  sourceHash: 'sha256-canonical-json/v1:' + '1'.repeat(64),
-  desiredProjectionHash: 'sha256-canonical-json/v1:' + '2'.repeat(64),
+  sourceHash: `sha256-canonical-json/v1:${'1'.repeat(64)}`,
+  desiredProjectionHash: `sha256-canonical-json/v1:${'2'.repeat(64)}`,
   desiredJson: {
     kind: 'interface-binding',
     bindingId: 'agent-smokey.ios-smoke',
@@ -97,7 +95,7 @@ const ALT_BINDING: ApplyManagedBindingInput = {
       agentId: 'smokey',
       taskId: 'primary',
       scopeRef: 'agent:smokey:project:agent-spaces:task:primary',
-      laneRef: 'agent:smokey:project:agent-spaces:task:primary~main',
+      laneRef: 'main',
     },
     status: 'active',
   },
@@ -165,8 +163,7 @@ describe('managed_resource_provenance_interface schema (Phase D — store layer)
       .all() as Array<{ name: string; sql: string }>
     const hasUnique = indexes.some(
       (i) =>
-        i.sql?.toUpperCase().includes('UNIQUE') &&
-        i.sql?.toLowerCase().includes('projection_id')
+        i.sql?.toUpperCase().includes('UNIQUE') && i.sql?.toLowerCase().includes('projection_id')
     )
     expect(hasUnique).toBe(true)
   })
@@ -213,7 +210,7 @@ describe('same-transaction provenance (Phase D invariant)', () => {
       conversationRef: 'channel:1501224513390772224',
       threadRef: 'thread:1501224513390772225',
       scopeRef: 'agent:smokey:project:agent-spaces:task:primary',
-      laneRef: 'agent:smokey:project:agent-spaces:task:primary~main',
+      laneRef: 'main',
       projectId: 'agent-spaces',
       status: 'active',
       createdAt: NOW,
@@ -280,8 +277,8 @@ describe('idempotent reapply (Phase D invariant)', () => {
 
     const changed: ApplyManagedBindingInput = {
       ...DISCORD_BINDING,
-      sourceHash: 'sha256-canonical-json/v1:' + 'a'.repeat(64),
-      desiredProjectionHash: 'sha256-canonical-json/v1:' + 'b'.repeat(64),
+      sourceHash: `sha256-canonical-json/v1:${'a'.repeat(64)}`,
+      desiredProjectionHash: `sha256-canonical-json/v1:${'b'.repeat(64)}`,
       desiredJson: {
         ...DISCORD_BINDING.desiredJson,
         status: 'disabled',
@@ -310,7 +307,7 @@ describe('collision fail-closed behavior (Phase D invariant)', () => {
       conversationRef: 'channel:1501224513390772224',
       threadRef: 'thread:1501224513390772225',
       scopeRef: 'agent:smokey:project:agent-spaces:task:primary',
-      laneRef: 'agent:smokey:project:agent-spaces:task:primary~main',
+      laneRef: 'main',
       projectId: 'agent-spaces',
       status: 'active',
       createdAt: NOW,
@@ -347,7 +344,7 @@ describe('collision fail-closed behavior (Phase D invariant)', () => {
       conversationRef: 'channel:1501224513390772224',
       threadRef: 'thread:1501224513390772225',
       scopeRef: 'agent:smokey:project:agent-spaces:task:primary',
-      laneRef: 'agent:smokey:project:agent-spaces:task:primary~main',
+      laneRef: 'main',
       projectId: 'agent-spaces',
       status: 'active',
       createdAt: NOW,
@@ -376,7 +373,10 @@ describe('stale adoption failure (Phase D invariant)', () => {
     const stale: ApplyManagedBindingInput = {
       ...DISCORD_BINDING,
       projectionPk: 'agent-smokey.discord-smoke-renamed',
-      desiredJson: { ...DISCORD_BINDING.desiredJson, bindingId: 'agent-smokey.discord-smoke-renamed' },
+      desiredJson: {
+        ...DISCORD_BINDING.desiredJson,
+        bindingId: 'agent-smokey.discord-smoke-renamed',
+      },
     }
     const result = applyManagedBinding(store, stale)
     expect(result.outcome).toBe('stale_adoption_rejected')
@@ -503,7 +503,7 @@ describe('disable-only missing-source behavior (Phase D invariant)', () => {
          ) VALUES (
            'dr_smoke_1', 'acp-discord-smoke', 'agent-smokey.discord-smoke',
            'agent:smokey:project:agent-spaces:task:primary',
-           'agent:smokey:project:agent-spaces:task:primary~main',
+           'main',
            'channel:1501224513390772224', 'text', 'smoke test message',
            'queued', 'agent', 'smokey', 'v1', ?, ?
          )`

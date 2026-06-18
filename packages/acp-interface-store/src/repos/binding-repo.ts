@@ -126,11 +126,12 @@ function deriveStructuredFields(binding: InterfaceBinding): ParsedBindingScope {
       `Interface binding scopeRef "${binding.scopeRef}" must include a project segment`
     )
   }
+  const roleName = parsed.roleName ?? binding.roleName
   return {
     agentId: parsed.agentId,
     projectId: parsed.projectId,
     ...(parsed.taskId !== undefined ? { taskId: parsed.taskId } : {}),
-    ...(parsed.roleName !== undefined ? { roleName: parsed.roleName } : {}),
+    ...(roleName !== undefined ? { roleName } : {}),
   }
 }
 
