@@ -422,6 +422,39 @@ describe('drift detection (Phase D invariant)', () => {
 })
 
 // ==================================================================
+// role_name persistence (Defect 2 guard — Phase F R2 RED)
+// ==================================================================
+
+describe('role_name persistence — Defect 2 guard (Phase F R2 RED)', () => {
+  test('role_name is written to interface_bindings when routing.roleName is set', () => {
+    // DISCORD_BINDING has desiredJson.routing.roleName = "coordinator"
+    const store = freshStore()
+    const result = applyManagedBinding(store, DISCORD_BINDING)
+    expect(result.outcome).toBe('created')
+
+    // Read the raw DB row — bypass the mapped InterfaceBinding object, which
+    // reconstructs roleName from the scopeRef string and would also report NULL
+    // if the column is NULL.  We need to assert the *column* is persisted.
+    type Row = { role_name: string | null }
+    const row = store.sqlite
+      .prepare('SELECT role_name FROM interface_bindings WHERE binding_id = ?')
+      .get('agent-smokey.discord-smoke') as Row | undefined
+
+    expect(row).toBeDefined()
+
+    // ROOT CAUSE: deriveStructuredFields() in binding-repo.ts derives roleName
+    // ONLY from a ":role:" segment in scopeRef via parseScopeRef().
+    // Managed scopeRefs ("agent:smokey:project:agent-spaces:task:primary") carry
+    // no role segment, so binding.roleName (set from routing.roleName in
+    // bindingFromDesired at managed-resources.ts:210) is silently dropped on INSERT.
+    // FIX (not here): propagate binding.roleName directly rather than re-deriving it.
+    //
+    // THIS TEST MUST FAIL until the fix lands.
+    expect(row?.role_name).toBe('coordinator')
+  })
+})
+
+// ==================================================================
 // Disable-only: missing source preserves delivery history
 // ==================================================================
 
