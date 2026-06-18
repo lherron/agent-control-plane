@@ -924,16 +924,9 @@ function validateStoreJobTrigger(
     return validation
   }
 
-  const originalCooldown =
-    typeof value === 'object' && value !== null && !Array.isArray(value)
-      ? (value as Record<string, unknown>)['cooldown']
-      : undefined
   return {
     valid: true,
-    trigger: {
-      ...normalizedValidation.trigger,
-      ...(typeof originalCooldown === 'string' ? { cooldown: originalCooldown } : {}),
-    } as JobTrigger,
+    trigger: normalizedValidation.trigger as JobTrigger,
   }
 }
 

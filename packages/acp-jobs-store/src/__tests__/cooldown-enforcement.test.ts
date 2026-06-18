@@ -27,8 +27,8 @@ import {
   adaptWrkqWebhookEvent,
   evaluateEventMatch,
   isAgentOriginEvent,
-  parseDurationToMs,
   parseAcpWebhookEvent,
+  parseDurationToMs,
   resolveEventAction,
 } from 'acp-core'
 

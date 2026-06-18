@@ -86,7 +86,7 @@ const EVENT_HOOK: ApplyManagedJobInput = {
   sourceHash:
     'sha256-canonical-json/v1:9b3fc7d28216002bfa76d9706fdbbd93925b75134bfbeac6c67d8e76fcf59021',
   desiredProjectionHash:
-    'sha256-canonical-json/v1:4a6069908b96fe71d414f02478a8bdb1cad0030e0167b748f7e38531b3f8a5b8',
+    'sha256-canonical-json/v1:39c26bf3c64a59c238715d249cf46106d6bccd99156e410c31a67f64e01ab876',
   desiredJson: {
     kind: 'event-triggered-job',
     slug: 'agent-smokey.wrkq-needs-smoketest',
@@ -111,7 +111,7 @@ const EVENT_HOOK: ApplyManagedJobInput = {
         lane: 'main',
         task: '{{ticket_id}}',
       },
-      cooldown: 'PT300S',
+      cooldown: '300s',
       originPolicy: { agent: 'deny' },
     },
     input: { content: 'Run the smoke-test workflow for {{ticket_id}}.' },
@@ -507,7 +507,7 @@ describe('disable-only missing-source behavior (Phase D invariant)', () => {
 // ==================================================================
 
 describe('event-hook cooldown validation (Phase D invariant)', () => {
-  test('event-hook stores the canonical PT300S cooldown on the trigger', () => {
+  test('event-hook stores the runtime-parseable cooldown on the trigger', () => {
     const store = freshStore()
     const result = applyManagedJob(store, EVENT_HOOK)
     if (result.outcome !== 'created') throw new Error('expected created')
@@ -515,8 +515,7 @@ describe('event-hook cooldown validation (Phase D invariant)', () => {
     const { job } = store.getJob(result.job.jobId)
     const trigger = job?.trigger
     if (trigger?.kind !== 'event') throw new Error('expected event trigger')
-    // PT300S must parse to 300 seconds; validateJobTrigger accepts it as canonical
-    expect(trigger.cooldown).toBe('PT300S')
+    expect(trigger.cooldown).toBe('300s')
   })
 
   test('event-hook stores originPolicy.agent = deny on the trigger', () => {

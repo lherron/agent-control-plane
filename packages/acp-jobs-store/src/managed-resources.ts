@@ -241,8 +241,6 @@ function validateManagedJobTrigger(
   if (match === null) {
     return validation
   }
-  const isoCooldown = cooldown as string
-
   const normalized = { ...value, cooldown: `${match[1]}s` }
   const normalizedValidation = validateJobTrigger(normalized)
   if (!normalizedValidation.valid || normalizedValidation.trigger.kind !== 'event') {
@@ -251,7 +249,7 @@ function validateManagedJobTrigger(
 
   return {
     valid: true,
-    trigger: { ...normalizedValidation.trigger, cooldown: isoCooldown },
+    trigger: normalizedValidation.trigger,
   }
 }
 

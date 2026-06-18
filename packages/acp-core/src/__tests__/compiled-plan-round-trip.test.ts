@@ -37,10 +37,7 @@ import { parseDurationToMs, validateJobTrigger } from '../index.js'
 // Fixture loading
 // ---------------------------------------------------------------------------
 
-const FIXTURE_PATH = join(
-  import.meta.dir,
-  '../../../../tests/fixtures/resources/asp-plan-v1.json'
-)
+const FIXTURE_PATH = join(import.meta.dir, '../../../../tests/fixtures/resources/asp-plan-v1.json')
 
 type ResourceEntry = {
   resourceKind: string
@@ -113,159 +110,142 @@ function extractEventHookTriggers(
 // ===========================================================================
 
 describe('asp-plan-v1 holistic runtime round-trip guard', () => {
-  test(
-    'every literal laneRef/scopeRef in the vendored fixture is accepted by normalizeSessionRef',
-    () => {
-      const plan = loadFixture()
-      const pairs = extractLiteralLaneRefs(plan)
-      expect(pairs.length).toBeGreaterThan(0)
+  test('every literal laneRef/scopeRef in the vendored fixture is accepted by normalizeSessionRef', () => {
+    const plan = loadFixture()
+    const pairs = extractLiteralLaneRefs(plan)
+    expect(pairs.length).toBeGreaterThan(0)
 
-      const failures: string[] = []
-      for (const { projectionId, laneRef, scopeRef } of pairs) {
-        try {
-          normalizeSessionRef({ scopeRef, laneRef })
-        } catch (e) {
-          failures.push(
-            `${projectionId}: laneRef="${laneRef}" rejected — ${
-              e instanceof Error ? e.message : String(e)
-            }`
-          )
-        }
+    const failures: string[] = []
+    for (const { projectionId, laneRef, scopeRef } of pairs) {
+      try {
+        normalizeSessionRef({ scopeRef, laneRef })
+      } catch (e) {
+        failures.push(
+          `${projectionId}: laneRef="${laneRef}" rejected — ${
+            e instanceof Error ? e.message : String(e)
+          }`
+        )
       }
-      // Passes NOW (fixture already carries bare "main" after T-04889 re-vendor).
-      expect(failures).toEqual([])
     }
-  )
+    // Passes NOW (fixture already carries bare "main" after T-04889 re-vendor).
+    expect(failures).toEqual([])
+  })
 
-  test(
-    'every event-hook trigger in the vendored fixture is accepted by validateJobTrigger',
-    () => {
-      const plan = loadFixture()
-      const entries = extractEventHookTriggers(plan)
-      expect(entries.length).toBeGreaterThan(0)
+  test('every event-hook trigger in the vendored fixture is accepted by validateJobTrigger', () => {
+    const plan = loadFixture()
+    const entries = extractEventHookTriggers(plan)
+    expect(entries.length).toBeGreaterThan(0)
 
-      const failures: string[] = []
-      for (const { projectionId, trigger } of entries) {
-        const validation = validateJobTrigger(trigger)
-        if (!validation.valid) {
-          failures.push(
-            `${projectionId}: trigger rejected — ${validation.errors.join('; ')}`
-          )
-        }
+    const failures: string[] = []
+    for (const { projectionId, trigger } of entries) {
+      const validation = validateJobTrigger(trigger)
+      if (!validation.valid) {
+        failures.push(`${projectionId}: trigger rejected — ${validation.errors.join('; ')}`)
       }
-
-      // FAILS NOW: the wrkq-needs-smoketest event-hook has cooldown "PT300S" which
-      // validateJobTrigger (acp-core/src/webhook/job-trigger.ts:388-396) rejects because
-      // parseDurationToMs("PT300S") returns undefined — the regex only matches
-      // ^(\d+)(ms|s|m|h|d)?$ and ISO 8601 "PT300S" does not match.
-      // After T-04894 vendors "300s", this passes.
-      expect(failures).toEqual([])
     }
-  )
 
-  test(
-    'every event-hook cooldown in the vendored fixture parses via parseDurationToMs > 0',
-    () => {
-      const plan = loadFixture()
-      const entries = extractEventHookTriggers(plan)
-      expect(entries.length).toBeGreaterThan(0)
+    // FAILS NOW: the wrkq-needs-smoketest event-hook has cooldown "PT300S" which
+    // validateJobTrigger (acp-core/src/webhook/job-trigger.ts:388-396) rejects because
+    // parseDurationToMs("PT300S") returns undefined — the regex only matches
+    // ^(\d+)(ms|s|m|h|d)?$ and ISO 8601 "PT300S" does not match.
+    // After T-04894 vendors "300s", this passes.
+    expect(failures).toEqual([])
+  })
 
-      const failures: string[] = []
-      for (const { projectionId, trigger } of entries) {
-        const cooldown = trigger['cooldown']
-        if (typeof cooldown !== 'string') continue // no cooldown field — skip
-        const ms = parseDurationToMs(cooldown)
-        if (ms === undefined || ms <= 0) {
-          failures.push(
-            `${projectionId}: cooldown="${cooldown}" → parseDurationToMs=${String(ms)} (expected > 0)`
-          )
-        }
+  test('every event-hook cooldown in the vendored fixture parses via parseDurationToMs > 0', () => {
+    const plan = loadFixture()
+    const entries = extractEventHookTriggers(plan)
+    expect(entries.length).toBeGreaterThan(0)
+
+    const failures: string[] = []
+    for (const { projectionId, trigger } of entries) {
+      const cooldown = trigger['cooldown']
+      if (typeof cooldown !== 'string') continue // no cooldown field — skip
+      const ms = parseDurationToMs(cooldown)
+      if (ms === undefined || ms <= 0) {
+        failures.push(
+          `${projectionId}: cooldown="${cooldown}" → parseDurationToMs=${String(ms)} (expected > 0)`
+        )
       }
-
-      // FAILS NOW: "PT300S" → parseDurationToMs = undefined (not > 0).
-      // This is the EXACT value that the runtime evaluator receives after the
-      // validateManagedJobTrigger re-override bug persists it back to the store.
-      // After T-04893 fix + T-04894 re-vendor to "300s", parseDurationToMs("300s")
-      // = 300_000, satisfying > 0.
-      expect(failures).toEqual([])
     }
-  )
+
+    // FAILS NOW: "PT300S" → parseDurationToMs = undefined (not > 0).
+    // This is the EXACT value that the runtime evaluator receives after the
+    // validateManagedJobTrigger re-override bug persists it back to the store.
+    // After T-04893 fix + T-04894 re-vendor to "300s", parseDurationToMs("300s")
+    // = 300_000, satisfying > 0.
+    expect(failures).toEqual([])
+  })
 })
 
 // ===========================================================================
 // Negative proof — guard correctly detects all three historical escape classes
 // ===========================================================================
 
-describe(
-  'asp-plan-v1 round-trip guard — negative proof (composed-laneRef + ISO cooldown rejected)',
-  () => {
-    const VALID_SCOPE_REF = 'agent:smokey:project:agent-spaces:task:primary'
-    // The OLD composed form that caused T-04888 (before T-04889 re-vendored "main")
-    const COMPOSED_LANE_REF = 'agent:smokey:project:agent-spaces:task:primary~main'
+describe('asp-plan-v1 round-trip guard — negative proof (composed-laneRef + ISO cooldown rejected)', () => {
+  const VALID_SCOPE_REF = 'agent:smokey:project:agent-spaces:task:primary'
+  // The OLD composed form that caused T-04888 (before T-04889 re-vendored "main")
+  const COMPOSED_LANE_REF = 'agent:smokey:project:agent-spaces:task:primary~main'
 
-    test('composed laneRef is REJECTED by normalizeSessionRef (T-04888 escape class)', () => {
-      // Proves the guard would catch a composed laneRef like the pre-T-04889 fixture.
-      expect(() =>
-        normalizeSessionRef({ scopeRef: VALID_SCOPE_REF, laneRef: COMPOSED_LANE_REF })
-      ).toThrow()
-    })
+  test('composed laneRef is REJECTED by normalizeSessionRef (T-04888 escape class)', () => {
+    // Proves the guard would catch a composed laneRef like the pre-T-04889 fixture.
+    expect(() =>
+      normalizeSessionRef({ scopeRef: VALID_SCOPE_REF, laneRef: COMPOSED_LANE_REF })
+    ).toThrow()
+  })
 
-    test('ISO "PT300S" cooldown is REJECTED by validateJobTrigger (T-04893 escape class)', () => {
-      // Proves the guard catches the exact cooldown value that the ASP compiler currently
-      // emits and that the runtime evaluator cannot parse.
-      const trigger = {
-        kind: 'event',
-        source: 'wrkq',
-        match: { event: 'created' },
-        cooldown: 'PT300S',
-      }
-      const validation = validateJobTrigger(trigger)
-      expect(validation.valid).toBe(false)
-    })
+  test('ISO "PT300S" cooldown is REJECTED by validateJobTrigger (T-04893 escape class)', () => {
+    // Proves the guard catches the exact cooldown value that the ASP compiler currently
+    // emits and that the runtime evaluator cannot parse.
+    const trigger = {
+      kind: 'event',
+      source: 'wrkq',
+      match: { event: 'created' },
+      cooldown: 'PT300S',
+    }
+    const validation = validateJobTrigger(trigger)
+    expect(validation.valid).toBe(false)
+  })
 
-    test('parseDurationToMs("PT300S") returns undefined — invisible to runtime guard', () => {
-      // Confirms that even if validateJobTrigger were bypassed, the scheduler would see
-      // undefined for cooldownMs and skip the cooldown check entirely.
-      expect(parseDurationToMs('PT300S')).toBeUndefined()
-    })
+  test('parseDurationToMs("PT300S") returns undefined — invisible to runtime guard', () => {
+    // Confirms that even if validateJobTrigger were bypassed, the scheduler would see
+    // undefined for cooldownMs and skip the cooldown check entirely.
+    expect(parseDurationToMs('PT300S')).toBeUndefined()
+  })
 
-    test(
-      'mutated plan with composed-laneRef AND ISO cooldown is caught by all three guards',
-      () => {
-        // Construct a synthetic resource mimicking a mis-compiled plan entry.
-        const mutatedResource = {
-          projectionId: 'test:mutated-resource',
-          resourceKind: 'event-hook',
-          desiredJson: {
-            kind: 'event-triggered-job',
-            laneRef: COMPOSED_LANE_REF, // escape class 1: composed
-            scopeRef: VALID_SCOPE_REF,
-            trigger: {
-              kind: 'event',
-              source: 'wrkq',
-              match: { event: 'created' },
-              cooldown: 'PT300S', // escape class 2: ISO-only
-            },
-          },
-        }
+  test('mutated plan with composed-laneRef AND ISO cooldown is caught by all three guards', () => {
+    // Construct a synthetic resource mimicking a mis-compiled plan entry.
+    const mutatedResource = {
+      projectionId: 'test:mutated-resource',
+      resourceKind: 'event-hook',
+      desiredJson: {
+        kind: 'event-triggered-job',
+        laneRef: COMPOSED_LANE_REF, // escape class 1: composed
+        scopeRef: VALID_SCOPE_REF,
+        trigger: {
+          kind: 'event',
+          source: 'wrkq',
+          match: { event: 'created' },
+          cooldown: 'PT300S', // escape class 2: ISO-only
+        },
+      },
+    }
 
-        // Guard 1 — laneRef: normalizeSessionRef rejects the composed form
-        expect(() =>
-          normalizeSessionRef({
-            scopeRef: VALID_SCOPE_REF,
-            laneRef: mutatedResource.desiredJson.laneRef,
-          })
-        ).toThrow()
+    // Guard 1 — laneRef: normalizeSessionRef rejects the composed form
+    expect(() =>
+      normalizeSessionRef({
+        scopeRef: VALID_SCOPE_REF,
+        laneRef: mutatedResource.desiredJson.laneRef,
+      })
+    ).toThrow()
 
-        // Guard 2 — trigger: validateJobTrigger rejects the ISO cooldown
-        const validation = validateJobTrigger(mutatedResource.desiredJson.trigger)
-        expect(validation.valid).toBe(false)
-        expect(validation.valid ? '' : validation.errors.join('; ')).toContain('cooldown')
+    // Guard 2 — trigger: validateJobTrigger rejects the ISO cooldown
+    const validation = validateJobTrigger(mutatedResource.desiredJson.trigger)
+    expect(validation.valid).toBe(false)
+    expect(validation.valid ? '' : validation.errors.join('; ')).toContain('cooldown')
 
-        // Guard 3 — parseDurationToMs: runtime evaluator would get undefined
-        const cooldown = mutatedResource.desiredJson.trigger['cooldown']
-        expect(parseDurationToMs(cooldown as string)).toBeUndefined()
-      }
-    )
-  }
-)
+    // Guard 3 — parseDurationToMs: runtime evaluator would get undefined
+    const cooldown = mutatedResource.desiredJson.trigger['cooldown']
+    expect(parseDurationToMs(cooldown as string)).toBeUndefined()
+  })
+})

@@ -89,7 +89,7 @@
       "resourceName": "wrkq-needs-smoketest",
       "sourcePath": "agents/smokey/event-hooks/wrkq-needs-smoketest.toml",
       "sourceHash": "sha256-canonical-json/v1:9b3fc7d28216002bfa76d9706fdbbd93925b75134bfbeac6c67d8e76fcf59021",
-      "desiredProjectionHash": "sha256-canonical-json/v1:4a6069908b96fe71d414f02478a8bdb1cad0030e0167b748f7e38531b3f8a5b8",
+      "desiredProjectionHash": "sha256-canonical-json/v1:39c26bf3c64a59c238715d249cf46106d6bccd99156e410c31a67f64e01ab876",
       "desiredJson": {
         "kind": "event-triggered-job",
         "slug": "agent-smokey.wrkq-needs-smoketest",
@@ -119,7 +119,7 @@
             "lane": "main",
             "task": "{{ticket_id}}"
           },
-          "cooldown": "PT300S",
+          "cooldown": "300s",
           "originPolicy": {
             "agent": "deny"
           }
