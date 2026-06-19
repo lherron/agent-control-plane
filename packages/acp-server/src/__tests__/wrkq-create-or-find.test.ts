@@ -61,9 +61,10 @@ function makeFakeWorkClient(fakeStore: FakeStore): WorkClient {
       task: {
         list: async (params: { path?: string } = {}) => {
           fakeStore.listCount += 1
-          const items = params.path !== undefined
-            ? [...fakeStore.tasks.values()].filter((t) => t.path === params.path)
-            : [...fakeStore.tasks.values()]
+          const items =
+            params.path !== undefined
+              ? [...fakeStore.tasks.values()].filter((t) => parentPath(t.path) === params.path)
+              : [...fakeStore.tasks.values()]
           return { items, nextCursor: undefined }
         },
         create: async (params: { path?: string; project?: string; title: string; description?: string; idempotencyKey?: string }) => {
@@ -137,6 +138,11 @@ function makeFakeWorkClient(fakeStore: FakeStore): WorkClient {
     close: async () => {},
     kill: () => {},
   } as unknown as WorkClient
+}
+
+function parentPath(path: string): string {
+  const idx = path.lastIndexOf('/')
+  return idx === -1 ? '' : path.slice(0, idx)
 }
 
 function makeStore(): FakeStore {

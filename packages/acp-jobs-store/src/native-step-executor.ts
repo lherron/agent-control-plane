@@ -167,7 +167,7 @@ export async function executeNativeSideEffectStep(
       const key = `acp-health:dispatch-timeout:${canonicalEventId}:task`
       const container = asString(stepDef['container']) ?? ''
       const projectId = container.split('/')[0] ?? ''
-      const path = `${container}/${key}`
+      const path = `${container}/${slugifyTaskPathSegment(key)}`
       const taskResult = await deps.wrkqTaskPort.createOrFind({
         key,
         path,
@@ -203,7 +203,7 @@ export async function executeNativeSideEffectStep(
 
     case 'agent-dispatch': {
       const idempotencyKey = `jobrun:${jobRunId}:phase:${phase}:step:${stepId}:attempt:${attempt}`
-      const scopeRef = asString(stepDef['scopeRef']) ?? ''
+      const scopeRef = resolveDispatchScopeRef(stepDef)
       const laneRef = asString(stepDef['laneRef']) ?? 'main'
       const content = asString(stepDef['content']) ?? ''
       const incidentTaskId = scopeRef.split(':task:')[1] ?? ''
@@ -261,4 +261,28 @@ function wrapStepResult(
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined
+}
+
+function resolveDispatchScopeRef(stepDef: Readonly<Record<string, unknown>>): string {
+  const rawScopeRef = asString(stepDef['scopeRef']) ?? ''
+  if (rawScopeRef.startsWith('agent:')) {
+    return rawScopeRef
+  }
+
+  const agentId = asString(stepDef['agentId'])
+  const projectId = asString(stepDef['projectId'])
+  if (agentId !== undefined && projectId !== undefined && rawScopeRef.length > 0) {
+    return `agent:${agentId}:project:${projectId}:task:${rawScopeRef}`
+  }
+
+  return rawScopeRef
+}
+
+function slugifyTaskPathSegment(value: string): string {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return slug.length > 0 ? slug : 'acp-health-dispatch-timeout'
 }

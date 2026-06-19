@@ -20,7 +20,9 @@ import type {
 } from 'hrc-core'
 import type { HrcClient } from 'hrc-sdk'
 import type { UnifiedSessionEvent } from 'spaces-runtime'
+import type { WorkClient } from '@wrkq/client'
 import type { WrkqStoreAdapter } from 'wrkq-lib'
+import type { NativeStepExecutorDeps } from 'acp-jobs-store'
 
 import {
   InMemoryInputAdmissionStore,
@@ -159,8 +161,10 @@ export interface AcpServerDeps {
   deliveryTargetResolver?: DeliveryTargetResolver | undefined
   authorize?: AuthorizeFn | undefined
   jobExecPolicy?: JobExecPolicy | undefined
+  nativeStepExecutor?: Omit<NativeStepExecutorDeps, 'store'> | undefined
   inputQueuePolicy?: InputQueuePolicy | undefined
   agentAssetsDir?: string | undefined
+  workClient?: WorkClient | undefined
   wrkf?: AcpWrkfWorkflowPort | undefined
   pbcIdempotencyStore?: WrkfRouteIdempotencyStore | undefined
   pbcCaptureStore?: WrkfParticipantCaptureStore | undefined
@@ -180,6 +184,8 @@ export interface ResolvedAcpServerDeps extends AcpServerDeps {
   authorize: AuthorizeFn
   defaultActor: Actor
   inputQueuePolicy: InputQueuePolicy
+  nativeStepExecutor?: Omit<NativeStepExecutorDeps, 'store'> | undefined
+  workClient?: WorkClient | undefined
   wrkf: AcpWrkfWorkflowPort | undefined
   pbcIdempotencyStore: WrkfRouteIdempotencyStore
   pbcCaptureStore: WrkfParticipantCaptureStore
@@ -235,6 +241,10 @@ export function resolveAcpServerDeps(deps: AcpServerDeps): ResolvedAcpServerDeps
     authorize: deps.authorize ?? (() => 'allow'),
     defaultActor: deps.defaultActor ?? { kind: 'system', id: 'acp-local' },
     inputQueuePolicy: deps.inputQueuePolicy ?? {},
+    ...(deps.nativeStepExecutor !== undefined
+      ? { nativeStepExecutor: deps.nativeStepExecutor }
+      : {}),
+    ...(deps.workClient !== undefined ? { workClient: deps.workClient } : {}),
     wrkf: deps.wrkf,
     pbcIdempotencyStore:
       deps.pbcIdempotencyStore ??

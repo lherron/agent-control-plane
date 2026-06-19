@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import type { ExecStepResult, JobFlow, JobFlowStep } from 'acp-core'
+import type { NativeStepExecutorDeps } from 'acp-jobs-store'
 import { createInMemoryJobsStore } from 'acp-jobs-store'
 
 import {
@@ -23,7 +24,7 @@ type FlowEngineDeps = HarnessFixture &
   Pick<
     AcpServerDeps,
     'jobsStore' | 'inputAttemptStore' | 'jobExecPolicy' | 'runtimeResolver' | 'launchRoleScopedRun'
-  > & { hrcDbPath: string }
+  > & { hrcDbPath: string; nativeStepExecutor?: Omit<NativeStepExecutorDeps, 'store'> }
 
 type FlowLaunchOutcome = {
   status: 'completed' | 'failed' | 'cancelled' | 'running'
@@ -301,6 +302,85 @@ async function advanceCreatedFlow(input: {
 }
 
 describe('advanceJobFlow exec steps', () => {
+  test('native side-effect steps execute through the flow engine and resolve prior step output', async () => {
+    await withFlowHarness(async ({ deps, jobsStore }) => {
+      const calls: {
+        wrkq: Array<Parameters<NativeStepExecutorDeps['wrkqTaskPort']['createOrFind']>[0]>
+        pulpit: Array<Parameters<NativeStepExecutorDeps['sendPulpitMessage']>[0]>
+        dispatch: Array<Parameters<NativeStepExecutorDeps['dispatchAgentInput']>[0]>
+      } = { wrkq: [], pulpit: [], dispatch: [] }
+      deps.nativeStepExecutor = {
+        wrkqTaskPort: {
+          async createOrFind(input) {
+            calls.wrkq.push(input)
+            return {
+              taskId: 'T-09123',
+              projectId: 'agent-control-plane',
+              taskPath: input.path,
+              created: true,
+            }
+          },
+        },
+        sendPulpitMessage: async (input) => {
+          calls.pulpit.push(input)
+          return { deliveryRequestId: 'dr_native_001', bindingId: input.bindingId ?? 'binding' }
+        },
+        dispatchAgentInput: async (input) => {
+          calls.dispatch.push(input)
+          return { inputAttemptId: 'iat_native_001', runId: 'run_native_001' }
+        },
+      }
+
+      const { jobRun, advanced } = await advanceCreatedFlow({
+        deps,
+        jobsStore,
+        flow: {
+          sequence: [
+            {
+              id: 'create_task',
+              kind: 'wrkq-task',
+              title: 'Incident',
+              container: 'agent-control-plane/inbox',
+            },
+            {
+              id: 'notify',
+              kind: 'pulpit-message',
+              binding: 'agent-fettle.discord-primary',
+              content: 'Dispatching fettle for {{create_task.taskId}}',
+            },
+            {
+              id: 'dispatch',
+              kind: 'agent-dispatch',
+              agentId: 'fettle',
+              projectId: 'agent-control-plane',
+              scopeRef: { $step: 'create_task', field: 'taskId' },
+              laneRef: 'main',
+              input: { content: 'Investigate {{create_task.taskId}}' },
+            },
+          ],
+        },
+      })
+
+      expect(advanced.status).toBe('succeeded')
+      expect(calls.wrkq).toHaveLength(1)
+      expect(calls.pulpit[0]?.text).toBe('Dispatching fettle for T-09123')
+      expect(calls.dispatch[0]).toMatchObject({
+        scopeRef: 'agent:fettle:project:agent-control-plane:task:T-09123',
+        laneRef: 'main',
+        content: 'Investigate T-09123',
+      })
+      expect(
+        jobsStore.jobStepRuns
+          .listByJobRun(jobRun.jobRunId)
+          .jobStepRuns.map((step) => [step.stepId, step.status])
+      ).toEqual([
+        ['create_task', 'succeeded'],
+        ['notify', 'succeeded'],
+        ['dispatch', 'succeeded'],
+      ])
+    })
+  })
+
   test('exec exit 0 continues to the next step in the same call', async () => {
     await withFlowHarness(async ({ deps, jobsStore, inputAttemptStore, launchCalls }) => {
       const { jobRun, advanced } = await advanceCreatedFlow({

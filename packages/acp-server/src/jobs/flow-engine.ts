@@ -13,12 +13,18 @@ import {
   type JobRecord,
   type JobRunRecord,
   type JobStepRunRecord,
+  type NativeStepExecutorDeps,
+  executeNativeSideEffectStep,
+  resolveStepOutputRef,
   validateJobFlow,
 } from 'acp-jobs-store'
 import type { LaneRef } from 'agent-scope'
 import { formatCanonicalSessionRef, resolveDatabasePath } from 'hrc-core'
+import { createOrFindWrkqTask } from 'wrkq-lib'
 
 import type { ResolvedAcpServerDeps } from '../deps.js'
+import { handleCreateAgentPulpitMessage } from '../handlers/agent-pulpit-messages.js'
+import { handleCreateInput } from '../handlers/inputs.js'
 import { dispatchStepThroughInputs } from './dispatch-step.js'
 import { resolveJobExecPolicy } from './exec-policy.js'
 import { ExecStepError, runExecStep } from './exec-step.js'
@@ -29,6 +35,8 @@ import {
   parseResultBlock,
 } from './result-block.js'
 import { getRunFinalAssistantText } from './run-final-output.js'
+
+type AgentRunnableStep = Extract<JobFlowStep, { kind?: 'agent' | undefined }>
 
 export type AdvanceJobFlowInput = {
   deps: ResolvedAcpServerDeps
@@ -188,7 +196,11 @@ async function advancePhase(input: {
     if (!TERMINAL_STEP_STATUSES.has(stepRun.status)) {
       const advanced = isExecStep(step)
         ? await advanceExecStep({ ...input, step, stepRun })
-        : await advanceAgentStep({ ...input, step, stepRun })
+        : isNativeStep(step)
+          ? await advanceNativeStep({ ...input, step, stepRun })
+          : isAgentStep(step)
+            ? await advanceAgentStep({ ...input, step, stepRun })
+            : failUnknownStepKind(step)
 
       if (advanced.state === 'blocked') {
         return { state: 'blocked' }
@@ -210,12 +222,83 @@ async function advancePhase(input: {
 
 type StepAdvanceResult = { state: 'terminal'; stepRun: JobStepRunRecord } | { state: 'blocked' }
 
-async function advanceAgentStep(input: {
+async function advanceNativeStep(input: {
   deps: ResolvedAcpServerDeps
   job: JobRecord
   jobRun: JobRunRecord
   phase: JobStepRunPhase
   step: JobFlowStep
+  stepRun: JobStepRunRecord
+  actor: Actor
+  now: string
+}): Promise<StepAdvanceResult> {
+  const jobsStore = requireJobsStore(input.deps)
+  const startedStepRun = jobsStore.jobStepRuns.updateStep(
+    input.jobRun.jobRunId,
+    input.phase,
+    input.step.id,
+    input.stepRun.attempt,
+    {
+      status: 'running',
+      inputAttemptId: null,
+      runId: null,
+      startedAt: input.stepRun.startedAt ?? input.now,
+      error: null,
+    }
+  ).jobStepRun
+
+  try {
+    const { stepDef, resolvedFields } = resolveNativeStepDef({
+      jobsStore,
+      jobRun: input.jobRun,
+      phase: input.phase,
+      step: input.step,
+    })
+    await executeNativeSideEffectStep(resolveNativeStepExecutorDeps(input.deps, jobsStore), {
+      jobRunId: input.jobRun.jobRunId,
+      phase: input.phase,
+      stepId: input.step.id,
+      attempt: startedStepRun.attempt,
+      stepKind: input.step.kind as 'wrkq-task' | 'pulpit-message' | 'agent-dispatch',
+      stepDef,
+      resolvedFields,
+    })
+
+    return {
+      state: 'terminal',
+      stepRun: jobsStore.jobStepRuns.updateStep(
+        input.jobRun.jobRunId,
+        input.phase,
+        input.step.id,
+        startedStepRun.attempt,
+        { completedAt: input.now }
+      ).jobStepRun,
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return {
+      state: 'terminal',
+      stepRun: jobsStore.jobStepRuns.updateStep(
+        input.jobRun.jobRunId,
+        input.phase,
+        input.step.id,
+        startedStepRun.attempt,
+        {
+          status: 'failed',
+          error: { code: 'native_step_failed', message },
+          completedAt: input.now,
+        }
+      ).jobStepRun,
+    }
+  }
+}
+
+async function advanceAgentStep(input: {
+  deps: ResolvedAcpServerDeps
+  job: JobRecord
+  jobRun: JobRunRecord
+  phase: JobStepRunPhase
+  step: AgentRunnableStep
   stepRun: JobStepRunRecord
   actor: Actor
   now: string
@@ -408,6 +491,220 @@ function isExecStep(step: JobFlowStep): step is ExecFlowStep {
   return step.kind === 'exec'
 }
 
+function isNativeStep(step: JobFlowStep): boolean {
+  return (
+    step.kind === 'wrkq-task' ||
+    step.kind === 'pulpit-message' ||
+    step.kind === 'agent-dispatch'
+  )
+}
+
+function isAgentStep(step: JobFlowStep): step is AgentRunnableStep {
+  return step.kind === undefined || step.kind === 'agent'
+}
+
+function failUnknownStepKind(step: JobFlowStep): never {
+  throw new Error(`unsupported flow step kind: ${String(step.kind)}`)
+}
+
+function isStepOutputRef(value: unknown): value is { $step: string; field: string } {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    typeof (value as Record<string, unknown>)['$step'] === 'string' &&
+    typeof (value as Record<string, unknown>)['field'] === 'string'
+  )
+}
+
+function resolveNativeStepDef(input: {
+  jobsStore: NonNullable<ResolvedAcpServerDeps['jobsStore']>
+  jobRun: JobRunRecord
+  phase: JobStepRunPhase
+  step: JobFlowStep
+}): { stepDef: Readonly<Record<string, unknown>>; resolvedFields: Readonly<Record<string, string>> } {
+  const resolvedFields: Record<string, string> = {}
+  const canonicalEventId = readCanonicalEventId(input.jobRun)
+  if (canonicalEventId !== undefined) {
+    resolvedFields['_canonicalEventId'] = canonicalEventId
+  }
+
+  const resolveValue = (value: unknown): unknown => {
+    if (isStepOutputRef(value)) {
+      const resolved = resolveStepOutputRef(input.jobsStore, input.jobRun.jobRunId, input.phase, {
+        $step: value.$step,
+        field: value.field,
+      })
+      if (resolved === undefined) {
+        throw new Error(`unresolved step output ref ${value.$step}.${value.field}`)
+      }
+      resolvedFields[`${value.$step}.${value.field}`] = resolved
+      return resolved
+    }
+    if (typeof value === 'string') {
+      return resolveNativeContentTemplate(input.jobsStore, input.jobRun, input.phase, value)
+    }
+    if (Array.isArray(value)) {
+      return value.map(resolveValue)
+    }
+    if (value !== null && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).map(([key, nested]) => [
+          key,
+          resolveValue(nested),
+        ])
+      )
+    }
+    return value
+  }
+
+  const resolved = resolveValue(input.step) as Record<string, unknown>
+  if (input.step.kind === 'agent-dispatch') {
+    const dispatchInput = resolved['input']
+    if (
+      dispatchInput !== null &&
+      typeof dispatchInput === 'object' &&
+      !Array.isArray(dispatchInput)
+    ) {
+      const content = (dispatchInput as Record<string, unknown>)['content']
+      if (typeof content === 'string') {
+        resolved['content'] = content
+      }
+    }
+  }
+  if (
+    input.step.kind === 'wrkq-task' &&
+    resolved['description'] === undefined &&
+    typeof input.jobRun.resolvedInput?.['content'] === 'string'
+  ) {
+    resolved['description'] = input.jobRun.resolvedInput['content']
+  }
+
+  return { stepDef: resolved, resolvedFields }
+}
+
+const NATIVE_TEMPLATE_PATTERN = /\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g
+
+function resolveNativeContentTemplate(
+  jobsStore: NonNullable<ResolvedAcpServerDeps['jobsStore']>,
+  jobRun: JobRunRecord,
+  phase: JobStepRunPhase,
+  value: string
+): string {
+  return value.replace(NATIVE_TEMPLATE_PATTERN, (match, name: string) => {
+    if (name.startsWith('input.')) {
+      const field = name.slice('input.'.length)
+      const resolved = jobRun.resolvedInput?.[field]
+      return typeof resolved === 'string' ? resolved : match
+    }
+    const [stepId, field, ...rest] = name.split('.')
+    if (stepId === undefined || field === undefined || rest.length > 0) {
+      return match
+    }
+    const resolved = resolveStepOutputRef(jobsStore, jobRun.jobRunId, phase, {
+      $step: stepId,
+      field,
+    })
+    return resolved ?? match
+  })
+}
+
+function readCanonicalEventId(jobRun: JobRunRecord): string | undefined {
+  const source = jobRun.source
+  if (source === undefined) {
+    return undefined
+  }
+  const canonical = source['canonicalEventId']
+  if (typeof canonical === 'string') {
+    return canonical
+  }
+  const sourceName = source['source']
+  const eventId = source['eventId']
+  if (typeof sourceName === 'string' && typeof eventId === 'string') {
+    return `${sourceName}:${eventId}`
+  }
+  return undefined
+}
+
+function resolveNativeStepExecutorDeps(
+  deps: ResolvedAcpServerDeps,
+  jobsStore: NonNullable<ResolvedAcpServerDeps['jobsStore']>
+): NativeStepExecutorDeps {
+  if (deps.nativeStepExecutor !== undefined) {
+    return { store: jobsStore, ...deps.nativeStepExecutor }
+  }
+  if (deps.workClient === undefined) {
+    throw new Error('native step executor requires a work client')
+  }
+
+  return {
+    store: jobsStore,
+    wrkqTaskPort: {
+      createOrFind: (input) => createOrFindWrkqTask(deps.workClient!, input),
+    },
+    sendPulpitMessage: async (input) => {
+      const response = await handleCreateAgentPulpitMessage({
+        request: new Request('http://acp.local/v1/agent-pulpit/messages', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            idempotencyKey: input.idempotencyKey,
+            text: input.text,
+            ...(input.bindingId !== undefined ? { bindingId: input.bindingId } : {}),
+          }),
+        }),
+        url: new URL('http://acp.local/v1/agent-pulpit/messages'),
+        params: {},
+        deps,
+        actor: deps.defaultActor,
+      })
+      if (!response.ok) {
+        throw new Error(`pulpit message failed with ${response.status}`)
+      }
+      const payload = (await response.json()) as {
+        delivery: { deliveryRequestId: string; bindingId: string }
+      }
+      return {
+        deliveryRequestId: payload.delivery.deliveryRequestId,
+        bindingId: payload.delivery.bindingId,
+      }
+    },
+    dispatchAgentInput: async (input) => {
+      const response = await handleCreateInput({
+        request: new Request('http://acp.local/v1/inputs', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            sessionRef: { scopeRef: input.scopeRef, laneRef: input.laneRef },
+            idempotencyKey: input.idempotencyKey,
+            content: input.content,
+            ...(input.meta !== undefined ? { meta: input.meta } : {}),
+          }),
+        }),
+        url: new URL('http://acp.local/v1/inputs'),
+        params: {},
+        deps,
+        actor: deps.defaultActor,
+      })
+      if (!response.ok) {
+        throw new Error(`agent dispatch failed with ${response.status}`)
+      }
+      const payload = (await response.json()) as {
+        inputAttempt: { inputAttemptId: string }
+        run?: { runId: string } | undefined
+        targetRun?: { runId: string } | undefined
+      }
+      const runId = payload.run?.runId ?? payload.targetRun?.runId
+      if (runId === undefined) {
+        throw new Error('agent dispatch did not return a run id')
+      }
+      return {
+        inputAttemptId: payload.inputAttempt.inputAttemptId,
+        runId,
+      }
+    },
+  }
+}
+
 function readExecStepResult(stepRun: JobStepRunRecord): ExecStepResult | undefined {
   const result = stepRun.result
   if (
@@ -429,7 +726,7 @@ async function resolveExecDefaultCwd(deps: ResolvedAcpServerDeps, job: JobRecord
   return placement?.cwd ?? placement?.projectRoot ?? process.cwd()
 }
 
-function requireStepInput(step: JobFlowStep): string {
+function requireStepInput(step: AgentRunnableStep): string {
   const input = step.input?.trim()
   if (input === undefined || input.length === 0) {
     throw new Error(`flow step ${step.id} input must be a non-empty string`)
@@ -503,7 +800,7 @@ function reconcileTerminalStepRun(input: {
   jobRunId: string
   phase: JobStepRunPhase
   stepRun: JobStepRunRecord
-  step: JobFlowStep
+  step: AgentRunnableStep
   runOutcome: RunOutcome
   now: string
 }): JobStepRunRecord {

@@ -9,6 +9,7 @@ import {
   isRuntimeBusyError,
 } from '../input-admission/runtime-busy.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
+import { emitDispatchTimeoutHealthEvent } from '../jobs/health-dispatch-timeout.js'
 import {
   hasInFlightHrcRunSince as defaultHasInFlightHrcRunSince,
   launchCorrelationUntilIso,
@@ -34,6 +35,7 @@ export type InputQueueDispatcherDeps = Pick<
   | 'hrcClient'
   | 'inputAdmissionStore'
   | 'inputQueueStore'
+  | 'jobsStore'
   | 'runStore'
   | 'runtimeResolver'
   | 'inputQueuePolicy'
@@ -140,7 +142,7 @@ function failStalePendingRunBlockers(deps: InputQueueDispatcherDeps): void {
       blockerKind === 'no_correlation'
         ? `Run was blocking input queue dispatch, but no HRC launch correlation was recorded within ${Math.round(timeoutMs / 1000)}s`
         : `Run was blocking input queue dispatch with partial HRC session correlation but no turn/runtime correlation within ${Math.round(timeoutMs / 1000)}s`
-    deps.runStore.updateRun(run.runId, {
+    const failedRun = deps.runStore.updateRun(run.runId, {
       status: 'failed',
       errorCode: 'dispatch_timeout',
       errorMessage,
@@ -153,10 +155,22 @@ function failStalePendingRunBlockers(deps: InputQueueDispatcherDeps): void {
         queueItem.status === 'leased' ||
         queueItem.status === 'dispatching')
     ) {
-      deps.inputQueueStore.update(queueItem.queueItemId, {
+      const failedQueueItem = deps.inputQueueStore.update(queueItem.queueItemId, {
         status: 'failed',
         lastErrorCode: 'dispatch_timeout',
         lastErrorMessage: errorMessage,
+      })
+      emitDispatchTimeoutHealthEvent({
+        jobsStore: deps.jobsStore,
+        run: failedRun,
+        queueItem: failedQueueItem,
+        originVia: 'input-queue-dispatcher',
+      })
+    } else {
+      emitDispatchTimeoutHealthEvent({
+        jobsStore: deps.jobsStore,
+        run: failedRun,
+        originVia: 'input-queue-dispatcher',
       })
     }
   }

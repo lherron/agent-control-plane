@@ -48,6 +48,7 @@ import {
 } from './internal/read-helpers.js'
 import { createEventJobEvaluator } from './jobs/event-job-evaluator.js'
 import { advanceJobFlow } from './jobs/flow-engine.js'
+import { ensureDispatchTimeoutHealthJob } from './jobs/health-dispatch-timeout.js'
 import { createJobOutputReconciler } from './jobs/output-reconciler.js'
 import { getRunFinalAssistantText } from './jobs/run-final-output.js'
 import { resolveLaunchIntent } from './launch-role-scoped.js'
@@ -800,10 +801,14 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
         }
       : {}),
     agentAssetsDir: options.agentAssetsDir,
+    ...(wrkfLifecycle.client !== undefined ? { workClient: wrkfLifecycle.client } : {}),
     wrkf: wrkfLifecycle.wrkf,
   }
   const acpServer = createAcpServer(serverDeps)
   const resolvedDeps = resolveAcpServerDeps(serverDeps)
+  if (jobsStore !== undefined) {
+    ensureDispatchTimeoutHealthJob(jobsStore)
+  }
   const accessLogger = await createAccessLogger(process.env['ACP_ACCESS_LOG_PATH'])
   const bunServer = Bun.serve({
     hostname: options.host,
@@ -917,6 +922,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
       ? createInterfaceRunDispatcher({
           runStore: resolvedDeps.runStore,
           interfaceStore,
+          ...(jobsStore !== undefined ? { jobsStore } : {}),
           conversationStore,
           hrcDbPath: resolveDatabasePath(),
           config: {
@@ -949,6 +955,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
           hrcClient: resolvedDeps.hrcClient,
           inputAdmissionStore: resolvedDeps.inputAdmissionStore,
           inputQueueStore: resolvedDeps.inputQueueStore,
+          ...(jobsStore !== undefined ? { jobsStore } : {}),
           runStore: resolvedDeps.runStore,
           runtimeResolver: resolvedDeps.runtimeResolver,
           inputQueuePolicy: resolvedDeps.inputQueuePolicy,

@@ -88,10 +88,12 @@ async function doCreateOrFind(
   const container = await client.wrkq.container.show({ project: input.projectId })
   const projectId = container.id
 
-  // 2. Find by deterministic path BEFORE attempting create. The list is
-  //    filtered by path, so any returned item already sits at input.path.
-  const listed = await client.wrkq.task.list({ path: input.path })
-  const found = listed.items[0]
+  // 2. Find by deterministic path BEFORE attempting create. `task.list.path`
+  // names the containing folder, not the exact task path, so list the parent
+  // container and match the returned task DTO's full path.
+  const parentPath = parentContainerPath(input.path)
+  const listed = await client.wrkq.task.list({ path: parentPath })
+  const found = listed.items.find((item) => taskPath(item) === input.path)
   if (found !== undefined) {
     return {
       taskId: found.id,
@@ -115,4 +117,17 @@ async function doCreateOrFind(
     taskPath: input.path,
     created: true,
   }
+}
+
+function parentContainerPath(path: string): string {
+  const idx = path.lastIndexOf('/')
+  return idx === -1 ? '' : path.slice(0, idx)
+}
+
+function taskPath(task: unknown): string | undefined {
+  if (task !== null && typeof task === 'object') {
+    const path = (task as { path?: unknown }).path
+    return typeof path === 'string' ? path : undefined
+  }
+  return undefined
 }

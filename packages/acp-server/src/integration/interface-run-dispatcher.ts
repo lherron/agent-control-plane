@@ -1,5 +1,6 @@
 import { Database } from 'bun:sqlite'
 import type { InterfaceStore } from 'acp-interface-store'
+import type { JobsStore } from 'acp-jobs-store'
 import { normalizeSessionRef } from 'agent-scope'
 import type { UnifiedSessionEvent } from 'spaces-runtime'
 
@@ -7,6 +8,7 @@ import { toCompletedVisibleAssistantMessage } from '../delivery/visible-assistan
 import type { ConversationStore } from '../deps.js'
 import type { RunStore, StoredRun } from '../domain/run-store.js'
 import { readOptionalTrimmedRawString as readString } from '../internal/read-helpers.js'
+import { emitDispatchTimeoutHealthEvent } from '../jobs/health-dispatch-timeout.js'
 import { isRecord } from '../parsers/body.js'
 import {
   hasInFlightHrcRunSince,
@@ -25,6 +27,7 @@ export type InterfaceRunDispatcherConfig = {
 export type InterfaceRunDispatcherInput = {
   runStore: RunStore
   interfaceStore: InterfaceStore
+  jobsStore?: JobsStore | undefined
   conversationStore?: ConversationStore | undefined
   hrcDbPath: string
   config: InterfaceRunDispatcherConfig
@@ -48,7 +51,7 @@ type InterfaceRunSource = {
 export function createInterfaceRunDispatcher(
   input: InterfaceRunDispatcherInput
 ): InterfaceRunDispatcher {
-  const { runStore, interfaceStore, conversationStore, hrcDbPath, config } = input
+  const { runStore, interfaceStore, jobsStore, conversationStore, hrcDbPath, config } = input
 
   let running = false
   let inflight: Promise<void> | undefined
@@ -306,11 +309,18 @@ export function createInterfaceRunDispatcher(
     }
 
     // Mark the run as failed
-    runStore.updateRun(run.runId, {
+    const failedRun = runStore.updateRun(run.runId, {
       status: 'failed',
       errorCode,
       errorMessage,
     })
+    if (errorCode === 'dispatch_timeout') {
+      emitDispatchTimeoutHealthEvent({
+        jobsStore,
+        run: failedRun,
+        originVia: 'interface-run-dispatcher',
+      })
+    }
 
     // Enqueue an error delivery so the gateway can replace the placeholder
     if (source !== undefined) {

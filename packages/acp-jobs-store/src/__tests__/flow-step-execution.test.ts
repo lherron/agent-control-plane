@@ -231,6 +231,9 @@ describe('executeNativeSideEffectStep — wrkq-task step (Phase B RED)', () => {
       expect(createOrFindCalls).toHaveLength(1)
       // Key format: "acp-health:dispatch-timeout:${canonicalEventId}:task"
       expect(createOrFindCalls[0]?.key).toBe(`acp-health:dispatch-timeout:${canonicalEventId}:task`)
+      expect(createOrFindCalls[0]?.path).toBe(
+        'agent-control-plane/inbox/acp-health-dispatch-timeout-evt-abc123def456-task'
+      )
     } finally {
       store.close()
     }

@@ -25,6 +25,8 @@ export interface WrkfLifecycle {
    * constraint). `undefined` when wrkf is disabled.
    */
   store: WrkqStoreAdapter | undefined
+  /** Shared @wrkq/client instance backing wrkf + wrkq store ports. */
+  client: WorkClient | undefined
   close(): Promise<void>
 }
 
@@ -35,6 +37,7 @@ export async function createWrkfClientLifecycle(
     return {
       wrkf: undefined,
       store: undefined,
+      client: undefined,
       async close(): Promise<void> {},
     }
   }
@@ -55,6 +58,7 @@ export async function createWrkfClientLifecycle(
     // Both the wrkf workflow port and the wrkq store adapter are derived from
     // this one client — the Phase-1 lifecycle owns the single shared WorkClient.
     store: createWrkqStoreAdapter(client),
+    client,
     async close(): Promise<void> {
       if (closed) {
         return
