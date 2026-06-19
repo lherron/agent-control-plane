@@ -317,8 +317,8 @@ export class BindingRepo {
             AND agent_id = ?
             AND project_id = ?
             AND lane_ref = ?
-            AND task_id IS NULL
             AND role_name IS NULL
+            AND (task_id IS NULL OR task_id = 'primary')
           ORDER BY created_at ASC, binding_id ASC`
       )
       .all(

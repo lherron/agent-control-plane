@@ -103,6 +103,114 @@ describe('POST /v1/agent-pulpit/messages', () => {
     })
   })
 
+  test('primary mode resolves canonical task:primary managed bindings', async () => {
+    await withWiredServer(async (fixture) => {
+      seedBinding(fixture.interfaceStore, {
+        scopeRef: 'agent:mneme:project:media-ingest:task:primary',
+      })
+      seedBinding(fixture.interfaceStore, {
+        bindingId: 'ifb_task_specific',
+        conversationRef: 'channel:task',
+        scopeRef: 'agent:mneme:project:media-ingest:task:T-1',
+      })
+
+      const response = await fixture.request({
+        method: 'POST',
+        path: '/v1/agent-pulpit/messages',
+        body: {
+          gatewayType: 'discord',
+          agentId: 'mneme',
+          projectId: 'media-ingest',
+          text: 'Managed primary delivery.',
+          idempotencyKey: 'media-ingest:finished:managed-primary',
+        },
+      })
+      const payload = await fixture.json<{ delivery: { bindingId: string } }>(response)
+
+      expect(response.status).toBe(201)
+      expect(payload.delivery.bindingId).toBe('ifb_mneme')
+    })
+  })
+
+  test('primary mode rejects non-primary task and role-scoped bindings', async () => {
+    await withWiredServer(async (fixture) => {
+      seedBinding(fixture.interfaceStore, {
+        scopeRef: 'agent:mneme:project:media-ingest:task:T-1',
+      })
+
+      const response = await fixture.request({
+        method: 'POST',
+        path: '/v1/agent-pulpit/messages',
+        body: {
+          gatewayType: 'discord',
+          agentId: 'mneme',
+          projectId: 'media-ingest',
+          text: 'Not primary.',
+          idempotencyKey: 'media-ingest:not-primary',
+        },
+      })
+
+      expect(response.status).toBe(404)
+      expect((await fixture.json<{ error: { code: string } }>(response)).error.code).toBe(
+        'interface_binding_not_found'
+      )
+    })
+
+    await withWiredServer(async (fixture) => {
+      seedBinding(fixture.interfaceStore, {
+        scopeRef: 'agent:mneme:project:media-ingest:task:primary',
+        roleName: 'operator',
+      })
+
+      const response = await fixture.request({
+        method: 'POST',
+        path: '/v1/agent-pulpit/messages',
+        body: {
+          gatewayType: 'discord',
+          agentId: 'mneme',
+          projectId: 'media-ingest',
+          text: 'Role scoped.',
+          idempotencyKey: 'media-ingest:role-scoped',
+        },
+      })
+
+      expect(response.status).toBe(404)
+      expect((await fixture.json<{ error: { code: string } }>(response)).error.code).toBe(
+        'interface_binding_not_found'
+      )
+    })
+  })
+
+  test('primary mode treats null and task:primary candidates as ambiguous', async () => {
+    await withWiredServer(async (fixture) => {
+      seedBinding(fixture.interfaceStore)
+      seedBinding(fixture.interfaceStore, {
+        bindingId: 'ifb_mneme_primary',
+        conversationRef: 'channel:mneme-primary',
+        scopeRef: 'agent:mneme:project:media-ingest:task:primary',
+      })
+
+      const response = await fixture.request({
+        method: 'POST',
+        path: '/v1/agent-pulpit/messages',
+        body: {
+          gatewayType: 'discord',
+          agentId: 'mneme',
+          projectId: 'media-ingest',
+          text: 'Ambiguous primary.',
+          idempotencyKey: 'media-ingest:ambiguous-primary',
+        },
+      })
+      const payload = await fixture.json<{
+        error: { code: string; details?: { candidates?: unknown[] } }
+      }>(response)
+
+      expect(response.status).toBe(409)
+      expect(payload.error.code).toBe('interface_binding_ambiguous')
+      expect(payload.error.details?.candidates).toHaveLength(2)
+    })
+  })
+
   test('rejects disabled, missing, mismatched, and ambiguous bindings', async () => {
     await withWiredServer(async (fixture) => {
       seedBinding(fixture.interfaceStore, { status: 'disabled' })
