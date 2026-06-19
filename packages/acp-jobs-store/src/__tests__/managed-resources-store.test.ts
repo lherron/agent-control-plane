@@ -235,6 +235,35 @@ describe('same-transaction provenance (Phase D invariant)', () => {
     expect(prov?.jobId).toBe(result.job.jobId)
   })
 
+  test('applyManagedJob for event-hook preserves output sinks in projection and drift', () => {
+    const store = freshStore()
+    const hookWithOutput: ApplyManagedJobInput = {
+      ...EVENT_HOOK,
+      desiredJson: {
+        ...EVENT_HOOK.desiredJson,
+        output: {
+          sinks: [
+            {
+              kind: 'webhook',
+              url: 'http://127.0.0.1:18551/api/transcript-summaries',
+              format: 'discord_markdown',
+            },
+          ],
+        },
+      },
+    }
+
+    const result = applyManagedJob(store, hookWithOutput)
+    if (result.outcome !== 'created') throw new Error('expected created')
+    expect(result.job.output?.sinks[0]?.url).toBe('http://127.0.0.1:18551/api/transcript-summaries')
+    expect(applyManagedJob(store, hookWithOutput).outcome).toBe('noop')
+
+    store.updateJob(result.job.jobId, {
+      output: { sinks: [{ kind: 'webhook', url: 'http://127.0.0.1:18551/changed' }] },
+    })
+    expect(detectJobDrift(store, hookWithOutput.projectionId).hasDrift).toBe(true)
+  })
+
   test('failed apply due to collision does not leave an orphaned provenance row', () => {
     const store = freshStore()
     // Pre-seed an unmanaged job at the same slug

@@ -264,6 +264,9 @@ function desiredToJobInput(input: ApplyManagedJobInput): CreateJobInput | Valida
   const disabled = getBoolean(desired, 'disabled', false)
   const triggerRecord = getRecord(desired, 'trigger')
   const inputTemplate = getRecord(desired, 'input')
+  const output = isRecord(desired['output'])
+    ? (desired['output'] as CreateJobInput['output'])
+    : undefined
 
   if (input.resourceKind === 'event-hook') {
     const validationError = validateManagedEventTrigger(triggerRecord)
@@ -288,6 +291,7 @@ function desiredToJobInput(input: ApplyManagedJobInput): CreateJobInput | Valida
       ...(description !== undefined ? { description } : {}),
       trigger: validation.trigger,
       input: inputTemplate,
+      ...(output !== undefined ? { output } : {}),
       disabled,
       actor: { kind: 'system', id: 'managed-resources' },
       actorStamp: 'system:managed-resources',
@@ -305,6 +309,7 @@ function desiredToJobInput(input: ApplyManagedJobInput): CreateJobInput | Valida
     ...(description !== undefined ? { description } : {}),
     schedule: schedule as CreateJobInput['schedule'],
     input: inputTemplate,
+    ...(output !== undefined ? { output } : {}),
     disabled,
     actor: { kind: 'system', id: 'managed-resources' },
     actorStamp: 'system:managed-resources',
@@ -319,6 +324,7 @@ function jobInputToPatch(jobInput: CreateJobInput): UpdateJobInput {
     trigger: jobInput.trigger,
     schedule: jobInput.schedule,
     input: jobInput.input,
+    output: jobInput.output,
     flow: jobInput.flow,
     disabled: jobInput.disabled,
     actor: jobInput.actor,
@@ -338,6 +344,11 @@ function liveProjectionFromJob(
   live['laneRef'] = job.laneRef
   live['disabled'] = job.disabled
   live['input'] = job.input
+  if (job.output !== undefined) {
+    live['output'] = job.output
+  } else {
+    live['output'] = undefined
+  }
   live['title'] = job.description
 
   if (job.trigger.kind === 'event') {

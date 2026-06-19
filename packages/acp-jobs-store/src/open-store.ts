@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 
@@ -37,6 +37,7 @@ type JobRow = {
   schedule_window_end: string | null
   schedule_json: string | null
   input_json: string
+  output_json: string | null
   flow_json: string | null
   disabled: number
   last_fire_at: string | null
@@ -68,6 +69,7 @@ type JobRunRow = {
   resolved_scope_ref: string | null
   resolved_lane_ref: string | null
   resolved_input_json: string | null
+  output_json: string | null
   source_json: string | null
   actor_kind: Actor['kind'] | null
   actor_id: string | null
@@ -104,6 +106,24 @@ type EventJobMatchRow = {
   job_run_id: string | null
   target_task_id: string | null
   created_at: string
+}
+
+type JobOutputSinkAttemptRow = {
+  job_run_id: string
+  sink_index: number
+  sink_fingerprint: string
+  status: JobOutputSinkAttemptStatus
+  attempts: number
+  next_attempt_at: string | null
+  last_attempt_at: string | null
+  delivered_at: string | null
+  delivery_request_id: string | null
+  payload_hash: string | null
+  body_hash: string | null
+  last_error: string | null
+  response_status: number | null
+  created_at: string
+  updated_at: string
 }
 
 type JobStepRunRow = {
@@ -153,6 +173,20 @@ export type JobSchedule = Readonly<{
 
 export type JobInputTemplate = Readonly<Record<string, unknown>>
 
+export type JobOutputWebhookSink = Readonly<{
+  kind: 'webhook'
+  url: string
+  format?: string | undefined
+  [key: string]: unknown
+}>
+
+export type JobOutputSink = JobOutputWebhookSink
+
+export type JobOutputConfig = Readonly<{
+  sinks: readonly JobOutputSink[]
+  [key: string]: unknown
+}>
+
 export type JobRecord = {
   jobId: string
   slug: string
@@ -165,6 +199,7 @@ export type JobRecord = {
   /** Present only for schedule-kind triggers; undefined for event triggers. */
   schedule?: JobSchedule | undefined
   input: JobInputTemplate
+  output?: JobOutputConfig | undefined
   flow?: JobFlow | undefined
   disabled: boolean
   lastFireAt?: string | undefined
@@ -247,6 +282,7 @@ export type JobRunRecord = {
   resolvedScopeRef?: string | undefined
   resolvedLaneRef?: string | undefined
   resolvedInput?: Readonly<Record<string, unknown>> | undefined
+  output?: JobOutputConfig | undefined
   /** Source provenance, e.g. { kind:'webhook', source:'wrkq', eventId, eventSeq }. */
   source?: Readonly<Record<string, unknown>> | undefined
   actor: Actor
@@ -267,6 +303,7 @@ export type CreateJobInput = {
   trigger?: JobTrigger | undefined
   schedule?: JobSchedule | undefined
   input: JobInputTemplate
+  output?: JobOutputConfig | undefined
   flow?: JobFlow | undefined
   disabled?: boolean | undefined
   actor?: Actor | undefined
@@ -280,6 +317,7 @@ export type UpdateJobInput = {
   trigger?: JobTrigger | undefined
   schedule?: JobSchedule | undefined
   input?: JobInputTemplate | undefined
+  output?: JobOutputConfig | null | undefined
   flow?: JobFlow | undefined
   disabled?: boolean | undefined
   actor?: Actor | undefined
@@ -332,6 +370,7 @@ export type AppendJobRunInput = {
   resolvedScopeRef?: string | undefined
   resolvedLaneRef?: string | undefined
   resolvedInput?: Readonly<Record<string, unknown>> | undefined
+  output?: JobOutputConfig | undefined
   source?: Readonly<Record<string, unknown>> | undefined
   actor?: Actor | undefined
   actorStamp?: string | undefined
@@ -396,6 +435,41 @@ export type UpdateJobRunInput = {
   completedAt?: string | undefined
   actor?: Actor | undefined
   actorStamp?: string | undefined
+}
+
+export type JobOutputSinkAttemptStatus = 'pending' | 'succeeded' | 'failed'
+
+export type JobOutputSinkAttemptRecord = {
+  jobRunId: string
+  sinkIndex: number
+  sinkFingerprint: string
+  status: JobOutputSinkAttemptStatus
+  attempts: number
+  nextAttemptAt?: string | undefined
+  lastAttemptAt?: string | undefined
+  deliveredAt?: string | undefined
+  deliveryRequestId?: string | undefined
+  payloadHash?: string | undefined
+  bodyHash?: string | undefined
+  lastError?: string | undefined
+  responseStatus?: number | undefined
+  createdAt: string
+  updatedAt: string
+}
+
+export type RecordJobOutputSinkAttemptInput = {
+  jobRunId: string
+  sinkIndex: number
+  sinkFingerprint: string
+  status: JobOutputSinkAttemptStatus
+  attemptedAt: string
+  nextAttemptAt?: string | null | undefined
+  deliveredAt?: string | null | undefined
+  deliveryRequestId?: string | null | undefined
+  payloadHash?: string | null | undefined
+  bodyHash?: string | null | undefined
+  lastError?: string | null | undefined
+  responseStatus?: number | null | undefined
 }
 
 export type ClaimDueJobRunsInput = {
@@ -690,6 +764,36 @@ export const jobsStoreMigrations: readonly JobsStoreMigration[] = [
         ON managed_resource_provenance_jobs (job_id);
     `,
   },
+  {
+    id: '007_job_output_sinks',
+    sql: `
+      ALTER TABLE jobs ADD COLUMN output_json TEXT;
+      ALTER TABLE job_runs ADD COLUMN output_json TEXT;
+
+      CREATE TABLE IF NOT EXISTS job_output_sink_attempts (
+        job_run_id TEXT NOT NULL,
+        sink_index INTEGER NOT NULL,
+        sink_fingerprint TEXT NOT NULL,
+        status TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TEXT,
+        last_attempt_at TEXT,
+        delivered_at TEXT,
+        delivery_request_id TEXT,
+        payload_hash TEXT,
+        body_hash TEXT,
+        last_error TEXT,
+        response_status INTEGER,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (job_run_id, sink_index, sink_fingerprint),
+        FOREIGN KEY (job_run_id) REFERENCES job_runs(job_run_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS job_output_sink_attempts_retry_idx
+        ON job_output_sink_attempts (status, next_attempt_at, updated_at);
+    `,
+  },
 ]
 
 export interface OpenSqliteJobsStoreOptions {
@@ -714,6 +818,16 @@ export interface JobsStore {
     get(jobRunId: string): { jobRun: JobRunRecord | undefined }
     update(jobRunId: string, patch: UpdateJobRunInput): { jobRun: JobRunRecord }
     claimDueRuns(input: ClaimDueJobRunsInput): { jobRuns: JobRunRecord[] }
+    listDispatchedNonFlow(input?: { limit?: number | undefined }): ClaimedDueJob[]
+  }
+  readonly outputSinkAttempts: {
+    get(input: {
+      jobRunId: string
+      sinkIndex: number
+      sinkFingerprint: string
+    }): { attempt: JobOutputSinkAttemptRecord | undefined }
+    record(input: RecordJobOutputSinkAttemptInput): { attempt: JobOutputSinkAttemptRecord }
+    listByJobRun(jobRunId: string): { attempts: JobOutputSinkAttemptRecord[] }
   }
   readonly jobStepRuns: {
     insertMany(
@@ -746,6 +860,16 @@ export interface JobsStore {
   getJobRun(jobRunId: string): { jobRun: JobRunRecord | undefined }
   updateJobRun(jobRunId: string, patch: UpdateJobRunInput): { jobRun: JobRunRecord }
   claimDueJobRuns(input: ClaimDueJobRunsInput): { jobRuns: JobRunRecord[] }
+  listDispatchedNonFlowJobRuns(input?: { limit?: number | undefined }): ClaimedDueJob[]
+  getJobOutputSinkAttempt(input: {
+    jobRunId: string
+    sinkIndex: number
+    sinkFingerprint: string
+  }): { attempt: JobOutputSinkAttemptRecord | undefined }
+  recordJobOutputSinkAttempt(input: RecordJobOutputSinkAttemptInput): {
+    attempt: JobOutputSinkAttemptRecord
+  }
+  listJobOutputSinkAttempts(jobRunId: string): { attempts: JobOutputSinkAttemptRecord[] }
   insertJobStepRuns(
     jobRunId: string,
     phase: JobStepRunPhase,
@@ -867,6 +991,33 @@ function parseOptionalJsonRecord(
   return value === null ? undefined : parseJsonRecord(value, field)
 }
 
+function parseJobOutput(value: string | null): JobOutputConfig | undefined {
+  const output = parseOptionalJsonRecord(value, 'output')
+  if (output === undefined) {
+    return undefined
+  }
+  return output as JobOutputConfig
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJson(item)).join(',')}]`
+  }
+  if (typeof value !== 'object' || value === null) {
+    return JSON.stringify(value)
+  }
+  const record = value as Record<string, unknown>
+  return `{${Object.keys(record)
+    .filter((key) => record[key] !== undefined)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+    .join(',')}}`
+}
+
+export function fingerprintJobOutputSink(sink: JobOutputSink): string {
+  return `sha256:${createHash('sha256').update(stableJson(sink)).digest('hex')}`
+}
+
 function actorToStamp(actor: Actor): string {
   return `${actor.kind}:${actor.id}`
 }
@@ -941,6 +1092,7 @@ function parseTriggerJson(value: string): JobTrigger {
 function toJobRecord(row: JobRow): JobRecord {
   const flow = parseOptionalJsonRecord(row.flow_json, 'flow') as JobFlow | undefined
   const trigger = parseTriggerJson(row.trigger_json)
+  const output = parseJobOutput(row.output_json)
   const schedule =
     row.schedule_json !== null
       ? (parseJsonRecord(row.schedule_json, 'schedule') as JobSchedule)
@@ -956,6 +1108,7 @@ function toJobRecord(row: JobRow): JobRecord {
     trigger,
     ...(trigger.kind === 'schedule' && schedule !== undefined ? { schedule } : {}),
     input: parseJsonRecord(row.input_json, 'input'),
+    ...(output !== undefined ? { output } : {}),
     ...(flow !== undefined ? { flow } : {}),
     disabled: row.disabled !== 0,
     ...(row.last_fire_at !== null ? { lastFireAt: row.last_fire_at } : {}),
@@ -1001,6 +1154,7 @@ function toEventJobMatchRecord(row: EventJobMatchRow): EventJobMatchRecord {
 }
 
 function toJobRunRecord(row: JobRunRow): JobRunRecord {
+  const output = parseJobOutput(row.output_json)
   return {
     jobRunId: row.job_run_id,
     jobId: row.job_id,
@@ -1021,9 +1175,30 @@ function toJobRunRecord(row: JobRunRow): JobRunRecord {
     ...(row.resolved_input_json !== null
       ? { resolvedInput: parseJsonRecord(row.resolved_input_json, 'resolvedInput') }
       : {}),
+    ...(output !== undefined ? { output } : {}),
     ...(row.source_json !== null ? { source: parseJsonRecord(row.source_json, 'source') } : {}),
     actor: rowToActor(row),
     actorStamp: row.actor_stamp,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function toJobOutputSinkAttemptRecord(row: JobOutputSinkAttemptRow): JobOutputSinkAttemptRecord {
+  return {
+    jobRunId: row.job_run_id,
+    sinkIndex: row.sink_index,
+    sinkFingerprint: row.sink_fingerprint,
+    status: row.status,
+    attempts: row.attempts,
+    ...(row.next_attempt_at !== null ? { nextAttemptAt: row.next_attempt_at } : {}),
+    ...(row.last_attempt_at !== null ? { lastAttemptAt: row.last_attempt_at } : {}),
+    ...(row.delivered_at !== null ? { deliveredAt: row.delivered_at } : {}),
+    ...(row.delivery_request_id !== null ? { deliveryRequestId: row.delivery_request_id } : {}),
+    ...(row.payload_hash !== null ? { payloadHash: row.payload_hash } : {}),
+    ...(row.body_hash !== null ? { bodyHash: row.body_hash } : {}),
+    ...(row.last_error !== null ? { lastError: row.last_error } : {}),
+    ...(row.response_status !== null ? { responseStatus: row.response_status } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -1246,6 +1421,9 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
     if (!isValidJobSlug(slug)) {
       throw new Error(`invalid job slug: ${slug}`)
     }
+    if (input.output !== undefined && input.flow !== undefined) {
+      throw new Error('job output is only supported for non-flow jobs')
+    }
     const description = normalizeOptionalString(input.description)
 
     sqlite
@@ -1266,6 +1444,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
             schedule_window_end,
             schedule_json,
             input_json,
+            output_json,
             flow_json,
             disabled,
             last_fire_at,
@@ -1277,7 +1456,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
             created_at,
             updated_at,
             archived_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
         `
       )
       .run(
@@ -1295,6 +1474,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
         columns.windowEnd,
         columns.scheduleJson,
         JSON.stringify(input.input),
+        input.output !== undefined ? JSON.stringify(input.output) : null,
         input.flow !== undefined ? JSON.stringify(input.flow) : null,
         disabled ? 1 : 0,
         null,
@@ -1351,6 +1531,11 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
     const existingJob = toJobRecord(existing)
     const disabled = patch.disabled ?? existingJob.disabled
     const flow = patch.flow ?? existingJob.flow
+    const output =
+      'output' in patch ? (patch.output === null ? undefined : patch.output) : existingJob.output
+    if (output !== undefined && flow !== undefined) {
+      throw new Error('job output is only supported for non-flow jobs')
+    }
     const slug = patch.slug ?? existingJob.slug
     if (patch.slug !== undefined && !isValidJobSlug(patch.slug)) {
       throw new Error(`invalid job slug: ${patch.slug}`)
@@ -1399,6 +1584,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
               schedule_window_end = ?,
               schedule_json = ?,
               input_json = ?,
+              output_json = ?,
               flow_json = ?,
               disabled = ?,
               next_fire_at = ?,
@@ -1420,6 +1606,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
         columns.windowEnd,
         columns.scheduleJson,
         JSON.stringify(patch.input ?? existingJob.input),
+        output !== undefined ? JSON.stringify(output) : null,
         flow !== undefined ? JSON.stringify(flow) : null,
         disabled ? 1 : 0,
         columns.nextFireAt,
@@ -1469,6 +1656,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
             resolved_scope_ref,
             resolved_lane_ref,
             resolved_input_json,
+            output_json,
             source_json,
             actor_kind,
             actor_id,
@@ -1476,7 +1664,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
             actor_stamp,
             created_at,
             updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `
       )
       .run(
@@ -1497,6 +1685,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
         input.resolvedScopeRef ?? null,
         input.resolvedLaneRef ?? null,
         input.resolvedInput !== undefined ? JSON.stringify(input.resolvedInput) : null,
+        input.output !== undefined ? JSON.stringify(input.output) : null,
         input.source !== undefined ? JSON.stringify(input.source) : null,
         actor.kind,
         actor.id,
@@ -1864,7 +2053,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
     input: Omit<AppendJobRunInput, 'jobId'>
   ): { job: JobRecord; jobRun: JobRunRecord } => {
     const job = toJobRecord(requireJobRow(sqlite, jobId))
-    const jobRun = appendJobRun({ ...input, jobId }).jobRun
+    const jobRun = appendJobRun({ ...input, jobId, output: input.output ?? job.output }).jobRun
     return { job, jobRun }
   }
 
@@ -1880,6 +2069,33 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
             AND j.archived_at IS NULL
             AND j.flow_json IS NOT NULL
           ORDER BY jr.triggered_at ASC, jr.job_run_id ASC
+          LIMIT ?
+        `
+      )
+      .all(limit) as JobRunRow[]
+
+    const results: ClaimedDueJob[] = []
+    for (const row of rows) {
+      const job = toJobRecord(requireJobRow(sqlite, row.job_id))
+      results.push({ job, jobRun: toJobRunRecord(row) })
+    }
+    return results
+  }
+
+  const listDispatchedNonFlowJobRuns = (
+    input: { limit?: number | undefined } = {}
+  ): ClaimedDueJob[] => {
+    const limit = input.limit ?? DEFAULT_CLAIM_LIMIT
+    const rows = sqlite
+      .prepare(
+        `
+          SELECT jr.*
+          FROM job_runs jr
+          JOIN jobs j ON j.job_id = jr.job_id
+          WHERE jr.status = 'dispatched'
+            AND j.archived_at IS NULL
+            AND j.flow_json IS NULL
+          ORDER BY jr.dispatched_at ASC, jr.job_run_id ASC
           LIMIT ?
         `
       )
@@ -1954,12 +2170,14 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
         }
 
         const claimActor: Actor = input.actor ?? { kind: 'system', id: 'scheduler' }
+        const claimedJob = toJobRecord(row)
         const jobRun = appendJobRun({
           jobId: row.job_id,
           triggeredAt: now,
           triggeredBy,
           status: 'claimed',
           claimedAt: now,
+          output: claimedJob.output,
           actor: claimActor,
           actorStamp: input.actorStamp ?? actorToStamp(claimActor),
         }).jobRun
@@ -2171,6 +2389,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
       }
 
       const now = input.triggeredAt ?? new Date().toISOString()
+      const job = toJobRecord(requireJobRow(sqlite, input.jobId))
       const jobRun = appendJobRun({
         jobId: input.jobId,
         triggeredAt: now,
@@ -2180,6 +2399,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
         resolvedScopeRef: input.resolvedScopeRef,
         resolvedLaneRef: input.resolvedLaneRef,
         resolvedInput: input.resolvedInput,
+        output: job.output,
         source: input.source,
         ...(input.actor !== undefined ? { actor: input.actor } : {}),
         ...(input.actorStamp !== undefined ? { actorStamp: input.actorStamp } : {}),
@@ -2230,6 +2450,126 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
     return { matches: rows.map((row) => toEventJobMatchRecord(row)) }
   }
 
+  const getJobOutputSinkAttempt = (input: {
+    jobRunId: string
+    sinkIndex: number
+    sinkFingerprint: string
+  }): { attempt: JobOutputSinkAttemptRecord | undefined } => {
+    const row = sqlite
+      .prepare(
+        `
+          SELECT *
+          FROM job_output_sink_attempts
+          WHERE job_run_id = ?
+            AND sink_index = ?
+            AND sink_fingerprint = ?
+        `
+      )
+      .get(input.jobRunId, input.sinkIndex, input.sinkFingerprint) as
+      | JobOutputSinkAttemptRow
+      | undefined
+    return { attempt: row === undefined ? undefined : toJobOutputSinkAttemptRecord(row) }
+  }
+
+  const recordJobOutputSinkAttempt = (
+    input: RecordJobOutputSinkAttemptInput
+  ): { attempt: JobOutputSinkAttemptRecord } => {
+    const existing = getJobOutputSinkAttempt(input).attempt
+    if (existing?.status === 'succeeded') {
+      return { attempt: existing }
+    }
+
+    const now = input.attemptedAt
+    if (existing === undefined) {
+      sqlite
+        .prepare(
+          `
+            INSERT INTO job_output_sink_attempts (
+              job_run_id, sink_index, sink_fingerprint, status, attempts,
+              next_attempt_at, last_attempt_at, delivered_at, delivery_request_id,
+              payload_hash, body_hash, last_error, response_status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `
+        )
+        .run(
+          input.jobRunId,
+          input.sinkIndex,
+          input.sinkFingerprint,
+          input.status,
+          input.nextAttemptAt ?? null,
+          now,
+          input.deliveredAt ?? null,
+          input.deliveryRequestId ?? null,
+          input.payloadHash ?? null,
+          input.bodyHash ?? null,
+          input.lastError ?? null,
+          input.responseStatus ?? null,
+          now,
+          now
+        )
+    } else {
+      sqlite
+        .prepare(
+          `
+            UPDATE job_output_sink_attempts
+            SET status = ?,
+                attempts = attempts + 1,
+                next_attempt_at = ?,
+                last_attempt_at = ?,
+                delivered_at = ?,
+                delivery_request_id = ?,
+                payload_hash = ?,
+                body_hash = ?,
+                last_error = ?,
+                response_status = ?,
+                updated_at = ?
+            WHERE job_run_id = ?
+              AND sink_index = ?
+              AND sink_fingerprint = ?
+          `
+        )
+        .run(
+          input.status,
+          input.nextAttemptAt ?? null,
+          now,
+          input.deliveredAt ?? existing.deliveredAt ?? null,
+          input.deliveryRequestId ?? existing.deliveryRequestId ?? null,
+          input.payloadHash ?? existing.payloadHash ?? null,
+          input.bodyHash ?? existing.bodyHash ?? null,
+          input.lastError ?? null,
+          input.responseStatus ?? null,
+          now,
+          input.jobRunId,
+          input.sinkIndex,
+          input.sinkFingerprint
+        )
+    }
+
+    const attempt = getJobOutputSinkAttempt(input).attempt
+    if (attempt === undefined) {
+      throw new Error(
+        `job output sink attempt not found after record: ${input.jobRunId}/${input.sinkIndex}/${input.sinkFingerprint}`
+      )
+    }
+    return { attempt }
+  }
+
+  const listJobOutputSinkAttempts = (
+    jobRunId: string
+  ): { attempts: JobOutputSinkAttemptRecord[] } => {
+    const rows = sqlite
+      .prepare(
+        `
+          SELECT *
+          FROM job_output_sink_attempts
+          WHERE job_run_id = ?
+          ORDER BY sink_index ASC, sink_fingerprint ASC
+        `
+      )
+      .all(jobRunId) as JobOutputSinkAttemptRow[]
+    return { attempts: rows.map((row) => toJobOutputSinkAttemptRecord(row)) }
+  }
+
   const store: JobsStore = {
     sqlite,
     migrations: {
@@ -2248,6 +2588,12 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
       get: getJobRun,
       update: updateJobRun,
       claimDueRuns: claimDueJobRuns,
+      listDispatchedNonFlow: listDispatchedNonFlowJobRuns,
+    },
+    outputSinkAttempts: {
+      get: getJobOutputSinkAttempt,
+      record: recordJobOutputSinkAttempt,
+      listByJobRun: listJobOutputSinkAttempts,
     },
     jobStepRuns: {
       insertMany: insertJobStepRuns,
@@ -2272,6 +2618,10 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
     createJobRun,
     claimDueJobs,
     listInflightFlowJobRuns,
+    listDispatchedNonFlowJobRuns,
+    getJobOutputSinkAttempt,
+    recordJobOutputSinkAttempt,
+    listJobOutputSinkAttempts,
     eventInbox: {
       insert: insertInboxEvent,
       get: getInboxEvent,

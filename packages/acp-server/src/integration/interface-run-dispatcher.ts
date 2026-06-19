@@ -9,7 +9,7 @@ import type { RunStore, StoredRun } from '../domain/run-store.js'
 import { readOptionalTrimmedRawString as readString } from '../internal/read-helpers.js'
 import { isRecord } from '../parsers/body.js'
 import {
-  hasHrcAcceptedRunSince,
+  hasInFlightHrcRunSince,
   launchCorrelationUntilIso,
   readCompletedAssistantMessageAfterSeq,
   readCompletedAssistantMessageFromHrcEvents,
@@ -105,14 +105,17 @@ export function createInterfaceRunDispatcher(
         // SDK-headless dispatchTurn blocks until the HRC turn completes, so a
         // long-running turn can leave the ACP run pending+no-hrcRunId well past
         // the dispatch timeout even though HRC accepted and is actively
-        // processing it. Treat an HRC run accepted on the same host session
-        // within a bounded window after this ACP run was created as evidence the
-        // launch succeeded. The window bound is essential: without it, an
-        // UNRELATED turn dispatched hours later keeps a long-dead pending run
-        // alive, jamming the lane's input queue forever (T-04297 follow-up).
+        // processing it. Treat an IN-FLIGHT HRC run accepted on the same host
+        // session within a bounded window after this ACP run was created as
+        // evidence the launch is still working. The in-flight bound is essential:
+        // once the correlated HRC run is TERMINAL but this ACP run is still
+        // pending+no-hrcRunId, the write-back was permanently lost and the
+        // phantom must be failed, not protected (T-04935). The window bound is
+        // likewise essential: without it, an UNRELATED turn dispatched hours
+        // later keeps a long-dead pending run alive (T-04297 follow-up).
         const launchObserved =
           run.hostSessionId !== undefined &&
-          hasHrcAcceptedRunSince(
+          hasInFlightHrcRunSince(
             hrcDbPath,
             run.hostSessionId,
             run.createdAt,

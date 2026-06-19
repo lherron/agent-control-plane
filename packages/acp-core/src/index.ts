@@ -123,6 +123,7 @@ export {
 } from './learning/index.js'
 
 export type {
+  AgentDispatchFlowStep,
   AgentFlowStep,
   BaseFlowStep,
   ExecFlowStep,
@@ -136,7 +137,10 @@ export type {
   JobStepRun,
   JobStepRunPhase,
   JobStepRunStatus,
+  PulpitMessageFlowStep,
   StepExpectation,
+  StepOutputRef,
+  WrkqTaskFlowStep,
 } from './models/job.js'
 
 export { codeDefectFastlaneV1 } from './presets/code_defect_fastlane.v1.js'

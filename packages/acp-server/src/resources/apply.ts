@@ -13,6 +13,8 @@ import {
   openSqliteJobsStore,
 } from 'acp-jobs-store'
 
+import { validateJobOutputConfig } from '../jobs/job-output-config.js'
+
 // ---------------------------------------------------------------------------
 // Types (API contract frozen by Phase C RED tests)
 // ---------------------------------------------------------------------------
@@ -198,6 +200,28 @@ function validateOriginPolicy(
   }
 }
 
+function validateDesiredOutput(
+  errors: Array<{ field: string; message: string }>,
+  resource: Record<string, unknown>,
+  index: number
+): void {
+  const desiredJson = resource['desiredJson']
+  if (!isRecord(desiredJson) || desiredJson['output'] === undefined) {
+    return
+  }
+  const validation = validateJobOutputConfig(desiredJson['output'])
+  if (!validation.valid) {
+    addError(errors, `resources[${index}].desiredJson.output`, validation.errors.join('; '))
+  }
+  if (desiredJson['flow'] !== undefined) {
+    addError(
+      errors,
+      `resources[${index}].desiredJson.output`,
+      'output is only supported for non-flow jobs'
+    )
+  }
+}
+
 function openCachedJobsStore(dbPath: string): JobsStore {
   const key = `jobs::${dbPath}`
   const cached = storeCache.get(key)
@@ -367,6 +391,7 @@ export function validateManagedResourcesPlan(rawPlan: unknown): PlanValidationRe
         }
       }
       validateOriginPolicy(errors, resource, index)
+      validateDesiredOutput(errors, resource, index)
     })
   }
 

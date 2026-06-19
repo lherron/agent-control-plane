@@ -142,6 +142,61 @@ describe('input admission queue', () => {
     )
   })
 
+  test('T-04935 inline launch failure marks the run failed instead of leaving it pending', async () => {
+    // The inline path creates the run `pending` (no queue item) before awaiting
+    // the launch. A non-runtime-busy launch error must transition the run to
+    // `failed` — leaving it `pending` makes it a phantom that jams every later
+    // dispatch in the lane via sameSessionHasActiveRun.
+    const launchCalls: LaunchCall[] = []
+    await withWiredServer(
+      async (fixture) => {
+        const sessionRef = {
+          scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:T-inline-fail:role:implementer`,
+          laneRef: 'main',
+        }
+
+        const response = await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body: {
+            idempotencyKey: 'inline-fail-first',
+            sessionRef,
+            content: 'inline launch that throws',
+          },
+        })
+        // handleCreateInput re-throws the launch error after failing the run.
+        expect(response.status).toBe(500)
+        expect(launchCalls).toHaveLength(1)
+
+        const runs = fixture.runStore
+          .listRuns()
+          .filter((run) => run.scopeRef === sessionRef.scopeRef)
+        expect(runs).toHaveLength(1)
+        expect(runs[0]).toMatchObject({
+          status: 'failed',
+          errorCode: 'launch_failed',
+        })
+        // No phantom pending run remains to block the lane.
+        expect(runs.filter((run) => run.status === 'pending')).toHaveLength(0)
+      },
+      {
+        runtimeResolver: async () => ({
+          agentRoot: '/tmp/agents/larry',
+          projectRoot: '/tmp/project',
+          cwd: '/tmp/project',
+          runMode: 'task',
+          bundle: { kind: 'compose', compose: [] },
+          harness: { provider: 'openai', interactive: true },
+        }),
+        launchRoleScopedRun: async (input) => {
+          launchCalls.push(input)
+          // Run stays `pending` (launcher threw before writing hrcRunId/status).
+          throw new Error('simulated HRC dispatch failure')
+        },
+      }
+    )
+  })
+
   test('stale pending runs without HRC correlation do not block queued dispatch forever', async () => {
     const stores = createAdmissionStores()
     const initialLaunchCalls: LaunchCall[] = []

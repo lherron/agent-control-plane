@@ -48,6 +48,7 @@ import {
 } from './internal/read-helpers.js'
 import { createEventJobEvaluator } from './jobs/event-job-evaluator.js'
 import { advanceJobFlow } from './jobs/flow-engine.js'
+import { createJobOutputReconciler } from './jobs/output-reconciler.js'
 import { getRunFinalAssistantText } from './jobs/run-final-output.js'
 import { resolveLaunchIntent } from './launch-role-scoped.js'
 import { createPbcWorkerScheduler } from './pbc/worker-scheduler.js'
@@ -980,6 +981,14 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
           evaluateEventJob: createEventJobEvaluator(),
         })
       : undefined
+  const jobOutputReconciler =
+    jobsStore !== undefined && schedulerEnabled
+      ? createJobOutputReconciler({
+          jobsStore,
+          runStore: resolvedDeps.runStore,
+          interfaceStore: resolvedDeps.interfaceStore,
+        })
+      : undefined
   const pbcWorkerRunner = schedulerEnabled
     ? createPbcWorkerRunner({ deps: resolvedDeps, wrkqStore, options })
     : undefined
@@ -992,7 +1001,9 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
       : undefined
   let schedulerTickInProgress = false
   const schedulerTimer =
-    jobsScheduler !== undefined || pbcWorkerScheduler !== undefined
+    jobsScheduler !== undefined ||
+    jobOutputReconciler !== undefined ||
+    pbcWorkerScheduler !== undefined
       ? setInterval(() => {
           if (schedulerTickInProgress) {
             return
@@ -1002,6 +1013,9 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
             .then(async () => {
               if (jobsScheduler !== undefined) {
                 await jobsScheduler.tick(new Date())
+              }
+              if (jobOutputReconciler !== undefined) {
+                await jobOutputReconciler.runOnce()
               }
             })
             .catch((error) => {

@@ -33,13 +33,35 @@ export type JobFlow = {
   onFailure?: JobFlowStep[] | undefined
 }
 
-export type JobFlowStep = AgentFlowStep | ExecFlowStep
+export type JobFlowStep =
+  | AgentFlowStep
+  | ExecFlowStep
+  | WrkqTaskFlowStep
+  | PulpitMessageFlowStep
+  | AgentDispatchFlowStep
 
 export type FlowNext = string | 'continue' | 'succeed' | 'fail'
 
+/**
+ * A reference to a top-level output field of a prior step in the same phase.
+ * Authority-bearing fields in native side-effect steps (wrkq-task,
+ * pulpit-message, agent-dispatch) may use this instead of a literal string,
+ * letting a prior step's result compose structural values without exposing raw
+ * event payload to authority surfaces.
+ */
+export type StepOutputRef = {
+  /** Id of the prior step whose result to reference. Must appear BEFORE this step in the same phase. */
+  readonly $step: string
+  /**
+   * Top-level field name from the referenced step's result object.
+   * Must be a bare identifier — no dots, brackets, or other path notation.
+   */
+  readonly field: string
+}
+
 export type BaseFlowStep = {
   id: string
-  kind?: 'agent' | 'exec' | undefined
+  kind?: 'agent' | 'exec' | 'wrkq-task' | 'pulpit-message' | 'agent-dispatch' | undefined
   timeout?: string | undefined
   fresh?: boolean | undefined
   next?: FlowNext | undefined
@@ -70,6 +92,51 @@ export type ExecFlowStep = BaseFlowStep & {
         default?: FlowNext | undefined
       }
     | undefined
+}
+
+export type WrkqTaskFlowStep = BaseFlowStep & {
+  kind: 'wrkq-task'
+  /** Task title — content field, may contain {{…}} template expressions. */
+  title: string | StepOutputRef
+  /**
+   * Target container path (e.g. "agent-control-plane/inbox") — authority field.
+   * Must be a literal string or a step-output ref; template expressions are not
+   * permitted here.
+   */
+  container: string | StepOutputRef
+  description?: string | StepOutputRef | undefined
+  taskKind?: string | undefined
+  labels?: string[] | undefined
+}
+
+export type PulpitMessageFlowStep = BaseFlowStep & {
+  kind: 'pulpit-message'
+  /** Message body — content field, may contain {{…}} template expressions. */
+  content: string | StepOutputRef
+  /**
+   * Pulpit binding selector — authority field.
+   * Must be a literal string or a step-output ref; template expressions are not
+   * permitted here.
+   */
+  binding: string | StepOutputRef
+}
+
+export type AgentDispatchFlowStep = BaseFlowStep & {
+  kind: 'agent-dispatch'
+  /**
+   * Target session scope ref — authority field.
+   * Must be a literal string or a step-output ref; template expressions are not
+   * permitted here.
+   */
+  scopeRef: string | StepOutputRef
+  /**
+   * Target lane ref — authority field (optional, defaults to main at runtime).
+   * Must be a literal string or a step-output ref; template expressions are not
+   * permitted here.
+   */
+  laneRef?: string | StepOutputRef | undefined
+  /** Dispatch input — content fields, may contain {{…}} template expressions. */
+  input?: Readonly<Record<string, string | StepOutputRef>> | undefined
 }
 
 export type StepExpectation = {

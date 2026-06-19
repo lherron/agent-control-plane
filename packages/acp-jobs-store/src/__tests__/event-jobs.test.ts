@@ -306,6 +306,25 @@ describe('event-claim minting', () => {
     expect(persisted?.source?.['kind']).toBe('webhook')
   })
 
+  test('snapshots job output onto event JobRuns before later job edits', async () => {
+    const store = createInMemoryJobsStore()
+    const created = store.createJob(
+      eventJob({
+        output: { sinks: [{ kind: 'webhook', url: 'http://127.0.0.1:18551/original' }] },
+      })
+    ).job
+    const { runs } = await ingestAndTick(store, adaptWrkqWebhookEvent(wrkqEvent()))
+    const minted = runs.find((r) => r.triggeredBy === 'webhook')
+    expect(minted?.output?.sinks[0]?.url).toBe('http://127.0.0.1:18551/original')
+
+    store.updateJob(created.jobId, {
+      output: { sinks: [{ kind: 'webhook', url: 'http://127.0.0.1:18551/changed' }] },
+    })
+
+    const persisted = store.getJobRun(minted!.jobRunId).jobRun
+    expect(persisted?.output?.sinks[0]?.url).toBe('http://127.0.0.1:18551/original')
+  })
+
   test('the inbox event is marked processed after a tick', async () => {
     const store = createInMemoryJobsStore()
     store.createJob(eventJob())

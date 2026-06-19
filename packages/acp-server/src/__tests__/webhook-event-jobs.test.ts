@@ -69,6 +69,38 @@ describe('admin jobs trigger union', () => {
     expect(body.job.trigger.kind).toBe('event')
   })
 
+  test('creates a non-flow event job with output webhook config', async () => {
+    const { deps } = makeDeps()
+    const res = await call(
+      handleCreateAdminJob,
+      jsonRequest('POST', '/v1/admin/jobs', {
+        ...EVENT_JOB_BODY,
+        output: {
+          sinks: [
+            { kind: 'webhook', url: 'http://127.0.0.1:18551/api', format: 'discord_markdown' },
+          ],
+        },
+      }),
+      deps
+    )
+    expect(res.status).toBe(201)
+    const body = (await res.json()) as { job: { output?: { sinks?: Array<{ url: string }> } } }
+    expect(body.job.output?.sinks?.[0]?.url).toBe('http://127.0.0.1:18551/api')
+  })
+
+  test('rejects non-loopback output webhook URLs', async () => {
+    const { deps } = makeDeps()
+    const res = await call(
+      handleCreateAdminJob,
+      jsonRequest('POST', '/v1/admin/jobs', {
+        ...EVENT_JOB_BODY,
+        output: { sinks: [{ kind: 'webhook', url: 'https://example.com/hook' }] },
+      }),
+      deps
+    )
+    expect(res.status).toBe(400)
+  })
+
   test('rejects event + flow on create (check #6)', async () => {
     const { deps } = makeDeps()
     const res = await call(

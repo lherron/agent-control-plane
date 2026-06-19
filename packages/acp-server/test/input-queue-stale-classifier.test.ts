@@ -19,7 +19,7 @@ type DispatcherTestHooks = {
     siblings: readonly StoredRun[]
     timeoutMs: number
     hrcDbPath?: string | undefined
-    hasHrcAcceptedRunSince?: (
+    hasInFlightHrcRunSince?: (
       hrcDbPath: string,
       hostSessionId: string,
       since: string,
@@ -32,7 +32,7 @@ type DispatcherTestHooks = {
 function createDeps(
   overrides: Partial<DispatcherDeps> & {
     hrcDbPath?: string | undefined
-    hasHrcAcceptedRunSince?: (
+    hasInFlightHrcRunSince?: (
       hrcDbPath: string,
       hostSessionId: string,
       since: string,
@@ -157,7 +157,7 @@ describe('input queue stale pending classifier', () => {
     })
   })
 
-  test('R4 HRC accepted-run evidence protects a partial-correlation run without ACP siblings', async () => {
+  test('R4 in-flight HRC-run evidence protects a partial-correlation run without ACP siblings', async () => {
     const acceptedChecks: Array<{
       hrcDbPath: string
       hostSessionId: string
@@ -166,7 +166,7 @@ describe('input queue stale pending classifier', () => {
     }> = []
     const deps = createDeps({
       hrcDbPath: '/tmp/hrc-r4.sqlite',
-      hasHrcAcceptedRunSince: (hrcDbPath, hostSessionId, since, until) => {
+      hasInFlightHrcRunSince: (hrcDbPath, hostSessionId, since, until) => {
         acceptedChecks.push({ hrcDbPath, hostSessionId, since, until })
         return true
       },
@@ -202,7 +202,7 @@ describe('input queue stale pending classifier', () => {
     // returns false for that out-of-window evidence, so the blocker is failed.
     const deps = createDeps({
       hrcDbPath: '/tmp/hrc-t04297.sqlite',
-      hasHrcAcceptedRunSince: (_hrcDbPath, _hostSessionId, since, until) => {
+      hasInFlightHrcRunSince: (_hrcDbPath, _hostSessionId, since, until) => {
         // Out-of-window evidence: an HRC run accepted 2h after `since`, i.e.
         // AFTER `until`. A correctly-bounded query finds nothing → returns false.
         const acceptedAtMs = Date.parse(since) + 2 * 60 * 60_000
@@ -228,7 +228,7 @@ describe('input queue stale pending classifier', () => {
     })
   })
 
-  test('R4 classifier returns undefined when HRC accepted-run evidence exists', async () => {
+  test('R4 classifier returns undefined when in-flight HRC-run evidence exists', async () => {
     const deps = createDeps()
     const sessionRef = {
       scopeRef: 'agent:larry:project:agent-spaces:task:T-r4-classifier:role:implementer',
@@ -245,7 +245,58 @@ describe('input queue stale pending classifier', () => {
         siblings: [],
         timeoutMs: 1,
         hrcDbPath: '/tmp/hrc-r4-classifier.sqlite',
-        hasHrcAcceptedRunSince: () => true,
+        hasInFlightHrcRunSince: () => true,
+      })
+    ).toBeUndefined()
+  })
+
+  test('T-04935 a pending run whose correlated HRC run is TERMINAL is failed (no in-flight evidence)', async () => {
+    // The real incident: the ACP run launched an HRC turn that COMPLETED, but ACP
+    // never wrote back hrcRunId. `hasInFlightHrcRunSince` returns false for a
+    // terminal HRC run, so the phantom is no longer protected and the lane unjams.
+    const deps = createDeps({
+      hrcDbPath: '/tmp/hrc-t04935.sqlite',
+      // Simulate the completed-but-uncorrelated HRC run: no IN-FLIGHT run exists.
+      hasInFlightHrcRunSince: () => false,
+    })
+    const sessionRef = {
+      scopeRef: 'agent:mneme:project:media-ingest:task:primary',
+      laneRef: 'main',
+    }
+    const blocker = deps.runStore.createRun({ sessionRef, status: 'pending' })
+    deps.runStore.updateRun(blocker.runId, { hostSessionId: 'hsid-mneme-primary' })
+    const queued = deps.runStore.createRun({ sessionRef, status: 'queued' })
+    createQueuedItem(deps, { run: queued })
+
+    await letRunBecomeStale()
+    await createInputQueueDispatcher(deps).runOnce()
+
+    expect(deps.runStore.getRun(blocker.runId)).toMatchObject({
+      status: 'failed',
+      errorCode: 'dispatch_timeout',
+    })
+  })
+
+  test('T-04935 classifier still protects a pending run with a genuinely in-flight HRC turn', async () => {
+    // A long-running turn keeps the ACP run pending+no-hrcRunId until dispatchTurn
+    // returns; the in-flight HRC run (completed_at IS NULL) must still protect it.
+    const deps = createDeps()
+    const sessionRef = {
+      scopeRef: 'agent:mneme:project:media-ingest:task:primary',
+      laneRef: 'main',
+    }
+    const parked = deps.runStore.createRun({ sessionRef, status: 'pending' })
+    const partial = deps.runStore.updateRun(parked.runId, { hostSessionId: 'hsid-mneme-inflight' })
+
+    await letRunBecomeStale()
+
+    expect(
+      testingHooks().classifyStalePendingRunBlocker({
+        run: deps.runStore.getRun(partial.runId) ?? partial,
+        siblings: [],
+        timeoutMs: 1,
+        hrcDbPath: '/tmp/hrc-t04935-inflight.sqlite',
+        hasInFlightHrcRunSince: () => true,
       })
     ).toBeUndefined()
   })

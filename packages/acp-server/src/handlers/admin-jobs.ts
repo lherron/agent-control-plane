@@ -25,6 +25,7 @@ import { validateJobTrigger } from 'acp-core'
 import type { Actor, JobFlow, JobTrigger } from 'acp-core'
 import type { ResolvedAcpServerDeps } from '../deps.js'
 import { advanceJobFlow } from '../jobs/flow-engine.js'
+import { validateJobOutputConfig } from '../jobs/job-output-config.js'
 import { resolveInterfaceSourceForScope } from '../jobs/resolve-interface-source.js'
 import type { RouteHandler } from '../routing/route-context.js'
 
@@ -91,6 +92,20 @@ function parseOptionalInputTemplate(
   input: Record<string, unknown>
 ): Readonly<Record<string, unknown>> | undefined {
   return readOptionalRecordField(input, 'input')
+}
+
+function parseOptionalOutput(input: Record<string, unknown>) {
+  if (!hasOwnField(input, 'output')) {
+    return undefined
+  }
+  if (input['output'] === null) {
+    return null
+  }
+  const validation = validateJobOutputConfig(input['output'])
+  if (!validation.valid) {
+    badRequest(`invalid output: ${validation.errors.join('; ')}`, { field: 'output' })
+  }
+  return validation.output
 }
 
 type InvalidJobFlowValidation = { valid: false; errors: JobFlowValidationError[] }
@@ -212,7 +227,11 @@ export const handleCreateAdminJob: RouteHandler = async ({ request, deps, actor 
   }
   const description = readOptionalTrimmedStringField(body, 'description')
   const trigger = parseOptionalTrigger(body)
+  const output = parseOptionalOutput(body)
   rejectEventFlow(trigger?.kind ?? 'schedule', flow !== undefined)
+  if (output !== undefined && output !== null && flow !== undefined) {
+    badRequest('job output is only supported for non-flow jobs', { field: 'output' })
+  }
   const jobsStore = requireJobsStore(deps)
   const created = jobsStore.createJob({
     agentId: requireTrimmedStringField(body, 'agentId'),
@@ -223,6 +242,7 @@ export const handleCreateAdminJob: RouteHandler = async ({ request, deps, actor 
     ...(laneRef !== undefined ? { laneRef } : {}),
     ...(trigger !== undefined ? { trigger } : { schedule: parseSchedule(body) }),
     input: parseInputTemplate(body),
+    ...(output !== undefined && output !== null ? { output } : {}),
     ...(flow !== undefined ? { flow } : {}),
     ...(disabled !== undefined ? { disabled } : {}),
     actor: actor ?? deps.defaultActor,
@@ -265,6 +285,7 @@ export const handlePatchAdminJob: RouteHandler = async ({ request, params, deps,
   const schedule = parseOptionalSchedule(body)
   const trigger = parseOptionalTrigger(body)
   const input = parseOptionalInputTemplate(body)
+  const output = parseOptionalOutput(body)
   const disabled = readOptionalBooleanField(body, 'disabled')
   const slug = readOptionalTrimmedStringField(body, 'slug')
   if (slug !== undefined && !isValidJobSlug(slug)) {
@@ -286,12 +307,20 @@ export const handlePatchAdminJob: RouteHandler = async ({ request, params, deps,
     const effectiveHasFlow = flow !== undefined || existing.flow !== undefined
     rejectEventFlow(effectiveKind, effectiveHasFlow)
   }
+  if (output !== undefined && output !== null) {
+    const existing = requireJob(deps, jobId)
+    const effectiveHasFlow = flow !== undefined || existing.flow !== undefined
+    if (effectiveHasFlow) {
+      badRequest('job output is only supported for non-flow jobs', { field: 'output' })
+    }
+  }
   const updated = requireJobsStore(deps).updateJob(jobId, {
     ...(slug !== undefined ? { slug } : {}),
     ...descriptionPatch,
     ...(trigger !== undefined ? { trigger } : {}),
     ...(schedule !== undefined ? { schedule } : {}),
     ...(input !== undefined ? { input } : {}),
+    ...(output !== undefined ? { output } : {}),
     ...(flow !== undefined ? { flow } : {}),
     ...(disabled !== undefined ? { disabled } : {}),
     actor: actor ?? deps.defaultActor,

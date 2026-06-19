@@ -30,6 +30,15 @@ export type JobFlowValidationErrorCode =
   | 'unsupported_expect_outcome'
   | 'invalid_fresh'
   | 'invalid_timeout'
+  // Phase A: native side-effect step validation
+  | 'invalid_wrkq_task_step'
+  | 'invalid_pulpit_message_step'
+  | 'invalid_agent_dispatch_step'
+  // Phase A: step-output ref validation
+  | 'invalid_step_output_ref'
+  | 'step_output_ref_unknown_step'
+  // Phase A: authority field guard
+  | 'authority_field_interpolation'
 
 export type JobFlowValidationError = {
   code: JobFlowValidationErrorCode

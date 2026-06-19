@@ -1075,6 +1075,38 @@ export class InputAdmissionService {
       }
     } catch (error) {
       if (!isRuntimeBusyError(error)) {
+        // A non-runtime-busy launch failure must NOT leave the run parked at
+        // `pending`. The inline path created the run `pending` (no queue item)
+        // before awaiting the launch; if the launch throws, an unfailed pending
+        // run becomes a phantom that `sameSessionHasActiveRun` treats as active,
+        // jamming every later dispatch in the lane forever (T-04935 — mirrors the
+        // queue-dispatcher's own `launch_failed` handling at input-queue-dispatcher
+        // catch). Only transition a still-`pending` run; if the launcher already
+        // advanced it (hrcRunId + running/terminal), leave the recorded outcome.
+        const current = this.deps.runStore.getRun(run.runId)
+        if (current?.status === 'pending') {
+          const errorMessage = error instanceof Error ? error.message : String(error)
+          const failedRun = this.deps.runStore.updateRun(run.runId, {
+            status: 'failed',
+            errorCode: 'launch_failed',
+            errorMessage,
+          })
+          const failedAdmission = this.deps.inputAdmissionStore.update(
+            attempt.inputAttempt.inputAttemptId,
+            {
+              currentState: { runStatus: 'failed', errorCode: 'launch_failed' },
+              status: 'failed',
+            }
+          )
+          recordInputAdmissionEvent(this.deps, {
+            eventKind: 'input.started',
+            scopeRef: input.sessionRef.scopeRef,
+            laneRef: input.sessionRef.laneRef,
+            inputAttemptId: attempt.inputAttempt.inputAttemptId,
+            admission: failedAdmission,
+            run: failedRun,
+          })
+        }
         throw error
       }
 

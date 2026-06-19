@@ -648,7 +648,7 @@ async function pollCompletedAssistantMessage(options: {
 export const LAUNCH_CORRELATION_WINDOW_MS = 5 * 60_000
 
 /**
- * Upper bound (exclusive) for `hasHrcAcceptedRunSince` launch evidence: the HRC
+ * Upper bound (exclusive) for `hasInFlightHrcRunSince` launch evidence: the HRC
  * run must have been accepted within LAUNCH_CORRELATION_WINDOW_MS of the ACP run
  * being created. Returns undefined for an unparseable timestamp (caller then
  * falls back to the unbounded, lower-edge-only query).
@@ -661,7 +661,25 @@ export function launchCorrelationUntilIso(createdAtIso: string): string | undefi
   return new Date(createdMs + LAUNCH_CORRELATION_WINDOW_MS).toISOString()
 }
 
-export function hasHrcAcceptedRunSince(
+// Why this only counts IN-FLIGHT (non-terminal) HRC runs as launch evidence:
+//
+// A pending ACP run with no hrcRunId is the NORMAL state of a long-running
+// SDK-headless turn — `dispatchTurn(waitForCompletion: true)` blocks until the
+// HRC turn completes, and the ACP run's hrcRunId is only written AFTER it
+// returns. So while the turn is genuinely processing, the protective evidence
+// must keep the stale-blocker sweep from killing it.
+//
+// But once the correlated HRC run reaches a TERMINAL state (completed_at set)
+// while the ACP run is STILL pending with no hrcRunId, the ACP-side write-back
+// was permanently lost (orphaned/hung dispatchTurn, dropped event stream, or a
+// crash between HRC completion and the write). The turn is done; ACP just never
+// noticed. Counting that terminal run as "launched" left the phantom pending
+// forever, and `sameSessionHasActiveRun` then jammed the entire lane's input
+// queue (T-04935: a media-ingest summary completed on HRC at 20:48 but its ACP
+// run sat pending, blocking every later Discord message with a 300s
+// "not dispatched" timeout). Filtering to `completed_at IS NULL` lets the sweep
+// reap the phantom while still protecting actively-processing turns.
+export function hasInFlightHrcRunSince(
   hrcDbPath: string,
   hostSessionId: string,
   sinceIso: string,
@@ -686,6 +704,7 @@ export function hasHrcAcceptedRunSince(
                 FROM runs
                 WHERE host_session_id = ?
                   AND accepted_at IS NOT NULL
+                  AND completed_at IS NULL
                   AND accepted_at >= ?
                 LIMIT 1`
             )
@@ -696,6 +715,7 @@ export function hasHrcAcceptedRunSince(
                 FROM runs
                 WHERE host_session_id = ?
                   AND accepted_at IS NOT NULL
+                  AND completed_at IS NULL
                   AND accepted_at >= ?
                   AND accepted_at < ?
                 LIMIT 1`

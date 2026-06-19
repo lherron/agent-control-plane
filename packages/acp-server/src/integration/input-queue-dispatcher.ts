@@ -10,7 +10,7 @@ import {
 } from '../input-admission/runtime-busy.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
 import {
-  hasHrcAcceptedRunSince as defaultHasHrcAcceptedRunSince,
+  hasInFlightHrcRunSince as defaultHasInFlightHrcRunSince,
   launchCorrelationUntilIso,
 } from '../real-launcher.js'
 
@@ -41,7 +41,7 @@ export type InputQueueDispatcherDeps = Pick<
   launchRoleScopedRun: NonNullable<LaunchRoleScopedRun>
   config: InputQueueDispatcherConfig
   hrcDbPath?: string | undefined
-  hasHrcAcceptedRunSince?:
+  hasInFlightHrcRunSince?:
     | ((hrcDbPath: string, hostSessionId: string, since: string, until?: string) => boolean)
     | undefined
 }
@@ -61,7 +61,7 @@ type ClassifyStalePendingRunBlockerInput = {
   siblings: readonly StoredRun[]
   timeoutMs: number
   hrcDbPath?: string | undefined
-  hasHrcAcceptedRunSince?:
+  hasInFlightHrcRunSince?:
     | ((hrcDbPath: string, hostSessionId: string, since: string, until?: string) => boolean)
     | undefined
 }
@@ -99,11 +99,11 @@ function classifyStalePendingRunBlocker(
   if (hasCredibleSiblingProgress(run, siblings)) {
     return undefined
   }
-  const hasHrcAcceptedRunSince = input.hasHrcAcceptedRunSince ?? defaultHasHrcAcceptedRunSince
+  const hasInFlightHrcRunSince = input.hasInFlightHrcRunSince ?? defaultHasInFlightHrcRunSince
   if (
     hrcDbPath !== undefined &&
     run.hostSessionId !== undefined &&
-    hasHrcAcceptedRunSince(
+    hasInFlightHrcRunSince(
       hrcDbPath,
       run.hostSessionId,
       run.createdAt,
@@ -130,7 +130,7 @@ function failStalePendingRunBlockers(deps: InputQueueDispatcherDeps): void {
       siblings,
       timeoutMs,
       hrcDbPath: deps.hrcDbPath,
-      hasHrcAcceptedRunSince: deps.hasHrcAcceptedRunSince,
+      hasInFlightHrcRunSince: deps.hasInFlightHrcRunSince,
     })
     if (blockerKind === undefined) {
       continue
