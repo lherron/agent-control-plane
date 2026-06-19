@@ -130,6 +130,18 @@ export type AgentDispatchFlowStep = BaseFlowStep & {
    */
   scopeRef: string | StepOutputRef
   /**
+   * Target agent id — authority field for structural scope construction.
+   * Must be a literal string or a step-output ref; template expressions are not
+   * permitted here.
+   */
+  agentId?: string | StepOutputRef | undefined
+  /**
+   * Target project id — authority field for structural scope construction.
+   * Must be a literal string or a step-output ref; template expressions are not
+   * permitted here.
+   */
+  projectId?: string | StepOutputRef | undefined
+  /**
    * Target lane ref — authority field (optional, defaults to main at runtime).
    * Must be a literal string or a step-output ref; template expressions are not
    * permitted here.

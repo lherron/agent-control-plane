@@ -65,6 +65,7 @@ type FlowPhaseSteps = Partial<Record<FlowPhase, unknown[]>>
 const allowedExpectationFields = new Set(['outcome', 'resultBlock', 'require', 'equals'])
 const allowedOutcomes = new Set(['succeeded', 'failed', 'cancelled'])
 const terminalFlowNext = new Set<FlowNext>(['continue', 'succeed', 'fail'])
+const allowedStepKinds = new Set(['agent', 'exec', 'wrkq-task', 'pulpit-message', 'agent-dispatch'])
 const maxExecOutputBytes = 64 * 1024 * 1024
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -88,6 +89,10 @@ function hasPresentString(record: Record<string, unknown>, key: string): boolean
 function isTopLevelFieldName(value: string): boolean {
   const trimmed = value.trim()
   return trimmed.length > 0 && !/[.[\]]/.test(trimmed)
+}
+
+function containsTemplateInterpolation(value: string): boolean {
+  return /{{\s*[^}]+\s*}}/.test(value)
 }
 
 function isValidIsoDuration(value: string): boolean {
@@ -220,10 +225,28 @@ function validateExec(exec: unknown, path: string, errors: JobFlowValidationErro
       `${path}.argv`,
       'exec.argv must be a non-empty string array'
     )
+  } else {
+    argv.forEach((entry, index) => {
+      if (containsTemplateInterpolation(entry)) {
+        addError(
+          errors,
+          'authority_field_interpolation',
+          `${path}.argv[${index}]`,
+          'exec.argv entries must not contain template interpolation'
+        )
+      }
+    })
   }
 
   if ('cwd' in exec && !hasPresentString(exec, 'cwd')) {
     addError(errors, 'invalid_exec_cwd', `${path}.cwd`, 'exec.cwd must be a non-empty string')
+  } else if (typeof exec['cwd'] === 'string' && containsTemplateInterpolation(exec['cwd'])) {
+    addError(
+      errors,
+      'authority_field_interpolation',
+      `${path}.cwd`,
+      'exec.cwd must not contain template interpolation'
+    )
   }
 
   if ('env' in exec) {
@@ -235,6 +258,18 @@ function validateExec(exec: unknown, path: string, errors: JobFlowValidationErro
         `${path}.env`,
         'exec.env must be a string-to-string object'
       )
+    } else {
+      for (const [key, value] of Object.entries(env)) {
+        const stringValue = value as string
+        if (containsTemplateInterpolation(stringValue)) {
+          addError(
+            errors,
+            'authority_field_interpolation',
+            `${path}.env.${key}`,
+            'exec.env values must not contain template interpolation'
+          )
+        }
+      }
     }
   }
 
@@ -268,12 +303,254 @@ function validateExec(exec: unknown, path: string, errors: JobFlowValidationErro
   }
 }
 
+function validateStepOutputRef(
+  value: Record<string, unknown>,
+  path: string,
+  priorStepIds: ReadonlySet<string>,
+  errors: JobFlowValidationError[]
+): void {
+  const keys = Object.keys(value)
+  const stepId = value['$step']
+  const field = value['field']
+
+  if (
+    keys.some((key) => key !== '$step' && key !== 'field') ||
+    typeof stepId !== 'string' ||
+    stepId.length === 0 ||
+    typeof field !== 'string' ||
+    !isTopLevelFieldName(field)
+  ) {
+    addError(
+      errors,
+      'invalid_step_output_ref',
+      path,
+      'step-output ref must be an object with non-empty $step and top-level field'
+    )
+    return
+  }
+
+  if (!priorStepIds.has(stepId)) {
+    addError(
+      errors,
+      'step_output_ref_unknown_step',
+      `${path}.$step`,
+      'step-output ref must name a prior step in the same phase'
+    )
+  }
+}
+
+function validateStringOrStepOutputRef(
+  value: unknown,
+  path: string,
+  priorStepIds: ReadonlySet<string>,
+  errors: JobFlowValidationError[]
+): boolean {
+  if (typeof value === 'string') {
+    return value.length > 0
+  }
+  if (isRecord(value)) {
+    validateStepOutputRef(value, path, priorStepIds, errors)
+    return true
+  }
+  return false
+}
+
+function validateAuthorityField(
+  value: unknown,
+  path: string,
+  priorStepIds: ReadonlySet<string>,
+  errors: JobFlowValidationError[],
+  stepErrorCode: JobFlowValidationErrorCode,
+  missingMessage: string
+): void {
+  if (!validateStringOrStepOutputRef(value, path, priorStepIds, errors)) {
+    addError(errors, stepErrorCode, path, missingMessage)
+    return
+  }
+
+  if (typeof value === 'string' && containsTemplateInterpolation(value)) {
+    addError(
+      errors,
+      'authority_field_interpolation',
+      path,
+      'authority fields must use literal values or step-output refs, not template interpolation'
+    )
+  }
+}
+
+function validateContentField(
+  value: unknown,
+  path: string,
+  priorStepIds: ReadonlySet<string>,
+  errors: JobFlowValidationError[],
+  stepErrorCode: JobFlowValidationErrorCode,
+  missingMessage: string
+): void {
+  if (!validateStringOrStepOutputRef(value, path, priorStepIds, errors)) {
+    addError(errors, stepErrorCode, path, missingMessage)
+  }
+}
+
+function validateWrkqTaskStep(
+  step: Record<string, unknown>,
+  path: string,
+  priorStepIds: ReadonlySet<string>,
+  errors: JobFlowValidationError[]
+): void {
+  validateContentField(
+    step['title'],
+    `${path}.title`,
+    priorStepIds,
+    errors,
+    'invalid_wrkq_task_step',
+    'wrkq-task step must include a non-empty title'
+  )
+  validateAuthorityField(
+    step['container'],
+    `${path}.container`,
+    priorStepIds,
+    errors,
+    'invalid_wrkq_task_step',
+    'wrkq-task step must include a non-empty container'
+  )
+
+  if ('description' in step) {
+    validateContentField(
+      step['description'],
+      `${path}.description`,
+      priorStepIds,
+      errors,
+      'invalid_wrkq_task_step',
+      'wrkq-task description must be a non-empty string or step-output ref'
+    )
+  }
+
+  if ('taskKind' in step && !hasPresentString(step, 'taskKind')) {
+    addError(
+      errors,
+      'invalid_wrkq_task_step',
+      `${path}.taskKind`,
+      'wrkq-task taskKind must be a non-empty string'
+    )
+  }
+
+  if (
+    'labels' in step &&
+    (!Array.isArray(step['labels']) ||
+      step['labels'].some((entry) => typeof entry !== 'string' || entry.length === 0))
+  ) {
+    addError(
+      errors,
+      'invalid_wrkq_task_step',
+      `${path}.labels`,
+      'wrkq-task labels must be a string array'
+    )
+  }
+}
+
+function validatePulpitMessageStep(
+  step: Record<string, unknown>,
+  path: string,
+  priorStepIds: ReadonlySet<string>,
+  errors: JobFlowValidationError[]
+): void {
+  validateContentField(
+    step['content'],
+    `${path}.content`,
+    priorStepIds,
+    errors,
+    'invalid_pulpit_message_step',
+    'pulpit-message step must include non-empty content'
+  )
+  validateAuthorityField(
+    step['binding'],
+    `${path}.binding`,
+    priorStepIds,
+    errors,
+    'invalid_pulpit_message_step',
+    'pulpit-message step must include a non-empty binding'
+  )
+}
+
+function validateAgentDispatchStep(
+  step: Record<string, unknown>,
+  path: string,
+  priorStepIds: ReadonlySet<string>,
+  errors: JobFlowValidationError[]
+): void {
+  validateAuthorityField(
+    step['scopeRef'],
+    `${path}.scopeRef`,
+    priorStepIds,
+    errors,
+    'invalid_agent_dispatch_step',
+    'agent-dispatch step must include a non-empty scopeRef'
+  )
+
+  if ('agentId' in step) {
+    validateAuthorityField(
+      step['agentId'],
+      `${path}.agentId`,
+      priorStepIds,
+      errors,
+      'invalid_agent_dispatch_step',
+      'agent-dispatch agentId must be a non-empty string or step-output ref'
+    )
+  }
+
+  if ('projectId' in step) {
+    validateAuthorityField(
+      step['projectId'],
+      `${path}.projectId`,
+      priorStepIds,
+      errors,
+      'invalid_agent_dispatch_step',
+      'agent-dispatch projectId must be a non-empty string or step-output ref'
+    )
+  }
+
+  if ('laneRef' in step) {
+    validateAuthorityField(
+      step['laneRef'],
+      `${path}.laneRef`,
+      priorStepIds,
+      errors,
+      'invalid_agent_dispatch_step',
+      'agent-dispatch laneRef must be a non-empty string or step-output ref'
+    )
+  }
+
+  if ('input' in step) {
+    const input = step['input']
+    if (!isRecord(input)) {
+      addError(
+        errors,
+        'invalid_agent_dispatch_step',
+        `${path}.input`,
+        'agent-dispatch input must be an object'
+      )
+    } else {
+      for (const [key, value] of Object.entries(input)) {
+        validateContentField(
+          value,
+          `${path}.input.${key}`,
+          priorStepIds,
+          errors,
+          'invalid_agent_dispatch_step',
+          'agent-dispatch input values must be non-empty strings or step-output refs'
+        )
+      }
+    }
+  }
+}
+
 function validateStep(
   step: unknown,
   phase: FlowPhase,
   index: number,
   options: ValidateJobFlowOptions,
   seenIds: Map<string, string>,
+  priorStepIds: ReadonlySet<string>,
   errors: JobFlowValidationError[]
 ): void {
   const path = `flow.${phase}[${index}]`
@@ -295,11 +572,16 @@ function validateStep(
   }
 
   const kind = step['kind']
-  if (kind !== undefined && kind !== 'agent' && kind !== 'exec') {
-    addError(errors, 'invalid_step_kind', `${path}.kind`, 'step kind must be agent or exec')
+  if (kind !== undefined && (typeof kind !== 'string' || !allowedStepKinds.has(kind))) {
+    addError(
+      errors,
+      'invalid_step_kind',
+      `${path}.kind`,
+      'step kind must be agent, exec, wrkq-task, pulpit-message, or agent-dispatch'
+    )
   }
 
-  const stepKind = kind === 'exec' ? 'exec' : 'agent'
+  const stepKind = typeof kind === 'string' && allowedStepKinds.has(kind) ? kind : 'agent'
 
   if ('next' in step && typeof step['next'] !== 'string') {
     addError(
@@ -328,6 +610,21 @@ function validateStep(
       validateExec(step['exec'], `${path}.exec`, errors)
     }
     validateBranchShape(step, path, errors)
+    return
+  }
+
+  if (stepKind === 'wrkq-task') {
+    validateWrkqTaskStep(step, path, priorStepIds, errors)
+    return
+  }
+
+  if (stepKind === 'pulpit-message') {
+    validatePulpitMessageStep(step, path, priorStepIds, errors)
+    return
+  }
+
+  if (stepKind === 'agent-dispatch') {
+    validateAgentDispatchStep(step, path, priorStepIds, errors)
     return
   }
 
@@ -629,9 +926,13 @@ export function validateJobFlow(
 
   const seenIds = new Map<string, string>()
   if (Array.isArray(sequence)) {
-    sequence.forEach((step, index) =>
-      validateStep(step, 'sequence', index, options, seenIds, errors)
-    )
+    const priorStepIds = new Set<string>()
+    sequence.forEach((step, index) => {
+      validateStep(step, 'sequence', index, options, seenIds, priorStepIds, errors)
+      if (isRecord(step) && hasPresentString(step, 'id')) {
+        priorStepIds.add(step['id'] as string)
+      }
+    })
   }
 
   const onFailure = flow['onFailure']
@@ -639,9 +940,13 @@ export function validateJobFlow(
     if (!Array.isArray(onFailure)) {
       addError(errors, 'invalid_step', 'flow.onFailure', 'flow.onFailure must be an array')
     } else {
-      onFailure.forEach((step, index) =>
-        validateStep(step, 'onFailure', index, options, seenIds, errors)
-      )
+      const priorStepIds = new Set<string>()
+      onFailure.forEach((step, index) => {
+        validateStep(step, 'onFailure', index, options, seenIds, priorStepIds, errors)
+        if (isRecord(step) && hasPresentString(step, 'id')) {
+          priorStepIds.add(step['id'] as string)
+        }
+      })
     }
   }
 

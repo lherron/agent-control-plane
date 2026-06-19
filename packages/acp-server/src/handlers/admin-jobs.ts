@@ -81,13 +81,6 @@ function parseOptionalTrigger(body: Record<string, unknown>): JobTrigger | undef
   return result.trigger
 }
 
-/** v1: event-triggered jobs cannot define a flow (constraint #12). */
-function rejectEventFlow(triggerKind: JobTrigger['kind'], hasFlow: boolean): void {
-  if (triggerKind === 'event' && hasFlow) {
-    badRequest('event-triggered jobs cannot define a flow', { field: 'flow' })
-  }
-}
-
 function parseOptionalInputTemplate(
   input: Record<string, unknown>
 ): Readonly<Record<string, unknown>> | undefined {
@@ -228,7 +221,6 @@ export const handleCreateAdminJob: RouteHandler = async ({ request, deps, actor 
   const description = readOptionalTrimmedStringField(body, 'description')
   const trigger = parseOptionalTrigger(body)
   const output = parseOptionalOutput(body)
-  rejectEventFlow(trigger?.kind ?? 'schedule', flow !== undefined)
   if (output !== undefined && output !== null && flow !== undefined) {
     badRequest('job output is only supported for non-flow jobs', { field: 'output' })
   }
@@ -299,14 +291,6 @@ export const handlePatchAdminJob: RouteHandler = async ({ request, params, deps,
         : { description: readOptionalTrimmedStringField(body, 'description') ?? null }
       : {}
   const jobId = requireJobId(params)
-  // Reject event + flow on patch, considering the post-patch effective state so a
-  // flow cannot be bolted onto an existing event job (or vice versa).
-  if (trigger?.kind === 'event' || flow !== undefined) {
-    const existing = requireJob(deps, jobId)
-    const effectiveKind = trigger?.kind ?? existing.trigger.kind
-    const effectiveHasFlow = flow !== undefined || existing.flow !== undefined
-    rejectEventFlow(effectiveKind, effectiveHasFlow)
-  }
   if (output !== undefined && output !== null) {
     const existing = requireJob(deps, jobId)
     const effectiveHasFlow = flow !== undefined || existing.flow !== undefined
