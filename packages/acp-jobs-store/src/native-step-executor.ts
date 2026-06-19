@@ -12,6 +12,7 @@
  */
 
 import type { JobStepRunPhase } from 'acp-core'
+import { buildHealthIncidentMeta } from './health-incident.js'
 import type { JobsStore } from './open-store.js'
 
 // ─── Result types (persisted to job_step_runs.result_json) ─────────────────
@@ -105,14 +106,16 @@ export function resolveStepOutputRef(
   phase: JobStepRunPhase,
   ref: { $step: string; field: string }
 ): string | undefined {
-  // TODO: Phase B —
-  //   const { jobStepRun } = store.jobStepRuns.getById(jobRunId, phase, ref.$step, 1)
-  //   if (jobStepRun === undefined || jobStepRun.status !== 'succeeded') return undefined
-  //   if (jobStepRun.result === undefined) return undefined
-  //   const val = jobStepRun.result[ref.field]
-  //   if (typeof val !== 'string') return undefined
-  //   return val
-  throw new Error('resolveStepOutputRef: not implemented — T-04943 Phase B')
+  const { jobStepRun } = store.jobStepRuns.getById(jobRunId, phase, ref.$step, 1)
+  // Fail CLOSED: no row, not-yet-run / running / failed / cancelled — anything
+  // that is not a terminal success — yields no value and no side effect.
+  if (jobStepRun === undefined || jobStepRun.status !== 'succeeded') return undefined
+  const result = jobStepRun.result
+  if (result === undefined || result === null) return undefined
+  const val = (result as Record<string, unknown>)[ref.field]
+  // Only string-typed leaf fields resolve; nested / wrong-typed / missing fail closed.
+  if (typeof val !== 'string') return undefined
+  return val
 }
 
 // ─── Native step executor ──────────────────────────────────────────────────
@@ -141,13 +144,121 @@ export async function executeNativeSideEffectStep(
     resolvedFields?: Readonly<Record<string, string>> | undefined
   }
 ): Promise<NativeStepResult> {
-  // TODO: Phase B implementation:
-  //   1. Check for existing succeeded step row → terminal guard → return cached result
-  //   2. Dispatch to step-kind-specific executor:
-  //      wrkq-task: deps.wrkqTaskPort.createOrFind({ key, path, projectId, title, description })
-  //      pulpit-message: deps.sendPulpitMessage({ idempotencyKey, text, bindingId })
-  //      agent-dispatch: deps.dispatchAgentInput({ scopeRef, laneRef, idempotencyKey, content, meta })
-  //   3. Persist result to store.jobStepRuns.updateStep(jobRunId, phase, stepId, attempt, { status: 'succeeded', result })
-  //   4. Return NativeStepResult
-  throw new Error('executeNativeSideEffectStep: not implemented — T-04943 Phase B')
+  const { store } = deps
+  const { jobRunId, phase, stepId, attempt, stepKind, stepDef, resolvedFields } = input
+
+  // ── Terminal-step replay safety ─────────────────────────────────────────
+  // A succeeded step row is terminal: return its persisted result and do NOT
+  // re-invoke the side-effect port (idempotent crash/scheduler-retry recovery).
+  const { jobStepRun: existing } = store.jobStepRuns.getById(jobRunId, phase, stepId, attempt)
+  if (
+    existing?.status === 'succeeded' &&
+    existing.result !== undefined &&
+    existing.result !== null
+  ) {
+    return wrapStepResult(stepKind, existing.result as Record<string, unknown>)
+  }
+
+  let result: NativeStepResult
+
+  switch (stepKind) {
+    case 'wrkq-task': {
+      const canonicalEventId = resolvedFields?.['_canonicalEventId']
+      const key = `acp-health:dispatch-timeout:${canonicalEventId}:task`
+      const container = asString(stepDef['container']) ?? ''
+      const projectId = container.split('/')[0] ?? ''
+      const path = `${container}/${key}`
+      const taskResult = await deps.wrkqTaskPort.createOrFind({
+        key,
+        path,
+        projectId,
+        title: asString(stepDef['title']) ?? '',
+        ...(asString(stepDef['description']) !== undefined
+          ? { description: asString(stepDef['description']) }
+          : {}),
+      })
+      result = { kind: 'wrkq-task', result: taskResult }
+      break
+    }
+
+    case 'pulpit-message': {
+      const idempotencyKey = `acp-health:dispatch-timeout:${jobRunId}:pulpit`
+      const text = asString(stepDef['content']) ?? ''
+      const binding = asString(stepDef['binding'])
+      const sent = await deps.sendPulpitMessage({
+        idempotencyKey,
+        text,
+        ...(binding !== undefined ? { bindingId: binding } : {}),
+      })
+      result = {
+        kind: 'pulpit-message',
+        result: {
+          deliveryRequestId: sent.deliveryRequestId,
+          bindingId: sent.bindingId,
+          idempotencyKey,
+        },
+      }
+      break
+    }
+
+    case 'agent-dispatch': {
+      const idempotencyKey = `jobrun:${jobRunId}:phase:${phase}:step:${stepId}:attempt:${attempt}`
+      const scopeRef = asString(stepDef['scopeRef']) ?? ''
+      const laneRef = asString(stepDef['laneRef']) ?? 'main'
+      const content = asString(stepDef['content']) ?? ''
+      const incidentTaskId = scopeRef.split(':task:')[1] ?? ''
+      const sourceEventId = resolvedFields?.['_canonicalEventId'] ?? ''
+      const meta = buildHealthIncidentMeta({ jobRunId, sourceEventId, incidentTaskId })
+      const dispatched = await deps.dispatchAgentInput({
+        scopeRef,
+        laneRef,
+        idempotencyKey,
+        content,
+        meta,
+      })
+      result = {
+        kind: 'agent-dispatch',
+        result: {
+          inputAttemptId: dispatched.inputAttemptId,
+          runId: dispatched.runId,
+          scopeRef,
+          laneRef,
+          idempotencyKey,
+        },
+      }
+      break
+    }
+
+    default: {
+      const exhaustive: never = stepKind
+      throw new Error(`executeNativeSideEffectStep: unknown step kind ${String(exhaustive)}`)
+    }
+  }
+
+  // Persist the structured result_json alongside the terminal succeeded status.
+  store.jobStepRuns.updateStep(jobRunId, phase, stepId, attempt, {
+    status: 'succeeded',
+    result: result.result as Readonly<Record<string, unknown>>,
+  })
+
+  return result
+}
+
+/** Build a typed NativeStepResult from a persisted result_json record. */
+function wrapStepResult(
+  stepKind: 'wrkq-task' | 'pulpit-message' | 'agent-dispatch',
+  stored: Record<string, unknown>
+): NativeStepResult {
+  switch (stepKind) {
+    case 'wrkq-task':
+      return { kind: 'wrkq-task', result: stored as unknown as WrkqTaskStepResult }
+    case 'pulpit-message':
+      return { kind: 'pulpit-message', result: stored as unknown as PulpitMessageStepResult }
+    case 'agent-dispatch':
+      return { kind: 'agent-dispatch', result: stored as unknown as AgentDispatchStepResult }
+  }
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined
 }

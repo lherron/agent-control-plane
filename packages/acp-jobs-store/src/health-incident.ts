@@ -31,8 +31,11 @@ export type HealthIncidentMeta = {
 export function isHealthDiagnosticRun(run: {
   metadata?: Readonly<Record<string, unknown>> | undefined
 }): boolean {
-  // TODO: Phase B — implement: return run.metadata?.['meta']?.['source']?.['kind'] === 'acp-health-incident'
-  return false
+  const meta = run.metadata?.['meta']
+  if (typeof meta !== 'object' || meta === null) return false
+  const source = (meta as Record<string, unknown>)['source']
+  if (typeof source !== 'object' || source === null) return false
+  return (source as Record<string, unknown>)['kind'] === 'acp-health-incident'
 }
 
 /**
@@ -45,6 +48,12 @@ export function buildHealthIncidentMeta(input: {
   sourceEventId: string
   incidentTaskId: string
 }): HealthIncidentMeta {
-  // TODO: Phase B implementation
-  throw new Error('buildHealthIncidentMeta: not implemented — T-04943 Phase B')
+  return {
+    source: {
+      kind: 'acp-health-incident',
+      jobRunId: input.jobRunId,
+      sourceEventId: input.sourceEventId,
+      incidentTaskId: input.incidentTaskId,
+    },
+  }
 }

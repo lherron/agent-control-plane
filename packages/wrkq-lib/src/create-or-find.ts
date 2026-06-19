@@ -50,16 +50,69 @@ export type WrkqTaskCreateOrFindResult = {
  *     finds the task by path and returns it unchanged (created=false).
  *   - create() is called AT MOST ONCE per key across all calls.
  *
- * NOT YET IMPLEMENTED — stub throws to keep Phase B tests RED.
- * Implement: list by path → if found return existing; else create with idempotencyKey.
+ * Find by deterministic path → if found return existing (created=false);
+ * else create with idempotencyKey (created=true).
+ *
+ * Concurrency: concurrent calls with the same deterministic key are
+ * de-duplicated through an in-process in-flight map so a single logical
+ * incident never issues more than one create across racing callers.
  */
+const inflightByKey = new Map<string, Promise<WrkqTaskCreateOrFindResult>>()
+
 export async function createOrFindWrkqTask(
   client: WorkClient,
   input: WrkqTaskCreateOrFindInput
 ): Promise<WrkqTaskCreateOrFindResult> {
-  // Phase B implementation:
-  //   1. client.wrkq.task.list({ path: input.path }) → if items[0] exists, return it (created=false)
-  //   2. client.wrkq.task.create({ path: input.path, title: input.title, idempotencyKey: input.key, ... })
-  //   3. recover projectId from client.wrkq.container.show({ project: input.projectId }).id
-  throw new Error('createOrFindWrkqTask: not implemented — T-04943 Phase B')
+  const existing = inflightByKey.get(input.key)
+  if (existing !== undefined) {
+    // A concurrent caller is already creating-or-finding this exact key.
+    // Join its result; from this caller's perspective the task was found.
+    const result = await existing
+    return { ...result, created: false }
+  }
+
+  const pending = doCreateOrFind(client, input)
+  inflightByKey.set(input.key, pending)
+  try {
+    return await pending
+  } finally {
+    inflightByKey.delete(input.key)
+  }
+}
+
+async function doCreateOrFind(
+  client: WorkClient,
+  input: WrkqTaskCreateOrFindInput
+): Promise<WrkqTaskCreateOrFindResult> {
+  // 1. Recover the canonical project id from the container.
+  const container = await client.wrkq.container.show({ project: input.projectId })
+  const projectId = container.id
+
+  // 2. Find by deterministic path BEFORE attempting create. The list is
+  //    filtered by path, so any returned item already sits at input.path.
+  const listed = await client.wrkq.task.list({ path: input.path })
+  const found = listed.items[0]
+  if (found !== undefined) {
+    return {
+      taskId: found.id,
+      projectId,
+      taskPath: input.path,
+      created: false,
+    }
+  }
+
+  // 3. Not found → create with the deterministic idempotency key + path.
+  const created = await client.wrkq.task.create({
+    path: input.path,
+    project: input.projectId,
+    title: input.title,
+    ...(input.description !== undefined ? { description: input.description } : {}),
+    idempotencyKey: input.key,
+  })
+  return {
+    taskId: created.id,
+    projectId,
+    taskPath: input.path,
+    created: true,
+  }
 }
