@@ -35,7 +35,8 @@ function createHeadlessHrcDb(): { db: Database; hrcDbPath: string; cleanup(): vo
       error_code TEXT,
       error_message TEXT,
       host_session_id TEXT,
-      accepted_at TEXT
+      accepted_at TEXT,
+      completed_at TEXT
     );
     CREATE TABLE events (
       seq INTEGER PRIMARY KEY AUTOINCREMENT,
