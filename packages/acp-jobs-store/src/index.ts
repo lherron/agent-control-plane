@@ -87,3 +87,22 @@ export type {
   SqliteRunResult as JobsSqliteRunResult,
   SqliteStatement as JobsSqliteStatement,
 } from './sqlite.js'
+export {
+  isHealthDiagnosticRun,
+  buildHealthIncidentMeta,
+} from './health-incident.js'
+export type { HealthIncidentMeta } from './health-incident.js'
+export {
+  resolveStepOutputRef,
+  executeNativeSideEffectStep,
+} from './native-step-executor.js'
+export type {
+  WrkqTaskStepResult,
+  PulpitMessageStepResult,
+  AgentDispatchStepResult,
+  NativeStepResult,
+  WrkqTaskPort,
+  SendPulpitMessage,
+  DispatchAgentInput,
+  NativeStepExecutorDeps,
+} from './native-step-executor.js'
