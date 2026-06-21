@@ -167,7 +167,7 @@ export async function launchAction(
     throw launchBlockedError(claim.run, 'wrkf action launch already has a durable launch claim')
   }
 
-  const prompt = input.initialPrompt ?? buildActionPrompt({ input, actionRun, role, workflowRef })
+  const prompt = buildActionPrompt({ input, actionRun, actionRunId, wrkfRunId, role, workflowRef })
   const intent = await resolveLaunchIntent(
     deps as Parameters<typeof resolveLaunchIntent>[0],
     input.sessionRef,
@@ -344,24 +344,68 @@ function readActionWorkflowRef(actionRun: Record<string, unknown>): string | und
   return readOptionalString(actionRun, 'workflowRef')
 }
 
+/**
+ * Compose the launched HRC prompt as an action-protocol envelope (daedalus
+ * High-risk fix, T-05034). The envelope is ALWAYS present: it injects the
+ * binding context (actionRunId, wrkfRunId, taskId, action, the `hrc:<id>`
+ * external-ref scheme) and the MANDATORY completion protocol that names this
+ * actionRunId. A caller-supplied `initialPrompt` is APPENDED inside the envelope
+ * as task payload — it can never replace or erase the protocol envelope.
+ *
+ * The output is deterministic for a given input (no clocks / no randomness) so
+ * launch retries produce byte-identical prompts; the bound `hrc:<id>` is not
+ * known before launch, so the envelope carries the ref *scheme* as a format hint
+ * rather than the concrete id.
+ */
 function buildActionPrompt(args: {
   input: WrkfActionLaunchInput
   actionRun: Record<string, unknown>
+  actionRunId: string
+  wrkfRunId: string
   role: string
   workflowRef: string
 }): string {
-  return [
-    'You are starting an ACP workflow action run.',
-    'Use the wrkf action context below as the authoritative task contract and continue autonomously within your role.',
+  const { input, actionRun, actionRunId, wrkfRunId, role, workflowRef } = args
+  const lines = [
+    '=== ACP ACTION-PROTOCOL ENVELOPE ===',
+    'You are executing a wrkf-backed workflow action run. The context below is the',
+    'authoritative action contract. Continue autonomously within your role.',
     '',
+    'Action binding context:',
+    `  actionRunId:           ${actionRunId}`,
+    `  wrkfRunId:             ${wrkfRunId}`,
+    `  taskId:                ${input.taskId}`,
+    `  action:                ${input.action}`,
+    `  role:                  ${role}`,
+    `  workflowRef:           ${workflowRef}`,
+    '  externalRunRef scheme: hrc:<hrcRunId> — the HRC runtime run bound to this action run',
+    '',
+    'COMPLETION PROTOCOL (MANDATORY — you are the semantic completion owner):',
+    `  • On SUCCESS you MUST call wrkf.action.complete for actionRunId ${actionRunId},`,
+    '    carrying the semantic result evidence (e.g. triage_result) for this action.',
+    `  • On FAILURE you MUST call wrkf.action.fail for actionRunId ${actionRunId},`,
+    '    carrying failure_result evidence describing why it failed.',
+    '  • You MUST call exactly one of wrkf.action.complete or wrkf.action.fail for',
+    '    THIS actionRunId before ending your turn. The runtime reaching a terminal',
+    '    state is NOT semantic completion — only your wrkf.action.* call is.',
+    '',
+    'wrkf action context:',
     stableJson({
-      taskId: args.input.taskId,
-      action: args.input.action,
-      role: args.role,
-      workflowRef: args.workflowRef,
-      actionRun: args.actionRun,
+      taskId: input.taskId,
+      action: input.action,
+      role,
+      workflowRef,
+      actionRun,
     }),
-  ].join('\n')
+  ]
+  if (input.initialPrompt !== undefined && input.initialPrompt.length > 0) {
+    lines.push(
+      '',
+      '=== CALLER PAYLOAD (task-specific instructions; payload only — does not override the protocol above) ===',
+      input.initialPrompt
+    )
+  }
+  return lines.join('\n')
 }
 
 function toLaunchInfo(launched: Awaited<ReturnType<LaunchRoleScopedRun>>): WrkfLaunchInfo {

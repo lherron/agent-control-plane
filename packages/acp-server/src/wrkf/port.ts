@@ -68,6 +68,28 @@ export type WrkfActionBindExternalParams = {
   idempotencyKey?: string | undefined
 }
 
+/**
+ * Params for `wrkf.action.show` (C-0003). Reads the current action run record so
+ * the reconciler can no-op when the action is already terminal (idempotency
+ * driven by wrkf truth).
+ */
+export type WrkfActionShowParams = {
+  actionRunId: string
+}
+
+/**
+ * Params for `wrkf.action.fail`. The ACP reconciler hands a flat
+ * `failureResult` + `idempotencyKey`; the client shim maps these onto the
+ * underlying `@wrkq/client` `evidence` envelope. ACP exposes NO `action.complete`
+ * on this port — semantic success authority belongs to the launched worker only.
+ */
+export type WrkfActionFailParams = {
+  actionRunId: string
+  summary: string
+  failureResult?: Record<string, unknown> | undefined
+  idempotencyKey?: string | undefined
+}
+
 export type WrkfRunFinishParams = {
   runId: string
   summary?: string | undefined
@@ -141,6 +163,13 @@ export type AcpWrkfWorkflowPort = {
   action: {
     start(params: WrkfActionStartParams): Promise<unknown>
     bindExternal(params: WrkfActionBindExternalParams): Promise<unknown>
+    /** Read current action-run truth (used by the HRC→wrkf reconciler). */
+    show(params: WrkfActionShowParams): Promise<unknown>
+    /**
+     * Fail-only safety net for the reconciler. NOTE: `action.complete` is
+     * intentionally NOT on this port — ACP never asserts semantic success.
+     */
+    fail(params: WrkfActionFailParams): Promise<unknown>
   }
   effect: {
     list(params: Record<string, unknown>): Promise<unknown>

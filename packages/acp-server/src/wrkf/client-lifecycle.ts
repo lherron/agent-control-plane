@@ -140,6 +140,29 @@ function createWrkfPortAdapter(client: WorkClient): AcpWrkfWorkflowPort {
     action: {
       start: fwd((c) => c.wrkf.action.start),
       bindExternal: fwd((c) => c.wrkf.action.bindExternal),
+      show: fwd((c) => c.wrkf.action.show),
+      // The ACP port's `action.fail` takes a flat { failureResult, idempotencyKey };
+      // the @wrkq/client facade takes a structured `evidence` envelope. Map here so
+      // the reconciler's run-linked failure_result + idempotency key land on the
+      // wrkf evidence record. NOTE: `action.complete` is intentionally NOT wired —
+      // ACP never asserts semantic success.
+      fail: (params: unknown): Promise<unknown> => {
+        const p = (params ?? {}) as {
+          actionRunId: string
+          summary: string
+          failureResult?: Record<string, unknown> | undefined
+          idempotencyKey?: string | undefined
+        }
+        return client.wrkf.action.fail({
+          actionRunId: p.actionRunId,
+          summary: p.summary,
+          evidence: {
+            kind: 'failure_result',
+            ...(p.failureResult !== undefined ? { facts: p.failureResult } : {}),
+            ...(p.idempotencyKey !== undefined ? { idempotencyKey: p.idempotencyKey } : {}),
+          },
+        })
+      },
     },
     effect: {
       list: fwd((c) => c.wrkf.effect.list),
