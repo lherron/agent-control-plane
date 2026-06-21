@@ -168,14 +168,21 @@ export async function launchAction(
   }
 
   const prompt = buildActionPrompt({ input, actionRun, actionRunId, wrkfRunId, role, workflowRef })
-  const intent = await resolveLaunchIntent(
-    deps as Parameters<typeof resolveLaunchIntent>[0],
-    input.sessionRef,
-    { initialPrompt: prompt }
-  )
 
+  // Launch phase: intent resolution + HRC launch. Both run AFTER wrkf.action.start
+  // has opened the action run, and either can throw (e.g. the live repro: an
+  // unlaunchable worker scope with no runtime placement made resolveLaunchIntent
+  // throw). Any failure here leaves an active action run with no externalRunRef, so
+  // the adapter MUST terminalize it (wrkf.action.fail) before surfacing the original
+  // error — never strand an unbound active action (T-05039, daedalus DM #9631). The
+  // rollback is the primary path; the reconciler/orphan janitor is only a backstop.
   let launched: Awaited<ReturnType<LaunchRoleScopedRun>>
   try {
+    const intent = await resolveLaunchIntent(
+      deps as Parameters<typeof resolveLaunchIntent>[0],
+      input.sessionRef,
+      { initialPrompt: prompt }
+    )
     launched = await deps.launchRoleScopedRun({
       sessionRef: input.sessionRef,
       intent,
@@ -198,6 +205,7 @@ export async function launchAction(
         },
       }),
     })
+    await failActionRollback(deps, input, { actionRunId, wrkfRunId, error, phase: 'launch' })
     throw error
   }
   const launchInfo = toLaunchInfo(launched)
@@ -248,6 +256,54 @@ export async function launchAction(
   })
 }
 
+/**
+ * Terminalize the action run after a launch-phase failure (T-05039). Calls
+ * `wrkf.action.fail` once with a deterministic idempotency key (keyed on the
+ * caller idempotencyKey so retries dedup) and run-linked failure evidence. This
+ * is best-effort: any error from the fail call itself is swallowed so the ORIGINAL
+ * launch error always surfaces to the caller; a residual active action is then
+ * covered by the reconciler/orphan-janitor backstop. ACP only ever records
+ * FAILURE here — semantic success authority belongs to the launched worker.
+ */
+async function failActionRollback(
+  deps: WrkfActionLaunchDeps,
+  input: WrkfActionLaunchInput,
+  args: {
+    actionRunId: string
+    wrkfRunId: string
+    hrcRunId?: string | undefined
+    error: unknown
+    /**
+     * `launch`: intent resolution / HRC launch failed before any binding.
+     * `bind`: the HRC run exists but the canonical bind failed — terminalize with
+     * the hrcRunId so the orphaned runtime is correlatable.
+     */
+    phase: 'launch' | 'bind'
+  }
+): Promise<void> {
+  const errorMessage = args.error instanceof Error ? args.error.message : String(args.error)
+  const summary =
+    args.phase === 'bind'
+      ? 'ACP failed to bind the worker runtime to the action (orphaned launch)'
+      : 'ACP launch failed before binding the worker runtime'
+  try {
+    await deps.wrkf.action.fail({
+      actionRunId: args.actionRunId,
+      summary,
+      failureResult: {
+        wrkfRunId: args.wrkfRunId,
+        ...(args.hrcRunId !== undefined ? { hrcRunId: formatHrcExternalRef(args.hrcRunId) } : {}),
+        phase: args.phase,
+        errorMessage,
+        failedBy: 'acp-adapter-rollback',
+      },
+      idempotencyKey: `${input.idempotencyKey}:${args.phase}Rollback`,
+    })
+  } catch {
+    // Best-effort terminalization — never mask the original launch failure.
+  }
+}
+
 async function bindExternalOrMarkOrphan(
   deps: WrkfActionLaunchDeps,
   input: WrkfActionLaunchInput,
@@ -284,6 +340,17 @@ async function bindExternalOrMarkOrphan(
           orphanedAt: new Date().toISOString(),
         },
       }),
+    })
+    // T-05039: the HRC run was created but never canonically bound — terminalize the
+    // action so no active/unbound run is left behind (daedalus DM #9631). Carry the
+    // hrcRunId as orphan evidence. Best-effort + idempotent; the ACP orphan marker
+    // above still blocks a relaunch, and the reconciler/janitor remains a backstop.
+    await failActionRollback(deps, input, {
+      actionRunId: args.actionRunId,
+      wrkfRunId: args.wrkfRunId,
+      hrcRunId: args.hrcRunId,
+      error,
+      phase: 'bind',
     })
     throw error
   }

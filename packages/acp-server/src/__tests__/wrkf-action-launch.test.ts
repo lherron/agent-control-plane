@@ -76,6 +76,7 @@ class WrkfError extends Error {
 type FakeOverrides = {
   start?: () => Promise<unknown>
   bindExternal?: (params: Record<string, unknown>) => Promise<unknown>
+  fail?: (params: Record<string, unknown>) => Promise<unknown>
 }
 
 type InstrumentedPort = AcpWrkfWorkflowPort & {
@@ -100,6 +101,13 @@ function makeFakeWrkfPort(overrides: FakeOverrides = {}): InstrumentedPort {
           ...CANNED_ACTION_RUN,
           externalRunRef: (params as Record<string, unknown>)['externalRunRef'],
         }
+      },
+      fail: async (params: unknown) => {
+        _calls.push({ method: 'action.fail', params })
+        if (overrides.fail !== undefined) {
+          return overrides.fail(params as Record<string, unknown>)
+        }
+        return { ...CANNED_ACTION_RUN, status: 'failed' }
       },
     },
   } as unknown as InstrumentedPort
@@ -310,6 +318,17 @@ describe('launchAction — bind failure → orphan', () => {
       errorCode: 'WRKF_EXTERNAL_REF_CONFLICT',
     })
 
+    // T-05039: a launched-but-unbound action must be terminalized — not left active
+    // forever. The adapter records wrkf.action.fail once, carrying the orphaned
+    // hrcRunId as correlation evidence.
+    const failCalls = wrkf._calls.filter((c) => c.method === 'action.fail')
+    expect(failCalls).toHaveLength(1)
+    const failParams = failCalls[0]!.params as Record<string, unknown>
+    expect(failParams['actionRunId']).toBe(CANNED_ACTION_RUN.actionRunId)
+    expect((failParams['failureResult'] as Record<string, unknown>)['hrcRunId']).toBe(
+      formatHrcExternalRef(CANNED_LAUNCHED.runId)
+    )
+
     // Retry: orphan marker blocks relaunch.
     await expect(
       launchAction(
@@ -355,5 +374,83 @@ describe('launchAction — durable launch claim', () => {
       status: 'launch_failed',
       wrkfRunId: CANNED_ACTION_RUN.runId,
     })
+
+    // T-05039: the launch failed after action.start, so the still-active action
+    // run must be terminalized (rolled back) exactly once — not left dangling.
+    // The second attempt is blocked at the durable claim BEFORE the launch region,
+    // so it does not re-fail.
+    const failCalls = wrkf._calls.filter((c) => c.method === 'action.fail')
+    expect(failCalls).toHaveLength(1)
+    expect((failCalls[0]!.params as Record<string, unknown>)['actionRunId']).toBe(
+      CANNED_ACTION_RUN.actionRunId
+    )
+  })
+})
+
+// ─── Launch-phase failure rolls back the action (T-05039) ────────────────────
+
+describe('launchAction — rollback on launch-phase failure', () => {
+  test('resolveLaunchIntent failure after action.start fails the action once, then rethrows', async () => {
+    // This is the live repro: the worker scope had no resolvable runtime placement
+    // (e.g. the old `agent:acp-local` default with no agent-profile.toml), so launch
+    // intent resolution threw AFTER action.start — stranding the action active with
+    // no externalRunRef. The adapter must terminalize the action (wrkf.action.fail)
+    // and surface the ORIGINAL placement error.
+    const wrkf = makeFakeWrkfPort({ start: async () => CANNED_ACTION_RUN })
+    const runStore = new InMemoryRunStore()
+    let launchCount = 0
+    const launcher: LaunchRoleScopedRun = async () => {
+      launchCount++
+      return CANNED_LAUNCHED
+    }
+    // A runtimeResolver that resolves no agentRoot → resolveLaunchPlacement throws
+    // a notFound placement error before any HRC launch is attempted.
+    const noPlacementResolver: RuntimeResolver = async () => undefined as never
+
+    await expect(
+      launchAction(
+        {
+          wrkf,
+          runStore,
+          launchRoleScopedRun: launcher,
+          runtimeResolver: noPlacementResolver,
+        },
+        BASE_INPUT
+      )
+    ).rejects.toThrow()
+
+    // No HRC launch happened — the failure was pre-launch (intent resolution).
+    expect(launchCount).toBe(0)
+    // The action was terminalized exactly once with its actionRunId.
+    const failCalls = wrkf._calls.filter((c) => c.method === 'action.fail')
+    expect(failCalls).toHaveLength(1)
+    const failParams = failCalls[0]!.params as Record<string, unknown>
+    expect(failParams['actionRunId']).toBe(CANNED_ACTION_RUN.actionRunId)
+    expect(typeof failParams['summary']).toBe('string')
+    expect(typeof failParams['idempotencyKey']).toBe('string')
+  })
+
+  test('action.fail rollback errors are swallowed so the ORIGINAL launch error surfaces', async () => {
+    // Best-effort terminalization must never mask the real failure cause.
+    const wrkf = makeFakeWrkfPort({
+      start: async () => CANNED_ACTION_RUN,
+      fail: async () => {
+        throw new Error('wrkf unreachable during rollback')
+      },
+    })
+    const runStore = new InMemoryRunStore()
+    const launcher: LaunchRoleScopedRun = async () => {
+      throw new Error('original launcher failure')
+    }
+
+    await expect(
+      launchAction(
+        { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
+        BASE_INPUT
+      )
+    ).rejects.toThrow('original launcher failure')
+
+    // The rollback was attempted (once) even though it threw.
+    expect(wrkf._calls.filter((c) => c.method === 'action.fail')).toHaveLength(1)
   })
 })

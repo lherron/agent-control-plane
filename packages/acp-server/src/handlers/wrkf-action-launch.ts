@@ -1,4 +1,5 @@
 import type { Actor } from 'acp-core'
+import type { SessionRef } from 'agent-scope'
 import { normalizeSessionRef, parseSessionRef } from 'agent-scope'
 
 import { AcpHttpError, json } from '../http.js'
@@ -48,6 +49,17 @@ export const handleLaunchWrkfAction: RouteHandler = async ({ request, deps, acto
   // The authorized actor flows from the actor/authz middleware, not the raw body.
   const resolvedActor = actor ?? deps.defaultActor
   const sessionRef = parseActionSessionRef(body, resolvedActor)
+  if (sessionRef === undefined) {
+    // No launchable triager target: the request supplied no sessionRef/scopeRef and
+    // the resolved actor is not a real agent (a kind:'system'/default identity such
+    // as `acp-local` cannot run a worker). Reject BEFORE wrkf.action.start so no
+    // action run is created (T-05039, daedalus ruling DM #9631).
+    throw new AcpHttpError(
+      422,
+      'launch_target_required',
+      'no launchable triager target: provide a sessionRef (launch intent) or call as an agent actor — a system/default actor cannot run a worker'
+    )
+  }
 
   try {
     const result = await launchAction(
@@ -79,7 +91,10 @@ export const handleLaunchWrkfAction: RouteHandler = async ({ request, deps, acto
   }
 }
 
-function parseActionSessionRef(body: Record<string, unknown>, actor: Actor | undefined) {
+function parseActionSessionRef(
+  body: Record<string, unknown>,
+  actor: Actor | undefined
+): SessionRef | undefined {
   const sessionRef = body['sessionRef']
   if (typeof sessionRef === 'string' && sessionRef.trim().length > 0) {
     return parseSessionRefString(sessionRef)
@@ -101,8 +116,17 @@ function parseActionSessionRef(body: Record<string, unknown>, actor: Actor | und
     })
   }
 
-  const agentId = actor?.kind === 'agent' ? actor.id : 'acp-local'
-  return normalizeSessionRef({ scopeRef: `agent:${agentId}`, laneRef: 'main' })
+  // No explicit launch target on the request. The ONLY safe implicit target is a
+  // real agent actor (the UI launch-intent path always supplies an explicit
+  // sessionRef; an agent-scoped service call may rely on its own actor). A
+  // kind:'system'/default actor (e.g. `acp-local`) is a run/job-owner identity with
+  // no launchable agent profile — defaulting a worker to it strands an active action
+  // and 500s on the missing profile (T-05039). Return undefined so the handler can
+  // reject with a typed 422 BEFORE wrkf.action.start.
+  if (actor?.kind === 'agent') {
+    return normalizeSessionRef({ scopeRef: `agent:${actor.id}`, laneRef: 'main' })
+  }
+  return undefined
 }
 
 function parseSessionRefString(input: string) {

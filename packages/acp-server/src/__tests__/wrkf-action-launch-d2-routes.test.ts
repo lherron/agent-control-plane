@@ -237,6 +237,88 @@ describe('POST /v1/wrkf/actions/launch — wrkf-action source-tagged response', 
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
+// T-05039 — no launchable triager target → typed 422 BEFORE action.start
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('POST /v1/wrkf/actions/launch — unresolvable launch target', () => {
+  test('no sessionRef + non-agent (system/default) actor → 422 launch_target_required, no action.start', async () => {
+    // The visible Taskboard button used to send neither sessionRef nor an agent
+    // actor; the route then silently defaulted the worker scope to the kind:'system'
+    // identity `agent:acp-local` (no agent-profile.toml) → HTTP 500 on launch and a
+    // stranded active action. Per daedalus ruling (DM #9631): reject a missing/
+    // unlaunchable target with a typed 422 BEFORE wrkf.action.start; never default a
+    // launchable worker to system:acp-local.
+    const wrkf = makeFakeWrkfPort()
+    const launchCalls: unknown[] = []
+    const launcher: LaunchRoleScopedRun = async (input) => {
+      launchCalls.push(input)
+      return CANNED_LAUNCHED
+    }
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'POST',
+          path: '/v1/wrkf/actions/launch',
+          body: {
+            taskId: TASK_ID,
+            action: ACTION,
+            idempotencyKey: 'd2-route-no-target-001',
+            // NO sessionRef, NO scopeRef, NO agent actor → resolves to defaultActor
+            // (system:acp-local) which is not a launchable agent.
+          },
+        })
+
+        expect(response.status).toBe(422)
+        const body = await fixture.json<{ error: { code: string } }>(response)
+        expect(body.error.code).toBe('launch_target_required')
+        // The action ledger must NOT be touched for an unresolvable target.
+        expect(wrkf._calls.find((c) => c.method === 'action.start')).toBeUndefined()
+        expect(launchCalls).toHaveLength(0)
+      },
+      {
+        wrkf,
+        launchRoleScopedRun: launcher,
+        runtimeResolver: FAKE_RUNTIME_RESOLVER,
+      }
+    )
+  })
+
+  test('explicit sessionRef launches even when no agent actor is supplied (UI launch-intent path)', async () => {
+    // Taskboard passes the concrete launch target sessionRef for the clicked
+    // provider button; that is launch intent, not action-state mutation. With an
+    // explicit sessionRef the launch proceeds regardless of the (system) actor.
+    const wrkf = makeFakeWrkfPort()
+    const launcher: LaunchRoleScopedRun = async () => CANNED_LAUNCHED
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'POST',
+          path: '/v1/wrkf/actions/launch',
+          body: {
+            taskId: TASK_ID,
+            action: ACTION,
+            idempotencyKey: 'd2-route-uitarget-001',
+            sessionRef: SESSION_REF,
+            // No agent actor — the UI does not pass one; sessionRef is authority.
+          },
+        })
+
+        expect(response.status).toBe(201)
+        const startCall = wrkf._calls.find((c) => c.method === 'action.start')
+        expect(startCall).toBeDefined()
+      },
+      {
+        wrkf,
+        launchRoleScopedRun: launcher,
+        runtimeResolver: FAKE_RUNTIME_RESOLVER,
+      }
+    )
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Idempotency — repeating the same idempotencyKey does NOT relaunch HRC
 // ─────────────────────────────────────────────────────────────────────────────
 
