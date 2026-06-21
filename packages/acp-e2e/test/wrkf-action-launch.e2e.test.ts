@@ -293,6 +293,8 @@ describe('wrkf action launch/bind adapter — real wrkf e2e (C-0004)', () => {
             await realPort.action.bindExternal(params) // durably binds on wrkf
             throw Object.assign(new Error('bind response lost'), { code: 'NETWORK_LOST' })
           },
+          show: (params) => realPort.action.show(params),
+          fail: (params) => realPort.action.fail(params),
         },
       }
 
