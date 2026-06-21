@@ -137,6 +137,10 @@ function createWrkfPortAdapter(client: WorkClient): AcpWrkfWorkflowPort {
       show: fwd((c) => c.wrkf.run.show),
       list: fwd((c) => c.wrkf.run.list),
     },
+    action: {
+      start: fwd((c) => c.wrkf.action.start),
+      bindExternal: fwd((c) => c.wrkf.action.bindExternal),
+    },
     effect: {
       list: fwd((c) => c.wrkf.effect.list),
       show: fwd((c) => c.wrkf.effect.show),

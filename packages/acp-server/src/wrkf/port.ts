@@ -34,6 +34,40 @@ export type WrkfRunStartParams = {
   externalRunRef?: string | undefined
 }
 
+/**
+ * Params for `wrkf.action.start` (C-0001). Mirrors the installed
+ * `@wrkq/client` `WrkfActionStartParams`. `action` selects the semantic step
+ * (triage/implement/review/verify or a custom string); wrkf defaults the role
+ * from the action when `role` is omitted and auto-installs the built-in
+ * `wrkq-simple-task` workflow on an un-workflowed task.
+ */
+export type WrkfActionStartParams = {
+  task?: string | undefined
+  instanceId?: string | undefined
+  workflow?: string | undefined
+  action: string
+  role?: string | undefined
+  actor?: WrkfActor | undefined
+  lane?: string | undefined
+  deliveryRef?: string | Record<string, unknown> | undefined
+  externalRunRef?: string | undefined
+  idempotencyKey?: string | undefined
+}
+
+/**
+ * Params for `wrkf.action.bindExternal` (C-0002). Mirrors the installed
+ * `@wrkq/client` `WrkfActionBindExternalParams`. Keys on `actionRunId` (NOT the
+ * underlying run id). wrkf normalizes `externalRunRef` to `hrc:<id>` and rejects
+ * a conflicting ref bound to a different run.
+ */
+export type WrkfActionBindExternalParams = {
+  actionRunId: string
+  externalRunRef: string
+  deliveryRef?: string | Record<string, unknown> | undefined
+  lane?: string | undefined
+  idempotencyKey?: string | undefined
+}
+
 export type WrkfRunFinishParams = {
   runId: string
   summary?: string | undefined
@@ -97,6 +131,16 @@ export type AcpWrkfWorkflowPort = {
     fail(params: WrkfRunFailParams): Promise<unknown>
     show(params: { id: string }): Promise<unknown>
     list(params: { task: string }): Promise<unknown>
+  }
+  /**
+   * Low-ceremony action surface (C-0001/C-0002). `start` opens (or idempotently
+   * replays) one semantic action run; `bindExternal` binds the canonical HRC
+   * ref to that action run. The ACP action-launch adapter composes these around
+   * an HRC launch — see `wrkf/action-launch.ts`.
+   */
+  action: {
+    start(params: WrkfActionStartParams): Promise<unknown>
+    bindExternal(params: WrkfActionBindExternalParams): Promise<unknown>
   }
   effect: {
     list(params: Record<string, unknown>): Promise<unknown>
