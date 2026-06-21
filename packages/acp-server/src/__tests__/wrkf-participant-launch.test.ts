@@ -107,6 +107,8 @@
 
 import { describe, expect, test } from 'bun:test'
 
+import { formatHrcExternalRef } from 'acp-core'
+
 // RED IMPORT — participant-launch.ts does not exist yet (W4b deliverable).
 // Bun throws CannotFindModule at this line → all tests in this file are RED.
 // @ts-expect-error -- participant-launch.ts is the W4b deliverable; does not exist yet
@@ -439,7 +441,10 @@ describe('launchParticipant — happy path (W4b red)', () => {
     expect(bindCall).toBeDefined()
     const p = bindCall!.params as Record<string, unknown>
     expect(p['runId']).toBe(CANNED_WRKF_RUN.id)
-    expect(p['externalRunRef']).toBe(CANNED_LAUNCHED.runId)
+    // ACP formats the prefixed wrkf external ref (`hrc:<bare>`) itself via the
+    // shared formatter — wrkf never stores a bare HRC id (Contract C-0009).
+    expect(p['externalRunRef']).toBe(formatHrcExternalRef(CANNED_LAUNCHED.runId))
+    expect(p['externalRunRef']).toBe(`hrc:${CANNED_LAUNCHED.runId}`)
   })
 
   test('[RED] bindExternal idempotencyKey is derived from input idempotencyKey with :bindExternal suffix', async () => {
@@ -951,11 +956,12 @@ describe('launchParticipant — crash-window recovery (W4b red)', () => {
 
     // Must NOT have launched again
     expect(launchCalls).toHaveLength(0)
-    // Must have called bindExternal with the discovered hrcRunId
+    // Must have called bindExternal with the discovered hrcRunId, formatted as
+    // the prefixed wrkf external ref (`hrc:<bare>`) via the shared formatter.
     const bindCall = wrkf._calls.find((c) => c.method === 'run.bindExternal')
     expect(bindCall).toBeDefined()
     const p = bindCall!.params as Record<string, unknown>
-    expect(p['externalRunRef']).toBe(CANNED_LAUNCHED.runId)
+    expect(p['externalRunRef']).toBe(formatHrcExternalRef(CANNED_LAUNCHED.runId))
     // Result source is correct
     expect(result.source).toBe('wrkf')
   })

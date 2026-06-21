@@ -150,6 +150,12 @@ export { validateTransition } from './validators/transition-policy.js'
 export { computeTaskContext } from './task-context.js'
 export { createInMemoryWorkflowKernel, stableJson } from './workflow/index.js'
 export {
+  HRC_EXTERNAL_REF_PREFIX,
+  formatHrcExternalRef,
+  isHrcExternalRef,
+  parseHrcExternalRef,
+} from './workflow/hrc-external-ref.js'
+export {
   basicWorkflowV1,
   builtInWorkflowDefinitions,
   codeDefectFastlaneWorkflowV1,

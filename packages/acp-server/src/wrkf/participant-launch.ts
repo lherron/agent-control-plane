@@ -1,4 +1,5 @@
 import type { Actor } from 'acp-core'
+import { formatHrcExternalRef } from 'acp-core'
 import type { SessionRef } from 'agent-scope'
 
 import type {
@@ -216,7 +217,7 @@ async function bindExternalOrMarkOrphan(
   try {
     await deps.wrkf.run.bindExternal({
       runId: args.wrkfRunId,
-      externalRunRef: args.hrcRunId,
+      externalRunRef: formatHrcExternalRef(args.hrcRunId),
       deliveryRef: stableJson(args.deliveryRef),
       idempotencyKey: `${input.idempotencyKey}:bindExternal`,
     })
