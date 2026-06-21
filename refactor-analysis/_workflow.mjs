@@ -1,24 +1,40 @@
 export const meta = {
   name: 'acp-packages-refactor-pass',
-  description: 'Analyze→apply→verify behavior-preserving refactors across all ACP packages, then repair breakage',
-  phases: [
-    { title: 'Analyze' }, { title: 'Apply' }, { title: 'Verify' }, { title: 'Repair' },
-  ],
+  description:
+    'Analyze→apply→verify behavior-preserving refactors across all ACP packages, then repair breakage',
+  phases: [{ title: 'Analyze' }, { title: 'Apply' }, { title: 'Verify' }, { title: 'Repair' }],
 }
 
 const REPO = '/Users/lherron/praesidium/agent-control-plane'
 
 const FALLBACK_TARGETS = [
-  'acp-admin-store', 'acp-cli', 'acp-conversation', 'acp-core', 'acp-e2e',
-  'acp-interface-store', 'acp-jobs-store', 'acp-ops-projection', 'acp-ops-reducer',
-  'acp-ops-web', 'acp-server', 'acp-state-store', 'acp-viewer', 'coordination-substrate',
-  'gateway-discord', 'gateway-ios', 'wlearn', 'wrkq-lib',
+  'acp-admin-store',
+  'acp-cli',
+  'acp-conversation',
+  'acp-core',
+  'acp-e2e',
+  'acp-interface-store',
+  'acp-jobs-store',
+  'acp-ops-projection',
+  'acp-ops-reducer',
+  'acp-ops-web',
+  'acp-server',
+  'acp-state-store',
+  'acp-viewer',
+  'coordination-substrate',
+  'gateway-discord',
+  'gateway-ios',
+  'wlearn',
+  'wrkq-lib',
 ]
 
 function resolveTargets(a, fallback) {
   if (Array.isArray(a) && a.length) return a
   if (typeof a === 'string' && a.trim()) {
-    try { const p = JSON.parse(a); if (Array.isArray(p) && p.length) return p } catch (_) {}
+    try {
+      const p = JSON.parse(a)
+      if (Array.isArray(p) && p.length) return p
+    } catch (_) {}
     const parts = a.split(/[,\s]+/).filter(Boolean)
     if (parts.length) return parts
   }
@@ -48,22 +64,40 @@ Package-type swaps: concurrent -> [T31] shared-mutable->immutable/message-passin
 PRESSURE-TEST each finding before writing: verify the smell still exists (re-read; many magic-number/dup smells are already fixed); honor contraindications (load-bearing duplication, deliberate option seams); mark direction honestly (expect real de-abstraction, not only "extract more"); spread/projection refactors MUST preserve the exact field set; dedup that parameterizes a typeof literal can trip biome useValidTypeof; name the churn each change creates.
 For each finding capture: location (file:line), technique (ID+name), mechanism repaired (structural cause, not the smell), direction (add/remove/relocate/isolate), preservation rung, falsifiable signal, Risk (Low/Med/High), API-impact (internal-only|public-surface), effort, contraindication.`
 
-const REPORT_FORMAT = `Write a Markdown report with sections: Summary; Public boundary (assess first, verdict sound/needs-care/leaky); Findings by mechanism (outside-in, each with location/technique/mechanism/direction/preservation/falsifiable-signal/Risk/API-impact/effort/tests/contraindication); Deliberately left alone (where-NOT); If applying: outside-in sequence; Safety checklist.`
+const REPORT_FORMAT =
+  'Write a Markdown report with sections: Summary; Public boundary (assess first, verdict sound/needs-care/leaky); Findings by mechanism (outside-in, each with location/technique/mechanism/direction/preservation/falsifiable-signal/Risk/API-impact/effort/tests/contraindication); Deliberately left alone (where-NOT); If applying: outside-in sequence; Safety checklist.'
 
 const ANALYZE_SCHEMA = {
-  type: 'object', additionalProperties: false,
-  required: ['pkg', 'reportPath', 'filesRead', 'applicableCount', 'deferredCount', 'deferredFindings'],
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'pkg',
+    'reportPath',
+    'filesRead',
+    'applicableCount',
+    'deferredCount',
+    'deferredFindings',
+  ],
   properties: {
     pkg: { type: 'string' },
     reportPath: { type: 'string', description: 'repo-relative path to the written report' },
     filesRead: { type: 'integer' },
-    applicableCount: { type: 'integer', description: 'count of Low/Med + internal-only items safe to auto-apply' },
-    deferredCount: { type: 'integer', description: 'count of High-risk OR public-surface items NOT auto-applicable' },
+    applicableCount: {
+      type: 'integer',
+      description: 'count of Low/Med + internal-only items safe to auto-apply',
+    },
+    deferredCount: {
+      type: 'integer',
+      description: 'count of High-risk OR public-surface items NOT auto-applicable',
+    },
     summary: { type: 'string' },
     deferredFindings: {
-      type: 'array', description: 'EVERY High-risk/public-surface finding — THIS LIST IS SURFACED TO THE USER, be complete, do not summarize away',
+      type: 'array',
+      description:
+        'EVERY High-risk/public-surface finding — THIS LIST IS SURFACED TO THE USER, be complete, do not summarize away',
       items: {
-        type: 'object', additionalProperties: false,
+        type: 'object',
+        additionalProperties: false,
         required: ['title', 'file', 'risk', 'apiImpact', 'reason'],
         properties: {
           title: { type: 'string' },
@@ -79,7 +113,8 @@ const ANALYZE_SCHEMA = {
 }
 
 const APPLY_SCHEMA = {
-  type: 'object', additionalProperties: false,
+  type: 'object',
+  additionalProperties: false,
   required: ['pkg', 'appliedCount', 'deferred', 'filesChanged', 'selfCheck', 'additionalDeferred'],
   properties: {
     pkg: { type: 'string' },
@@ -88,21 +123,30 @@ const APPLY_SCHEMA = {
     filesChanged: { type: 'array', items: { type: 'string', description: 'repo-relative path' } },
     appliedSummary: { type: 'string', description: 'one line per applied refactor' },
     selfCheck: {
-      type: 'object', additionalProperties: false,
+      type: 'object',
+      additionalProperties: false,
       required: ['typecheckOk', 'testOk', 'note'],
       properties: {
         typecheckOk: { type: 'boolean' },
-        testOk: { type: 'boolean', description: 'true if no NEW failures vs baseline (the 9 acp-server pre-existing ones are OK)' },
+        testOk: {
+          type: 'boolean',
+          description:
+            'true if no NEW failures vs baseline (the 9 acp-server pre-existing ones are OK)',
+        },
         note: { type: 'string' },
       },
     },
     additionalDeferred: {
-      type: 'array', description: 'items the report tagged applicable but you judged unsafe to auto-apply — surfaced to the user',
+      type: 'array',
+      description:
+        'items the report tagged applicable but you judged unsafe to auto-apply — surfaced to the user',
       items: {
-        type: 'object', additionalProperties: false,
+        type: 'object',
+        additionalProperties: false,
         required: ['title', 'file', 'risk', 'apiImpact', 'reason'],
         properties: {
-          title: { type: 'string' }, file: { type: 'string' },
+          title: { type: 'string' },
+          file: { type: 'string' },
           risk: { type: 'string', enum: ['Low', 'Med', 'High'] },
           apiImpact: { type: 'string', enum: ['internal-only', 'public-surface'] },
           reason: { type: 'string' },
@@ -113,20 +157,31 @@ const APPLY_SCHEMA = {
 }
 
 const VERIFY_SCHEMA = {
-  type: 'object', additionalProperties: false,
+  type: 'object',
+  additionalProperties: false,
   required: ['buildOk', 'typecheckOk', 'testOk', 'failingPackages', 'errorExcerpt'],
   properties: {
     buildOk: { type: 'boolean' },
     typecheckOk: { type: 'boolean' },
-    testOk: { type: 'boolean', description: 'true if the ONLY test failures are the 9 known pre-existing acp-server ones' },
+    testOk: {
+      type: 'boolean',
+      description: 'true if the ONLY test failures are the 9 known pre-existing acp-server ones',
+    },
     failingPackages: { type: 'array', items: { type: 'string' } },
-    errorExcerpt: { type: 'string', description: '<=4000 chars; include new failures only, with file attribution' },
-    newFailureCount: { type: 'integer', description: 'count of failures BEYOND the 9 known baseline ones' },
+    errorExcerpt: {
+      type: 'string',
+      description: '<=4000 chars; include new failures only, with file attribution',
+    },
+    newFailureCount: {
+      type: 'integer',
+      description: 'count of failures BEYOND the 9 known baseline ones',
+    },
   },
 }
 
 const REPAIR_SCHEMA = {
-  type: 'object', additionalProperties: false,
+  type: 'object',
+  additionalProperties: false,
   required: ['pkg', 'fixed', 'note'],
   properties: {
     pkg: { type: 'string' },
@@ -136,7 +191,9 @@ const REPAIR_SCHEMA = {
   },
 }
 
-const ANALYZE_PROMPT = (t) => `You are a refactoring ANALYST (read-only) for the package at ${REPO}/packages/${t}.
+const ANALYZE_PROMPT = (
+  t
+) => `You are a refactoring ANALYST (read-only) for the package at ${REPO}/packages/${t}.
 Do NOT edit any source. Read EVERY source file in packages/${t}/ in full (it is small enough). Identify the public boundary (index/exports) and assess it FIRST, then work inward.
 
 ${DETECTION_GUIDE}
@@ -149,7 +206,10 @@ Create the directory and write the report to ${REPO}/refactor-analysis/${t}-repo
 
 Then return the structured result. CRITICAL: deferredFindings MUST contain one entry for EVERY High-risk OR public-surface finding — this list is shown directly to the user and becomes tracked follow-up work, so be complete and specific (real file:line, concrete reason). applicableCount counts only Low/Med + internal-only behavior-preserving items.`
 
-const APPLY_PROMPT = (t, reportPath) => `You are a refactoring APPLIER for package packages/${t} at ${REPO}. Read the analysis report at ${reportPath}.
+const APPLY_PROMPT = (
+  t,
+  reportPath
+) => `You are a refactoring APPLIER for package packages/${t} at ${REPO}. Read the analysis report at ${reportPath}.
 APPLY ONLY findings that are BOTH (Low or Med risk) AND (internal-only API-impact) AND strictly behavior-preserving (extract function/helper, rename locals, dead-code removal, dedupe, named constants for magic numbers, early-return de-nesting, splitting large PRIVATE functions, collapse premature abstraction with no external consumers).
 DO NOT TOUCH: public/exported API signatures, runtime behavior, wire contracts, or any High-risk item. If an item the report tagged applicable looks ambiguous or could change behavior, SKIP it and record it in additionalDeferred.
 Edit ONLY files under packages/${t}/. Do not edit other packages, tests of other packages, or shared config.
@@ -164,7 +224,9 @@ If your scoped typecheck/test reveals a NEW failure your edits caused, FIX it or
 
 Return the structured result with repo-relative paths in filesChanged. additionalDeferred carries any items you chose not to apply (surfaced to the user).`
 
-const VERIFY_PROMPT = (round) => `You are the VERIFY gate (round ${round}) for the refactor pass at ${REPO}. Run, from ${REPO}, in order (allow ~10 min total):
+const VERIFY_PROMPT = (
+  round
+) => `You are the VERIFY gate (round ${round}) for the refactor pass at ${REPO}. Run, from ${REPO}, in order (allow ~10 min total):
   bun run lint-fix    (formatting only — NOT a gate; ignore its result for pass/fail)
   bun run build
   bun run typecheck
@@ -173,7 +235,10 @@ Attribute any failure to packages/<name>/. Trim errorExcerpt to <=4000 chars.
 ${BASELINE_RED}
 The GATE is build + typecheck + test only (lint is never a gate). Set buildOk/typecheckOk from their exit status. Set testOk=true if the ONLY failing tests are the 9 known pre-existing acp-server ones; otherwise testOk=false. Put NEW failures (count in newFailureCount) into failingPackages + errorExcerpt. Be honest — report actual command results, never a claim.`
 
-const REPAIR_PROMPT = (t, excerpt) => `You are a REPAIR agent for package packages/${t} at ${REPO}. The verify gate failed. Error excerpt:
+const REPAIR_PROMPT = (
+  t,
+  excerpt
+) => `You are a REPAIR agent for package packages/${t} at ${REPO}. The verify gate failed. Error excerpt:
 ---
 ${excerpt}
 ---
@@ -184,38 +249,79 @@ phase('Analyze')
 log(`Refactor pass over ${targets.length} packages: ${targets.join(', ')}`)
 const results = await pipeline(
   targets,
-  (t) => agent(ANALYZE_PROMPT(t), { label: `analyze:${t}`, phase: 'Analyze', schema: ANALYZE_SCHEMA }),
-  (analysis, t) => analysis && agent(APPLY_PROMPT(t, analysis.reportPath),
-    { label: `apply:${t}`, phase: 'Apply', schema: APPLY_SCHEMA }).then(r => r && { ...r, analysis }),
+  (t) =>
+    agent(ANALYZE_PROMPT(t), { label: `analyze:${t}`, phase: 'Analyze', schema: ANALYZE_SCHEMA }),
+  (analysis, t) =>
+    analysis &&
+    agent(APPLY_PROMPT(t, analysis.reportPath), {
+      label: `apply:${t}`,
+      phase: 'Apply',
+      schema: APPLY_SCHEMA,
+    }).then((r) => r && { ...r, analysis })
 )
 const applied = results.filter(Boolean)
 
 phase('Verify')
-let verify = await agent(VERIFY_PROMPT(1), { label: 'verify:round-1', phase: 'Verify', schema: VERIFY_SCHEMA })
+let verify = await agent(VERIFY_PROMPT(1), {
+  label: 'verify:round-1',
+  phase: 'Verify',
+  schema: VERIFY_SCHEMA,
+})
 
 let round = 0
 while (verify && !(verify.buildOk && verify.typecheckOk && verify.testOk) && round < 2) {
   round++
   phase('Repair')
-  const failing = [...new Set(verify.failingPackages?.length ? verify.failingPackages
-    : applied.flatMap(r => r.filesChanged || []).map(f => (f.match(/packages\/([^/]+)\//) || [])[1]).filter(Boolean))]
+  const failing = [
+    ...new Set(
+      verify.failingPackages?.length
+        ? verify.failingPackages
+        : applied
+            .flatMap((r) => r.filesChanged || [])
+            .map((f) => (f.match(/packages\/([^/]+)\//) || [])[1])
+            .filter(Boolean)
+    ),
+  ]
   log(`Repair round ${round}: ${failing.join(', ') || '(none identified)'}`)
-  await parallel(failing.map(t => () => agent(REPAIR_PROMPT(t, verify.errorExcerpt || ''),
-    { label: `repair:${t}`, phase: 'Repair', schema: REPAIR_SCHEMA })))
+  await parallel(
+    failing.map(
+      (t) => () =>
+        agent(REPAIR_PROMPT(t, verify.errorExcerpt || ''), {
+          label: `repair:${t}`,
+          phase: 'Repair',
+          schema: REPAIR_SCHEMA,
+        })
+    )
+  )
   phase('Verify')
-  verify = await agent(VERIFY_PROMPT(round + 1), { label: `verify:round-${round + 1}`, phase: 'Verify', schema: VERIFY_SCHEMA })
+  verify = await agent(VERIFY_PROMPT(round + 1), {
+    label: `verify:round-${round + 1}`,
+    phase: 'Verify',
+    schema: VERIFY_SCHEMA,
+  })
 }
 
 const deferredByPackage = applied
-  .map(r => ({ pkg: r.pkg || (r.analysis && r.analysis.pkg), items: [...((r.analysis && r.analysis.deferredFindings) || []), ...(r.additionalDeferred || [])] }))
-  .filter(g => g.items.length > 0)
+  .map((r) => ({
+    pkg: r.pkg || r.analysis?.pkg,
+    items: [...(r.analysis?.deferredFindings || []), ...(r.additionalDeferred || [])],
+  }))
+  .filter((g) => g.items.length > 0)
 const totalDeferred = deferredByPackage.reduce((a, g) => a + g.items.length, 0)
-log(`Deferred (too-risky to auto-apply, needs review): ${totalDeferred} items across ${deferredByPackage.length} packages`)
+log(
+  `Deferred (too-risky to auto-apply, needs review): ${totalDeferred} items across ${deferredByPackage.length} packages`
+)
 
-return {
-  applied: applied.map(r => ({ pkg: r.pkg, applied: r.appliedCount, deferred: r.deferred, filesChanged: (r.filesChanged || []).length, selfCheck: r.selfCheck })),
+export default {
+  applied: applied.map((r) => ({
+    pkg: r.pkg,
+    applied: r.appliedCount,
+    deferred: r.deferred,
+    filesChanged: (r.filesChanged || []).length,
+    selfCheck: r.selfCheck,
+  })),
   repairRounds: round,
   verify,
-  green: !!(verify && verify.buildOk && verify.typecheckOk && verify.testOk),
+  green: !!(verify?.buildOk && verify.typecheckOk && verify.testOk),
   deferred: { total: totalDeferred, byPackage: deferredByPackage },
 }

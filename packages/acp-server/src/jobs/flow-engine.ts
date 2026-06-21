@@ -493,9 +493,7 @@ function isExecStep(step: JobFlowStep): step is ExecFlowStep {
 
 function isNativeStep(step: JobFlowStep): boolean {
   return (
-    step.kind === 'wrkq-task' ||
-    step.kind === 'pulpit-message' ||
-    step.kind === 'agent-dispatch'
+    step.kind === 'wrkq-task' || step.kind === 'pulpit-message' || step.kind === 'agent-dispatch'
   )
 }
 
@@ -521,7 +519,10 @@ function resolveNativeStepDef(input: {
   jobRun: JobRunRecord
   phase: JobStepRunPhase
   step: JobFlowStep
-}): { stepDef: Readonly<Record<string, unknown>>; resolvedFields: Readonly<Record<string, string>> } {
+}): {
+  stepDef: Readonly<Record<string, unknown>>
+  resolvedFields: Readonly<Record<string, string>>
+} {
   const resolvedFields: Record<string, string> = {}
   const canonicalEventId = readCanonicalEventId(input.jobRun)
   if (canonicalEventId !== undefined) {

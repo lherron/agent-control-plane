@@ -154,6 +154,10 @@ export const mutatingRouteSpecs: Record<string, ActorAndAuthzSpec> = {
     operation: 'wrkf.effects.deliver',
     resource: ({ body }) => ({ kind: 'wrkf-task', id: readBodyString(body, 'task') }),
   },
+  'POST /v1/wrkf/actions/launch': {
+    operation: 'wrkf.actions.launch',
+    resource: ({ body }) => ({ kind: 'wrkf-task', id: readBodyString(body, 'taskId') }),
+  },
   'POST /v1/pbc/tasks/:taskId/start': {
     operation: 'pbc.tasks.start',
     resource: ({ params }) => ({ kind: 'wrkf-task', id: params['taskId'] }),

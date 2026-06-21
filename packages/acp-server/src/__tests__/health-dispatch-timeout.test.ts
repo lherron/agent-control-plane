@@ -92,7 +92,9 @@ describe('dispatch timeout health wiring', () => {
       })
 
       expect(result).toEqual({ inserted: false, skipped: true })
-      expect(store.getInboxEvent('acp-health:run.dispatch_timeout:run_timeout_001').event).toBeUndefined()
+      expect(
+        store.getInboxEvent('acp-health:run.dispatch_timeout:run_timeout_001').event
+      ).toBeUndefined()
     } finally {
       store.close()
     }

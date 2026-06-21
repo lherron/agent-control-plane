@@ -46,7 +46,7 @@ type FakeTask = {
 }
 
 type FakeStore = {
-  tasks: Map<string, FakeTask>    // keyed by path
+  tasks: Map<string, FakeTask> // keyed by path
   createCount: number
   listCount: number
   containerShowCount: number
@@ -67,7 +67,13 @@ function makeFakeWorkClient(fakeStore: FakeStore): WorkClient {
               : [...fakeStore.tasks.values()]
           return { items, nextCursor: undefined }
         },
-        create: async (params: { path?: string; project?: string; title: string; description?: string; idempotencyKey?: string }) => {
+        create: async (params: {
+          path?: string
+          project?: string
+          title: string
+          description?: string
+          idempotencyKey?: string
+        }) => {
           fakeStore.createCount += 1
           // Idempotency key dedup: if a task with same path already exists, return it
           // (simulates what real wrkq would do with idempotencyKey)
@@ -107,34 +113,124 @@ function makeFakeWorkClient(fakeStore: FakeStore): WorkClient {
           if (!found) throw new Error(`task not found: ${params.task}`)
           return found
         },
-        update: async () => { throw new Error('not used') },
-        move: async () => { throw new Error('not used') },
-        acknowledge: async () => { throw new Error('not used') },
-        delete: async () => { throw new Error('not used') },
-        restore: async () => { throw new Error('not used') },
+        update: async () => {
+          throw new Error('not used')
+        },
+        move: async () => {
+          throw new Error('not used')
+        },
+        acknowledge: async () => {
+          throw new Error('not used')
+        },
+        delete: async () => {
+          throw new Error('not used')
+        },
+        restore: async () => {
+          throw new Error('not used')
+        },
       },
       container: {
         show: async () => {
           fakeStore.containerShowCount += 1
-          return { id: containerProjectId, uuid: 'uuid-P00001', slug: 'agent-control-plane', path: 'agent-control-plane', createdAt: '', updatedAt: '' }
+          return {
+            id: containerProjectId,
+            uuid: 'uuid-P00001',
+            slug: 'agent-control-plane',
+            path: 'agent-control-plane',
+            createdAt: '',
+            updatedAt: '',
+          }
         },
-        create: async () => { throw new Error('not used') },
-        delete: async () => { throw new Error('not used') },
-        deleteRecursive: async () => { throw new Error('not used') },
-        list: async () => { throw new Error('not used') },
+        create: async () => {
+          throw new Error('not used')
+        },
+        delete: async () => {
+          throw new Error('not used')
+        },
+        deleteRecursive: async () => {
+          throw new Error('not used')
+        },
+        list: async () => {
+          throw new Error('not used')
+        },
       },
-      comment: { add: async () => { throw new Error('not used') }, list: async () => { throw new Error('not used') }, show: async () => { throw new Error('not used') }, delete: async () => { throw new Error('not used') } },
-      attachment: { add: async () => { throw new Error('not used') }, list: async () => { throw new Error('not used') }, show: async () => { throw new Error('not used') }, remove: async () => { throw new Error('not used') } },
-      relation: { add: async () => { throw new Error('not used') }, list: async () => { throw new Error('not used') }, remove: async () => { throw new Error('not used') } },
-      workflow: { attach: async () => { throw new Error('not used') }, inspect: async () => { throw new Error('not used') }, timeline: async () => { throw new Error('not used') }, refresh: async () => { throw new Error('not used') } },
-      admin: { legacyActor: { list: async () => { throw new Error('not used') }, create: async () => { throw new Error('not used') }, update: async () => { throw new Error('not used') } } },
+      comment: {
+        add: async () => {
+          throw new Error('not used')
+        },
+        list: async () => {
+          throw new Error('not used')
+        },
+        show: async () => {
+          throw new Error('not used')
+        },
+        delete: async () => {
+          throw new Error('not used')
+        },
+      },
+      attachment: {
+        add: async () => {
+          throw new Error('not used')
+        },
+        list: async () => {
+          throw new Error('not used')
+        },
+        show: async () => {
+          throw new Error('not used')
+        },
+        remove: async () => {
+          throw new Error('not used')
+        },
+      },
+      relation: {
+        add: async () => {
+          throw new Error('not used')
+        },
+        list: async () => {
+          throw new Error('not used')
+        },
+        remove: async () => {
+          throw new Error('not used')
+        },
+      },
+      workflow: {
+        attach: async () => {
+          throw new Error('not used')
+        },
+        inspect: async () => {
+          throw new Error('not used')
+        },
+        timeline: async () => {
+          throw new Error('not used')
+        },
+        refresh: async () => {
+          throw new Error('not used')
+        },
+      },
+      admin: {
+        legacyActor: {
+          list: async () => {
+            throw new Error('not used')
+          },
+          create: async () => {
+            throw new Error('not used')
+          },
+          update: async () => {
+            throw new Error('not used')
+          },
+        },
+      },
     },
     wrkf: {} as WorkClient['wrkf'],
     rpc: {
-      initialize: async () => { throw new Error('not used') },
+      initialize: async () => {
+        throw new Error('not used')
+      },
       shutdown: async () => {},
     },
-    call: async () => { throw new Error('not used') },
+    call: async () => {
+      throw new Error('not used')
+    },
     close: async () => {},
     kill: () => {},
   } as unknown as WorkClient
@@ -196,8 +292,8 @@ describe('createOrFindWrkqTask — idempotency contract (Phase B RED)', () => {
     // Second call: simulates retry after crash — must find existing task, NOT create again
     const result2 = await createOrFindWrkqTask(client, input)
     expect(result2.taskId).toBe(result1.taskId)
-    expect(fakeStore.createCount).toBe(0)       // NO second create
-    expect(result2.created).toBe(false)         // found, not created
+    expect(fakeStore.createCount).toBe(0) // NO second create
+    expect(result2.created).toBe(false) // found, not created
   })
 
   test('different canonical event ids produce different task ids', async () => {
@@ -225,8 +321,8 @@ describe('createOrFindWrkqTask — idempotency contract (Phase B RED)', () => {
     ])
 
     const taskIds = results.map((r) => r.taskId)
-    expect(new Set(taskIds).size).toBe(1)   // All return the same taskId
-    expect(fakeStore.createCount).toBeLessThanOrEqual(1)  // At most one create
+    expect(new Set(taskIds).size).toBe(1) // All return the same taskId
+    expect(fakeStore.createCount).toBeLessThanOrEqual(1) // At most one create
   })
 
   test('result contains correct projectId and taskPath', async () => {
@@ -240,7 +336,7 @@ describe('createOrFindWrkqTask — idempotency contract (Phase B RED)', () => {
     expect(typeof result.taskId).toBe('string')
     expect(result.taskId.length).toBeGreaterThan(0)
     expect(typeof result.projectId).toBe('string')
-    expect(result.projectId).toBe('P-00001')   // recovered from container.show
+    expect(result.projectId).toBe('P-00001') // recovered from container.show
     expect(typeof result.taskPath).toBe('string')
     expect(result.taskPath).toBe(input.path)
     expect(typeof result.created).toBe('boolean')

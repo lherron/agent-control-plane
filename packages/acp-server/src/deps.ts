@@ -1,3 +1,4 @@
+import type { WorkClient } from '@wrkq/client'
 import { type AdminStore, createInMemoryAdminStore } from 'acp-admin-store'
 import type { ConversationStore } from 'acp-conversation'
 import {
@@ -10,6 +11,7 @@ import {
 } from 'acp-core'
 import { type InterfaceStore, openInterfaceStore } from 'acp-interface-store'
 import type { JobsStore } from 'acp-jobs-store'
+import type { NativeStepExecutorDeps } from 'acp-jobs-store'
 import type { AcpStateStore } from 'acp-state-store'
 import type { SessionRef } from 'agent-scope'
 import type { CoordinationStore } from 'coordination-substrate'
@@ -20,9 +22,7 @@ import type {
 } from 'hrc-core'
 import type { HrcClient } from 'hrc-sdk'
 import type { UnifiedSessionEvent } from 'spaces-runtime'
-import type { WorkClient } from '@wrkq/client'
 import type { WrkqStoreAdapter } from 'wrkq-lib'
-import type { NativeStepExecutorDeps } from 'acp-jobs-store'
 
 import {
   InMemoryInputAdmissionStore,

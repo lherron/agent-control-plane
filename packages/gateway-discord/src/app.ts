@@ -105,7 +105,10 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined
 }
 
-function pickNonEmptyString(obj: Record<string, unknown> | undefined, key: string): string | undefined {
+function pickNonEmptyString(
+  obj: Record<string, unknown> | undefined,
+  key: string
+): string | undefined {
   const value = obj?.[key]
   if (typeof value === 'string' && value.trim()) {
     return value.trim()

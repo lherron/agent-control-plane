@@ -4,8 +4,8 @@ import type { SessionRef } from 'agent-scope'
 import type { CoordinationStore } from '../storage/open-store.js'
 import {
   type CoordinationEventJoinedRow,
-  hydrateCoordinationEvent,
   LINK_COLUMNS,
+  hydrateCoordinationEvent,
   listParticipantsForEvents,
 } from '../storage/records.js'
 import type { CoordinationEvent } from '../types/coordination-event.js'

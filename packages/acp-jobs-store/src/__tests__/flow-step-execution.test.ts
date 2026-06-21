@@ -19,10 +19,8 @@ import { describe, expect, test } from 'bun:test'
 
 import { createInMemoryJobsStore } from '../index.js'
 import {
-  type AgentDispatchStepResult,
   type DispatchAgentInput,
   type NativeStepExecutorDeps,
-  type PulpitMessageStepResult,
   type SendPulpitMessage,
   type WrkqTaskPort,
   type WrkqTaskStepResult,
@@ -145,12 +143,17 @@ describe('executeNativeSideEffectStep — wrkq-task step (Phase B RED)', () => {
   test('calls wrkqTaskPort.createOrFind and persists WrkqTaskStepResult to job_step_runs', async () => {
     const store = createInMemoryJobsStore()
     try {
-      const { job, jobRun } = makeJobRun(store)
+      const { jobRun } = makeJobRun(store)
       const wrkqTaskPort = makeWrkqTaskPort()
       const { port: sendPulpitMessage } = makeSendPulpitMessage()
       const { port: dispatchAgentInput } = makeDispatchAgentInput()
 
-      const deps: NativeStepExecutorDeps = { store, wrkqTaskPort, sendPulpitMessage, dispatchAgentInput }
+      const deps: NativeStepExecutorDeps = {
+        store,
+        wrkqTaskPort,
+        sendPulpitMessage,
+        dispatchAgentInput,
+      }
 
       // RED: throws "not implemented"
       const result = await executeNativeSideEffectStep(deps, {
@@ -178,7 +181,12 @@ describe('executeNativeSideEffectStep — wrkq-task step (Phase B RED)', () => {
       }
 
       // Assertion 2: persisted to job_step_runs
-      const { jobStepRun } = store.jobStepRuns.getById(jobRun.jobRunId, 'sequence', 'create_task', 1)
+      const { jobStepRun } = store.jobStepRuns.getById(
+        jobRun.jobRunId,
+        'sequence',
+        'create_task',
+        1
+      )
       expect(jobStepRun?.status).toBe('succeeded')
       expect(jobStepRun?.result).toBeDefined()
       expect(jobStepRun?.result?.['taskId']).toBeDefined()
@@ -190,7 +198,7 @@ describe('executeNativeSideEffectStep — wrkq-task step (Phase B RED)', () => {
   test('wrkq-task step uses deterministic idempotency key: acp-health:dispatch-timeout:${canonicalEventId}:task', async () => {
     const store = createInMemoryJobsStore()
     try {
-      const { job, jobRun } = makeJobRun(store)
+      const { jobRun } = makeJobRun(store)
       const createOrFindCalls: Array<Parameters<WrkqTaskPort['createOrFind']>[0]> = []
       const wrkqTaskPort: WrkqTaskPort = {
         async createOrFind(input) {
@@ -207,7 +215,12 @@ describe('executeNativeSideEffectStep — wrkq-task step (Phase B RED)', () => {
       const { port: dispatchAgentInput } = makeDispatchAgentInput()
 
       const canonicalEventId = 'evt_abc123def456'
-      const deps: NativeStepExecutorDeps = { store, wrkqTaskPort, sendPulpitMessage, dispatchAgentInput }
+      const deps: NativeStepExecutorDeps = {
+        store,
+        wrkqTaskPort,
+        sendPulpitMessage,
+        dispatchAgentInput,
+      }
 
       // RED: throws "not implemented"
       await executeNativeSideEffectStep(deps, {
@@ -246,12 +259,17 @@ describe('executeNativeSideEffectStep — pulpit-message step (Phase B RED)', ()
   test('calls sendPulpitMessage with idempotency key and persists PulpitMessageStepResult', async () => {
     const store = createInMemoryJobsStore()
     try {
-      const { job, jobRun } = makeJobRun(store)
+      const { jobRun } = makeJobRun(store)
 
       // Pre-set create_task as succeeded so notify_pulpit can proceed
       store.jobStepRuns.updateStep(jobRun.jobRunId, 'sequence', 'create_task', 1, {
         status: 'succeeded',
-        result: { taskId: 'T-05001', projectId: 'agent-control-plane', taskPath: 'x', created: true },
+        result: {
+          taskId: 'T-05001',
+          projectId: 'agent-control-plane',
+          taskPath: 'x',
+          created: true,
+        },
         completedAt: '2026-06-19T10:00:01.000Z',
       })
 
@@ -259,7 +277,12 @@ describe('executeNativeSideEffectStep — pulpit-message step (Phase B RED)', ()
       const { port: sendPulpitMessage, calls: pulpitCalls } = makeSendPulpitMessage()
       const { port: dispatchAgentInput } = makeDispatchAgentInput()
 
-      const deps: NativeStepExecutorDeps = { store, wrkqTaskPort, sendPulpitMessage, dispatchAgentInput }
+      const deps: NativeStepExecutorDeps = {
+        store,
+        wrkqTaskPort,
+        sendPulpitMessage,
+        dispatchAgentInput,
+      }
 
       // RED: throws "not implemented"
       const result = await executeNativeSideEffectStep(deps, {
@@ -288,7 +311,12 @@ describe('executeNativeSideEffectStep — pulpit-message step (Phase B RED)', ()
       expect(pulpitCalls).toHaveLength(1)
 
       // Assertion 3: persisted to store
-      const { jobStepRun } = store.jobStepRuns.getById(jobRun.jobRunId, 'sequence', 'notify_pulpit', 1)
+      const { jobStepRun } = store.jobStepRuns.getById(
+        jobRun.jobRunId,
+        'sequence',
+        'notify_pulpit',
+        1
+      )
       expect(jobStepRun?.status).toBe('succeeded')
       expect(jobStepRun?.result?.['idempotencyKey']).toBeDefined()
       expect(jobStepRun?.result?.['deliveryRequestId']).toBeDefined()
@@ -301,11 +329,16 @@ describe('executeNativeSideEffectStep — pulpit-message step (Phase B RED)', ()
   test('pulpit-message step uses idempotency key: acp-health:dispatch-timeout:${jobRunId}:pulpit', async () => {
     const store = createInMemoryJobsStore()
     try {
-      const { job, jobRun } = makeJobRun(store)
+      const { jobRun } = makeJobRun(store)
 
       store.jobStepRuns.updateStep(jobRun.jobRunId, 'sequence', 'create_task', 1, {
         status: 'succeeded',
-        result: { taskId: 'T-05001', projectId: 'agent-control-plane', taskPath: 'x', created: true },
+        result: {
+          taskId: 'T-05001',
+          projectId: 'agent-control-plane',
+          taskPath: 'x',
+          created: true,
+        },
         completedAt: '2026-06-19T10:00:01.000Z',
       })
 
@@ -352,12 +385,17 @@ describe('executeNativeSideEffectStep — agent-dispatch step (Phase B RED)', ()
   test('calls dispatchAgentInput with deterministic step idempotency key and persists result', async () => {
     const store = createInMemoryJobsStore()
     try {
-      const { job, jobRun } = makeJobRun(store)
+      const { jobRun } = makeJobRun(store)
 
       // Pre-set prior steps as succeeded
       store.jobStepRuns.updateStep(jobRun.jobRunId, 'sequence', 'create_task', 1, {
         status: 'succeeded',
-        result: { taskId: 'T-05001', projectId: 'agent-control-plane', taskPath: 'agent-control-plane/inbox/x', created: true },
+        result: {
+          taskId: 'T-05001',
+          projectId: 'agent-control-plane',
+          taskPath: 'agent-control-plane/inbox/x',
+          created: true,
+        },
         completedAt: '2026-06-19T10:00:01.000Z',
       })
       store.jobStepRuns.updateStep(jobRun.jobRunId, 'sequence', 'notify_pulpit', 1, {
@@ -404,7 +442,12 @@ describe('executeNativeSideEffectStep — agent-dispatch step (Phase B RED)', ()
       expect(dispatchCalls).toHaveLength(1)
 
       // Assertion 3: persisted to store
-      const { jobStepRun } = store.jobStepRuns.getById(jobRun.jobRunId, 'sequence', 'dispatch_fettle', 1)
+      const { jobStepRun } = store.jobStepRuns.getById(
+        jobRun.jobRunId,
+        'sequence',
+        'dispatch_fettle',
+        1
+      )
       expect(jobStepRun?.status).toBe('succeeded')
       expect(jobStepRun?.result?.['inputAttemptId']).toBeDefined()
       expect(jobStepRun?.result?.['idempotencyKey']).toBeDefined()
@@ -416,11 +459,16 @@ describe('executeNativeSideEffectStep — agent-dispatch step (Phase B RED)', ()
   test('agent-dispatch idempotency key matches: jobrun:${jobRunId}:phase:sequence:step:dispatch_fettle:attempt:1', async () => {
     const store = createInMemoryJobsStore()
     try {
-      const { job, jobRun } = makeJobRun(store)
+      const { jobRun } = makeJobRun(store)
 
       store.jobStepRuns.updateStep(jobRun.jobRunId, 'sequence', 'create_task', 1, {
         status: 'succeeded',
-        result: { taskId: 'T-05001', projectId: 'agent-control-plane', taskPath: 'x', created: true },
+        result: {
+          taskId: 'T-05001',
+          projectId: 'agent-control-plane',
+          taskPath: 'x',
+          created: true,
+        },
         completedAt: '2026-06-19T10:00:01.000Z',
       })
       store.jobStepRuns.updateStep(jobRun.jobRunId, 'sequence', 'notify_pulpit', 1, {
@@ -469,11 +517,16 @@ describe('executeNativeSideEffectStep — agent-dispatch step (Phase B RED)', ()
   test('agent-dispatch sends health incident metadata on the dispatch call', async () => {
     const store = createInMemoryJobsStore()
     try {
-      const { job, jobRun } = makeJobRun(store)
+      const { jobRun } = makeJobRun(store)
 
       store.jobStepRuns.updateStep(jobRun.jobRunId, 'sequence', 'create_task', 1, {
         status: 'succeeded',
-        result: { taskId: 'T-05001', projectId: 'agent-control-plane', taskPath: 'agent-control-plane/inbox/x', created: true },
+        result: {
+          taskId: 'T-05001',
+          projectId: 'agent-control-plane',
+          taskPath: 'agent-control-plane/inbox/x',
+          created: true,
+        },
         completedAt: '2026-06-19T10:00:01.000Z',
       })
       store.jobStepRuns.updateStep(jobRun.jobRunId, 'sequence', 'notify_pulpit', 1, {
@@ -531,11 +584,16 @@ describe('executeNativeSideEffectStep — agent-dispatch step (Phase B RED)', ()
   test('agent-dispatch dispatches to agent:fettle:project:agent-control-plane:task:${taskId}', async () => {
     const store = createInMemoryJobsStore()
     try {
-      const { job, jobRun } = makeJobRun(store)
+      const { jobRun } = makeJobRun(store)
 
       store.jobStepRuns.updateStep(jobRun.jobRunId, 'sequence', 'create_task', 1, {
         status: 'succeeded',
-        result: { taskId: 'T-05001', projectId: 'agent-control-plane', taskPath: 'x', created: true },
+        result: {
+          taskId: 'T-05001',
+          projectId: 'agent-control-plane',
+          taskPath: 'x',
+          created: true,
+        },
         completedAt: '2026-06-19T10:00:01.000Z',
       })
       store.jobStepRuns.updateStep(jobRun.jobRunId, 'sequence', 'notify_pulpit', 1, {
@@ -590,14 +648,19 @@ describe('executeNativeSideEffectStep — terminal step replay safety (Phase B R
   test('a succeeded step is NOT re-executed when executeNativeSideEffectStep is called again', async () => {
     const store = createInMemoryJobsStore()
     try {
-      const { job, jobRun } = makeJobRun(store)
+      const { jobRun } = makeJobRun(store)
 
       const createOrFindCallCount = { count: 0 }
       const wrkqTaskPort = makeWrkqTaskPort({ createCount: createOrFindCallCount })
       const { port: sendPulpitMessage } = makeSendPulpitMessage()
       const { port: dispatchAgentInput } = makeDispatchAgentInput()
 
-      const deps: NativeStepExecutorDeps = { store, wrkqTaskPort, sendPulpitMessage, dispatchAgentInput }
+      const deps: NativeStepExecutorDeps = {
+        store,
+        wrkqTaskPort,
+        sendPulpitMessage,
+        dispatchAgentInput,
+      }
 
       const stepInput = {
         jobRunId: jobRun.jobRunId,
@@ -640,12 +703,17 @@ describe('executeNativeSideEffectStep — terminal step replay safety (Phase B R
   test('terminal step result is returned from persisted result_json, not re-fetched from port', async () => {
     const store = createInMemoryJobsStore()
     try {
-      const { job, jobRun } = makeJobRun(store)
+      const { jobRun } = makeJobRun(store)
 
       // Pre-populate succeeded step in the store (simulates prior executor run)
       store.jobStepRuns.updateStep(jobRun.jobRunId, 'sequence', 'create_task', 1, {
         status: 'succeeded',
-        result: { taskId: 'T-09999', projectId: 'agent-control-plane', taskPath: 'stored-path', created: true },
+        result: {
+          taskId: 'T-09999',
+          projectId: 'agent-control-plane',
+          taskPath: 'stored-path',
+          created: true,
+        },
         completedAt: '2026-06-19T10:00:01.000Z',
       })
 

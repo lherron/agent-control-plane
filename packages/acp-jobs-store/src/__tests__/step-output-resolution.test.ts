@@ -33,8 +33,18 @@ function makeJobRun(store: ReturnType<typeof createInMemoryJobsStore>) {
     input: { content: 'health check' },
     flow: {
       sequence: [
-        { id: 'create_task', kind: 'wrkq-task', title: 'Incident', container: 'agent-control-plane/inbox' },
-        { id: 'notify', kind: 'pulpit-message', content: 'Task created.', binding: 'discord:primary' },
+        {
+          id: 'create_task',
+          kind: 'wrkq-task',
+          title: 'Incident',
+          container: 'agent-control-plane/inbox',
+        },
+        {
+          id: 'notify',
+          kind: 'pulpit-message',
+          content: 'Task created.',
+          binding: 'discord:primary',
+        },
       ],
     },
     disabled: false,
@@ -70,7 +80,12 @@ describe('resolveStepOutputRef — successful resolution (Phase B RED)', () => {
       // Simulate: create_task step succeeded with result
       store.jobStepRuns.updateStep(jobRun.jobRunId, 'sequence', 'create_task', 1, {
         status: 'succeeded',
-        result: { taskId: 'T-05001', projectId: 'agent-control-plane', taskPath: 'agent-control-plane/inbox/incident-evt123:task', created: true },
+        result: {
+          taskId: 'T-05001',
+          projectId: 'agent-control-plane',
+          taskPath: 'agent-control-plane/inbox/incident-evt123:task',
+          created: true,
+        },
         completedAt: '2026-06-19T10:00:01.000Z',
       })
 
@@ -92,7 +107,12 @@ describe('resolveStepOutputRef — successful resolution (Phase B RED)', () => {
 
       store.jobStepRuns.updateStep(jobRun.jobRunId, 'sequence', 'create_task', 1, {
         status: 'succeeded',
-        result: { taskId: 'T-05001', projectId: 'agent-control-plane', taskPath: 'agent-control-plane/inbox/x', created: false },
+        result: {
+          taskId: 'T-05001',
+          projectId: 'agent-control-plane',
+          taskPath: 'agent-control-plane/inbox/x',
+          created: false,
+        },
         completedAt: '2026-06-19T10:00:01.000Z',
       })
 
@@ -131,7 +151,7 @@ describe('resolveStepOutputRef — fail CLOSED for missing step (Phase B RED)', 
   test('returns undefined for a step id from a DIFFERENT job run', () => {
     const store = createInMemoryJobsStore()
     try {
-      const { jobRun } = makeJobRun(store)
+      makeJobRun(store)
 
       // Different job run's step — cross-run contamination must not happen
       const result = resolveStepOutputRef(store, 'jobrun_other_totally_different', 'sequence', {
@@ -240,7 +260,12 @@ describe('resolveStepOutputRef — fail CLOSED for wrong-typed / missing field (
 
       store.jobStepRuns.updateStep(jobRun.jobRunId, 'sequence', 'create_task', 1, {
         status: 'succeeded',
-        result: { taskId: 'T-05001', projectId: 'agent-control-plane', taskPath: 'x', created: true },
+        result: {
+          taskId: 'T-05001',
+          projectId: 'agent-control-plane',
+          taskPath: 'x',
+          created: true,
+        },
         completedAt: '2026-06-19T10:00:01.000Z',
       })
 
@@ -263,7 +288,13 @@ describe('resolveStepOutputRef — fail CLOSED for wrong-typed / missing field (
 
       store.jobStepRuns.updateStep(jobRun.jobRunId, 'sequence', 'create_task', 1, {
         status: 'succeeded',
-        result: { taskId: 'T-05001', numericField: 42, taskPath: 'x', projectId: 'y', created: true },
+        result: {
+          taskId: 'T-05001',
+          numericField: 42,
+          taskPath: 'x',
+          projectId: 'y',
+          created: true,
+        },
         completedAt: '2026-06-19T10:00:01.000Z',
       })
 
@@ -335,7 +366,12 @@ describe('resolveStepOutputRef — reads from persistent store, not in-memory st
       // Simulate: prior executor call wrote result to store
       store.jobStepRuns.updateStep(jobRun.jobRunId, 'sequence', 'create_task', 1, {
         status: 'succeeded',
-        result: { taskId: 'T-09999', projectId: 'agent-control-plane', taskPath: 'agent-control-plane/inbox/evt999', created: true },
+        result: {
+          taskId: 'T-09999',
+          projectId: 'agent-control-plane',
+          taskPath: 'agent-control-plane/inbox/evt999',
+          created: true,
+        },
         completedAt: '2026-06-19T10:00:01.000Z',
       })
 

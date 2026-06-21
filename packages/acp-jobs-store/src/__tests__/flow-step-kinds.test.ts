@@ -48,7 +48,12 @@ describe('wrkq-task step kind (Phase A — RED)', () => {
     expect(
       validateJobFlow({
         sequence: [
-          { id: 'create', kind: 'wrkq-task', title: 'Investigate the widget', container: 'agent-control-plane/inbox' },
+          {
+            id: 'create',
+            kind: 'wrkq-task',
+            title: 'Investigate the widget',
+            container: 'agent-control-plane/inbox',
+          },
         ],
       })
     ).toEqual({ valid: true })
@@ -105,7 +110,12 @@ describe('pulpit-message step kind (Phase A — RED)', () => {
     expect(
       validateJobFlow({
         sequence: [
-          { id: 'notify', kind: 'pulpit-message', content: 'Task created.', binding: 'discord:primary' },
+          {
+            id: 'notify',
+            kind: 'pulpit-message',
+            content: 'Task created.',
+            binding: 'discord:primary',
+          },
         ],
       })
     ).toEqual({ valid: true })
@@ -243,7 +253,12 @@ describe('step-output ref validation (Phase A — RED — test #4)', () => {
     expect(
       validateJobFlow({
         sequence: [
-          { id: 'create_task', kind: 'wrkq-task', title: 'New task', container: 'agent-control-plane/inbox' },
+          {
+            id: 'create_task',
+            kind: 'wrkq-task',
+            title: 'New task',
+            container: 'agent-control-plane/inbox',
+          },
           {
             id: 'dispatch',
             kind: 'agent-dispatch',

@@ -48,6 +48,7 @@ import { handleAcpEventWebhook } from '../handlers/webhooks-events.js'
 import { handleWrkqWebhook } from '../handlers/webhooks-wrkq.js'
 import { handleCreateWorkflowInteractRun } from '../handlers/workflow-interact-runs.js'
 import { handleCreateWorkflowParticipantRun } from '../handlers/workflow-participant-runs.js'
+import { handleLaunchWrkfAction } from '../handlers/wrkf-action-launch.js'
 import { handleWrkfPbcDeliverEffects } from '../handlers/wrkf-pbc-deliver-effects.js'
 import { handleWrkfPing } from '../handlers/wrkf-ping.js'
 import { handleLaunchSession } from '../launch-role-scoped.js'
@@ -180,6 +181,11 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
       'POST',
       '/v1/wrkf/effects/deliver',
       handleWrkfPbcDeliverEffects
+    ),
+    [exactRouteKey('POST', '/v1/wrkf/actions/launch')]: maybeWrapMutatingRoute(
+      'POST',
+      '/v1/wrkf/actions/launch',
+      handleLaunchWrkfAction
     ),
     // Loopback-trusted webhook ingest (no actor/authz wrapper).
     [exactRouteKey('POST', '/v1/webhooks/events')]: handleAcpEventWebhook,

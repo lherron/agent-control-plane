@@ -28,13 +28,13 @@
 // The factory accepts a WorkClient and returns the 4 acp-core store ports.
 import { createWrkqStoreAdapter } from '../src/adapter.js'
 
-import { WorkRpcError, createClient } from '@wrkq/client'
-import type { WorkClient } from '@wrkq/client'
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { WorkRpcError, createClient } from '@wrkq/client'
+import type { WorkClient } from '@wrkq/client'
 
 import type { EvidenceItem, LoggedTransitionRecord } from 'acp-core'
 
@@ -60,7 +60,7 @@ const T = 30_000 // 30 s per test (real subprocess)
 let client: WorkClient
 let adapter: ReturnType<typeof createWrkqStoreAdapter>
 let tmpDir: string
-let inboxProjectId: string   // wrkq container.id after wrkqadm init (e.g. "P-00001")
+let inboxProjectId: string // wrkq container.id after wrkqadm init (e.g. "P-00001")
 
 beforeAll(async () => {
   tmpDir = mkdtempSync(join(tmpdir(), 'wrkq-adapter-parity-'))
@@ -81,7 +81,7 @@ beforeAll(async () => {
   // container.show returns { id: 'P-00001', slug: 'inbox', ... }.
   // The adapter must use this same container.show RPC (no SQL) to recover Task.projectId.
   const inboxContainer = await client.wrkq.container.show({ project: 'inbox' })
-  inboxProjectId = inboxContainer.id  // e.g. "P-00001"
+  inboxProjectId = inboxContainer.id // e.g. "P-00001"
 
   adapter = createWrkqStoreAdapter(client)
 }, T)
@@ -98,12 +98,14 @@ afterAll(async () => {
 // Returns the adapter-returned Task (with server-assigned taskId).
 // ---------------------------------------------------------------------------
 
-async function createAdapterTask(overrides: {
-  riskClass?: string
-  lifecycleState?: string
-} = {}) {
+async function createAdapterTask(
+  overrides: {
+    riskClass?: string
+    lifecycleState?: string
+  } = {}
+) {
   return adapter.taskStore.createTask({
-    taskId: 'T-advisory-only',  // server ignores this; assigns its own id
+    taskId: 'T-advisory-only', // server ignores this; assigns its own id
     projectId: 'inbox',
     kind: 'task',
     lifecycleState: overrides.lifecycleState ?? 'open',
@@ -366,7 +368,10 @@ describe('RoleAssignmentStore — set/get via wrkf.role.set / wrkf.role.list', (
   test(
     'setRoleMap full-replace removes roles not in the new map',
     async () => {
-      await adapter.roleAssignmentStore.setRoleMap(roleTaskId, { implementer: 'larry', tester: 'curly' })
+      await adapter.roleAssignmentStore.setRoleMap(roleTaskId, {
+        implementer: 'larry',
+        tester: 'curly',
+      })
       await adapter.roleAssignmentStore.setRoleMap(roleTaskId, { agent: 'moe' })
 
       const roleMap = await adapter.roleAssignmentStore.getRoleMap(roleTaskId)
@@ -392,7 +397,10 @@ describe('RoleAssignmentStore — set/get via wrkf.role.set / wrkf.role.list', (
   test(
     'getRoleMap returns empty map when no roles have been set yet',
     async () => {
-      const freshTask = await client.wrkq.task.create({ title: 'Fresh role', path: 'inbox/fresh-role-0' })
+      const freshTask = await client.wrkq.task.create({
+        title: 'Fresh role',
+        path: 'inbox/fresh-role-0',
+      })
       await client.wrkq.workflow.attach({ task: freshTask.id, workflow: DEMO_WORKFLOW_REF })
 
       const roleMap = await adapter.roleAssignmentStore.getRoleMap(freshTask.id)
@@ -409,9 +417,9 @@ describe('RoleAssignmentStore — set/get via wrkf.role.set / wrkf.role.list', (
         title: 'No workflow',
         path: 'inbox/bare-role',
       })
-      await expect(
-        adapter.roleAssignmentStore.getRoleMap(bareTask.id)
-      ).rejects.toThrow(WorkRpcError)
+      await expect(adapter.roleAssignmentStore.getRoleMap(bareTask.id)).rejects.toThrow(
+        WorkRpcError
+      )
     },
     T
   )
@@ -537,18 +545,23 @@ describe('EvidenceStore — append/list via wrkf.evidence.add / wrkf.evidence.li
       await client.wrkq.workflow.attach({ task: freshTask.id, workflow: DEMO_WORKFLOW_REF })
 
       const items: EvidenceItem[] = [
-        { kind: 'demo_note', ref: 'artifact://batch/1', producedBy: { agentId: 'a1', role: 'agent' } },
-        { kind: 'demo_note', ref: 'artifact://batch/2', producedBy: { agentId: 'a2', role: 'agent' } },
+        {
+          kind: 'demo_note',
+          ref: 'artifact://batch/1',
+          producedBy: { agentId: 'a1', role: 'agent' },
+        },
+        {
+          kind: 'demo_note',
+          ref: 'artifact://batch/2',
+          producedBy: { agentId: 'a2', role: 'agent' },
+        },
       ]
 
       await adapter.evidenceStore.appendEvidence(freshTask.id, items)
 
       const listed = await adapter.evidenceStore.listEvidence(freshTask.id)
       expect(listed).toHaveLength(2)
-      expect(listed.map((i) => i.ref).sort()).toEqual([
-        'artifact://batch/1',
-        'artifact://batch/2',
-      ])
+      expect(listed.map((i) => i.ref).sort()).toEqual(['artifact://batch/1', 'artifact://batch/2'])
     },
     T
   )

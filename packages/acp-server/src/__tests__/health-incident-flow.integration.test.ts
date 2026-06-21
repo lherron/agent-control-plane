@@ -15,11 +15,7 @@
 
 import { describe, expect, test } from 'bun:test'
 
-import {
-  type EvaluateEventJob,
-  createInMemoryJobsStore,
-  tickJobsScheduler,
-} from 'acp-jobs-store'
+import { type EvaluateEventJob, createInMemoryJobsStore, tickJobsScheduler } from 'acp-jobs-store'
 
 import {
   type DispatchAgentInput,
@@ -31,8 +27,6 @@ import {
   isHealthDiagnosticRun,
 } from 'acp-jobs-store'
 
-import type { JobRunRecord } from 'acp-jobs-store'
-
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 type PortCounts = {
@@ -41,7 +35,10 @@ type PortCounts = {
   dispatchAgentInput: number
 }
 
-function makePortsWithCounts(): { deps: Omit<NativeStepExecutorDeps, 'store'>; counts: PortCounts } {
+function makePortsWithCounts(): {
+  deps: Omit<NativeStepExecutorDeps, 'store'>
+  counts: PortCounts
+} {
   const counts: PortCounts = {
     wrkqTaskCreateOrFind: 0,
     sendPulpitMessage: 0,
@@ -58,13 +55,19 @@ function makePortsWithCounts(): { deps: Omit<NativeStepExecutorDeps, 'store'>; c
       }
     },
   }
-  const sendPulpitMessage: SendPulpitMessage = async (input) => {
+  const sendPulpitMessage: SendPulpitMessage = async (_input) => {
     counts.sendPulpitMessage += 1
-    return { deliveryRequestId: `dr_00${counts.sendPulpitMessage}`, bindingId: 'binding_discord_primary' }
+    return {
+      deliveryRequestId: `dr_00${counts.sendPulpitMessage}`,
+      bindingId: 'binding_discord_primary',
+    }
   }
-  const dispatchAgentInput: DispatchAgentInput = async (input) => {
+  const dispatchAgentInput: DispatchAgentInput = async (_input) => {
     counts.dispatchAgentInput += 1
-    return { inputAttemptId: `iat_00${counts.dispatchAgentInput}`, runId: `run_00${counts.dispatchAgentInput}` }
+    return {
+      inputAttemptId: `iat_00${counts.dispatchAgentInput}`,
+      runId: `run_00${counts.dispatchAgentInput}`,
+    }
   }
   return { deps: { wrkqTaskPort, sendPulpitMessage, dispatchAgentInput }, counts }
 }
@@ -252,7 +255,12 @@ describe('health incident flow — full sequence (Phase B RED)', () => {
         stepId: 'create_task',
         attempt: 1,
         stepKind: 'wrkq-task',
-        stepDef: { kind: 'wrkq-task', id: 'create_task', title: 'ACP health: dispatch timeout', container: 'agent-control-plane/inbox' },
+        stepDef: {
+          kind: 'wrkq-task',
+          id: 'create_task',
+          title: 'ACP health: dispatch timeout',
+          container: 'agent-control-plane/inbox',
+        },
       })
       expect(step1.kind).toBe('wrkq-task')
       expect(counts.wrkqTaskCreateOrFind).toBe(1)
@@ -266,7 +274,12 @@ describe('health incident flow — full sequence (Phase B RED)', () => {
         stepId: 'notify_pulpit',
         attempt: 1,
         stepKind: 'pulpit-message',
-        stepDef: { kind: 'pulpit-message', id: 'notify_pulpit', content: 'Incident task created.', binding: 'discord:primary' },
+        stepDef: {
+          kind: 'pulpit-message',
+          id: 'notify_pulpit',
+          content: 'Incident task created.',
+          binding: 'discord:primary',
+        },
       })
       expect(step2.kind).toBe('pulpit-message')
       expect(counts.sendPulpitMessage).toBe(1)
@@ -318,9 +331,19 @@ describe('health incident flow — cooldown-skip produces no side effects (Phase
         input: { content: 'health check' },
         flow: {
           sequence: [
-            { id: 'create_task', kind: 'wrkq-task', title: 'Incident', container: 'agent-control-plane/inbox' },
+            {
+              id: 'create_task',
+              kind: 'wrkq-task',
+              title: 'Incident',
+              container: 'agent-control-plane/inbox',
+            },
             { id: 'notify', kind: 'pulpit-message', content: 'msg', binding: 'discord:primary' },
-            { id: 'dispatch', kind: 'agent-dispatch', scopeRef: 'agent:fettle:project:agent-control-plane:task:T-00001', laneRef: 'main' },
+            {
+              id: 'dispatch',
+              kind: 'agent-dispatch',
+              scopeRef: 'agent:fettle:project:agent-control-plane:task:T-00001',
+              laneRef: 'main',
+            },
           ],
         },
         disabled: false,
@@ -340,7 +363,7 @@ describe('health incident flow — cooldown-skip produces no side effects (Phase
         triggeredAt: '2026-06-19T09:50:00.000Z',
       })
 
-      const { deps: portDeps, counts } = makePortsWithCounts()
+      const { counts } = makePortsWithCounts()
 
       // Second event (within cooldown window) → should be skipped
       const secondEventPayload = {
@@ -370,7 +393,7 @@ describe('health incident flow — cooldown-skip produces no side effects (Phase
         reason: 'cooldown',
       })
 
-      const results = await tickJobsScheduler({
+      await tickJobsScheduler({
         store,
         now: '2026-06-19T09:55:00.000Z',
         evaluateEventJob,
