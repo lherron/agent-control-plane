@@ -6,6 +6,9 @@ LOG_DIR="${WRKQ_REFACTOR_LOG_DIR:-/Users/lherron/praesidium/var/logs}"
 RUN_DIR="${WRKQ_REFACTOR_RUN_DIR:-/Users/lherron/praesidium/var/run}"
 LOCK_DIR="${RUN_DIR}/acp-wrkq-refactor.lock"
 LOG_PATH="${LOG_DIR}/acp-wrkq-refactor.log"
+EMAIL_TO="${WRKQ_REFACTOR_EMAIL_TO:-lherron@gmail.com}"
+EMAIL_ACCOUNT="${WRKQ_REFACTOR_EMAIL_ACCOUNT:-lherron@gmail.com}"
+TARGET="cody@agent-control-plane:primary"
 
 mkdir -p "$LOG_DIR" "$RUN_DIR"
 exec >>"$LOG_PATH" 2>&1
@@ -33,6 +36,56 @@ export ASP_AGENTS_ROOT="${ASP_AGENTS_ROOT:-/Users/lherron/praesidium/var/agents}
 export WRKQ_DB_PATH="${WRKQ_DB_PATH:-/Users/lherron/praesidium/var/db/wrkq.db}"
 export ACP_WRKQ_DB_PATH="${ACP_WRKQ_DB_PATH:-$WRKQ_DB_PATH}"
 
+send_result_email() {
+  local status="$1"
+  local output_path="$2"
+  local body_path
+  body_path="$(mktemp "${RUN_DIR}/acp-wrkq-refactor-email.XXXXXX")"
+
+  {
+    echo "ACP wrkq refactor automation result"
+    echo
+    echo "Status: ${status}"
+    echo "Timestamp: $(timestamp)"
+    echo "Target: ${TARGET}"
+    echo "ScopeRef: agent:cody:project:agent-control-plane:task:primary"
+    echo "LaneRef: main"
+    echo "Repository: ${REPO_ROOT}"
+    echo "HEAD: $(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    echo
+    echo "Agent result:"
+    if command -v jq >/dev/null 2>&1 && jq -e '.response.text' "$output_path" >/dev/null 2>&1; then
+      jq -r '.response.text' "$output_path"
+    else
+      cat "$output_path"
+    fi
+  } >"$body_path"
+
+  local subject="ACP wrkq refactor automation: ${status}"
+  local gog_args=(
+    send
+    --account "$EMAIL_ACCOUNT"
+    --no-input
+    --to "$EMAIL_TO"
+    --subject "$subject"
+    --body-file "$body_path"
+  )
+
+  if [[ "${WRKQ_REFACTOR_EMAIL_DRY_RUN:-0}" == "1" || "${WRKQ_REFACTOR_SCHEDULED_DRY_RUN:-0}" == "1" ]]; then
+    gog_args+=(--dry-run)
+  fi
+
+  echo "[$(timestamp)] emailing wrkq-refactor result to ${EMAIL_TO}"
+  if gog "${gog_args[@]}"; then
+    rm -f "$body_path"
+    return 0
+  fi
+
+  echo "[$(timestamp)] failed to email wrkq-refactor result"
+  echo "Email body retained at ${body_path}"
+  return 1
+}
+
 if [[ "${WRKQ_REFACTOR_SCHEDULED_ALLOW_DIRTY:-0}" != "1" && -n "$(git status --porcelain)" ]]; then
   echo "[$(timestamp)] worktree is dirty; skipping scheduled refactor cycle"
   git status --short
@@ -55,9 +108,36 @@ PROMPT_EOF
 )
 
 if [[ "${WRKQ_REFACTOR_SCHEDULED_DRY_RUN:-0}" == "1" ]]; then
-  hrcchat turn --dry-run cody@agent-control-plane:primary "$PROMPT"
+  turn_output="$(mktemp "${RUN_DIR}/acp-wrkq-refactor-turn.XXXXXX")"
+  set +e
+  hrcchat turn --dry-run "$TARGET" "$PROMPT" >"$turn_output" 2>&1
+  turn_status=$?
+  set -e
 else
-  hrcchat turn --wait final --timeout 55m --quiet --json cody@agent-control-plane:primary "$PROMPT"
+  turn_output="$(mktemp "${RUN_DIR}/acp-wrkq-refactor-turn.XXXXXX")"
+  set +e
+  hrcchat turn --wait final --timeout 55m --quiet --json "$TARGET" "$PROMPT" >"$turn_output" 2>&1
+  turn_status=$?
+  set -e
 fi
 
+cat "$turn_output"
+
+status_label="success"
+if [[ "$turn_status" -ne 0 ]]; then
+  status_label="failed"
+fi
+
+email_status=0
+send_result_email "$status_label" "$turn_output" || email_status=$?
+rm -f "$turn_output"
+
 echo "[$(timestamp)] wrkq-refactor scheduled tick complete"
+
+if [[ "$turn_status" -ne 0 ]]; then
+  exit "$turn_status"
+fi
+
+if [[ "$email_status" -ne 0 ]]; then
+  exit "$email_status"
+fi

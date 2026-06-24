@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 import { classifyTask, extractTaskFields, parseArgs, renderPacket } from './wrkq-refactor'
 
@@ -130,5 +132,14 @@ Needs human decision before deleting this public-surface seam.`,
     expect(rendered).toContain(
       'Commit and push with: bun scripts/wrkq-refactor.ts publish --message "<commit message>"'
     )
+  })
+
+  test('scheduled wrapper emails the final result with gog', () => {
+    const script = readFileSync(resolve(import.meta.dir, 'wrkq-refactor-scheduled.sh'), 'utf8')
+
+    expect(script).toContain('send_result_email')
+    expect(script).toContain('gog "${gog_args[@]}"')
+    expect(script).toContain('--body-file "$body_path"')
+    expect(script).toContain('WRKQ_REFACTOR_SCHEDULED_DRY_RUN')
   })
 })
