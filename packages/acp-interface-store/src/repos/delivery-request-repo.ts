@@ -101,6 +101,46 @@ type DeliveryRequestRow = {
   failure_message: string | null
 }
 
+type MappedDeliveryOutcome = NonNullable<DeliveryRequest['outcome']>
+type DegradedDeliveryOutcome = Extract<MappedDeliveryOutcome, { state: 'degraded' }>
+type DegradedDeliveryOutcomeReason = DegradedDeliveryOutcome['reason']
+type DegradedDeliveryOutcomeBuilder = (row: DeliveryRequestRow) => DegradedDeliveryOutcome
+
+const DEGRADED_DELIVERY_OUTCOME_BUILDERS: Record<
+  DegradedDeliveryOutcomeReason,
+  DegradedDeliveryOutcomeBuilder
+> = {
+  launch_signalled: (row) => {
+    const details = parseOutcomeDetails(row.outcome_details_json)
+    return {
+      state: 'degraded',
+      reason: 'launch_signalled',
+      ...mapOutcomeSource(row),
+      signal: (details?.['signal'] as string) ?? 'UNKNOWN',
+    }
+  },
+  launch_failed: (row) => {
+    const details = parseOutcomeDetails(row.outcome_details_json)
+    return {
+      state: 'degraded',
+      reason: 'launch_failed',
+      ...mapOutcomeSource(row),
+      exitCode: (details?.['exitCode'] as number) ?? 1,
+    }
+  },
+  no_assistant_content: (row) => {
+    const details = parseOutcomeDetails(row.outcome_details_json)
+    const errorMessage =
+      typeof details?.['errorMessage'] === 'string' ? details['errorMessage'] : undefined
+    return {
+      state: 'degraded',
+      reason: 'no_assistant_content',
+      ...mapOutcomeSource(row),
+      ...(errorMessage !== undefined ? { details: { errorMessage } } : {}),
+    }
+  },
+}
+
 function mapDeliveryRequestRow(row: DeliveryRequestRow): DeliveryRequest {
   const bodyAttachments = parseBodyAttachments(row.body_attachments_json, row.delivery_request_id)
 
@@ -136,48 +176,8 @@ function mapDeliveryRequestRow(row: DeliveryRequestRow): DeliveryRequest {
 }
 
 function mapDeliveryOutcome(row: DeliveryRequestRow): Pick<DeliveryRequest, 'outcome'> {
-  if (row.outcome_state === 'degraded' && row.outcome_reason === 'launch_signalled') {
-    const details = parseOutcomeDetails(row.outcome_details_json)
-    return {
-      outcome: {
-        state: 'degraded',
-        reason: 'launch_signalled',
-        ...(toOptionalString(row.outcome_source) !== undefined
-          ? { source: toOptionalString(row.outcome_source) }
-          : {}),
-        signal: (details?.['signal'] as string) ?? 'UNKNOWN',
-      },
-    }
-  }
-
-  if (row.outcome_state === 'degraded' && row.outcome_reason === 'launch_failed') {
-    const details = parseOutcomeDetails(row.outcome_details_json)
-    return {
-      outcome: {
-        state: 'degraded',
-        reason: 'launch_failed',
-        ...(toOptionalString(row.outcome_source) !== undefined
-          ? { source: toOptionalString(row.outcome_source) }
-          : {}),
-        exitCode: (details?.['exitCode'] as number) ?? 1,
-      },
-    }
-  }
-
-  if (row.outcome_state === 'degraded' && row.outcome_reason === 'no_assistant_content') {
-    const details = parseOutcomeDetails(row.outcome_details_json)
-    const errorMessage =
-      typeof details?.['errorMessage'] === 'string' ? details['errorMessage'] : undefined
-    return {
-      outcome: {
-        state: 'degraded',
-        reason: 'no_assistant_content',
-        ...(toOptionalString(row.outcome_source) !== undefined
-          ? { source: toOptionalString(row.outcome_source) }
-          : {}),
-        ...(errorMessage !== undefined ? { details: { errorMessage } } : {}),
-      },
-    }
+  if (row.outcome_state === 'degraded' && isDegradedDeliveryOutcomeReason(row.outcome_reason)) {
+    return { outcome: DEGRADED_DELIVERY_OUTCOME_BUILDERS[row.outcome_reason](row) }
   }
 
   if (row.outcome_state === 'normal') {
@@ -185,6 +185,19 @@ function mapDeliveryOutcome(row: DeliveryRequestRow): Pick<DeliveryRequest, 'out
   }
 
   return {}
+}
+
+function isDegradedDeliveryOutcomeReason(
+  reason: string | null
+): reason is DegradedDeliveryOutcomeReason {
+  return (
+    reason === 'launch_signalled' || reason === 'launch_failed' || reason === 'no_assistant_content'
+  )
+}
+
+function mapOutcomeSource(row: DeliveryRequestRow): Pick<DegradedDeliveryOutcome, 'source'> {
+  const source = toOptionalString(row.outcome_source)
+  return source !== undefined ? { source } : {}
 }
 
 function parseOutcomeDetails(json: string | null): Record<string, unknown> | undefined {
