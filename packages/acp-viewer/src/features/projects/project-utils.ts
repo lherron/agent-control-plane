@@ -1,4 +1,12 @@
 import { formatActor, formatDateTime } from '@/lib/format'
+import {
+  getSummaryJobCron,
+  getSummaryJobDisabled,
+  getSummaryJobFlowStepCount,
+  getSummaryJobId,
+  getSummaryJobKind,
+  getSummaryJobNextFireAt,
+} from '@/lib/job-summary'
 import type { ProjectJobSummary } from './types'
 
 export { formatActor, formatDateTime }
@@ -8,7 +16,7 @@ export function formatBoolean(value: boolean | undefined): string {
 }
 
 export function getJobId(job: ProjectJobSummary): string {
-  return job.job?.jobId ?? 'unknown'
+  return getSummaryJobId(job)
 }
 
 export function getJobAgentId(job: ProjectJobSummary): string {
@@ -16,21 +24,21 @@ export function getJobAgentId(job: ProjectJobSummary): string {
 }
 
 export function getJobKind(job: ProjectJobSummary): string {
-  return job.summary?.kind ?? 'unknown'
+  return getSummaryJobKind(job)
 }
 
 export function getJobCron(job: ProjectJobSummary): string {
-  return job.summary?.cron ?? job.job?.schedule?.cron ?? job.job?.cron ?? 'Manual'
+  return getSummaryJobCron(job, { includeRecordCronFallback: true })
 }
 
 export function getJobNextFireAt(job: ProjectJobSummary): string {
-  return formatDateTime(job.summary?.nextFireAt ?? job.job?.nextFireAt)
+  return getSummaryJobNextFireAt(job)
 }
 
 export function getJobDisabled(job: ProjectJobSummary): boolean {
-  return job.summary?.disabled ?? job.job?.disabled ?? false
+  return getSummaryJobDisabled(job)
 }
 
 export function getJobFlowStepCount(job: ProjectJobSummary): number {
-  return job.summary?.flowStepCount ?? 0
+  return getSummaryJobFlowStepCount(job)
 }
