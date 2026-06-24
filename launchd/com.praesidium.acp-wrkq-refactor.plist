@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.praesidium.acp-wrkq-refactor</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/lherron/praesidium/agent-control-plane/scripts/wrkq-refactor-scheduled.sh</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/lherron/.local/bin:/Users/lherron/.bun/bin:/Users/lherron/.tooling/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>HOME</key>
+    <string>/Users/lherron</string>
+    <key>LANG</key>
+    <string>en_US.UTF-8</string>
+    <key>ASP_PROJECT</key>
+    <string>agent-control-plane</string>
+    <key>ASP_HOME</key>
+    <string>/Users/lherron/praesidium/var/spaces-repo</string>
+    <key>ASP_AGENTS_ROOT</key>
+    <string>/Users/lherron/praesidium/var/agents</string>
+    <key>WRKQ_DB_PATH</key>
+    <string>/Users/lherron/praesidium/var/db/wrkq.db</string>
+    <key>ACP_WRKQ_DB_PATH</key>
+    <string>/Users/lherron/praesidium/var/db/wrkq.db</string>
+  </dict>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/lherron/praesidium/agent-control-plane</string>
+
+  <key>StartInterval</key>
+  <integer>1800</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
+
+  <key>StandardOutPath</key>
+  <string>/Users/lherron/praesidium/var/logs/acp-wrkq-refactor.launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/lherron/praesidium/var/logs/acp-wrkq-refactor.launchd.err.log</string>
+</dict>
+</plist>

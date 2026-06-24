@@ -46,6 +46,32 @@ check:
     bun scripts/check-boundaries.ts
     bun scripts/check-manifest-edges.ts
 
+# Prepare or update one wrkq refactor-deferred task work packet
+wrkq-refactor *args:
+    bun scripts/wrkq-refactor.ts {{args}}
+
+# Dry-run the scheduled wrkq refactor automation turn without dispatching an agent
+wrkq-refactor-schedule-dry-run:
+    WRKQ_REFACTOR_SCHEDULED_DRY_RUN=1 WRKQ_REFACTOR_SCHEDULED_ALLOW_DIRTY=1 scripts/wrkq-refactor-scheduled.sh
+
+# Install the wrkq refactor automation LaunchAgent (runs every 30 minutes)
+wrkq-refactor-schedule-install:
+    mkdir -p "$HOME/Library/LaunchAgents"
+    cp launchd/com.praesidium.acp-wrkq-refactor.plist "$HOME/Library/LaunchAgents/com.praesidium.acp-wrkq-refactor.plist"
+    -launchctl bootout gui/$(id -u)/com.praesidium.acp-wrkq-refactor
+    launchctl bootstrap gui/$(id -u) "$HOME/Library/LaunchAgents/com.praesidium.acp-wrkq-refactor.plist"
+    launchctl enable gui/$(id -u)/com.praesidium.acp-wrkq-refactor
+    launchctl print gui/$(id -u)/com.praesidium.acp-wrkq-refactor
+
+# Show the installed wrkq refactor automation LaunchAgent state
+wrkq-refactor-schedule-status:
+    launchctl print gui/$(id -u)/com.praesidium.acp-wrkq-refactor
+
+# Uninstall the wrkq refactor automation LaunchAgent
+wrkq-refactor-schedule-uninstall:
+    -launchctl bootout gui/$(id -u)/com.praesidium.acp-wrkq-refactor
+    rm -f "$HOME/Library/LaunchAgents/com.praesidium.acp-wrkq-refactor.plist"
+
 # Run all verification (check + lint + typecheck + test)
 verify: check lint typecheck test
 
