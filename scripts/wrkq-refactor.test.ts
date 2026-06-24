@@ -148,7 +148,9 @@ Needs human decision before deleting this public-surface seam.`,
 
     expect(script).toContain('TARGET_TASK="wrkq-refactor-${RUN_ID}"')
     expect(script).toContain('TARGET="cody@agent-control-plane:${TARGET_TASK}"')
-    expect(script).toContain('TARGET_SCOPE_REF="agent:cody:project:agent-control-plane:task:${TARGET_TASK}"')
+    expect(script).toContain(
+      'TARGET_SCOPE_REF="agent:cody:project:agent-control-plane:task:${TARGET_TASK}"'
+    )
     expect(script).toContain('hrcchat turn --fresh-context --wait final')
     expect(script).not.toContain('cody@agent-control-plane:primary')
     expect(script).not.toContain('task:primary')
