@@ -162,10 +162,89 @@ function createLegacyStateDb(): { dbPath: string; cleanup(): void } {
   }
 }
 
+function createLegacyInputStatusDb(): { dbPath: string; cleanup(): void } {
+  const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-state-input-status-migration-'))
+  const dbPath = join(fixtureDir, 'acp-state.db')
+  const db = new Database(dbPath)
+
+  db.exec(`
+    CREATE TABLE input_admissions (
+      input_attempt_id TEXT PRIMARY KEY,
+      admission_kind TEXT NOT NULL,
+      intent_json TEXT NOT NULL,
+      original_response_json TEXT NOT NULL,
+      current_state_json TEXT,
+      run_id TEXT,
+      input_application_id TEXT,
+      queue_item_id TEXT,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE input_applications (
+      input_application_id TEXT PRIMARY KEY,
+      input_attempt_id TEXT NOT NULL,
+      target_run_id TEXT,
+      hrc_run_id TEXT,
+      host_session_id TEXT,
+      generation INTEGER,
+      runtime_id TEXT,
+      status TEXT NOT NULL,
+      delivery_attempts INTEGER NOT NULL DEFAULT 0,
+      last_error_code TEXT,
+      last_error_message TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE input_queue (
+      queue_item_id TEXT PRIMARY KEY,
+      input_attempt_id TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      scope_ref TEXT NOT NULL,
+      lane_ref TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      reset_policy TEXT NOT NULL,
+      expected_host_session_id TEXT,
+      expected_generation INTEGER,
+      not_before_at TEXT,
+      leased_at TEXT,
+      lease_owner TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error_code TEXT,
+      last_error_message TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (scope_ref, lane_ref, seq)
+    );
+
+    CREATE INDEX input_queue_dispatch_idx
+      ON input_queue (status, not_before_at, scope_ref, lane_ref, seq);
+  `)
+  db.close()
+
+  return {
+    dbPath,
+    cleanup() {
+      rmSync(fixtureDir, { recursive: true, force: true })
+    },
+  }
+}
+
 function listColumnNames(store: ReturnType<typeof openAcpStateStore>, tableName: string): string[] {
   return (
     store.sqlite.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>
   ).map((row) => row.name)
+}
+
+function createTableSql(store: ReturnType<typeof openAcpStateStore>, tableName: string): string {
+  return (
+    store.sqlite
+      .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`)
+      .get(tableName) as { sql: string }
+  ).sql
 }
 
 describe('acp-state-store migrations', () => {
@@ -241,6 +320,53 @@ describe('acp-state-store migrations', () => {
         actor_id: 'clod',
         actor_display_name: null,
       })
+
+      store.close()
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  test('migrates input status columns to closed CHECK constraints', () => {
+    const fixture = createLegacyInputStatusDb()
+
+    try {
+      const store = openAcpStateStore({ dbPath: fixture.dbPath })
+
+      expect(createTableSql(store, 'input_admissions')).toContain('CHECK (status IN')
+      expect(createTableSql(store, 'input_applications')).toContain('CHECK (status IN')
+      expect(createTableSql(store, 'input_queue')).toContain('CHECK (status IN')
+
+      store.sqlite.exec('PRAGMA foreign_keys = OFF;')
+      expect(() => {
+        store.sqlite
+          .prepare(
+            `INSERT INTO input_queue (
+               queue_item_id,
+               input_attempt_id,
+               run_id,
+               scope_ref,
+               lane_ref,
+               seq,
+               status,
+               reset_policy,
+               created_at,
+               updated_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .run(
+            'queue_bad_status',
+            'attempt_bad_status',
+            'run_bad_status',
+            'agent:cody:project:test',
+            'main',
+            1,
+            'not-a-status',
+            'follow_latest',
+            '2026-06-24T00:00:00.000Z',
+            '2026-06-24T00:00:00.000Z'
+          )
+      }).toThrow(/CHECK constraint failed/)
 
       store.close()
     } finally {

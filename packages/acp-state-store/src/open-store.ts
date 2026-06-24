@@ -104,7 +104,7 @@ function initializeSchema(sqlite: SqliteDatabase): void {
       run_id TEXT,
       input_application_id TEXT,
       queue_item_id TEXT,
-      status TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('rejected', 'queued', 'pending', 'accepted', 'started', 'failed')),
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (input_attempt_id) REFERENCES input_attempts(input_attempt_id),
@@ -119,7 +119,7 @@ function initializeSchema(sqlite: SqliteDatabase): void {
       host_session_id TEXT,
       generation INTEGER,
       runtime_id TEXT,
-      status TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('pending', 'accepted', 'applied', 'failed', 'ambiguous', 'cancelled')),
       delivery_attempts INTEGER NOT NULL DEFAULT 0,
       last_error_code TEXT,
       last_error_message TEXT,
@@ -136,7 +136,7 @@ function initializeSchema(sqlite: SqliteDatabase): void {
       scope_ref TEXT NOT NULL,
       lane_ref TEXT NOT NULL,
       seq INTEGER NOT NULL,
-      status TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('queued', 'leased', 'dispatching', 'running', 'completed', 'failed', 'cancelled', 'expired')),
       reset_policy TEXT NOT NULL,
       expected_host_session_id TEXT,
       expected_generation INTEGER,
@@ -769,6 +769,214 @@ function rebuildInputAttemptsForNullableRun(sqlite: SqliteDatabase): void {
   `)
 }
 
+function rebuildInputAdmissionsForStatusConstraint(sqlite: SqliteDatabase): void {
+  const createSql = getCreateTableSql(sqlite, 'input_admissions')
+  if (createSql.includes('CHECK (status IN')) {
+    return
+  }
+
+  sqlite.exec(`
+    PRAGMA foreign_keys = OFF;
+
+    ALTER TABLE input_admissions RENAME TO input_admissions_legacy_status_constraint;
+
+    CREATE TABLE input_admissions (
+      input_attempt_id TEXT PRIMARY KEY,
+      admission_kind TEXT NOT NULL,
+      intent_json TEXT NOT NULL,
+      original_response_json TEXT NOT NULL,
+      current_state_json TEXT,
+      run_id TEXT,
+      input_application_id TEXT,
+      queue_item_id TEXT,
+      status TEXT NOT NULL CHECK (status IN ('rejected', 'queued', 'pending', 'accepted', 'started', 'failed')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (input_attempt_id) REFERENCES input_attempts(input_attempt_id),
+      FOREIGN KEY (run_id) REFERENCES runs(run_id)
+    );
+
+    INSERT INTO input_admissions (
+      input_attempt_id,
+      admission_kind,
+      intent_json,
+      original_response_json,
+      current_state_json,
+      run_id,
+      input_application_id,
+      queue_item_id,
+      status,
+      created_at,
+      updated_at
+    )
+    SELECT input_attempt_id,
+           admission_kind,
+           intent_json,
+           original_response_json,
+           current_state_json,
+           run_id,
+           input_application_id,
+           queue_item_id,
+           status,
+           created_at,
+           updated_at
+      FROM input_admissions_legacy_status_constraint;
+
+    DROP TABLE input_admissions_legacy_status_constraint;
+
+    PRAGMA foreign_keys = ON;
+  `)
+}
+
+function rebuildInputApplicationsForStatusConstraint(sqlite: SqliteDatabase): void {
+  const createSql = getCreateTableSql(sqlite, 'input_applications')
+  if (createSql.includes('CHECK (status IN')) {
+    return
+  }
+
+  sqlite.exec(`
+    PRAGMA foreign_keys = OFF;
+
+    ALTER TABLE input_applications RENAME TO input_applications_legacy_status_constraint;
+
+    CREATE TABLE input_applications (
+      input_application_id TEXT PRIMARY KEY,
+      input_attempt_id TEXT NOT NULL,
+      target_run_id TEXT,
+      hrc_run_id TEXT,
+      host_session_id TEXT,
+      generation INTEGER,
+      runtime_id TEXT,
+      status TEXT NOT NULL CHECK (status IN ('pending', 'accepted', 'applied', 'failed', 'ambiguous', 'cancelled')),
+      delivery_attempts INTEGER NOT NULL DEFAULT 0,
+      last_error_code TEXT,
+      last_error_message TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (input_attempt_id) REFERENCES input_attempts(input_attempt_id),
+      FOREIGN KEY (target_run_id) REFERENCES runs(run_id)
+    );
+
+    INSERT INTO input_applications (
+      input_application_id,
+      input_attempt_id,
+      target_run_id,
+      hrc_run_id,
+      host_session_id,
+      generation,
+      runtime_id,
+      status,
+      delivery_attempts,
+      last_error_code,
+      last_error_message,
+      created_at,
+      updated_at
+    )
+    SELECT input_application_id,
+           input_attempt_id,
+           target_run_id,
+           hrc_run_id,
+           host_session_id,
+           generation,
+           runtime_id,
+           status,
+           delivery_attempts,
+           last_error_code,
+           last_error_message,
+           created_at,
+           updated_at
+      FROM input_applications_legacy_status_constraint;
+
+    DROP TABLE input_applications_legacy_status_constraint;
+
+    PRAGMA foreign_keys = ON;
+  `)
+}
+
+function rebuildInputQueueForStatusConstraint(sqlite: SqliteDatabase): void {
+  const createSql = getCreateTableSql(sqlite, 'input_queue')
+  if (createSql.includes('CHECK (status IN')) {
+    return
+  }
+
+  sqlite.exec(`
+    PRAGMA foreign_keys = OFF;
+
+    ALTER TABLE input_queue RENAME TO input_queue_legacy_status_constraint;
+
+    CREATE TABLE input_queue (
+      queue_item_id TEXT PRIMARY KEY,
+      input_attempt_id TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      scope_ref TEXT NOT NULL,
+      lane_ref TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('queued', 'leased', 'dispatching', 'running', 'completed', 'failed', 'cancelled', 'expired')),
+      reset_policy TEXT NOT NULL,
+      expected_host_session_id TEXT,
+      expected_generation INTEGER,
+      not_before_at TEXT,
+      leased_at TEXT,
+      lease_owner TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error_code TEXT,
+      last_error_message TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (scope_ref, lane_ref, seq),
+      FOREIGN KEY (input_attempt_id) REFERENCES input_attempts(input_attempt_id),
+      FOREIGN KEY (run_id) REFERENCES runs(run_id)
+    );
+
+    INSERT INTO input_queue (
+      queue_item_id,
+      input_attempt_id,
+      run_id,
+      scope_ref,
+      lane_ref,
+      seq,
+      status,
+      reset_policy,
+      expected_host_session_id,
+      expected_generation,
+      not_before_at,
+      leased_at,
+      lease_owner,
+      attempts,
+      last_error_code,
+      last_error_message,
+      created_at,
+      updated_at
+    )
+    SELECT queue_item_id,
+           input_attempt_id,
+           run_id,
+           scope_ref,
+           lane_ref,
+           seq,
+           status,
+           reset_policy,
+           expected_host_session_id,
+           expected_generation,
+           not_before_at,
+           leased_at,
+           lease_owner,
+           attempts,
+           last_error_code,
+           last_error_message,
+           created_at,
+           updated_at
+      FROM input_queue_legacy_status_constraint;
+
+    DROP TABLE input_queue_legacy_status_constraint;
+
+    CREATE INDEX IF NOT EXISTS input_queue_dispatch_idx
+      ON input_queue (status, not_before_at, scope_ref, lane_ref, seq);
+
+    PRAGMA foreign_keys = ON;
+  `)
+}
+
 function migrateLegacySchema(sqlite: SqliteDatabase): void {
   sqlite.transaction(() => {
     migrateRunsActorColumns(sqlite)
@@ -779,6 +987,9 @@ function migrateLegacySchema(sqlite: SqliteDatabase): void {
   })()
   rebuildRunsForQueuedStatus(sqlite)
   rebuildInputAttemptsForNullableRun(sqlite)
+  rebuildInputAdmissionsForStatusConstraint(sqlite)
+  rebuildInputApplicationsForStatusConstraint(sqlite)
+  rebuildInputQueueForStatusConstraint(sqlite)
 }
 
 function createSqliteDatabase(dbPath: string): SqliteDatabase {
