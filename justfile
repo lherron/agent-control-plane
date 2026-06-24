@@ -54,7 +54,7 @@ wrkq-refactor *args:
 wrkq-refactor-schedule-dry-run:
     WRKQ_REFACTOR_SCHEDULED_DRY_RUN=1 WRKQ_REFACTOR_SCHEDULED_ALLOW_DIRTY=1 scripts/wrkq-refactor-scheduled.sh
 
-# Install the wrkq refactor automation LaunchAgent (runs every 30 minutes)
+# Install the wrkq refactor automation LaunchAgent (runs every 20 minutes)
 wrkq-refactor-schedule-install:
     mkdir -p "$HOME/Library/LaunchAgents"
     cp launchd/com.praesidium.acp-wrkq-refactor.plist "$HOME/Library/LaunchAgents/com.praesidium.acp-wrkq-refactor.plist"

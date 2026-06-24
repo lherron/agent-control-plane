@@ -142,4 +142,14 @@ Needs human decision before deleting this public-surface seam.`,
     expect(script).toContain('--body-file "$body_path"')
     expect(script).toContain('WRKQ_REFACTOR_SCHEDULED_DRY_RUN')
   })
+
+  test('scheduled LaunchAgent runs every 20 minutes', () => {
+    const plist = readFileSync(
+      resolve(import.meta.dir, '../launchd/com.praesidium.acp-wrkq-refactor.plist'),
+      'utf8'
+    )
+
+    expect(plist).toContain('<key>StartInterval</key>')
+    expect(plist).toContain('<integer>1200</integer>')
+  })
 })

@@ -34,7 +34,7 @@
   <string>/Users/lherron/praesidium/agent-control-plane</string>
 
   <key>StartInterval</key>
-  <integer>1800</integer>
+  <integer>1200</integer>
   <key>ProcessType</key>
   <string>Background</string>
 
