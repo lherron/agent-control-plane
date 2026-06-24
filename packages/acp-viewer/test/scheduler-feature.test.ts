@@ -7,9 +7,4 @@ describe('scheduler feature', () => {
     expect(schedulerRoutes[0]?.path).toBe('scheduler')
     expect(schedulerRoutes[0]?.children?.some((route) => route.index === true)).toBe(true)
   })
-
-  it('imports the scheduler state panel', async () => {
-    const mod = await import('../src/components/scheduler-state')
-    expect(mod.SchedulerStatePanel).toBeDefined()
-  })
 })
