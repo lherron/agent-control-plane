@@ -8,7 +8,10 @@ LOCK_DIR="${RUN_DIR}/acp-wrkq-refactor.lock"
 LOG_PATH="${LOG_DIR}/acp-wrkq-refactor.log"
 EMAIL_TO="${WRKQ_REFACTOR_EMAIL_TO:-lherron@gmail.com}"
 EMAIL_ACCOUNT="${WRKQ_REFACTOR_EMAIL_ACCOUNT:-lherron@gmail.com}"
-TARGET="cody@agent-control-plane:primary"
+RUN_ID="${WRKQ_REFACTOR_RUN_ID:-$(date -u +"%Y%m%dT%H%M%SZ")-$$}"
+TARGET_TASK="wrkq-refactor-${RUN_ID}"
+TARGET="cody@agent-control-plane:${TARGET_TASK}"
+TARGET_SCOPE_REF="agent:cody:project:agent-control-plane:task:${TARGET_TASK}"
 
 mkdir -p "$LOG_DIR" "$RUN_DIR"
 exec >>"$LOG_PATH" 2>&1
@@ -48,7 +51,7 @@ send_result_email() {
     echo "Status: ${status}"
     echo "Timestamp: $(timestamp)"
     echo "Target: ${TARGET}"
-    echo "ScopeRef: agent:cody:project:agent-control-plane:task:primary"
+    echo "ScopeRef: ${TARGET_SCOPE_REF}"
     echo "LaneRef: main"
     echo "Repository: ${REPO_ROOT}"
     echo "HEAD: $(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
@@ -95,6 +98,8 @@ fi
 PROMPT=$(cat <<'PROMPT_EOF'
 Run one ACP wrkq refactor automation cycle in /Users/lherron/praesidium/agent-control-plane.
 
+This is a one-run HRC session. Use live repo and wrkq state; do not rely on prior session context.
+
 Use the repo-local automation contract:
 1. Run `bun scripts/wrkq-refactor.ts next`.
 2. Read the selected task with `wrkq cat <task-id> --json` and read its referenced `refactor-analysis/*-report.md`.
@@ -110,13 +115,13 @@ PROMPT_EOF
 if [[ "${WRKQ_REFACTOR_SCHEDULED_DRY_RUN:-0}" == "1" ]]; then
   turn_output="$(mktemp "${RUN_DIR}/acp-wrkq-refactor-turn.XXXXXX")"
   set +e
-  hrcchat turn --dry-run "$TARGET" "$PROMPT" >"$turn_output" 2>&1
+  hrcchat turn --fresh-context --dry-run "$TARGET" "$PROMPT" >"$turn_output" 2>&1
   turn_status=$?
   set -e
 else
   turn_output="$(mktemp "${RUN_DIR}/acp-wrkq-refactor-turn.XXXXXX")"
   set +e
-  hrcchat turn --wait final --timeout 55m --quiet --json "$TARGET" "$PROMPT" >"$turn_output" 2>&1
+  hrcchat turn --fresh-context --wait final --timeout 55m --quiet --json "$TARGET" "$PROMPT" >"$turn_output" 2>&1
   turn_status=$?
   set -e
 fi

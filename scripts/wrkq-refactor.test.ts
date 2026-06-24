@@ -143,6 +143,17 @@ Needs human decision before deleting this public-surface seam.`,
     expect(script).toContain('WRKQ_REFACTOR_SCHEDULED_DRY_RUN')
   })
 
+  test('scheduled wrapper uses a fresh HRC task scope per run', () => {
+    const script = readFileSync(resolve(import.meta.dir, 'wrkq-refactor-scheduled.sh'), 'utf8')
+
+    expect(script).toContain('TARGET_TASK="wrkq-refactor-${RUN_ID}"')
+    expect(script).toContain('TARGET="cody@agent-control-plane:${TARGET_TASK}"')
+    expect(script).toContain('TARGET_SCOPE_REF="agent:cody:project:agent-control-plane:task:${TARGET_TASK}"')
+    expect(script).toContain('hrcchat turn --fresh-context --wait final')
+    expect(script).not.toContain('cody@agent-control-plane:primary')
+    expect(script).not.toContain('task:primary')
+  })
+
   test('scheduled LaunchAgent runs every 20 minutes', () => {
     const plist = readFileSync(
       resolve(import.meta.dir, '../launchd/com.praesidium.acp-wrkq-refactor.plist'),
