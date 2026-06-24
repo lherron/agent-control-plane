@@ -85,8 +85,8 @@
 
 import { describe, expect, test } from 'bun:test'
 
-import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
 import { reconcileActionHrcTerminal } from '../wrkf/action-reconciler.js'
+import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
 
 // ─── Extended port type (includes show + fail not yet on the real port) ───────
 
@@ -206,10 +206,12 @@ function makeFakePort(overrides: FakePortOverrides = {}): InstrumentedPort {
         if (overrides.failThrows !== undefined) {
           throw overrides.failThrows
         }
-        return overrides.failResult ?? {
-          actionRunId: ACTION_RUN_ID,
-          status: 'failed',
-        }
+        return (
+          overrides.failResult ?? {
+            actionRunId: ACTION_RUN_ID,
+            status: 'failed',
+          }
+        )
       },
     },
     effect: {
@@ -237,10 +239,7 @@ function makeFakePort(overrides: FakePortOverrides = {}): InstrumentedPort {
 describe('[RED T-05034 test 4] reconcile on HRC failed — action.fail called once', () => {
   test('action.show is called first to check current status', async () => {
     const port = makeFakePort()
-    await reconcileActionHrcTerminal(
-      { wrkf: port },
-      { ...BASE_INPUT, hrcTerminalStatus: 'failed' }
-    )
+    await reconcileActionHrcTerminal({ wrkf: port }, { ...BASE_INPUT, hrcTerminalStatus: 'failed' })
 
     const showCall = port._calls.find((c) => c.method === 'action.show')
     expect(showCall).toBeDefined()
@@ -249,10 +248,7 @@ describe('[RED T-05034 test 4] reconcile on HRC failed — action.fail called on
 
   test('wrkf.action.fail is called once when HRC status is failed and action is active', async () => {
     const port = makeFakePort()
-    await reconcileActionHrcTerminal(
-      { wrkf: port },
-      { ...BASE_INPUT, hrcTerminalStatus: 'failed' }
-    )
+    await reconcileActionHrcTerminal({ wrkf: port }, { ...BASE_INPUT, hrcTerminalStatus: 'failed' })
 
     const failCalls = port._calls.filter((c) => c.method === 'action.fail')
     expect(failCalls).toHaveLength(1)
@@ -260,10 +256,7 @@ describe('[RED T-05034 test 4] reconcile on HRC failed — action.fail called on
 
   test('action.fail params include actionRunId', async () => {
     const port = makeFakePort()
-    await reconcileActionHrcTerminal(
-      { wrkf: port },
-      { ...BASE_INPUT, hrcTerminalStatus: 'failed' }
-    )
+    await reconcileActionHrcTerminal({ wrkf: port }, { ...BASE_INPUT, hrcTerminalStatus: 'failed' })
 
     const failCall = port._calls.find((c) => c.method === 'action.fail')
     const p = failCall!.params as Record<string, unknown>
@@ -272,10 +265,7 @@ describe('[RED T-05034 test 4] reconcile on HRC failed — action.fail called on
 
   test('action.fail failure_result references hrc:<runId>', async () => {
     const port = makeFakePort()
-    await reconcileActionHrcTerminal(
-      { wrkf: port },
-      { ...BASE_INPUT, hrcTerminalStatus: 'failed' }
-    )
+    await reconcileActionHrcTerminal({ wrkf: port }, { ...BASE_INPUT, hrcTerminalStatus: 'failed' })
 
     const failCall = port._calls.find((c) => c.method === 'action.fail')
     const p = failCall!.params as Record<string, unknown>
@@ -288,10 +278,7 @@ describe('[RED T-05034 test 4] reconcile on HRC failed — action.fail called on
 
   test('action.fail carries the idempotencyKey derived from actionRunId+hrcRunId', async () => {
     const port = makeFakePort()
-    await reconcileActionHrcTerminal(
-      { wrkf: port },
-      { ...BASE_INPUT, hrcTerminalStatus: 'failed' }
-    )
+    await reconcileActionHrcTerminal({ wrkf: port }, { ...BASE_INPUT, hrcTerminalStatus: 'failed' })
 
     const failCall = port._calls.find((c) => c.method === 'action.fail')
     const p = failCall!.params as Record<string, unknown>
@@ -335,10 +322,7 @@ describe('[RED T-05034 test 4] reconcile on HRC cancelled', () => {
 describe('[RED T-05034 test 4] reconcile on HRC zombie', () => {
   test('wrkf.action.fail is called for HRC zombie status', async () => {
     const port = makeFakePort()
-    await reconcileActionHrcTerminal(
-      { wrkf: port },
-      { ...BASE_INPUT, hrcTerminalStatus: 'zombie' }
-    )
+    await reconcileActionHrcTerminal({ wrkf: port }, { ...BASE_INPUT, hrcTerminalStatus: 'zombie' })
 
     const failCalls = port._calls.filter((c) => c.method === 'action.fail')
     expect(failCalls).toHaveLength(1)
@@ -443,9 +427,9 @@ describe('[RED T-05034 test 5] protocol breach — HRC completed, wrkf action st
       // Summary must reference semantic completion breach, not a generic failure.
       expect(
         summary.includes('semantic') ||
-        summary.includes('completion') ||
-        summary.includes('breach') ||
-        summary.includes('protocol')
+          summary.includes('completion') ||
+          summary.includes('breach') ||
+          summary.includes('protocol')
       ).toBe(true)
     }
     // If action.fail is NOT called, the test passes (breach_recorded + no fail is also valid).
@@ -474,8 +458,6 @@ describe('[RED T-05034 test 5] protocol breach — HRC completed, wrkf action st
       { wrkf: port },
       { ...BASE_INPUT, hrcTerminalStatus: 'completed' }
     )
-    const callCountAfterFirst = port._calls.filter((c) => c.method === 'action.fail').length
-
     // Second call: action is now terminal (show returns terminal) → no_op.
     const port2 = makeFakePort({ showResult: { ...TERMINAL_ACTION_RUN, status: 'failed' } })
     const result2 = await reconcileActionHrcTerminal(
@@ -577,10 +559,7 @@ describe('[RED T-05034 test 7] reconcile idempotency', () => {
     // and marks the action terminal. The second sees terminal status → no-op.
     const port1 = makeFakePort()
     const [r1, r2] = await Promise.all([
-      reconcileActionHrcTerminal(
-        { wrkf: port1 },
-        { ...BASE_INPUT, hrcTerminalStatus: 'failed' }
-      ),
+      reconcileActionHrcTerminal({ wrkf: port1 }, { ...BASE_INPUT, hrcTerminalStatus: 'failed' }),
       // Second reconciler sees an already-terminal run (wrkf is idempotent source of truth).
       reconcileActionHrcTerminal(
         { wrkf: makeFakePort({ showResult: TERMINAL_ACTION_RUN }) },
@@ -602,10 +581,7 @@ describe('[RED T-05034 test 7] reconcile idempotency', () => {
     // The reconciler must always read current action status before acting.
     // This ensures idempotency is driven by wrkf truth, not local state.
     const port = makeFakePort({ showResult: TERMINAL_ACTION_RUN })
-    await reconcileActionHrcTerminal(
-      { wrkf: port },
-      { ...BASE_INPUT, hrcTerminalStatus: 'zombie' }
-    )
+    await reconcileActionHrcTerminal({ wrkf: port }, { ...BASE_INPUT, hrcTerminalStatus: 'zombie' })
 
     const showCalls = port._calls.filter((c) => c.method === 'action.show')
     expect(showCalls).toHaveLength(1) // exactly one read

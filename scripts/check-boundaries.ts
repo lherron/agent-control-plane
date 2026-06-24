@@ -57,7 +57,6 @@ const acpPackages = [
   'acp-e2e',
   'acp-ops-projection',
   'acp-ops-reducer',
-  'acp-ops-web',
   'acp-viewer',
   'gateway-discord',
   'gateway-ios',

@@ -438,7 +438,7 @@ describe('[RED T-05034 test 1] prompt envelope — WITH caller initialPrompt', (
 
     const prompt = captured.intent?.initialPrompt ?? ''
     expect(prompt).toContain(CANNED_ACTION_RUN.actionRunId)
-    expect(prompt).toContain(CANNED_ACTION_RUN.runId)   // wrkfRunId
+    expect(prompt).toContain(CANNED_ACTION_RUN.runId) // wrkfRunId
     expect(prompt).toContain(TASK_ID)
     expect(prompt).toContain(ACTION)
     expect(prompt).toContain('wrkf.action.complete')

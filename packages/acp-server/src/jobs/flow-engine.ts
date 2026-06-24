@@ -637,10 +637,12 @@ function resolveNativeStepExecutorDeps(
     throw new Error('native step executor requires a work client')
   }
 
+  const workClient = deps.workClient
+
   return {
     store: jobsStore,
     wrkqTaskPort: {
-      createOrFind: (input) => createOrFindWrkqTask(deps.workClient!, input),
+      createOrFind: (input) => createOrFindWrkqTask(workClient, input),
     },
     sendPulpitMessage: async (input) => {
       const response = await handleCreateAgentPulpitMessage({
