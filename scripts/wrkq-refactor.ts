@@ -702,16 +702,25 @@ function publishChanges(options: Options): void {
     return
   }
 
-  if (!hasStagedChanges()) {
-    fail('No staged changes to commit after git add -A')
-  }
-
-  runStep('git', ['commit', '-m', options.message], false)
-
   const branch = gitOutput(['branch', '--show-current'])
   if (!branch) {
     fail('Cannot publish from a detached HEAD')
   }
+
+  if (!hasStagedChanges()) {
+    console.log('No staged changes to commit after git add -A; verifying branch publication.')
+    runStep('git', ['push', '-u', 'origin', branch], false)
+    const head = gitOutput(['rev-parse', 'HEAD'])
+    const remoteHead = gitOutput(['rev-parse', `origin/${branch}`])
+    if (head !== remoteHead) {
+      fail(`Push verification failed: HEAD ${head} != origin/${branch} ${remoteHead}`)
+    }
+    const status = gitOutput(['status', '-sb'])
+    console.log(status)
+    return
+  }
+
+  runStep('git', ['commit', '-m', options.message], false)
 
   runStep('git', ['push', '-u', 'origin', branch], false)
 
