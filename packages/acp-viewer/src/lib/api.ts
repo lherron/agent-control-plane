@@ -12,7 +12,7 @@ const BASE_URL =
   import.meta.env.VITE_ACP_VIEWER_API_BASE_URL ??
   (import.meta.env.DEV ? '' : 'http://127.0.0.1:18470')
 
-async function fetchJson<T>(path: string): Promise<T> {
+export async function fetchJson<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`)
   if (!res.ok) {
     throw new Error(`API ${res.status}: ${path}`)

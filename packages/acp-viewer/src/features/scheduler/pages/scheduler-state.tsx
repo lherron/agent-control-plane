@@ -1,5 +1,6 @@
 import { PageHeader } from '@/components/page-header'
 import { ErrorBanner, FieldRow, PageLoading, Pill, StatusDot } from '@/components/primitives'
+import { fetchJson } from '@/lib/api'
 import { useQuery } from '@tanstack/react-query'
 
 interface SchedulerStateResponse {
@@ -11,13 +12,8 @@ interface SchedulerStateResponse {
   note?: string | undefined
 }
 
-const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env
-const BASE_URL = env?.VITE_ACP_VIEWER_API_BASE_URL ?? (env?.DEV ? '' : 'http://127.0.0.1:18470')
-
 async function fetchSchedulerState(): Promise<SchedulerStateResponse> {
-  const res = await fetch(`${BASE_URL}/v1/admin/jobs/scheduler`)
-  if (!res.ok) throw new Error(`API ${res.status}: /v1/admin/jobs/scheduler`)
-  return res.json() as Promise<SchedulerStateResponse>
+  return fetchJson<SchedulerStateResponse>('/v1/admin/jobs/scheduler')
 }
 
 function fmtTick(ms: number): string {
