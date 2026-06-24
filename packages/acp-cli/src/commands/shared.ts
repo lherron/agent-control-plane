@@ -1,12 +1,11 @@
 import { CliUsageError, type CommandOutput } from '../cli-runtime.js'
 import {
   type AcpClient,
-  AcpClientHttpError,
-  AcpClientTransportError,
   DEFAULT_ACP_SERVER_URL,
   type FetchLike,
   createHttpClient,
-  parseResponseText,
+  requestAcpJson,
+  requestAcpText,
   trimTrailingSlashes,
 } from '../http-client.js'
 import { type ParsedArgs, hasFlag, parseJsonObject, readStringFlag } from './options.js'
@@ -125,48 +124,21 @@ export function createRawAcpRequester(options: {
   const baseUrl = trimTrailingSlashes(options.serverUrl)
   const fetchImpl = options.fetchImpl ?? fetch
 
-  async function doFetch(input: RawAcpRequestInput): Promise<Response> {
-    const headers = new Headers(input.headers)
-    if (input.body !== undefined) {
-      headers.set('content-type', 'application/json')
-    }
-
-    const actorAgentId = input.actorAgentId ?? options.actorAgentId
-    if (actorAgentId !== undefined) {
-      headers.set('x-acp-actor-agent-id', actorAgentId)
-    }
-
-    try {
-      return await fetchImpl(`${baseUrl}${input.path}`, {
-        method: input.method,
-        headers,
-        ...(input.body !== undefined ? { body: JSON.stringify(input.body) } : {}),
-      })
-    } catch (error) {
-      throw new AcpClientTransportError(`failed to reach ACP server at ${baseUrl}`, {
-        cause: error,
-      })
-    }
-  }
-
   return {
     async requestJson<T>(input: RawAcpRequestInput) {
-      const response = await doFetch(input)
-      const text = await response.text()
-      const body = parseResponseText(text)
-      if (!response.ok) {
-        throw new AcpClientHttpError(response.status, body)
-      }
-      return body as T
+      return requestAcpJson<T>(input, {
+        baseUrl,
+        ...(options.actorAgentId !== undefined ? { actorAgentId: options.actorAgentId } : {}),
+        fetchImpl,
+      })
     },
 
     async requestText(input: RawAcpRequestInput) {
-      const response = await doFetch(input)
-      const text = await response.text()
-      if (!response.ok) {
-        throw new AcpClientHttpError(response.status, parseResponseText(text))
-      }
-      return text
+      return requestAcpText(input, {
+        baseUrl,
+        ...(options.actorAgentId !== undefined ? { actorAgentId: options.actorAgentId } : {}),
+        fetchImpl,
+      })
     },
   }
 }

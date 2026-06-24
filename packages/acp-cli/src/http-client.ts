@@ -393,6 +393,73 @@ export function trimTrailingSlashes(url: string): string {
   return url.replace(/\/+$/, '')
 }
 
+export type AcpRequestInput = {
+  method: string
+  path: string
+  body?: unknown
+  actorAgentId?: string | undefined
+  headers?: Readonly<Record<string, string>> | undefined
+}
+
+export type AcpRequestOptions = {
+  baseUrl: string
+  actorAgentId?: string | undefined
+  fetchImpl: FetchLike
+}
+
+export async function fetchAcpResponse(
+  input: AcpRequestInput,
+  options: AcpRequestOptions
+): Promise<Response> {
+  const headers = new Headers(input.headers)
+  if (input.body !== undefined) {
+    headers.set('content-type', 'application/json')
+  }
+
+  const actorAgentId = input.actorAgentId ?? options.actorAgentId
+  if (actorAgentId !== undefined) {
+    headers.set('x-acp-actor-agent-id', actorAgentId)
+  }
+
+  try {
+    return await options.fetchImpl(`${options.baseUrl}${input.path}`, {
+      method: input.method,
+      headers,
+      ...(input.body !== undefined ? { body: JSON.stringify(input.body) } : {}),
+    })
+  } catch (error) {
+    throw new AcpClientTransportError(`failed to reach ACP server at ${options.baseUrl}`, {
+      cause: error,
+    })
+  }
+}
+
+export async function requestAcpJson<T>(
+  input: AcpRequestInput,
+  options: AcpRequestOptions
+): Promise<T> {
+  const response = await fetchAcpResponse(input, options)
+  const body = await readBody(response)
+  if (!response.ok) {
+    throw new AcpClientHttpError(response.status, body)
+  }
+
+  return body as T
+}
+
+export async function requestAcpText(
+  input: AcpRequestInput,
+  options: AcpRequestOptions
+): Promise<string> {
+  const response = await fetchAcpResponse(input, options)
+  const text = await response.text()
+  if (!response.ok) {
+    throw new AcpClientHttpError(response.status, parseResponseText(text))
+  }
+
+  return text
+}
+
 export function createHttpClient(
   options: {
     serverUrl?: string | undefined
@@ -409,35 +476,11 @@ export function createHttpClient(
     body?: unknown
     actorAgentId?: string | undefined
   }): Promise<T> {
-    const headers = new Headers()
-    if (input.body !== undefined) {
-      headers.set('content-type', 'application/json')
-    }
-
-    const actorAgentId = input.actorAgentId ?? options.actorAgentId
-    if (actorAgentId !== undefined) {
-      headers.set('x-acp-actor-agent-id', actorAgentId)
-    }
-
-    let response: Response
-    try {
-      response = await fetchImpl(`${baseUrl}${input.path}`, {
-        method: input.method,
-        headers,
-        ...(input.body !== undefined ? { body: JSON.stringify(input.body) } : {}),
-      })
-    } catch (error) {
-      throw new AcpClientTransportError(`failed to reach ACP server at ${baseUrl}`, {
-        cause: error,
-      })
-    }
-
-    const body = await readBody(response)
-    if (!response.ok) {
-      throw new AcpClientHttpError(response.status, body)
-    }
-
-    return body as T
+    return requestAcpJson<T>(input, {
+      baseUrl,
+      ...(options.actorAgentId !== undefined ? { actorAgentId: options.actorAgentId } : {}),
+      fetchImpl,
+    })
   }
 
   return {
