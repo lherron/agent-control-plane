@@ -220,9 +220,32 @@ This is a public-surface contract change needing owner confirmation.`,
     const script = readFileSync(resolve(import.meta.dir, 'wrkq-refactor-scheduled.sh'), 'utf8')
 
     expect(script).toContain('send_result_email')
+    expect(script).toContain('EMAIL_PREFIX="${WRKQ_REFACTOR_EMAIL_PREFIX:-ACP refactor}"')
+    expect(script).toContain('agent_email_topic')
+    expect(script).toContain('Topic: ${topic}')
+    expect(script).toContain('local subject="${EMAIL_PREFIX}: ${topic}"')
     expect(script).toContain('gog "${gog_args[@]}"')
     expect(script).toContain('--body-file "$body_path"')
     expect(script).toContain('WRKQ_REFACTOR_SCHEDULED_DRY_RUN')
+    expect(script).not.toContain('ACP wrkq refactor automation: ${status}')
+  })
+
+  test('scheduled prompt requires an agent-authored email topic', () => {
+    const script = readFileSync(resolve(import.meta.dir, 'wrkq-refactor-scheduled.sh'), 'utf8')
+
+    expect(script).toContain(
+      'Your final response MUST include a single line starting with `EMAIL_TOPIC:`'
+    )
+    expect(script).toContain(
+      'EMAIL_TOPIC: <agent action> <final task state> - <task id> <short detail>'
+    )
+    expect(script).toContain(
+      'EMAIL_TOPIC: implemented complete - T-04576 narrow public index exports'
+    )
+    expect(script).toContain(
+      'EMAIL_TOPIC: already done archive - T-04579 renderToDiscord was already removed'
+    )
+    expect(script).toContain('EMAIL_TOPIC: needs review blocked - T-04521')
   })
 
   test('scheduled wrapper blocks no-proceed tasks instead of leaving them open', () => {

@@ -8,6 +8,7 @@ LOCK_DIR="${RUN_DIR}/acp-wrkq-refactor.lock"
 LOG_PATH="${LOG_DIR}/acp-wrkq-refactor.log"
 EMAIL_TO="${WRKQ_REFACTOR_EMAIL_TO:-lherron@gmail.com}"
 EMAIL_ACCOUNT="${WRKQ_REFACTOR_EMAIL_ACCOUNT:-lherron@gmail.com}"
+EMAIL_PREFIX="${WRKQ_REFACTOR_EMAIL_PREFIX:-ACP refactor}"
 RUN_ID="${WRKQ_REFACTOR_RUN_ID:-$(date -u +"%Y%m%dT%H%M%SZ")-$$}"
 TARGET_TASK="wrkq-refactor-${RUN_ID}"
 TARGET="cody@agent-control-plane:${TARGET_TASK}"
@@ -18,6 +19,30 @@ exec >>"$LOG_PATH" 2>&1
 
 timestamp() {
   date -u +"%Y-%m-%dT%H:%M:%SZ"
+}
+
+agent_result_text() {
+  local output_path="$1"
+
+  if command -v jq >/dev/null 2>&1 && jq -e '.response.text' "$output_path" >/dev/null 2>&1; then
+    jq -r '.response.text' "$output_path"
+  else
+    cat "$output_path"
+  fi
+}
+
+agent_email_topic() {
+  local output_path="$1"
+
+  agent_result_text "$output_path" \
+    | awk '
+      /^EMAIL_TOPIC:[[:space:]]*/ {
+        sub(/^EMAIL_TOPIC:[[:space:]]*/, "")
+        sub(/\r$/, "")
+        print
+        exit
+      }
+    '
 }
 
 echo "[$(timestamp)] wrkq-refactor scheduled tick"
@@ -42,12 +67,19 @@ export ACP_WRKQ_DB_PATH="${ACP_WRKQ_DB_PATH:-$WRKQ_DB_PATH}"
 send_result_email() {
   local status="$1"
   local output_path="$2"
+  local topic
+  topic="$(agent_email_topic "$output_path")"
+  if [[ -z "$topic" ]]; then
+    topic="$status"
+  fi
+
   local body_path
   body_path="$(mktemp "${RUN_DIR}/acp-wrkq-refactor-email.XXXXXX")"
 
   {
-    echo "ACP wrkq refactor automation result"
+    echo "${EMAIL_PREFIX} result"
     echo
+    echo "Topic: ${topic}"
     echo "Status: ${status}"
     echo "Timestamp: $(timestamp)"
     echo "Target: ${TARGET}"
@@ -57,14 +89,10 @@ send_result_email() {
     echo "HEAD: $(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
     echo
     echo "Agent result:"
-    if command -v jq >/dev/null 2>&1 && jq -e '.response.text' "$output_path" >/dev/null 2>&1; then
-      jq -r '.response.text' "$output_path"
-    else
-      cat "$output_path"
-    fi
+    agent_result_text "$output_path"
   } >"$body_path"
 
-  local subject="ACP wrkq refactor automation: ${status}"
+  local subject="${EMAIL_PREFIX}: ${topic}"
   local gog_args=(
     send
     --account "$EMAIL_ACCOUNT"
@@ -146,6 +174,21 @@ Use the repo-local automation contract:
 7. Final step: run `bun scripts/wrkq-refactor.ts publish --message "<commit message>"`. `publish` stages the entire worktree with `git add -A` by design — this is intended. Run it as-is even if files you did not touch this cycle are dirty; do NOT hand-roll a narrower `git add`/commit, and do NOT skip or refuse publish because unrelated changes are present. The single commit may include other in-flight edits, and that is acceptable.
 
 Do not batch multiple refactor tasks in one cycle. If `next` reports `Safety: ready`, start the selected task and implement it; do not stop solely because the historical report says the work was deferred. If `next` reports `Safety: review_required` but the task specification explicitly says `APPROVED` / proceed, inspect live source and then start with `--force-review`; do not block solely because the selector saw old deferral or public-surface wording. If current source proves the task is invalid, archive it. If you still choose not to proceed after selecting a task, block it with the command above, publish, and report the blocker.
+
+Your final response MUST include a single line starting with `EMAIL_TOPIC:`. The
+topic is used as the email subject after the static prefix, so make it specific.
+Use this shape:
+
+EMAIL_TOPIC: <agent action> <final task state> - <task id> <short detail>
+
+The agent action should be 1-2 words describing what you did. The final task
+state should be exactly one word describing the task state after your run, such
+as `complete`, `archive`, `blocked`, `skipped`, or `failed`.
+Examples:
+- EMAIL_TOPIC: implemented complete - T-04576 narrow public index exports
+- EMAIL_TOPIC: already done archive - T-04579 renderToDiscord was already removed
+- EMAIL_TOPIC: wontfix archive - T-04580 obsolete duplicate task
+- EMAIL_TOPIC: needs review blocked - T-04521 public delivery type convergence
 PROMPT_EOF
 )
 
