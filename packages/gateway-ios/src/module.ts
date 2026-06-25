@@ -12,6 +12,7 @@ import { HrcClient } from 'hrc-sdk'
 import { DEFAULT_GATEWAY_ID, DEFAULT_HOST, DEFAULT_PORT } from './config.js'
 import { createLogger } from './logger.js'
 import { type WsData, createGatewayIosServeConfig } from './routes.js'
+import { resolveSessionGeneration } from './session-generation.js'
 import { createSessionIndex } from './session-index.js'
 
 const log = createLogger({ component: 'gateway-ios' })
@@ -54,19 +55,18 @@ export function createGatewayIosModule(options: GatewayIosModuleOptions): Gatewa
         hrcClient,
         gatewayId,
         resolveSession: async ({ sessionRef, hostSessionId, generation }) => {
+          const selected = await resolveSessionGeneration(hrcClient, {
+            sessionRef,
+            hostSessionId,
+            generation,
+          })
           const { sessions } = await sessionIndex.handleListSessions({})
-          const candidates = sessions.filter((s) => s.sessionRef === sessionRef)
-          const match =
-            hostSessionId !== undefined
-              ? candidates.find(
-                  (s) =>
-                    s.hostSessionId === hostSessionId &&
-                    (generation === undefined || s.generation === generation)
-                )
-              : ([...candidates]
-                  .filter((s) => s.status === 'active')
-                  .sort((a, b) => b.generation - a.generation)[0] ??
-                [...candidates].sort((a, b) => b.generation - a.generation)[0])
+          const match = sessions.find(
+            (s) =>
+              s.sessionRef === selected.sessionRef &&
+              s.hostSessionId === selected.hostSessionId &&
+              s.generation === selected.generation
+          )
           if (!match) {
             throw new Error(`session not found: ${sessionRef}`)
           }
