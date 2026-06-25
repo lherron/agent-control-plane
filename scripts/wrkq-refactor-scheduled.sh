@@ -140,12 +140,12 @@ Use the repo-local automation contract:
 1. Run `bun scripts/wrkq-refactor.ts next`.
 2. Read the selected task with `wrkq cat <task-id> --json` and read its referenced `refactor-analysis/*-report.md`.
 3. Confirm the finding still matches the current source before editing.
-4. If still valid, run `bun scripts/wrkq-refactor.ts start --task <task-id>`, implement the smallest behavior-preserving edit, run scoped checks plus repo checks appropriate to the touched surface, then run `bun scripts/wrkq-refactor.ts finish --task <task-id> --summary "<changes>" --validation "<checks>"`.
+4. If still valid and either `next` reports `Safety: ready` or the task specification explicitly says `APPROVED` / proceed with implementation, start the task. Use `bun scripts/wrkq-refactor.ts start --task <task-id>` for ready tasks, or `bun scripts/wrkq-refactor.ts start --task <task-id> --force-review` for approved review-required tasks. Then implement the smallest behavior-preserving edit, run scoped checks plus repo checks appropriate to the touched surface, and run `bun scripts/wrkq-refactor.ts finish --task <task-id> --summary "<changes>" --validation "<checks>"`.
 5. If the task is no longer valid, run `bun scripts/wrkq-refactor.ts archive --task <task-id> --reason "<why>"`.
 6. If the task is review-required, unsafe, not behavior-preserving, or you otherwise choose not to proceed, run `bun scripts/wrkq-refactor.ts block --task <task-id> --reason "<why>"`. Do not leave the selected task open.
 7. Final step: run `bun scripts/wrkq-refactor.ts publish --message "<commit message>"`.
 
-Do not batch multiple refactor tasks in one cycle. If `next` reports `Safety: ready`, start the selected task and implement it; do not stop solely because the historical report says the work was deferred. If current source proves the task is invalid, archive it. If you still choose not to proceed after selecting a task, block it with the command above, publish, and report the blocker.
+Do not batch multiple refactor tasks in one cycle. If `next` reports `Safety: ready`, start the selected task and implement it; do not stop solely because the historical report says the work was deferred. If `next` reports `Safety: review_required` but the task specification explicitly says `APPROVED` / proceed, inspect live source and then start with `--force-review`; do not block solely because the selector saw old deferral or public-surface wording. If current source proves the task is invalid, archive it. If you still choose not to proceed after selecting a task, block it with the command above, publish, and report the blocker.
 PROMPT_EOF
 )
 

@@ -216,6 +216,14 @@ Needs human decision before deleting this public-surface seam.`,
     expect(script).not.toContain('Do not force review-required tasks')
   })
 
+  test('scheduled prompt can force approved review-required tasks', () => {
+    const script = readFileSync(resolve(import.meta.dir, 'wrkq-refactor-scheduled.sh'), 'utf8')
+
+    expect(script).toContain('task specification explicitly says `APPROVED` / proceed')
+    expect(script).toContain('start --task <task-id> --force-review')
+    expect(script).toContain('do not block solely because the selector saw old deferral')
+  })
+
   test('scheduled wrapper uses a fresh HRC task scope per run', () => {
     const script = readFileSync(resolve(import.meta.dir, 'wrkq-refactor-scheduled.sh'), 'utf8')
 
