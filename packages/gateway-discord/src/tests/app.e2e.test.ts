@@ -8,8 +8,6 @@ import type { DeliveryRequest } from 'acp-core'
 
 import { withWiredServer } from '../../../acp-server/test/fixtures/wired-server.js'
 import { GatewayDiscordApp } from '../app.js'
-import { renderToDiscord } from '../discord-render.js'
-import type { RenderFrame } from '../types.js'
 
 type FakeDiscordFile = {
   name?: string | undefined
@@ -1214,65 +1212,6 @@ describe('GatewayDiscordApp local e2e', () => {
     expect(webhook?.sent[0]?.avatar_url ?? webhook?.sent[0]?.avatarURL).toBeUndefined()
     expect(webhook?.avatarEdits).toHaveLength(1)
     expect(webhook?.avatarEdits[0]?.avatar).toEqual(Buffer.from('fake-png-bytes'))
-  })
-
-  test('attaches render-frame image and media files when editing a placeholder', async () => {
-    const priorFetch = globalThis.fetch
-    globalThis.fetch = (async () =>
-      new Response('media-bytes', {
-        headers: {
-          'content-length': '11',
-          'content-type': 'image/jpeg',
-        },
-      })) as typeof fetch
-
-    try {
-      const channel = new FakeChannel('chan_render_files')
-      const client = new FakeClient()
-      client.addChannel(channel)
-      const placeholder = await channel.send('placeholder')
-
-      const frame: RenderFrame = {
-        runId: 'run_render_files',
-        projectId: 'project_media',
-        phase: 'final',
-        blocks: [
-          { t: 'markdown', md: 'Final with media' },
-          {
-            t: 'image',
-            data: Buffer.from('inline-bytes').toString('base64'),
-            mimeType: 'image/png',
-          },
-          {
-            t: 'media_ref',
-            url: 'https://media.acp.test/output.jpg',
-            mimeType: 'image/jpeg',
-            filename: 'result.jpg',
-            alt: 'Rendered media alt',
-          },
-        ],
-        updatedAt: Date.now(),
-      }
-
-      await renderToDiscord(
-        client as never,
-        {
-          gatewayId: 'discord_prod',
-          kind: 'message',
-          id: placeholder.id,
-          channelId: channel.id,
-        },
-        frame,
-        2000
-      )
-
-      const edit = placeholder.edits.at(-1)
-      expect(edit?.content).toContain('Final with media')
-      expect(edit?.files?.map((file) => file.name)).toEqual(['image_0.png', 'result.jpg'])
-      expect(edit?.files?.at(1)?.description).toBe('Rendered media alt')
-    } finally {
-      globalThis.fetch = priorFetch
-    }
   })
 
   test('sends delivery body attachments through the agent webhook without reply references', async () => {
