@@ -77,7 +77,6 @@ export {
   type DispatchThroughInputs,
   type EvaluateEventJob,
   type EventJobEvaluation,
-  type ScheduledRun,
   type TickJobsSchedulerInput,
 } from './scheduler.js'
 export { default as SqliteDatabase } from './sqlite.js'
