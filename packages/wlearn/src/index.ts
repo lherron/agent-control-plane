@@ -1,8 +1,6 @@
 export {
   materializeWorkflowTrace,
-  reviewTraceLabel,
   runDeterministicWorkflowReplay,
-  transitionLearningArtifactLifecycle,
   validatePromotionReadiness,
 } from 'acp-core'
 export type {
