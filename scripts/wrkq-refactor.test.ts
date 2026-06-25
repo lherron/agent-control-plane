@@ -259,6 +259,14 @@ This is a public-surface contract change needing owner confirmation.`,
     expect(script).toContain('do not block solely because the selector saw old deferral')
   })
 
+  test('scheduled prompt tells publish to stage the whole worktree without scoping', () => {
+    const script = readFileSync(resolve(import.meta.dir, 'wrkq-refactor-scheduled.sh'), 'utf8')
+
+    expect(script).toContain('stages the entire worktree with `git add -A` by design')
+    expect(script).toContain('do NOT hand-roll a narrower `git add`/commit')
+    expect(script).toContain('do NOT skip or refuse publish because unrelated changes are present')
+  })
+
   test('scheduled wrapper uses a fresh HRC task scope per run', () => {
     const script = readFileSync(resolve(import.meta.dir, 'wrkq-refactor-scheduled.sh'), 'utf8')
 
