@@ -217,6 +217,16 @@ describe('InputRequest', () => {
     expect(req.fences.expectedHostSessionId).toBe('host-abc')
     expect(req.fences.expectedGeneration).toBe(3)
   })
+
+  it('allows enter to be omitted', () => {
+    const req: InputRequest = {
+      sessionRef: 'agent:cody:project:agent-spaces/lane:main',
+      clientInputId: 'test-1',
+      text: 'continue',
+      fences: {},
+    }
+    expect(req.enter).toBeUndefined()
+  })
 })
 
 describe('InputResponse', () => {

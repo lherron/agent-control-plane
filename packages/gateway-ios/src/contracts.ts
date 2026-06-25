@@ -234,7 +234,7 @@ export type InputRequest = {
   sessionRef: string
   clientInputId: string
   text: string
-  enter: boolean
+  enter?: boolean | undefined
   fences: MobileFence
 }
 
