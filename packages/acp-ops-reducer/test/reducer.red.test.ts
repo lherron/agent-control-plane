@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { redactPayload } from 'acp-ops-projection'
 import type { DashboardEvent, ReducerState } from '../src/index.js'
 import {
   applyEvent,
@@ -279,24 +280,24 @@ describe('session dashboard reducer red contract', () => {
 
   test('payload redaction happens before reducer state or selectors expose events', () => {
     // SESSION_DASHBOARD.md §12 + §16: reducer state must not hold raw payload previews.
+    const sample = {
+      token: 'raw-token',
+      nested: { secret: 'raw-secret' },
+      rawProviderPayload: { visible: false },
+      safe: 'visible',
+    }
     const state = applyEvent(
       initialState(),
       baseEvent({
         hrcSeq: 101,
-        payloadPreview: {
-          token: 'raw-token',
-          nested: { secret: 'raw-secret' },
-          safe: 'visible',
-        },
+        payloadPreview: sample,
         redacted: false,
       })
     )
 
-    expect(state.events.get('hrc:101')?.payloadPreview).toEqual({
-      token: '[REDACTED]',
-      nested: { secret: '[REDACTED]' },
-      safe: 'visible',
-    })
+    expect(state.events.get('hrc:101')?.payloadPreview).toEqual(
+      redactPayload(sample).payloadPreview
+    )
     expect(selectVisibleEvents(state, {})[0]?.redacted).toBe(true)
   })
 

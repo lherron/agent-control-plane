@@ -1,5 +1,5 @@
-import { deriveSessionRow } from 'acp-ops-projection'
-import type { DashboardEvent, SessionTimelineRow } from 'acp-ops-projection'
+import { REDACTED_VALUE, deriveSessionRow, isRecord, shouldRedactKey } from 'acp-ops-projection'
+import type { DashboardEvent, ObjectRecord, SessionTimelineRow } from 'acp-ops-projection'
 
 export type { DashboardEvent, SessionTimelineRow } from 'acp-ops-projection'
 
@@ -36,46 +36,9 @@ export type ParsedNdjsonChunk = {
   droppedLines: number
 }
 
-type ObjectRecord = Record<string, unknown>
-
 const SUPERSEDED_PRIORITY_FLOOR = 80
 const SUPERSEDED_COLOR_ROLE = 'warning'
 const SUPERSEDED_CONTINUITY = 'blocked'
-
-const REDACTED_VALUE = '[REDACTED]'
-const CREDENTIAL_KEY_PARTS = [
-  'token',
-  'secret',
-  'password',
-  'cookie',
-  'bearer',
-  'apikey',
-  'accesskey',
-  'refreshtoken',
-] as const
-const RAW_PROVIDER_KEYS = new Set([
-  'providerpayload',
-  'rawproviderpayload',
-  'rawpayload',
-  'rawresponse',
-  'rawproviderresponse',
-])
-
-function isRecord(value: unknown): value is ObjectRecord {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function normalizedKey(key: string): string {
-  return key.toLowerCase().replace(/[^a-z0-9]/g, '')
-}
-
-function shouldRedactKey(key: string): boolean {
-  const normalized = normalizedKey(key)
-  return (
-    CREDENTIAL_KEY_PARTS.some((part) => normalized.includes(part)) ||
-    RAW_PROVIDER_KEYS.has(normalized)
-  )
-}
 
 function sanitizePayloadPreview(value: unknown): { value: unknown; redacted: boolean } {
   if (Array.isArray(value)) {

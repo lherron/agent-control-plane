@@ -153,7 +153,7 @@ export type HrcLifecycleEvent = {
   payload?: unknown
 }
 
-type ObjectRecord = Record<string, unknown>
+export type ObjectRecord = Record<string, unknown>
 type ResolvedRedactionOptions = {
   payloadPreviewTextLimit: number
   payloadPreviewObjectDepth: number
@@ -161,12 +161,12 @@ type ResolvedRedactionOptions = {
   rawPayloadDebug: boolean
 }
 
-const REDACTED_VALUE = '[REDACTED]'
+export const REDACTED_VALUE = '[REDACTED]'
 const MAX_DEPTH_VALUE = '[MaxDepth]'
 const BINARY_VALUE = '[Binary]'
 const CIRCULAR_VALUE = '[Circular]'
 
-const CREDENTIAL_KEY_PARTS = [
+export const CREDENTIAL_KEY_PARTS = [
   'token',
   'secret',
   'password',
@@ -177,7 +177,7 @@ const CREDENTIAL_KEY_PARTS = [
   'refreshtoken',
 ] as const
 
-const RAW_PROVIDER_KEYS = new Set([
+export const RAW_PROVIDER_KEYS = new Set([
   'providerpayload',
   'rawproviderpayload',
   'rawpayload',
@@ -185,15 +185,15 @@ const RAW_PROVIDER_KEYS = new Set([
   'rawproviderresponse',
 ])
 
-function isRecord(value: unknown): value is ObjectRecord {
+export function isRecord(value: unknown): value is ObjectRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function normalizedKey(key: string): string {
+export function normalizedKey(key: string): string {
   return key.toLowerCase().replace(/[^a-z0-9]/g, '')
 }
 
-function shouldRedactKey(key: string): boolean {
+export function shouldRedactKey(key: string): boolean {
   const normalized = normalizedKey(key)
   return (
     CREDENTIAL_KEY_PARTS.some((part) => normalized.includes(part)) ||
