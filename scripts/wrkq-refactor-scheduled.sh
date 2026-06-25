@@ -106,9 +106,10 @@ Use the repo-local automation contract:
 3. Confirm the finding still matches the current source before editing.
 4. If still valid, run `bun scripts/wrkq-refactor.ts start --task <task-id>`, implement the smallest behavior-preserving edit, run scoped checks plus repo checks appropriate to the touched surface, then run `bun scripts/wrkq-refactor.ts finish --task <task-id> --summary "<changes>" --validation "<checks>"`.
 5. If the task is no longer valid, run `bun scripts/wrkq-refactor.ts archive --task <task-id> --reason "<why>"`.
-6. Final step: run `bun scripts/wrkq-refactor.ts publish --message "<commit message>"`.
+6. If the task is review-required, unsafe, not behavior-preserving, or you otherwise choose not to proceed, run `bun scripts/wrkq-refactor.ts block --task <task-id> --reason "<why>"`. Do not leave the selected task open.
+7. Final step: run `bun scripts/wrkq-refactor.ts publish --message "<commit message>"`.
 
-Do not force review-required tasks. Do not batch multiple refactor tasks in one cycle. If blocked, leave the task untouched and report the blocker.
+Do not force review-required tasks. Do not batch multiple refactor tasks in one cycle. If blocked, mark the selected task blocked with the command above, publish, and report the blocker.
 PROMPT_EOF
 )
 

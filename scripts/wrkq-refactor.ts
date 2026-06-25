@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { relative, resolve } from 'node:path'
 
-type CommandName = 'next' | 'start' | 'finish' | 'archive' | 'publish'
+type CommandName = 'next' | 'start' | 'finish' | 'archive' | 'block' | 'publish'
 type SafetyStatus = 'ready' | 'review_required' | 'blocked'
 
 type Options = {
@@ -105,6 +105,7 @@ function usage(): string {
   bun scripts/wrkq-refactor.ts start [--task <id>] [--force-review] [--dry-run] [--json]
   bun scripts/wrkq-refactor.ts finish --task <id> (--summary <text> | --body-file <file>) [--validation <text> ...] [--dry-run]
   bun scripts/wrkq-refactor.ts archive --task <id> --reason <text> [--dry-run]
+  bun scripts/wrkq-refactor.ts block --task <id> --reason <text> [--dry-run]
   bun scripts/wrkq-refactor.ts publish --message <commit-message> [--dry-run]
 
 Commands:
@@ -112,6 +113,7 @@ Commands:
   start    Select/read a task, add a starting comment, and mark it in_progress.
   finish   Add a final summary comment and mark the task completed.
   archive  Comment and archive a task that live validation proved no longer valid.
+  block    Comment and block a task that automation should not proceed with.
   publish  Run checks, commit all local changes, push, and verify origin/<branch>.
 
 Defaults:
@@ -145,6 +147,7 @@ export function parseArgs(argv: string[]): Options {
       first !== 'start' &&
       first !== 'finish' &&
       first !== 'archive' &&
+      first !== 'block' &&
       first !== 'publish'
     ) {
       fail(`Unknown command: ${first}\n\n${usage()}`)
@@ -553,9 +556,10 @@ export function renderPacket(packet: WorkPacket): string {
     `3. Confirm the finding still matches current source at ${packet.location.path ?? 'the task location'}.`,
     '4. If valid, implement the smallest behavior-preserving edit.',
     `5. If no longer valid, archive it with: bun scripts/wrkq-refactor.ts archive --task ${packet.task.id} --reason "<why>"`,
-    '6. Run scoped tests/typecheck first, then repo-level checks appropriate to the touched surface.',
-    `7. Finish with: bun scripts/wrkq-refactor.ts finish --task ${packet.task.id} --summary "<changes>" --validation "<checks>"`,
-    '8. Commit and push with: bun scripts/wrkq-refactor.ts publish --message "<commit message>"'
+    `6. If review-gated, unsafe, or otherwise choosing not to proceed, block it with: bun scripts/wrkq-refactor.ts block --task ${packet.task.id} --reason "<why>"`,
+    '7. Run scoped tests/typecheck first, then repo-level checks appropriate to the touched surface.',
+    `8. Finish with: bun scripts/wrkq-refactor.ts finish --task ${packet.task.id} --summary "<changes>" --validation "<checks>"`,
+    '9. Commit and push with: bun scripts/wrkq-refactor.ts publish --message "<commit message>"'
   )
 
   if (packet.classification.status === 'review_required') {
@@ -676,6 +680,33 @@ function archiveTask(options: Options): void {
   runWrkqMutation(['set', options.taskId, '--state', 'archived'], options.dryRun)
 }
 
+function blockBody(reason: string): string {
+  return `Blocked by refactor automation: not safe to proceed automatically.
+
+Reason:
+${reason}`
+}
+
+function blockTask(options: Options): void {
+  if (!options.taskId) {
+    fail('block requires --task <id>')
+  }
+  if (!options.reason) {
+    fail('block requires --reason <text>')
+  }
+
+  const task = readTask(options.taskId)
+  if (task.state === 'completed' || task.state === 'archived' || task.state === 'blocked') {
+    fail(`Refusing to block ${options.taskId}: task is already ${task.state}`)
+  }
+
+  runWrkqMutation(
+    ['comment', 'add', options.taskId, '-m', blockBody(options.reason)],
+    options.dryRun
+  )
+  runWrkqMutation(['set', options.taskId, '--state', 'blocked'], options.dryRun)
+}
+
 function gitOutput(args: string[]): string {
   return runChecked('git', args).trim()
 }
@@ -749,6 +780,11 @@ async function main(): Promise<void> {
 
   if (options.command === 'archive') {
     archiveTask(options)
+    return
+  }
+
+  if (options.command === 'block') {
+    blockTask(options)
     return
   }
 

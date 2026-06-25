@@ -51,6 +51,22 @@ describe('wrkq-refactor automation helpers', () => {
     expect(options.dryRun).toBe(true)
   })
 
+  test('parseArgs supports blocking a no-proceed refactor task with a required reason', () => {
+    const options = parseArgs([
+      'block',
+      '--task',
+      'T-00001',
+      '--reason',
+      'Review-required public CLI contract change.',
+      '--dry-run',
+    ])
+
+    expect(options.command).toBe('block')
+    expect(options.taskId).toBe('T-00001')
+    expect(options.reason).toBe('Review-required public CLI contract change.')
+    expect(options.dryRun).toBe(true)
+  })
+
   test('parseArgs supports the final publish step with a commit message', () => {
     const options = parseArgs([
       'publish',
@@ -129,6 +145,8 @@ Needs human decision before deleting this public-surface seam.`,
 
     expect(rendered).toContain('If no longer valid, archive it with:')
     expect(rendered).toContain('wrkq-refactor.ts archive --task T-00001 --reason "<why>"')
+    expect(rendered).toContain('If review-gated, unsafe, or otherwise choosing not to proceed')
+    expect(rendered).toContain('wrkq-refactor.ts block --task T-00001 --reason "<why>"')
     expect(rendered).toContain(
       'Commit and push with: bun scripts/wrkq-refactor.ts publish --message "<commit message>"'
     )
@@ -141,6 +159,15 @@ Needs human decision before deleting this public-surface seam.`,
     expect(script).toContain('gog "${gog_args[@]}"')
     expect(script).toContain('--body-file "$body_path"')
     expect(script).toContain('WRKQ_REFACTOR_SCHEDULED_DRY_RUN')
+  })
+
+  test('scheduled wrapper blocks no-proceed tasks instead of leaving them open', () => {
+    const script = readFileSync(resolve(import.meta.dir, 'wrkq-refactor-scheduled.sh'), 'utf8')
+
+    expect(script).toContain('wrkq-refactor.ts block --task <task-id> --reason "<why>"')
+    expect(script).toContain('Do not leave the selected task open')
+    expect(script).toContain('mark the selected task blocked')
+    expect(script).not.toContain('leave the task untouched')
   })
 
   test('scheduled wrapper uses a fresh HRC task scope per run', () => {
