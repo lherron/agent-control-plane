@@ -1,11 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 
 import {
-  buildProgressBubble,
   extractToolPreview,
   formatNoticeLine,
   formatToolLine,
   getToolEmoji,
+} from 'agent-action-render'
+import {
+  buildProgressBubble,
   renderActionsToCustomIds,
   renderFrameToDiscordContent,
   splitIntoChunks,
