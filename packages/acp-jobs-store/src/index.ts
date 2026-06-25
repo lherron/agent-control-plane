@@ -78,13 +78,6 @@ export {
   type EventJobEvaluation,
   type TickJobsSchedulerInput,
 } from './scheduler.js'
-export { default as SqliteDatabase } from './sqlite.js'
-export type {
-  SqliteDatabase as JobsSqliteDatabase,
-  SqliteDatabaseConstructor as JobsSqliteDatabaseConstructor,
-  SqliteRunResult as JobsSqliteRunResult,
-  SqliteStatement as JobsSqliteStatement,
-} from './sqlite.js'
 export {
   isHealthDiagnosticRun,
   buildHealthIncidentMeta,
