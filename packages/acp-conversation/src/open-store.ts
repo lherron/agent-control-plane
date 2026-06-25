@@ -105,9 +105,6 @@ export type StoredConversationTurn = {
 
 export interface ConversationStore {
   readonly sqlite: SqliteDatabase
-  readonly migrations: {
-    applied: string[]
-  }
   runInTransaction<T>(fn: (store: ConversationStore) => T): T
   close(): void
 
@@ -357,9 +354,6 @@ export function openSqliteConversationStore(
 
   const store: ConversationStore = {
     sqlite,
-    migrations: {
-      applied: listAppliedConversationStoreMigrations(sqlite),
-    },
     runInTransaction<T>(fn: (store: ConversationStore) => T): T {
       const transaction = sqlite.transaction(() => fn(store))
       return transaction()
