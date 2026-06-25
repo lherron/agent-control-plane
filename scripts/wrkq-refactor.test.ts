@@ -2,7 +2,13 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-import { classifyTask, extractTaskFields, parseArgs, renderPacket } from './wrkq-refactor'
+import {
+  classifyTask,
+  extractTaskFields,
+  normalizeRefactorTaskList,
+  parseArgs,
+  renderPacket,
+} from './wrkq-refactor'
 
 type ClassifyTaskInput = Parameters<typeof classifyTask>[0]
 
@@ -78,6 +84,29 @@ describe('wrkq-refactor automation helpers', () => {
     expect(options.command).toBe('publish')
     expect(options.message).toBe('chore(acp): automate wrkq refactor loop')
     expect(options.dryRun).toBe(true)
+  })
+
+  test('normalizeRefactorTaskList treats wrkq null output as an empty queue', () => {
+    expect(normalizeRefactorTaskList(null)).toEqual([])
+  })
+
+  test('normalizeRefactorTaskList keeps only open task records', () => {
+    expect(
+      normalizeRefactorTaskList([
+        refactorTask({ id: 'T-00001', state: 'open' }),
+        refactorTask({ id: 'T-00002', state: 'blocked' }),
+        null,
+      ])
+    ).toEqual([
+      {
+        id: 'T-00001',
+        title: '[pkg] F1 - Example',
+        path: 'agent-control-plane/refactor-deferred/example',
+        state: 'open',
+        kind: undefined,
+        updated_at: undefined,
+      },
+    ])
   })
 
   test('extractTaskFields reads task metadata and report path', () => {

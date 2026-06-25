@@ -314,6 +314,22 @@ function isTask(value: unknown): value is WrkqTask {
   )
 }
 
+export function normalizeRefactorTaskList(parsed: unknown): WrkqListTask[] {
+  const tasks = Array.isArray(parsed) ? parsed : []
+
+  return tasks
+    .filter(isTask)
+    .filter((task) => task.state === 'open')
+    .map((task) => ({
+      id: task.id,
+      title: task.title,
+      path: task.path,
+      state: task.state,
+      kind: task.kind,
+      updated_at: task.updated_at,
+    }))
+}
+
 function listOpenRefactorTasks(options: Options): WrkqListTask[] {
   const raw = runChecked('wrkq', [
     'ls',
@@ -330,19 +346,8 @@ function listOpenRefactorTasks(options: Options): WrkqListTask[] {
     '--json',
   ])
   const parsed = parseJson<unknown>(raw, 'wrkq ls')
-  const tasks = Array.isArray(parsed) ? parsed : []
 
-  return tasks
-    .filter(isTask)
-    .filter((task) => task.state === 'open')
-    .map((task) => ({
-      id: task.id,
-      title: task.title,
-      path: task.path,
-      state: task.state,
-      kind: task.kind,
-      updated_at: task.updated_at,
-    }))
+  return normalizeRefactorTaskList(parsed)
 }
 
 function extractLineField(description: string, label: string): string | undefined {
