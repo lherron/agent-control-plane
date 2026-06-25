@@ -232,7 +232,6 @@ export {
   canonicalAcpEventId,
   evaluateEventMatch,
   isAgentOriginEvent,
-  normalizeAgentActor,
   parseAcpWebhookEvent,
   parseDurationToMs,
   parseWrkqWebhookEvent,

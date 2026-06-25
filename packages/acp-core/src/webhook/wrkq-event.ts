@@ -93,12 +93,3 @@ export function parseWrkqWebhookEvent(body: unknown): ParseWrkqWebhookEventResul
 
   return { ok: true, event: body as WrkqWebhookEvent }
 }
-
-/**
- * Normalize an origin actor / job agentId for comparison. The webhook origin
- * carries a kind-prefixed slug ("agent:clod") while a job carries a bare agentId
- * ("clod"); strip a leading "agent:" so the two are directly comparable.
- */
-export function normalizeAgentActor(value: string): string {
-  return value.startsWith('agent:') ? value.slice('agent:'.length) : value
-}
