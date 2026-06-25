@@ -1,43 +1,21 @@
 /** Viewer-local response types — no imports from acp-server. */
 
+export interface Actor {
+  kind: 'human' | 'agent' | 'system'
+  id: string
+  displayName?: string | undefined
+}
+
 export interface ProjectSummary {
   projectId: string
   displayName: string
-  defaultAgentId: string | null
-  rootDir: string
+  defaultAgentId?: string | undefined
+  homeDir?: string | undefined
+  rootDir?: string | undefined
   createdAt: string
   updatedAt: string
-  createdBy: string
-  updatedBy: string
-}
-
-export interface MembershipSummary {
-  agentId: string
-  projectId: string
-  role: string
-  status: string
-  createdAt: string
-}
-
-export interface JobSummary {
-  jobId: string
-  projectId: string
-  name?: string | undefined
-  kind?: string | undefined
-  disabled?: boolean | undefined
-  cron?: string | null | undefined
-  nextFireAt?: string | null | undefined
-  flowStepCount?: number | undefined
-  createdAt?: string | undefined
-  updatedAt?: string | undefined
-}
-
-export interface ProjectDetailResponse {
-  project: ProjectSummary
-  memberships: MembershipSummary[]
-  jobs: JobSummary[]
-  interfaces: InterfaceBindingSummary[]
-  systemEvents: SystemEvent[]
+  createdBy: Actor
+  updatedBy: Actor
 }
 
 export interface AgentSummaryProfile {
@@ -53,21 +31,110 @@ export interface AgentSummaryProfile {
 
 export interface AgentSummary {
   agentId: string
-  displayName: string
-  homeDir: string
+  displayName?: string | undefined
+  homeDir?: string | undefined
   status: string
   createdAt: string
   updatedAt: string
-  createdBy: string
-  updatedBy: string
+  createdBy: Actor
+  updatedBy: Actor
   profile?: AgentSummaryProfile | undefined
+}
+
+export interface MembershipSummary {
+  agentId: string
+  projectId: string
+  role: string
+  createdAt: string
+  createdBy: Actor
+}
+
+export interface ProjectMembership extends MembershipSummary {
+  agent?: AgentSummary | undefined
+}
+
+export interface AgentMembership extends MembershipSummary {
+  project?: ProjectSummary | undefined
+  isDefaultAgent: boolean
+}
+
+export interface CompactJobRecord {
+  jobId: string
+  slug?: string | undefined
+  description?: string | undefined
+  projectId: string
+  agentId: string
+  scopeRef?: string | undefined
+  laneRef?: string | undefined
+  schedule?: { cron?: string | undefined } | undefined
+  cron?: string | null | undefined
+  disabled?: boolean | undefined
+  nextFireAt?: string | null | undefined
+  lastFireAt?: string | null | undefined
+  createdAt?: string | undefined
+  updatedAt?: string | undefined
+}
+
+export interface CompactJobSummary {
+  kind: JobKind
+  projectId?: string | undefined
+  disabled: boolean
+  cron?: string | null | undefined
+  nextFireAt?: string | null | undefined
+  lastFireAt?: string | null | undefined
+  flowStepCount: number
+  onFailureStepCount: number
+  title?: string | undefined
+  description?: string | undefined
+}
+
+export interface DetailJobSummary {
+  job: CompactJobRecord
+  summary: CompactJobSummary
+}
+
+export interface ProjectSystemEvent {
+  eventId: string
+  projectId: string
+  kind: string
+  payload: Record<string, unknown>
+  occurredAt: string
+  recordedAt: string
+}
+
+export interface ProjectDetailResponse {
+  project: ProjectSummary
+  defaultAgent?: AgentSummary | undefined
+  memberships: ProjectMembership[]
+  jobs: DetailJobSummary[]
+  interfaceBindings: InterfaceBindingSummary[]
+  recentSystemEvents: ProjectSystemEvent[]
+  provenance: ProvenanceEntry[]
+}
+
+export interface AgentHeartbeat {
+  agentId: string
+  lastHeartbeatAt: string
+  source?: string | undefined
+  lastNote?: string | undefined
+  status: 'alive' | 'stale'
+  targetScopeRef?: string | undefined
+  targetLaneRef?: string | undefined
+}
+
+export interface ScopeTarget {
+  scopeRef: string
+  laneRef: string
+  source: 'membership' | 'job'
 }
 
 export interface AgentDetailResponse {
   agent: AgentSummary
-  memberships: MembershipSummary[]
-  heartbeat: HeartbeatSummary | null
-  jobs: JobSummary[]
+  memberships: AgentMembership[]
+  heartbeat?: AgentHeartbeat | undefined
+  jobs: DetailJobSummary[]
+  scopeTargets: ScopeTarget[]
+  provenance: ProvenanceEntry[]
 }
 
 export type ContextRunMode = 'query' | 'heartbeat' | 'task' | 'maintenance'
@@ -125,11 +192,7 @@ export interface ContextPromptSection {
   skippedReason?: 'when' | 'empty' | undefined
 }
 
-export interface HeartbeatSummary {
-  agentId: string
-  lastSeen: string
-  status: string
-}
+export type HeartbeatSummary = AgentHeartbeat
 
 // --- Jobs (matches real backend shapes) ---
 
@@ -151,12 +214,6 @@ export interface JobRecord {
   actorStamp?: string | undefined
   createdAt: string
   updatedAt: string
-}
-
-export interface Actor {
-  kind: string
-  id?: string | undefined
-  [key: string]: unknown
 }
 
 export interface JobSchedule {
@@ -359,13 +416,21 @@ export interface SchedulerStats {
 
 export interface InterfaceBindingSummary {
   bindingId: string
-  projectId: string
   gatewayId: string
+  gatewayType: string
   conversationRef: string
-  threadRef: string | null
-  scopeRef: string | null
-  laneRef: string | null
+  threadRef?: string | undefined
+  sessionRef: {
+    scopeRef: string
+    laneRef: string
+  }
+  projectId?: string | undefined
+  agentId?: string | undefined
+  taskId?: string | undefined
+  roleName?: string | undefined
   status: string
+  createdAt: string
+  updatedAt: string
 }
 
 export interface SystemEvent {
@@ -373,5 +438,6 @@ export interface SystemEvent {
   projectId: string
   kind: string
   payload: Record<string, unknown>
-  createdAt: string
+  occurredAt: string
+  recordedAt: string
 }

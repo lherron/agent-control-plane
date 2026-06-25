@@ -1,6 +1,7 @@
 import { badRequest, json, notFound } from '../http.js'
 
 import type { RouteHandler } from '../routing/route-context.js'
+import type { AdminAgentDetailResponse } from './admin-detail-response-types.js'
 import { provenance, summarizeCompactJob } from './admin-detail-shared.js'
 
 function requireAgentId(params: Record<string, string>): string {
@@ -73,7 +74,7 @@ export const handleGetAdminAgentDetail: RouteHandler = async ({ params, deps }) 
     })
   }
 
-  return json({
+  const body: AdminAgentDetailResponse = {
     agent,
     memberships,
     jobs,
@@ -86,5 +87,7 @@ export const handleGetAdminAgentDetail: RouteHandler = async ({ params, deps }) 
       provenance('jobs_store.jobs', deps.jobsStore !== undefined),
       provenance('admin_store.agent_heartbeats', true),
     ],
-  })
+  }
+
+  return json(body)
 }

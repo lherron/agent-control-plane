@@ -2,6 +2,7 @@ import { badRequest, json, notFound } from '../http.js'
 import { toApiInterfaceBinding } from './interface-shared.js'
 
 import type { RouteHandler } from '../routing/route-context.js'
+import type { AdminProjectDetailResponse } from './admin-detail-response-types.js'
 import { provenance, summarizeCompactJob } from './admin-detail-shared.js'
 
 function requireProjectId(params: Record<string, string>): string {
@@ -40,7 +41,7 @@ export const handleGetAdminProjectDetail: RouteHandler = async ({ params, deps }
       ? undefined
       : deps.adminStore.agents.get(project.defaultAgentId)
 
-  return json({
+  const body: AdminProjectDetailResponse = {
     project,
     ...(defaultAgent !== undefined ? { defaultAgent } : {}),
     memberships,
@@ -55,5 +56,7 @@ export const handleGetAdminProjectDetail: RouteHandler = async ({ params, deps }
       provenance('interface_store.interface_bindings', true),
       provenance('admin_store.system_events', true),
     ],
-  })
+  }
+
+  return json(body)
 }

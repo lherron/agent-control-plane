@@ -61,6 +61,10 @@ export {
 } from './launch-role-scoped.js'
 export { exactRouteKey } from './routing/exact-routes.js'
 export { createWrkfClientLifecycle, type WrkfLifecycle } from './wrkf/client-lifecycle.js'
+export type {
+  AdminAgentDetailResponse,
+  AdminProjectDetailResponse,
+} from './handlers/admin-detail-response-types.js'
 export {
   launchAction,
   type WrkfActionLaunchDeps,

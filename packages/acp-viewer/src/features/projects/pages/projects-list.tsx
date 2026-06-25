@@ -10,8 +10,8 @@ import { formatDateTime } from '../project-utils'
 interface ProjectRow {
   projectId: string
   displayName: string
-  defaultAgentId: string | null
-  rootDir: string
+  defaultAgentId: string | undefined
+  rootDir: string | undefined
   updatedAt: string
   jobCount: number | undefined
   agentCount: number | undefined

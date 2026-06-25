@@ -9,6 +9,7 @@ import { fetchAgentDetail, fetchAgents } from '../data'
 import { hasPersonality } from '../personality'
 
 interface AgentRow extends AgentSummary {
+  displayName: string
   membershipsCount: number | undefined
   defaultProjectCount: number | undefined
   assignedJobsCount: number | undefined
@@ -24,6 +25,7 @@ async function fetchAgentsWithRollups(): Promise<AgentRow[]> {
     const detail = details[i]
     return {
       ...agent,
+      displayName: agent.displayName ?? agent.agentId,
       membershipsCount: detail?.memberships.length,
       defaultProjectCount: detail?.memberships.filter((m) => m.isDefaultAgent).length,
       assignedJobsCount: detail?.jobs.length,

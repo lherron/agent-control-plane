@@ -1,9 +1,8 @@
 import { fetchJson, getAgentDetail } from '@/lib/api'
-import type { AgentSummary } from '@/types/api'
-import type { AgentDetailState, AgentHeartbeat } from './types'
+import type { AgentDetailResponse, AgentHeartbeat, AgentSummary } from '@/types/api'
 
-export async function fetchAgentDetail(agentId: string): Promise<AgentDetailState> {
-  return getAgentDetail(agentId) as unknown as AgentDetailState
+export async function fetchAgentDetail(agentId: string): Promise<AgentDetailResponse> {
+  return getAgentDetail(agentId)
 }
 
 export async function fetchAgents(): Promise<AgentSummary[]> {

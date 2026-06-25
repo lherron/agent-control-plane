@@ -1,6 +1,5 @@
 import { fetchJson, getProjectDetail } from '@/lib/api'
-import type { ProjectSummary } from '@/types/api'
-import type { ProjectDetailState } from './types'
+import type { ProjectDetailResponse, ProjectSummary } from '@/types/api'
 
 export async function fetchProjects(): Promise<ProjectSummary[]> {
   const payload = await fetchJson<ProjectSummary[] | { projects: ProjectSummary[] }>(
@@ -9,6 +8,6 @@ export async function fetchProjects(): Promise<ProjectSummary[]> {
   return Array.isArray(payload) ? payload : payload.projects
 }
 
-export async function fetchProjectDetail(projectId: string): Promise<ProjectDetailState> {
-  return getProjectDetail(projectId) as unknown as ProjectDetailState
+export async function fetchProjectDetail(projectId: string): Promise<ProjectDetailResponse> {
+  return getProjectDetail(projectId)
 }

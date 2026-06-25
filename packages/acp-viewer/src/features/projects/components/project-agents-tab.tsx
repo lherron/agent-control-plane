@@ -43,7 +43,7 @@ export function ProjectAgentsTab({ detail }: Props) {
               <div className="mono text-[10px] text-muted truncate">{m.agentId}</div>
             </Link>
             <span className="mono text-[11px] text-ink">{m.role}</span>
-            <Pill tone="muted">{m.status ?? m.agent?.status ?? 'unknown'}</Pill>
+            <Pill tone="muted">{m.agent?.status ?? 'unknown'}</Pill>
             <span className="mono text-[11px] tabular text-muted">
               {formatDateTime(m.createdAt)}
             </span>

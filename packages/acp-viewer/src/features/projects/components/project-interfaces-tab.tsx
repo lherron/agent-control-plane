@@ -36,8 +36,8 @@ export function ProjectInterfacesTab({ detail }: Props) {
             <span className="mono text-[11px] text-ink truncate">{b.gatewayId}</span>
             <span className="mono text-[11px] text-ink truncate">{b.conversationRef}</span>
             <span className="mono text-[11px] text-muted truncate">{b.threadRef ?? '—'}</span>
-            <span className="mono text-[11px] text-ink truncate">{b.scopeRef ?? '—'}</span>
-            <span className="mono text-[11px] text-ink truncate">{b.laneRef ?? '—'}</span>
+            <span className="mono text-[11px] text-ink truncate">{b.sessionRef.scopeRef}</span>
+            <span className="mono text-[11px] text-ink truncate">{b.sessionRef.laneRef}</span>
             <Pill tone={b.status === 'active' ? 'success' : 'muted'}>{b.status}</Pill>
           </li>
         ))}

@@ -72,12 +72,13 @@ export function AgentDetailPage() {
     detail.agent.displayName
   )
   const profiled = hasPersonality(detail.agent.agentId, detail.agent.profile)
+  const displayName = detail.agent.displayName ?? detail.agent.agentId
 
   return (
     <div className="flex min-h-full flex-col">
       <AgentDossierHeader
         agentId={detail.agent.agentId}
-        displayName={detail.agent.displayName}
+        displayName={displayName}
         status={detail.agent.status}
         heartbeat={hb}
         heartbeatTone={tone}

@@ -20,7 +20,7 @@ export function ProjectSystemEventsTab({ detail }: Props) {
             <div className="flex items-baseline gap-3">
               <Pill tone="accent">{e.kind}</Pill>
               <span className="mono text-[11px] text-muted">
-                {formatDateTime(e.occurredAt ?? e.recordedAt ?? e.createdAt)}
+                {formatDateTime(e.occurredAt ?? e.recordedAt)}
               </span>
             </div>
             <span className="mono text-[10px] text-quiet">{e.eventId}</span>
