@@ -1,7 +1,5 @@
-import {
-  createInMemoryConversationStore,
-  listAppliedConversationStoreMigrations,
-} from '../src/index.js'
+import { createInMemoryConversationStore } from '../src/index.js'
+import { listAppliedConversationStoreMigrations } from '../src/open-store.js'
 
 describe('acp-conversation smoke', () => {
   test('constructs an in-memory store', () => {
