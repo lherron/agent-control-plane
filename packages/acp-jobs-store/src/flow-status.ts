@@ -1,6 +1,6 @@
 import type { JobRunRecord } from './open-store.js'
 
-export type FlowJobRunResponseStatus = 'queued' | 'running' | 'succeeded' | 'failed'
+export type FlowJobRunResponseStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'skipped'
 
 export function mapJobRunStatusForFlowResponse(
   record: Pick<JobRunRecord, 'status'>
@@ -16,6 +16,6 @@ export function mapJobRunStatusForFlowResponse(
     case 'failed':
       return 'failed'
     case 'skipped':
-      return 'failed'
+      return 'skipped'
   }
 }

@@ -293,5 +293,6 @@ describe('mapJobRunStatusForFlowResponse', () => {
     expect(mapJobRunStatusForFlowResponse({ status: 'dispatched' })).toBe('running')
     expect(mapJobRunStatusForFlowResponse({ status: 'succeeded' })).toBe('succeeded')
     expect(mapJobRunStatusForFlowResponse({ status: 'failed' })).toBe('failed')
+    expect(mapJobRunStatusForFlowResponse({ status: 'skipped' })).toBe('skipped')
   })
 })

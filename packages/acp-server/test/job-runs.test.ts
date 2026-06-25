@@ -196,8 +196,8 @@ describe('GET /v1/job-runs/:jobRunId', () => {
           expect(response.status).toBe(200)
           expect(payload.jobRun.jobRunId).toBe(jobRunId)
 
-          // Flow jobs use spec status strings: queued|running|succeeded|failed
-          expect(payload.jobRun.status).toMatch(/^(queued|running|succeeded|failed)$/)
+          // Flow jobs use response status strings, preserving skipped as distinct.
+          expect(payload.jobRun.status).toMatch(/^(queued|running|succeeded|failed|skipped)$/)
 
           // Steps present and ordered: sequence first, then onFailure
           expect(payload.jobRun.steps).toHaveLength(3)
@@ -235,6 +235,35 @@ describe('GET /v1/job-runs/:jobRunId', () => {
 
           expect(response.status).toBe(200)
           expect(payload.jobRun.status).toBe('queued')
+          expect(payload.jobRun.steps).toEqual([])
+        },
+        { jobsStore }
+      )
+    } finally {
+      jobsStore.close()
+    }
+  })
+
+  test('flow job-run preserves internal skipped status in response', async () => {
+    const jobsStore = createInMemoryJobsStore()
+
+    try {
+      await withWiredServer(
+        async (fixture) => {
+          const { jobRunId } = createFlowJobAndRun(jobsStore, fixture.seed.projectId, {
+            status: 'skipped',
+          })
+
+          const response = await fixture.request({
+            method: 'GET',
+            path: `/v1/job-runs/${jobRunId}`,
+          })
+          const payload = await fixture.json<{
+            jobRun: { status: string; steps: unknown[] }
+          }>(response)
+
+          expect(response.status).toBe(200)
+          expect(payload.jobRun.status).toBe('skipped')
           expect(payload.jobRun.steps).toEqual([])
         },
         { jobsStore }
