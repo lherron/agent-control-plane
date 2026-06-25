@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
-import { appendEvent, listEventLinks, listEvents } from '../../src/index.js'
+import { appendEvent, listEvents } from '../../src/index.js'
+import { listEventLinks } from '../../src/queries/links.js'
 import { withTmpStore } from '../fixtures/tmp-store.js'
 
 describe('11 conversation correlation', () => {

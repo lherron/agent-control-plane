@@ -13,19 +13,10 @@ export {
   listOpenHandoffs,
   type OpenHandoffQuery,
 } from './queries/handoffs.js'
-export {
-  listEventLinks,
-  type CoordinationEventLinkRecord,
-  type EventLinkQuery,
-} from './queries/links.js'
 export { listEvents, type TimelineQuery } from './queries/timeline.js'
 export { listPendingWakes, type PendingWakeQuery } from './queries/wakes.js'
 export {
-  createCoordinationDatabase,
-  listAppliedMigrations,
   openCoordinationStore,
-  readSchemaSql,
-  runMigrations,
   type CoordinationStore,
 } from './storage/open-store.js'
 export type {
@@ -37,12 +28,5 @@ export type {
   CoordinationEventSource,
 } from './types/coordination-event.js'
 export type { Handoff, HandoffInput, HandoffKind, HandoffState } from './types/handoff.js'
-export type { LocalDispatchAttempt } from './types/local-dispatch-attempt.js'
 export type { ParticipantRef } from './types/participant-ref.js'
 export type { WakeRequest, WakeRequestInput, WakeRequestState } from './types/wake-request.js'
-export {
-  canonicalizeSessionRef,
-  formatCanonicalSessionRef,
-  isCanonicalSessionRef,
-  parseCanonicalSessionRef,
-} from './util/session-ref.js'

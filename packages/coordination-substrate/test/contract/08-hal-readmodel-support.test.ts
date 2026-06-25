@@ -1,12 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
-import {
-  appendEvent,
-  listEventLinks,
-  listEvents,
-  listOpenHandoffs,
-  listPendingWakes,
-} from '../../src/index.js'
+import { appendEvent, listEvents, listOpenHandoffs, listPendingWakes } from '../../src/index.js'
+import { listEventLinks } from '../../src/queries/links.js'
 import { withTmpStore } from '../fixtures/tmp-store.js'
 
 describe('08 HAL read-model support', () => {
