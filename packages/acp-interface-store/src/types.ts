@@ -1,4 +1,9 @@
-import type { Actor, AttachmentRef } from 'acp-core'
+import type {
+  Actor,
+  AttachmentRef,
+  DeliveryOutcome as CoreDeliveryOutcome,
+  DeliveryRequestStatus as CoreDeliveryRequestStatus,
+} from 'acp-core'
 
 export type InterfaceStoreActorIdentity = {
   agentId: string
@@ -6,29 +11,10 @@ export type InterfaceStoreActorIdentity = {
 }
 
 export type InterfaceBindingStatus = 'active' | 'disabled'
-export type DeliveryRequestStatus = 'queued' | 'delivering' | 'delivered' | 'failed'
+export type DeliveryRequestStatus = CoreDeliveryRequestStatus
 export type DeliveryBodyKind = 'text/markdown'
 
-export type DeliveryOutcome =
-  | { state: 'normal' }
-  | {
-      state: 'degraded'
-      reason: 'no_assistant_content'
-      source?: string | undefined
-      details?: { errorMessage?: string | undefined } | undefined
-    }
-  | {
-      state: 'degraded'
-      reason: 'launch_signalled'
-      source?: string | undefined
-      signal: string
-    }
-  | {
-      state: 'degraded'
-      reason: 'launch_failed'
-      source?: string | undefined
-      exitCode: number
-    }
+export type DeliveryOutcome = CoreDeliveryOutcome
 export type OutboundAttachmentState = 'pending' | 'consumed' | 'delivered' | 'failed'
 
 export type InterfaceBinding = {

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
+import type { DeliveryOutcome } from '../src/index.js'
 import { withInterfaceStore } from './helpers.js'
 
 describe('DeliveryRequestRepo', () => {
@@ -107,6 +108,29 @@ describe('DeliveryRequestRepo', () => {
     })
   })
 
+  test('round-trips normal outcome through queued delivery storage', () => {
+    withInterfaceStore(({ store }) => {
+      const outcome = { state: 'normal' } satisfies DeliveryOutcome
+
+      store.deliveries.enqueue({
+        deliveryRequestId: 'dr-normal',
+        gatewayId: 'discord_prod',
+        bindingId: 'bind-1',
+        scopeRef: 'scope:project',
+        laneRef: 'main',
+        runId: 'run-normal',
+        conversationRef: 'channel:123',
+        bodyKind: 'text/markdown',
+        bodyText: 'normal delivery',
+        outcome,
+        createdAt: '2026-04-20T15:29:00.000Z',
+      })
+
+      expect(store.deliveries.get('dr-normal')?.outcome).toEqual(outcome)
+      expect(store.deliveries.leaseNext('discord_prod')?.outcome).toEqual(outcome)
+    })
+  })
+
   test('round-trips synthesized launch signal outcome metadata through queued delivery storage', () => {
     withInterfaceStore(({ store }) => {
       store.deliveries.enqueue({
@@ -179,40 +203,47 @@ describe('DeliveryRequestRepo', () => {
     })
   })
 
-  test('round-trips no assistant content error details through queued delivery storage', () => {
+  test('round-trips no assistant content source hints through queued delivery storage', () => {
     withInterfaceStore(({ store }) => {
-      store.deliveries.enqueue({
-        deliveryRequestId: 'dr-no-assistant-content',
-        gatewayId: 'discord_prod',
-        bindingId: 'bind-1',
-        scopeRef: 'scope:project',
-        laneRef: 'main',
-        runId: 'run-no-assistant-content',
-        conversationRef: 'channel:123',
-        bodyKind: 'text/markdown',
-        bodyText: '',
-        outcome: {
+      const sources = ['launch_exit_synthesized', 'codex_app_server', 'codex_jsonl'] as const
+
+      for (const [index, source] of sources.entries()) {
+        const outcome = {
           state: 'degraded',
           reason: 'no_assistant_content',
-          source: 'codex_app_server',
+          source,
           details: {
             errorMessage: 'driver exploded before turn',
           },
-        },
-        createdAt: '2026-04-20T15:32:00.000Z',
-      })
+        } satisfies DeliveryOutcome
 
-      const expectedOutcome = {
-        state: 'degraded',
-        reason: 'no_assistant_content',
-        source: 'codex_app_server',
-        details: {
-          errorMessage: 'driver exploded before turn',
-        },
+        store.deliveries.enqueue({
+          deliveryRequestId: `dr-no-assistant-content-${index}`,
+          gatewayId: 'discord_prod',
+          bindingId: 'bind-1',
+          scopeRef: 'scope:project',
+          laneRef: 'main',
+          runId: `run-no-assistant-content-${index}`,
+          conversationRef: 'channel:123',
+          bodyKind: 'text/markdown',
+          bodyText: '',
+          outcome,
+          createdAt: `2026-04-20T15:32:0${index}.000Z`,
+        })
+
+        expect(store.deliveries.get(`dr-no-assistant-content-${index}`)?.outcome).toEqual(outcome)
       }
 
-      expect(store.deliveries.get('dr-no-assistant-content')?.outcome).toEqual(expectedOutcome)
-      expect(store.deliveries.leaseNext('discord_prod')?.outcome).toEqual(expectedOutcome)
+      for (const source of sources) {
+        expect(store.deliveries.leaseNext('discord_prod')?.outcome).toMatchObject({
+          state: 'degraded',
+          reason: 'no_assistant_content',
+          source,
+          details: {
+            errorMessage: 'driver exploded before turn',
+          },
+        })
+      }
     })
   })
 })
