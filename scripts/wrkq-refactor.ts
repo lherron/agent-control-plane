@@ -447,6 +447,23 @@ function allText(task: WrkqTask): string {
   return [task.title, task.description ?? '', task.specification ?? '', comments].join('\n\n')
 }
 
+function taskLabels(task: Pick<WrkqTask, 'labels'>): string[] {
+  const raw = task.labels
+  const list = Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(/[\s,]+/) : []
+  return list.map((label) => label.trim().toLowerCase()).filter(Boolean)
+}
+
+// A task carries human triage sign-off when an operator either tagged it
+// `human-approved` or wrote an `APPROVED` directive into the specification.
+// This is the durable override: it lets an explicitly-approved task proceed
+// even though its historical body/comments still carry the public-surface or
+// contract-change wording that the review heuristics key on.
+export function isHumanApproved(task: Pick<WrkqTask, 'labels' | 'specification'>): boolean {
+  if (taskLabels(task).includes('human-approved')) return true
+  const spec = task.specification ?? ''
+  return /^[ \t]*#{0,6}[ \t]*APPROVED\b/im.test(spec)
+}
+
 export function classifyTask(task: WrkqTask, fields: TaskFields): Classification {
   const reasons: string[] = []
   const text = allText(task)
@@ -460,6 +477,18 @@ export function classifyTask(task: WrkqTask, fields: TaskFields): Classification
   if (unsafePatterns.some((pattern) => pattern.test(text))) {
     reasons.push('Task body/comments contain an unsafe/blocking marker.')
     return { status: 'blocked', reasons }
+  }
+
+  // Human triage sign-off overrides the review-required heuristics below, so an
+  // approved task stays `ready` and the scheduled automation stops re-blocking
+  // it on every cycle. Genuine unsafe markers (handled above) still win.
+  if (isHumanApproved(task)) {
+    return {
+      status: 'ready',
+      reasons: [
+        'Task carries human triage sign-off (human-approved label or APPROVED specification).',
+      ],
+    }
   }
 
   if (reviewPatterns.some((pattern) => pattern.test(text))) {

@@ -154,6 +154,41 @@ Needs human decision before deleting this public-surface seam.`,
     expect(result.reasons.join(' ')).toContain('review')
   })
 
+  test('classifyTask treats an APPROVED specification as ready despite public-surface wording', () => {
+    const task = refactorTask({
+      description: `${refactorTask().description}
+
+Recommended action: Public-surface contract change — route via M02 Expand/Contract.`,
+      specification: '## APPROVED — proceed with implementation\n\nNarrow the export.',
+      comments: [{ body: 'Selector audit: review-required/public-surface work.' }],
+    })
+
+    const result = classifyTask(task, extractTaskFields(task))
+
+    expect(result.status).toBe('ready')
+    expect(result.reasons.join(' ')).toContain('human triage sign-off')
+  })
+
+  test('classifyTask treats a human-approved label as ready', () => {
+    const task = refactorTask({
+      labels: ['refactor', 'api-public', 'human-approved'],
+      description: `${refactorTask().description}
+
+This is a public-surface contract change needing owner confirmation.`,
+    })
+
+    expect(classifyTask(task, extractTaskFields(task)).status).toBe('ready')
+  })
+
+  test('classifyTask still blocks an approved task with an unsafe latest comment', () => {
+    const task = refactorTask({
+      specification: '## APPROVED — proceed',
+      comments: [{ body: 'UNSAFE to merge — observable behavior changed; do not implement.' }],
+    })
+
+    expect(classifyTask(task, extractTaskFields(task)).status).toBe('blocked')
+  })
+
   test('renderPacket includes the archive command for no-longer-valid tasks', () => {
     const task = refactorTask()
     const fields = extractTaskFields(task)
