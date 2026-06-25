@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 
-import { type ActorRef, basicWorkflowV1, createInMemoryWorkflowKernel } from '../index.js'
+import {
+  type ActorRef,
+  type WorkflowDefinition,
+  basicWorkflowV1,
+  createInMemoryWorkflowKernel,
+} from '../index.js'
 
 const owner: ActorRef = { kind: 'agent', id: 'cody' }
 
@@ -100,5 +105,62 @@ describe('workflow event sourcing metadata', () => {
       result: 'recorded',
       payload: expect.objectContaining({ hrcRunId: 'hrc-run-1' }),
     })
+  })
+
+  test('preserves legacy hashes and stored shape for undefined workflow state keys', () => {
+    const kernel = createInMemoryWorkflowKernel({ now: '2026-05-11T12:00:00.000Z' })
+    const definition: WorkflowDefinition = {
+      id: 'undefined_hash_fixture',
+      version: 1,
+      kind: 'test',
+      initial: { status: 'open', phase: undefined },
+      roles: {
+        owner: { description: undefined, binding: 'required' },
+      },
+      evidenceKinds: {},
+      transitions: {},
+    }
+
+    const published = kernel.publishWorkflowDefinition(definition)
+    const created = kernel.createTask({
+      taskId: 'task-undefined-hash',
+      projectId: 'agent-spaces',
+      workflow: { id: 'undefined_hash_fixture', version: 1 },
+      goal: 'pin undefined hash behavior',
+      roleBindings: { owner },
+      idempotencyKey: 'undefined-hash:create',
+    })
+    expect(created.ok).toBe(true)
+    if (!created.ok) {
+      throw new Error(created.error.message)
+    }
+
+    const launched = (kernel as any).startParticipantRun({
+      taskId: 'task-undefined-hash',
+      role: 'owner',
+      actor: owner,
+      idempotencyKey: 'undefined-hash:participant',
+    })
+    expect(launched.ok).toBe(true)
+    if (!launched.ok) {
+      throw new Error(launched.error.message)
+    }
+
+    const events = kernel.listEvents('task-undefined-hash')
+    expect(published.hash).toBe(
+      'sha256:9f63b77c5a2a6cba7852230511112fe8e67de2ff492a07228ce941db18f526b6'
+    )
+    expect(events[0]?.eventHash).toBe(
+      'sha256:e00cca48d9ad6186cf01355c7c3ac9476bdfff0ee7587a041d6285af0e6736ba'
+    )
+    expect(events[1]?.eventHash).toBe(
+      'sha256:648e7c8c996361b12eb0f39857450cc0c91ed41d723d92edd387957f00eb2a9b'
+    )
+    expect(launched.context.contextHash).toBe(
+      'sha256:ac54cd3d443081755f033b537af12d721c8b053ed681bea302f7845c751dce69'
+    )
+    expect(Object.keys(created.task.state)).toEqual(['status'])
+    expect(Object.keys(events[0]?.payload['state'] as Record<string, unknown>)).toEqual(['status'])
+    expect(Object.keys(launched.context.task.state)).toEqual(['status'])
   })
 })

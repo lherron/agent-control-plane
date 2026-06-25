@@ -1,4 +1,4 @@
-import { hashValue, stableJson } from '../internal/canonical-json.js'
+import { hashValue, stableJson, stripUndefinedKeys } from '../internal/canonical-json.js'
 
 export { stableJson }
 
@@ -470,7 +470,7 @@ const VALID_STATUSES = new Set<string>(['open', 'active', 'waiting', 'closed'])
 const RISK_ORDER: Record<string, number> = { low: 1, medium: 2, high: 3 }
 
 function clone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T
+  return structuredClone(stripUndefinedKeys(value))
 }
 
 function deepFreeze<T>(value: T): T {
