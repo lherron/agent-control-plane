@@ -131,4 +131,59 @@ describe('TransitionOutboxRepo', () => {
       store.close()
     }
   })
+
+  test('retries delivery errors until the max attempt then marks failed terminal', () => {
+    const dbPath = createDbPath()
+    const store = openAcpStateStore({ dbPath })
+
+    try {
+      store.transitionOutbox.append({
+        transitionEventId: 'tevt-003',
+        taskId: 'T-01161',
+        projectId: 'P-00002',
+        fromPhase: 'implemented',
+        toPhase: 'verified',
+        payload: { transitionEventId: 'tevt-003' },
+      })
+
+      expect(store.transitionOutbox.leaseNext()).toMatchObject({
+        transitionEventId: 'tevt-003',
+        attempts: 1,
+      })
+      expect(store.transitionOutbox.markErrored('tevt-003', 'first failure')).toMatchObject({
+        transitionEventId: 'tevt-003',
+        status: 'leased',
+        attempts: 1,
+        lastError: 'first failure',
+      })
+
+      expect(store.transitionOutbox.leaseNext()).toMatchObject({
+        transitionEventId: 'tevt-003',
+        attempts: 2,
+        lastError: null,
+      })
+      expect(store.transitionOutbox.markErrored('tevt-003', 'second failure')).toMatchObject({
+        transitionEventId: 'tevt-003',
+        status: 'leased',
+        attempts: 2,
+        lastError: 'second failure',
+      })
+
+      expect(store.transitionOutbox.leaseNext()).toMatchObject({
+        transitionEventId: 'tevt-003',
+        attempts: 3,
+        lastError: null,
+      })
+      expect(store.transitionOutbox.markErrored('tevt-003', 'third failure')).toMatchObject({
+        transitionEventId: 'tevt-003',
+        status: 'failed',
+        attempts: 3,
+        lastError: 'third failure',
+      })
+
+      expect(store.transitionOutbox.leaseNext()).toBeUndefined()
+    } finally {
+      store.close()
+    }
+  })
 })

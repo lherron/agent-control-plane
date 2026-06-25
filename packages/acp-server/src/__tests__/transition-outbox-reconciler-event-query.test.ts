@@ -725,6 +725,49 @@ describe('Section 3 — Retry on coordination failure (P2c red)', () => {
     expect(entry?.attempts).toBeGreaterThanOrEqual(2)
     expect(entry?.lastError).toBeNull()
   })
+
+  test('coord failures stop retrying after the outbox row becomes terminal failed', async () => {
+    const stateStore = openStateStore()
+    const realCoordStore = openCoordStore()
+
+    stateStore.transitionOutbox.append({
+      transitionEventId: EVENT_A.id,
+      taskId: TASK_ID,
+      projectId: PROJECT_ID,
+      fromPhase: 'red',
+      toPhase: 'green',
+      payload: {
+        transitionTimestamp: '2026-06-15T10:00:00Z',
+        actor: { agentId: ACTOR_AGENT_ID, role: 'implementer' },
+        testerAgentId: TESTER_AGENT_ID,
+      },
+    })
+
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const { facade } = makeFakeWrkfEvent([{ result: queryResult([]) }])
+      const brokenStore = makeBrokenCoordStore(`coord append exploded ${attempt}`, realCoordStore)
+
+      await expect(
+        reconcileViaEventQuery({ wrkfEvent: facade, stateStore, coordStore: brokenStore })
+      ).rejects.toThrow(`coord append exploded ${attempt}`)
+    }
+
+    expect(stateStore.transitionOutbox.get(EVENT_A.id)).toMatchObject({
+      status: 'failed',
+      attempts: 3,
+      lastError: 'coord append exploded 3',
+    })
+
+    const { facade } = makeFakeWrkfEvent([{ result: queryResult([]) }])
+    const result = await reconcileViaEventQuery({
+      wrkfEvent: facade,
+      stateStore,
+      coordStore: realCoordStore,
+    })
+
+    expect(result.delivered).toEqual([])
+    expect(listEvents(realCoordStore, { projectId: PROJECT_ID, taskId: TASK_ID })).toEqual([])
+  })
 })
 
 // ─── Section 4: Concurrent-drain idempotency ─────────────────────────────────

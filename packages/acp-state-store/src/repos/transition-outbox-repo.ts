@@ -47,6 +47,8 @@ const TRANSITION_OUTBOX_COLUMNS = `transition_event_id,
         last_error,
         created_at`
 
+const MAX_TRANSITION_OUTBOX_DELIVERY_ATTEMPTS = 3
+
 function mapTransitionOutboxRow(row: TransitionOutboxRow): TransitionOutboxRecord {
   return {
     transitionEventId: row.transition_event_id,
@@ -152,11 +154,14 @@ export class TransitionOutboxRepo {
       this.context.sqlite
         .prepare(
           `UPDATE transition_outbox
-              SET status = 'leased',
+              SET status = CASE
+                    WHEN attempts >= ? THEN 'failed'
+                    ELSE 'leased'
+                  END,
                   last_error = ?
             WHERE transition_event_id = ?`
         )
-        .run(error, transitionEventId)
+        .run(MAX_TRANSITION_OUTBOX_DELIVERY_ATTEMPTS, error, transitionEventId)
 
       return this.get(transitionEventId)
     })()
