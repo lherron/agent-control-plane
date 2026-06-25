@@ -175,16 +175,6 @@ export interface AcpClient {
         }
       | undefined
   }): Promise<CreateTaskResponse>
-  promoteTask(input: {
-    actorAgentId: string
-    taskId: string
-    workflowPreset: string
-    presetVersion: number
-    riskClass: string
-    roleMap: Record<string, string>
-    actorRole?: string | undefined
-    initialPhase?: string | undefined
-  }): Promise<never>
   getTask(input: {
     taskId: string
     role?: string | undefined
@@ -227,7 +217,6 @@ export interface AcpClient {
     reason?: string | undefined
     idempotencyKey: string
   }): Promise<ObligationLifecycleResponse>
-  listTransitions(input: { taskId: string }): Promise<never>
   listInterfaceBindings(input: {
     gatewayId?: string | undefined
     gatewayType?: string | undefined
@@ -504,10 +493,6 @@ export function createHttpClient(
       })
     },
 
-    promoteTask() {
-      throw new AcpClientTransportError('legacy task promote route has been removed')
-    },
-
     getTask(input) {
       const query = input.role !== undefined ? `?role=${encodeURIComponent(input.role)}` : ''
       return request<GetTaskResponse>({
@@ -589,10 +574,6 @@ export function createHttpClient(
           idempotencyKey: input.idempotencyKey,
         },
       })
-    },
-
-    listTransitions() {
-      throw new AcpClientTransportError('legacy task transitions route has been removed')
     },
 
     listInterfaceBindings(input) {

@@ -8,13 +8,10 @@ import { AcpClientHttpError } from '../../src/http-client.js'
 function createClientDouble(overrides: Partial<AcpClient>): AcpClient {
   return {
     createTask: overrides.createTask ?? (() => Promise.reject(new Error('not implemented'))),
-    promoteTask: overrides.promoteTask ?? (() => Promise.reject(new Error('not implemented'))),
     getTask: overrides.getTask ?? (() => Promise.reject(new Error('not implemented'))),
     addEvidence: overrides.addEvidence ?? (() => Promise.reject(new Error('not implemented'))),
     transitionTask:
       overrides.transitionTask ?? (() => Promise.reject(new Error('not implemented'))),
-    listTransitions:
-      overrides.listTransitions ?? (() => Promise.reject(new Error('not implemented'))),
     listInterfaceBindings:
       overrides.listInterfaceBindings ?? (() => Promise.reject(new Error('not implemented'))),
     upsertInterfaceBinding:

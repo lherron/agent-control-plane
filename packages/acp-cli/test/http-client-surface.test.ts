@@ -38,11 +38,9 @@ describe('AcpClient public surface', () => {
       'listMemberships',
       'listProjects',
       'listSystemEvents',
-      'listTransitions',
       'patchAgent',
       'patchAgentProfile',
       'postHeartbeatWake',
-      'promoteTask',
       'putHeartbeat',
       'registerInterfaceIdentity',
       'setProjectDefaultAgent',
@@ -52,11 +50,11 @@ describe('AcpClient public surface', () => {
     ])
   })
 
-  test('guards the currently unused task-creation and legacy transition methods from command use', () => {
+  test('guards the currently unused task-creation method from command use', () => {
     const commandSources = sourceFilesUnder(new URL('../src/commands', import.meta.url).pathname)
     const references = commandSources.flatMap((file) => {
       const source = readFileSync(file, 'utf8')
-      return ['createTask', 'promoteTask', 'listTransitions']
+      return ['createTask']
         .filter((method) => source.includes(method))
         .map((method) => `${file}:${method}`)
     })
