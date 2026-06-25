@@ -13,17 +13,8 @@ type LastDeliveryRecord = {
   ackedAt: string
 }
 
-type FailedDeliveryRecord = {
-  gatewayId: string
-  conversationRef: string
-  threadRef?: string | undefined
-  deliveryRequestId: string
-  failedAt: string
-}
-
 type FutureLastDeliveryContextStore = {
   recordAckedDelivery(sessionRef: SessionRef, record: LastDeliveryRecord): void
-  recordFailedDelivery(sessionRef: SessionRef, record: FailedDeliveryRecord): void
   getLastDelivery(sessionRef: SessionRef): LastDeliveryRecord | undefined
 }
 
@@ -88,36 +79,6 @@ describe('last delivery context store', () => {
         threadRef: 'thread:new',
         deliveryRequestId: 'dr-new',
         ackedAt: '2026-04-23T02:30:00.000Z',
-      })
-    })
-  })
-
-  test('ignores failed deliveries and preserves the prior acked destination', () => {
-    withInterfaceStore(({ store }) => {
-      const futureStore = getFutureStore(store)
-      const sessionRef = normalizeSessionRef({ scopeRef: 'agent:smokey:project:test' })
-
-      futureStore.lastDeliveryContext?.recordAckedDelivery(sessionRef, {
-        gatewayId: 'discord_prod',
-        conversationRef: 'channel:acked',
-        threadRef: 'thread:acked',
-        deliveryRequestId: 'dr-acked',
-        ackedAt: '2026-04-23T02:00:00.000Z',
-      })
-      futureStore.lastDeliveryContext?.recordFailedDelivery(sessionRef, {
-        gatewayId: 'discord_prod',
-        conversationRef: 'channel:failed',
-        threadRef: 'thread:failed',
-        deliveryRequestId: 'dr-failed',
-        failedAt: '2026-04-23T03:00:00.000Z',
-      })
-
-      expect(futureStore.lastDeliveryContext?.getLastDelivery(sessionRef)).toEqual({
-        gatewayId: 'discord_prod',
-        conversationRef: 'channel:acked',
-        threadRef: 'thread:acked',
-        deliveryRequestId: 'dr-acked',
-        ackedAt: '2026-04-23T02:00:00.000Z',
       })
     })
   })

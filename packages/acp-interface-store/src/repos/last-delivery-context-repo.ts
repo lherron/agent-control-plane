@@ -1,6 +1,6 @@
 import { type SessionRef, normalizeSessionRef } from 'agent-scope'
 
-import type { FailedDeliveryRecord, LastDeliveryRecord } from '../types.js'
+import type { LastDeliveryRecord } from '../types.js'
 
 import type { RepoContext } from './shared.js'
 import { toOptionalString } from './shared.js'
@@ -60,11 +60,6 @@ export class LastDeliveryContextRepo {
         record.ackedAt,
         record.ackedAt
       )
-  }
-
-  recordFailedDelivery(sessionRef: SessionRef, record: FailedDeliveryRecord): void {
-    void sessionRef
-    void record
   }
 
   getLastDelivery(sessionRef: SessionRef): LastDeliveryRecord | undefined {
