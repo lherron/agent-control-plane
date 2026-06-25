@@ -983,14 +983,4 @@ export function validateJobFlowJob(
   return errors.length === 0 ? { valid: true } : { valid: false, errors }
 }
 
-export function assertValidJobFlow(
-  flow: unknown,
-  options?: ValidateJobFlowOptions
-): asserts flow is JobFlow {
-  const result = validateJobFlow(flow, options)
-  if (!result.valid) {
-    throw new Error(`invalid job flow: ${result.errors.map((error) => error.code).join(', ')}`)
-  }
-}
-
 export type { JobFlow, JobFlowStep, StepExpectation }
