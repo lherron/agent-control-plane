@@ -209,6 +209,60 @@ describe('stale heartbeat detection', () => {
     }
   })
 
+  test('checkStaleHeartbeats resolves multi-project agents by project creation order', () => {
+    const store = createInMemoryAdminStore()
+    try {
+      store.projects.create({
+        projectId: 'first-project',
+        displayName: 'First Project',
+        actor: { kind: 'agent', id: 'operator' },
+        now: '2026-04-23T03:00:00.000Z',
+      })
+      store.projects.create({
+        projectId: 'second-project',
+        displayName: 'Second Project',
+        actor: { kind: 'agent', id: 'operator' },
+        now: '2026-04-23T03:05:00.000Z',
+      })
+      store.agents.create({
+        agentId: 'multi-project-agent',
+        status: 'active',
+        actor: { kind: 'agent', id: 'operator' },
+        now: '2026-04-23T03:00:00.000Z',
+      })
+      store.memberships.add({
+        projectId: 'second-project',
+        agentId: 'multi-project-agent',
+        role: 'implementer',
+        actor: { kind: 'agent', id: 'operator' },
+        now: '2026-04-23T03:10:00.000Z',
+      })
+      store.memberships.add({
+        projectId: 'first-project',
+        agentId: 'multi-project-agent',
+        role: 'implementer',
+        actor: { kind: 'agent', id: 'operator' },
+        now: '2026-04-23T03:15:00.000Z',
+      })
+      store.heartbeats.upsert({
+        agentId: 'multi-project-agent',
+        now: '2026-04-23T03:45:00.000Z',
+      })
+
+      const result = checkStaleHeartbeats(store, {
+        now: new Date('2026-04-23T04:00:00.000Z'),
+      })
+
+      expect(result.eventsEmitted).toBe(1)
+      const events = store.systemEvents.list({ kind: STALE_HEARTBEAT_EVENT_KIND })
+      expect(events).toHaveLength(1)
+      expect(events[0]!.projectId).toBe('first-project')
+      expect((events[0]!.payload as Record<string, unknown>)['agentId']).toBe('multi-project-agent')
+    } finally {
+      store.close()
+    }
+  })
+
   test('checkStaleHeartbeats skips agents without project membership', () => {
     const store = createInMemoryAdminStore()
     try {

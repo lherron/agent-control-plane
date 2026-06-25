@@ -2,6 +2,10 @@ import type { AgentHeartbeat } from 'acp-core'
 import type { AdminStore } from './open-store.js'
 import { STALE_HEARTBEAT_THRESHOLD_MS } from './open-store.js'
 
+type ProjectIdRow = {
+  project_id: string
+}
+
 /**
  * Kind string for the system event emitted when an agent's heartbeat goes stale.
  */
@@ -47,14 +51,7 @@ export function checkStaleHeartbeats(
     // Resolve projectId: use provided, or find from memberships
     let projectId = options.projectId
     if (projectId === undefined) {
-      const projects = store.projects.list()
-      for (const project of projects) {
-        const memberships = store.memberships.listByProject(project.projectId)
-        if (memberships.some((m) => m.agentId === heartbeat.agentId)) {
-          projectId = project.projectId
-          break
-        }
-      }
+      projectId = findFirstProjectIdForAgent(store, heartbeat.agentId)
     }
 
     if (projectId === undefined) {
@@ -78,4 +75,19 @@ export function checkStaleHeartbeats(
   }
 
   return { staleAgents, eventsEmitted }
+}
+
+function findFirstProjectIdForAgent(store: AdminStore, agentId: string): string | undefined {
+  const row = store.sqlite
+    .prepare(
+      `SELECT p.project_id
+       FROM memberships AS m
+       INNER JOIN projects AS p ON p.project_id = m.project_id
+       WHERE m.agent_id = ?
+       ORDER BY p.created_at ASC, p.project_id ASC
+       LIMIT 1`
+    )
+    .get(agentId) as ProjectIdRow | undefined
+
+  return row?.project_id
 }

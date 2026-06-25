@@ -347,6 +347,16 @@ export const adminStoreMigrations: readonly AdminStoreMigration[] = [
       ALTER TABLE agents ADD COLUMN profile_specialties TEXT;
     `,
   },
+  {
+    id: '006_membership_agent_project_lookup',
+    sql: `
+      CREATE INDEX IF NOT EXISTS memberships_agent_project_idx
+        ON memberships (agent_id, project_id);
+
+      CREATE INDEX IF NOT EXISTS projects_created_project_idx
+        ON projects (created_at, project_id);
+    `,
+  },
 ]
 
 export interface OpenSqliteAdminStoreOptions {
