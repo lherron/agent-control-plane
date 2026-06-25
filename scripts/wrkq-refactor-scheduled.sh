@@ -95,6 +95,42 @@ if [[ "${WRKQ_REFACTOR_SCHEDULED_ALLOW_DIRTY:-0}" != "1" && -n "$(git status --p
   exit 0
 fi
 
+selection_output="$(mktemp "${RUN_DIR}/acp-wrkq-refactor-selection.XXXXXX")"
+set +e
+bun scripts/wrkq-refactor.ts next --json >"$selection_output" 2>&1
+selection_status=$?
+set -e
+
+if [[ "$selection_status" -ne 0 ]]; then
+  cat "$selection_output"
+
+  if grep -q "No open tasks found under" "$selection_output"; then
+    echo "[$(timestamp)] no open refactor task selected; skipping HRC turn"
+    email_status=0
+    send_result_email "skipped-no-task" "$selection_output" || email_status=$?
+    rm -f "$selection_output"
+    echo "[$(timestamp)] wrkq-refactor scheduled tick complete"
+    exit "$email_status"
+  fi
+
+  echo "[$(timestamp)] refactor task selection failed; skipping HRC turn"
+  email_status=0
+  send_result_email "failed-selection" "$selection_output" || email_status=$?
+  rm -f "$selection_output"
+  if [[ "$email_status" -ne 0 ]]; then
+    exit "$email_status"
+  fi
+  exit "$selection_status"
+fi
+
+if command -v jq >/dev/null 2>&1 && jq -e '.task.id' "$selection_output" >/dev/null 2>&1; then
+  selected_task="$(jq -r '.task.id' "$selection_output")"
+  echo "[$(timestamp)] selected refactor task ${selected_task}; starting HRC turn"
+else
+  echo "[$(timestamp)] selected refactor task; starting HRC turn"
+fi
+rm -f "$selection_output"
+
 PROMPT=$(cat <<'PROMPT_EOF'
 Run one ACP wrkq refactor automation cycle in /Users/lherron/praesidium/agent-control-plane.
 

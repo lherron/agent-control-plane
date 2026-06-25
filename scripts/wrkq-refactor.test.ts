@@ -199,6 +199,15 @@ Needs human decision before deleting this public-surface seam.`,
     expect(script).not.toContain('leave the task untouched')
   })
 
+  test('scheduled wrapper skips HRC turn when no refactor task is selected', () => {
+    const script = readFileSync(resolve(import.meta.dir, 'wrkq-refactor-scheduled.sh'), 'utf8')
+
+    expect(script).toContain('bun scripts/wrkq-refactor.ts next --json')
+    expect(script).toContain('No open tasks found under')
+    expect(script).toContain('no open refactor task selected; skipping HRC turn')
+    expect(script).toContain('send_result_email "skipped-no-task"')
+  })
+
   test('scheduled wrapper uses a fresh HRC task scope per run', () => {
     const script = readFileSync(resolve(import.meta.dir, 'wrkq-refactor-scheduled.sh'), 'utf8')
 
