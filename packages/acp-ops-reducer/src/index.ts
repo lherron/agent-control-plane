@@ -3,7 +3,7 @@ import type { DashboardEvent, SessionTimelineRow } from 'acp-ops-projection'
 
 export type { DashboardEvent, SessionTimelineRow } from 'acp-ops-projection'
 
-export type ReducerWindow = {
+type ReducerWindow = {
   fromTs: string
   toTs: string
   windowMs: number
@@ -18,7 +18,7 @@ export type ReducerState = {
   window: ReducerWindow
 }
 
-export type ReducerEventFilters = {
+type ReducerEventFilters = {
   scopeRef?: string | undefined
   laneRef?: string | undefined
   hostSessionId?: string | undefined
