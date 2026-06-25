@@ -329,7 +329,10 @@ function listOpenRefactorTasks(options: Options): WrkqListTask[] {
     String(options.limit),
     '--json',
   ])
-  return parseJson<unknown[]>(raw, 'wrkq ls')
+  const parsed = parseJson<unknown>(raw, 'wrkq ls')
+  const tasks = Array.isArray(parsed) ? parsed : []
+
+  return tasks
     .filter(isTask)
     .filter((task) => task.state === 'open')
     .map((task) => ({
