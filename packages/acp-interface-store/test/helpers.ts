@@ -14,7 +14,7 @@ function createHarness() {
   ) => {
     const directory = mkdtempSync(join(tmpdir(), 'acp-interface-store-'))
     const dbPath = join(directory, 'interface.sqlite')
-    const store = openInterfaceStore({ dbPath, actor: { agentId: 'cody' } })
+    const store = openInterfaceStore({ dbPath })
 
     try {
       testFn({ dbPath, store })

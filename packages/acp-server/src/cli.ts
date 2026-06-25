@@ -751,7 +751,6 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
   const coordStore = openCoordinationStore(options.coordDbPath)
   const interfaceStore = openInterfaceStore({
     dbPath: options.interfaceDbPath,
-    actor: { agentId: options.actor },
   })
   const stateStore = openAcpStateStore({ dbPath: options.stateDbPath })
   const adminStore =

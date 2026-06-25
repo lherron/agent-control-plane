@@ -9,11 +9,9 @@ import { MessageSourceRepo } from './repos/message-source-repo.js'
 import { OutboundAttachmentRepo } from './repos/outbound-attachment-repo.js'
 import type { RepoContext } from './repos/shared.js'
 import Database, { type SqliteDatabase } from './sqlite.js'
-import type { InterfaceStoreActorIdentity } from './types.js'
 
 export interface OpenInterfaceStoreOptions {
   dbPath: string
-  actor?: InterfaceStoreActorIdentity | undefined
 }
 
 export interface InterfaceStore {
