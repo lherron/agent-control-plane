@@ -87,6 +87,7 @@ export type {
 } from './interface/attachment.js'
 export type {
   DeliveryFailure,
+  DeliveryOutcome,
   DeliveryRequest,
   DeliveryRequestBody,
   DeliveryRequestStatus,
