@@ -145,7 +145,7 @@ Use the repo-local automation contract:
 6. If the task is review-required, unsafe, not behavior-preserving, or you otherwise choose not to proceed, run `bun scripts/wrkq-refactor.ts block --task <task-id> --reason "<why>"`. Do not leave the selected task open.
 7. Final step: run `bun scripts/wrkq-refactor.ts publish --message "<commit message>"`.
 
-Do not force review-required tasks. Do not batch multiple refactor tasks in one cycle. If blocked, mark the selected task blocked with the command above, publish, and report the blocker.
+Do not batch multiple refactor tasks in one cycle. If `next` reports `Safety: ready`, start the selected task and implement it; do not stop solely because the historical report says the work was deferred. If current source proves the task is invalid, archive it. If you still choose not to proceed after selecting a task, block it with the command above, publish, and report the blocker.
 PROMPT_EOF
 )
 

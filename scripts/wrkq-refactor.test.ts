@@ -195,7 +195,7 @@ Needs human decision before deleting this public-surface seam.`,
 
     expect(script).toContain('wrkq-refactor.ts block --task <task-id> --reason "<why>"')
     expect(script).toContain('Do not leave the selected task open')
-    expect(script).toContain('mark the selected task blocked')
+    expect(script).toContain('block it with the command above')
     expect(script).not.toContain('leave the task untouched')
   })
 
@@ -206,6 +206,14 @@ Needs human decision before deleting this public-surface seam.`,
     expect(script).toContain('No open tasks found under')
     expect(script).toContain('no open refactor task selected; skipping HRC turn')
     expect(script).toContain('send_result_email "skipped-no-task"')
+  })
+
+  test('scheduled prompt tells ready tasks to proceed', () => {
+    const script = readFileSync(resolve(import.meta.dir, 'wrkq-refactor-scheduled.sh'), 'utf8')
+
+    expect(script).toContain('If `next` reports `Safety: ready`, start the selected task')
+    expect(script).toContain('do not stop solely because the historical report says')
+    expect(script).not.toContain('Do not force review-required tasks')
   })
 
   test('scheduled wrapper uses a fresh HRC task scope per run', () => {
