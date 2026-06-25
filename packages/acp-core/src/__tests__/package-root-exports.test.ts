@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import type { DeliveryOutcome } from '../index.js'
+import type { DeliveryOutcome } from 'acp-core'
 
 describe('package root exports', () => {
   test('exports DeliveryOutcome from the package root', () => {
