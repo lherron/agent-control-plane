@@ -7,7 +7,6 @@ import { AcpClientHttpError } from '../../src/http-client.js'
 
 function createClientDouble(overrides: Partial<AcpClient>): AcpClient {
   return {
-    createTask: overrides.createTask ?? (() => Promise.reject(new Error('not implemented'))),
     getTask: overrides.getTask ?? (() => Promise.reject(new Error('not implemented'))),
     addEvidence: overrides.addEvidence ?? (() => Promise.reject(new Error('not implemented'))),
     transitionTask:

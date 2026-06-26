@@ -1,5 +1,4 @@
 import type {
-  ActorRef,
   AdminAgent,
   AdminAgentProfile,
   AdminMembership,
@@ -47,10 +46,6 @@ export type GetTaskResponse = {
   obligations: unknown[]
   effects: EffectIntent[]
   runs: WrkfRun[]
-}
-
-export type CreateTaskResponse = {
-  task: WorkflowTask
 }
 
 export type AddEvidenceResponse = {
@@ -157,24 +152,6 @@ export type AcpErrorBody = {
 }
 
 export interface AcpClient {
-  createTask(input: {
-    actorAgentId: string
-    projectId: string
-    workflow: { id: string; version: number }
-    goal: string
-    risk?: string | undefined
-    roleBindings: Record<string, ActorRef | null>
-    idempotencyKey: string
-    meta?: Record<string, unknown> | undefined
-    taskId?: string | undefined
-    supervisor?:
-      | {
-          actor: ActorRef
-          autonomy?: string | undefined
-          capabilities?: Record<string, boolean> | undefined
-        }
-      | undefined
-  }): Promise<CreateTaskResponse>
   getTask(input: {
     taskId: string
     role?: string | undefined
@@ -473,26 +450,6 @@ export function createHttpClient(
   }
 
   return {
-    createTask(input) {
-      return request<CreateTaskResponse>({
-        method: 'POST',
-        path: '/v1/tasks',
-        actorAgentId: input.actorAgentId,
-        body: {
-          projectId: input.projectId,
-          workflow: input.workflow,
-          goal: input.goal,
-          ...(input.risk !== undefined ? { risk: input.risk } : {}),
-          roleBindings: input.roleBindings,
-          idempotencyKey: input.idempotencyKey,
-          actor: { agentId: input.actorAgentId },
-          ...(input.meta !== undefined ? { initialFacts: input.meta } : {}),
-          ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
-          ...(input.supervisor !== undefined ? { supervisor: input.supervisor } : {}),
-        },
-      })
-    },
-
     getTask(input) {
       const query = input.role !== undefined ? `?role=${encodeURIComponent(input.role)}` : ''
       return request<GetTaskResponse>({
