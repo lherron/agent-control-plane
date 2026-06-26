@@ -51,13 +51,6 @@ const ACTOR = {
 } satisfies Actor
 
 describe('admin agents store acceptance', () => {
-  test('exports dedicated agent store helpers', async () => {
-    const module = (await import('../index.js')) as Record<string, unknown>
-
-    expect(module['createInMemoryAgentsStore']).toBeFunction()
-    expect(module['openSqliteAgentsStore']).toBeFunction()
-  })
-
   test('creates idempotently by agentId and lists persisted agents', () => {
     const store = createInMemoryAdminStore()
 

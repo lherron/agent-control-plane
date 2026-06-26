@@ -34,13 +34,6 @@ function expectSystemEventsStore(store: AdminStore): SystemEventsStore {
 }
 
 describe('admin system events store acceptance', () => {
-  test('exports dedicated system event store helpers', async () => {
-    const module = (await import('../index.js')) as Record<string, unknown>
-
-    expect(module['createInMemorySystemEventsStore']).toBeFunction()
-    expect(module['openSqliteSystemEventsStore']).toBeFunction()
-  })
-
   test('appends immutable events and lists them with filters', () => {
     const store = createInMemoryAdminStore()
 

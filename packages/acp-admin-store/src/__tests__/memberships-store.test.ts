@@ -36,13 +36,6 @@ const ACTOR = {
 } satisfies Actor
 
 describe('admin memberships store acceptance', () => {
-  test('exports dedicated membership store helpers', async () => {
-    const module = (await import('../index.js')) as Record<string, unknown>
-
-    expect(module['createInMemoryMembershipsStore']).toBeFunction()
-    expect(module['openSqliteMembershipsStore']).toBeFunction()
-  })
-
   test('adds memberships keyed by unique projectId and agentId pairs', () => {
     const store = createInMemoryAdminStore()
 

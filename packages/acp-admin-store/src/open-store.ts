@@ -378,15 +378,6 @@ export interface AdminStore {
   close(): void
 }
 
-type StoreHandle<TStore> = TStore & {
-  readonly sqlite: SqliteDatabase
-  readonly migrations: {
-    applied: string[]
-  }
-  runInTransaction<T>(fn: (store: AdminStore) => T): T
-  close(): void
-}
-
 const DEFAULT_SYSTEM_ACTOR = {
   kind: 'system',
   id: 'acp-admin-store',
@@ -1338,19 +1329,6 @@ function createHeartbeatsStore(sqlite: SqliteDatabase): HeartbeatsStore {
   }
 }
 
-function createStoreHandle<TStore extends object>(
-  store: AdminStore,
-  section: TStore
-): StoreHandle<TStore> {
-  return {
-    ...section,
-    sqlite: store.sqlite,
-    migrations: store.migrations,
-    runInTransaction: store.runInTransaction.bind(store),
-    close: store.close.bind(store),
-  }
-}
-
 export function listAppliedAdminStoreMigrations(sqlite: SqliteDatabase): string[] {
   ensureMigrationTable(sqlite)
   return (
@@ -1415,76 +1393,4 @@ export function openSqliteAdminStore(options: OpenSqliteAdminStoreOptions): Admi
 
 export function createInMemoryAdminStore(): AdminStore {
   return openSqliteAdminStore({ dbPath: ':memory:' })
-}
-
-export function openSqliteAgentsStore(
-  options: OpenSqliteAdminStoreOptions
-): StoreHandle<AgentsStore> {
-  const store = openSqliteAdminStore(options)
-  return createStoreHandle(store, store.agents)
-}
-
-export function createInMemoryAgentsStore(): StoreHandle<AgentsStore> {
-  const store = createInMemoryAdminStore()
-  return createStoreHandle(store, store.agents)
-}
-
-export function openSqliteProjectsStore(
-  options: OpenSqliteAdminStoreOptions
-): StoreHandle<ProjectsStore> {
-  const store = openSqliteAdminStore(options)
-  return createStoreHandle(store, store.projects)
-}
-
-export function createInMemoryProjectsStore(): StoreHandle<ProjectsStore> {
-  const store = createInMemoryAdminStore()
-  return createStoreHandle(store, store.projects)
-}
-
-export function openSqliteMembershipsStore(
-  options: OpenSqliteAdminStoreOptions
-): StoreHandle<MembershipsStore> {
-  const store = openSqliteAdminStore(options)
-  return createStoreHandle(store, store.memberships)
-}
-
-export function createInMemoryMembershipsStore(): StoreHandle<MembershipsStore> {
-  const store = createInMemoryAdminStore()
-  return createStoreHandle(store, store.memberships)
-}
-
-export function openSqliteInterfaceIdentitiesStore(
-  options: OpenSqliteAdminStoreOptions
-): StoreHandle<InterfaceIdentitiesStore> {
-  const store = openSqliteAdminStore(options)
-  return createStoreHandle(store, store.interfaceIdentities)
-}
-
-export function createInMemoryInterfaceIdentitiesStore(): StoreHandle<InterfaceIdentitiesStore> {
-  const store = createInMemoryAdminStore()
-  return createStoreHandle(store, store.interfaceIdentities)
-}
-
-export function openSqliteSystemEventsStore(
-  options: OpenSqliteAdminStoreOptions
-): StoreHandle<SystemEventsStore> {
-  const store = openSqliteAdminStore(options)
-  return createStoreHandle(store, store.systemEvents)
-}
-
-export function createInMemorySystemEventsStore(): StoreHandle<SystemEventsStore> {
-  const store = createInMemoryAdminStore()
-  return createStoreHandle(store, store.systemEvents)
-}
-
-export function openSqliteHeartbeatsStore(
-  options: OpenSqliteAdminStoreOptions
-): StoreHandle<HeartbeatsStore> {
-  const store = openSqliteAdminStore(options)
-  return createStoreHandle(store, store.heartbeats)
-}
-
-export function createInMemoryHeartbeatsStore(): StoreHandle<HeartbeatsStore> {
-  const store = createInMemoryAdminStore()
-  return createStoreHandle(store, store.heartbeats)
 }

@@ -39,13 +39,6 @@ function expectInterfaceIdentitiesStore(store: AdminStore): InterfaceIdentitiesS
 }
 
 describe('admin interface identities store acceptance', () => {
-  test('exports dedicated interface identity store helpers', async () => {
-    const module = (await import('../index.js')) as Record<string, unknown>
-
-    expect(module['createInMemoryInterfaceIdentitiesStore']).toBeFunction()
-    expect(module['openSqliteInterfaceIdentitiesStore']).toBeFunction()
-  })
-
   test('registers and upserts interface identities by composite key', () => {
     const store = createInMemoryAdminStore()
 

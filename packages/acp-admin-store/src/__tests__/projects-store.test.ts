@@ -42,13 +42,6 @@ const ACTOR = {
 } satisfies Actor
 
 describe('admin projects store acceptance', () => {
-  test('exports dedicated project store helpers', async () => {
-    const module = (await import('../index.js')) as Record<string, unknown>
-
-    expect(module['createInMemoryProjectsStore']).toBeFunction()
-    expect(module['openSqliteProjectsStore']).toBeFunction()
-  })
-
   test('creates idempotently by projectId and lists persisted projects', () => {
     const store = createInMemoryAdminStore()
 
