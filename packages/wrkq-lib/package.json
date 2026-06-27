@@ -23,7 +23,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@wrkq/client": "0.1.0-dev.20260624002921",
+    "@wrkq/client": "0.1.0-dev.20260626114238",
     "acp-core": "*"
   },
   "devDependencies": {

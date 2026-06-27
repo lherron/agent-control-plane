@@ -1,6 +1,5 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "agent-control-plane",
@@ -153,7 +152,7 @@
         "acp-server": "./src/cli.ts",
       },
       "dependencies": {
-        "@wrkq/client": "0.1.0-dev.20260624002921",
+        "@wrkq/client": "0.1.0-dev.20260626114238",
         "acp-admin-store": "*",
         "acp-conversation": "*",
         "acp-core": "*",
@@ -283,7 +282,7 @@
       "name": "wrkq-lib",
       "version": "0.1.0",
       "dependencies": {
-        "@wrkq/client": "0.1.0-dev.20260624002921",
+        "@wrkq/client": "0.1.0-dev.20260626114238",
         "acp-core": "*",
       },
       "devDependencies": {
@@ -725,7 +724,7 @@
 
     "@vladfrangu/async_event_emitter": ["@vladfrangu/async_event_emitter@2.4.7", "http://127.0.0.1:4873/@vladfrangu/async_event_emitter/-/async_event_emitter-2.4.7.tgz", {}, "sha512-Xfe6rpCTxSxfbswi/W/Pz7zp1WWSNn4A0eW4mLkQUewCrXXtMj31lCg+iQyTkh/CkusZSq9eDflu7tjEDXUY6g=="],
 
-    "@wrkq/client": ["@wrkq/client@0.1.0-dev.20260624002921", "http://127.0.0.1:4873/@wrkq/client/-/client-0.1.0-dev.20260624002921.tgz", {}, "sha512-MXgrMo7jT0HAY89xi6TOS1BeIQ58tq769Cbx8YH4S89eM7F9Xtwf0R8dFDUA0lKFwqhNIYhKqbjJjIWjysoPDg=="],
+    "@wrkq/client": ["@wrkq/client@0.1.0-dev.20260626114238", "http://127.0.0.1:4873/@wrkq/client/-/client-0.1.0-dev.20260626114238.tgz", {}, "sha512-WpIS5rT54pHKeYBniLI5aj2bxM1EuX4+omNROva7zymrl4UCQ82FRAkfLu9+NqVUmCeHqvLqZCdBN3Hv9YSbHA=="],
 
     "acp-admin-store": ["acp-admin-store@workspace:packages/acp-admin-store"],
 
