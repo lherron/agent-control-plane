@@ -28,8 +28,8 @@
       "name": "acp-capability-host",
       "version": "0.1.0",
       "dependencies": {
-        "cap-service": "0.1.0",
-        "catalog-store": "0.1.0",
+        "cap-service": "0.1.1",
+        "catalog-store": "0.1.1",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -766,11 +766,11 @@
 
     "acp-viewer": ["acp-viewer@workspace:packages/acp-viewer"],
 
-    "adapter-capability-runner": ["adapter-capability-runner@0.1.0", "http://127.0.0.1:4873/adapter-capability-runner/-/adapter-capability-runner-0.1.0.tgz", { "dependencies": { "capability-protocol": "0.1.0", "invoke-engine": "0.1.0" } }, "sha512-JxEtp0tFPA+DH9K6wXiyL3N48qzW+A4EWHOvVFT5hj4VUCvGEi+jSJjVUKf5zO3T+SvEuCFDghC7g+ZqRjE9ng=="],
+    "adapter-capability-runner": ["adapter-capability-runner@0.1.1", "http://127.0.0.1:4873/adapter-capability-runner/-/adapter-capability-runner-0.1.1.tgz", { "dependencies": { "capability-protocol": "0.1.1", "invoke-engine": "0.1.1" } }, "sha512-cHkJdD9Z+4fK9eiAfI7i7qhVfY1NnQhuQUkHrbLbDEXlhUteDlV9hAYeRm7kJ0DFB4c75+j0CGGv4GhKqcEQ2g=="],
 
-    "adapter-http-json": ["adapter-http-json@0.1.0", "http://127.0.0.1:4873/adapter-http-json/-/adapter-http-json-0.1.0.tgz", { "dependencies": { "capability-protocol": "0.1.0", "invoke-engine": "0.1.0" } }, "sha512-qJeAYHmOhn5rbQJ2yLDILOt1xKwzXwDyOzOdam+Uo567d1l7q0KA3Uo1R2l7D1IH5X5GttTSSm5TfuRYCU3s0g=="],
+    "adapter-http-json": ["adapter-http-json@0.1.1", "http://127.0.0.1:4873/adapter-http-json/-/adapter-http-json-0.1.1.tgz", { "dependencies": { "capability-protocol": "0.1.1", "invoke-engine": "0.1.1" } }, "sha512-bd6MuYan7CgJAuVyI5eYYGmPJVWZHbc6x9qTT61gtzvXeU+NgfSGUIQIk0lcVLzh5RJ7xGwxvl4SV0hgXZ5+Vg=="],
 
-    "adapter-jsonrpc-stdio": ["adapter-jsonrpc-stdio@0.1.0", "http://127.0.0.1:4873/adapter-jsonrpc-stdio/-/adapter-jsonrpc-stdio-0.1.0.tgz", { "dependencies": { "cap-rpc": "0.1.0", "capability-protocol": "0.1.0", "invoke-engine": "0.1.0" } }, "sha512-X5EKV9sTgaOQJ89rDtqtfPDemhIEkLN1tk60Et6cSpBJMiYD3AVOrI5Y0mOb/UjdP5ROxNbS39M37/6iepjg7g=="],
+    "adapter-jsonrpc-stdio": ["adapter-jsonrpc-stdio@0.1.1", "http://127.0.0.1:4873/adapter-jsonrpc-stdio/-/adapter-jsonrpc-stdio-0.1.1.tgz", { "dependencies": { "cap-rpc": "0.1.1", "capability-protocol": "0.1.1", "invoke-engine": "0.1.1" } }, "sha512-dnqVHs3MOyb/sgntXgXZZmM6p5pC7vBEtNONZncdt0+Uwl5MJOvOuE1LtAP4Bxp+x9kbYIdWYPyvyYlsRPUpdg=="],
 
     "agent-action-render": ["agent-action-render@0.1.0-dev.20260623212941", "http://127.0.0.1:4873/agent-action-render/-/agent-action-render-0.1.0-dev.20260623212941.tgz", {}, "sha512-47ygSMFsdRewlKjfPGClBWeDA+9eWN7L/UYzZmuzCCVF20LEg3C2goktDybE47rABhTGeJc8gKpBmJjanCd8kQ=="],
 
@@ -824,15 +824,15 @@
 
     "caniuse-lite": ["caniuse-lite@1.0.30001793", "http://127.0.0.1:4873/caniuse-lite/-/caniuse-lite-1.0.30001793.tgz", {}, "sha512-iwSsYWaCOoh26cV8NwNRViHlrfUvYsHDfRVcbtmw0Kg6PJIZZXwMkj1442FYLBGkeUf1juAsU3DTfxW579mrPA=="],
 
-    "cap-rpc": ["cap-rpc@0.1.0", "http://127.0.0.1:4873/cap-rpc/-/cap-rpc-0.1.0.tgz", {}, "sha512-rRaUdTTN9nWa7gQ1kC1hKoUm73YVbJD/NIbJxgN/hVirZkZPd9uGmlMfofEemvYjLhm+rh/KmuBaljF7xtMoEw=="],
+    "cap-rpc": ["cap-rpc@0.1.1", "http://127.0.0.1:4873/cap-rpc/-/cap-rpc-0.1.1.tgz", {}, "sha512-5sxuIDiISt52zzKuT6Q6fWtjkGdizjYh9MEdH7gXrZkUc+G8pWzYuLotlf5FqGnIq/B8qJoYcNpDYYtsmgU1ow=="],
 
-    "cap-service": ["cap-service@0.1.0", "http://127.0.0.1:4873/cap-service/-/cap-service-0.1.0.tgz", { "dependencies": { "adapter-capability-runner": "0.1.0", "adapter-http-json": "0.1.0", "adapter-jsonrpc-stdio": "0.1.0", "cap-rpc": "0.1.0", "capability-protocol": "0.1.0", "catalog-core": "0.1.0", "catalog-store": "0.1.0", "invoke-engine": "0.1.0" } }, "sha512-hrcBYRMk5zLmQBsU2Rgi5JjlDEYQNDde6ZH1FcdFWIF4W6beFUnN27O0C1j7EHrVFmPgm9HTFaWFEypmUSDNBw=="],
+    "cap-service": ["cap-service@0.1.1", "http://127.0.0.1:4873/cap-service/-/cap-service-0.1.1.tgz", { "dependencies": { "adapter-capability-runner": "0.1.1", "adapter-http-json": "0.1.1", "adapter-jsonrpc-stdio": "0.1.1", "cap-rpc": "0.1.1", "capability-protocol": "0.1.1", "catalog-core": "0.1.1", "catalog-store": "0.1.1", "invoke-engine": "0.1.1" } }, "sha512-9+MHL0R4bH1kfcHLucqyilPR7op3oWHhSNQWNcX8nqQaP+BRSEe6Xc0H44qqD7J/+pAZlPolMcOGyMcq5u97UQ=="],
 
-    "capability-protocol": ["capability-protocol@0.1.0", "http://127.0.0.1:4873/capability-protocol/-/capability-protocol-0.1.0.tgz", { "dependencies": { "ajv": "^8.17.1" } }, "sha512-crJ+batGBNcml0SzrURqsfjuMUOiYxi9qrvoVj/Dlmptn9fDknRB7oBYNIgNb0ugyVMGVShdyVbtzVOf2HAS+Q=="],
+    "capability-protocol": ["capability-protocol@0.1.1", "http://127.0.0.1:4873/capability-protocol/-/capability-protocol-0.1.1.tgz", { "dependencies": { "ajv": "^8.17.1" } }, "sha512-fz2/PiT4I8/JyCeJ2yaabl3EK/Nlq3QIsWSpHhe6IQYAjMseSwxxsjFpw4ceST9+jI3noqQ9ZwQGZWBJanOrnA=="],
 
-    "catalog-core": ["catalog-core@0.1.0", "http://127.0.0.1:4873/catalog-core/-/catalog-core-0.1.0.tgz", { "dependencies": { "capability-protocol": "0.1.0", "catalog-store": "0.1.0" } }, "sha512-fzd0YyYXZVgkN2f/M6rYeqdfH48vXLmSgo3xch8hDXuV/1T47Mq/FwbpmQoBR3HGY36fQNV5f7E0QEzp5HhyXg=="],
+    "catalog-core": ["catalog-core@0.1.1", "http://127.0.0.1:4873/catalog-core/-/catalog-core-0.1.1.tgz", { "dependencies": { "capability-protocol": "0.1.1", "catalog-store": "0.1.1" } }, "sha512-rgqqZBZfA34MRQ7uuVNFThUBRjFWAJQbmcEt3z1ZUexGNG1VBeA9+YTGPDIhB9txExV2pLKzqMDo+EJkkoCddw=="],
 
-    "catalog-store": ["catalog-store@0.1.0", "http://127.0.0.1:4873/catalog-store/-/catalog-store-0.1.0.tgz", { "dependencies": { "capability-protocol": "0.1.0" } }, "sha512-ppWp5Oz74hyRcfkVdvUoB2d0SQPkevmEbCOtIDIlaU+QkE8CfvXuxove4t2Yn3tuJJOFnAQqet8we2TxHRkCgQ=="],
+    "catalog-store": ["catalog-store@0.1.1", "http://127.0.0.1:4873/catalog-store/-/catalog-store-0.1.1.tgz", { "dependencies": { "capability-protocol": "0.1.1" } }, "sha512-7Q345yQslltnynIQXm70ttMngub9FEh0mKKmuaTc5i7fj477P+kLZqGuykJ3iF7KtNAodJJysoYNUGxknMePjA=="],
 
     "chalk": ["chalk@5.6.2", "http://127.0.0.1:4873/chalk/-/chalk-5.6.2.tgz", {}, "sha512-7NzBL0rN6fMUW+f7A6Io4h40qQlG+xGmtMxfbnH/K7TAtt8JQWVQK+6g0UXKMeVJoyV5EkkNsErQ8pVD3bLHbA=="],
 
@@ -990,7 +990,7 @@
 
     "ini": ["ini@1.3.8", "http://127.0.0.1:4873/ini/-/ini-1.3.8.tgz", {}, "sha512-JV/yugV2uzW5iMRSiZAyDtQd+nxtUnjeLt0acNdw98kKLrvuRVyB80tsREOE7yvGVgalhZ6RNXCmEHkUKBKxew=="],
 
-    "invoke-engine": ["invoke-engine@0.1.0", "http://127.0.0.1:4873/invoke-engine/-/invoke-engine-0.1.0.tgz", { "dependencies": { "capability-protocol": "0.1.0", "catalog-core": "0.1.0", "catalog-store": "0.1.0" } }, "sha512-IEvQv4STn8DE6RQ+b3z2kbGaavB9eGBnlAxmVHtpN/DzyKMKaIERR1JxpHjmcqCFqPOCre/uQKqWDIF0kuZbCQ=="],
+    "invoke-engine": ["invoke-engine@0.1.1", "http://127.0.0.1:4873/invoke-engine/-/invoke-engine-0.1.1.tgz", { "dependencies": { "capability-protocol": "0.1.1", "catalog-core": "0.1.1", "catalog-store": "0.1.1" } }, "sha512-nRddiqucK9Co35o/HI10TScqRurdWHcDmwRWxeKwJyK7nFsBsiWZoTCvBawTV9nrqo6tYFMtiSXyiZyceef7BA=="],
 
     "ip-address": ["ip-address@10.2.0", "http://127.0.0.1:4873/ip-address/-/ip-address-10.2.0.tgz", {}, "sha512-/+S6j4E9AHvW9SWMSEY9Xfy66O5PWvVEJ08O0y5JGyEKQpojb0K0GKpz/v5HJ/G0vi3D2sjGK78119oXZeE0qA=="],
 

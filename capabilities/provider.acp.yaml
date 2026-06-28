@@ -1066,8 +1066,11 @@
         "timeoutMs": 30000
       },
       "response": {
-        "output": {
-          "fromBody": "$"
+        "stream": {
+          "mode": "ndjson",
+          "item": "$",
+          "maxItems": 500,
+          "maxMs": 15000
         }
       }
     },
@@ -1573,12 +1576,28 @@
       "request": {
         "method": "POST",
         "url": "${ACP_BASE_URL}/v1/runs/:runId/outbound-attachments",
-        "body": {
-          "fromInput": "$",
-          "inject": {
-            "idempotencyKey": "$.envelope.idempotencyKey",
-            "actor": "$.envelope.actor"
-          }
+        "multipart": {
+          "fields": {
+            "filename": "$.input.filename",
+            "contentType": "$.input.contentType",
+            "alt": "$.input.alt",
+            "idempotencyKey": "$.envelope.idempotencyKey"
+          },
+          "files": [
+            {
+              "name": "file",
+              "content": {
+                "fromInput": "$.input.file",
+                "encoding": "base64"
+              },
+              "filename": {
+                "fromInput": "$.input.filename"
+              },
+              "contentType": {
+                "fromInput": "$.input.contentType"
+              }
+            }
+          ]
         },
         "headers": {
           "inject": {
@@ -3907,7 +3926,7 @@
       "schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
-        "description": "Route requires multipart/form-data field file plus optional filename/contentType/alt. The current http-json adapter can only send JSON, so this binding is structural only until multipart adapter support exists.",
+        "description": "Route requires multipart/form-data field file plus optional filename/contentType/alt. The file input is a base64-encoded string.",
         "required": [
           "runId",
           "file"
