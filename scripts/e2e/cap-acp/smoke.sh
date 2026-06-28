@@ -37,6 +37,7 @@ PBC_TASK_ID=""
 WRKF_TASK_ID=""
 SESSION_ID=""
 RUN_ID=""
+ATTACHMENT_RUN_ID=""
 OUTBOUND_RUN_ID=""
 CANCEL_RUN_ID=""
 JOB_ID=""
@@ -49,11 +50,13 @@ INTERFACE_BINDING_ID=""
 
 cleanup() {
   [ -n "$CATPID" ] && kill "$CATPID" 2>/dev/null
+  close_seeded_wrkq_tasks
   if [ "${CAP_ACP_KEEP_WORKDIR:-0}" = "1" ]; then
     echo "keeping workdir: $WORKDIR"
     return
   fi
   rm -rf "$WORKDIR"
+  return 0
 }
 trap cleanup EXIT
 
@@ -85,58 +88,13 @@ run_cmd_timeout() {
   wait "$pid"
 }
 
-register_capability_shard() {
-  local alias="$1"
-  local provider="${alias%%.*}"
+register_provider_manifest() {
+  local provider="$1"
   local manifest="$ROOT/capabilities/provider.${provider}.yaml"
-  local shard="$WORKDIR/shard-${alias//[^A-Za-z0-9_]/_}.json"
-  local out="$WORKDIR/register-${alias//[^A-Za-z0-9_]/_}.json"
-  local err="$WORKDIR/register-${alias//[^A-Za-z0-9_]/_}.err"
+  local out="$WORKDIR/register-${provider}.json"
+  local err="$WORKDIR/register-${provider}.err"
 
-  ALIAS="$alias" MANIFEST="$manifest" python3 - "$shard" <<'PY'
-import json, os, sys
-
-alias = os.environ['ALIAS']
-manifest = json.load(open(os.environ['MANIFEST']))
-target = None
-for cap in manifest['capabilities']:
-    cap_alias = cap['provider'] + '.' + cap['root'] + '.' + cap['verb'] + (('.' + cap.get('variant')) if cap.get('variant') else '')
-    if cap_alias == alias:
-        target = cap
-        break
-if target is None:
-    raise SystemExit(f'capability alias not found in manifest: {alias}')
-
-binding_ids = {target['binding']}
-cap_ids = {target['id']}
-schema_refs = {target['contracts']['input'], target['contracts']['output']}
-
-shard = dict(manifest)
-shard['capabilities'] = [target]
-shard['bindings'] = [b for b in manifest.get('bindings', []) if b.get('id') in binding_ids]
-shard['aliases'] = [a for a in manifest.get('aliases', []) if a.get('resolvesTo') in cap_ids]
-if 'schemas' in shard and isinstance(shard['schemas'], list):
-    shard['schemas'] = [s for s in shard['schemas'] if s.get('id') in schema_refs]
-
-# This route forwards body.actor to wrkf.run.start, but the live wrkf client
-# rejects the structured ACP actor object and the string envelope actor is not
-# accepted by this route's parser. Omit body.actor and still send x-acp-actor.
-if alias == 'acp.execution.start.workflow_participant_run':
-    for binding in shard['bindings']:
-        body = binding.get('request', {}).get('body', {})
-        inject = body.get('inject')
-        if isinstance(inject, dict):
-            inject.pop('actor', None)
-
-# Keep only artifact kinds in the provider namespace. They are small, provider-owned
-# metadata and some capabilities declare produced artifact kinds.
-if 'artifactKinds' in shard and not isinstance(shard['artifactKinds'], list):
-    shard.pop('artifactKinds', None)
-
-json.dump(shard, open(sys.argv[1], 'w'), separators=(',', ':'))
-PY
-
-  run_cmd_timeout 15 "$out" "$err" cap --server "$SOCK" provider register "$shard" --json
+  run_cmd_timeout 30 "$out" "$err" cap --server "$SOCK" provider register "$manifest" --json
 }
 
 json_get() {
@@ -213,6 +171,7 @@ write_input() {
   WRKF_TASK_ID="$WRKF_TASK_ID" \
   SESSION_ID="$SESSION_ID" \
   RUN_ID="$RUN_ID" \
+  ATTACHMENT_RUN_ID="$ATTACHMENT_RUN_ID" \
   OUTBOUND_RUN_ID="$OUTBOUND_RUN_ID" \
   CANCEL_RUN_ID="$CANCEL_RUN_ID" \
   JOB_ID="$JOB_ID" \
@@ -237,6 +196,7 @@ pbc_task = os.environ.get('PBC_TASK_ID') or f'{smoke}-missing-pbc-task'
 wrkf_task = os.environ.get('WRKF_TASK_ID') or f'{smoke}-missing-wrkf-task'
 session_id = os.environ.get('SESSION_ID') or f'{smoke}-missing-session'
 run_id = os.environ.get('RUN_ID') or f'{smoke}-missing-run'
+attachment_run_id = os.environ.get('ATTACHMENT_RUN_ID') or run_id
 outbound_run_id = os.environ.get('OUTBOUND_RUN_ID') or run_id
 cancel_run_id = os.environ.get('CANCEL_RUN_ID') or run_id
 job_id = os.environ.get('JOB_ID') or f'{smoke}-missing-job'
@@ -306,7 +266,7 @@ payloads = {
     },
     'acp.publication.create.run_outbound_message': {'runId': outbound_run_id, 'text': f'cap-acp run outbound {smoke}'},
     'acp.artifact.create.run_outbound_attachment': {
-        'runId': run_id, 'file': {'path': '/tmp/cap-acp-example.txt'},
+        'runId': attachment_run_id, 'file': 'Y2FwLWFjcCBhdHRhY2htZW50IHNtb2tlCg==',
         'filename': 'cap-acp-example.txt', 'contentType': 'text/plain', 'alt': 'cap-acp smoke attachment',
     },
     'acp.effect.watch.gateway_deliveries': {'status': 'failed', 'gatewayId': gateway, 'limit': 50},
@@ -386,13 +346,20 @@ invoke_raw() {
   local out="$4"
   local err="$5"
   local timeout_sec="${6:-45}"
-  local actor="${7:-$ACTOR}"
+  local actor="${7-$ACTOR}"
 
   rm -f "$out" "$err" "$out.status"
   (
+    local args=(cap --server "$SOCK" invoke "$alias" --input "$input" --scope "$SCOPE")
+    if [ -n "$actor" ]; then
+      args+=(--actor "$actor")
+    fi
+    if [ -n "$key" ]; then
+      args+=(--idempotency-key "$key")
+    fi
+    args+=(--json)
     env -u HRC_RUN_ID -u HRC_HOST_SESSION_ID -u HRC_GENERATION \
-      cap --server "$SOCK" invoke "$alias" --input "$input" --actor "$actor" --scope "$SCOPE" \
-      ${key:+--idempotency-key "$key"} --json >"$out" 2>"$err"
+      "${args[@]}" >"$out" 2>"$err"
   ) &
   local pid=$!
   local elapsed=0
@@ -436,15 +403,10 @@ run_cap() {
   local persistence="$2"
   local key="${3:-}"
   local timeout_sec="${4:-45}"
-  local actor="${5:-$ACTOR}"
+  local actor="${5-$ACTOR}"
   local input="$WORKDIR/${alias//[^A-Za-z0-9_]/_}.input.json"
   local out="$WORKDIR/${alias//[^A-Za-z0-9_]/_}.json"
   local err="$WORKDIR/${alias//[^A-Za-z0-9_]/_}.err"
-
-  if ! register_capability_shard "$alias"; then
-    record_fail "$alias" "could not register per-capability provider shard ($(tr '\n' ' ' <"$WORKDIR/register-${alias//[^A-Za-z0-9_]/_}.err" 2>/dev/null))"
-    return 1
-  fi
 
   write_input "$alias" "$input"
   invoke_raw "$alias" "$input" "$key" "$out" "$err" "$timeout_sec" "$actor"
@@ -488,27 +450,88 @@ run_cap() {
   return 0
 }
 
-run_adapter_block() {
-  local alias="$1"
-  local reason="$2"
-  local timeout_sec="${3:-8}"
+run_watch_events_live() {
+  local alias="acp.session.watch_events"
   local input="$WORKDIR/${alias//[^A-Za-z0-9_]/_}.input.json"
   local out="$WORKDIR/${alias//[^A-Za-z0-9_]/_}.json"
   local err="$WORKDIR/${alias//[^A-Za-z0-9_]/_}.err"
-  if ! register_capability_shard "$alias"; then
-    record_fail "$alias" "could not register per-capability provider shard ($(tr '\n' ' ' <"$WORKDIR/register-${alias//[^A-Za-z0-9_]/_}.err" 2>/dev/null))"
+  write_input "$alias" "$input"
+  invoke_raw "$alias" "$input" "" "$out" "$err" 45
+  local rc=$?
+  if [ "$rc" -eq 124 ]; then
+    record_fail "$alias" "cap invoke timed out after 45s"
     return 1
   fi
-  write_input "$alias" "$input"
-  invoke_raw "$alias" "$input" "${SMOKE_ID}:${alias}" "$out" "$err" "$timeout_sec"
-  local rc=$?
   local status
   status="$(json_get "$out" status)"
-  if [ "$status" = "succeeded" ]; then
-    record_pass "$alias" "adapter now supports formerly blocked route"
-  else
-    record_block "$alias" "ADAPTER-BLOCKED" "$reason"
+  if [ "$status" != "succeeded" ]; then
+    record_fail "$alias" "status=${status:-missing} message=$(json_get "$out" error.message) stderr=$(tr '\n' ' ' <"$err")"
+    return 1
   fi
+  local frames
+  frames="$(python3 - "$out" <<'PY'
+import json, sys
+try:
+    output = json.load(open(sys.argv[1])).get('output')
+except Exception:
+    raise SystemExit(2)
+if not isinstance(output, list):
+    raise SystemExit(1)
+print(len(output))
+PY
+)"
+  local shape_rc=$?
+  if [ "$shape_rc" -ne 0 ]; then
+    record_fail "$alias" "expected output to be an array of ndjson frames"
+    return 1
+  fi
+  record_pass "$alias" "status=succeeded output=array frames=${frames}"
+  return 0
+}
+
+run_outbound_attachment_live() {
+  local alias="acp.artifact.create.run_outbound_attachment"
+  local key="${SMOKE_ID}:attachment"
+  local input="$WORKDIR/${alias//[^A-Za-z0-9_]/_}.input.json"
+  local out="$WORKDIR/${alias//[^A-Za-z0-9_]/_}.json"
+  local err="$WORKDIR/${alias//[^A-Za-z0-9_]/_}.err"
+
+  write_input "$alias" "$input"
+  invoke_raw "$alias" "$input" "$key" "$out" "$err" 45
+  local rc=$?
+  if [ "$rc" -eq 124 ]; then
+    record_fail "$alias" "cap invoke timed out after 45s"
+    return 1
+  fi
+  local status
+  status="$(json_get "$out" status)"
+  if [ "$status" != "succeeded" ]; then
+    record_fail "$alias" "status=${status:-missing} message=$(json_get "$out" error.message) stderr=$(tr '\n' ' ' <"$err")"
+    return 1
+  fi
+
+  local opid attachment_id filename
+  opid="$(json_get "$out" operationId)"
+  assert_operation_succeeded "$alias" "$opid" || return 1
+  attachment_id="$(json_find_key "$out" outboundAttachmentId)"
+  filename="$(json_find_key "$out" filename)"
+  if [ -z "$attachment_id" ] || [ "$filename" != "cap-acp-example.txt" ]; then
+    record_fail "$alias" "invoke succeeded but attachment metadata was missing or wrong (attachment=${attachment_id:-missing}, filename=${filename:-missing})"
+    return 1
+  fi
+
+  local replay="$WORKDIR/${alias//[^A-Za-z0-9_]/_}.replay.json"
+  local replay_err="$WORKDIR/${alias//[^A-Za-z0-9_]/_}.replay.err"
+  invoke_raw "$alias" "$input" "$key" "$replay" "$replay_err" 45
+  local replay_status replay_opid
+  replay_status="$(json_get "$replay" status)"
+  replay_opid="$(json_get "$replay" operationId)"
+  if [ "$replay_status" != "succeeded" ] || [ "$replay_opid" != "$opid" ]; then
+    record_fail "$alias" "idempotency replay did not dedupe (first=${opid}, replay=${replay_opid:-missing}, status=${replay_status:-missing})"
+    return 1
+  fi
+
+  record_pass "$alias" "status=succeeded op=${opid} attachment=${attachment_id}"
   return 0
 }
 
@@ -520,10 +543,6 @@ seed_delivery() {
   local input="$WORKDIR/delivery-${suffix}.json"
   local out="$WORKDIR/delivery-${suffix}.out.json"
   local err="$WORKDIR/delivery-${suffix}.err"
-  register_capability_shard "$alias" >/dev/null 2>&1 || {
-    echo ""
-    return 0
-  }
   write_input "$alias" "$input"
   invoke_raw "$alias" "$input" "${SMOKE_ID}:delivery:${suffix}" "$out" "$err" 45
   DELIVERY_ACK_ID="$old_ack"
@@ -557,6 +576,24 @@ seed_wrkf_task() {
   wrkf --actor agent:smokey --role tester task attach "$task_id" --workflow wrkq-simple-task@1 --json >/dev/null
 }
 
+close_seeded_wrkq_task() {
+  local task_id="$1"
+  [ -n "$task_id" ] || return 0
+  command -v wrkq >/dev/null 2>&1 || return 0
+
+  wrkq comment add "$task_id" -m "cap-acp smoke cleanup: closing throwaway task ${SMOKE_ID}" >/dev/null 2>&1 || true
+  wrkq set "$task_id" --state completed --resolution done >/dev/null 2>&1 || true
+}
+
+close_seeded_wrkq_tasks() {
+  if [ -n "$PBC_TASK_ID" ]; then
+    close_seeded_wrkq_task "$PBC_TASK_ID"
+  fi
+  if [ -n "$WRKF_TASK_ID" ] && [ "$WRKF_TASK_ID" != "$PBC_TASK_ID" ]; then
+    close_seeded_wrkq_task "$WRKF_TASK_ID"
+  fi
+}
+
 seed_session_run() {
   local suffix="$1"
   local old_run="$RUN_ID"
@@ -565,10 +602,6 @@ seed_session_run() {
   local input="$WORKDIR/seed-run-${suffix}.input.json"
   local out="$WORKDIR/seed-run-${suffix}.out.json"
   local err="$WORKDIR/seed-run-${suffix}.err"
-  register_capability_shard "$alias" >/dev/null 2>&1 || {
-    echo ""
-    return 0
-  }
   RUN_ID=""
   write_input "$alias" "$input"
   python3 - "$input" "$suffix" <<'PY'
@@ -579,6 +612,39 @@ data['content'] = f"{data['content']} ({suffix})"
 json.dump(data, open(path, 'w'), separators=(',', ':'))
 PY
   invoke_raw "$alias" "$input" "${SMOKE_ID}:seed-run:${suffix}" "$out" "$err" 90
+  RUN_ID="$old_run"
+  SESSION_ID="$old_session_id"
+  if [ "$(json_get "$out" status)" != "succeeded" ]; then
+    echo ""
+    return 0
+  fi
+  json_find_key "$out" runId
+}
+
+seed_pending_attachment_run() {
+  local old_run="$RUN_ID"
+  local old_session_id="$SESSION_ID"
+  local alias="acp.session.submit_input"
+  local input="$WORKDIR/seed-attachment-run.input.json"
+  local out="$WORKDIR/seed-attachment-run.out.json"
+  local err="$WORKDIR/seed-attachment-run.err"
+  RUN_ID=""
+  SESSION_ID=""
+  write_input "$alias" "$input"
+  python3 - "$input" <<'PY'
+import json, os, sys
+path = sys.argv[1]
+data = json.load(open(path))
+smoke = os.environ.get('SMOKE_ID', 'cap-acp-smoke')
+data['sessionRef'] = {
+    'scopeRef': f'agent:smokey:project:agent-control-plane:task:{smoke}-attachment',
+    'laneRef': 'main',
+}
+data['content'] = f'cap-acp attachment seed {smoke}'
+data['dispatch'] = False
+json.dump(data, open(path, 'w'), separators=(',', ':'))
+PY
+  invoke_raw "$alias" "$input" "${SMOKE_ID}:attachment-seed-run" "$out" "$err" 45
   RUN_ID="$old_run"
   SESSION_ID="$old_session_id"
   if [ "$(json_get "$out" status)" != "succeeded" ]; then
@@ -646,8 +712,17 @@ done
 }
 
 echo "== provider registration mode =="
-echo "Using per-capability shards from capabilities/provider.{acp,pbc}.yaml."
-echo "Note: full-manifest registration currently hangs on catalogd socket transport for these large manifests."
+echo "Registering full provider manifests from capabilities/provider.{acp,pbc}.yaml."
+if ! register_provider_manifest acp; then
+  echo "FAIL: could not register full ACP provider manifest"
+  cat "$WORKDIR/register-acp.err"
+  exit 1
+fi
+if ! register_provider_manifest pbc; then
+  echo "FAIL: could not register full PBC provider manifest"
+  cat "$WORKDIR/register-pbc.err"
+  exit 1
+fi
 
 echo "== seed real wrkq task for PBC route preconditions =="
 PBC_TASK_ID="$(seed_pbc_task "${SMOKE_ID}-pbc" "Cap ACP PBC smoke ${SMOKE_ID}")"
@@ -693,9 +768,16 @@ else
   run_cap "acp.execution.get.run" "none"
 fi
 
-run_adapter_block "acp.session.watch_events" "route is an ndjson stream and http-json expects one JSON response" 8
+run_watch_events_live
+if run_cap "acp.execution.start.workflow_participant_run" "operation_and_execution" "${SMOKE_ID}:participant-run" 90 ""; then
+  ATTACHMENT_RUN_ID="$(seed_pending_attachment_run)"
+fi
+if [ -z "$ATTACHMENT_RUN_ID" ]; then
+  record_block "acp.artifact.create.run_outbound_attachment" "PRECONDITION-BLOCKED" "could not seed a dispatch:false submit_input run for outbound attachment"
+else
+  run_outbound_attachment_live
+fi
 run_cap "acp.session.interrupt" "operation_and_execution" "${SMOKE_ID}:session-interrupt"
-run_cap "acp.execution.start.workflow_participant_run" "operation_and_execution" "${SMOKE_ID}:participant-run" 90
 run_cap "acp.execution.start.wrkf_action" "operation_and_execution" "${SMOKE_ID}:wrkf-action" 90
 if run_cap "acp.surface.bind.interface" "operation_and_execution" "${SMOKE_ID}:bind-interface"; then
   INTERFACE_BINDING_ID="$(json_find_key "$WORKDIR/acp_surface_bind_interface.json" bindingId)"
@@ -716,7 +798,6 @@ if [ -z "$CANCEL_RUN_ID" ]; then
 else
   run_cap "acp.execution.cancel.run" "operation_and_execution" "${SMOKE_ID}:cancel-run"
 fi
-run_adapter_block "acp.artifact.create.run_outbound_attachment" "route requires multipart/form-data; http-json only sends JSON" 8
 run_cap "acp.effect.watch.gateway_deliveries" "none"
 
 DELIVERY_FAIL_ID="$(seed_delivery "fail")"
@@ -739,7 +820,6 @@ else
   RETRY_FAIL_INPUT="$WORKDIR/retry-fail.input.json"
   RETRY_FAIL_OUT="$WORKDIR/retry-fail.out.json"
   RETRY_FAIL_ERR="$WORKDIR/retry-fail.err"
-  register_capability_shard "acp.effect.fail.gateway_delivery" >/dev/null 2>&1
   OLD_DELIVERY_FAIL_ID="$DELIVERY_FAIL_ID"
   DELIVERY_FAIL_ID="$DELIVERY_RETRY_ID"
   write_input "acp.effect.fail.gateway_delivery" "$RETRY_FAIL_INPUT"
@@ -812,9 +892,6 @@ json.dump({'agentId': 'cap-acp-missing-agent', 'role': 'missing'}, open(sys.argv
 PY
 NEG_OUT="$WORKDIR/negative-agent-profile.out.json"
 NEG_ERR="$WORKDIR/negative-agent-profile.err"
-register_capability_shard "acp.agent.patch.profile" || {
-  record_fail "negative.acp.agent.patch.profile.404" "could not register acp.agent.patch.profile shard for negative check"
-}
 invoke_raw "acp.agent.patch.profile" "$NEG_IN" "${SMOKE_ID}:negative-404" "$NEG_OUT" "$NEG_ERR" 30
 NEG_CLASS="$(json_get "$NEG_OUT" error.class)"
 if [ "$NEG_CLASS" = "resource_not_found" ]; then
