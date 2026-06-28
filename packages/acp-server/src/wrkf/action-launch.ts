@@ -1,8 +1,9 @@
 import type { Actor } from 'acp-core'
 import { formatHrcExternalRef, isHrcExternalRef, parseHrcExternalRef } from 'acp-core'
 import type { SessionRef } from 'agent-scope'
+import { parseScopeRef } from 'agent-scope'
 
-import type { LaunchRoleScopedRun } from '../deps.js'
+import type { LaunchCommandScopedRun, LaunchRoleScopedRun } from '../deps.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
 import type { WrkfLaunchInfo, WrkfParticipantLaunchDeps } from './participant-launch.js'
 import { isRecord, readOptionalString, readRecord } from './value.js'
@@ -54,8 +55,10 @@ export type WrkfActionLaunchInput = {
   initialPrompt?: string | undefined
 }
 
-/** Deps mirror the run-level participant-launch adapter exactly. */
-export type WrkfActionLaunchDeps = WrkfParticipantLaunchDeps
+export type WrkfActionLaunchDeps = WrkfParticipantLaunchDeps & {
+  launchCommandScopedRun?: LaunchCommandScopedRun | undefined
+  triageCommandTargetId?: string | undefined
+}
 
 export type WrkfActionLaunchResult = {
   source: 'wrkf-action'
@@ -167,6 +170,17 @@ export async function launchAction(
     throw launchBlockedError(claim.run, 'wrkf action launch already has a durable launch claim')
   }
 
+  if (input.action === 'triage') {
+    return await launchTriageCommandRun(deps, input, {
+      actionRun,
+      actionRunId,
+      wrkfRunId,
+      role,
+      acpRunId: acpRun.runId,
+      claimMetadata: claim.run.metadata,
+    })
+  }
+
   const prompt = buildActionPrompt({ input, actionRun, actionRunId, wrkfRunId, role, workflowRef })
 
   // Launch phase: intent resolution + HRC launch. Both run AFTER wrkf.action.start
@@ -249,6 +263,135 @@ export async function launchAction(
     taskId: input.taskId,
     actionRunId,
     wrkfRunId,
+    hrcRunId: launched.runId,
+    externalRunRef: formatHrcExternalRef(launched.runId),
+    launch: launchInfo,
+    replay: false,
+  })
+}
+
+async function launchTriageCommandRun(
+  deps: WrkfActionLaunchDeps,
+  input: WrkfActionLaunchInput,
+  args: {
+    actionRun: Record<string, unknown>
+    actionRunId: string
+    wrkfRunId: string
+    role: string
+    acpRunId: string
+    claimMetadata?: Readonly<Record<string, unknown>> | undefined
+  }
+): Promise<WrkfActionLaunchResult> {
+  const launchCommandScopedRun = deps.launchCommandScopedRun
+  const configuredTargetId = deps.triageCommandTargetId
+  if (launchCommandScopedRun === undefined || configuredTargetId === undefined) {
+    const error = new Error('configured triage command-run launcher is unavailable')
+    deps.runStore.updateRun(args.acpRunId, {
+      errorCode: 'wrkf_launch_failed_ambiguous',
+      errorMessage: error.message,
+      metadata: mergeMetadata(args.claimMetadata, {
+        wrkfLaunchClaim: {
+          ...readRecord(args.claimMetadata?.['wrkfLaunchClaim']),
+          status: 'launch_failed',
+          wrkfRunId: args.wrkfRunId,
+          errorCode: 'wrkf_launch_failed_ambiguous',
+          errorMessage: error.message,
+          failedAt: new Date().toISOString(),
+        },
+      }),
+    })
+    await failActionRollback(deps, input, {
+      actionRunId: args.actionRunId,
+      wrkfRunId: args.wrkfRunId,
+      error,
+      phase: 'launch',
+    })
+    throw error
+  }
+
+  let launched: Awaited<ReturnType<LaunchCommandScopedRun>>
+  try {
+    launched = await launchCommandScopedRun({
+      configuredTargetId,
+      sessionRef: input.sessionRef,
+      idempotencyKey: `${input.idempotencyKey}:launchCommand`,
+      binding: buildTriageCommandBinding(input, args),
+      stdinJson: {
+        taskId: input.taskId,
+        actionRunId: args.actionRunId,
+        wrkfRunId: args.wrkfRunId,
+        action: input.action,
+        role: args.role,
+        project: readProjectId(input.sessionRef),
+        sessionRef: input.sessionRef.scopeRef,
+        lane: input.sessionRef.laneRef,
+        actionRun: args.actionRun,
+      },
+    })
+  } catch (error) {
+    deps.runStore.updateRun(args.acpRunId, {
+      errorCode: 'wrkf_launch_failed_ambiguous',
+      errorMessage: error instanceof Error ? error.message : String(error),
+      metadata: mergeMetadata(args.claimMetadata, {
+        wrkfLaunchClaim: {
+          ...readRecord(args.claimMetadata?.['wrkfLaunchClaim']),
+          status: 'launch_failed',
+          wrkfRunId: args.wrkfRunId,
+          errorCode: 'wrkf_launch_failed_ambiguous',
+          errorMessage: error instanceof Error ? error.message : String(error),
+          failedAt: new Date().toISOString(),
+        },
+      }),
+    })
+    await failActionRollback(deps, input, {
+      actionRunId: args.actionRunId,
+      wrkfRunId: args.wrkfRunId,
+      error,
+      phase: 'launch',
+    })
+    throw error
+  }
+
+  const launchInfo = toLaunchInfo(launched)
+  const launchedRun = deps.runStore.updateRun(args.acpRunId, {
+    hrcRunId: launched.runId,
+    hostSessionId: launched.hostSessionId,
+    runtimeId: launched.runtimeId,
+    generation: launched.generation,
+    transport: launched.transport,
+    metadata: mergeMetadata(args.claimMetadata, {
+      wrkfLaunchClaim: {
+        ...readRecord(args.claimMetadata?.['wrkfLaunchClaim']),
+        status: 'launched',
+        hrcRunId: launched.runId,
+        launchedAt: new Date().toISOString(),
+      },
+    }),
+  })
+
+  await bindExternalOrMarkOrphan(deps, input, {
+    acpRunId: args.acpRunId,
+    actionRunId: args.actionRunId,
+    wrkfRunId: args.wrkfRunId,
+    hrcRunId: launched.runId,
+    deliveryRef: {
+      kind: 'hrc',
+      runId: launched.runId,
+      hostSessionId: launched.hostSessionId,
+      runtimeId: launched.runtimeId,
+      launchId: launched.launchId,
+      scopeRef: input.sessionRef.scopeRef,
+      laneRef: input.sessionRef.laneRef,
+      generation: launched.generation,
+      transport: launched.transport,
+    },
+    currentMetadata: launchedRun.metadata,
+  })
+
+  return buildResult({
+    taskId: input.taskId,
+    actionRunId: args.actionRunId,
+    wrkfRunId: args.wrkfRunId,
     hrcRunId: launched.runId,
     externalRunRef: formatHrcExternalRef(launched.runId),
     launch: launchInfo,
@@ -387,6 +530,30 @@ function buildResult(args: {
   }
 }
 
+function buildTriageCommandBinding(
+  input: WrkfActionLaunchInput,
+  args: { actionRunId: string; wrkfRunId: string; role: string }
+) {
+  return {
+    WRKF_TASK_ID: input.taskId,
+    WRKF_ACTION_RUN_ID: args.actionRunId,
+    WRKF_RUN_ID: args.wrkfRunId,
+    WRKF_ACTION: input.action,
+    WRKF_ROLE: args.role,
+    ASP_PROJECT: readProjectId(input.sessionRef),
+    HRC_SESSION_REF: input.sessionRef.scopeRef,
+    HRC_LANE: input.sessionRef.laneRef,
+  }
+}
+
+function readProjectId(sessionRef: SessionRef): string {
+  const projectId = parseScopeRef(sessionRef.scopeRef).projectId
+  if (projectId === undefined || projectId.length === 0) {
+    throw new Error('triage command-run launch requires sessionRef.scopeRef to include project')
+  }
+  return projectId
+}
+
 /**
  * The wrkf action surface expects a string actor (`<kind>:<id>`), matching the
  * acceptance form (`agent:action-tester`). The run surface accepts a structured
@@ -475,7 +642,13 @@ function buildActionPrompt(args: {
   return lines.join('\n')
 }
 
-function toLaunchInfo(launched: Awaited<ReturnType<LaunchRoleScopedRun>>): WrkfLaunchInfo {
+function toLaunchInfo(launched: {
+  runId: string
+  hostSessionId?: string | undefined
+  runtimeId?: string | undefined
+  launchId?: string | undefined
+  generation?: number | undefined
+}): WrkfLaunchInfo {
   return {
     runId: launched.runId,
     ...(launched.hostSessionId !== undefined ? { hostSessionId: launched.hostSessionId } : {}),

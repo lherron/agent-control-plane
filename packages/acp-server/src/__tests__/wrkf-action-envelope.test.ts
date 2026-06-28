@@ -41,11 +41,11 @@ import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
 const TASK_ID = 'T-09994'
-const ACTION = 'triage'
-const ROLE = 'triager'
+const ACTION = 'implement'
+const ROLE = 'implementer'
 const IDEMPOTENCY_KEY = 'wrkf-envelope-test-001'
 const SESSION_REF = { scopeRef: 'agent:smokey:project:acp-test:task:T-09994', laneRef: 'main' }
-const CALLER_INITIAL_PROMPT = 'Triage the reported issue: heap overflow on startup.'
+const CALLER_INITIAL_PROMPT = 'Implement the reported fix: heap overflow on startup.'
 
 const CANNED_ACTION_RUN = {
   actionRunId: 'actrun-env-aaa111',
@@ -55,7 +55,7 @@ const CANNED_ACTION_RUN = {
   workflow: { id: 'wrkq-simple-task', version: '1' },
   action: ACTION,
   role: ROLE,
-  lane: 'triage',
+  lane: 'implement',
   status: 'active',
 }
 

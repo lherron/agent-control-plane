@@ -19,6 +19,7 @@ import type {
   HrcActiveRunContributionRequest,
   HrcActiveRunContributionResponse,
   HrcRuntimeIntent,
+  LaunchCommandScopedRunBinding,
 } from 'hrc-core'
 import type { HrcClient } from 'hrc-sdk'
 import type { UnifiedSessionEvent } from 'spaces-runtime'
@@ -100,6 +101,22 @@ export type LaunchRoleScopedRun = (input: {
   generation?: number | undefined
 }>
 
+export type LaunchCommandScopedRun = (input: {
+  configuredTargetId: string
+  sessionRef: SessionRef
+  idempotencyKey: string
+  binding: LaunchCommandScopedRunBinding
+  stdinJson?: unknown | undefined
+}) => Promise<{
+  runId: string
+  hostSessionId: string
+  runtimeId: string
+  generation: number
+  transport: string
+  launchId?: string | undefined
+  replayed?: boolean | undefined
+}>
+
 export type AcpHrcClient = Pick<
   HrcClient,
   | 'capture'
@@ -116,6 +133,7 @@ export type AcpHrcClient = Pick<
   | 'getLatestRunForSession'
   | 'listTargets'
   | 'listSessions'
+  | 'launchCommandScopedRun'
   | 'resolveSession'
   | 'sendInFlightInput'
   | 'semanticDm'
@@ -148,6 +166,8 @@ export interface AcpServerDeps {
   runtimeResolver?: RuntimeResolver | undefined
   agentRootResolver?: AgentRootResolver | undefined
   launchRoleScopedRun?: LaunchRoleScopedRun | undefined
+  launchCommandScopedRun?: LaunchCommandScopedRun | undefined
+  triageCommandTargetId?: string | undefined
   hrcClient?: AcpHrcClient | undefined
   inputAttemptStore?: InputAttemptStore | undefined
   inputAdmissionStore?: InputAdmissionStore | undefined

@@ -78,6 +78,7 @@ const DEFAULT_INPUT_QUEUE_DISPATCHER_INTERVAL_MS = 2_000
 const DEFAULT_INPUT_QUEUE_STALE_PENDING_RUN_TIMEOUT_MS = 45_000
 const DEFAULT_INPUT_QUEUE_LEASE_TIMEOUT_MS = 600_000
 const ACP_SERVER_VERSION = '0.1.0'
+const TRIAGE_COMMAND_TARGET_ID_ENV = 'ACP_TRIAGE_COMMAND_TARGET_ID'
 
 export function isEnabledEnvFlag(value: string | undefined): boolean {
   const normalized = value?.trim().toLowerCase()
@@ -379,6 +380,11 @@ function toHrcSessionRef(scopeRef: string, laneRef: string): string {
   return `${scopeRef}/lane:${laneRef}`
 }
 
+function readTriageCommandTargetId(env: NodeJS.ProcessEnv): string | undefined {
+  const value = env[TRIAGE_COMMAND_TARGET_ID_ENV]?.trim()
+  return value && value.length > 0 ? value : undefined
+}
+
 export function resolveLauncherDeps(
   env: NodeJS.ProcessEnv = process.env,
   cwd = process.cwd(),
@@ -401,9 +407,23 @@ export function resolveLauncherDeps(
       ((socketPath: string) => new HrcClient(socketPath) as unknown as AcpHrcClient)
     const socketPath = resolveControlSocketPath()
     const hrcClient: AcpHrcClient = createHrcClient(socketPath)
+    const triageCommandTargetId = readTriageCommandTargetId(env)
 
     return {
       launchRoleScopedRun: createRealLauncher(),
+      ...(triageCommandTargetId !== undefined
+        ? {
+            triageCommandTargetId,
+            launchCommandScopedRun: (request) =>
+              hrcClient.launchCommandScopedRun({
+                ...request,
+                sessionRef: toHrcSessionRef(
+                  request.sessionRef.scopeRef,
+                  request.sessionRef.laneRef
+                ),
+              }),
+          }
+        : {}),
       runtimeResolver: (sessionRef) => resolveRealLauncherPlacement(sessionRef, { cwd, env }),
       agentRootResolver: ({ agentId }) => resolveRealLauncherAgentRoot(agentId, { cwd, env }),
       hrcClient,

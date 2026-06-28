@@ -13,6 +13,8 @@ import type { RouteHandler } from '../routing/route-context.js'
 import { launchAction } from '../wrkf/action-launch.js'
 import { wrkfErrorToHttpStatus } from '../wrkf/errors.js'
 
+const TRIAGE_COMMAND_MATERIAL_FIELDS = ['command', 'argv', 'cwd', 'env'] as const
+
 /**
  * Node D2 (contract C-0010): authorized HTTP transport for the FROZEN
  * action-launch adapter at `POST /v1/wrkf/actions/launch`.
@@ -43,6 +45,9 @@ export const handleLaunchWrkfAction: RouteHandler = async ({ request, deps, acto
   const body = requireRecord(await parseJsonBody(request))
   const taskId = requireTrimmedStringField(body, 'taskId')
   const action = requireTrimmedStringField(body, 'action')
+  if (action === 'triage') {
+    rejectTriageCommandMaterial(body)
+  }
   const role = readOptionalTrimmedStringField(body, 'role')
   const lane = readOptionalTrimmedStringField(body, 'lane')
   const initialPrompt = readOptionalTrimmedStringField(body, 'initialPrompt')
@@ -67,6 +72,12 @@ export const handleLaunchWrkfAction: RouteHandler = async ({ request, deps, acto
         wrkf,
         runStore: deps.runStore,
         launchRoleScopedRun: deps.launchRoleScopedRun,
+        ...(deps.launchCommandScopedRun !== undefined
+          ? { launchCommandScopedRun: deps.launchCommandScopedRun }
+          : {}),
+        ...(deps.triageCommandTargetId !== undefined
+          ? { triageCommandTargetId: deps.triageCommandTargetId }
+          : {}),
         ...(deps.runtimeResolver !== undefined ? { runtimeResolver: deps.runtimeResolver } : {}),
         ...(deps.agentRootResolver !== undefined
           ? { agentRootResolver: deps.agentRootResolver }
@@ -88,6 +99,18 @@ export const handleLaunchWrkfAction: RouteHandler = async ({ request, deps, acto
     return json(result, result.replay ? 200 : 201)
   } catch (error) {
     throw mapWrkfError(error)
+  }
+}
+
+function rejectTriageCommandMaterial(body: Record<string, unknown>): void {
+  for (const field of TRIAGE_COMMAND_MATERIAL_FIELDS) {
+    if (body[field] !== undefined) {
+      throw new AcpHttpError(
+        400,
+        'client_command_material_rejected',
+        `client-supplied ${field} is not accepted for action:"triage"; the command target is server-configured`
+      )
+    }
   }
 }
 
