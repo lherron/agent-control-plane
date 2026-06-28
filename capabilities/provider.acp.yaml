@@ -1066,11 +1066,8 @@
         "timeoutMs": 30000
       },
       "response": {
-        "stream": {
-          "mode": "ndjson",
-          "item": "$",
-          "maxItems": 500,
-          "maxMs": 15000
+        "output": {
+          "fromBody": "$"
         }
       }
     },
@@ -1333,8 +1330,11 @@
         }
       },
       "response": {
-        "output": {
-          "fromBody": "$"
+        "stream": {
+          "mode": "ndjson",
+          "item": "$",
+          "maxItems": 500,
+          "maxMs": 15000
         }
       }
     },
