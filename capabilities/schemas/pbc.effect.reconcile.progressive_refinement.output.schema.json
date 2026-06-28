@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "provider:pbc/effect.reconcile.progressive_refinement.output.v1",
+  "type": "object",
+  "description": "Body returned by handlePbcReconcileEffects.",
+  "required": ["taskId", "delivered", "skipped"],
+  "additionalProperties": true,
+  "properties": {
+    "taskId": { "type": "string" },
+    "delivered": { "type": "array", "items": { "type": "string" } },
+    "skipped": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["effectId", "reason"],
+        "additionalProperties": true,
+        "properties": {
+          "effectId": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    }
+  }
+}

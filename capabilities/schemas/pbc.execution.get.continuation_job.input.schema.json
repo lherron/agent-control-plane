@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "provider:pbc/execution.get.continuation_job.input.v1",
+  "type": "object",
+  "description": "Path parameter accepted by handlePbcGetJob.",
+  "required": ["jobId"],
+  "additionalProperties": true,
+  "properties": {
+    "jobId": { "type": "string", "minLength": 1 }
+  }
+}

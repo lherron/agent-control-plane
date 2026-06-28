@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "provider:pbc/effect.reconcile.progressive_refinement.input.v1",
+  "type": "object",
+  "description": "Path parameter accepted by handlePbcReconcileEffects; request body is ignored.",
+  "required": ["taskId"],
+  "additionalProperties": true,
+  "properties": {
+    "taskId": { "type": "string", "minLength": 1 },
+    "idempotencyKey": { "type": "string", "minLength": 1 },
+    "actor": { "$ref": "#/$defs/actor" }
+  },
+  "$defs": {
+    "actor": {
+      "type": "object",
+      "required": ["kind", "id"],
+      "additionalProperties": true,
+      "properties": {
+        "kind": { "type": "string", "enum": ["human", "agent", "system"] },
+        "id": { "type": "string", "minLength": 1 },
+        "displayName": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "provider:pbc/execution.get.continuation_job.output.v1",
+  "type": "object",
+  "description": "Body returned by handlePbcGetJob.",
+  "required": ["id", "taskId", "workflowRef", "status", "attempt", "revisionAtAdmission", "createdAt", "updatedAt"],
+  "additionalProperties": true,
+  "properties": {
+    "id": { "type": "string" },
+    "taskId": { "type": "string" },
+    "workflowRef": { "type": "string" },
+    "status": { "type": "string", "enum": ["queued", "running", "succeeded", "failed", "cancelled"] },
+    "attempt": { "type": "number" },
+    "revisionAtAdmission": { "type": "string" },
+    "createdAt": { "type": "string" },
+    "updatedAt": { "type": "string" },
+    "startedAt": { "type": "string" },
+    "finishedAt": { "type": "string" },
+    "stopReason": { "type": "string" },
+    "result": {},
+    "error": {}
+  }
+}

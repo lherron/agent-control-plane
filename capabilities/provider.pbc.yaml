@@ -1,0 +1,489 @@
+{
+  "provider": {
+    "id": "pbc",
+    "title": "Progressive Brief Compiler",
+    "summary": "ACP-hosted PBC progressive refinement workflow provider."
+  },
+  "capabilities": [
+    {
+      "id": "provider:pbc/workflow_instance.start.progressive_refinement@1",
+      "provider": "pbc",
+      "root": "workflow_instance",
+      "verb": "start",
+      "variant": "progressive_refinement",
+      "title": "Start PBC progressive refinement",
+      "summary": "Start or reuse PBC progressive refinement for a task via POST /v1/pbc/tasks/:taskId/start.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:pbc/workflow_instance.start.progressive_refinement.input.v1",
+        "output": "provider:pbc/workflow_instance.start.progressive_refinement.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "produces": [
+        {
+          "role": "projection",
+          "kind": "provider:pbc/pbc_task_projection@1"
+        },
+        {
+          "role": "active_job",
+          "kind": "provider:pbc/pbc_continuation_job@1"
+        }
+      ],
+      "binding": "binding:pbc/workflow_instance.start.progressive_refinement.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/pbc.workflow-instance-start-progressive-refinement.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:pbc/workflow_instance.get.progressive_refinement@1",
+      "provider": "pbc",
+      "root": "workflow_instance",
+      "verb": "get",
+      "variant": "progressive_refinement",
+      "title": "Get PBC progressive refinement state",
+      "summary": "Read PBC process state for a task via GET /v1/pbc/tasks/:taskId.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:pbc/workflow_instance.get.progressive_refinement.input.v1",
+        "output": "provider:pbc/workflow_instance.get.progressive_refinement.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "none"
+      },
+      "idempotency": {
+        "required": false
+      },
+      "produces": [
+        {
+          "role": "projection",
+          "kind": "provider:pbc/pbc_task_projection@1"
+        }
+      ],
+      "binding": "binding:pbc/workflow_instance.get.progressive_refinement.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/pbc.workflow-instance-get-progressive-refinement.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:pbc/workflow_instance.submit_input.progressive_refinement@1",
+      "provider": "pbc",
+      "root": "workflow_instance",
+      "verb": "submit_input",
+      "variant": "progressive_refinement",
+      "title": "Submit PBC progressive refinement input",
+      "summary": "Submit product-owner input into PBC refinement via POST /v1/pbc/tasks/:taskId/input.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:pbc/workflow_instance.submit_input.progressive_refinement.input.v1",
+        "output": "provider:pbc/workflow_instance.submit_input.progressive_refinement.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "produces": [
+        {
+          "role": "projection",
+          "kind": "provider:pbc/pbc_task_projection@1"
+        },
+        {
+          "role": "active_job",
+          "kind": "provider:pbc/pbc_continuation_job@1"
+        }
+      ],
+      "binding": "binding:pbc/workflow_instance.submit_input.progressive_refinement.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/pbc.workflow-instance-submit-input-progressive-refinement.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:pbc/workflow_instance.continue.progressive_refinement@1",
+      "provider": "pbc",
+      "root": "workflow_instance",
+      "verb": "continue",
+      "variant": "progressive_refinement",
+      "title": "Continue PBC progressive refinement",
+      "summary": "Admit or replay a durable PBC continuation job via POST /v1/pbc/tasks/:taskId/continue.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:pbc/workflow_instance.continue.progressive_refinement.input.v1",
+        "output": "provider:pbc/workflow_instance.continue.progressive_refinement.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "produces": [
+        {
+          "role": "projection",
+          "kind": "provider:pbc/pbc_task_projection@1"
+        },
+        {
+          "role": "active_job",
+          "kind": "provider:pbc/pbc_continuation_job@1"
+        }
+      ],
+      "binding": "binding:pbc/workflow_instance.continue.progressive_refinement.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/pbc.workflow-instance-continue-progressive-refinement.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:pbc/workflow_instance.dispose.progressive_refinement@1",
+      "provider": "pbc",
+      "root": "workflow_instance",
+      "verb": "dispose",
+      "variant": "progressive_refinement",
+      "title": "Dispose PBC progressive refinement",
+      "summary": "Dispose PBC process state via POST /v1/pbc/tasks/:taskId/dispose.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:pbc/workflow_instance.dispose.progressive_refinement.input.v1",
+        "output": "provider:pbc/workflow_instance.dispose.progressive_refinement.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "produces": [
+        {
+          "role": "projection",
+          "kind": "provider:pbc/pbc_task_projection@1"
+        }
+      ],
+      "binding": "binding:pbc/workflow_instance.dispose.progressive_refinement.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/pbc.workflow-instance-dispose-progressive-refinement.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:pbc/effect.reconcile.progressive_refinement@1",
+      "provider": "pbc",
+      "root": "effect",
+      "verb": "reconcile",
+      "variant": "progressive_refinement",
+      "title": "Reconcile PBC progressive refinement effects",
+      "summary": "Drain pending PBC wrkf effects for a task via POST /v1/pbc/tasks/:taskId/effects/reconcile.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:pbc/effect.reconcile.progressive_refinement.input.v1",
+        "output": "provider:pbc/effect.reconcile.progressive_refinement.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "produces": [
+        {
+          "role": "effect_reconciliation",
+          "kind": "provider:pbc/effect_reconciliation@1"
+        }
+      ],
+      "binding": "binding:pbc/effect.reconcile.progressive_refinement.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/pbc.effect-reconcile-progressive-refinement.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:pbc/execution.get.continuation_job@1",
+      "provider": "pbc",
+      "root": "execution",
+      "verb": "get",
+      "variant": "continuation_job",
+      "title": "Get PBC continuation job",
+      "summary": "Read durable PBC continuation job state via GET /v1/pbc/jobs/:jobId.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:pbc/execution.get.continuation_job.input.v1",
+        "output": "provider:pbc/execution.get.continuation_job.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "none"
+      },
+      "idempotency": {
+        "required": false
+      },
+      "produces": [
+        {
+          "role": "continuation_job",
+          "kind": "provider:pbc/pbc_continuation_job@1"
+        }
+      ],
+      "binding": "binding:pbc/execution.get.continuation_job.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/pbc.execution-get-continuation-job.json"
+        }
+      ]
+    }
+  ],
+  "artifactKinds": [
+    {
+      "id": "provider:pbc/pbc_task_projection@1",
+      "summary": "Browser-safe PBC task projection returned by /v1/pbc/tasks routes."
+    },
+    {
+      "id": "provider:pbc/pbc_continuation_job@1",
+      "summary": "Durable PBC continuation job record."
+    },
+    {
+      "id": "provider:pbc/effect_reconciliation@1",
+      "summary": "PBC effect delivery reconciliation result."
+    }
+  ],
+  "bindings": [
+    {
+      "id": "binding:pbc/workflow_instance.start.progressive_refinement.http@1",
+      "capability": "provider:pbc/workflow_instance.start.progressive_refinement@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/pbc/tasks/:taskId/start",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:pbc/workflow_instance.get.progressive_refinement.http@1",
+      "capability": "provider:pbc/workflow_instance.get.progressive_refinement@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "GET",
+        "url": "${ACP_BASE_URL}/v1/pbc/tasks/:taskId",
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:pbc/workflow_instance.submit_input.progressive_refinement.http@1",
+      "capability": "provider:pbc/workflow_instance.submit_input.progressive_refinement@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/pbc/tasks/:taskId/input",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:pbc/workflow_instance.continue.progressive_refinement.http@1",
+      "capability": "provider:pbc/workflow_instance.continue.progressive_refinement@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/pbc/tasks/:taskId/continue",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:pbc/workflow_instance.dispose.progressive_refinement.http@1",
+      "capability": "provider:pbc/workflow_instance.dispose.progressive_refinement@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/pbc/tasks/:taskId/dispose",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:pbc/effect.reconcile.progressive_refinement.http@1",
+      "capability": "provider:pbc/effect.reconcile.progressive_refinement@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/pbc/tasks/:taskId/effects/reconcile",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:pbc/execution.get.continuation_job.http@1",
+      "capability": "provider:pbc/execution.get.continuation_job@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "GET",
+        "url": "${ACP_BASE_URL}/v1/pbc/jobs/:jobId",
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    }
+  ],
+  "aliases": [
+    {
+      "alias": "pbc.workflow_instance.start.progressive_refinement",
+      "resolvesTo": "provider:pbc/workflow_instance.start.progressive_refinement@1"
+    },
+    {
+      "alias": "pbc.workflow_instance.get.progressive_refinement",
+      "resolvesTo": "provider:pbc/workflow_instance.get.progressive_refinement@1"
+    },
+    {
+      "alias": "pbc.workflow_instance.submit_input.progressive_refinement",
+      "resolvesTo": "provider:pbc/workflow_instance.submit_input.progressive_refinement@1"
+    },
+    {
+      "alias": "pbc.workflow_instance.continue.progressive_refinement",
+      "resolvesTo": "provider:pbc/workflow_instance.continue.progressive_refinement@1"
+    },
+    {
+      "alias": "pbc.workflow_instance.dispose.progressive_refinement",
+      "resolvesTo": "provider:pbc/workflow_instance.dispose.progressive_refinement@1"
+    },
+    {
+      "alias": "pbc.effect.reconcile.progressive_refinement",
+      "resolvesTo": "provider:pbc/effect.reconcile.progressive_refinement@1"
+    },
+    {
+      "alias": "pbc.execution.get.continuation_job",
+      "resolvesTo": "provider:pbc/execution.get.continuation_job@1"
+    }
+  ],
+  "deferredCapabilities": [
+    {
+      "id": "provider:pbc/artifact.compose.product_contract@1",
+      "reason": "Deferred because the existing /v1/pbc/* JSON routes expose workflow projections and evidence-derived artifacts, but no route composes and returns a standalone product_contract artifact. Binding it to GET /v1/pbc/tasks/:taskId would change the caller-visible contract."
+    },
+    {
+      "id": "provider:pbc/artifact.compose.implementation_plan@1",
+      "reason": "Deferred because no confirmed /v1/pbc/* route produces a standalone implementation_plan artifact through the http-json adapter. This likely needs a provider-owned runner or new artifact route."
+    },
+    {
+      "id": "provider:pbc/provider.request_capability@1",
+      "reason": "Deferred because ACP/PBC has no existing provider-owned capability request intake route. Binding it now would invent a route."
+    }
+  ]
+}

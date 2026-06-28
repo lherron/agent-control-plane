@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "provider:pbc/workflow_instance.dispose.progressive_refinement.input.v1",
+  "type": "object",
+  "description": "Path parameter and body accepted by handlePbcDispose.",
+  "required": ["taskId", "resolution", "reason"],
+  "additionalProperties": true,
+  "properties": {
+    "taskId": { "type": "string", "minLength": 1 },
+    "resolution": { "type": "string", "minLength": 1 },
+    "reason": { "type": "string", "minLength": 1 },
+    "idempotencyKey": { "type": "string", "minLength": 1 },
+    "actor": { "$ref": "#/$defs/actor" }
+  },
+  "$defs": {
+    "actor": {
+      "type": "object",
+      "required": ["kind", "id"],
+      "additionalProperties": true,
+      "properties": {
+        "kind": { "type": "string", "enum": ["human", "agent", "system"] },
+        "id": { "type": "string", "minLength": 1 },
+        "displayName": { "type": "string" }
+      }
+    }
+  }
+}

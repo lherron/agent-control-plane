@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "provider:pbc/workflow_instance.get.progressive_refinement.input.v1",
+  "type": "object",
+  "description": "Path parameter accepted by handlePbcGetTask.",
+  "required": ["taskId"],
+  "additionalProperties": true,
+  "properties": {
+    "taskId": { "type": "string", "minLength": 1 }
+  }
+}

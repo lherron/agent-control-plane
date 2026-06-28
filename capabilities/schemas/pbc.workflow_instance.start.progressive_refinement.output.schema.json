@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "provider:pbc/workflow_instance.start.progressive_refinement.output.v1",
+  "description": "PbcTaskProjection returned by buildPbcTaskProjection.",
+  "$ref": "#/$defs/pbcTaskProjection",
+  "$defs": {
+    "artifactView": {
+      "type": "object",
+      "required": ["id", "kind"],
+      "additionalProperties": true,
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "type": "string" },
+        "data": { "type": "object", "additionalProperties": true },
+        "summary": { "type": "string" },
+        "facts": { "type": "object", "additionalProperties": true },
+        "actor": {}
+      }
+    },
+    "pbcTaskProjection": {
+      "type": "object",
+      "required": ["source", "taskId", "workflowRef", "task", "instance", "screen", "artifacts", "obligations", "actions", "effects", "diagnostics"],
+      "additionalProperties": true,
+      "properties": {
+        "source": { "const": "wrkf" },
+        "taskId": { "type": "string" },
+        "workflowRef": { "type": "string" },
+        "task": { "type": "object", "additionalProperties": true },
+        "instance": {
+          "type": "object",
+          "required": ["id", "status", "phase", "revision"],
+          "additionalProperties": true,
+          "properties": {
+            "id": { "type": "string" },
+            "status": { "type": "string" },
+            "phase": { "type": "string" },
+            "revision": { "type": "number" },
+            "contextHash": { "type": "string" },
+            "stale": { "type": "boolean" }
+          }
+        },
+        "screen": { "type": "string", "enum": ["starting", "working", "clarification", "patch_decision", "finalized", "disposed", "blocked", "error"] },
+        "currentInput": { "type": "object", "additionalProperties": true },
+        "artifacts": { "type": "object", "additionalProperties": { "$ref": "#/$defs/artifactView" } },
+        "obligations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "kind", "status"],
+            "additionalProperties": true,
+            "properties": {
+              "id": { "type": "string" },
+              "kind": { "type": "string" },
+              "status": { "type": "string" },
+              "prompt": { "type": "string" }
+            }
+          }
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["kind", "enabled"],
+            "additionalProperties": true,
+            "properties": {
+              "kind": { "type": "string" },
+              "enabled": { "type": "boolean" }
+            }
+          }
+        },
+        "activeJob": { "$ref": "#/$defs/projectedJob" },
+        "lastJob": { "$ref": "#/$defs/projectedJob" },
+        "effects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "kind", "status"],
+            "additionalProperties": true,
+            "properties": {
+              "id": { "type": "string" },
+              "kind": { "type": "string" },
+              "status": { "type": "string" },
+              "retryable": { "type": "boolean" }
+            }
+          }
+        },
+        "diagnostics": {
+          "type": "object",
+          "required": ["pack", "revision"],
+          "additionalProperties": true,
+          "properties": {
+            "pack": { "const": "pbc" },
+            "revision": { "type": "number" },
+            "contextHash": { "type": "string" },
+            "legalTransitions": { "type": "array", "items": { "type": "string" } },
+            "stopReason": { "type": "string" },
+            "warnings": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "projectedJob": {
+      "type": "object",
+      "required": ["id", "status"],
+      "additionalProperties": true,
+      "properties": {
+        "id": { "type": "string" },
+        "status": { "type": "string" },
+        "startedAt": { "type": "string" },
+        "finishedAt": { "type": "string" },
+        "stopReason": { "type": "string" },
+        "error": {}
+      }
+    }
+  }
+}

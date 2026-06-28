@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "provider:pbc/workflow_instance.submit_input.progressive_refinement.output.v1",
+  "description": "PbcTaskProjection returned by buildPbcTaskProjection.",
+  "$ref": "provider:pbc/workflow_instance.start.progressive_refinement.output.v1"
+}

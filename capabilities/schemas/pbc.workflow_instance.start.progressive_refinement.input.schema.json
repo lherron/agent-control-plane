@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "provider:pbc/workflow_instance.start.progressive_refinement.input.v1",
+  "type": "object",
+  "description": "Path parameter and body accepted by handlePbcStart.",
+  "required": ["taskId", "idempotencyKey"],
+  "additionalProperties": true,
+  "properties": {
+    "taskId": { "type": "string", "minLength": 1 },
+    "idempotencyKey": { "type": "string", "minLength": 1 },
+    "intake": { "type": "object", "additionalProperties": true },
+    "actor": { "$ref": "#/$defs/actor" }
+  },
+  "$defs": {
+    "actor": {
+      "type": "object",
+      "required": ["kind", "id"],
+      "additionalProperties": true,
+      "properties": {
+        "kind": { "type": "string", "enum": ["human", "agent", "system"] },
+        "id": { "type": "string", "minLength": 1 },
+        "displayName": { "type": "string" }
+      }
+    }
+  }
+}
