@@ -50,6 +50,7 @@ import {
 import { createEventJobEvaluator } from './jobs/event-job-evaluator.js'
 import { advanceJobFlow } from './jobs/flow-engine.js'
 import { ensureDispatchTimeoutHealthJob } from './jobs/health-dispatch-timeout.js'
+import { createJobLifecycleEmitter } from './jobs/lifecycle-events.js'
 import { createJobOutputReconciler } from './jobs/output-reconciler.js'
 import { getRunFinalAssistantText } from './jobs/run-final-output.js'
 import { resolveLaunchIntent } from './launch-role-scoped.js'
@@ -1024,12 +1025,34 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
           evaluateEventJob: createEventJobEvaluator(),
         })
       : undefined
+  const jobLifecycleEmitter =
+    jobsStore !== undefined
+      ? createJobLifecycleEmitter({
+          systemEvents: resolvedDeps.adminStore.systemEvents,
+          jobsStore,
+          resolveFinalText: (runId) =>
+            getRunFinalAssistantText(
+              {
+                getRun: (id) => resolvedDeps.runStore.getRun(id),
+                hrcDbPath: resolveDatabasePath(),
+              },
+              runId
+            ),
+        })
+      : undefined
   const jobOutputReconciler =
     jobsStore !== undefined && schedulerEnabled
       ? createJobOutputReconciler({
           jobsStore,
           runStore: resolvedDeps.runStore,
           interfaceStore: resolvedDeps.interfaceStore,
+          ...(jobLifecycleEmitter !== undefined
+            ? {
+                onJobRunSettled: (run, job) => {
+                  jobLifecycleEmitter.reconcile(run, job)
+                },
+              }
+            : {}),
         })
       : undefined
   const pbcWorkerRunner = schedulerEnabled
@@ -1055,7 +1078,16 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
           void Promise.resolve()
             .then(async () => {
               if (jobsScheduler !== undefined) {
-                await jobsScheduler.tick(new Date())
+                // tick() returns every job-run it touched this tick (scheduled
+                // dispatch, dispatch_failed, flow advance, flow_advance_failed,
+                // inflight flow re-advance). Project lifecycle telemetry from the
+                // committed results — idempotent, so re-seen inflight runs no-op.
+                const touched = await jobsScheduler.tick(new Date())
+                if (jobLifecycleEmitter !== undefined) {
+                  for (const run of touched) {
+                    jobLifecycleEmitter.reconcile(run)
+                  }
+                }
               }
               if (jobOutputReconciler !== undefined) {
                 await jobOutputReconciler.runOnce()

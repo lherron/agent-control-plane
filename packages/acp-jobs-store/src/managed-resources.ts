@@ -267,6 +267,7 @@ function desiredToJobInput(input: ApplyManagedJobInput): CreateJobInput | Valida
   const output = isRecord(desired['output'])
     ? (desired['output'] as CreateJobInput['output'])
     : undefined
+  const flow = isRecord(desired['flow']) ? (desired['flow'] as CreateJobInput['flow']) : undefined
 
   if (input.resourceKind === 'event-hook') {
     const validationError = validateManagedEventTrigger(triggerRecord)
@@ -292,6 +293,7 @@ function desiredToJobInput(input: ApplyManagedJobInput): CreateJobInput | Valida
       trigger: validation.trigger,
       input: inputTemplate,
       ...(output !== undefined ? { output } : {}),
+      ...(flow !== undefined ? { flow } : {}),
       disabled,
       actor: { kind: 'system', id: 'managed-resources' },
       actorStamp: 'system:managed-resources',
@@ -310,6 +312,7 @@ function desiredToJobInput(input: ApplyManagedJobInput): CreateJobInput | Valida
     schedule: schedule as CreateJobInput['schedule'],
     input: inputTemplate,
     ...(output !== undefined ? { output } : {}),
+    ...(flow !== undefined ? { flow } : {}),
     disabled,
     actor: { kind: 'system', id: 'managed-resources' },
     actorStamp: 'system:managed-resources',
@@ -348,6 +351,11 @@ function liveProjectionFromJob(
     live['output'] = job.output
   } else {
     live['output'] = undefined
+  }
+  if (job.flow !== undefined) {
+    live['flow'] = job.flow
+  } else {
+    live['flow'] = undefined
   }
   live['title'] = job.description
 

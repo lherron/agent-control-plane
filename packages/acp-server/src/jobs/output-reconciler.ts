@@ -23,6 +23,12 @@ export type JobOutputReconcilerInput = {
   limit?: number | undefined
   timeoutMs?: number | undefined
   maxPayloadBytes?: number | undefined
+  /**
+   * Observer hook: invoked with the committed job-run record after each terminal
+   * transition (non-flow completion path). Used to project job.completed lifecycle
+   * telemetry. Must never throw back into reconciliation or mutate job state.
+   */
+  onJobRunSettled?: ((run: JobRunRecord, job: JobRecord) => void) | undefined
 }
 
 export type JobOutputReconciler = {
@@ -61,9 +67,24 @@ export function createJobOutputReconciler(input: JobOutputReconcilerInput): JobO
       return
     }
 
+    // Commit a terminal job-run transition and project it to the lifecycle
+    // observer. The observer is best-effort and isolated: it never alters the
+    // committed job-run state (jobs store remains source of truth).
+    const settle = (patch: Parameters<JobsStore['updateJobRun']>[1]): void => {
+      const { jobRun: settled } = input.jobsStore.updateJobRun(jobRun.jobRunId, patch)
+      try {
+        input.onJobRunSettled?.(settled, job)
+      } catch (error) {
+        console.error(
+          `[job-output-reconciler] lifecycle emit failed for ${settled.jobRunId}:`,
+          error instanceof Error ? error.message : String(error)
+        )
+      }
+    }
+
     const nowIso = now().toISOString()
     if (run.status === 'failed' || run.status === 'cancelled') {
-      input.jobsStore.updateJobRun(jobRun.jobRunId, {
+      settle({
         status: 'failed',
         errorCode: `run_${run.status}`,
         errorMessage: run.errorMessage ?? `ACP run ${run.runId} ended ${run.status}`,
@@ -78,7 +99,7 @@ export function createJobOutputReconciler(input: JobOutputReconcilerInput): JobO
 
     const sinks = jobRun.output?.sinks ?? []
     if (sinks.length === 0) {
-      input.jobsStore.updateJobRun(jobRun.jobRunId, {
+      settle({
         status: 'succeeded',
         completedAt: nowIso,
       })
@@ -87,7 +108,7 @@ export function createJobOutputReconciler(input: JobOutputReconcilerInput): JobO
 
     const delivery = selectFinalDelivery(input.interfaceStore.deliveries.listByRun(run.runId))
     if (delivery === undefined) {
-      input.jobsStore.updateJobRun(jobRun.jobRunId, {
+      settle({
         status: 'failed',
         errorCode: 'output_delivery_missing',
         errorMessage: `ACP run ${run.runId} completed without a final text/markdown interface delivery`,
@@ -113,7 +134,7 @@ export function createJobOutputReconciler(input: JobOutputReconcilerInput): JobO
     )
 
     if (results.every((result) => result === 'succeeded')) {
-      input.jobsStore.updateJobRun(jobRun.jobRunId, {
+      settle({
         status: 'succeeded',
         completedAt: nowIso,
       })

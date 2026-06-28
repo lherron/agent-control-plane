@@ -44,6 +44,12 @@ export const handleListSystemEvents: RouteHandler = async ({ url, deps }) => {
       ...(readOptionalQueryValue(url, 'occurredBefore') !== undefined
         ? { occurredBefore: readOptionalQueryValue(url, 'occurredBefore') }
         : {}),
+      ...(readOptionalQueryValue(url, 'afterEventId') !== undefined
+        ? { afterEventId: readOptionalQueryValue(url, 'afterEventId') }
+        : {}),
+      ...(readOptionalQueryValue(url, 'limit') !== undefined
+        ? { limit: readOptionalQueryValue(url, 'limit') }
+        : {}),
     }),
   })
 }

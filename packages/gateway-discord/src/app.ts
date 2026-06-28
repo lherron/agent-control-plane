@@ -42,6 +42,7 @@ import {
   formatSessionSubtext,
   identityFromSessionRef,
 } from './identity.js'
+import { type JobLifecycleSystemEvent, buildJobRunCard } from './job-runs.js'
 import {
   type KeywordRoute,
   buildDiscordThreadLaneRef,
@@ -57,7 +58,8 @@ import type {
   RenderFrame,
   UiHandle,
 } from './types.js'
-import { createWebhookManager } from './webhooks.js'
+import { type WebhookPayload, createWebhookManager } from './webhooks.js'
+import { buildWorkActivityCard, isWorkActivityKind } from './work-activity.js'
 import {
   type FinalDeliveryWritePlan,
   buildProgressEditContent,
@@ -475,9 +477,22 @@ export type GatewayDiscordAppOptions = {
   deliveryPollMs?: number | undefined
   deliveryIdleMs?: number | undefined
   liveProgressTimeoutMs?: number | undefined
+  /** When set, post job.dispatched/job.completed lifecycle cards to this fixed
+   * Discord channel (the #job-runs egress). Unset disables job-runs cards. */
+  jobRunsChannelId?: string | undefined
+  jobRunsPollMs?: number | undefined
+  /** When set, post wrkq.* / wrkf.* lifecycle cards to this fixed Discord channel
+   * (the #work-activity egress, T-05270). Unset disables only those cards; the
+   * shared system-events poll loop still runs if jobRunsChannelId is set. */
+  workActivityChannelId?: string | undefined
 }
 
 export const log = createLogger({ component: 'gateway-discord' })
+
+/** Shape of GET /v1/admin/system-events. */
+type SystemEventsResponse = {
+  events: JobLifecycleSystemEvent[]
+}
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms))
@@ -520,6 +535,16 @@ export class GatewayDiscordApp {
   private deliveryLoopPromise: Promise<void> | undefined
   private deliveryLoopStopped = false
   private deliveryCursor: string | undefined
+  private readonly jobRunsChannelId?: string | undefined
+  private readonly jobRunsPollMs: number
+  private readonly workActivityChannelId?: string | undefined
+  private systemEventsLoopPromise: Promise<void> | undefined
+  private systemEventsLoopStopped = false
+  // Monotonic event_id cursor: gap-free, no-skip, no-duplicate (unlike occurredAt
+  // which can collide). In-memory, so the guarantee is best-effort near-real-time
+  // egress — across a gateway restart the cursor re-primes to "now" rather than
+  // backfilling history.
+  private systemEventsCursor: string | undefined
 
   constructor(options: GatewayDiscordAppOptions) {
     this.acpBaseUrl = normalizeBaseUrl(options.acpBaseUrl)
@@ -545,6 +570,15 @@ export class GatewayDiscordApp {
     this.deliveryPollMs = options.deliveryPollMs ?? DEFAULT_DELIVERY_POLL_MS
     this.deliveryIdleMs = options.deliveryIdleMs ?? DEFAULT_DELIVERY_IDLE_MS
     this.liveProgressTimeoutMs = options.liveProgressTimeoutMs ?? DEFAULT_LIVE_PROGRESS_TIMEOUT_MS
+    this.jobRunsChannelId =
+      options.jobRunsChannelId !== undefined && options.jobRunsChannelId.trim().length > 0
+        ? options.jobRunsChannelId.trim()
+        : undefined
+    this.jobRunsPollMs = options.jobRunsPollMs ?? this.deliveryPollMs
+    this.workActivityChannelId =
+      options.workActivityChannelId !== undefined && options.workActivityChannelId.trim().length > 0
+        ? options.workActivityChannelId.trim()
+        : undefined
     this.discordToken = options.discordToken
     this.createdClient = options.client === undefined
     this.webhooks = createWebhookManager({
@@ -610,10 +644,30 @@ export class GatewayDiscordApp {
 
     this.deliveryLoopStopped = false
     this.deliveryLoopPromise = this.runDeliveryLoop()
+
+    if (this.jobRunsChannelId !== undefined || this.workActivityChannelId !== undefined) {
+      // One global system-events loop feeds every configured lifecycle channel.
+      // Prime the cursor to the current tail so a (re)start never floods a channel
+      // with historical cards. Best-effort: events that occurred while the gateway
+      // was down are skipped.
+      this.systemEventsCursor = await this.primeSystemEventsCursor()
+      this.systemEventsLoopStopped = false
+      this.systemEventsLoopPromise = this.runSystemEventsLoop()
+      log.info('gw.system_events.enabled', {
+        message: 'system-events lifecycle egress enabled',
+        trace: { gatewayId: this.gatewayId },
+        data: {
+          jobRunsChannelId: this.jobRunsChannelId,
+          workActivityChannelId: this.workActivityChannelId,
+          fromEventId: this.systemEventsCursor,
+        },
+      })
+    }
   }
 
   async stop(): Promise<void> {
     this.deliveryLoopStopped = true
+    this.systemEventsLoopStopped = true
     this.stopAllLiveSubscriptions('app_stop')
     for (const placeholder of this.placeholdersByRunId.values()) {
       this.clearPlaceholderTimers(placeholder)
@@ -634,6 +688,11 @@ export class GatewayDiscordApp {
     if (this.deliveryLoopPromise) {
       await this.deliveryLoopPromise
       this.deliveryLoopPromise = undefined
+    }
+
+    if (this.systemEventsLoopPromise) {
+      await this.systemEventsLoopPromise
+      this.systemEventsLoopPromise = undefined
     }
 
     this.client.off(Events.MessageCreate, this.onMessageCreateBound)
@@ -1120,6 +1179,109 @@ export class GatewayDiscordApp {
       } catch (error) {
         log.error('gw.deliveries.loop_error', {
           message: 'Delivery loop iteration failed',
+          trace: { gatewayId: this.gatewayId },
+          err: { message: error instanceof Error ? error.message : String(error) },
+        })
+        await sleep(this.deliveryIdleMs)
+      }
+    }
+  }
+
+  /** Read the current max system-event id so a (re)start tails new events only.
+   * Returns '0' when no events exist yet (so the first poll still uses a bounded
+   * afterEventId cursor rather than fetching the whole table). */
+  private async primeSystemEventsCursor(): Promise<string> {
+    try {
+      const payload = await this.fetchJson<SystemEventsResponse>('/v1/admin/system-events')
+      let max = 0
+      for (const event of payload.events) {
+        const id = Number(event.eventId)
+        if (Number.isFinite(id) && id > max) {
+          max = id
+        }
+      }
+      return String(max)
+    } catch (error) {
+      log.warn('gw.jobruns.prime_failed', {
+        message: 'Failed to prime job-runs cursor; starting from 0',
+        trace: { gatewayId: this.gatewayId },
+        err: { message: error instanceof Error ? error.message : String(error) },
+      })
+      return '0'
+    }
+  }
+
+  /** Resolve the destination channel + rendered card for a system event, by
+   * family. job.* -> #job-runs (buildJobRunCard); wrkq.* / wrkf.* -> #work-activity
+   * (buildWorkActivityCard). Returns undefined when the family's channel is unset
+   * or the builder skips the kind. Pure dispatch — no interface-binding lookup. */
+  private resolveCardTarget(
+    event: JobLifecycleSystemEvent
+  ): { channelId: string; card: WebhookPayload } | undefined {
+    if (event.kind.startsWith('job.')) {
+      if (this.jobRunsChannelId === undefined) {
+        return undefined
+      }
+      const card = buildJobRunCard(event)
+      return card === undefined ? undefined : { channelId: this.jobRunsChannelId, card }
+    }
+    if (isWorkActivityKind(event.kind)) {
+      if (this.workActivityChannelId === undefined) {
+        return undefined
+      }
+      const card = buildWorkActivityCard(event)
+      return card === undefined ? undefined : { channelId: this.workActivityChannelId, card }
+    }
+    return undefined
+  }
+
+  /** One incremental poll of the system-events projection. Advances the monotonic
+   * cursor over EVERY event seen (every kind, including unrelated/disabled-family
+   * ones) so they are not re-fetched, and dispatches each new lifecycle event to
+   * its family channel. Returns the number of events seen for loop pacing. */
+  async pollSystemEventsOnce(): Promise<number> {
+    if (this.jobRunsChannelId === undefined && this.workActivityChannelId === undefined) {
+      return 0
+    }
+    const cursor = this.systemEventsCursor ?? '0'
+    const payload = await this.fetchJson<SystemEventsResponse>(
+      `/v1/admin/system-events?afterEventId=${encodeURIComponent(cursor)}&limit=200`
+    )
+
+    for (const event of payload.events) {
+      // Advance the cursor first so a card that fails to render/send is not
+      // retried forever (best-effort egress; the stores remain the record).
+      const id = Number(event.eventId)
+      if (Number.isFinite(id) && id > Number(this.systemEventsCursor ?? '0')) {
+        this.systemEventsCursor = String(id)
+      }
+      const target = this.resolveCardTarget(event)
+      if (target === undefined) {
+        continue
+      }
+      try {
+        await this.webhooks.send(target.channelId, target.card)
+      } catch (error) {
+        log.warn('gw.system_events.post_failed', {
+          message: 'Failed to post lifecycle card',
+          trace: { gatewayId: this.gatewayId },
+          data: { eventId: event.eventId, kind: event.kind, channelId: target.channelId },
+          err: { message: error instanceof Error ? error.message : String(error) },
+        })
+      }
+    }
+
+    return payload.events.length
+  }
+
+  private async runSystemEventsLoop(): Promise<void> {
+    while (!this.systemEventsLoopStopped) {
+      try {
+        const count = await this.pollSystemEventsOnce()
+        await sleep(count > 0 ? this.jobRunsPollMs : this.deliveryIdleMs)
+      } catch (error) {
+        log.error('gw.jobruns.loop_error', {
+          message: 'job-runs loop iteration failed',
           trace: { gatewayId: this.gatewayId },
           err: { message: error instanceof Error ? error.message : String(error) },
         })

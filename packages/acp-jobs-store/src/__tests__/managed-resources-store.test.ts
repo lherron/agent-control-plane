@@ -235,6 +235,42 @@ describe('same-transaction provenance (Phase D invariant)', () => {
     expect(prov?.jobId).toBe(result.job.jobId)
   })
 
+  test('applyManagedJob preserves scheduled-job flow definitions for fresh agent sessions', () => {
+    const store = freshStore()
+    const scheduledFlow: ApplyManagedJobInput = {
+      ...SCHEDULED_JOB,
+      desiredJson: {
+        ...SCHEDULED_JOB.desiredJson,
+        input: { content: 'legacy content should not be dispatched for flow jobs' },
+        flow: {
+          sequence: [
+            {
+              id: 'run',
+              fresh: true,
+              input: 'Run the scheduled job with fresh context.',
+            },
+          ],
+        },
+      },
+    }
+
+    const result = applyManagedJob(store, scheduledFlow)
+
+    expect(result.outcome).toBe('created')
+    if (result.outcome !== 'created') return
+
+    expect(result.job.flow).toEqual({
+      sequence: [
+        {
+          id: 'run',
+          fresh: true,
+          input: 'Run the scheduled job with fresh context.',
+        },
+      ],
+    })
+    expect(detectJobDrift(store, scheduledFlow.projectionId)).toEqual({ hasDrift: false })
+  })
+
   test('applyManagedJob for event-hook preserves output sinks in projection and drift', () => {
     const store = freshStore()
     const hookWithOutput: ApplyManagedJobInput = {

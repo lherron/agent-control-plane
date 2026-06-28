@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
-# Real-binary e2e for ACP/PBC semantic capabilities:
+# Real-binary e2e for ACP semantic capabilities:
 # installed `cap` -> catalogd -> http-json -> live acp-server.
 #
 # This is intentionally an executable smoke harness, not a unit test. It registers
-# the provider manifests into a real catalogd process, invokes every cataloged
-# ACP/PBC alias through the public cap CLI, and records whether each capability
+# the provider manifests into a real catalogd process, invokes cataloged ACP
+# aliases through the public cap CLI, and records whether each capability
 # passed, hit a known adapter limitation, hit an explicit precondition block, or
 # exposed an unexplained/manifest failure.
+#
+# PBC capabilities are opt-in because they create real wrkq tasks and can launch
+# pbc-writer/pbc-reviewer agents. Set CAP_PBC_E2E=1 only when deliberately
+# validating cap-pbc changes.
+#
+# Real ACP agent-dispatch paths are also opt-in. Set CAP_ACP_E2E_REAL_AGENT=1
+# when deliberately validating HRC turn launch/delivery behavior through cap.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -18,6 +25,7 @@ CATPID=""
 PASS=0
 FAIL=0
 BLOCK=0
+SKIP=0
 DETAILS=()
 MANIFEST_DEFECTS=()
 
@@ -48,6 +56,27 @@ DELIVERY_RETRY_ID=""
 PBC_JOB_ID=""
 INTERFACE_BINDING_ID=""
 WRKQ_PROJECT="${WRKQ_PROJECT:-agent-control-plane}"
+CAP_PBC_E2E="${CAP_PBC_E2E:-0}"
+CAP_ACP_E2E_REAL_AGENT="${CAP_ACP_E2E_REAL_AGENT:-0}"
+
+truthy() {
+  case "$1" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+pbc_e2e_enabled() {
+  truthy "${CAP_PBC_E2E}"
+}
+
+real_agent_e2e_enabled() {
+  truthy "${CAP_ACP_E2E_REAL_AGENT}"
+}
 
 cleanup() {
   [ -n "$CATPID" ] && kill "$CATPID" 2>/dev/null
@@ -182,6 +211,7 @@ write_input() {
   DELIVERY_RETRY_ID="$DELIVERY_RETRY_ID" \
   PBC_JOB_ID="$PBC_JOB_ID" \
   INTERFACE_BINDING_ID="$INTERFACE_BINDING_ID" \
+  CAP_ACP_E2E_REAL_AGENT="$CAP_ACP_E2E_REAL_AGENT" \
   python3 - "$file" <<'PY'
 import json, os, sys
 
@@ -208,6 +238,7 @@ delivery_retry = os.environ.get('DELIVERY_RETRY_ID') or f'{smoke}-missing-delive
 pbc_job = os.environ.get('PBC_JOB_ID') or f'{smoke}-missing-pbc-job'
 binding_id = os.environ.get('INTERFACE_BINDING_ID') or ''
 session_ref = {'scopeRef': scope, 'laneRef': lane}
+real_agent = os.environ.get('CAP_ACP_E2E_REAL_AGENT', '').strip().lower() in {'1', 'true', 'yes', 'on'}
 
 payloads = {
     'acp.agent.create': {
@@ -233,7 +264,7 @@ payloads = {
     'acp.session.resolve_runtime': {'sessionRef': session_ref},
     'acp.session.submit_input': {
         'sessionRef': session_ref, 'content': f'cap-acp smoke input {smoke}',
-        'dispatch': True, 'intent': {'kind': 'new_work'},
+        'dispatch': real_agent, 'intent': {'kind': 'new_work'},
     },
     'acp.session.watch_events': {'sessionId': session_id, 'follow': False, 'fromSeq': 1},
     'acp.session.interrupt': {'sessionId': session_id},
@@ -338,6 +369,14 @@ record_block() {
   BLOCK=$((BLOCK + 1))
   DETAILS+=("${kind}  ${alias} - ${reason}")
   echo "${kind}  ${alias} - ${reason}"
+}
+
+record_skip() {
+  local alias="$1"
+  local reason="$2"
+  SKIP=$((SKIP + 1))
+  DETAILS+=("SKIP  ${alias} - ${reason}")
+  echo "SKIP  ${alias} - ${reason}"
 }
 
 invoke_raw() {
@@ -689,10 +728,20 @@ run_outbound_message_if_active() {
   esac
 }
 
-echo "== ACP/PBC capability http-json e2e =="
+echo "== ACP capability http-json e2e =="
 echo "SMOKE_ID=$SMOKE_ID"
 echo "ACP_BASE_URL=$ACP_BASE_URL"
 echo "ACP target: running dev server with namespaced throwaway data"
+if pbc_e2e_enabled; then
+  echo "PBC capability smoke: enabled (CAP_PBC_E2E=${CAP_PBC_E2E})"
+else
+  echo "PBC capability smoke: skipped (set CAP_PBC_E2E=1 to run cap-pbc)"
+fi
+if real_agent_e2e_enabled; then
+  echo "Real agent dispatch: enabled (CAP_ACP_E2E_REAL_AGENT=${CAP_ACP_E2E_REAL_AGENT})"
+else
+  echo "Real agent dispatch: skipped (set CAP_ACP_E2E_REAL_AGENT=1 to enqueue HRC turns)"
+fi
 
 need cap
 need catalogd
@@ -719,25 +768,30 @@ done
 }
 
 echo "== provider registration mode =="
-echo "Registering full provider manifests from capabilities/provider.{acp,pbc}.yaml."
+echo "Registering full ACP provider manifest from capabilities/provider.acp.yaml."
 if ! register_provider_manifest acp; then
   echo "FAIL: could not register full ACP provider manifest"
   cat "$WORKDIR/register-acp.err"
   exit 1
 fi
-if ! register_provider_manifest pbc; then
-  echo "FAIL: could not register full PBC provider manifest"
-  cat "$WORKDIR/register-pbc.err"
-  exit 1
+if pbc_e2e_enabled; then
+  echo "Registering full PBC provider manifest from capabilities/provider.pbc.yaml."
+  if ! register_provider_manifest pbc; then
+    echo "FAIL: could not register full PBC provider manifest"
+    cat "$WORKDIR/register-pbc.err"
+    exit 1
+  fi
 fi
 
-echo "== seed real wrkq task for PBC route preconditions =="
-PBC_TASK_ID="$(seed_pbc_task "${SMOKE_ID}-pbc" "Cap ACP PBC smoke ${SMOKE_ID}")"
-if [ -z "$PBC_TASK_ID" ]; then
-  echo "FAIL: could not create wrkq seed task"
-  exit 1
+if pbc_e2e_enabled; then
+  echo "== seed real wrkq task for PBC route preconditions =="
+  PBC_TASK_ID="$(seed_pbc_task "${SMOKE_ID}-pbc" "Cap ACP PBC smoke ${SMOKE_ID}")"
+  if [ -z "$PBC_TASK_ID" ]; then
+    echo "FAIL: could not create wrkq seed task"
+    exit 1
+  fi
+  echo "PBC_TASK_ID=$PBC_TASK_ID"
 fi
-echo "PBC_TASK_ID=$PBC_TASK_ID"
 
 echo "== seed real wrkf task for WRKF action/participant preconditions =="
 WRKF_TASK_ID="$(seed_pbc_task "${SMOKE_ID}-wrkf" "Cap ACP WRKF smoke ${SMOKE_ID}")"
@@ -776,7 +830,15 @@ else
 fi
 
 run_watch_events_live
-if run_cap "acp.execution.start.workflow_participant_run" "operation_and_execution" "${SMOKE_ID}:participant-run" 90 ""; then
+if ! real_agent_e2e_enabled; then
+  cancel_seeded_run "$RUN_ID"
+fi
+if real_agent_e2e_enabled; then
+  if run_cap "acp.execution.start.workflow_participant_run" "operation_and_execution" "${SMOKE_ID}:participant-run" 90 ""; then
+    ATTACHMENT_RUN_ID="$(seed_pending_attachment_run)"
+  fi
+else
+  record_skip "acp.execution.start.workflow_participant_run" "real HRC agent dispatch disabled; set CAP_ACP_E2E_REAL_AGENT=1"
   ATTACHMENT_RUN_ID="$(seed_pending_attachment_run)"
 fi
 if [ -z "$ATTACHMENT_RUN_ID" ]; then
@@ -786,15 +848,27 @@ else
   cancel_seeded_run "$ATTACHMENT_RUN_ID"
 fi
 run_cap "acp.session.interrupt" "operation_and_execution" "${SMOKE_ID}:session-interrupt"
-run_cap "acp.execution.start.wrkf_action" "operation_and_execution" "${SMOKE_ID}:wrkf-action" 90
+if real_agent_e2e_enabled; then
+  run_cap "acp.execution.start.wrkf_action" "operation_and_execution" "${SMOKE_ID}:wrkf-action" 90
+else
+  record_skip "acp.execution.start.wrkf_action" "real HRC agent dispatch disabled; set CAP_ACP_E2E_REAL_AGENT=1"
+fi
 if run_cap "acp.surface.bind.interface" "operation_and_execution" "${SMOKE_ID}:bind-interface"; then
   INTERFACE_BINDING_ID="$(json_find_key "$WORKDIR/acp_surface_bind_interface.json" bindingId)"
 fi
-if run_cap "acp.session.ingest_interface_message" "operation_and_execution" "${SMOKE_ID}:interface-message" 90; then
-  OUTBOUND_RUN_ID="$(json_find_key "$WORKDIR/acp_session_ingest_interface_message.json" runId)"
-  [ -z "$RUN_ID" ] && RUN_ID="$OUTBOUND_RUN_ID"
+if real_agent_e2e_enabled; then
+  if run_cap "acp.session.ingest_interface_message" "operation_and_execution" "${SMOKE_ID}:interface-message" 90; then
+    OUTBOUND_RUN_ID="$(json_find_key "$WORKDIR/acp_session_ingest_interface_message.json" runId)"
+    [ -z "$RUN_ID" ] && RUN_ID="$OUTBOUND_RUN_ID"
+  fi
+else
+  record_skip "acp.session.ingest_interface_message" "real HRC agent dispatch disabled; set CAP_ACP_E2E_REAL_AGENT=1"
 fi
-run_outbound_message_if_active
+if real_agent_e2e_enabled; then
+  run_outbound_message_if_active
+else
+  record_skip "acp.publication.create.run_outbound_message" "interface-originated run skipped with real HRC agent dispatch disabled"
+fi
 
 if run_cap "acp.publication.create.gateway_message" "operation_and_execution" "${SMOKE_ID}:gateway-message"; then
   DELIVERY_ACK_ID="$(json_find_key "$WORKDIR/acp_publication_create_gateway_message.json" deliveryRequestId)"
@@ -850,46 +924,52 @@ if [ -z "$JOB_ID" ]; then
   record_block "acp.execution.start.automation_job" "PRECONDITION-BLOCKED" "no jobId was produced by acp.workflow_definition.create.automation_job"
 else
   run_cap "acp.workflow_definition.patch.automation_job" "operation_and_execution" "${SMOKE_ID}:job-patch"
-  if run_cap "acp.execution.start.automation_job" "operation_and_execution" "${SMOKE_ID}:job-run"; then
-    JOB_RUN_ID="$(json_find_key "$WORKDIR/acp_execution_start_automation_job.json" jobRunId)"
-    [ -n "$JOB_RUN_ID" ] || JOB_RUN_ID="$(json_find_key "$WORKDIR/acp_execution_start_automation_job.json" id)"
+  if real_agent_e2e_enabled; then
+    if run_cap "acp.execution.start.automation_job" "operation_and_execution" "${SMOKE_ID}:job-run"; then
+      JOB_RUN_ID="$(json_find_key "$WORKDIR/acp_execution_start_automation_job.json" jobRunId)"
+      [ -n "$JOB_RUN_ID" ] || JOB_RUN_ID="$(json_find_key "$WORKDIR/acp_execution_start_automation_job.json" id)"
+    fi
+  else
+    record_skip "acp.execution.start.automation_job" "real HRC agent dispatch disabled; set CAP_ACP_E2E_REAL_AGENT=1"
   fi
 fi
 if [ -z "$JOB_RUN_ID" ]; then
-  record_block "acp.execution.get.automation_job_run" "PRECONDITION-BLOCKED" "no jobRunId was produced by acp.execution.start.automation_job"
+  record_skip "acp.execution.get.automation_job_run" "automation job start skipped"
 else
   run_cap "acp.execution.get.automation_job_run" "none"
 fi
 run_cap "acp.event.ingest.normalized" "operation_and_execution" "${SMOKE_ID}:event-ingest"
 
-echo "== invoke PBC capabilities =="
-if run_cap "pbc.workflow_instance.start.progressive_refinement" "operation_and_execution" "${SMOKE_ID}:pbc-start" 90; then
-  PBC_JOB_ID="$(json_get "$WORKDIR/pbc_workflow_instance_start_progressive_refinement.json" output.activeJob.id)"
-  [ -n "$PBC_JOB_ID" ] || PBC_JOB_ID="$(json_find_key "$WORKDIR/pbc_workflow_instance_start_progressive_refinement.json" jobId)"
-fi
-run_cap "pbc.workflow_instance.get.progressive_refinement" "none"
-PBC_SCREEN="$(json_get "$WORKDIR/pbc_workflow_instance_get_progressive_refinement.json" output.screen)"
-case "$PBC_SCREEN" in
-  clarification)
-    run_cap "pbc.workflow_instance.submit_input.progressive_refinement" "operation_and_execution" "${SMOKE_ID}:pbc-input" 90 "$HUMAN_ACTOR"
-    ;;
-  patch_decision)
-    record_block "pbc.workflow_instance.submit_input.progressive_refinement" "PRECONDITION-BLOCKED" "current screen is patch_decision; harness does not synthesize a patch_decision payload"
-    ;;
-  *)
-    record_block "pbc.workflow_instance.submit_input.progressive_refinement" "PRECONDITION-BLOCKED" "current screen '${PBC_SCREEN:-missing}' does not accept clarification_response input"
-    ;;
-esac
-if run_cap "pbc.workflow_instance.continue.progressive_refinement" "operation_and_execution" "${SMOKE_ID}:pbc-continue" 90; then
-  [ -z "$PBC_JOB_ID" ] && PBC_JOB_ID="$(json_get "$WORKDIR/pbc_workflow_instance_continue_progressive_refinement.json" output.activeJob.id)"
-  [ -z "$PBC_JOB_ID" ] && PBC_JOB_ID="$(json_find_key "$WORKDIR/pbc_workflow_instance_continue_progressive_refinement.json" jobId)"
-fi
-run_cap "pbc.workflow_instance.dispose.progressive_refinement" "operation_and_execution" "${SMOKE_ID}:pbc-dispose" 90 "$HUMAN_ACTOR"
-run_cap "pbc.effect.reconcile.progressive_refinement" "operation_and_execution" "${SMOKE_ID}:pbc-reconcile" 90
-if [ -z "$PBC_JOB_ID" ]; then
-  record_block "pbc.execution.get.continuation_job" "PRECONDITION-BLOCKED" "no continuation jobId was produced by PBC start/continue"
-else
-  run_cap "pbc.execution.get.continuation_job" "none"
+if pbc_e2e_enabled; then
+  echo "== invoke PBC capabilities =="
+  if run_cap "pbc.workflow_instance.start.progressive_refinement" "operation_and_execution" "${SMOKE_ID}:pbc-start" 90; then
+    PBC_JOB_ID="$(json_get "$WORKDIR/pbc_workflow_instance_start_progressive_refinement.json" output.activeJob.id)"
+    [ -n "$PBC_JOB_ID" ] || PBC_JOB_ID="$(json_find_key "$WORKDIR/pbc_workflow_instance_start_progressive_refinement.json" jobId)"
+  fi
+  run_cap "pbc.workflow_instance.get.progressive_refinement" "none"
+  PBC_SCREEN="$(json_get "$WORKDIR/pbc_workflow_instance_get_progressive_refinement.json" output.screen)"
+  case "$PBC_SCREEN" in
+    clarification)
+      run_cap "pbc.workflow_instance.submit_input.progressive_refinement" "operation_and_execution" "${SMOKE_ID}:pbc-input" 90 "$HUMAN_ACTOR"
+      ;;
+    patch_decision)
+      record_block "pbc.workflow_instance.submit_input.progressive_refinement" "PRECONDITION-BLOCKED" "current screen is patch_decision; harness does not synthesize a patch_decision payload"
+      ;;
+    *)
+      record_block "pbc.workflow_instance.submit_input.progressive_refinement" "PRECONDITION-BLOCKED" "current screen '${PBC_SCREEN:-missing}' does not accept clarification_response input"
+      ;;
+  esac
+  if run_cap "pbc.workflow_instance.continue.progressive_refinement" "operation_and_execution" "${SMOKE_ID}:pbc-continue" 90; then
+    [ -z "$PBC_JOB_ID" ] && PBC_JOB_ID="$(json_get "$WORKDIR/pbc_workflow_instance_continue_progressive_refinement.json" output.activeJob.id)"
+    [ -z "$PBC_JOB_ID" ] && PBC_JOB_ID="$(json_find_key "$WORKDIR/pbc_workflow_instance_continue_progressive_refinement.json" jobId)"
+  fi
+  run_cap "pbc.workflow_instance.dispose.progressive_refinement" "operation_and_execution" "${SMOKE_ID}:pbc-dispose" 90 "$HUMAN_ACTOR"
+  run_cap "pbc.effect.reconcile.progressive_refinement" "operation_and_execution" "${SMOKE_ID}:pbc-reconcile" 90
+  if [ -z "$PBC_JOB_ID" ]; then
+    record_block "pbc.execution.get.continuation_job" "PRECONDITION-BLOCKED" "no continuation jobId was produced by PBC start/continue"
+  else
+    run_cap "pbc.execution.get.continuation_job" "none"
+  fi
 fi
 
 echo "== negative error-class mapping =="
@@ -909,7 +989,7 @@ else
 fi
 
 echo
-echo "=== ACP/PBC CAP E2E: ${PASS} pass / ${FAIL} fail / ${BLOCK} blocked ==="
+echo "=== ACP CAP E2E: ${PASS} pass / ${FAIL} fail / ${BLOCK} blocked / ${SKIP} skipped ==="
 printf '%s\n' "${DETAILS[@]}"
 
 if [ "${#MANIFEST_DEFECTS[@]}" -gt 0 ]; then

@@ -26,7 +26,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@wrkq/client": "0.1.0-dev.20260626114238",
+    "@wrkq/client": "0.1.0-dev.20260628134417",
     "acp-capability-host": "*",
     "acp-admin-store": "*",
     "acp-conversation": "*",
@@ -35,12 +35,12 @@
     "acp-interface-store": "*",
     "acp-jobs-store": "*",
     "acp-state-store": "*",
-    "agent-scope": "0.1.1-dev.20260623212923",
+    "agent-scope": "0.1.1-dev.20260628084653",
     "coordination-substrate": "*",
-    "hrc-core": "0.1.0-dev.20260623212941",
-    "hrc-sdk": "0.1.0-dev.20260623212941",
-    "spaces-config": "0.1.1-dev.20260623212923",
-    "spaces-runtime": "0.1.1-dev.20260623212923",
+    "hrc-core": "0.1.0-dev.20260628104331",
+    "hrc-sdk": "0.1.0-dev.20260628104331",
+    "spaces-config": "0.1.1-dev.20260628084653",
+    "spaces-runtime": "0.1.1-dev.20260628084653",
     "wrkq-lib": "*"
   },
   "devDependencies": {

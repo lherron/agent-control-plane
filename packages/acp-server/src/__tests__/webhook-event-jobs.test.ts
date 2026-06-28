@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
+import { createInMemoryAdminStore } from 'acp-admin-store'
 import { createInMemoryJobsStore } from 'acp-jobs-store'
 
 import type { Actor } from 'acp-core'
@@ -11,10 +12,15 @@ import { errorResponse } from '../http.js'
 
 const ACTOR: Actor = { kind: 'system', id: 'test' }
 
-function makeDeps() {
-  const jobsStore = createInMemoryJobsStore()
-  const deps = { jobsStore, defaultActor: ACTOR } as unknown as ResolvedAcpServerDeps
-  return { jobsStore, deps }
+function makeDeps(options: { jobsStore?: boolean } = {}) {
+  const adminStore = createInMemoryAdminStore()
+  const jobsStore = options.jobsStore === false ? undefined : createInMemoryJobsStore()
+  const deps = {
+    adminStore,
+    ...(jobsStore !== undefined ? { jobsStore } : {}),
+    defaultActor: ACTOR,
+  } as unknown as ResolvedAcpServerDeps
+  return { adminStore, jobsStore, deps }
 }
 
 function jsonRequest(method: string, path: string, body: unknown): Request {
@@ -279,6 +285,49 @@ describe('POST /v1/webhooks/wrkq', () => {
       deps
     )
     expect(res.status).toBe(400)
+  })
+
+  // T-05270: recognized event appends exactly one lifecycle system event.
+  test('recognized event appends one wrkq.* system event (observer projection)', async () => {
+    const { adminStore, deps } = makeDeps()
+    const res = await call(
+      handleWrkqWebhook,
+      jsonRequest('POST', '/v1/webhooks/wrkq', payload),
+      deps
+    )
+    expect(res.status).toBe(204)
+    const rows = adminStore.systemEvents.list({ kind: 'wrkq.created' })
+    expect(rows).toHaveLength(1)
+    expect((rows[0]?.payload as Record<string, unknown>)['canonicalEventId']).toBe('wrkq:evt_7')
+  })
+
+  // Required test #4: jobsStore absent still appends the system event + 204.
+  test('jobsStore absent → system event still appended, returns 204', async () => {
+    const { adminStore, deps } = makeDeps({ jobsStore: false })
+    const res = await call(
+      handleWrkqWebhook,
+      jsonRequest('POST', '/v1/webhooks/wrkq', payload),
+      deps
+    )
+    expect(res.status).toBe(204)
+    expect(adminStore.systemEvents.list({ kind: 'wrkq.created' })).toHaveLength(1)
+  })
+
+  // Required test #5: unknown event name still ingested for the inbox but no card.
+  test('unknown event name → 204, inbox row written, no lifecycle system event', async () => {
+    const { adminStore, jobsStore, deps } = makeDeps()
+    const res = await call(
+      handleWrkqWebhook,
+      jsonRequest('POST', '/v1/webhooks/wrkq', {
+        ...payload,
+        event: 'snoozed',
+        event_id: 'evt_unknown',
+      }),
+      deps
+    )
+    expect(res.status).toBe(204)
+    expect(jobsStore?.getInboxEvent('wrkq:evt_unknown').event).toBeDefined()
+    expect(adminStore.systemEvents.list()).toHaveLength(0)
   })
 })
 

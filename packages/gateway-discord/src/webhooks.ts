@@ -2,13 +2,28 @@ import { httpErrorField } from './discord-errors.js'
 import { createLogger } from './logger.js'
 
 export type WebhookPayload = {
-  content: string
+  // Discord requires at least one of content / embeds / files / components.
+  // content is optional so embed-only cards (e.g. #job-runs) can be sent without
+  // a redundant text body; callers must still satisfy the at-least-one invariant.
+  content?: string | undefined
+  embeds?: unknown[] | undefined
   username?: string | undefined
   avatar_url?: string | undefined
   avatarURL?: string | undefined
   webhookAvatar?: WebhookAvatarOverride | undefined
   files?: unknown[] | undefined
   components?: unknown[] | undefined
+}
+
+/** Discord rejects a webhook send with no renderable content. Mirror that rule
+ * locally so an empty payload fails fast at the call site instead of as a 400. */
+export function webhookPayloadHasContent(payload: WebhookPayload): boolean {
+  return (
+    (typeof payload.content === 'string' && payload.content.length > 0) ||
+    (payload.embeds !== undefined && payload.embeds.length > 0) ||
+    (payload.files !== undefined && payload.files.length > 0) ||
+    (payload.components !== undefined && payload.components.length > 0)
+  )
 }
 
 export type WebhookAvatarOverride = {
@@ -376,6 +391,11 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
   return {
     getOrCreateWebhook,
     async send(channelId, payload) {
+      if (!webhookPayloadHasContent(payload)) {
+        throw new Error(
+          'Webhook send payload must include at least one of content/embeds/files/components'
+        )
+      }
       let resolvedWebhookId: string | undefined
       const webhookAvatar = payload.webhookAvatar
       try {

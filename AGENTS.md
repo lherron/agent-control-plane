@@ -102,6 +102,17 @@ Report the real Discord smoke result when handing work back. If real Discord
 validation is blocked, say exactly what blocked it and do not present
 fake-client output as a successful smoke test.
 
+## ACP Lifecycle Events → Discord Cards
+
+ACP lifecycle telemetry (e.g. `job.dispatched` / `job.completed`) is appended to
+the **system-events** store (`/v1/admin/system-events`) — an immutable observer
+projection, not authority — and rendered as embed cards in a fixed channel by
+gateway-discord, polling globally on a monotonic `afterEventId` cursor (never via
+interface bindings). Channel: env `ACP_DISCORD_JOB_RUNS_CHANNEL_ID` → Consul
+`cfg/dev/_global/discord/job_runs_channel_id`; unset disables it. Validate new
+event cards with a real run (see Discord Gateway Validation).
+**Full design + how to add a new event card: `docs/discord-event-architecture.md`.**
+
 ## ACP Discord Bindings
 
 Bindings map a Discord conversation to an ACP session scope. Manage them under

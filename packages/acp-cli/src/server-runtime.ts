@@ -372,6 +372,37 @@ async function resolveDiscordToken(env: NodeJS.ProcessEnv = process.env): Promis
   )
 }
 
+/** Resolve the fixed #job-runs channel id for lifecycle cards (T-05245). Env wins
+ * over Consul; unset returns undefined so the gateway's job-runs loop stays off.
+ * This is host config — no channel-name or interface-binding lookup. */
+async function resolveJobRunsChannelId(
+  env: NodeJS.ProcessEnv = process.env
+): Promise<string | undefined> {
+  const envValue = optionalEnvValue(env, 'ACP_DISCORD_JOB_RUNS_CHANNEL_ID')
+  if (envValue !== undefined) {
+    return envValue
+  }
+  const key =
+    env['ACP_DISCORD_JOB_RUNS_CHANNEL_KV'] ?? 'cfg/dev/_global/discord/job_runs_channel_id'
+  return consulKvGet(key)
+}
+
+/** Resolve the fixed #work-activity channel id for wrkq.* / wrkf.* lifecycle
+ * cards (T-05270). Env wins over Consul; unset returns undefined so only those
+ * cards stay off (job-runs is unaffected). Host config — no channel-name lookup. */
+async function resolveWorkActivityChannelId(
+  env: NodeJS.ProcessEnv = process.env
+): Promise<string | undefined> {
+  const envValue = optionalEnvValue(env, 'ACP_DISCORD_WORK_ACTIVITY_CHANNEL_ID')
+  if (envValue !== undefined) {
+    return envValue
+  }
+  const key =
+    env['ACP_DISCORD_WORK_ACTIVITY_CHANNEL_KV'] ??
+    'cfg/dev/_global/discord/work_activity_channel_id'
+  return consulKvGet(key)
+}
+
 function writeServerProcessLog(event: string, details?: Record<string, unknown>): void {
   const suffix = details === undefined ? '' : ` ${JSON.stringify(details)}`
   process.stderr.write(`${new Date().toISOString()} [acp-server] INFO ${event}${suffix}\n`)
@@ -381,6 +412,8 @@ async function startGatewayInProcess(
   options: AcpServerCliOptions,
   env: NodeJS.ProcessEnv = process.env
 ): Promise<GatewayDiscordApp> {
+  const jobRunsChannelId = await resolveJobRunsChannelId(env)
+  const workActivityChannelId = await resolveWorkActivityChannelId(env)
   const app = new GatewayDiscordApp({
     acpBaseUrl: `http://${options.host}:${options.port}`,
     gatewayId: resolveGatewayId(env),
@@ -389,6 +422,8 @@ async function startGatewayInProcess(
     bindingsRefreshMs: envNumber(['ACP_BINDINGS_REFRESH_MS'], DEFAULT_BINDINGS_REFRESH_MS),
     deliveryPollMs: envNumber(['ACP_DELIVERY_POLL_MS'], DEFAULT_DELIVERY_POLL_MS),
     deliveryIdleMs: envNumber(['ACP_DELIVERY_IDLE_MS'], DEFAULT_DELIVERY_IDLE_MS),
+    ...(jobRunsChannelId !== undefined ? { jobRunsChannelId } : {}),
+    ...(workActivityChannelId !== undefined ? { workActivityChannelId } : {}),
   })
   await app.start()
   return app

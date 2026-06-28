@@ -216,7 +216,19 @@ export interface SystemEventsStore {
     kind?: string | undefined
     occurredAfter?: string | undefined
     occurredBefore?: string | undefined
+    /** Monotonic cursor: only events with event_id strictly greater than this.
+     * event_id is the autoincrement rowid, so this is a gap-free, no-skip,
+     * no-duplicate tail cursor (unlike occurredAt, which can collide). When set,
+     * results are ordered by event_id ASC so the caller can advance the cursor to
+     * the max event_id returned without skipping same-occurredAt siblings. */
+    afterEventId?: string | undefined
+    limit?: number | string | undefined
   }): SystemEvent[]
+  /** Idempotency guard for observer projections: true if any event of `kind`
+   * already carries `payload.<field> === value`. Used to make lifecycle emission
+   * exactly-once per (jobRunId, kind) across repeated reconciler ticks and
+   * process restarts. */
+  existsWithPayloadField(input: { kind: string; field: string; value: string }): boolean
 }
 
 export interface UpsertHeartbeatInput {
@@ -1208,17 +1220,40 @@ function createSystemEventsStore(sqlite: SqliteDatabase): SystemEventsStore {
         ['kind', '=', filters?.kind],
         ['occurred_at', '>', filters?.occurredAfter],
         ['occurred_at', '<', filters?.occurredBefore],
+        ['event_id', '>', filters?.afterEventId],
       ])
+      // event_id cursor semantics require event_id ordering so the caller can
+      // advance to max(event_id) without skipping same-occurredAt siblings.
+      const orderBy =
+        filters?.afterEventId !== undefined
+          ? 'ORDER BY event_id ASC'
+          : 'ORDER BY occurred_at ASC, event_id ASC'
+      const limitClause =
+        filters?.limit !== undefined && Number.isFinite(Number(filters.limit))
+          ? ` LIMIT ${Math.max(0, Math.trunc(Number(filters.limit)))}`
+          : ''
       return (
         sqlite
           .prepare(
             `SELECT event_id, project_id, kind, payload, occurred_at, recorded_at, actor_stamp
            FROM system_events
            ${whereClause}
-           ORDER BY occurred_at ASC, event_id ASC`
+           ${orderBy}${limitClause}`
           )
           .all(...values) as SystemEventRow[]
       ).map(toSystemEvent)
+    },
+
+    existsWithPayloadField(input) {
+      const row = sqlite
+        .prepare(
+          `SELECT 1
+           FROM system_events
+           WHERE kind = ? AND json_extract(payload, ?) = ?
+           LIMIT 1`
+        )
+        .get(input.kind, `$.${input.field}`, input.value)
+      return row !== undefined
     },
   }
 }

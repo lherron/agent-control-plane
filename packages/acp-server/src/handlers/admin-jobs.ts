@@ -26,6 +26,7 @@ import type { Actor, JobFlow, JobTrigger } from 'acp-core'
 import type { ResolvedAcpServerDeps } from '../deps.js'
 import { advanceJobFlow } from '../jobs/flow-engine.js'
 import { validateJobOutputConfig } from '../jobs/job-output-config.js'
+import { createJobLifecycleEmitter } from '../jobs/lifecycle-events.js'
 import { resolveInterfaceSourceForScope } from '../jobs/resolve-interface-source.js'
 import type { RouteHandler } from '../routing/route-context.js'
 
@@ -316,6 +317,10 @@ export const handlePatchAdminJob: RouteHandler = async ({ request, params, deps,
 export const handleRunAdminJob: RouteHandler = async ({ params, deps, actor }) => {
   const jobsStore = requireJobsStore(deps)
   const job = requireJob(deps, requireJobId(params))
+  const lifecycle = createJobLifecycleEmitter({
+    systemEvents: deps.adminStore.systemEvents,
+    jobsStore,
+  })
 
   if (job.flow !== undefined) {
     const now = new Date().toISOString()
@@ -333,6 +338,9 @@ export const handleRunAdminJob: RouteHandler = async ({ params, deps, actor }) =
       actor: actor ?? deps.defaultActor,
       now,
     })
+    // Project lifecycle telemetry from the committed flow result (handles a
+    // synchronous flow that returns terminal — emits both start and completion).
+    lifecycle.reconcile(advanced, job)
     const steps = jobsStore.jobStepRuns.listByJobRun(created.jobRun.jobRunId).jobStepRuns
 
     return json(
@@ -377,6 +385,7 @@ export const handleRunAdminJob: RouteHandler = async ({ params, deps, actor }) =
     leaseExpiresAt: null,
     actor: actor ?? deps.defaultActor,
   })
+  lifecycle.reconcile(updated.jobRun, job)
 
   return json(updated, 202)
 }

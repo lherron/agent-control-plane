@@ -46,9 +46,17 @@ check:
     bun scripts/check-boundaries.ts
     bun scripts/check-manifest-edges.ts
 
-# Run installed cap -> catalogd -> http-json -> live acp-server smoke for all ACP/PBC caps
+# Run installed cap -> catalogd -> http-json -> live acp-server smoke for ACP caps
 e2e-cap-acp:
     scripts/e2e/cap-acp/smoke.sh
+
+# Manually run ACP smoke paths that enqueue real HRC agent turns
+e2e-cap-acp-real:
+    CAP_ACP_E2E_REAL_AGENT=1 scripts/e2e/cap-acp/smoke.sh
+
+# Manually run ACP smoke with cap-pbc enabled; creates real wrkq tasks and agent turns
+e2e-cap-pbc:
+    CAP_PBC_E2E=1 CAP_ACP_E2E_REAL_AGENT=1 scripts/e2e/cap-acp/smoke.sh
 
 # Prepare or update one wrkq refactor-deferred task work packet
 wrkq-refactor *args:
