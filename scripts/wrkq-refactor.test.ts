@@ -263,7 +263,7 @@ This is a public-surface contract change needing owner confirmation.`,
     expect(script).toContain('bun scripts/wrkq-refactor.ts next --json')
     expect(script).toContain('No open tasks found under')
     expect(script).toContain('no open refactor task selected; skipping HRC turn')
-    expect(script).toContain('send_result_email "skipped-no-task"')
+    expect(script).not.toContain('send_result_email "skipped-no-task"')
   })
 
   test('scheduled prompt tells ready tasks to proceed', () => {

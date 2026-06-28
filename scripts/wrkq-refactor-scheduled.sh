@@ -134,11 +134,9 @@ if [[ "$selection_status" -ne 0 ]]; then
 
   if grep -q "No open tasks found under" "$selection_output"; then
     echo "[$(timestamp)] no open refactor task selected; skipping HRC turn"
-    email_status=0
-    send_result_email "skipped-no-task" "$selection_output" || email_status=$?
     rm -f "$selection_output"
     echo "[$(timestamp)] wrkq-refactor scheduled tick complete"
-    exit "$email_status"
+    exit 0
   fi
 
   echo "[$(timestamp)] refactor task selection failed; skipping HRC turn"
