@@ -3,6 +3,7 @@
   "type": "object",
   "description": "Body accepted by parseAcpWebhookEvent in handleAcpEventWebhook.",
   "required": [
+    "schema_version",
     "event_id",
     "event_seq",
     "source",
@@ -10,9 +11,12 @@
   ],
   "additionalProperties": true,
   "properties": {
+    "schema_version": {
+      "const": 1
+    },
     "event_id": {
       "type": "string",
-      "minLength": 1
+      "pattern": "\\S"
     },
     "event_seq": {
       "type": "integer",
@@ -20,24 +24,22 @@
     },
     "source": {
       "type": "string",
-      "minLength": 1
+      "pattern": "^[a-z][a-z0-9._-]{0,79}$"
     },
     "event": {
-      "type": "object",
-      "additionalProperties": true
+      "type": "string",
+      "pattern": "\\S"
     },
     "occurred_at": {
-      "type": "string",
-      "minLength": 1
+      "type": "string"
     },
-    "actor": {
+    "origin": {
       "type": "object",
-      "required": [
-        "kind",
-        "id"
-      ],
       "additionalProperties": true,
       "properties": {
+        "actor": {
+          "type": "string"
+        },
         "kind": {
           "type": "string",
           "enum": [
@@ -45,19 +47,32 @@
             "agent",
             "system"
           ]
+        }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "type": {
+          "type": "string",
+          "pattern": "\\S"
         },
         "id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "displayName": {
           "type": "string"
         }
       }
     },
-    "idempotencyKey": {
+    "payload": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "canonical_event_id": {
       "type": "string",
-      "minLength": 1
+      "description": "When present, parseAcpWebhookEvent requires this to equal `${source}:${event_id}`."
     }
   },
   "$id": "provider:acp/event.ingest.normalized.input.v1"

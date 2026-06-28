@@ -1,12 +1,19 @@
 {
+  "schema_version": 1,
   "event_id": "evt_123",
   "event_seq": 1,
   "source": "local.test",
-  "event": {
-    "type": "example",
-    "payload": {
-      "ok": true
-    }
+  "event": "example",
+  "occurred_at": "2026-06-28T03:30:00.000Z",
+  "origin": {
+    "actor": "agent:clod",
+    "kind": "agent"
   },
-  "occurred_at": "2026-06-28T03:30:00.000Z"
+  "subject": {
+    "type": "task",
+    "id": "T-05198"
+  },
+  "payload": {
+    "ok": true
+  }
 }
