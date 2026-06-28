@@ -83,6 +83,7 @@ describe('wrkf generic non-PBC smoke (T-02589)', () => {
   let stateStore: AcpStateStore
   let taskId: string
   let obligationId: string
+  let childEnv: Record<string, string | undefined>
 
   /** Minimal HTTP client over the acp server handler (mirrors wired-server). */
   async function request(options: {
@@ -109,7 +110,7 @@ describe('wrkf generic non-PBC smoke (T-02589)', () => {
 
     // Isolated, freshly-migrated wrkq DB so the schema matches the wrkf binary.
     // cwd = tmpDir so wrkqadm's .gitignore bookkeeping stays out of the repo.
-    const childEnv = {
+    childEnv = {
       ...process.env,
       ASP_PROJECT: undefined,
       WRKQ_DB_PATH: undefined,
@@ -188,10 +189,38 @@ describe('wrkf generic non-PBC smoke (T-02589)', () => {
     if (lc !== undefined) {
       await lc.close()
     }
+    closeSeededTask()
     if (tmpDir !== undefined) {
       rmSync(tmpDir, { recursive: true, force: true })
     }
   })
+
+  function closeSeededTask(): void {
+    if (taskId === undefined || dbPath === undefined || childEnv === undefined) {
+      return
+    }
+    const result = Bun.spawnSync(
+      [
+        WRKQ_BIN,
+        '--db',
+        dbPath,
+        '--as',
+        'local-human',
+        'set',
+        taskId,
+        '--state',
+        'completed',
+        '--resolution',
+        'done',
+      ],
+      { cwd: tmpDir, env: childEnv }
+    )
+    if (result.exitCode !== 0) {
+      throw new Error(
+        `wrkq cleanup failed for ${taskId}: ${result.stderr.toString()} ${result.stdout.toString()}`
+      )
+    }
+  }
 
   test(
     'GET /v1/tasks/:taskId → unknown workflow degrades to pack {level:0,supported:false}; evidence/obligations/next present',

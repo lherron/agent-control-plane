@@ -105,3 +105,13 @@ Run all scenario artifacts with:
 ```bash
 bun test tests/conformance/acp-workflow/flow-presets-scenarios.test.ts
 ```
+
+## Cleanup rule
+
+Any smoke, e2e, or manual recipe that creates a real wrkq/ACP task must close
+that task before the run ends. Prefer the workflow's terminal transition
+(`close_success`, `approve`, `resolve`, `reject`, `abandon_no_reply`, etc.).
+For rejection-only fixture tasks where no terminal workflow step is part of the
+assertion, the harness or operator must mark the throwaway wrkq task
+`completed` or `cancelled` during cleanup and record that cleanup in the task
+comments.

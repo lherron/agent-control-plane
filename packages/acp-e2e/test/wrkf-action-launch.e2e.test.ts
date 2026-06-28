@@ -82,6 +82,7 @@ describe('wrkf action launch/bind adapter — real wrkf e2e (C-0004)', () => {
   let dbPath: string
   let lc: WrkfLifecycle
   let childEnv: Record<string, string | undefined>
+  const seededTaskIds: string[] = []
 
   beforeAll(async () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'acp-action-launch-'))
@@ -105,6 +106,7 @@ describe('wrkf action launch/bind adapter — real wrkf e2e (C-0004)', () => {
 
   afterAll(async () => {
     await lc?.close()
+    closeSeededTasks()
     if (tmpDir) {
       rmSync(tmpDir, { recursive: true, force: true })
     }
@@ -136,7 +138,38 @@ describe('wrkf action launch/bind adapter — real wrkf e2e (C-0004)', () => {
     if (!match) {
       throw new Error(`wrkq touch failed: ${out}`)
     }
-    return match[1] as string
+    const taskId = match[1] as string
+    seededTaskIds.push(taskId)
+    return taskId
+  }
+
+  function closeSeededTasks(): void {
+    if (dbPath === undefined || childEnv === undefined) {
+      return
+    }
+    for (const taskId of seededTaskIds) {
+      const result = Bun.spawnSync(
+        [
+          WRKQ_BIN,
+          '--db',
+          dbPath,
+          '--as',
+          'local-human',
+          'set',
+          taskId,
+          '--state',
+          'completed',
+          '--resolution',
+          'done',
+        ],
+        { cwd: tmpDir, env: childEnv }
+      )
+      if (result.exitCode !== 0) {
+        throw new Error(
+          `wrkq cleanup failed for ${taskId}: ${result.stderr.toString()} ${result.stdout.toString()}`
+        )
+      }
+    }
   }
 
   function sessionRef(taskId: string): SessionRef {

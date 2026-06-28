@@ -118,6 +118,7 @@ describe('wrkf action launch/bind adapter — REAL HRC e2e (C-0004 closure)', ()
   let childEnv: Record<string, string | undefined>
   let hrcDbPath: string
   let hrcClient: HrcClient
+  const seededTaskIds: string[] = []
 
   beforeAll(async () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'acp-action-launch-realhrc-'))
@@ -145,6 +146,7 @@ describe('wrkf action launch/bind adapter — REAL HRC e2e (C-0004 closure)', ()
 
   afterAll(async () => {
     await lc?.close()
+    closeSeededTasks()
     if (tmpDir) {
       rmSync(tmpDir, { recursive: true, force: true })
     }
@@ -176,7 +178,38 @@ describe('wrkf action launch/bind adapter — REAL HRC e2e (C-0004 closure)', ()
     if (!match) {
       throw new Error(`wrkq touch failed: ${out}`)
     }
-    return match[1] as string
+    const taskId = match[1] as string
+    seededTaskIds.push(taskId)
+    return taskId
+  }
+
+  function closeSeededTasks(): void {
+    if (dbPath === undefined || childEnv === undefined) {
+      return
+    }
+    for (const taskId of seededTaskIds) {
+      const result = Bun.spawnSync(
+        [
+          WRKQ_BIN,
+          '--db',
+          dbPath,
+          '--as',
+          'local-human',
+          'set',
+          taskId,
+          '--state',
+          'completed',
+          '--resolution',
+          'done',
+        ],
+        { cwd: tmpDir, env: childEnv }
+      )
+      if (result.exitCode !== 0) {
+        throw new Error(
+          `wrkq cleanup failed for ${taskId}: ${result.stderr.toString()} ${result.stdout.toString()}`
+        )
+      }
+    }
   }
 
   // Unique per scenario AND per file run → never collides in the shared live HRC db.
