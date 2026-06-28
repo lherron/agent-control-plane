@@ -1333,8 +1333,8 @@
         "stream": {
           "mode": "ndjson",
           "item": "$",
-          "maxItems": 500,
-          "maxMs": 15000
+          "maxItems": 2000,
+          "maxMs": 30000
         }
       }
     },
