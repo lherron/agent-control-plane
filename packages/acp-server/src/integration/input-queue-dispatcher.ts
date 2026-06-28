@@ -1,4 +1,9 @@
-import type { AttachmentRef, InputQueueItem, InputQueueStatus } from 'acp-core'
+import type {
+  AttachmentRef,
+  InputAdmissionRecord,
+  InputQueueItem,
+  InputQueueStatus,
+} from 'acp-core'
 import { normalizeSessionRef } from 'agent-scope'
 
 import type { LaunchRoleScopedRun, ResolvedAcpServerDeps } from '../deps.js'
@@ -65,6 +70,8 @@ type StaleBlockerKind = 'no_correlation' | 'partial_correlation'
 type ClassifyStalePendingRunBlockerInput = {
   run: StoredRun
   siblings: readonly StoredRun[]
+  admission?: InputAdmissionRecord | undefined
+  queueItem?: InputQueueItem | undefined
   timeoutMs: number
   hrcDbPath?: string | undefined
   hasInFlightHrcRunSince?:
@@ -89,14 +96,41 @@ function hasCredibleSiblingProgress(run: StoredRun, siblings: readonly StoredRun
   })
 }
 
+function isRecord(input: unknown): input is Record<string, unknown> {
+  return typeof input === 'object' && input !== null && !Array.isArray(input)
+}
+
+function hasInterfaceSource(run: StoredRun): boolean {
+  const meta = isRecord(run.metadata) ? run.metadata['meta'] : undefined
+  const interfaceSource = isRecord(meta) ? meta['interfaceSource'] : undefined
+  return isRecord(interfaceSource)
+}
+
+function isDeliberatelyHeldAdmission(
+  run: StoredRun,
+  admission: InputAdmissionRecord | undefined,
+  queueItem: InputQueueItem | undefined
+): boolean {
+  return (
+    queueItem === undefined &&
+    admission?.admissionKind === 'started_run' &&
+    admission.runId === run.runId &&
+    admission.currentState?.['dispatchHeld'] === true &&
+    !hasInterfaceSource(run)
+  )
+}
+
 function classifyStalePendingRunBlocker(
   input: ClassifyStalePendingRunBlockerInput
 ): StaleBlockerKind | undefined {
-  const { run, siblings, timeoutMs, hrcDbPath } = input
+  const { run, siblings, admission, queueItem, timeoutMs, hrcDbPath } = input
   if (run.status !== 'pending') {
     return undefined
   }
   if (run.hrcRunId !== undefined || run.runtimeId !== undefined) {
+    return undefined
+  }
+  if (isDeliberatelyHeldAdmission(run, admission, queueItem)) {
     return undefined
   }
   if (Date.now() - new Date(run.updatedAt).getTime() <= timeoutMs) {
@@ -131,9 +165,12 @@ function failStalePendingRunBlockers(deps: InputQueueDispatcherDeps): void {
         candidate.scopeRef === run.scopeRef &&
         candidate.laneRef === run.laneRef
     )
+    const queueItem = deps.inputQueueStore.getByRunId(run.runId)
     const blockerKind = classifyStalePendingRunBlocker({
       run,
       siblings,
+      admission: deps.inputAdmissionStore.getByRunId(run.runId),
+      queueItem,
       timeoutMs,
       hrcDbPath: deps.hrcDbPath,
       hasInFlightHrcRunSince: deps.hasInFlightHrcRunSince,
@@ -152,7 +189,6 @@ function failStalePendingRunBlockers(deps: InputQueueDispatcherDeps): void {
       errorMessage,
     })
 
-    const queueItem = deps.inputQueueStore.getByRunId(run.runId)
     if (
       queueItem !== undefined &&
       (queueItem.status === 'queued' ||

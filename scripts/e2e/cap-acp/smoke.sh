@@ -47,6 +47,7 @@ DELIVERY_FAIL_ID=""
 DELIVERY_RETRY_ID=""
 PBC_JOB_ID=""
 INTERFACE_BINDING_ID=""
+WRKQ_PROJECT="${WRKQ_PROJECT:-agent-control-plane}"
 
 cleanup() {
   [ -n "$CATPID" ] && kill "$CATPID" 2>/dev/null
@@ -559,7 +560,7 @@ seed_pbc_task() {
   local slug="$1"
   local title="$2"
   local out="$WORKDIR/wrkq-task.json"
-  wrkq touch "inbox/${slug}" --state open --priority 4 -t "$title" -d - >"$out" <<EOF
+  wrkq --project "$WRKQ_PROJECT" touch "inbox/${slug}" --state open --priority 4 -t "$title" -d - >"$out" <<EOF
 Throwaway real wrkq task for scripts/e2e/cap-acp/smoke.sh.
 
 SMOKE_ID: ${SMOKE_ID}
@@ -581,8 +582,8 @@ close_seeded_wrkq_task() {
   [ -n "$task_id" ] || return 0
   command -v wrkq >/dev/null 2>&1 || return 0
 
-  wrkq comment add "$task_id" -m "cap-acp smoke cleanup: closing throwaway task ${SMOKE_ID}" >/dev/null 2>&1 || true
-  wrkq set "$task_id" --state completed --resolution done >/dev/null 2>&1 || true
+  wrkq --project "$WRKQ_PROJECT" comment add "$task_id" -m "cap-acp smoke cleanup: closing throwaway task ${SMOKE_ID}" >/dev/null 2>&1 || true
+  wrkq --project "$WRKQ_PROJECT" set "$task_id" --state completed --resolution done >/dev/null 2>&1 || true
 }
 
 close_seeded_wrkq_tasks() {
@@ -652,6 +653,12 @@ PY
     return 0
   fi
   json_find_key "$out" runId
+}
+
+cancel_seeded_run() {
+  local run_id="$1"
+  [ -n "$run_id" ] || return 0
+  curl -fsS -X POST "${ACP_BASE_URL}/v1/runs/${run_id}/cancel" >/dev/null 2>&1 || true
 }
 
 get_run_status() {
@@ -776,6 +783,7 @@ if [ -z "$ATTACHMENT_RUN_ID" ]; then
   record_block "acp.artifact.create.run_outbound_attachment" "PRECONDITION-BLOCKED" "could not seed a dispatch:false submit_input run for outbound attachment"
 else
   run_outbound_attachment_live
+  cancel_seeded_run "$ATTACHMENT_RUN_ID"
 fi
 run_cap "acp.session.interrupt" "operation_and_execution" "${SMOKE_ID}:session-interrupt"
 run_cap "acp.execution.start.wrkf_action" "operation_and_execution" "${SMOKE_ID}:wrkf-action" 90

@@ -95,6 +95,30 @@ export class InputAdmissionRepo {
     return row === undefined ? undefined : mapRow(row)
   }
 
+  getByRunId(runId: string): InputAdmissionRecord | undefined {
+    const row = this.context.sqlite
+      .prepare(
+        `SELECT input_attempt_id,
+                admission_kind,
+                intent_json,
+                original_response_json,
+                current_state_json,
+                run_id,
+                input_application_id,
+                queue_item_id,
+                status,
+                created_at,
+                updated_at
+           FROM input_admissions
+          WHERE run_id = ?
+          ORDER BY created_at DESC
+          LIMIT 1`
+      )
+      .get(runId) as InputAdmissionRow | undefined
+
+    return row === undefined ? undefined : mapRow(row)
+  }
+
   update(inputAttemptId: string, patch: InputAdmissionUpdateInput): InputAdmissionRecord {
     const current = this.require(inputAttemptId)
     const now = new Date().toISOString()

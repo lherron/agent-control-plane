@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { createInMemoryAdminStore } from 'acp-admin-store'
-import type { InputQueueItem } from 'acp-core'
+import type { InputAdmissionRecord, InputQueueItem } from 'acp-core'
 
 import {
   InMemoryInputAdmissionStore,
@@ -17,6 +17,8 @@ type DispatcherTestHooks = {
   classifyStalePendingRunBlocker: (input: {
     run: StoredRun
     siblings: readonly StoredRun[]
+    admission?: InputAdmissionRecord | undefined
+    queueItem?: InputQueueItem | undefined
     timeoutMs: number
     hrcDbPath?: string | undefined
     hasInFlightHrcRunSince?: (
@@ -74,6 +76,22 @@ function createQueuedItem(
     scopeRef: input.run.scopeRef,
     laneRef: input.run.laneRef,
     seq: input.seq ?? 1,
+  })
+}
+
+function createHeldAdmissionForRun(deps: DispatcherDeps, run: StoredRun): InputAdmissionRecord {
+  return deps.inputAdmissionStore.create({
+    inputAttemptId: `attempt-held-${run.runId}`,
+    admissionKind: 'started_run',
+    intent: { kind: 'new_work' },
+    originalResponse: {
+      kind: 'started_run',
+      inputAttemptId: `attempt-held-${run.runId}`,
+      runId: run.runId,
+    },
+    currentState: { runStatus: 'pending', dispatchHeld: true },
+    runId: run.runId,
+    status: 'started',
   })
 }
 
@@ -299,6 +317,62 @@ describe('input queue stale pending classifier', () => {
         hasInFlightHrcRunSince: () => true,
       })
     ).toBeUndefined()
+  })
+
+  test('T-05212 deliberately held dispatch:false run without queue or interface source is not reaped', async () => {
+    const deps = createDeps()
+    const sessionRef = {
+      scopeRef: 'agent:smokey:project:agent-control-plane:task:T-05212-held',
+      laneRef: 'main',
+    }
+    const parked = deps.runStore.createRun({ sessionRef, status: 'pending' })
+    const admission = createHeldAdmissionForRun(deps, parked)
+
+    await letRunBecomeStale()
+    await createInputQueueDispatcher(deps).runOnce()
+
+    const current = deps.runStore.getRun(parked.runId)
+    expect(current?.status).toBe('pending')
+    expect(current?.errorCode).toBeUndefined()
+    expect(
+      testingHooks().classifyStalePendingRunBlocker({
+        run: deps.runStore.getRun(parked.runId) ?? parked,
+        siblings: [],
+        admission,
+        timeoutMs: 1,
+      })
+    ).toBeUndefined()
+  })
+
+  test('T-05212 dispatch:false interface-originated run still follows stale blocker handling', async () => {
+    const deps = createDeps()
+    const sessionRef = {
+      scopeRef: 'agent:smokey:project:agent-control-plane:task:T-05212-interface',
+      laneRef: 'main',
+    }
+    const parked = deps.runStore.createRun({
+      sessionRef,
+      status: 'pending',
+      metadata: {
+        meta: {
+          interfaceSource: {
+            gatewayId: 'acp-discord-smoke',
+            bindingId: 'binding-t05212',
+            conversationRef: 'channel:t05212',
+            messageRef: 'message-t05212',
+          },
+        },
+      },
+    })
+    createHeldAdmissionForRun(deps, parked)
+
+    await letRunBecomeStale()
+    await createInputQueueDispatcher(deps).runOnce()
+
+    expect(deps.runStore.getRun(parked.runId)).toMatchObject({
+      status: 'failed',
+      errorCode: 'dispatch_timeout',
+    })
   })
 
   test('R5 sameSessionHasActiveRun is pure across repeated calls', async () => {

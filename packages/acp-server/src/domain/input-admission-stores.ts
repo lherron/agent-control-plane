@@ -35,6 +35,7 @@ export type InputAdmissionUpdateInput = {
 export interface InputAdmissionStore {
   create(input: InputAdmissionCreateInput): InputAdmissionRecord
   getByInputAttemptId(inputAttemptId: string): InputAdmissionRecord | undefined
+  getByRunId(runId: string): InputAdmissionRecord | undefined
   update(inputAttemptId: string, patch: InputAdmissionUpdateInput): InputAdmissionRecord
 }
 
@@ -138,6 +139,11 @@ export class InMemoryInputAdmissionStore implements InputAdmissionStore {
 
   getByInputAttemptId(inputAttemptId: string): InputAdmissionRecord | undefined {
     const record = this.records.get(inputAttemptId)
+    return record === undefined ? undefined : structuredClone(record)
+  }
+
+  getByRunId(runId: string): InputAdmissionRecord | undefined {
+    const record = [...this.records.values()].find((candidate) => candidate.runId === runId)
     return record === undefined ? undefined : structuredClone(record)
   }
 
