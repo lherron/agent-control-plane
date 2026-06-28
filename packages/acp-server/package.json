@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "@wrkq/client": "0.1.0-dev.20260626114238",
+    "acp-capability-host": "*",
     "acp-admin-store": "*",
     "acp-conversation": "*",
     "acp-core": "*",

@@ -5,6 +5,7 @@ import { mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import { openSqliteAdminStore } from 'acp-admin-store'
+import { startAcpCapabilityHost } from 'acp-capability-host'
 import { openSqliteConversationStore } from 'acp-conversation'
 import type { Actor } from 'acp-core'
 import { openInterfaceStore } from 'acp-interface-store'
@@ -61,6 +62,8 @@ const DEFAULT_COORD_DB_PATH = '/Users/lherron/praesidium/var/db/acp-coordination
 const DEFAULT_PORT = 18470
 const DEFAULT_HOST = '127.0.0.1'
 const DEFAULT_ACTOR = 'acp-server'
+const DEFAULT_ACP_RUNTIME_DIR = '/Users/lherron/praesidium/var/run/acp'
+const DEFAULT_CAP_CATALOG_STATE_DIR = '/Users/lherron/praesidium/var/state/acp-server/cap-catalog'
 // PBC continuation worker launches participant turns as real provisioned agents.
 // Draft (agent role) and pressure reviewer must be DISTINCT for separation-of-duty.
 // Overridable per deployment; a task's explicit roleMap still takes precedence.
@@ -270,11 +273,30 @@ export function renderHelp(): string {
     `  ACP_INPUT_QUEUE_LEASE_TIMEOUT_MS Defaults to ${DEFAULT_INPUT_QUEUE_LEASE_TIMEOUT_MS}`,
     `  ACP_HOST          Defaults to ${DEFAULT_HOST}`,
     `  ACP_PORT          Defaults to ${DEFAULT_PORT}`,
+    '  ACP_BASE_URL      Set at startup to the server base URL used by capability bindings',
+    '  ACP_CAP_SOCKET_PATH Defaults to $ACP_RUNTIME_DIR/cap.sock',
+    '  ACP_CAPABILITIES_DIR Defaults to <cwd>/capabilities',
+    `  ACP_CAP_CATALOG_STATE_DIR Defaults to ${DEFAULT_CAP_CATALOG_STATE_DIR}`,
     `  ACP_ACTOR         Defaults to WRKQ_ACTOR or ${DEFAULT_ACTOR}`,
     '  WRKF_BIN          Defaults to wrkf',
     '  WRKF_DB_PATH      Defaults to the ACP wrkq DB path (wrkf shares the wrkq DB)',
     '  ACP_WRKF_DISABLED Set to 1 or true to bypass wrkf startup in local dev/test',
   ].join('\n')
+}
+
+function resolveAcpBaseUrl(options: AcpServerCliOptions): string {
+  const host = options.host === '0.0.0.0' || options.host === '::' ? '127.0.0.1' : options.host
+  return `http://${host}:${options.port}`
+}
+
+function resolveCapSocketPath(env: NodeJS.ProcessEnv = process.env): string {
+  const configured = env['ACP_CAP_SOCKET_PATH']?.trim()
+  if (configured !== undefined && configured.length > 0) {
+    return configured
+  }
+
+  const runtimeDir = env['ACP_RUNTIME_DIR']?.trim() || DEFAULT_ACP_RUNTIME_DIR
+  return join(runtimeDir, 'cap.sock')
 }
 
 function resolveOptionalSiblingDbPath(
@@ -735,6 +757,9 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
   shutdown(): Promise<void>
   startupLine: string
 }> {
+  const acpBaseUrl = resolveAcpBaseUrl(options)
+  process.env['ACP_BASE_URL'] = acpBaseUrl
+
   await mkdir(dirname(options.coordDbPath), { recursive: true })
   await mkdir(dirname(options.interfaceDbPath), { recursive: true })
   await mkdir(dirname(options.stateDbPath), { recursive: true })
@@ -803,6 +828,15 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     ...(wrkfLifecycle.client !== undefined ? { workClient: wrkfLifecycle.client } : {}),
     wrkf: wrkfLifecycle.wrkf,
   }
+  const capabilityHost = await startAcpCapabilityHost({
+    capabilitiesDir:
+      process.env['ACP_CAPABILITIES_DIR']?.trim() || join(process.cwd(), 'capabilities'),
+    socketPath: resolveCapSocketPath(process.env),
+    catalogStateDir:
+      process.env['ACP_CAP_CATALOG_STATE_DIR']?.trim() || DEFAULT_CAP_CATALOG_STATE_DIR,
+    acpBaseUrl,
+    logger: (message) => console.log(message),
+  })
   const acpServer = createAcpServer(serverDeps)
   const resolvedDeps = resolveAcpServerDeps(serverDeps)
   if (jobsStore !== undefined) {
@@ -829,7 +863,10 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
       }
 
       const start = performance.now()
-      const response = await acpServer.handler(request)
+      const response =
+        url.pathname === '/v1/cap/rpc'
+          ? await capabilityHost.handleHttpJsonRpc(request)
+          : await acpServer.handler(request)
       if (accessLogger !== null) {
         accessLogger.log({
           request,
@@ -1077,6 +1114,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
       conversationStore?.close()
       interfaceStore.close()
       stateStore.close()
+      await capabilityHost.shutdown()
       await wrkfLifecycle.close()
     },
   }
