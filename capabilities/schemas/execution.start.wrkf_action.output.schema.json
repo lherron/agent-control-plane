@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Returns launchAction result.",
+  "additionalProperties": true,
+  "properties": {
+    "run": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "$id": "provider:acp/execution.start.wrkf_action.output.v1"
+}

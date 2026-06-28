@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Returns { idempotencyKey, delivery }.",
+  "additionalProperties": true,
+  "properties": {
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 1
+    },
+    "delivery": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "$id": "provider:acp/publication.create.gateway_message.output.v1"
+}

@@ -1,0 +1,9 @@
+{
+  "runId": "run_123",
+  "file": {
+    "path": "/tmp/example.png"
+  },
+  "filename": "example.png",
+  "contentType": "image/png",
+  "alt": "Example image"
+}

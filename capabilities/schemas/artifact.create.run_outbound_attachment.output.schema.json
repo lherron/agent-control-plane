@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Returns outbound attachment metadata.",
+  "additionalProperties": true,
+  "properties": {
+    "outboundAttachmentId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "filename": {
+      "type": "string",
+      "minLength": 1
+    },
+    "contentType": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sizeBytes": {
+      "type": "integer"
+    },
+    "alt": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "$id": "provider:acp/artifact.create.run_outbound_attachment.output.v1"
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Returns { ok, runtimeId }.",
+  "additionalProperties": true,
+  "properties": {
+    "ok": {
+      "type": "boolean"
+    },
+    "runtimeId": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "$id": "provider:acp/session.interrupt.output.v1"
+}

@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Body accepted by handleResolveRuntime.",
+  "required": [
+    "sessionRef"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "sessionRef": {
+      "type": "object",
+      "required": [
+        "scopeRef"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "scopeRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "laneRef": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "actor": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "human",
+            "agent",
+            "system"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "displayName": {
+          "type": "string"
+        }
+      }
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "$id": "provider:acp/session.resolve_runtime.input.v1"
+}

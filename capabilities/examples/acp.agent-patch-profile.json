@@ -1,0 +1,10 @@
+{
+  "agentId": "larry",
+  "displayColor": "#3B82F6",
+  "monogram": "LH",
+  "role": "coding agent",
+  "specialties": [
+    "ACP",
+    "TypeScript"
+  ]
+}

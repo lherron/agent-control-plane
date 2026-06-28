@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Returns { run }.",
+  "additionalProperties": true,
+  "properties": {
+    "run": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "$id": "provider:acp/execution.cancel.run.output.v1"
+}

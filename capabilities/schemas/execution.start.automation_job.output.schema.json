@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Returns job run record, or jobRun plus steps for flow jobs.",
+  "additionalProperties": true,
+  "properties": {
+    "jobRun": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  },
+  "$id": "provider:acp/execution.start.automation_job.output.v1"
+}

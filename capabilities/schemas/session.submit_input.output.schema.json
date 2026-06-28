@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Returns inputAttempt, run/targetRun, inputApplication, admission, and currentState as available.",
+  "additionalProperties": true,
+  "properties": {
+    "inputAttempt": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "targetRun": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "inputApplication": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "admission": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "currentState": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "$id": "provider:acp/session.submit_input.output.v1"
+}

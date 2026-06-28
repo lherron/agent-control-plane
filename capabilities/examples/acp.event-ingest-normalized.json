@@ -1,0 +1,12 @@
+{
+  "event_id": "evt_123",
+  "event_seq": 1,
+  "source": "local.test",
+  "event": {
+    "type": "example",
+    "payload": {
+      "ok": true
+    }
+  },
+  "occurred_at": "2026-06-28T03:30:00.000Z"
+}

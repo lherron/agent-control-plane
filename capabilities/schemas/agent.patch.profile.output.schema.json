@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Returns { agent }.",
+  "additionalProperties": true,
+  "properties": {
+    "agent": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "$id": "provider:acp/agent.patch.profile.output.v1"
+}

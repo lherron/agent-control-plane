@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Body accepted by handleCreateInterfaceMessage.",
+  "required": [
+    "source",
+    "content"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "source": {
+      "type": "object",
+      "required": [
+        "gatewayId",
+        "conversationRef",
+        "messageRef",
+        "authorRef"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "gatewayId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "conversationRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "threadRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "messageRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "authorRef": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "content": {
+      "type": "string",
+      "minLength": 1
+    },
+    "attachments": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind",
+              "url"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "const": "url"
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1
+              },
+              "filename": {
+                "type": "string",
+                "minLength": 1
+              },
+              "contentType": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sizeBytes": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind",
+              "path"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "const": "file"
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "filename": {
+                "type": "string",
+                "minLength": 1
+              },
+              "contentType": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sizeBytes": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        ]
+      }
+    },
+    "intent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "new_work"
+            },
+            "resetPolicy": {
+              "type": "string",
+              "enum": [
+                "follow_latest",
+                "expire_on_generation_change",
+                "pin_generation"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "contribute_to_active_run"
+            },
+            "fallback": {
+              "type": "string",
+              "enum": [
+                "queue",
+                "reject",
+                "pending_only"
+              ]
+            },
+            "contributionSemantics": {
+              "type": "string",
+              "enum": [
+                "append_context",
+                "interrupt_and_continue"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "action"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "control_active_run"
+            },
+            "action": {
+              "type": "string",
+              "enum": [
+                "interrupt",
+                "cancel",
+                "pause"
+              ]
+            },
+            "fallback": {
+              "const": "reject"
+            }
+          }
+        }
+      ]
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 1
+    },
+    "actor": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "human",
+            "agent",
+            "system"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "displayName": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "$id": "provider:acp/session.ingest_interface_message.input.v1"
+}

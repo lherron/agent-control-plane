@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Returns { placement }.",
+  "additionalProperties": true,
+  "properties": {
+    "placement": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "$id": "provider:acp/session.resolve_runtime.output.v1"
+}

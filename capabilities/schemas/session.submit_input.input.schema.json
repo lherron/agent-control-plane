@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Body accepted by handleCreateInput.",
+  "required": [
+    "sessionRef",
+    "content"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "sessionRef": {
+      "type": "object",
+      "required": [
+        "scopeRef"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "scopeRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "laneRef": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "content": {
+      "type": "string",
+      "minLength": 1
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 1
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "dispatch": {
+      "type": "boolean"
+    },
+    "intent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "new_work"
+            },
+            "resetPolicy": {
+              "type": "string",
+              "enum": [
+                "follow_latest",
+                "expire_on_generation_change",
+                "pin_generation"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "contribute_to_active_run"
+            },
+            "fallback": {
+              "type": "string",
+              "enum": [
+                "queue",
+                "reject",
+                "pending_only"
+              ]
+            },
+            "contributionSemantics": {
+              "type": "string",
+              "enum": [
+                "append_context",
+                "interrupt_and_continue"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "action"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "control_active_run"
+            },
+            "action": {
+              "type": "string",
+              "enum": [
+                "interrupt",
+                "cancel",
+                "pause"
+              ]
+            },
+            "fallback": {
+              "const": "reject"
+            }
+          }
+        }
+      ]
+    },
+    "actor": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "human",
+            "agent",
+            "system"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "displayName": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "$id": "provider:acp/session.submit_input.input.v1"
+}

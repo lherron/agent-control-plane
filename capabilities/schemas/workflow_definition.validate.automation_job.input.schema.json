@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Body accepted by handleValidateAdminJob; only schedule and flow are validated.",
+  "required": [],
+  "additionalProperties": true,
+  "properties": {
+    "schedule": {
+      "type": "object",
+      "required": [
+        "cron"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "cron": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "flow": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "actor": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "human",
+            "agent",
+            "system"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "displayName": {
+          "type": "string"
+        }
+      }
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "$id": "provider:acp/workflow_definition.validate.automation_job.input.v1"
+}

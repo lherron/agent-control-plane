@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Returns launchParticipant result.",
+  "additionalProperties": true,
+  "properties": {
+    "run": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "$id": "provider:acp/execution.start.workflow_participant_run.output.v1"
+}

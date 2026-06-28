@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Returns deliveryRequestId, status, and body.",
+  "additionalProperties": true,
+  "properties": {
+    "deliveryRequestId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "const": "queued"
+    },
+    "body": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "$id": "provider:acp/publication.create.run_outbound_message.output.v1"
+}

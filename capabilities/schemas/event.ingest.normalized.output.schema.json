@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Route returns HTTP 204 No Content; http-json output is undefined for an empty response body.",
+  "type": [
+    "object",
+    "null"
+  ],
+  "additionalProperties": true,
+  "$id": "provider:acp/event.ingest.normalized.output.v1"
+}

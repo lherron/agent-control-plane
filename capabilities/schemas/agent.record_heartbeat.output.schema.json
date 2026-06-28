@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Returns { heartbeat }.",
+  "additionalProperties": true,
+  "properties": {
+    "heartbeat": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "$id": "provider:acp/agent.record_heartbeat.output.v1"
+}

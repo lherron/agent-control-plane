@@ -1,0 +1,7 @@
+{
+  "agentId": "larry",
+  "source": "hrc",
+  "note": "active",
+  "scopeRef": "agent:larry:project:agent-control-plane",
+  "laneRef": "main"
+}

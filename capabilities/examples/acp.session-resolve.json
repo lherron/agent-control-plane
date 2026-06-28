@@ -1,0 +1,6 @@
+{
+  "sessionRef": {
+    "scopeRef": "agent:larry:project:agent-control-plane",
+    "laneRef": "main"
+  }
+}

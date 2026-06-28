@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Path runId and JSON body text accepted by handlePostRunOutboundMessage; correlation may also be supplied via headers/query in the route.",
+  "required": [
+    "runId",
+    "text"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "runId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "HRC_RUN_ID": {
+      "type": "string",
+      "minLength": 1
+    },
+    "HRC_HOST_SESSION_ID": {
+      "type": "string",
+      "minLength": 1
+    },
+    "HRC_GENERATION": {
+      "type": "string",
+      "minLength": 1
+    },
+    "actor": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "human",
+            "agent",
+            "system"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "displayName": {
+          "type": "string"
+        }
+      }
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "$id": "provider:acp/publication.create.run_outbound_message.input.v1"
+}

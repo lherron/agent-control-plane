@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Path parameter accepted by handleGetJobRun.",
+  "required": [
+    "jobRunId"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "jobRunId": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "$id": "provider:acp/execution.get.automation_job_run.input.v1"
+}

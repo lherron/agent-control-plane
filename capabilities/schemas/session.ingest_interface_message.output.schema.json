@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Returns inputAttemptId plus run/admission metadata as available.",
+  "additionalProperties": true,
+  "properties": {
+    "inputAttemptId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "targetRunId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "admission": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "currentState": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "hostSessionId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generation": {
+      "type": "integer"
+    }
+  },
+  "$id": "provider:acp/session.ingest_interface_message.output.v1"
+}

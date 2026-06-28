@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Returns updated job record.",
+  "additionalProperties": true,
+  "properties": {
+    "job": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "$id": "provider:acp/workflow_definition.patch.automation_job.output.v1"
+}

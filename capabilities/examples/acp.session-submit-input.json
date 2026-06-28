@@ -1,0 +1,11 @@
+{
+  "sessionRef": {
+    "scopeRef": "agent:larry:project:agent-control-plane",
+    "laneRef": "main"
+  },
+  "content": "Summarize the latest ACP status.",
+  "dispatch": true,
+  "intent": {
+    "kind": "new_work"
+  }
+}

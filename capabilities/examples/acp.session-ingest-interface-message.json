@@ -1,0 +1,12 @@
+{
+  "source": {
+    "gatewayId": "acp-discord-smoke",
+    "conversationRef": "channel:1234567890",
+    "messageRef": "msg-1",
+    "authorRef": "discord:user:42"
+  },
+  "content": "Please take T-05184.",
+  "intent": {
+    "kind": "new_work"
+  }
+}

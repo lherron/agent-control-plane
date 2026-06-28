@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Path deliveryRequestId and body requeuedBy accepted by handleRequeueDelivery.",
+  "required": [
+    "deliveryRequestId",
+    "requeuedBy"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "deliveryRequestId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requeuedBy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "actor": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "human",
+            "agent",
+            "system"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "displayName": {
+          "type": "string"
+        }
+      }
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "$id": "provider:acp/effect.retry.gateway_delivery.input.v1"
+}

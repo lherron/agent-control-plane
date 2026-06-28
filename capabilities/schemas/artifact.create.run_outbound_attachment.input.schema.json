@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Route requires multipart/form-data field file plus optional filename/contentType/alt. The current http-json adapter can only send JSON, so this binding is structural only until multipart adapter support exists.",
+  "required": [
+    "runId",
+    "file"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "runId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "file": {
+      "description": "Multipart form file field required by the ACP route.",
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "object",
+          "additionalProperties": true
+        }
+      ]
+    },
+    "filename": {
+      "type": "string",
+      "minLength": 1
+    },
+    "contentType": {
+      "type": "string",
+      "enum": [
+        "image/png",
+        "image/jpeg",
+        "image/jpg",
+        "image/gif",
+        "image/webp",
+        "image/svg+xml",
+        "application/pdf",
+        "application/json",
+        "text/plain"
+      ]
+    },
+    "alt": {
+      "type": "string",
+      "minLength": 1
+    },
+    "HRC_RUN_ID": {
+      "type": "string",
+      "minLength": 1
+    },
+    "HRC_HOST_SESSION_ID": {
+      "type": "string",
+      "minLength": 1
+    },
+    "HRC_GENERATION": {
+      "type": "string",
+      "minLength": 1
+    },
+    "actor": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "human",
+            "agent",
+            "system"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "displayName": {
+          "type": "string"
+        }
+      }
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "$id": "provider:acp/artifact.create.run_outbound_attachment.input.v1"
+}

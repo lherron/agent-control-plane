@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Body accepted by handleCreateAgentPulpitMessage. Either bindingId or gatewayType+agentId+projectId may identify the binding.",
+  "required": [
+    "idempotencyKey",
+    "text"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 1
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "bindingId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "gatewayType": {
+      "type": "string",
+      "minLength": 1
+    },
+    "agentId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "projectId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "laneRef": {
+      "type": "string",
+      "minLength": 1
+    },
+    "actor": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "human",
+            "agent",
+            "system"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "displayName": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "$id": "provider:acp/publication.create.gateway_message.input.v1"
+}

@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "string",
+  "description": "Route returns application/x-ndjson stream text; http-json parses non-JSON bodies as text.",
+  "$id": "provider:acp/session.watch_events.output.v1"
+}

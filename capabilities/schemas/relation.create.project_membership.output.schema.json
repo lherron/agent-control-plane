@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Returns { membership }.",
+  "additionalProperties": true,
+  "properties": {
+    "membership": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "$id": "provider:acp/relation.create.project_membership.output.v1"
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Returns { binding }.",
+  "additionalProperties": true,
+  "properties": {
+    "binding": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "$id": "provider:acp/surface.bind.interface.output.v1"
+}

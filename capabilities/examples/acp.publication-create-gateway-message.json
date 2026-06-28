@@ -1,0 +1,8 @@
+{
+  "idempotencyKey": "msg:T-05184:1",
+  "text": "Work accepted.",
+  "gatewayType": "discord",
+  "agentId": "larry",
+  "projectId": "agent-control-plane",
+  "laneRef": "main"
+}

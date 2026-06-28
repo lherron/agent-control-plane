@@ -1,0 +1,4799 @@
+{
+  "provider": {
+    "id": "acp",
+    "title": "Agent Control Plane",
+    "summary": "Session, execution, gateway, automation, and event control-plane provider."
+  },
+  "capabilities": [
+    {
+      "id": "provider:acp/agent.create@1",
+      "provider": "acp",
+      "root": "agent",
+      "verb": "create",
+      "title": "Create agent",
+      "summary": "Register an ACP agent via POST /v1/admin/agents.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/agent.create.input.v1",
+        "output": "provider:acp/agent.create.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "binding": "binding:acp/agent.create.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.agent-create.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/agent.patch@1",
+      "provider": "acp",
+      "root": "agent",
+      "verb": "patch",
+      "title": "Patch agent",
+      "summary": "Patch ACP agent metadata via PATCH /v1/admin/agents/:agentId.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/agent.patch.input.v1",
+        "output": "provider:acp/agent.patch.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "binding": "binding:acp/agent.patch.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.agent-patch.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/agent.patch.profile@1",
+      "provider": "acp",
+      "root": "agent",
+      "verb": "patch",
+      "variant": "profile",
+      "title": "Patch agent profile",
+      "summary": "Patch ACP agent profile/display metadata via PATCH /v1/admin/agents/:agentId/profile.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/agent.patch.profile.input.v1",
+        "output": "provider:acp/agent.patch.profile.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "binding": "binding:acp/agent.patch.profile.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.agent-patch-profile.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/agent.record_heartbeat@1",
+      "provider": "acp",
+      "root": "agent",
+      "verb": "record_heartbeat",
+      "title": "Record agent heartbeat",
+      "summary": "Record heartbeat/status metadata for an ACP agent via PUT /v1/admin/agents/:agentId/heartbeat.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/agent.record_heartbeat.input.v1",
+        "output": "provider:acp/agent.record_heartbeat.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "binding": "binding:acp/agent.record_heartbeat.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.agent-record-heartbeat.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/scope.create.project@1",
+      "provider": "acp",
+      "root": "scope",
+      "verb": "create",
+      "variant": "project",
+      "title": "Create project scope",
+      "summary": "Register an ACP project scope via POST /v1/admin/projects.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/scope.create.project.input.v1",
+        "output": "provider:acp/scope.create.project.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "binding": "binding:acp/scope.create.project.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.scope-create-project.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/scope.set_default_agent.project@1",
+      "provider": "acp",
+      "root": "scope",
+      "verb": "set_default_agent",
+      "variant": "project",
+      "title": "Set project default agent",
+      "summary": "Set the default ACP agent for a project via POST /v1/admin/projects/:projectId/default-agent.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/scope.set_default_agent.project.input.v1",
+        "output": "provider:acp/scope.set_default_agent.project.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "binding": "binding:acp/scope.set_default_agent.project.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.scope-set-default-agent-project.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/relation.create.project_membership@1",
+      "provider": "acp",
+      "root": "relation",
+      "verb": "create",
+      "variant": "project_membership",
+      "title": "Create project membership",
+      "summary": "Create an agent/project membership relation via POST /v1/admin/memberships.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/relation.create.project_membership.input.v1",
+        "output": "provider:acp/relation.create.project_membership.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "binding": "binding:acp/relation.create.project_membership.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.relation-create-project-membership.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/session.resolve@1",
+      "provider": "acp",
+      "root": "session",
+      "verb": "resolve",
+      "title": "Resolve session",
+      "summary": "Resolve an ACP session reference via POST /v1/sessions/resolve.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/session.resolve.input.v1",
+        "output": "provider:acp/session.resolve.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "produces": [
+        {
+          "role": "session",
+          "kind": "provider:acp/session@1"
+        }
+      ],
+      "binding": "binding:acp/session.resolve.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.session-resolve.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/session.resolve_runtime@1",
+      "provider": "acp",
+      "root": "session",
+      "verb": "resolve_runtime",
+      "title": "Resolve session runtime",
+      "summary": "Resolve runtime placement for an ACP session via POST /v1/runtime/resolve.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/session.resolve_runtime.input.v1",
+        "output": "provider:acp/session.resolve_runtime.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "binding": "binding:acp/session.resolve_runtime.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.session-resolve-runtime.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/session.submit_input@1",
+      "provider": "acp",
+      "root": "session",
+      "verb": "submit_input",
+      "title": "Submit session input",
+      "summary": "Admit input into an ACP-managed session lane via POST /v1/inputs.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/session.submit_input.input.v1",
+        "output": "provider:acp/session.submit_input.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "produces": [
+        {
+          "role": "input_attempt",
+          "kind": "provider:acp/input_attempt@1"
+        },
+        {
+          "role": "run",
+          "kind": "provider:acp/run@1"
+        }
+      ],
+      "binding": "binding:acp/session.submit_input.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.session-submit-input.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/session.watch_events@1",
+      "provider": "acp",
+      "root": "session",
+      "verb": "watch_events",
+      "title": "Watch session events",
+      "summary": "Read HRC session events via GET /v1/sessions/:sessionId/events.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/session.watch_events.input.v1",
+        "output": "provider:acp/session.watch_events.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "none"
+      },
+      "idempotency": {
+        "required": false
+      },
+      "binding": "binding:acp/session.watch_events.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.session-watch-events.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/session.interrupt@1",
+      "provider": "acp",
+      "root": "session",
+      "verb": "interrupt",
+      "title": "Interrupt session",
+      "summary": "Interrupt the latest runtime for a session via POST /v1/sessions/:sessionId/interrupt.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/session.interrupt.input.v1",
+        "output": "provider:acp/session.interrupt.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "binding": "binding:acp/session.interrupt.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.session-interrupt.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/execution.get.run@1",
+      "provider": "acp",
+      "root": "execution",
+      "verb": "get",
+      "variant": "run",
+      "title": "Get run",
+      "summary": "Read ACP run correlation metadata via GET /v1/runs/:runId.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/execution.get.run.input.v1",
+        "output": "provider:acp/execution.get.run.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "none"
+      },
+      "idempotency": {
+        "required": false
+      },
+      "binding": "binding:acp/execution.get.run.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.execution-get-run.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/execution.cancel.run@1",
+      "provider": "acp",
+      "root": "execution",
+      "verb": "cancel",
+      "variant": "run",
+      "title": "Cancel run",
+      "summary": "Cancel an ACP run via POST /v1/runs/:runId/cancel.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/execution.cancel.run.input.v1",
+        "output": "provider:acp/execution.cancel.run.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "produces": [
+        {
+          "role": "run",
+          "kind": "provider:acp/run@1"
+        }
+      ],
+      "binding": "binding:acp/execution.cancel.run.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.execution-cancel-run.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/execution.start.workflow_participant_run@1",
+      "provider": "acp",
+      "root": "execution",
+      "verb": "start",
+      "variant": "workflow_participant_run",
+      "title": "Start workflow participant run",
+      "summary": "Launch a WRKF participant run via POST /v1/workflow-participant-runs.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/execution.start.workflow_participant_run.input.v1",
+        "output": "provider:acp/execution.start.workflow_participant_run.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "produces": [
+        {
+          "role": "run",
+          "kind": "provider:acp/run@1"
+        }
+      ],
+      "binding": "binding:acp/execution.start.workflow_participant_run.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.execution-start-workflow-participant-run.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/execution.start.wrkf_action@1",
+      "provider": "acp",
+      "root": "execution",
+      "verb": "start",
+      "variant": "wrkf_action",
+      "title": "Start WRKF action",
+      "summary": "Launch a WRKF action via POST /v1/wrkf/actions/launch.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/execution.start.wrkf_action.input.v1",
+        "output": "provider:acp/execution.start.wrkf_action.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "produces": [
+        {
+          "role": "run",
+          "kind": "provider:acp/run@1"
+        }
+      ],
+      "binding": "binding:acp/execution.start.wrkf_action.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.execution-start-wrkf-action.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/surface.bind.interface@1",
+      "provider": "acp",
+      "root": "surface",
+      "verb": "bind",
+      "variant": "interface",
+      "title": "Bind interface conversation",
+      "summary": "Bind an interface conversation to an ACP session via POST /v1/interface/bindings.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/surface.bind.interface.input.v1",
+        "output": "provider:acp/surface.bind.interface.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "produces": [
+        {
+          "role": "interface_binding",
+          "kind": "provider:acp/interface_binding@1"
+        }
+      ],
+      "binding": "binding:acp/surface.bind.interface.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.surface-bind-interface.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/session.ingest_interface_message@1",
+      "provider": "acp",
+      "root": "session",
+      "verb": "ingest_interface_message",
+      "title": "Ingest interface message",
+      "summary": "Ingest a gateway/interface message into ACP via POST /v1/interface/messages.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/session.ingest_interface_message.input.v1",
+        "output": "provider:acp/session.ingest_interface_message.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "produces": [
+        {
+          "role": "input_attempt",
+          "kind": "provider:acp/input_attempt@1"
+        },
+        {
+          "role": "run",
+          "kind": "provider:acp/run@1"
+        }
+      ],
+      "binding": "binding:acp/session.ingest_interface_message.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.session-ingest-interface-message.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/publication.create.gateway_message@1",
+      "provider": "acp",
+      "root": "publication",
+      "verb": "create",
+      "variant": "gateway_message",
+      "title": "Create gateway message",
+      "summary": "Queue a gateway message via POST /v1/agent-pulpit/messages.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/publication.create.gateway_message.input.v1",
+        "output": "provider:acp/publication.create.gateway_message.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "produces": [
+        {
+          "role": "delivery_request",
+          "kind": "provider:acp/delivery_request@1"
+        }
+      ],
+      "binding": "binding:acp/publication.create.gateway_message.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.publication-create-gateway-message.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/publication.create.run_outbound_message@1",
+      "provider": "acp",
+      "root": "publication",
+      "verb": "create",
+      "variant": "run_outbound_message",
+      "title": "Create run outbound message",
+      "summary": "Queue an outbound message for a run via POST /v1/runs/:runId/outbound-messages.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/publication.create.run_outbound_message.input.v1",
+        "output": "provider:acp/publication.create.run_outbound_message.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "produces": [
+        {
+          "role": "delivery_request",
+          "kind": "provider:acp/delivery_request@1"
+        }
+      ],
+      "binding": "binding:acp/publication.create.run_outbound_message.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.publication-create-run-outbound-message.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/artifact.create.run_outbound_attachment@1",
+      "provider": "acp",
+      "root": "artifact",
+      "verb": "create",
+      "variant": "run_outbound_attachment",
+      "title": "Create run outbound attachment",
+      "summary": "Upload an outbound attachment for a run via POST /v1/runs/:runId/outbound-attachments.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/artifact.create.run_outbound_attachment.input.v1",
+        "output": "provider:acp/artifact.create.run_outbound_attachment.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "produces": [
+        {
+          "role": "outbound_attachment",
+          "kind": "provider:acp/outbound_attachment@1"
+        }
+      ],
+      "binding": "binding:acp/artifact.create.run_outbound_attachment.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.artifact-create-run-outbound-attachment.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/effect.watch.gateway_deliveries@1",
+      "provider": "acp",
+      "root": "effect",
+      "verb": "watch",
+      "variant": "gateway_deliveries",
+      "title": "Watch failed gateway deliveries",
+      "summary": "List failed gateway deliveries via GET /v1/gateway/deliveries.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/effect.watch.gateway_deliveries.input.v1",
+        "output": "provider:acp/effect.watch.gateway_deliveries.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "none"
+      },
+      "idempotency": {
+        "required": false
+      },
+      "binding": "binding:acp/effect.watch.gateway_deliveries.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.effect-watch-gateway-deliveries.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/effect.ack.gateway_delivery@1",
+      "provider": "acp",
+      "root": "effect",
+      "verb": "ack",
+      "variant": "gateway_delivery",
+      "title": "Ack gateway delivery",
+      "summary": "Acknowledge a gateway delivery via POST /v1/gateway/deliveries/:deliveryRequestId/ack.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/effect.ack.gateway_delivery.input.v1",
+        "output": "provider:acp/effect.ack.gateway_delivery.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "produces": [
+        {
+          "role": "gateway_delivery",
+          "kind": "provider:acp/gateway_delivery@1"
+        }
+      ],
+      "binding": "binding:acp/effect.ack.gateway_delivery.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.effect-ack-gateway-delivery.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/effect.fail.gateway_delivery@1",
+      "provider": "acp",
+      "root": "effect",
+      "verb": "fail",
+      "variant": "gateway_delivery",
+      "title": "Fail gateway delivery",
+      "summary": "Mark a gateway delivery failed via POST /v1/gateway/deliveries/:deliveryRequestId/fail.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/effect.fail.gateway_delivery.input.v1",
+        "output": "provider:acp/effect.fail.gateway_delivery.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "produces": [
+        {
+          "role": "gateway_delivery",
+          "kind": "provider:acp/gateway_delivery@1"
+        }
+      ],
+      "binding": "binding:acp/effect.fail.gateway_delivery.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.effect-fail-gateway-delivery.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/effect.retry.gateway_delivery@1",
+      "provider": "acp",
+      "root": "effect",
+      "verb": "retry",
+      "variant": "gateway_delivery",
+      "title": "Retry gateway delivery",
+      "summary": "Requeue a gateway delivery via POST /v1/gateway/deliveries/:deliveryRequestId/requeue.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/effect.retry.gateway_delivery.input.v1",
+        "output": "provider:acp/effect.retry.gateway_delivery.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "produces": [
+        {
+          "role": "gateway_delivery",
+          "kind": "provider:acp/gateway_delivery@1"
+        }
+      ],
+      "binding": "binding:acp/effect.retry.gateway_delivery.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.effect-retry-gateway-delivery.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/workflow_definition.validate.automation_job@1",
+      "provider": "acp",
+      "root": "workflow_definition",
+      "verb": "validate",
+      "variant": "automation_job",
+      "title": "Validate automation job",
+      "summary": "Validate an automation job flow via POST /v1/admin/jobs/validate.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/workflow_definition.validate.automation_job.input.v1",
+        "output": "provider:acp/workflow_definition.validate.automation_job.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "none"
+      },
+      "idempotency": {
+        "required": false
+      },
+      "binding": "binding:acp/workflow_definition.validate.automation_job.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.workflow-definition-validate-automation-job.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/workflow_definition.create.automation_job@1",
+      "provider": "acp",
+      "root": "workflow_definition",
+      "verb": "create",
+      "variant": "automation_job",
+      "title": "Create automation job",
+      "summary": "Create an automation job via POST /v1/admin/jobs.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/workflow_definition.create.automation_job.input.v1",
+        "output": "provider:acp/workflow_definition.create.automation_job.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "produces": [
+        {
+          "role": "automation_job",
+          "kind": "provider:acp/automation_job@1"
+        }
+      ],
+      "binding": "binding:acp/workflow_definition.create.automation_job.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.workflow-definition-create-automation-job.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/workflow_definition.patch.automation_job@1",
+      "provider": "acp",
+      "root": "workflow_definition",
+      "verb": "patch",
+      "variant": "automation_job",
+      "title": "Patch automation job",
+      "summary": "Patch an automation job via PATCH /v1/admin/jobs/:jobId.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/workflow_definition.patch.automation_job.input.v1",
+        "output": "provider:acp/workflow_definition.patch.automation_job.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "produces": [
+        {
+          "role": "automation_job",
+          "kind": "provider:acp/automation_job@1"
+        }
+      ],
+      "binding": "binding:acp/workflow_definition.patch.automation_job.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.workflow-definition-patch-automation-job.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/execution.start.automation_job@1",
+      "provider": "acp",
+      "root": "execution",
+      "verb": "start",
+      "variant": "automation_job",
+      "title": "Start automation job",
+      "summary": "Run an automation job via POST /v1/admin/jobs/:jobId/run.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/execution.start.automation_job.input.v1",
+        "output": "provider:acp/execution.start.automation_job.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "produces": [
+        {
+          "role": "automation_job_run",
+          "kind": "provider:acp/automation_job_run@1"
+        }
+      ],
+      "binding": "binding:acp/execution.start.automation_job.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.execution-start-automation-job.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/execution.get.automation_job_run@1",
+      "provider": "acp",
+      "root": "execution",
+      "verb": "get",
+      "variant": "automation_job_run",
+      "title": "Get automation job run",
+      "summary": "Read an automation job run via GET /v1/job-runs/:jobRunId.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/execution.get.automation_job_run.input.v1",
+        "output": "provider:acp/execution.get.automation_job_run.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "none"
+      },
+      "idempotency": {
+        "required": false
+      },
+      "binding": "binding:acp/execution.get.automation_job_run.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.execution-get-automation-job-run.json"
+        }
+      ]
+    },
+    {
+      "id": "provider:acp/event.ingest.normalized@1",
+      "provider": "acp",
+      "root": "event",
+      "verb": "ingest",
+      "variant": "normalized",
+      "title": "Ingest normalized event",
+      "summary": "Ingest a normalized ACP event via POST /v1/webhooks/events.",
+      "maturity": "active",
+      "contracts": {
+        "input": "provider:acp/event.ingest.normalized.input.v1",
+        "output": "provider:acp/event.ingest.normalized.output.v1"
+      },
+      "execution": {
+        "mode": "sync",
+        "persistence": "operation_and_execution"
+      },
+      "idempotency": {
+        "required": true,
+        "strategy": "idempotency-key-plus-input-hash"
+      },
+      "produces": [
+        {
+          "role": "normalized_event",
+          "kind": "provider:acp/normalized_event@1"
+        }
+      ],
+      "binding": "binding:acp/event.ingest.normalized.http@1",
+      "examples": [
+        {
+          "name": "default",
+          "input": "examples/acp.event-ingest-normalized.json"
+        }
+      ]
+    }
+  ],
+  "artifactKinds": [
+    {
+      "id": "provider:acp/input_attempt@1",
+      "summary": "ACP input admission attempt."
+    },
+    {
+      "id": "provider:acp/run@1",
+      "summary": "ACP run/execution correlation record."
+    },
+    {
+      "id": "provider:acp/session@1",
+      "summary": "ACP session resolution artifact."
+    },
+    {
+      "id": "provider:acp/interface_binding@1",
+      "summary": "Interface conversation binding."
+    },
+    {
+      "id": "provider:acp/delivery_request@1",
+      "summary": "Gateway delivery request."
+    },
+    {
+      "id": "provider:acp/outbound_attachment@1",
+      "summary": "Outbound attachment metadata."
+    },
+    {
+      "id": "provider:acp/gateway_delivery@1",
+      "summary": "Gateway delivery transition result."
+    },
+    {
+      "id": "provider:acp/automation_job@1",
+      "summary": "Automation job definition."
+    },
+    {
+      "id": "provider:acp/automation_job_run@1",
+      "summary": "Automation job run."
+    },
+    {
+      "id": "provider:acp/normalized_event@1",
+      "summary": "Normalized ACP event inbox record."
+    }
+  ],
+  "bindings": [
+    {
+      "id": "binding:acp/agent.create.http@1",
+      "capability": "provider:acp/agent.create@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/admin/agents",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/agent.patch.http@1",
+      "capability": "provider:acp/agent.patch@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "PATCH",
+        "url": "${ACP_BASE_URL}/v1/admin/agents/:agentId",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/agent.patch.profile.http@1",
+      "capability": "provider:acp/agent.patch.profile@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "PATCH",
+        "url": "${ACP_BASE_URL}/v1/admin/agents/:agentId/profile",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/agent.record_heartbeat.http@1",
+      "capability": "provider:acp/agent.record_heartbeat@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "PUT",
+        "url": "${ACP_BASE_URL}/v1/admin/agents/:agentId/heartbeat",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/scope.create.project.http@1",
+      "capability": "provider:acp/scope.create.project@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/admin/projects",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/scope.set_default_agent.project.http@1",
+      "capability": "provider:acp/scope.set_default_agent.project@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/admin/projects/:projectId/default-agent",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/relation.create.project_membership.http@1",
+      "capability": "provider:acp/relation.create.project_membership@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/admin/memberships",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/session.resolve.http@1",
+      "capability": "provider:acp/session.resolve@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/sessions/resolve",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/session.resolve_runtime.http@1",
+      "capability": "provider:acp/session.resolve_runtime@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/runtime/resolve",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/session.submit_input.http@1",
+      "capability": "provider:acp/session.submit_input@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/inputs",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/session.watch_events.http@1",
+      "capability": "provider:acp/session.watch_events@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "GET",
+        "url": "${ACP_BASE_URL}/v1/sessions/:sessionId/events",
+        "timeoutMs": 30000,
+        "query": {
+          "fromSeq": "$.input.fromSeq",
+          "follow": "$.input.follow",
+          "generation": "$.input.generation",
+          "runId": "$.input.runId"
+        }
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/session.interrupt.http@1",
+      "capability": "provider:acp/session.interrupt@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/sessions/:sessionId/interrupt",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/execution.get.run.http@1",
+      "capability": "provider:acp/execution.get.run@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "GET",
+        "url": "${ACP_BASE_URL}/v1/runs/:runId",
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/execution.cancel.run.http@1",
+      "capability": "provider:acp/execution.cancel.run@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/runs/:runId/cancel",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/execution.start.workflow_participant_run.http@1",
+      "capability": "provider:acp/execution.start.workflow_participant_run@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/workflow-participant-runs",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/execution.start.wrkf_action.http@1",
+      "capability": "provider:acp/execution.start.wrkf_action@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/wrkf/actions/launch",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/surface.bind.interface.http@1",
+      "capability": "provider:acp/surface.bind.interface@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/interface/bindings",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/session.ingest_interface_message.http@1",
+      "capability": "provider:acp/session.ingest_interface_message@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/interface/messages",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/publication.create.gateway_message.http@1",
+      "capability": "provider:acp/publication.create.gateway_message@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/agent-pulpit/messages",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/publication.create.run_outbound_message.http@1",
+      "capability": "provider:acp/publication.create.run_outbound_message@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/runs/:runId/outbound-messages",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/artifact.create.run_outbound_attachment.http@1",
+      "capability": "provider:acp/artifact.create.run_outbound_attachment@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/runs/:runId/outbound-attachments",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/effect.watch.gateway_deliveries.http@1",
+      "capability": "provider:acp/effect.watch.gateway_deliveries@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "GET",
+        "url": "${ACP_BASE_URL}/v1/gateway/deliveries",
+        "timeoutMs": 30000,
+        "query": {
+          "status": "$.input.status",
+          "gatewayId": "$.input.gatewayId",
+          "since": "$.input.since",
+          "limit": "$.input.limit"
+        }
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/effect.ack.gateway_delivery.http@1",
+      "capability": "provider:acp/effect.ack.gateway_delivery@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/gateway/deliveries/:deliveryRequestId/ack",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/effect.fail.gateway_delivery.http@1",
+      "capability": "provider:acp/effect.fail.gateway_delivery@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/gateway/deliveries/:deliveryRequestId/fail",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/effect.retry.gateway_delivery.http@1",
+      "capability": "provider:acp/effect.retry.gateway_delivery@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/gateway/deliveries/:deliveryRequestId/requeue",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/workflow_definition.validate.automation_job.http@1",
+      "capability": "provider:acp/workflow_definition.validate.automation_job@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/admin/jobs/validate",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/workflow_definition.create.automation_job.http@1",
+      "capability": "provider:acp/workflow_definition.create.automation_job@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/admin/jobs",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/workflow_definition.patch.automation_job.http@1",
+      "capability": "provider:acp/workflow_definition.patch.automation_job@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "PATCH",
+        "url": "${ACP_BASE_URL}/v1/admin/jobs/:jobId",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/execution.start.automation_job.http@1",
+      "capability": "provider:acp/execution.start.automation_job@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/admin/jobs/:jobId/run",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/execution.get.automation_job_run.http@1",
+      "capability": "provider:acp/execution.get.automation_job_run@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "GET",
+        "url": "${ACP_BASE_URL}/v1/job-runs/:jobRunId",
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    },
+    {
+      "id": "binding:acp/event.ingest.normalized.http@1",
+      "capability": "provider:acp/event.ingest.normalized@1",
+      "adapter": "http-json",
+      "request": {
+        "method": "POST",
+        "url": "${ACP_BASE_URL}/v1/webhooks/events",
+        "body": {
+          "fromInput": "$",
+          "inject": {
+            "idempotencyKey": "$.envelope.idempotencyKey",
+            "actor": "$.envelope.actor"
+          }
+        },
+        "headers": {
+          "inject": {
+            "x-acp-actor": "$.envelope.actor"
+          }
+        },
+        "timeoutMs": 30000
+      },
+      "response": {
+        "output": {
+          "fromBody": "$"
+        }
+      }
+    }
+  ],
+  "aliases": [
+    {
+      "alias": "acp.agent.create",
+      "resolvesTo": "provider:acp/agent.create@1"
+    },
+    {
+      "alias": "acp.agent.patch",
+      "resolvesTo": "provider:acp/agent.patch@1"
+    },
+    {
+      "alias": "acp.agent.patch.profile",
+      "resolvesTo": "provider:acp/agent.patch.profile@1"
+    },
+    {
+      "alias": "acp.agent.record_heartbeat",
+      "resolvesTo": "provider:acp/agent.record_heartbeat@1"
+    },
+    {
+      "alias": "acp.scope.create.project",
+      "resolvesTo": "provider:acp/scope.create.project@1"
+    },
+    {
+      "alias": "acp.scope.set_default_agent.project",
+      "resolvesTo": "provider:acp/scope.set_default_agent.project@1"
+    },
+    {
+      "alias": "acp.relation.create.project_membership",
+      "resolvesTo": "provider:acp/relation.create.project_membership@1"
+    },
+    {
+      "alias": "acp.session.resolve",
+      "resolvesTo": "provider:acp/session.resolve@1"
+    },
+    {
+      "alias": "acp.session.resolve_runtime",
+      "resolvesTo": "provider:acp/session.resolve_runtime@1"
+    },
+    {
+      "alias": "acp.session.submit_input",
+      "resolvesTo": "provider:acp/session.submit_input@1"
+    },
+    {
+      "alias": "acp.session.watch_events",
+      "resolvesTo": "provider:acp/session.watch_events@1"
+    },
+    {
+      "alias": "acp.session.interrupt",
+      "resolvesTo": "provider:acp/session.interrupt@1"
+    },
+    {
+      "alias": "acp.execution.get.run",
+      "resolvesTo": "provider:acp/execution.get.run@1"
+    },
+    {
+      "alias": "acp.execution.cancel.run",
+      "resolvesTo": "provider:acp/execution.cancel.run@1"
+    },
+    {
+      "alias": "acp.execution.start.workflow_participant_run",
+      "resolvesTo": "provider:acp/execution.start.workflow_participant_run@1"
+    },
+    {
+      "alias": "acp.execution.start.wrkf_action",
+      "resolvesTo": "provider:acp/execution.start.wrkf_action@1"
+    },
+    {
+      "alias": "acp.surface.bind.interface",
+      "resolvesTo": "provider:acp/surface.bind.interface@1"
+    },
+    {
+      "alias": "acp.session.ingest_interface_message",
+      "resolvesTo": "provider:acp/session.ingest_interface_message@1"
+    },
+    {
+      "alias": "acp.publication.create.gateway_message",
+      "resolvesTo": "provider:acp/publication.create.gateway_message@1"
+    },
+    {
+      "alias": "acp.publication.create.run_outbound_message",
+      "resolvesTo": "provider:acp/publication.create.run_outbound_message@1"
+    },
+    {
+      "alias": "acp.artifact.create.run_outbound_attachment",
+      "resolvesTo": "provider:acp/artifact.create.run_outbound_attachment@1"
+    },
+    {
+      "alias": "acp.effect.watch.gateway_deliveries",
+      "resolvesTo": "provider:acp/effect.watch.gateway_deliveries@1"
+    },
+    {
+      "alias": "acp.effect.ack.gateway_delivery",
+      "resolvesTo": "provider:acp/effect.ack.gateway_delivery@1"
+    },
+    {
+      "alias": "acp.effect.fail.gateway_delivery",
+      "resolvesTo": "provider:acp/effect.fail.gateway_delivery@1"
+    },
+    {
+      "alias": "acp.effect.retry.gateway_delivery",
+      "resolvesTo": "provider:acp/effect.retry.gateway_delivery@1"
+    },
+    {
+      "alias": "acp.workflow_definition.validate.automation_job",
+      "resolvesTo": "provider:acp/workflow_definition.validate.automation_job@1"
+    },
+    {
+      "alias": "acp.workflow_definition.create.automation_job",
+      "resolvesTo": "provider:acp/workflow_definition.create.automation_job@1"
+    },
+    {
+      "alias": "acp.workflow_definition.patch.automation_job",
+      "resolvesTo": "provider:acp/workflow_definition.patch.automation_job@1"
+    },
+    {
+      "alias": "acp.execution.start.automation_job",
+      "resolvesTo": "provider:acp/execution.start.automation_job@1"
+    },
+    {
+      "alias": "acp.execution.get.automation_job_run",
+      "resolvesTo": "provider:acp/execution.get.automation_job_run@1"
+    },
+    {
+      "alias": "acp.event.ingest.normalized",
+      "resolvesTo": "provider:acp/event.ingest.normalized@1"
+    }
+  ],
+  "deferredCapabilities": [
+    {
+      "id": "provider:acp/provider.request_capability@1",
+      "reason": "Deferred from this first cut because ACP has no existing /v1/* provider-evolution request intake route. Binding it now would invent a route, which T-05184 explicitly forbids."
+    }
+  ],
+  "schemas": [
+    {
+      "id": "provider:acp/agent.create.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Body accepted by handleCreateAdminAgent.",
+        "required": [
+          "agentId",
+          "status"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "agentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "homeDir": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "disabled"
+            ]
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/agent.create.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/agent.create.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns { agent }.",
+        "additionalProperties": true,
+        "properties": {
+          "agent": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "$id": "provider:acp/agent.create.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/agent.patch.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Path parameter plus patch fields accepted by handlePatchAdminAgent.",
+        "required": [
+          "agentId"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "agentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "homeDir": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "disabled"
+            ]
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/agent.patch.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/agent.patch.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns { agent }.",
+        "additionalProperties": true,
+        "properties": {
+          "agent": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "$id": "provider:acp/agent.patch.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/agent.patch.profile.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Path parameter plus profile patch fields accepted by handlePatchAdminAgentProfile.",
+        "required": [
+          "agentId"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "agentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "displayColor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "monogram": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 3
+          },
+          "avatarUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "tagline": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "role": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "defaultModel": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "vibe": {
+            "anyOf": [
+              {
+                "type": "array",
+                "maxItems": 16,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "specialties": {
+            "anyOf": [
+              {
+                "type": "array",
+                "maxItems": 16,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/agent.patch.profile.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/agent.patch.profile.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns { agent }.",
+        "additionalProperties": true,
+        "properties": {
+          "agent": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "$id": "provider:acp/agent.patch.profile.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/agent.record_heartbeat.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Path parameter plus heartbeat fields accepted by handlePutHeartbeat.",
+        "required": [
+          "agentId"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "agentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1
+          },
+          "scopeRef": {
+            "type": "string",
+            "minLength": 1
+          },
+          "laneRef": {
+            "type": "string",
+            "minLength": 1
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/agent.record_heartbeat.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/agent.record_heartbeat.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns { heartbeat }.",
+        "additionalProperties": true,
+        "properties": {
+          "heartbeat": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "$id": "provider:acp/agent.record_heartbeat.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/scope.create.project.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Body accepted by handleCreateAdminProject; homeDir and rootDir must match when both are provided.",
+        "required": [
+          "projectId",
+          "displayName"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "homeDir": {
+            "type": "string",
+            "minLength": 1
+          },
+          "rootDir": {
+            "type": "string",
+            "minLength": 1
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/scope.create.project.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/scope.create.project.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns { project }.",
+        "additionalProperties": true,
+        "properties": {
+          "project": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "$id": "provider:acp/scope.create.project.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/scope.set_default_agent.project.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Path projectId and body agentId accepted by handleSetProjectDefaultAgent.",
+        "required": [
+          "projectId",
+          "agentId"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "agentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/scope.set_default_agent.project.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/scope.set_default_agent.project.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns { project }.",
+        "additionalProperties": true,
+        "properties": {
+          "project": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "$id": "provider:acp/scope.set_default_agent.project.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/relation.create.project_membership.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Body accepted by handleCreateMembership.",
+        "required": [
+          "projectId",
+          "agentId",
+          "role"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "agentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "coordinator",
+              "implementer",
+              "tester",
+              "observer"
+            ]
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/relation.create.project_membership.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/relation.create.project_membership.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns { membership }.",
+        "additionalProperties": true,
+        "properties": {
+          "membership": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "$id": "provider:acp/relation.create.project_membership.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/session.resolve.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Body accepted by handleResolveSession.",
+        "required": [
+          "sessionRef"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "sessionRef": {
+            "type": "object",
+            "required": [
+              "scopeRef"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "scopeRef": {
+                "type": "string",
+                "minLength": 1
+              },
+              "laneRef": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/session.resolve.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/session.resolve.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns { sessionId }.",
+        "additionalProperties": true,
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/session.resolve.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/session.resolve_runtime.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Body accepted by handleResolveRuntime.",
+        "required": [
+          "sessionRef"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "sessionRef": {
+            "type": "object",
+            "required": [
+              "scopeRef"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "scopeRef": {
+                "type": "string",
+                "minLength": 1
+              },
+              "laneRef": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/session.resolve_runtime.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/session.resolve_runtime.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns { placement }.",
+        "additionalProperties": true,
+        "properties": {
+          "placement": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "$id": "provider:acp/session.resolve_runtime.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/session.submit_input.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Body accepted by handleCreateInput.",
+        "required": [
+          "sessionRef",
+          "content"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "sessionRef": {
+            "type": "object",
+            "required": [
+              "scopeRef"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "scopeRef": {
+                "type": "string",
+                "minLength": 1
+              },
+              "laneRef": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "dispatch": {
+            "type": "boolean"
+          },
+          "intent": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "new_work"
+                  },
+                  "resetPolicy": {
+                    "type": "string",
+                    "enum": [
+                      "follow_latest",
+                      "expire_on_generation_change",
+                      "pin_generation"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "contribute_to_active_run"
+                  },
+                  "fallback": {
+                    "type": "string",
+                    "enum": [
+                      "queue",
+                      "reject",
+                      "pending_only"
+                    ]
+                  },
+                  "contributionSemantics": {
+                    "type": "string",
+                    "enum": [
+                      "append_context",
+                      "interrupt_and_continue"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind",
+                  "action"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "control_active_run"
+                  },
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "interrupt",
+                      "cancel",
+                      "pause"
+                    ]
+                  },
+                  "fallback": {
+                    "const": "reject"
+                  }
+                }
+              }
+            ]
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "$id": "provider:acp/session.submit_input.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/session.submit_input.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns inputAttempt, run/targetRun, inputApplication, admission, and currentState as available.",
+        "additionalProperties": true,
+        "properties": {
+          "inputAttempt": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "run": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "targetRun": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "inputApplication": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "admission": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "currentState": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "$id": "provider:acp/session.submit_input.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/session.watch_events.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Path and query accepted by handleSessionEvents.",
+        "required": [
+          "sessionId"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fromSeq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "follow": {
+            "type": "boolean"
+          },
+          "generation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "runId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/session.watch_events.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/session.watch_events.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "string",
+        "description": "Route returns application/x-ndjson stream text; http-json parses non-JSON bodies as text.",
+        "$id": "provider:acp/session.watch_events.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/session.interrupt.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Path parameter accepted by handleInterruptSession; request body is ignored.",
+        "required": [
+          "sessionId"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/session.interrupt.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/session.interrupt.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns { ok, runtimeId }.",
+        "additionalProperties": true,
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "runtimeId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/session.interrupt.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/execution.get.run.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Path parameter accepted by handleGetRun.",
+        "required": [
+          "runId"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "runId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/execution.get.run.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/execution.get.run.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns { run, queue? }.",
+        "additionalProperties": true,
+        "properties": {
+          "run": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "queue": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "$id": "provider:acp/execution.get.run.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/execution.cancel.run.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Path parameter accepted by handleCancelRun; request body is ignored.",
+        "required": [
+          "runId"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "runId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/execution.cancel.run.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/execution.cancel.run.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns { run }.",
+        "additionalProperties": true,
+        "properties": {
+          "run": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "$id": "provider:acp/execution.cancel.run.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/execution.start.workflow_participant_run.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Body accepted by handleCreateWorkflowParticipantRun.",
+        "required": [
+          "taskId",
+          "role",
+          "idempotencyKey"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "type": "string",
+            "minLength": 1
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "sessionRef": {
+            "anyOf": [
+              {
+                "type": "object",
+                "required": [
+                  "scopeRef"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "scopeRef": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "laneRef": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              {
+                "type": "string",
+                "minLength": 1
+              }
+            ]
+          },
+          "scopeRef": {
+            "type": "string",
+            "minLength": 1
+          },
+          "laneRef": {
+            "type": "string",
+            "minLength": 1
+          },
+          "initialPrompt": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/execution.start.workflow_participant_run.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/execution.start.workflow_participant_run.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns launchParticipant result.",
+        "additionalProperties": true,
+        "properties": {
+          "run": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "$id": "provider:acp/execution.start.workflow_participant_run.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/execution.start.wrkf_action.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Body accepted by handleLaunchWrkfAction.",
+        "required": [
+          "taskId",
+          "action",
+          "idempotencyKey"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "action": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "type": "string",
+            "minLength": 1
+          },
+          "lane": {
+            "type": "string",
+            "minLength": 1
+          },
+          "initialPrompt": {
+            "type": "string",
+            "minLength": 1
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionRef": {
+            "anyOf": [
+              {
+                "type": "object",
+                "required": [
+                  "scopeRef"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "scopeRef": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "laneRef": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              {
+                "type": "string",
+                "minLength": 1
+              }
+            ]
+          },
+          "scopeRef": {
+            "type": "string",
+            "minLength": 1
+          },
+          "laneRef": {
+            "type": "string",
+            "minLength": 1
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "$id": "provider:acp/execution.start.wrkf_action.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/execution.start.wrkf_action.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns launchAction result.",
+        "additionalProperties": true,
+        "properties": {
+          "run": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "$id": "provider:acp/execution.start.wrkf_action.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/surface.bind.interface.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Body accepted by handleCreateInterfaceBinding.",
+        "required": [
+          "sessionRef",
+          "gatewayId",
+          "conversationRef",
+          "status"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "sessionRef": {
+            "type": "object",
+            "required": [
+              "scopeRef"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "scopeRef": {
+                "type": "string",
+                "minLength": 1
+              },
+              "laneRef": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "gatewayId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "gatewayType": {
+            "type": "string",
+            "minLength": 1
+          },
+          "conversationRef": {
+            "type": "string",
+            "minLength": 1
+          },
+          "threadRef": {
+            "type": "string",
+            "minLength": 1
+          },
+          "projectId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "disabled"
+            ]
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/surface.bind.interface.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/surface.bind.interface.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns { binding }.",
+        "additionalProperties": true,
+        "properties": {
+          "binding": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "$id": "provider:acp/surface.bind.interface.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/session.ingest_interface_message.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Body accepted by handleCreateInterfaceMessage.",
+        "required": [
+          "source",
+          "content"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "source": {
+            "type": "object",
+            "required": [
+              "gatewayId",
+              "conversationRef",
+              "messageRef",
+              "authorRef"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "gatewayId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "conversationRef": {
+                "type": "string",
+                "minLength": 1
+              },
+              "threadRef": {
+                "type": "string",
+                "minLength": 1
+              },
+              "messageRef": {
+                "type": "string",
+                "minLength": 1
+              },
+              "authorRef": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "required": [
+                    "kind",
+                    "url"
+                  ],
+                  "additionalProperties": true,
+                  "properties": {
+                    "kind": {
+                      "const": "url"
+                    },
+                    "url": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "filename": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "contentType": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "sizeBytes": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "kind",
+                    "path"
+                  ],
+                  "additionalProperties": true,
+                  "properties": {
+                    "kind": {
+                      "const": "file"
+                    },
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "filename": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "contentType": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "sizeBytes": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "intent": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "new_work"
+                  },
+                  "resetPolicy": {
+                    "type": "string",
+                    "enum": [
+                      "follow_latest",
+                      "expire_on_generation_change",
+                      "pin_generation"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "contribute_to_active_run"
+                  },
+                  "fallback": {
+                    "type": "string",
+                    "enum": [
+                      "queue",
+                      "reject",
+                      "pending_only"
+                    ]
+                  },
+                  "contributionSemantics": {
+                    "type": "string",
+                    "enum": [
+                      "append_context",
+                      "interrupt_and_continue"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind",
+                  "action"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "control_active_run"
+                  },
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "interrupt",
+                      "cancel",
+                      "pause"
+                    ]
+                  },
+                  "fallback": {
+                    "const": "reject"
+                  }
+                }
+              }
+            ]
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "$id": "provider:acp/session.ingest_interface_message.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/session.ingest_interface_message.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns inputAttemptId plus run/admission metadata as available.",
+        "additionalProperties": true,
+        "properties": {
+          "inputAttemptId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "runId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "targetRunId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "admission": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "currentState": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "hostSessionId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "generation": {
+            "type": "integer"
+          }
+        },
+        "$id": "provider:acp/session.ingest_interface_message.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/publication.create.gateway_message.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Body accepted by handleCreateAgentPulpitMessage. Either bindingId or gatewayType+agentId+projectId may identify the binding.",
+        "required": [
+          "idempotencyKey",
+          "text"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1
+          },
+          "bindingId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "gatewayType": {
+            "type": "string",
+            "minLength": 1
+          },
+          "agentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "projectId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "laneRef": {
+            "type": "string",
+            "minLength": 1
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "$id": "provider:acp/publication.create.gateway_message.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/publication.create.gateway_message.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns { idempotencyKey, delivery }.",
+        "additionalProperties": true,
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          },
+          "delivery": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "$id": "provider:acp/publication.create.gateway_message.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/publication.create.run_outbound_message.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Path runId and JSON body text accepted by handlePostRunOutboundMessage; correlation may also be supplied via headers/query in the route.",
+        "required": [
+          "runId",
+          "text"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "runId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1
+          },
+          "HRC_RUN_ID": {
+            "type": "string",
+            "minLength": 1
+          },
+          "HRC_HOST_SESSION_ID": {
+            "type": "string",
+            "minLength": 1
+          },
+          "HRC_GENERATION": {
+            "type": "string",
+            "minLength": 1
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/publication.create.run_outbound_message.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/publication.create.run_outbound_message.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns deliveryRequestId, status, and body.",
+        "additionalProperties": true,
+        "properties": {
+          "deliveryRequestId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "const": "queued"
+          },
+          "body": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "$id": "provider:acp/publication.create.run_outbound_message.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/artifact.create.run_outbound_attachment.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Route requires multipart/form-data field file plus optional filename/contentType/alt. The current http-json adapter can only send JSON, so this binding is structural only until multipart adapter support exists.",
+        "required": [
+          "runId",
+          "file"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "runId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "file": {
+            "description": "Multipart form file field required by the ACP route.",
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "object",
+                "additionalProperties": true
+              }
+            ]
+          },
+          "filename": {
+            "type": "string",
+            "minLength": 1
+          },
+          "contentType": {
+            "type": "string",
+            "enum": [
+              "image/png",
+              "image/jpeg",
+              "image/jpg",
+              "image/gif",
+              "image/webp",
+              "image/svg+xml",
+              "application/pdf",
+              "application/json",
+              "text/plain"
+            ]
+          },
+          "alt": {
+            "type": "string",
+            "minLength": 1
+          },
+          "HRC_RUN_ID": {
+            "type": "string",
+            "minLength": 1
+          },
+          "HRC_HOST_SESSION_ID": {
+            "type": "string",
+            "minLength": 1
+          },
+          "HRC_GENERATION": {
+            "type": "string",
+            "minLength": 1
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/artifact.create.run_outbound_attachment.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/artifact.create.run_outbound_attachment.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns outbound attachment metadata.",
+        "additionalProperties": true,
+        "properties": {
+          "outboundAttachmentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "filename": {
+            "type": "string",
+            "minLength": 1
+          },
+          "contentType": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sizeBytes": {
+            "type": "integer"
+          },
+          "alt": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/artifact.create.run_outbound_attachment.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/effect.watch.gateway_deliveries.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Query accepted by handleListFailedDeliveries; status must be failed.",
+        "required": [
+          "status"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "status": {
+            "const": "failed"
+          },
+          "gatewayId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "since": {
+            "type": "string",
+            "minLength": 1
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "$id": "provider:acp/effect.watch.gateway_deliveries.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/effect.watch.gateway_deliveries.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns { deliveries, nextCursor }.",
+        "additionalProperties": true,
+        "properties": {
+          "deliveries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "$id": "provider:acp/effect.watch.gateway_deliveries.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/effect.ack.gateway_delivery.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Path parameter accepted by handleAckGatewayDelivery; request body is ignored.",
+        "required": [
+          "deliveryRequestId"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "deliveryRequestId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/effect.ack.gateway_delivery.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/effect.ack.gateway_delivery.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns { delivery }.",
+        "additionalProperties": true,
+        "properties": {
+          "delivery": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "$id": "provider:acp/effect.ack.gateway_delivery.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/effect.fail.gateway_delivery.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Path deliveryRequestId and body code/message accepted by handleFailGatewayDelivery.",
+        "required": [
+          "deliveryRequestId",
+          "code",
+          "message"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "deliveryRequestId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/effect.fail.gateway_delivery.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/effect.fail.gateway_delivery.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns { delivery }.",
+        "additionalProperties": true,
+        "properties": {
+          "delivery": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "$id": "provider:acp/effect.fail.gateway_delivery.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/effect.retry.gateway_delivery.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Path deliveryRequestId and body requeuedBy accepted by handleRequeueDelivery.",
+        "required": [
+          "deliveryRequestId",
+          "requeuedBy"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "deliveryRequestId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "requeuedBy": {
+            "type": "string",
+            "minLength": 1
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/effect.retry.gateway_delivery.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/effect.retry.gateway_delivery.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns { delivery }.",
+        "additionalProperties": true,
+        "properties": {
+          "delivery": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "$id": "provider:acp/effect.retry.gateway_delivery.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/workflow_definition.validate.automation_job.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Body accepted by handleValidateAdminJob; only schedule and flow are validated.",
+        "required": [],
+        "additionalProperties": true,
+        "properties": {
+          "schedule": {
+            "type": "object",
+            "required": [
+              "cron"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "cron": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "flow": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/workflow_definition.validate.automation_job.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/workflow_definition.validate.automation_job.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns validateJobFlowJob result.",
+        "additionalProperties": true,
+        "properties": {
+          "valid": {
+            "type": "boolean"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "$id": "provider:acp/workflow_definition.validate.automation_job.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/workflow_definition.create.automation_job.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Body accepted by handleCreateAdminJob. Either trigger or schedule is used; schedule.cron is required when trigger is absent.",
+        "required": [
+          "agentId",
+          "projectId",
+          "scopeRef",
+          "input"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "agentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "projectId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "scopeRef": {
+            "type": "string",
+            "minLength": 1
+          },
+          "laneRef": {
+            "type": "string",
+            "minLength": 1
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "schedule": {
+            "type": "object",
+            "required": [
+              "cron"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "cron": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "trigger": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "input": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "output": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "flow": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/workflow_definition.create.automation_job.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/workflow_definition.create.automation_job.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns created job record.",
+        "additionalProperties": true,
+        "properties": {
+          "job": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "$id": "provider:acp/workflow_definition.create.automation_job.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/workflow_definition.patch.automation_job.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Path jobId and patch body accepted by handlePatchAdminJob.",
+        "required": [
+          "jobId"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "schedule": {
+            "type": "object",
+            "required": [
+              "cron"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "cron": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "trigger": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "input": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "output": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "flow": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/workflow_definition.patch.automation_job.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/workflow_definition.patch.automation_job.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns updated job record.",
+        "additionalProperties": true,
+        "properties": {
+          "job": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "$id": "provider:acp/workflow_definition.patch.automation_job.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/execution.start.automation_job.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Path parameter accepted by handleRunAdminJob; request body is ignored.",
+        "required": [
+          "jobId"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/execution.start.automation_job.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/execution.start.automation_job.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns job run record, or jobRun plus steps for flow jobs.",
+        "additionalProperties": true,
+        "properties": {
+          "jobRun": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "$id": "provider:acp/execution.start.automation_job.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/execution.get.automation_job_run.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Path parameter accepted by handleGetJobRun.",
+        "required": [
+          "jobRunId"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "jobRunId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/execution.get.automation_job_run.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/execution.get.automation_job_run.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Returns { jobRun } with steps embedded for flow jobs.",
+        "additionalProperties": true,
+        "properties": {
+          "jobRun": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "$id": "provider:acp/execution.get.automation_job_run.output.v1"
+      }
+    },
+    {
+      "id": "provider:acp/event.ingest.normalized.input.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "description": "Body accepted by parseAcpWebhookEvent in handleAcpEventWebhook.",
+        "required": [
+          "event_id",
+          "event_seq",
+          "source",
+          "event"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "event_seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1
+          },
+          "event": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "occurred_at": {
+            "type": "string",
+            "minLength": 1
+          },
+          "actor": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$id": "provider:acp/event.ingest.normalized.input.v1"
+      }
+    },
+    {
+      "id": "provider:acp/event.ingest.normalized.output.v1",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "Route returns HTTP 204 No Content; http-json output is undefined for an empty response body.",
+        "type": [
+          "object",
+          "null"
+        ],
+        "additionalProperties": true,
+        "$id": "provider:acp/event.ingest.normalized.output.v1"
+      }
+    }
+  ]
+}

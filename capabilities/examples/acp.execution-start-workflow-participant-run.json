@@ -1,0 +1,10 @@
+{
+  "taskId": "T-05184",
+  "role": "implementer",
+  "idempotencyKey": "participant:T-05184:larry",
+  "sessionRef": {
+    "scopeRef": "agent:larry:project:agent-control-plane:task:T-05184",
+    "laneRef": "main"
+  },
+  "initialPrompt": "Work T-05184."
+}

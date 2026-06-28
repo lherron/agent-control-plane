@@ -1,0 +1,5 @@
+{
+  "deliveryRequestId": "dr_123",
+  "code": "rate_limited",
+  "message": "Discord rate limit"
+}

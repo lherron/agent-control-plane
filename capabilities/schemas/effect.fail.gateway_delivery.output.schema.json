@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Returns { delivery }.",
+  "additionalProperties": true,
+  "properties": {
+    "delivery": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "$id": "provider:acp/effect.fail.gateway_delivery.output.v1"
+}

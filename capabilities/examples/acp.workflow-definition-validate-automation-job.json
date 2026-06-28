@@ -1,0 +1,9 @@
+{
+  "schedule": {
+    "cron": "0 9 * * *"
+  },
+  "flow": {
+    "version": 1,
+    "steps": []
+  }
+}

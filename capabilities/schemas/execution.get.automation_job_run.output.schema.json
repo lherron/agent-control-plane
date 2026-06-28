@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Returns { jobRun } with steps embedded for flow jobs.",
+  "additionalProperties": true,
+  "properties": {
+    "jobRun": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "$id": "provider:acp/execution.get.automation_job_run.output.v1"
+}

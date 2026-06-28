@@ -1,0 +1,11 @@
+{
+  "taskId": "T-05184",
+  "action": "implement",
+  "role": "implementer",
+  "idempotencyKey": "action:T-05184:implement",
+  "sessionRef": {
+    "scopeRef": "agent:larry:project:agent-control-plane:task:T-05184",
+    "laneRef": "main"
+  },
+  "initialPrompt": "Implement the task."
+}

@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Body accepted by handleCreateInterfaceBinding.",
+  "required": [
+    "sessionRef",
+    "gatewayId",
+    "conversationRef",
+    "status"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "sessionRef": {
+      "type": "object",
+      "required": [
+        "scopeRef"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "scopeRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "laneRef": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "gatewayId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "gatewayType": {
+      "type": "string",
+      "minLength": 1
+    },
+    "conversationRef": {
+      "type": "string",
+      "minLength": 1
+    },
+    "threadRef": {
+      "type": "string",
+      "minLength": 1
+    },
+    "projectId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "disabled"
+      ]
+    },
+    "actor": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "human",
+            "agent",
+            "system"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "displayName": {
+          "type": "string"
+        }
+      }
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "$id": "provider:acp/surface.bind.interface.input.v1"
+}
