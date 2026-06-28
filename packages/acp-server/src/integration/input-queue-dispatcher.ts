@@ -3,6 +3,10 @@ import { normalizeSessionRef } from 'agent-scope'
 
 import type { LaunchRoleScopedRun, ResolvedAcpServerDeps } from '../deps.js'
 import type { StoredRun } from '../domain/run-store.js'
+import {
+  admissionStatusForQueueStatus,
+  admissionStatusForRunStatus,
+} from '../input-admission/admission-status.js'
 import { recordInputAdmissionEvent } from '../input-admission/input-admission-events.js'
 import {
   RUNTIME_BUSY_REQUEUE_DELAY_MS,
@@ -280,7 +284,7 @@ function reconcileTerminalQueueItem(deps: InputQueueDispatcherDeps, item: InputQ
   const updatedAdmission =
     admission !== undefined
       ? deps.inputAdmissionStore.update(item.inputAttemptId, {
-          status: run.status,
+          status: admissionStatusForRunStatus(run.status),
           currentState: {
             ...(admission.currentState ?? {}),
             queueStatus,
@@ -387,7 +391,7 @@ function expireQueueItem(
     errorMessage: reason,
   })
   const expiredAdmission = deps.inputAdmissionStore.update(item.inputAttemptId, {
-    status: 'expired',
+    status: admissionStatusForQueueStatus('expired'),
     currentState: { queueStatus: 'expired', reason, seq: item.seq },
   })
   recordInputAdmissionEvent(deps, {
@@ -450,7 +454,7 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
     })
     const pendingRun = deps.runStore.updateRun(item.runId, { status: 'pending' })
     const dispatchingAdmission = deps.inputAdmissionStore.update(item.inputAttemptId, {
-      status: 'dispatching',
+      status: admissionStatusForQueueStatus('dispatching'),
       currentState: { queueStatus: 'dispatching', seq: item.seq },
     })
     recordInputAdmissionEvent(deps, {
@@ -496,7 +500,7 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
         status: 'running',
       })
       const runningAdmission = deps.inputAdmissionStore.update(item.inputAttemptId, {
-        status: launchedRun.status,
+        status: admissionStatusForRunStatus(launchedRun.status),
         currentState: { queueStatus: 'running', runStatus: launchedRun.status, seq: item.seq },
       })
       recordInputAdmissionEvent(deps, {

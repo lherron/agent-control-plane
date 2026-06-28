@@ -22,6 +22,7 @@ import {
 import type { StoredRun } from '../domain/run-store.js'
 import { forbidden } from '../http.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
+import { admissionStatusForRunStatus } from './admission-status.js'
 import { recordInputAdmissionEvent } from './input-admission-events.js'
 import { RUNTIME_BUSY_REQUEUE_DELAY_MS, isRuntimeBusyError } from './runtime-busy.js'
 
@@ -1054,7 +1055,7 @@ export class InputAdmissionService {
         attempt.inputAttempt.inputAttemptId,
         {
           currentState: { runStatus: updatedRun.status },
-          status: updatedRun.status,
+          status: admissionStatusForRunStatus(updatedRun.status),
         }
       )
       recordInputAdmissionEvent(this.deps, {

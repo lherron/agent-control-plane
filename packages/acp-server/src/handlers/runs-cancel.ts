@@ -1,4 +1,5 @@
 import { json, notFound } from '../http.js'
+import { admissionStatusForQueueStatus } from '../input-admission/admission-status.js'
 import { requireRunId } from './shared.js'
 
 import type { RouteHandler } from '../routing/route-context.js'
@@ -20,7 +21,7 @@ export const handleCancelRun: RouteHandler = async ({ params, deps }) => {
   if (queueItem !== undefined) {
     deps.inputQueueStore.update(queueItem.queueItemId, { status: 'cancelled' })
     deps.inputAdmissionStore.update(queueItem.inputAttemptId, {
-      status: 'cancelled',
+      status: admissionStatusForQueueStatus('cancelled'),
       currentState: { queueStatus: 'cancelled', runStatus: 'cancelled', seq: queueItem.seq },
     })
   }

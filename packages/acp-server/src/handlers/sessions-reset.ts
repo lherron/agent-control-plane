@@ -1,4 +1,5 @@
 import { badRequest, json } from '../http.js'
+import { admissionStatusForQueueStatus } from '../input-admission/admission-status.js'
 import { recordInputAdmissionEvent } from '../input-admission/input-admission-events.js'
 import { parseJsonBody, requireRecord } from '../parsers/body.js'
 import { parseSessionRefField } from './shared.js'
@@ -30,7 +31,7 @@ export const handleResetSession: RouteHandler = async ({ request, deps }) => {
         errorMessage: 'queued input expired because session context was reset',
       })
       const expiredAdmission = deps.inputAdmissionStore.update(item.inputAttemptId, {
-        status: 'expired',
+        status: admissionStatusForQueueStatus('expired'),
         currentState: { queueStatus: 'expired', reason: 'reset_policy', seq: item.seq },
       })
       recordInputAdmissionEvent(deps, {

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { createInMemoryAdminStore } from 'acp-admin-store'
+import { openAcpStateStore } from 'acp-state-store'
 
 import {
   type AcpServerDeps,
@@ -140,6 +141,94 @@ describe('input admission queue', () => {
         },
       }
     )
+  })
+
+  test('SQLite-backed queued admission dispatches without lifecycle status constraint errors', async () => {
+    const stateStore = openAcpStateStore({ dbPath: ':memory:' })
+    const adminStore = createInMemoryAdminStore()
+    const launchCalls: LaunchCall[] = []
+
+    try {
+      const sessionRef = {
+        scopeRef: 'agent:larry:project:test:task:T-sqlite-queue:role:implementer',
+        laneRef: 'main',
+      }
+      const run = stateStore.runs.createRun({
+        sessionRef,
+        actor: { kind: 'agent', id: 'larry' },
+        status: 'queued',
+        metadata: { content: 'queued input' },
+      })
+      const attempt = stateStore.inputAttempts.createAttempt({
+        sessionRef,
+        idempotencyKey: 'sqlite-queue-second',
+        content: 'queued input',
+        actor: { kind: 'agent', id: 'larry' },
+        associatedRunId: run.runId,
+      })
+      const queueItem = stateStore.inputQueue.create({
+        inputAttemptId: attempt.inputAttempt.inputAttemptId,
+        runId: run.runId,
+        scopeRef: sessionRef.scopeRef,
+        laneRef: sessionRef.laneRef,
+        seq: 1,
+      })
+      stateStore.inputAdmissions.create({
+        inputAttemptId: attempt.inputAttempt.inputAttemptId,
+        admissionKind: 'queued_run',
+        intent: { kind: 'new_work' },
+        originalResponse: {
+          kind: 'queued_run',
+          inputAttemptId: attempt.inputAttempt.inputAttemptId,
+          runId: run.runId,
+          queueItemId: queueItem.queueItemId,
+        },
+        currentState: { queueStatus: 'queued', seq: queueItem.seq },
+        runId: run.runId,
+        queueItemId: queueItem.queueItemId,
+        status: 'queued',
+      })
+
+      const dispatcher = createInputQueueDispatcher({
+        adminStore,
+        hrcClient: undefined,
+        inputAdmissionStore: stateStore.inputAdmissions,
+        inputQueueStore: stateStore.inputQueue,
+        runStore: stateStore.runs,
+        runtimeResolver: async () => ({
+          agentRoot: '/tmp/agents/larry',
+          projectRoot: '/tmp/project',
+          cwd: '/tmp/project',
+          runMode: 'task',
+          bundle: { kind: 'compose', compose: [] },
+          harness: { provider: 'openai', interactive: true },
+        }),
+        launchRoleScopedRun: async (input) => {
+          launchCalls.push(input)
+          if (input.acpRunId !== undefined) {
+            input.runStore?.updateRun(input.acpRunId, { status: 'running' })
+          }
+          return { runId: input.acpRunId ?? 'run-sqlite-queue', sessionId: 'session-sqlite-queue' }
+        },
+        inputQueuePolicy: {},
+        config: { intervalMs: 60_000 },
+      })
+
+      await dispatcher.runOnce()
+
+      expect(launchCalls).toHaveLength(1)
+      expect(launchCalls[0]?.acpRunId).toBe(run.runId)
+      expect(stateStore.runs.getRun(run.runId)?.status).toBe('running')
+      expect(stateStore.inputQueue.getById(queueItem.queueItemId)?.status).toBe('running')
+      const admission = stateStore.inputAdmissions.getByInputAttemptId(
+        attempt.inputAttempt.inputAttemptId
+      )
+      expect(admission?.status).toBe('started')
+      expect(admission?.currentState?.['queueStatus']).toBe('running')
+      expect(admission?.currentState?.['runStatus']).toBe('running')
+    } finally {
+      stateStore.close()
+    }
   })
 
   test('T-04935 inline launch failure marks the run failed instead of leaving it pending', async () => {
