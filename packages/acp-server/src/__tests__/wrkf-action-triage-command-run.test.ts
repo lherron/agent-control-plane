@@ -41,6 +41,7 @@ const CANNED_ACTION_RUN = {
   lane: 'triage',
   status: 'active',
 }
+const ACP_RUN_ID = `run_wrkf_${CANNED_ACTION_RUN.runId}`
 
 const COMMAND_LAUNCHED = {
   runId: 'hrc-command-run-t05268',
@@ -135,6 +136,7 @@ function makeCandidateDeps(args: {
   events: string[]
   command?: LaunchCommandScopedRun | undefined
   legacy?: LaunchRoleScopedRun | undefined
+  triageCommandLaunchTimeoutMs?: number | undefined
 }): CandidateActionLaunchDeps {
   return {
     wrkf: args.wrkf,
@@ -153,6 +155,9 @@ function makeCandidateDeps(args: {
         args.events.push('launchRoleScopedRun')
         return LEGACY_LAUNCHED
       }),
+    ...(args.triageCommandLaunchTimeoutMs !== undefined
+      ? { triageCommandLaunchTimeoutMs: args.triageCommandLaunchTimeoutMs }
+      : {}),
   }
 }
 
@@ -297,6 +302,118 @@ describe('action:"triage" command-run rollback boundaries', () => {
         failedBy: 'acp-adapter-rollback',
       },
     })
+  })
+
+  test('launchCommandScopedRun timeout marks launch_failed and rolls back instead of leaving a claimed run', async () => {
+    const events: string[] = []
+    const runStore = new InMemoryRunStore()
+    const wrkf = makeFakeWrkfPort({
+      start: async () => {
+        events.push('action.start')
+        return CANNED_ACTION_RUN
+      },
+      fail: async (params) => {
+        events.push('action.fail')
+        return { failed: params['failureResult'] }
+      },
+    })
+
+    await expect(
+      launchAction(
+        {
+          ...makeCandidateDeps({
+            wrkf,
+            events,
+            triageCommandLaunchTimeoutMs: 1,
+            command: async () => {
+              events.push('launchCommandScopedRun')
+              await new Promise(() => {})
+              return COMMAND_LAUNCHED
+            },
+          }),
+          runStore,
+        },
+        baseInput()
+      )
+    ).rejects.toThrow('timed out waiting for HRC command-run launch correlation')
+
+    expect(events).toEqual(['action.start', 'launchCommandScopedRun', 'action.fail'])
+    expect(wrkf._calls.filter((call) => call.method === 'action.bindExternal')).toHaveLength(0)
+    const acpRun = runStore.getRun(ACP_RUN_ID)
+    expect(acpRun?.status).toBe('failed')
+    expect(acpRun?.hrcRunId).toBeUndefined()
+    expect(acpRun?.errorCode).toBe('wrkf_launch_failed_ambiguous')
+    expect(acpRun?.metadata?.['wrkfLaunchClaim']).toMatchObject({
+      status: 'launch_failed',
+      wrkfRunId: CANNED_ACTION_RUN.runId,
+      errorCode: 'wrkf_launch_failed_ambiguous',
+    })
+    expect(wrkf._calls.find((call) => call.method === 'action.fail')?.params).toMatchObject({
+      actionRunId: CANNED_ACTION_RUN.actionRunId,
+      idempotencyKey: `${IDEMPOTENCY_KEY}:launchRollback`,
+      failureResult: {
+        wrkfRunId: CANNED_ACTION_RUN.runId,
+        phase: 'launch',
+        failedBy: 'acp-adapter-rollback',
+      },
+    })
+  })
+
+  test('late command launch correlation after timeout is recorded as an orphan', async () => {
+    const events: string[] = []
+    const runStore = new InMemoryRunStore()
+    let resolveLaunch: (launched: typeof COMMAND_LAUNCHED) => void = () => {}
+    const wrkf = makeFakeWrkfPort({
+      start: async () => {
+        events.push('action.start')
+        return CANNED_ACTION_RUN
+      },
+      fail: async (params) => {
+        events.push('action.fail')
+        return { failed: params['failureResult'] }
+      },
+    })
+
+    await expect(
+      launchAction(
+        {
+          ...makeCandidateDeps({
+            wrkf,
+            events,
+            triageCommandLaunchTimeoutMs: 1,
+            command: async () => {
+              events.push('launchCommandScopedRun')
+              return await new Promise<typeof COMMAND_LAUNCHED>((resolve) => {
+                resolveLaunch = resolve
+              })
+            },
+          }),
+          runStore,
+        },
+        baseInput()
+      )
+    ).rejects.toThrow('timed out waiting for HRC command-run launch correlation')
+
+    resolveLaunch(COMMAND_LAUNCHED)
+    await Bun.sleep(1)
+
+    const acpRun = runStore.getRun(ACP_RUN_ID)
+    expect(acpRun).toMatchObject({
+      status: 'failed',
+      hrcRunId: COMMAND_LAUNCHED.runId,
+      hostSessionId: COMMAND_LAUNCHED.hostSessionId,
+      runtimeId: COMMAND_LAUNCHED.runtimeId,
+      generation: COMMAND_LAUNCHED.generation,
+      transport: COMMAND_LAUNCHED.transport,
+    })
+    expect(acpRun?.metadata?.['wrkfExternalBind']).toMatchObject({
+      status: 'orphaned',
+      hrcRunId: COMMAND_LAUNCHED.runId,
+      wrkfRunId: CANNED_ACTION_RUN.runId,
+      actionRunId: CANNED_ACTION_RUN.actionRunId,
+      reason: 'late_command_launch_correlation_after_timeout',
+    })
+    expect(wrkf._calls.filter((call) => call.method === 'action.bindExternal')).toHaveLength(0)
   })
 
   test('bindExternal failure fails the wrkf action with orphaned HRC evidence', async () => {

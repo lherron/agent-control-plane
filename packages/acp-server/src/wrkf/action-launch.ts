@@ -58,6 +58,7 @@ export type WrkfActionLaunchInput = {
 export type WrkfActionLaunchDeps = WrkfParticipantLaunchDeps & {
   launchCommandScopedRun?: LaunchCommandScopedRun | undefined
   triageCommandTargetId?: string | undefined
+  triageCommandLaunchTimeoutMs?: number | undefined
 }
 
 export type WrkfActionLaunchResult = {
@@ -74,6 +75,8 @@ export type WrkfActionLaunchResult = {
   launch?: WrkfLaunchInfo | undefined
   replay: boolean
 }
+
+const DEFAULT_TRIAGE_COMMAND_LAUNCH_TIMEOUT_MS = 30_000
 
 export async function launchAction(
   deps: WrkfActionLaunchDeps,
@@ -206,6 +209,7 @@ export async function launchAction(
     })
   } catch (error) {
     deps.runStore.updateRun(acpRun.runId, {
+      status: 'failed',
       errorCode: 'wrkf_launch_failed_ambiguous',
       errorMessage: error instanceof Error ? error.message : String(error),
       metadata: mergeMetadata(claim.run.metadata, {
@@ -287,6 +291,7 @@ async function launchTriageCommandRun(
   if (launchCommandScopedRun === undefined || configuredTargetId === undefined) {
     const error = new Error('configured triage command-run launcher is unavailable')
     deps.runStore.updateRun(args.acpRunId, {
+      status: 'failed',
       errorCode: 'wrkf_launch_failed_ambiguous',
       errorMessage: error.message,
       metadata: mergeMetadata(args.claimMetadata, {
@@ -311,25 +316,34 @@ async function launchTriageCommandRun(
 
   let launched: Awaited<ReturnType<LaunchCommandScopedRun>>
   try {
-    launched = await launchCommandScopedRun({
-      configuredTargetId,
-      sessionRef: input.sessionRef,
-      idempotencyKey: `${input.idempotencyKey}:launchCommand`,
-      binding: buildTriageCommandBinding(input, args),
-      stdinJson: {
-        taskId: input.taskId,
-        actionRunId: args.actionRunId,
-        wrkfRunId: args.wrkfRunId,
-        action: input.action,
-        role: args.role,
-        project: readProjectId(input.sessionRef),
-        sessionRef: input.sessionRef.scopeRef,
-        lane: input.sessionRef.laneRef,
-        actionRun: args.actionRun,
-      },
-    })
+    const launchPromise = Promise.resolve(
+      launchCommandScopedRun({
+        configuredTargetId,
+        sessionRef: input.sessionRef,
+        idempotencyKey: `${input.idempotencyKey}:launchCommand`,
+        binding: buildTriageCommandBinding(input, args),
+        stdinJson: {
+          taskId: input.taskId,
+          actionRunId: args.actionRunId,
+          wrkfRunId: args.wrkfRunId,
+          action: input.action,
+          role: args.role,
+          project: readProjectId(input.sessionRef),
+          sessionRef: input.sessionRef.scopeRef,
+          lane: input.sessionRef.laneRef,
+          actionRun: args.actionRun,
+        },
+      })
+    )
+    recordLateCommandLaunchOrphan(deps, input, args, launchPromise)
+    launched = await withTimeout(
+      launchPromise,
+      resolveTriageCommandLaunchTimeoutMs(deps),
+      'timed out waiting for HRC command-run launch correlation'
+    )
   } catch (error) {
     deps.runStore.updateRun(args.acpRunId, {
+      status: 'failed',
       errorCode: 'wrkf_launch_failed_ambiguous',
       errorMessage: error instanceof Error ? error.message : String(error),
       metadata: mergeMetadata(args.claimMetadata, {
@@ -445,6 +459,84 @@ async function failActionRollback(
   } catch {
     // Best-effort terminalization — never mask the original launch failure.
   }
+}
+
+function recordLateCommandLaunchOrphan(
+  deps: WrkfActionLaunchDeps,
+  input: WrkfActionLaunchInput,
+  args: {
+    actionRunId: string
+    wrkfRunId: string
+    acpRunId: string
+    claimMetadata?: Readonly<Record<string, unknown>> | undefined
+  },
+  launchPromise: Promise<Awaited<ReturnType<LaunchCommandScopedRun>>>
+): void {
+  void launchPromise.then(
+    (launched) => {
+      const current = deps.runStore.getRun(args.acpRunId)
+      const launchClaim = readRecord(current?.metadata?.['wrkfLaunchClaim'])
+      if (launchClaim?.['status'] !== 'launch_failed') {
+        return
+      }
+
+      deps.runStore.updateRun(args.acpRunId, {
+        hrcRunId: launched.runId,
+        hostSessionId: launched.hostSessionId,
+        runtimeId: launched.runtimeId,
+        generation: launched.generation,
+        transport: launched.transport,
+        metadata: mergeMetadata(current?.metadata ?? args.claimMetadata, {
+          wrkfExternalBind: {
+            status: 'orphaned',
+            hrcRunId: launched.runId,
+            wrkfRunId: args.wrkfRunId,
+            actionRunId: args.actionRunId,
+            hostSessionId: launched.hostSessionId,
+            runtimeId: launched.runtimeId,
+            generation: launched.generation,
+            transport: launched.transport,
+            scopeRef: input.sessionRef.scopeRef,
+            laneRef: input.sessionRef.laneRef,
+            orphanedAt: new Date().toISOString(),
+            reason: 'late_command_launch_correlation_after_timeout',
+          },
+        }),
+      })
+    },
+    () => {}
+  )
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          const error = new Error(`${message} within ${formatTimeoutDuration(timeoutMs)}`)
+          error.name = 'WrkfLaunchTimeoutError'
+          reject(error)
+        }, timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer)
+    }
+  }
+}
+
+function resolveTriageCommandLaunchTimeoutMs(deps: WrkfActionLaunchDeps): number {
+  const configured = deps.triageCommandLaunchTimeoutMs
+  return configured !== undefined && Number.isFinite(configured) && configured > 0
+    ? configured
+    : DEFAULT_TRIAGE_COMMAND_LAUNCH_TIMEOUT_MS
+}
+
+function formatTimeoutDuration(timeoutMs: number): string {
+  return timeoutMs < 1000 ? `${timeoutMs}ms` : `${Math.round(timeoutMs / 1000)}s`
 }
 
 async function bindExternalOrMarkOrphan(

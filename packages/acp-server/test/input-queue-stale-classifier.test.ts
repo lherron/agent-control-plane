@@ -148,6 +148,9 @@ describe('input queue stale pending classifier', () => {
       errorCode: 'dispatch_timeout',
     })
     expect(deps.runStore.getRun(parked.runId)?.errorMessage).toContain(
+      'Command-scoped run launch stalled'
+    )
+    expect(deps.runStore.getRun(parked.runId)?.errorMessage).toContain(
       'partial HRC session correlation'
     )
   })

@@ -179,10 +179,15 @@ function failStalePendingRunBlockers(deps: InputQueueDispatcherDeps): void {
       continue
     }
 
+    const timeoutSeconds = Math.round(timeoutMs / 1000)
     const errorMessage =
-      blockerKind === 'no_correlation'
-        ? `Run was blocking input queue dispatch, but no HRC launch correlation was recorded within ${Math.round(timeoutMs / 1000)}s`
-        : `Run was blocking input queue dispatch with partial HRC session correlation but no turn/runtime correlation within ${Math.round(timeoutMs / 1000)}s`
+      queueItem === undefined
+        ? blockerKind === 'no_correlation'
+          ? `Command-scoped run launch stalled: no HRC launch correlation was recorded within ${timeoutSeconds}s`
+          : `Command-scoped run launch stalled with partial HRC session correlation but no turn/runtime correlation within ${timeoutSeconds}s`
+        : blockerKind === 'no_correlation'
+          ? `Run was blocking input queue dispatch, but no HRC launch correlation was recorded within ${timeoutSeconds}s`
+          : `Run was blocking input queue dispatch with partial HRC session correlation but no turn/runtime correlation within ${timeoutSeconds}s`
     const failedRun = deps.runStore.updateRun(run.runId, {
       status: 'failed',
       errorCode: 'dispatch_timeout',
