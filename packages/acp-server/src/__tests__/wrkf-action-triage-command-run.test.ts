@@ -14,6 +14,7 @@ import { join } from 'node:path'
 
 import { describe, expect, test } from 'bun:test'
 
+import { createInMemoryAdminStore } from 'acp-admin-store'
 import { withWiredServer } from '../../test/fixtures/wired-server.js'
 import type { LaunchRoleScopedRun, RuntimeResolver } from '../deps.js'
 import { InMemoryRunStore } from '../domain/run-store.js'
@@ -137,6 +138,7 @@ function makeCandidateDeps(args: {
   command?: LaunchCommandScopedRun | undefined
   legacy?: LaunchRoleScopedRun | undefined
   triageCommandLaunchTimeoutMs?: number | undefined
+  adminStore?: WrkfActionLaunchDeps['adminStore'] | undefined
 }): CandidateActionLaunchDeps {
   return {
     wrkf: args.wrkf,
@@ -158,6 +160,7 @@ function makeCandidateDeps(args: {
     ...(args.triageCommandLaunchTimeoutMs !== undefined
       ? { triageCommandLaunchTimeoutMs: args.triageCommandLaunchTimeoutMs }
       : {}),
+    ...(args.adminStore !== undefined ? { adminStore: args.adminStore } : {}),
   }
 }
 
@@ -245,6 +248,64 @@ describe('action:"triage" command-run adapter contract', () => {
     })
     expect(wrkf._calls.filter((call) => call.method === 'action.fail')).toHaveLength(0)
     expect(result.hrcRunId).toBe(COMMAND_LAUNCHED.runId)
+  })
+
+  test('resolves canonical project id to filesystem slug for triage runner binding', async () => {
+    const events: string[] = []
+    const adminStore = createInMemoryAdminStore()
+    const wrkf = makeFakeWrkfPort()
+    const commandCalls: LaunchCommandScopedRunRequest[] = []
+
+    try {
+      adminStore.projects.create({
+        projectId: 'P-00006',
+        displayName: 'Taskboard',
+        rootDir: '/Users/lherron/praesidium/taskboard',
+        actor: { kind: 'agent', id: 'smokey' },
+        now: '2026-06-28T21:30:00.000Z',
+      })
+
+      await launchAction(
+        makeCandidateDeps({
+          wrkf,
+          events,
+          adminStore,
+          command: async (request) => {
+            commandCalls.push(request)
+            return COMMAND_LAUNCHED
+          },
+        }),
+        {
+          ...baseInput(),
+          sessionRef: {
+            scopeRef: 'agent:smokey:project:P-00006:task:T-05287',
+            laneRef: 'main',
+          },
+        }
+      )
+
+      expect(commandCalls).toHaveLength(1)
+      expect(commandCalls[0]?.binding).toMatchObject({
+        WRKF_TASK_ID: TASK_ID,
+        WRKF_ACTION_RUN_ID: CANNED_ACTION_RUN.actionRunId,
+        WRKF_RUN_ID: CANNED_ACTION_RUN.runId,
+        WRKF_ACTION: ACTION,
+        WRKF_ROLE: ROLE,
+        ASP_PROJECT: 'taskboard',
+      })
+      expect(commandCalls[0]?.stdinJson).toMatchObject({
+        taskId: TASK_ID,
+        actionRunId: CANNED_ACTION_RUN.actionRunId,
+        wrkfRunId: CANNED_ACTION_RUN.runId,
+        action: ACTION,
+        role: ROLE,
+        project: 'taskboard',
+        sessionRef: 'agent:smokey:project:P-00006:task:T-05287',
+        lane: 'main',
+      })
+    } finally {
+      adminStore.close()
+    }
   })
 
   test('acp-server source imports no agent-loop package for the governed triage runner', () => {

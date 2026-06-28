@@ -1,3 +1,5 @@
+import { basename } from 'node:path'
+
 import type { Actor } from 'acp-core'
 import { formatHrcExternalRef, isHrcExternalRef, parseHrcExternalRef } from 'acp-core'
 import type { SessionRef } from 'agent-scope'
@@ -316,19 +318,20 @@ async function launchTriageCommandRun(
 
   let launched: Awaited<ReturnType<LaunchCommandScopedRun>>
   try {
+    const projectSlug = readProjectSlug(deps, input.sessionRef)
     const launchPromise = Promise.resolve(
       launchCommandScopedRun({
         configuredTargetId,
         sessionRef: input.sessionRef,
         idempotencyKey: `${input.idempotencyKey}:launchCommand`,
-        binding: buildTriageCommandBinding(input, args),
+        binding: buildTriageCommandBinding(input, args, projectSlug),
         stdinJson: {
           taskId: input.taskId,
           actionRunId: args.actionRunId,
           wrkfRunId: args.wrkfRunId,
           action: input.action,
           role: args.role,
-          project: readProjectId(input.sessionRef),
+          project: projectSlug,
           sessionRef: input.sessionRef.scopeRef,
           lane: input.sessionRef.laneRef,
           actionRun: args.actionRun,
@@ -624,7 +627,8 @@ function buildResult(args: {
 
 function buildTriageCommandBinding(
   input: WrkfActionLaunchInput,
-  args: { actionRunId: string; wrkfRunId: string; role: string }
+  args: { actionRunId: string; wrkfRunId: string; role: string },
+  projectSlug: string
 ) {
   return {
     WRKF_TASK_ID: input.taskId,
@@ -632,16 +636,24 @@ function buildTriageCommandBinding(
     WRKF_RUN_ID: args.wrkfRunId,
     WRKF_ACTION: input.action,
     WRKF_ROLE: args.role,
-    ASP_PROJECT: readProjectId(input.sessionRef),
+    ASP_PROJECT: projectSlug,
     HRC_SESSION_REF: input.sessionRef.scopeRef,
     HRC_LANE: input.sessionRef.laneRef,
   }
 }
 
-function readProjectId(sessionRef: SessionRef): string {
+function readProjectSlug(deps: WrkfActionLaunchDeps, sessionRef: SessionRef): string {
   const projectId = parseScopeRef(sessionRef.scopeRef).projectId
   if (projectId === undefined || projectId.length === 0) {
     throw new Error('triage command-run launch requires sessionRef.scopeRef to include project')
+  }
+  const project = deps.adminStore?.projects.get(projectId)
+  const projectRoot = project?.homeDir ?? project?.rootDir
+  if (typeof projectRoot === 'string' && projectRoot.trim().length > 0) {
+    const projectSlug = basename(projectRoot.trim())
+    if (projectSlug.length > 0) {
+      return projectSlug
+    }
   }
   return projectId
 }
