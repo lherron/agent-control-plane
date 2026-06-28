@@ -46,6 +46,10 @@ check:
     bun scripts/check-boundaries.ts
     bun scripts/check-manifest-edges.ts
 
+# Run installed cap -> catalogd -> http-json -> live acp-server smoke for all ACP/PBC caps
+e2e-cap-acp:
+    scripts/e2e/cap-acp/smoke.sh
+
 # Prepare or update one wrkq refactor-deferred task work packet
 wrkq-refactor *args:
     bun scripts/wrkq-refactor.ts {{args}}
