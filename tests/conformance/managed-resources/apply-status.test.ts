@@ -57,6 +57,10 @@ function loadCanonicalPlan(): ManagedResourcesPlan {
 
 const CANONICAL_PLAN = loadCanonicalPlan()
 const NOW = '2026-06-17T22:00:00.000Z'
+const SCHEDULED_FLOW_PROJECTION_ID =
+  'agent-directory:agent:smokey:project:agent-spaces:scheduled-job:daily-triage'
+const BINDING_PROJECTION_ID =
+  'agent-directory:agent:smokey:project:agent-spaces:interface-binding:discord-smoke'
 
 // ------------------------------------------------------------------
 // In-memory DB helpers for Phase E tests
@@ -70,6 +74,67 @@ function makeApplyInput(
     jobsDbPath: ':memory:',
     interfaceDbPath: ':memory:',
     now: NOW,
+  }
+}
+
+function planWithScheduledFreshFlow(): ManagedResourcesPlan {
+  return {
+    ...CANONICAL_PLAN,
+    resources: CANONICAL_PLAN.resources.map((resource) =>
+      resource.projectionId === SCHEDULED_FLOW_PROJECTION_ID
+        ? {
+            ...resource,
+            desiredJson: {
+              ...resource.desiredJson,
+              input: { content: 'legacy content should not be dispatched for flow jobs' },
+              flow: {
+                sequence: [
+                  {
+                    id: 'run',
+                    fresh: true,
+                    input: 'Run the scheduled job with fresh context.',
+                  },
+                ],
+              },
+            },
+          }
+        : resource
+    ),
+  }
+}
+
+function onlyResourcePlan(
+  source: ManagedResourcesPlan,
+  projectionId: string,
+  ownerScopeRef: string
+): ManagedResourcesPlan {
+  const resource = source.resources.find((candidate) => candidate.projectionId === projectionId)
+  if (resource === undefined) {
+    throw new Error(`missing fixture resource ${projectionId}`)
+  }
+  return {
+    ...source,
+    sourceOwnerScopeRef: ownerScopeRef,
+    resources: [
+      {
+        ...resource,
+        sourceOwnerScopeRef: ownerScopeRef,
+        projectionId: `${resource.projectionId}:extra`,
+        projectionPk: `${resource.projectionPk}.extra`,
+        resourceName: `${resource.resourceName}-extra`,
+        desiredJson: {
+          ...resource.desiredJson,
+          slug:
+            typeof resource.desiredJson['slug'] === 'string'
+              ? `${resource.desiredJson['slug']}.extra`
+              : resource.desiredJson['slug'],
+          bindingId:
+            typeof resource.desiredJson['bindingId'] === 'string'
+              ? `${resource.desiredJson['bindingId']}.extra`
+              : resource.desiredJson['bindingId'],
+        },
+      },
+    ],
   }
 }
 
@@ -299,6 +364,147 @@ describe('idempotent reapply via apply/status orchestrator (Phase E invariant)',
     const ids = second.outcomes.map((o) => o.projectionId).sort()
     const expectedIds = CANONICAL_PLAN.resources.map((r) => r.projectionId).sort()
     expect(ids).toEqual(expectedIds)
+  })
+})
+
+// ==================================================================
+// Operator readback: apply/status operational facts (T-05243)
+// ==================================================================
+
+describe('managed-resource operator readback (T-05243)', () => {
+  test('scheduled-job apply returns live job facts, no-drift state, and compact fresh-flow summary', async () => {
+    // T-05243: operators must not need a separate job-list/JQ probe after apply.
+    // The oracle is the public apply result, not the internal store schema.
+    const result = await applyManagedResourcesPlan(makeApplyInput(planWithScheduledFreshFlow()))
+    const scheduled = result.outcomes.find(
+      (outcome) => outcome.projectionId === SCHEDULED_FLOW_PROJECTION_ID
+    )
+
+    expect(scheduled).toMatchObject({
+      resourceKind: 'scheduled-job',
+      projectionPk: 'agent-smokey.daily-triage',
+      outcome: 'created',
+      liveSlug: 'agent-smokey.daily-triage',
+      disabled: false,
+      hasDrift: false,
+      flowSummary: {
+        enabled: true,
+        stepCount: 1,
+        freshStepCount: 1,
+        freshDurationStepCount: 0,
+      },
+    })
+    expect(scheduled).toHaveProperty('jobId')
+    expect(scheduled).toHaveProperty('nextFireAt')
+    expect((scheduled as { jobId?: unknown }).jobId).toEqual(expect.any(String))
+    expect((scheduled as { nextFireAt?: unknown }).nextFireAt).toEqual(expect.any(String))
+  })
+
+  test('no-op reapply preserves live job facts and no-drift state', async () => {
+    const input = makeApplyInput(planWithScheduledFreshFlow())
+    const first = await applyManagedResourcesPlan(input)
+    const firstScheduled = first.outcomes.find(
+      (outcome) => outcome.projectionId === SCHEDULED_FLOW_PROJECTION_ID
+    )
+
+    const second = await applyManagedResourcesPlan(input)
+    const secondScheduled = second.outcomes.find(
+      (outcome) => outcome.projectionId === SCHEDULED_FLOW_PROJECTION_ID
+    )
+
+    expect(secondScheduled).toMatchObject({
+      outcome: 'noop',
+      liveSlug: 'agent-smokey.daily-triage',
+      disabled: false,
+      hasDrift: false,
+      flowSummary: {
+        enabled: true,
+        stepCount: 1,
+        freshStepCount: 1,
+        freshDurationStepCount: 0,
+      },
+    })
+    expect((secondScheduled as { jobId?: unknown }).jobId).toBe(
+      (firstScheduled as { jobId?: unknown }).jobId
+    )
+    expect((secondScheduled as { nextFireAt?: unknown }).nextFireAt).toBe(
+      (firstScheduled as { nextFireAt?: unknown }).nextFireAt
+    )
+  })
+
+  test('status returns plan-scoped operational facts in requested projection order', async () => {
+    const plan = planWithScheduledFreshFlow()
+    const input = makeApplyInput(plan)
+    await applyManagedResourcesPlan(input)
+
+    input.plan = onlyResourcePlan(plan, SCHEDULED_FLOW_PROJECTION_ID, plan.sourceOwnerScopeRef)
+    await applyManagedResourcesPlan(input)
+
+    const status = await getManagedResourcesStatus({
+      ownerScopeRef: plan.sourceOwnerScopeRef,
+      projectionIds: [BINDING_PROJECTION_ID, SCHEDULED_FLOW_PROJECTION_ID],
+      jobsDbPath: ':memory:',
+      interfaceDbPath: ':memory:',
+    } as Parameters<typeof getManagedResourcesStatus>[0] & { projectionIds: string[] })
+
+    expect(status.resources.map((resource) => resource.projectionId)).toEqual([
+      BINDING_PROJECTION_ID,
+      SCHEDULED_FLOW_PROJECTION_ID,
+    ])
+
+    const binding = status.resources[0]
+    expect(binding).toMatchObject({
+      resourceKind: 'interface-binding',
+      projectionPk: 'agent-smokey.discord-smoke',
+      state: 'active',
+      hasDrift: false,
+      bindingId: 'agent-smokey.discord-smoke',
+      disabled: false,
+      bindingTarget: {
+        gatewayId: 'acp-discord-smoke',
+        conversationRef: 'channel:1501224513390772224',
+        threadRef: 'thread:1501224513390772225',
+        scopeRef: 'agent:smokey:project:agent-spaces:task:primary',
+        laneRef: 'main',
+      },
+    })
+
+    const scheduled = status.resources[1]
+    expect(scheduled).toMatchObject({
+      resourceKind: 'scheduled-job',
+      projectionPk: 'agent-smokey.daily-triage',
+      state: 'active',
+      hasDrift: false,
+      liveSlug: 'agent-smokey.daily-triage',
+      disabled: false,
+      flowSummary: {
+        enabled: true,
+        stepCount: 1,
+        freshStepCount: 1,
+        freshDurationStepCount: 0,
+      },
+    })
+    expect(scheduled).toHaveProperty('jobId')
+    expect(scheduled).toHaveProperty('nextFireAt')
+  })
+
+  test('status without projectionIds remains an owner inventory', async () => {
+    const plan = planWithScheduledFreshFlow()
+    const input = makeApplyInput(plan)
+    await applyManagedResourcesPlan(input)
+    input.plan = onlyResourcePlan(plan, SCHEDULED_FLOW_PROJECTION_ID, plan.sourceOwnerScopeRef)
+    await applyManagedResourcesPlan(input)
+
+    const status = await getManagedResourcesStatus({
+      ownerScopeRef: plan.sourceOwnerScopeRef,
+      jobsDbPath: ':memory:',
+      interfaceDbPath: ':memory:',
+    })
+
+    expect(status.resources.map((resource) => resource.projectionId)).toContain(
+      `${SCHEDULED_FLOW_PROJECTION_ID}:extra`
+    )
+    expect(status.resources.length).toBeGreaterThan(plan.resources.length)
   })
 })
 

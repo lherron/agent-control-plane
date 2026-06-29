@@ -195,6 +195,51 @@ describe('acp admin managed-resource apply', () => {
     expect(parsed.stats).toMatchObject({ created: 3, updated: 0, noop: 0, failed: 0 })
     expect(fetchQueue.calls).toHaveLength(1)
   })
+
+  test('text output shows live id, next fire, disabled, drift, and fresh-flow summary', async () => {
+    const fetchQueue = createFetchQueue([
+      {
+        body: {
+          outcomes: [
+            {
+              projectionId:
+                'agent-directory:agent:smokey:project:agent-spaces:scheduled-job:daily-triage',
+              resourceKind: 'scheduled-job',
+              projectionPk: 'agent-smokey.daily-triage',
+              outcome: 'created',
+              jobId: 'job_123',
+              liveSlug: 'agent-smokey.daily-triage',
+              nextFireAt: '2026-06-18T13:00:00.000Z',
+              disabled: false,
+              hasDrift: false,
+              flowSummary: {
+                enabled: true,
+                stepCount: 1,
+                freshStepCount: 1,
+                freshDurationStepCount: 0,
+              },
+            },
+          ],
+          stats: { created: 1, updated: 0, noop: 0, failed: 0 },
+        },
+        assert(request) {
+          expect(request.method).toBe('POST')
+          expect(new URL(request.url).pathname).toBe('/v1/admin/managed-resources/apply')
+        },
+      },
+    ])
+
+    const result = await runCli(['admin', 'managed-resource', 'apply', '--in', PLAN_FIXTURE_PATH], {
+      fetchImpl: fetchQueue.fetchImpl,
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain('job_123')
+    expect(result.stdout).toContain('2026-06-18T13:00:00.000Z')
+    expect(result.stdout).toContain('false')
+    expect(result.stdout).toContain('no')
+    expect(result.stdout).toMatch(/flow|1.*fresh|fresh.*1/)
+  })
 })
 
 describe('acp admin managed-resource status', () => {
@@ -232,8 +277,13 @@ describe('acp admin managed-resource status', () => {
         assert(request) {
           expect(request.method).toBe('POST')
           expect(new URL(request.url).pathname).toBe('/v1/admin/managed-resources/status')
-          const body = request.body as { ownerScopeRef: string }
+          const body = request.body as { ownerScopeRef: string; projectionIds?: string[] }
           expect(body).toHaveProperty('ownerScopeRef', PLAN_OWNER_SCOPE_REF)
+          expect(body.projectionIds).toEqual([
+            'agent-directory:agent:smokey:project:agent-spaces:scheduled-job:daily-triage',
+            'agent-directory:agent:smokey:project:agent-spaces:interface-binding:discord-smoke',
+            'agent-directory:agent:smokey:project:agent-spaces:event-hook:wrkq-needs-smoketest',
+          ])
         },
       },
     ])
@@ -256,5 +306,70 @@ describe('acp admin managed-resource status', () => {
     expect(Array.isArray(parsed.resources)).toBe(true)
     expect(parsed.resources).toHaveLength(PLAN_RESOURCE_COUNT)
     expect(fetchQueue.calls).toHaveLength(1)
+  })
+
+  test('text output shows live id, next fire, disabled, drift, and binding target identity', async () => {
+    const fetchQueue = createFetchQueue([
+      {
+        body: {
+          resources: [
+            {
+              projectionId:
+                'agent-directory:agent:smokey:project:agent-spaces:scheduled-job:daily-triage',
+              resourceKind: 'scheduled-job',
+              projectionPk: 'agent-smokey.daily-triage',
+              state: 'active',
+              hasDrift: false,
+              jobId: 'job_123',
+              liveSlug: 'agent-smokey.daily-triage',
+              nextFireAt: '2026-06-18T13:00:00.000Z',
+              disabled: false,
+              flowSummary: {
+                enabled: true,
+                stepCount: 1,
+                freshStepCount: 1,
+                freshDurationStepCount: 0,
+              },
+            },
+            {
+              projectionId:
+                'agent-directory:agent:smokey:project:agent-spaces:interface-binding:discord-smoke',
+              resourceKind: 'interface-binding',
+              projectionPk: 'agent-smokey.discord-smoke',
+              state: 'active',
+              hasDrift: false,
+              bindingId: 'agent-smokey.discord-smoke',
+              disabled: false,
+              bindingTarget: {
+                gatewayId: 'acp-discord-smoke',
+                conversationRef: 'channel:1501224513390772224',
+                threadRef: 'thread:1501224513390772225',
+                scopeRef: 'agent:smokey:project:agent-spaces:task:primary',
+                laneRef: 'main',
+              },
+            },
+          ],
+        },
+        assert(request) {
+          expect(request.method).toBe('POST')
+          expect(new URL(request.url).pathname).toBe('/v1/admin/managed-resources/status')
+        },
+      },
+    ])
+
+    const result = await runCli(
+      ['admin', 'managed-resource', 'status', '--in', PLAN_FIXTURE_PATH],
+      {
+        fetchImpl: fetchQueue.fetchImpl,
+      }
+    )
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain('job_123')
+    expect(result.stdout).toContain('agent-smokey.discord-smoke')
+    expect(result.stdout).toContain('2026-06-18T13:00:00.000Z')
+    expect(result.stdout).toContain('false')
+    expect(result.stdout).toContain('no')
+    expect(result.stdout).toMatch(/flow|1.*fresh|fresh.*1/)
   })
 })
