@@ -4,6 +4,7 @@ import { repeatable } from 'cli-kit'
 import { Command, CommanderError } from 'commander'
 
 import { CliUsageError, exitWithError, writeCommandOutput } from './cli-runtime.js'
+import { runActionCommand } from './commands/action.js'
 import { runAdminContributionsReconcileCommand } from './commands/admin-contributions-reconcile.js'
 import { runAdminInterfaceBindingDisableCommand } from './commands/admin-interface-binding-disable.js'
 import { runAdminInterfaceBindingLintCommand } from './commands/admin-interface-binding-lint.js'
@@ -269,6 +270,35 @@ function addTaskCommands(program: Command, deps: CommandDependencies): void {
     .option('--reason <text>')
     .requiredOption('--idempotency-key <key>')
     .action(runLeaf(deps, [], runTaskObligationCancelCommand))
+}
+
+function addActionCommands(program: Command, deps: CommandDependencies): void {
+  const action = program
+    .command('action')
+    .description('launch governed task actions')
+    .addHelpText(
+      'after',
+      `
+
+Default action launches use a stable idempotency key, so repeating the same
+command reports the existing action instead of starting a duplicate run. Use
+--force only when you intentionally want a separate action attempt. The task
+project is resolved from wrkq before launch.`
+    )
+
+  common(action.command('triage').description('launch governed triage for one task'))
+    .argument('<taskId>')
+    .option('--force', 'create a separate triage attempt with a fresh idempotency key')
+    .addHelpText(
+      'after',
+      `
+
+By default this command reuses idempotency key task:<taskId>:action:triage,
+so a repeated invocation reports the existing action and does not launch a
+duplicate HRC run. Use --force only to intentionally create a separate triage
+attempt; it is not a retry/recovery switch.`
+    )
+    .action(runLeafWithPositionals(deps, ['triage'], runActionCommand))
 }
 
 function addAdminCommands(program: Command, deps: CommandDependencies): void {
@@ -639,6 +669,7 @@ export function buildProgram(
     .option('--json', 'emit JSON output')
 
   addTaskCommands(program, deps)
+  addActionCommands(program, deps)
   addAdminCommands(program, deps)
   addGovernanceCommands(program, deps)
   addRuntimeCommands(program, deps)

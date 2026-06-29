@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import type { WorkClient } from '@wrkq/client'
 
 import { main } from '../cli.js'
 
@@ -40,6 +41,7 @@ async function runCli(
   options: {
     fetchImpl?: (input: Request | string | URL, init?: RequestInit) => Promise<Response>
     env?: NodeJS.ProcessEnv | undefined
+    createWorkClient?: (() => Promise<WorkClient>) | undefined
   } = {}
 ): Promise<CliResult> {
   const stdout: string[] = []
@@ -70,6 +72,9 @@ async function runCli(
     await main(args, {
       ...(options.fetchImpl !== undefined ? { fetchImpl: options.fetchImpl } : {}),
       ...(options.env !== undefined ? { env: options.env } : {}),
+      ...(options.createWorkClient !== undefined
+        ? { createWorkClient: options.createWorkClient }
+        : {}),
     })
     return { stdout: stdout.join(''), stderr: stderr.join(''), exitCode: 0 }
   } catch (error) {
@@ -81,6 +86,40 @@ async function runCli(
     process.stdout.write = originalStdoutWrite
     process.stderr.write = originalStderrWrite
     process.exit = originalExit
+  }
+}
+
+function createFakeWorkClient(input: {
+  taskId: string
+  projectUuid: string
+  projectId: string
+}) {
+  const calls: Array<{ method: string; params?: unknown }> = []
+  return {
+    calls,
+    async createWorkClient(): Promise<WorkClient> {
+      return {
+        wrkq: {
+          task: {
+            async show(params: { task: string }) {
+              calls.push({ method: 'wrkq.task.show', params })
+              expect(params).toEqual({ task: input.taskId })
+              return { id: input.taskId, projectUuid: input.projectUuid }
+            },
+          },
+          container: {
+            async show(params: { project: string }) {
+              calls.push({ method: 'wrkq.container.show', params })
+              expect(params).toEqual({ project: input.projectUuid })
+              return { id: input.projectId }
+            },
+          },
+        },
+        async close() {
+          calls.push({ method: 'close' })
+        },
+      } as unknown as WorkClient
+    },
   }
 }
 
@@ -135,7 +174,190 @@ describe('acp CLI smoke fixtures', () => {
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toMatch(/usage:\s+acp/i)
     expect(result.stdout).toContain('task')
+    expect(result.stdout).toContain('action')
     expect(result.stdout).toContain('message')
+  })
+
+  test('action triage help documents idempotency and wrkq project resolution', async () => {
+    const result = await runCli(['action', 'triage', '--help'])
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain('acp action triage')
+    expect(result.stdout).not.toContain('--project')
+    expect(result.stdout).toContain('--force')
+    expect(result.stdout).toMatch(/idempotency key/i)
+    expect(result.stdout).toMatch(/duplicate HRC run/i)
+  })
+
+  test('action triage posts exact governed launch body by default', async () => {
+    const workClient = createFakeWorkClient({
+      taskId: 'T-20001',
+      projectUuid: 'project-uuid-agent-spaces',
+      projectId: 'agent-spaces',
+    })
+    const fetchQueue = createFetchQueue([
+      {
+        body: {
+          source: 'wrkf-action',
+          taskId: 'T-20001',
+          actionRunId: 'act-1',
+          wrkfRunId: 'wrun-1',
+          externalRunRef: 'hrc:hrc-1',
+          hrcRunId: 'hrc-1',
+          replay: false,
+        },
+        assert(request) {
+          expect(request.method).toBe('POST')
+          expect(new URL(request.url).pathname).toBe('/v1/wrkf/actions/launch')
+          expect(request.headers.get('x-acp-actor-agent-id')).toBe('smokey')
+          expect(Object.keys(request.body as Record<string, unknown>).sort()).toEqual([
+            'action',
+            'idempotencyKey',
+            'sessionRef',
+            'taskId',
+          ])
+          expect(request.body).toEqual({
+            taskId: 'T-20001',
+            action: 'triage',
+            idempotencyKey: 'task:T-20001:action:triage',
+            sessionRef: {
+              scopeRef: 'agent:clod:project:agent-spaces:task:T-20001',
+              laneRef: 'main',
+            },
+          })
+        },
+      },
+    ])
+
+    const result = await runCli(['action', 'triage', 'T-20001', '--actor', 'smokey', '--json'], {
+      fetchImpl: fetchQueue.fetchImpl,
+      createWorkClient: workClient.createWorkClient,
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      actionRunId: 'act-1',
+      wrkfRunId: 'wrun-1',
+      externalRunRef: 'hrc:hrc-1',
+      hrcRunId: 'hrc-1',
+      replay: false,
+      cli: {
+        action: 'triage',
+        taskId: 'T-20001',
+        projectId: 'agent-spaces',
+        idempotencyKey: 'task:T-20001:action:triage',
+        forced: false,
+      },
+    })
+    expect(fetchQueue.calls).toHaveLength(1)
+    expect(workClient.calls.map((call) => call.method)).toEqual([
+      'wrkq.task.show',
+      'wrkq.container.show',
+      'close',
+    ])
+  })
+
+  test('action triage resolves project from @wrkq/client when launching', async () => {
+    const workClient = createFakeWorkClient({
+      taskId: 'T-20002',
+      projectUuid: 'project-uuid-wrkq',
+      projectId: 'wrkq',
+    })
+    const fetchQueue = createFetchQueue([
+      {
+        body: { actionRunId: 'act-env', wrkfRunId: 'wrun-env', replay: false },
+        assert(request) {
+          expect(request.body).toMatchObject({
+            sessionRef: {
+              scopeRef: 'agent:clod:project:wrkq:task:T-20002',
+              laneRef: 'main',
+            },
+          })
+        },
+      },
+    ])
+
+    const result = await runCli(['action', 'triage', 'T-20002', '--json'], {
+      fetchImpl: fetchQueue.fetchImpl,
+      createWorkClient: workClient.createWorkClient,
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      cli: { projectId: 'wrkq', forced: false },
+    })
+  })
+
+  test('action triage --force uses a fresh idempotency key', async () => {
+    const workClient = createFakeWorkClient({
+      taskId: 'T-20003',
+      projectUuid: 'project-uuid-acp',
+      projectId: 'agent-control-plane',
+    })
+    const fetchQueue = createFetchQueue([
+      {
+        body: {
+          actionRunId: 'act-force',
+          wrkfRunId: 'wrun-force',
+          externalRunRef: 'hrc:hrc-force',
+          replay: false,
+        },
+        assert(request) {
+          const body = request.body as { idempotencyKey?: string }
+          expect(body.idempotencyKey).toMatch(/^task:T-20003:action:triage:force:\d+:[0-9a-f-]+$/)
+          expect(body.idempotencyKey).not.toBe('task:T-20003:action:triage')
+        },
+      },
+    ])
+
+    const result = await runCli(['action', 'triage', 'T-20003', '--force', '--json'], {
+      fetchImpl: fetchQueue.fetchImpl,
+      createWorkClient: workClient.createWorkClient,
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      replay: false,
+      cli: { forced: true },
+    })
+  })
+
+  test('action triage text output surfaces replay and HRC binding', async () => {
+    const workClient = createFakeWorkClient({
+      taskId: 'T-20004',
+      projectUuid: 'project-uuid-agent-spaces',
+      projectId: 'agent-spaces',
+    })
+    const fetchQueue = createFetchQueue([
+      {
+        body: {
+          source: 'wrkf-action',
+          taskId: 'T-20004',
+          actionRunId: 'act-replay',
+          wrkfRunId: 'wrun-replay',
+          externalRunRef: 'hrc:hrc-replay',
+          replay: true,
+        },
+        assert(request) {
+          expect(request.method).toBe('POST')
+        },
+      },
+    ])
+
+    const result = await runCli(['action', 'triage', 'T-20004'], {
+      fetchImpl: fetchQueue.fetchImpl,
+      createWorkClient: workClient.createWorkClient,
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain('actionRunId')
+    expect(result.stdout).toContain('act-replay')
+    expect(result.stdout).toContain('externalRunRef')
+    expect(result.stdout).toContain('hrc:hrc-replay')
+    expect(result.stdout).toContain('hrcRunId')
+    expect(result.stdout).toContain('hrc-replay')
+    expect(result.stdout).toContain('replay')
+    expect(result.stdout).toContain('true')
   })
 
   test('message broadcast sends one request per repeated recipient flag', async () => {

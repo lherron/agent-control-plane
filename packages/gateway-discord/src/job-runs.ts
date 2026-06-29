@@ -33,6 +33,7 @@ const EM_DASH = '—'
 // Job descriptions are inconsistent (empty, machine-noise, or multi-sentence), so
 // the card shows them only when present, collapsed to a single truncated line.
 const DESCRIPTION_MAX = 100
+const FIELD_VALUE_MAX = 1024
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined
@@ -91,7 +92,29 @@ function resolveTaskId(payload: Record<string, unknown>): string {
 type EmbedField = { name: string; value: string; inline: boolean }
 
 function inlineField(name: string, value: string): EmbedField {
-  return { name, value: value.length > 0 ? value : EM_DASH, inline: true }
+  const rendered = value.length > 0 ? value : EM_DASH
+  return { name, value: truncate(rendered, FIELD_VALUE_MAX), inline: true }
+}
+
+function optionalInlineField(name: string, value: string | undefined): EmbedField | undefined {
+  if (value === undefined || value.length === 0) {
+    return undefined
+  }
+  return inlineField(name, value)
+}
+
+function pushDefined<T>(target: T[], value: T | undefined): void {
+  if (value !== undefined) {
+    target.push(value)
+  }
+}
+
+function appendRunContextFields(fields: EmbedField[], payload: Record<string, unknown>): void {
+  pushDefined(fields, optionalInlineField('Run', asString(payload['runId'])))
+  pushDefined(fields, optionalInlineField('Lane', asString(payload['laneRef'])))
+  pushDefined(fields, optionalInlineField('Input', asString(payload['inputAttemptId'])))
+  pushDefined(fields, optionalInlineField('Next', asString(payload['nextFireAt'])))
+  pushDefined(fields, optionalInlineField('Last', asString(payload['lastFireAt'])))
 }
 
 /**
@@ -141,6 +164,7 @@ export function buildJobRunCard(event: JobLifecycleSystemEvent): WebhookPayload 
   // subtitle plus Trigger/Run fields.
   let description = subtitle
   if (completed) {
+    appendRunContextFields(fields, payload)
     const finalResponse = asString(payload['finalResponse'])
     if (finalResponse !== undefined) {
       description = truncate(`-# ${subtitle}\n\n${finalResponse}`, EMBED_DESCRIPTION_MAX)
@@ -151,6 +175,10 @@ export function buildJobRunCard(event: JobLifecycleSystemEvent): WebhookPayload 
     }
   } else {
     fields.push(inlineField('Trigger', triggerLabel), inlineField('Run', runId))
+    pushDefined(fields, optionalInlineField('Lane', asString(payload['laneRef'])))
+    pushDefined(fields, optionalInlineField('Input', asString(payload['inputAttemptId'])))
+    pushDefined(fields, optionalInlineField('Next', asString(payload['nextFireAt'])))
+    pushDefined(fields, optionalInlineField('Last', asString(payload['lastFireAt'])))
   }
 
   const embed = {

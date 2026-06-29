@@ -44,6 +44,14 @@ function workflowTransitioned(): WorkActivitySystemEvent {
   }
 }
 
+function fieldValues(embed: unknown): Record<string, string> {
+  const fields =
+    typeof embed === 'object' && embed !== null && 'fields' in embed
+      ? ((embed as { fields?: Array<{ name: string; value: string }> }).fields ?? [])
+      : []
+  return Object.fromEntries(fields.map((field) => [field.name, field.value]))
+}
+
 // Required test #8: card builders.
 describe('buildWorkActivityCard (T-05270)', () => {
   test('renders the from -> to arrow as the title hero for a state transition', () => {
@@ -61,6 +69,50 @@ describe('buildWorkActivityCard (T-05270)', () => {
     )
     expect(card?.embeds?.[0]?.title).toBe('◆ updated · T-1 x')
     expect(card?.embeds?.[0]?.color).toBe(0x7c8595) // neutral slate
+  })
+
+  test('renders wrkq task details and source-qualified identity from existing payload fields', () => {
+    const card = buildWorkActivityCard(
+      taskUpdated({
+        payload: {
+          canonicalEventId: 'wrkq:evt-rich',
+          source: 'wrkq',
+          sourceEventId: 'evt-rich',
+          ticket_id: 'T-1',
+          slug: 'x',
+          title: 'Improve Discord cards\nwith compact details',
+          container_path: 'agent-control-plane/inbox',
+          transition: { from: 'open', to: 'in_progress' },
+          changed: ['state', 'labels', 'container_path', 'description', 'title', 'priority'],
+          labels: ['discord', 'operator', 'workflow', 'gateway', 'render', 'extra'],
+          origin: { actor: 'agent:cody', via: 'wrkq' },
+        },
+      })
+    )
+    const embed = card?.embeds?.[0]
+    expect(fieldValues(embed)).toMatchObject({
+      Task: 'Improve Discord cards with compact details',
+      Path: 'agent-control-plane/inbox',
+      Changed: 'state, labels, container_path, description, title, +1',
+      Labels: 'discord, operator, workflow, gateway, render, +1',
+    })
+    expect((embed as { footer?: { text: string } })?.footer?.text).toBe('event wrkq:evt-rich')
+  })
+
+  test('ignores malformed wrkq optional detail fields without coercing them', () => {
+    const card = buildWorkActivityCard(
+      taskUpdated({
+        payload: {
+          ticket_id: 'T-1',
+          slug: 'x',
+          changed: 'title',
+          labels: [1, false],
+          title: ['not', 'a', 'title'],
+          container_path: { path: 'x' },
+        },
+      })
+    )
+    expect(fieldValues(card?.embeds?.[0])).toEqual({})
   })
 
   test('comment card uses violet and the comment glyph', () => {
@@ -83,6 +135,32 @@ describe('buildWorkActivityCard (T-05270)', () => {
     )
     expect(embed?.description).toBe('-# by smokey · wrkf · run run-xyz')
     expect(card?.username).toBe('smokey · wrkf')
+  })
+
+  test('renders wrkf workflow details from existing payload fields', () => {
+    const card = buildWorkActivityCard({
+      ...workflowTransitioned(),
+      payload: {
+        ...workflowTransitioned().payload,
+        canonicalEventId: 'wrkq:wfe-rich',
+        workflow: {
+          instance_id: 'wf-1',
+          template: 'wrkq-simple-task@1',
+          transition: 'approve_build',
+          outcome: 'review_complete',
+          to: { status: 'completed' },
+        },
+      },
+    })
+    const embed = card?.embeds?.[0]
+    expect(fieldValues(embed)).toMatchObject({
+      Workflow: 'wf-1',
+      Template: 'wrkq-simple-task@1',
+      Transition: 'approve_build',
+      Outcome: 'review_complete',
+      Run: 'run-xyz',
+    })
+    expect((embed as { footer?: { text: string } })?.footer?.text).toBe('event wrkq:wfe-rich')
   })
 
   test('workflow attached uses teal and names the template', () => {

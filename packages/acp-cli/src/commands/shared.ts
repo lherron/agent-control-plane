@@ -1,3 +1,4 @@
+import type { WorkClient } from '@wrkq/client'
 import { CliUsageError, type CommandOutput } from '../cli-runtime.js'
 import {
   type AcpClient,
@@ -25,6 +26,7 @@ export type CommandDependencies = {
       }) => AcpClient)
     | undefined
   fetchImpl?: FetchLike | undefined
+  createWorkClient?: (() => Promise<WorkClient>) | undefined
   attach?: ((descriptor: AttachDescriptor) => Promise<number>) | undefined
 }
 

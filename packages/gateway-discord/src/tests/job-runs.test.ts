@@ -47,7 +47,7 @@ describe('buildJobRunCard (T-05245)', () => {
     expect((embed['footer'] as { text: string }).text).toBe('jobRun jr-1')
   })
 
-  test('completed-failed card: status in title, no Trigger/Run/Status fields, carries Error', () => {
+  test('completed-failed card: status in title, no Trigger/Status fields, carries Error', () => {
     const card = buildJobRunCard({
       ...dispatchedEvent({ status: 'failed', errorMessage: 'boom' }),
       eventId: '11',
@@ -58,11 +58,11 @@ describe('buildJobRunCard (T-05245)', () => {
     expect(embed['color']).toBe(0xed4245)
     const fields = embed['fields'] as Array<{ name: string; value: string }>
     const names = fields.map((f) => f.name)
-    expect(names).toEqual(['Agent', 'Project', 'Task', 'Error']) // no Trigger/Run/Status
+    expect(names).toEqual(['Agent', 'Project', 'Task', 'Run', 'Lane', 'Error']) // no Trigger/Status
     expect(fields.find((f) => f.name === 'Error')?.value).toBe('boom')
   })
 
-  test('completed-succeeded card: status in title, renders response markdown in description, no Trigger/Run', () => {
+  test('completed-succeeded card: status in title, renders response markdown in description, no Trigger', () => {
     const card = buildJobRunCard({
       ...dispatchedEvent({ status: 'succeeded', finalResponse: '**done** — see [link](x)' }),
       eventId: '12',
@@ -75,7 +75,7 @@ describe('buildJobRunCard (T-05245)', () => {
     expect(embed['description']).toContain('**done** — see [link](x)')
     expect(embed['description']).not.toContain('```')
     const fields = embed['fields'] as Array<{ name: string }>
-    expect(fields.map((f) => f.name)).toEqual(['Agent', 'Project', 'Task'])
+    expect(fields.map((f) => f.name)).toEqual(['Agent', 'Project', 'Task', 'Run', 'Lane'])
   })
 
   test('completed-succeeded without a captured response keeps the subtitle, no Response', () => {
@@ -88,7 +88,31 @@ describe('buildJobRunCard (T-05245)', () => {
       'Agent',
       'Project',
       'Task',
+      'Run',
+      'Lane',
     ])
+  })
+
+  test('renders already-emitted job run metadata with bounded fields', () => {
+    const card = buildJobRunCard(
+      dispatchedEvent({
+        inputAttemptId: 'ia_1',
+        nextFireAt: '2026-06-29T15:00:00.000Z',
+        lastFireAt: '2026-06-28T15:00:00.000Z',
+      })
+    )
+    const fields = Object.fromEntries(
+      ((card?.embeds?.[0] as { fields: Array<{ name: string; value: string }> }).fields ?? []).map(
+        (field) => [field.name, field.value]
+      )
+    )
+    expect(fields).toMatchObject({
+      Run: 'run-1',
+      Lane: 'main',
+      Input: 'ia_1',
+      Next: '2026-06-29T15:00:00.000Z',
+      Last: '2026-06-28T15:00:00.000Z',
+    })
   })
 
   test('flow run without a top-level runId renders Task and an em-dash Run', () => {

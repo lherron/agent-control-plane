@@ -56,6 +56,9 @@ const COLOR_WF_ATTACHED = 0x14b8a6 // teal — engine engaged
 const EM_DASH = '—'
 const TITLE_MAX = 256
 const DESCRIPTION_MAX = 4096
+const FIELD_VALUE_MAX = 1024
+const FOOTER_MAX = 2048
+const LIST_VALUE_MAX = 220
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined
@@ -69,6 +72,51 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 function truncate(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value
+}
+
+function asStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined
+  }
+  const strings = value.filter(
+    (item): item is string => typeof item === 'string' && item.length > 0
+  )
+  return strings.length > 0 ? strings : undefined
+}
+
+function oneLine(value: string): string {
+  return value.replace(/\s+/g, ' ').trim()
+}
+
+function compactList(values: string[] | undefined, maxItems = 5): string | undefined {
+  if (values === undefined || values.length === 0) {
+    return undefined
+  }
+  const visible = values.slice(0, maxItems)
+  const suffix = values.length > visible.length ? `, +${values.length - visible.length}` : ''
+  return truncate(`${visible.join(', ')}${suffix}`, LIST_VALUE_MAX)
+}
+
+type EmbedField = { name: string; value: string; inline: boolean }
+
+function inlineField(name: string, value: string | undefined): EmbedField | undefined {
+  if (value === undefined || value.length === 0) {
+    return undefined
+  }
+  return { name, value: truncate(value, FIELD_VALUE_MAX), inline: true }
+}
+
+function blockField(name: string, value: string | undefined): EmbedField | undefined {
+  if (value === undefined || value.length === 0) {
+    return undefined
+  }
+  return { name, value: truncate(value, FIELD_VALUE_MAX), inline: false }
+}
+
+function pushDefined<T>(target: T[], value: T | undefined): void {
+  if (value !== undefined) {
+    target.push(value)
+  }
 }
 
 /** "agent:cody" -> "cody"; "system" -> "system". Used for label + avatar seed. */
@@ -88,6 +136,31 @@ function subjectSuffix(payload: Record<string, unknown>): string {
     return `${ticket} ${slug}`
   }
   return ticket ?? slug ?? EM_DASH
+}
+
+function changedFields(payload: Record<string, unknown>): string | undefined {
+  const direct = compactList(asStringArray(payload['changed']))
+  if (direct !== undefined) {
+    return direct
+  }
+  const changes = asRecord(payload['changes'])
+  if (changes === undefined) {
+    return undefined
+  }
+  return compactList(Object.keys(changes).filter((key) => key.length > 0))
+}
+
+function sourceIdentity(payload: Record<string, unknown>): string | undefined {
+  const canonical = asString(payload['canonicalEventId'])
+  if (canonical !== undefined) {
+    return canonical
+  }
+  const source = asString(payload['source'])
+  const sourceEventId = asString(payload['sourceEventId'])
+  if (source !== undefined && sourceEventId !== undefined) {
+    return `${source}:${sourceEventId}`
+  }
+  return undefined
 }
 
 /** Workflow state summary: "status:phase" or just "status". */
@@ -144,6 +217,15 @@ function renderWrkq(kind: string, payload: Record<string, unknown>): Rendered | 
   }
 }
 
+function buildWrkqFields(payload: Record<string, unknown>): EmbedField[] {
+  const fields: EmbedField[] = []
+  pushDefined(fields, blockField('Task', truncate(oneLine(asString(payload['title']) ?? ''), 180)))
+  pushDefined(fields, inlineField('Path', asString(payload['container_path'])))
+  pushDefined(fields, inlineField('Changed', changedFields(payload)))
+  pushDefined(fields, inlineField('Labels', compactList(asStringArray(payload['labels']))))
+  return fields
+}
+
 function renderWrkf(kind: string, payload: Record<string, unknown>): Rendered | undefined {
   const suffix = subjectSuffix(payload)
   const workflow = asRecord(payload['workflow'])
@@ -172,6 +254,35 @@ function renderWrkf(kind: string, payload: Record<string, unknown>): Rendered | 
   return undefined
 }
 
+function workflowId(workflow: Record<string, unknown> | undefined): string | undefined {
+  return asString(workflow?.['instance_id']) ?? asString(workflow?.['instanceId'])
+}
+
+function workflowTemplate(workflow: Record<string, unknown> | undefined): string | undefined {
+  return (
+    asString(workflow?.['template']) ??
+    asString(workflow?.['template_id']) ??
+    asString(workflow?.['templateId'])
+  )
+}
+
+function buildWrkfFields(
+  kind: string,
+  payload: Record<string, unknown>,
+  runId: string | undefined
+): EmbedField[] {
+  const fields: EmbedField[] = []
+  const workflow = asRecord(payload['workflow'])
+  pushDefined(fields, inlineField('Workflow', workflowId(workflow)))
+  pushDefined(fields, inlineField('Template', workflowTemplate(workflow)))
+  if (kind === 'wrkf.workflow_transitioned') {
+    pushDefined(fields, inlineField('Transition', asString(workflow?.['transition'])))
+    pushDefined(fields, inlineField('Outcome', asString(workflow?.['outcome'])))
+  }
+  pushDefined(fields, inlineField('Run', runId))
+  return fields
+}
+
 /**
  * Build the Discord webhook payload (embed card + system identity) for a
  * wrkq/wrkf lifecycle event. Returns undefined for unrelated kinds so the caller
@@ -194,6 +305,9 @@ export function buildWorkActivityCard(event: WorkActivitySystemEvent): WebhookPa
   const actor = actorSlug(asString(origin?.['actor'])) ?? 'system'
   const via = asString(origin?.['via'])
   const runId = asString(origin?.['run_id'])
+  const fields =
+    family === 'wrkf' ? buildWrkfFields(event.kind, payload, runId) : buildWrkqFields(payload)
+  const identity = sourceIdentity(payload)
 
   // De-emphasized one-line subtitle: who did it, via what.
   const subtitleParts = [`by ${actor}`]
@@ -209,6 +323,10 @@ export function buildWorkActivityCard(event: WorkActivitySystemEvent): WebhookPa
     title: truncate(rendered.title, TITLE_MAX),
     description,
     color: rendered.color,
+    ...(fields.length > 0 ? { fields } : {}),
+    ...(identity !== undefined
+      ? { footer: { text: truncate(`event ${identity}`, FOOTER_MAX) } }
+      : {}),
     timestamp: event.occurredAt,
   }
 
