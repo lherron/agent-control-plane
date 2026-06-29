@@ -16,26 +16,57 @@ type ManagedResourcesPlan = {
   resources?: unknown
 }
 
+type FlowSummary = {
+  enabled: boolean
+  stepCount: number
+  freshStepCount: number
+  freshDurationStepCount: number
+}
+
+type OperationalFacts = {
+  jobId?: string | undefined
+  bindingId?: string | undefined
+  liveSlug?: string | undefined
+  disabled?: boolean | undefined
+  nextFireAt?: string | undefined
+  flowSummary?: FlowSummary | undefined
+  bindingTarget?:
+    | {
+        gatewayId: string
+        conversationRef: string
+        threadRef?: string | undefined
+        scopeRef: string
+        laneRef: string
+      }
+    | undefined
+  hasDrift?: boolean | undefined
+  driftKind?: string | undefined
+}
+
 type ApplyResponse = {
-  outcomes: Array<{
-    projectionId: string
-    resourceKind: string
-    projectionPk: string
-    outcome: string
-    error?: { code: string; message: string } | undefined
-  }>
+  outcomes: Array<
+    OperationalFacts & {
+      projectionId: string
+      resourceKind: string
+      projectionPk: string
+      outcome: string
+      error?: { code: string; message: string } | undefined
+    }
+  >
   stats: { created: number; updated: number; noop: number; failed: number }
 }
 
 type StatusResponse = {
-  resources: Array<{
-    projectionId: string
-    resourceKind: string
-    projectionPk: string
-    state: string
-    hasDrift: boolean
-    driftKind?: string | undefined
-  }>
+  resources: Array<
+    OperationalFacts & {
+      projectionId: string
+      resourceKind: string
+      projectionPk: string
+      state: string
+      hasDrift: boolean
+      driftKind?: string | undefined
+    }
+  >
 }
 
 function loadPlanFile(path: string): ManagedResourcesPlan {
@@ -68,13 +99,63 @@ function requirePlan(parsed: ReturnType<typeof parseArgs>): ManagedResourcesPlan
   return loadPlanFile(path)
 }
 
+function projectionIdsFromPlan(plan: ManagedResourcesPlan): string[] {
+  if (!Array.isArray(plan.resources)) {
+    throw new CliUsageError('plan.resources must be an array')
+  }
+  return plan.resources.map((resource, index) => {
+    if (typeof resource !== 'object' || resource === null || Array.isArray(resource)) {
+      throw new CliUsageError(`plan.resources[${index}] must be an object`)
+    }
+    const projectionId = (resource as Record<string, unknown>)['projectionId']
+    if (typeof projectionId !== 'string' || projectionId.trim().length === 0) {
+      throw new CliUsageError(`plan.resources[${index}].projectionId must be a non-empty string`)
+    }
+    return projectionId.trim()
+  })
+}
+
+function valueOrDash(value: string | undefined): string {
+  return value === undefined || value.length === 0 ? '-' : value
+}
+
+function liveId(row: OperationalFacts): string {
+  return valueOrDash(row.jobId ?? row.bindingId)
+}
+
+function disabledLabel(row: OperationalFacts): string {
+  return row.disabled === undefined ? '-' : String(row.disabled)
+}
+
+function driftLabel(row: OperationalFacts): string {
+  if (row.hasDrift === undefined) {
+    return '-'
+  }
+  return row.hasDrift ? (row.driftKind ?? 'yes') : 'no'
+}
+
+function flowLabel(row: OperationalFacts): string {
+  const flow = row.flowSummary
+  if (flow === undefined) {
+    return '-'
+  }
+  if (!flow.enabled) {
+    return 'off'
+  }
+  return `${flow.stepCount} steps / ${flow.freshStepCount} fresh / ${flow.freshDurationStepCount} freshDuration`
+}
+
 function renderApplyText(response: ApplyResponse): string {
   const table = renderTable(
     [
       { header: 'Kind', value: (row: ApplyResponse['outcomes'][number]) => row.resourceKind },
       { header: 'Projection', value: (row) => row.projectionPk },
+      { header: 'Live', value: liveId },
       { header: 'Outcome', value: (row) => row.outcome },
-      { header: 'Error', value: (row) => row.error?.code ?? '' },
+      { header: 'Next', value: (row) => valueOrDash(row.nextFireAt) },
+      { header: 'Disabled', value: disabledLabel },
+      { header: 'Drift', value: driftLabel },
+      { header: 'Flow', value: flowLabel },
     ],
     response.outcomes
   )
@@ -86,8 +167,12 @@ function renderStatusText(response: StatusResponse): string {
     [
       { header: 'Kind', value: (row: StatusResponse['resources'][number]) => row.resourceKind },
       { header: 'Projection', value: (row) => row.projectionPk },
+      { header: 'Live', value: liveId },
       { header: 'State', value: (row) => row.state },
-      { header: 'Drift', value: (row) => (row.hasDrift ? (row.driftKind ?? 'yes') : 'no') },
+      { header: 'Next', value: (row) => valueOrDash(row.nextFireAt) },
+      { header: 'Disabled', value: disabledLabel },
+      { header: 'Drift', value: driftLabel },
+      { header: 'Flow', value: flowLabel },
     ],
     response.resources
   )
@@ -125,10 +210,11 @@ export async function runAdminManagedResourceStatusCommand(
   if (typeof ownerScopeRef !== 'string' || ownerScopeRef.trim().length === 0) {
     throw new CliUsageError('plan.sourceOwnerScopeRef must be a non-empty string')
   }
+  const projectionIds = projectionIdsFromPlan(plan)
   const response = await createRawRequesterFromParsed(parsed, deps).requestJson<StatusResponse>({
     method: 'POST',
     path: '/v1/admin/managed-resources/status',
-    body: { ownerScopeRef: ownerScopeRef.trim() },
+    body: { ownerScopeRef: ownerScopeRef.trim(), projectionIds },
   })
   return hasFlag(parsed, '--json') ? asJson(response) : asText(renderStatusText(response))
 }

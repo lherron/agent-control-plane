@@ -1,4 +1,5 @@
 import {
+  type InterfaceBinding,
   type InterfaceStore,
   applyManagedBinding,
   detectBindingDrift,
@@ -6,6 +7,7 @@ import {
   openInterfaceStore,
 } from 'acp-interface-store'
 import {
+  type JobRecord,
   type JobsStore,
   applyManagedJob,
   detectJobDrift,
@@ -58,6 +60,15 @@ export type ResourceOutcome = {
     | 'stale_adoption_rejected'
     | 'validation_error'
     | 'failed'
+  jobId?: string | undefined
+  bindingId?: string | undefined
+  liveSlug?: string | undefined
+  disabled?: boolean | undefined
+  nextFireAt?: string | undefined
+  flowSummary?: FlowSummary | undefined
+  bindingTarget?: BindingTargetSummary | undefined
+  hasDrift?: boolean | undefined
+  driftKind?: string | undefined
   error?: { code: string; message: string } | undefined
 }
 
@@ -84,10 +95,18 @@ export type ManagedResourceStatusEntry = {
   state: 'active' | 'disabled'
   hasDrift: boolean
   driftKind?: string | undefined
+  jobId?: string | undefined
+  bindingId?: string | undefined
+  liveSlug?: string | undefined
+  disabled?: boolean | undefined
+  nextFireAt?: string | undefined
+  flowSummary?: FlowSummary | undefined
+  bindingTarget?: BindingTargetSummary | undefined
 }
 
 export type GetManagedResourcesStatusInput = {
   ownerScopeRef: string
+  projectionIds?: string[] | undefined
   jobsDbPath: string
   interfaceDbPath: string
 }
@@ -105,8 +124,24 @@ export type ApplyManagedResourcesWithStoresInput = {
 
 export type GetManagedResourcesStatusWithStoresInput = {
   ownerScopeRef: string
+  projectionIds?: string[] | undefined
   jobsStore: JobsStore
   interfaceStore: InterfaceStore
+}
+
+export type FlowSummary = {
+  enabled: boolean
+  stepCount: number
+  freshStepCount: number
+  freshDurationStepCount: number
+}
+
+export type BindingTargetSummary = {
+  gatewayId: string
+  conversationRef: string
+  threadRef?: string | undefined
+  scopeRef: string
+  laneRef: string
 }
 
 const HASH_RE = /^sha256-canonical-json\/v1:[0-9a-f]{64}$/
@@ -278,6 +313,24 @@ function errorFromResult(result: unknown): { code: string; message: string } | u
   }
 }
 
+function liveIdFromResult(
+  result: unknown
+): Pick<ResourceOutcome, 'jobId' | 'bindingId'> | undefined {
+  if (!isRecord(result) || !isRecord(result['error'])) {
+    return undefined
+  }
+  const error = result['error']
+  const existingJobId = error['existingJobId']
+  if (typeof existingJobId === 'string' && existingJobId.trim().length > 0) {
+    return { jobId: existingJobId }
+  }
+  const existingBindingId = error['existingBindingId']
+  if (typeof existingBindingId === 'string' && existingBindingId.trim().length > 0) {
+    return { bindingId: existingBindingId }
+  }
+  return undefined
+}
+
 function failedOutcome(error: unknown): Pick<ResourceOutcome, 'outcome' | 'error'> {
   return {
     outcome: 'failed',
@@ -285,6 +338,66 @@ function failedOutcome(error: unknown): Pick<ResourceOutcome, 'outcome' | 'error
       code: 'APPLY_FAILED',
       message: error instanceof Error ? error.message : String(error),
     },
+  }
+}
+
+function summarizeJobFlow(job: JobRecord): FlowSummary {
+  const sequence = job.flow?.sequence ?? []
+  const onFailure = job.flow?.onFailure ?? []
+  const steps = [...sequence, ...onFailure]
+  return {
+    enabled: job.flow !== undefined,
+    stepCount: steps.length,
+    freshStepCount: steps.filter((step) => step.fresh === true).length,
+    freshDurationStepCount: steps.filter(
+      (step) => typeof step.freshDuration === 'string' && step.freshDuration.trim().length > 0
+    ).length,
+  }
+}
+
+function jobOperationalFacts(
+  job: JobRecord
+): Pick<ResourceOutcome, 'jobId' | 'liveSlug' | 'disabled' | 'nextFireAt' | 'flowSummary'> {
+  return {
+    jobId: job.jobId,
+    liveSlug: job.slug,
+    disabled: job.disabled,
+    nextFireAt: job.nextFireAt,
+    flowSummary: summarizeJobFlow(job),
+  }
+}
+
+function compactBindingScopeRef(binding: InterfaceBinding): string {
+  if (binding.agentId === undefined || binding.projectId === undefined) {
+    return binding.scopeRef
+  }
+  const taskSegment = binding.taskId === undefined ? '' : `:task:${binding.taskId}`
+  return `agent:${binding.agentId}:project:${binding.projectId}${taskSegment}`
+}
+
+function bindingOperationalFacts(
+  binding: InterfaceBinding
+): Pick<ResourceOutcome, 'bindingId' | 'disabled' | 'bindingTarget'> {
+  return {
+    bindingId: binding.bindingId,
+    disabled: binding.status === 'disabled',
+    bindingTarget: {
+      gatewayId: binding.gatewayId,
+      conversationRef: binding.conversationRef,
+      threadRef: binding.threadRef,
+      scopeRef: compactBindingScopeRef(binding),
+      laneRef: binding.laneRef,
+    },
+  }
+}
+
+function driftFacts(drift: { hasDrift: boolean; driftKind?: string | undefined }): {
+  hasDrift: boolean
+  driftKind?: string | undefined
+} {
+  return {
+    hasDrift: drift.hasDrift,
+    driftKind: drift.driftKind,
   }
 }
 
@@ -431,9 +544,30 @@ export async function applyPlanWithStores(
               ...applyInput,
               resourceKind: resource.resourceKind,
             })
+      if ('job' in result) {
+        const drift = detectJobDrift(input.jobsStore, resource.projectionId)
+        outcomes.push({
+          ...base,
+          outcome: result.outcome,
+          ...jobOperationalFacts(result.job),
+          ...driftFacts(drift),
+        })
+        continue
+      }
+      if ('binding' in result) {
+        const drift = detectBindingDrift(input.interfaceStore, resource.projectionId)
+        outcomes.push({
+          ...base,
+          outcome: result.outcome,
+          ...bindingOperationalFacts(result.binding),
+          ...driftFacts(drift),
+        })
+        continue
+      }
       outcomes.push({
         ...base,
         outcome: result.outcome,
+        ...liveIdFromResult(result),
         error: errorFromResult(result),
       })
     } catch (error) {
@@ -473,13 +607,15 @@ export async function statusWithStores(
     ownerScopeRef: input.ownerScopeRef,
   }).map((provenance) => {
     const drift = detectJobDrift(input.jobsStore, provenance.projectionId)
+    const job = input.jobsStore.getJob(provenance.jobId).job
     return {
       projectionId: provenance.projectionId,
       resourceKind: provenance.resourceKind,
       projectionPk: provenance.projectionPk,
       state: provenance.state,
-      hasDrift: drift.hasDrift,
-      driftKind: drift.driftKind,
+      disabled: job === undefined ? provenance.state === 'disabled' : job.disabled,
+      ...(job === undefined ? {} : jobOperationalFacts(job)),
+      ...driftFacts(drift),
     }
   })
   const bindingResources: ManagedResourceStatusEntry[] = listManagedBindingProvenances(
@@ -487,17 +623,30 @@ export async function statusWithStores(
     { ownerScopeRef: input.ownerScopeRef }
   ).map((provenance) => {
     const drift = detectBindingDrift(input.interfaceStore, provenance.projectionId)
+    const binding = input.interfaceStore.bindings.getById(provenance.bindingId)
     return {
       projectionId: provenance.projectionId,
       resourceKind: provenance.resourceKind,
       projectionPk: provenance.projectionPk,
       state: provenance.state,
-      hasDrift: drift.hasDrift,
-      driftKind: drift.driftKind,
+      disabled:
+        binding === undefined ? provenance.state === 'disabled' : binding.status === 'disabled',
+      ...(binding === undefined ? {} : bindingOperationalFacts(binding)),
+      ...driftFacts(drift),
     }
   })
 
-  return { resources: [...jobResources, ...bindingResources] }
+  const resources = [...jobResources, ...bindingResources]
+  if (input.projectionIds === undefined) {
+    return { resources }
+  }
+  const byProjectionId = new Map(resources.map((resource) => [resource.projectionId, resource]))
+  return {
+    resources: input.projectionIds.flatMap((projectionId) => {
+      const resource = byProjectionId.get(projectionId)
+      return resource === undefined ? [] : [resource]
+    }),
+  }
 }
 
 export async function getManagedResourcesStatus(
@@ -505,6 +654,7 @@ export async function getManagedResourcesStatus(
 ): Promise<GetManagedResourcesStatusResult> {
   return statusWithStores({
     ownerScopeRef: input.ownerScopeRef,
+    projectionIds: input.projectionIds,
     jobsStore: openCachedJobsStore(input.jobsDbPath),
     interfaceStore: openCachedInterfaceStore(input.interfaceDbPath),
   })

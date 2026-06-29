@@ -25,7 +25,10 @@ function parseApplyBody(body: unknown): { plan: unknown } {
   return { plan: body['plan'] }
 }
 
-function parseStatusBody(body: unknown): { ownerScopeRef: string } {
+function parseStatusBody(body: unknown): {
+  ownerScopeRef: string
+  projectionIds?: string[] | undefined
+} {
   if (!isRecord(body)) {
     badRequest('request body must be a JSON object')
   }
@@ -33,7 +36,22 @@ function parseStatusBody(body: unknown): { ownerScopeRef: string } {
   if (typeof ownerScopeRef !== 'string' || ownerScopeRef.trim().length === 0) {
     badRequest('ownerScopeRef must be a non-empty string', { field: 'ownerScopeRef' })
   }
-  return { ownerScopeRef: ownerScopeRef.trim() }
+  const projectionIds = body['projectionIds']
+  if (projectionIds === undefined) {
+    return { ownerScopeRef: ownerScopeRef.trim() }
+  }
+  if (
+    !Array.isArray(projectionIds) ||
+    projectionIds.some(
+      (projectionId) => typeof projectionId !== 'string' || projectionId.trim() === ''
+    )
+  ) {
+    badRequest('projectionIds must be an array of non-empty strings', { field: 'projectionIds' })
+  }
+  return {
+    ownerScopeRef: ownerScopeRef.trim(),
+    projectionIds: projectionIds.map((projectionId) => projectionId.trim()),
+  }
 }
 
 export const handleApplyManagedResources: RouteHandler = async ({ request, deps }) => {
@@ -57,6 +75,7 @@ export const handleGetManagedResourcesStatus: RouteHandler = async ({ request, d
   const body = parseStatusBody(await parseJsonBody(request))
   const result = await statusWithStores({
     ownerScopeRef: body.ownerScopeRef,
+    projectionIds: body.projectionIds,
     jobsStore: requireJobsStore(deps),
     interfaceStore: deps.interfaceStore,
   })
