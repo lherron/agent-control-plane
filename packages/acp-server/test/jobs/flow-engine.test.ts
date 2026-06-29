@@ -1211,6 +1211,53 @@ describe('advanceJobFlow scheduled fresh pre-run cleanup', () => {
     )
   })
 
+  test('already-terminated runtime termination still dispatches', async () => {
+    await withFlowHarness(
+      async ({ deps, jobsStore, order }) => {
+        const job = createFlowJob(jobsStore, {
+          sequence: [{ id: 'fresh-start', input: 'start with fresh context', fresh: true }],
+        })
+        seedPriorStepRun({
+          deps,
+          jobsStore,
+          job,
+          jobRunId: 'jrun_prior',
+          stepId: 'fresh-start',
+          triggeredAt: '2026-04-28T12:00:00.000Z',
+          runtimeId: 'rt-prior',
+        })
+        const jobRun = createJobRun(jobsStore, job.jobId, {
+          jobRunId: 'jrun_current',
+          triggeredAt: '2026-04-28T12:20:00.000Z',
+          triggeredBy: 'schedule',
+          status: 'claimed',
+        })
+
+        const advanced = await advanceJobFlow({
+          deps: {
+            ...deps,
+            hrcClient: hrcClientForFreshStep({
+              order,
+              terminate: () => {
+                throw Object.assign(new Error('runtime "rt-prior" is terminated'), {
+                  code: 'runtime_unavailable',
+                })
+              },
+            }),
+          } as never,
+          job,
+          jobRun,
+          actor: { kind: 'system', id: 'flow-engine-test' },
+          now: '2026-04-28T12:21:00.000Z',
+        })
+
+        expect(advanced.status).toBe('succeeded')
+        expect(order).toEqual(['terminate:rt-prior', 'resolveSession', 'clearContext', 'dispatch'])
+      },
+      [{ status: 'completed' }]
+    )
+  })
+
   test('unknown termination errors fail closed and do not dispatch', async () => {
     await withFlowHarness(async ({ deps, jobsStore, inputAttemptStore, launchCalls, order }) => {
       const job = createFlowJob(jobsStore, {

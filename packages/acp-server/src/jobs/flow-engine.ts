@@ -691,7 +691,14 @@ function findPreviousDispatchedStepRun(input: {
 
 function isBenignTerminateError(error: unknown): boolean {
   const code = errorCode(error)
-  if (code === 'unknown_runtime' || code === 'unknown_host_session' || code === 'unknown_session') {
+  if (
+    code === 'unknown_runtime' ||
+    code === 'unknown_host_session' ||
+    code === 'unknown_session' ||
+    // The runtime is already terminated/dead/stale — pre-run cleanup only wants
+    // it gone, so an unavailable runtime means cleanup already succeeded.
+    code === 'runtime_unavailable'
+  ) {
     return true
   }
 
@@ -699,7 +706,10 @@ function isBenignTerminateError(error: unknown): boolean {
   return (
     message.includes('not found') ||
     message.includes('unknown runtime') ||
-    message.includes('already terminated')
+    message.includes('already terminated') ||
+    message.includes('is terminated') ||
+    message.includes('is dead') ||
+    message.includes('is stale')
   )
 }
 
