@@ -1,6 +1,7 @@
 import { parseScopeRef } from 'agent-scope'
 
 import { avatarFor } from './identity.js'
+import { isTaskboardTaskId, taskboardTerminalFocusUrl } from './taskboard-links.js'
 import type { WebhookPayload } from './webhooks.js'
 
 /**
@@ -159,6 +160,9 @@ export function buildJobRunCard(event: JobLifecycleSystemEvent): WebhookPayload 
     inlineField('Project', projectId),
     inlineField('Task', taskId),
   ]
+  if (isTaskboardTaskId(taskId)) {
+    fields.push(inlineField('Terminal', `[Focus](${taskboardTerminalFocusUrl(taskId)})`))
+  }
   // The completed card renders the agent's final response as markdown in the embed
   // description (under a de-emphasized subtitle); the started card keeps the
   // subtitle plus Trigger/Run fields.

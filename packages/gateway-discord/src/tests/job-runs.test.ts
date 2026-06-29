@@ -41,6 +41,7 @@ describe('buildJobRunCard (T-05245)', () => {
       Agent: 'clod',
       Project: 'agent-control-plane',
       Task: 'T-05245', // parsed from scopeRef
+      Terminal: '[Focus](http://max3.tail53cc3b.ts.net:18450/focus/T-05245)',
       Trigger: '0 9 * * *',
       Run: 'run-1',
     })
@@ -58,7 +59,7 @@ describe('buildJobRunCard (T-05245)', () => {
     expect(embed['color']).toBe(0xed4245)
     const fields = embed['fields'] as Array<{ name: string; value: string }>
     const names = fields.map((f) => f.name)
-    expect(names).toEqual(['Agent', 'Project', 'Task', 'Run', 'Lane', 'Error']) // no Trigger/Status
+    expect(names).toEqual(['Agent', 'Project', 'Task', 'Terminal', 'Run', 'Lane', 'Error']) // no Trigger/Status
     expect(fields.find((f) => f.name === 'Error')?.value).toBe('boom')
   })
 
@@ -75,7 +76,14 @@ describe('buildJobRunCard (T-05245)', () => {
     expect(embed['description']).toContain('**done** — see [link](x)')
     expect(embed['description']).not.toContain('```')
     const fields = embed['fields'] as Array<{ name: string }>
-    expect(fields.map((f) => f.name)).toEqual(['Agent', 'Project', 'Task', 'Run', 'Lane'])
+    expect(fields.map((f) => f.name)).toEqual([
+      'Agent',
+      'Project',
+      'Task',
+      'Terminal',
+      'Run',
+      'Lane',
+    ])
   })
 
   test('completed-succeeded without a captured response keeps the subtitle, no Response', () => {
@@ -88,6 +96,7 @@ describe('buildJobRunCard (T-05245)', () => {
       'Agent',
       'Project',
       'Task',
+      'Terminal',
       'Run',
       'Lane',
     ])

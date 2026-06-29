@@ -95,6 +95,9 @@ describe('buildWorkActivityCard (T-05270)', () => {
       Path: 'agent-control-plane/inbox',
       Changed: 'state, labels, container_path, description, title, +1',
       Labels: 'discord, operator, workflow, gateway, render, +1',
+      Taskboard:
+        '[Open task](http://max3.tail53cc3b.ts.net:18450/inbox-hub/agent-control-plane/T-1)',
+      Terminal: '[Focus](http://max3.tail53cc3b.ts.net:18450/focus/T-1)',
     })
     expect((embed as { footer?: { text: string } })?.footer?.text).toBe('event wrkq:evt-rich')
   })
@@ -103,7 +106,7 @@ describe('buildWorkActivityCard (T-05270)', () => {
     const card = buildWorkActivityCard(
       taskUpdated({
         payload: {
-          ticket_id: 'T-1',
+          ticket_id: 'not-a-task',
           slug: 'x',
           changed: 'title',
           labels: [1, false],
@@ -159,6 +162,9 @@ describe('buildWorkActivityCard (T-05270)', () => {
       Transition: 'approve_build',
       Outcome: 'review_complete',
       Run: 'run-xyz',
+      Taskboard:
+        '[Open task](http://max3.tail53cc3b.ts.net:18450/inbox-hub/agent-control-plane/T-05270)',
+      Terminal: '[Focus](http://max3.tail53cc3b.ts.net:18450/focus/T-05270)',
     })
     expect((embed as { footer?: { text: string } })?.footer?.text).toBe('event wrkq:wfe-rich')
   })

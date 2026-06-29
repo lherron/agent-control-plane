@@ -1,4 +1,9 @@
 import { avatarFor } from './identity.js'
+import {
+  isTaskboardTaskId,
+  taskboardTaskUrl,
+  taskboardTerminalFocusUrl,
+} from './taskboard-links.js'
 import type { WebhookPayload } from './webhooks.js'
 
 /**
@@ -226,6 +231,36 @@ function buildWrkqFields(payload: Record<string, unknown>): EmbedField[] {
   return fields
 }
 
+function taskIdFromPayload(payload: Record<string, unknown>): string | undefined {
+  return asString(payload['ticket_id'])
+}
+
+function projectIdFromPayload(
+  payload: Record<string, unknown>,
+  fallbackProjectId: string
+): string | undefined {
+  return asString(payload['projectId']) ?? asString(payload['project_id']) ?? fallbackProjectId
+}
+
+function appendTaskboardLinks(
+  fields: EmbedField[],
+  payload: Record<string, unknown>,
+  fallbackProjectId: string
+): void {
+  const taskId = taskIdFromPayload(payload)
+  const projectId = projectIdFromPayload(payload, fallbackProjectId)
+  if (taskId === undefined || !isTaskboardTaskId(taskId)) {
+    return
+  }
+  if (projectId !== undefined) {
+    pushDefined(
+      fields,
+      inlineField('Taskboard', `[Open task](${taskboardTaskUrl(projectId, taskId)})`)
+    )
+  }
+  pushDefined(fields, inlineField('Terminal', `[Focus](${taskboardTerminalFocusUrl(taskId)})`))
+}
+
 function renderWrkf(kind: string, payload: Record<string, unknown>): Rendered | undefined {
   const suffix = subjectSuffix(payload)
   const workflow = asRecord(payload['workflow'])
@@ -269,7 +304,8 @@ function workflowTemplate(workflow: Record<string, unknown> | undefined): string
 function buildWrkfFields(
   kind: string,
   payload: Record<string, unknown>,
-  runId: string | undefined
+  runId: string | undefined,
+  fallbackProjectId: string
 ): EmbedField[] {
   const fields: EmbedField[] = []
   const workflow = asRecord(payload['workflow'])
@@ -280,6 +316,7 @@ function buildWrkfFields(
     pushDefined(fields, inlineField('Outcome', asString(workflow?.['outcome'])))
   }
   pushDefined(fields, inlineField('Run', runId))
+  appendTaskboardLinks(fields, payload, fallbackProjectId)
   return fields
 }
 
@@ -306,7 +343,12 @@ export function buildWorkActivityCard(event: WorkActivitySystemEvent): WebhookPa
   const via = asString(origin?.['via'])
   const runId = asString(origin?.['run_id'])
   const fields =
-    family === 'wrkf' ? buildWrkfFields(event.kind, payload, runId) : buildWrkqFields(payload)
+    family === 'wrkf'
+      ? buildWrkfFields(event.kind, payload, runId, event.projectId)
+      : buildWrkqFields(payload)
+  if (family === 'wrkq') {
+    appendTaskboardLinks(fields, payload, event.projectId)
+  }
   const identity = sourceIdentity(payload)
 
   // De-emphasized one-line subtitle: who did it, via what.
