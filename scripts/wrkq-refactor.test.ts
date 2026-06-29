@@ -303,12 +303,14 @@ This is a public-surface contract change needing owner confirmation.`,
     expect(script).not.toContain('task:primary')
   })
 
-  test('scheduled LaunchAgent runs every 20 minutes', () => {
+  test('legacy scheduled LaunchAgent is disabled by default', () => {
     const plist = readFileSync(
       resolve(import.meta.dir, '../launchd/com.praesidium.acp-wrkq-refactor.plist'),
       'utf8'
     )
 
+    expect(plist).toContain('<key>Disabled</key>')
+    expect(plist).toContain('<true/>')
     expect(plist).toContain('<key>StartInterval</key>')
     expect(plist).toContain('<integer>1200</integer>')
   })

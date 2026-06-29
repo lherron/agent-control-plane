@@ -56,6 +56,7 @@ export {
   type ValidateJobFlowJobInput,
   type ValidateJobFlowOptions,
 } from './flow-validation.js'
+export { isValidFreshDuration, parseFreshDurationMs } from './fresh-duration.js'
 export { isValidCron, nextFireAfter } from './cron.js'
 export {
   applyManagedJob,

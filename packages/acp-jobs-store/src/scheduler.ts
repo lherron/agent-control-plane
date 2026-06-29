@@ -53,6 +53,7 @@ export type TickJobsSchedulerInput = {
 export type ScheduledRun = JobRunRecord
 
 const DEFAULT_EVENT_LEASE_MS = 30_000
+const DEFAULT_FLOW_LEASE_MS = 30 * 60_000
 /** Default page size for the event-inbox drain claim. */
 const DEFAULT_EVENT_CLAIM_LIMIT = 50
 
@@ -191,9 +192,13 @@ function drainEventInbox(input: {
 
 export async function tickJobsScheduler(input: TickJobsSchedulerInput): Promise<ScheduledRun[]> {
   const now = toIsoString(input.now)
+  const leaseOwner = input.leaseOwner ?? 'acp-scheduler'
+  const flowLeaseExpiresAt = new Date(Date.parse(now) + DEFAULT_FLOW_LEASE_MS).toISOString()
   const claimed = input.store.claimDueJobs({
     now,
     ...(input.claimLimit !== undefined ? { limit: input.claimLimit } : {}),
+    leaseOwner,
+    leaseExpiresAt: flowLeaseExpiresAt,
   } satisfies ClaimDueJobsInput)
 
   // Event-claim sibling branch: drain webhook events and mint event JobRuns.
@@ -285,6 +290,7 @@ export async function tickJobsScheduler(input: TickJobsSchedulerInput): Promise<
   if (input.advanceFlowJobRun !== undefined) {
     const inflight = input.store.listInflightFlowJobRuns({
       ...(input.claimLimit !== undefined ? { limit: input.claimLimit } : {}),
+      now,
     })
     const claimedIds = new Set(allClaimed.map((entry) => entry.jobRun.jobRunId))
     for (const entry of inflight) {

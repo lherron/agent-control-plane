@@ -4,6 +4,8 @@
 <dict>
   <key>Label</key>
   <string>com.praesidium.acp-wrkq-refactor</string>
+  <key>Disabled</key>
+  <true/>
 
   <key>ProgramArguments</key>
   <array>

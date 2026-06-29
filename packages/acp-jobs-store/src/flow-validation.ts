@@ -1,6 +1,7 @@
-import type { FlowNext, JobFlow, JobFlowStep, StepExpectation } from 'acp-core'
+import type { FlowNext, JobFlow, JobFlowStep, JobTriggerKind, StepExpectation } from 'acp-core'
 
 import { isValidCron } from './cron.js'
+import { isValidFreshDuration } from './fresh-duration.js'
 import type { JobSchedule } from './open-store.js'
 
 export type JobFlowValidationErrorCode =
@@ -29,6 +30,7 @@ export type JobFlowValidationErrorCode =
   | 'invalid_expect_equals_value'
   | 'unsupported_expect_outcome'
   | 'invalid_fresh'
+  | 'invalid_fresh_duration'
   | 'invalid_timeout'
   // Phase A: native side-effect step validation
   | 'invalid_wrkq_task_step'
@@ -56,6 +58,7 @@ export type ValidateJobFlowOptions = {
 
 export type ValidateJobFlowJobInput = {
   schedule?: JobSchedule | undefined
+  triggerKind?: JobTriggerKind | undefined
   flow?: unknown
 }
 
@@ -596,6 +599,25 @@ function validateStep(
     addError(errors, 'invalid_fresh', `${path}.fresh`, 'fresh must be a boolean')
   }
 
+  if ('freshDuration' in step) {
+    if (step['fresh'] !== true) {
+      addError(
+        errors,
+        'invalid_fresh_duration',
+        `${path}.freshDuration`,
+        'freshDuration requires fresh=true'
+      )
+    }
+    if (!isValidFreshDuration(step['freshDuration'])) {
+      addError(
+        errors,
+        'invalid_fresh_duration',
+        `${path}.freshDuration`,
+        'freshDuration must be a positive fixed ISO 8601 duration using D, H, M, or S'
+      )
+    }
+  }
+
   if ('timeout' in step) {
     const timeout = step['timeout']
     if (typeof timeout !== 'string' || !isValidIsoDuration(timeout)) {
@@ -902,6 +924,26 @@ function validatePhaseFlowGraph(phases: FlowPhaseSteps, errors: JobFlowValidatio
   }
 }
 
+function collectFreshDurationPaths(flow: unknown): string[] {
+  if (!isRecord(flow)) {
+    return []
+  }
+
+  const paths: string[] = []
+  for (const phase of ['sequence', 'onFailure'] as const) {
+    const steps = flow[phase]
+    if (!Array.isArray(steps)) {
+      continue
+    }
+    steps.forEach((step, index) => {
+      if (isRecord(step) && 'freshDuration' in step) {
+        paths.push(`flow.${phase}[${index}].freshDuration`)
+      }
+    })
+  }
+  return paths
+}
+
 export function validateJobFlow(
   flow: unknown,
   options: ValidateJobFlowOptions = {}
@@ -978,6 +1020,18 @@ export function validateJobFlowJob(
   const flowResult = validateJobFlow(input.flow, options)
   if (!flowResult.valid) {
     errors.push(...flowResult.errors)
+  }
+
+  const triggerKind = input.triggerKind ?? (input.schedule !== undefined ? 'schedule' : undefined)
+  if (triggerKind !== undefined && triggerKind !== 'schedule') {
+    for (const path of collectFreshDurationPaths(input.flow)) {
+      addError(
+        errors,
+        'invalid_fresh_duration',
+        path,
+        'freshDuration is only supported for scheduled flow jobs'
+      )
+    }
   }
 
   return errors.length === 0 ? { valid: true } : { valid: false, errors }

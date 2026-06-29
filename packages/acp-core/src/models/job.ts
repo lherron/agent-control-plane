@@ -64,6 +64,7 @@ export type BaseFlowStep = {
   kind?: 'agent' | 'exec' | 'wrkq-task' | 'pulpit-message' | 'agent-dispatch' | undefined
   timeout?: string | undefined
   fresh?: boolean | undefined
+  freshDuration?: string | undefined
   next?: FlowNext | undefined
 }
 

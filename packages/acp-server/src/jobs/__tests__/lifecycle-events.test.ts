@@ -146,6 +146,52 @@ describe('job lifecycle emitter (T-05245)', () => {
     expect(finalResponse.endsWith('…')).toBe(true)
   })
 
+  test('succeeded flow completion carries finalResponse from the latest successful agent step', () => {
+    const job = makeJob({ flow: { sequence: [] } as unknown as JobRecord['flow'] })
+    const admin = createInMemoryAdminStore()
+    const jobsStore = {
+      getJob: () => ({ job }),
+      jobStepRuns: {
+        listByJobRun: () => ({
+          jobStepRuns: [
+            {
+              jobRunId: 'jr-1',
+              phase: 'sequence',
+              stepId: 'collect',
+              status: 'succeeded',
+              attempt: 1,
+              runId: 'run-collect',
+              completedAt: '2026-06-28T09:00:02.000Z',
+              createdAt: '2026-06-28T09:00:00.000Z',
+              updatedAt: '2026-06-28T09:00:02.000Z',
+            },
+            {
+              jobRunId: 'jr-1',
+              phase: 'sequence',
+              stepId: 'report',
+              status: 'succeeded',
+              attempt: 1,
+              result: { runId: 'run-report' },
+              completedAt: '2026-06-28T09:00:04.000Z',
+              createdAt: '2026-06-28T09:00:03.000Z',
+              updatedAt: '2026-06-28T09:00:04.000Z',
+            },
+          ],
+        }),
+      },
+    } as unknown as JobsStore
+    const emitter = createJobLifecycleEmitter({
+      systemEvents: admin.systemEvents,
+      jobsStore,
+      resolveFinalText: (runId) => (runId === 'run-report' ? 'agent final response' : undefined),
+    })
+
+    emitter.reconcile(makeRun({ status: 'succeeded', completedAt: 'z' }), job)
+
+    const completed = admin.systemEvents.list({ kind: 'job.completed' })[0]
+    expect(completed?.payload['finalResponse']).toBe('agent final response')
+  })
+
   test('failed completion and runId-less runs carry no finalResponse', () => {
     const job = makeJob()
     const admin = createInMemoryAdminStore()

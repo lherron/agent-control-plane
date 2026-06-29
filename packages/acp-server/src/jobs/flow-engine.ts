@@ -15,6 +15,7 @@ import {
   type JobStepRunRecord,
   type NativeStepExecutorDeps,
   executeNativeSideEffectStep,
+  parseFreshDurationMs,
   resolveStepOutputRef,
   validateJobFlow,
 } from 'acp-jobs-store'
@@ -47,6 +48,27 @@ export type AdvanceJobFlowInput = {
 }
 
 type TerminalRunStatus = Extract<Run['status'], 'completed' | 'failed' | 'cancelled'>
+type DispatchedStepRun = JobStepRunRecord & { runId: string }
+
+type ScheduledFreshMetadata = {
+  jobId: string
+  phase: JobStepRunPhase
+  stepId: string
+  freshDuration: string
+  windowStartedAt: string
+}
+
+type FreshStepDispatchPlan =
+  | {
+      ok: true
+      rotateContext: boolean
+      cleanupPrevious: boolean
+      previous?: DispatchedStepRun | undefined
+      scheduledFresh?: ScheduledFreshMetadata | undefined
+    }
+  | { ok: false; message: string }
+
+const SCHEDULED_FRESH_METADATA_KEY = 'scheduledFresh'
 
 const TERMINAL_STEP_STATUSES = new Set<JobStepRunStatus>([
   'succeeded',
@@ -92,6 +114,8 @@ export async function advanceJobFlow(input: AdvanceJobFlowInput): Promise<JobRun
     return jobsStore.updateJobRun(jobRun.jobRunId, {
       status: 'succeeded',
       completedAt: jobRun.completedAt ?? now,
+      errorCode: null,
+      errorMessage: null,
       leaseOwner: null,
       leaseExpiresAt: null,
       actor,
@@ -307,8 +331,54 @@ async function advanceAgentStep(input: {
   let stepRun = input.stepRun
 
   if (stepRun.runId === undefined) {
+    const dispatchStartedAt = stepRun.startedAt ?? input.now
+    const freshPlan = resolveFreshStepDispatchPlan({
+      ...input,
+      dispatchStartedAt,
+    })
+    if (!freshPlan.ok) {
+      return {
+        state: 'terminal',
+        stepRun: jobsStore.jobStepRuns.updateStep(
+          input.jobRun.jobRunId,
+          input.phase,
+          input.step.id,
+          stepRun.attempt,
+          {
+            status: 'failed',
+            inputAttemptId: null,
+            runId: null,
+            startedAt: dispatchStartedAt,
+            error: { code: 'pre_run_cleanup_failed', message: freshPlan.message },
+            completedAt: input.now,
+          }
+        ).jobStepRun,
+      }
+    }
+
+    const cleanup = await cleanupPreviousScheduledFreshStepRuntime(input, freshPlan)
+    if (!cleanup.ok) {
+      return {
+        state: 'terminal',
+        stepRun: jobsStore.jobStepRuns.updateStep(
+          input.jobRun.jobRunId,
+          input.phase,
+          input.step.id,
+          stepRun.attempt,
+          {
+            status: 'failed',
+            inputAttemptId: null,
+            runId: null,
+            startedAt: dispatchStartedAt,
+            error: { code: 'pre_run_cleanup_failed', message: cleanup.message },
+            completedAt: input.now,
+          }
+        ).jobStepRun,
+      }
+    }
+
     const content = requireStepInput(input.step)
-    await rotateFreshStepContext(input.deps, input.job, input.step)
+    await rotateFreshStepContext(input.deps, input.job, input.step, freshPlan.rotateContext)
     const dispatched = await dispatchStepThroughInputs(input.deps, {
       jobId: input.job.jobId,
       jobRunId: input.jobRun.jobRunId,
@@ -320,6 +390,9 @@ async function advanceAgentStep(input: {
       content,
       actor: input.actor,
     })
+    if (freshPlan.scheduledFresh !== undefined) {
+      stampScheduledFreshMetadata(input.deps, dispatched.runId, freshPlan.scheduledFresh)
+    }
 
     stepRun = jobsStore.jobStepRuns.updateStep(
       input.jobRun.jobRunId,
@@ -330,7 +403,7 @@ async function advanceAgentStep(input: {
         status: 'running',
         inputAttemptId: dispatched.inputAttemptId,
         runId: dispatched.runId,
-        startedAt: stepRun.startedAt ?? input.now,
+        startedAt: dispatchStartedAt,
       }
     ).jobStepRun
   }
@@ -352,6 +425,300 @@ async function advanceAgentStep(input: {
       now: input.now,
     }),
   }
+}
+
+type FreshStepCleanupResult = { ok: true } | { ok: false; message: string }
+
+function resolveFreshStepDispatchPlan(input: {
+  deps: ResolvedAcpServerDeps
+  job: JobRecord
+  jobRun: JobRunRecord
+  phase: JobStepRunPhase
+  step: AgentRunnableStep
+  dispatchStartedAt: string
+}): FreshStepDispatchPlan {
+  if (input.step.fresh !== true) {
+    return { ok: true, rotateContext: false, cleanupPrevious: false }
+  }
+
+  if (!isScheduledFreshStepDispatch(input.job, input.jobRun)) {
+    return { ok: true, rotateContext: true, cleanupPrevious: false }
+  }
+
+  const jobsStore = requireJobsStore(input.deps)
+  const previous = findPreviousDispatchedStepRun({
+    jobsStore,
+    jobId: input.job.jobId,
+    currentJobRunId: input.jobRun.jobRunId,
+    phase: input.phase,
+    stepId: input.step.id,
+  })
+  if (previous !== undefined && !TERMINAL_STEP_STATUSES.has(previous.status)) {
+    return {
+      ok: false,
+      message: `previous fresh step ${previous.jobRunId}/${input.phase}/${input.step.id} is still ${previous.status}`,
+    }
+  }
+
+  if (input.step.freshDuration === undefined) {
+    return { ok: true, rotateContext: true, cleanupPrevious: true, previous }
+  }
+
+  const freshDurationMs = parseFreshDurationMs(input.step.freshDuration)
+  if (freshDurationMs === undefined) {
+    return {
+      ok: false,
+      message: `invalid freshDuration for ${input.job.jobId}/${input.phase}/${input.step.id}`,
+    }
+  }
+
+  const rotationMetadata = buildScheduledFreshMetadata(input, input.dispatchStartedAt)
+  if (previous === undefined) {
+    return {
+      ok: true,
+      rotateContext: true,
+      cleanupPrevious: false,
+      scheduledFresh: rotationMetadata,
+    }
+  }
+
+  const priorRun = input.deps.runStore.getRun(previous.runId)
+  const priorMetadata =
+    priorRun === undefined
+      ? undefined
+      : readScheduledFreshMetadata(priorRun.metadata?.[SCHEDULED_FRESH_METADATA_KEY], input)
+  const windowStartedAt =
+    priorMetadata === undefined ? Number.NaN : Date.parse(priorMetadata.windowStartedAt)
+  const dispatchStartedAt = Date.parse(input.dispatchStartedAt)
+  if (
+    priorMetadata !== undefined &&
+    Number.isFinite(windowStartedAt) &&
+    Number.isFinite(dispatchStartedAt) &&
+    dispatchStartedAt >= windowStartedAt &&
+    dispatchStartedAt - windowStartedAt < freshDurationMs
+  ) {
+    return {
+      ok: true,
+      rotateContext: false,
+      cleanupPrevious: false,
+      previous,
+      scheduledFresh: priorMetadata,
+    }
+  }
+
+  return {
+    ok: true,
+    rotateContext: true,
+    cleanupPrevious: true,
+    previous,
+    scheduledFresh: rotationMetadata,
+  }
+}
+
+async function cleanupPreviousScheduledFreshStepRuntime(
+  input: {
+    deps: ResolvedAcpServerDeps
+    job: JobRecord
+    jobRun: JobRunRecord
+    phase: JobStepRunPhase
+    step: AgentRunnableStep
+    stepRun: JobStepRunRecord
+    actor: Actor
+  },
+  plan: Extract<FreshStepDispatchPlan, { ok: true }>
+): Promise<FreshStepCleanupResult> {
+  if (!plan.cleanupPrevious) {
+    return { ok: true }
+  }
+
+  const previous = plan.previous
+  if (previous === undefined) {
+    return { ok: true }
+  }
+
+  if (!TERMINAL_STEP_STATUSES.has(previous.status)) {
+    return {
+      ok: false,
+      message: `previous fresh step ${previous.jobRunId}/${input.phase}/${input.step.id} is still ${previous.status}`,
+    }
+  }
+
+  const priorRun = input.deps.runStore.getRun(previous.runId)
+  if (priorRun === undefined) {
+    return {
+      ok: false,
+      message: `previous fresh step run ${previous.runId} has no ACP run record`,
+    }
+  }
+  if (priorRun.runtimeId === undefined) {
+    return {
+      ok: false,
+      message: `previous fresh step run ${previous.runId} has no runtimeId`,
+    }
+  }
+  if (input.deps.hrcClient === undefined) {
+    return {
+      ok: false,
+      message: `previous fresh step runtime ${priorRun.runtimeId} cannot be cleaned without HRC client`,
+    }
+  }
+
+  try {
+    await input.deps.hrcClient.terminate(priorRun.runtimeId, {
+      dropContinuation: false,
+      reason: 'scheduled_fresh_pre_run_cleanup',
+      source: 'acp-scheduled-job-runner',
+      actor: actorToAuditString(input.actor),
+    })
+    return { ok: true }
+  } catch (error) {
+    if (isBenignTerminateError(error)) {
+      return { ok: true }
+    }
+    return {
+      ok: false,
+      message: `failed to clean previous fresh step runtime ${priorRun.runtimeId}: ${errorMessage(error)}`,
+    }
+  }
+}
+
+function isScheduledFreshStepDispatch(job: JobRecord, jobRun: JobRunRecord): boolean {
+  return job.trigger.kind === 'schedule' && isScheduledJobRunTrigger(jobRun.triggeredBy)
+}
+
+function isScheduledJobRunTrigger(trigger: JobRunRecord['triggeredBy']): boolean {
+  return trigger === 'schedule' || trigger === 'catch-up'
+}
+
+function buildScheduledFreshMetadata(
+  input: {
+    job: JobRecord
+    phase: JobStepRunPhase
+    step: AgentRunnableStep
+  },
+  windowStartedAt: string
+): ScheduledFreshMetadata {
+  return {
+    jobId: input.job.jobId,
+    phase: input.phase,
+    stepId: input.step.id,
+    freshDuration: input.step.freshDuration ?? '',
+    windowStartedAt,
+  }
+}
+
+function readScheduledFreshMetadata(
+  value: unknown,
+  input: {
+    job: JobRecord
+    phase: JobStepRunPhase
+    step: AgentRunnableStep
+  }
+): ScheduledFreshMetadata | undefined {
+  if (!isRecord(value)) {
+    return undefined
+  }
+
+  const metadata = value as Record<string, unknown>
+  if (
+    metadata['jobId'] !== input.job.jobId ||
+    metadata['phase'] !== input.phase ||
+    metadata['stepId'] !== input.step.id ||
+    metadata['freshDuration'] !== input.step.freshDuration ||
+    typeof metadata['windowStartedAt'] !== 'string'
+  ) {
+    return undefined
+  }
+
+  return {
+    jobId: metadata['jobId'],
+    phase: metadata['phase'],
+    stepId: metadata['stepId'],
+    freshDuration: metadata['freshDuration'],
+    windowStartedAt: metadata['windowStartedAt'],
+  } as ScheduledFreshMetadata
+}
+
+function stampScheduledFreshMetadata(
+  deps: ResolvedAcpServerDeps,
+  runId: string,
+  scheduledFresh: ScheduledFreshMetadata
+): void {
+  const run = deps.runStore.getRun(runId)
+  if (run === undefined) {
+    throw new Error(`freshDuration dispatch run not found: ${runId}`)
+  }
+
+  deps.runStore.updateRun(runId, {
+    metadata: {
+      ...(run.metadata ?? {}),
+      [SCHEDULED_FRESH_METADATA_KEY]: scheduledFresh,
+    },
+  })
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function findPreviousDispatchedStepRun(input: {
+  jobsStore: NonNullable<ResolvedAcpServerDeps['jobsStore']>
+  jobId: string
+  currentJobRunId: string
+  phase: JobStepRunPhase
+  stepId: string
+}): DispatchedStepRun | undefined {
+  for (const jobRun of input.jobsStore.listJobRuns(input.jobId).jobRuns) {
+    if (jobRun.jobRunId === input.currentJobRunId) {
+      continue
+    }
+
+    const stepRun = input.jobsStore.jobStepRuns.getById(
+      jobRun.jobRunId,
+      input.phase,
+      input.stepId,
+      1
+    ).jobStepRun
+    if (stepRun?.runId === undefined) {
+      continue
+    }
+
+    return stepRun as JobStepRunRecord & { runId: string }
+  }
+
+  return undefined
+}
+
+function isBenignTerminateError(error: unknown): boolean {
+  const code = errorCode(error)
+  if (code === 'unknown_runtime' || code === 'unknown_host_session' || code === 'unknown_session') {
+    return true
+  }
+
+  const message = errorMessage(error).toLowerCase()
+  return (
+    message.includes('not found') ||
+    message.includes('unknown runtime') ||
+    message.includes('already terminated')
+  )
+}
+
+function errorCode(error: unknown): string | undefined {
+  return typeof error === 'object' &&
+    error !== null &&
+    typeof (error as { code?: unknown }).code === 'string'
+    ? (error as { code: string }).code
+    : undefined
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function actorToAuditString(actor: Actor): string {
+  return actor.displayName !== undefined
+    ? `${actor.kind}:${actor.id} (${actor.displayName})`
+    : `${actor.kind}:${actor.id}`
 }
 
 async function advanceExecStep(input: {
@@ -741,9 +1108,10 @@ function requireStepInput(step: AgentRunnableStep): string {
 async function rotateFreshStepContext(
   deps: ResolvedAcpServerDeps,
   job: JobRecord,
-  step: JobFlowStep
+  step: JobFlowStep,
+  rotateContext: boolean
 ): Promise<void> {
-  if (step.fresh !== true || deps.hrcClient === undefined) {
+  if (!rotateContext || step.fresh !== true || deps.hrcClient === undefined) {
     return
   }
 
@@ -892,13 +1260,21 @@ function markJobRunRunning(
   actor: Actor,
   now: string
 ): JobRunRecord {
-  if (jobRun.status === 'dispatched') {
+  if (
+    jobRun.status === 'dispatched' &&
+    jobRun.errorCode === undefined &&
+    jobRun.errorMessage === undefined &&
+    jobRun.leaseOwner === undefined &&
+    jobRun.leaseExpiresAt === undefined
+  ) {
     return jobRun
   }
 
   return jobsStore.updateJobRun(jobRun.jobRunId, {
     status: 'dispatched',
     dispatchedAt: jobRun.dispatchedAt ?? now,
+    errorCode: null,
+    errorMessage: null,
     leaseOwner: null,
     leaseExpiresAt: null,
     actor,

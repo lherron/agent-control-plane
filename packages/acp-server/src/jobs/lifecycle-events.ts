@@ -1,5 +1,5 @@
 import type { AdminStore } from 'acp-admin-store'
-import type { JobRecord, JobRunRecord, JobsStore } from 'acp-jobs-store'
+import type { JobRecord, JobRunRecord, JobStepRunRecord, JobsStore } from 'acp-jobs-store'
 
 /**
  * ACP-layer job-lifecycle telemetry emitter (T-05245).
@@ -48,12 +48,26 @@ export function createJobLifecycleEmitter(input: {
 }): JobLifecycleEmitter {
   const now = input.now ?? (() => new Date())
 
+  function finalResponseRunId(run: JobRunRecord): string | undefined {
+    if (run.runId !== undefined) {
+      return run.runId
+    }
+
+    try {
+      const steps = input.jobsStore.jobStepRuns?.listByJobRun(run.jobRunId).jobStepRuns ?? []
+      return latestCompletedStepRunId(steps)
+    } catch {
+      return undefined
+    }
+  }
+
   function captureFinalResponse(run: JobRunRecord): string | undefined {
-    if (input.resolveFinalText === undefined || run.runId === undefined) {
+    const runId = finalResponseRunId(run)
+    if (input.resolveFinalText === undefined || runId === undefined) {
       return undefined
     }
     try {
-      const text = input.resolveFinalText(run.runId)
+      const text = input.resolveFinalText(runId)
       if (text === undefined) {
         return undefined
       }
@@ -157,4 +171,32 @@ export function createJobLifecycleEmitter(input: {
   }
 
   return { reconcile }
+}
+
+function latestCompletedStepRunId(steps: readonly JobStepRunRecord[]): string | undefined {
+  let latest: JobStepRunRecord | undefined
+  let latestRunId: string | undefined
+  for (const step of steps) {
+    const runId = step.runId ?? stringField(step.result, 'runId')
+    if (runId === undefined || step.status !== 'succeeded') {
+      continue
+    }
+    if (latest === undefined || stepTimestamp(step) >= stepTimestamp(latest)) {
+      latest = step
+      latestRunId = runId
+    }
+  }
+  return latestRunId
+}
+
+function stepTimestamp(step: JobStepRunRecord): string {
+  return step.completedAt ?? step.updatedAt ?? step.createdAt
+}
+
+function stringField(value: unknown, field: string): string | undefined {
+  if (typeof value !== 'object' || value === null) {
+    return undefined
+  }
+  const candidate = (value as Record<string, unknown>)[field]
+  return typeof candidate === 'string' && candidate.length > 0 ? candidate : undefined
 }

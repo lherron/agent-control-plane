@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { createInMemoryAdminStore } from 'acp-admin-store'
 import { createInMemoryJobsStore } from 'acp-jobs-store'
 
 import { type AcpServerDeps, InMemoryInputAttemptStore } from '../src/index.js'
@@ -352,6 +353,65 @@ describe('admin jobs routes', () => {
     }
   })
 
+  test('POST and PATCH reject freshDuration flow steps on event-triggered jobs', async () => {
+    const jobsStore = createInMemoryJobsStore()
+    const freshDurationFlow = {
+      sequence: [{ id: 'fresh', input: 'Start fresh.', fresh: true, freshDuration: 'PT24H' }],
+    }
+
+    try {
+      await withWiredServer(
+        async (fixture) => {
+          const createResponse = await fixture.request({
+            method: 'POST',
+            path: '/v1/admin/jobs',
+            body: {
+              agentId: 'larry',
+              projectId: fixture.seed.projectId,
+              scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:T-01175:role:implementer`,
+              laneRef: 'main',
+              trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
+              input: { content: 'run the jobs workflow' },
+              flow: freshDurationFlow,
+            },
+          })
+          const createPayload = await fixture.json<{
+            valid: false
+            errors: Array<{ code: string }>
+          }>(createResponse)
+
+          expect(createResponse.status).toBe(400)
+          expect(createPayload.errors.map((error) => error.code)).toContain(
+            'invalid_fresh_duration'
+          )
+          expect(jobsStore.listJobs({ projectId: fixture.seed.projectId }).jobs).toHaveLength(0)
+
+          const created = await createJob(fixture, { flow: freshDurationFlow })
+          const patchResponse = await fixture.request({
+            method: 'PATCH',
+            path: `/v1/admin/jobs/${created.job.jobId}`,
+            body: {
+              trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
+            },
+          })
+          const patchPayload = await fixture.json<{
+            valid: false
+            errors: Array<{ code: string }>
+          }>(patchResponse)
+
+          expect(patchResponse.status).toBe(400)
+          expect(patchPayload.errors.map((error) => error.code)).toContain('invalid_fresh_duration')
+
+          const stored = jobsStore.getJob(created.job.jobId).job
+          expect(stored?.trigger.kind).toBe('schedule')
+        },
+        { jobsStore }
+      )
+    } finally {
+      jobsStore.close()
+    }
+  })
+
   test('GET /v1/admin/jobs lists jobs and supports projectId filtering', async () => {
     const jobsStore = createInMemoryJobsStore()
 
@@ -661,6 +721,7 @@ describe('admin jobs routes', () => {
   })
 
   test('POST /v1/admin/jobs/:jobId/run advances a flow through terminal sequence steps', async () => {
+    const adminStore = createInMemoryAdminStore()
     const jobsStore = createInMemoryJobsStore()
     const hrc = createHeadlessHrcDb()
     const launchCalls: LaunchCall[] = []
@@ -693,8 +754,14 @@ describe('admin jobs routes', () => {
             `jobrun:${payload.jobRun.jobRunId}:phase:sequence:step:implement:attempt:1`,
           ])
           expect(launchCalls).toHaveLength(2)
+          const completed = adminStore.systemEvents.list({ kind: 'job.completed' })
+          expect(completed).toHaveLength(1)
+          expect(completed[0]?.payload['finalResponse']).toBe(
+            'RESULT\n{"step":"implement","ready":true}'
+          )
         },
         serverOverrides({
+          adminStore,
           jobsStore,
           inputAttemptStore,
           hrcDbPath: hrc.hrcDbPath,

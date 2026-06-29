@@ -108,6 +108,73 @@ describe('JobFlow validation', () => {
     )
   })
 
+  test('accepts freshDuration only with fresh true and fixed positive durations', () => {
+    expect(
+      validateJobFlow({
+        sequence: [
+          { id: 'daily', input: 'Start with fresh context.', fresh: true, freshDuration: 'PT24H' },
+          {
+            id: 'compound',
+            input: 'Start with fresh context.',
+            fresh: true,
+            freshDuration: 'P1DT2H3M4S',
+          },
+        ],
+      })
+    ).toEqual({ valid: true })
+
+    for (const freshDuration of ['PT0S', 'P1M', 'P1Y', 'P1W', '24h', 24] as const) {
+      expectCodes(
+        validateJobFlow({
+          sequence: [
+            {
+              id: `bad-${String(freshDuration)}`,
+              input: 'Start with fresh context.',
+              fresh: true,
+              freshDuration,
+            },
+          ],
+        }),
+        ['invalid_fresh_duration']
+      )
+    }
+
+    expectCodes(
+      validateJobFlow({
+        sequence: [{ id: 'missing-fresh', input: 'Start.', freshDuration: 'PT24H' }],
+      }),
+      ['invalid_fresh_duration']
+    )
+    expectCodes(
+      validateJobFlow({
+        sequence: [{ id: 'false-fresh', input: 'Start.', fresh: false, freshDuration: 'PT24H' }],
+      }),
+      ['invalid_fresh_duration']
+    )
+  })
+
+  test('rejects freshDuration on non-scheduled job validation when trigger context is known', () => {
+    const flow = {
+      sequence: [{ id: 'fresh', input: 'Start.', fresh: true, freshDuration: 'PT24H' }],
+    }
+
+    expect(
+      validateJobFlowJob({
+        triggerKind: 'schedule',
+        schedule: { cron: '*/20 * * * *' },
+        flow,
+      })
+    ).toEqual({ valid: true })
+
+    expectCodes(
+      validateJobFlowJob({
+        triggerKind: 'event',
+        flow,
+      }),
+      ['invalid_fresh_duration']
+    )
+  })
+
   test('rejects unsupported expectation shapes', () => {
     expectCodes(
       validateJobFlow({

@@ -84,6 +84,65 @@ describe('scheduler resumes in-flight flow JobRuns', () => {
     expect(advanced).toHaveLength(1)
   })
 
+  test('tick leaves claimed flow JobRuns alone while their lease is still active', async () => {
+    const store = createInMemoryJobsStore()
+
+    const created = store.createJob({
+      agentId: 'larry',
+      projectId: 'demo',
+      scopeRef: 'agent:larry:project:demo:role:manual-run',
+      laneRef: 'main',
+      schedule: { cron: '0 4 * * 1' },
+      input: { content: 'unused' },
+      flow: {
+        sequence: [{ id: 'step1', input: 'x', expect: { outcome: 'succeeded' } }],
+      },
+      disabled: true,
+      createdAt: '2026-04-28T00:00:00.000Z',
+    })
+
+    const triggered = store.appendJobRun({
+      jobId: created.job.jobId,
+      triggeredAt: '2026-04-28T00:00:00.000Z',
+      triggeredBy: 'manual',
+      status: 'claimed',
+      claimedAt: '2026-04-28T00:00:00.000Z',
+      leaseOwner: 'manual-run',
+      leaseExpiresAt: '2026-04-28T00:30:00.000Z',
+      actor: { kind: 'system', id: 'test' },
+      actorStamp: 'system:test',
+    }).jobRun
+
+    const advanced: string[] = []
+    await tickJobsScheduler({
+      store,
+      now: '2026-04-28T00:00:30.000Z',
+      advanceFlowJobRun: async (entry) => {
+        advanced.push(entry.jobRun.jobRunId)
+        return store.updateJobRun(entry.jobRun.jobRunId, {
+          status: 'succeeded',
+          completedAt: '2026-04-28T00:00:30.000Z',
+        }).jobRun
+      },
+    })
+
+    expect(advanced).toEqual([])
+
+    await tickJobsScheduler({
+      store,
+      now: '2026-04-28T00:31:00.000Z',
+      advanceFlowJobRun: async (entry) => {
+        advanced.push(entry.jobRun.jobRunId)
+        return store.updateJobRun(entry.jobRun.jobRunId, {
+          status: 'succeeded',
+          completedAt: '2026-04-28T00:31:00.000Z',
+        }).jobRun
+      },
+    })
+
+    expect(advanced).toEqual([triggered.jobRunId])
+  })
+
   test('listInflightFlowJobRuns ignores JobRuns whose job has no flow', async () => {
     const store = createInMemoryJobsStore()
 

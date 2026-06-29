@@ -426,8 +426,8 @@ export type UpdateJobRunInput = {
   status?: JobRunStatus | undefined
   inputAttemptId?: string | undefined
   runId?: string | undefined
-  errorCode?: string | undefined
-  errorMessage?: string | undefined
+  errorCode?: string | null | undefined
+  errorMessage?: string | null | undefined
   leaseOwner?: string | null | undefined
   leaseExpiresAt?: string | null | undefined
   claimedAt?: string | undefined
@@ -487,6 +487,8 @@ export type ClaimedDueJob = {
 export type ClaimDueJobsInput = {
   now: string
   limit?: number | undefined
+  leaseOwner?: string | undefined
+  leaseExpiresAt?: string | undefined
   actor?: Actor | undefined
   actorStamp?: string | undefined
 }
@@ -894,7 +896,9 @@ export interface JobsStore {
     input: Omit<AppendJobRunInput, 'jobId'>
   ): { job: JobRecord; jobRun: JobRunRecord }
   claimDueJobs(input: ClaimDueJobsInput): ClaimedDueJob[]
-  listInflightFlowJobRuns(input?: { limit?: number | undefined } | undefined): ClaimedDueJob[]
+  listInflightFlowJobRuns(
+    input?: { limit?: number | undefined; now?: string | undefined } | undefined
+  ): ClaimedDueJob[]
   readonly eventInbox: {
     insert(input: InsertInboxEventInput): { event: InboxEventRecord; inserted: boolean }
     get(eventId: string): { event: InboxEventRecord | undefined }
@@ -1734,6 +1738,12 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
       patch.leaseExpiresAt,
       existing.lease_expires_at
     )
+    const nextErrorCode = pickNullable('errorCode' in patch, patch.errorCode, existing.error_code)
+    const nextErrorMessage = pickNullable(
+      'errorMessage' in patch,
+      patch.errorMessage,
+      existing.error_message
+    )
     const nextClaimedAt = coalesce(patch.claimedAt, existing.claimed_at)
     const nextDispatchedAt = coalesce(patch.dispatchedAt, existing.dispatched_at)
     const nextCompletedAt = coalesce(patch.completedAt, existing.completed_at)
@@ -1765,8 +1775,8 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
         coalesce(patch.status, existing.status),
         coalesce(patch.inputAttemptId, existing.input_attempt_id),
         coalesce(patch.runId, existing.run_id),
-        coalesce(patch.errorCode, existing.error_code),
-        coalesce(patch.errorMessage, existing.error_message),
+        nextErrorCode,
+        nextErrorMessage,
         nextLeaseOwner,
         nextLeaseExpiresAt,
         nextClaimedAt,
@@ -2057,22 +2067,31 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
     return { job, jobRun }
   }
 
-  const listInflightFlowJobRuns = (input: { limit?: number | undefined } = {}): ClaimedDueJob[] => {
+  const listInflightFlowJobRuns = (
+    input: { limit?: number | undefined; now?: string | undefined } = {}
+  ): ClaimedDueJob[] => {
     const limit = input.limit ?? DEFAULT_CLAIM_LIMIT
+    const now = input.now ?? new Date().toISOString()
     const rows = sqlite
       .prepare(
         `
           SELECT jr.*
           FROM job_runs jr
           JOIN jobs j ON j.job_id = jr.job_id
-          WHERE jr.status IN ('claimed', 'dispatched')
+          WHERE (
+              jr.status = 'dispatched'
+              OR (
+                jr.status = 'claimed'
+                AND (jr.lease_expires_at IS NULL OR jr.lease_expires_at <= ?)
+              )
+            )
             AND j.archived_at IS NULL
             AND j.flow_json IS NOT NULL
           ORDER BY jr.triggered_at ASC, jr.job_run_id ASC
           LIMIT ?
         `
       )
-      .all(limit) as JobRunRow[]
+      .all(now, limit) as JobRunRow[]
 
     const results: ClaimedDueJob[] = []
     for (const row of rows) {
@@ -2177,6 +2196,11 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
           triggeredBy,
           status: 'claimed',
           claimedAt: now,
+          ...(claimedJob.flow !== undefined &&
+          input.leaseOwner !== undefined &&
+          input.leaseExpiresAt !== undefined
+            ? { leaseOwner: input.leaseOwner, leaseExpiresAt: input.leaseExpiresAt }
+            : {}),
           output: claimedJob.output,
           actor: claimActor,
           actorStamp: input.actorStamp ?? actorToStamp(claimActor),

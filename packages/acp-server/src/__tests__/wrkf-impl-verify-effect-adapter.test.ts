@@ -15,8 +15,8 @@ import { describe, expect, test } from 'bun:test'
 import { withWiredServer } from '../../test/fixtures/wired-server.js'
 import type { LaunchRoleScopedRun, RuntimeResolver } from '../deps.js'
 import { InMemoryRunStore } from '../domain/run-store.js'
-import { reconcileActionHrcTerminal } from '../wrkf/action-reconciler.js'
 import { type WrkfActionLaunchDeps, launchAction } from '../wrkf/action-launch.js'
+import { reconcileActionHrcTerminal } from '../wrkf/action-reconciler.js'
 import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
 
 const TASK_ID = 'T-05312-red'
@@ -413,7 +413,11 @@ describe('action:"implement" command-run adapter contract', () => {
       }),
       implementInput()
     )
-    expect(postBindEvents).toEqual(['action.start', 'launchCommandScopedRun', 'action.bindExternal'])
+    expect(postBindEvents).toEqual([
+      'action.start',
+      'launchCommandScopedRun',
+      'action.bindExternal',
+    ])
     expect(postBindWrkf._calls.filter((call) => call.method === 'action.fail')).toHaveLength(0)
   })
 })
@@ -613,7 +617,11 @@ describe('route security for implement/verify command-run launches', () => {
 
 describe('terminal HRC watchdog applies to implement and verify actions', () => {
   test.each([
-    { action: IMPLEMENT_ACTION, role: IMPLEMENT_ROLE, actionRunId: IMPLEMENT_ACTION_RUN.actionRunId },
+    {
+      action: IMPLEMENT_ACTION,
+      role: IMPLEMENT_ROLE,
+      actionRunId: IMPLEMENT_ACTION_RUN.actionRunId,
+    },
     { action: VERIFY_ACTION, role: VERIFY_ROLE, actionRunId: VERIFY_ACTION_RUN.actionRunId },
   ])('fails a still-active $action action when its bound HRC run is terminal', async (input) => {
     const wrkf = makeFakeWrkfPort({

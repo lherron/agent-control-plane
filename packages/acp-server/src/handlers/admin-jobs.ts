@@ -7,6 +7,7 @@ import {
   validateJobFlow,
   validateJobFlowJob,
 } from 'acp-jobs-store'
+import { resolveDatabasePath } from 'hrc-core'
 
 import { badRequest, json, notFound } from '../http.js'
 import {
@@ -28,7 +29,10 @@ import { advanceJobFlow } from '../jobs/flow-engine.js'
 import { validateJobOutputConfig } from '../jobs/job-output-config.js'
 import { createJobLifecycleEmitter } from '../jobs/lifecycle-events.js'
 import { resolveInterfaceSourceForScope } from '../jobs/resolve-interface-source.js'
+import { getRunFinalAssistantText } from '../jobs/run-final-output.js'
 import type { RouteHandler } from '../routing/route-context.js'
+
+const MANUAL_FLOW_JOB_RUN_LEASE_MS = 30 * 60_000
 
 function requireJobsStore(deps: ResolvedAcpServerDeps) {
   if (deps.jobsStore === undefined) {
@@ -36,6 +40,11 @@ function requireJobsStore(deps: ResolvedAcpServerDeps) {
   }
 
   return deps.jobsStore
+}
+
+function resolveHrcDbPath(deps: ResolvedAcpServerDeps): string {
+  const configured = (deps as ResolvedAcpServerDeps & { hrcDbPath?: string }).hrcDbPath
+  return configured ?? resolveDatabasePath()
 }
 
 function requireJobId(params: Record<string, string>): string {
@@ -221,9 +230,20 @@ export const handleCreateAdminJob: RouteHandler = async ({ request, deps, actor 
   }
   const description = readOptionalTrimmedStringField(body, 'description')
   const trigger = parseOptionalTrigger(body)
+  const schedule = trigger === undefined ? parseSchedule(body) : undefined
   const output = parseOptionalOutput(body)
   if (output !== undefined && output !== null && flow !== undefined) {
     badRequest('job output is only supported for non-flow jobs', { field: 'output' })
+  }
+  if (flow !== undefined) {
+    const validation = validateJobFlowJob({
+      triggerKind: trigger?.kind ?? 'schedule',
+      schedule,
+      flow,
+    })
+    if (!validation.valid) {
+      return json(validation, 400)
+    }
   }
   const jobsStore = requireJobsStore(deps)
   const created = jobsStore.createJob({
@@ -233,7 +253,7 @@ export const handleCreateAdminJob: RouteHandler = async ({ request, deps, actor 
     ...(slug !== undefined ? { slug } : {}),
     ...(description !== undefined ? { description } : {}),
     ...(laneRef !== undefined ? { laneRef } : {}),
-    ...(trigger !== undefined ? { trigger } : { schedule: parseSchedule(body) }),
+    ...(trigger !== undefined ? { trigger } : { schedule }),
     input: parseInputTemplate(body),
     ...(output !== undefined && output !== null ? { output } : {}),
     ...(flow !== undefined ? { flow } : {}),
@@ -292,11 +312,24 @@ export const handlePatchAdminJob: RouteHandler = async ({ request, params, deps,
         : { description: readOptionalTrimmedStringField(body, 'description') ?? null }
       : {}
   const jobId = requireJobId(params)
+  const existing = requireJob(deps, jobId)
   if (output !== undefined && output !== null) {
-    const existing = requireJob(deps, jobId)
     const effectiveHasFlow = flow !== undefined || existing.flow !== undefined
     if (effectiveHasFlow) {
       badRequest('job output is only supported for non-flow jobs', { field: 'output' })
+    }
+  }
+  const effectiveFlow = flow ?? existing.flow
+  if (effectiveFlow !== undefined) {
+    const effectiveTriggerKind =
+      trigger?.kind ?? (schedule !== undefined ? 'schedule' : existing.trigger.kind)
+    const validation = validateJobFlowJob({
+      triggerKind: effectiveTriggerKind,
+      schedule: effectiveTriggerKind === 'schedule' ? (schedule ?? existing.schedule) : undefined,
+      flow: effectiveFlow,
+    })
+    if (!validation.valid) {
+      return json(validation, 400)
     }
   }
   const updated = requireJobsStore(deps).updateJob(jobId, {
@@ -320,22 +353,34 @@ export const handleRunAdminJob: RouteHandler = async ({ params, deps, actor }) =
   const lifecycle = createJobLifecycleEmitter({
     systemEvents: deps.adminStore.systemEvents,
     jobsStore,
+    resolveFinalText: (runId) =>
+      getRunFinalAssistantText(
+        {
+          getRun: (id) => deps.runStore.getRun(id),
+          hrcDbPath: resolveHrcDbPath(deps),
+        },
+        runId
+      ),
   })
 
   if (job.flow !== undefined) {
     const now = new Date().toISOString()
+    const runActor = actor ?? deps.defaultActor
+    const leaseExpiresAt = new Date(Date.parse(now) + MANUAL_FLOW_JOB_RUN_LEASE_MS).toISOString()
     const created = jobsStore.createJobRun(job.jobId, {
       triggeredAt: now,
       triggeredBy: 'manual',
       status: 'claimed',
       claimedAt: now,
-      actor: actor ?? deps.defaultActor,
+      leaseOwner: `manual-job-run:${runActor.kind}:${runActor.id}`,
+      leaseExpiresAt,
+      actor: runActor,
     })
     const advanced = await advanceJobFlow({
       deps,
       job,
       jobRun: created.jobRun,
-      actor: actor ?? deps.defaultActor,
+      actor: runActor,
       now,
     })
     // Project lifecycle telemetry from the committed flow result (handles a
