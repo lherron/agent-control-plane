@@ -13,7 +13,7 @@ import type { RouteHandler } from '../routing/route-context.js'
 import { launchAction } from '../wrkf/action-launch.js'
 import { wrkfErrorToHttpStatus } from '../wrkf/errors.js'
 
-const TRIAGE_COMMAND_MATERIAL_FIELDS = ['command', 'argv', 'cwd', 'env'] as const
+const COMMAND_MATERIAL_FIELDS = ['command', 'argv', 'cwd', 'env'] as const
 
 /**
  * Node D2 (contract C-0010): authorized HTTP transport for the FROZEN
@@ -45,10 +45,11 @@ export const handleLaunchWrkfAction: RouteHandler = async ({ request, deps, acto
   const body = requireRecord(await parseJsonBody(request))
   const taskId = requireTrimmedStringField(body, 'taskId')
   const action = requireTrimmedStringField(body, 'action')
-  if (action === 'triage') {
-    rejectTriageCommandMaterial(body)
+  if (isServerConfiguredCommandAction(action)) {
+    rejectCommandMaterial(body, action)
   }
   const role = readOptionalTrimmedStringField(body, 'role')
+  rejectUntrustedCommandRole(action, role)
   const lane = readOptionalTrimmedStringField(body, 'lane')
   const initialPrompt = readOptionalTrimmedStringField(body, 'initialPrompt')
   // The authorized actor flows from the actor/authz middleware, not the raw body.
@@ -78,6 +79,12 @@ export const handleLaunchWrkfAction: RouteHandler = async ({ request, deps, acto
         ...(deps.triageCommandTargetId !== undefined
           ? { triageCommandTargetId: deps.triageCommandTargetId }
           : {}),
+        ...(deps.implCommandTargetId !== undefined
+          ? { implCommandTargetId: deps.implCommandTargetId }
+          : {}),
+        ...(deps.verifyCommandTargetId !== undefined
+          ? { verifyCommandTargetId: deps.verifyCommandTargetId }
+          : {}),
         ...(deps.runtimeResolver !== undefined ? { runtimeResolver: deps.runtimeResolver } : {}),
         ...(deps.agentRootResolver !== undefined
           ? { agentRootResolver: deps.agentRootResolver }
@@ -102,15 +109,31 @@ export const handleLaunchWrkfAction: RouteHandler = async ({ request, deps, acto
   }
 }
 
-function rejectTriageCommandMaterial(body: Record<string, unknown>): void {
-  for (const field of TRIAGE_COMMAND_MATERIAL_FIELDS) {
+function isServerConfiguredCommandAction(action: string): boolean {
+  return action === 'triage' || action === 'implement' || action === 'verify'
+}
+
+function rejectCommandMaterial(body: Record<string, unknown>, action: string): void {
+  for (const field of COMMAND_MATERIAL_FIELDS) {
     if (body[field] !== undefined) {
       throw new AcpHttpError(
         400,
         'client_command_material_rejected',
-        `client-supplied ${field} is not accepted for action:"triage"; the command target is server-configured`
+        `client-supplied ${field} is not accepted for action:"${action}"; the command target is server-configured`
       )
     }
+  }
+}
+
+function rejectUntrustedCommandRole(action: string, role: string | undefined): void {
+  const expectedRole =
+    action === 'implement' ? 'implementer' : action === 'verify' ? 'tester' : undefined
+  if (expectedRole !== undefined && role !== undefined && role !== expectedRole) {
+    throw new AcpHttpError(
+      400,
+      'client_command_role_rejected',
+      `client-supplied role is not accepted for action:"${action}"; expected "${expectedRole}"`
+    )
   }
 }
 

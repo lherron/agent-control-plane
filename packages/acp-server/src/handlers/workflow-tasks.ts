@@ -14,6 +14,7 @@ import type { RouteHandler } from '../routing/route-context.js'
 import { actorRefFromUnknown } from '../workflow-runtime.js'
 import { wrkfErrorToHttpStatus } from '../wrkf/errors.js'
 import { defaultWorkflowPackRegistry } from '../wrkf/packs/default-registry.js'
+import { consumeVerifyLaunchIntents } from '../wrkf/verify-launch-consumer.js'
 
 function requireTaskId(params: Record<string, string | undefined>): string {
   const taskId = params['taskId']
@@ -45,6 +46,39 @@ function enqueueWrkfEffectDeliveryTick(
     taskId,
   }).catch((error) => {
     console.error('wrkf effect delivery tick failed', error)
+  })
+  if (
+    deps.launchRoleScopedRun === undefined ||
+    deps.launchCommandScopedRun === undefined ||
+    deps.verifyCommandTargetId === undefined
+  ) {
+    return
+  }
+  void consumeVerifyLaunchIntents(
+    {
+      wrkf,
+      runStore: deps.runStore,
+      launchRoleScopedRun: deps.launchRoleScopedRun,
+      launchCommandScopedRun: deps.launchCommandScopedRun,
+      verifyCommandTargetId: deps.verifyCommandTargetId,
+      ...(deps.triageCommandTargetId !== undefined
+        ? { triageCommandTargetId: deps.triageCommandTargetId }
+        : {}),
+      ...(deps.implCommandTargetId !== undefined
+        ? { implCommandTargetId: deps.implCommandTargetId }
+        : {}),
+      ...(deps.runtimeResolver !== undefined ? { runtimeResolver: deps.runtimeResolver } : {}),
+      ...(deps.agentRootResolver !== undefined
+        ? { agentRootResolver: deps.agentRootResolver }
+        : {}),
+      ...(deps.adminStore !== undefined ? { adminStore: deps.adminStore } : {}),
+      ...(deps.verifyCommandSessionRef !== undefined
+        ? { verifyCommandSessionRef: deps.verifyCommandSessionRef }
+        : {}),
+    },
+    { taskId }
+  ).catch((error) => {
+    console.error('wrkf verify-launch effect tick failed', error)
   })
 }
 

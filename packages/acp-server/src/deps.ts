@@ -168,6 +168,9 @@ export interface AcpServerDeps {
   launchRoleScopedRun?: LaunchRoleScopedRun | undefined
   launchCommandScopedRun?: LaunchCommandScopedRun | undefined
   triageCommandTargetId?: string | undefined
+  implCommandTargetId?: string | undefined
+  verifyCommandTargetId?: string | undefined
+  verifyCommandSessionRef?: SessionRef | undefined
   hrcClient?: AcpHrcClient | undefined
   inputAttemptStore?: InputAttemptStore | undefined
   inputAdmissionStore?: InputAdmissionStore | undefined

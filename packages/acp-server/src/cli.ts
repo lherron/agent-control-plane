@@ -79,6 +79,8 @@ const DEFAULT_INPUT_QUEUE_STALE_PENDING_RUN_TIMEOUT_MS = 45_000
 const DEFAULT_INPUT_QUEUE_LEASE_TIMEOUT_MS = 600_000
 const ACP_SERVER_VERSION = '0.1.0'
 const TRIAGE_COMMAND_TARGET_ID_ENV = 'ACP_TRIAGE_COMMAND_TARGET_ID'
+const IMPL_COMMAND_TARGET_ID_ENV = 'ACP_IMPL_COMMAND_TARGET_ID'
+const VERIFY_COMMAND_TARGET_ID_ENV = 'ACP_VERIFY_COMMAND_TARGET_ID'
 
 export function isEnabledEnvFlag(value: string | undefined): boolean {
   const normalized = value?.trim().toLowerCase()
@@ -385,6 +387,16 @@ function readTriageCommandTargetId(env: NodeJS.ProcessEnv): string | undefined {
   return value && value.length > 0 ? value : undefined
 }
 
+function readImplCommandTargetId(env: NodeJS.ProcessEnv): string | undefined {
+  const value = env[IMPL_COMMAND_TARGET_ID_ENV]?.trim()
+  return value && value.length > 0 ? value : undefined
+}
+
+function readVerifyCommandTargetId(env: NodeJS.ProcessEnv): string | undefined {
+  const value = env[VERIFY_COMMAND_TARGET_ID_ENV]?.trim()
+  return value && value.length > 0 ? value : undefined
+}
+
 export function resolveLauncherDeps(
   env: NodeJS.ProcessEnv = process.env,
   cwd = process.cwd(),
@@ -408,12 +420,20 @@ export function resolveLauncherDeps(
     const socketPath = resolveControlSocketPath()
     const hrcClient: AcpHrcClient = createHrcClient(socketPath)
     const triageCommandTargetId = readTriageCommandTargetId(env)
+    const implCommandTargetId = readImplCommandTargetId(env)
+    const verifyCommandTargetId = readVerifyCommandTargetId(env)
+    const hasCommandTarget =
+      triageCommandTargetId !== undefined ||
+      implCommandTargetId !== undefined ||
+      verifyCommandTargetId !== undefined
 
     return {
       launchRoleScopedRun: createRealLauncher(),
-      ...(triageCommandTargetId !== undefined
+      ...(triageCommandTargetId !== undefined ? { triageCommandTargetId } : {}),
+      ...(implCommandTargetId !== undefined ? { implCommandTargetId } : {}),
+      ...(verifyCommandTargetId !== undefined ? { verifyCommandTargetId } : {}),
+      ...(hasCommandTarget
         ? {
-            triageCommandTargetId,
             launchCommandScopedRun: (request) =>
               hrcClient.launchCommandScopedRun({
                 ...request,

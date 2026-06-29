@@ -55,11 +55,14 @@ export type WrkfActionLaunchInput = {
   idempotencyKey: string
   sessionRef: SessionRef
   initialPrompt?: string | undefined
+  stdinJson?: Record<string, unknown> | undefined
 }
 
 export type WrkfActionLaunchDeps = WrkfParticipantLaunchDeps & {
   launchCommandScopedRun?: LaunchCommandScopedRun | undefined
   triageCommandTargetId?: string | undefined
+  implCommandTargetId?: string | undefined
+  verifyCommandTargetId?: string | undefined
   triageCommandLaunchTimeoutMs?: number | undefined
 }
 
@@ -175,14 +178,16 @@ export async function launchAction(
     throw launchBlockedError(claim.run, 'wrkf action launch already has a durable launch claim')
   }
 
-  if (input.action === 'triage') {
-    return await launchTriageCommandRun(deps, input, {
+  const commandTargetId = commandTargetIdForAction(deps, input.action)
+  if (commandTargetId !== undefined) {
+    return await launchConfiguredCommandRun(deps, input, {
       actionRun,
       actionRunId,
       wrkfRunId,
       role,
       acpRunId: acpRun.runId,
       claimMetadata: claim.run.metadata,
+      configuredTargetId: commandTargetId,
     })
   }
 
@@ -276,7 +281,7 @@ export async function launchAction(
   })
 }
 
-async function launchTriageCommandRun(
+async function launchConfiguredCommandRun(
   deps: WrkfActionLaunchDeps,
   input: WrkfActionLaunchInput,
   args: {
@@ -286,12 +291,13 @@ async function launchTriageCommandRun(
     role: string
     acpRunId: string
     claimMetadata?: Readonly<Record<string, unknown>> | undefined
+    configuredTargetId: string
   }
 ): Promise<WrkfActionLaunchResult> {
   const launchCommandScopedRun = deps.launchCommandScopedRun
-  const configuredTargetId = deps.triageCommandTargetId
-  if (launchCommandScopedRun === undefined || configuredTargetId === undefined) {
-    const error = new Error('configured triage command-run launcher is unavailable')
+  const configuredTargetId = args.configuredTargetId
+  if (launchCommandScopedRun === undefined) {
+    const error = new Error(`configured ${input.action} command-run launcher is unavailable`)
     deps.runStore.updateRun(args.acpRunId, {
       status: 'failed',
       errorCode: 'wrkf_launch_failed_ambiguous',
@@ -326,6 +332,7 @@ async function launchTriageCommandRun(
         idempotencyKey: `${input.idempotencyKey}:launchCommand`,
         binding: buildTriageCommandBinding(input, args, projectSlug),
         stdinJson: {
+          ...(input.stdinJson ?? {}),
           taskId: input.taskId,
           actionRunId: args.actionRunId,
           wrkfRunId: args.wrkfRunId,
@@ -536,6 +543,19 @@ function resolveTriageCommandLaunchTimeoutMs(deps: WrkfActionLaunchDeps): number
   return configured !== undefined && Number.isFinite(configured) && configured > 0
     ? configured
     : DEFAULT_TRIAGE_COMMAND_LAUNCH_TIMEOUT_MS
+}
+
+function commandTargetIdForAction(deps: WrkfActionLaunchDeps, action: string): string | undefined {
+  if (action === 'triage') {
+    return deps.triageCommandTargetId
+  }
+  if (action === 'implement') {
+    return deps.implCommandTargetId
+  }
+  if (action === 'verify') {
+    return deps.verifyCommandTargetId
+  }
+  return undefined
 }
 
 function formatTimeoutDuration(timeoutMs: number): string {
