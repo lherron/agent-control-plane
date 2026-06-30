@@ -3,6 +3,7 @@ import {
   type InterfaceStore,
   applyManagedBinding,
   detectBindingDrift,
+  disableManagedBinding,
   listManagedBindingProvenances,
   openInterfaceStore,
 } from 'acp-interface-store'
@@ -11,6 +12,7 @@ import {
   type JobsStore,
   applyManagedJob,
   detectJobDrift,
+  disableManagedJob,
   listManagedJobProvenances,
   openSqliteJobsStore,
 } from 'acp-jobs-store'
@@ -88,6 +90,24 @@ export type PlanValidationResult =
   | { valid: true }
   | { valid: false; errors: Array<{ field: string; message: string }> }
 
+/**
+ * Source-deletion policy for managed-resource reconciliation (T-05244).
+ *
+ * Default behavior is `disable` (disable-only): a stale scheduled job, event hook,
+ * or interface binding is disabled in place and its runtime/history rows
+ * (jobs, provenance, event inbox/match/run history, bindings, delivery requests)
+ * are preserved. No delete/purge happens by omission.
+ *
+ * `archive` and `purge` are reserved explicit wire values. They are NON-MUTATING
+ * and UNSUPPORTED in v1 until a later architecture/spec defines resource-kind
+ * semantics, history retention, and store migrations. They must never silently
+ * degrade to `disable`; reconcile reports `stale_unsupported_action` and mutates
+ * nothing. Unknown policy values are request validation errors.
+ */
+export type SourceDeletionPolicy = 'disable' | 'archive' | 'purge'
+
+export type RecommendedAction = 'none' | 'disable' | 'unsupported'
+
 export type ManagedResourceStatusEntry = {
   projectionId: string
   resourceKind: ManagedResourceProjection['resourceKind']
@@ -102,14 +122,29 @@ export type ManagedResourceStatusEntry = {
   nextFireAt?: string | undefined
   flowSummary?: FlowSummary | undefined
   bindingTarget?: BindingTargetSummary | undefined
+  // Provenance-backed report metadata (always populated for provenance rows).
+  sourcePath?: string | undefined
+  resourceName?: string | undefined
+  liveTarget?: string | undefined
+  // Plan-aware classification (only populated when status is plan-aware; the
+  // owner-only form must NOT claim a stale classification it cannot know).
+  isStale?: boolean | undefined
+  recommendedAction?: RecommendedAction | undefined
 }
 
-export type GetManagedResourcesStatusInput = {
-  ownerScopeRef: string
-  projectionIds?: string[] | undefined
-  jobsDbPath: string
-  interfaceDbPath: string
-}
+export type GetManagedResourcesStatusInput =
+  | {
+      ownerScopeRef: string
+      projectionIds?: string[] | undefined
+      jobsDbPath: string
+      interfaceDbPath: string
+    }
+  | {
+      plan: ManagedResourcesPlan
+      sourceDeletionPolicy?: SourceDeletionPolicy | undefined
+      jobsDbPath: string
+      interfaceDbPath: string
+    }
 
 export type GetManagedResourcesStatusResult = {
   resources: ManagedResourceStatusEntry[]
@@ -122,11 +157,54 @@ export type ApplyManagedResourcesWithStoresInput = {
   now: string
 }
 
-export type GetManagedResourcesStatusWithStoresInput = {
-  ownerScopeRef: string
-  projectionIds?: string[] | undefined
+export type GetManagedResourcesStatusWithStoresInput =
+  | {
+      ownerScopeRef: string
+      projectionIds?: string[] | undefined
+      jobsStore: JobsStore
+      interfaceStore: InterfaceStore
+    }
+  | {
+      plan: ManagedResourcesPlan
+      sourceDeletionPolicy?: SourceDeletionPolicy | undefined
+      jobsStore: JobsStore
+      interfaceStore: InterfaceStore
+    }
+
+export type SourceDeletionOutcome = {
+  projectionId: string
+  resourceKind: ManagedResourceProjection['resourceKind']
+  projectionPk: string
+  sourcePath: string
+  resourceName: string
+  liveTarget: string
+  outcome: 'stale_disabled' | 'stale_noop' | 'stale_unsupported_action' | 'failed'
+  previousState: 'active' | 'disabled'
+  finalState: 'active' | 'disabled'
+  hadDrift?: boolean | undefined
+  driftKind?: string | undefined
+  error?: { code: string; message: string } | undefined
+}
+
+export type ReconcileManagedResourcesResult = {
+  apply: ApplyManagedResourcesResult
+  sourceDeletion: { outcomes: SourceDeletionOutcome[] }
+}
+
+export type ReconcileManagedResourcesWithStoresInput = {
+  plan: ManagedResourcesPlan
   jobsStore: JobsStore
   interfaceStore: InterfaceStore
+  now: string
+  sourceDeletionPolicy?: SourceDeletionPolicy | undefined
+}
+
+export type ReconcileManagedResourcesPlanInput = {
+  plan: ManagedResourcesPlan
+  jobsDbPath: string
+  interfaceDbPath: string
+  now: string
+  sourceDeletionPolicy?: SourceDeletionPolicy | undefined
 }
 
 export type FlowSummary = {
@@ -445,6 +523,8 @@ export function validateManagedResourcesPlan(rawPlan: unknown): PlanValidationRe
     }
   }
 
+  const planOwnerScopeRef = rawPlan['sourceOwnerScopeRef']
+  const seenProjectionIds = new Set<string>()
   const resources = rawPlan['resources']
   if (!Array.isArray(resources)) {
     addError(errors, 'resources', 'must be an array')
@@ -476,6 +556,25 @@ export function validateManagedResourcesPlan(rawPlan: unknown): PlanValidationRe
         'sourcePath',
       ]) {
         requireString(errors, resource, field, `${prefix}.${field}`)
+      }
+      // T-05244: the plan owner is the authority boundary. A caller must not be
+      // able to smuggle an arbitrary per-resource owner past validation, status,
+      // or reconcile authorization scoping.
+      if (
+        typeof resource['sourceOwnerScopeRef'] === 'string' &&
+        typeof planOwnerScopeRef === 'string' &&
+        resource['sourceOwnerScopeRef'] !== planOwnerScopeRef
+      ) {
+        addError(errors, `${prefix}.sourceOwnerScopeRef`, 'must equal plan.sourceOwnerScopeRef')
+      }
+      // T-05244: source deletion is projection-id based, so one plan must not
+      // carry ambiguous duplicate identities.
+      if (typeof resource['projectionId'] === 'string') {
+        if (seenProjectionIds.has(resource['projectionId'])) {
+          addError(errors, `${prefix}.projectionId`, 'duplicate projectionId in plan')
+        } else {
+          seenProjectionIds.add(resource['projectionId'])
+        }
       }
       if (resource['sourceHash'] === undefined || !HASH_RE.test(String(resource['sourceHash']))) {
         addError(errors, `${prefix}.sourceHash`, 'must be a canonical sha256 hash')
@@ -600,11 +699,49 @@ export async function applyManagedResourcesPlan(
   return result
 }
 
+function recommendedActionFor(
+  isStale: boolean,
+  state: 'active' | 'disabled',
+  policy: SourceDeletionPolicy
+): RecommendedAction {
+  if (!isStale) {
+    return 'none'
+  }
+  if (state === 'disabled') {
+    return 'none'
+  }
+  return policy === 'disable' ? 'disable' : 'unsupported'
+}
+
 export async function statusWithStores(
   input: GetManagedResourcesStatusWithStoresInput
 ): Promise<GetManagedResourcesStatusResult> {
+  const planAware = 'plan' in input && input.plan !== undefined
+  const ownerScopeRef = 'plan' in input ? input.plan.sourceOwnerScopeRef : input.ownerScopeRef
+  const projectionIds = 'plan' in input ? undefined : input.projectionIds
+  const policy: SourceDeletionPolicy =
+    'plan' in input ? (input.sourceDeletionPolicy ?? 'disable') : 'disable'
+  const presentProjectionIds =
+    'plan' in input
+      ? new Set(input.plan.resources.map((resource) => resource.projectionId))
+      : undefined
+
+  function planAwareFacts(
+    projectionId: string,
+    state: 'active' | 'disabled'
+  ): Pick<ManagedResourceStatusEntry, 'isStale' | 'recommendedAction'> {
+    if (!planAware || presentProjectionIds === undefined) {
+      return {}
+    }
+    const isStale = !presentProjectionIds.has(projectionId)
+    return {
+      isStale,
+      recommendedAction: recommendedActionFor(isStale, state, policy),
+    }
+  }
+
   const jobResources: ManagedResourceStatusEntry[] = listManagedJobProvenances(input.jobsStore, {
-    ownerScopeRef: input.ownerScopeRef,
+    ownerScopeRef,
   }).map((provenance) => {
     const drift = detectJobDrift(input.jobsStore, provenance.projectionId)
     const job = input.jobsStore.getJob(provenance.jobId).job
@@ -613,14 +750,18 @@ export async function statusWithStores(
       resourceKind: provenance.resourceKind,
       projectionPk: provenance.projectionPk,
       state: provenance.state,
+      sourcePath: provenance.sourcePath,
+      resourceName: provenance.resourceName,
+      liveTarget: `job:${provenance.jobId}`,
       disabled: job === undefined ? provenance.state === 'disabled' : job.disabled,
       ...(job === undefined ? {} : jobOperationalFacts(job)),
       ...driftFacts(drift),
+      ...planAwareFacts(provenance.projectionId, provenance.state),
     }
   })
   const bindingResources: ManagedResourceStatusEntry[] = listManagedBindingProvenances(
     input.interfaceStore,
-    { ownerScopeRef: input.ownerScopeRef }
+    { ownerScopeRef }
   ).map((provenance) => {
     const drift = detectBindingDrift(input.interfaceStore, provenance.projectionId)
     const binding = input.interfaceStore.bindings.getById(provenance.bindingId)
@@ -629,20 +770,24 @@ export async function statusWithStores(
       resourceKind: provenance.resourceKind,
       projectionPk: provenance.projectionPk,
       state: provenance.state,
+      sourcePath: provenance.sourcePath,
+      resourceName: provenance.resourceName,
+      liveTarget: `binding:${provenance.bindingId}`,
       disabled:
         binding === undefined ? provenance.state === 'disabled' : binding.status === 'disabled',
       ...(binding === undefined ? {} : bindingOperationalFacts(binding)),
       ...driftFacts(drift),
+      ...planAwareFacts(provenance.projectionId, provenance.state),
     }
   })
 
   const resources = [...jobResources, ...bindingResources]
-  if (input.projectionIds === undefined) {
+  if (projectionIds === undefined) {
     return { resources }
   }
   const byProjectionId = new Map(resources.map((resource) => [resource.projectionId, resource]))
   return {
-    resources: input.projectionIds.flatMap((projectionId) => {
+    resources: projectionIds.flatMap((projectionId) => {
       const resource = byProjectionId.get(projectionId)
       return resource === undefined ? [] : [resource]
     }),
@@ -652,10 +797,176 @@ export async function statusWithStores(
 export async function getManagedResourcesStatus(
   input: GetManagedResourcesStatusInput
 ): Promise<GetManagedResourcesStatusResult> {
+  const jobsStore = openCachedJobsStore(input.jobsDbPath)
+  const interfaceStore = openCachedInterfaceStore(input.interfaceDbPath)
+  if ('plan' in input) {
+    return statusWithStores({
+      plan: input.plan,
+      sourceDeletionPolicy: input.sourceDeletionPolicy,
+      jobsStore,
+      interfaceStore,
+    })
+  }
   return statusWithStores({
     ownerScopeRef: input.ownerScopeRef,
     projectionIds: input.projectionIds,
+    jobsStore,
+    interfaceStore,
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Source-deletion reconciliation (T-05244)
+// ---------------------------------------------------------------------------
+
+function reconcileStaleJob(
+  store: JobsStore,
+  provenance: ReturnType<typeof listManagedJobProvenances>[number],
+  policy: SourceDeletionPolicy
+): SourceDeletionOutcome {
+  const drift = detectJobDrift(store, provenance.projectionId)
+  const base = {
+    projectionId: provenance.projectionId,
+    resourceKind: provenance.resourceKind,
+    projectionPk: provenance.projectionPk,
+    sourcePath: provenance.sourcePath,
+    resourceName: provenance.resourceName,
+    liveTarget: `job:${provenance.jobId}`,
+    hadDrift: drift.hasDrift,
+    driftKind: drift.driftKind,
+  }
+  if (policy !== 'disable') {
+    return {
+      ...base,
+      outcome: 'stale_unsupported_action',
+      previousState: provenance.state,
+      finalState: provenance.state,
+    }
+  }
+  if (provenance.state === 'disabled') {
+    return { ...base, outcome: 'stale_noop', previousState: 'disabled', finalState: 'disabled' }
+  }
+  try {
+    disableManagedJob(store, provenance.projectionId, 'source_missing')
+    return { ...base, outcome: 'stale_disabled', previousState: 'active', finalState: 'disabled' }
+  } catch (error) {
+    return {
+      ...base,
+      outcome: 'failed',
+      previousState: provenance.state,
+      finalState: provenance.state,
+      error: {
+        code: 'SOURCE_DELETION_FAILED',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    }
+  }
+}
+
+function reconcileStaleBinding(
+  store: InterfaceStore,
+  provenance: ReturnType<typeof listManagedBindingProvenances>[number],
+  policy: SourceDeletionPolicy
+): SourceDeletionOutcome {
+  const drift = detectBindingDrift(store, provenance.projectionId)
+  const base = {
+    projectionId: provenance.projectionId,
+    resourceKind: provenance.resourceKind,
+    projectionPk: provenance.projectionPk,
+    sourcePath: provenance.sourcePath,
+    resourceName: provenance.resourceName,
+    liveTarget: `binding:${provenance.bindingId}`,
+    hadDrift: drift.hasDrift,
+    driftKind: drift.driftKind,
+  }
+  if (policy !== 'disable') {
+    return {
+      ...base,
+      outcome: 'stale_unsupported_action',
+      previousState: provenance.state,
+      finalState: provenance.state,
+    }
+  }
+  if (provenance.state === 'disabled') {
+    return { ...base, outcome: 'stale_noop', previousState: 'disabled', finalState: 'disabled' }
+  }
+  try {
+    disableManagedBinding(store, provenance.projectionId, 'source_missing')
+    return { ...base, outcome: 'stale_disabled', previousState: 'active', finalState: 'disabled' }
+  } catch (error) {
+    return {
+      ...base,
+      outcome: 'failed',
+      previousState: provenance.state,
+      finalState: provenance.state,
+      error: {
+        code: 'SOURCE_DELETION_FAILED',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    }
+  }
+}
+
+export async function reconcilePlanWithStores(
+  input: ReconcileManagedResourcesWithStoresInput
+): Promise<ReconcileManagedResourcesResult> {
+  const policy: SourceDeletionPolicy = input.sourceDeletionPolicy ?? 'disable'
+
+  // Reconcile v1 is apply-then-source-deletion. Apply the present resources
+  // first using existing apply semantics.
+  const apply = await applyPlanWithStores({
+    plan: input.plan,
+    jobsStore: input.jobsStore,
+    interfaceStore: input.interfaceStore,
+    now: input.now,
+  })
+
+  // Then compare the same plan against persisted provenance for the plan owner
+  // and process stale (missing-source) resources under the requested policy.
+  const ownerScopeRef = input.plan.sourceOwnerScopeRef
+  const presentProjectionIds = new Set(
+    input.plan.resources.map((resource) => resource.projectionId)
+  )
+  const outcomes: SourceDeletionOutcome[] = []
+
+  for (const provenance of listManagedJobProvenances(input.jobsStore, { ownerScopeRef })) {
+    if (presentProjectionIds.has(provenance.projectionId)) {
+      continue
+    }
+    outcomes.push(reconcileStaleJob(input.jobsStore, provenance, policy))
+  }
+  for (const provenance of listManagedBindingProvenances(input.interfaceStore, { ownerScopeRef })) {
+    if (presentProjectionIds.has(provenance.projectionId)) {
+      continue
+    }
+    outcomes.push(reconcileStaleBinding(input.interfaceStore, provenance, policy))
+  }
+
+  return { apply, sourceDeletion: { outcomes } }
+}
+
+export async function reconcileManagedResourcesPlan(
+  input: ReconcileManagedResourcesPlanInput
+): Promise<ReconcileManagedResourcesResult> {
+  const validation = validateManagedResourcesPlan(input.plan)
+  if (!validation.valid) {
+    throw new Error(
+      `managed resources plan is invalid: ${validation.errors
+        .map((error) => `${error.field}: ${error.message}`)
+        .join('; ')}`
+    )
+  }
+  prepareMemoryStoresForApply({
+    plan: input.plan,
+    jobsDbPath: input.jobsDbPath,
+    interfaceDbPath: input.interfaceDbPath,
+    now: input.now,
+  })
+  return reconcilePlanWithStores({
+    plan: input.plan,
     jobsStore: openCachedJobsStore(input.jobsDbPath),
     interfaceStore: openCachedInterfaceStore(input.interfaceDbPath),
+    now: input.now,
+    sourceDeletionPolicy: input.sourceDeletionPolicy,
   })
 }

@@ -12,6 +12,7 @@ import { runAdminInterfaceBindingListCommand } from './commands/admin-interface-
 import { runAdminInterfaceBindingSetCommand } from './commands/admin-interface-binding-set.js'
 import {
   runAdminManagedResourceApplyCommand,
+  runAdminManagedResourceReconcileCommand,
   runAdminManagedResourceStatusCommand,
 } from './commands/admin-managed-resource.js'
 import { runAgentPulpitCommand } from './commands/agent-pulpit.js'
@@ -359,6 +360,22 @@ function addAdminCommands(program: Command, deps: CommandDependencies): void {
   common(managedResource.command('status').description('inspect managed resource status'))
     .requiredOption('--in <file>', 'managed resource plan JSON')
     .action(runLeaf(deps, [], runAdminManagedResourceStatusCommand))
+  common(
+    managedResource
+      .command('reconcile')
+      .description(
+        'apply a managed resource plan then disable stale (missing-source) resources. ' +
+          'Default source-deletion policy is disable (disable-only); ' +
+          'archive/purge must be selected explicitly and are unsupported/non-mutating in v1 ' +
+          'unless separately implemented. No delete/purge happens by omission.'
+      )
+  )
+    .requiredOption('--in <file>', 'managed resource plan JSON')
+    .option(
+      '--source-deletion <policy>',
+      'source-deletion policy: disable (default) | archive | purge (archive/purge unsupported in v1)'
+    )
+    .action(runLeaf(deps, [], runAdminManagedResourceReconcileCommand))
 }
 
 function addGovernanceCommands(program: Command, deps: CommandDependencies): void {

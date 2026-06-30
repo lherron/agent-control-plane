@@ -88,7 +88,16 @@ export const mutatingRouteSpecs: Record<string, ActorAndAuthzSpec> = {
     operation: 'admin.managed-resources.status',
     resource: ({ body }) => ({
       kind: 'project',
-      id: readBodyString(body, 'ownerScopeRef'),
+      // Plan-aware status scopes authorization to plan.sourceOwnerScopeRef; the
+      // legacy owner-only form remains scoped to ownerScopeRef.
+      id: readPlanOwnerScopeRef(body) ?? readBodyString(body, 'ownerScopeRef'),
+    }),
+  },
+  'POST /v1/admin/managed-resources/reconcile': {
+    operation: 'admin.managed-resources.reconcile',
+    resource: ({ body }) => ({
+      kind: 'project',
+      id: readPlanOwnerScopeRef(body),
     }),
   },
   'PATCH /v1/admin/jobs/:jobId': {

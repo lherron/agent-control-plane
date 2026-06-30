@@ -24,6 +24,7 @@ import { handleCreateInterfaceMessage } from '../handlers/interface-messages.js'
 import {
   handleApplyManagedResources,
   handleGetManagedResourcesStatus,
+  handleReconcileManagedResources,
 } from '../handlers/managed-resources.js'
 import { handleCreateMessage } from '../handlers/messages.js'
 import {
@@ -149,6 +150,11 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
       'POST',
       '/v1/admin/managed-resources/status',
       handleGetManagedResourcesStatus
+    ),
+    [exactRouteKey('POST', '/v1/admin/managed-resources/reconcile')]: maybeWrapMutatingRoute(
+      'POST',
+      '/v1/admin/managed-resources/reconcile',
+      handleReconcileManagedResources
     ),
     [exactRouteKey('GET', '/v1/admin/jobs')]: handleListAdminJobs,
     [exactRouteKey('GET', '/v1/admin/jobs/scheduler')]: handleGetSchedulerState,

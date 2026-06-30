@@ -65,8 +65,35 @@ type StatusResponse = {
       state: string
       hasDrift: boolean
       driftKind?: string | undefined
+      sourcePath?: string | undefined
+      resourceName?: string | undefined
+      liveTarget?: string | undefined
+      isStale?: boolean | undefined
+      recommendedAction?: string | undefined
     }
   >
+}
+
+type SourceDeletionPolicy = 'disable' | 'archive' | 'purge'
+
+type SourceDeletionOutcome = {
+  projectionId: string
+  resourceKind: string
+  projectionPk: string
+  sourcePath: string
+  resourceName: string
+  liveTarget: string
+  outcome: string
+  previousState: string
+  finalState: string
+  hadDrift?: boolean | undefined
+  driftKind?: string | undefined
+  error?: { code: string; message: string } | undefined
+}
+
+type ReconcileResponse = {
+  apply: ApplyResponse
+  sourceDeletion: { outcomes: SourceDeletionOutcome[] }
 }
 
 function loadPlanFile(path: string): ManagedResourcesPlan {
@@ -97,22 +124,6 @@ function requirePlan(parsed: ReturnType<typeof parseArgs>): ManagedResourcesPlan
     throw new CliUsageError('--in <plan.json> is required')
   }
   return loadPlanFile(path)
-}
-
-function projectionIdsFromPlan(plan: ManagedResourcesPlan): string[] {
-  if (!Array.isArray(plan.resources)) {
-    throw new CliUsageError('plan.resources must be an array')
-  }
-  return plan.resources.map((resource, index) => {
-    if (typeof resource !== 'object' || resource === null || Array.isArray(resource)) {
-      throw new CliUsageError(`plan.resources[${index}] must be an object`)
-    }
-    const projectionId = (resource as Record<string, unknown>)['projectionId']
-    if (typeof projectionId !== 'string' || projectionId.trim().length === 0) {
-      throw new CliUsageError(`plan.resources[${index}].projectionId must be a non-empty string`)
-    }
-    return projectionId.trim()
-  })
 }
 
 function valueOrDash(value: string | undefined): string {
@@ -162,20 +173,63 @@ function renderApplyText(response: ApplyResponse): string {
   return `${table}\ncreated ${response.stats.created} / updated ${response.stats.updated} / noop ${response.stats.noop} / failed ${response.stats.failed}`
 }
 
+function staleLabel(row: StatusResponse['resources'][number]): string {
+  return row.isStale === undefined ? '-' : String(row.isStale)
+}
+
+function recommendedActionLabel(row: StatusResponse['resources'][number]): string {
+  return valueOrDash(row.recommendedAction)
+}
+
 function renderStatusText(response: StatusResponse): string {
   return renderTable(
     [
       { header: 'Kind', value: (row: StatusResponse['resources'][number]) => row.resourceKind },
       { header: 'Projection', value: (row) => row.projectionPk },
       { header: 'Live', value: liveId },
+      { header: 'Source', value: (row) => valueOrDash(row.sourcePath) },
       { header: 'State', value: (row) => row.state },
       { header: 'Next', value: (row) => valueOrDash(row.nextFireAt) },
       { header: 'Disabled', value: disabledLabel },
       { header: 'Drift', value: driftLabel },
       { header: 'Flow', value: flowLabel },
+      { header: 'Stale', value: staleLabel },
+      { header: 'Action', value: recommendedActionLabel },
     ],
     response.resources
   )
+}
+
+function renderReconcileText(response: ReconcileResponse): string {
+  const apply = renderApplyText(response.apply)
+  const outcomes = response.sourceDeletion.outcomes
+  if (outcomes.length === 0) {
+    return `${apply}\n\nsource-deletion: no stale resources`
+  }
+  const table = renderTable(
+    [
+      { header: 'Kind', value: (row: SourceDeletionOutcome) => row.resourceKind },
+      { header: 'Projection', value: (row) => row.projectionPk },
+      { header: 'Live', value: (row) => valueOrDash(row.liveTarget) },
+      { header: 'Source', value: (row) => valueOrDash(row.sourcePath) },
+      { header: 'Outcome', value: (row) => row.outcome },
+      { header: 'From', value: (row) => row.previousState },
+      { header: 'To', value: (row) => row.finalState },
+    ],
+    outcomes
+  )
+  return `${apply}\n\nsource-deletion:\n${table}`
+}
+
+function readSourceDeletionPolicy(parsed: ReturnType<typeof parseArgs>): SourceDeletionPolicy {
+  const value = readStringFlag(parsed, '--source-deletion')
+  if (value === undefined) {
+    return 'disable'
+  }
+  if (value !== 'disable' && value !== 'archive' && value !== 'purge') {
+    throw new CliUsageError('--source-deletion must be one of disable, archive, purge')
+  }
+  return value
 }
 
 export async function runAdminManagedResourceApplyCommand(
@@ -210,11 +264,36 @@ export async function runAdminManagedResourceStatusCommand(
   if (typeof ownerScopeRef !== 'string' || ownerScopeRef.trim().length === 0) {
     throw new CliUsageError('plan.sourceOwnerScopeRef must be a non-empty string')
   }
-  const projectionIds = projectionIdsFromPlan(plan)
+  // Plan-aware status: the server compares the plan's projection ids against
+  // existing provenance for plan.sourceOwnerScopeRef and reports stale resources
+  // with recommended actions before any mutation.
   const response = await createRawRequesterFromParsed(parsed, deps).requestJson<StatusResponse>({
     method: 'POST',
     path: '/v1/admin/managed-resources/status',
-    body: { ownerScopeRef: ownerScopeRef.trim(), projectionIds },
+    body: { plan },
   })
   return hasFlag(parsed, '--json') ? asJson(response) : asText(renderStatusText(response))
+}
+
+export async function runAdminManagedResourceReconcileCommand(
+  args: string[],
+  deps: CommandDependencies = {}
+): Promise<CommandOutput> {
+  const parsed = parseArgs(args, {
+    booleanFlags: ['--json'],
+    stringFlags: ['--in', '--server', '--actor', '--source-deletion'],
+  })
+  requireNoPositionals(parsed)
+  const plan = requirePlan(parsed)
+  const ownerScopeRef = plan.sourceOwnerScopeRef
+  if (typeof ownerScopeRef !== 'string' || ownerScopeRef.trim().length === 0) {
+    throw new CliUsageError('plan.sourceOwnerScopeRef must be a non-empty string')
+  }
+  const sourceDeletionPolicy = readSourceDeletionPolicy(parsed)
+  const response = await createRawRequesterFromParsed(parsed, deps).requestJson<ReconcileResponse>({
+    method: 'POST',
+    path: '/v1/admin/managed-resources/reconcile',
+    body: { plan, sourceDeletionPolicy },
+  })
+  return hasFlag(parsed, '--json') ? asJson(response) : asText(renderReconcileText(response))
 }

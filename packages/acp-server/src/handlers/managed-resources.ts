@@ -2,11 +2,28 @@ import { badRequest, json } from '../http.js'
 import { isRecord, parseJsonBody } from '../parsers/body.js'
 import {
   type ManagedResourcesPlan,
+  type SourceDeletionPolicy,
   applyPlanWithStores,
+  reconcilePlanWithStores,
   statusWithStores,
   validateManagedResourcesPlan,
 } from '../resources/apply.js'
 import type { RouteHandler } from '../routing/route-context.js'
+
+const SOURCE_DELETION_POLICIES: ReadonlySet<string> = new Set(['disable', 'archive', 'purge'])
+
+function parseSourceDeletionPolicy(body: Record<string, unknown>): SourceDeletionPolicy {
+  const value = body['sourceDeletionPolicy']
+  if (value === undefined) {
+    return 'disable'
+  }
+  if (typeof value !== 'string' || !SOURCE_DELETION_POLICIES.has(value)) {
+    badRequest('sourceDeletionPolicy must be one of disable, archive, purge', {
+      field: 'sourceDeletionPolicy',
+    })
+  }
+  return value as SourceDeletionPolicy
+}
 
 function requireJobsStore(deps: Parameters<RouteHandler>[0]['deps']) {
   if (deps.jobsStore === undefined) {
@@ -72,12 +89,63 @@ export const handleApplyManagedResources: RouteHandler = async ({ request, deps 
 }
 
 export const handleGetManagedResourcesStatus: RouteHandler = async ({ request, deps }) => {
-  const body = parseStatusBody(await parseJsonBody(request))
+  const rawBody = await parseJsonBody(request)
+  if (!isRecord(rawBody)) {
+    badRequest('request body must be a JSON object')
+  }
+  const hasPlan = Object.prototype.hasOwnProperty.call(rawBody, 'plan')
+  const hasOwner = Object.prototype.hasOwnProperty.call(rawBody, 'ownerScopeRef')
+  if (hasPlan && hasOwner) {
+    badRequest('provide either plan or ownerScopeRef, not both')
+  }
+
+  if (hasPlan) {
+    const validation = validateManagedResourcesPlan(rawBody['plan'])
+    if (!validation.valid) {
+      badRequest('managed resources plan is invalid', { errors: validation.errors })
+    }
+    const plan = rawBody['plan'] as ManagedResourcesPlan
+    const sourceDeletionPolicy = parseSourceDeletionPolicy(rawBody)
+    const result = await statusWithStores({
+      plan,
+      sourceDeletionPolicy,
+      jobsStore: requireJobsStore(deps),
+      interfaceStore: deps.interfaceStore,
+    })
+    return json(result)
+  }
+
+  const body = parseStatusBody(rawBody)
   const result = await statusWithStores({
     ownerScopeRef: body.ownerScopeRef,
     projectionIds: body.projectionIds,
     jobsStore: requireJobsStore(deps),
     interfaceStore: deps.interfaceStore,
+  })
+  return json(result)
+}
+
+export const handleReconcileManagedResources: RouteHandler = async ({ request, deps }) => {
+  const rawBody = await parseJsonBody(request)
+  if (!isRecord(rawBody)) {
+    badRequest('request body must be a JSON object')
+  }
+  if (!Object.prototype.hasOwnProperty.call(rawBody, 'plan')) {
+    badRequest('plan is required', { field: 'plan' })
+  }
+  const validation = validateManagedResourcesPlan(rawBody['plan'])
+  if (!validation.valid) {
+    badRequest('managed resources plan is invalid', { errors: validation.errors })
+  }
+  const plan = rawBody['plan'] as ManagedResourcesPlan
+  const sourceDeletionPolicy = parseSourceDeletionPolicy(rawBody)
+
+  const result = await reconcilePlanWithStores({
+    plan,
+    jobsStore: requireJobsStore(deps),
+    interfaceStore: deps.interfaceStore,
+    now: new Date().toISOString(),
+    sourceDeletionPolicy,
   })
   return json(result)
 }

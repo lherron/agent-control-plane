@@ -277,13 +277,11 @@ describe('acp admin managed-resource status', () => {
         assert(request) {
           expect(request.method).toBe('POST')
           expect(new URL(request.url).pathname).toBe('/v1/admin/managed-resources/status')
-          const body = request.body as { ownerScopeRef: string; projectionIds?: string[] }
-          expect(body).toHaveProperty('ownerScopeRef', PLAN_OWNER_SCOPE_REF)
-          expect(body.projectionIds).toEqual([
-            'agent-directory:agent:smokey:project:agent-spaces:scheduled-job:daily-triage',
-            'agent-directory:agent:smokey:project:agent-spaces:interface-binding:discord-smoke',
-            'agent-directory:agent:smokey:project:agent-spaces:event-hook:wrkq-needs-smoketest',
-          ])
+          // T-05244: status is now plan-aware — the CLI sends the plan so the
+          // server can classify stale (missing-source) resources.
+          const body = request.body as { plan?: { sourceOwnerScopeRef?: string } }
+          expect(body.plan).toBeDefined()
+          expect(body.plan).toHaveProperty('sourceOwnerScopeRef', PLAN_OWNER_SCOPE_REF)
         },
       },
     ])
