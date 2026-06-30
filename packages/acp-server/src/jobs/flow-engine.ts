@@ -761,7 +761,7 @@ async function advanceExecStep(input: {
       defaultCwd: await resolveExecDefaultCwd(input.deps, input.job),
       policy: input.deps.jobExecPolicy ?? resolveJobExecPolicy(),
     })
-    const status = result.exitCode === 0 && !result.timedOut ? 'succeeded' : 'failed'
+    const status = isSuccessfulExecStepResult(input.step, result) ? 'succeeded' : 'failed'
 
     return {
       state: 'terminal',
@@ -830,7 +830,7 @@ function resolveTerminalStepTransition(
 
   if (isExecStep(step)) {
     const result = readExecStepResult(stepRun)
-    return result?.exitCode === 0 && result.timedOut !== true ? 'continue' : 'fail'
+    return result !== undefined && isSuccessfulExecStepResult(step, result) ? 'continue' : 'fail'
   }
 
   return stepRun.status === 'succeeded' ? 'continue' : 'fail'
@@ -866,6 +866,14 @@ function resolvePhaseTransition(
 
 function isExecStep(step: JobFlowStep): step is ExecFlowStep {
   return step.kind === 'exec'
+}
+
+function isSuccessfulExecStepResult(step: ExecFlowStep, result: ExecStepResult): boolean {
+  if (result.timedOut || result.exitCode === null) {
+    return false
+  }
+  const successExitCodes = step.exec.successExitCodes ?? [0]
+  return successExitCodes.includes(result.exitCode)
 }
 
 function isNativeStep(step: JobFlowStep): boolean {

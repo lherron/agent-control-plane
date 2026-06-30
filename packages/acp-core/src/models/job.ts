@@ -86,6 +86,7 @@ export type ExecFlowStep = BaseFlowStep & {
     env?: Readonly<Record<string, string>> | undefined
     timeout?: string | undefined
     maxOutputBytes?: number | undefined
+    successExitCodes?: readonly number[] | undefined
   }
   branches?:
     | {

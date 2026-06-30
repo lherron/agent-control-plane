@@ -21,6 +21,7 @@ export type JobFlowValidationErrorCode =
   | 'invalid_exec_env'
   | 'invalid_exec_timeout'
   | 'invalid_exec_max_output_bytes'
+  | 'invalid_exec_success_exit_codes'
   | 'invalid_branch_exit_code'
   | 'invalid_flow_next'
   | 'flow_cycle'
@@ -301,6 +302,22 @@ function validateExec(exec: unknown, path: string, errors: JobFlowValidationErro
         'invalid_exec_max_output_bytes',
         `${path}.maxOutputBytes`,
         `exec.maxOutputBytes must be a positive integer no greater than ${maxExecOutputBytes}`
+      )
+    }
+  }
+
+  if ('successExitCodes' in exec) {
+    const successExitCodes = exec['successExitCodes']
+    if (
+      !Array.isArray(successExitCodes) ||
+      successExitCodes.length === 0 ||
+      successExitCodes.some((entry) => !isValidExitCodeNumber(entry))
+    ) {
+      addError(
+        errors,
+        'invalid_exec_success_exit_codes',
+        `${path}.successExitCodes`,
+        'exec.successExitCodes must be a non-empty integer array with values from 0 to 255'
       )
     }
   }
@@ -738,6 +755,14 @@ function isValidExitCodeKey(value: string): boolean {
     return false
   }
   const exitCode = Number(value)
+  return isValidExitCodeNumber(exitCode)
+}
+
+function isValidExitCodeNumber(value: unknown): value is number {
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    return false
+  }
+  const exitCode = value
   return exitCode >= 0 && exitCode <= 255
 }
 

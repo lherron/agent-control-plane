@@ -654,6 +654,38 @@ describe('advanceJobFlow exec steps', () => {
     })
   })
 
+  test('exec configured success exit code can skip the agent step without a failed step', async () => {
+    await withFlowHarness(async ({ deps, jobsStore, inputAttemptStore }) => {
+      const { jobRun, advanced } = await advanceCreatedFlow({
+        deps,
+        jobsStore,
+        flow: {
+          sequence: [
+            execStep('selector', 'process.exit(10)', {
+              exec: {
+                argv: [process.execPath, '-e', 'process.exit(10)'],
+                successExitCodes: [0, 10],
+              },
+              branches: { exitCode: { '10': 'succeed' }, default: 'run' },
+            }),
+            agentStep('run', 'must not run when selector exits no-work'),
+          ],
+        },
+      })
+
+      expect(advanced.status).toBe('succeeded')
+      expect(inputAttemptStore.calls).toHaveLength(0)
+      expect(
+        jobsStore.jobStepRuns
+          .listByJobRun(jobRun.jobRunId)
+          .jobStepRuns.map((step) => [step.stepId, step.status])
+      ).toEqual([
+        ['selector', 'succeeded'],
+        ['run', 'pending'],
+      ])
+    })
+  })
+
   test('exec branch to fail marks the job run failed', async () => {
     await withFlowHarness(async ({ deps, jobsStore, inputAttemptStore }) => {
       const { advanced } = await advanceCreatedFlow({

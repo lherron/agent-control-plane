@@ -260,6 +260,16 @@ describe('JobFlow validation', () => {
           { id: 'bad-timeout', kind: 'exec', exec: { argv: ['bun'], timeout: '5 minutes' } },
           { id: 'bad-output-zero', kind: 'exec', exec: { argv: ['bun'], maxOutputBytes: 0 } },
           {
+            id: 'bad-success-exit-codes-empty',
+            kind: 'exec',
+            exec: { argv: ['bun'], successExitCodes: [] },
+          },
+          {
+            id: 'bad-success-exit-codes-value',
+            kind: 'exec',
+            exec: { argv: ['bun'], successExitCodes: [0, 300] },
+          },
+          {
             id: 'bad-output-too-large',
             kind: 'exec',
             exec: { argv: ['bun'], maxOutputBytes: Number.MAX_SAFE_INTEGER },
@@ -274,6 +284,7 @@ describe('JobFlow validation', () => {
         'invalid_exec_env',
         'invalid_exec_timeout',
         'invalid_exec_max_output_bytes',
+        'invalid_exec_success_exit_codes',
       ]
     )
   })
@@ -286,6 +297,7 @@ describe('JobFlow validation', () => {
       validateJobFlow({
         sequence: [
           execStep('build', ['bun', 'run', 'build'], {
+            exec: { argv: ['bun', 'run', 'build'], successExitCodes: [0, 10] },
             branches: { exitCode: { '0': continueToTest, '1': failTerminal }, default: 'succeed' },
           }),
           execStep('test', ['bun', 'run', 'test'], { next: 'continue' }),

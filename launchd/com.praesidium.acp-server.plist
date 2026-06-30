@@ -18,6 +18,10 @@
 		<string>127.0.0.1</string>
 		<key>ACP_INTERFACE_DB_PATH</key>
 		<string>/Users/lherron/praesidium/var/db/acp-interface.db</string>
+		<key>ACP_JOB_FLOW_EXEC_ALLOWED_CWD_ROOTS</key>
+		<string>/Users/lherron/praesidium/agent-control-plane</string>
+		<key>ACP_JOB_FLOW_EXEC_ENABLED</key>
+		<string>1</string>
 		<key>ACP_JOBS_DB_PATH</key>
 		<string></string>
 		<key>ACP_LOG_PATH</key>
