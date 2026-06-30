@@ -16,13 +16,13 @@
     "acp-jobs-store": "*",
     "acp-server": "*",
     "acp-state-store": "*",
-    "agent-scope": "0.1.1-dev.20260629110437",
+    "agent-scope": "0.1.1-dev.20260630094704",
     "coordination-substrate": "*",
-    "hrc-core": "0.1.0-dev.20260629192609",
-    "hrc-sdk": "0.1.0-dev.20260629192609",
-    "hrc-server": "0.1.0-dev.20260629192609",
-    "spaces-config": "0.1.1-dev.20260629110437",
-    "spaces-runtime": "0.1.1-dev.20260629110437"
+    "hrc-core": "0.1.0-dev.20260630094721",
+    "hrc-sdk": "0.1.0-dev.20260630094721",
+    "hrc-server": "0.1.0-dev.20260630094721",
+    "spaces-config": "0.1.1-dev.20260630094704",
+    "spaces-runtime": "0.1.1-dev.20260630094704"
   },
   "devDependencies": {
     "@types/bun": "latest",

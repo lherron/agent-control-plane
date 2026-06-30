@@ -27,12 +27,12 @@
   "dependencies": {
     "acp-core": "*",
     "acp-ops-projection": "*",
-    "agent-action-render": "0.1.0-dev.20260629192609",
-    "agent-scope": "0.1.1-dev.20260629110437",
+    "agent-action-render": "0.1.0-dev.20260630094721",
+    "agent-scope": "0.1.1-dev.20260630094704",
     "discord.js": "^14.16.0",
-    "hrc-frame-render": "0.1.0-dev.20260629192609",
-    "spaces-config": "0.1.1-dev.20260629110437",
-    "spaces-runtime": "0.1.1-dev.20260629110437"
+    "hrc-frame-render": "0.1.0-dev.20260630094721",
+    "spaces-config": "0.1.1-dev.20260630094704",
+    "spaces-runtime": "0.1.1-dev.20260630094704"
   },
   "devDependencies": {
     "@types/bun": "latest",
