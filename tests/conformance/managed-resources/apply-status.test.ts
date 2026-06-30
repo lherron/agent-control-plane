@@ -26,7 +26,8 @@
  *   - Replay/idempotency for apply runs
  */
 import { describe, expect, test } from 'bun:test'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 // Phase E will create this module. Until then, this import fails at module resolution,
@@ -39,6 +40,7 @@ import {
   getManagedResourcesStatus,
   validateManagedResourcesPlan,
 } from '../../../packages/acp-server/src/resources/apply.js'
+import * as managedResourceOrchestrator from '../../../packages/acp-server/src/resources/apply.js'
 
 // ------------------------------------------------------------------
 // Load the canonical ASP plan fixture (versioned wire input)
@@ -61,6 +63,8 @@ const SCHEDULED_FLOW_PROJECTION_ID =
   'agent-directory:agent:smokey:project:agent-spaces:scheduled-job:daily-triage'
 const BINDING_PROJECTION_ID =
   'agent-directory:agent:smokey:project:agent-spaces:interface-binding:discord-smoke'
+const EVENT_HOOK_PROJECTION_ID =
+  'agent-directory:agent:smokey:project:agent-spaces:event-hook:wrkq-needs-smoketest'
 
 // ------------------------------------------------------------------
 // In-memory DB helpers for Phase E tests
@@ -138,6 +142,29 @@ function onlyResourcePlan(
   }
 }
 
+function planWithoutProjectionIds(
+  source: ManagedResourcesPlan,
+  projectionIds: readonly string[]
+): ManagedResourcesPlan {
+  const omitted = new Set(projectionIds)
+  return {
+    ...source,
+    resources: source.resources.filter((resource) => !omitted.has(resource.projectionId)),
+  }
+}
+
+function makePersistentApplyInput(
+  plan: ManagedResourcesPlan = CANONICAL_PLAN
+): ApplyManagedResourcesPlanInput {
+  const dir = mkdtempSync(join(tmpdir(), 'acp-managed-resources-'))
+  return {
+    plan,
+    jobsDbPath: join(dir, 'jobs.db'),
+    interfaceDbPath: join(dir, 'interface.db'),
+    now: NOW,
+  }
+}
+
 // ==================================================================
 // Wire validation: plan schema (Phase E invariant)
 // ==================================================================
@@ -184,6 +211,47 @@ describe('plan schema validation (Phase E invariant)', () => {
     const { sourceOwnerScopeRef: _omit, ...bad } = CANONICAL_PLAN
     const result = validateManagedResourcesPlan(bad)
     expect(result.valid).toBe(false)
+  })
+
+  test('plan with a resource owned by a different sourceOwnerScopeRef is rejected', () => {
+    // T-05244: the plan owner is the authority boundary; callers cannot smuggle
+    // an arbitrary per-resource owner into validation, status, or reconciliation.
+    const bad = {
+      ...CANONICAL_PLAN,
+      resources: CANONICAL_PLAN.resources.map((resource, index) =>
+        index === 0
+          ? { ...resource, sourceOwnerScopeRef: 'agent:other:project:agent-spaces:task:primary' }
+          : resource
+      ),
+    }
+
+    const result = validateManagedResourcesPlan(bad)
+
+    expect(result.valid).toBe(false)
+    if (result.valid) return
+    expect(result.errors.some((error) => error.field.includes('sourceOwnerScopeRef'))).toBe(true)
+  })
+
+  test('plan with duplicate projectionId values is rejected', () => {
+    // T-05244: source deletion is projection-id based, so one plan must not
+    // contain ambiguous duplicate identities.
+    const duplicate = CANONICAL_PLAN.resources[0]
+    const bad = {
+      ...CANONICAL_PLAN,
+      resources: [
+        duplicate,
+        {
+          ...CANONICAL_PLAN.resources[1],
+          projectionId: duplicate.projectionId,
+        },
+      ],
+    }
+
+    const result = validateManagedResourcesPlan(bad)
+
+    expect(result.valid).toBe(false)
+    if (result.valid) return
+    expect(result.errors.some((error) => error.field.includes('projectionId'))).toBe(true)
   })
 
   test('plan with resource having unknown resourceKind is rejected', () => {
@@ -505,6 +573,223 @@ describe('managed-resource operator readback (T-05243)', () => {
       `${SCHEDULED_FLOW_PROJECTION_ID}:extra`
     )
     expect(status.resources.length).toBeGreaterThan(plan.resources.length)
+  })
+})
+
+// ==================================================================
+// Source deletion reconciliation (T-05244)
+// ==================================================================
+
+describe('managed-resource source deletion reconciliation (T-05244)', () => {
+  test('plan-aware status classifies only same-owner missing projections as stale', async () => {
+    const input = makePersistentApplyInput(CANONICAL_PLAN)
+    await applyManagedResourcesPlan(input)
+
+    const otherOwnerPlan = onlyResourcePlan(
+      CANONICAL_PLAN,
+      SCHEDULED_FLOW_PROJECTION_ID,
+      'agent:other:project:agent-spaces:task:primary'
+    )
+    const otherOwnerInput = {
+      ...input,
+      plan: otherOwnerPlan,
+    }
+    await applyManagedResourcesPlan(otherOwnerInput)
+
+    const missingSourcePlan = planWithoutProjectionIds(CANONICAL_PLAN, [
+      SCHEDULED_FLOW_PROJECTION_ID,
+      EVENT_HOOK_PROJECTION_ID,
+    ])
+
+    const status = await getManagedResourcesStatus({
+      plan: missingSourcePlan,
+      jobsDbPath: input.jobsDbPath,
+      interfaceDbPath: input.interfaceDbPath,
+    } as unknown as Parameters<typeof getManagedResourcesStatus>[0])
+
+    const staleScheduled = status.resources.find(
+      (resource) => resource.projectionId === SCHEDULED_FLOW_PROJECTION_ID
+    ) as Record<string, unknown> | undefined
+    const staleHook = status.resources.find(
+      (resource) => resource.projectionId === EVENT_HOOK_PROJECTION_ID
+    ) as Record<string, unknown> | undefined
+    const presentBinding = status.resources.find(
+      (resource) => resource.projectionId === BINDING_PROJECTION_ID
+    ) as Record<string, unknown> | undefined
+    const otherOwnerResource = status.resources.find(
+      (resource) => resource.projectionId === `${SCHEDULED_FLOW_PROJECTION_ID}:extra`
+    )
+
+    expect(staleScheduled).toMatchObject({
+      projectionId: SCHEDULED_FLOW_PROJECTION_ID,
+      resourceKind: 'scheduled-job',
+      projectionPk: 'agent-smokey.daily-triage',
+      sourcePath: 'agents/smokey/schedules/daily-triage.toml',
+      resourceName: 'daily-triage',
+      liveTarget: expect.stringMatching(/^job:/),
+      state: 'active',
+      hasDrift: false,
+      isStale: true,
+      recommendedAction: 'disable',
+    })
+    expect(staleHook).toMatchObject({
+      projectionId: EVENT_HOOK_PROJECTION_ID,
+      resourceKind: 'event-hook',
+      projectionPk: 'agent-smokey.wrkq-needs-smoketest',
+      sourcePath: 'agents/smokey/event-hooks/wrkq-needs-smoketest.toml',
+      resourceName: 'wrkq-needs-smoketest',
+      liveTarget: expect.stringMatching(/^job:/),
+      state: 'active',
+      hasDrift: false,
+      isStale: true,
+      recommendedAction: 'disable',
+    })
+    expect(presentBinding).toMatchObject({
+      projectionId: BINDING_PROJECTION_ID,
+      resourceKind: 'interface-binding',
+      sourcePath: 'agents/smokey/channels/discord-smoke.toml',
+      resourceName: 'discord-smoke',
+      liveTarget: expect.stringMatching(/^binding:/),
+      isStale: false,
+      recommendedAction: 'none',
+    })
+    expect(otherOwnerResource).toBeUndefined()
+  })
+
+  test('default reconcile disables stale resources once and returns stale_noop on repeat', async () => {
+    const reconcileManagedResourcesPlan = (
+      managedResourceOrchestrator as {
+        reconcileManagedResourcesPlan?: (input: unknown) => Promise<{
+          apply: { outcomes: Array<Record<string, unknown>> }
+          sourceDeletion: { outcomes: Array<Record<string, unknown>> }
+        }>
+      }
+    ).reconcileManagedResourcesPlan
+
+    expect(typeof reconcileManagedResourcesPlan).toBe('function')
+
+    const input = makePersistentApplyInput(CANONICAL_PLAN)
+    await applyManagedResourcesPlan(input)
+
+    const missingSourcePlan = planWithoutProjectionIds(CANONICAL_PLAN, [
+      SCHEDULED_FLOW_PROJECTION_ID,
+      BINDING_PROJECTION_ID,
+      EVENT_HOOK_PROJECTION_ID,
+    ])
+
+    const first = await reconcileManagedResourcesPlan?.({
+      plan: missingSourcePlan,
+      jobsDbPath: input.jobsDbPath,
+      interfaceDbPath: input.interfaceDbPath,
+      now: NOW,
+    })
+
+    expect(first?.apply.outcomes).toHaveLength(missingSourcePlan.resources.length)
+    expect(first?.sourceDeletion.outcomes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          projectionId: SCHEDULED_FLOW_PROJECTION_ID,
+          resourceKind: 'scheduled-job',
+          outcome: 'stale_disabled',
+          previousState: 'active',
+          finalState: 'disabled',
+          sourcePath: 'agents/smokey/schedules/daily-triage.toml',
+          resourceName: 'daily-triage',
+          liveTarget: expect.stringMatching(/^job:/),
+          hadDrift: false,
+        }),
+        expect.objectContaining({
+          projectionId: BINDING_PROJECTION_ID,
+          resourceKind: 'interface-binding',
+          outcome: 'stale_disabled',
+          previousState: 'active',
+          finalState: 'disabled',
+          sourcePath: 'agents/smokey/channels/discord-smoke.toml',
+          resourceName: 'discord-smoke',
+          liveTarget: expect.stringMatching(/^binding:/),
+          hadDrift: false,
+        }),
+        expect.objectContaining({
+          projectionId: EVENT_HOOK_PROJECTION_ID,
+          resourceKind: 'event-hook',
+          outcome: 'stale_disabled',
+          previousState: 'active',
+          finalState: 'disabled',
+          sourcePath: 'agents/smokey/event-hooks/wrkq-needs-smoketest.toml',
+          resourceName: 'wrkq-needs-smoketest',
+          liveTarget: expect.stringMatching(/^job:/),
+          hadDrift: false,
+        }),
+      ])
+    )
+
+    const afterFirst = await getManagedResourcesStatus({
+      plan: missingSourcePlan,
+      jobsDbPath: input.jobsDbPath,
+      interfaceDbPath: input.interfaceDbPath,
+    } as unknown as Parameters<typeof getManagedResourcesStatus>[0])
+    expect(
+      afterFirst.resources
+        .filter((resource) =>
+          [SCHEDULED_FLOW_PROJECTION_ID, BINDING_PROJECTION_ID, EVENT_HOOK_PROJECTION_ID].includes(
+            resource.projectionId
+          )
+        )
+        .map((resource) => ({
+          projectionId: resource.projectionId,
+          state: resource.state,
+          disabled: resource.disabled,
+          recommendedAction: (resource as Record<string, unknown>)['recommendedAction'],
+        }))
+    ).toEqual(
+      expect.arrayContaining([
+        {
+          projectionId: SCHEDULED_FLOW_PROJECTION_ID,
+          state: 'disabled',
+          disabled: true,
+          recommendedAction: 'none',
+        },
+        {
+          projectionId: BINDING_PROJECTION_ID,
+          state: 'disabled',
+          disabled: true,
+          recommendedAction: 'none',
+        },
+        {
+          projectionId: EVENT_HOOK_PROJECTION_ID,
+          state: 'disabled',
+          disabled: true,
+          recommendedAction: 'none',
+        },
+      ])
+    )
+
+    const second = await reconcileManagedResourcesPlan?.({
+      plan: missingSourcePlan,
+      jobsDbPath: input.jobsDbPath,
+      interfaceDbPath: input.interfaceDbPath,
+      now: NOW,
+    })
+
+    expect(second?.sourceDeletion.outcomes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          projectionId: SCHEDULED_FLOW_PROJECTION_ID,
+          outcome: 'stale_noop',
+          finalState: 'disabled',
+        }),
+        expect.objectContaining({
+          projectionId: BINDING_PROJECTION_ID,
+          outcome: 'stale_noop',
+          finalState: 'disabled',
+        }),
+        expect.objectContaining({
+          projectionId: EVENT_HOOK_PROJECTION_ID,
+          outcome: 'stale_noop',
+          finalState: 'disabled',
+        }),
+      ])
+    )
   })
 })
 
