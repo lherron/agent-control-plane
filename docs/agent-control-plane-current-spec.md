@@ -166,6 +166,30 @@ It validates the wrkq shape, adapts it into `AcpWebhookEvent`, and stores the
 normalized payload. Scheduler evaluation reads the normalized model; it must not
 assume inbox payloads are wrkq-only.
 
+The wrkq v2 adapter keeps the producer payload and the Discord/system-events
+renderer contract separate. Minimal v2 payloads still require only
+`schema_version: 2`, `event_id`, `event_seq`, and `event`; current wrkq
+`changed`/`changes` maps may contain non-renderer keys and remain valid. When
+recognized enrichment objects are present, ACP validates their shape
+fail-closed before any observer append or jobs-inbox write:
+
+- `comment`: optional `id`, `author`, `preview`, and raw producer fields.
+- `move`: optional `from_container_path` and `to_container_path`.
+- `archive`: optional `prior_state`, `prior_container_path`, `reason`, and
+  `note`.
+- `workflow`: compact identity, state, transition, action/run, role,
+  next-action, obligation, and check summary fields.
+
+The system-events projection for wrkq/wrkf lifecycle events is explicit and
+bounded. It preserves only existing card identity/context fields plus safe
+optional summaries for `wrkq.comment_added`, `wrkq.moved`, `wrkq.archived`,
+`wrkq.purged`, `wrkq.updated`, `wrkf.workflow_attached`, and
+`wrkf.workflow_transitioned`. Comment previews, archive reasons/notes, compact
+labels, and compact arrays are sanitized/truncated; raw comment bodies,
+descriptions, specifications, workflow payloads, evidence, check output, and
+arbitrary producer blobs are never emitted to system-events. The jobs inbox still
+stores the normalized webhook event for audit/replay.
+
 Webhook ingest is durable and idempotent by `(source,event_id)`. The current
 SQLite key is the canonical string `source:event_id`, so producer-local ids from
 different sources cannot suppress each other. Producer `event_seq` is
@@ -212,6 +236,12 @@ silently inoperative for generic producers.
 
 Both webhook routes are loopback-trusted only for v1. They are not internet-safe
 without source authentication/signing.
+
+Job lifecycle system-events (`job.dispatched` and `job.completed`) include
+available `JobRunRecord` timing fields: `triggeredAt`, `claimedAt`,
+`dispatchedAt`, and `completedAt`. Terminal events include `durationMs` only
+when `triggeredAt` and `completedAt` parse as valid timestamps and completion is
+not earlier than trigger time.
 
 ## CLI Surfaces
 

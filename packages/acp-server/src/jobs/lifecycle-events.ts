@@ -104,6 +104,9 @@ export function createJobLifecycleEmitter(input: {
       // Optional: flow jobs may have no top-level HRC run (step-level dispatch only).
       ...(run.runId !== undefined ? { runId: run.runId } : {}),
       ...(run.inputAttemptId !== undefined ? { inputAttemptId: run.inputAttemptId } : {}),
+      ...(run.triggeredAt !== undefined ? { triggeredAt: run.triggeredAt } : {}),
+      ...(run.claimedAt !== undefined ? { claimedAt: run.claimedAt } : {}),
+      ...(run.dispatchedAt !== undefined ? { dispatchedAt: run.dispatchedAt } : {}),
     }
   }
 
@@ -161,6 +164,8 @@ export function createJobLifecycleEmitter(input: {
         {
           ...payload,
           status: run.status,
+          ...(run.completedAt !== undefined ? { completedAt: run.completedAt } : {}),
+          ...durationPayload(run),
           ...(run.errorCode !== undefined ? { errorCode: run.errorCode } : {}),
           ...(run.errorMessage !== undefined ? { errorMessage: run.errorMessage } : {}),
           ...(finalResponse !== undefined ? { finalResponse } : {}),
@@ -171,6 +176,19 @@ export function createJobLifecycleEmitter(input: {
   }
 
   return { reconcile }
+}
+
+function durationPayload(run: JobRunRecord): { durationMs?: number } {
+  if (run.triggeredAt === undefined || run.completedAt === undefined) {
+    return {}
+  }
+  const triggeredAt = Date.parse(run.triggeredAt)
+  const completedAt = Date.parse(run.completedAt)
+  if (!Number.isFinite(triggeredAt) || !Number.isFinite(completedAt)) {
+    return {}
+  }
+  const durationMs = completedAt - triggeredAt
+  return durationMs >= 0 ? { durationMs } : {}
 }
 
 function latestCompletedStepRunId(steps: readonly JobStepRunRecord[]): string | undefined {

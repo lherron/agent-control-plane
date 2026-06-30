@@ -31,6 +31,37 @@ The **system-events store is an immutable observer projection**, not authority.
 - Optional captured agent output via
   `getRunFinalAssistantText({ getRun, hrcDbPath }, runId)`
   (`jobs/run-final-output.ts`), carried as `finalResponse` (truncated).
+- `job.dispatched` and `job.completed` carry available run timing fields
+  (`triggeredAt`, `claimedAt`, `dispatchedAt`, `completedAt`). `durationMs` is
+  emitted only on terminal events when trigger and completion timestamps are
+  valid and non-negative.
+
+`packages/acp-server/src/jobs/wrkq-event-emitter.ts` observes committed wrkq v2
+webhooks from `POST /v1/webhooks/wrkq` and appends recognized `wrkq.*` /
+`wrkf.*` lifecycle events. It is also observer-only: malformed recognized
+enrichment objects are rejected by the webhook parser before both system-events
+and jobs-inbox writes, duplicate system-events are suppressed by
+`canonicalEventId`, and append failure never changes the webhook response or
+wrkq/wrkf/jobs authority.
+
+The wrkq/wrkf system-event payload is a bounded renderer contract, not the raw
+producer blob. It preserves existing identity/context fields and may include:
+
+- `comment`: `id`, optional `author`, and sanitized/truncated `preview`.
+- `move`: `from_container_path` and `to_container_path`.
+- `archive`: compact prior state/path plus optional sanitized `reason`/`note`.
+- `changes`: for `state`, `title`, `labels`, `priority`, `due_at`, `start_at`,
+  `container_path`, `slug`, and `kind` only.
+- `workflow`: compact template/instance/state/transition/action/run metadata,
+  roles, next actions, blocked obligations, and checks.
+
+Control characters are stripped, whitespace is collapsed, preview/reason/note
+strings are capped at 240 characters, compact labels at 80 characters, and
+compact arrays at five items. Raw comment bodies, descriptions/specifications,
+workflow payloads, evidence, check output, and arbitrary nested producer data do
+not leave the system-events projection. Gateway-discord consumes only this
+system-event payload and must not read wrkq/wrkf authority stores, job stores, or
+interface bindings to enrich cards.
 
 ### 2. Store + HTTP (generic, reusable)
 
