@@ -39,8 +39,8 @@ export type UpdateRunInput = {
   generation?: number | undefined
   runtimeId?: string | undefined
   transport?: string | undefined
-  errorCode?: string | undefined
-  errorMessage?: string | undefined
+  errorCode?: string | null | undefined
+  errorMessage?: string | null | undefined
   metadata?: Readonly<Record<string, unknown>> | undefined
   afterHrcSeq?: number | undefined
 }

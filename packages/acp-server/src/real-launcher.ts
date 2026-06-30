@@ -196,7 +196,11 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
           )
         }
         await onEvent(assistantMessage)
-        updateAcpRun(runStore, acpRunId, { status: 'completed' })
+        updateAcpRun(runStore, acpRunId, {
+          status: 'completed',
+          errorCode: null,
+          errorMessage: null,
+        })
       }
 
       return {
@@ -230,13 +234,15 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
       throw error
     }
 
+    const dispatchedAcpStatus = dispatched.status === 'completed' ? 'completed' : 'running'
     updateAcpRun(runStore, acpRunId, {
       hrcRunId: dispatched.runId,
-      status: dispatched.status === 'completed' ? 'completed' : 'running',
+      status: dispatchedAcpStatus,
       hostSessionId: dispatched.hostSessionId,
       generation: dispatched.generation,
       runtimeId: dispatched.runtimeId,
       transport: dispatched.transport,
+      ...(dispatchedAcpStatus === 'completed' ? { errorCode: null, errorMessage: null } : {}),
     })
 
     if (shouldWaitForCompletion) {
@@ -250,11 +256,12 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
               pollIntervalMs,
             })
 
+      const completedAcpStatus = toAcpRunStatus(completedRun.status)
       updateAcpRun(runStore, acpRunId, {
         hrcRunId: dispatched.runId,
-        status: toAcpRunStatus(completedRun.status),
-        errorCode: completedRun.errorCode,
-        errorMessage: completedRun.errorMessage,
+        status: completedAcpStatus,
+        errorCode: completedAcpStatus === 'completed' ? null : completedRun.errorCode,
+        errorMessage: completedAcpStatus === 'completed' ? null : completedRun.errorMessage,
       })
 
       if (completedRun.status !== 'completed') {
@@ -726,6 +733,62 @@ export function hasInFlightHrcRunSince(
     return false
   } finally {
     db.close()
+  }
+}
+
+export type RecentlyCompletedHrcRunEvidence = {
+  runId: string
+  acceptedAt: string
+  completedAt: string
+}
+
+export function hasRecentlyCompletedHrcRunSince(
+  hrcDbPath: string,
+  hostSessionId: string,
+  sinceIso: string,
+  untilIso?: string
+): RecentlyCompletedHrcRunEvidence | undefined {
+  let db: Database | undefined
+  try {
+    db = new Database(hrcDbPath, { readonly: true })
+    const row =
+      untilIso === undefined
+        ? db
+            .query<RecentlyCompletedHrcRunEvidence, [string, string, string]>(
+              `SELECT run_id AS runId,
+                      accepted_at AS acceptedAt,
+                      completed_at AS completedAt
+                 FROM runs
+                WHERE host_session_id = ?
+                  AND accepted_at IS NOT NULL
+                  AND completed_at IS NOT NULL
+                  AND accepted_at >= ?
+                  AND completed_at >= ?
+                ORDER BY completed_at DESC, run_id DESC
+                LIMIT 1`
+            )
+            .get(hostSessionId, sinceIso, sinceIso)
+        : db
+            .query<RecentlyCompletedHrcRunEvidence, [string, string, string, string]>(
+              `SELECT run_id AS runId,
+                      accepted_at AS acceptedAt,
+                      completed_at AS completedAt
+                 FROM runs
+                WHERE host_session_id = ?
+                  AND accepted_at IS NOT NULL
+                  AND completed_at IS NOT NULL
+                  AND accepted_at >= ?
+                  AND accepted_at < ?
+                  AND completed_at >= ?
+                ORDER BY completed_at DESC, run_id DESC
+                LIMIT 1`
+            )
+            .get(hostSessionId, sinceIso, untilIso, sinceIso)
+    return row ?? undefined
+  } catch {
+    return undefined
+  } finally {
+    db?.close()
   }
 }
 

@@ -65,8 +65,8 @@ export type UpdateRunInput = {
   generation?: number | undefined
   runtimeId?: string | undefined
   transport?: string | undefined
-  errorCode?: string | undefined
-  errorMessage?: string | undefined
+  errorCode?: string | null | undefined
+  errorMessage?: string | null | undefined
   metadata?: Readonly<Record<string, unknown>> | undefined
   afterHrcSeq?: number | undefined
 }
@@ -239,8 +239,6 @@ export class InMemoryRunStore implements RunStore {
     assignDefined(definedPatch, patch, 'generation')
     assignDefined(definedPatch, patch, 'runtimeId')
     assignDefined(definedPatch, patch, 'transport')
-    assignDefined(definedPatch, patch, 'errorCode')
-    assignDefined(definedPatch, patch, 'errorMessage')
     assignDefined(definedPatch, patch, 'metadata')
     assignDefined(definedPatch, patch, 'afterHrcSeq')
 
@@ -250,6 +248,8 @@ export class InMemoryRunStore implements RunStore {
       ...definedPatch,
       updatedAt: new Date().toISOString(),
     }
+    applyNullableStringPatch(next, patch, 'errorCode')
+    applyNullableStringPatch(next, patch, 'errorMessage')
 
     this.runs.set(runId, next)
     return structuredClone(next)
@@ -283,4 +283,23 @@ function assignDefined<Key extends keyof DefinedRunPatch>(
       Object.assign(target, { [key]: value })
     }
   }
+}
+
+function applyNullableStringPatch(
+  target: StoredRun,
+  patch: UpdateRunInput,
+  key: 'errorCode' | 'errorMessage'
+): void {
+  if (!(key in patch)) {
+    return
+  }
+  const value = patch[key]
+  if (value === undefined) {
+    return
+  }
+  if (value === null) {
+    delete target[key]
+    return
+  }
+  target[key] = value
 }

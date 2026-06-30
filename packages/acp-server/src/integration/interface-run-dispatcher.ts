@@ -17,11 +17,16 @@ import {
   readCompletedAssistantMessageFromHrcEvents,
   readRunStatus,
 } from '../real-launcher.js'
+import {
+  hasExpiredTerminalCorrelationGrace,
+  protectWithTerminalCorrelationGrace,
+} from './dispatch-timeout-terminal-grace.js'
 
 export type InterfaceRunDispatcherConfig = {
   intervalMs: number
   staleTimeoutMs: number
   dispatchStaleTimeoutMs?: number | undefined
+  terminalCorrelationGraceMs?: number | undefined
 }
 
 export type InterfaceRunDispatcherInput = {
@@ -104,7 +109,7 @@ export function createInterfaceRunDispatcher(
     if (run.status === 'pending' && run.hrcRunId === undefined) {
       const dispatchStaleTimeoutMs =
         config.dispatchStaleTimeoutMs ?? Math.min(config.staleTimeoutMs, 45_000)
-      if (isStale(run, dispatchStaleTimeoutMs)) {
+      if (isStale(run, dispatchStaleTimeoutMs) || hasExpiredTerminalCorrelationGrace(run)) {
         // SDK-headless dispatchTurn blocks until the HRC turn completes, so a
         // long-running turn can leave the ACP run pending+no-hrcRunId well past
         // the dispatch timeout even though HRC accepted and is actively
@@ -124,7 +129,15 @@ export function createInterfaceRunDispatcher(
             run.createdAt,
             launchCorrelationUntilIso(run.createdAt)
           )
-        if (!launchObserved) {
+        const terminalGraceProtected =
+          !launchObserved &&
+          protectWithTerminalCorrelationGrace({
+            run,
+            runStore,
+            hrcDbPath,
+            config,
+          })
+        if (!launchObserved && !terminalGraceProtected) {
           runFailed = true
           errorCode = 'dispatch_timeout'
           errorMessage = `Run was accepted by ACP but no HRC launch correlation was recorded within ${Math.round(dispatchStaleTimeoutMs / 1000)}s`
@@ -288,7 +301,11 @@ export function createInterfaceRunDispatcher(
       }
     }
 
-    runStore.updateRun(run.runId, { status: 'completed' })
+    runStore.updateRun(run.runId, {
+      status: 'completed',
+      errorCode: null,
+      errorMessage: null,
+    })
   }
 
   function hasFinalDelivery(runId: string): boolean {

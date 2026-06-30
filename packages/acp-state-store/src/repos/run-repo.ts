@@ -39,8 +39,6 @@ const RUN_PATCH_PASSTHROUGH_KEYS = [
   'generation',
   'runtimeId',
   'transport',
-  'errorCode',
-  'errorMessage',
   'metadata',
   'afterHrcSeq',
 ] as const satisfies readonly (keyof UpdateRunInput & keyof StoredRun)[]
@@ -468,6 +466,8 @@ export class RunRepo {
         ...applyDefinedRunPatch(patch),
         updatedAt: new Date().toISOString(),
       }
+      applyNullableStringPatch(next, patch, 'errorCode')
+      applyNullableStringPatch(next, patch, 'errorMessage')
 
       this.persist(next)
       return this.require(runId)
@@ -544,4 +544,23 @@ export class RunRepo {
 
     return run
   }
+}
+
+function applyNullableStringPatch(
+  target: StoredRun,
+  patch: UpdateRunInput,
+  key: 'errorCode' | 'errorMessage'
+): void {
+  if (!(key in patch)) {
+    return
+  }
+  const value = patch[key]
+  if (value === undefined) {
+    return
+  }
+  if (value === null) {
+    delete target[key]
+    return
+  }
+  target[key] = value
 }

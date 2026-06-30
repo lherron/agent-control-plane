@@ -7,7 +7,7 @@ import type {
 import { normalizeSessionRef } from 'agent-scope'
 
 import type { LaunchRoleScopedRun, ResolvedAcpServerDeps } from '../deps.js'
-import type { StoredRun } from '../domain/run-store.js'
+import type { RunStore, StoredRun } from '../domain/run-store.js'
 import {
   admissionStatusForQueueStatus,
   admissionStatusForRunStatus,
@@ -20,9 +20,16 @@ import {
 import { emitDispatchTimeoutHealthEvent } from '../jobs/health-dispatch-timeout.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
 import {
+  type RecentlyCompletedHrcRunEvidence,
   hasInFlightHrcRunSince as defaultHasInFlightHrcRunSince,
+  hasRecentlyCompletedHrcRunSince as defaultHasRecentlyCompletedHrcRunSince,
   launchCorrelationUntilIso,
 } from '../real-launcher.js'
+import {
+  hasActiveTerminalCorrelationGrace,
+  hasExpiredTerminalCorrelationGrace,
+  protectWithTerminalCorrelationGrace,
+} from './dispatch-timeout-terminal-grace.js'
 
 export type InputQueueDispatcher = {
   start(): void
@@ -35,6 +42,7 @@ export type InputQueueDispatcherConfig = {
   leaseOwner?: string | undefined
   stalePendingRunTimeoutMs?: number | undefined
   leaseTimeoutMs?: number | undefined
+  terminalCorrelationGraceMs?: number | undefined
 }
 
 export type InputQueueDispatcherDeps = Pick<
@@ -54,6 +62,14 @@ export type InputQueueDispatcherDeps = Pick<
   hrcDbPath?: string | undefined
   hasInFlightHrcRunSince?:
     | ((hrcDbPath: string, hostSessionId: string, since: string, until?: string) => boolean)
+    | undefined
+  hasRecentlyCompletedHrcRunSince?:
+    | ((
+        hrcDbPath: string,
+        hostSessionId: string,
+        since: string,
+        until?: string
+      ) => RecentlyCompletedHrcRunEvidence | undefined)
     | undefined
 }
 
@@ -77,6 +93,17 @@ type ClassifyStalePendingRunBlockerInput = {
   hasInFlightHrcRunSince?:
     | ((hrcDbPath: string, hostSessionId: string, since: string, until?: string) => boolean)
     | undefined
+  hasRecentlyCompletedHrcRunSince?:
+    | ((
+        hrcDbPath: string,
+        hostSessionId: string,
+        since: string,
+        until?: string
+      ) => RecentlyCompletedHrcRunEvidence | undefined)
+    | undefined
+  intervalMs?: number | undefined
+  terminalCorrelationGraceMs?: number | undefined
+  runStore?: RunStore | undefined
 }
 
 function hasCredibleSiblingProgress(run: StoredRun, siblings: readonly StoredRun[]): boolean {
@@ -133,7 +160,12 @@ function classifyStalePendingRunBlocker(
   if (isDeliberatelyHeldAdmission(run, admission, queueItem)) {
     return undefined
   }
-  if (Date.now() - new Date(run.updatedAt).getTime() <= timeoutMs) {
+  const nowMs = Date.now()
+  if (hasActiveTerminalCorrelationGrace(run, nowMs)) {
+    return undefined
+  }
+  const terminalGraceExpired = hasExpiredTerminalCorrelationGrace(run, nowMs)
+  if (!terminalGraceExpired && nowMs - new Date(run.updatedAt).getTime() <= timeoutMs) {
     return undefined
   }
   if (hasCredibleSiblingProgress(run, siblings)) {
@@ -149,6 +181,26 @@ function classifyStalePendingRunBlocker(
       run.createdAt,
       launchCorrelationUntilIso(run.createdAt)
     )
+  ) {
+    return undefined
+  }
+  if (
+    run.hostSessionId !== undefined &&
+    !terminalGraceExpired &&
+    protectWithTerminalCorrelationGrace({
+      run,
+      config: {
+        intervalMs: input.intervalMs ?? timeoutMs,
+        ...(input.terminalCorrelationGraceMs !== undefined
+          ? { terminalCorrelationGraceMs: input.terminalCorrelationGraceMs }
+          : {}),
+      },
+      runStore: input.runStore,
+      hrcDbPath,
+      nowMs,
+      hasRecentlyCompletedHrcRunSince:
+        input.hasRecentlyCompletedHrcRunSince ?? defaultHasRecentlyCompletedHrcRunSince,
+    })
   ) {
     return undefined
   }
@@ -174,6 +226,10 @@ function failStalePendingRunBlockers(deps: InputQueueDispatcherDeps): void {
       timeoutMs,
       hrcDbPath: deps.hrcDbPath,
       hasInFlightHrcRunSince: deps.hasInFlightHrcRunSince,
+      hasRecentlyCompletedHrcRunSince: deps.hasRecentlyCompletedHrcRunSince,
+      intervalMs: deps.config.intervalMs,
+      terminalCorrelationGraceMs: deps.config.terminalCorrelationGraceMs,
+      runStore: deps.runStore,
     })
     if (blockerKind === undefined) {
       continue
