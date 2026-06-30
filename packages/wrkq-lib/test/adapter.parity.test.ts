@@ -72,7 +72,15 @@ beforeAll(async () => {
     throw new Error(`wrkqadm init failed: ${init.stderr.toString()}`)
   }
 
-  client = await createClient({ command: WRKQ_BIN, dbPath, autoInitialize: true })
+  // Principal-only caller attribution (T-05381): wrkq mutations require a
+  // session principal (`agent:<id>`); the parity suite exercises real
+  // task.create/update + wrkf role/evidence/transition mutations.
+  client = await createClient({
+    command: WRKQ_BIN,
+    dbPath,
+    principalRef: 'agent:wrkq-lib-parity',
+    autoInitialize: true,
+  })
 
   // Install demo-linear so role.set / transition.apply tests have a workflow to attach.
   await client.wrkf.workflow.install({ path: DEMO_TEMPLATE_PATH })

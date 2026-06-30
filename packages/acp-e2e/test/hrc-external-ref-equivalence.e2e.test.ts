@@ -131,7 +131,7 @@ describe('hrc external-ref cross-impl equivalence — real wrkf e2e (C-0009)', (
 
   function seedTask(slug: string): string {
     const touch = Bun.spawnSync(
-      [WRKQ_BIN, '--db', dbPath, '--as', 'local-human', 'touch', '--project', 'inbox', slug],
+      [WRKQ_BIN, '--db', dbPath, '--as', 'agent:local-human', 'touch', '--project', 'inbox', slug],
       { cwd: tmpDir, env: childEnv }
     )
     const out = `${touch.stdout.toString()} ${touch.stderr.toString()}`
@@ -155,7 +155,7 @@ describe('hrc external-ref cross-impl equivalence — real wrkf e2e (C-0009)', (
           '--db',
           dbPath,
           '--as',
-          'local-human',
+          'agent:local-human',
           'set',
           taskId,
           '--state',

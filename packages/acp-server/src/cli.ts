@@ -63,6 +63,16 @@ const DEFAULT_COORD_DB_PATH = '/Users/lherron/praesidium/var/db/acp-coordination
 const DEFAULT_PORT = 18470
 const DEFAULT_HOST = '127.0.0.1'
 const DEFAULT_ACTOR = 'acp-server'
+
+/**
+ * Normalize ACP-server's actor id into a wrkq principal ref (T-05381). wrkq's
+ * principal-only attribution requires the `agent:<id>` form; a bare slug is
+ * rejected. Already-prefixed values pass through unchanged.
+ */
+function toPrincipalRef(actor: string): string {
+  const trimmed = actor.trim()
+  return trimmed.startsWith('agent:') ? trimmed : `agent:${trimmed}`
+}
 const DEFAULT_ACP_RUNTIME_DIR = '/Users/lherron/praesidium/var/run/acp'
 const DEFAULT_CAP_CATALOG_STATE_DIR = '/Users/lherron/praesidium/var/state/acp-server/cap-catalog'
 // PBC continuation worker launches participant turns as real provisioned agents.
@@ -834,6 +844,9 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
   const launcherDeps = resolveLauncherDeps(process.env, process.cwd())
   const wrkfLifecycle = await createWrkfClientLifecycle({
     ...(process.env['WRKF_BIN'] !== undefined ? { command: process.env['WRKF_BIN'] } : {}),
+    // Principal-only caller attribution (T-05381): ACP-server is a single wrkq
+    // principal `agent:<actor>` for all its CAS writes / workflow mutations.
+    principalRef: toPrincipalRef(options.actor),
     // wrkf is the canonical workflow authority over the SAME wrkq SQLite DB ACP
     // already uses (options.wrkqDbPath). Defaulting to a separate wrkf.db would
     // point ACP at an empty, divergent workflow store — exactly the shadow state

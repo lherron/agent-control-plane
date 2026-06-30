@@ -7,6 +7,15 @@ export interface WrkfLifecycleOptions {
   command?: string | undefined
   dbPath: string
   clientInfo: { name: string; version: string }
+  /**
+   * Canonical principal-only caller attribution for this client session
+   * (T-05381). MUST be `agent:<id>`; bare slugs / actor UUIDs / system:* are
+   * rejected by wrkq. Every wrkq/wrkf mutation made through the shared client is
+   * attributed to this launch principal — per-call actor attribution is no
+   * longer accepted. Defaults to `agent:acp-server` when omitted so the server
+   * always has a valid principal for its CAS writes.
+   */
+  principalRef?: string | undefined
   wrkfDisabled?: boolean | undefined
   /**
    * Test seam: override the client factory (bypasses spawning a real binary).
@@ -49,6 +58,10 @@ export async function createWrkfClientLifecycle(
     command: opts.command ?? process.env['WRKF_BIN'] ?? 'wrkf',
     dbPath: opts.dbPath,
     clientInfo: opts.clientInfo,
+    // Principal-only caller attribution (T-05381): forward the launch principal
+    // so wrkq/wrkf mutations carry `created_by_principal_ref`. wrkq now rejects
+    // mutations with no principal ("principalRef is required").
+    principalRef: opts.principalRef ?? 'agent:acp-server',
     autoInitialize: true,
   })
 
