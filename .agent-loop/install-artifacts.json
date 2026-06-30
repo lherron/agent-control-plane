@@ -1,0 +1,5 @@
+{
+  "id": "verdaccio-dep-sync",
+  "paths": ["bun.lock", "package.json", "packages/*/package.json"],
+  "lockfiles": ["bun.lock"]
+}
