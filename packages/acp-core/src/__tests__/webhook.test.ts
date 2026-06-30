@@ -71,6 +71,47 @@ describe('parseWrkqWebhookEvent', () => {
       false
     )
   })
+
+  test('rejects malformed recognized enrichment objects while accepting current changes maps', () => {
+    // T-05316 red bar: optional renderer enrichments are fail-closed when present,
+    // while existing wrkq `changes` maps with non-renderer keys stay compatible.
+    expect(
+      parseWrkqWebhookEvent(
+        event({
+          event: 'comment_added',
+          comment: {
+            id: 'comment-1',
+            preview: 'looks fine',
+          },
+        })
+      ).ok
+    ).toBe(true)
+
+    expect(
+      parseWrkqWebhookEvent(
+        event({
+          event: 'comment_added',
+          comment: {
+            id: 123,
+            preview: ['raw', 'body'],
+          },
+        })
+      ).ok
+    ).toBe(false)
+
+    expect(
+      parseWrkqWebhookEvent(
+        event({
+          event: 'updated',
+          changes: {
+            title: { from: 'old title', to: 'new title' },
+            project_uuid: { from: 'project-a', to: 'project-b' },
+            workflow: { from: null, to: { instance_id: 'wf-1' } },
+          },
+        })
+      ).ok
+    ).toBe(true)
+  })
 })
 
 describe('parseAcpWebhookEvent + wrkq adapter', () => {

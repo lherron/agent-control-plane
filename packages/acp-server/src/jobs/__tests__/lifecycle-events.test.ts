@@ -216,4 +216,67 @@ describe('job lifecycle emitter (T-05245)', () => {
     emitter.reconcile(makeRun({ status: 'dispatched' }))
     expect(admin.systemEvents.list({ kind: 'job.dispatched' })).toHaveLength(1)
   })
+
+  test('job lifecycle events carry available timing fields and honest terminal duration', () => {
+    // T-05316 red bar: Discord job cards need timing supplied by the observer
+    // event; duration is only valid when terminal time is after trigger time.
+    const job = makeJob()
+    const { admin, emitter } = emitterWith(job)
+
+    emitter.reconcile(
+      makeRun({
+        jobRunId: 'jr-timed',
+        status: 'succeeded',
+        triggeredAt: '2026-06-28T09:00:00.000Z',
+        claimedAt: '2026-06-28T09:00:01.000Z',
+        dispatchedAt: '2026-06-28T09:00:02.000Z',
+        completedAt: '2026-06-28T09:00:05.500Z',
+      }),
+      job
+    )
+
+    expect(admin.systemEvents.list({ kind: 'job.dispatched' })[0]?.payload).toMatchObject({
+      triggeredAt: '2026-06-28T09:00:00.000Z',
+      claimedAt: '2026-06-28T09:00:01.000Z',
+      dispatchedAt: '2026-06-28T09:00:02.000Z',
+    })
+    expect(admin.systemEvents.list({ kind: 'job.completed' })[0]?.payload).toMatchObject({
+      triggeredAt: '2026-06-28T09:00:00.000Z',
+      claimedAt: '2026-06-28T09:00:01.000Z',
+      dispatchedAt: '2026-06-28T09:00:02.000Z',
+      completedAt: '2026-06-28T09:00:05.500Z',
+      durationMs: 5500,
+    })
+  })
+
+  test('job lifecycle omits durationMs when terminal timing is invalid or negative', () => {
+    // T-05316 red bar: do not synthesize misleading durations for malformed or
+    // clock-skewed terminal records.
+    const job = makeJob()
+    const { admin, emitter } = emitterWith(job)
+
+    emitter.reconcile(
+      makeRun({
+        jobRunId: 'jr-invalid-duration',
+        status: 'failed',
+        triggeredAt: 'not-a-date',
+        completedAt: '2026-06-28T09:00:05.500Z',
+      }),
+      job
+    )
+    emitter.reconcile(
+      makeRun({
+        jobRunId: 'jr-negative-duration',
+        status: 'failed',
+        triggeredAt: '2026-06-28T09:00:05.500Z',
+        completedAt: '2026-06-28T09:00:00.000Z',
+      }),
+      job
+    )
+
+    const completed = admin.systemEvents.list({ kind: 'job.completed' })
+    expect(completed).toHaveLength(2)
+    expect(completed[0]?.payload['durationMs']).toBeUndefined()
+    expect(completed[1]?.payload['durationMs']).toBeUndefined()
+  })
 })

@@ -136,4 +136,122 @@ describe('wrkq event emitter (T-05270)', () => {
     expect(() => emitter.emit(adapt(taskEvent()))).not.toThrow()
     expect((captured as Error).message).toBe('store down')
   })
+
+  test('comment_added projects only bounded comment details and keeps raw bodies out of system events', () => {
+    // T-05316 red bar: Discord work-activity cards consume this observer payload;
+    // the emitter must project a compact contract instead of leaking producer blobs.
+    const admin = createInMemoryAdminStore()
+    const emitter = createWrkqEventEmitter({ systemEvents: admin.systemEvents, now: NOW })
+    const rawBody = `First line\u0000\n\n${'x'.repeat(300)}`
+
+    emitter.emit(
+      adapt(
+        taskEvent({
+          event: 'comment_added',
+          event_id: 'comment-event-1',
+          changed: ['comments'],
+          changes: { comments: { from: null, to: 'comment-1' } },
+          comment: {
+            id: 'comment-1',
+            author: 'human:lance',
+            body: rawBody,
+            preview: rawBody,
+            attachments: [{ name: 'secret.txt' }],
+          },
+        })
+      )
+    )
+
+    const payload = admin.systemEvents.list({ kind: 'wrkq.comment_added' })[0]?.payload
+    expect(payload?.['comment']).toEqual({
+      id: 'comment-1',
+      author: 'human:lance',
+      preview: expect.any(String),
+    })
+    const preview = (payload?.['comment'] as { preview: string } | undefined)?.preview
+    expect(preview).toBeDefined()
+    expect(preview?.length).toBeLessThanOrEqual(240)
+    expect(preview).not.toContain('\n')
+    expect(preview).not.toContain('\u0000')
+    expect(payload).not.toHaveProperty('comment.body')
+    expect(payload).not.toHaveProperty('comment.attachments')
+    expect(payload?.['changes']).toBeUndefined()
+  })
+
+  test('updated and workflow events project renderer-safe summaries without raw nested payloads', () => {
+    // T-05316 red bar: keep useful summaries, but do not forward arbitrary
+    // producer objects that Discord must never render or inspect.
+    const admin = createInMemoryAdminStore()
+    const emitter = createWrkqEventEmitter({ systemEvents: admin.systemEvents, now: NOW })
+
+    emitter.emit(
+      adapt(
+        taskEvent({
+          event_id: 'updated-event-1',
+          event: 'updated',
+          changed: ['title', 'description', 'priority'],
+          changes: {
+            title: { from: 'old title', to: 'new title' },
+            priority: { from: 2, to: 1 },
+            description: { from: 'old private body', to: 'new private body' },
+            workflow: { from: null, to: { payload: { evidence: 'private' } } },
+          },
+        })
+      )
+    )
+
+    const updatedPayload = admin.systemEvents.list({ kind: 'wrkq.updated' })[0]?.payload
+    expect(updatedPayload?.['changes']).toEqual({
+      title: { from: 'old title', to: 'new title' },
+      priority: { from: 2, to: 1 },
+    })
+    expect(JSON.stringify(updatedPayload)).not.toContain('private body')
+    expect(JSON.stringify(updatedPayload)).not.toContain('evidence')
+
+    emitter.emit(
+      adapt(
+        workflowEvent({
+          event_id: 'workflow-event-1',
+          event: 'workflow_transitioned',
+          workflow: {
+            instance_id: 'wf-1',
+            transition: 'start_red',
+            action: 'implement',
+            outcome: 'accepted',
+            run_id: 'run-1',
+            action_run_id: 'action-run-1',
+            from: { status: 'ready', phase: 'red' },
+            to: { status: 'active', phase: 'green' },
+            next_actions: ['review', 'ship', 'extra-1', 'extra-2', 'extra-3', 'extra-4'],
+            blocked_obligations: [
+              { id: 'obl-1', label: 'Needs verification', role: 'smokey', status: 'open' },
+              { id: 'obl-2', label: 'x'.repeat(120), payload: { evidence: 'raw' } },
+            ],
+            checks: [{ id: 'check-1', label: 'unit bar', status: 'failed', output: 'raw logs' }],
+            payload: { evidence: 'raw evidence body' },
+          },
+        })
+      )
+    )
+
+    const workflowPayload = admin.systemEvents.list({ kind: 'wrkf.workflow_transitioned' })[0]
+      ?.payload
+    expect(workflowPayload?.['workflow']).toMatchObject({
+      instance_id: 'wf-1',
+      transition: 'start_red',
+      action: 'implement',
+      outcome: 'accepted',
+      run_id: 'run-1',
+      action_run_id: 'action-run-1',
+      from: { status: 'ready', phase: 'red' },
+      to: { status: 'active', phase: 'green' },
+      next_actions: ['review', 'ship', 'extra-1', 'extra-2', 'extra-3'],
+      blocked_obligations: [
+        { id: 'obl-1', label: 'Needs verification', role: 'smokey', status: 'open' },
+      ],
+      checks: [{ id: 'check-1', label: 'unit bar', status: 'failed' }],
+    })
+    expect(JSON.stringify(workflowPayload)).not.toContain('raw evidence')
+    expect(JSON.stringify(workflowPayload)).not.toContain('raw logs')
+  })
 })
