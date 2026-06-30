@@ -5,6 +5,8 @@ import { join } from 'node:path'
 
 import { openAcpStateStore } from 'acp-state-store'
 
+import { InMemoryRunStore } from '../run-store.js'
+
 const cleanupPaths: string[] = []
 
 afterEach(() => {
@@ -23,6 +25,33 @@ const sessionRef = {
   scopeRef: 'agent:smokey:project:agent-spaces:task:T-01161:role:tester',
   laneRef: 'main',
 } as const
+
+describe('InMemoryRunStore', () => {
+  test('clears stale error fields when a run completes successfully', () => {
+    const store = new InMemoryRunStore()
+    const run = store.createRun({ sessionRef, status: 'pending' })
+
+    store.updateRun(run.runId, {
+      status: 'failed',
+      errorCode: 'dispatch_timeout',
+      errorMessage: 'partial HRC session correlation timed out',
+    })
+
+    // T-05343: successful reconciliation after a false dispatch_timeout must
+    // remove stale failure fields instead of carrying them on a completed run.
+    const completed = store.updateRun(run.runId, {
+      status: 'completed',
+      errorCode: null as never,
+      errorMessage: null as never,
+    })
+
+    expect(completed.status).toBe('completed')
+    expect(completed.errorCode).toBeUndefined()
+    expect(completed.errorMessage).toBeUndefined()
+    expect(store.getRun(run.runId)).not.toHaveProperty('errorCode')
+    expect(store.getRun(run.runId)).not.toHaveProperty('errorMessage')
+  })
+})
 
 describe('SqliteRunStore', () => {
   test('persists runs, HRC correlation, and dispatch fences across reopen', () => {
@@ -209,6 +238,50 @@ describe('SqliteRunStore', () => {
         claimId: 'claim-001',
         wrkfRunId: 'wrkfrun-claim-001',
       })
+    } finally {
+      reopenedStore.close()
+    }
+  })
+
+  test('persists cleared stale error fields when a run completes successfully', () => {
+    const dbPath = createDbPath()
+    const store = openAcpStateStore({ dbPath })
+    let runId = ''
+    try {
+      const run = store.runs.createRun({ sessionRef, status: 'pending' })
+      runId = run.runId
+      store.runs.updateRun(runId, {
+        status: 'failed',
+        errorCode: 'dispatch_timeout',
+        errorMessage: 'partial HRC session correlation timed out',
+      })
+
+      const completed = store.runs.updateRun(runId, {
+        status: 'completed',
+        errorCode: null as never,
+        errorMessage: null as never,
+      })
+
+      expect(completed.status).toBe('completed')
+      expect(completed.errorCode).toBeUndefined()
+      expect(completed.errorMessage).toBeUndefined()
+
+      const row = store.sqlite
+        .prepare('SELECT error_code, error_message FROM runs WHERE run_id = ?')
+        .get(runId) as { error_code: string | null; error_message: string | null }
+      expect(row).toEqual({ error_code: null, error_message: null })
+    } finally {
+      store.close()
+    }
+
+    const reopenedStore = openAcpStateStore({ dbPath })
+    try {
+      expect(reopenedStore.runs.getRun(runId)).toMatchObject({
+        runId,
+        status: 'completed',
+      })
+      expect(reopenedStore.runs.getRun(runId)).not.toHaveProperty('errorCode')
+      expect(reopenedStore.runs.getRun(runId)).not.toHaveProperty('errorMessage')
     } finally {
       reopenedStore.close()
     }

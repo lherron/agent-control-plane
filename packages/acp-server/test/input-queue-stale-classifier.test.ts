@@ -27,6 +27,13 @@ type DispatcherTestHooks = {
       since: string,
       until?: string
     ) => boolean
+    hasRecentlyCompletedHrcRunSince?: (
+      hrcDbPath: string,
+      hostSessionId: string,
+      since: string,
+      until?: string
+    ) => { runId: string; acceptedAt: string; completedAt: string } | undefined
+    terminalCorrelationGraceMs?: number | undefined
   }) => 'no_correlation' | 'partial_correlation' | undefined
   sameSessionHasActiveRun: (deps: DispatcherDeps, item: InputQueueItem) => boolean
 }
@@ -40,6 +47,13 @@ function createDeps(
       since: string,
       until?: string
     ) => boolean
+    hasRecentlyCompletedHrcRunSince?: (
+      hrcDbPath: string,
+      hostSessionId: string,
+      since: string,
+      until?: string
+    ) => { runId: string; acceptedAt: string; completedAt: string } | undefined
+    terminalCorrelationGraceMs?: number | undefined
   } = {}
 ): DispatcherDeps {
   const deps = {
@@ -293,6 +307,103 @@ describe('input queue stale pending classifier', () => {
     await createInputQueueDispatcher(deps).runOnce()
 
     expect(deps.runStore.getRun(blocker.runId)).toMatchObject({
+      status: 'failed',
+      errorCode: 'dispatch_timeout',
+    })
+  })
+
+  test('T-05343 terminal HRC evidence gives a stale partial-correlation run bounded write-back grace', async () => {
+    // Regression bar for the fast accept -> terminal complete -> delayed ACP
+    // write-back race. Terminal evidence protects only for the explicit grace;
+    // after that, a permanently lost write-back is still reaped.
+    const sessionRef = {
+      scopeRef: 'agent:smokey:project:agent-control-plane:task:T-05343:role:red',
+      laneRef: 'main',
+    }
+    const hrcDbPath = '/tmp/hrc-t05343-terminal-grace.sqlite'
+    const acceptedChecks: Array<{
+      hrcDbPath: string
+      hostSessionId: string
+      since: string
+      until?: string | undefined
+    }> = []
+    const deps = createDeps({
+      hrcDbPath,
+      terminalCorrelationGraceMs: 60_000,
+      hasInFlightHrcRunSince: () => false,
+      hasRecentlyCompletedHrcRunSince: (dbPath, hostSessionId, since, until) => {
+        acceptedChecks.push({ hrcDbPath: dbPath, hostSessionId, since, until })
+        return {
+          runId: 'hrc-run-t05343-fast-terminal',
+          acceptedAt: new Date(Date.parse(since) + 1_000).toISOString(),
+          completedAt: new Date(Date.parse(since) + 5_000).toISOString(),
+        }
+      },
+    } as Partial<DispatcherDeps>)
+    const parked = deps.runStore.createRun({
+      sessionRef,
+      status: 'pending',
+      metadata: {
+        meta: {
+          interfaceSource: {
+            gatewayId: 'acp-discord-smoke',
+            bindingId: 'binding-t05343',
+            conversationRef: 'channel:t05343',
+            messageRef: 'message-t05343',
+          },
+        },
+        wrkfLaunchClaim: { status: 'claimed', claimId: 'claim-t05343' },
+      },
+    })
+    const partial = deps.runStore.updateRun(parked.runId, {
+      hostSessionId: 'hsid-t05343-fast-terminal',
+    })
+    const queued = deps.runStore.createRun({ sessionRef, status: 'queued' })
+    createQueuedItem(deps, { run: queued })
+
+    await letRunBecomeStale()
+    await createInputQueueDispatcher(deps).runOnce()
+
+    const protectedRun = deps.runStore.getRun(parked.runId)
+    expect(protectedRun).toMatchObject({
+      status: 'pending',
+      hostSessionId: 'hsid-t05343-fast-terminal',
+    })
+    expect(protectedRun?.errorCode).toBeUndefined()
+    expect(protectedRun?.errorMessage).toBeUndefined()
+    expect(acceptedChecks).toEqual([
+      {
+        hrcDbPath,
+        hostSessionId: 'hsid-t05343-fast-terminal',
+        since: partial.createdAt,
+        until: new Date(Date.parse(partial.createdAt) + LAUNCH_CORRELATION_WINDOW_MS).toISOString(),
+      },
+    ])
+    expect(protectedRun?.metadata?.['meta']).toEqual(partial.metadata?.['meta'])
+    expect(protectedRun?.metadata?.['wrkfLaunchClaim']).toEqual(
+      partial.metadata?.['wrkfLaunchClaim']
+    )
+    expect(protectedRun?.metadata?.['dispatchTimeoutTerminalCorrelationGrace']).toMatchObject({
+      hrcRunId: 'hrc-run-t05343-fast-terminal',
+    })
+    expect(deps.runStore.getRun(queued.runId)?.status).toBe('queued')
+
+    deps.runStore.updateRun(parked.runId, {
+      metadata: {
+        ...(protectedRun?.metadata ?? {}),
+        dispatchTimeoutTerminalCorrelationGrace: {
+          hrcRunId: 'hrc-run-t05343-fast-terminal',
+          acceptedAt: new Date(Date.parse(partial.createdAt) + 1_000).toISOString(),
+          completedAt: new Date(Date.parse(partial.createdAt) + 5_000).toISOString(),
+          observedAt: new Date(Date.parse(partial.createdAt) + 45_000).toISOString(),
+          expiresAt: new Date(Date.now() - 1_000).toISOString(),
+        },
+      },
+    })
+
+    await createInputQueueDispatcher(deps).runOnce()
+
+    expect(deps.runStore.getRun(parked.runId)).toMatchObject({
       status: 'failed',
       errorCode: 'dispatch_timeout',
     })
