@@ -169,14 +169,14 @@ function makeTransitionEvent(
     fromPhase: 'red',
     toPhase: 'green',
     transitionedAt: '2026-06-15T10:00:00Z',
-    actor: `agent:${ACTOR_AGENT_ID}`,
-    actorRole: 'implementer',
+    principal_ref: `agent:${ACTOR_AGENT_ID}`,
+    role: 'implementer',
     // Populated by wrkf server when boundRole='tester' + includeRoleBindings=true
     matchingRoleBindings: [
       {
         instanceId: `wfi_${overrides.id.toLowerCase()}_test`,
         role: 'tester',
-        actor: `agent:${TESTER_AGENT_ID}`,
+        principal_ref: `agent:${TESTER_AGENT_ID}`,
         bindingMode: 'required',
         boundAt: '2026-06-15T09:00:00Z',
       },

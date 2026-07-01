@@ -51,10 +51,10 @@ function resolveTesterAgentId(bindings: WrkfRoleBinding[] | null | undefined): s
     return undefined
   }
   const testerBinding = bindings.find((binding) => binding.role === 'tester')
-  if (testerBinding === undefined || typeof testerBinding.actor !== 'string') {
+  if (testerBinding === undefined || typeof testerBinding.principal_ref !== 'string') {
     return undefined
   }
-  const testerAgentId = stripAgentPrefix(testerBinding.actor).trim()
+  const testerAgentId = stripAgentPrefix(testerBinding.principal_ref).trim()
   return testerAgentId.length > 0 ? testerAgentId : undefined
 }
 
@@ -135,7 +135,7 @@ function enqueueEvent(input: {
     return false
   }
 
-  const actorAgentId = stripAgentPrefix(event.actor ?? '')
+  const actorAgentId = stripAgentPrefix(event.principal_ref ?? '')
 
   stateStore.transitionOutbox.append({
     transitionEventId: event.id,
@@ -148,7 +148,7 @@ function enqueueEvent(input: {
       transitionTimestamp: event.transitionedAt,
       actor: {
         agentId: actorAgentId,
-        role: event.actorRole ?? '',
+        role: event.role ?? '',
       },
       testerAgentId,
     },

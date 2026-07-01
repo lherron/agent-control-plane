@@ -252,7 +252,7 @@ describe('P1-D3: POST satisfy — optional params forwarded to wrkf.obligation.s
         // RED: route doesn't exist
         expect(capturedArgs).not.toBeNull()
         // actor should be in wrkf wire format: "agent:test-agent"
-        expect(capturedArgs!['actor']).toBe('agent:test-agent')
+        expect(capturedArgs!['principal_ref']).toBe('agent:test-agent')
       },
       {
         wrkf: makeFakeWrkfPort({

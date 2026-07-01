@@ -630,14 +630,14 @@ describe('TransitionLogStore — listTransitions via wrkq.workflow.timeline', ()
       task: trTaskId,
       kind: 'demo_note',
       ref: 'artifact://tr-setup-note',
-      actor: 'larry',
+      principal_ref: 'larry',
       role: 'agent',
     })
 
     const tr = await client.wrkf.transition.apply({
       task: trTaskId,
       transition: 'submit',
-      actor: 'larry',
+      principal_ref: 'larry',
       role: 'agent',
     })
     transitionEventId = tr.eventId

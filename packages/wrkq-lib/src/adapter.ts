@@ -195,7 +195,7 @@ function createRoleAssignmentStore(client: WorkClient): RoleAssignmentStore {
       const bindings: WrkfRoleBinding[] = (await client.wrkf.role.list({ task: taskId })) ?? []
       const roleMap: Record<string, string> = {}
       for (const binding of bindings) {
-        roleMap[binding.role] = binding.actor
+        roleMap[binding.role] = binding.principal_ref
       }
       return roleMap
     },
@@ -230,9 +230,9 @@ function toEvidenceItem(evidence: WrkfEvidence): EvidenceItem {
   if (evidence.contentHash !== undefined) {
     item.contentHash = evidence.contentHash
   }
-  if (evidence.actor !== undefined) {
+  if (evidence.principal_ref !== undefined) {
     item.producedBy = {
-      agentId: evidence.actor,
+      agentId: evidence.principal_ref,
       ...(evidence.role !== undefined ? { role: evidence.role } : {}),
     }
   }
@@ -264,7 +264,9 @@ function createEvidenceStore(client: WorkClient): EvidenceStore {
           task: taskId,
           kind: item.kind,
           ...(item.ref !== undefined ? { ref: item.ref } : {}),
-          ...(item.producedBy?.agentId !== undefined ? { actor: item.producedBy.agentId } : {}),
+          ...(item.producedBy?.agentId !== undefined
+            ? { principal_ref: item.producedBy.agentId }
+            : {}),
           ...(item.producedBy?.role !== undefined ? { role: item.producedBy.role } : {}),
           ...(item.contentHash !== undefined ? { contentHash: item.contentHash } : {}),
           ...(build !== undefined ? { build } : {}),
@@ -284,7 +286,8 @@ function toLoggedTransition(taskId: string, event: WrkfEvent): LoggedTransitionR
     typeof event['observedRevision'] === 'number' ? (event['observedRevision'] as number) : 0
   const nextRevision =
     typeof event['nextRevision'] === 'number' ? (event['nextRevision'] as number) : observedRevision
-  const actorId = typeof event['actor'] === 'string' ? (event['actor'] as string) : ''
+  const actorId =
+    typeof event['principal_ref'] === 'string' ? (event['principal_ref'] as string) : ''
   const role = typeof event['role'] === 'string' ? (event['role'] as string) : ''
   const createdAt = typeof event['createdAt'] === 'string' ? (event['createdAt'] as string) : ''
 

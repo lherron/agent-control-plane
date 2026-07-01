@@ -901,7 +901,9 @@ describe('runPbcContinuationWorker — pressure phase', () => {
     // Finalization is applied by the reviewer actor under its bound wrkf role —
     // role=agent + reviewer actor is rejected by wrkf's role-binding gate (T-03778).
     expect((applyCall?.params as Record<string, unknown>)['role']).toBe('pressure_reviewer')
-    expect((applyCall?.params as Record<string, unknown>)['actor']).toBe('agent:pressure-reviewer')
+    expect((applyCall?.params as Record<string, unknown>)['principal_ref']).toBe(
+      'agent:pressure-reviewer'
+    )
     expect(result.stopReason).toBe('closed')
   })
 

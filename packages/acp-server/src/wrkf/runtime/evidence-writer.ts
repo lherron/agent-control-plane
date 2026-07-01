@@ -69,7 +69,7 @@ export interface EvidenceWriterPort {
       summary?: string
       facts?: Record<string, unknown>
       data?: unknown
-      actor?: string
+      principal_ref?: string
       role?: string
     }): Promise<unknown>
   }
@@ -81,7 +81,7 @@ export interface EvidenceWriterPort {
       evidenceId?: string
       /** Forwarded to wrkf — wrkf enforces ownerRole on obligation.satisfy. */
       role?: string
-      actor?: string
+      principal_ref?: string
     }): Promise<unknown>
   }
 }
@@ -140,7 +140,7 @@ export async function writeEvidenceAndSatisfyObligations(
       ...(evidence.summary !== undefined ? { summary: evidence.summary } : {}),
       ...(evidence.facts !== undefined ? { facts: evidence.facts } : {}),
       ...(evidence.data !== undefined ? { data: evidence.data } : {}),
-      actor: input.actor,
+      principal_ref: input.actor,
       role: input.role,
     })
     evidenceAdded.push(projectEvidenceRecord(added))
@@ -166,9 +166,9 @@ export async function writeEvidenceAndSatisfyObligations(
         task: input.task,
         id,
         ...(evidenceId !== undefined ? { evidenceId } : {}),
-        // wrkf enforces ownerRole on obligation.satisfy; forward the caller's role/actor.
+        // wrkf enforces ownerRole on obligation.satisfy; forward the caller's role/principal_ref.
         role: input.role,
-        actor: input.actor,
+        principal_ref: input.actor,
       })
       obligationsSatisfied.push(projectObligationRecord(satisfied))
     }

@@ -93,7 +93,7 @@ function buildApplyParams(
     task: input.task,
     transition: input.transition,
     ...(input.role !== undefined ? { role: input.role } : {}),
-    ...(input.actor !== undefined ? { actor: input.actor } : {}),
+    ...(input.actor !== undefined ? { principal_ref: input.actor } : {}),
     expectRevision: fresh.instance.revision,
     ...(fresh.instance.contextHash !== undefined
       ? { contextHash: fresh.instance.contextHash }

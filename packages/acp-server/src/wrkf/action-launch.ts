@@ -87,15 +87,15 @@ export async function launchAction(
   deps: WrkfActionLaunchDeps,
   input: WrkfActionLaunchInput
 ): Promise<WrkfActionLaunchResult> {
-  // The action surface takes a STRING actor (`<kind>:<id>`), unlike the run
-  // surface which accepts the structured Actor object. Stringify here.
+  // The action surface takes a STRING principal_ref (`<kind>:<id>`), unlike the
+  // run surface which accepts the structured Actor object. Stringify here.
   const actorString = formatActionActor(input.actor)
   const actionRun = asRecord(
     await deps.wrkf.action.start({
       task: input.taskId,
       action: input.action,
       ...(input.role !== undefined ? { role: input.role } : {}),
-      ...(actorString !== undefined ? { actor: actorString } : {}),
+      ...(actorString !== undefined ? { principal_ref: actorString } : {}),
       ...(input.lane !== undefined ? { lane: input.lane } : {}),
       idempotencyKey: input.idempotencyKey,
     }),

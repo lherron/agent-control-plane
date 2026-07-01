@@ -335,7 +335,7 @@ describe('ingestEvidenceAndSatisfyObligations', () => {
     const params = addCall!.params as Record<string, unknown>
     expect(params['task']).toBe(TASK)
     expect(params['kind']).toBe('pressure_pass')
-    expect(params['actor']).toBe(ACTOR)
+    expect(params['principal_ref']).toBe(ACTOR)
     expect(params['role']).toBe(ROLE)
     expect(params['data']).toEqual({ runRef: 'hrc:run-123' })
     expect(params['facts']).toEqual({ verdict: 'ready' })

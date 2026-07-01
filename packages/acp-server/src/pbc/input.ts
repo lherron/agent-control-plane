@@ -130,7 +130,7 @@ export const handlePbcInput: RouteHandler = async (context) => {
       const result = await wrkf.evidence.add({
         task: taskId,
         kind: evidence.kind,
-        actor: actorString,
+        principal_ref: actorString,
         role: 'product_owner',
         ...(evidence.summary !== undefined ? { summary: evidence.summary } : {}),
         ...(evidence.facts !== undefined ? { facts: evidence.facts } : {}),
@@ -149,7 +149,7 @@ export const handlePbcInput: RouteHandler = async (context) => {
       await wrkf.obligation.satisfy({
         task: taskId,
         id: obligationId,
-        actor: actorString,
+        principal_ref: actorString,
         role: 'product_owner',
         ...(evidenceId !== undefined ? { evidenceId } : {}),
       })

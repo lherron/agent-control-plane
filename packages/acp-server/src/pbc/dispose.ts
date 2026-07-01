@@ -51,7 +51,7 @@ export const handlePbcDispose: RouteHandler = async (context) => {
     await wrkf.evidence.add({
       task: taskId,
       kind: 'disposition_decision',
-      actor: actorString,
+      principal_ref: actorString,
       role: 'product_owner',
       facts: { resolution, reason },
     })

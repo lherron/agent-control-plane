@@ -153,11 +153,11 @@ describe('P1-D2: projectEvidenceRecord — data, actor, role as first-class fiel
     const ev = projectEvidenceRecord({
       id: 'ev_d2_002',
       kind: 'manual',
-      actor: 'agent:pressure-reviewer',
+      principal_ref: 'agent:pressure-reviewer',
     })
     const ext = asExtended(ev)
-    // RED: ext['actor'] is undefined — projectEvidenceRecord doesn't project actor
-    // (existing test proves it's accessible via ev.raw['actor'], but NOT as ext['actor'])
+    // projectEvidenceRecord maps the wrkf wire `principal_ref` onto the projected
+    // `actor` field (ACP-domain projection name).
     expect(ext['actor']).toBe('agent:pressure-reviewer')
   })
 
@@ -180,7 +180,7 @@ describe('P1-D2: projectEvidenceRecord — data, actor, role as first-class fiel
       ref: 'ref://approval',
       summary: 'approved',
       data: DATA_VAL,
-      actor: 'agent:approver',
+      principal_ref: 'agent:approver',
       role: 'approver',
     })
     const ext = asExtended(ev)
@@ -222,7 +222,13 @@ describe('P1-D2: projectEvidenceRecord — data, actor, role as first-class fiel
     // RED: TypeScript currently rejects the assignment because data/actor/role are not in the type.
     // When the type is updated, this assignment will compile; the runtime assertion below verifies
     // the projector actually emits the field.
-    const raw = { id: 'ev_d2_007', kind: 'manual', data: { x: 1 }, actor: 'agent:x', role: 'owner' }
+    const raw = {
+      id: 'ev_d2_007',
+      kind: 'manual',
+      data: { x: 1 },
+      principal_ref: 'agent:x',
+      role: 'owner',
+    }
     const ev = projectEvidenceRecord(raw)
     // Cast to test runtime projection (avoids TS compile error before type is updated)
     const withData = ev as unknown as { data?: { x: number }; actor?: string; role?: string }

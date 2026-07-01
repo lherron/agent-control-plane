@@ -229,7 +229,7 @@ export const handleApplyWorkflowTransition: RouteHandler = async ({ request, par
       task: taskId,
       transition: requireTrimmedStringField(body, 'transitionId'),
       role: requireTrimmedStringField(body, 'role'),
-      actor: wrkfActorFromBody(body['actor'], actor?.agentId),
+      principal_ref: wrkfActorFromBody(body['actor'], actor?.agentId),
       ...(body['expectedTaskVersion'] !== undefined
         ? { expectRevision: requireNumberField(body, 'expectedTaskVersion') }
         : {}),
@@ -294,7 +294,7 @@ export const handleAttachWorkflowEvidence: RouteHandler = async ({ request, para
     const result = await wrkf.evidence.add({
       task: taskId,
       kind,
-      actor: wrkfActor,
+      principal_ref: wrkfActor,
       ...(ref !== undefined ? { ref } : {}),
       ...(summary !== undefined ? { summary } : {}),
       ...(facts !== undefined ? { facts } : {}),
@@ -336,7 +336,7 @@ export const handleSatisfyWorkflowObligation: RouteHandler = async ({ request, p
       task: taskId,
       id: obligationId,
       ...(evidenceId !== undefined ? { evidenceId } : {}),
-      ...(wrkfActor !== undefined ? { actor: wrkfActor } : {}),
+      ...(wrkfActor !== undefined ? { principal_ref: wrkfActor } : {}),
       ...(role !== undefined ? { role } : {}),
       ...(reason !== undefined ? { reason } : {}),
     })

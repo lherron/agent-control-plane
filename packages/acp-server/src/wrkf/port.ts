@@ -7,7 +7,7 @@ export type WrkfEvidenceAddParams = {
   summary?: string | undefined
   facts?: Record<string, unknown> | undefined
   data?: unknown
-  actor?: WrkfActor | undefined
+  principal_ref?: WrkfActor | undefined
   role?: string | undefined
 }
 
@@ -15,7 +15,7 @@ export type WrkfTransitionApplyParams = {
   task: string
   transition: string
   role?: string | undefined
-  actor?: WrkfActor | undefined
+  principal_ref?: WrkfActor | undefined
   expectRevision?: number | undefined
   contextHash?: string | undefined
   idempotencyKey?: string | undefined
@@ -27,7 +27,7 @@ export type WrkfTransitionApplyParams = {
 export type WrkfRunStartParams = {
   task: string
   role: string
-  actor?: WrkfActor | undefined
+  principal_ref?: WrkfActor | undefined
   idempotencyKey?: string | undefined
   deliveryRef?: string | undefined
   lane?: string | undefined
@@ -47,7 +47,7 @@ export type WrkfActionStartParams = {
   workflow?: string | undefined
   action: string
   role?: string | undefined
-  actor?: WrkfActor | undefined
+  principal_ref?: WrkfActor | undefined
   lane?: string | undefined
   deliveryRef?: string | Record<string, unknown> | undefined
   externalRunRef?: string | undefined
@@ -135,9 +135,9 @@ export type AcpWrkfWorkflowPort = {
       task: string
       id: string
       evidenceId?: string | undefined
-      /** wrkf enforces ownerRole on obligation.satisfy; forward caller's role/actor. */
+      /** wrkf enforces ownerRole on obligation.satisfy; forward caller's role/principal_ref. */
       role?: string | undefined
-      actor?: string | undefined
+      principal_ref?: string | undefined
       reason?: string | undefined
     }): Promise<unknown>
     waive(params: Record<string, unknown>): Promise<unknown>

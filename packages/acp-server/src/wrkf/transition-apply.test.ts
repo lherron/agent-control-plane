@@ -264,7 +264,7 @@ describe('P1-D5: applyFreshTransition — always reads next before applying', ()
     expect(params['task']).toBe(TASK)
     expect(params['transition']).toBe('submit')
     expect(params['role']).toBe('owner')
-    expect(params['actor']).toBe('agent:test-actor')
+    expect(params['principal_ref']).toBe('agent:test-actor')
   })
 })
 

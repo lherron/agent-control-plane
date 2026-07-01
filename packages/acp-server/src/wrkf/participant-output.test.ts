@@ -392,7 +392,7 @@ describe('captureAndIngestParticipantOutput — supplied mode', () => {
     expect(addCall).toBeDefined()
     const params = addCall!.params as Record<string, unknown>
     expect(params['task']).toBe(TASK)
-    expect(params['actor']).toBe(ACTOR)
+    expect(params['principal_ref']).toBe(ACTOR)
     expect(params['role']).toBe(ROLE)
     expect(params['data']).toEqual({ runRef: 'hrc:run-xyz' })
   })

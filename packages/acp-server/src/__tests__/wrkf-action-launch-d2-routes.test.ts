@@ -178,8 +178,8 @@ describe('POST /v1/wrkf/actions/launch — wrkf-action source-tagged response', 
         expect(p['task']).toBe(TASK_ID)
         expect(p['action']).toBe(ACTION)
         expect(p['lane']).toBe('implementation')
-        // action surface takes a STRING actor (`<kind>:<id>`)
-        expect(p['actor']).toBe('agent:curly')
+        // action surface takes a STRING principal_ref (`<kind>:<id>`)
+        expect(p['principal_ref']).toBe('agent:curly')
         expect(p['idempotencyKey']).toBe('d2-route-lane-001')
       },
       {

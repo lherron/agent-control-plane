@@ -225,7 +225,7 @@ describe('W3: POST /v1/tasks/:taskId/evidence — evidence.add wrkf facade', () 
           expect(capturedArgs!['kind']).toBe('manual')
           expect(capturedArgs!['ref']).toBe('ref://w3-evidence-test')
           expect(capturedArgs!['summary']).toBe('Observed correct output')
-          expect(capturedArgs!['actor']).toBe('agent:test-agent')
+          expect(capturedArgs!['principal_ref']).toBe('agent:test-agent')
         },
         {
           wrkf: makeFakeWrkfPort({

@@ -142,8 +142,8 @@ export function projectEvidenceRecord(value: unknown, label = 'evidence'): Evide
     ...(summary !== undefined ? { summary } : {}),
     ...(facts !== undefined ? { facts } : {}),
     ...(Object.prototype.hasOwnProperty.call(evidence, 'data') ? { data: evidence['data'] } : {}),
-    ...(Object.prototype.hasOwnProperty.call(evidence, 'actor')
-      ? { actor: evidence['actor'] }
+    ...(Object.prototype.hasOwnProperty.call(evidence, 'principal_ref')
+      ? { actor: evidence['principal_ref'] }
       : {}),
     ...(role !== undefined ? { role } : {}),
     raw: evidence,

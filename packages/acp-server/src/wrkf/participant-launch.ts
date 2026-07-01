@@ -72,7 +72,7 @@ export async function launchParticipant(
     await deps.wrkf.run.start({
       task: input.taskId,
       role: input.role,
-      ...(input.actor !== undefined ? { actor: input.actor } : {}),
+      ...(input.actor !== undefined ? { principal_ref: input.actor } : {}),
       idempotencyKey: input.idempotencyKey,
     }),
     'wrkf.run.start result'

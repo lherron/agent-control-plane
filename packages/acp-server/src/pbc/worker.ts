@@ -61,7 +61,7 @@ export interface PbcContinuationWorkerPort {
       summary?: string
       facts?: Record<string, unknown>
       data?: unknown
-      actor?: string
+      principal_ref?: string
       role?: string
     }): Promise<unknown>
   }
@@ -72,14 +72,14 @@ export interface PbcContinuationWorkerPort {
       id: string
       evidenceId?: string
       role?: string
-      actor?: string
+      principal_ref?: string
     }): Promise<unknown>
   }
   run: {
     start(params: {
       task: string
       role: string
-      actor?: unknown
+      principal_ref?: unknown
       idempotencyKey?: string
       lane?: string
       deliveryRef?: string
@@ -93,7 +93,7 @@ export interface PbcContinuationWorkerPort {
       task: string
       transition: string
       role?: string
-      actor?: unknown
+      principal_ref?: unknown
       expectRevision?: number
       contextHash?: string
       idempotencyKey?: string
@@ -220,7 +220,7 @@ async function runLoop(
     const run = await port.run.start({
       task: input.taskId,
       role: participant.role,
-      actor: participant.actor,
+      principal_ref: participant.actor,
       idempotencyKey: `${input.idempotencyKey}:run:${revision}${attemptSuffix}`,
     })
     const wrkfRunId = recordId(run)
@@ -326,7 +326,7 @@ async function runLoop(
       task: input.taskId,
       transition,
       role: transitionRole,
-      actor: transitionActor,
+      principal_ref: transitionActor,
       expectRevision: fresh.instance.revision,
       contextHash: fresh.instance.contextHash ?? '',
       idempotencyKey: `${input.idempotencyKey}:transition:${transition}:${fresh.instance.revision}`,

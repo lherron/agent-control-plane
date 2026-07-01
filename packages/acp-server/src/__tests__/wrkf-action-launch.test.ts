@@ -166,7 +166,7 @@ describe('launchAction — happy path', () => {
     const p = startCall!.params as Record<string, unknown>
     expect(p['task']).toBe(TASK_ID)
     expect(p['action']).toBe(ACTION)
-    expect(p['actor']).toBe('agent:curly')
+    expect(p['principal_ref']).toBe('agent:curly')
     expect(p['idempotencyKey']).toBe(IDEMPOTENCY_KEY)
   })
 

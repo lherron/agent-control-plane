@@ -200,7 +200,7 @@ export const handlePbcStart: RouteHandler = (context) => {
       await wrkf.evidence.add({
         task: taskId,
         kind: 'intake_metadata',
-        actor,
+        principal_ref: actor,
         role: 'agent',
         facts: intake,
       })

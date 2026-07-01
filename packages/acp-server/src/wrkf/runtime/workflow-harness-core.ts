@@ -22,7 +22,7 @@ export interface WorkflowHarnessPort extends CapturePort {
     start(params: {
       task: string
       role: string
-      actor?: unknown
+      principal_ref?: unknown
       idempotencyKey?: string
       lane?: string
       deliveryRef?: string
@@ -36,7 +36,7 @@ export interface WorkflowHarnessPort extends CapturePort {
       task: string
       transition: string
       role?: string
-      actor?: unknown
+      principal_ref?: unknown
       expectRevision?: number
       contextHash?: string
       idempotencyKey?: string
@@ -136,7 +136,7 @@ export async function runWorkflowStep(
   const startedRun = await port.run.start({
     task: input.task,
     role,
-    actor: input.actor,
+    principal_ref: input.actor,
     idempotencyKey: `${input.idempotencyKey}:run:${latestNext.instance.revision}`,
     ...(input.scopeRef !== undefined ? { deliveryRef: input.scopeRef } : {}),
     ...(input.laneRef !== undefined ? { lane: input.laneRef } : {}),
@@ -363,7 +363,7 @@ export async function applyFreshTransition(
     task: input.task,
     transition: input.transition,
     role: input.role,
-    actor: input.actor,
+    principal_ref: input.actor,
     expectRevision: input.next.instance.revision,
     contextHash: input.next.instance.contextHash ?? '',
     idempotencyKey: input.idempotencyKey,
