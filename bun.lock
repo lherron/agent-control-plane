@@ -1,6 +1,5 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "agent-control-plane",
@@ -51,7 +50,7 @@
         "acp": "./src/cli.ts",
       },
       "dependencies": {
-        "@wrkq/client": "0.1.0-dev.20260630192248",
+        "@wrkq/client": "0.1.0-dev.20260630220625",
         "acp-admin-store": "*",
         "acp-core": "*",
         "acp-ops-projection": "*",
@@ -174,7 +173,7 @@
         "acp-server": "./src/cli.ts",
       },
       "dependencies": {
-        "@wrkq/client": "0.1.0-dev.20260630192248",
+        "@wrkq/client": "0.1.0-dev.20260630220625",
         "acp-admin-store": "*",
         "acp-capability-host": "*",
         "acp-conversation": "*",
@@ -305,7 +304,7 @@
       "name": "wrkq-lib",
       "version": "0.1.0",
       "dependencies": {
-        "@wrkq/client": "0.1.0-dev.20260630192248",
+        "@wrkq/client": "0.1.0-dev.20260630220625",
         "acp-core": "*",
       },
       "devDependencies": {
@@ -745,7 +744,7 @@
 
     "@vladfrangu/async_event_emitter": ["@vladfrangu/async_event_emitter@2.4.7", "http://127.0.0.1:4873/@vladfrangu/async_event_emitter/-/async_event_emitter-2.4.7.tgz", {}, "sha512-Xfe6rpCTxSxfbswi/W/Pz7zp1WWSNn4A0eW4mLkQUewCrXXtMj31lCg+iQyTkh/CkusZSq9eDflu7tjEDXUY6g=="],
 
-    "@wrkq/client": ["@wrkq/client@0.1.0-dev.20260630192248", "http://127.0.0.1:4873/@wrkq/client/-/client-0.1.0-dev.20260630192248.tgz", {}, "sha512-nK+Zl5YEW/P2q1rafedHVnJu4SXiK95wXpOKe4vQW8PJc25XTlVqPG7gosw3vadooXtZoXOOe/Yng49o61wlvg=="],
+    "@wrkq/client": ["@wrkq/client@0.1.0-dev.20260630220625", "http://127.0.0.1:4873/@wrkq/client/-/client-0.1.0-dev.20260630220625.tgz", {}, "sha512-qxToqPy0YgokkWUuXs1b8CWilNdaiMAlIM0vE6j9tTFJZv/XOCNXFx8C6exKosSDlmg+P4SxEdB4/U3X11eGfg=="],
 
     "acp-admin-store": ["acp-admin-store@workspace:packages/acp-admin-store"],
 

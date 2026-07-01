@@ -26,7 +26,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@wrkq/client": "0.1.0-dev.20260630192248",
+    "@wrkq/client": "0.1.0-dev.20260630220625",
     "acp-capability-host": "*",
     "acp-admin-store": "*",
     "acp-conversation": "*",

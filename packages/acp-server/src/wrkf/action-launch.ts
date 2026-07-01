@@ -56,6 +56,14 @@ export type WrkfActionLaunchInput = {
   sessionRef: SessionRef
   initialPrompt?: string | undefined
   stdinJson?: Record<string, unknown> | undefined
+  /**
+   * Internal adapter path for v2 executable actions. When supplied, ACP binds and
+   * launches the already-claimed wrkf action run instead of opening one with
+   * `wrkf.action.start`. External HTTP callers cannot set this field.
+   */
+  claimedAction?:
+    | { actionRun: Record<string, unknown>; authority?: Record<string, unknown> | undefined }
+    | undefined
 }
 
 export type WrkfActionLaunchDeps = WrkfParticipantLaunchDeps & {
@@ -91,15 +99,16 @@ export async function launchAction(
   // run surface which accepts the structured Actor object. Stringify here.
   const actorString = formatActionActor(input.actor)
   const actionRun = asRecord(
-    await deps.wrkf.action.start({
-      task: input.taskId,
-      action: input.action,
-      ...(input.role !== undefined ? { role: input.role } : {}),
-      ...(actorString !== undefined ? { principal_ref: actorString } : {}),
-      ...(input.lane !== undefined ? { lane: input.lane } : {}),
-      idempotencyKey: input.idempotencyKey,
-    }),
-    'wrkf.action.start result'
+    input.claimedAction?.actionRun ??
+      (await deps.wrkf.action.start({
+        task: input.taskId,
+        action: input.action,
+        ...(input.role !== undefined ? { role: input.role } : {}),
+        ...(actorString !== undefined ? { principal_ref: actorString } : {}),
+        ...(input.lane !== undefined ? { lane: input.lane } : {}),
+        idempotencyKey: input.idempotencyKey,
+      })),
+    input.claimedAction === undefined ? 'wrkf.action.start result' : 'wrkf.action.claim binding'
   )
 
   const actionRunId = readRequiredString(actionRun, 'actionRunId', 'wrkf.action.start result')
@@ -342,6 +351,9 @@ async function launchConfiguredCommandRun(
           sessionRef: input.sessionRef.scopeRef,
           lane: input.sessionRef.laneRef,
           actionRun: args.actionRun,
+          ...(input.claimedAction?.authority !== undefined
+            ? { actionAuthority: input.claimedAction.authority }
+            : {}),
         },
       })
     )
@@ -650,12 +662,21 @@ function buildTriageCommandBinding(
   args: { actionRunId: string; wrkfRunId: string; role: string },
   projectSlug: string
 ) {
+  const authority = input.claimedAction?.authority
+  const ownerToken =
+    authority !== undefined ? readOptionalString(authority, 'ownerToken') : undefined
+  const ownerGeneration =
+    authority !== undefined && typeof authority['ownerGeneration'] === 'number'
+      ? String(authority['ownerGeneration'])
+      : undefined
   return {
     WRKF_TASK_ID: input.taskId,
     WRKF_ACTION_RUN_ID: args.actionRunId,
     WRKF_RUN_ID: args.wrkfRunId,
     WRKF_ACTION: input.action,
     WRKF_ROLE: args.role,
+    ...(ownerToken !== undefined ? { WRKF_ACTION_OWNER_TOKEN: ownerToken } : {}),
+    ...(ownerGeneration !== undefined ? { WRKF_ACTION_OWNER_GENERATION: ownerGeneration } : {}),
     ASP_PROJECT: projectSlug,
     HRC_SESSION_REF: input.sessionRef.scopeRef,
     HRC_LANE: input.sessionRef.laneRef,
@@ -724,6 +745,7 @@ function buildActionPrompt(args: {
   workflowRef: string
 }): string {
   const { input, actionRun, actionRunId, wrkfRunId, role, workflowRef } = args
+  const claimedAuthority = input.claimedAction?.authority
   const lines = [
     '=== ACP ACTION-PROTOCOL ENVELOPE ===',
     'You are executing a wrkf-backed workflow action run. The context below is the',
@@ -739,13 +761,24 @@ function buildActionPrompt(args: {
     '  externalRunRef scheme: hrc:<hrcRunId> — the HRC runtime run bound to this action run',
     '',
     'COMPLETION PROTOCOL (MANDATORY — you are the semantic completion owner):',
-    `  • On SUCCESS you MUST call wrkf.action.complete for actionRunId ${actionRunId},`,
-    '    carrying the semantic result evidence (e.g. triage_result) for this action.',
-    `  • On FAILURE you MUST call wrkf.action.fail for actionRunId ${actionRunId},`,
-    '    carrying failure_result evidence describing why it failed.',
-    '  • You MUST call exactly one of wrkf.action.complete or wrkf.action.fail for',
-    '    THIS actionRunId before ending your turn. The runtime reaching a terminal',
-    '    state is NOT semantic completion — only your wrkf.action.* call is.',
+    ...(claimedAuthority !== undefined
+      ? [
+          `  • You MUST call wrkf.action.settle for actionRunId ${actionRunId},`,
+          '    presenting the ownerToken and ownerGeneration from actionAuthority,',
+          '    carrying the semantic result evidence for this action.',
+          '  • Do not call wrkf.action.complete or wrkf.action.fail for this v2 claimed action.',
+          '  • The runtime reaching a terminal state is NOT semantic completion — only',
+          '    wrkf.action.settle with valid authority is.',
+        ]
+      : [
+          `  • On SUCCESS you MUST call wrkf.action.complete for actionRunId ${actionRunId},`,
+          '    carrying the semantic result evidence (e.g. triage_result) for this action.',
+          `  • On FAILURE you MUST call wrkf.action.fail for actionRunId ${actionRunId},`,
+          '    carrying failure_result evidence describing why it failed.',
+          '  • You MUST call exactly one of wrkf.action.complete or wrkf.action.fail for',
+          '    THIS actionRunId before ending your turn. The runtime reaching a terminal',
+          '    state is NOT semantic completion — only your wrkf.action.* call is.',
+        ]),
     '',
     'wrkf action context:',
     stableJson({
@@ -754,6 +787,7 @@ function buildActionPrompt(args: {
       role,
       workflowRef,
       actionRun,
+      ...(claimedAuthority !== undefined ? { actionAuthority: claimedAuthority } : {}),
     }),
   ]
   if (input.initialPrompt !== undefined && input.initialPrompt.length > 0) {

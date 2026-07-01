@@ -54,6 +54,33 @@ const VERIFY_ACTION_RUN = {
   lane: 'verify',
 }
 
+const VERIFY_CLAIM_BINDING = {
+  run: {
+    id: 'actrun-verify-claimed-v2-05312',
+    instanceId: 'wfi-05312',
+    semanticActionKey: 'verify:actrun-implement-source-05312:commit-05312',
+    action: VERIFY_ACTION,
+    role: VERIFY_ROLE,
+    attempt: 1,
+    status: 'active',
+    source: {
+      sourceRunId: SOURCE_IMPLEMENT_ACTION_RUN_ID,
+      sourceEvidenceId: 'ev-implement-05312',
+      commitSha: 'commit-05312',
+    },
+  },
+  authority: {
+    runnerId: `acp-verify-launch:${TASK_ID}:${SOURCE_IMPLEMENT_ACTION_RUN_ID}`,
+    ownerToken: 'owner-token-verify-05312',
+    ownerGeneration: 1,
+    leaseExpiresAt: '2026-07-01T04:30:00.000Z',
+  },
+  instance: {
+    templateId: 'wrkq-simple-task',
+    templateVersion: '2',
+  },
+}
+
 const COMMAND_LAUNCHED = {
   runId: 'hrc-command-run-05312',
   hostSessionId: 'host-session-05312',
@@ -98,6 +125,7 @@ type CandidateActionLaunchDeps = WrkfActionLaunchDeps & {
 }
 
 type FakeWrkfOverrides = {
+  actionClaim?: (params: Record<string, unknown>) => Promise<unknown>
   start?: (params: Record<string, unknown>) => Promise<unknown>
   bindExternal?: (params: Record<string, unknown>) => Promise<unknown>
   fail?: (params: Record<string, unknown>) => Promise<unknown>
@@ -141,6 +169,14 @@ function makeFakeWrkfPort(overrides: FakeWrkfOverrides = {}): InstrumentedWrkfPo
   return {
     _calls,
     action: {
+      ...(overrides.actionClaim !== undefined
+        ? {
+            claim: async (params: Record<string, unknown>) => {
+              _calls.push({ method: 'action.claim', params })
+              return overrides.actionClaim?.(params)
+            },
+          }
+        : {}),
       start: async (params: Record<string, unknown>) => {
         _calls.push({ method: 'action.start', params })
         if (overrides.start !== undefined) {
@@ -423,6 +459,82 @@ describe('action:"implement" command-run adapter contract', () => {
 })
 
 describe('verify-launch-intent consumer', () => {
+  test('v2 claim path claims exact verify candidate, launches once, binds once, and never action.start', async () => {
+    const consumeVerifyLaunchIntents = await loadVerifyLaunchConsumer()
+    const events: string[] = []
+    const wrkf = makeFakeWrkfPort({
+      claim: async (params) => {
+        events.push('effect.claim')
+        expect(params).toMatchObject({
+          adapter: 'acp',
+          kind: 'verify_launch_intent',
+          task: TASK_ID,
+        })
+        return { effects: [VERIFY_EFFECT], leaseToken: 'lease-05312' }
+      },
+      actionClaim: async (params) => {
+        events.push('action.claim')
+        expect(params).toMatchObject({
+          task: TASK_ID,
+          prefer: { action: VERIFY_ACTION },
+          runnerId: `acp-verify-launch:${TASK_ID}:${SOURCE_IMPLEMENT_ACTION_RUN_ID}`,
+          agentRef: 'agent:cody',
+          scopeRef: SESSION_REF.scopeRef,
+        })
+        return { binding: VERIFY_CLAIM_BINDING }
+      },
+      bindExternal: async (params) => {
+        events.push('action.bindExternal')
+        return { ...VERIFY_CLAIM_BINDING.run, externalRunRef: params['externalRunRef'] }
+      },
+      ack: async (params) => {
+        events.push('effect.ack')
+        return { effectId: params['effectId'], status: 'acked' }
+      },
+    })
+    const commandCalls: LaunchCommandScopedRunRequest[] = []
+
+    await consumeVerifyLaunchIntents(
+      makeCandidateDeps({
+        wrkf,
+        events,
+        command: async (request) => {
+          commandCalls.push(request)
+          events.push('launchCommandScopedRun')
+          return COMMAND_LAUNCHED
+        },
+      }),
+      { taskId: TASK_ID, limit: 1 }
+    )
+
+    expect(events).toEqual([
+      'effect.claim',
+      'action.claim',
+      'launchCommandScopedRun',
+      'action.bindExternal',
+      'effect.ack',
+    ])
+    expect(wrkf._calls.find((call) => call.method === 'action.start')).toBeUndefined()
+    expect(wrkf._calls.find((call) => call.method === 'action.bindExternal')?.params).toMatchObject(
+      {
+        actionRunId: VERIFY_CLAIM_BINDING.run.id,
+      }
+    )
+    expect(commandCalls).toHaveLength(1)
+    expect(commandCalls[0]).toMatchObject({
+      configuredTargetId: CONFIGURED_VERIFY_TARGET_ID,
+      binding: {
+        WRKF_ACTION_RUN_ID: VERIFY_CLAIM_BINDING.run.id,
+        WRKF_RUN_ID: VERIFY_CLAIM_BINDING.run.id,
+        WRKF_ACTION_OWNER_TOKEN: VERIFY_CLAIM_BINDING.authority.ownerToken,
+        WRKF_ACTION_OWNER_GENERATION: String(VERIFY_CLAIM_BINDING.authority.ownerGeneration),
+      },
+      stdinJson: {
+        actionAuthority: VERIFY_CLAIM_BINDING.authority,
+      },
+    })
+  })
+
   test('claims one verify-launch effect, starts verify keyed by source implement action, launches once, binds once, then acks', async () => {
     const consumeVerifyLaunchIntents = await loadVerifyLaunchConsumer()
     const events: string[] = []

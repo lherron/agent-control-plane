@@ -5,7 +5,7 @@ import type { SessionRef } from 'agent-scope'
 import type { WrkfActionLaunchDeps } from './action-launch.js'
 import { launchAction } from './action-launch.js'
 import type { AcpWrkfWorkflowPort } from './port.js'
-import { isRecord, readOptionalString } from './value.js'
+import { isRecord, readOptionalString, readRecord } from './value.js'
 
 const VERIFY_LAUNCH_KIND = 'verify_launch_intent'
 const DEFAULT_LEASE_MS = 60_000
@@ -45,7 +45,7 @@ export async function consumeVerifyLaunchIntents(
   deps: ConsumeVerifyLaunchDeps,
   input: ConsumeVerifyLaunchInput
 ): Promise<{ claimed: number; launched: number; acked: number }> {
-  const claim = readClaimResponse(
+  const effectClaim = readClaimResponse(
     await deps.wrkf.effect.claim({
       adapter: 'acp',
       kind: VERIFY_LAUNCH_KIND,
@@ -57,7 +57,7 @@ export async function consumeVerifyLaunchIntents(
 
   let launched = 0
   let acked = 0
-  for (const effect of claim.effects) {
+  for (const effect of effectClaim.effects) {
     const sourceImplementActionRunId = requirePayloadString(
       effect.payload,
       'sourceImplementActionRunId'
@@ -68,30 +68,42 @@ export async function consumeVerifyLaunchIntents(
       payload: effect.payload,
       taskId: input.taskId,
     })
+    const taskId = readOptionalString(effect.payload, 'task') ?? input.taskId
+    const idempotencyKey = buildVerifyActionIdempotencyKey({
+      taskId: input.taskId,
+      sourceImplementActionRunId,
+      effectId: effect.effectId,
+    })
+    const claimedAction = await maybeClaimVerifyAction(deps, {
+      taskId,
+      action,
+      role,
+      sessionRef,
+      sourceImplementActionRunId,
+      effectId: effect.effectId,
+      idempotencyKey,
+    })
     const result = await launchAction(deps, {
-      taskId: readOptionalString(effect.payload, 'task') ?? input.taskId,
+      taskId,
       action,
       role,
       actor: { kind: 'agent', id: readVerifyAgentId(sessionRef) },
       lane: sessionRef.laneRef,
-      idempotencyKey: buildVerifyActionIdempotencyKey({
-        taskId: input.taskId,
-        sourceImplementActionRunId,
-        effectId: effect.effectId,
-      }),
+      idempotencyKey,
       sessionRef,
       stdinJson: { sourceImplementActionRunId },
+      ...(claimedAction !== undefined ? { claimedAction } : {}),
     })
     launched += result.replay ? 0 : 1
 
     await deps.wrkf.effect.ack({
       effectId: effect.effectId,
-      leaseToken: claim.leaseToken,
+      leaseToken: effectClaim.leaseToken,
     })
     acked += 1
   }
 
-  return { claimed: claim.effects.length, launched, acked }
+  return { claimed: effectClaim.effects.length, launched, acked }
 }
 
 function buildVerifyActionIdempotencyKey(input: {
@@ -123,6 +135,110 @@ function readClaimResponse(value: unknown): { effects: ClaimedEffect[]; leaseTok
       return [{ effectId, kind, payload }]
     }),
   }
+}
+
+async function maybeClaimVerifyAction(
+  deps: ConsumeVerifyLaunchDeps,
+  input: {
+    taskId: string
+    action: string
+    role: string
+    sessionRef: SessionRef
+    sourceImplementActionRunId: string
+    effectId: string
+    idempotencyKey: string
+  }
+): Promise<
+  | { actionRun: Record<string, unknown>; authority?: Record<string, unknown> | undefined }
+  | undefined
+> {
+  const claimAction = deps.wrkf.action.claim
+  if (claimAction === undefined) {
+    return undefined
+  }
+  let raw: unknown
+  try {
+    raw = await claimAction({
+      task: input.taskId,
+      prefer: { action: input.action },
+      runnerId: `acp-verify-launch:${input.taskId}:${input.sourceImplementActionRunId}`,
+      agentRef: `agent:${readVerifyAgentId(input.sessionRef)}`,
+      scopeRef: input.sessionRef.scopeRef,
+      capabilities: [{ actions: [input.action], roles: [input.role] }],
+      leaseMs: DEFAULT_LEASE_MS,
+      idempotencyKey: input.idempotencyKey,
+    })
+  } catch (error) {
+    if (isActionClaimUnavailable(error)) {
+      return undefined
+    }
+    throw error
+  }
+
+  const result = isRecord(raw) ? raw : undefined
+  const binding = result !== undefined ? readRecord(result['binding']) : undefined
+  if (binding === undefined) {
+    return undefined
+  }
+  const run = readRecord(binding['run'])
+  if (run === undefined) {
+    throw new Error('wrkf.action.claim binding.run must be an object')
+  }
+  const actionRunId =
+    readOptionalString(run, 'id') ??
+    readOptionalString(run, 'actionRunId') ??
+    readOptionalString(run, 'runId')
+  if (actionRunId === undefined) {
+    throw new Error('wrkf.action.claim binding.run.id must be a non-empty string')
+  }
+  const role = readOptionalString(run, 'role') ?? input.role
+  const actionRun = {
+    ...run,
+    actionRunId,
+    runId: actionRunId,
+    task: input.taskId,
+    action: readOptionalString(run, 'action') ?? input.action,
+    role,
+    ...(readClaimWorkflowRef(binding) !== undefined
+      ? { workflowRef: readClaimWorkflowRef(binding) }
+      : {}),
+  }
+  return {
+    actionRun,
+    ...(readRecord(binding['authority']) !== undefined
+      ? { authority: readRecord(binding['authority']) }
+      : {}),
+  }
+}
+
+function readClaimWorkflowRef(binding: Record<string, unknown>): string | undefined {
+  const instance = readRecord(binding['instance'])
+  if (instance === undefined) {
+    return undefined
+  }
+  const template = readRecord(instance['template'])
+  if (template !== undefined) {
+    const id = readOptionalString(template, 'id')
+    const version = readOptionalString(template, 'version')
+    if (id !== undefined) {
+      return version !== undefined ? `${id}@${version}` : id
+    }
+  }
+  const templateId = readOptionalString(instance, 'templateId')
+  const templateVersion = readOptionalString(instance, 'templateVersion')
+  if (templateId !== undefined) {
+    return templateVersion !== undefined ? `${templateId}@${templateVersion}` : templateId
+  }
+  return undefined
+}
+
+function isActionClaimUnavailable(error: unknown): boolean {
+  const text = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase()
+  return (
+    text.includes('method not found') ||
+    text.includes('unknown method') ||
+    text.includes('not registered')
+  )
 }
 
 function resolveVerifySessionRef(

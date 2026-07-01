@@ -90,6 +90,22 @@ export type WrkfActionFailParams = {
   idempotencyKey?: string | undefined
 }
 
+export type WrkfActionClaimParams = {
+  task?: string | undefined
+  instanceId?: string | undefined
+  prefer?: {
+    instanceId?: string | undefined
+    semanticActionKey?: string | undefined
+    action?: string | undefined
+  }
+  runnerId: string
+  agentRef: string
+  scopeRef?: string | undefined
+  leaseMs: number
+  capabilities?: Array<Record<string, unknown>> | undefined
+  idempotencyKey?: string | undefined
+}
+
 export type WrkfRunFinishParams = {
   runId: string
   summary?: string | undefined
@@ -161,6 +177,7 @@ export type AcpWrkfWorkflowPort = {
    * an HRC launch — see `wrkf/action-launch.ts`.
    */
   action: {
+    claim?(params: WrkfActionClaimParams): Promise<unknown>
     start(params: WrkfActionStartParams): Promise<unknown>
     bindExternal(params: WrkfActionBindExternalParams): Promise<unknown>
     /** Read current action-run truth (used by the HRC→wrkf reconciler). */
