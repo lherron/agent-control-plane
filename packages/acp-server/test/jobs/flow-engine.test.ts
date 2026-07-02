@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite'
 import { describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -561,6 +561,7 @@ describe('advanceJobFlow exec steps', () => {
   test('T-05421 exec cwd policy implicitly allows the scope-resolved placement root', async () => {
     await withFlowHarness(async ({ deps, jobsStore }) => {
       const placementRoot = mkdtempSync(join(tmpdir(), 'acp-flow-placement-'))
+      const physicalPlacementRoot = realpathSync(placementRoot)
 
       try {
         const { job, jobRun, advanced } = await advanceCreatedFlow({
@@ -584,20 +585,24 @@ describe('advanceJobFlow exec steps', () => {
           jobsStore,
           flow: {
             sequence: [
-              execStep('pwd', "process.stdout.write(process.cwd())"),
+              execStep('pwd', 'process.stdout.write(process.cwd())'),
               agentStep('report', 'report after scoped exec success'),
             ],
           },
         })
 
-        const stepRun = jobsStore.jobStepRuns.getById(jobRun.jobRunId, 'sequence', 'pwd', 1)
-          .jobStepRun
+        const stepRun = jobsStore.jobStepRuns.getById(
+          jobRun.jobRunId,
+          'sequence',
+          'pwd',
+          1
+        ).jobStepRun
         expect(stepRun).toMatchObject({
           status: 'succeeded',
           result: expect.objectContaining({
             kind: 'exec',
             cwd: placementRoot,
-            stdout: placementRoot,
+            stdout: physicalPlacementRoot,
           }),
         })
         expect(advanced.status).toBe('succeeded')

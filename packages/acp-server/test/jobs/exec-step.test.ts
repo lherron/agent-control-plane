@@ -242,7 +242,7 @@ describe('runExecStep', () => {
     process.env.HOME = '/tmp/acp-baseline-home'
     process.env.TMPDIR = '/tmp/acp-baseline-tmp'
     process.env.ACP_EXEC_DENIED_TEST = 'must-not-leak'
-    delete process.env.ACP_JOB_FLOW_EXEC_INHERIT_ENV_ALLOWLIST
+    process.env.ACP_JOB_FLOW_EXEC_INHERIT_ENV_ALLOWLIST = ''
 
     const resolvedPolicy = resolveJobExecPolicy({
       enabled: true,

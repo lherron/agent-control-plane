@@ -1162,10 +1162,18 @@ async function advanceExecStep(input: {
   ).jobStepRun
 
   try {
+    const defaultCwd = await resolveExecDefaultCwd(input.deps, input.job)
+    const jobExecPolicy = input.deps.jobExecPolicy ?? resolveJobExecPolicy()
     const result = await runExecStep({
       step: input.step,
-      defaultCwd: await resolveExecDefaultCwd(input.deps, input.job),
-      policy: input.deps.jobExecPolicy ?? resolveJobExecPolicy(),
+      defaultCwd,
+      // Exec steps are at-least-once across daemon crashes: a stored running step
+      // can be re-spawned after restart, so flow definitions should keep exec
+      // side effects idempotent.
+      policy: {
+        ...jobExecPolicy,
+        allowedCwdRoots: [...jobExecPolicy.allowedCwdRoots, defaultCwd],
+      },
     })
     const status = isSuccessfulExecStepResult(input.step, result) ? 'succeeded' : 'failed'
 

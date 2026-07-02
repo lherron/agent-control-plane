@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import os from 'node:os'
 import path from 'node:path'
 
 import type { ExecFlowStep, ExecStepResult } from 'acp-core'
@@ -53,6 +54,17 @@ function resolveCwd(step: ExecFlowStep, defaultCwd: string, policy: JobExecPolic
 
 function buildEnv(step: ExecFlowStep, policy: JobExecPolicy): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
+  const baseline: NodeJS.ProcessEnv = {
+    PATH: process.env['PATH'],
+    HOME: process.env['HOME'] ?? os.homedir(),
+    TMPDIR: process.env['TMPDIR'] ?? os.tmpdir(),
+  }
+
+  for (const [key, value] of Object.entries(baseline)) {
+    if (value !== undefined) {
+      env[key] = value
+    }
+  }
 
   for (const key of policy.inheritEnvAllowlist) {
     const value = process.env[key]
