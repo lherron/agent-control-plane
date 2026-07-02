@@ -208,6 +208,7 @@ export type JobRecord = {
   actorStamp?: string | undefined
   createdAt: string
   updatedAt: string
+  archivedAt?: string | undefined
 }
 
 export type InboxEventRecord = {
@@ -899,6 +900,9 @@ export interface JobsStore {
   listInflightFlowJobRuns(
     input?: { limit?: number | undefined; now?: string | undefined } | undefined
   ): ClaimedDueJob[]
+  listJobRunReaperCandidates(
+    input?: { limit?: number | undefined; now?: string | undefined } | undefined
+  ): ClaimedDueJob[]
   readonly eventInbox: {
     insert(input: InsertInboxEventInput): { event: InboxEventRecord; inserted: boolean }
     get(eventId: string): { event: InboxEventRecord | undefined }
@@ -1121,6 +1125,7 @@ function toJobRecord(row: JobRow): JobRecord {
     actorStamp: row.actor_stamp,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    ...(row.archived_at !== null ? { archivedAt: row.archived_at } : {}),
   }
 }
 
@@ -1234,6 +1239,15 @@ function requireJobRow(sqlite: SqliteDatabase, jobId: string): JobRow {
   const row = sqlite
     .prepare('SELECT * FROM jobs WHERE job_id = ? AND archived_at IS NULL')
     .get(jobId) as JobRow | undefined
+  if (row === undefined) {
+    throw new Error(`job not found: ${jobId}`)
+  }
+
+  return row
+}
+
+function requireAnyJobRow(sqlite: SqliteDatabase, jobId: string): JobRow {
+  const row = sqlite.prepare('SELECT * FROM jobs WHERE job_id = ?').get(jobId) as JobRow | undefined
   if (row === undefined) {
     throw new Error(`job not found: ${jobId}`)
   }
@@ -2101,6 +2115,55 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
     return results
   }
 
+  const listJobRunReaperCandidates = (
+    input: { limit?: number | undefined; now?: string | undefined } = {}
+  ): ClaimedDueJob[] => {
+    const limit = input.limit ?? DEFAULT_CLAIM_LIMIT
+    const now = input.now ?? new Date().toISOString()
+    const rows = sqlite
+      .prepare(
+        `
+          SELECT jr.*
+          FROM job_runs jr
+          JOIN jobs j ON j.job_id = jr.job_id
+          WHERE (
+              jr.status = 'dispatched'
+              OR (
+                jr.status = 'claimed'
+                AND (jr.lease_expires_at IS NULL OR jr.lease_expires_at <= ?)
+              )
+            )
+            AND (
+              j.flow_json IS NOT NULL
+              OR j.archived_at IS NOT NULL
+              OR j.disabled != 0
+              OR (
+                jr.status = 'claimed'
+                AND j.flow_json IS NULL
+                AND jr.lease_expires_at IS NOT NULL
+                AND jr.lease_expires_at <= ?
+              )
+              OR (
+                jr.status = 'dispatched'
+                AND j.flow_json IS NULL
+                AND jr.input_attempt_id IS NULL
+                AND jr.run_id IS NULL
+              )
+            )
+          ORDER BY jr.triggered_at ASC, jr.job_run_id ASC
+          LIMIT ?
+        `
+      )
+      .all(now, now, limit) as JobRunRow[]
+
+    const results: ClaimedDueJob[] = []
+    for (const row of rows) {
+      const job = toJobRecord(requireAnyJobRow(sqlite, row.job_id))
+      results.push({ job, jobRun: toJobRunRecord(row) })
+    }
+    return results
+  }
+
   const listDispatchedNonFlowJobRuns = (
     input: { limit?: number | undefined } = {}
   ): ClaimedDueJob[] => {
@@ -2642,6 +2705,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
     createJobRun,
     claimDueJobs,
     listInflightFlowJobRuns,
+    listJobRunReaperCandidates,
     listDispatchedNonFlowJobRuns,
     getJobOutputSinkAttempt,
     recordJobOutputSinkAttempt,

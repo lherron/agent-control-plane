@@ -69,6 +69,7 @@ type FreshStepDispatchPlan =
   | { ok: false; message: string }
 
 const SCHEDULED_FRESH_METADATA_KEY = 'scheduledFresh'
+const AGENT_STEP_TERMINATE_TIMEOUT_MS = 50
 
 const TERMINAL_STEP_STATUSES = new Set<JobStepRunStatus>([
   'succeeded',
@@ -108,6 +109,11 @@ export async function advanceJobFlow(input: AdvanceJobFlowInput): Promise<JobRun
 
   if (sequenceResult.state === 'blocked') {
     return markJobRunRunning(jobsStore, jobRun, actor, now)
+  }
+
+  if (jobRun.status === 'failed' && jobRun.errorCode === 'agent_step_timeout') {
+    skipRemainingSequenceSteps(jobsStore, jobRun.jobRunId, flow.sequence, now)
+    return jobRun
   }
 
   if (sequenceResult.state === 'succeeded') {
@@ -409,6 +415,13 @@ async function advanceAgentStep(input: {
   }
 
   const terminal = getTerminalRunOutcome(input.deps, stepRun.runId)
+  if (terminal === undefined && hasAgentStepTimedOut(stepRun, input.step, input.now)) {
+    return {
+      state: 'terminal',
+      stepRun: failTimedOutAgentStep(input, stepRun),
+    }
+  }
+
   if (terminal === undefined) {
     return { state: 'blocked' }
   }
@@ -1178,6 +1191,112 @@ function getTerminalRunOutcome(
   }
 
   return undefined
+}
+
+function hasAgentStepTimedOut(
+  stepRun: JobStepRunRecord,
+  step: AgentRunnableStep,
+  now: string
+): boolean {
+  if (step.timeout === undefined || stepRun.startedAt === undefined) {
+    return false
+  }
+
+  const timeoutMs = parseFreshDurationMs(step.timeout)
+  const startedAt = Date.parse(stepRun.startedAt)
+  const nowMs = Date.parse(now)
+  return (
+    timeoutMs !== undefined &&
+    Number.isFinite(startedAt) &&
+    Number.isFinite(nowMs) &&
+    nowMs - startedAt >= timeoutMs
+  )
+}
+
+function failTimedOutAgentStep(
+  input: {
+    deps: ResolvedAcpServerDeps
+    jobRun: JobRunRecord
+    phase: JobStepRunPhase
+    step: AgentRunnableStep
+    actor: Actor
+    now: string
+  },
+  stepRun: JobStepRunRecord
+): JobStepRunRecord {
+  const jobsStore = requireJobsStore(input.deps)
+  const error = {
+    code: 'agent_step_timeout',
+    message: `agent step ${input.phase}/${input.step.id} exceeded timeout ${input.step.timeout}`,
+  }
+  const failedStepRun = jobsStore.jobStepRuns.updateStep(
+    input.jobRun.jobRunId,
+    input.phase,
+    input.step.id,
+    stepRun.attempt,
+    {
+      status: 'failed',
+      error,
+      completedAt: input.now,
+    }
+  ).jobStepRun
+
+  jobsStore.updateJobRun(input.jobRun.jobRunId, {
+    status: 'failed',
+    errorCode: error.code,
+    errorMessage: error.message,
+    completedAt: input.now,
+    leaseOwner: null,
+    leaseExpiresAt: null,
+    actor: input.actor,
+  })
+
+  terminateTimedOutAgentRuntime(input.deps, stepRun.runId, input.actor)
+  return failedStepRun
+}
+
+function terminateTimedOutAgentRuntime(
+  deps: ResolvedAcpServerDeps,
+  runId: string | undefined,
+  actor: Actor
+): void {
+  if (runId === undefined || deps.hrcClient === undefined) {
+    return
+  }
+
+  const run = deps.runStore.getRun(runId)
+  if (run?.runtimeId === undefined) {
+    return
+  }
+
+  let settled = false
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  const terminate = Promise.resolve()
+    .then(() =>
+      deps.hrcClient?.terminate(run.runtimeId as string, {
+        dropContinuation: false,
+        reason: 'agent_step_timeout',
+        source: 'acp-scheduled-job-runner',
+        actor: actorToAuditString(actor),
+      })
+    )
+    .catch(() => undefined)
+    .finally(() => {
+      settled = true
+      if (timeoutId !== undefined) {
+        clearTimeout(timeoutId)
+      }
+    })
+
+  const timeout = new Promise<void>((resolve) => {
+    timeoutId = setTimeout(() => {
+      if (!settled) {
+        resolve()
+      }
+    }, AGENT_STEP_TERMINATE_TIMEOUT_MS)
+  })
+
+  void Promise.race([terminate, timeout]).catch(() => undefined)
 }
 
 function isTerminalRunStatus(status: Run['status']): status is TerminalRunStatus {

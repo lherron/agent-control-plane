@@ -48,12 +48,15 @@ export type TickJobsSchedulerInput = {
   claimLimit?: number | undefined
   leaseOwner?: string | undefined
   eventLeaseMs?: number | undefined
+  maxJobRunDurationMs?: number | undefined
 }
 
 export type ScheduledRun = JobRunRecord
 
 const DEFAULT_EVENT_LEASE_MS = 30_000
 const DEFAULT_FLOW_LEASE_MS = 30 * 60_000
+const DEFAULT_MAX_JOB_RUN_DURATION_MS = 24 * 60 * 60_000
+const JOB_CHANGE_ORPHAN_GRACE_MS = 60_000
 /** Default page size for the event-inbox drain claim. */
 const DEFAULT_EVENT_CLAIM_LIMIT = 50
 
@@ -82,6 +85,81 @@ function resolveDispatchContext(entry: ClaimedDueJob): {
     laneRef: entry.jobRun.resolvedLaneRef ?? entry.job.laneRef,
     content: snapshotContent ?? (typeof liveContent === 'string' ? liveContent : undefined),
   }
+}
+
+function isClaimedLeaseExpired(jobRun: JobRunRecord, now: string): boolean {
+  return (
+    jobRun.status === 'claimed' &&
+    (jobRun.leaseExpiresAt === undefined || jobRun.leaseExpiresAt <= now)
+  )
+}
+
+function hasExceededMaxDuration(
+  jobRun: JobRunRecord,
+  now: string,
+  maxJobRunDurationMs: number
+): boolean {
+  return hasRunAgeAtLeast(jobRun, now, maxJobRunDurationMs)
+}
+
+function hasRunAgeAtLeast(jobRun: JobRunRecord, now: string, durationMs: number): boolean {
+  const startedAt = Date.parse(jobRun.triggeredAt)
+  const nowMs = Date.parse(now)
+  return Number.isFinite(startedAt) && Number.isFinite(nowMs) && nowMs - startedAt >= durationMs
+}
+
+function terminalizeInflightJobRuns(input: {
+  store: JobsStore
+  now: string
+  limit?: number | undefined
+  maxJobRunDurationMs: number
+}): JobRunRecord[] {
+  const inflight = input.store.listJobRunReaperCandidates({
+    ...(input.limit !== undefined ? { limit: input.limit } : {}),
+    now: input.now,
+  })
+  const finalized: JobRunRecord[] = []
+
+  for (const entry of inflight) {
+    let errorCode: string | undefined
+    let errorMessage: string | undefined
+
+    if (entry.job.flow === undefined && isClaimedLeaseExpired(entry.jobRun, input.now)) {
+      errorCode = 'stale_claimed_non_flow'
+      errorMessage = 'stale claimed non-flow job run'
+    } else if (isOrphanedByJobChange(entry, input.now)) {
+      errorCode = 'orphaned_by_job_change'
+      errorMessage = 'job run orphaned by job archive, disable, or flow removal'
+    } else if (hasExceededMaxDuration(entry.jobRun, input.now, input.maxJobRunDurationMs)) {
+      errorCode = 'job_run_max_duration_exceeded'
+      errorMessage = 'job run exceeded maximum duration'
+    }
+
+    if (errorCode === undefined) {
+      continue
+    }
+
+    finalized.push(
+      input.store.updateJobRun(entry.jobRun.jobRunId, {
+        status: 'failed',
+        errorCode,
+        errorMessage,
+        completedAt: input.now,
+        leaseOwner: null,
+        leaseExpiresAt: null,
+      }).jobRun
+    )
+  }
+
+  return finalized
+}
+
+function isOrphanedByJobChange(entry: ClaimedDueJob, now: string): boolean {
+  return (
+    entry.jobRun.status === 'dispatched' &&
+    (entry.job.archivedAt !== undefined || entry.job.disabled || entry.job.flow === undefined) &&
+    hasRunAgeAtLeast(entry.jobRun, now, JOB_CHANGE_ORPHAN_GRACE_MS)
+  )
 }
 
 /**
@@ -216,11 +294,17 @@ export async function tickJobsScheduler(input: TickJobsSchedulerInput): Promise<
 
   const allClaimed = [...claimed, ...mintedEventRuns]
   const scheduledRuns = allClaimed.map((entry) => entry.jobRun)
+  const reapedRuns = terminalizeInflightJobRuns({
+    store: input.store,
+    now,
+    ...(input.claimLimit !== undefined ? { limit: input.claimLimit } : {}),
+    maxJobRunDurationMs: input.maxJobRunDurationMs ?? DEFAULT_MAX_JOB_RUN_DURATION_MS,
+  })
   if (input.dispatchThroughInputs === undefined && input.advanceFlowJobRun === undefined) {
-    return scheduledRuns
+    return [...scheduledRuns, ...reapedRuns]
   }
 
-  const results: ScheduledRun[] = []
+  const results: ScheduledRun[] = [...reapedRuns]
   for (const entry of allClaimed) {
     if (entry.job.flow !== undefined) {
       if (input.advanceFlowJobRun === undefined) {
