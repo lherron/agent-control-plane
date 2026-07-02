@@ -558,6 +558,56 @@ describe('advanceJobFlow validation backstop', () => {
 })
 
 describe('advanceJobFlow exec steps', () => {
+  test('T-05421 exec cwd policy implicitly allows the scope-resolved placement root', async () => {
+    await withFlowHarness(async ({ deps, jobsStore }) => {
+      const placementRoot = mkdtempSync(join(tmpdir(), 'acp-flow-placement-'))
+
+      try {
+        const { job, jobRun, advanced } = await advanceCreatedFlow({
+          deps: {
+            ...deps,
+            runtimeResolver: async () => ({
+              agentRoot: join(placementRoot, '.agents', 'larry'),
+              projectRoot: placementRoot,
+              cwd: placementRoot,
+              runMode: 'task',
+              bundle: { kind: 'compose', compose: [] },
+              harness: { provider: 'openai', interactive: true },
+            }),
+            jobExecPolicy: {
+              ...deps.jobExecPolicy,
+              // T-05421: server-global roots may be pinned to another checkout.
+              // The scoped placement root must still be allowed for this job.
+              allowedCwdRoots: [join(placementRoot, '..', 'agent-control-plane-only')],
+            },
+          },
+          jobsStore,
+          flow: {
+            sequence: [
+              execStep('pwd', "process.stdout.write(process.cwd())"),
+              agentStep('report', 'report after scoped exec success'),
+            ],
+          },
+        })
+
+        const stepRun = jobsStore.jobStepRuns.getById(jobRun.jobRunId, 'sequence', 'pwd', 1)
+          .jobStepRun
+        expect(stepRun).toMatchObject({
+          status: 'succeeded',
+          result: expect.objectContaining({
+            kind: 'exec',
+            cwd: placementRoot,
+            stdout: placementRoot,
+          }),
+        })
+        expect(advanced.status).toBe('succeeded')
+        expect(job.scopeRef).toBe(FLOW_JOB_SCOPE_REF)
+      } finally {
+        rmSync(placementRoot, { recursive: true, force: true })
+      }
+    })
+  })
+
   test('native side-effect steps execute through the flow engine and resolve prior step output', async () => {
     await withFlowHarness(async ({ deps, jobsStore }) => {
       const calls: {

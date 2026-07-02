@@ -236,4 +236,81 @@ describe('runExecStep', () => {
       explicit: 'from-step',
     })
   })
+
+  test('T-05421 baseline env is inherited without requiring a per-job allowlist', async () => {
+    process.env.PATH = '/tmp/acp-baseline-bin:/usr/bin'
+    process.env.HOME = '/tmp/acp-baseline-home'
+    process.env.TMPDIR = '/tmp/acp-baseline-tmp'
+    process.env.ACP_EXEC_DENIED_TEST = 'must-not-leak'
+    delete process.env.ACP_JOB_FLOW_EXEC_INHERIT_ENV_ALLOWLIST
+
+    const resolvedPolicy = resolveJobExecPolicy({
+      enabled: true,
+      allowedCwdRoots: [defaultCwd],
+      defaultTimeoutMs: 5_000,
+      maxTimeoutMs: 5_000,
+    })
+
+    const result = await runExecStep({
+      step: execStep([
+        jsRuntime,
+        '-e',
+        [
+          'process.stdout.write(JSON.stringify({',
+          'path: process.env.PATH,',
+          'home: process.env.HOME,',
+          'tmpdir: process.env.TMPDIR,',
+          'denied: process.env.ACP_EXEC_DENIED_TEST',
+          '}))',
+        ].join(' '),
+      ]),
+      defaultCwd,
+      policy: resolvedPolicy,
+    })
+
+    expect(JSON.parse(result.stdout)).toEqual({
+      path: '/tmp/acp-baseline-bin:/usr/bin',
+      home: '/tmp/acp-baseline-home',
+      tmpdir: '/tmp/acp-baseline-tmp',
+    })
+  })
+
+  test('T-05421 env allowlist adds to baseline instead of replacing it', async () => {
+    process.env.PATH = '/tmp/acp-baseline-bin:/usr/bin'
+    process.env.HOME = '/tmp/acp-baseline-home'
+    process.env.TMPDIR = '/tmp/acp-baseline-tmp'
+    process.env.ACP_EXEC_ALLOWED_TEST = 'from-parent'
+    process.env.ACP_EXEC_DENIED_TEST = 'must-not-leak'
+
+    const result = await runExecStep({
+      step: execStep([
+        jsRuntime,
+        '-e',
+        [
+          'process.stdout.write(JSON.stringify({',
+          'path: process.env.PATH,',
+          'home: process.env.HOME,',
+          'tmpdir: process.env.TMPDIR,',
+          'allowed: process.env.ACP_EXEC_ALLOWED_TEST,',
+          'denied: process.env.ACP_EXEC_DENIED_TEST',
+          '}))',
+        ].join(' '),
+      ]),
+      defaultCwd,
+      policy: resolveJobExecPolicy({
+        enabled: true,
+        allowedCwdRoots: [defaultCwd],
+        defaultTimeoutMs: 5_000,
+        maxTimeoutMs: 5_000,
+        inheritEnvAllowlist: ['ACP_EXEC_ALLOWED_TEST'],
+      }),
+    })
+
+    expect(JSON.parse(result.stdout)).toEqual({
+      path: '/tmp/acp-baseline-bin:/usr/bin',
+      home: '/tmp/acp-baseline-home',
+      tmpdir: '/tmp/acp-baseline-tmp',
+      allowed: 'from-parent',
+    })
+  })
 })
