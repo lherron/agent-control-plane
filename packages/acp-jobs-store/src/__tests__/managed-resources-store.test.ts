@@ -271,6 +271,39 @@ describe('same-transaction provenance (Phase D invariant)', () => {
     expect(detectJobDrift(store, scheduledFlow.projectionId)).toEqual({ hasDrift: false })
   })
 
+  test('applyManagedJob rejects an invalid scheduled flow with path/code and leaves the job store untouched', () => {
+    const store = freshStore()
+    const badBranchTarget: ApplyManagedJobInput = {
+      ...SCHEDULED_JOB,
+      desiredJson: {
+        ...SCHEDULED_JOB.desiredJson,
+        flow: {
+          sequence: [
+            {
+              id: 'build',
+              kind: 'exec',
+              exec: { argv: ['bun', 'run', 'build'] },
+              branches: { default: 'missing-step' },
+            },
+          ],
+        },
+      },
+    }
+
+    const result = applyManagedJob(store, badBranchTarget)
+
+    // T-05418: managed-resource reconcile must use the shared flow validator before
+    // touching jobs/provenance, so agent-authored schedules fail at reconcile time
+    // with the same structured path/code users see from admin admission.
+    expect(result.outcome).toBe('validation_error')
+    if (result.outcome !== 'validation_error') return
+    const surfaced = `${result.error.code} ${result.error.message}`
+    expect(surfaced).toContain('invalid_flow_next')
+    expect(surfaced).toContain('flow.sequence[0].branches.default')
+    expect(store.listJobs().jobs).toHaveLength(0)
+    expect(getManagedJobProvenance(store, badBranchTarget.projectionId)).toBeUndefined()
+  })
+
   test('applyManagedJob for event-hook preserves output sinks in projection and drift', () => {
     const store = freshStore()
     const hookWithOutput: ApplyManagedJobInput = {
