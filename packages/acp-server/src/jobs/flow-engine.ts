@@ -85,6 +85,7 @@ const SCHEDULED_FRESH_PRE_RUN_CLEANUP_DEGRADED = 'scheduled_fresh_pre_run_cleanu
 const AGENT_STEP_TERMINATE_TIMEOUT_MS = 50
 const PROBE_REGISTRY: Record<string, ProbeRunner> = {
   'hrc-stale-tty-reap.v1': runHrcClientProbe,
+  'wrkq-refactor-eligible.v1': runWrkqRefactorEligibilityProbe,
 }
 
 const TERMINAL_STEP_STATUSES = new Set<JobStepRunStatus>([
@@ -415,6 +416,28 @@ async function runHrcClientProbe(input: {
     )
   }
   return result
+}
+
+async function runWrkqRefactorEligibilityProbe(input: {
+  deps: ResolvedAcpServerDeps
+  job: JobRecord
+}): Promise<{ outcome: ProbeOutcome }> {
+  const workClient = input.deps.workClient
+  if (workClient === undefined) {
+    throw new ProbeStepError('probe_unavailable', 'wrkq client is not configured')
+  }
+
+  const projectId = input.job.projectId || process.env['ASP_PROJECT'] || 'agent-control-plane'
+  const listed = await workClient.wrkq.task.list({
+    path: `${projectId}/refactor-deferred`,
+    state: 'open',
+    kind: 'task',
+    recursive: true,
+    limit: 1,
+    summary: true,
+  })
+
+  return { outcome: listed.items.length > 0 ? 'work' : 'idle' }
 }
 
 async function advanceNativeStep(input: {

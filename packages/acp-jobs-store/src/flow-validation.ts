@@ -83,7 +83,7 @@ const allowedStepKinds = new Set([
   'pulpit-message',
   'agent-dispatch',
 ])
-const knownProbeNames = new Set(['hrc-stale-tty-reap.v1'])
+const knownProbeNames = new Set(['hrc-stale-tty-reap.v1', 'wrkq-refactor-eligible.v1'])
 const maxExecOutputBytes = 64 * 1024 * 1024
 
 function isRecord(value: unknown): value is Record<string, unknown> {
