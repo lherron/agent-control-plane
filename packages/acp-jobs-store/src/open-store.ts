@@ -256,6 +256,7 @@ export type JobStepRunRecord = {
   runId?: string | undefined
   resultBlock?: string | undefined
   result?: Readonly<Record<string, unknown>> | undefined
+  degradation?: Readonly<{ code: string; [key: string]: unknown }> | undefined
   error?: { code: string; message: string } | undefined
   startedAt?: string | undefined
   completedAt?: string | undefined
@@ -1215,6 +1216,7 @@ function toJobOutputSinkAttemptRecord(row: JobOutputSinkAttemptRow): JobOutputSi
 
 function toJobStepRunRecord(row: JobStepRunRow): JobStepRunRecord {
   const result = parseOptionalJsonRecord(row.result_json, 'result')
+  const degradation = readJobStepRunDegradation(result?.['degradation'])
   return {
     jobRunId: row.job_run_id,
     stepId: row.step_id,
@@ -1225,14 +1227,29 @@ function toJobStepRunRecord(row: JobStepRunRow): JobStepRunRecord {
     runId: row.run_id ?? undefined,
     ...(row.result_block !== null ? { resultBlock: row.result_block } : {}),
     ...(result !== undefined ? { result } : {}),
-    ...(row.error_code !== null && row.error_message !== null
-      ? { error: { code: row.error_code, message: row.error_message } }
-      : {}),
+    ...(degradation !== undefined ? { degradation } : {}),
+    error:
+      row.error_code !== null && row.error_message !== null
+        ? { code: row.error_code, message: row.error_message }
+        : undefined,
     ...(row.started_at !== null ? { startedAt: row.started_at } : {}),
     ...(row.completed_at !== null ? { completedAt: row.completed_at } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
+}
+
+function readJobStepRunDegradation(
+  value: unknown
+): Readonly<{ code: string; [key: string]: unknown }> | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return undefined
+  }
+
+  const degradation = value as Record<string, unknown>
+  return typeof degradation['code'] === 'string'
+    ? (degradation as Readonly<{ code: string; [key: string]: unknown }>)
+    : undefined
 }
 
 function requireJobRow(sqlite: SqliteDatabase, jobId: string): JobRow {

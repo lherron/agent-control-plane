@@ -58,6 +58,13 @@ type ScheduledFreshMetadata = {
   windowStartedAt: string
 }
 
+type ScheduledFreshCleanupDegradation = Readonly<{
+  code: 'scheduled_fresh_pre_run_cleanup_degraded'
+  previousRuntimeId: string
+  failureCode: string
+  message: string
+}>
+
 type FreshStepDispatchPlan =
   | {
       ok: true
@@ -69,6 +76,7 @@ type FreshStepDispatchPlan =
   | { ok: false; message: string }
 
 const SCHEDULED_FRESH_METADATA_KEY = 'scheduledFresh'
+const SCHEDULED_FRESH_PRE_RUN_CLEANUP_DEGRADED = 'scheduled_fresh_pre_run_cleanup_degraded'
 const AGENT_STEP_TERMINATE_TIMEOUT_MS = 50
 
 const TERMINAL_STEP_STATUSES = new Set<JobStepRunStatus>([
@@ -76,6 +84,11 @@ const TERMINAL_STEP_STATUSES = new Set<JobStepRunStatus>([
   'failed',
   'skipped',
   'cancelled',
+])
+const TERMINAL_JOB_RUN_STATUSES = new Set<JobRunRecord['status']>([
+  'succeeded',
+  'failed',
+  'skipped',
 ])
 
 export async function advanceJobFlow(input: AdvanceJobFlowInput): Promise<JobRunRecord> {
@@ -382,6 +395,10 @@ async function advanceAgentStep(input: {
         ).jobStepRun,
       }
     }
+    const degradationResult =
+      cleanup.degradation === undefined
+        ? {}
+        : { result: { ...(stepRun.result ?? {}), degradation: cleanup.degradation } }
 
     const content = requireStepInput(input.step)
     await rotateFreshStepContext(input.deps, input.job, input.step, freshPlan.rotateContext)
@@ -410,6 +427,7 @@ async function advanceAgentStep(input: {
         inputAttemptId: dispatched.inputAttemptId,
         runId: dispatched.runId,
         startedAt: dispatchStartedAt,
+        ...degradationResult,
       }
     ).jobStepRun
   }
@@ -440,7 +458,9 @@ async function advanceAgentStep(input: {
   }
 }
 
-type FreshStepCleanupResult = { ok: true } | { ok: false; message: string }
+type FreshStepCleanupResult =
+  | { ok: true; degradation?: ScheduledFreshCleanupDegradation | undefined }
+  | { ok: false; message: string }
 
 function resolveFreshStepDispatchPlan(input: {
   deps: ResolvedAcpServerDeps
@@ -466,7 +486,7 @@ function resolveFreshStepDispatchPlan(input: {
     phase: input.phase,
     stepId: input.step.id,
   })
-  if (previous !== undefined && !TERMINAL_STEP_STATUSES.has(previous.status)) {
+  if (previous !== undefined && !isPreviousFreshStepEffectivelyTerminal(jobsStore, previous)) {
     return {
       ok: false,
       message: `previous fresh step ${previous.jobRunId}/${input.phase}/${input.step.id} is still ${previous.status}`,
@@ -549,7 +569,7 @@ async function cleanupPreviousScheduledFreshStepRuntime(
     return { ok: true }
   }
 
-  if (!TERMINAL_STEP_STATUSES.has(previous.status)) {
+  if (!isPreviousFreshStepEffectivelyTerminal(requireJobsStore(input.deps), previous)) {
     return {
       ok: false,
       message: `previous fresh step ${previous.jobRunId}/${input.phase}/${input.step.id} is still ${previous.status}`,
@@ -583,16 +603,104 @@ async function cleanupPreviousScheduledFreshStepRuntime(
       source: 'acp-scheduled-job-runner',
       actor: actorToAuditString(input.actor),
     })
+    terminalizeCleanedPreviousRunIfNeeded(input, previous, priorRun.runId)
     return { ok: true }
   } catch (error) {
     if (isBenignTerminateError(error)) {
       return { ok: true }
+    }
+    if (isDegradableScheduledFreshCleanupError(error)) {
+      const degradation = {
+        code: SCHEDULED_FRESH_PRE_RUN_CLEANUP_DEGRADED,
+        previousRuntimeId: priorRun.runtimeId,
+        failureCode: cleanupFailureCode(error),
+        message: `failed to clean previous fresh step runtime ${priorRun.runtimeId}: ${errorMessage(error)}`,
+      } satisfies ScheduledFreshCleanupDegradation
+      emitScheduledFreshCleanupDegraded(input, degradation)
+      return { ok: true, degradation }
     }
     return {
       ok: false,
       message: `failed to clean previous fresh step runtime ${priorRun.runtimeId}: ${errorMessage(error)}`,
     }
   }
+}
+
+function isPreviousFreshStepEffectivelyTerminal(
+  jobsStore: NonNullable<ResolvedAcpServerDeps['jobsStore']>,
+  previous: DispatchedStepRun
+): boolean {
+  if (TERMINAL_STEP_STATUSES.has(previous.status)) {
+    return true
+  }
+
+  const jobRun = jobsStore.getJobRun(previous.jobRunId).jobRun
+  return jobRun !== undefined && isTerminalJobRunStatus(jobRun.status)
+}
+
+function isTerminalJobRunStatus(status: JobRunRecord['status']): boolean {
+  return TERMINAL_JOB_RUN_STATUSES.has(status)
+}
+
+function terminalizeCleanedPreviousRunIfNeeded(
+  input: {
+    deps: ResolvedAcpServerDeps
+  },
+  previous: DispatchedStepRun,
+  priorRunId: string
+): void {
+  const jobsStore = requireJobsStore(input.deps)
+  const previousJobRun = jobsStore.getJobRun(previous.jobRunId).jobRun
+  const priorRun = input.deps.runStore.getRun(priorRunId)
+  if (
+    previousJobRun === undefined ||
+    priorRun === undefined ||
+    !isTerminalJobRunStatus(previousJobRun.status) ||
+    isTerminalRunStatus(priorRun.status)
+  ) {
+    return
+  }
+
+  input.deps.runStore.updateRun(priorRun.runId, {
+    status: 'cancelled',
+    errorCode: 'scheduled_fresh_pre_run_cleanup',
+    errorMessage: 'terminated stale scheduled fresh runtime before rotation',
+  })
+}
+
+function emitScheduledFreshCleanupDegraded(
+  input: {
+    deps: ResolvedAcpServerDeps
+    job: JobRecord
+    jobRun: JobRunRecord
+    phase: JobStepRunPhase
+    step: AgentRunnableStep
+  },
+  degradation: ScheduledFreshCleanupDegradation
+): void {
+  const jobsStore = requireJobsStore(input.deps)
+  const occurredAt = input.jobRun.triggeredAt
+  const eventSeq = Date.parse(occurredAt)
+  jobsStore.insertInboxEvent({
+    eventId: `${SCHEDULED_FRESH_PRE_RUN_CLEANUP_DEGRADED}:${input.jobRun.jobRunId}:${input.phase}:${input.step.id}:${degradation.previousRuntimeId}`,
+    eventSeq: Number.isFinite(eventSeq) ? eventSeq : Date.now(),
+    source: 'acp-health',
+    event: SCHEDULED_FRESH_PRE_RUN_CLEANUP_DEGRADED,
+    occurredAt,
+    receivedAt: occurredAt,
+    payload: {
+      event: SCHEDULED_FRESH_PRE_RUN_CLEANUP_DEGRADED,
+      payload: {
+        jobId: input.job.jobId,
+        jobRunId: input.jobRun.jobRunId,
+        phase: input.phase,
+        stepId: input.step.id,
+        previousRuntimeId: degradation.previousRuntimeId,
+        failureCode: degradation.failureCode,
+        message: degradation.message,
+      },
+    },
+  })
 }
 
 function isScheduledFreshStepDispatch(job: JobRecord, jobRun: JobRunRecord): boolean {
@@ -695,11 +803,24 @@ function findPreviousDispatchedStepRun(input: {
     if (stepRun?.runId === undefined) {
       continue
     }
+    if (hasScheduledFreshCleanupDegradation(stepRun)) {
+      continue
+    }
 
     return stepRun as JobStepRunRecord & { runId: string }
   }
 
   return undefined
+}
+
+function hasScheduledFreshCleanupDegradation(stepRun: JobStepRunRecord): boolean {
+  const directDegradation = (stepRun as unknown as { degradation?: unknown }).degradation
+  const degradation = isRecord(directDegradation)
+    ? directDegradation
+    : isRecord(stepRun.result?.['degradation'])
+      ? stepRun.result['degradation']
+      : undefined
+  return degradation?.['code'] === SCHEDULED_FRESH_PRE_RUN_CLEANUP_DEGRADED
 }
 
 function isBenignTerminateError(error: unknown): boolean {
@@ -726,11 +847,43 @@ function isBenignTerminateError(error: unknown): boolean {
   )
 }
 
+function isDegradableScheduledFreshCleanupError(error: unknown): boolean {
+  const code = errorCode(error)
+  if (code === 'terminate_timeout' || code === 'http_500') {
+    return true
+  }
+
+  const status = errorStatus(error)
+  if (status === 500) {
+    return true
+  }
+
+  return errorMessage(error).toLowerCase().includes('timed out')
+}
+
+function cleanupFailureCode(error: unknown): string {
+  const code = errorCode(error)
+  if (code !== undefined) {
+    return code
+  }
+
+  const status = errorStatus(error)
+  return status === undefined ? 'scheduled_fresh_pre_run_cleanup_failed' : `http_${status}`
+}
+
 function errorCode(error: unknown): string | undefined {
   return typeof error === 'object' &&
     error !== null &&
     typeof (error as { code?: unknown }).code === 'string'
     ? (error as { code: string }).code
+    : undefined
+}
+
+function errorStatus(error: unknown): number | undefined {
+  return typeof error === 'object' &&
+    error !== null &&
+    typeof (error as { status?: unknown }).status === 'number'
+    ? (error as { status: number }).status
     : undefined
 }
 
