@@ -374,6 +374,38 @@ describe('event-claim minting', () => {
     expect(store.getInboxEvent('wrkq:evt_1').event?.status).toBe('processed')
   })
 
+  // T-05416: template_error is reserved for template/evaluation decisions.
+  // Unexpected evaluator or mint exceptions need a truthful internal_error row.
+  test('unexpected evaluation or mint failures record internal_error, not template_error (T-05416 red)', async () => {
+    const store = createInMemoryJobsStore()
+    store.createJob(eventJob({ slug: 'broken-evaluator-job' }))
+    const payload = adaptWrkqWebhookEvent(wrkqEvent())
+    const parsed = parseAcpWebhookEvent(payload)
+    store.insertInboxEvent({
+      eventId: String(payload['event_id']),
+      eventSeq: Number(payload['event_seq']),
+      event: String(payload['event']),
+      ...(parsed.ok ? { source: parsed.event.source } : {}),
+      payload,
+    })
+
+    await tickJobsScheduler({
+      store,
+      now: '2026-06-07T00:00:00.000Z',
+      evaluateEventJob: () => {
+        throw new Error('sqlite busy while minting job run')
+      },
+    })
+
+    const matches = store.listEventJobMatches({ sourceEventId: 'wrkq:evt_1' }).matches
+    expect(matches).toHaveLength(1)
+    expect(matches[0]).toMatchObject({
+      outcome: 'skipped',
+      reason: 'internal_error',
+    })
+    expect(store.getInboxEvent('wrkq:evt_1').event?.status).toBe('processed')
+  })
+
   test('non-matching job records match_false (no silent skip)', async () => {
     const store = createInMemoryJobsStore()
     store.createJob(
