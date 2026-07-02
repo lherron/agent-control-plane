@@ -373,6 +373,28 @@ describe('validateJobTrigger', () => {
     expect(result.valid).toBe(true)
   })
 
+  test('accepts schedule catchUp policy on the trigger surface', () => {
+    const result = validateJobTrigger({
+      kind: 'schedule',
+      cron: '0 8 * * 1-5',
+      windowStart: '08:00',
+      windowEnd: '18:00',
+      windowMinutes: 30,
+      catchUp: 'none',
+    })
+
+    expect(result.valid).toBe(true)
+    if (result.valid) {
+      // T-05419: catchUp is a first-class schedule policy, not an untyped blob
+      // that the compiler/store silently drop before claimDueJobs can enforce it.
+      expect(result.trigger).toEqual(
+        expect.objectContaining({
+          catchUp: 'none',
+        })
+      )
+    }
+  })
+
   test('accepts an event trigger with match', () => {
     const result = validateJobTrigger({
       kind: 'event',
