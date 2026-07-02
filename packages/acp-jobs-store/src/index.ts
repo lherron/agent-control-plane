@@ -39,6 +39,7 @@ export {
   type OpenSqliteJobsStoreOptions,
   type RecordEventJobSkipInput,
   type RecordJobOutputSinkAttemptInput,
+  type ScheduleJobSkipReason,
   type UpdateJobStepRunInput,
   type UpdateJobInput,
   type UpdateJobRunInput,

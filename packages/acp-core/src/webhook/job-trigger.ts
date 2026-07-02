@@ -57,6 +57,7 @@ export type ScheduleTrigger = {
   windowStart?: string | undefined
   windowEnd?: string | undefined
   windowMinutes?: number | undefined
+  catchUp?: 'none' | 'one' | undefined
 }
 
 export type OriginPolicy = {
@@ -363,6 +364,16 @@ export function validateJobTrigger(value: unknown): ValidateJobTriggerResult {
       ...(typeof value['windowMinutes'] === 'number'
         ? { windowMinutes: value['windowMinutes'] }
         : {}),
+      ...(value['catchUp'] === 'none' || value['catchUp'] === 'one'
+        ? { catchUp: value['catchUp'] }
+        : {}),
+    }
+    if (
+      value['catchUp'] !== undefined &&
+      value['catchUp'] !== 'none' &&
+      value['catchUp'] !== 'one'
+    ) {
+      errors.push("trigger.catchUp must be 'none' or 'one' for schedule triggers")
     }
     return errors.length === 0 ? { valid: true, trigger } : { valid: false, errors }
   }

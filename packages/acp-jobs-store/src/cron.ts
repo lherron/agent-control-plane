@@ -171,3 +171,18 @@ export function nextFireAfter(cron: string, afterIso: string): string | null {
 
   return null
 }
+
+export function isWithinTickInterval(input: {
+  dueAt: string
+  now: string
+  tickMs?: number | undefined
+}): boolean {
+  const dueAt = new Date(input.dueAt).getTime()
+  const now = new Date(input.now).getTime()
+  if (Number.isNaN(dueAt) || Number.isNaN(now)) {
+    return false
+  }
+
+  const elapsedMs = now - dueAt
+  return elapsedMs >= 0 && elapsedMs < (input.tickMs ?? 60_000)
+}

@@ -12,7 +12,7 @@ import type {
 } from 'acp-core'
 import { validateJobTrigger } from 'acp-core'
 
-import { isValidCron, nextFireAfter } from './cron.js'
+import { isValidCron, isWithinTickInterval, nextFireAfter } from './cron.js'
 import Database, { type SqliteDatabase } from './sqlite.js'
 
 /** Default page size for inflight/due claim queries. */
@@ -164,6 +164,8 @@ export type JobRunTrigger = 'schedule' | 'manual' | 'catch-up' | 'webhook'
 
 export type JobRunStatus = 'pending' | 'claimed' | 'dispatched' | 'succeeded' | 'failed' | 'skipped'
 
+export type ScheduleJobSkipReason = 'schedule_window' | 'stale_catch_up_suppressed'
+
 export type InboxEventStatus = 'pending' | 'leased' | 'processed' | 'failed'
 
 export type EventJobOutcome = 'minted' | 'skipped'
@@ -180,6 +182,7 @@ export type JobSchedule = Readonly<{
   windowStart?: string | undefined
   windowEnd?: string | undefined
   windowMinutes?: number | undefined
+  catchUp?: 'none' | 'one' | undefined
   [key: string]: unknown
 }>
 
@@ -303,6 +306,7 @@ export type JobRunRecord = {
   retryAttempts?: number | undefined
   nextAttemptAt?: string | undefined
   lastRetryError?: string | undefined
+  reason?: ScheduleJobSkipReason | undefined
   actor: Actor
   actorStamp?: string | undefined
   createdAt: string
@@ -1207,6 +1211,7 @@ function toEventJobMatchRecord(row: EventJobMatchRow): EventJobMatchRecord {
 
 function toJobRunRecord(row: JobRunRow): JobRunRecord {
   const output = parseJobOutput(row.output_json)
+  const reason = parseScheduleJobSkipReason(row.error_code)
   return {
     jobRunId: row.job_run_id,
     jobId: row.job_id,
@@ -1233,11 +1238,16 @@ function toJobRunRecord(row: JobRunRow): JobRunRecord {
     ...(row.retry_attempts !== null ? { retryAttempts: row.retry_attempts } : {}),
     ...(row.next_attempt_at !== null ? { nextAttemptAt: row.next_attempt_at } : {}),
     ...(row.last_retry_error !== null ? { lastRetryError: row.last_retry_error } : {}),
+    ...(reason !== undefined ? { reason } : {}),
     actor: rowToActor(row),
     actorStamp: row.actor_stamp,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
+}
+
+function parseScheduleJobSkipReason(value: string | null): ScheduleJobSkipReason | undefined {
+  return value === 'schedule_window' || value === 'stale_catch_up_suppressed' ? value : undefined
 }
 
 function toJobOutputSinkAttemptRecord(row: JobOutputSinkAttemptRow): JobOutputSinkAttemptRecord {
@@ -1396,12 +1406,95 @@ function createNextFireAt(input: {
   return nextFireAfter(input.schedule.cron, input.anchor)
 }
 
+function parseUtcTimeOfDay(value: string | undefined): number | null {
+  if (value === undefined) {
+    return null
+  }
+
+  const match = /^([01][0-9]|2[0-3]):([0-5][0-9])$/.exec(value)
+  if (match === null) {
+    return null
+  }
+
+  return Number.parseInt(match[1] ?? '0', 10) * 60 + Number.parseInt(match[2] ?? '0', 10)
+}
+
+function utcMinuteOfDay(iso: string): number | null {
+  const value = new Date(iso)
+  if (Number.isNaN(value.getTime())) {
+    return null
+  }
+  return value.getUTCHours() * 60 + value.getUTCMinutes()
+}
+
+function isInsideScheduleWindow(schedule: JobSchedule | undefined, now: string): boolean {
+  const start = parseUtcTimeOfDay(schedule?.windowStart)
+  const end = parseUtcTimeOfDay(schedule?.windowEnd)
+  if (start === null || end === null) {
+    return true
+  }
+
+  const current = utcMinuteOfDay(now)
+  if (current === null) {
+    return true
+  }
+
+  if (start <= end) {
+    return current >= start && current <= end
+  }
+
+  return current >= start || current <= end
+}
+
+function isPastCatchUpBound(input: {
+  schedule: JobSchedule | undefined
+  dueAt: string
+  now: string
+}): boolean {
+  const windowMinutes = input.schedule?.windowMinutes
+  if (typeof windowMinutes !== 'number' || !Number.isFinite(windowMinutes) || windowMinutes < 0) {
+    return false
+  }
+
+  const dueAt = new Date(input.dueAt).getTime()
+  const now = new Date(input.now).getTime()
+  if (Number.isNaN(dueAt) || Number.isNaN(now)) {
+    return false
+  }
+
+  return now - dueAt > windowMinutes * 60_000
+}
+
+function resolveScheduleClaimPolicy(input: {
+  schedule: JobSchedule | undefined
+  dueAt: string
+  now: string
+}): { triggeredBy: JobRunTrigger; skipReason?: ScheduleJobSkipReason | undefined } {
+  const triggeredBy: JobRunTrigger = isWithinTickInterval({ dueAt: input.dueAt, now: input.now })
+    ? 'schedule'
+    : 'catch-up'
+
+  if (!isInsideScheduleWindow(input.schedule, input.now)) {
+    return { triggeredBy, skipReason: 'schedule_window' }
+  }
+
+  if (
+    triggeredBy === 'catch-up' &&
+    (input.schedule?.catchUp === 'none' || isPastCatchUpBound(input))
+  ) {
+    return { triggeredBy, skipReason: 'stale_catch_up_suppressed' }
+  }
+
+  return { triggeredBy }
+}
+
 function scheduleFromTrigger(trigger: Extract<JobTrigger, { kind: 'schedule' }>): JobSchedule {
   return {
     cron: trigger.cron,
     ...(trigger.windowStart !== undefined ? { windowStart: trigger.windowStart } : {}),
     ...(trigger.windowEnd !== undefined ? { windowEnd: trigger.windowEnd } : {}),
     ...(trigger.windowMinutes !== undefined ? { windowMinutes: trigger.windowMinutes } : {}),
+    ...(trigger.catchUp !== undefined ? { catchUp: trigger.catchUp } : {}),
   }
 }
 
@@ -1429,6 +1522,9 @@ function resolveTrigger(input: {
         : {}),
       ...(typeof input.schedule.windowMinutes === 'number'
         ? { windowMinutes: input.schedule.windowMinutes }
+        : {}),
+      ...(input.schedule.catchUp === 'none' || input.schedule.catchUp === 'one'
+        ? { catchUp: input.schedule.catchUp }
         : {}),
     }
   }
@@ -2345,7 +2441,12 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
         }
 
         const nextAfterNow = nextFireAfter(row.schedule_cron, now)
-        const triggeredBy: JobRunTrigger = dueAt === now ? 'schedule' : 'catch-up'
+        const scheduledJob = toJobRecord(row)
+        const policy = resolveScheduleClaimPolicy({
+          schedule: scheduledJob.schedule,
+          dueAt,
+          now,
+        })
         const updateResult = sqlite
           .prepare(
             `
@@ -2372,19 +2473,33 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
         }
 
         const claimActor: Actor = input.actor ?? { kind: 'system', id: 'scheduler' }
-        const claimedJob = toJobRecord(row)
+        if (policy.skipReason !== undefined) {
+          appendJobRun({
+            jobId: row.job_id,
+            triggeredAt: now,
+            triggeredBy: policy.triggeredBy,
+            status: 'skipped',
+            completedAt: now,
+            errorCode: policy.skipReason,
+            errorMessage: policy.skipReason,
+            actor: claimActor,
+            actorStamp: input.actorStamp ?? actorToStamp(claimActor),
+          })
+          continue
+        }
+
         const jobRun = appendJobRun({
           jobId: row.job_id,
           triggeredAt: now,
-          triggeredBy,
+          triggeredBy: policy.triggeredBy,
           status: 'claimed',
           claimedAt: now,
-          ...(claimedJob.flow !== undefined &&
+          ...(scheduledJob.flow !== undefined &&
           input.leaseOwner !== undefined &&
           input.leaseExpiresAt !== undefined
             ? { leaseOwner: input.leaseOwner, leaseExpiresAt: input.leaseExpiresAt }
             : {}),
-          output: claimedJob.output,
+          output: scheduledJob.output,
           actor: claimActor,
           actorStamp: input.actorStamp ?? actorToStamp(claimActor),
         }).jobRun
