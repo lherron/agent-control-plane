@@ -20,6 +20,16 @@ function execStep(id: string, argv: string[], extra: Partial<ExecFlowStep> = {})
   }
 }
 
+function expectError(
+  result: ReturnType<typeof validateJobFlow>,
+  expected: { code: string; path: string }
+): void {
+  expect(result.valid).toBe(false)
+  if (!result.valid) {
+    expect(result.errors).toContainEqual(expect.objectContaining(expected))
+  }
+}
+
 describe('JobFlow validation', () => {
   test('accepts a minimal concrete-input flow', () => {
     expect(
@@ -55,6 +65,71 @@ describe('JobFlow validation', () => {
         sequence: [{ id: 'bad-kind', kind: 'shell', input: 'Do the work.' }],
       }),
       ['invalid_step_kind']
+    )
+  })
+
+  test('accepts a known native probe with outcome branches to idle and work targets', () => {
+    // T-05417 RED: probe is a server-side named registry lookup, not an exec script.
+    expect(
+      validateJobFlow({
+        sequence: [
+          {
+            id: 'gate',
+            kind: 'probe',
+            probe: { name: 'hrc-stale-tty-reap.v1' },
+            branches: { outcome: { idle: 'succeed', work: 'reap' } },
+          },
+          { id: 'reap', input: 'Reap stale HRC TTY sessions.' },
+        ],
+      })
+    ).toEqual({ valid: true })
+  })
+
+  test('rejects an unknown probe registry name with a path-specific error', () => {
+    // T-05417 RED: unknown probes must fail validation/reconcile before a job can fire.
+    expectError(
+      validateJobFlow({
+        sequence: [
+          {
+            id: 'gate',
+            kind: 'probe',
+            probe: { name: 'not-allowlisted.v1' },
+            branches: { outcome: { idle: 'succeed', work: 'reap' } },
+          },
+          { id: 'reap', input: 'Reap stale HRC TTY sessions.' },
+        ],
+      }),
+      { code: 'unknown_probe_name', path: 'flow.sequence[0].probe.name' }
+    )
+  })
+
+  test('rejects malformed probe config and outcome branch targets', () => {
+    // T-05417 RED: probe outcomes are first-class work/idle values, not exit codes.
+    expectError(
+      validateJobFlow({
+        sequence: [
+          {
+            id: 'gate',
+            kind: 'probe',
+            probe: { name: '' },
+            branches: { outcome: { idle: 'succeed', work: 'missing-step' } },
+          },
+        ],
+      }),
+      { code: 'invalid_probe_step', path: 'flow.sequence[0].probe.name' }
+    )
+    expectError(
+      validateJobFlow({
+        sequence: [
+          {
+            id: 'gate',
+            kind: 'probe',
+            probe: { name: 'hrc-stale-tty-reap.v1' },
+            branches: { outcome: { idle: 'succeed', work: 'missing-step' } },
+          },
+        ],
+      }),
+      { code: 'invalid_flow_next', path: 'flow.sequence[0].branches.outcome.work' }
     )
   })
 
