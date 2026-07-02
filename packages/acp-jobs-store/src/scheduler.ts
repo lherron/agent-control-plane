@@ -49,6 +49,7 @@ export type TickJobsSchedulerInput = {
   leaseOwner?: string | undefined
   eventLeaseMs?: number | undefined
   maxJobRunDurationMs?: number | undefined
+  flowAdvanceConcurrency?: number | undefined
 }
 
 export type ScheduledRun = JobRunRecord
@@ -59,6 +60,8 @@ const DEFAULT_MAX_JOB_RUN_DURATION_MS = 24 * 60 * 60_000
 const JOB_CHANGE_ORPHAN_GRACE_MS = 60_000
 /** Default page size for the event-inbox drain claim. */
 const DEFAULT_EVENT_CLAIM_LIMIT = 50
+const DEFAULT_FLOW_ADVANCE_CONCURRENCY = 4
+const MAX_FLOW_ADVANCE_CONCURRENCY = 32
 const DEFAULT_FLOW_ADVANCE_MAX_RETRIES = 3
 const DEFAULT_FLOW_ADVANCE_RETRY_DELAY_MS = 60_000
 
@@ -108,6 +111,14 @@ function hasRunAgeAtLeast(jobRun: JobRunRecord, now: string, durationMs: number)
   const startedAt = Date.parse(jobRun.triggeredAt)
   const nowMs = Date.parse(now)
   return Number.isFinite(startedAt) && Number.isFinite(nowMs) && nowMs - startedAt >= durationMs
+}
+
+function resolveFlowAdvanceConcurrency(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) {
+    return DEFAULT_FLOW_ADVANCE_CONCURRENCY
+  }
+
+  return Math.max(1, Math.min(MAX_FLOW_ADVANCE_CONCURRENCY, Math.floor(value)))
 }
 
 function terminalizeInflightJobRuns(input: {
@@ -306,17 +317,44 @@ export async function tickJobsScheduler(input: TickJobsSchedulerInput): Promise<
   }
 
   const results: ScheduledRun[] = [...reapedRuns]
+  const flowAdvanceEntries: ClaimedDueJob[] = []
+  if (input.advanceFlowJobRun !== undefined) {
+    for (const entry of allClaimed) {
+      if (entry.job.flow !== undefined) {
+        flowAdvanceEntries.push(entry)
+      }
+    }
+
+    const inflight = input.store.listInflightFlowJobRuns({
+      ...(input.claimLimit !== undefined ? { limit: input.claimLimit } : {}),
+      now,
+    })
+    const claimedIds = new Set(allClaimed.map((entry) => entry.jobRun.jobRunId))
+    for (const entry of inflight) {
+      if (!claimedIds.has(entry.jobRun.jobRunId)) {
+        flowAdvanceEntries.push(entry)
+      }
+    }
+  }
+
+  // Flow advances can execute long-running native steps. Start them in a bounded
+  // pool before ordinary dispatch work so one slow flow cannot head-of-line
+  // block independent due runs in the same tick.
+  const flowAdvanceResults =
+    input.advanceFlowJobRun !== undefined
+      ? advanceFlowJobRuns({
+          store: input.store,
+          entries: flowAdvanceEntries,
+          advanceFlowJobRun: input.advanceFlowJobRun,
+          now,
+          concurrency: resolveFlowAdvanceConcurrency(input.flowAdvanceConcurrency),
+        })
+      : Promise.resolve([])
+
   for (const entry of allClaimed) {
     if (entry.job.flow !== undefined) {
       if (input.advanceFlowJobRun === undefined) {
         results.push(entry.jobRun)
-        continue
-      }
-
-      try {
-        results.push(clearFlowRetryMetadata(input.store, await input.advanceFlowJobRun(entry)))
-      } catch (error) {
-        results.push(handleFlowAdvanceError({ store: input.store, entry, error, now }))
       }
       continue
     }
@@ -364,24 +402,50 @@ export async function tickJobsScheduler(input: TickJobsSchedulerInput): Promise<
   }
 
   if (input.advanceFlowJobRun !== undefined) {
-    const inflight = input.store.listInflightFlowJobRuns({
-      ...(input.claimLimit !== undefined ? { limit: input.claimLimit } : {}),
-      now,
-    })
-    const claimedIds = new Set(allClaimed.map((entry) => entry.jobRun.jobRunId))
-    for (const entry of inflight) {
-      if (claimedIds.has(entry.jobRun.jobRunId)) {
+    results.push(...(await flowAdvanceResults))
+  }
+
+  return results
+}
+
+async function advanceFlowJobRuns(input: {
+  store: JobsStore
+  entries: ClaimedDueJob[]
+  advanceFlowJobRun: AdvanceFlowJobRun
+  now: string
+  concurrency: number
+}): Promise<ScheduledRun[]> {
+  const results = new Array<ScheduledRun>(input.entries.length)
+  let nextIndex = 0
+
+  async function worker(): Promise<void> {
+    while (true) {
+      const index = nextIndex
+      nextIndex += 1
+      if (index >= input.entries.length) {
+        return
+      }
+
+      const entry = input.entries[index]
+      if (entry === undefined) {
         continue
       }
 
       try {
-        results.push(clearFlowRetryMetadata(input.store, await input.advanceFlowJobRun(entry)))
+        results[index] = clearFlowRetryMetadata(input.store, await input.advanceFlowJobRun(entry))
       } catch (error) {
-        results.push(handleFlowAdvanceError({ store: input.store, entry, error, now }))
+        results[index] = handleFlowAdvanceError({
+          store: input.store,
+          entry,
+          error,
+          now: input.now,
+        })
       }
     }
   }
 
+  const workerCount = Math.min(input.concurrency, input.entries.length)
+  await Promise.all(Array.from({ length: workerCount }, () => worker()))
   return results
 }
 
