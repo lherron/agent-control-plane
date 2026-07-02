@@ -16,7 +16,6 @@ import {
   type NativeStepExecutorDeps,
   executeNativeSideEffectStep,
   parseFreshDurationMs,
-  resolveStepOutputRef,
   validateJobFlow,
 } from 'acp-jobs-store'
 import type { LaneRef } from 'agent-scope'
@@ -198,8 +197,9 @@ function ensureStepRows(
   phase: JobStepRunPhase,
   steps: readonly JobFlowStep[]
 ): void {
+  const existing = jobsStore.jobStepRuns.listByJobRun(jobRunId).jobStepRuns
   const missing = steps.filter(
-    (step) => jobsStore.jobStepRuns.getById(jobRunId, phase, step.id, 1).jobStepRun === undefined
+    (step) => !existing.some((row) => row.phase === phase && row.stepId === step.id)
   )
   if (missing.length === 0) {
     return
@@ -400,36 +400,53 @@ async function advanceAgentStep(input: {
         ? {}
         : { result: { ...(stepRun.result ?? {}), degradation: cleanup.degradation } }
 
-    const content = requireStepInput(input.step)
-    await rotateFreshStepContext(input.deps, input.job, input.step, freshPlan.rotateContext)
-    const dispatched = await dispatchStepThroughInputs(input.deps, {
-      jobId: input.job.jobId,
-      jobRunId: input.jobRun.jobRunId,
-      phase: input.phase,
-      stepId: input.step.id,
-      attempt: stepRun.attempt,
-      scopeRef: input.job.scopeRef,
-      laneRef: input.job.laneRef,
-      content,
-      actor: input.actor,
-    })
-    if (freshPlan.scheduledFresh !== undefined) {
-      stampScheduledFreshMetadata(input.deps, dispatched.runId, freshPlan.scheduledFresh)
-    }
-
-    stepRun = jobsStore.jobStepRuns.updateStep(
-      input.jobRun.jobRunId,
-      input.phase,
-      input.step.id,
-      stepRun.attempt,
-      {
-        status: 'running',
-        inputAttemptId: dispatched.inputAttemptId,
-        runId: dispatched.runId,
-        startedAt: dispatchStartedAt,
-        ...degradationResult,
+    try {
+      const content = requireStepInput(input.step)
+      await rotateFreshStepContext(input.deps, input.job, input.step, freshPlan.rotateContext)
+      const dispatched = await dispatchStepThroughInputs(input.deps, {
+        jobId: input.job.jobId,
+        jobRunId: input.jobRun.jobRunId,
+        phase: input.phase,
+        stepId: input.step.id,
+        attempt: stepRun.attempt,
+        scopeRef: input.job.scopeRef,
+        laneRef: input.job.laneRef,
+        content,
+        actor: input.actor,
+      })
+      if (freshPlan.scheduledFresh !== undefined) {
+        stampScheduledFreshMetadata(input.deps, dispatched.runId, freshPlan.scheduledFresh)
       }
-    ).jobStepRun
+
+      stepRun = jobsStore.jobStepRuns.updateStep(
+        input.jobRun.jobRunId,
+        input.phase,
+        input.step.id,
+        stepRun.attempt,
+        {
+          status: 'running',
+          inputAttemptId: dispatched.inputAttemptId,
+          runId: dispatched.runId,
+          startedAt: dispatchStartedAt,
+          ...degradationResult,
+        }
+      ).jobStepRun
+    } catch (error) {
+      if (!isTransientFlowAdvanceError(error)) {
+        throw error
+      }
+      failStepDispatchAttemptAndQueueRetry({
+        jobsStore,
+        jobRunId: input.jobRun.jobRunId,
+        phase: input.phase,
+        stepId: input.step.id,
+        attempt: stepRun.attempt,
+        startedAt: dispatchStartedAt,
+        completedAt: input.now,
+        error,
+      })
+      throw error
+    }
   }
 
   const terminal = getTerminalRunOutcome(input.deps, stepRun.runId)
@@ -782,6 +799,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+function currentStepRun(
+  jobsStore: NonNullable<ResolvedAcpServerDeps['jobsStore']>,
+  jobRunId: string,
+  phase: JobStepRunPhase,
+  stepId: string
+): JobStepRunRecord | undefined {
+  return jobsStore.jobStepRuns
+    .listByJobRun(jobRunId)
+    .jobStepRuns.filter((row) => row.phase === phase && row.stepId === stepId)
+    .sort((left, right) => right.attempt - left.attempt)[0]
+}
+
 function findPreviousDispatchedStepRun(input: {
   jobsStore: NonNullable<ResolvedAcpServerDeps['jobsStore']>
   jobId: string
@@ -794,12 +823,7 @@ function findPreviousDispatchedStepRun(input: {
       continue
     }
 
-    const stepRun = input.jobsStore.jobStepRuns.getById(
-      jobRun.jobRunId,
-      input.phase,
-      input.stepId,
-      1
-    ).jobStepRun
+    const stepRun = currentStepRun(input.jobsStore, jobRun.jobRunId, input.phase, input.stepId)
     if (stepRun?.runId === undefined) {
       continue
     }
@@ -869,6 +893,70 @@ function cleanupFailureCode(error: unknown): string {
 
   const status = errorStatus(error)
   return status === undefined ? 'scheduled_fresh_pre_run_cleanup_failed' : `http_${status}`
+}
+
+function failStepDispatchAttemptAndQueueRetry(input: {
+  jobsStore: NonNullable<ResolvedAcpServerDeps['jobsStore']>
+  jobRunId: string
+  phase: JobStepRunPhase
+  stepId: string
+  attempt: number
+  startedAt: string
+  completedAt: string
+  error: unknown
+}): void {
+  input.jobsStore.jobStepRuns.updateStep(input.jobRunId, input.phase, input.stepId, input.attempt, {
+    status: 'failed',
+    inputAttemptId: null,
+    runId: null,
+    startedAt: input.startedAt,
+    completedAt: input.completedAt,
+    error: { code: 'step_dispatch_transient', message: errorMessage(input.error) },
+  })
+
+  const nextAttempt = input.attempt + 1
+  if (
+    input.jobsStore.jobStepRuns.getById(input.jobRunId, input.phase, input.stepId, nextAttempt)
+      .jobStepRun === undefined
+  ) {
+    input.jobsStore.jobStepRuns.insertMany(input.jobRunId, input.phase, [
+      { stepId: input.stepId, attempt: nextAttempt, status: 'pending' },
+    ])
+  }
+}
+
+function isTransientFlowAdvanceError(error: unknown): boolean {
+  const code = errorCode(error)
+  if (
+    code === 'ETIMEDOUT' ||
+    code === 'ECONNRESET' ||
+    code === 'ECONNREFUSED' ||
+    code === 'EHOSTUNREACH' ||
+    code === 'ENETUNREACH' ||
+    code === 'hrc_unavailable' ||
+    code === 'dispatch_failed'
+  ) {
+    return true
+  }
+
+  const status = errorStatus(error)
+  if (status !== undefined && status >= 500 && status <= 599) {
+    return true
+  }
+
+  const message = errorMessage(error).toLowerCase()
+  return (
+    message.includes('timed out') ||
+    message.includes('timeout') ||
+    message.includes('hrc unavailable') ||
+    message.includes('dispatch gateway returned http 5') ||
+    message.includes('http 503') ||
+    message.includes('http 502') ||
+    message.includes('http 500') ||
+    message.includes('hostsessionid is required') ||
+    message.includes('runtime already has an active run') ||
+    message.includes('different request body already exists for idempotencykey')
+  )
 }
 
 function errorCode(error: unknown): string | undefined {
@@ -1065,6 +1153,21 @@ function isStepOutputRef(value: unknown): value is { $step: string; field: strin
   )
 }
 
+function resolveCurrentStepOutputRef(
+  jobsStore: NonNullable<ResolvedAcpServerDeps['jobsStore']>,
+  jobRunId: string,
+  phase: JobStepRunPhase,
+  ref: { $step: string; field: string }
+): string | undefined {
+  const stepRun = currentStepRun(jobsStore, jobRunId, phase, ref.$step)
+  if (stepRun === undefined || stepRun.status !== 'succeeded') {
+    return undefined
+  }
+
+  const value = stepRun.result?.[ref.field]
+  return typeof value === 'string' ? value : undefined
+}
+
 function resolveNativeStepDef(input: {
   jobsStore: NonNullable<ResolvedAcpServerDeps['jobsStore']>
   jobRun: JobRunRecord
@@ -1082,10 +1185,15 @@ function resolveNativeStepDef(input: {
 
   const resolveValue = (value: unknown): unknown => {
     if (isStepOutputRef(value)) {
-      const resolved = resolveStepOutputRef(input.jobsStore, input.jobRun.jobRunId, input.phase, {
-        $step: value.$step,
-        field: value.field,
-      })
+      const resolved = resolveCurrentStepOutputRef(
+        input.jobsStore,
+        input.jobRun.jobRunId,
+        input.phase,
+        {
+          $step: value.$step,
+          field: value.field,
+        }
+      )
       if (resolved === undefined) {
         throw new Error(`unresolved step output ref ${value.$step}.${value.field}`)
       }
@@ -1152,7 +1260,7 @@ function resolveNativeContentTemplate(
     if (stepId === undefined || field === undefined || rest.length > 0) {
       return match
     }
-    const resolved = resolveStepOutputRef(jobsStore, jobRun.jobRunId, phase, {
+    const resolved = resolveCurrentStepOutputRef(jobsStore, jobRun.jobRunId, phase, {
       $step: stepId,
       field,
     })
@@ -1319,9 +1427,9 @@ function requireStepRun(
   phase: JobStepRunPhase,
   stepId: string
 ): JobStepRunRecord {
-  const stepRun = jobsStore.jobStepRuns.getById(jobRunId, phase, stepId, 1).jobStepRun
+  const stepRun = currentStepRun(jobsStore, jobRunId, phase, stepId)
   if (stepRun === undefined) {
-    throw new Error(`job step run not found: ${jobRunId}/${phase}/${stepId}/1`)
+    throw new Error(`job step run not found: ${jobRunId}/${phase}/${stepId}`)
   }
   return stepRun
 }
@@ -1519,9 +1627,9 @@ function skipRemainingSequenceSteps(
   now: string
 ): void {
   for (const step of sequence) {
-    const stepRun = jobsStore.jobStepRuns.getById(jobRunId, 'sequence', step.id, 1).jobStepRun
+    const stepRun = currentStepRun(jobsStore, jobRunId, 'sequence', step.id)
     if (stepRun !== undefined && stepRun.status === 'pending') {
-      jobsStore.jobStepRuns.updateStep(jobRunId, 'sequence', step.id, 1, {
+      jobsStore.jobStepRuns.updateStep(jobRunId, 'sequence', step.id, stepRun.attempt, {
         status: 'skipped',
         completedAt: stepRun.completedAt ?? now,
       })
@@ -1535,7 +1643,7 @@ function findFirstFailedSequenceStep(
   sequence: readonly JobFlowStep[]
 ): JobStepRunRecord | undefined {
   for (const step of sequence) {
-    const stepRun = jobsStore.jobStepRuns.getById(jobRunId, 'sequence', step.id, 1).jobStepRun
+    const stepRun = currentStepRun(jobsStore, jobRunId, 'sequence', step.id)
     if (stepRun !== undefined && stepRun.status !== 'succeeded' && stepRun.status !== 'skipped') {
       return stepRun
     }

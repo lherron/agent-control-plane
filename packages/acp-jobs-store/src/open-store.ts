@@ -71,6 +71,9 @@ type JobRunRow = {
   resolved_input_json: string | null
   output_json: string | null
   source_json: string | null
+  retry_attempts: number | null
+  next_attempt_at: string | null
+  last_retry_error: string | null
   actor_kind: Actor['kind'] | null
   actor_id: string | null
   actor_display_name: string | null
@@ -161,6 +164,7 @@ export type EventJobSkipReason =
   | 'agent_origin_blocked'
   | 'cooldown'
   | 'template_error'
+  | 'internal_error'
   | 'match_false'
 
 export type JobSchedule = Readonly<{
@@ -287,6 +291,9 @@ export type JobRunRecord = {
   output?: JobOutputConfig | undefined
   /** Source provenance, e.g. { kind:'webhook', source:'wrkq', eventId, eventSeq }. */
   source?: Readonly<Record<string, unknown>> | undefined
+  retryAttempts?: number | undefined
+  nextAttemptAt?: string | undefined
+  lastRetryError?: string | undefined
   actor: Actor
   actorStamp?: string | undefined
   createdAt: string
@@ -374,6 +381,9 @@ export type AppendJobRunInput = {
   resolvedInput?: Readonly<Record<string, unknown>> | undefined
   output?: JobOutputConfig | undefined
   source?: Readonly<Record<string, unknown>> | undefined
+  retryAttempts?: number | undefined
+  nextAttemptAt?: string | undefined
+  lastRetryError?: string | undefined
   actor?: Actor | undefined
   actorStamp?: string | undefined
 }
@@ -435,6 +445,9 @@ export type UpdateJobRunInput = {
   claimedAt?: string | undefined
   dispatchedAt?: string | undefined
   completedAt?: string | undefined
+  retryAttempts?: number | null | undefined
+  nextAttemptAt?: string | null | undefined
+  lastRetryError?: string | null | undefined
   actor?: Actor | undefined
   actorStamp?: string | undefined
 }
@@ -796,6 +809,18 @@ export const jobsStoreMigrations: readonly JobsStoreMigration[] = [
 
       CREATE INDEX IF NOT EXISTS job_output_sink_attempts_retry_idx
         ON job_output_sink_attempts (status, next_attempt_at, updated_at);
+    `,
+  },
+  {
+    id: '008_job_run_retry_backoff',
+    sql: `
+      ALTER TABLE job_runs ADD COLUMN retry_attempts INTEGER;
+      ALTER TABLE job_runs ADD COLUMN next_attempt_at TEXT;
+      ALTER TABLE job_runs ADD COLUMN last_retry_error TEXT;
+
+      CREATE INDEX IF NOT EXISTS job_runs_retry_idx
+        ON job_runs (status, next_attempt_at)
+        WHERE next_attempt_at IS NOT NULL;
     `,
   },
 ]
@@ -1180,6 +1205,7 @@ function toJobRunRecord(row: JobRunRow): JobRunRecord {
     ...(row.claimed_at !== null ? { claimedAt: row.claimed_at } : {}),
     ...(row.dispatched_at !== null ? { dispatchedAt: row.dispatched_at } : {}),
     ...(row.completed_at !== null ? { completedAt: row.completed_at } : {}),
+    ...(row.completed_at === null && row.retry_attempts !== null ? { completedAt: undefined } : {}),
     ...(row.resolved_scope_ref !== null ? { resolvedScopeRef: row.resolved_scope_ref } : {}),
     ...(row.resolved_lane_ref !== null ? { resolvedLaneRef: row.resolved_lane_ref } : {}),
     ...(row.resolved_input_json !== null
@@ -1187,6 +1213,9 @@ function toJobRunRecord(row: JobRunRow): JobRunRecord {
       : {}),
     ...(output !== undefined ? { output } : {}),
     ...(row.source_json !== null ? { source: parseJsonRecord(row.source_json, 'source') } : {}),
+    ...(row.retry_attempts !== null ? { retryAttempts: row.retry_attempts } : {}),
+    ...(row.next_attempt_at !== null ? { nextAttemptAt: row.next_attempt_at } : {}),
+    ...(row.last_retry_error !== null ? { lastRetryError: row.last_retry_error } : {}),
     actor: rowToActor(row),
     actorStamp: row.actor_stamp,
     createdAt: row.created_at,
@@ -1693,13 +1722,16 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
             resolved_input_json,
             output_json,
             source_json,
+            retry_attempts,
+            next_attempt_at,
+            last_retry_error,
             actor_kind,
             actor_id,
             actor_display_name,
             actor_stamp,
             created_at,
             updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `
       )
       .run(
@@ -1722,6 +1754,9 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
         input.resolvedInput !== undefined ? JSON.stringify(input.resolvedInput) : null,
         input.output !== undefined ? JSON.stringify(input.output) : null,
         input.source !== undefined ? JSON.stringify(input.source) : null,
+        input.retryAttempts ?? null,
+        input.nextAttemptAt ?? null,
+        input.lastRetryError ?? null,
         actor.kind,
         actor.id,
         actor.displayName ?? null,
@@ -1775,6 +1810,21 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
       patch.errorMessage,
       existing.error_message
     )
+    const nextRetryAttempts = pickNullable(
+      'retryAttempts' in patch,
+      patch.retryAttempts,
+      existing.retry_attempts
+    )
+    const nextNextAttemptAt = pickNullable(
+      'nextAttemptAt' in patch,
+      patch.nextAttemptAt,
+      existing.next_attempt_at
+    )
+    const nextLastRetryError = pickNullable(
+      'lastRetryError' in patch,
+      patch.lastRetryError,
+      existing.last_retry_error
+    )
     const nextClaimedAt = coalesce(patch.claimedAt, existing.claimed_at)
     const nextDispatchedAt = coalesce(patch.dispatchedAt, existing.dispatched_at)
     const nextCompletedAt = coalesce(patch.completedAt, existing.completed_at)
@@ -1794,6 +1844,9 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
               claimed_at = ?,
               dispatched_at = ?,
               completed_at = ?,
+              retry_attempts = ?,
+              next_attempt_at = ?,
+              last_retry_error = ?,
               actor_kind = ?,
               actor_id = ?,
               actor_display_name = ?,
@@ -1813,6 +1866,9 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
         nextClaimedAt,
         nextDispatchedAt,
         nextCompletedAt,
+        nextRetryAttempts,
+        nextNextAttemptAt,
+        nextLastRetryError,
         coalesce(patch.actor?.kind, existing.actor_kind),
         coalesce(patch.actor?.id, existing.actor_id),
         coalesce(patch.actor?.displayName, existing.actor_display_name),

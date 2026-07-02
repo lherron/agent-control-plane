@@ -2172,7 +2172,7 @@ describe('advanceJobFlow exec resume/replay', () => {
         'jobrun:jrun_retry_attempt_2_dispatch:phase:sequence:step:report:attempt:2',
       ])
       expect(advanced.status).toBe('succeeded')
-      expect(inputAttemptStore.calls[0]?.meta?.source).toMatchObject({
+      expect(inputAttemptStore.calls[0]?.metadata?.source).toMatchObject({
         jobRunId: 'jrun_retry_attempt_2_dispatch',
         stepId: 'report',
         phase: 'sequence',

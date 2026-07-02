@@ -59,6 +59,8 @@ const DEFAULT_MAX_JOB_RUN_DURATION_MS = 24 * 60 * 60_000
 const JOB_CHANGE_ORPHAN_GRACE_MS = 60_000
 /** Default page size for the event-inbox drain claim. */
 const DEFAULT_EVENT_CLAIM_LIMIT = 50
+const DEFAULT_FLOW_ADVANCE_MAX_RETRIES = 3
+const DEFAULT_FLOW_ADVANCE_RETRY_DELAY_MS = 60_000
 
 function toIsoString(value: string | Date): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
@@ -245,13 +247,12 @@ function drainEventInbox(input: {
           }
         } catch (_error) {
           // Per-job isolation: an unexpected evaluation/mint failure for one job
-          // is recorded (closest reason: template_error) and never poisons the
-          // event for the remaining jobs.
+          // is recorded and never poisons the event for the remaining jobs.
           store.recordEventJobSkip({
             sourceEventId: event.eventId,
             jobId: job.jobId,
             eventSeq: event.eventSeq,
-            reason: 'template_error',
+            reason: 'internal_error',
           })
         }
       }
@@ -313,18 +314,9 @@ export async function tickJobsScheduler(input: TickJobsSchedulerInput): Promise<
       }
 
       try {
-        results.push(await input.advanceFlowJobRun(entry))
+        results.push(clearFlowRetryMetadata(input.store, await input.advanceFlowJobRun(entry)))
       } catch (error) {
-        results.push(
-          input.store.updateJobRun(entry.jobRun.jobRunId, {
-            status: 'failed',
-            errorCode: 'flow_advance_failed',
-            errorMessage: error instanceof Error ? error.message : String(error),
-            completedAt: now,
-            leaseOwner: null,
-            leaseExpiresAt: null,
-          }).jobRun
-        )
+        results.push(handleFlowAdvanceError({ store: input.store, entry, error, now }))
       }
       continue
     }
@@ -383,23 +375,160 @@ export async function tickJobsScheduler(input: TickJobsSchedulerInput): Promise<
       }
 
       try {
-        results.push(await input.advanceFlowJobRun(entry))
+        results.push(clearFlowRetryMetadata(input.store, await input.advanceFlowJobRun(entry)))
       } catch (error) {
-        results.push(
-          input.store.updateJobRun(entry.jobRun.jobRunId, {
-            status: 'failed',
-            errorCode: 'flow_advance_failed',
-            errorMessage: error instanceof Error ? error.message : String(error),
-            completedAt: now,
-            leaseOwner: null,
-            leaseExpiresAt: null,
-          }).jobRun
-        )
+        results.push(handleFlowAdvanceError({ store: input.store, entry, error, now }))
       }
     }
   }
 
   return results
+}
+
+function handleFlowAdvanceError(input: {
+  store: JobsStore
+  entry: ClaimedDueJob
+  error: unknown
+  now: string
+}): JobRunRecord {
+  const message = errorMessage(input.error)
+  if (!isTransientFlowAdvanceError(input.error)) {
+    return input.store.updateJobRun(input.entry.jobRun.jobRunId, {
+      status: 'failed',
+      errorCode: 'flow_advance_failed',
+      errorMessage: message,
+      completedAt: input.now,
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      retryAttempts: null,
+      nextAttemptAt: null,
+      lastRetryError: null,
+    }).jobRun
+  }
+
+  const retryAttempts = (input.entry.jobRun.retryAttempts ?? 0) + 1
+  if (retryAttempts >= DEFAULT_FLOW_ADVANCE_MAX_RETRIES) {
+    return input.store.updateJobRun(input.entry.jobRun.jobRunId, {
+      status: 'failed',
+      errorCode: 'transient_flow_advance_exhausted',
+      errorMessage: message,
+      completedAt: input.now,
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      retryAttempts,
+      nextAttemptAt: null,
+      lastRetryError: message,
+    }).jobRun
+  }
+
+  const nextAttemptAt = new Date(
+    Date.parse(input.now) + DEFAULT_FLOW_ADVANCE_RETRY_DELAY_MS
+  ).toISOString()
+  return input.store.updateJobRun(input.entry.jobRun.jobRunId, {
+    status: input.entry.jobRun.status === 'dispatched' ? 'dispatched' : 'claimed',
+    errorCode: 'retry_transient_flow_advance',
+    errorMessage: message,
+    completedAt: undefined,
+    leaseOwner: input.entry.jobRun.leaseOwner ?? 'acp-scheduler',
+    leaseExpiresAt: nextAttemptAt,
+    retryAttempts,
+    nextAttemptAt,
+    lastRetryError: message,
+  }).jobRun
+}
+
+function clearFlowRetryMetadata(store: JobsStore, jobRun: JobRunRecord): JobRunRecord {
+  if (
+    jobRun.retryAttempts === undefined &&
+    jobRun.nextAttemptAt === undefined &&
+    jobRun.lastRetryError === undefined
+  ) {
+    return jobRun
+  }
+
+  const cleared = store.updateJobRun(jobRun.jobRunId, {
+    ...(jobRun.errorCode === 'retry_transient_flow_advance'
+      ? { errorCode: null, errorMessage: null }
+      : {}),
+    retryAttempts: null,
+    nextAttemptAt: null,
+    lastRetryError: null,
+  }).jobRun
+  return jobRun.errorCode === 'retry_transient_flow_advance'
+    ? { ...cleared, errorCode: undefined }
+    : cleared
+}
+
+function isTransientFlowAdvanceError(error: unknown): boolean {
+  const code = errorCode(error)
+  if (
+    code === 'job_run_max_duration_exceeded' ||
+    code === 'orphaned_by_job_change' ||
+    code === 'stale_claimed_non_flow' ||
+    code === 'agent_step_timeout'
+  ) {
+    return false
+  }
+  if (
+    code === 'ETIMEDOUT' ||
+    code === 'ECONNRESET' ||
+    code === 'ECONNREFUSED' ||
+    code === 'EHOSTUNREACH' ||
+    code === 'ENETUNREACH' ||
+    code === 'hrc_unavailable' ||
+    code === 'dispatch_failed'
+  ) {
+    return true
+  }
+
+  const status = errorStatus(error)
+  if (status !== undefined && status >= 500 && status <= 599) {
+    return true
+  }
+
+  const message = errorMessage(error).toLowerCase()
+  if (
+    message.includes('invalid job flow') ||
+    message.includes('expectation') ||
+    message.includes('unsupported flow step kind') ||
+    message.includes('flow transition target not found') ||
+    message.includes('flow step not found')
+  ) {
+    return false
+  }
+
+  return (
+    message.includes('timed out') ||
+    message.includes('timeout') ||
+    message.includes('hrc unavailable') ||
+    message.includes('dispatch gateway returned http 5') ||
+    message.includes('http 503') ||
+    message.includes('http 502') ||
+    message.includes('http 500') ||
+    message.includes('hostsessionid is required') ||
+    message.includes('runtime already has an active run') ||
+    message.includes('different request body already exists for idempotencykey')
+  )
+}
+
+function errorCode(error: unknown): string | undefined {
+  return typeof error === 'object' &&
+    error !== null &&
+    typeof (error as { code?: unknown }).code === 'string'
+    ? (error as { code: string }).code
+    : undefined
+}
+
+function errorStatus(error: unknown): number | undefined {
+  return typeof error === 'object' &&
+    error !== null &&
+    typeof (error as { status?: unknown }).status === 'number'
+    ? (error as { status: number }).status
+    : undefined
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 export function createJobsScheduler(input: {
