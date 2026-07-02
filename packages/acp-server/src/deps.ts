@@ -142,6 +142,7 @@ export type AcpHrcClient = Pick<
   | 'watch'
   | 'watchMessages'
 > & {
+  probe?(request: Readonly<Record<string, unknown>>): Promise<{ outcome: 'idle' | 'work' }>
   submitActiveRunContribution(
     request: HrcActiveRunContributionRequest
   ): Promise<HrcActiveRunContributionResponse>

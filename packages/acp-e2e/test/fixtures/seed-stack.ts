@@ -40,6 +40,7 @@ type SeedStackOptions = {
   jobsStore?: AcpServerDeps['jobsStore'] | undefined
   inputAttemptStore?: AcpServerDeps['inputAttemptStore'] | undefined
   runStore?: AcpServerDeps['runStore'] | undefined
+  hrcClient?: AcpServerDeps['hrcClient'] | undefined
   hrcDbPath?: string | undefined
 }
 
@@ -187,6 +188,7 @@ export function createSeedStack(options: SeedStackOptions = {}): SeedStack {
       ? { inputAttemptStore: options.inputAttemptStore }
       : {}),
     ...(options.runStore !== undefined ? { runStore: options.runStore } : {}),
+    ...(options.hrcClient !== undefined ? { hrcClient: options.hrcClient } : {}),
     ...(options.hrcDbPath !== undefined ? { hrcDbPath: options.hrcDbPath } : {}),
   }
   const server = createAcpServer(serverDeps)

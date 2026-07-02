@@ -41,7 +41,9 @@ function createTerminalLauncher(
   outcomes: FlowLaunchOutcome[],
   calls: LaunchCall[]
 ): NonNullable<AcpServerDeps['launchRoleScopedRun']> {
-  return createTerminalFlowLauncher(hrc, outcomes, calls, { sessionId: 'session-jobflow-probe-e2e' })
+  return createTerminalFlowLauncher(hrc, outcomes, calls, {
+    sessionId: 'session-jobflow-probe-e2e',
+  })
 }
 
 async function withExecEnabled<T>(run: () => Promise<T> | T): Promise<T> {

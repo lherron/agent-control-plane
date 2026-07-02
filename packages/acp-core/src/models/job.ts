@@ -36,6 +36,7 @@ export type JobFlow = {
 export type JobFlowStep =
   | AgentFlowStep
   | ExecFlowStep
+  | ProbeFlowStep
   | WrkqTaskFlowStep
   | PulpitMessageFlowStep
   | AgentDispatchFlowStep
@@ -61,7 +62,7 @@ export type StepOutputRef = {
 
 export type BaseFlowStep = {
   id: string
-  kind?: 'agent' | 'exec' | 'wrkq-task' | 'pulpit-message' | 'agent-dispatch' | undefined
+  kind?: 'agent' | 'exec' | 'probe' | 'wrkq-task' | 'pulpit-message' | 'agent-dispatch' | undefined
   timeout?: string | undefined
   fresh?: boolean | undefined
   freshDuration?: string | undefined
@@ -92,6 +93,23 @@ export type ExecFlowStep = BaseFlowStep & {
     | {
         exitCode?: Readonly<Record<string, FlowNext>> | undefined
         default?: FlowNext | undefined
+      }
+    | undefined
+}
+
+export type ProbeOutcome = 'idle' | 'work'
+
+export type ProbeFlowStep = BaseFlowStep & {
+  kind: 'probe'
+  input?: undefined
+  inputFile?: undefined
+  expect?: undefined
+  probe: {
+    name: string
+  }
+  branches?:
+    | {
+        outcome?: Readonly<Record<ProbeOutcome, FlowNext>> | undefined
       }
     | undefined
 }
@@ -180,9 +198,16 @@ export type JobStepRun = {
   runId?: string | undefined
   resultBlock?: string | undefined
   result?: Readonly<Record<string, unknown>> | undefined
+  branchTaken?: BranchTaken | undefined
   error?: { code: string; message: string } | undefined
   startedAt?: string | undefined
   completedAt?: string | undefined
+}
+
+export type BranchTaken = {
+  kind: 'exitCode' | 'outcome' | 'default'
+  key: string
+  target: FlowNext
 }
 
 export type ExecStepResult = {
@@ -199,4 +224,10 @@ export type ExecStepResult = {
   durationMs: number
   startedAt: string
   completedAt: string
+}
+
+export type ProbeStepResult = {
+  kind: 'probe'
+  name: string
+  outcome: ProbeOutcome
 }

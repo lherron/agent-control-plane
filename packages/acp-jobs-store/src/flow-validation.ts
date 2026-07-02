@@ -14,6 +14,8 @@ export type JobFlowValidationErrorCode =
   | 'ambiguous_step_input'
   | 'input_file_not_allowed'
   | 'invalid_step_kind'
+  | 'invalid_probe_step'
+  | 'unknown_probe_name'
   | 'missing_exec'
   | 'invalid_exec_argv'
   | 'invalid_exec_command'
@@ -69,7 +71,15 @@ type FlowPhaseSteps = Partial<Record<FlowPhase, unknown[]>>
 const allowedExpectationFields = new Set(['outcome', 'resultBlock', 'require', 'equals'])
 const allowedOutcomes = new Set(['succeeded', 'failed', 'cancelled'])
 const terminalFlowNext = new Set<FlowNext>(['continue', 'succeed', 'fail'])
-const allowedStepKinds = new Set(['agent', 'exec', 'wrkq-task', 'pulpit-message', 'agent-dispatch'])
+const allowedStepKinds = new Set([
+  'agent',
+  'exec',
+  'probe',
+  'wrkq-task',
+  'pulpit-message',
+  'agent-dispatch',
+])
+const knownProbeNames = new Set(['hrc-stale-tty-reap.v1'])
 const maxExecOutputBytes = 64 * 1024 * 1024
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -320,6 +330,18 @@ function validateExec(exec: unknown, path: string, errors: JobFlowValidationErro
         'exec.successExitCodes must be a non-empty integer array with values from 0 to 255'
       )
     }
+  }
+}
+
+function validateProbe(probe: unknown, path: string, errors: JobFlowValidationError[]): void {
+  if (!isRecord(probe) || !hasPresentString(probe, 'name')) {
+    addError(errors, 'invalid_probe_step', `${path}.name`, 'probe.name must be a non-empty string')
+    return
+  }
+
+  const name = probe['name'] as string
+  if (!knownProbeNames.has(name)) {
+    addError(errors, 'unknown_probe_name', `${path}.name`, `unknown probe name: ${name}`)
   }
 }
 
@@ -597,7 +619,7 @@ function validateStep(
       errors,
       'invalid_step_kind',
       `${path}.kind`,
-      'step kind must be agent, exec, wrkq-task, pulpit-message, or agent-dispatch'
+      'step kind must be agent, exec, probe, wrkq-task, pulpit-message, or agent-dispatch'
     )
   }
 
@@ -648,7 +670,13 @@ function validateStep(
     } else {
       validateExec(step['exec'], `${path}.exec`, errors)
     }
-    validateBranchShape(step, path, errors)
+    validateBranchShape(step, path, stepKind, errors)
+    return
+  }
+
+  if (stepKind === 'probe') {
+    validateProbe(step['probe'], `${path}.probe`, errors)
+    validateBranchShape(step, path, stepKind, errors)
     return
   }
 
@@ -697,9 +725,18 @@ function validateStep(
 function validateBranchShape(
   step: Record<string, unknown>,
   path: string,
+  stepKind: string,
   errors: JobFlowValidationError[]
 ): void {
   if (!('branches' in step)) {
+    if (stepKind === 'probe') {
+      addError(
+        errors,
+        'invalid_probe_step',
+        `${path}.branches.outcome`,
+        'probe step must include branches.outcome'
+      )
+    }
     return
   }
 
@@ -710,6 +747,15 @@ function validateBranchShape(
   }
 
   if ('exitCode' in branches) {
+    if (stepKind !== 'exec') {
+      addError(
+        errors,
+        'invalid_probe_step',
+        `${path}.branches.exitCode`,
+        'probe steps must branch on outcome, not exitCode'
+      )
+      return
+    }
     const exitCode = branches['exitCode']
     if (!isRecord(exitCode)) {
       addError(
@@ -738,6 +784,58 @@ function validateBranchShape(
         }
       }
     }
+  }
+
+  if ('outcome' in branches) {
+    if (stepKind !== 'probe') {
+      addError(
+        errors,
+        'invalid_flow_next',
+        `${path}.branches.outcome`,
+        'outcome branches are only supported on probe steps'
+      )
+      return
+    }
+    const outcome = branches['outcome']
+    if (!isRecord(outcome)) {
+      addError(
+        errors,
+        'invalid_probe_step',
+        `${path}.branches.outcome`,
+        'branches.outcome must be an object'
+      )
+    } else {
+      for (const key of Object.keys(outcome)) {
+        if (key !== 'idle' && key !== 'work') {
+          addError(
+            errors,
+            'invalid_probe_step',
+            `${path}.branches.outcome.${key}`,
+            'probe outcome branches must be idle or work'
+          )
+        }
+      }
+      for (const key of ['idle', 'work'] as const) {
+        const target = outcome[key]
+        if (typeof target !== 'string') {
+          addError(
+            errors,
+            'invalid_flow_next',
+            `${path}.branches.outcome.${key}`,
+            'branch target must be a terminal token or step id'
+          )
+        }
+      }
+    }
+  }
+
+  if (stepKind === 'probe' && !('outcome' in branches)) {
+    addError(
+      errors,
+      'invalid_probe_step',
+      `${path}.branches.outcome`,
+      'probe step must include branches.outcome'
+    )
   }
 
   if ('default' in branches && typeof branches['default'] !== 'string') {
@@ -814,7 +912,7 @@ function validateBranchTargets(
       validateFlowNextTarget(step['next'], `${path}.next`, phaseStepIds, errors)
     }
 
-    if (step['kind'] !== 'exec' || !isRecord(step['branches'])) {
+    if ((step['kind'] !== 'exec' && step['kind'] !== 'probe') || !isRecord(step['branches'])) {
       return
     }
 
@@ -827,6 +925,12 @@ function validateBranchTargets(
           phaseStepIds,
           errors
         )
+      }
+    }
+
+    if (isRecord(branches['outcome'])) {
+      for (const [outcome, target] of Object.entries(branches['outcome'])) {
+        validateFlowNextTarget(target, `${path}.branches.outcome.${outcome}`, phaseStepIds, errors)
       }
     }
 
@@ -881,13 +985,18 @@ function validatePhaseAcyclic(
     const id = step['id'] as string
     addEdgeForFlowNext(edges, id, step['next'], phaseStepIds)
 
-    if (step['kind'] !== 'exec' || !isRecord(step['branches'])) {
+    if ((step['kind'] !== 'exec' && step['kind'] !== 'probe') || !isRecord(step['branches'])) {
       continue
     }
 
     const branches = step['branches']
     if (isRecord(branches['exitCode'])) {
       for (const target of Object.values(branches['exitCode'])) {
+        addEdgeForFlowNext(edges, id, target, phaseStepIds)
+      }
+    }
+    if (isRecord(branches['outcome'])) {
+      for (const target of Object.values(branches['outcome'])) {
         addEdgeForFlowNext(edges, id, target, phaseStepIds)
       }
     }

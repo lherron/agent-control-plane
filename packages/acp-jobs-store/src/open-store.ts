@@ -2,7 +2,14 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-import type { Actor, JobFlow, JobStepRunPhase, JobStepRunStatus, JobTrigger } from 'acp-core'
+import type {
+  Actor,
+  BranchTaken,
+  JobFlow,
+  JobStepRunPhase,
+  JobStepRunStatus,
+  JobTrigger,
+} from 'acp-core'
 import { validateJobTrigger } from 'acp-core'
 
 import { isValidCron, nextFireAfter } from './cron.js'
@@ -139,6 +146,7 @@ type JobStepRunRow = {
   run_id: string | null
   result_block: string | null
   result_json: string | null
+  branch_taken_json: string | null
   error_code: string | null
   error_message: string | null
   started_at: string | null
@@ -260,6 +268,7 @@ export type JobStepRunRecord = {
   runId?: string | undefined
   resultBlock?: string | undefined
   result?: Readonly<Record<string, unknown>> | undefined
+  branchTaken?: BranchTaken | undefined
   degradation?: Readonly<{ code: string; [key: string]: unknown }> | undefined
   error?: { code: string; message: string } | undefined
   startedAt?: string | undefined
@@ -341,6 +350,7 @@ export type InsertJobStepRunInput = {
   runId?: string | undefined
   resultBlock?: string | undefined
   result?: Readonly<Record<string, unknown>> | undefined
+  branchTaken?: BranchTaken | undefined
   error?: { code: string; message: string } | undefined
   startedAt?: string | undefined
   completedAt?: string | undefined
@@ -352,6 +362,7 @@ export type UpdateJobStepRunInput = {
   runId?: string | null | undefined
   resultBlock?: string | null | undefined
   result?: Readonly<Record<string, unknown>> | null | undefined
+  branchTaken?: BranchTaken | null | undefined
   error?: { code: string; message: string } | null | undefined
   startedAt?: string | null | undefined
   completedAt?: string | null | undefined
@@ -823,6 +834,12 @@ export const jobsStoreMigrations: readonly JobsStoreMigration[] = [
         WHERE next_attempt_at IS NOT NULL;
     `,
   },
+  {
+    id: '009_job_step_branch_taken',
+    sql: `
+      ALTER TABLE job_step_runs ADD COLUMN branch_taken_json TEXT;
+    `,
+  },
 ]
 
 export interface OpenSqliteJobsStoreOptions {
@@ -1245,6 +1262,7 @@ function toJobOutputSinkAttemptRecord(row: JobOutputSinkAttemptRow): JobOutputSi
 
 function toJobStepRunRecord(row: JobStepRunRow): JobStepRunRecord {
   const result = parseOptionalJsonRecord(row.result_json, 'result')
+  const branchTaken = parseOptionalBranchTaken(row.branch_taken_json)
   const degradation = readJobStepRunDegradation(result?.['degradation'])
   return {
     jobRunId: row.job_run_id,
@@ -1256,6 +1274,7 @@ function toJobStepRunRecord(row: JobStepRunRow): JobStepRunRecord {
     runId: row.run_id ?? undefined,
     ...(row.result_block !== null ? { resultBlock: row.result_block } : {}),
     ...(result !== undefined ? { result } : {}),
+    ...(branchTaken !== undefined ? { branchTaken } : {}),
     ...(degradation !== undefined ? { degradation } : {}),
     error:
       row.error_code !== null && row.error_message !== null
@@ -1266,6 +1285,24 @@ function toJobStepRunRecord(row: JobStepRunRow): JobStepRunRecord {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
+}
+
+function parseOptionalBranchTaken(value: string | null): BranchTaken | undefined {
+  if (value === null) {
+    return undefined
+  }
+
+  const parsed = parseJsonRecord(value, 'branchTaken')
+  if (
+    (parsed['kind'] !== 'exitCode' &&
+      parsed['kind'] !== 'outcome' &&
+      parsed['kind'] !== 'default') ||
+    typeof parsed['key'] !== 'string' ||
+    typeof parsed['target'] !== 'string'
+  ) {
+    throw new Error('branchTaken must decode to a branch record')
+  }
+  return parsed as BranchTaken
 }
 
 function readJobStepRunDegradation(
@@ -1909,13 +1946,14 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
                 run_id,
                 result_block,
                 result_json,
+                branch_taken_json,
                 error_code,
                 error_message,
                 started_at,
                 completed_at,
                 created_at,
                 updated_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `
           )
           .run(
@@ -1928,6 +1966,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
             step.runId ?? null,
             step.resultBlock ?? null,
             step.result !== undefined ? JSON.stringify(step.result) : null,
+            step.branchTaken !== undefined ? JSON.stringify(step.branchTaken) : null,
             error?.code ?? null,
             error?.message ?? null,
             step.startedAt ?? null,
@@ -1980,6 +2019,12 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
           ? null
           : JSON.stringify(patch.result)
         : existing.result_json
+    const nextBranchTakenJson =
+      'branchTaken' in patch
+        ? patch.branchTaken === null || patch.branchTaken === undefined
+          ? null
+          : JSON.stringify(patch.branchTaken)
+        : existing.branch_taken_json
     const nextErrorCode = pickNullable('error' in patch, patch.error?.code, existing.error_code)
     const nextErrorMessage = pickNullable(
       'error' in patch,
@@ -2003,6 +2048,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
               run_id = ?,
               result_block = ?,
               result_json = ?,
+              branch_taken_json = ?,
               error_code = ?,
               error_message = ?,
               started_at = ?,
@@ -2017,6 +2063,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
         nextRunId,
         nextResultBlock,
         nextResultJson,
+        nextBranchTakenJson,
         nextErrorCode,
         nextErrorMessage,
         nextStartedAt,

@@ -1,11 +1,15 @@
 import type {
   Actor,
+  BranchTaken,
   ExecFlowStep,
   ExecStepResult,
   FlowNext,
   JobFlowStep,
   JobStepRunPhase,
   JobStepRunStatus,
+  ProbeFlowStep,
+  ProbeOutcome,
+  ProbeStepResult,
   Run,
   StepExpectation,
 } from 'acp-core'
@@ -37,6 +41,7 @@ import {
 import { getRunFinalAssistantText } from './run-final-output.js'
 
 type AgentRunnableStep = Extract<JobFlowStep, { kind?: 'agent' | undefined }>
+type ProbeRunnableStep = Extract<JobFlowStep, { kind: 'probe' }>
 
 export type AdvanceJobFlowInput = {
   deps: ResolvedAcpServerDeps
@@ -77,6 +82,9 @@ type FreshStepDispatchPlan =
 const SCHEDULED_FRESH_METADATA_KEY = 'scheduledFresh'
 const SCHEDULED_FRESH_PRE_RUN_CLEANUP_DEGRADED = 'scheduled_fresh_pre_run_cleanup_degraded'
 const AGENT_STEP_TERMINATE_TIMEOUT_MS = 50
+const PROBE_REGISTRY: Record<string, ProbeRunner> = {
+  'hrc-stale-tty-reap.v1': runHrcClientProbe,
+}
 
 const TERMINAL_STEP_STATUSES = new Set<JobStepRunStatus>([
   'succeeded',
@@ -214,6 +222,14 @@ function ensureStepRows(
 
 type PhaseAdvanceResult = { state: 'succeeded' } | { state: 'failed' } | { state: 'blocked' }
 
+type ProbeRunner = (input: {
+  deps: ResolvedAcpServerDeps
+  job: JobRecord
+  jobRun: JobRunRecord
+  phase: JobStepRunPhase
+  step: ProbeRunnableStep
+}) => Promise<{ outcome: ProbeOutcome }>
+
 async function advancePhase(input: {
   deps: ResolvedAcpServerDeps
   job: JobRecord
@@ -239,11 +255,13 @@ async function advancePhase(input: {
     if (!TERMINAL_STEP_STATUSES.has(stepRun.status)) {
       const advanced = isExecStep(step)
         ? await advanceExecStep({ ...input, step, stepRun })
-        : isNativeStep(step)
-          ? await advanceNativeStep({ ...input, step, stepRun })
-          : isAgentStep(step)
-            ? await advanceAgentStep({ ...input, step, stepRun })
-            : failUnknownStepKind(step)
+        : isProbeStep(step)
+          ? await advanceProbeStep({ ...input, step, stepRun })
+          : isNativeStep(step)
+            ? await advanceNativeStep({ ...input, step, stepRun })
+            : isAgentStep(step)
+              ? await advanceAgentStep({ ...input, step, stepRun })
+              : failUnknownStepKind(step)
 
       if (advanced.state === 'blocked') {
         return { state: 'blocked' }
@@ -252,8 +270,15 @@ async function advancePhase(input: {
       stepRun = advanced.stepRun
     }
 
-    const transition = resolveTerminalStepTransition(step, stepRun)
-    const next = resolvePhaseTransition(input.steps, stepById, step, transition)
+    const terminalTransition = resolveTerminalStepTransition(step, stepRun)
+    stepRun = recordBranchTaken({
+      jobsStore,
+      jobRunId: input.jobRun.jobRunId,
+      phase: input.phase,
+      stepRun,
+      branchTaken: terminalTransition.branchTaken,
+    })
+    const next = resolvePhaseTransition(input.steps, stepById, step, terminalTransition.transition)
     if (next.state !== 'advance') {
       return next
     }
@@ -264,6 +289,123 @@ async function advancePhase(input: {
 }
 
 type StepAdvanceResult = { state: 'terminal'; stepRun: JobStepRunRecord } | { state: 'blocked' }
+
+async function advanceProbeStep(input: {
+  deps: ResolvedAcpServerDeps
+  job: JobRecord
+  jobRun: JobRunRecord
+  phase: JobStepRunPhase
+  step: ProbeFlowStep
+  stepRun: JobStepRunRecord
+  now: string
+}): Promise<StepAdvanceResult> {
+  const jobsStore = requireJobsStore(input.deps)
+  const startedStepRun = jobsStore.jobStepRuns.updateStep(
+    input.jobRun.jobRunId,
+    input.phase,
+    input.step.id,
+    input.stepRun.attempt,
+    {
+      status: 'running',
+      inputAttemptId: null,
+      runId: null,
+      startedAt: input.stepRun.startedAt ?? input.now,
+      error: null,
+    }
+  ).jobStepRun
+
+  try {
+    const runner = PROBE_REGISTRY[input.step.probe.name]
+    if (runner === undefined) {
+      throw new ProbeStepError('unknown_probe_name', `unknown probe name: ${input.step.probe.name}`)
+    }
+
+    const { outcome } = await runner(input)
+    const result = {
+      kind: 'probe',
+      name: input.step.probe.name,
+      outcome,
+    } satisfies ProbeStepResult
+    return {
+      state: 'terminal',
+      stepRun: jobsStore.jobStepRuns.updateStep(
+        input.jobRun.jobRunId,
+        input.phase,
+        input.step.id,
+        startedStepRun.attempt,
+        {
+          status: 'succeeded',
+          result,
+          completedAt: input.now,
+        }
+      ).jobStepRun,
+    }
+  } catch (error) {
+    const code = error instanceof ProbeStepError ? error.code : 'probe_failed'
+    const message = error instanceof Error ? error.message : 'probe step failed'
+    return {
+      state: 'terminal',
+      stepRun: jobsStore.jobStepRuns.updateStep(
+        input.jobRun.jobRunId,
+        input.phase,
+        input.step.id,
+        startedStepRun.attempt,
+        {
+          status: 'failed',
+          error: { code, message },
+          completedAt: input.now,
+        }
+      ).jobStepRun,
+    }
+  }
+}
+
+class ProbeStepError extends Error {
+  constructor(
+    readonly code: string,
+    message: string
+  ) {
+    super(message)
+  }
+}
+
+async function runHrcClientProbe(input: {
+  deps: ResolvedAcpServerDeps
+  job: JobRecord
+  jobRun: JobRunRecord
+  phase: JobStepRunPhase
+  step: ProbeRunnableStep
+}): Promise<{ outcome: ProbeOutcome }> {
+  const probe = input.deps.hrcClient?.probe
+  if (input.deps.hrcClient === undefined) {
+    throw new ProbeStepError('probe_unavailable', 'hrcClient probe capability is not configured')
+  }
+
+  if (probe === undefined) {
+    const staleRuntimes = await input.deps.hrcClient.listRuntimes({ stale: true })
+    const hasStaleTtyRuntime = staleRuntimes.some(
+      (runtime) => runtime.transport === 'tmux' || runtime.transport === 'ghostty'
+    )
+    return { outcome: hasStaleTtyRuntime ? 'work' : 'idle' }
+  }
+
+  const result = await probe({
+    name: input.step.probe.name,
+    jobId: input.job.jobId,
+    jobRunId: input.jobRun.jobRunId,
+    phase: input.phase,
+    stepId: input.step.id,
+    scopeRef: input.job.scopeRef,
+    laneRef: input.job.laneRef,
+  })
+  if (result.outcome !== 'idle' && result.outcome !== 'work') {
+    throw new ProbeStepError(
+      'invalid_probe_outcome',
+      `probe ${input.step.probe.name} returned invalid outcome: ${String(result.outcome)}`
+    )
+  }
+  return result
+}
 
 async function advanceNativeStep(input: {
   deps: ResolvedAcpServerDeps
@@ -1054,6 +1196,10 @@ async function advanceExecStep(input: {
 }
 
 type PhaseTransition = FlowNext | 'continue'
+type TerminalStepTransition = {
+  transition: PhaseTransition
+  branchTaken?: BranchTaken | undefined
+}
 
 type ResolvedPhaseTransition =
   | { state: 'advance'; step: JobFlowStep | undefined }
@@ -1063,31 +1209,76 @@ type ResolvedPhaseTransition =
 function resolveTerminalStepTransition(
   step: JobFlowStep,
   stepRun: JobStepRunRecord
-): PhaseTransition {
+): TerminalStepTransition {
   if (isExecStep(step)) {
     const result = readExecStepResult(stepRun)
     if (result?.exitCode !== null && result?.exitCode !== undefined) {
       const exitCodeTarget = step.branches?.exitCode?.[String(result.exitCode)]
       if (exitCodeTarget !== undefined) {
-        return exitCodeTarget
+        return {
+          transition: exitCodeTarget,
+          branchTaken: { kind: 'exitCode', key: String(result.exitCode), target: exitCodeTarget },
+        }
       }
     }
 
     if (step.branches?.default !== undefined) {
-      return step.branches.default
+      return {
+        transition: step.branches.default,
+        branchTaken: { kind: 'default', key: 'default', target: step.branches.default },
+      }
+    }
+  }
+
+  if (isProbeStep(step)) {
+    const result = readProbeStepResult(stepRun)
+    if (result !== undefined) {
+      const outcomeTarget = step.branches?.outcome?.[result.outcome]
+      if (outcomeTarget !== undefined) {
+        return {
+          transition: outcomeTarget,
+          branchTaken: { kind: 'outcome', key: result.outcome, target: outcomeTarget },
+        }
+      }
     }
   }
 
   if (step.next !== undefined) {
-    return step.next
+    return { transition: step.next }
   }
 
   if (isExecStep(step)) {
     const result = readExecStepResult(stepRun)
-    return result !== undefined && isSuccessfulExecStepResult(step, result) ? 'continue' : 'fail'
+    return {
+      transition:
+        result !== undefined && isSuccessfulExecStepResult(step, result) ? 'continue' : 'fail',
+    }
   }
 
-  return stepRun.status === 'succeeded' ? 'continue' : 'fail'
+  return { transition: stepRun.status === 'succeeded' ? 'continue' : 'fail' }
+}
+
+function recordBranchTaken(input: {
+  jobsStore: NonNullable<ResolvedAcpServerDeps['jobsStore']>
+  jobRunId: string
+  phase: JobStepRunPhase
+  stepRun: JobStepRunRecord
+  branchTaken?: BranchTaken | undefined
+}): JobStepRunRecord {
+  if (
+    input.branchTaken === undefined ||
+    JSON.stringify(input.stepRun.branchTaken) === JSON.stringify(input.branchTaken)
+  ) {
+    return input.stepRun
+  }
+
+  return input.jobsStore.jobStepRuns.updateStep(
+    input.jobRunId,
+    input.phase,
+    input.stepRun.stepId,
+    input.stepRun.attempt,
+    { branchTaken: input.branchTaken }
+  ).jobStepRun
 }
 
 function resolvePhaseTransition(
@@ -1120,6 +1311,10 @@ function resolvePhaseTransition(
 
 function isExecStep(step: JobFlowStep): step is ExecFlowStep {
   return step.kind === 'exec'
+}
+
+function isProbeStep(step: JobFlowStep): step is ProbeFlowStep {
+  return step.kind === 'probe'
 }
 
 function isSuccessfulExecStepResult(step: ExecFlowStep, result: ExecStepResult): boolean {
@@ -1378,6 +1573,19 @@ function readExecStepResult(stepRun: JobStepRunRecord): ExecStepResult | undefin
   }
 
   return result as unknown as ExecStepResult
+}
+
+function readProbeStepResult(stepRun: JobStepRunRecord): ProbeStepResult | undefined {
+  const result = stepRun.result
+  if (
+    result?.['kind'] !== 'probe' ||
+    typeof result['name'] !== 'string' ||
+    (result['outcome'] !== 'idle' && result['outcome'] !== 'work')
+  ) {
+    return undefined
+  }
+
+  return result as unknown as ProbeStepResult
 }
 
 async function resolveExecDefaultCwd(deps: ResolvedAcpServerDeps, job: JobRecord): Promise<string> {

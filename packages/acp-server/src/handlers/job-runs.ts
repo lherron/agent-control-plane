@@ -58,6 +58,7 @@ export const handleGetJobRun: RouteHandler = ({ params, deps }) => {
           ...(step.inputAttemptId !== undefined ? { inputAttemptId: step.inputAttemptId } : {}),
           ...(step.runId !== undefined ? { runId: step.runId } : {}),
           ...(step.result !== undefined ? { result: step.result } : {}),
+          ...(step.branchTaken !== undefined ? { branchTaken: step.branchTaken } : {}),
           ...(step.resultBlock !== undefined ? { resultBlock: step.resultBlock } : {}),
           ...(step.error !== undefined ? { error: step.error } : {}),
           ...(step.startedAt !== undefined ? { startedAt: step.startedAt } : {}),
