@@ -85,6 +85,24 @@ describe('JobFlow validation', () => {
     ).toEqual({ valid: true })
   })
 
+  test('accepts the wrkq refactor eligibility native probe with outcome branches', () => {
+    // T-05433 RED: cody's wrkq-refactor schedule should use a native in-process probe,
+    // preserving the idle/work branch contract while removing the exec preflight.
+    expect(
+      validateJobFlow({
+        sequence: [
+          {
+            id: 'eligible',
+            kind: 'probe',
+            probe: { name: 'wrkq-refactor-eligible.v1' },
+            branches: { outcome: { idle: 'succeed', work: 'refactor' } },
+          },
+          { id: 'refactor', input: 'Run the wrkq refactor workflow.' },
+        ],
+      })
+    ).toEqual({ valid: true })
+  })
+
   test('rejects an unknown probe registry name with a path-specific error', () => {
     // T-05417 RED: unknown probes must fail validation/reconcile before a job can fire.
     expectError(
