@@ -19,8 +19,9 @@ import {
   type JobStepRunRecord,
   type NativeStepExecutorDeps,
   executeNativeSideEffectStep,
+  formatJobFlowValidationErrors,
   parseFreshDurationMs,
-  validateJobFlow,
+  validateJobFlowJob,
 } from 'acp-jobs-store'
 import type { LaneRef } from 'agent-scope'
 import { formatCanonicalSessionRef, resolveDatabasePath } from 'hrc-core'
@@ -104,9 +105,18 @@ export async function advanceJobFlow(input: AdvanceJobFlowInput): Promise<JobRun
     throw new Error(`job flow is required for ${input.job.jobId}`)
   }
 
-  const validation = validateJobFlow(flow, { allowInputFile: false })
+  const validation = validateJobFlowJob(
+    {
+      triggerKind: input.job.trigger.kind,
+      schedule: input.job.trigger.kind === 'schedule' ? input.job.schedule : undefined,
+      flow,
+    },
+    { allowInputFile: false }
+  )
   if (!validation.valid) {
-    throw new Error(`invalid job flow for ${input.job.jobId}`)
+    throw new Error(
+      `invalid job flow for ${input.job.jobId}: ${formatJobFlowValidationErrors(validation.errors)}`
+    )
   }
 
   const jobsStore = requireJobsStore(input.deps)

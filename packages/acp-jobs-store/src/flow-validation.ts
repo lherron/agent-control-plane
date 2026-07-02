@@ -65,6 +65,10 @@ export type ValidateJobFlowJobInput = {
   flow?: unknown
 }
 
+export function formatJobFlowValidationErrors(errors: readonly JobFlowValidationError[]): string {
+  return errors.map((error) => `${error.code} at ${error.path}: ${error.message}`).join('; ')
+}
+
 type FlowPhase = 'sequence' | 'onFailure'
 type FlowPhaseSteps = Partial<Record<FlowPhase, unknown[]>>
 

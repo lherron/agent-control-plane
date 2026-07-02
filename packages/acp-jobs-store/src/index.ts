@@ -48,6 +48,7 @@ export {
   type FlowJobRunResponseStatus,
 } from './flow-status.js'
 export {
+  formatJobFlowValidationErrors,
   validateJobFlow,
   validateJobFlowJob,
   type JobFlowValidationError,

@@ -2,6 +2,11 @@ import { createHash, randomUUID } from 'node:crypto'
 
 import { validateJobTrigger } from 'acp-core'
 
+import {
+  type JobFlowValidationError,
+  formatJobFlowValidationErrors,
+  validateJobFlowJob,
+} from './flow-validation.js'
 import type { CreateJobInput, JobRecord, JobsStore, UpdateJobInput } from './open-store.js'
 
 // ---------------------------------------------------------------------------
@@ -58,6 +63,7 @@ type StaleAdoptionError = {
 type ValidationError = {
   code: string
   message: string
+  errors?: JobFlowValidationError[] | undefined
 }
 
 export type ApplyManagedJobResult =
@@ -253,6 +259,14 @@ function validateManagedJobTrigger(
   }
 }
 
+function invalidFlowError(errors: JobFlowValidationError[]): ValidationError {
+  return {
+    code: 'INVALID_FLOW',
+    message: `invalid job flow: ${formatJobFlowValidationErrors(errors)}`,
+    errors,
+  }
+}
+
 function desiredToJobInput(input: ApplyManagedJobInput): CreateJobInput | ValidationError {
   const desired = input.desiredJson
   const slug = getString(desired, 'slug', input.projectionPk)
@@ -283,6 +297,15 @@ function desiredToJobInput(input: ApplyManagedJobInput): CreateJobInput | Valida
           : validation.errors.join('; '),
       }
     }
+    if (flow !== undefined) {
+      const flowValidation = validateJobFlowJob({
+        triggerKind: validation.trigger.kind,
+        flow,
+      })
+      if (!flowValidation.valid) {
+        return invalidFlowError(flowValidation.errors)
+      }
+    }
     return {
       slug,
       projectId,
@@ -302,6 +325,16 @@ function desiredToJobInput(input: ApplyManagedJobInput): CreateJobInput | Valida
   }
 
   const schedule = getRecord(desired, 'schedule')
+  if (flow !== undefined) {
+    const flowValidation = validateJobFlowJob({
+      triggerKind: 'schedule',
+      schedule: schedule as CreateJobInput['schedule'],
+      flow,
+    })
+    if (!flowValidation.valid) {
+      return invalidFlowError(flowValidation.errors)
+    }
+  }
   return {
     slug,
     projectId,
