@@ -188,7 +188,7 @@ describe('hrc external-ref cross-impl equivalence — real wrkf e2e (C-0009)', (
     const started = (await wrkfPort().action.start({
       task: taskId,
       action: ACTION,
-      actor: ACTOR,
+      principal_ref: ACTOR,
       idempotencyKey,
     })) as { actionRunId: string }
     await wrkfPort().action.bindExternal({

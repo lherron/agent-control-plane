@@ -336,7 +336,7 @@ describe('wrkf action launch/bind adapter — REAL HRC e2e (C-0004 closure)', ()
       await wrkfPort().action.start({
         task: taskId,
         action: ACTION,
-        actor: `${ACTOR.kind}:${ACTOR.id}`,
+        principal_ref: `${ACTOR.kind}:${ACTOR.id}`,
         idempotencyKey,
       })
 
@@ -391,7 +391,7 @@ describe('wrkf action launch/bind adapter — REAL HRC e2e (C-0004 closure)', ()
       const started = (await wrkfPort().action.start({
         task: taskId,
         action: ACTION,
-        actor: `${ACTOR.kind}:${ACTOR.id}`,
+        principal_ref: `${ACTOR.kind}:${ACTOR.id}`,
         idempotencyKey,
       })) as { actionRunId: string; runId: string; instanceId: string }
       const { hostSessionId } = await mintHostSession(ref)

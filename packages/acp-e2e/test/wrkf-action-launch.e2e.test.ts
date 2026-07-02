@@ -216,7 +216,7 @@ describe('wrkf action launch/bind adapter — real wrkf e2e (C-0004)', () => {
       await wrkfPort().action.start({
         task: taskId,
         action: ACTION,
-        actor: `${ACTOR.kind}:${ACTOR.id}`,
+        principal_ref: `${ACTOR.kind}:${ACTOR.id}`,
         idempotencyKey,
       })
 
@@ -263,7 +263,7 @@ describe('wrkf action launch/bind adapter — real wrkf e2e (C-0004)', () => {
       const started = (await wrkfPort().action.start({
         task: taskId,
         action: ACTION,
-        actor: `${ACTOR.kind}:${ACTOR.id}`,
+        principal_ref: `${ACTOR.kind}:${ACTOR.id}`,
         idempotencyKey,
       })) as { actionRunId: string; runId: string; instanceId: string }
       const { run: acpRun } = runStore.createOrGetRun({
