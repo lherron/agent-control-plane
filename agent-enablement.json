@@ -1,0 +1,172 @@
+{
+  "schemaVersion": 1,
+  "rubricVersion": "rubric.md@0716846",
+  "catalogVersion": "not-recorded",
+  "floor": {
+    "lastSweep": null,
+    "etag": 0,
+    "axes": {}
+  },
+  "observations": [],
+  "depth": {
+    "lastAssess": "2026-07-03",
+    "writer": "ae",
+    "etag": 1,
+    "assessment": "agent-enablement/assessments/agent-control-plane/assessment.json",
+    "axes": {
+      "F0": "PARTIAL.NOT_APPLICABLE.open_delta",
+      "P0": "PRESENT.EXERCISED.open_delta",
+      "S1": "PARTIAL.EXERCISED.open_delta",
+      "S2": "PARTIAL.EXERCISED.open_delta",
+      "S3": "PARTIAL.EXERCISED.open_delta",
+      "S3.affordanceGating": "UNKNOWN.UNKNOWN.targeted",
+      "S4": "PARTIAL.EXERCISED.open_delta",
+      "S5": "ABSENT.NOT_APPLICABLE.open_delta",
+      "S6": "PARTIAL.EXERCISED.open_delta",
+      "S7": "PARTIAL.EXERCISED.open_delta",
+      "S8": "PARTIAL.UNKNOWN.targeted",
+      "TA": "PRESENT.EXERCISED.satisfied.exercised",
+      "TB": "PRESENT.EXERCISED.satisfied.exercised",
+      "TC": "ABSENT.NOT_APPLICABLE.open_delta",
+      "TD": "PARTIAL.UNKNOWN.open_delta",
+      "TD.selfDescribingSurfaceConformance": "PARTIAL.EXERCISED.open_delta",
+      "TE": "PRESENT.EXERCISED.satisfied.exercised",
+      "TF": "PRESENT.EXERCISED.satisfied.exercised"
+    },
+    "profileSummary": {
+      "generatedBy": "agent-enablement/validate-contract.mjs --sync-target",
+      "source": {
+        "profile": "agent-enablement/assessments/agent-control-plane/profile.json",
+        "assessment": "agent-enablement/assessments/agent-control-plane/assessment.json",
+        "deltas": "agent-enablement/assessments/agent-control-plane/deltas.json",
+        "profileHash": "cca2b0cead21cf97c3ed8905988a7229d7876f13247fb5c55255e6de89a8bcde",
+        "assessmentHash": "1db59c85651a8bdb977741c29f50a2a6993b8f3b81f55fa127310384df84fbbc",
+        "deltasHash": "7edc8d4eb95106453182bf21fbe271628330109a25f5438912a8e7f875f87f15"
+      },
+      "decidedAt": "2026-07-03",
+      "assessedAt": "2026-07-03",
+      "profileStatusCounts": {
+        "required": 17,
+        "recommended": 1
+      },
+      "openDeltaIds": [
+        "delta:add-acp-cli-surface-conformance",
+        "delta:add-enablements-changelog",
+        "delta:add-live-discovery-tools",
+        "delta:add-public-surface-rot-sensor",
+        "delta:add-root-readme-floor",
+        "delta:add-suppression-cost-guard",
+        "delta:materialize-lefthook-gate",
+        "delta:repair-boundary-manifest-diagnostics"
+      ],
+      "failingOpenAxes": [
+        "F0",
+        "P0",
+        "S1",
+        "S2",
+        "S3",
+        "S3.affordanceGating",
+        "S4",
+        "S5",
+        "S6",
+        "S7",
+        "S8",
+        "TC",
+        "TD",
+        "TD.selfDescribingSurfaceConformance"
+      ],
+      "axes": {
+        "F0": {
+          "status": "required",
+          "rationale": "Baseline hygiene remains PM/floor-owned and presence-only. ACP has Bun, ignore hygiene, AGENTS routing, and a declared secret scan, but no root README and no materialized hook."
+        },
+        "P0": {
+          "status": "required",
+          "minimumRung": "runnable-verify-plus-materialized-hook-gate",
+          "rationale": "ACP is the operator/gateway/workflow control-plane repo; a local verify and enforced handoff gate are preconditions for every deeper guard."
+        },
+        "S1": {
+          "status": "required",
+          "minimumRung": "ELIMINATE-workflow-and-route-invariants-where-expressible",
+          "rationale": "ACP owns authority-bearing workflow, route, dispatch, and persistence boundaries; illegal states should be modeled at workflow definitions and route admission points rather than left to prose."
+        },
+        "S2": {
+          "status": "required",
+          "minimumRung": "dominant-shape-plus-scaffold",
+          "rationale": "The 18-package Bun workspace has repeated package, route, CLI, and store shapes; pattern dominance exists but scaffolds would lower agent construction error."
+        },
+        "S3": {
+          "status": "required",
+          "minimumRung": "TRAIN-router-plus-reachability-guard",
+          "rationale": "Agents enter through AGENTS.md and current specs, but the disclosure surface is large and has no link/staleness guard."
+        },
+        "S3.affordanceGating": {
+          "status": "recommended",
+          "minimumRung": "prompt-surface-pruned-to-live-affordances",
+          "rationale": "ACP hosts gateways and prompt-adjacent control surfaces; unlike HRC, it does expose and route capabilities where stale affordance disclosure can mislead agents."
+        },
+        "S4": {
+          "status": "required",
+          "minimumRung": "GUARD-with-teaching-diagnostics",
+          "rationale": "Boundary and manifest guards are already in the verify path; their failure messages should teach fix/why/exception rather than emit bare violation lists."
+        },
+        "S5": {
+          "status": "required",
+          "minimumRung": "GUARD-suppression-cost",
+          "rationale": "The repo has lint suppressions and structural guards; blanket or unexplained suppressions should cost attention through a reviewed exception channel."
+        },
+        "S6": {
+          "status": "required",
+          "minimumRung": "GUARD-green-verify-materialized-hook",
+          "rationale": "ACP is local-first infrastructure; the handoff gate is the local verify chain enforced by hooks, not a remote PR service."
+        },
+        "S7": {
+          "status": "required",
+          "minimumRung": "GUARD-rot-sensors-plus-public-surface",
+          "rationale": "ACP exposes CLI, HTTP, capability, and gateway surfaces; conformance tests exist, but public surface and docs drift need explicit freshness probes."
+        },
+        "S8": {
+          "status": "required",
+          "minimumRung": "few-high-signal-guard-set",
+          "rationale": "The existing guard set is small enough to keep adding rules deliberately; future guard growth should keep a written rule/why/exception cut line."
+        },
+        "TA": {
+          "status": "required",
+          "minimumRung": "workflow-role-separation",
+          "rationale": "ACP's core product is role-scoped workflow execution; role authorization and separation of duties are first-class correctness properties here."
+        },
+        "TB": {
+          "status": "required",
+          "minimumRung": "process-carrier",
+          "rationale": "Gateway, server, Discord, workflow, and managed-resource work relies on documented procedures that agents must be able to invoke without re-explanation."
+        },
+        "TC": {
+          "status": "required",
+          "minimumRung": "TRAIN-retro-cadence",
+          "rationale": "ACP accumulates cross-gateway and workflow lessons but has no local enablement changelog or harvesting carrier."
+        },
+        "TD": {
+          "status": "required",
+          "minimumRung": "GUARD-live-code-discovery",
+          "rationale": "A large 18-package control-plane repo needs executable discovery for entry points, route ownership, package boundaries, and command surfaces."
+        },
+        "TD.selfDescribingSurfaceConformance": {
+          "status": "required",
+          "minimumRung": "registry-derived-help-docs-plus-drift-gate",
+          "rationale": "The installed acp CLI and HTTP routes are agent-facing control surfaces; stale help or prose command inventories would cause incorrect actions."
+        },
+        "TE": {
+          "status": "required",
+          "minimumRung": "executable-acceptance-specs",
+          "rationale": "Workflow and gateway behavior already use conformance suites and real smoke rules as requirements; this is central to ACP correctness."
+        },
+        "TF": {
+          "status": "required",
+          "minimumRung": "work-state-control-plane-adopted",
+          "rationale": "ACP is explicitly a control plane over sessions, inputs, jobs, wrkf task facades, runs, effects, and gateway deliveries."
+        }
+      }
+    }
+  },
+  "escalations": []
+}
