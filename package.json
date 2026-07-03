@@ -37,11 +37,11 @@
     "typescript": "^5.7.2"
   },
   "dependencies": {
-    "agent-spaces": "0.1.1-dev.20260630094704",
-    "spaces-execution": "0.1.1-dev.20260630094704",
-    "spaces-harness-claude": "0.1.1-dev.20260630094704",
-    "spaces-harness-codex": "0.1.1-dev.20260630094704",
-    "spaces-harness-pi": "0.1.1-dev.20260630094704",
-    "spaces-harness-pi-sdk": "0.1.1-dev.20260630094704"
+    "agent-spaces": "0.1.1-dev.20260702134010",
+    "spaces-execution": "0.1.1-dev.20260702134010",
+    "spaces-harness-claude": "0.1.1-dev.20260702134010",
+    "spaces-harness-codex": "0.1.1-dev.20260702134010",
+    "spaces-harness-pi": "0.1.1-dev.20260702134010",
+    "spaces-harness-pi-sdk": "0.1.1-dev.20260702134010"
   }
 }

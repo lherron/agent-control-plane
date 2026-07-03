@@ -22,7 +22,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "agent-scope": "0.1.1-dev.20260630094704"
+    "agent-scope": "0.1.1-dev.20260702134010"
   },
   "devDependencies": {
     "@types/bun": "latest",
