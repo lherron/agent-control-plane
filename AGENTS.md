@@ -54,6 +54,16 @@ packages/
 
 Conformance tests live in `tests/conformance/acp-workflow/`.
 
+## Scheduled Jobs & Flows
+
+Cron/automation jobs (exec detectors, probe gates, agent dispatch, pulpit
+notifications) run on the ACP job engine (`acp-jobs-store` + `acp-server/jobs`).
+Recurring automations are authored as `var/agents/<agent>/schedules/*.toml`,
+compiled with `asp resources plan`, and applied with `acp admin
+managed-resource apply`.
+
+**How to author, register, and validate a job: [`docs/ACP_JOBS_TASKS_USAGE.md`](docs/ACP_JOBS_TASKS_USAGE.md).**
+
 ## Repo Boundaries
 
 Enforced by `bun run check:boundaries`:
