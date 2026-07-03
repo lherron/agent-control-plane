@@ -59,30 +59,11 @@ e2e-cap-pbc:
     CAP_PBC_E2E=1 CAP_ACP_E2E_REAL_AGENT=1 scripts/e2e/cap-acp/smoke.sh
 
 # Prepare or update one wrkq refactor-deferred task work packet
+# (Scheduling is handled by the ACP-native schedule at
+#  var/agents/cody/schedules/wrkq-refactor.toml — the old LaunchAgent wrapper
+#  was removed.)
 wrkq-refactor *args:
     bun scripts/wrkq-refactor.ts {{args}}
-
-# Dry-run the scheduled wrkq refactor automation turn without dispatching an agent
-wrkq-refactor-schedule-dry-run:
-    WRKQ_REFACTOR_SCHEDULED_DRY_RUN=1 WRKQ_REFACTOR_SCHEDULED_ALLOW_DIRTY=1 scripts/wrkq-refactor-scheduled.sh
-
-# Install the wrkq refactor automation LaunchAgent (runs every 20 minutes)
-wrkq-refactor-schedule-install:
-    mkdir -p "$HOME/Library/LaunchAgents"
-    cp launchd/com.praesidium.acp-wrkq-refactor.plist "$HOME/Library/LaunchAgents/com.praesidium.acp-wrkq-refactor.plist"
-    -launchctl bootout gui/$(id -u)/com.praesidium.acp-wrkq-refactor
-    launchctl bootstrap gui/$(id -u) "$HOME/Library/LaunchAgents/com.praesidium.acp-wrkq-refactor.plist"
-    launchctl enable gui/$(id -u)/com.praesidium.acp-wrkq-refactor
-    launchctl print gui/$(id -u)/com.praesidium.acp-wrkq-refactor
-
-# Show the installed wrkq refactor automation LaunchAgent state
-wrkq-refactor-schedule-status:
-    launchctl print gui/$(id -u)/com.praesidium.acp-wrkq-refactor
-
-# Uninstall the wrkq refactor automation LaunchAgent
-wrkq-refactor-schedule-uninstall:
-    -launchctl bootout gui/$(id -u)/com.praesidium.acp-wrkq-refactor
-    rm -f "$HOME/Library/LaunchAgents/com.praesidium.acp-wrkq-refactor.plist"
 
 # Run all verification (check + lint + typecheck + test)
 verify: check lint typecheck test
