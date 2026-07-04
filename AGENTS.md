@@ -68,6 +68,12 @@ bun scripts/discover-acp.ts packages acp-server
 bun scripts/discover-acp.ts cli "task timeline"
 ```
 
+## Enablement Lessons
+
+After substantial enablement-affecting work, update the
+[Agent enablement changelog](docs/agent-enablement-changelog.md) with one routed
+carrier decision: `docs`, `rules`, `skills`, `tools`, `checks`, or `TACIT`.
+
 ## Scheduled Jobs & Flows
 
 Cron/automation jobs (exec detectors, probe gates, agent dispatch, pulpit

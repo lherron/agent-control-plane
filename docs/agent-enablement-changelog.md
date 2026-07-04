@@ -1,0 +1,17 @@
+# Agent Enablement Changelog
+
+Standing append-only record for substantial agent-enablement lessons in this repo. Add one row
+per substantial task or task-linked lesson. The `Routed carrier` value must be exactly one of
+`docs`, `rules`, `skills`, `tools`, `checks`, or `TACIT`; choose the single carrier that should
+hold the lesson after the task is done.
+
+| Date | Work item | Evidence | Lesson | Routed carrier | Decision |
+|---|---|---|---|---|---|
+| 2026-07-03 | T-05535 | Accepted AE assessment T-05535; `agent-enablement.json`; `AGENT_ENABLEMENT_STATUS.md` | ACP had local process docs and gates, but the assessment found no ACP-local retrospective carrier for reusable enablement lessons. | docs | Treat this row as the origin record only; use this changelog for future enablement-affecting changes without claiming adoption beyond the seeded carrier. |
+| 2026-07-03 | T-05536 | cdc6804 Materialize local lefthook gate; d780feb Pin hook test project context | Declared hook policy is not enough; the local handoff gate must be materialized in a fresh clone and pinned to the intended project context. | checks | Keep `install:hooks`, committed `.githooks`, and lefthook verification in the install and commit path. |
+| 2026-07-03 | T-05537 | a4eb67a Improve boundary manifest diagnostics | Boundary and manifest checks should teach what failed, why the rule exists, how to fix it, and where exceptions belong. | checks | Keep boundary and manifest diagnostics in `just verify` and preserve planted-negative coverage for the diagnostic shape. |
+| 2026-07-03 | T-05538 | fed9d1a feat: add suppression cost guard | Suppressions are durable maintenance cost unless every accepted exception is task-linked, greppable, and budgeted. | checks | Keep `check-suppressions` in the verify and hook path, with reviewed baseline entries for accepted debt. |
+| 2026-07-03 | T-05539 | ff0a0d6 Add ACP public surface freshness guard | Public package, API, capability, and doc surfaces drift silently unless a deterministic live-derived baseline is reviewed. | checks | Keep the public-surface guard in `just verify`; update the baseline only with reviewed surface changes. |
+| 2026-07-03 | T-05540 | 9bddf21 Add ACP CLI surface conformance guard | Agent-facing CLI docs must be derived from live Commander behavior so stale commands and flags fail loudly. | checks | Keep the CLI surface inventory check wired into verify and refresh the generated block when reviewed CLI shape changes. |
+| 2026-07-03 | T-05541 | f15e31b Add live ACP discovery tools | Static route and package maps become stale; agents need executable discovery that computes from the live tree. | tools | Use `bun scripts/discover-acp.ts` for route, package, CLI, and public-surface questions instead of relying on memory or static prose. |
+| 2026-07-03 | T-05542 | T-05542; `docs/agent-enablement-changelog.md`; `scripts/check-enablement-changelog.ts` | Substantial enablement lessons need a durable routing record instead of disappearing into task comments. | docs | Update this changelog after substantial enablement-affecting work, with exactly one routed carrier decision per row. |

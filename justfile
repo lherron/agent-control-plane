@@ -42,13 +42,14 @@ lint-fix:
 typecheck:
     bun run typecheck
 
-# Run suppression, repo-split boundary, manifest edge, CLI, and public surface checks
+# Run suppression, repo-split boundary, manifest edge, CLI, public surface, and enablement changelog checks
 check:
     bun scripts/check-suppressions.ts
     bun scripts/check-boundaries.ts
     bun scripts/check-manifest-edges.ts
     bun scripts/check-cli-surface.ts
     bun scripts/check-public-surface.ts
+    bun scripts/check-enablement-changelog.ts
 
 # Validate reviewed suppression inventory
 check-suppressions:
@@ -61,6 +62,10 @@ check-public-surface:
 # Validate ACP CLI docs/live Commander surface freshness
 check-cli-surface:
     bun scripts/check-cli-surface.ts
+
+# Validate append-only enablement lesson routing record
+check-enablement-changelog:
+    bun scripts/check-enablement-changelog.ts
 
 # Run installed cap -> catalogd -> http-json -> live acp-server smoke for ACP caps
 e2e-cap-acp:
