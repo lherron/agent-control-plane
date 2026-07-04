@@ -36,6 +36,7 @@ interface Options {
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const baselineRel = join('scripts', 'fixtures', 'public-surface', 'acp-public-surface.json')
 const docRels = [
+  'README.md',
   'docs/ACP_JOBS_TASKS_USAGE.md',
   'docs/agent-control-plane-current-spec.md',
   'packages/acp-cli/README.md',
@@ -279,7 +280,9 @@ function extractDocApiReferences(text: string): string[] {
 
 function extractDocCapabilityReferences(text: string): string[] {
   return sorted(
-    [...text.matchAll(/\b((?:acp|pbc)\.[a-z0-9_.]+)\b/g)].map((match) => match[1] ?? '')
+    [...text.matchAll(/\b((?:acp|pbc)\.[a-z0-9_.]+)\b/g)]
+      .filter((match) => text[(match.index ?? 0) - 1] !== '-')
+      .map((match) => match[1] ?? '')
   )
 }
 
@@ -306,6 +309,66 @@ function cliMatches(reference: string, commandPaths: Set<string>): boolean {
   return false
 }
 
+function addRootReadmeFloorViolations(text: string, violations: Violation[]): void {
+  const requirements = [
+    {
+      label: 'title',
+      ok: text.startsWith('# Agent Control Plane\n'),
+      fix: 'Start README.md with the repository title.',
+    },
+    {
+      label: 'quick start',
+      ok: /^## Quick Start$/m.test(text),
+      fix: 'Add a Quick Start section.',
+    },
+    {
+      label: 'usage',
+      ok: /^## Usage$/m.test(text),
+      fix: 'Add a Usage section.',
+    },
+    {
+      label: 'validation',
+      ok: /^## Validation$/m.test(text),
+      fix: 'Add a Validation section.',
+    },
+    {
+      label: 'repository map',
+      ok: /^## Repository Map$/m.test(text),
+      fix: 'Add a Repository Map section.',
+    },
+    {
+      label: 'current spec link',
+      ok: text.includes('docs/agent-control-plane-current-spec.md'),
+      fix: 'Link the current implementation spec as source of truth.',
+    },
+    {
+      label: 'agent rules link',
+      ok: text.includes('AGENTS.md'),
+      fix: 'Link AGENTS.md for detailed agent/operator runtime rules.',
+    },
+    {
+      label: 'full verify command',
+      ok: text.includes('ASP_PROJECT=agent-control-plane just verify'),
+      fix: 'Document the full repository verification command.',
+    },
+    {
+      label: 'live discovery command',
+      ok: text.includes('bun scripts/discover-acp.ts'),
+      fix: 'Document the live discovery script for current surface lookup.',
+    },
+  ]
+
+  for (const requirement of requirements) {
+    if (requirement.ok) continue
+    violations.push({
+      where: 'README.md',
+      failed: `root README floor: ${requirement.label}`,
+      why: 'The root README no longer satisfies the minimum orientation floor.',
+      fix: requirement.fix,
+    })
+  }
+}
+
 async function docsSurface(
   root: string,
   actual: { routes: string[]; cliCommands: string[]; capabilities: string[] }
@@ -318,6 +381,8 @@ async function docsSurface(
 
   for (const docRel of docRels) {
     const text = await readText(root, docRel)
+    if (docRel === 'README.md') addRootReadmeFloorViolations(text, violations)
+
     const apiReferences = extractDocApiReferences(text)
     const cliReferences = extractDocCliReferences(text)
     const capabilityReferences = extractDocCapabilityReferences(text)

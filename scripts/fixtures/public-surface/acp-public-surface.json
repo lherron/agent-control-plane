@@ -1235,6 +1235,7 @@
     "packages/acp-server/src/routing/param-routes.ts",
     "packages/gateway-ios/src/routes.ts",
     "scripts/e2e/cap-acp/smoke.sh",
+    "README.md",
     "docs/ACP_JOBS_TASKS_USAGE.md",
     "docs/agent-control-plane-current-spec.md",
     "packages/acp-cli/README.md",
@@ -1392,6 +1393,13 @@
       ],
       "capabilityReferences": [],
       "cliReferences": []
+    },
+    "README.md": {
+      "apiReferences": [],
+      "capabilityReferences": [],
+      "cliReferences": [
+        "acp server status"
+      ]
     }
   },
   "packages": {
