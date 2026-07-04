@@ -10,6 +10,8 @@ pre-commit:
   commands:
     gitleaks:
       run: gitleaks protect --staged --redact
+    suppressions:
+      run: bun scripts/check-suppressions.ts
     lint:
       run: bun run lint
       stage_fixed: true
