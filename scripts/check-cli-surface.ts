@@ -22,6 +22,7 @@ import { buildProgram } from '../packages/acp-cli/src/cli.js'
 
 type CliEntry = {
   path: string
+  description?: string
   flags: string[]
 }
 
@@ -87,6 +88,7 @@ function collectCommandEntries(command: Command, prefix: string[] = []): CliEntr
   const current = [...prefix, command.name()]
   const own = {
     path: current.join(' '),
+    description: command.description(),
     flags: optionFlags(command),
   }
   const children = command

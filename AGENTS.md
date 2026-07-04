@@ -54,6 +54,20 @@ packages/
 
 Conformance tests live in `tests/conformance/acp-workflow/`.
 
+## Live Discovery
+
+Use `bun scripts/discover-acp.ts <area> [query]` when you need current route,
+package, handler, command, or public-surface facts from the live tree. Areas are
+`routes`, `packages`, `cli`, and `all`; add `--json` for machine-readable output.
+
+Examples:
+
+```bash
+bun scripts/discover-acp.ts routes "GET /v1/tasks/:taskId"
+bun scripts/discover-acp.ts packages acp-server
+bun scripts/discover-acp.ts cli "task timeline"
+```
+
 ## Scheduled Jobs & Flows
 
 Cron/automation jobs (exec detectors, probe gates, agent dispatch, pulpit

@@ -2,10 +2,10 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Command } from 'commander'
 import * as ts from 'typescript'
 
-import { buildProgram } from '../packages/acp-cli/src/cli.js'
+import { buildCliSurface } from './check-cli-surface.ts'
+import { collectRouteSummaries, routeSourceRels } from './lib/live-discovery.ts'
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
 
@@ -41,11 +41,6 @@ const docRels = [
   'packages/acp-cli/README.md',
   'packages/acp-server/README.md',
   'packages/gateway-ios/SMOKE.md',
-]
-const routeSourceRels = [
-  'packages/acp-server/src/routing/exact-routes.ts',
-  'packages/acp-server/src/routing/param-routes.ts',
-  'packages/gateway-ios/src/routes.ts',
 ]
 const capSmokeRel = 'scripts/e2e/cap-acp/smoke.sh'
 
@@ -229,50 +224,19 @@ async function packageSurface(root: string): Promise<JsonValue> {
   return packages
 }
 
-function optionFlags(command: Command): string[] {
-  return sorted(
-    command.options.flatMap((option) =>
-      option.flags
-        .split(/[ ,|]+/)
-        .filter((flag) => flag.startsWith('--'))
-        .map((flag) => flag.replace(/[<[].*$/, ''))
-    )
-  )
-}
-
-function collectCliCommand(command: Command, prefix: string[] = []): JsonValue[] {
-  const current = [...prefix, command.name()]
-  const own = {
-    path: current.join(' '),
-    description: command.description(),
-    options: optionFlags(command),
-  }
-  const children = command.commands.flatMap((child) => collectCliCommand(child, current))
-  return [own, ...children]
-}
-
 function cliSurface(): JsonValue {
-  const program = buildProgram({}, [])
   return {
     command: 'acp',
-    commands: collectCliCommand(program),
+    commands: buildCliSurface().map((command) => ({
+      path: command.path,
+      description: command.description,
+      options: command.flags,
+    })),
   }
-}
-
-function extractRoutes(source: string): string[] {
-  const routes = [
-    ...source.matchAll(/exactRouteKey\(\s*'([A-Z]+)'\s*,\s*'([^']+)'/g),
-    ...source.matchAll(/createParamRoute\(\s*'([A-Z]+)'\s*,\s*'([^']+)'/g),
-    ...source.matchAll(/method:\s*'([A-Z]+)'[\s\S]*?path:\s*'([^']+)'/g),
-  ]
-  return sorted(routes.map((match) => `${match[1]} ${match[2]}`))
 }
 
 async function apiSurface(root: string): Promise<JsonValue> {
-  const routes: string[] = []
-  for (const sourceRel of routeSourceRels) {
-    routes.push(...extractRoutes(await readText(root, sourceRel)))
-  }
+  const routes = (await collectRouteSummaries(root)).map((route) => route.key)
   if (routes.length === 0) throw new Error('no ACP routes found in routing sources')
   return {
     routes: sorted(routes),
@@ -519,4 +483,8 @@ async function main(): Promise<void> {
   )
 }
 
-await main()
+export { apiSurface, cliSurface, collectActual, packageSurface }
+
+if (import.meta.main) {
+  await main()
+}
