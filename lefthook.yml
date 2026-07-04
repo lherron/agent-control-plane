@@ -1,5 +1,8 @@
 # Git hooks configuration
-# Install: lefthook install
+# Materialize local hooks: just install
+# Minimal bootstrap: bun install && bun run install:hooks
+# The install recipe sets core.hooksPath=.githooks, whose committed wrappers invoke
+# the workspace-local lefthook binary and fail loud if dependencies are missing.
 # Docs: https://github.com/evilmartians/lefthook
 
 pre-commit:

@@ -28,7 +28,8 @@
     "test:fast": "bun run test",
     "clean": "rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo",
     "rebuild": "bun run clean && bun run build",
-    "prepare": "lefthook install"
+    "install:hooks": "bun scripts/install-git-hooks.ts",
+    "prepare": "bun run install:hooks"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

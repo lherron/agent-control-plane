@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+  echo "ACP pre-push hook error: not inside a Git worktree." >&2
+  exit 2
+}
+
+lefthook_bin="$repo_root/node_modules/.bin/lefthook"
+if [ ! -x "$lefthook_bin" ]; then
+  echo "ACP pre-push hook error: lefthook is not installed at $lefthook_bin." >&2
+  echo "Run 'just install' from $repo_root, then retry the push." >&2
+  exit 127
+fi
+
+exec "$lefthook_bin" run pre-push --no-auto-install "$@"

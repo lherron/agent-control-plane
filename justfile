@@ -16,6 +16,7 @@ info:
     @echo "  just test      - Run tests"
     @echo "  just lint      - Run biome linter"
     @echo "  just verify    - Run lint + typecheck + test"
+    @echo "  just install   - Install deps, materialize Git hooks, build, and link binaries"
 
 # Build all packages
 build:
@@ -80,6 +81,7 @@ rebuild:
 install:
     bun run clean
     bun install
+    bun run install:hooks
     bun run build
     bun scripts/publish-local-verdaccio.ts
     cd packages/acp-cli && bun link
