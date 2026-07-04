@@ -26,4 +26,4 @@ pre-push:
     install:
       run: bun install
     test:
-      run: bun run test:fast
+      run: ASP_PROJECT=agent-control-plane bun run test:fast
