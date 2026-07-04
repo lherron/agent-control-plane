@@ -36,12 +36,9 @@ curl -sS http://127.0.0.1:18470/v1/wrkf/ping
 ## Workflow endpoints
 
 > **W6a (Phase 6):** The obsolete ACP-authoritative workflow routes were removed
-> — task creation (`POST /v1/tasks`), workflow publish (`POST /v1/workflows`),
-> supervisor runs/actions (`POST /v1/workflow-supervisor-runs`,
-> `POST /v1/tasks/:taskId/actions`), context compilation
-> (`POST /v1/tasks/:taskId/{participant,supervisor}-context`), and the
-> patch-proposal read routes. Task authority is now wrkf; the remaining
-> `/v1/tasks/:taskId` routes below are thin wrkf facades.
+> — task creation, workflow publish, supervisor runs/actions, context
+> compilation, and patch-proposal read routes. Task authority is now wrkf; the
+> remaining `/v1/tasks/:taskId` routes below are thin wrkf facades.
 
 ### Task lifecycle
 
@@ -138,12 +135,11 @@ curl -sS http://127.0.0.1:18470/v1/wrkf/ping
 
 ### Supervisor runs, actions, patch proposals, and context compilation
 
-These ACP-authoritative routes — `POST /v1/workflow-supervisor-runs`,
-`POST /v1/tasks/:taskId/actions`, the `…/workflow-patch-proposals` read routes,
-and `POST /v1/tasks/:taskId/{participant,supervisor}-context` — were removed in
-W6a (Phase 6 of the Canonical Workflow Refactor) as the task lifecycle moved to
-wrkf authority. Legacy preset promotion, transition listing, and `toPhase` task
-mutation routes were removed earlier as breaking changes.
+The ACP-authoritative supervisor-run, action, patch-proposal, and context
+compilation route families were removed in W6a (Phase 6 of the Canonical
+Workflow Refactor) as the task lifecycle moved to wrkf authority. Legacy preset
+promotion, transition listing, and `toPhase` task mutation routes were removed
+earlier as breaking changes.
 
 ## Experimental endpoints
 

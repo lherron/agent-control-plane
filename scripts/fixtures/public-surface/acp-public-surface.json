@@ -1,0 +1,2149 @@
+{
+  "api": {
+    "routes": [
+      "GET /v1/admin/agents",
+      "GET /v1/admin/agents/:agentId",
+      "GET /v1/admin/agents/:agentId/detail",
+      "GET /v1/admin/agents/:agentId/heartbeat",
+      "GET /v1/admin/agents/:agentId/system-prompt",
+      "GET /v1/admin/interface-identities",
+      "GET /v1/admin/jobs",
+      "GET /v1/admin/jobs/:jobId",
+      "GET /v1/admin/jobs/:jobId/detail",
+      "GET /v1/admin/jobs/scheduler",
+      "GET /v1/admin/memberships",
+      "GET /v1/admin/projects",
+      "GET /v1/admin/projects/:projectId",
+      "GET /v1/admin/projects/:projectId/detail",
+      "GET /v1/admin/projects/:projectId/memberships",
+      "GET /v1/admin/system-events",
+      "GET /v1/assets/agents/:agentId/pfp.png",
+      "GET /v1/conversation/threads",
+      "GET /v1/conversation/threads/:threadId",
+      "GET /v1/conversation/threads/:threadId/turns",
+      "GET /v1/gateway/:gatewayId/deliveries/stream",
+      "GET /v1/gateway/deliveries",
+      "GET /v1/health",
+      "GET /v1/history",
+      "GET /v1/input-attempts/:inputAttemptId",
+      "GET /v1/interface/bindings",
+      "GET /v1/job-runs/:jobRunId",
+      "GET /v1/jobs/:jobId/runs",
+      "GET /v1/mobile/dashboard",
+      "GET /v1/mobile/dm/targets",
+      "GET /v1/mobile/health",
+      "GET /v1/mobile/history",
+      "GET /v1/mobile/messages/watch",
+      "GET /v1/mobile/pairing",
+      "GET /v1/ops/session-dashboard/events",
+      "GET /v1/ops/session-dashboard/snapshot",
+      "GET /v1/pbc/jobs/:jobId",
+      "GET /v1/pbc/tasks/:taskId",
+      "GET /v1/runs/:runId",
+      "GET /v1/runs/:runId/outbound-attachments",
+      "GET /v1/session-refs/events",
+      "GET /v1/sessions",
+      "GET /v1/sessions/:sessionId",
+      "GET /v1/sessions/:sessionId/attach-command",
+      "GET /v1/sessions/:sessionId/capture",
+      "GET /v1/sessions/:sessionId/events",
+      "GET /v1/sessions/:sessionId/runs",
+      "GET /v1/tasks/:taskId",
+      "GET /v1/wrkf/pbc/tasks/:task/inspect",
+      "GET /v1/wrkf/ping",
+      "PATCH /v1/admin/agents/:agentId",
+      "PATCH /v1/admin/agents/:agentId/profile",
+      "PATCH /v1/admin/jobs/:jobId",
+      "POST /v1/admin/agents",
+      "POST /v1/admin/agents/:agentId/heartbeat/wake",
+      "POST /v1/admin/contributions/reconcile",
+      "POST /v1/admin/interface-identities",
+      "POST /v1/admin/jobs",
+      "POST /v1/admin/jobs/:jobId/run",
+      "POST /v1/admin/jobs/validate",
+      "POST /v1/admin/managed-resources/apply",
+      "POST /v1/admin/managed-resources/reconcile",
+      "POST /v1/admin/managed-resources/status",
+      "POST /v1/admin/memberships",
+      "POST /v1/admin/projects",
+      "POST /v1/admin/projects/:projectId/default-agent",
+      "POST /v1/admin/system-events",
+      "POST /v1/agent-pulpit/messages",
+      "POST /v1/coordination/messages",
+      "POST /v1/gateway/deliveries/:deliveryRequestId/ack",
+      "POST /v1/gateway/deliveries/:deliveryRequestId/fail",
+      "POST /v1/gateway/deliveries/:deliveryRequestId/requeue",
+      "POST /v1/input",
+      "POST /v1/inputs",
+      "POST /v1/interface/bindings",
+      "POST /v1/interface/messages",
+      "POST /v1/interrupt",
+      "POST /v1/messages",
+      "POST /v1/mobile/messages/dm",
+      "POST /v1/mobile/messages/query",
+      "POST /v1/mobile/pair",
+      "POST /v1/mobile/sessions/:hostSessionId/input",
+      "POST /v1/mobile/sessions/:hostSessionId/interrupt",
+      "POST /v1/pbc/tasks/:taskId/continue",
+      "POST /v1/pbc/tasks/:taskId/dispose",
+      "POST /v1/pbc/tasks/:taskId/effects/reconcile",
+      "POST /v1/pbc/tasks/:taskId/input",
+      "POST /v1/pbc/tasks/:taskId/start",
+      "POST /v1/runs/:runId/cancel",
+      "POST /v1/runs/:runId/outbound-attachments",
+      "POST /v1/runs/:runId/outbound-messages",
+      "POST /v1/runtime/resolve",
+      "POST /v1/sessions/:sessionId/interrupt",
+      "POST /v1/sessions/launch",
+      "POST /v1/sessions/refresh",
+      "POST /v1/sessions/reset",
+      "POST /v1/sessions/resolve",
+      "POST /v1/tasks/:taskId/evidence",
+      "POST /v1/tasks/:taskId/obligations/:obligationId/cancel",
+      "POST /v1/tasks/:taskId/obligations/:obligationId/satisfy",
+      "POST /v1/tasks/:taskId/obligations/:obligationId/waive",
+      "POST /v1/tasks/:taskId/transitions",
+      "POST /v1/webhooks/events",
+      "POST /v1/webhooks/wrkq",
+      "POST /v1/workflow-interact-runs",
+      "POST /v1/workflow-participant-runs",
+      "POST /v1/workflow-participant-runs/:runId/complete",
+      "POST /v1/workflow-participant-runs/:runId/fail",
+      "POST /v1/wrkf/actions/launch",
+      "POST /v1/wrkf/effects/deliver",
+      "POST /v1/wrkf/pbc/tasks/:task/approve-transition",
+      "POST /v1/wrkf/pbc/tasks/:task/run-step",
+      "POST /v1/wrkf/pbc/tasks/:task/run-until-blocked",
+      "PUT /v1/admin/agents/:agentId/heartbeat"
+    ]
+  },
+  "capabilities": {
+    "smokeAliases": [
+      "acp.agent.create",
+      "acp.agent.patch",
+      "acp.agent.patch.profile",
+      "acp.agent.record_heartbeat",
+      "acp.artifact.create.run_outbound_attachment",
+      "acp.effect.ack.gateway_delivery",
+      "acp.effect.fail.gateway_delivery",
+      "acp.effect.retry.gateway_delivery",
+      "acp.effect.watch.gateway_deliveries",
+      "acp.event.ingest.normalized",
+      "acp.execution.cancel.run",
+      "acp.execution.get.automation_job_run",
+      "acp.execution.get.run",
+      "acp.execution.start.automation_job",
+      "acp.execution.start.workflow_participant_run",
+      "acp.execution.start.wrkf_action",
+      "acp.publication.create.gateway_message",
+      "acp.publication.create.run_outbound_message",
+      "acp.relation.create.project_membership",
+      "acp.scope.create.project",
+      "acp.scope.set_default_agent.project",
+      "acp.session.ingest_interface_message",
+      "acp.session.interrupt",
+      "acp.session.resolve",
+      "acp.session.resolve_runtime",
+      "acp.session.submit_input",
+      "acp.session.watch_events",
+      "acp.surface.bind.interface",
+      "acp.workflow_definition.create.automation_job",
+      "acp.workflow_definition.patch.automation_job",
+      "acp.workflow_definition.validate.automation_job",
+      "pbc.effect.reconcile.progressive_refinement",
+      "pbc.execution.get.continuation_job",
+      "pbc.workflow_instance.continue.progressive_refinement",
+      "pbc.workflow_instance.dispose.progressive_refinement",
+      "pbc.workflow_instance.get.progressive_refinement",
+      "pbc.workflow_instance.start.progressive_refinement",
+      "pbc.workflow_instance.submit_input.progressive_refinement"
+    ]
+  },
+  "cli": {
+    "command": "acp",
+    "commands": [
+      {
+        "description": "ACP operator CLI",
+        "options": [
+          "--actor",
+          "--json",
+          "--server"
+        ],
+        "path": "acp"
+      },
+      {
+        "description": "manage ACP workflow tasks",
+        "options": [],
+        "path": "acp task"
+      },
+      {
+        "description": "show one task",
+        "options": [
+          "--actor",
+          "--json",
+          "--role",
+          "--server",
+          "--task"
+        ],
+        "path": "acp task show"
+      },
+      {
+        "description": "show a workflow task execution timeline",
+        "options": [
+          "--actor",
+          "--hrc-all-kinds",
+          "--hrc-anchor",
+          "--hrc-detail",
+          "--hrc-event-window",
+          "--hrc-kinds",
+          "--hrc-store",
+          "--json",
+          "--markdown",
+          "--no-color",
+          "--no-hrc",
+          "--only",
+          "--plain",
+          "--rejections-only",
+          "--server",
+          "--since",
+          "--skip",
+          "--task",
+          "--until",
+          "--verbose",
+          "--width"
+        ],
+        "path": "acp task timeline"
+      },
+      {
+        "description": "apply one workflow transition",
+        "options": [
+          "--actor",
+          "--as",
+          "--context-hash",
+          "--evidence",
+          "--evidence-ref",
+          "--expected-version",
+          "--idempotency-key",
+          "--json",
+          "--role",
+          "--run",
+          "--server",
+          "--task",
+          "--transition",
+          "--waiver-ref"
+        ],
+        "path": "acp task transition"
+      },
+      {
+        "description": "start or resume a workflow participant run",
+        "options": [
+          "--actor",
+          "--agent",
+          "--as",
+          "--generation",
+          "--harness",
+          "--host-session-id",
+          "--hrc-run-id",
+          "--idempotency-key",
+          "--json",
+          "--lane-ref",
+          "--launch-id",
+          "--launch-runtime",
+          "--resume",
+          "--role",
+          "--runtime-id",
+          "--scope-ref",
+          "--server",
+          "--task"
+        ],
+        "path": "acp task run"
+      },
+      {
+        "description": "complete a workflow participant run",
+        "options": [
+          "--actor",
+          "--as",
+          "--evidence-ref",
+          "--idempotency-key",
+          "--json",
+          "--outcome",
+          "--run",
+          "--server",
+          "--summary"
+        ],
+        "path": "acp task run-complete"
+      },
+      {
+        "description": "manage task evidence",
+        "options": [],
+        "path": "acp task evidence"
+      },
+      {
+        "description": "attach evidence to a task",
+        "options": [
+          "--actor",
+          "--as",
+          "--from-run",
+          "--idempotency-key",
+          "--json",
+          "--kind",
+          "--participant-run-id",
+          "--ref",
+          "--role",
+          "--run-id",
+          "--server",
+          "--summary",
+          "--supervisor-run",
+          "--supervisor-run-id",
+          "--task"
+        ],
+        "path": "acp task evidence add"
+      },
+      {
+        "description": "manage task obligations",
+        "options": [],
+        "path": "acp task obligation"
+      },
+      {
+        "description": "waive a task obligation",
+        "options": [
+          "--actor",
+          "--evidence-ref",
+          "--idempotency-key",
+          "--json",
+          "--obligation",
+          "--reason",
+          "--server",
+          "--task"
+        ],
+        "path": "acp task obligation waive"
+      },
+      {
+        "description": "cancel a task obligation",
+        "options": [
+          "--actor",
+          "--idempotency-key",
+          "--json",
+          "--obligation",
+          "--reason",
+          "--server",
+          "--task"
+        ],
+        "path": "acp task obligation cancel"
+      },
+      {
+        "description": "launch governed task actions",
+        "options": [],
+        "path": "acp action"
+      },
+      {
+        "description": "launch governed triage for one task",
+        "options": [
+          "--actor",
+          "--force",
+          "--json",
+          "--server"
+        ],
+        "path": "acp action triage"
+      },
+      {
+        "description": "manage ACP admin resources",
+        "options": [],
+        "path": "acp admin"
+      },
+      {
+        "description": "manage interface admin resources",
+        "options": [],
+        "path": "acp admin interface"
+      },
+      {
+        "description": "manage interface bindings",
+        "options": [],
+        "path": "acp admin interface binding"
+      },
+      {
+        "description": "list interface bindings",
+        "options": [
+          "--actor",
+          "--conversation-ref",
+          "--gateway",
+          "--gateway-type",
+          "--json",
+          "--project",
+          "--server",
+          "--thread-ref"
+        ],
+        "path": "acp admin interface binding list"
+      },
+      {
+        "description": "upsert one interface binding",
+        "options": [
+          "--actor",
+          "--conversation-ref",
+          "--gateway",
+          "--gateway-type",
+          "--json",
+          "--lane-ref",
+          "--project",
+          "--scope-ref",
+          "--server",
+          "--session",
+          "--thread-ref"
+        ],
+        "path": "acp admin interface binding set"
+      },
+      {
+        "description": "disable one interface binding",
+        "options": [
+          "--actor",
+          "--conversation-ref",
+          "--gateway",
+          "--json",
+          "--server",
+          "--thread-ref"
+        ],
+        "path": "acp admin interface binding disable"
+      },
+      {
+        "description": "audit bindings for missing/inconsistent project scope",
+        "options": [
+          "--actor",
+          "--all",
+          "--gateway",
+          "--json",
+          "--project",
+          "--server",
+          "--show-ok"
+        ],
+        "path": "acp admin interface binding lint"
+      },
+      {
+        "description": "manage input contributions",
+        "options": [],
+        "path": "acp admin contributions"
+      },
+      {
+        "description": "reconcile input contributions from HRC",
+        "options": [
+          "--actor",
+          "--all-pending",
+          "--input-application-id",
+          "--json",
+          "--server"
+        ],
+        "path": "acp admin contributions reconcile"
+      },
+      {
+        "description": "apply or inspect managed runtime resources",
+        "options": [],
+        "path": "acp admin managed-resource"
+      },
+      {
+        "description": "apply a managed resource plan",
+        "options": [
+          "--actor",
+          "--in",
+          "--json",
+          "--server"
+        ],
+        "path": "acp admin managed-resource apply"
+      },
+      {
+        "description": "inspect managed resource status",
+        "options": [
+          "--actor",
+          "--in",
+          "--json",
+          "--server"
+        ],
+        "path": "acp admin managed-resource status"
+      },
+      {
+        "description": "apply a managed resource plan then disable stale (missing-source) resources. Default source-deletion policy is disable (disable-only); archive/purge must be selected explicitly and are unsupported/non-mutating in v1 unless separately implemented. No delete/purge happens by omission.",
+        "options": [
+          "--actor",
+          "--in",
+          "--json",
+          "--server",
+          "--source-deletion"
+        ],
+        "path": "acp admin managed-resource reconcile"
+      },
+      {
+        "description": "manage ACP admin agents",
+        "options": [],
+        "path": "acp agent"
+      },
+      {
+        "description": "create one agent",
+        "options": [
+          "--actor",
+          "--agent",
+          "--display-name",
+          "--home-dir",
+          "--json",
+          "--server",
+          "--status"
+        ],
+        "path": "acp agent create"
+      },
+      {
+        "description": "list agents",
+        "options": [
+          "--actor",
+          "--json",
+          "--server"
+        ],
+        "path": "acp agent list"
+      },
+      {
+        "description": "show one agent",
+        "options": [
+          "--actor",
+          "--agent",
+          "--json",
+          "--server"
+        ],
+        "path": "acp agent show"
+      },
+      {
+        "description": "patch one agent",
+        "options": [
+          "--actor",
+          "--agent",
+          "--display-name",
+          "--home-dir",
+          "--json",
+          "--server",
+          "--status"
+        ],
+        "path": "acp agent patch"
+      },
+      {
+        "description": "manage ACP projects",
+        "options": [],
+        "path": "acp project"
+      },
+      {
+        "description": "create one project",
+        "options": [
+          "--actor",
+          "--display-name",
+          "--home-dir",
+          "--json",
+          "--project",
+          "--root-dir",
+          "--server"
+        ],
+        "path": "acp project create"
+      },
+      {
+        "description": "list projects",
+        "options": [
+          "--actor",
+          "--json",
+          "--server"
+        ],
+        "path": "acp project list"
+      },
+      {
+        "description": "show one project",
+        "options": [
+          "--actor",
+          "--json",
+          "--project",
+          "--server"
+        ],
+        "path": "acp project show"
+      },
+      {
+        "description": "set project default agent",
+        "options": [
+          "--actor",
+          "--agent",
+          "--json",
+          "--project",
+          "--server"
+        ],
+        "path": "acp project default-agent"
+      },
+      {
+        "description": "manage project memberships",
+        "options": [],
+        "path": "acp membership"
+      },
+      {
+        "description": "add one membership",
+        "options": [
+          "--actor",
+          "--agent",
+          "--json",
+          "--project",
+          "--role",
+          "--server"
+        ],
+        "path": "acp membership add"
+      },
+      {
+        "description": "list memberships",
+        "options": [
+          "--actor",
+          "--json",
+          "--project",
+          "--server"
+        ],
+        "path": "acp membership list"
+      },
+      {
+        "description": "manage interface identities",
+        "options": [],
+        "path": "acp interface"
+      },
+      {
+        "description": "manage interface identities",
+        "options": [],
+        "path": "acp interface identity"
+      },
+      {
+        "description": "register one interface identity",
+        "options": [
+          "--actor",
+          "--display-name",
+          "--external-id",
+          "--gateway",
+          "--json",
+          "--linked-agent",
+          "--server"
+        ],
+        "path": "acp interface identity register"
+      },
+      {
+        "description": "append or list system events",
+        "options": [],
+        "path": "acp system-event"
+      },
+      {
+        "description": "append one system event",
+        "options": [
+          "--actor",
+          "--json",
+          "--kind",
+          "--occurred-at",
+          "--payload",
+          "--project",
+          "--server"
+        ],
+        "path": "acp system-event push"
+      },
+      {
+        "description": "list system events",
+        "options": [
+          "--actor",
+          "--json",
+          "--kind",
+          "--occurred-after",
+          "--occurred-before",
+          "--project",
+          "--server"
+        ],
+        "path": "acp system-event list"
+      },
+      {
+        "description": "resolve runtime placement",
+        "options": [],
+        "path": "acp runtime"
+      },
+      {
+        "description": "resolve runtime placement",
+        "options": [
+          "--actor",
+          "--json",
+          "--lane-ref",
+          "--project",
+          "--scope-ref",
+          "--server",
+          "--table"
+        ],
+        "path": "acp runtime resolve"
+      },
+      {
+        "description": "resolve, inspect, and control sessions",
+        "options": [],
+        "path": "acp session"
+      },
+      {
+        "description": "resolve sessions",
+        "options": [
+          "--actor",
+          "--json",
+          "--lane-ref",
+          "--project",
+          "--scope-ref",
+          "--server",
+          "--session",
+          "--table"
+        ],
+        "path": "acp session resolve"
+      },
+      {
+        "description": "list sessions",
+        "options": [
+          "--actor",
+          "--json",
+          "--lane-ref",
+          "--project",
+          "--scope-ref",
+          "--server",
+          "--session",
+          "--table"
+        ],
+        "path": "acp session list"
+      },
+      {
+        "description": "show sessions",
+        "options": [
+          "--actor",
+          "--json",
+          "--lane-ref",
+          "--project",
+          "--scope-ref",
+          "--server",
+          "--session",
+          "--table"
+        ],
+        "path": "acp session show"
+      },
+      {
+        "description": "runs sessions",
+        "options": [
+          "--actor",
+          "--json",
+          "--lane-ref",
+          "--project",
+          "--scope-ref",
+          "--server",
+          "--session",
+          "--table"
+        ],
+        "path": "acp session runs"
+      },
+      {
+        "description": "reset sessions",
+        "options": [
+          "--actor",
+          "--json",
+          "--lane-ref",
+          "--project",
+          "--scope-ref",
+          "--server",
+          "--session",
+          "--table"
+        ],
+        "path": "acp session reset"
+      },
+      {
+        "description": "interrupt sessions",
+        "options": [
+          "--actor",
+          "--json",
+          "--lane-ref",
+          "--project",
+          "--scope-ref",
+          "--server",
+          "--session",
+          "--table"
+        ],
+        "path": "acp session interrupt"
+      },
+      {
+        "description": "capture sessions",
+        "options": [
+          "--actor",
+          "--json",
+          "--lane-ref",
+          "--project",
+          "--scope-ref",
+          "--server",
+          "--session",
+          "--table"
+        ],
+        "path": "acp session capture"
+      },
+      {
+        "description": "get a session attach command",
+        "options": [
+          "--actor",
+          "--json",
+          "--lane-ref",
+          "--project",
+          "--scope-ref",
+          "--server",
+          "--session",
+          "--table"
+        ],
+        "path": "acp session attach-command"
+      },
+      {
+        "description": "inspect or cancel runs",
+        "options": [],
+        "path": "acp run"
+      },
+      {
+        "description": "show one run",
+        "options": [
+          "--actor",
+          "--json",
+          "--project",
+          "--run",
+          "--server",
+          "--table"
+        ],
+        "path": "acp run show"
+      },
+      {
+        "description": "cancel one run",
+        "options": [
+          "--actor",
+          "--json",
+          "--project",
+          "--run",
+          "--server",
+          "--table"
+        ],
+        "path": "acp run cancel"
+      },
+      {
+        "description": "manage outbound attachments",
+        "options": [],
+        "path": "acp run attachment"
+      },
+      {
+        "description": "add one outbound attachment",
+        "options": [
+          "--actor",
+          "--alt",
+          "--content-type",
+          "--filename",
+          "--json",
+          "--project",
+          "--run",
+          "--server"
+        ],
+        "path": "acp run attachment add"
+      },
+      {
+        "description": "list outbound attachments",
+        "options": [
+          "--actor",
+          "--json",
+          "--project",
+          "--run",
+          "--server"
+        ],
+        "path": "acp run attachment list"
+      },
+      {
+        "description": "clear outbound attachments",
+        "options": [
+          "--actor",
+          "--json",
+          "--project",
+          "--run",
+          "--server"
+        ],
+        "path": "acp run attachment clear"
+      },
+      {
+        "description": "send an input or active-run outbound message",
+        "options": [
+          "--actor",
+          "--contribution-fallback",
+          "--contribution-semantics",
+          "--idempotency-key",
+          "--intent",
+          "--json",
+          "--lane-ref",
+          "--meta",
+          "--no-dispatch",
+          "--project",
+          "--scope-ref",
+          "--server",
+          "--table",
+          "--text",
+          "--wait",
+          "--wait-interval-ms",
+          "--wait-timeout-ms"
+        ],
+        "path": "acp send"
+      },
+      {
+        "description": "send agent pulpit messages",
+        "options": [],
+        "path": "acp agent-pulpit"
+      },
+      {
+        "description": "enqueue an agent pulpit message",
+        "options": [
+          "--actor",
+          "--agent",
+          "--binding",
+          "--gateway-type",
+          "--idempotency-key",
+          "--json",
+          "--lane-ref",
+          "--project",
+          "--server",
+          "--text"
+        ],
+        "path": "acp agent-pulpit send"
+      },
+      {
+        "description": "live-stream session events",
+        "options": [
+          "--actor",
+          "--from-seq",
+          "--json",
+          "--lane-ref",
+          "--project",
+          "--scope-ref",
+          "--server",
+          "--session",
+          "--table"
+        ],
+        "path": "acp tail"
+      },
+      {
+        "description": "render a session replay or capture",
+        "options": [
+          "--actor",
+          "--json",
+          "--lane-ref",
+          "--project",
+          "--scope-ref",
+          "--server",
+          "--session",
+          "--source",
+          "--table"
+        ],
+        "path": "acp render"
+      },
+      {
+        "description": "send coordination messages",
+        "options": [],
+        "path": "acp message"
+      },
+      {
+        "description": "send coordination message",
+        "options": [
+          "--actor",
+          "--coordination-only",
+          "--dispatch",
+          "--from-agent",
+          "--from-human",
+          "--from-lane-ref",
+          "--from-session",
+          "--from-system",
+          "--json",
+          "--project",
+          "--server",
+          "--table",
+          "--text",
+          "--to-agent",
+          "--to-human",
+          "--to-lane-ref",
+          "--to-session",
+          "--to-system",
+          "--wake"
+        ],
+        "path": "acp message send"
+      },
+      {
+        "description": "broadcast coordination message",
+        "options": [
+          "--actor",
+          "--coordination-only",
+          "--dispatch",
+          "--from-agent",
+          "--from-human",
+          "--from-lane-ref",
+          "--from-session",
+          "--from-system",
+          "--json",
+          "--project",
+          "--server",
+          "--table",
+          "--text",
+          "--to-agent",
+          "--to-human",
+          "--to-lane-ref",
+          "--to-session",
+          "--to-system",
+          "--wake"
+        ],
+        "path": "acp message broadcast"
+      },
+      {
+        "description": "manage scheduled jobs",
+        "options": [],
+        "path": "acp job"
+      },
+      {
+        "description": "validate a job file",
+        "options": [
+          "--actor",
+          "--in",
+          "--json",
+          "--server",
+          "--table"
+        ],
+        "path": "acp job validate"
+      },
+      {
+        "description": "create one job",
+        "options": [
+          "--actor",
+          "--agent",
+          "--cron",
+          "--disabled",
+          "--in",
+          "--input",
+          "--job",
+          "--json",
+          "--lane-ref",
+          "--project",
+          "--scope-ref",
+          "--server",
+          "--table"
+        ],
+        "path": "acp job create"
+      },
+      {
+        "description": "list jobs",
+        "options": [
+          "--actor",
+          "--json",
+          "--project",
+          "--server",
+          "--table"
+        ],
+        "path": "acp job list"
+      },
+      {
+        "description": "show one job",
+        "options": [
+          "--actor",
+          "--job",
+          "--json",
+          "--server",
+          "--table"
+        ],
+        "path": "acp job show"
+      },
+      {
+        "description": "patch one job",
+        "options": [
+          "--actor",
+          "--cron",
+          "--disabled",
+          "--enabled",
+          "--in",
+          "--input",
+          "--job",
+          "--json",
+          "--server",
+          "--table"
+        ],
+        "path": "acp job patch"
+      },
+      {
+        "description": "trigger one job",
+        "options": [
+          "--actor",
+          "--job",
+          "--json",
+          "--poll-interval",
+          "--server",
+          "--table",
+          "--timeout",
+          "--wait"
+        ],
+        "path": "acp job run"
+      },
+      {
+        "description": "inspect job runs",
+        "options": [],
+        "path": "acp job-run"
+      },
+      {
+        "description": "list job runs",
+        "options": [
+          "--actor",
+          "--job",
+          "--json",
+          "--project",
+          "--server",
+          "--table"
+        ],
+        "path": "acp job-run list"
+      },
+      {
+        "description": "show one job run",
+        "options": [
+          "--actor",
+          "--job-run",
+          "--json",
+          "--project",
+          "--results",
+          "--server",
+          "--steps",
+          "--table"
+        ],
+        "path": "acp job-run show"
+      },
+      {
+        "description": "poll a job run until terminal",
+        "options": [
+          "--actor",
+          "--job-run",
+          "--json",
+          "--poll-interval",
+          "--project",
+          "--server",
+          "--table",
+          "--timeout"
+        ],
+        "path": "acp job-run wait"
+      },
+      {
+        "description": "set heartbeats or trigger wakes",
+        "options": [],
+        "path": "acp heartbeat"
+      },
+      {
+        "description": "set one heartbeat",
+        "options": [
+          "--actor",
+          "--agent",
+          "--json",
+          "--lane",
+          "--note",
+          "--scope",
+          "--server",
+          "--source"
+        ],
+        "path": "acp heartbeat set"
+      },
+      {
+        "description": "trigger one wake request",
+        "options": [
+          "--actor",
+          "--agent",
+          "--json",
+          "--lane",
+          "--reason",
+          "--scope",
+          "--server"
+        ],
+        "path": "acp heartbeat wake"
+      },
+      {
+        "description": "retry or list failed deliveries",
+        "options": [],
+        "path": "acp delivery"
+      },
+      {
+        "description": "retry one failed delivery",
+        "options": [
+          "--actor",
+          "--delivery",
+          "--json",
+          "--project",
+          "--requeued-by",
+          "--server",
+          "--table"
+        ],
+        "path": "acp delivery retry"
+      },
+      {
+        "description": "list failed deliveries",
+        "options": [
+          "--actor",
+          "--gateway",
+          "--json",
+          "--limit",
+          "--project",
+          "--server",
+          "--since",
+          "--table"
+        ],
+        "path": "acp delivery list-failed"
+      },
+      {
+        "description": "inspect conversation threads",
+        "options": [],
+        "path": "acp thread"
+      },
+      {
+        "description": "list threads",
+        "options": [
+          "--actor",
+          "--json",
+          "--lane-ref",
+          "--project",
+          "--scope-ref",
+          "--server",
+          "--table"
+        ],
+        "path": "acp thread list"
+      },
+      {
+        "description": "show one thread",
+        "options": [
+          "--actor",
+          "--json",
+          "--server",
+          "--table",
+          "--thread"
+        ],
+        "path": "acp thread show"
+      },
+      {
+        "description": "list thread turns",
+        "options": [
+          "--actor",
+          "--json",
+          "--limit",
+          "--server",
+          "--since",
+          "--table",
+          "--thread"
+        ],
+        "path": "acp thread turns"
+      },
+      {
+        "description": "manage the ACP HTTP server and Discord gateway process",
+        "options": [],
+        "path": "acp server"
+      }
+    ]
+  },
+  "derivedFrom": [
+    "packages/*/package.json",
+    "packages/*/src/index.ts",
+    "packages/acp-cli/src/cli.ts",
+    "packages/acp-server/src/routing/exact-routes.ts",
+    "packages/acp-server/src/routing/param-routes.ts",
+    "packages/gateway-ios/src/routes.ts",
+    "scripts/e2e/cap-acp/smoke.sh",
+    "docs/ACP_JOBS_TASKS_USAGE.md",
+    "docs/agent-control-plane-current-spec.md",
+    "packages/acp-cli/README.md",
+    "packages/acp-server/README.md",
+    "packages/gateway-ios/SMOKE.md"
+  ],
+  "docs": {
+    "docs/ACP_JOBS_TASKS_USAGE.md": {
+      "apiReferences": [],
+      "capabilityReferences": [],
+      "cliReferences": [
+        "acp admin managed-resource apply",
+        "acp admin managed-resource status",
+        "acp job create",
+        "acp job list",
+        "acp job patch",
+        "acp job run",
+        "acp job show",
+        "acp job validate"
+      ]
+    },
+    "docs/agent-control-plane-current-spec.md": {
+      "apiReferences": [
+        "GET /v1/tasks/:taskId",
+        "POST /v1/tasks/:taskId/evidence",
+        "POST /v1/tasks/:taskId/transitions",
+        "POST /v1/webhooks/events",
+        "POST /v1/webhooks/wrkq",
+        "POST /v1/workflow-participant-runs"
+      ],
+      "capabilityReferences": [],
+      "cliReferences": []
+    },
+    "packages/acp-cli/README.md": {
+      "apiReferences": [],
+      "capabilityReferences": [],
+      "cliReferences": [
+        "acp server status",
+        "acp task evidence add",
+        "acp task obligation cancel",
+        "acp task obligation waive",
+        "acp task run",
+        "acp task run-complete",
+        "acp task show",
+        "acp task transition"
+      ]
+    },
+    "packages/acp-server/README.md": {
+      "apiReferences": [
+        "GET /v1/tasks/:taskId",
+        "POST /v1/sessions/launch",
+        "POST /v1/tasks/:taskId/evidence",
+        "POST /v1/tasks/:taskId/obligations/:obligationId/cancel",
+        "POST /v1/tasks/:taskId/obligations/:obligationId/waive",
+        "POST /v1/tasks/:taskId/transitions",
+        "POST /v1/workflow-participant-runs",
+        "POST /v1/workflow-participant-runs/:runId/complete",
+        "POST /v1/workflow-participant-runs/:runId/fail"
+      ],
+      "capabilityReferences": [],
+      "cliReferences": []
+    },
+    "packages/gateway-ios/SMOKE.md": {
+      "apiReferences": [
+        "GET /v1/health",
+        "GET /v1/history",
+        "GET /v1/sessions",
+        "POST /v1/input",
+        "POST /v1/interrupt"
+      ],
+      "capabilityReferences": [],
+      "cliReferences": []
+    }
+  },
+  "packages": {
+    "acp-admin-store": {
+      "bin": {},
+      "exportKeys": [
+        "."
+      ],
+      "rootExportSource": "./src/index.ts",
+      "rootTypes": [
+        "AdminSqliteDatabase",
+        "AdminSqliteDatabaseConstructor",
+        "AdminSqliteRunResult",
+        "AdminSqliteStatement",
+        "AdminStore",
+        "AdminStoreMigration",
+        "AgentsStore",
+        "HeartbeatsStore",
+        "InterfaceIdentitiesStore",
+        "MembershipsStore",
+        "OpenSqliteAdminStoreOptions",
+        "ProjectsStore",
+        "StaleHeartbeatCheckResult",
+        "SystemEventsStore",
+        "UpsertHeartbeatInput"
+      ],
+      "rootValues": [
+        "adminStoreMigrations",
+        "checkStaleHeartbeats",
+        "createInMemoryAdminStore",
+        "listAppliedAdminStoreMigrations",
+        "openSqliteAdminStore",
+        "runAdminStoreMigrations",
+        "SqliteDatabase",
+        "STALE_HEARTBEAT_EVENT_KIND",
+        "STALE_HEARTBEAT_THRESHOLD_MS"
+      ]
+    },
+    "acp-capability-host": {
+      "bin": {},
+      "exportKeys": [
+        "."
+      ],
+      "rootExportSource": "./src/index.ts",
+      "rootTypes": [
+        "AcpCapabilityHost",
+        "AcpCapabilityHostOptions",
+        "RegisteredCapabilityProvider"
+      ],
+      "rootValues": [
+        "createSqliteCatalogStore",
+        "startAcpCapabilityHost"
+      ]
+    },
+    "acp-cli": {
+      "bin": {
+        "acp": "./src/cli.ts"
+      },
+      "exportKeys": [
+        "."
+      ],
+      "rootExportSource": "./src/index.ts",
+      "rootTypes": [
+        "AcpClient",
+        "AcpErrorBody",
+        "FetchLike",
+        "GetTaskResponse",
+        "TaskContext",
+        "TaskTransitionResponse"
+      ],
+      "rootValues": [
+        "AcpClientHttpError",
+        "AcpClientTransportError",
+        "createHttpClient",
+        "DEFAULT_ACP_SERVER_URL",
+        "main",
+        "normalizeScopeInput"
+      ]
+    },
+    "acp-conversation": {
+      "bin": {},
+      "exportKeys": [
+        "."
+      ],
+      "rootExportSource": "./src/index.ts",
+      "rootTypes": [
+        "ConversationAudience",
+        "ConversationStore",
+        "ConversationThread",
+        "ConversationTurnLinks",
+        "OpenSqliteConversationStoreOptions",
+        "StoredConversationTurn"
+      ],
+      "rootValues": [
+        "createInMemoryConversationStore",
+        "openSqliteConversationStore"
+      ]
+    },
+    "acp-core": {
+      "bin": {},
+      "exportKeys": [
+        "."
+      ],
+      "rootExportSource": "./src/index.ts",
+      "rootTypes": [
+        "AcpWebhookEvent",
+        "AcpWebhookOrigin",
+        "AcpWebhookSubject",
+        "Actor",
+        "ActorRef",
+        "ActorStamp",
+        "AdminAgent",
+        "AdminAgentProfile",
+        "AdminAgentStatus",
+        "AdminMembership",
+        "AdminProject",
+        "AgentDispatchFlowStep",
+        "AgentFlowStep",
+        "AgentHeartbeat",
+        "AgentHeartbeatStatus",
+        "AttachmentKind",
+        "AttachmentRef",
+        "BaseFlowStep",
+        "BranchTaken",
+        "BuiltInCondition",
+        "ConversationTurn",
+        "ConversationTurnRenderState",
+        "CoordinationMessageInput",
+        "CoordinationMessageOptions",
+        "CorrelationState",
+        "DeepReadonly",
+        "DeliveryFailure",
+        "DeliveryOutcome",
+        "DeliveryRequest",
+        "DeliveryRequestBody",
+        "DeliveryRequestStatus",
+        "DeliveryTarget",
+        "EffectIntent",
+        "EffectTemplate",
+        "EventMatch",
+        "EventOriginMatch",
+        "EventSubjectMatch",
+        "EventTrigger",
+        "EvidenceBuild",
+        "EvidenceDetails",
+        "EvidenceInput",
+        "EvidenceItem",
+        "EvidenceKindSpec",
+        "EvidenceProducer",
+        "EvidenceRecord",
+        "EvidenceStore",
+        "ExecFlowStep",
+        "ExecStepResult",
+        "FlowNext",
+        "InputAdmissionKind",
+        "InputAdmissionRecord",
+        "InputApplication",
+        "InputApplicationStatus",
+        "InputAttempt",
+        "InputIntent",
+        "InputQueueItem",
+        "InputQueueStatus",
+        "InputResetPolicy",
+        "InterfaceBinding",
+        "InterfaceBindingLookup",
+        "InterfaceBindingStatus",
+        "InterfaceIdentity",
+        "InterfaceMessageAttachment",
+        "InterfaceMessagePayload",
+        "InterfaceMessageSource",
+        "InterfaceSessionRef",
+        "Job",
+        "JobFlow",
+        "JobFlowStep",
+        "JobRun",
+        "JobRunStatus",
+        "JobStepRun",
+        "JobStepRunPhase",
+        "JobStepRunStatus",
+        "JobTrigger",
+        "JobTriggerKind",
+        "JsonScalar",
+        "LearningArtifactBase",
+        "LoggedTransitionRecord",
+        "MembershipRole",
+        "MessageParticipant",
+        "MessageParticipantAgent",
+        "MessageParticipantHuman",
+        "MessageParticipantSessionRef",
+        "MessageParticipantSystem",
+        "ObligationKindSpec",
+        "ObligationRecord",
+        "OriginPolicy",
+        "ParseAcpWebhookEventResult",
+        "ParseWrkqWebhookEventResult",
+        "ParticipantRunRecord",
+        "PatchBundle",
+        "PayloadPathPredicate",
+        "PhaseGuidance",
+        "Preset",
+        "ProbeFlowStep",
+        "ProbeOutcome",
+        "ProbeStepResult",
+        "PromotionReadinessReport",
+        "PublishedWorkflowDefinition",
+        "PulpitMessageFlowStep",
+        "ReplayReport",
+        "Requirement",
+        "ResolvedEventAction",
+        "ResolveEventActionResult",
+        "RiskClass",
+        "RoleAssignmentStore",
+        "RoleBindings",
+        "RoleMap",
+        "RoleSpec",
+        "Run",
+        "RunStatus",
+        "ScheduleTrigger",
+        "Session",
+        "StepExpectation",
+        "StepOutputRef",
+        "SupervisorBinding",
+        "SupervisorCapabilities",
+        "SupervisorRunRecord",
+        "SystemEvent",
+        "Task",
+        "TaskLifecycleState",
+        "TaskStateRef",
+        "TaskStore",
+        "TraceIngestReport",
+        "TraceUseLabel",
+        "TransitionActor",
+        "TransitionDecision",
+        "TransitionLogStore",
+        "TransitionPolicyRule",
+        "TransitionRecord",
+        "TransitionRejection",
+        "TransitionRejectionCode",
+        "TransitionRequest",
+        "TransitionResult",
+        "TransitionSpec",
+        "ValidateJobTriggerResult",
+        "WorkflowAnomaly",
+        "WorkflowControlAction",
+        "WorkflowDefinition",
+        "WorkflowEvent",
+        "WorkflowHrcRunMap",
+        "WorkflowIdempotencyRecord",
+        "WorkflowKernelSnapshot",
+        "WorkflowPatchProposal",
+        "WorkflowRef",
+        "WorkflowRejection",
+        "WorkflowRejectionCode",
+        "WorkflowResult",
+        "WorkflowTask",
+        "WorkflowTrace",
+        "WorkState",
+        "WorkStatus",
+        "WrkqTaskFlowStep",
+        "WrkqWebhookEvent",
+        "WrkqWebhookOrigin",
+        "WrkqWebhookTransition"
+      ],
+      "rootValues": [
+        "ActorValidationError",
+        "adaptWrkqWebhookEvent",
+        "applyTransitionDecision",
+        "basicWorkflowV1",
+        "builtInWorkflowDefinitions",
+        "canAck",
+        "canFail",
+        "canonicalAcpEventId",
+        "codeDefectFastlaneV1",
+        "codeDefectFastlaneWorkflowV1",
+        "codeFeatureTddV1",
+        "codeFeatureTddWorkflowV1",
+        "computeTaskContext",
+        "conversationTurnRenderStates",
+        "createInMemoryWorkflowKernel",
+        "deepFreeze",
+        "deriveLifecycleStateAfterTransition",
+        "evaluateEventMatch",
+        "findMissingEvidenceKinds",
+        "findTransitionPolicyRule",
+        "formatHrcExternalRef",
+        "getPreset",
+        "getRoleAgentId",
+        "getWaiverDetails",
+        "hasEvidenceKind",
+        "hasRoleAssignment",
+        "HRC_EXTERNAL_REF_PREFIX",
+        "isAgentOriginEvent",
+        "isHrcExternalRef",
+        "isLifecycleTarget",
+        "isPresetDrivenTask",
+        "isTerminal",
+        "isWaiverEvidence",
+        "learningAuditWorkflowV1",
+        "learningCurationWorkflowV1",
+        "learningPatchEvaluationWorkflowV1",
+        "learningPatchPromotionWorkflowV1",
+        "learningPlaybookUpdateWorkflowV1",
+        "learningPolicyPatchWorkflowV1",
+        "learningRollbackWorkflowV1",
+        "learningTraceLabelingWorkflowV1",
+        "learningTraceTriageWorkflowV1",
+        "learningWorkflowDefinitionsV1",
+        "learningWorkflowPatchWorkflowV1",
+        "listAssignedRoles",
+        "listEvidenceKinds",
+        "listOutboundTransitionRules",
+        "listPresets",
+        "matchesRiskClass",
+        "materializeWorkflowTrace",
+        "messageParticipantKinds",
+        "normalizeTransitionActor",
+        "parseAcpWebhookEvent",
+        "parseActorFromHeaders",
+        "parseDurationToMs",
+        "parseHrcExternalRef",
+        "parseWrkqWebhookEvent",
+        "resolveBinding",
+        "resolveEventAction",
+        "reviewTraceLabel",
+        "runDeterministicWorkflowReplay",
+        "stableJson",
+        "toTaskStateRef",
+        "transitionLearningArtifactLifecycle",
+        "validateJobTrigger",
+        "validatePromotionReadiness",
+        "validateTransition"
+      ]
+    },
+    "acp-e2e": {
+      "bin": {},
+      "exportKeys": [],
+      "rootExportSource": null,
+      "rootTypes": [],
+      "rootValues": []
+    },
+    "acp-interface-store": {
+      "bin": {},
+      "exportKeys": [
+        "."
+      ],
+      "rootExportSource": "./src/index.ts",
+      "rootTypes": [
+        "ApplyManagedBindingInput",
+        "ApplyManagedBindingResult",
+        "CreateOutboundAttachmentInput",
+        "DeliveryBodyKind",
+        "DeliveryFailureInput",
+        "DeliveryOutcome",
+        "DeliveryRequest",
+        "DeliveryRequestStatus",
+        "EnqueueDeliveryRequestIdempotencyInput",
+        "EnqueueDeliveryRequestIdempotencyResult",
+        "EnqueueDeliveryRequestInput",
+        "FailedDeliveryRecord",
+        "InterfaceBinding",
+        "InterfaceBindingListFilters",
+        "InterfaceBindingLookup",
+        "InterfaceBindingStatus",
+        "InterfaceMessageSource",
+        "InterfaceStore",
+        "InterfaceStoreActorIdentity",
+        "LastDeliveryRecord",
+        "ListFailedDeliveryRequestsInput",
+        "ManagedBindingDriftReport",
+        "ManagedBindingProvenanceRecord",
+        "OpenInterfaceStoreOptions",
+        "OutboundAttachment",
+        "OutboundAttachmentState",
+        "RecordIfNewMessageSourceResult",
+        "RequeueDeliveryRequestResult",
+        "ResolveDeliveryTargetResult"
+      ],
+      "rootValues": [
+        "applyManagedBinding",
+        "detectBindingDrift",
+        "disableManagedBinding",
+        "getManagedBindingProvenance",
+        "listManagedBindingProvenances",
+        "openInterfaceStore"
+      ]
+    },
+    "acp-jobs-store": {
+      "bin": {},
+      "exportKeys": [
+        "."
+      ],
+      "rootExportSource": "./src/index.ts",
+      "rootTypes": [
+        "AdvanceFlowJobRun",
+        "AgentDispatchStepResult",
+        "AppendJobRunInput",
+        "ApplyManagedJobInput",
+        "ApplyManagedJobResult",
+        "ClaimDueJobRunsInput",
+        "ClaimDueJobsInput",
+        "ClaimedDueJob",
+        "ClaimInboxEventsInput",
+        "CreateJobInput",
+        "DispatchAgentInput",
+        "DispatchThroughInputs",
+        "EvaluateEventJob",
+        "EventJobEvaluation",
+        "EventJobMatchRecord",
+        "EventJobOutcome",
+        "EventJobSkipReason",
+        "FlowJobRunResponseStatus",
+        "HealthIncidentMeta",
+        "InboxEventRecord",
+        "InboxEventStatus",
+        "InsertInboxEventInput",
+        "InsertJobStepRunInput",
+        "JobFlowValidationError",
+        "JobFlowValidationErrorCode",
+        "JobFlowValidationResult",
+        "JobInputTemplate",
+        "JobOutputConfig",
+        "JobOutputSink",
+        "JobOutputSinkAttemptRecord",
+        "JobOutputSinkAttemptStatus",
+        "JobOutputWebhookSink",
+        "JobRecord",
+        "JobRunRecord",
+        "JobRunStatus",
+        "JobRunTrigger",
+        "JobSchedule",
+        "JobsStore",
+        "JobsStoreMigration",
+        "JobStepRunRecord",
+        "ListEventJobMatchesInput",
+        "ManagedJobDriftReport",
+        "ManagedJobProvenanceRecord",
+        "MintEventJobRunInput",
+        "NativeStepExecutorDeps",
+        "NativeStepResult",
+        "OpenSqliteJobsStoreOptions",
+        "PulpitMessageStepResult",
+        "RecordEventJobSkipInput",
+        "RecordJobOutputSinkAttemptInput",
+        "ResourceKindJob",
+        "ScheduleJobSkipReason",
+        "SendPulpitMessage",
+        "TickJobsSchedulerInput",
+        "UpdateJobInput",
+        "UpdateJobRunInput",
+        "UpdateJobStepRunInput",
+        "ValidateJobFlowJobInput",
+        "ValidateJobFlowOptions",
+        "WrkqTaskPort",
+        "WrkqTaskStepResult"
+      ],
+      "rootValues": [
+        "applyManagedJob",
+        "buildHealthIncidentMeta",
+        "createInMemoryJobsStore",
+        "createJobsScheduler",
+        "detectJobDrift",
+        "disableManagedJob",
+        "executeNativeSideEffectStep",
+        "fingerprintJobOutputSink",
+        "formatJobFlowValidationErrors",
+        "getManagedJobProvenance",
+        "isHealthDiagnosticRun",
+        "isValidCron",
+        "isValidFreshDuration",
+        "isValidJobSlug",
+        "JOB_SLUG_REGEX",
+        "jobsStoreMigrations",
+        "listAppliedJobsStoreMigrations",
+        "listManagedJobProvenances",
+        "mapJobRunStatusForFlowResponse",
+        "nextFireAfter",
+        "openSqliteJobsStore",
+        "parseFreshDurationMs",
+        "resolveStepOutputRef",
+        "runJobsStoreMigrations",
+        "tickJobsScheduler",
+        "validateJobFlow",
+        "validateJobFlowJob"
+      ]
+    },
+    "acp-ops-projection": {
+      "bin": {},
+      "exportKeys": [
+        "."
+      ],
+      "rootExportSource": "./src/index.ts",
+      "rootTypes": [
+        "AdmissionLabelInput",
+        "DashboardEvent",
+        "DashboardEventFamily",
+        "DashboardEventSeverity",
+        "HrcLifecycleEvent",
+        "ObjectRecord",
+        "RedactionOptions",
+        "SessionDashboardSnapshot",
+        "SessionDashboardSummary",
+        "SessionRef",
+        "SessionTimelineRow"
+      ],
+      "rootValues": [
+        "admissionLabel",
+        "admissionLabelFromResponse",
+        "buildSummary",
+        "CREDENTIAL_KEY_PARTS",
+        "defaultRedactionOptions",
+        "deriveSessionRow",
+        "isRecord",
+        "normalizedKey",
+        "projectHrcToDashboardEvent",
+        "RAW_PROVIDER_KEYS",
+        "REDACTED_VALUE",
+        "redactPayload",
+        "shouldRedactKey"
+      ]
+    },
+    "acp-ops-reducer": {
+      "bin": {},
+      "exportKeys": [
+        "."
+      ],
+      "rootExportSource": "./src/index.ts",
+      "rootTypes": [
+        "DashboardEvent",
+        "ParsedNdjsonChunk",
+        "ReducerState",
+        "SessionTimelineRow"
+      ],
+      "rootValues": [
+        "applyEvent",
+        "compact",
+        "parseNdjsonChunk",
+        "reconnect",
+        "selectSortedRows",
+        "selectVisibleEvents",
+        "setWindow"
+      ]
+    },
+    "acp-server": {
+      "bin": {
+        "acp-server": "./src/cli.ts"
+      },
+      "exportKeys": [
+        "."
+      ],
+      "rootExportSource": "./src/index.ts",
+      "rootTypes": [
+        "AcpHrcClient",
+        "AcpRuntimePlacement",
+        "AcpServer",
+        "AcpServerCliOptions",
+        "AcpServerDeps",
+        "AdminAgentDetailResponse",
+        "AdminProjectDetailResponse",
+        "AgentRootResolver",
+        "AuthorizeFn",
+        "DeliveryTargetResolver",
+        "DispatchFence",
+        "InputAdmissionStore",
+        "InputApplicationStore",
+        "InputAttemptStore",
+        "InputQueueStore",
+        "LaunchRoleScopedRun",
+        "LaunchRoleScopedTaskRunInput",
+        "PbcCaptureStore",
+        "PbcRouteIdempotencyStore",
+        "PresetRegistry",
+        "RunStore",
+        "RuntimeResolver",
+        "SessionAdmissionSequenceStore",
+        "SessionResolver",
+        "StoredRun",
+        "UpdateRunInput",
+        "WrkfActionLaunchDeps",
+        "WrkfActionLaunchInput",
+        "WrkfActionLaunchResult",
+        "WrkfLifecycle",
+        "WrkfParticipantCaptureStore",
+        "WrkfRouteIdempotencyStore"
+      ],
+      "rootValues": [
+        "createAcpServer",
+        "createDurableWrkfStores",
+        "createWrkfClientLifecycle",
+        "DurableWrkfParticipantCaptureStore",
+        "DurableWrkfRouteIdempotencyStore",
+        "exactRouteKey",
+        "formatStartupLine",
+        "handleLaunchSession",
+        "InMemoryInputAdmissionStore",
+        "InMemoryInputApplicationStore",
+        "InMemoryInputAttemptStore",
+        "InMemoryInputQueueStore",
+        "InMemoryPbcCaptureStore",
+        "InMemoryPbcIdempotencyStore",
+        "InMemoryRunStore",
+        "InMemorySessionAdmissionSequenceStore",
+        "InMemoryWrkfParticipantCaptureStore",
+        "InMemoryWrkfRouteIdempotencyStore",
+        "launchAction",
+        "launchRoleScopedTaskRun",
+        "parseCliArgs",
+        "renderAcpServerHelp",
+        "resolveCliOptions",
+        "resolveLaunchIntent",
+        "startAcpServeBin"
+      ]
+    },
+    "acp-state-store": {
+      "bin": {},
+      "exportKeys": [
+        "."
+      ],
+      "rootExportSource": "./src/index.ts",
+      "rootTypes": [
+        "AcpStateStore",
+        "AcquireLaunchClaimInput",
+        "AcquireLaunchClaimResult",
+        "AppendTransitionOutboxInput",
+        "CreateInputAttemptInput",
+        "CreateOrGetRunInput",
+        "CreateOrGetRunResult",
+        "DispatchFence",
+        "InputAdmissionCreateInput",
+        "InputAdmissionRecord",
+        "InputAdmissionUpdateInput",
+        "InputApplication",
+        "InputApplicationCreateInput",
+        "InputApplicationUpdateInput",
+        "InputAttemptCreateResult",
+        "InputQueueCreateInput",
+        "InputQueueItem",
+        "InputQueueStatus",
+        "InputQueueUpdateInput",
+        "InputResetPolicy",
+        "OpenAcpStateStoreOptions",
+        "PbcContinuationJob",
+        "PbcContinuationJobAcquireResult",
+        "PbcContinuationJobAdmitInput",
+        "PbcContinuationJobAdmitResult",
+        "PbcContinuationJobStatus",
+        "StoredInputAttempt",
+        "StoredRun",
+        "TransitionOutboxRecord",
+        "TransitionOutboxStatus",
+        "UpdateRunInput",
+        "WrkfParticipantCaptureRecord",
+        "WrkfParticipantCaptureSetInput",
+        "WrkfParticipantCaptureSetResult",
+        "WrkfParticipantCaptureStatus",
+        "WrkfRouteAdmitResult",
+        "WrkfRouteIdempotencyKey",
+        "WrkfRouteIdempotencyRecord",
+        "WrkfRouteIdempotencyStatus"
+      ],
+      "rootValues": [
+        "deriveRunId",
+        "InputAdmissionRepo",
+        "InputApplicationRepo",
+        "InputAttemptConflictError",
+        "InputAttemptRepo",
+        "InputQueueRepo",
+        "openAcpStateStore",
+        "PbcContinuationJobsRepo",
+        "RunCorrelationConflictError",
+        "RunRepo",
+        "SessionAdmissionSequenceRepo",
+        "TransitionOutboxRepo",
+        "WorkflowRuntimeRepo",
+        "WrkfParticipantCapturesRepo",
+        "WrkfRouteIdempotencyRepo"
+      ]
+    },
+    "acp-viewer": {
+      "bin": {},
+      "exportKeys": [],
+      "rootExportSource": null,
+      "rootTypes": [],
+      "rootValues": []
+    },
+    "coordination-substrate": {
+      "bin": {},
+      "exportKeys": [
+        "."
+      ],
+      "rootExportSource": "./src/index.ts",
+      "rootTypes": [
+        "AcceptHandoffCommand",
+        "AppendEventCommand",
+        "AppendEventResult",
+        "CancelHandoffCommand",
+        "CancelWakeCommand",
+        "CompleteHandoffCommand",
+        "ConsumeWakeCommand",
+        "CoordinationEvent",
+        "CoordinationEventContent",
+        "CoordinationEventInput",
+        "CoordinationEventKind",
+        "CoordinationEventLinks",
+        "CoordinationEventSource",
+        "CoordinationStore",
+        "Handoff",
+        "HandoffInput",
+        "HandoffKind",
+        "HandoffState",
+        "LeaseWakeCommand",
+        "OpenHandoffQuery",
+        "ParticipantRef",
+        "PendingWakeQuery",
+        "TimelineQuery",
+        "WakeRequest",
+        "WakeRequestInput",
+        "WakeRequestState"
+      ],
+      "rootValues": [
+        "acceptHandoff",
+        "appendEvent",
+        "cancelHandoff",
+        "cancelWake",
+        "completeHandoff",
+        "consumeWake",
+        "leaseWake",
+        "listEvents",
+        "listOpenHandoffs",
+        "listPendingWakes",
+        "openCoordinationStore"
+      ]
+    },
+    "gateway-discord": {
+      "bin": {
+        "acp-gateway-discord": "./src/main.ts"
+      },
+      "exportKeys": [
+        "."
+      ],
+      "rootExportSource": "./src/index.ts",
+      "rootTypes": [
+        "GatewayDiscordAppOptions"
+      ],
+      "rootValues": [
+        "DEFAULT_BINDINGS_REFRESH_MS",
+        "DEFAULT_DELIVERY_IDLE_MS",
+        "DEFAULT_DELIVERY_POLL_MS",
+        "DEFAULT_MAX_CHARS",
+        "envNumber",
+        "GatewayDiscordApp"
+      ]
+    },
+    "gateway-ios": {
+      "bin": {
+        "gateway-ios": "./src/main.ts"
+      },
+      "exportKeys": [
+        "."
+      ],
+      "rootExportSource": "./src/index.ts",
+      "rootTypes": [
+        "ControlMessage",
+        "FrameAction",
+        "FrameMessage",
+        "GatewayIosConfig",
+        "GatewayIosModule",
+        "GatewayIosModuleOptions",
+        "GatewayWsMessage",
+        "HistoryCursor",
+        "HistoryPage",
+        "HrcEventMessage",
+        "InputRequest",
+        "InputResponse",
+        "InterruptRequest",
+        "InterruptResponse",
+        "MobileFence",
+        "MobileSessionCapabilities",
+        "MobileSessionIndex",
+        "MobileSessionMode",
+        "MobileSessionStatus",
+        "MobileSessionSummary",
+        "SnapshotHighWater",
+        "SnapshotMessage",
+        "SourceEventCitation",
+        "TimelineBlock",
+        "TimelineBlockKind",
+        "TimelineFrame",
+        "TimelineFrameKind"
+      ],
+      "rootValues": [
+        "createGatewayIosModule",
+        "createLogger",
+        "DEFAULT_GATEWAY_ID",
+        "DEFAULT_HOST",
+        "DEFAULT_PORT",
+        "resolveConfig"
+      ]
+    },
+    "wlearn": {
+      "bin": {
+        "wlearn": "./bin/wlearn.js"
+      },
+      "exportKeys": [
+        "."
+      ],
+      "rootExportSource": "./src/index.ts",
+      "rootTypes": [
+        "LearningArtifactBase",
+        "PatchBundle",
+        "PromotionReadinessReport",
+        "ReplayReport",
+        "TraceIngestReport",
+        "TraceUseLabel",
+        "WorkflowTrace"
+      ],
+      "rootValues": [
+        "materializeWorkflowTrace",
+        "runDeterministicWorkflowReplay",
+        "validatePromotionReadiness"
+      ]
+    },
+    "wrkq-lib": {
+      "bin": {},
+      "exportKeys": [
+        "."
+      ],
+      "rootExportSource": "./src/index.ts",
+      "rootTypes": [
+        "WrkqStoreAdapter",
+        "WrkqTaskCreateOrFindInput",
+        "WrkqTaskCreateOrFindResult"
+      ],
+      "rootValues": [
+        "createOrFindWrkqTask",
+        "createWrkqStoreAdapter"
+      ]
+    }
+  },
+  "surface": "agent-control-plane public surface"
+}

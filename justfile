@@ -42,15 +42,20 @@ lint-fix:
 typecheck:
     bun run typecheck
 
-# Run suppression, repo-split boundary, and manifest edge checks
+# Run suppression, repo-split boundary, manifest edge, and public surface checks
 check:
     bun scripts/check-suppressions.ts
     bun scripts/check-boundaries.ts
     bun scripts/check-manifest-edges.ts
+    bun scripts/check-public-surface.ts
 
 # Validate reviewed suppression inventory
 check-suppressions:
     bun scripts/check-suppressions.ts
+
+# Validate public package, CLI, API, capability, and doc surface freshness
+check-public-surface:
+    bun scripts/check-public-surface.ts
 
 # Run installed cap -> catalogd -> http-json -> live acp-server smoke for ACP caps
 e2e-cap-acp:
