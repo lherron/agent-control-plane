@@ -2,21 +2,38 @@ import type { Dirent } from 'node:fs'
 import { readFile, readdir } from 'node:fs/promises'
 import { dirname, join, relative } from 'node:path'
 
-type Layer = {
+export type Layer = {
   name: string
   roots: string[]
   forbidden: string[]
 }
 
-type Violation = {
+export type BoundaryViolation = {
   file: string
   specifier: string
 }
 
-type Warning = {
+export type BoundaryWarning = {
   file: string
   specifier: string
   message: string
+}
+
+export type BoundaryCheckReport = {
+  violationsByLayer: Map<string, BoundaryViolation[]>
+  warningFindings: BoundaryWarning[]
+  layers: Layer[]
+}
+
+type BoundaryCheckOptions = {
+  rootDir?: string
+  layers?: Layer[]
+}
+
+type RenderedDiagnostics = {
+  stdout: string
+  stderr: string
+  exitCode: 0 | 1
 }
 
 const aspPackages = [
@@ -121,7 +138,7 @@ const ignoredDirectories = new Set([
 const importPattern = /\bfrom\s*['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g
 const durableKernelPattern = /\bwithDurableWorkflowKernel\b/g
 
-async function collectTsFiles(root: string): Promise<string[]> {
+async function collectTsFiles(rootDir: string, sourceRoot: string): Promise<string[]> {
   const files: string[] = []
 
   async function walk(directory: string): Promise<void> {
@@ -151,7 +168,7 @@ async function collectTsFiles(root: string): Promise<string[]> {
     }
   }
 
-  await walk(root)
+  await walk(join(rootDir, sourceRoot))
   return files
 }
 
@@ -170,9 +187,24 @@ function packageGroup(file: string): string {
   return parts[0] ?? dirname(file)
 }
 
-async function findViolations(layer: Layer): Promise<Violation[]> {
-  const violations: Violation[] = []
-  const files = (await Promise.all(layer.roots.map((root) => collectTsFiles(root)))).flat()
+function repoRelative(rootDir: string, file: string): string {
+  return relative(rootDir, file).replaceAll('\\', '/')
+}
+
+function groupBy<T>(items: T[], keyFor: (item: T) => string): Map<string, T[]> {
+  const grouped = new Map<string, T[]>()
+  for (const item of items) {
+    const key = keyFor(item)
+    const group = grouped.get(key) ?? []
+    group.push(item)
+    grouped.set(key, group)
+  }
+  return grouped
+}
+
+async function findViolations(rootDir: string, layer: Layer): Promise<BoundaryViolation[]> {
+  const violations: BoundaryViolation[] = []
+  const files = (await Promise.all(layer.roots.map((root) => collectTsFiles(rootDir, root)))).flat()
 
   for (const file of files.sort()) {
     const content = await readFile(file, 'utf8')
@@ -183,7 +215,7 @@ async function findViolations(layer: Layer): Promise<Violation[]> {
       }
 
       if (layer.forbidden.some((token) => isForbidden(specifier, token))) {
-        violations.push({ file: relative(process.cwd(), file), specifier })
+        violations.push({ file: repoRelative(rootDir, file), specifier })
       }
     }
   }
@@ -191,95 +223,155 @@ async function findViolations(layer: Layer): Promise<Violation[]> {
   return violations
 }
 
-const violationsByLayer = new Map<string, Violation[]>()
+export async function runBoundaryCheck(
+  options: BoundaryCheckOptions = {}
+): Promise<BoundaryCheckReport> {
+  const rootDir = options.rootDir ?? process.cwd()
+  const activeLayers = options.layers ?? layers
+  const violationsByLayer = new Map<string, BoundaryViolation[]>()
 
-for (const layer of layers) {
-  const violations = await findViolations(layer)
-  if (violations.length > 0) {
-    violationsByLayer.set(layer.name, violations)
-  }
-}
-
-// Content scan: ACP source must not reference HRC-only feature names.
-const acpRoots = acpPackages.map((name) => `packages/${name}`)
-const acpFiles = (await Promise.all(acpRoots.map((root) => collectTsFiles(root)))).flat()
-const contentViolations: Violation[] = []
-for (const file of acpFiles.sort()) {
-  const content = await readFile(file, 'utf8')
-  for (const token of acpInternalForbiddenContent) {
-    if (content.includes(token)) {
-      contentViolations.push({ file: relative(process.cwd(), file), specifier: token })
+  for (const layer of activeLayers) {
+    const violations = await findViolations(rootDir, layer)
+    if (violations.length > 0) {
+      violationsByLayer.set(layer.name, violations)
     }
   }
-}
-if (contentViolations.length > 0) {
-  violationsByLayer.set('ACP (content)', contentViolations)
-}
 
-const warningFindings: Warning[] = []
-const acpServerSrcFiles = (await collectTsFiles('packages/acp-server/src')).filter(
-  (file) => !file.includes('/__tests__/') && !file.endsWith('.test.ts')
-)
+  // Content scan: ACP source must not reference HRC-only feature names.
+  const acpRoots = acpPackages.map((name) => `packages/${name}`)
+  const acpFiles = (await Promise.all(acpRoots.map((root) => collectTsFiles(rootDir, root)))).flat()
+  const contentViolations: BoundaryViolation[] = []
+  for (const file of acpFiles.sort()) {
+    const content = await readFile(file, 'utf8')
+    for (const token of acpInternalForbiddenContent) {
+      if (content.includes(token)) {
+        contentViolations.push({ file: repoRelative(rootDir, file), specifier: token })
+      }
+    }
+  }
+  if (contentViolations.length > 0) {
+    violationsByLayer.set('ACP (content)', contentViolations)
+  }
 
-for (const file of acpServerSrcFiles.sort()) {
-  const relativeFile = relative(process.cwd(), file)
-  const content = await readFile(file, 'utf8')
+  const warningFindings: BoundaryWarning[] = []
+  const acpServerSrcFiles = (await collectTsFiles(rootDir, 'packages/acp-server/src')).filter(
+    (file) => !file.includes('/__tests__/') && !file.endsWith('.test.ts')
+  )
 
-  for (const match of content.matchAll(importPattern)) {
-    const specifier = match[1] ?? match[2]
-    if (specifier !== '@wrkf/client') {
-      continue
+  for (const file of acpServerSrcFiles.sort()) {
+    const relativeFile = repoRelative(rootDir, file)
+    const content = await readFile(file, 'utf8')
+
+    for (const match of content.matchAll(importPattern)) {
+      const specifier = match[1] ?? match[2]
+      if (specifier !== '@wrkf/client') {
+        continue
+      }
+
+      if (!relativeFile.startsWith('packages/acp-server/src/wrkf/')) {
+        warningFindings.push({
+          file: relativeFile,
+          specifier,
+          message: '@wrkf/client production import outside packages/acp-server/src/wrkf/',
+        })
+      }
     }
 
-    if (!relativeFile.startsWith('packages/acp-server/src/wrkf/')) {
+    if (durableKernelPattern.test(content)) {
       warningFindings.push({
         file: relativeFile,
-        specifier,
-        message: '@wrkf/client production import outside packages/acp-server/src/wrkf/',
+        specifier: 'withDurableWorkflowKernel',
+        message: 'durable workflow kernel call site present; W7 will flip new call sites to error',
       })
     }
+    durableKernelPattern.lastIndex = 0
   }
 
-  if (durableKernelPattern.test(content)) {
-    warningFindings.push({
-      file: relativeFile,
-      specifier: 'withDurableWorkflowKernel',
-      message: 'durable workflow kernel call site present; W7 will flip new call sites to error',
-    })
-  }
-  durableKernelPattern.lastIndex = 0
+  return { violationsByLayer, warningFindings, layers: activeLayers }
 }
 
-if (warningFindings.length > 0) {
-  console.warn('Boundary warnings:')
-  const groupedWarnings = Map.groupBy(warningFindings, (warning) => packageGroup(warning.file))
+function renderWarningDiagnostics(warningFindings: BoundaryWarning[]): string[] {
+  if (warningFindings.length === 0) {
+    return []
+  }
+
+  const lines = [
+    'Boundary warnings (non-fatal):',
+    '',
+    'What failed:',
+    '  Existing ACP W7 migration-risk call sites are still present.',
+    'Why it matters:',
+    '  New call sites would deepen the durable-workflow coupling that W7 is removing.',
+    'How to fix:',
+    '  Route new workflow code through packages/acp-server/src/wrkf/ or remove the direct kernel/client edge.',
+    'Exception path:',
+    '  Keep only the known baseline warning until W7 removes it; any new warning must carry an explicit task/spec rationale.',
+    '',
+    'Warning details:',
+  ]
+  const groupedWarnings = groupBy(warningFindings, (warning) => packageGroup(warning.file))
   for (const [group, groupWarnings] of groupedWarnings) {
-    console.warn(`  ${group}`)
+    lines.push(`  ${group}`)
     for (const warning of groupWarnings) {
-      console.warn(`    ${warning.file}: ${warning.message} (${warning.specifier})`)
+      lines.push(`    ${warning.file}: ${warning.message} (${warning.specifier})`)
     }
   }
-  console.warn('')
+  lines.push('')
+  return lines
 }
 
-if (violationsByLayer.size === 0) {
-  console.log('Boundary check passed.')
-  process.exit(0)
-}
+export function renderBoundaryDiagnostics(report: BoundaryCheckReport): RenderedDiagnostics {
+  const stderrLines = renderWarningDiagnostics(report.warningFindings)
 
-console.error('Boundary check failed: forbidden layer imports found.')
-
-for (const [layerName, violations] of violationsByLayer) {
-  console.error('')
-  console.error(`${layerName} layer violations:`)
-
-  const grouped = Map.groupBy(violations, (violation) => packageGroup(violation.file))
-  for (const [group, groupViolations] of grouped) {
-    console.error(`  ${group}`)
-    for (const violation of groupViolations) {
-      console.error(`    ${violation.file}: forbidden '${violation.specifier}'`)
+  if (report.violationsByLayer.size === 0) {
+    return {
+      stdout: 'Boundary check passed.\n',
+      stderr: stderrLines.length > 0 ? `${stderrLines.join('\n')}\n` : '',
+      exitCode: 0,
     }
   }
+
+  stderrLines.push(
+    'Boundary check failed: forbidden layer imports found.',
+    '',
+    'What failed:',
+    '  Source files imported package layers or implementation subpaths that this repository split forbids.',
+    'Why it matters:',
+    '  The ASP, HRC, and ACP packages must stay independently buildable and coupled only through public contracts.',
+    'How to fix:',
+    '  Import from the owning package public entrypoint, move shared contracts to an allowed lower-level package, or invert the dependency so the lower layer does not reach upward.',
+    'Exception path:',
+    '  Do not suppress the file locally. If the architecture intentionally changes, update scripts/check-boundaries.ts in the same change with the approved rationale and a planted-negative fixture.',
+    '',
+    'Violation details:'
+  )
+
+  for (const [layerName, violations] of report.violationsByLayer) {
+    const layer = report.layers.find((candidate) => candidate.name === layerName)
+    stderrLines.push('', `${layerName} layer violations:`)
+    if (layer) {
+      stderrLines.push(`  Rule: ${layerName} roots cannot import ${layer.forbidden.join(', ')}`)
+    }
+
+    const grouped = groupBy(violations, (violation) => packageGroup(violation.file))
+    for (const [group, groupViolations] of grouped) {
+      stderrLines.push(`  ${group}`)
+      for (const violation of groupViolations) {
+        stderrLines.push(`    ${violation.file}: forbidden '${violation.specifier}'`)
+      }
+    }
+  }
+
+  return { stdout: '', stderr: `${stderrLines.join('\n')}\n`, exitCode: 1 }
 }
 
-process.exit(1)
+if (import.meta.main) {
+  const rendered = renderBoundaryDiagnostics(await runBoundaryCheck())
+  if (rendered.stderr) {
+    console.error(rendered.stderr.trimEnd())
+  }
+  if (rendered.stdout) {
+    console.log(rendered.stdout.trimEnd())
+  }
+  process.exit(rendered.exitCode)
+}

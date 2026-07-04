@@ -7,7 +7,7 @@ type PackageInfo = {
   declared: Set<string>
 }
 
-type MissingEdge = {
+export type MissingManifestEdge = {
   packageDir: string
   packageName: string
   dependency: string
@@ -21,12 +21,26 @@ type PackageJson = {
   peerDependencies?: unknown
 }
 
+export type ManifestEdgeReport = {
+  missingEdges: MissingManifestEdge[]
+}
+
+type ManifestEdgeOptions = {
+  rootDir?: string
+}
+
+type RenderedDiagnostics = {
+  stdout: string
+  stderr: string
+  exitCode: 0 | 1
+}
+
 const importPattern = /\bfrom\s*['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g
 const ignoredDirectories = new Set(['.git', 'coverage', 'dist', 'node_modules', 'tmp'])
 
-async function pathExists(path: string): Promise<boolean> {
+async function pathExists(rootDir: string, path: string): Promise<boolean> {
   try {
-    await readdir(path)
+    await readdir(join(rootDir, path))
     return true
   } catch (error) {
     const code = error instanceof Error && 'code' in error ? error.code : undefined
@@ -44,10 +58,10 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
-async function readPackageInfo(dir: string): Promise<PackageInfo | undefined> {
+async function readPackageInfo(rootDir: string, dir: string): Promise<PackageInfo | undefined> {
   let packageJsonContent: string
   try {
-    packageJsonContent = await readFile(join(dir, 'package.json'), 'utf8')
+    packageJsonContent = await readFile(join(rootDir, dir, 'package.json'), 'utf8')
   } catch (error) {
     const code = error instanceof Error && 'code' in error ? error.code : undefined
     if (code === 'ENOENT') {
@@ -75,23 +89,23 @@ async function readPackageInfo(dir: string): Promise<PackageInfo | undefined> {
   }
 }
 
-async function workspacePackages(): Promise<PackageInfo[]> {
+async function workspacePackages(rootDir: string): Promise<PackageInfo[]> {
   const packages: PackageInfo[] = []
-  const packageRootEntries = await readdir('packages', { withFileTypes: true })
+  const packageRootEntries = await readdir(join(rootDir, 'packages'), { withFileTypes: true })
 
   for (const entry of packageRootEntries) {
     if (!entry.isDirectory()) {
       continue
     }
 
-    const info = await readPackageInfo(join('packages', entry.name))
+    const info = await readPackageInfo(rootDir, join('packages', entry.name))
     if (info) {
       packages.push(info)
     }
   }
 
-  if (await pathExists('integration-tests')) {
-    const integrationInfo = await readPackageInfo('integration-tests')
+  if (await pathExists(rootDir, 'integration-tests')) {
+    const integrationInfo = await readPackageInfo(rootDir, 'integration-tests')
     if (integrationInfo) {
       packages.push(integrationInfo)
     }
@@ -100,8 +114,8 @@ async function workspacePackages(): Promise<PackageInfo[]> {
   return packages.sort((left, right) => left.dir.localeCompare(right.dir))
 }
 
-async function collectSourceFiles(srcDir: string): Promise<string[]> {
-  if (!(await pathExists(srcDir))) {
+async function collectSourceFiles(rootDir: string, srcDir: string): Promise<string[]> {
+  if (!(await pathExists(rootDir, srcDir))) {
     return []
   }
 
@@ -124,7 +138,7 @@ async function collectSourceFiles(srcDir: string): Promise<string[]> {
     }
   }
 
-  await walk(srcDir)
+  await walk(join(rootDir, srcDir))
   return files.sort()
 }
 
@@ -144,11 +158,12 @@ function barePackageName(specifier: string): string | undefined {
 }
 
 async function importedWorkspacePackages(
+  rootDir: string,
   packageInfo: PackageInfo,
   workspaceNames: Set<string>
 ): Promise<Map<string, Set<string>>> {
   const imports = new Map<string, Set<string>>()
-  const files = await collectSourceFiles(join(packageInfo.dir, 'src'))
+  const files = await collectSourceFiles(rootDir, join(packageInfo.dir, 'src'))
 
   for (const file of files) {
     const content = await readFile(file, 'utf8')
@@ -164,7 +179,7 @@ async function importedWorkspacePackages(
       }
 
       const importFiles = imports.get(packageName) ?? new Set<string>()
-      importFiles.add(relative(process.cwd(), file))
+      importFiles.add(relative(rootDir, file).replaceAll('\\', '/'))
       imports.set(packageName, importFiles)
     }
   }
@@ -172,41 +187,85 @@ async function importedWorkspacePackages(
   return imports
 }
 
-const packages = await workspacePackages()
-const workspaceNames = new Set(packages.map((packageInfo) => packageInfo.name))
-const missingEdges: MissingEdge[] = []
+function groupBy<T>(items: T[], keyFor: (item: T) => string): Map<string, T[]> {
+  const grouped = new Map<string, T[]>()
+  for (const item of items) {
+    const key = keyFor(item)
+    const group = grouped.get(key) ?? []
+    group.push(item)
+    grouped.set(key, group)
+  }
+  return grouped
+}
 
-for (const packageInfo of packages) {
-  const imports = await importedWorkspacePackages(packageInfo, workspaceNames)
-  for (const [dependency, files] of imports) {
-    if (!packageInfo.declared.has(dependency)) {
-      missingEdges.push({
-        packageDir: packageInfo.dir,
-        packageName: packageInfo.name,
-        dependency,
-        files: [...files].sort(),
-      })
+export async function runManifestEdgeCheck(
+  options: ManifestEdgeOptions = {}
+): Promise<ManifestEdgeReport> {
+  const rootDir = options.rootDir ?? process.cwd()
+  const packages = await workspacePackages(rootDir)
+  const workspaceNames = new Set(packages.map((packageInfo) => packageInfo.name))
+  const missingEdges: MissingManifestEdge[] = []
+
+  for (const packageInfo of packages) {
+    const imports = await importedWorkspacePackages(rootDir, packageInfo, workspaceNames)
+    for (const [dependency, files] of imports) {
+      if (!packageInfo.declared.has(dependency)) {
+        missingEdges.push({
+          packageDir: packageInfo.dir,
+          packageName: packageInfo.name,
+          dependency,
+          files: [...files].sort(),
+        })
+      }
     }
   }
+
+  return { missingEdges }
 }
 
-if (missingEdges.length === 0) {
-  console.log('Manifest edge check passed.')
-  process.exit(0)
-}
+export function renderManifestDiagnostics(report: ManifestEdgeReport): RenderedDiagnostics {
+  if (report.missingEdges.length === 0) {
+    return { stdout: 'Manifest edge check passed.\n', stderr: '', exitCode: 0 }
+  }
 
-console.error('Manifest edge check failed: source imports missing from package manifests.')
+  const lines = [
+    'Manifest edge check failed: source imports missing from package manifests.',
+    '',
+    'What failed:',
+    '  A package imports another workspace package from src/ but does not declare that package in dependencies, devDependencies, or peerDependencies.',
+    'Why it matters:',
+    '  Package manifests are the install, publish, and repo-split contract; undeclared edges can pass locally while failing after isolated install or package extraction.',
+    'How to fix:',
+    '  Add the imported workspace package to the importing package manifest, or remove/move the import so the package no longer owns that edge.',
+    'Exception path:',
+    '  Runtime source edges should not be suppressed. If an edge is intentionally test-only or tool-only, move it out of src/ or add a documented devDependency plus a checker fixture.',
+    '',
+    'Missing edge details:',
+  ]
 
-const grouped = Map.groupBy(missingEdges, (edge) => `${edge.packageDir} (${edge.packageName})`)
-for (const [group, edges] of grouped) {
-  console.error('')
-  console.error(group)
-  for (const edge of edges.sort((left, right) => left.dependency.localeCompare(right.dependency))) {
-    console.error(`  missing dependency '${edge.dependency}'`)
-    for (const file of edge.files) {
-      console.error(`    ${file}`)
+  const grouped = groupBy(report.missingEdges, (edge) => `${edge.packageDir} (${edge.packageName})`)
+  for (const [group, edges] of grouped) {
+    lines.push('', group)
+    for (const edge of edges.sort((left, right) =>
+      left.dependency.localeCompare(right.dependency)
+    )) {
+      lines.push(`  missing dependency '${edge.dependency}'`)
+      for (const file of edge.files) {
+        lines.push(`    ${file}`)
+      }
     }
   }
+
+  return { stdout: '', stderr: `${lines.join('\n')}\n`, exitCode: 1 }
 }
 
-process.exit(1)
+if (import.meta.main) {
+  const rendered = renderManifestDiagnostics(await runManifestEdgeCheck())
+  if (rendered.stderr) {
+    console.error(rendered.stderr.trimEnd())
+  }
+  if (rendered.stdout) {
+    console.log(rendered.stdout.trimEnd())
+  }
+  process.exit(rendered.exitCode)
+}
