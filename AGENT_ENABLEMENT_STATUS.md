@@ -13,7 +13,7 @@ PM floor: not swept (etag 0)
 Required: 17
 Frontier: 0
 Deferred: 0
-Open deltas: delta:add-acp-cli-surface-conformance, delta:add-enablements-changelog, delta:add-live-discovery-tools, delta:add-public-surface-rot-sensor, delta:add-root-readme-floor, delta:add-suppression-cost-guard, delta:materialize-lefthook-gate, delta:repair-boundary-manifest-diagnostics
+Open deltas: none
 Failing/open axes: F0, P0, S1, S2, S3, S3.affordanceGating, S4, S5, S6, S7, S8, TC, TD, TD.selfDescribingSurfaceConformance
 
 ## PM Floor Axes

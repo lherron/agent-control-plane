@@ -40,8 +40,8 @@
         "assessment": "agent-enablement/assessments/agent-control-plane/assessment.json",
         "deltas": "agent-enablement/assessments/agent-control-plane/deltas.json",
         "profileHash": "cca2b0cead21cf97c3ed8905988a7229d7876f13247fb5c55255e6de89a8bcde",
-        "assessmentHash": "1db59c85651a8bdb977741c29f50a2a6993b8f3b81f55fa127310384df84fbbc",
-        "deltasHash": "7edc8d4eb95106453182bf21fbe271628330109a25f5438912a8e7f875f87f15"
+        "assessmentHash": "fda171389cececef2ed6213eecc9d90636743d33d6d010a30710aa8cd0a4e410",
+        "deltasHash": "66d5a0c274111b53ee80e1690b8f82e0d15545c36e85bbf448de9728d7800d21"
       },
       "decidedAt": "2026-07-03",
       "assessedAt": "2026-07-03",
@@ -49,16 +49,7 @@
         "required": 17,
         "recommended": 1
       },
-      "openDeltaIds": [
-        "delta:add-acp-cli-surface-conformance",
-        "delta:add-enablements-changelog",
-        "delta:add-live-discovery-tools",
-        "delta:add-public-surface-rot-sensor",
-        "delta:add-root-readme-floor",
-        "delta:add-suppression-cost-guard",
-        "delta:materialize-lefthook-gate",
-        "delta:repair-boundary-manifest-diagnostics"
-      ],
+      "openDeltaIds": [],
       "failingOpenAxes": [
         "F0",
         "P0",
