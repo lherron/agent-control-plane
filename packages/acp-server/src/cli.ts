@@ -63,6 +63,7 @@ const DEFAULT_COORD_DB_PATH = '/Users/lherron/praesidium/var/db/acp-coordination
 const DEFAULT_PORT = 18470
 const DEFAULT_HOST = '127.0.0.1'
 const DEFAULT_ACTOR = 'acp-server'
+const DISALLOWED_BIND_HOSTS = new Set(['0.0.0.0', '::'])
 
 /**
  * Normalize ACP-server's actor id into a wrkq principal ref (T-05381). wrkq's
@@ -122,6 +123,10 @@ export interface AcpServerCliOptions {
   host: string
   port: number
   actor: string
+}
+
+interface StoppableServer {
+  stop(closeActiveConnections?: boolean): void
 }
 
 type ParsedCliArgs = {
@@ -226,6 +231,7 @@ export function resolveCliOptions(
 
   const agentAssetsDir =
     parsed.options.agentAssetsDir ?? env['ACP_AGENT_ASSETS_DIR'] ?? DEFAULT_AGENT_ASSETS_DIR
+  const host = normalizeBindHostValue(parsed.options.host ?? env['ACP_HOST'] ?? DEFAULT_HOST)
 
   return {
     help: parsed.help,
@@ -238,11 +244,62 @@ export function resolveCliOptions(
       ...(jobsDbPath !== undefined ? { jobsDbPath } : {}),
       ...(conversationDbPath !== undefined ? { conversationDbPath } : {}),
       agentAssetsDir,
-      host: parsed.options.host ?? env['ACP_HOST'] ?? DEFAULT_HOST,
+      host,
       port: parsed.options.port ?? (Number.isFinite(envPort) ? envPort : DEFAULT_PORT),
       actor: parsed.options.actor ?? env['ACP_ACTOR'] ?? env['WRKQ_ACTOR'] ?? DEFAULT_ACTOR,
     },
   }
+}
+
+export function resolveBindHosts(hostValue: string): string[] {
+  const hosts = hostValue.split(',').map((host) => host.trim())
+  if (hosts.length === 0 || hosts.some((host) => host.length === 0)) {
+    throw new Error('ACP_HOST/--host must contain one or more non-empty hosts')
+  }
+
+  for (const host of hosts) {
+    if (DISALLOWED_BIND_HOSTS.has(host)) {
+      throw new Error(`ACP_HOST/--host must not bind ${host}; list specific hosts instead`)
+    }
+  }
+
+  return hosts
+}
+
+export function bindAcpHostListeners<TServer extends StoppableServer>(
+  hosts: readonly string[],
+  bind: (host: string) => TServer,
+  port: number
+): TServer[] {
+  const servers: TServer[] = []
+
+  for (const host of hosts) {
+    try {
+      servers.push(bind(host))
+    } catch (error) {
+      for (const server of servers) {
+        server.stop(true)
+      }
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(`failed to bind ACP server listener on ${host}:${port}: ${message}`)
+    }
+  }
+
+  return servers
+}
+
+function normalizeBindHostValue(hostValue: string): string {
+  return resolveBindHosts(hostValue).join(',')
+}
+
+function formatHostForUrl(host: string): string {
+  return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host
+}
+
+function formatBindUrls(options: AcpServerCliOptions): string[] {
+  return resolveBindHosts(options.host).map(
+    (host) => `http://${formatHostForUrl(host)}:${options.port}`
+  )
 }
 
 export function formatStartupLine(options: AcpServerCliOptions): string {
@@ -255,7 +312,7 @@ export function formatStartupLine(options: AcpServerCliOptions): string {
   ].filter((segment) => segment !== undefined)
 
   return [
-    `acp-server listening on http://${options.host}:${options.port}`,
+    `acp-server listening on ${formatBindUrls(options).join(', ')}`,
     `wrkq.db = ${options.wrkqDbPath}`,
     `coord.db = ${options.coordDbPath}`,
     `interface.db = ${options.interfaceDbPath}`,
@@ -285,7 +342,7 @@ export function renderHelp(): string {
     `  ACP_INTERFACE_DISPATCHER_DISPATCH_STALE_TIMEOUT_MS Defaults to ${DEFAULT_INTERFACE_DISPATCHER_DISPATCH_STALE_TIMEOUT_MS}`,
     `  ACP_INPUT_QUEUE_STALE_PENDING_RUN_TIMEOUT_MS Defaults to ${DEFAULT_INPUT_QUEUE_STALE_PENDING_RUN_TIMEOUT_MS}`,
     `  ACP_INPUT_QUEUE_LEASE_TIMEOUT_MS Defaults to ${DEFAULT_INPUT_QUEUE_LEASE_TIMEOUT_MS}`,
-    `  ACP_HOST          Defaults to ${DEFAULT_HOST}`,
+    `  ACP_HOST          Comma-separated bind host list; defaults to ${DEFAULT_HOST}`,
     `  ACP_PORT          Defaults to ${DEFAULT_PORT}`,
     '  ACP_BASE_URL      Set at startup to the server base URL used by capability bindings',
     '  ACP_CAP_SOCKET_PATH Defaults to $ACP_RUNTIME_DIR/cap.sock',
@@ -299,8 +356,8 @@ export function renderHelp(): string {
 }
 
 function resolveAcpBaseUrl(options: AcpServerCliOptions): string {
-  const host = options.host === '0.0.0.0' || options.host === '::' ? '127.0.0.1' : options.host
-  return `http://${host}:${options.port}`
+  const [host = DEFAULT_HOST] = resolveBindHosts(options.host)
+  return `http://${formatHostForUrl(host)}:${options.port}`
 }
 
 function resolveCapSocketPath(env: NodeJS.ProcessEnv = process.env): string {
@@ -897,64 +954,70 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     ensureDispatchTimeoutHealthJob(jobsStore)
   }
   const accessLogger = await createAccessLogger(process.env['ACP_ACCESS_LOG_PATH'])
-  const bunServer = Bun.serve({
-    hostname: options.host,
-    port: options.port,
-    idleTimeout: 255,
-    async fetch(request, server) {
-      const url = new URL(request.url)
-      const mobileWsMatch =
-        request.headers.get('upgrade')?.toLowerCase() === 'websocket'
-          ? parseMobileRouteKind(url.pathname)
-          : undefined
-      if (mobileWsMatch !== undefined) {
-        const upgraded = (
-          server as never as { upgrade(request: Request, options: unknown): boolean }
-        ).upgrade(request, {
-          data: buildMobileUpgradeData(resolvedDeps, request.url, mobileWsMatch),
-        })
-        return upgraded ? undefined : new Response('WebSocket upgrade failed', { status: 400 })
-      }
-
-      const start = performance.now()
-      const response =
-        url.pathname === '/v1/cap/rpc'
-          ? await capabilityHost.handleHttpJsonRpc(request)
-          : await acpServer.handler(request)
-      if (accessLogger !== null) {
-        accessLogger.log({
-          request,
-          response,
-          durationMs: Math.round(performance.now() - start),
-          clientIp: server.requestIP(request)?.address,
-        })
-      }
-      return response
-    },
-    websocket: {
-      open(ws) {
-        void openMobileWebSocket(ws as never).catch((error) => {
-          try {
-            ws.send(
-              JSON.stringify({
-                type: 'error',
-                code: 'mobile_stream_failed',
-                message: error instanceof Error ? error.message : String(error),
-              })
-            )
-          } catch {
-            // Socket may already be closed.
+  const bindHosts = resolveBindHosts(options.host)
+  const bunServers = bindAcpHostListeners(
+    bindHosts,
+    (host) =>
+      Bun.serve({
+        hostname: host,
+        port: options.port,
+        idleTimeout: 255,
+        async fetch(request, server) {
+          const url = new URL(request.url)
+          const mobileWsMatch =
+            request.headers.get('upgrade')?.toLowerCase() === 'websocket'
+              ? parseMobileRouteKind(url.pathname)
+              : undefined
+          if (mobileWsMatch !== undefined) {
+            const upgraded = (
+              server as never as { upgrade(request: Request, options: unknown): boolean }
+            ).upgrade(request, {
+              data: buildMobileUpgradeData(resolvedDeps, request.url, mobileWsMatch),
+            })
+            return upgraded ? undefined : new Response('WebSocket upgrade failed', { status: 400 })
           }
-        })
-      },
-      message(ws, message) {
-        handleMobileWebSocketMessage(ws as never, message as never)
-      },
-      close(ws) {
-        closeMobileWebSocket(ws as never)
-      },
-    },
-  })
+
+          const start = performance.now()
+          const response =
+            url.pathname === '/v1/cap/rpc'
+              ? await capabilityHost.handleHttpJsonRpc(request)
+              : await acpServer.handler(request)
+          if (accessLogger !== null) {
+            accessLogger.log({
+              request,
+              response,
+              durationMs: Math.round(performance.now() - start),
+              clientIp: server.requestIP(request)?.address,
+            })
+          }
+          return response
+        },
+        websocket: {
+          open(ws) {
+            void openMobileWebSocket(ws as never).catch((error) => {
+              try {
+                ws.send(
+                  JSON.stringify({
+                    type: 'error',
+                    code: 'mobile_stream_failed',
+                    message: error instanceof Error ? error.message : String(error),
+                  })
+                )
+              } catch {
+                // Socket may already be closed.
+              }
+            })
+          },
+          message(ws, message) {
+            handleMobileWebSocketMessage(ws as never, message as never)
+          },
+          close(ws) {
+            closeMobileWebSocket(ws as never)
+          },
+        },
+      }),
+    options.port
+  )
   const wakeDispatcher =
     resolvedDeps.launchRoleScopedRun !== undefined && resolvedDeps.runtimeResolver !== undefined
       ? createWakeDispatcher({
@@ -1190,7 +1253,9 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
       if (schedulerTimer !== undefined) {
         clearInterval(schedulerTimer)
       }
-      bunServer.stop(true)
+      for (const bunServer of bunServers) {
+        bunServer.stop(true)
+      }
       // The wrkq store adapter holds no resources of its own; the underlying
       // WorkClient is closed by wrkfLifecycle.close() below.
       coordStore.close()

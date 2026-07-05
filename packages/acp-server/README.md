@@ -20,7 +20,7 @@ Environment variables:
 - `ACP_STATE_DB_PATH` — defaults to `/Users/lherron/praesidium/var/db/acp-state.db`
 - `ACP_ADMIN_DB_PATH`, `ACP_JOBS_DB_PATH`, `ACP_CONVERSATION_DB_PATH` — optional DB overrides
 - `ACP_AGENT_ASSETS_DIR` — defaults to `/Users/lherron/praesidium/var/state/acp-server/assets/agents`
-- `ACP_HOST` — defaults to `127.0.0.1`
+- `ACP_HOST` — comma-separated bind host list; defaults to `127.0.0.1`
 - `ACP_PORT` — defaults to `18470`
 - `ACP_ACTOR` — defaults to `WRKQ_ACTOR` or `acp-server`
 - `WRKF_BIN` — defaults to `wrkf`

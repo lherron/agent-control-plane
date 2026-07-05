@@ -15,7 +15,7 @@
 		<key>ACP_GATEWAY_ID</key>
 		<string>acp-discord-smoke</string>
 		<key>ACP_HOST</key>
-		<string>100.73.60.81</string>
+		<string>127.0.0.1,100.73.60.81</string>
 		<key>ACP_INTERFACE_DB_PATH</key>
 		<string>/Users/lherron/praesidium/var/db/acp-interface.db</string>
 		<key>ACP_JOB_FLOW_EXEC_ALLOWED_CWD_ROOTS</key>

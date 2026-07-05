@@ -4,9 +4,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
+  bindAcpHostListeners,
   formatStartupLine,
   isEnabledEnvFlag,
   renderHelp,
+  resolveBindHosts,
   resolveCliOptions,
   resolveLauncherDeps,
   resolveRealLauncherAgentRoot,
@@ -45,7 +47,7 @@ describe('acp-server cli helpers', () => {
         '--state-db-path',
         '/tmp/state.db',
         '--host',
-        '0.0.0.0',
+        '127.0.0.1, 100.73.60.81',
         '--port',
         '19000',
         '--actor',
@@ -68,10 +70,54 @@ describe('acp-server cli helpers', () => {
       interfaceDbPath: '/tmp/interface.db',
       stateDbPath: '/tmp/state.db',
       agentAssetsDir: '/Users/lherron/praesidium/var/state/acp-server/assets/agents',
-      host: '0.0.0.0',
+      host: '127.0.0.1,100.73.60.81',
       port: 19000,
       actor: 'cli-actor',
     })
+  })
+
+  test('parses and validates comma-separated bind hosts', () => {
+    expect(resolveBindHosts('127.0.0.1, 100.73.60.81')).toEqual(['127.0.0.1', '100.73.60.81'])
+    expect(() =>
+      resolveCliOptions([], { WRKQ_DB_PATH: '/tmp/wrkq.db', ACP_HOST: '0.0.0.0' })
+    ).toThrow('must not bind 0.0.0.0')
+    expect(() => resolveBindHosts('127.0.0.1,')).toThrow('non-empty hosts')
+  })
+
+  test('binds one listener per host and closes partial binds on failure', () => {
+    const stopped: string[] = []
+    const bound = bindAcpHostListeners(
+      ['127.0.0.1', '100.73.60.81'],
+      (host) => ({
+        host,
+        stop: () => {
+          stopped.push(host)
+        },
+      }),
+      18470
+    )
+
+    expect(bound.map((server) => server.host)).toEqual(['127.0.0.1', '100.73.60.81'])
+    expect(stopped).toEqual([])
+
+    const stoppedAfterFailure: string[] = []
+    expect(() =>
+      bindAcpHostListeners(
+        ['127.0.0.1', '100.73.60.81'],
+        (host) => {
+          if (host === '100.73.60.81') {
+            throw new Error('EADDRNOTAVAIL')
+          }
+          return {
+            stop: () => {
+              stoppedAfterFailure.push(host)
+            },
+          }
+        },
+        18470
+      )
+    ).toThrow('failed to bind ACP server listener on 100.73.60.81:18470: EADDRNOTAVAIL')
+    expect(stoppedAfterFailure).toEqual(['127.0.0.1'])
   })
 
   test('formats startup output and help text', () => {
@@ -82,16 +128,29 @@ describe('acp-server cli helpers', () => {
         interfaceDbPath: '/tmp/interface.db',
         stateDbPath: '/tmp/state.db',
         agentAssetsDir: '/tmp/assets/agents',
-        host: '127.0.0.1',
+        host: '127.0.0.1,100.73.60.81',
         port: 18470,
         actor: 'acp-server',
       })
     ).toContain('wrkq.db = /tmp/wrkq.db')
+    expect(
+      formatStartupLine({
+        wrkqDbPath: '/tmp/wrkq.db',
+        coordDbPath: '/tmp/coord.db',
+        interfaceDbPath: '/tmp/interface.db',
+        stateDbPath: '/tmp/state.db',
+        agentAssetsDir: '/tmp/assets/agents',
+        host: '127.0.0.1,100.73.60.81',
+        port: 18470,
+        actor: 'acp-server',
+      })
+    ).toContain('acp-server listening on http://127.0.0.1:18470, http://100.73.60.81:18470')
     expect(renderHelp()).toContain('acp-server')
     expect(renderHelp()).toContain('ACP_WRKQ_DB_PATH')
     expect(renderHelp()).toContain('ACP_INTERFACE_DB_PATH')
     expect(renderHelp()).toContain('ACP_STATE_DB_PATH')
     expect(renderHelp()).toContain('ACP_SCHEDULER_ENABLED')
+    expect(renderHelp()).toContain('Comma-separated bind host list')
   })
 
   test('treats 1 and true as enabled scheduler flags', () => {

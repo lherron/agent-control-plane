@@ -22,6 +22,7 @@ const DEFAULT_HOST = '127.0.0.1'
 const DEFAULT_PORT = 18470
 const DEFAULT_LAUNCHD_LABEL = 'com.praesidium.acp-server'
 const DEFAULT_GATEWAY_ID = 'acp-discord-smoke'
+const DISALLOWED_BIND_HOSTS = new Set(['0.0.0.0', '::'])
 
 export type AcpServerPaths = {
   runtimeRoot: string
@@ -59,7 +60,7 @@ export function renderServerHelp(): string {
     '  --wrkq-db-path <path>     Defaults to ACP_WRKQ_DB_PATH or WRKQ_DB_PATH',
     '  --coord-db-path <path>    Defaults to ACP_COORD_DB_PATH',
     '  --interface-db-path <path> Defaults to ACP_INTERFACE_DB_PATH',
-    '  --host <host>             Defaults to ACP_HOST or 127.0.0.1',
+    '  --host <host>             Comma-separated bind host list; defaults to ACP_HOST or 127.0.0.1',
     '  --port <port>             Defaults to ACP_PORT or 18470',
     '  --actor <agentId>         Defaults to ACP_ACTOR, WRKQ_ACTOR, or acp-server',
     '',
@@ -279,13 +280,41 @@ export async function launchctlKickstart(
 }
 
 function resolveStatusEndpoint(args: readonly string[]): { host: string; port: number } {
-  const host = valueAfter(args, '--host') ?? process.env['ACP_HOST'] ?? DEFAULT_HOST
+  const host = resolvePrimaryBindHost(valueAfter(args, '--host') ?? process.env['ACP_HOST'])
   const rawPort = valueAfter(args, '--port') ?? process.env['ACP_PORT']
   const port = rawPort === undefined ? DEFAULT_PORT : Number.parseInt(rawPort, 10)
   if (!Number.isFinite(port) || port <= 0) {
     throw new CliUsageError('--port must be a positive integer')
   }
   return { host, port }
+}
+
+function resolvePrimaryBindHost(hostValue: string | undefined): string {
+  const [host = DEFAULT_HOST] = resolveBindHosts(hostValue ?? DEFAULT_HOST)
+  return host
+}
+
+function resolveBindHosts(hostValue: string): string[] {
+  const hosts = hostValue.split(',').map((host) => host.trim())
+  if (hosts.length === 0 || hosts.some((host) => host.length === 0)) {
+    throw new CliUsageError('ACP_HOST/--host must contain one or more non-empty hosts')
+  }
+
+  for (const host of hosts) {
+    if (DISALLOWED_BIND_HOSTS.has(host)) {
+      throw new CliUsageError(`ACP_HOST/--host must not bind ${host}; list specific hosts instead`)
+    }
+  }
+
+  return hosts
+}
+
+function formatHostForUrl(host: string): string {
+  return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host
+}
+
+function resolvePrimaryServerBaseUrl(options: AcpServerCliOptions): string {
+  return `http://${formatHostForUrl(resolvePrimaryBindHost(options.host))}:${options.port}`
 }
 
 export async function collectAcpServerStatus(
@@ -301,7 +330,7 @@ export async function collectAcpServerStatus(
     ...(pid !== undefined ? { pid } : {}),
     pidAlive,
     pidPath: paths.pidPath,
-    endpoint: `http://${host}:${port}`,
+    endpoint: `http://${formatHostForUrl(host)}:${port}`,
     endpointResponsive,
   }
 }
@@ -414,8 +443,9 @@ async function startGatewayInProcess(
 ): Promise<GatewayDiscordApp> {
   const jobRunsChannelId = await resolveJobRunsChannelId(env)
   const workActivityChannelId = await resolveWorkActivityChannelId(env)
+  const acpBaseUrl = resolvePrimaryServerBaseUrl(options)
   const app = new GatewayDiscordApp({
-    acpBaseUrl: `http://${options.host}:${options.port}`,
+    acpBaseUrl,
     gatewayId: resolveGatewayId(env),
     discordToken: await resolveDiscordToken(env),
     maxChars: envNumber(['DISCORD_MAX_CHARS'], DEFAULT_MAX_CHARS),
@@ -454,7 +484,7 @@ async function serverForeground(args: readonly string[]): Promise<void> {
     }
 
     writeServerProcessLog('server.listening', {
-      endpoint: `http://${resolved.options.host}:${resolved.options.port}`,
+      endpoint: resolvePrimaryServerBaseUrl(resolved.options),
       pid: process.pid,
       discordGateway: discordEnabled ? resolveGatewayId() : null,
     })

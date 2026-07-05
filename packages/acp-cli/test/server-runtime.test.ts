@@ -12,6 +12,7 @@ import {
 
 describe('acp server runtime', () => {
   const originalRuntimeDir = process.env.ACP_RUNTIME_DIR
+  const originalHost = process.env.ACP_HOST
   const originalLogPath = process.env.ACP_LOG_PATH
   const originalPort = process.env.ACP_PORT
   let tempDir: string | undefined
@@ -30,6 +31,11 @@ describe('acp server runtime', () => {
       process.env.ACP_PORT = undefined
     } else {
       process.env.ACP_PORT = originalPort
+    }
+    if (originalHost === undefined) {
+      process.env.ACP_HOST = undefined
+    } else {
+      process.env.ACP_HOST = originalHost
     }
     if (originalLogPath === undefined) {
       process.env.ACP_LOG_PATH = undefined
@@ -62,8 +68,21 @@ describe('acp server runtime', () => {
     expect(formatAcpServerStatus(status)).toContain('ACP Server Status')
   })
 
+  test('status uses the first host from a comma-separated bind host list', async () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'acp-server-status-'))
+    process.env.ACP_RUNTIME_DIR = tempDir
+    process.env.ACP_HOST = '127.0.0.1,100.73.60.81'
+    process.env.ACP_PORT = '65534'
+
+    const status = await collectAcpServerStatus()
+
+    expect(status.running).toBe(false)
+    expect(status.endpoint).toBe('http://127.0.0.1:65534')
+  })
+
   test('documents the combined HTTP plus Discord process surface', () => {
     expect(renderServerHelp()).toContain('acp server serve')
     expect(renderServerHelp()).toContain('--no-discord')
+    expect(renderServerHelp()).toContain('Comma-separated bind host list')
   })
 })
