@@ -19,9 +19,11 @@
 		<key>ACP_INTERFACE_DB_PATH</key>
 		<string>/Users/lherron/praesidium/var/db/acp-interface.db</string>
 		<key>ACP_JOB_FLOW_EXEC_ALLOWED_CWD_ROOTS</key>
-		<string>/Users/lherron/praesidium/agent-control-plane</string>
+		<string>/Users/lherron/praesidium/agent-control-plane,/Users/lherron/praesidium/agent-loop</string>
 		<key>ACP_JOB_FLOW_EXEC_ENABLED</key>
 		<string>1</string>
+		<key>ACP_JOB_FLOW_EXEC_MAX_TIMEOUT_MS</key>
+		<string>2700000</string>
 		<key>ACP_JOBS_DB_PATH</key>
 		<string></string>
 		<key>ACP_LOG_PATH</key>
