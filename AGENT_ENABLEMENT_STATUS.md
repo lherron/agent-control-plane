@@ -6,15 +6,15 @@ Generated from `agent-enablement.json`. This markdown is a projection, not autho
 
 Rubric: rubric.md@0716846
 Catalog: not-recorded
-AE assessment: 2026-07-03 (agent-enablement/assessments/agent-control-plane/assessment.json)
+AE assessment: 2026-07-05 (agent-enablement/assessments/agent-control-plane/assessment.json)
 PM floor: not swept (etag 0)
 
 ## Profile Summary
 Required: 17
 Frontier: 0
 Deferred: 0
-Open deltas: none
-Failing/open axes: F0, P0, S1, S2, S3, S3.affordanceGating, S4, S5, S6, S7, S8, TC, TD, TD.selfDescribingSurfaceConformance
+Open deltas: delta:add-acp-construct-scaffold, delta:add-guard-admission-ledger, delta:extract-acp-adoption-probe, delta:refine-authority-ingress-dtos
+Failing/open axes: S1, S2, S3.affordanceGating, S8
 
 ## PM Floor Axes
 - none
@@ -26,21 +26,21 @@ Failing/open axes: F0, P0, S1, S2, S3, S3.affordanceGating, S4, S5, S6, S7, S8, 
 - none
 
 ## Depth Axes
-- F0: PARTIAL.NOT_APPLICABLE.open_delta
-- P0: PRESENT.EXERCISED.open_delta
+- F0: PRESENT.UNKNOWN.satisfied.dormant
+- P0: PRESENT.EXERCISED.satisfied.exercised
 - S1: PARTIAL.EXERCISED.open_delta
 - S2: PARTIAL.EXERCISED.open_delta
-- S3: PARTIAL.EXERCISED.open_delta
+- S3: PRESENT.EXERCISED.satisfied.exercised
 - S3.affordanceGating: UNKNOWN.UNKNOWN.targeted
-- S4: PARTIAL.EXERCISED.open_delta
-- S5: ABSENT.NOT_APPLICABLE.open_delta
-- S6: PARTIAL.EXERCISED.open_delta
-- S7: PARTIAL.EXERCISED.open_delta
-- S8: PARTIAL.UNKNOWN.targeted
+- S4: PRESENT.EXERCISED.satisfied.exercised
+- S5: PRESENT.EXERCISED.satisfied.exercised
+- S6: PRESENT.EXERCISED.satisfied.exercised
+- S7: PRESENT.EXERCISED.satisfied.exercised
+- S8: PARTIAL.UNKNOWN.open_delta
 - TA: PRESENT.EXERCISED.satisfied.exercised
 - TB: PRESENT.EXERCISED.satisfied.exercised
-- TC: ABSENT.NOT_APPLICABLE.open_delta
-- TD: PARTIAL.UNKNOWN.open_delta
-- TD.selfDescribingSurfaceConformance: PARTIAL.EXERCISED.open_delta
+- TC: PRESENT.EXERCISED.satisfied.exercised
+- TD: PRESENT.EXERCISED.satisfied.exercised
+- TD.selfDescribingSurfaceConformance: PRESENT.EXERCISED.satisfied.exercised
 - TE: PRESENT.EXERCISED.satisfied.exercised
 - TF: PRESENT.EXERCISED.satisfied.exercised
