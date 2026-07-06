@@ -32,4 +32,16 @@ describe('parseActorFromHeaders', () => {
       id: 'env-system',
     })
   })
+
+  test('rejects array actor body values as non-object actors', () => {
+    expect(() => parseActorFromHeaders(new Headers(), { actor: [] })).toThrow(
+      /actor must be an object/i
+    )
+  })
+
+  test('keeps array x-acp-actor header values outside the JSON grammar', () => {
+    expect(() =>
+      parseActorFromHeaders(new Headers({ 'x-acp-actor': JSON.stringify([]) }), {})
+    ).toThrow(/kind:id or JSON/i)
+  })
 })
