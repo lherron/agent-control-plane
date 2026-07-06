@@ -62,6 +62,44 @@ describe('agent profile seed script', () => {
     expect(readAgents(fixture.dbPath)).toEqual(firstAgents)
     expect(readPfpAssetState(fixture.assetsDir)).toEqual(firstAssets)
   })
+
+  test('can seed through an already-open admin store without competing for the sqlite writer', async () => {
+    const fixture = createFixture()
+    createAgents(fixture.dbPath, ['clod'])
+    const store = openSqliteAdminStore({ dbPath: fixture.dbPath })
+    const { seedAgentProfiles } = await import('../src/seed/seed-agent-profiles.ts')
+    const seedWithDeps = seedAgentProfiles as unknown as (
+      env: NodeJS.ProcessEnv,
+      deps: { adminStore: ReturnType<typeof openSqliteAdminStore> }
+    ) => Promise<{ patchedProfiles: number; copiedAssets: number; skippedMissingAgents: number }>
+
+    let result:
+      | { patchedProfiles: number; copiedAssets: number; skippedMissingAgents: number }
+      | undefined
+    let thrown: string | undefined
+    store.sqlite.exec('BEGIN IMMEDIATE')
+    try {
+      // T-05830 red: drain-depth validation found this seed path can collide with
+      // an already-open ACP admin DB. The helper must reuse an injected store
+      // instead of opening a second sqlite writer for the same file.
+      result = await seedWithDeps(
+        {
+          ...Bun.env,
+          ACP_ADMIN_DB_PATH: fixture.dbPath,
+          ACP_AGENT_ASSETS_DIR: fixture.assetsDir,
+        },
+        { adminStore: store }
+      )
+    } catch (error) {
+      thrown = describeSeedError(error)
+    } finally {
+      store.sqlite.exec('ROLLBACK')
+      store.close()
+    }
+
+    expect(thrown).toBeUndefined()
+    expect(result?.patchedProfiles).toBe(1)
+  }, 12_000)
 })
 
 function createFixture(): { dbPath: string; assetsDir: string } {
@@ -193,4 +231,21 @@ function expectSeedRunSucceeded(run: { exitCode: number; stdout: string; stderr:
       ].join('\n')
     )
   }
+}
+
+function describeSeedError(error: unknown): string {
+  const body = readErrorBody(error)
+  return [
+    error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+    body !== undefined ? JSON.stringify(body) : undefined,
+  ]
+    .filter((line): line is string => line !== undefined && line.length > 0)
+    .join('\n')
+}
+
+function readErrorBody(error: unknown): unknown {
+  if (error === null || typeof error !== 'object' || !('body' in error)) {
+    return undefined
+  }
+  return (error as { body?: unknown }).body
 }
