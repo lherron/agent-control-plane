@@ -98,15 +98,50 @@ rebuild:
     bun run rebuild
 
 # Install dependencies
-install:
+# Linked Git worktrees auto-disable wrapper linking and publish to an isolated worktree
+# artifact channel. Pass force-link=1 only when intentionally repointing local wrappers
+# from a linked worktree.
+install no-sync="" force-sync="" force-link="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    repo_root="$(git rev-parse --show-toplevel)"
+    eval "$(bun scripts/install-policy.ts shell --no-sync="{{ no-sync }}" --force-sync="{{ force-sync }}" --force-link="{{ force-link }}")"
+    echo "[install] context=${PRAESIDIUM_INSTALL_CONTEXT} sync=${PRAESIDIUM_INSTALL_SYNC_MODE} link=${PRAESIDIUM_INSTALL_LINK_MODE} publish=${PRAESIDIUM_INSTALL_PUBLISH_CHANNEL} tag=${PRAESIDIUM_INSTALL_PUBLISH_TAG}"
     bun run clean
     bun install
     bun run install:hooks
     bun run build
+    if [ "$PRAESIDIUM_INSTALL_PUBLISH_CHANNEL" = "worktree" ]; then
+      just publish-worktree
+    else
+      just publish-dev
+    fi
+    if [ "$PRAESIDIUM_INSTALL_LINK_MODE" != "off" ]; then
+      if [ "$PRAESIDIUM_INSTALL_LINK_MODE" = "forced" ]; then
+        echo "[install] WARNING: force-link enabled from ${PRAESIDIUM_INSTALL_CONTEXT}; updating local ACP wrappers"
+      fi
+      ( cd "$repo_root/packages/acp-cli" && bun link )
+      ( cd "$repo_root/packages/acp-server" && bun link )
+      ( cd "$repo_root/packages/wlearn" && bun link )
+    else
+      echo "[install] skipping bun link; linked worktree installs must not update local ACP wrappers"
+    fi
+
+# Publish ordinary ACP package versions to local Verdaccio
+publish-dev:
     bun scripts/publish-local-verdaccio.ts
-    cd packages/acp-cli && bun link
-    cd packages/acp-server && bun link
-    cd packages/wlearn && bun link
+
+# Validate ordinary ACP package publication without publishing
+publish-dev-dry-run:
+    bun scripts/publish-local-verdaccio.ts --dry-run
+
+# Publish isolated linked-worktree ACP package versions to local Verdaccio
+publish-worktree:
+    bun scripts/publish-local-verdaccio.ts --channel worktree
+
+# Validate isolated linked-worktree ACP package versions without publishing
+publish-worktree-dry-run:
+    bun scripts/publish-local-verdaccio.ts --channel worktree --dry-run
 
 # Serve the ACP viewer (live sessions dashboard at /sessions) against the local dev stack
 serve-dashboard:

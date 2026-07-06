@@ -31,12 +31,108 @@ type Manifest = {
   exports?: unknown
 }
 
+type Options = {
+  channel?: 'dev' | 'worktree'
+  dryRun: boolean
+  force: boolean
+  tag?: string
+  version?: string
+}
+
+type RegistryMetadata = {
+  versions?: Record<string, unknown>
+}
+
 function run(cmd: string, args: string[], cwd = ROOT): { status: number; out: string } {
   const result = spawnSync(cmd, args, { cwd, encoding: 'utf8' })
   return {
     status: result.status ?? -1,
     out: `${result.stdout || ''}${result.stderr || ''}`,
   }
+}
+
+function parseArgs(argv: string[]): Options {
+  const options: Options = { dryRun: false, force: false }
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]
+    if (arg === '--dry-run') {
+      options.dryRun = true
+    } else if (arg === '--force') {
+      options.force = true
+    } else if (arg === '--channel') {
+      const value = argv[++i]
+      if (value !== 'dev' && value !== 'worktree') {
+        throw new Error('--channel must be "dev" or "worktree"')
+      }
+      options.channel = value
+    } else if (arg.startsWith('--channel=')) {
+      const value = arg.slice('--channel='.length)
+      if (value !== 'dev' && value !== 'worktree') {
+        throw new Error('--channel must be "dev" or "worktree"')
+      }
+      options.channel = value
+    } else if (arg === '--tag') {
+      const value = argv[++i]
+      if (!value) throw new Error('--tag requires a value')
+      options.tag = value
+    } else if (arg.startsWith('--tag=')) {
+      options.tag = arg.slice('--tag='.length)
+    } else if (arg === '--version') {
+      const value = argv[++i]
+      if (!value) throw new Error('--version requires a value')
+      options.version = value
+    } else if (arg.startsWith('--version=')) {
+      options.version = arg.slice('--version='.length)
+    } else if (arg === '--help' || arg === '-h') {
+      printHelp()
+      process.exit(0)
+    } else {
+      throw new Error(`Unknown argument: ${arg}`)
+    }
+  }
+
+  return options
+}
+
+function printHelp(): void {
+  console.log(`Usage:
+  bun scripts/publish-local-verdaccio.ts [--dry-run]
+  bun scripts/publish-local-verdaccio.ts --channel worktree [--dry-run]
+  bun scripts/publish-local-verdaccio.ts --version <semver> [--tag <tag>] [--force] [--dry-run]
+
+Default mode republishes each ACP package at its source version tagged latest.
+Worktree channel publishes <base>-worktree.YYYYMMDDHHMMSS.<shortsha> tagged worktree.`)
+}
+
+function isSemver(version: string): boolean {
+  return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version)
+}
+
+function gitShortSha(): string {
+  const result = run('git', ['rev-parse', '--short=12', 'HEAD'])
+  return result.status === 0 && result.out.trim() ? result.out.trim() : 'nogit'
+}
+
+export function timestampVersion(
+  baseVersion: string,
+  channel: 'worktree',
+  now = new Date(),
+  shortSha = gitShortSha()
+): string {
+  const stamp = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+    String(now.getHours()).padStart(2, '0'),
+    String(now.getMinutes()).padStart(2, '0'),
+    String(now.getSeconds()).padStart(2, '0'),
+  ].join('')
+  return `${baseVersion.split('-')[0]}-${channel}.${stamp}.${shortSha}`
+}
+
+function resolveTag(options: Options): string {
+  return options.tag ?? (options.channel === 'worktree' ? 'worktree' : 'latest')
 }
 
 function stripBunConditions(value: unknown): unknown {
@@ -70,7 +166,27 @@ function isNotPublished(output: string): boolean {
   return /E404|404 Not Found|not found/i.test(output)
 }
 
+async function registryMetadata(name: string): Promise<RegistryMetadata | undefined> {
+  const response = await fetch(`${REGISTRY.replace(/\/$/, '')}/${encodeURIComponent(name)}`)
+  if (!response.ok) return undefined
+  return (await response.json()) as RegistryMetadata
+}
+
+async function versionExists(name: string, version: string): Promise<boolean> {
+  const metadata = await registryMetadata(name)
+  return Boolean(metadata?.versions?.[version])
+}
+
 async function packForPublish(rel: string): Promise<{
+  name: string
+  version: string
+  tarballPath: string
+  tmp: string
+}>
+async function packForPublish(
+  rel: string,
+  versionOverride?: string
+): Promise<{
   name: string
   version: string
   tarballPath: string
@@ -87,9 +203,11 @@ async function packForPublish(rel: string): Promise<{
     if (!manifest.name || !manifest.version) {
       throw new Error(`${rel}/package.json must include name and version`)
     }
+    const publishVersion = versionOverride ?? manifest.version
 
     const publishManifest = {
       ...manifest,
+      version: publishVersion,
       exports: stripBunConditions(manifest.exports),
     }
     publishManifest.private = undefined
@@ -128,7 +246,7 @@ async function packForPublish(rel: string): Promise<{
       throw new Error(`${manifest.name} tarball still has private=true`)
     }
 
-    return { name: manifest.name, version: manifest.version, tarballPath, tmp }
+    return { name: manifest.name, version: publishVersion, tarballPath, tmp }
   } catch (error) {
     if (tmp) await rm(tmp, { recursive: true, force: true })
     throw error
@@ -137,14 +255,37 @@ async function packForPublish(rel: string): Promise<{
   }
 }
 
-async function publishPackage(rel: string): Promise<void> {
-  const packed = await packForPublish(rel)
+async function publishPackage(
+  rel: string,
+  options: Options,
+  publishTag: string,
+  versionOverride?: string
+): Promise<void> {
+  const packed = await packForPublish(rel, versionOverride)
   const id = `${packed.name}@${packed.version}`
 
   try {
-    const unpublish = run('npm', ['unpublish', packed.name, '--force', '--registry', REGISTRY])
-    if (unpublish.status !== 0 && !isNotPublished(unpublish.out)) {
-      throw new Error(`npm unpublish failed for ${packed.name}: ${unpublish.out}`)
+    if (options.dryRun) {
+      console.log(`DRY_RUN  ${id} --tag ${publishTag}`)
+      return
+    }
+
+    if (options.channel === 'worktree') {
+      const exists = await versionExists(packed.name, packed.version)
+      if (exists && !options.force) {
+        throw new Error(`${id} already exists in ${REGISTRY}; use --force to replace it`)
+      }
+      if (exists && options.force) {
+        const unpublish = run('npm', ['unpublish', id, '--force', '--registry', REGISTRY])
+        if (unpublish.status !== 0 && !isNotPublished(unpublish.out)) {
+          throw new Error(`npm unpublish failed for ${id}: ${unpublish.out}`)
+        }
+      }
+    } else {
+      const unpublish = run('npm', ['unpublish', packed.name, '--force', '--registry', REGISTRY])
+      if (unpublish.status !== 0 && !isNotPublished(unpublish.out)) {
+        throw new Error(`npm unpublish failed for ${packed.name}: ${unpublish.out}`)
+      }
     }
 
     const publish = run('npm', [
@@ -153,6 +294,8 @@ async function publishPackage(rel: string): Promise<void> {
       '--ignore-scripts',
       '--registry',
       REGISTRY,
+      '--tag',
+      publishTag,
     ])
     if (publish.status !== 0) {
       throw new Error(`npm publish failed for ${id}: ${publish.out}`)
@@ -163,22 +306,43 @@ async function publishPackage(rel: string): Promise<void> {
       throw new Error(`npm view failed after publishing ${id}: ${view.out}`)
     }
 
-    console.log(`PUBLISHED  ${id}`)
+    console.log(`PUBLISHED  ${id} --tag ${publishTag}`)
   } finally {
     await rm(packed.tmp, { recursive: true, force: true })
   }
 }
 
-async function main() {
+async function main(argv = process.argv.slice(2)) {
+  const options = parseArgs(argv)
+  const publishTag = resolveTag(options)
   const ping = run('npm', ['ping', '--registry', REGISTRY])
   if (ping.status !== 0) {
     throw new Error(`Verdaccio is not reachable at ${REGISTRY}: ${ping.out}`)
   }
 
-  console.log(`Publishing ${PACKAGES.length} ACP package(s) to ${REGISTRY}`)
+  const firstManifest = (await Bun.file(join(ROOT, PACKAGES[0], 'package.json')).json()) as Manifest
+  if (!firstManifest.version) {
+    throw new Error(`${PACKAGES[0]}/package.json must include version`)
+  }
+  const versionOverride =
+    options.version ??
+    (options.channel === 'worktree'
+      ? timestampVersion(firstManifest.version, 'worktree')
+      : undefined)
+  if (versionOverride && !isSemver(versionOverride)) {
+    throw new Error(`Publish version must be valid semver: ${versionOverride}`)
+  }
+
+  const mode = options.dryRun ? 'Dry-run publishing' : 'Publishing'
+  const versionLabel = versionOverride ?? 'source manifest versions'
+  console.log(
+    `${mode} ${PACKAGES.length} ACP package(s) as ${versionLabel} --tag ${publishTag} to ${REGISTRY}`
+  )
   for (const rel of PACKAGES) {
-    await publishPackage(rel)
+    await publishPackage(rel, options, publishTag, versionOverride)
   }
 }
 
-await main()
+if (import.meta.main) {
+  await main()
+}
