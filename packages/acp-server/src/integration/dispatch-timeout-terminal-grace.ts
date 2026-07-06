@@ -24,6 +24,17 @@ export function terminalCorrelationGraceMs(config: TerminalCorrelationGraceConfi
   return config.terminalCorrelationGraceMs ?? Math.max(config.intervalMs * 2, 5_000)
 }
 
+function terminalCorrelationGraceExpiresAt(
+  evidence: RecentlyCompletedHrcRunEvidence,
+  config: TerminalCorrelationGraceConfig
+): string | undefined {
+  const completedMs = Date.parse(evidence.completedAt)
+  if (Number.isNaN(completedMs)) {
+    return undefined
+  }
+  return new Date(completedMs + terminalCorrelationGraceMs(config)).toISOString()
+}
+
 export function hasActiveTerminalCorrelationGrace(run: StoredRun, nowMs = Date.now()): boolean {
   const marker = readTerminalCorrelationGraceMarker(run)
   return marker !== undefined && Date.parse(marker.expiresAt) > nowMs
@@ -85,6 +96,11 @@ export function protectWithTerminalCorrelationGrace(input: {
     return false
   }
 
+  const expiresAt = terminalCorrelationGraceExpiresAt(evidence, input.config)
+  if (expiresAt === undefined || Date.parse(expiresAt) <= nowMs) {
+    return false
+  }
+
   if (input.runStore !== undefined) {
     const observedAt = new Date(nowMs).toISOString()
     input.runStore.updateRun(run.runId, {
@@ -95,7 +111,7 @@ export function protectWithTerminalCorrelationGrace(input: {
           acceptedAt: evidence.acceptedAt,
           completedAt: evidence.completedAt,
           observedAt,
-          expiresAt: new Date(nowMs + terminalCorrelationGraceMs(input.config)).toISOString(),
+          expiresAt,
         } satisfies TerminalCorrelationGraceMarker,
       },
     })
