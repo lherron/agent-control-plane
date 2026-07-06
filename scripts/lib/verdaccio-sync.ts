@@ -17,6 +17,7 @@ const TAG_SPECIFIER = 'latest'
 
 type Manifest = {
   name?: string
+  workspaces?: string[]
   dependencies?: Record<string, string>
   devDependencies?: Record<string, string>
   peerDependencies?: Record<string, string>
@@ -41,6 +42,14 @@ export type SyncSpec = {
   lockName: string
   /** Coherence groups; each must resolve to a single shared latest version. */
   groups: readonly CoherenceGroup[]
+  /**
+   * Optional manifest discovery override. Defaults to the repo root plus every
+   * packages/* member. Repos with apps/* or other workspace roots should pass
+   * `workspaceManifestPaths`.
+   */
+  manifestPaths?: (root: string) => Promise<string[]>
+  /** Tmp-dir prefix for the isolated install bunfig (default 'verdaccio-sync-'). */
+  tmpPrefix?: string
 }
 
 function sleep(ms: number): Promise<void> {
@@ -110,25 +119,48 @@ async function resolveLatest(groups: readonly CoherenceGroup[]): Promise<Map<str
   return latest
 }
 
-/**
- * Manifests that may reference synced packages. Includes the ROOT package.json:
- * it is where the ASP/HRC deps are declared, and scanning only packages/* left
- * those root refs frozen so the sync could never advance them — bun install kept
- * reinstalling the stale version and verify failed every run. (looper fix, T-05379)
- */
-async function packageManifestPaths(): Promise<string[]> {
-  const packageDirs = await readdir(join(ROOT, 'packages'), { withFileTypes: true })
+/** Default discovery: repo root + every packages/* member manifest. */
+export async function packagesManifestPaths(root: string): Promise<string[]> {
+  const packageDirs = await readdir(join(root, 'packages'), { withFileTypes: true }).catch(() => [])
   const workspacePaths = (
     await Promise.all(
       packageDirs
         .filter((entry) => entry.isDirectory())
         .map(async (entry) => {
-          const path = join(ROOT, 'packages', entry.name, 'package.json')
+          const path = join(root, 'packages', entry.name, 'package.json')
           return (await stat(path).catch(() => undefined))?.isFile() ? path : undefined
         })
     )
   ).filter((path): path is string => path !== undefined)
-  return [join(ROOT, 'package.json'), ...workspacePaths]
+  return [join(root, 'package.json'), ...workspacePaths]
+}
+
+/**
+ * Discovery honoring the root `workspaces` globs (e.g. apps/*, packages/*), for
+ * repos whose synced consumers live outside packages/*. Only the `dir/*` glob
+ * form is supported — the only shape these repos use.
+ */
+export async function workspaceManifestPaths(root: string): Promise<string[]> {
+  const paths = new Set<string>([join(root, 'package.json')])
+  const rootRaw = await readFile(join(root, 'package.json'), 'utf8').catch(() => undefined)
+  const workspaces = rootRaw ? ((JSON.parse(rootRaw) as Manifest).workspaces ?? []) : []
+  for (const pattern of workspaces) {
+    if (pattern.endsWith('/*')) {
+      // Glob member: every immediate subdirectory is a package.
+      const base = join(root, pattern.slice(0, -2))
+      const entries = await readdir(base, { withFileTypes: true }).catch(() => [])
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue
+        const path = join(base, entry.name, 'package.json')
+        if ((await stat(path).catch(() => undefined))?.isFile()) paths.add(path)
+      }
+    } else {
+      // Bare member: the directory is itself the package (e.g. "examples", "loops").
+      const path = join(root, pattern, 'package.json')
+      if ((await stat(path).catch(() => undefined))?.isFile()) paths.add(path)
+    }
+  }
+  return [...paths]
 }
 
 type RewriteResult = { changed: boolean; used: boolean }
@@ -156,12 +188,13 @@ function rewriteDependencySet(
 
 /** Rewrite every synced-package specifier across all manifests; quiet no-op when already correct. */
 async function rewriteManifests(
+  discover: (root: string) => Promise<string[]>,
   latest: Map<string, string>,
   specifierFor: (name: string, version: string) => string
 ): Promise<RewriteResult> {
   let changed = false
   let used = false
-  for (const path of await packageManifestPaths()) {
+  for (const path of await discover(ROOT)) {
     const manifest = JSON.parse(await readFile(path, 'utf8')) as Manifest
     const results = [
       rewriteDependencySet(manifest.dependencies, latest, specifierFor),
@@ -207,11 +240,26 @@ async function verifyInstalled(latest: Map<string, string>, label: string): Prom
   }
 }
 
-async function bunInstallFromVerdaccio(label: string): Promise<void> {
-  const tmp = await mkdtemp(join(tmpdir(), 'acp-verdaccio-sync-'))
+/**
+ * Isolated bunfig for the sync install. Forces minimumReleaseAge = 0 so a
+ * just-published dev version is not age-gated by a global ~/.npmrc, while
+ * preserving the repo's install linker: a `--config` bunfig fully replaces the
+ * repo's, and dropping a `linker = "hoisted"` makes bun relink file: workspace
+ * deps and fail with EEXIST.
+ */
+async function isolatedBunfigContent(): Promise<string> {
+  const repoBunfig = await readFile(join(ROOT, 'bunfig.toml'), 'utf8').catch(() => '')
+  const linker = repoBunfig.match(/^\s*linker\s*=\s*("[^"]*"|'[^']*')/m)?.[1]
+  const lines = ['[install]', 'minimumReleaseAge = 0']
+  if (linker) lines.push(`linker = ${linker}`)
+  return `${lines.join('\n')}\n`
+}
+
+async function bunInstallFromVerdaccio(label: string, tmpPrefix: string): Promise<void> {
+  const tmp = await mkdtemp(join(tmpdir(), tmpPrefix))
   try {
     const bunfig = join(tmp, 'bunfig.toml')
-    await writeFile(bunfig, '[install]\nminimumReleaseAge = 0\n')
+    await writeFile(bunfig, await isolatedBunfigContent())
     // --no-cache bypasses bun's manifest cache so we always see Verdaccio's
     // current dist-tags. Without it, a freshly-published dev version can
     // "fail to resolve" until the cache TTL expires.
@@ -232,10 +280,10 @@ async function bunInstallFromVerdaccio(label: string): Promise<void> {
  * PRAESIDIUM_SYNC_NO_COMMIT=1.
  *
  * Skipped entirely when GIT_INDEX_FILE is set: that means we were invoked from a
- * git hook (pre-commit runs build → prebuild → this sync), and committing here
- * would move HEAD out from under the in-flight commit and abort it with
- * "cannot lock ref 'HEAD'". The outer commit will carry the lock change instead;
- * if not, the next top-level sync commits it.
+ * git hook (a pre-commit that builds → syncs), and committing here would move
+ * HEAD out from under the in-flight commit and abort it with "cannot lock ref
+ * 'HEAD'". The outer commit will carry the lock change instead; if not, the next
+ * top-level sync commits it.
  */
 function commitLockfile(label: string, summary: string): void {
   if (process.env.PRAESIDIUM_SYNC_NO_COMMIT === '1') return
@@ -276,6 +324,8 @@ function commitLockfile(label: string, summary: string): void {
  * install can make verifyInstalled fail loudly; rerunning the sync converges.
  */
 export async function syncFromVerdaccio(spec: SyncSpec): Promise<void> {
+  const discover = spec.manifestPaths ?? packagesManifestPaths
+  const tmpPrefix = spec.tmpPrefix ?? 'verdaccio-sync-'
   await withLock(join(ROOT, spec.lockName), async () => {
     const latest = await resolveLatest(spec.groups)
     const summary = spec.groups
@@ -283,7 +333,7 @@ export async function syncFromVerdaccio(spec: SyncSpec): Promise<void> {
       .join('  ')
 
     // Enforce the stable tag specifier (also migrates any stray exact pins).
-    const normalized = await rewriteManifests(latest, () => TAG_SPECIFIER)
+    const normalized = await rewriteManifests(discover, latest, () => TAG_SPECIFIER)
     if (!normalized.used) {
       console.log(`${spec.label}_SYNC  ${summary} (no refs)`)
       return
@@ -291,13 +341,13 @@ export async function syncFromVerdaccio(spec: SyncSpec): Promise<void> {
 
     const stale = !(await installedAreLatest(latest))
     if (stale) {
-      await rewriteManifests(latest, (_name, version) => version)
-      await bunInstallFromVerdaccio(spec.label)
-      await rewriteManifests(latest, () => TAG_SPECIFIER)
+      await rewriteManifests(discover, latest, (_name, version) => version)
+      await bunInstallFromVerdaccio(spec.label, tmpPrefix)
+      await rewriteManifests(discover, latest, () => TAG_SPECIFIER)
     }
     if (stale || normalized.changed) {
       // Reconcile bun.lock so it records the tag specifier, not the exact pin.
-      await bunInstallFromVerdaccio(spec.label)
+      await bunInstallFromVerdaccio(spec.label, tmpPrefix)
     }
     await verifyInstalled(latest, spec.label)
     // Only commit churn this run produced — a bun.lock dirtied by someone
