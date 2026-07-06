@@ -8,6 +8,13 @@ const ROOT = resolve(import.meta.dir, '..', '..')
 const REGISTRY = process.env.VERDACCIO_REGISTRY ?? 'http://127.0.0.1:4873/'
 const LOCK_STALE_MS = 120_000
 
+/**
+ * Tracked manifests always carry this dist-tag specifier for synced packages,
+ * never an exact dev-timestamp. The resolved version lives only in bun.lock and
+ * node_modules, so a Verdaccio publish never dirties package.json files.
+ */
+const TAG_SPECIFIER = 'latest'
+
 type Manifest = {
   name?: string
   dependencies?: Record<string, string>
@@ -104,9 +111,9 @@ async function resolveLatest(groups: readonly CoherenceGroup[]): Promise<Map<str
 }
 
 /**
- * Manifests that may pin synced packages. Includes the ROOT package.json: it is
- * where the ASP/HRC deps are pinned, and scanning only packages/* left those
- * root pins frozen so the sync could never advance them — bun install kept
+ * Manifests that may reference synced packages. Includes the ROOT package.json:
+ * it is where the ASP/HRC deps are declared, and scanning only packages/* left
+ * those root refs frozen so the sync could never advance them — bun install kept
  * reinstalling the stale version and verify failed every run. (looper fix, T-05379)
  */
 async function packageManifestPaths(): Promise<string[]> {
@@ -124,20 +131,22 @@ async function packageManifestPaths(): Promise<string[]> {
   return [join(ROOT, 'package.json'), ...workspacePaths]
 }
 
-type SyncResult = { changed: boolean; used: boolean }
+type RewriteResult = { changed: boolean; used: boolean }
 
-function syncDependencySet(
+function rewriteDependencySet(
   deps: Record<string, string> | undefined,
-  latest: Map<string, string>
-): SyncResult {
+  latest: Map<string, string>,
+  specifierFor: (name: string, version: string) => string
+): RewriteResult {
   if (!deps) return { changed: false, used: false }
   let changed = false
   let used = false
   for (const [name, version] of latest) {
     if (deps[name]) {
       used = true
-      if (deps[name] !== version) {
-        deps[name] = version
+      const specifier = specifierFor(name, version)
+      if (deps[name] !== specifier) {
+        deps[name] = specifier
         changed = true
       }
     }
@@ -145,20 +154,23 @@ function syncDependencySet(
   return { changed, used }
 }
 
-async function syncManifests(latest: Map<string, string>): Promise<SyncResult> {
+/** Rewrite every synced-package specifier across all manifests; quiet no-op when already correct. */
+async function rewriteManifests(
+  latest: Map<string, string>,
+  specifierFor: (name: string, version: string) => string
+): Promise<RewriteResult> {
   let changed = false
   let used = false
   for (const path of await packageManifestPaths()) {
     const manifest = JSON.parse(await readFile(path, 'utf8')) as Manifest
     const results = [
-      syncDependencySet(manifest.dependencies, latest),
-      syncDependencySet(manifest.devDependencies, latest),
-      syncDependencySet(manifest.peerDependencies, latest),
-      syncDependencySet(manifest.optionalDependencies, latest),
+      rewriteDependencySet(manifest.dependencies, latest, specifierFor),
+      rewriteDependencySet(manifest.devDependencies, latest, specifierFor),
+      rewriteDependencySet(manifest.peerDependencies, latest, specifierFor),
+      rewriteDependencySet(manifest.optionalDependencies, latest, specifierFor),
     ]
     if (results.some((result) => result.changed)) {
       await writeFile(path, `${JSON.stringify(manifest, null, 2)}\n`)
-      console.log(`UPDATED  ${manifest.name ?? path}`)
       changed = true
     }
     used ||= results.some((result) => result.used)
@@ -213,10 +225,55 @@ async function bunInstallFromVerdaccio(label: string): Promise<void> {
 }
 
 /**
- * Sync a set of locally-published Verdaccio dev packages into this repo: bump
- * every manifest pin (root + packages/*) to the latest coherent dev-timestamp,
- * reinstall when anything moved, and verify node_modules matches. Serialized by
- * a repo-root lock dir so concurrent syncs don't collide.
+ * After a sync advances the resolved versions, bun.lock is the only tracked file
+ * that changed. Commit it immediately (lockfile-only pathspec commit) so worktrees
+ * stay clean for whoever runs next. Failure is tolerated (mid-rebase, concurrent
+ * index lock, ...) — the next sync run retries. Opt out with
+ * PRAESIDIUM_SYNC_NO_COMMIT=1.
+ *
+ * Skipped entirely when GIT_INDEX_FILE is set: that means we were invoked from a
+ * git hook (pre-commit runs build → prebuild → this sync), and committing here
+ * would move HEAD out from under the in-flight commit and abort it with
+ * "cannot lock ref 'HEAD'". The outer commit will carry the lock change instead;
+ * if not, the next top-level sync commits it.
+ */
+function commitLockfile(label: string, summary: string): void {
+  if (process.env.PRAESIDIUM_SYNC_NO_COMMIT === '1') return
+  if (process.env.GIT_INDEX_FILE) return
+  const status = run('git', ['status', '--porcelain', '--', 'bun.lock'])
+  if (status.status !== 0 || status.out.trim() === '') return
+  const commit = run('git', [
+    'commit',
+    '--no-verify',
+    '-m',
+    `chore: sync bun.lock (${summary})`,
+    '--',
+    'bun.lock',
+  ])
+  if (commit.status === 0) {
+    console.log(`COMMITTED  bun.lock (${label} sync)`)
+  } else {
+    console.warn(`WARN  could not auto-commit bun.lock:\n${commit.out.trim()}`)
+  }
+}
+
+/**
+ * Sync a set of locally-published Verdaccio dev packages into this repo.
+ *
+ * Tracked manifests permanently declare synced packages as "latest" (dist-tag
+ * specifier); the resolved dev-timestamp lives only in bun.lock + node_modules.
+ * When Verdaccio's coherent latest differs from what's installed, we advance
+ * deterministically: temporarily pin the exact verified versions, install, then
+ * restore the tag specifier and reinstall so bun.lock records "latest" again.
+ * (bun won't re-resolve a tag already satisfied by the lock, and `bun update`
+ * both rewrites package.json and re-resolves tags outside our coherence check —
+ * hence the pin/restore dance.) The resulting lockfile-only change is
+ * auto-committed. Serialized by a repo-root lock dir so concurrent syncs of the
+ * same stream don't collide.
+ *
+ * Steady state (installed == latest, manifests already tagged) does zero
+ * installs and zero writes. A republish between resolveLatest and the reconcile
+ * install can make verifyInstalled fail loudly; rerunning the sync converges.
  */
 export async function syncFromVerdaccio(spec: SyncSpec): Promise<void> {
   await withLock(join(ROOT, spec.lockName), async () => {
@@ -225,16 +282,27 @@ export async function syncFromVerdaccio(spec: SyncSpec): Promise<void> {
       .map((group) => `${group.label}@${latest.get(group.packages[0])}`)
       .join('  ')
 
-    const { changed, used } = await syncManifests(latest)
-    if (!used) {
+    // Enforce the stable tag specifier (also migrates any stray exact pins).
+    const normalized = await rewriteManifests(latest, () => TAG_SPECIFIER)
+    if (!normalized.used) {
       console.log(`${spec.label}_SYNC  ${summary} (no refs)`)
       return
     }
 
-    if (changed || !(await installedAreLatest(latest))) {
+    const stale = !(await installedAreLatest(latest))
+    if (stale) {
+      await rewriteManifests(latest, (_name, version) => version)
+      await bunInstallFromVerdaccio(spec.label)
+      await rewriteManifests(latest, () => TAG_SPECIFIER)
+    }
+    if (stale || normalized.changed) {
+      // Reconcile bun.lock so it records the tag specifier, not the exact pin.
       await bunInstallFromVerdaccio(spec.label)
     }
     await verifyInstalled(latest, spec.label)
+    // Only commit churn this run produced — a bun.lock dirtied by someone
+    // else's in-flight work is theirs to commit.
+    if (stale || normalized.changed) commitLockfile(spec.label, summary)
     console.log(`${spec.label}_SYNC  ${summary}`)
   })
 }
