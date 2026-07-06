@@ -10,7 +10,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 
 import { withWiredServer } from '../../test/fixtures/wired-server.js'
 import type { LaunchRoleScopedRun, RuntimeResolver } from '../deps.js'
@@ -459,6 +459,23 @@ describe('action:"implement" command-run adapter contract', () => {
 })
 
 describe('verify-launch-intent consumer', () => {
+  const savedAspProject = process.env['ASP_PROJECT']
+
+  beforeEach(() => {
+    // T-05830 red: verify launches may be consumed from a drain-depth worktree
+    // whose directory basename is not the project id. The explicit project
+    // carried by the runner environment must win over cwd fallback.
+    process.env['ASP_PROJECT'] = 'agent-control-plane'
+  })
+
+  afterEach(() => {
+    if (savedAspProject !== undefined) {
+      process.env['ASP_PROJECT'] = savedAspProject
+    } else {
+      Reflect.deleteProperty(process.env, 'ASP_PROJECT')
+    }
+  })
+
   test('v2 claim path claims exact verify candidate, launches once, binds once, and never action.start', async () => {
     const consumeVerifyLaunchIntents = await loadVerifyLaunchConsumer()
     const events: string[] = []
