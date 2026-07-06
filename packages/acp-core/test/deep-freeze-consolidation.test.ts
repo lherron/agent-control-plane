@@ -8,16 +8,16 @@ import {
   deepFreeze,
 } from '../src/index.js'
 
-const repoRoot = process.cwd()
+const acpCoreRoot = join(import.meta.dir, '..')
 
 async function readSource(relativePath: string): Promise<string> {
-  return await Bun.file(join(repoRoot, relativePath)).text()
+  return await Bun.file(join(acpCoreRoot, relativePath)).text()
 }
 
 describe('deep freeze consolidation', () => {
   test('uses one neutral cycle-safe traversal for preset and workflow freezes', async () => {
-    const internalHelperPath = 'packages/acp-core/src/internal/deep-freeze.ts'
-    const internalHelper = Bun.file(join(repoRoot, internalHelperPath))
+    const internalHelperPath = 'src/internal/deep-freeze.ts'
+    const internalHelper = Bun.file(join(acpCoreRoot, internalHelperPath))
 
     // T-04517: workflow and preset may keep typed wrappers, but the recursive
     // object traversal belongs in one neutral internal helper.
@@ -29,8 +29,8 @@ describe('deep freeze consolidation', () => {
 
     const [helperSource, presetSource, workflowSource] = await Promise.all([
       internalHelper.text(),
-      readSource('packages/acp-core/src/models/preset.ts'),
-      readSource('packages/acp-core/src/workflow/index.ts'),
+      readSource('src/models/preset.ts'),
+      readSource('src/workflow/index.ts'),
     ])
 
     expect(helperSource).toContain('WeakSet<object>')
