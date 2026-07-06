@@ -74,9 +74,10 @@ type WorkPacket = {
   skippedReviewRequired: number
 }
 
-const DEFAULT_PROJECT = process.env.ASP_PROJECT || 'agent-control-plane'
 const DEFAULT_CONTAINER = 'refactor-deferred'
 const ROOT = resolve(import.meta.dir, '..')
+const REPO_PROJECT = readRepoProjectId() ?? 'agent-control-plane'
+const DEFAULT_PROJECT = resolveDefaultProject()
 
 const unsafePatterns = [
   /\bUNSAFE\b/i,
@@ -98,6 +99,35 @@ const reviewPatterns = [
   /could change/i,
   /contract change/i,
 ]
+
+export function resolveDefaultProject(envProject = process.env.ASP_PROJECT): string {
+  return normalizeProjectCandidate(envProject, REPO_PROJECT) ?? REPO_PROJECT
+}
+
+function normalizeProjectCandidate(
+  value: string | undefined,
+  repoProject: string
+): string | undefined {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return undefined
+  }
+  if (trimmed.startsWith(`${repoProject}-T-`)) {
+    return repoProject
+  }
+  return trimmed
+}
+
+function readRepoProjectId(): string | undefined {
+  try {
+    const raw = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')) as {
+      name?: unknown
+    }
+    return typeof raw.name === 'string' && raw.name.trim().length > 0 ? raw.name.trim() : undefined
+  } catch {
+    return undefined
+  }
+}
 
 function usage(): string {
   return `Usage:

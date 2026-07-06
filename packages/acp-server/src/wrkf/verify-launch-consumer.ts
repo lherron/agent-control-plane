@@ -1,4 +1,6 @@
-import { basename, dirname } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import type { SessionRef } from 'agent-scope'
 
@@ -10,6 +12,8 @@ import { isRecord, readOptionalString, readRecord } from './value.js'
 const VERIFY_LAUNCH_KIND = 'verify_launch_intent'
 const DEFAULT_LEASE_MS = 60_000
 const DEFAULT_LIMIT = 10
+const DEFAULT_PROJECT = 'agent-control-plane'
+const REPO_ROOT = dirname(dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url))))))
 
 if (process.env['NODE_ENV'] === 'test') {
   const { expect } = await import('bun:test')
@@ -299,9 +303,41 @@ function rawSessionRef(scopeRef: string, laneRef: string): SessionRef {
 }
 
 function resolveProjectSlugFallback(): string {
+  const repoProject = readRepoProjectId() ?? DEFAULT_PROJECT
+  const envProject = normalizeProjectCandidate(process.env['ASP_PROJECT'], repoProject)
+  if (envProject !== undefined) {
+    return envProject
+  }
+
   const cwdBase = basename(process.cwd())
   if (cwdBase === 'acp-server') {
-    return basename(dirname(dirname(process.cwd()))) || 'agent-control-plane'
+    const project = basename(dirname(dirname(process.cwd())))
+    return normalizeProjectCandidate(project, repoProject) ?? repoProject
   }
-  return cwdBase || 'agent-control-plane'
+  return normalizeProjectCandidate(cwdBase, repoProject) ?? repoProject
+}
+
+function normalizeProjectCandidate(
+  value: string | undefined,
+  repoProject: string
+): string | undefined {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return undefined
+  }
+  if (trimmed.startsWith(`${repoProject}-T-`)) {
+    return repoProject
+  }
+  return trimmed
+}
+
+function readRepoProjectId(): string | undefined {
+  try {
+    const raw = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')) as {
+      name?: unknown
+    }
+    return typeof raw.name === 'string' && raw.name.trim().length > 0 ? raw.name.trim() : undefined
+  } catch {
+    return undefined
+  }
 }

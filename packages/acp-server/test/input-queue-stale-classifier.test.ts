@@ -409,6 +409,63 @@ describe('input queue stale pending classifier', () => {
     })
   })
 
+  test('T-05830 terminal HRC evidence whose grace already elapsed does not protect a stale blocker', async () => {
+    // The full-suite flake exposed this boundary: terminal HRC evidence is only
+    // a bounded write-back grace, not a fresh grace window every time the
+    // dispatcher later notices old terminal evidence. The second run is the
+    // negative guard: terminal evidence still protects while its grace is live.
+    const staleSessionRef = {
+      scopeRef: 'agent:smokey:project:agent-control-plane:task:T-05830-stale-terminal:role:red',
+      laneRef: 'main',
+    }
+    const freshSessionRef = {
+      scopeRef: 'agent:smokey:project:agent-control-plane:task:T-05830-fresh-terminal:role:red',
+      laneRef: 'main',
+    }
+    const deps = createDeps({
+      hrcDbPath: '/tmp/hrc-t05830-terminal-grace.sqlite',
+      config: { intervalMs: 60_000, stalePendingRunTimeoutMs: 1, terminalCorrelationGraceMs: 1 },
+      hasInFlightHrcRunSince: () => false,
+      hasRecentlyCompletedHrcRunSince: (_dbPath, hostSessionId, since) => {
+        if (hostSessionId === 'hsid-t05830-stale-terminal') {
+          return {
+            runId: 'hrc-run-t05830-stale-terminal',
+            acceptedAt: new Date(Date.parse(since)).toISOString(),
+            completedAt: new Date(Date.parse(since)).toISOString(),
+          }
+        }
+        if (hostSessionId === 'hsid-t05830-fresh-terminal') {
+          return {
+            runId: 'hrc-run-t05830-fresh-terminal',
+            acceptedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+          }
+        }
+        return undefined
+      },
+    } as Partial<DispatcherDeps>)
+    const staleBlocker = deps.runStore.createRun({ sessionRef: staleSessionRef, status: 'pending' })
+    deps.runStore.updateRun(staleBlocker.runId, {
+      hostSessionId: 'hsid-t05830-stale-terminal',
+    })
+    const freshBlocker = deps.runStore.createRun({ sessionRef: freshSessionRef, status: 'pending' })
+    deps.runStore.updateRun(freshBlocker.runId, {
+      hostSessionId: 'hsid-t05830-fresh-terminal',
+    })
+
+    await letRunBecomeStale()
+    await createInputQueueDispatcher(deps).runOnce()
+
+    expect(deps.runStore.getRun(staleBlocker.runId)).toMatchObject({
+      status: 'failed',
+      errorCode: 'dispatch_timeout',
+    })
+    expect(deps.runStore.getRun(freshBlocker.runId)).toMatchObject({
+      status: 'pending',
+      hostSessionId: 'hsid-t05830-fresh-terminal',
+    })
+  })
+
   test('T-04935 classifier still protects a pending run with a genuinely in-flight HRC turn', async () => {
     // A long-running turn keeps the ACP run pending+no-hrcRunId until dispatchTurn
     // returns; the in-flight HRC run (completed_at IS NULL) must still protect it.

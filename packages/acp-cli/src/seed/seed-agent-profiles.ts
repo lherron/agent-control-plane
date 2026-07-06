@@ -23,18 +23,23 @@ type SeedSummary = {
   skippedMissingAgents: number
 }
 
+type SeedAgentProfilesDeps = {
+  adminStore?: ReturnType<typeof openSqliteAdminStore> | undefined
+}
+
 const packageRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))))
 const repoRoot = dirname(dirname(packageRoot))
 const pfpSourceDir = join(repoRoot, 'packages/acp-viewer/public/pfp')
 
 export async function seedAgentProfiles(
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  deps: SeedAgentProfilesDeps = {}
 ): Promise<SeedSummary> {
   const adminDbPath = env['ACP_ADMIN_DB_PATH'] ?? DEFAULT_ADMIN_DB_PATH
   const agentAssetsDir = env['ACP_AGENT_ASSETS_DIR'] ?? DEFAULT_AGENT_ASSETS_DIR
 
   mkdirSync(dirname(adminDbPath), { recursive: true })
-  const adminStore = openSqliteAdminStore({ dbPath: adminDbPath })
+  const adminStore = deps.adminStore ?? openSqliteAdminStore({ dbPath: adminDbPath })
   try {
     const acpServer = createAcpServer({
       adminStore,
@@ -80,7 +85,9 @@ export async function seedAgentProfiles(
 
     return { patchedProfiles, copiedAssets, skippedMissingAgents }
   } finally {
-    adminStore.close()
+    if (deps.adminStore === undefined) {
+      adminStore.close()
+    }
   }
 }
 

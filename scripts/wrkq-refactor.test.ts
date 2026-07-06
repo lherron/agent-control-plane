@@ -31,6 +31,8 @@ Source: refactor-workflow auto-deferred item. Full audit detail: \`refactor-anal
 
 describe('wrkq-refactor automation helpers', () => {
   test('parseArgs defaults to next against the refactor-deferred container', () => {
+    // T-05830 red: drain-depth worktrees may export a worktree-derived
+    // ASP_PROJECT. The refactor helper must still target the repo project.
     const options = parseArgs([])
 
     expect(options.command).toBe('next')
