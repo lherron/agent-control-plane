@@ -180,11 +180,12 @@ export async function advanceJobFlow(input: AdvanceJobFlowInput): Promise<JobRun
   }
 
   const failedStep = findFirstFailedSequenceStep(jobsStore, jobRun.jobRunId, flow.sequence)
+  const failure = describeFailedStep(failedStep)
   return jobsStore.updateJobRun(jobRun.jobRunId, {
     status: 'failed',
     completedAt: jobRun.completedAt ?? now,
-    errorCode: failedStep?.error?.code ?? 'job_flow_sequence_failed',
-    errorMessage: failedStep?.error?.message ?? 'job flow sequence failed',
+    errorCode: failure.code,
+    errorMessage: failure.message,
     leaseOwner: null,
     leaseExpiresAt: null,
     actor,
@@ -1899,6 +1900,94 @@ function findFirstFailedSequenceStep(
   }
 
   return undefined
+}
+
+const JOB_FAILURE_MESSAGE_MAX = 1024
+
+function describeFailedStep(stepRun: JobStepRunRecord | undefined): {
+  code: string
+  message: string
+} {
+  if (stepRun === undefined) {
+    return { code: 'job_flow_sequence_failed', message: 'job flow sequence failed' }
+  }
+
+  if (stepRun.error !== undefined) {
+    return {
+      code: stepRun.error.code,
+      message: stepRun.error.message,
+    }
+  }
+
+  const execResult = asExecStepResult(stepRun.result)
+  if (execResult !== undefined) {
+    const exitLabel =
+      execResult.exitCode !== null
+        ? `exit ${execResult.exitCode}`
+        : execResult.signal !== undefined
+          ? `signal ${execResult.signal}`
+          : 'no exit code'
+    const output = lastMeaningfulOutputLine(execResult)
+    const detail =
+      output !== undefined ? `exec step ${exitLabel}: ${output}` : `exec step ${exitLabel}`
+    return {
+      code: execResult.timedOut ? 'exec_timeout' : 'exec_exit_code',
+      message: truncateFailureMessage(`${stepRun.phase} step ${stepRun.stepId} failed: ${detail}`),
+    }
+  }
+
+  return {
+    code: 'job_flow_sequence_failed',
+    message: `${stepRun.phase} step ${stepRun.stepId} failed`,
+  }
+}
+
+function asExecStepResult(value: unknown): ExecStepResult | undefined {
+  if (typeof value !== 'object' || value === null) {
+    return undefined
+  }
+  const record = value as Record<string, unknown>
+  if (record['kind'] !== 'exec') {
+    return undefined
+  }
+  return record as unknown as ExecStepResult
+}
+
+function lastMeaningfulOutputLine(result: ExecStepResult): string | undefined {
+  return (
+    lastDiagnosticLine(result.stderr) ??
+    lastDiagnosticLine(result.stdout) ??
+    lastNonEmptyLine(result.stderr) ??
+    lastNonEmptyLine(result.stdout) ??
+    (result.stderrTruncated ? '[stderr truncated]' : undefined) ??
+    (result.stdoutTruncated ? '[stdout truncated]' : undefined)
+  )
+}
+
+function lastDiagnosticLine(value: string): string | undefined {
+  const lines = value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+  return lines
+    .filter((line) =>
+      /\b(error|fail(?:ed|ure)?|dirty|skipping|denied|timeout|timed out)\b/i.test(line)
+    )
+    .at(-1)
+}
+
+function lastNonEmptyLine(value: string): string | undefined {
+  const lines = value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+  return lines.at(-1)
+}
+
+function truncateFailureMessage(value: string): string {
+  return value.length > JOB_FAILURE_MESSAGE_MAX
+    ? `${value.slice(0, JOB_FAILURE_MESSAGE_MAX - 3)}...`
+    : value
 }
 
 function markJobRunRunning(

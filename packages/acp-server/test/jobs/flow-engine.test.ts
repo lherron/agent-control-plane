@@ -2728,4 +2728,39 @@ describe('advanceJobFlow exec resume/replay', () => {
       ])
     })
   })
+
+  test('failed exec step promotes the captured reason to the job run error message', async () => {
+    await withFlowHarness(async ({ deps, jobsStore }) => {
+      const job = createFlowJob(jobsStore, {
+        sequence: [
+          execStep(
+            'select_refactor_task',
+            [
+              'console.log("selected T-05791")',
+              'console.log("Worktree is dirty after selecting a task; skipping agent dispatch.")',
+              'console.log(" M package.json")',
+              'console.log("?? refactor-analysis/legibility-extract-acp-adoption-probe-report.md")',
+              'process.exit(1)',
+            ].join(';')
+          ),
+          agentStep('run', 'must not dispatch after failed exec gate'),
+        ],
+      })
+      const jobRun = createJobRun(jobsStore, job.jobId)
+
+      const advanced = await advanceJobFlow({
+        deps: deps as never,
+        job,
+        jobRun,
+        actor: { kind: 'system', id: 'flow-engine-test' },
+        now: '2026-04-28T12:01:00.000Z',
+      })
+
+      expect(advanced.status).toBe('failed')
+      expect(advanced.errorCode).toBe('exec_exit_code')
+      expect(advanced.errorMessage).toBe(
+        'sequence step select_refactor_task failed: exec step exit 1: Worktree is dirty after selecting a task; skipping agent dispatch.'
+      )
+    })
+  })
 })
