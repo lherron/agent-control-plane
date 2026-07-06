@@ -1,0 +1,12 @@
+[commands]
+# ACP consumes ASP/HRC/@wrkq/client packages from the local Verdaccio registry
+# configured by .npmrc and refreshed by the build pre-scripts. Full operator
+# `just install` also publishes ACP packages to Verdaccio and bun-links acp,
+# acp-server, and wlearn globally; batch worktree install stays worktree-local
+# and deliberately does not publish or relink global binaries.
+#
+# commands.test is the verifier runner family consumed by agent-loop. The full
+# ACP acceptance suite remains `ASP_PROJECT=agent-control-plane bun run test`.
+prep = "bun run install:hooks"
+install = "PRAESIDIUM_SYNC_NO_COMMIT=1 bun install && PRAESIDIUM_SYNC_NO_COMMIT=1 bun run build"
+test = "bun test"
