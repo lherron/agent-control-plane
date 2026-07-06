@@ -1,4 +1,5 @@
 import { hashValue, stableJson, stripUndefinedKeys } from '../internal/canonical-json.js'
+import { deepFreezeValue } from '../internal/deep-freeze.js'
 
 export { stableJson }
 
@@ -473,13 +474,8 @@ function clone<T>(value: T): T {
   return structuredClone(stripUndefinedKeys(value))
 }
 
-function deepFreeze<T>(value: T): T {
-  if (value !== null && typeof value === 'object') {
-    Object.freeze(value)
-    for (const nested of Object.values(value)) {
-      deepFreeze(nested)
-    }
-  }
+const deepFreeze = <T>(value: T): T => {
+  deepFreezeValue(value)
   return value
 }
 

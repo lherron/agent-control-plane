@@ -1,3 +1,4 @@
+import { deepFreezeValue } from '../internal/deep-freeze.js'
 import type { RiskClass } from './task.js'
 
 export interface PhaseGuidance {
@@ -35,26 +36,8 @@ export type DeepReadonly<T> = T extends (...args: never[]) => unknown
       ? { readonly [Key in keyof T]: DeepReadonly<T[Key]> }
       : T
 
-function deepFreezeValue(value: unknown, seen: WeakSet<object>): void {
-  if (value === null || typeof value !== 'object') {
-    return
-  }
-
-  if (seen.has(value)) {
-    return
-  }
-
-  seen.add(value)
-
-  for (const nestedValue of Object.values(value)) {
-    deepFreezeValue(nestedValue, seen)
-  }
-
-  Object.freeze(value)
-}
-
 export function deepFreeze<T>(value: T): DeepReadonly<T> {
-  deepFreezeValue(value, new WeakSet<object>())
+  deepFreezeValue(value)
   return value as DeepReadonly<T>
 }
 
