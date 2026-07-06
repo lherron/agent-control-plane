@@ -58,7 +58,8 @@ Conformance tests live in `tests/conformance/acp-workflow/`.
 
 Use `bun scripts/discover-acp.ts <area> [query]` when you need current route,
 package, handler, command, or public-surface facts from the live tree. Areas are
-`routes`, `packages`, `cli`, and `all`; add `--json` for machine-readable output.
+`routes`, `packages`, `cli`, `adoption`, and `all`; add `--json` for
+machine-readable output.
 
 Examples:
 
@@ -66,6 +67,7 @@ Examples:
 bun scripts/discover-acp.ts routes "GET /v1/tasks/:taskId"
 bun scripts/discover-acp.ts packages acp-server
 bun scripts/discover-acp.ts cli "task timeline"
+bun scripts/discover-acp.ts adoption --json
 ```
 
 ## Enablement Lessons
