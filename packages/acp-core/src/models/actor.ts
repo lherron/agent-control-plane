@@ -1,3 +1,5 @@
+import { isRecord } from '../internal/guards.js'
+
 export type Actor = {
   kind: 'human' | 'agent' | 'system'
   id: string
@@ -18,10 +20,6 @@ export class ActorValidationError extends Error {
     this.name = 'ActorValidationError'
     this.field = field
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
 }
 
 function normalizeActor(actor: Actor): Actor {

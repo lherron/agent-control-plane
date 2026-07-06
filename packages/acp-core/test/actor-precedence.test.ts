@@ -53,4 +53,16 @@ describe('actor precedence parsing', () => {
       )
     ).toThrow(/kind/i)
   })
+
+  test('rejects array actor body values as non-object actors while keeping header grammar unchanged', () => {
+    // T-04515: arrays are not actor records when read from the request body,
+    // but x-acp-actor still only parses kind:id or JSON objects.
+    expect(() => parseActorFromHeaders(new Headers(), { actor: [] })).toThrow(
+      /actor must be an object/i
+    )
+
+    expect(() =>
+      parseActorFromHeaders(new Headers({ 'x-acp-actor': JSON.stringify([]) }), {})
+    ).toThrow(/kind:id or JSON/i)
+  })
 })
