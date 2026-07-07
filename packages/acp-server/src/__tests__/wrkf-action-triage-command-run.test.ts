@@ -208,7 +208,10 @@ describe('action:"triage" command-run adapter contract', () => {
           return LEGACY_LAUNCHED
         },
       }),
-      baseInput()
+      {
+        ...baseInput(),
+        stdinJson: { workerAgent: 'clod' },
+      }
     )
 
     expect(events).toEqual(['action.start', 'launchCommandScopedRun', 'action.bindExternal'])
@@ -227,6 +230,14 @@ describe('action:"triage" command-run adapter contract', () => {
         ASP_PROJECT: 'agent-control-plane',
         HRC_SESSION_REF: SESSION_REF.scopeRef,
         HRC_LANE: SESSION_REF.laneRef,
+      },
+      stdinJson: {
+        workerAgent: 'clod',
+        taskId: TASK_ID,
+        actionRunId: CANNED_ACTION_RUN.actionRunId,
+        wrkfRunId: CANNED_ACTION_RUN.runId,
+        action: ACTION,
+        role: ROLE,
       },
     })
     expect(commandCalls[0]).not.toHaveProperty('prompt')
@@ -569,6 +580,46 @@ describe('action:"triage" command-run rollback boundaries', () => {
 })
 
 describe('POST /v1/wrkf/actions/launch action:"triage" command material security', () => {
+  test('passes stdinJson.workerAgent from HTTP request into configured triage runner input', async () => {
+    const commandCalls: LaunchCommandScopedRunRequest[] = []
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'POST',
+          path: '/v1/wrkf/actions/launch',
+          body: {
+            taskId: TASK_ID,
+            action: ACTION,
+            role: ROLE,
+            lane: 'triage',
+            idempotencyKey: 't-05876-worker-agent',
+            sessionRef: SESSION_REF,
+            stdinJson: { workerAgent: 'clod' },
+          },
+        })
+
+        expect(response.status).toBe(201)
+        expect(commandCalls).toHaveLength(1)
+        expect(commandCalls[0]?.stdinJson).toMatchObject({
+          workerAgent: 'clod',
+          taskId: TASK_ID,
+          action: ACTION,
+          role: ROLE,
+        })
+      },
+      {
+        wrkf: makeFakeWrkfPort(),
+        runtimeResolver: FAKE_RUNTIME_RESOLVER,
+        triageCommandTargetId: CONFIGURED_TRIAGE_TARGET_ID,
+        launchCommandScopedRun: async (request: LaunchCommandScopedRunRequest) => {
+          commandCalls.push(request)
+          return COMMAND_LAUNCHED
+        },
+        launchRoleScopedRun: (async () => LEGACY_LAUNCHED) satisfies LaunchRoleScopedRun,
+      }
+    )
+  })
+
   test('client command/argv/cwd/env cannot choose the runner; success uses only configuredTargetId, otherwise rejects before launch', async () => {
     const events: string[] = []
     const wrkf = makeFakeWrkfPort({

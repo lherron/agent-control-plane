@@ -5,6 +5,7 @@ import { normalizeSessionRef, parseSessionRef } from 'agent-scope'
 import { AcpHttpError, json } from '../http.js'
 import {
   parseJsonBody,
+  readOptionalRecordField,
   readOptionalTrimmedStringField,
   requireRecord,
   requireTrimmedStringField,
@@ -52,6 +53,7 @@ export const handleLaunchWrkfAction: RouteHandler = async ({ request, deps, acto
   rejectUntrustedCommandRole(action, role)
   const lane = readOptionalTrimmedStringField(body, 'lane')
   const initialPrompt = readOptionalTrimmedStringField(body, 'initialPrompt')
+  const stdinJson = readOptionalRecordField(body, 'stdinJson')
   // The authorized actor flows from the actor/authz middleware, not the raw body.
   const resolvedActor = actor ?? deps.defaultActor
   const sessionRef = parseActionSessionRef(body, resolvedActor)
@@ -100,6 +102,7 @@ export const handleLaunchWrkfAction: RouteHandler = async ({ request, deps, acto
         idempotencyKey: requireTrimmedStringField(body, 'idempotencyKey'),
         sessionRef,
         ...(initialPrompt !== undefined ? { initialPrompt } : {}),
+        ...(stdinJson !== undefined ? { stdinJson } : {}),
       }
     )
 
