@@ -11,6 +11,8 @@ const ROOT = resolve(import.meta.dir, '..', '..')
 const { VERDACCIO_REGISTRY } = process.env
 const REGISTRY = VERDACCIO_REGISTRY ?? 'http://127.0.0.1:4873/'
 const LOCK_STALE_MS = 120_000
+const LATEST_MAX_RETRIES = 3
+const LATEST_RETRY_DELAY_MS = 10_000
 
 /**
  * Tracked manifests always carry this dist-tag specifier for synced packages,
@@ -39,6 +41,26 @@ type RegistryMetadata = {
 export type CoherenceGroup = {
   label: string
   packages: readonly string[]
+}
+
+type LatestEntry = readonly [name: string, version: string]
+
+class IncoherentLatestError extends Error {
+  constructor(
+    readonly group: CoherenceGroup,
+    readonly entries: readonly LatestEntry[]
+  ) {
+    super(`${group.label} Verdaccio latest set is incoherent: ${formatLatestEntries(entries)}`)
+    this.name = 'IncoherentLatestError'
+  }
+}
+
+type ResolveLatestOptions = {
+  readLatest?: (name: string) => Promise<string>
+  sleep?: (ms: number) => Promise<void>
+  maxRetries?: number
+  retryDelayMs?: number
+  warn?: (message: string) => void
 }
 
 export type SyncSpec = {
@@ -105,24 +127,54 @@ async function latestVersion(name: string): Promise<string> {
   return latest
 }
 
+function formatLatestEntries(entries: readonly LatestEntry[]): string {
+  return entries.map(([name, version]) => `${name}@${version}`).join(', ')
+}
+
+async function resolveGroupLatest(
+  group: CoherenceGroup,
+  readLatest: (name: string) => Promise<string>
+): Promise<readonly LatestEntry[]> {
+  const entries = await Promise.all(
+    group.packages.map(async (name) => [name, await readLatest(name)] as const)
+  )
+  const versions = new Set(entries.map(([, version]) => version))
+  if (versions.size !== 1) throw new IncoherentLatestError(group, entries)
+  return entries
+}
+
 /** Resolve every group to its single coherent latest version; merge into one map. */
-async function resolveLatest(groups: readonly CoherenceGroup[]): Promise<Map<string, string>> {
+export async function resolveLatestWithRetries(
+  groups: readonly CoherenceGroup[],
+  options: ResolveLatestOptions = {}
+): Promise<Map<string, string>> {
+  const readLatest = options.readLatest ?? latestVersion
+  const sleepFor = options.sleep ?? sleep
+  const maxRetries = options.maxRetries ?? LATEST_MAX_RETRIES
+  const retryDelayMs = options.retryDelayMs ?? LATEST_RETRY_DELAY_MS
+  const warn = options.warn ?? ((message: string) => console.warn(message))
   const latest = new Map<string, string>()
   for (const group of groups) {
-    const entries = await Promise.all(
-      group.packages.map(async (name) => [name, await latestVersion(name)] as const)
-    )
-    const versions = new Set(entries.map(([, version]) => version))
-    if (versions.size !== 1) {
-      throw new Error(
-        `${group.label} Verdaccio latest set is incoherent: ${entries
-          .map(([name, version]) => `${name}@${version}`)
-          .join(', ')}`
-      )
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        const entries = await resolveGroupLatest(group, readLatest)
+        for (const [name, version] of entries) latest.set(name, version)
+        break
+      } catch (error) {
+        if (!(error instanceof IncoherentLatestError) || attempt >= maxRetries) throw error
+        warn(
+          `WARN  ${error.message}; retrying ${group.label} latest sweep (${attempt + 1}/${maxRetries}) in ${retryDelayMs}ms`
+        )
+        await sleepFor(retryDelayMs)
+      }
     }
-    for (const [name, version] of entries) latest.set(name, version)
   }
   return latest
+}
+
+/** Resolve every group to its single coherent latest version; merge into one map. */
+async function resolveLatest(groups: readonly CoherenceGroup[]): Promise<Map<string, string>> {
+  return resolveLatestWithRetries(groups)
 }
 
 /** Default discovery: repo root + every packages/* member manifest. */
