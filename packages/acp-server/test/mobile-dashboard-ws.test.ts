@@ -20,6 +20,7 @@ import {
 // A hardcoded date silently rots: replays older than the policy window get
 // rejected as replay_gap_too_large once enough real time passes.
 const NOW = new Date().toISOString()
+const LARGE_INITIAL_PROMPT = 'mobile-dashboard-heavy-intent-payload '.repeat(1_000)
 const SESSION: HrcSessionRecord = {
   hostSessionId: 'hsid-mobile-dashboard',
   scopeRef: 'agent:larry:project:agent-spaces:task:T-01507',
@@ -29,6 +30,13 @@ const SESSION: HrcSessionRecord = {
   createdAt: NOW,
   updatedAt: NOW,
   ancestorScopeRefs: [],
+  continuation: { provider: 'openai', kind: 'session', key: 'resume-mobile-dashboard' },
+  lastAppliedIntentJson: {
+    placement: { nodeId: 'local' },
+    harness: { harness: 'codex', provider: 'openai' },
+    execution: { preferredMode: 'interactive' },
+    initialPrompt: LARGE_INITIAL_PROMPT,
+  },
 }
 const RUNTIME: HrcRuntimeSnapshot = {
   runtimeId: 'runtime-mobile-dashboard',
@@ -153,6 +161,8 @@ describe('WS /v1/mobile/dashboard', () => {
     expect(sessions).toHaveLength(1)
     expect(sessions[0]!.summaryStatus).toBe('active')
     expect(sessions[0]!.session).toMatchObject({ status: 'active', generation: 1 })
+    expect((sessions[0]!.session as Record<string, unknown>).continuation).toBeUndefined()
+    expect((sessions[0]!.session as Record<string, unknown>).lastAppliedIntent).toBeUndefined()
     expect(sessions[0]!.runtime).toMatchObject({
       runtimeId: RUNTIME.runtimeId,
       activeRunId: RUN.runId,
@@ -161,10 +171,26 @@ describe('WS /v1/mobile/dashboard', () => {
     expect(sessions[0]!.run).toMatchObject({ runId: RUN.runId, status: 'running' })
     expect(JSON.stringify(sessions[0])).not.toContain('wrapperPid')
     expect(JSON.stringify(sessions[0])).not.toContain('childPid')
+    expect(JSON.stringify(sessions[0])).not.toContain(LARGE_INITIAL_PROMPT)
 
     const recent = snapshot.recentEventsBySession as Record<string, SentEnvelope[]>
     const bucket = recent[`${SESSION.hostSessionId}:${SESSION.generation}`]!
     expect(bucket.map((item) => item.hrcSeq)).toEqual([8, 9, 10, 11, 12])
+  })
+
+  test('includes heavyweight session internals only when sessionDetails is requested', async () => {
+    const { ws, sent } = createDashboardSocket({
+      hrcClient: createDashboardClient([event(1)]),
+      url: 'http://acp.local/v1/mobile/dashboard?sessionDetails=true',
+    })
+
+    await openMobileWebSocket(ws)
+
+    const sessions = (sent[0] as Record<string, unknown>).sessions as Array<Record<string, unknown>>
+    const session = sessions[0]!.session as Record<string, unknown>
+    expect(session.continuation).toEqual(SESSION.continuation)
+    expect(session.lastAppliedIntent).toEqual(SESSION.lastAppliedIntentJson)
+    expect(JSON.stringify(session)).toContain(LARGE_INITIAL_PROMPT)
   })
 
   test('summaryStatus becomes inactive when runtime is dead even if session record is active', async () => {

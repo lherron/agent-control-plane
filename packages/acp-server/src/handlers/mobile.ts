@@ -40,6 +40,7 @@ const MAX_MOBILE_SESSION_RUNS = 10_000
 const DEFAULT_DASHBOARD_MAX_REPLAY_EVENTS = 10_000
 const DEFAULT_DASHBOARD_MAX_REPLAY_AGE_MS = 3_600_000
 const MOBILE_WS_PING_INTERVAL_MS = 30_000
+const MOBILE_SESSION_DETAILS_QUERY_PARAM = 'sessionDetails'
 
 type MobileSessionMode = 'interactive' | 'headless'
 type MobileSessionStatus = 'active' | 'stale' | 'inactive'
@@ -305,6 +306,7 @@ function projectSession(input: {
   run?: HrcRunRecord | undefined
   lastEvent?: HrcLifecycleEvent | undefined
   raw?: boolean | undefined
+  includeSessionDetails?: boolean | undefined
 }): MobileSessionSummary {
   const execution = executionMode(input.record, input.runtime)
   const mode = mobileMode(execution, input.runtime)
@@ -349,6 +351,8 @@ function projectSession(input: {
           updatedAt: input.run.updatedAt,
         }
 
+  const includeSessionDetails = input.includeSessionDetails === true || input.raw === true
+
   return {
     sessionRef: sessionRef(input.record.scopeRef, input.record.laneRef),
     displayRef: sessionRef(input.record.scopeRef, input.record.laneRef),
@@ -378,10 +382,10 @@ function projectSession(input: {
       ...(input.record.priorHostSessionId !== undefined
         ? { priorHostSessionId: input.record.priorHostSessionId }
         : {}),
-      ...(input.record.continuation !== undefined
+      ...(includeSessionDetails && input.record.continuation !== undefined
         ? { continuation: input.record.continuation }
         : {}),
-      ...(input.record.lastAppliedIntentJson !== undefined
+      ...(includeSessionDetails && input.record.lastAppliedIntentJson !== undefined
         ? { lastAppliedIntent: input.record.lastAppliedIntentJson }
         : {}),
       createdAt: input.record.createdAt,
@@ -399,6 +403,12 @@ function projectSession(input: {
         }
       : {}),
   }
+}
+
+function parseMobileSessionDetailsFlag(url: URL): boolean {
+  return (
+    parseMobileRawFlag(url) || url.searchParams.get(MOBILE_SESSION_DETAILS_QUERY_PARAM) === 'true'
+  )
 }
 
 function countSessions(sessions: MobileSessionSummary[]): MobileSessionIndex['counts'] {
@@ -482,6 +492,7 @@ async function listMobileSessions(
   const status = url.searchParams.get('status')
   const query = url.searchParams.get('q')?.trim().toLowerCase()
   const raw = parseMobileRawFlag(url)
+  const includeSessionDetails = parseMobileSessionDetailsFlag(url)
 
   const [records, runtimes, latestEvents] = await Promise.all([
     hrcClient.listSessions({
@@ -518,6 +529,7 @@ async function listMobileSessions(
       run: latestRuns.get(generationKey),
       lastEvent: latestEventByHostSessionGeneration.get(generationKey),
       raw,
+      includeSessionDetails,
     })
   })
 
@@ -1137,6 +1149,7 @@ async function projectSessionForDashboardEvent(input: {
   hrcClient: AcpHrcClient
   event: HrcLifecycleEvent
   raw: boolean
+  includeSessionDetails: boolean
 }): Promise<MobileSessionSummary | undefined> {
   const records = await input.hrcClient.listSessions({
     scopeRef: input.event.scopeRef,
@@ -1167,6 +1180,7 @@ async function projectSessionForDashboardEvent(input: {
     run: run ?? undefined,
     lastEvent: lastEvent ?? input.event,
     raw: input.raw,
+    includeSessionDetails: input.includeSessionDetails,
   })
 }
 
@@ -1175,6 +1189,7 @@ async function sendDashboardProjectedEvent(input: {
   hrcClient: AcpHrcClient
   event: HrcLifecycleEvent
   raw: boolean
+  includeSessionDetails: boolean
   seenHrcSeqs: Set<number>
 }): Promise<void> {
   if (input.seenHrcSeqs.has(input.event.hrcSeq)) {
@@ -1192,6 +1207,7 @@ async function sendDashboardProjectedEvent(input: {
     hrcClient: input.hrcClient,
     event: input.event,
     raw: input.raw,
+    includeSessionDetails: input.includeSessionDetails,
   })
   if (session !== undefined) {
     sendMobileJsonEnvelope(input.ws, {
@@ -1210,6 +1226,7 @@ async function openMobileDashboardWebSocket(
 ): Promise<void> {
   const { deps, abortController } = ws.data
   const raw = parseMobileRawFlag(parsedURL)
+  const includeSessionDetails = parseMobileSessionDetailsFlag(parsedURL)
   const fromHrcSeq = parseDashboardReplayCursor(parsedURL)
   const snapshot = await buildMobileDashboardSnapshot(deps, parsedURL)
 
@@ -1257,7 +1274,14 @@ async function openMobileDashboardWebSocket(
         signal: abortController.signal,
       })) {
         if (abortController.signal.aborted || event.hrcSeq > snapshot.cursors.lastHrcSeq) break
-        await sendDashboardProjectedEvent({ ws, hrcClient, event, raw, seenHrcSeqs })
+        await sendDashboardProjectedEvent({
+          ws,
+          hrcClient,
+          event,
+          raw,
+          includeSessionDetails,
+          seenHrcSeqs,
+        })
       }
     }
 
@@ -1267,7 +1291,14 @@ async function openMobileDashboardWebSocket(
       signal: abortController.signal,
     })) {
       if (abortController.signal.aborted) break
-      await sendDashboardProjectedEvent({ ws, hrcClient, event, raw, seenHrcSeqs })
+      await sendDashboardProjectedEvent({
+        ws,
+        hrcClient,
+        event,
+        raw,
+        includeSessionDetails,
+        seenHrcSeqs,
+      })
     }
   } finally {
     clearInterval(pingTimer)
@@ -1576,6 +1607,7 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
   const generation = Number.parseInt(parsedURL.searchParams.get('generation') ?? '', 10)
   let fromMessageSeq = parseMobileMessageCursor(parsedURL)
   const raw = parseMobileRawFlag(parsedURL)
+  const includeSessionDetails = parseMobileSessionDetailsFlag(parsedURL)
   const cursor = parseMobileEventCursor(parsedURL)
   const options = {
     ...cursor,
@@ -1618,6 +1650,7 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
       run: latestRun ?? undefined,
       lastEvent: latestEvents[0],
       raw,
+      includeSessionDetails,
     })
     const [historyEvents, historyMessages] = await Promise.all([
       collectEvents(hrcClient, { ...options, fromSeq: 1, follow: false }, 80),
