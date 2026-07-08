@@ -111,7 +111,7 @@ const evaluateEventJob: EvaluateEventJob = ({ job, event }) => {
   if (trigger.source !== parsed.event.source) return { decision: 'skip', reason: 'match_false' }
   if (!evaluateEventMatch(trigger.match, parsed.event))
     return { decision: 'skip', reason: 'match_false' }
-  const agentPolicy = trigger.originPolicy?.agent ?? 'deny-self'
+  const agentPolicy = trigger.originPolicy?.agent ?? 'deny'
   if (agentPolicy === 'deny' && isAgentOriginEvent(parsed.event))
     return { decision: 'skip', reason: 'agent_origin_blocked' }
   if (agentPolicy === 'deny-self' && isSelfAgentOrigin(parsed.event, job.agentId))
@@ -155,7 +155,9 @@ function isSelfAgentOrigin(
   if (agentId !== undefined) {
     return agentId === jobAgentId
   }
-  return event.origin?.kind === 'agent'
+  // Fail-closed mirror of the server evaluator: inexact agent actors and
+  // actorless kind='agent' events count as self.
+  return (typeof actor === 'string' && actor.startsWith('agent:')) || event.origin?.kind === 'agent'
 }
 
 /** Ingest one event and drain the scheduler, returning the minted runs. */

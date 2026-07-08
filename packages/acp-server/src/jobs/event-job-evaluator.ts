@@ -46,8 +46,10 @@ function evaluateEventJob(job: JobRecord, inboxEvent: InboxEventRecord): EventJo
     return { decision: 'skip', reason: 'match_false' }
   }
 
-  // 2. Origin policy — cascade/loop control. Default blocks only self-loops.
-  const agentPolicy = trigger.originPolicy?.agent ?? 'deny-self'
+  // 2. Origin policy — cascade/loop control. Absent policy keeps the total
+  // agent-origin block; compiled agent-authored hooks carry an explicit
+  // deny-self (daedalus #13229 ruled only the compiled default).
+  const agentPolicy = trigger.originPolicy?.agent ?? 'deny'
   if (agentPolicy === 'deny' && isAgentOriginEvent(event)) {
     return { decision: 'skip', reason: 'agent_origin_blocked' }
   }
@@ -97,7 +99,10 @@ function isSelfAgentOrigin(event: AcpWebhookEvent, jobAgentId: string): boolean 
   if (agentId !== undefined) {
     return agentId === jobAgentId
   }
-  return event.origin?.kind === 'agent'
+  // Fail-closed: any agent-origin event without an exact agent:<id> actor
+  // (kind='agent' with no actor, or a malformed/scoped actor string) must not
+  // pass as safe cross-agent traffic.
+  return isAgentOriginEvent(event)
 }
 
 function parseExactAgentActor(actor: unknown): string | undefined {

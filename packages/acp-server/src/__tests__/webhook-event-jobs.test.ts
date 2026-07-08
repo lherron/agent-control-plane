@@ -297,11 +297,31 @@ describe('admin jobs trigger union', () => {
 })
 
 describe('event job origin policy evaluator', () => {
-  test('deny-self blocks the same agent by default', () => {
+  test('absent policy defaults to deny: all agent-origin events blocked', () => {
     expect(
       evaluateEventOriginPolicy({
         jobAgentId: 'scribe',
+        origin: { actor: 'agent:mable' },
+      })
+    ).toEqual({ decision: 'skip', reason: 'agent_origin_blocked' })
+  })
+
+  test('deny-self blocks the same agent', () => {
+    expect(
+      evaluateEventOriginPolicy({
+        jobAgentId: 'scribe',
+        originPolicy: { agent: 'deny-self' },
         origin: { actor: 'agent:scribe' },
+      })
+    ).toEqual({ decision: 'skip', reason: 'agent_origin_blocked' })
+  })
+
+  test('deny-self blocks inexact agent actor strings fail-closed', () => {
+    expect(
+      evaluateEventOriginPolicy({
+        jobAgentId: 'scribe',
+        originPolicy: { agent: 'deny-self' },
+        origin: { actor: 'agent:mable:project:taskboard' },
       })
     ).toEqual({ decision: 'skip', reason: 'agent_origin_blocked' })
   })

@@ -34,7 +34,7 @@ const evaluateEventJob: EvaluateEventJob = ({ job, event }) => {
   if (!evaluateEventMatch(trigger.match, parsed.event)) {
     return { decision: 'skip', reason: 'match_false' }
   }
-  const agentPolicy = trigger.originPolicy?.agent ?? 'deny-self'
+  const agentPolicy = trigger.originPolicy?.agent ?? 'deny'
   if (agentPolicy === 'deny' && isAgentOriginEvent(parsed.event)) {
     return { decision: 'skip', reason: 'agent_origin_blocked' }
   }
@@ -80,7 +80,9 @@ function isSelfAgentOrigin(
   if (agentId !== undefined) {
     return agentId === jobAgentId
   }
-  return event.origin?.kind === 'agent'
+  // Fail-closed mirror of the server evaluator: inexact agent actors and
+  // actorless kind='agent' events count as self.
+  return (typeof actor === 'string' && actor.startsWith('agent:')) || event.origin?.kind === 'agent'
 }
 
 const wrkqEvent = (overrides: Record<string, unknown> = {}) => ({
@@ -347,14 +349,30 @@ describe('event-claim minting', () => {
     expect(store.getInboxEvent('wrkq:evt_1').event?.status).toBe('processed')
   })
 
-  test('agent-origin policy blocks self by default, allows cross-agent, and preserves deny/allow', async () => {
+  test('agent-origin policy: default deny blocks, deny-self splits self/cross-agent, allow preserved', async () => {
     const store = createInMemoryJobsStore()
-    store.createJob(eventJob({ slug: 'deny-self-same-job' }))
+    store.createJob(
+      eventJob({
+        slug: 'deny-self-same-job',
+        trigger: {
+          kind: 'event',
+          source: 'wrkq',
+          match: { event: 'created', transition: { to: 'idea' } },
+          originPolicy: { agent: 'deny-self' },
+        },
+      })
+    )
     store.createJob(
       eventJob({
         slug: 'deny-self-other-job',
         agentId: 'scribe',
         scopeRef: 'agent:scribe:project:{{project_scope_id}}:task:{{ticket_id}}',
+        trigger: {
+          kind: 'event',
+          source: 'wrkq',
+          match: { event: 'created', transition: { to: 'idea' } },
+          originPolicy: { agent: 'deny-self' },
+        },
       })
     )
     store.createJob(

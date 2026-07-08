@@ -61,7 +61,12 @@ export type ScheduleTrigger = {
 }
 
 export type OriginPolicy = {
-  /** Whether agent-origin (`agent:*`) events may trigger this job. Default 'deny-self'. */
+  /**
+   * Whether agent-origin (`agent:*`) events may trigger this job.
+   * 'deny-self' blocks only the job's own agent (fail-closed on inexact
+   * agent actors). Absent policy defaults to 'deny'; compiled agent-authored
+   * hooks always carry an explicit 'deny-self' (daedalus #13229).
+   */
   agent: 'deny' | 'deny-self' | 'allow'
 }
 
@@ -69,7 +74,7 @@ export type EventTrigger = {
   kind: 'event'
   source: string
   match: EventMatch
-  /** Loop/cascade control. Defaults to { agent: 'deny-self' } when absent. */
+  /** Loop/cascade control. Defaults to { agent: 'deny' } when absent. */
   originPolicy?: OriginPolicy | undefined
   /** Per-(job, resolved target task) cooldown, e.g. "5m", "1h". */
   cooldown?: string | undefined
