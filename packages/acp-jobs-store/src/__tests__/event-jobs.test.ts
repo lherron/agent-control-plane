@@ -38,6 +38,9 @@ const evaluateEventJob: EvaluateEventJob = ({ job, event }) => {
   if (agentPolicy === 'deny' && isAgentOriginEvent(parsed.event)) {
     return { decision: 'skip', reason: 'agent_origin_blocked' }
   }
+  if (agentPolicy === 'deny-self' && isSelfAgentOrigin(parsed.event, job.agentId)) {
+    return { decision: 'skip', reason: 'agent_origin_blocked' }
+  }
   const resolved = resolveEventAction({
     scopeRefTemplate: job.scopeRef,
     laneRefTemplate: job.laneRef,
@@ -66,6 +69,20 @@ const evaluateEventJob: EvaluateEventJob = ({ job, event }) => {
     targetTaskId: resolved.resolved.targetKey,
     ...(cooldownMs !== undefined ? { cooldownMs } : {}),
   }
+}
+
+function isSelfAgentOrigin(
+  event: { origin?: { actor?: string; kind?: string } },
+  jobAgentId: string
+): boolean {
+  const actor = event.origin?.actor
+  const agentId = typeof actor === 'string' ? /^agent:([^:]+)$/.exec(actor)?.[1] : undefined
+  if (agentId !== undefined) {
+    return agentId === jobAgentId
+  }
+  // Fail-closed mirror of the server evaluator: inexact agent actors and
+  // actorless kind='agent' events count as self.
+  return (typeof actor === 'string' && actor.startsWith('agent:')) || event.origin?.kind === 'agent'
 }
 
 const wrkqEvent = (overrides: Record<string, unknown> = {}) => ({
@@ -332,9 +349,45 @@ describe('event-claim minting', () => {
     expect(store.getInboxEvent('wrkq:evt_1').event?.status).toBe('processed')
   })
 
-  test('agent-origin event is blocked by default; opt-in mints (check #4)', async () => {
+  test('agent-origin policy: default deny blocks, deny-self splits self/cross-agent, allow preserved', async () => {
     const store = createInMemoryJobsStore()
-    store.createJob(eventJob({ slug: 'deny-job' }))
+    store.createJob(
+      eventJob({
+        slug: 'deny-self-same-job',
+        trigger: {
+          kind: 'event',
+          source: 'wrkq',
+          match: { event: 'created', transition: { to: 'idea' } },
+          originPolicy: { agent: 'deny-self' },
+        },
+      })
+    )
+    store.createJob(
+      eventJob({
+        slug: 'deny-self-other-job',
+        agentId: 'scribe',
+        scopeRef: 'agent:scribe:project:{{project_scope_id}}:task:{{ticket_id}}',
+        trigger: {
+          kind: 'event',
+          source: 'wrkq',
+          match: { event: 'created', transition: { to: 'idea' } },
+          originPolicy: { agent: 'deny-self' },
+        },
+      })
+    )
+    store.createJob(
+      eventJob({
+        slug: 'deny-job',
+        agentId: 'scribe',
+        scopeRef: 'agent:scribe:project:{{project_scope_id}}:task:{{ticket_id}}',
+        trigger: {
+          kind: 'event',
+          source: 'wrkq',
+          match: { event: 'created', transition: { to: 'idea' } },
+          originPolicy: { agent: 'deny' },
+        },
+      })
+    )
     store.createJob(
       eventJob({
         slug: 'allow-job',
@@ -350,11 +403,11 @@ describe('event-claim minting', () => {
       store,
       adaptWrkqWebhookEvent(wrkqEvent({ origin: { actor: 'agent:clod' } }))
     )
-    expect(runs.filter((r) => r.triggeredBy === 'webhook')).toHaveLength(1)
+    expect(runs.filter((r) => r.triggeredBy === 'webhook')).toHaveLength(2)
 
     const matches = store.listEventJobMatches({ sourceEventId: 'wrkq:evt_1' }).matches
-    const blocked = matches.find((m) => m.outcome === 'skipped')
-    expect(blocked?.reason).toBe('agent_origin_blocked')
+    expect(matches.filter((m) => m.outcome === 'skipped')).toHaveLength(2)
+    expect(matches.filter((m) => m.reason === 'agent_origin_blocked')).toHaveLength(2)
   })
 
   test('template_error on one job does not poison the event for other jobs (check #5)', async () => {

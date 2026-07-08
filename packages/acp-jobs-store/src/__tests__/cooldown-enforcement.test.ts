@@ -114,6 +114,8 @@ const evaluateEventJob: EvaluateEventJob = ({ job, event }) => {
   const agentPolicy = trigger.originPolicy?.agent ?? 'deny'
   if (agentPolicy === 'deny' && isAgentOriginEvent(parsed.event))
     return { decision: 'skip', reason: 'agent_origin_blocked' }
+  if (agentPolicy === 'deny-self' && isSelfAgentOrigin(parsed.event, job.agentId))
+    return { decision: 'skip', reason: 'agent_origin_blocked' }
   const resolved = resolveEventAction({
     scopeRefTemplate: job.scopeRef,
     laneRefTemplate: job.laneRef,
@@ -142,6 +144,20 @@ const evaluateEventJob: EvaluateEventJob = ({ job, event }) => {
     targetTaskId: resolved.resolved.targetKey,
     ...(cooldownMs !== undefined ? { cooldownMs } : {}),
   }
+}
+
+function isSelfAgentOrigin(
+  event: { origin?: { actor?: string; kind?: string } },
+  jobAgentId: string
+): boolean {
+  const actor = event.origin?.actor
+  const agentId = typeof actor === 'string' ? /^agent:([^:]+)$/.exec(actor)?.[1] : undefined
+  if (agentId !== undefined) {
+    return agentId === jobAgentId
+  }
+  // Fail-closed mirror of the server evaluator: inexact agent actors and
+  // actorless kind='agent' events count as self.
+  return (typeof actor === 'string' && actor.startsWith('agent:')) || event.origin?.kind === 'agent'
 }
 
 /** Ingest one event and drain the scheduler, returning the minted runs. */

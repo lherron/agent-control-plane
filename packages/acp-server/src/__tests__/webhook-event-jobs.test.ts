@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import { createInMemoryAdminStore } from 'acp-admin-store'
+import { adaptWrkqWebhookEvent } from 'acp-core'
 import { createInMemoryJobsStore } from 'acp-jobs-store'
 
 import type { Actor } from 'acp-core'
@@ -9,6 +10,7 @@ import { handleCreateAdminJob, handlePatchAdminJob } from '../handlers/admin-job
 import { handleAcpEventWebhook } from '../handlers/webhooks-events.js'
 import { handleWrkqWebhook } from '../handlers/webhooks-wrkq.js'
 import { errorResponse } from '../http.js'
+import { createEventJobEvaluator } from '../jobs/event-job-evaluator.js'
 
 const ACTOR: Actor = { kind: 'system', id: 'test' }
 
@@ -78,6 +80,58 @@ const GUARDED_EVENT_FLOW = {
       input: { content: 'Handle {{ticket_id}}.' },
     },
   ],
+}
+
+function evaluateEventOriginPolicy(input: {
+  jobAgentId?: string
+  originPolicy?: { agent: 'deny' | 'deny-self' | 'allow' }
+  origin?: Record<string, unknown> | undefined
+}) {
+  const store = createInMemoryJobsStore()
+  const jobAgentId = input.jobAgentId ?? 'scribe'
+  const { job } = store.createJob({
+    agentId: jobAgentId,
+    projectId: 'agent-spaces',
+    scopeRef: `agent:${jobAgentId}:project:agent-spaces:task:T-1`,
+    trigger: {
+      kind: 'event',
+      source: 'wrkq',
+      match: { event: 'created' },
+      ...(input.originPolicy !== undefined ? { originPolicy: input.originPolicy } : {}),
+    },
+    input: { content: 'Render T-1' },
+  })
+  const payload =
+    input.origin !== undefined && input.origin['actor'] === undefined
+      ? {
+          schema_version: 1,
+          source: 'wrkq',
+          event_id: 'evt_1',
+          canonical_event_id: 'wrkq:evt_1',
+          event_seq: 1,
+          event: 'created',
+          occurred_at: '2026-07-08T00:00:00Z',
+          origin: input.origin,
+          payload: {},
+        }
+      : adaptWrkqWebhookEvent({
+          schema_version: 2,
+          event_id: 'evt_1',
+          event_seq: 1,
+          event: 'created',
+          occurred_at: '2026-07-08T00:00:00Z',
+          origin: { actor: String(input.origin?.['actor'] ?? 'human:lance') },
+          ticket_id: 'T-1',
+          project_scope_id: 'agent-spaces',
+        })
+  const { event } = store.insertInboxEvent({
+    eventId: 'evt_1',
+    eventSeq: 1,
+    source: 'wrkq',
+    event: 'created',
+    payload,
+  })
+  return createEventJobEvaluator()({ job, event })
 }
 
 describe('admin jobs trigger union', () => {
@@ -239,6 +293,77 @@ describe('admin jobs trigger union', () => {
       deps
     )
     expect(res.status).toBe(400)
+  })
+})
+
+describe('event job origin policy evaluator', () => {
+  test('absent policy defaults to deny: all agent-origin events blocked', () => {
+    expect(
+      evaluateEventOriginPolicy({
+        jobAgentId: 'scribe',
+        origin: { actor: 'agent:mable' },
+      })
+    ).toEqual({ decision: 'skip', reason: 'agent_origin_blocked' })
+  })
+
+  test('deny-self blocks the same agent', () => {
+    expect(
+      evaluateEventOriginPolicy({
+        jobAgentId: 'scribe',
+        originPolicy: { agent: 'deny-self' },
+        origin: { actor: 'agent:scribe' },
+      })
+    ).toEqual({ decision: 'skip', reason: 'agent_origin_blocked' })
+  })
+
+  test('deny-self blocks inexact agent actor strings fail-closed', () => {
+    expect(
+      evaluateEventOriginPolicy({
+        jobAgentId: 'scribe',
+        originPolicy: { agent: 'deny-self' },
+        origin: { actor: 'agent:mable:project:taskboard' },
+      })
+    ).toEqual({ decision: 'skip', reason: 'agent_origin_blocked' })
+  })
+
+  test('deny-self allows other exact agent ids', () => {
+    expect(
+      evaluateEventOriginPolicy({
+        jobAgentId: 'scribe',
+        originPolicy: { agent: 'deny-self' },
+        origin: { actor: 'agent:mable' },
+      }).decision
+    ).toBe('mint')
+  })
+
+  test("deny-self blocks actorless origin.kind='agent' fail-closed", () => {
+    expect(
+      evaluateEventOriginPolicy({
+        jobAgentId: 'scribe',
+        originPolicy: { agent: 'deny-self' },
+        origin: { kind: 'agent' },
+      })
+    ).toEqual({ decision: 'skip', reason: 'agent_origin_blocked' })
+  })
+
+  test('explicit deny still blocks all agent-origin events', () => {
+    expect(
+      evaluateEventOriginPolicy({
+        jobAgentId: 'scribe',
+        originPolicy: { agent: 'deny' },
+        origin: { actor: 'agent:mable' },
+      })
+    ).toEqual({ decision: 'skip', reason: 'agent_origin_blocked' })
+  })
+
+  test('operator allow still permits same-agent origin', () => {
+    expect(
+      evaluateEventOriginPolicy({
+        jobAgentId: 'scribe',
+        originPolicy: { agent: 'allow' },
+        origin: { actor: 'agent:scribe' },
+      }).decision
+    ).toBe('mint')
   })
 })
 
