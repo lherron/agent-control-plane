@@ -395,15 +395,27 @@ describe('validateJobTrigger', () => {
     }
   })
 
-  test('accepts an event trigger with match', () => {
+  test('accepts an event trigger with match and origin policy', () => {
     const result = validateJobTrigger({
       kind: 'event',
       source: 'wrkq',
       match: { event: 'created', transition: { to: 'idea' } },
-      originPolicy: { agent: 'allow' },
+      originPolicy: { agent: 'deny-self' },
       cooldown: '5m',
     })
     expect(result.valid).toBe(true)
+    if (result.valid) {
+      expect(result.trigger.originPolicy?.agent).toBe('deny-self')
+    }
+
+    expect(
+      validateJobTrigger({
+        kind: 'event',
+        source: 'wrkq',
+        match: { event: 'created' },
+        originPolicy: { agent: 'allow' },
+      }).valid
+    ).toBe(true)
   })
 
   test('accepts a generic event trigger source', () => {

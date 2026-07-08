@@ -111,8 +111,10 @@ const evaluateEventJob: EvaluateEventJob = ({ job, event }) => {
   if (trigger.source !== parsed.event.source) return { decision: 'skip', reason: 'match_false' }
   if (!evaluateEventMatch(trigger.match, parsed.event))
     return { decision: 'skip', reason: 'match_false' }
-  const agentPolicy = trigger.originPolicy?.agent ?? 'deny'
+  const agentPolicy = trigger.originPolicy?.agent ?? 'deny-self'
   if (agentPolicy === 'deny' && isAgentOriginEvent(parsed.event))
+    return { decision: 'skip', reason: 'agent_origin_blocked' }
+  if (agentPolicy === 'deny-self' && isSelfAgentOrigin(parsed.event, job.agentId))
     return { decision: 'skip', reason: 'agent_origin_blocked' }
   const resolved = resolveEventAction({
     scopeRefTemplate: job.scopeRef,
@@ -142,6 +144,18 @@ const evaluateEventJob: EvaluateEventJob = ({ job, event }) => {
     targetTaskId: resolved.resolved.targetKey,
     ...(cooldownMs !== undefined ? { cooldownMs } : {}),
   }
+}
+
+function isSelfAgentOrigin(
+  event: { origin?: { actor?: string; kind?: string } },
+  jobAgentId: string
+): boolean {
+  const actor = event.origin?.actor
+  const agentId = typeof actor === 'string' ? /^agent:([^:]+)$/.exec(actor)?.[1] : undefined
+  if (agentId !== undefined) {
+    return agentId === jobAgentId
+  }
+  return event.origin?.kind === 'agent'
 }
 
 /** Ingest one event and drain the scheduler, returning the minted runs. */

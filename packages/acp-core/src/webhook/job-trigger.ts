@@ -61,15 +61,15 @@ export type ScheduleTrigger = {
 }
 
 export type OriginPolicy = {
-  /** Whether agent-origin (`agent:*`) events may trigger this job. Default 'deny'. */
-  agent: 'deny' | 'allow'
+  /** Whether agent-origin (`agent:*`) events may trigger this job. Default 'deny-self'. */
+  agent: 'deny' | 'deny-self' | 'allow'
 }
 
 export type EventTrigger = {
   kind: 'event'
   source: string
   match: EventMatch
-  /** Loop/cascade control. Defaults to { agent: 'deny' } when absent. */
+  /** Loop/cascade control. Defaults to { agent: 'deny-self' } when absent. */
   originPolicy?: OriginPolicy | undefined
   /** Per-(job, resolved target task) cooldown, e.g. "5m", "1h". */
   cooldown?: string | undefined
@@ -388,10 +388,13 @@ export function validateJobTrigger(value: unknown): ValidateJobTriggerResult {
     let originPolicy: OriginPolicy | undefined
     if (value['originPolicy'] !== undefined) {
       const raw = value['originPolicy']
-      if (isRecord(raw) && (raw['agent'] === 'deny' || raw['agent'] === 'allow')) {
+      if (
+        isRecord(raw) &&
+        (raw['agent'] === 'deny' || raw['agent'] === 'deny-self' || raw['agent'] === 'allow')
+      ) {
         originPolicy = { agent: raw['agent'] }
       } else {
-        errors.push("trigger.originPolicy.agent must be 'deny' or 'allow'")
+        errors.push("trigger.originPolicy.agent must be 'deny', 'deny-self', or 'allow'")
       }
     }
 

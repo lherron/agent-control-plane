@@ -1,4 +1,5 @@
 import {
+  type AcpWebhookEvent,
   evaluateEventMatch,
   isAgentOriginEvent,
   parseAcpWebhookEvent,
@@ -45,9 +46,12 @@ function evaluateEventJob(job: JobRecord, inboxEvent: InboxEventRecord): EventJo
     return { decision: 'skip', reason: 'match_false' }
   }
 
-  // 2. Origin policy — cascade/loop control. Default denies agent-origin events.
-  const agentPolicy = trigger.originPolicy?.agent ?? 'deny'
+  // 2. Origin policy — cascade/loop control. Default blocks only self-loops.
+  const agentPolicy = trigger.originPolicy?.agent ?? 'deny-self'
   if (agentPolicy === 'deny' && isAgentOriginEvent(event)) {
+    return { decision: 'skip', reason: 'agent_origin_blocked' }
+  }
+  if (agentPolicy === 'deny-self' && isSelfAgentOrigin(event, job.agentId)) {
     return { decision: 'skip', reason: 'agent_origin_blocked' }
   }
 
@@ -85,4 +89,21 @@ function evaluateEventJob(job: JobRecord, inboxEvent: InboxEventRecord): EventJo
     targetTaskId: resolved.resolved.targetKey,
     ...(cooldownMs !== undefined ? { cooldownMs } : {}),
   }
+}
+
+function isSelfAgentOrigin(event: AcpWebhookEvent, jobAgentId: string): boolean {
+  const actor = event.origin?.actor
+  const agentId = parseExactAgentActor(actor)
+  if (agentId !== undefined) {
+    return agentId === jobAgentId
+  }
+  return event.origin?.kind === 'agent'
+}
+
+function parseExactAgentActor(actor: unknown): string | undefined {
+  if (typeof actor !== 'string') {
+    return undefined
+  }
+  const match = /^agent:([^:]+)$/.exec(actor)
+  return match?.[1]
 }
