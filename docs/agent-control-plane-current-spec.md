@@ -84,6 +84,8 @@ Server CLI/environment options include:
 - `ACP_WRKF_DISABLED=1|true`: bypass wrkf startup for local dev/test.
 - Dispatcher/scheduler knobs:
   `ACP_SCHEDULER_ENABLED`,
+  `ACP_EVENT_CAUSATION_DEPTH_LIMIT` (default `8`; event-hook ancestry walks
+  beyond this are recorded as `causation_depth` skips),
   `ACP_INTERFACE_DISPATCHER_DISPATCH_STALE_TIMEOUT_MS`,
   `ACP_INPUT_QUEUE_STALE_PENDING_RUN_TIMEOUT_MS`,
   `ACP_INPUT_QUEUE_LEASE_TIMEOUT_MS`.

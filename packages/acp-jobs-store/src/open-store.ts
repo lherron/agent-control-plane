@@ -172,6 +172,8 @@ export type EventJobOutcome = 'minted' | 'skipped'
 
 export type EventJobSkipReason =
   | 'agent_origin_blocked'
+  | 'causation_cycle'
+  | 'causation_depth'
   | 'cooldown'
   | 'template_error'
   | 'internal_error'

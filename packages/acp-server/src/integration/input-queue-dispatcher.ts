@@ -17,6 +17,7 @@ import {
   RUNTIME_BUSY_REQUEUE_DELAY_MS,
   isRuntimeBusyError,
 } from '../input-admission/runtime-busy.js'
+import { causationLaunchEnvFromRunMetadata } from '../jobs/causation-env.js'
 import { emitDispatchTimeoutHealthEvent } from '../jobs/health-dispatch-timeout.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
 import {
@@ -570,6 +571,7 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
       promptFromRunMetadata(pendingRun.metadata),
       attachments
     )
+    const causationEnv = causationLaunchEnvFromRunMetadata(pendingRun.metadata)
     const intent = await resolveLaunchIntent(
       {
         runtimeResolver: deps.runtimeResolver,
@@ -580,6 +582,7 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
       {
         initialPrompt: prompt,
         ...(attachments !== undefined ? { attachments } : {}),
+        ...(causationEnv !== undefined ? { env: causationEnv } : {}),
       }
     )
 

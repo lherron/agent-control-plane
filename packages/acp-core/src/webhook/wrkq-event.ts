@@ -13,6 +13,7 @@ export type WrkqWebhookOrigin = {
   /** "human:<slug>" | "agent:<slug>" | "system:<slug>" | "system" */
   actor: string
   run_id?: string | null | undefined
+  causation_ref?: string | undefined
   via?: string | undefined
 }
 
