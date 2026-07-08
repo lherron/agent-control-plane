@@ -51,7 +51,11 @@ import {
 } from './keywords.js'
 import { createLogger } from './logger.js'
 import { type RenderOptions, extractImagesFromFrame, extractMediaRefsFromFrame } from './render.js'
-import { type RunState, SessionEventsManager } from './session-events-manager.js'
+import {
+  type OnRenderCallback,
+  type RunState,
+  SessionEventsManager,
+} from './session-events-manager.js'
 import type {
   DeliveryStreamResponse,
   DiscordInterfaceBinding,
@@ -584,12 +588,10 @@ export class GatewayDiscordApp {
     this.webhooks = createWebhookManager({
       client: this.client as unknown as Parameters<typeof createWebhookManager>[0]['client'],
     })
-    this.sessionEventsManager = new SessionEventsManager(
-      this.gatewayId,
-      (sessionRef, projectId, runId, frame, run) => {
-        this.scheduleProgressEdit(sessionRef, projectId, runId, frame, run)
-      }
-    )
+    const renderCallback: OnRenderCallback = (sessionRef, projectId, runId, frame, run) => {
+      this.scheduleProgressEdit(sessionRef, projectId, runId, frame, run)
+    }
+    this.sessionEventsManager = new SessionEventsManager(this.gatewayId, renderCallback)
     this.onMessageCreateBound = async (message) => {
       try {
         await this.handleMessageCreate(message)

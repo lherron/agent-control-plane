@@ -61,8 +61,13 @@ export type ScheduleTrigger = {
 }
 
 export type OriginPolicy = {
-  /** Whether agent-origin (`agent:*`) events may trigger this job. Default 'deny'. */
-  agent: 'deny' | 'allow'
+  /**
+   * Whether agent-origin (`agent:*`) events may trigger this job.
+   * 'deny-self' blocks only the job's own agent (fail-closed on inexact
+   * agent actors). Absent policy defaults to 'deny'; compiled agent-authored
+   * hooks always carry an explicit 'deny-self' (daedalus #13229).
+   */
+  agent: 'deny' | 'deny-self' | 'allow'
 }
 
 export type EventTrigger = {
@@ -388,10 +393,13 @@ export function validateJobTrigger(value: unknown): ValidateJobTriggerResult {
     let originPolicy: OriginPolicy | undefined
     if (value['originPolicy'] !== undefined) {
       const raw = value['originPolicy']
-      if (isRecord(raw) && (raw['agent'] === 'deny' || raw['agent'] === 'allow')) {
+      if (
+        isRecord(raw) &&
+        (raw['agent'] === 'deny' || raw['agent'] === 'deny-self' || raw['agent'] === 'allow')
+      ) {
         originPolicy = { agent: raw['agent'] }
       } else {
-        errors.push("trigger.originPolicy.agent must be 'deny' or 'allow'")
+        errors.push("trigger.originPolicy.agent must be 'deny', 'deny-self', or 'allow'")
       }
     }
 

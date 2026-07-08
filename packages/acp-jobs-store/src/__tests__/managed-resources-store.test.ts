@@ -103,7 +103,7 @@ const EVENT_HOOK: ApplyManagedJobInput = {
         event: ['updated', 'transitioned'],
         project_scope_id: 'agent-spaces',
         kind: 'task',
-        transition: { to: 'in_progress' },
+        labels: ['needs_smoketest'],
       },
       target: {
         project: '{{ project_scope_id }}',
@@ -112,7 +112,7 @@ const EVENT_HOOK: ApplyManagedJobInput = {
         task: '{{ticket_id}}',
       },
       cooldown: '300s',
-      originPolicy: { agent: 'deny' },
+      originPolicy: { agent: 'deny-self' },
     },
     input: { content: 'Run the smoke-test workflow for {{ticket_id}}.' },
   },
@@ -616,7 +616,7 @@ describe('event-hook cooldown validation (Phase D invariant)', () => {
     expect(trigger.cooldown).toBe('300s')
   })
 
-  test('event-hook stores originPolicy.agent = deny on the trigger', () => {
+  test('event-hook stores originPolicy.agent = deny-self on the trigger', () => {
     const store = freshStore()
     const result = applyManagedJob(store, EVENT_HOOK)
     if (result.outcome !== 'created') throw new Error('expected created')
@@ -624,7 +624,7 @@ describe('event-hook cooldown validation (Phase D invariant)', () => {
     const { job } = store.getJob(result.job.jobId)
     const trigger = job?.trigger
     if (trigger?.kind !== 'event') throw new Error('expected event trigger')
-    expect(trigger.originPolicy?.agent).toBe('deny')
+    expect(trigger.originPolicy?.agent).toBe('deny-self')
   })
 
   test('event-hook with untyped TOML object cooldown is rejected before apply', () => {
@@ -658,7 +658,7 @@ describe('event-hook cooldown validation (Phase D invariant)', () => {
             event: ['updated', 'transitioned'],
             project_scope_id: 'agent-spaces',
             kind: 'task',
-            transition: { to: 'in_progress' },
+            labels: ['needs_smoketest'],
           },
           target: {
             project: '{{ project_scope_id }}',
@@ -667,7 +667,7 @@ describe('event-hook cooldown validation (Phase D invariant)', () => {
             task: '{{ticket_id}}',
           },
           // cooldown intentionally absent — should be rejected
-          originPolicy: { agent: 'deny' },
+          originPolicy: { agent: 'deny-self' },
         },
       },
     }
