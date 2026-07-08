@@ -10,20 +10,32 @@ import {
 import type {
   EvaluateEventJob,
   EventJobEvaluation,
+  EventJobSkipReason,
   InboxEventRecord,
   JobRecord,
+  JobsStore,
 } from 'acp-jobs-store'
+
+export const DEFAULT_CAUSATION_DEPTH_LIMIT = 8
 
 /**
  * Build the pure (event, job) decision function the scheduler injects into its
  * event-claim branch. Order: match → origin policy → fail-closed template
  * resolution. Cooldown is a store-backed backstop applied by the scheduler.
  */
-export function createEventJobEvaluator(): EvaluateEventJob {
-  return ({ job, event }) => evaluateEventJob(job, event)
+export function createEventJobEvaluator(
+  options: { causationDepthLimit?: number | undefined } = {}
+): EvaluateEventJob {
+  const causationDepthLimit = options.causationDepthLimit ?? DEFAULT_CAUSATION_DEPTH_LIMIT
+  return ({ job, event, store }) => evaluateEventJob(job, event, store, causationDepthLimit)
 }
 
-function evaluateEventJob(job: JobRecord, inboxEvent: InboxEventRecord): EventJobEvaluation {
+function evaluateEventJob(
+  job: JobRecord,
+  inboxEvent: InboxEventRecord,
+  store: JobsStore,
+  causationDepthLimit: number
+): EventJobEvaluation {
   const trigger = job.trigger
   if (trigger.kind !== 'event') {
     return { decision: 'skip', reason: 'match_false' }
@@ -57,7 +69,22 @@ function evaluateEventJob(job: JobRecord, inboxEvent: InboxEventRecord): EventJo
     return { decision: 'skip', reason: 'agent_origin_blocked' }
   }
 
-  // 3. Resolve the action fail-closed (templates + SessionRef validation).
+  // 3. Causation-chain loop control. Missing refs, pruned inbox rows, unknown
+  // jrun ids, and malformed rows end the ancestry walk as orphaned/fail-open:
+  // they are not errors and do not skip by themselves. A deliberately forged
+  // valid ref can still suppress a hook via a false cycle; that is accepted
+  // under the existing cooldown-era threat model.
+  const causationSkip = evaluateCausationChain({
+    store,
+    candidateJobId: job.jobId,
+    event,
+    depthLimit: causationDepthLimit,
+  })
+  if (causationSkip !== undefined) {
+    return { decision: 'skip', reason: causationSkip }
+  }
+
+  // 4. Resolve the action fail-closed (templates + SessionRef validation).
   const resolved = resolveEventAction({
     scopeRefTemplate: job.scopeRef,
     laneRefTemplate: job.laneRef,
@@ -91,6 +118,81 @@ function evaluateEventJob(job: JobRecord, inboxEvent: InboxEventRecord): EventJo
     targetTaskId: resolved.resolved.targetKey,
     ...(cooldownMs !== undefined ? { cooldownMs } : {}),
   }
+}
+
+function evaluateCausationChain(input: {
+  store: JobsStore
+  candidateJobId: string
+  event: AcpWebhookEvent
+  depthLimit: number
+}): EventJobSkipReason | undefined {
+  let causationRef = readCausationRef(input.event)
+  if (causationRef === undefined) {
+    return undefined
+  }
+
+  const seen = new Set<string>()
+  let depth = 0
+  while (causationRef !== undefined) {
+    if (seen.has(causationRef)) {
+      return undefined
+    }
+    seen.add(causationRef)
+
+    const jobRun = input.store.getJobRun(causationRef).jobRun
+    if (jobRun === undefined) {
+      return undefined
+    }
+    if (jobRun.jobId === input.candidateJobId) {
+      return 'causation_cycle'
+    }
+
+    depth += 1
+    if (depth > input.depthLimit) {
+      return 'causation_depth'
+    }
+
+    const sourceEventId = readSourceCanonicalEventId(jobRun.source)
+    if (sourceEventId === undefined) {
+      return undefined
+    }
+    const sourceEvent = input.store.getInboxEvent(sourceEventId).event
+    if (sourceEvent === undefined) {
+      return undefined
+    }
+    const parsed = parseAcpWebhookEvent(sourceEvent.payload)
+    if (!parsed.ok) {
+      return undefined
+    }
+    causationRef = readCausationRef(parsed.event)
+  }
+
+  return undefined
+}
+
+function readCausationRef(event: AcpWebhookEvent): string | undefined {
+  const value = event.origin?.causation_ref
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined
+}
+
+function readSourceCanonicalEventId(
+  source: Readonly<Record<string, unknown>> | undefined
+): string | undefined {
+  if (source === undefined || source['kind'] !== 'webhook') {
+    return undefined
+  }
+  const canonicalEventId = source['canonicalEventId']
+  if (typeof canonicalEventId === 'string' && canonicalEventId.trim().length > 0) {
+    return canonicalEventId.trim()
+  }
+  const sourceName = source['source']
+  const eventId = source['eventId']
+  return typeof sourceName === 'string' &&
+    sourceName.trim().length > 0 &&
+    typeof eventId === 'string' &&
+    eventId.trim().length > 0
+    ? `${sourceName.trim()}:${eventId.trim()}`
+    : undefined
 }
 
 function isSelfAgentOrigin(event: AcpWebhookEvent, jobAgentId: string): boolean {

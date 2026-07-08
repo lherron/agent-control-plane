@@ -21,6 +21,7 @@ import {
 } from '../domain/input-admission-stores.js'
 import type { StoredRun } from '../domain/run-store.js'
 import { forbidden } from '../http.js'
+import { causationLaunchEnvFromInputMetadata } from '../jobs/causation-env.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
 import { admissionStatusForRunStatus } from './admission-status.js'
 import { recordInputAdmissionEvent } from './input-admission-events.js'
@@ -1020,6 +1021,7 @@ export class InputAdmissionService {
       }
     }
 
+    const causationEnv = causationLaunchEnvFromInputMetadata(input.metadata)
     const launchIntent =
       input.launch?.intent ??
       (await resolveLaunchIntent(this.deps, input.sessionRef, {
@@ -1027,6 +1029,7 @@ export class InputAdmissionService {
         ...(input.launch?.attachments !== undefined
           ? { attachments: input.launch.attachments }
           : {}),
+        ...(causationEnv !== undefined ? { env: causationEnv } : {}),
       }))
 
     try {
