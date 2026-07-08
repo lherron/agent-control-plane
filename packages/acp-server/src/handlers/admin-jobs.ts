@@ -163,6 +163,7 @@ export async function dispatchJobRunThroughInputs(
     scopeRef: string
     laneRef: string
     content: string
+    causationRef?: string | undefined
     actor?: Actor | undefined
   }
 ): Promise<{ inputAttemptId: string; runId: string }> {
@@ -189,6 +190,9 @@ export async function dispatchJobRunThroughInputs(
             kind: 'job',
             jobId: input.jobId,
             jobRunId: input.jobRunId,
+            // Duplicates jobRunId intentionally: queued input dispatch can
+            // reconstruct launch env from run metadata without joining jobs.
+            ...(input.causationRef !== undefined ? { causationRef: input.causationRef } : {}),
           },
           ...(interfaceSource !== undefined ? { interfaceSource } : {}),
         },

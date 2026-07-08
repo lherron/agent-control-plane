@@ -14,6 +14,7 @@ export type AcpWebhookOrigin = {
   actor?: string | undefined
   kind?: 'human' | 'agent' | 'system' | undefined
   run_id?: string | null | undefined
+  causation_ref?: string | undefined
   via?: string | undefined
   [key: string]: unknown
 }
@@ -59,15 +60,20 @@ function parseOrigin(value: unknown): AcpWebhookOrigin | undefined | string {
   }
   const actor = value['actor']
   const kind = value['kind']
+  const causationRef = value['causation_ref']
   if (actor !== undefined && typeof actor !== 'string') {
     return 'origin.actor must be a string when present'
   }
   if (kind !== undefined && kind !== 'human' && kind !== 'agent' && kind !== 'system') {
     return "origin.kind must be 'human', 'agent', or 'system' when present"
   }
+  if (causationRef !== undefined && typeof causationRef !== 'string') {
+    return 'origin.causation_ref must be a string when present'
+  }
   return {
     ...value,
     ...(typeof actor === 'string' ? { actor } : {}),
+    ...(typeof causationRef === 'string' ? { causation_ref: causationRef } : {}),
     ...(kind === 'human' || kind === 'agent' || kind === 'system'
       ? { kind }
       : typeof actor === 'string' && actorKind(actor) !== undefined

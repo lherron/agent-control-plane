@@ -47,7 +47,10 @@ import {
   readObjectRecord as readRecord,
   readOptionalNonEmptyString as readString,
 } from './internal/read-helpers.js'
-import { createEventJobEvaluator } from './jobs/event-job-evaluator.js'
+import {
+  DEFAULT_CAUSATION_DEPTH_LIMIT,
+  createEventJobEvaluator,
+} from './jobs/event-job-evaluator.js'
 import { advanceJobFlow } from './jobs/flow-engine.js'
 import { ensureDispatchTimeoutHealthJob } from './jobs/health-dispatch-timeout.js'
 import { createJobLifecycleEmitter } from './jobs/lifecycle-events.js'
@@ -88,6 +91,7 @@ const DEFAULT_INTERFACE_DISPATCHER_DISPATCH_STALE_TIMEOUT_MS = 45_000
 const DEFAULT_INPUT_QUEUE_DISPATCHER_INTERVAL_MS = 2_000
 const DEFAULT_INPUT_QUEUE_STALE_PENDING_RUN_TIMEOUT_MS = 45_000
 const DEFAULT_INPUT_QUEUE_LEASE_TIMEOUT_MS = 600_000
+const EVENT_CAUSATION_DEPTH_LIMIT_ENV = 'ACP_EVENT_CAUSATION_DEPTH_LIMIT'
 const ACP_SERVER_VERSION = '0.1.0'
 const TRIAGE_COMMAND_TARGET_ID_ENV = 'ACP_TRIAGE_COMMAND_TARGET_ID'
 const IMPL_COMMAND_TARGET_ID_ENV = 'ACP_IMPL_COMMAND_TARGET_ID'
@@ -1127,6 +1131,8 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
   }
 
   const schedulerEnabled = isEnabledEnvFlag(process.env['ACP_SCHEDULER_ENABLED'])
+  const eventCausationDepthLimit =
+    readPositiveIntegerEnv(EVENT_CAUSATION_DEPTH_LIMIT_ENV) ?? DEFAULT_CAUSATION_DEPTH_LIMIT
   const jobsScheduler =
     jobsStore !== undefined && schedulerEnabled
       ? createJobsScheduler({
@@ -1138,7 +1144,9 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
               job: entry.job,
               jobRun: entry.jobRun,
             }),
-          evaluateEventJob: createEventJobEvaluator(),
+          evaluateEventJob: createEventJobEvaluator({
+            causationDepthLimit: eventCausationDepthLimit,
+          }),
         })
       : undefined
   const jobLifecycleEmitter =

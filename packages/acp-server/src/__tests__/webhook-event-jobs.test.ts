@@ -131,7 +131,80 @@ function evaluateEventOriginPolicy(input: {
     event: 'created',
     payload,
   })
-  return createEventJobEvaluator()({ job, event })
+  return createEventJobEvaluator()({ job, event, store })
+}
+
+function createAllowEventJob(
+  store: ReturnType<typeof createInMemoryJobsStore>,
+  input: { slug: string; agentId: string }
+) {
+  return store.createJob({
+    slug: input.slug,
+    agentId: input.agentId,
+    projectId: 'agent-spaces',
+    scopeRef: `agent:${input.agentId}:project:agent-spaces:task:T-1`,
+    trigger: {
+      kind: 'event',
+      source: 'wrkq',
+      match: { event: 'created' },
+      originPolicy: { agent: 'allow' },
+    },
+    input: { content: 'Render T-1' },
+  }).job
+}
+
+function wrkqCreatedPayload(input: {
+  eventId: string
+  eventSeq: number
+  causationRef?: string | undefined
+}) {
+  return adaptWrkqWebhookEvent({
+    schema_version: 2,
+    event_id: input.eventId,
+    event_seq: input.eventSeq,
+    event: 'created',
+    occurred_at: '2026-07-08T00:00:00Z',
+    origin: {
+      actor: 'agent:hook-author',
+      ...(input.causationRef !== undefined ? { causation_ref: input.causationRef } : {}),
+    },
+    ticket_id: 'T-1',
+    project_scope_id: 'agent-spaces',
+  })
+}
+
+function insertWrkqEvent(
+  store: ReturnType<typeof createInMemoryJobsStore>,
+  input: { eventId: string; eventSeq: number; causationRef?: string | undefined }
+) {
+  const payload = wrkqCreatedPayload(input)
+  return store.insertInboxEvent({
+    eventId: input.eventId,
+    eventSeq: input.eventSeq,
+    source: 'wrkq',
+    event: 'created',
+    payload,
+  }).event
+}
+
+function appendWebhookRun(
+  store: ReturnType<typeof createInMemoryJobsStore>,
+  input: { jobId: string; eventId: string; eventSeq: number; jobRunId?: string | undefined }
+) {
+  return store.appendJobRun({
+    jobId: input.jobId,
+    triggeredAt: `2026-07-08T00:00:0${input.eventSeq}.000Z`,
+    triggeredBy: 'webhook',
+    status: 'dispatched',
+    source: {
+      kind: 'webhook',
+      source: 'wrkq',
+      eventId: input.eventId,
+      canonicalEventId: `wrkq:${input.eventId}`,
+      eventSeq: input.eventSeq,
+    },
+    ...(input.jobRunId !== undefined ? { jobRunId: input.jobRunId } : {}),
+  }).jobRun
 }
 
 describe('admin jobs trigger union', () => {
@@ -364,6 +437,132 @@ describe('event job origin policy evaluator', () => {
         origin: { actor: 'agent:scribe' },
       }).decision
     ).toBe('mint')
+  })
+})
+
+describe('event job causation-chain evaluator', () => {
+  test('A->B->A skips the second A dispatch with causation_cycle', () => {
+    const store = createInMemoryJobsStore()
+    const jobA = createAllowEventJob(store, { slug: 'job-a', agentId: 'scribe' })
+    const jobB = createAllowEventJob(store, { slug: 'job-b', agentId: 'mable' })
+    insertWrkqEvent(store, { eventId: 'evt_a_first', eventSeq: 1 })
+    const runA = appendWebhookRun(store, {
+      jobId: jobA.jobId,
+      eventId: 'evt_a_first',
+      eventSeq: 1,
+    })
+    insertWrkqEvent(store, {
+      eventId: 'evt_b_from_a',
+      eventSeq: 2,
+      causationRef: runA.jobRunId,
+    })
+    const runB = appendWebhookRun(store, {
+      jobId: jobB.jobId,
+      eventId: 'evt_b_from_a',
+      eventSeq: 2,
+    })
+    const candidate = insertWrkqEvent(store, {
+      eventId: 'evt_a_second',
+      eventSeq: 3,
+      causationRef: runB.jobRunId,
+    })
+
+    expect(createEventJobEvaluator()({ job: jobA, event: candidate, store })).toEqual({
+      decision: 'skip',
+      reason: 'causation_cycle',
+    })
+  })
+
+  test('deep linear ancestry skips with causation_depth at N+1', () => {
+    const store = createInMemoryJobsStore()
+    const candidateJob = createAllowEventJob(store, { slug: 'candidate', agentId: 'scribe' })
+    const ancestorJob = createAllowEventJob(store, { slug: 'ancestor', agentId: 'mable' })
+    insertWrkqEvent(store, { eventId: 'evt_1', eventSeq: 1 })
+    const run1 = appendWebhookRun(store, {
+      jobId: ancestorJob.jobId,
+      eventId: 'evt_1',
+      eventSeq: 1,
+    })
+    insertWrkqEvent(store, { eventId: 'evt_2', eventSeq: 2, causationRef: run1.jobRunId })
+    const run2 = appendWebhookRun(store, {
+      jobId: ancestorJob.jobId,
+      eventId: 'evt_2',
+      eventSeq: 2,
+    })
+    insertWrkqEvent(store, { eventId: 'evt_3', eventSeq: 3, causationRef: run2.jobRunId })
+    const run3 = appendWebhookRun(store, {
+      jobId: ancestorJob.jobId,
+      eventId: 'evt_3',
+      eventSeq: 3,
+    })
+    const candidate = insertWrkqEvent(store, {
+      eventId: 'evt_4',
+      eventSeq: 4,
+      causationRef: run3.jobRunId,
+    })
+
+    expect(
+      createEventJobEvaluator({ causationDepthLimit: 2 })({
+        job: candidateJob,
+        event: candidate,
+        store,
+      })
+    ).toEqual({ decision: 'skip', reason: 'causation_depth' })
+  })
+
+  test('unknown forged causation refs are orphaned and evaluate normally', () => {
+    const store = createInMemoryJobsStore()
+    const job = createAllowEventJob(store, { slug: 'candidate', agentId: 'scribe' })
+    const event = insertWrkqEvent(store, {
+      eventId: 'evt_unknown',
+      eventSeq: 1,
+      causationRef: 'jrun_forged_missing',
+    })
+
+    expect(createEventJobEvaluator()({ job, event, store }).decision).toBe('mint')
+  })
+
+  test('missing source inbox rows end the chain without a skip', () => {
+    const store = createInMemoryJobsStore()
+    const job = createAllowEventJob(store, { slug: 'candidate', agentId: 'scribe' })
+    const ancestor = createAllowEventJob(store, { slug: 'ancestor', agentId: 'mable' })
+    const run = appendWebhookRun(store, {
+      jobId: ancestor.jobId,
+      eventId: 'evt_pruned',
+      eventSeq: 1,
+    })
+    const event = insertWrkqEvent(store, {
+      eventId: 'evt_candidate',
+      eventSeq: 2,
+      causationRef: run.jobRunId,
+    })
+
+    expect(createEventJobEvaluator()({ job, event, store }).decision).toBe('mint')
+  })
+
+  test('self-referencing store rows terminate via seen-set without crashing', () => {
+    const store = createInMemoryJobsStore()
+    const job = createAllowEventJob(store, { slug: 'candidate', agentId: 'scribe' })
+    const ancestor = createAllowEventJob(store, { slug: 'ancestor', agentId: 'mable' })
+    const loopRunId = 'jrun_self_reference'
+    insertWrkqEvent(store, {
+      eventId: 'evt_loop',
+      eventSeq: 1,
+      causationRef: loopRunId,
+    })
+    const run = appendWebhookRun(store, {
+      jobRunId: loopRunId,
+      jobId: ancestor.jobId,
+      eventId: 'evt_loop',
+      eventSeq: 1,
+    })
+    const event = insertWrkqEvent(store, {
+      eventId: 'evt_candidate',
+      eventSeq: 2,
+      causationRef: run.jobRunId,
+    })
+
+    expect(createEventJobEvaluator()({ job, event, store }).decision).toBe('mint')
   })
 })
 

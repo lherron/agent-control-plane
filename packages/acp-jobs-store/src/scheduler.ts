@@ -14,6 +14,7 @@ export type DispatchThroughInputs = (input: {
   scopeRef: string
   laneRef: string
   content: string
+  causationRef?: string | undefined
 }) => Promise<{ inputAttemptId: string; runId: string }>
 
 export type AdvanceFlowJobRun = (entry: ClaimedDueJob) => Promise<JobRunRecord>
@@ -37,6 +38,7 @@ export type EventJobEvaluation =
 export type EvaluateEventJob = (input: {
   job: JobRecord
   event: InboxEventRecord
+  store: JobsStore
 }) => EventJobEvaluation
 
 export type TickJobsSchedulerInput = {
@@ -209,7 +211,7 @@ function drainEventInbox(input: {
           continue
         }
         try {
-          const evaluation = input.evaluateEventJob({ job, event })
+          const evaluation = input.evaluateEventJob({ job, event, store })
           if (evaluation.decision === 'skip') {
             store.recordEventJobSkip({
               sourceEventId: event.eventId,
@@ -376,6 +378,7 @@ export async function tickJobsScheduler(input: TickJobsSchedulerInput): Promise<
         scopeRef: context.scopeRef,
         laneRef: context.laneRef,
         content: context.content.trim(),
+        ...(entry.jobRun.triggeredBy === 'webhook' ? { causationRef: entry.jobRun.jobRunId } : {}),
       })
       results.push(
         input.store.updateJobRun(entry.jobRun.jobRunId, {

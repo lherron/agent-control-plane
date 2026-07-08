@@ -128,14 +128,25 @@ function eventJob(overrides: Partial<CreateJobInput> = {}): CreateJobInput {
 }
 
 function makeDispatchRecorder() {
-  const calls: Array<{ jobRunId: string; scopeRef: string; content: string }> = []
+  const calls: Array<{
+    jobRunId: string
+    scopeRef: string
+    content: string
+    causationRef?: string | undefined
+  }> = []
   const dispatchThroughInputs = async (input: {
     jobRunId: string
     scopeRef: string
     laneRef: string
     content: string
+    causationRef?: string | undefined
   }) => {
-    calls.push({ jobRunId: input.jobRunId, scopeRef: input.scopeRef, content: input.content })
+    calls.push({
+      jobRunId: input.jobRunId,
+      scopeRef: input.scopeRef,
+      content: input.content,
+      ...(input.causationRef !== undefined ? { causationRef: input.causationRef } : {}),
+    })
     return { inputAttemptId: `ia_${input.jobRunId}`, runId: `run_${input.jobRunId}` }
   }
   return { calls, dispatchThroughInputs }
@@ -321,6 +332,15 @@ describe('event-claim minting', () => {
     expect(persisted?.resolvedInput?.['content']).toBe('Research T-00042')
     expect(persisted?.source?.['eventId']).toBe('evt_1')
     expect(persisted?.source?.['kind']).toBe('webhook')
+  })
+
+  test('passes WRKQ causation ref source only for webhook-minted dispatches', async () => {
+    const store = createInMemoryJobsStore()
+    store.createJob(eventJob())
+    const { calls } = await ingestAndTick(store, adaptWrkqWebhookEvent(wrkqEvent()))
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.causationRef).toBe(calls[0]?.jobRunId)
   })
 
   test('snapshots job output onto event JobRuns before later job edits', async () => {
@@ -588,5 +608,25 @@ describe('manual + cron behavior unchanged (check #7)', () => {
     const claimed = store.claimDueJobs({ now: '2030-01-01T00:02:00Z' })
     expect(claimed).toHaveLength(1)
     expect(['schedule', 'catch-up']).toContain(claimed[0]?.jobRun.triggeredBy)
+  })
+
+  test('schedule dispatches do not carry WRKQ causation refs', async () => {
+    const store = createInMemoryJobsStore()
+    store.createJob({
+      projectId: 'acp',
+      agentId: 'clod',
+      scopeRef: 'agent:clod:project:acp:task:primary',
+      schedule: { cron: '*/5 * * * *' },
+      input: { content: 'tick' },
+    })
+    const recorder = makeDispatchRecorder()
+    await tickJobsScheduler({
+      store,
+      now: '2030-01-01T00:02:00Z',
+      dispatchThroughInputs: recorder.dispatchThroughInputs,
+    })
+
+    expect(recorder.calls).toHaveLength(1)
+    expect(recorder.calls[0]?.causationRef).toBeUndefined()
   })
 })
