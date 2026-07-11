@@ -1,6 +1,5 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "agent-control-plane",
@@ -745,7 +744,7 @@
 
     "@vladfrangu/async_event_emitter": ["@vladfrangu/async_event_emitter@2.4.7", "http://127.0.0.1:4873/@vladfrangu/async_event_emitter/-/async_event_emitter-2.4.7.tgz", {}, "sha512-Xfe6rpCTxSxfbswi/W/Pz7zp1WWSNn4A0eW4mLkQUewCrXXtMj31lCg+iQyTkh/CkusZSq9eDflu7tjEDXUY6g=="],
 
-    "@wrkq/client": ["@wrkq/client@0.1.0-dev.20260711094742", "http://127.0.0.1:4873/@wrkq/client/-/client-0.1.0-dev.20260711094742.tgz", {}, "sha512-o+UsF34o0DohJHrkyfG2dJoiZe+Eai4YNQg7bx8QhIx2hmBzTdKrEMKPKyxR10gKlEy6unOT9ilRFsh7hELTAg=="],
+    "@wrkq/client": ["@wrkq/client@0.1.0-dev.20260711095728", "http://127.0.0.1:4873/@wrkq/client/-/client-0.1.0-dev.20260711095728.tgz", {}, "sha512-PNnIm3jzjJk0dqYqvIBLJ4G5dcUyfK1XgARNg82s/pgK5k+buUJtyMRzaQ7nKlNJWSz6s+hscLpR0FBnfNXooQ=="],
 
     "acp-admin-store": ["acp-admin-store@workspace:packages/acp-admin-store"],
 
