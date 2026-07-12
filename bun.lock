@@ -745,7 +745,7 @@
 
     "@vladfrangu/async_event_emitter": ["@vladfrangu/async_event_emitter@2.4.7", "http://127.0.0.1:4873/@vladfrangu/async_event_emitter/-/async_event_emitter-2.4.7.tgz", {}, "sha512-Xfe6rpCTxSxfbswi/W/Pz7zp1WWSNn4A0eW4mLkQUewCrXXtMj31lCg+iQyTkh/CkusZSq9eDflu7tjEDXUY6g=="],
 
-    "@wrkq/client": ["@wrkq/client@0.1.0-dev.20260712133618", "http://127.0.0.1:4873/@wrkq/client/-/client-0.1.0-dev.20260712133618.tgz", {}, "sha512-foyUARYCksRTLkODDcH9xMEKsOUbH2xKdNrIPMK6VJx7Qa6lF6BFYn8F5x4+leOaeRRh3G4JfEYhMHROGahYNw=="],
+    "@wrkq/client": ["@wrkq/client@0.1.0-dev.20260712134756", "http://127.0.0.1:4873/@wrkq/client/-/client-0.1.0-dev.20260712134756.tgz", {}, "sha512-/e5HiB+aQpJ6ZNmOL4m52hy8KkwFGkLWMab8NM7Ee72xDJfuBLOjguPNaBOq7aniGYC5qZIB/glpoMdaEnnqvA=="],
 
     "acp-admin-store": ["acp-admin-store@workspace:packages/acp-admin-store"],
 
