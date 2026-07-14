@@ -695,6 +695,7 @@ export function buildProgram(
   program
     .command('server')
     .description('manage the ACP HTTP server and Discord gateway process')
+    .helpOption(false)
     .allowUnknownOption(true)
     .allowExcessArguments(true)
     .argument('[args...]')

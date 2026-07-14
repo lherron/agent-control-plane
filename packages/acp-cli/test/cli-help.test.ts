@@ -32,4 +32,18 @@ describe('acp CLI help', () => {
     expect(heartbeatHelp.exitCode).toBe(0)
     expect(heartbeatHelp.stdout).toContain('trigger one wake request')
   })
+
+  test('server help uses the full runtime help for both command forms', async () => {
+    for (const args of [
+      ['server', '--help'],
+      ['server', 'serve', '--help'],
+    ]) {
+      const result = await runCli(args)
+
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout).toContain('acp server serve [options]')
+      expect(result.stdout).toContain('Environment:')
+      expect(result.stdout).toContain('ACP_ACCESS_LOG_PATH')
+    }
+  })
 })
