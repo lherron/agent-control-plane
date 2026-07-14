@@ -92,6 +92,56 @@ describe('interface run dispatcher stale activity window', () => {
     interfaceStore.close()
   })
 
+  test('immediately fails a bare terminated HRC run without stale-timeout reconciliation', async () => {
+    const hrc = createHrcDb()
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-interface-dispatch-'))
+    fixtureDirs.push(fixtureDir)
+    const interfaceStore = openInterfaceStore({ dbPath: join(fixtureDir, 'interface.sqlite') })
+    const runStore = new InMemoryRunStore()
+    const sessionRef = {
+      scopeRef: 'agent:cody:project:taskboard:task:terminated',
+      laneRef: 'main' as const,
+    }
+    const run = runStore.createRun({
+      sessionRef,
+      status: 'running',
+    })
+    runStore.updateRun(run.runId, {
+      hrcRunId: 'hrc-run-terminated',
+      hostSessionId: 'hsid-terminated',
+      generation: 1,
+      runtimeId: 'rt-terminated',
+      transport: 'headless',
+    })
+    insertRunStatus(hrc.db, {
+      runId: 'hrc-run-terminated',
+      hostSessionId: 'hsid-terminated',
+      runtimeId: 'rt-terminated',
+      scopeRef: sessionRef.scopeRef,
+      laneRef: sessionRef.laneRef,
+      generation: 1,
+      transport: 'headless',
+      status: 'terminated',
+    })
+
+    const dispatcher = dispatcherModule.createInterfaceRunDispatcher({
+      runStore,
+      interfaceStore,
+      hrcDbPath: hrc.hrcDbPath,
+      config: { intervalMs: 1, staleTimeoutMs: 60_000 },
+    })
+
+    await dispatcher.runOnce()
+
+    expect(runStore.getRun(run.runId)).toMatchObject({
+      status: 'failed',
+      errorCode: 'turn_failed',
+      errorMessage: 'HRC run hrc-run-terminated ended with status: terminated',
+    })
+    expect(runStore.getRun(run.runId)?.errorCode).not.toBe('turn_timeout')
+    interfaceStore.close()
+  })
+
   test('tmux runs do not finalize delivery on the first assistant message before turn completion', async () => {
     const hrc = createHrcDb()
     const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-interface-dispatch-'))
@@ -499,7 +549,10 @@ function insertRunStatus(
     input.status,
     now,
     now,
-    input.status === 'completed' || input.status === 'failed' || input.status === 'cancelled'
+    input.status === 'completed' ||
+      input.status === 'failed' ||
+      input.status === 'cancelled' ||
+      input.status === 'terminated'
       ? now
       : null,
     now,

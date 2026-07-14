@@ -6,6 +6,7 @@ import { join } from 'node:path'
 
 import type { HrcRuntimeIntent } from 'hrc-core'
 
+import { InMemoryRunStore } from '../src/domain/run-store.js'
 import {
   createRealLauncher,
   normalizeRealLauncherIntent,
@@ -471,6 +472,94 @@ describe('real launcher helpers', () => {
       ).rejects.toThrow(
         'HRC run run-failed ended with status failed: runtime_unavailable: child exited 1'
       )
+    } finally {
+      db.close()
+      rmSync(fixtureDir, { recursive: true, force: true })
+    }
+  })
+
+  test('maps a terminated HRC run to failed without waiting for the completion timeout', async () => {
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-real-launcher-terminated-db-'))
+    const hrcDbPath = join(fixtureDir, 'hrc.sqlite')
+    const db = new Database(hrcDbPath)
+    db.exec(`
+      CREATE TABLE runs (
+        run_id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        error_code TEXT,
+        error_message TEXT
+      );
+      CREATE TABLE events (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id TEXT,
+        event_kind TEXT NOT NULL,
+        event_json TEXT NOT NULL
+      );
+    `)
+
+    const runStore = new InMemoryRunStore()
+    const acpRun = runStore.createRun({
+      sessionRef: {
+        scopeRef: 'agent:rex:project:agent-spaces',
+        laneRef: 'main',
+      },
+      status: 'pending',
+    })
+    const launcher = createRealLauncher({
+      hrcDbPath,
+      watchTimeoutMs: 50,
+      pollIntervalMs: 1,
+      createClient: () =>
+        ({
+          resolveSession: async () => ({ found: true, hostSessionId: 'hsid-terminated' }),
+          dispatchTurn: async () => {
+            db.run(
+              'INSERT INTO runs (run_id, status, error_code, error_message) VALUES (?, ?, ?, ?)',
+              'run-terminated',
+              'terminated',
+              'runtime_teardown',
+              'broker terminated the runtime'
+            )
+            return { runId: 'run-terminated' }
+          },
+        }) as unknown as any,
+    })
+
+    try {
+      await expect(
+        launcher({
+          acpRunId: acpRun.runId,
+          runStore,
+          onEvent: async () => {},
+          sessionRef: {
+            scopeRef: 'agent:rex:project:agent-spaces',
+            laneRef: 'main',
+          },
+          intent: {
+            placement: {
+              agentRoot: '/tmp/rex',
+              runMode: 'task',
+              bundle: { kind: 'compose', compose: [] },
+            },
+            harness: {
+              provider: 'openai',
+              interactive: false,
+            },
+            execution: {
+              preferredMode: 'headless',
+            },
+            initialPrompt: 'reply now',
+          },
+        })
+      ).rejects.toThrow(
+        'HRC run run-terminated ended with status terminated: runtime_teardown: broker terminated the runtime'
+      )
+      expect(runStore.getRun(acpRun.runId)).toMatchObject({
+        hrcRunId: 'run-terminated',
+        status: 'failed',
+        errorCode: 'runtime_teardown',
+        errorMessage: 'broker terminated the runtime',
+      })
     } finally {
       db.close()
       rmSync(fixtureDir, { recursive: true, force: true })
