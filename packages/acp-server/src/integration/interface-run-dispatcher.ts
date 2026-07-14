@@ -13,6 +13,7 @@ import { isRecord } from '../parsers/body.js'
 import {
   hasInFlightHrcRunSince,
   launchCorrelationUntilIso,
+  mapHrcRunTerminalStatus,
   readCompletedAssistantMessageAfterSeq,
   readCompletedAssistantMessageFromHrcEvents,
   readRunStatus,
@@ -95,7 +96,7 @@ export function createInterfaceRunDispatcher(
 
     // Determine which resolution path to use based on available correlation data
     let assistantMessage: UnifiedSessionEvent | undefined
-    let runFailed = false
+    let terminalFailureStatus: 'failed' | 'cancelled' | undefined
     let errorCode: string | undefined
     let errorMessage: string | undefined
 
@@ -138,12 +139,12 @@ export function createInterfaceRunDispatcher(
             config,
           })
         if (!launchObserved && !terminalGraceProtected) {
-          runFailed = true
+          terminalFailureStatus = 'failed'
           errorCode = 'dispatch_timeout'
           errorMessage = `Run was accepted by ACP but no HRC launch correlation was recorded within ${Math.round(dispatchStaleTimeoutMs / 1000)}s`
         }
       }
-      return handleFailureOrSkip(run, source, runFailed, errorCode, errorMessage)
+      return handleFailureOrSkip(run, source, terminalFailureStatus, errorCode, errorMessage)
     }
 
     if (run.hrcRunId !== undefined) {
@@ -152,28 +153,29 @@ export function createInterfaceRunDispatcher(
       if (hrcStatus === undefined) {
         // HRC run not found or not terminal yet — check for stale timeout
         if (isStale(run, config.staleTimeoutMs, hrcDbPath)) {
-          runFailed = true
+          terminalFailureStatus = 'failed'
           errorCode = 'turn_timeout'
           errorMessage = `Run exceeded stale timeout (${Math.round(config.staleTimeoutMs / 1000)}s) with no HRC completion`
         }
-        return handleFailureOrSkip(run, source, runFailed, errorCode, errorMessage)
+        return handleFailureOrSkip(run, source, terminalFailureStatus, errorCode, errorMessage)
       }
 
-      if (hrcStatus.status === 'completed') {
+      const terminalOutcome = mapHrcRunTerminalStatus(hrcStatus)
+      if (terminalOutcome?.status === 'completed') {
         assistantMessage = readCompletedAssistantMessageFromHrcEvents(hrcDbPath, run.hrcRunId)
-      } else if (hrcStatus.status === 'failed' || hrcStatus.status === 'cancelled') {
-        runFailed = true
-        errorCode = 'turn_failed'
+      } else if (terminalOutcome !== undefined) {
+        terminalFailureStatus = terminalOutcome.status
+        errorCode = terminalOutcome.status === 'failed' ? 'turn_failed' : hrcStatus.errorCode
         errorMessage =
           hrcStatus.errorMessage ?? `HRC run ${run.hrcRunId} ended with status: ${hrcStatus.status}`
       } else {
         // Not terminal yet — check stale
         if (isStale(run, config.staleTimeoutMs, hrcDbPath)) {
-          runFailed = true
+          terminalFailureStatus = 'failed'
           errorCode = 'turn_timeout'
           errorMessage = `Run exceeded stale timeout (${Math.round(config.staleTimeoutMs / 1000)}s) with no HRC completion`
         }
-        return handleFailureOrSkip(run, source, runFailed, errorCode, errorMessage)
+        return handleFailureOrSkip(run, source, terminalFailureStatus, errorCode, errorMessage)
       }
     } else if (source !== undefined && run.hostSessionId !== undefined) {
       // Tmux path: live-progress delivery owns in-flight rendering. Do not
@@ -193,25 +195,25 @@ export function createInterfaceRunDispatcher(
       if (assistantMessage === undefined) {
         // No assistant message yet — check stale timeout
         if (isStale(run, config.staleTimeoutMs, hrcDbPath)) {
-          runFailed = true
+          terminalFailureStatus = 'failed'
           errorCode = 'turn_timeout'
           errorMessage = `Run exceeded stale timeout (${Math.round(config.staleTimeoutMs / 1000)}s) with no assistant response`
         }
-        return handleFailureOrSkip(run, source, runFailed, errorCode, errorMessage)
+        return handleFailureOrSkip(run, source, terminalFailureStatus, errorCode, errorMessage)
       }
     } else {
       // No correlation data — likely dispatch failed before persisting. Check stale.
       if (isStale(run, config.staleTimeoutMs, hrcDbPath)) {
-        runFailed = true
+        terminalFailureStatus = 'failed'
         errorCode = 'turn_timeout'
         errorMessage = 'Run has no HRC correlation and exceeded stale timeout'
-        return handleFailureOrSkip(run, source, runFailed, errorCode, errorMessage)
+        return handleFailureOrSkip(run, source, terminalFailureStatus, errorCode, errorMessage)
       }
       return
     }
 
-    if (runFailed) {
-      return handleFailureOrSkip(run, source, runFailed, errorCode, errorMessage)
+    if (terminalFailureStatus !== undefined) {
+      return handleFailureOrSkip(run, source, terminalFailureStatus, errorCode, errorMessage)
     }
 
     // Success path: enqueue delivery + mark run completed
@@ -317,24 +319,23 @@ export function createInterfaceRunDispatcher(
   function handleFailureOrSkip(
     run: StoredRun,
     source: InterfaceRunSource | undefined,
-    failed: boolean,
+    terminalStatus: 'failed' | 'cancelled' | undefined,
     errorCode: string | undefined,
     errorMessage: string | undefined
   ): void {
-    if (!failed) {
+    if (terminalStatus === undefined) {
       return
     }
 
-    // Mark the run as failed
-    const failedRun = runStore.updateRun(run.runId, {
-      status: 'failed',
+    const terminalRun = runStore.updateRun(run.runId, {
+      status: terminalStatus,
       errorCode,
       errorMessage,
     })
-    if (errorCode === 'dispatch_timeout') {
+    if (terminalStatus === 'failed' && errorCode === 'dispatch_timeout') {
       emitDispatchTimeoutHealthEvent({
         jobsStore,
-        run: failedRun,
+        run: terminalRun,
         originVia: 'interface-run-dispatcher',
       })
     }
@@ -344,11 +345,13 @@ export function createInterfaceRunDispatcher(
       const deliveryRequestId = createDeliveryRequestId(run.runId, 1)
       const createdAt = new Date().toISOString()
       const bodyText =
-        errorCode === 'dispatch_timeout'
-          ? `The request was accepted by ACP, but no agent run started before dispatch timeout. ACP run ${run.runId} is stuck before HRC launch${errorMessage !== undefined ? `: ${errorMessage}` : '.'}`
-          : errorCode === 'turn_timeout'
-            ? 'The agent timed out processing this request. The response may still be in progress — check back shortly.'
-            : `The agent encountered an error: ${errorMessage ?? 'unknown failure'}`
+        terminalStatus === 'cancelled'
+          ? 'The agent run was cancelled.'
+          : errorCode === 'dispatch_timeout'
+            ? `The request was accepted by ACP, but no agent run started before dispatch timeout. ACP run ${run.runId} is stuck before HRC launch${errorMessage !== undefined ? `: ${errorMessage}` : '.'}`
+            : errorCode === 'turn_timeout'
+              ? 'The agent timed out processing this request. The response may still be in progress — check back shortly.'
+              : `The agent encountered an error: ${errorMessage ?? 'unknown failure'}`
 
       try {
         interfaceStore.deliveries.enqueue({

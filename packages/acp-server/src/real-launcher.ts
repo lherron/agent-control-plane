@@ -22,7 +22,6 @@ const DEFAULT_WAIT_TIMEOUT_MS = 180_000
 const DEFAULT_POLL_INTERVAL_MS = 500
 const RAW_EVENT_POLL_INTERVAL_MS = 100
 const RAW_EVENT_POLL_GRACE_MS = 2_000
-const TERMINAL_RUN_STATUSES = new Set(['completed', 'failed', 'cancelled'])
 const UNAVAILABLE_TMUX_STATUSES = new Set(['terminated', 'stale', 'failed', 'exited'])
 
 export type RawRunEventRecord = Pick<HrcEventEnvelope, 'eventKind' | 'eventJson'>
@@ -256,12 +255,17 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
               pollIntervalMs,
             })
 
-      const completedAcpStatus = toAcpRunStatus(completedRun.status)
+      const terminalOutcome = mapHrcRunTerminalStatus(completedRun)
+      if (terminalOutcome === undefined) {
+        throw new Error(
+          `HRC run ${dispatched.runId} returned non-terminal status ${completedRun.status} after completion`
+        )
+      }
       updateAcpRun(runStore, acpRunId, {
         hrcRunId: dispatched.runId,
-        status: completedAcpStatus,
-        errorCode: completedAcpStatus === 'completed' ? null : completedRun.errorCode,
-        errorMessage: completedAcpStatus === 'completed' ? null : completedRun.errorMessage,
+        status: terminalOutcome.status,
+        errorCode: terminalOutcome.status === 'completed' ? null : completedRun.errorCode,
+        errorMessage: terminalOutcome.status === 'completed' ? null : completedRun.errorMessage,
       })
 
       if (completedRun.status !== 'completed') {
@@ -532,7 +536,7 @@ async function waitForRunCompletion(options: {
 
   while (Date.now() <= deadline) {
     const run = readRunStatus(options.hrcDbPath, options.runId)
-    if (run !== undefined && TERMINAL_RUN_STATUSES.has(run.status)) {
+    if (run !== undefined && mapHrcRunTerminalStatus(run) !== undefined) {
       return run
     }
     await Bun.sleep(options.pollIntervalMs)
@@ -602,12 +606,23 @@ function persistFenceDispatchError(
   })
 }
 
-function toAcpRunStatus(status: string): 'completed' | 'failed' | 'cancelled' {
-  if (status === 'completed' || status === 'failed' || status === 'cancelled') {
-    return status
+export function mapHrcRunTerminalStatus(run: {
+  status: string
+  errorCode?: string | undefined
+  errorMessage?: string | undefined
+}): { status: 'completed' | 'failed' | 'cancelled' } | undefined {
+  if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
+    return { status: run.status }
   }
 
-  return 'failed'
+  // HRC currently exposes no user/operator termination discriminator on its run
+  // row. A bare termination therefore uses ACP's conservative failure outcome;
+  // do not infer cancellation from free-form error details.
+  if (run.status === 'terminated') {
+    return { status: 'failed' }
+  }
+
+  return undefined
 }
 
 function createHrcRunTerminalError(
