@@ -13,11 +13,11 @@
  *
  *   task.inspect returns FLAT:
  *     keys = [id, taskUuid, taskRef, projectId, templateId, templateVersion, templateHash,
- *             status, phase, revision, contextHash, taskDocEtag, taskDocHash, createdAt, updatedAt]
+ *             status, phase, revision, taskDocEtag, taskDocHash, createdAt, updatedAt, suspension]
  *     NO 'task' key, NO 'instance' key
  *
  *   wrkf.next returns:
- *     { instance: {id,taskRef,template,state,revision,contextHash,taskDoc,stale},
+ *     { instance: {id,taskRef,template,state,revision,taskDoc,stale},
  *       actions: [...], blockedTransitions: [...], openObligations: [...], pendingEffects: [...] }
  *
  * ─────────────────────────────────────────────────────────────────────────────
@@ -87,17 +87,17 @@ const REAL_FLAT_INSPECT = {
   status: 'active',
   phase: 'doing',
   revision: 5,
-  contextHash: 'sha256:aabbcc112233',
   taskDocEtag: '10',
   taskDocHash: 'sha256:ddeeff445566',
   createdAt: '2026-06-01T10:00:00Z',
   updatedAt: '2026-06-05T12:00:00Z',
+  suspension: null,
 }
 
 // ── Real next shape ─────────────────────────────────────────────────────────────
 //
 // This matches the ACTUAL output of `wrkf next T-01489 --json`.
-// instance sub-keys: [id, taskRef, template, state, revision, contextHash, taskDoc, stale]
+// instance sub-keys: [id, taskRef, template, state, revision, taskDoc, stale]
 
 const REAL_NEXT_INSTANCE = {
   id: WRKF_INSTANCE_ID,
@@ -109,7 +109,6 @@ const REAL_NEXT_INSTANCE = {
   },
   state: { status: 'active', phase: 'doing' },
   revision: 5,
-  contextHash: 'sha256:aabbcc112233',
   taskDoc: { etag: '10', hash: 'sha256:ddeeff445566' },
   stale: false,
 }
@@ -344,7 +343,7 @@ const WRKQ_DB_PATH =
 
 const LIVE_TASK_ID = 'T-01489'
 
-// Expected flat inspect keys (from live wrkf capture 2026-06-05)
+// Expected flat inspect keys (from live wrkf capture for T-01489 on 2026-07-14)
 const EXPECTED_INSPECT_FLAT_KEYS = [
   'id',
   'taskUuid',
@@ -356,14 +355,14 @@ const EXPECTED_INSPECT_FLAT_KEYS = [
   'status',
   'phase',
   'revision',
-  'contextHash',
   'taskDocEtag',
   'taskDocHash',
   'createdAt',
   'updatedAt',
+  'suspension',
 ] as const
 
-// Expected next top-level keys (from live wrkf capture 2026-06-05)
+// Expected next top-level keys (from live wrkf capture for T-01489 on 2026-07-14)
 const EXPECTED_NEXT_TOP_KEYS = [
   'instance',
   'actions',
@@ -372,14 +371,13 @@ const EXPECTED_NEXT_TOP_KEYS = [
   'pendingEffects',
 ] as const
 
-// Expected next.instance sub-keys (from live wrkf capture 2026-06-05)
+// Expected next.instance sub-keys (from live wrkf capture for T-01489 on 2026-07-14)
 const EXPECTED_INSTANCE_KEYS = [
   'id',
   'taskRef',
   'template',
   'state',
   'revision',
-  'contextHash',
   'taskDoc',
   'stale',
 ] as const
@@ -406,10 +404,8 @@ describe('W2a real-process: @wrkq/client task.inspect + next shape contract (fid
       >
       const keys = Object.keys(inspected)
 
-      // All expected flat keys must be present
-      for (const key of EXPECTED_INSPECT_FLAT_KEYS) {
-        expect(keys, `inspect result missing expected flat key: ${key}`).toContain(key)
-      }
+      // Exact-key guard: additions and removals are both provider contract drift.
+      expect(keys.sort()).toEqual([...EXPECTED_INSPECT_FLAT_KEYS].sort())
 
       // FIDELITY GUARD: 'task' and 'instance' must NOT exist at top level.
       // The old W2a fake returned { task, instance } which masked this real-shape divergence.
@@ -448,9 +444,8 @@ describe('W2a real-process: @wrkq/client task.inspect + next shape contract (fid
       const nextResult = (await lc.wrkf!.next({ task: LIVE_TASK_ID })) as Record<string, unknown>
       const keys = Object.keys(nextResult)
 
-      for (const key of EXPECTED_NEXT_TOP_KEYS) {
-        expect(keys, `next result missing expected top-level key: ${key}`).toContain(key)
-      }
+      // Exact-key guard: additions and removals are both provider contract drift.
+      expect(keys.sort()).toEqual([...EXPECTED_NEXT_TOP_KEYS].sort())
 
       // instance is a nested object, not absent
       const instance = nextResult['instance'] as Record<string, unknown> | undefined
@@ -459,9 +454,7 @@ describe('W2a real-process: @wrkq/client task.inspect + next shape contract (fid
       expect(instance).not.toBeNull()
 
       const instanceKeys = Object.keys(instance!)
-      for (const key of EXPECTED_INSTANCE_KEYS) {
-        expect(instanceKeys, `next.instance missing expected sub-key: ${key}`).toContain(key)
-      }
+      expect(instanceKeys.sort()).toEqual([...EXPECTED_INSTANCE_KEYS].sort())
 
       // instance.taskRef binds back to the task
       expect(String(instance!['taskRef'])).toBe(`wrkq:${LIVE_TASK_ID}`)
