@@ -10,6 +10,8 @@ pre-commit:
   commands:
     gitleaks:
       run: gitleaks protect --staged --redact
+    dependency-freshness:
+      run: just check-deps
     suppressions:
       run: bun scripts/check-suppressions.ts
     lint:

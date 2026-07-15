@@ -7,8 +7,6 @@
   "scripts": {
     "sync:asp": "bun scripts/sync-asp-from-verdaccio.ts",
     "sync:wrkq": "bun scripts/sync-wrkq-from-verdaccio.ts",
-    "sync:deps": "bun run sync:asp && bun run sync:wrkq",
-    "prebuild": "bun run sync:deps",
     "build": "bun run build:ordered",
     "build:ordered": "bun run --filter 'acp-core' build && bun run --filter 'coordination-substrate' build && bun run --filter 'wrkq-lib' build && bun run --filter 'acp-admin-store' build && bun run --filter 'acp-conversation' build && bun run --filter 'acp-interface-store' build && bun run --filter 'acp-jobs-store' build && bun run --filter 'acp-state-store' build && bun run --filter 'acp-ops-projection' build && bun run --filter 'acp-ops-reducer' build && bun run --filter 'gateway-discord' build && bun run --filter 'gateway-ios' build && bun run --filter 'acp-capability-host' build && bun run --filter 'acp-server' build && bun run --filter 'acp-cli' build && bun run --filter 'wlearn' build && bun run --filter 'acp-viewer' build && bun run --filter 'acp-e2e' build",
     "build:parallel": "bun run --filter '*' build",
@@ -23,7 +21,6 @@
     "refactor:finish": "bun scripts/wrkq-refactor.ts finish",
     "refactor:archive": "bun scripts/wrkq-refactor.ts archive",
     "refactor:publish": "bun scripts/wrkq-refactor.ts publish",
-    "pretypecheck": "bun run sync:deps",
     "typecheck": "bun run --filter '*' typecheck",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",

@@ -97,6 +97,20 @@ clean:
 rebuild:
     bun run rebuild
 
+# Explicitly advance locally-published dependency pins and create one lockfile-only commit.
+pull-deps:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    git diff --quiet -- bun.lock && git diff --cached --quiet -- bun.lock || { echo "pull-deps: bun.lock must be clean before pulling" >&2; exit 1; }
+    PRAESIDIUM_SYNC_NO_COMMIT=1 bun scripts/sync-asp-from-verdaccio.ts --pull
+    PRAESIDIUM_SYNC_NO_COMMIT=1 bun scripts/sync-wrkq-from-verdaccio.ts --pull
+    bun scripts/commit-verdaccio-lock.ts
+
+# Advisory and read-only.
+check-deps:
+    bun scripts/sync-asp-from-verdaccio.ts --check
+    bun scripts/sync-wrkq-from-verdaccio.ts --check
+
 # Install dependencies
 # Linked Git worktrees auto-disable wrapper linking and publish to an isolated worktree
 # artifact channel. Pass force-link=1 only when intentionally repointing local wrappers
