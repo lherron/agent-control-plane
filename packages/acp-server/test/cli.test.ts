@@ -259,6 +259,7 @@ describe('acp-server cli helpers', () => {
       expect(deps.launchRoleScopedRun).toBeDefined()
       expect(deps.runtimeResolver).toBeDefined()
       expect(deps.agentRootResolver).toBeDefined()
+      expect(deps.runLivenessResolver).toBeDefined()
       expect(warn).toHaveBeenCalledTimes(1)
     } finally {
       console.warn = originalWarn

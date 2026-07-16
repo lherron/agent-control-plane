@@ -40,7 +40,10 @@ import {
 } from './handlers/mobile.js'
 import { InputAdmissionService } from './input-admission/input-admission-service.js'
 import { createInputQueueDispatcher } from './integration/input-queue-dispatcher.js'
-import { createInterfaceRunDispatcher } from './integration/interface-run-dispatcher.js'
+import {
+  createInterfaceRunDispatcher,
+  lastObservedActivityMs,
+} from './integration/interface-run-dispatcher.js'
 import { createWakeDispatcher } from './integration/wake-dispatcher.js'
 import {
   readOptionalFiniteNumber as readNumber,
@@ -500,6 +503,8 @@ export function resolveLauncherDeps(
 
     return {
       launchRoleScopedRun: createRealLauncher(),
+      runLivenessResolver: (run) =>
+        new Date(lastObservedActivityMs(run, resolveDatabasePath())).toISOString(),
       ...(triageCommandTargetId !== undefined ? { triageCommandTargetId } : {}),
       ...(implCommandTargetId !== undefined ? { implCommandTargetId } : {}),
       ...(verifyCommandTargetId !== undefined ? { verifyCommandTargetId } : {}),

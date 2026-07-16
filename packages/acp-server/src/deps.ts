@@ -36,7 +36,7 @@ import {
   type SessionAdmissionSequenceStore,
 } from './domain/input-admission-stores.js'
 import { InMemoryInputAttemptStore, type InputAttemptStore } from './domain/input-attempt-store.js'
-import { InMemoryRunStore, type RunStore } from './domain/run-store.js'
+import { InMemoryRunStore, type RunStore, type StoredRun } from './domain/run-store.js'
 import type { JobExecPolicy } from './jobs/exec-policy.js'
 import {
   InMemoryWrkfParticipantCaptureStore,
@@ -70,6 +70,10 @@ export type InputQueuePolicy = {
   maxDepth?: number | undefined
   ttlMs?: number | undefined
 }
+
+export type RunLivenessResolver = (
+  run: StoredRun
+) => string | undefined | Promise<string | undefined>
 
 export type SessionResolver = (
   sessionRef: SessionRef
@@ -179,6 +183,7 @@ export interface AcpServerDeps {
   inputQueueStore?: InputQueueStore | undefined
   sessionAdmissionSequenceStore?: SessionAdmissionSequenceStore | undefined
   runStore?: RunStore | undefined
+  runLivenessResolver?: RunLivenessResolver | undefined
   mediaStateDir?: string | undefined
   attachmentMaxBytes?: number | undefined
   attachmentFetchImpl?: typeof fetch | undefined

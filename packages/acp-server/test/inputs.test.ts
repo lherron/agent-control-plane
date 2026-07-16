@@ -105,11 +105,46 @@ describe('POST /v1/inputs and GET /v1/runs/:runId', () => {
         method: 'GET',
         path: `/v1/runs/${runId}`,
       })
-      const payload = await fixture.json<{ run: { runId: string; status: string } }>(response)
+      const payload = await fixture.json<{
+        run: { runId: string; status: string; updatedAt: string }
+        liveness: { lastActivityAt: string }
+      }>(response)
 
       expect(response.status).toBe(200)
       expect(payload.run.runId).toBe(runId)
       expect(payload.run.status).toBe('pending')
+      expect(payload.liveness.lastActivityAt).toBe(payload.run.updatedAt)
     })
+  })
+
+  test('projects correlated renderer liveness on the run resource', async () => {
+    const lastActivityAt = '2026-07-16T12:30:00.000Z'
+    await withWiredServer(
+      async (fixture) => {
+        await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body: {
+            sessionRef: {
+              scopeRef: 'agent:scribe:project:demo:task:AR-live',
+              laneRef: 'main',
+            },
+            content: 'render this artifact',
+            actor: { agentId: 'taskboard' },
+          },
+        })
+        const runId = fixture.runStore.listRuns()[0]?.runId
+
+        const response = await fixture.request({
+          method: 'GET',
+          path: `/v1/runs/${runId}`,
+        })
+        const payload = await fixture.json<{ liveness: { lastActivityAt: string } }>(response)
+
+        expect(response.status).toBe(200)
+        expect(payload.liveness.lastActivityAt).toBe(lastActivityAt)
+      },
+      { runLivenessResolver: async () => lastActivityAt }
+    )
   })
 })
