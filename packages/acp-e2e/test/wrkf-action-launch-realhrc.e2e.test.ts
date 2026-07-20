@@ -65,6 +65,10 @@ import { resolveDatabasePath } from 'hrc-core'
 import { HrcClient, discoverSocket } from 'hrc-sdk'
 
 const HOME = process.env['HOME'] ?? '/Users/lherron'
+const PRAESIDIUM_ROOT = process.env['PRAESIDIUM_ROOT'] ?? join(HOME, 'praesidium')
+const E2E_AGENT_ID = 'curly'
+const E2E_AGENT_ROOT = join(PRAESIDIUM_ROOT, 'var', 'agents', E2E_AGENT_ID)
+const E2E_PROJECT_ROOT = join(PRAESIDIUM_ROOT, 'agent-control-plane')
 const WRKF_BIN = process.env['WRKF_BIN'] ?? `${HOME}/.local/bin/wrkf`
 const WRKQ_BIN = process.env['WRKQ_BIN'] ?? `${HOME}/.local/bin/wrkq`
 const WRKQADM_BIN = process.env['WRKQADM_BIN'] ?? `${HOME}/.local/bin/wrkqadm`
@@ -89,26 +93,26 @@ type ActionRunRecord = {
 }
 
 const FAKE_RUNTIME_RESOLVER: NonNullable<AcpServerDeps['runtimeResolver']> = async () => ({
-  agentRoot: '/tmp/agents/curly-e2e',
-  projectRoot: '/tmp/project',
-  cwd: '/tmp/project',
+  agentRoot: E2E_AGENT_ROOT,
+  projectRoot: E2E_PROJECT_ROOT,
+  cwd: E2E_PROJECT_ROOT,
   runMode: 'task',
   bundle: { kind: 'compose', compose: [] },
 })
 
-// A minimal, valid no-spawn runtime intent: anthropic / non-interactive, dryRun.
+// A minimal, valid no-spawn runtime intent matching Curly's configured Codex harness.
 // resolveSession(create:true) only needs this to mint the host session — no
 // runtime is provisioned and no turn is dispatched (no prompt).
 const NO_SPAWN_INTENT: HrcRuntimeIntent = {
   placement: {
-    agentRoot: '/tmp/agents/curly-e2e',
-    projectRoot: '/tmp/project',
-    cwd: '/tmp/project',
+    agentRoot: E2E_AGENT_ROOT,
+    projectRoot: E2E_PROJECT_ROOT,
+    cwd: E2E_PROJECT_ROOT,
     runMode: 'task',
     bundle: { kind: 'compose', compose: [] },
     dryRun: false,
   },
-  harness: { provider: 'anthropic', interactive: false },
+  harness: { provider: 'openai', interactive: false, id: 'codex-cli' },
 }
 
 describe('wrkf action launch/bind adapter — REAL HRC e2e (C-0004 closure)', () => {
@@ -215,7 +219,7 @@ describe('wrkf action launch/bind adapter — REAL HRC e2e (C-0004 closure)', ()
   // Unique per scenario AND per file run → never collides in the shared live HRC db.
   function sessionRef(taskId: string): SessionRef {
     return {
-      scopeRef: `agent:curly-e2e:project:acps-e2e-${RUN_NONCE}:task:${taskId}`,
+      scopeRef: `agent:${E2E_AGENT_ID}:project:acps-e2e-${RUN_NONCE}:task:${taskId}`,
       laneRef: 'main',
     }
   }
