@@ -4,8 +4,8 @@ import { type AppendEventResult, type CoordinationStore, appendEvent } from 'coo
 import type {
   WrkfEventQueryParams,
   WrkfEventQueryResult,
+  WrkfQueriedEvent,
   WrkfRoleBinding,
-  WrkfTransitionEvent,
 } from '@wrkq/client'
 
 import {
@@ -118,7 +118,7 @@ function appendCoordinationForOutboxRow(
  * (no forward tester binding, or already enqueued — idempotent by event id).
  */
 function enqueueEvent(input: {
-  event: WrkfTransitionEvent
+  event: WrkfQueriedEvent
   stateStore: AcpStateStore
 }): boolean {
   const { event, stateStore } = input
@@ -145,7 +145,7 @@ function enqueueEvent(input: {
     toPhase: event.toPhase ?? '',
     actor: { kind: 'agent', id: actorAgentId },
     payload: {
-      transitionTimestamp: event.transitionedAt,
+      transitionTimestamp: event['transitionedAt'],
       actor: {
         agentId: actorAgentId,
         role: event.role ?? '',

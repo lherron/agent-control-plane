@@ -343,8 +343,9 @@ const WRKQ_DB_PATH =
 
 const LIVE_TASK_ID = 'T-01489'
 
-// Expected flat inspect keys (from live wrkf capture for T-01489 on 2026-07-14)
-const EXPECTED_INSPECT_FLAT_KEYS = [
+// Flat inspect keys present on EVERY instance regardless of lifecycle state
+// (measured across 5 live instances — 4 active, 1 closed — on 2026-07-20).
+const REQUIRED_INSPECT_FLAT_KEYS = [
   'id',
   'taskUuid',
   'taskRef',
@@ -353,7 +354,6 @@ const EXPECTED_INSPECT_FLAT_KEYS = [
   'templateVersion',
   'templateHash',
   'status',
-  'phase',
   'revision',
   'taskDocEtag',
   'taskDocHash',
@@ -361,6 +361,17 @@ const EXPECTED_INSPECT_FLAT_KEYS = [
   'updatedAt',
   'suspension',
 ] as const
+
+// Lifecycle-conditional keys. The inspect record is NOT a fixed key set:
+//   active/waiting -> 'phase' present, 'outcome'/'closedAt' absent
+//   closed         -> 'outcome' + 'closedAt' present, 'phase' absent
+//   'supersedes'   -> present only on superseded instances
+// An exact-key assertion against a single live task is therefore unsound: it
+// breaks as a FALSE ALARM the moment that task changes lifecycle state, which
+// is exactly what happened when T-01489 closed. Assert required-superset +
+// no-unknown-keys instead, which still catches real provider drift (any key
+// wrkf adds outside this union fails the test) without the false positive.
+const OPTIONAL_INSPECT_FLAT_KEYS = ['phase', 'outcome', 'closedAt', 'supersedes'] as const
 
 // Expected next top-level keys (from live wrkf capture for T-01489 on 2026-07-14)
 const EXPECTED_NEXT_TOP_KEYS = [
@@ -404,8 +415,39 @@ describe('W2a real-process: @wrkq/client task.inspect + next shape contract (fid
       >
       const keys = Object.keys(inspected)
 
-      // Exact-key guard: additions and removals are both provider contract drift.
-      expect(keys.sort()).toEqual([...EXPECTED_INSPECT_FLAT_KEYS].sort())
+      // Every lifecycle-independent key must be present. A REMOVAL here is real
+      // provider drift and must fail.
+      for (const required of REQUIRED_INSPECT_FLAT_KEYS) {
+        expect(
+          keys,
+          `inspect result lost required key '${required}' — @wrkq/client provider contract drift`
+        ).toContain(required)
+      }
+
+      // No key outside the known union. An ADDITION here is real provider drift
+      // and must fail, so this keeps the guard's drift-detection teeth.
+      const known = new Set<string>([...REQUIRED_INSPECT_FLAT_KEYS, ...OPTIONAL_INSPECT_FLAT_KEYS])
+      expect(
+        keys.filter((k) => !known.has(k)),
+        'inspect result gained unknown key(s) — @wrkq/client provider contract drift'
+      ).toEqual([])
+
+      // Lifecycle-conditional contract: this is what `launch-role-scoped.ts`
+      // depends on. It reads `phase` off inspect to build the task context, and
+      // only ever launches roles against a live workflow — so `phase` MUST be a
+      // usable string whenever the instance is active/waiting. Closed instances
+      // legitimately carry outcome/closedAt instead, which is why that file's
+      // `phase ?? null` fallback is correct rather than defensive noise.
+      const status = String(inspected['status'])
+      if (status === 'active' || status === 'waiting') {
+        expect(
+          typeof inspected['phase'] === 'string' && (inspected['phase'] as string).length > 0,
+          `active instance must expose a non-empty 'phase' (got ${JSON.stringify(inspected['phase'])}) — launch-role-scoped depends on it`
+        ).toBe(true)
+      } else if (status === 'closed') {
+        expect(keys, "closed instance must expose 'outcome'").toContain('outcome')
+        expect(keys, "closed instance must not expose 'phase'").not.toContain('phase')
+      }
 
       // FIDELITY GUARD: 'task' and 'instance' must NOT exist at top level.
       // The old W2a fake returned { task, instance } which masked this real-shape divergence.
