@@ -1556,6 +1556,104 @@ describe('input admission queue', () => {
     )
   })
 
+  test('federated interface contribution sends an unthreaded semantic DM to the waiting peer run', async () => {
+    const stores = createAdmissionStores()
+    const semanticCalls: unknown[] = []
+
+    await withWiredServer(
+      async (fixture) => {
+        const sessionRef = {
+          scopeRef: `agent:clod:project:${fixture.seed.projectId}:task:T-federated-ask`,
+          laneRef: 'main',
+        }
+        const active = fixture.runStore.createRun({
+          sessionRef,
+          actor: { kind: 'human', id: 'discord-user' },
+          status: 'running',
+          metadata: {
+            meta: {
+              hrcSemanticMessage: {
+                requestMessageId: 'msg-original-request',
+                rootMessageId: 'msg-original-request',
+                homeNodeId: 'lab',
+              },
+            },
+          },
+        })
+        fixture.runStore.updateRun(active.runId, { transport: 'federated-message' })
+
+        const body = {
+          idempotencyKey: 'federated-ask-apple',
+          sessionRef,
+          content: 'Apple',
+          actor: { kind: 'human', id: 'discord-user' },
+          intent: {
+            kind: 'contribute_to_active_run',
+            fallback: 'reject',
+            contributionSemantics: 'interrupt_and_continue',
+          },
+        }
+        const first = await fixture.request({ method: 'POST', path: '/v1/inputs', body })
+        const replay = await fixture.request({ method: 'POST', path: '/v1/inputs', body })
+        const payload = await fixture.json<{
+          admission: { kind: string; runId: string }
+          inputApplication: { status: string; targetRunId: string }
+        }>(first)
+        const replayPayload = await fixture.json<{ admission: unknown }>(replay)
+
+        expect(first.status).toBe(201)
+        expect(replay.status).toBe(200)
+        expect(payload.admission.kind).toBe('accepted_in_flight')
+        expect(payload.admission.runId).toBeUndefined()
+        expect(payload.inputApplication).toMatchObject({
+          status: 'accepted',
+          targetRunId: active.runId,
+        })
+        expect(replayPayload.admission).toEqual(payload.admission)
+        expect(semanticCalls).toEqual([
+          {
+            from: { kind: 'entity', entity: 'human' },
+            to: {
+              kind: 'session',
+              sessionRef: `${sessionRef.scopeRef}/lane:${sessionRef.laneRef}`,
+            },
+            body: 'Apple',
+            createIfMissing: false,
+          },
+        ])
+      },
+      {
+        ...stores,
+        hrcClient: {
+          semanticDm: async (request: unknown) => {
+            semanticCalls.push(request)
+            return {
+              request: {
+                messageSeq: 91,
+                messageId: 'msg-contribution-apple',
+                createdAt: '2026-07-21T00:00:00.000Z',
+                kind: 'dm',
+                phase: 'request',
+                from: { kind: 'entity', entity: 'human' },
+                to: {
+                  kind: 'session',
+                  sessionRef: 'agent:clod:project:test:task:T-federated-ask/lane:main',
+                },
+                rootMessageId: 'msg-contribution-apple',
+                body: 'Apple',
+                bodyFormat: 'text/plain',
+                execution: { state: 'not_applicable' },
+              },
+            }
+          },
+          submitActiveRunContribution: async () => {
+            throw new Error('local contribution path must not run')
+          },
+        } as never,
+      }
+    )
+  })
+
   test('ordinary busy input still defaults to queued_run FIFO without contribution intent', async () => {
     const stores = createAdmissionStores()
 

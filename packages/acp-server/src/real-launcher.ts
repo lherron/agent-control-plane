@@ -504,6 +504,7 @@ async function maybeLaunchFederatedInterfaceRun(input: {
   if (input.shouldWaitForCompletion && input.onEvent !== undefined) {
     const waited = await input.client.waitMessage({
       thread: { rootMessageId: request.rootMessageId },
+      kinds: ['dm'],
       phases: ['response'],
       afterSeq: request.messageSeq,
       deliveryMessageId: request.messageId,

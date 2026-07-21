@@ -97,6 +97,7 @@ describe('interface run dispatcher stale activity window', () => {
     expect(waitCalls).toEqual([
       {
         thread: { rootMessageId: 'msg-remote-request' },
+        kinds: ['dm'],
         phases: ['response'],
         afterSeq: 42,
         deliveryMessageId: 'msg-remote-request',

@@ -119,6 +119,67 @@ describe('GatewayDiscordApp live progress run claiming', () => {
     expect(harness.webhook().edits).toHaveLength(0)
   })
 
+  test('claims a federated AskUserQuestion by exact ACP run id and routes its answer as contribution', async () => {
+    const harness = createLiveProgressHarness({
+      interfaceMessageResponse: (count) =>
+        count === 1
+          ? { inputAttemptId: 'ia_remote_ask', runId: 'run_remote_acp' }
+          : {
+              inputAttemptId: 'ia_remote_answer',
+              admission: { kind: 'accepted_in_flight' },
+            },
+    })
+    await harness.app.refreshBindings()
+    await harness.app.handleMessageCreate(harness.inboundMessage())
+
+    harness.emit({
+      ...hrcEvent(1, {
+        type: 'tool_execution_start',
+        toolUseId: 'tool_remote_ask',
+        toolName: 'AskUserQuestion',
+        input: {
+          questions: [
+            {
+              question: 'Fruit?',
+              header: 'Fruit',
+              options: [
+                { label: 'Apple', description: 'Choose Apple' },
+                { label: 'Banana', description: 'Choose Banana' },
+              ],
+              multiSelect: false,
+            },
+          ],
+        },
+        acpRunId: 'run_remote_acp',
+      }),
+      eventKind: 'turn.tool_call',
+      hostSessionId: 'hs_remote_lab',
+      runtimeId: 'rt_remote_lab',
+      runId: 'hrc_run_remote_lab',
+    })
+
+    await waitFor(() =>
+      harness.webhook().edits.some((edit) => edit.payload.content.includes('Fruit?'))
+    )
+
+    const answer = {
+      ...(harness.inboundMessage() as { id: string; content: string }),
+      id: 'msg_remote_answer',
+      content: 'Apple',
+    }
+    await harness.app.handleMessageCreate(answer as never)
+
+    expect(harness.interfaceMessages).toHaveLength(2)
+    expect(harness.interfaceMessages[1]).toMatchObject({
+      content: 'Apple',
+      intent: {
+        kind: 'contribute_to_active_run',
+        fallback: 'reject',
+        contributionSemantics: 'interrupt_and_continue',
+      },
+    })
+  })
+
   test('deduplicates live subscriptions for bindings that share a sessionRef', async () => {
     const client = new FakeClient()
     client.addChannel(new FakeChannel('chan_a'))

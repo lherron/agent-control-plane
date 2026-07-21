@@ -267,6 +267,20 @@ export function createLiveProgressHarness(
         })
       }
 
+      if (runId === 'run_remote_acp') {
+        return Response.json({
+          run: {
+            runId,
+            status: 'running',
+            transport: 'federated-message',
+            hrcRunId: null,
+            hostSessionId: null,
+            runtimeId: null,
+            generation: null,
+          },
+        })
+      }
+
       return Response.json({
         run: {
           runId,

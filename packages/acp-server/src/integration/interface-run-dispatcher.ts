@@ -513,6 +513,7 @@ async function reconcileSemanticMessage(input: {
 
   const waited = await input.hrcClient.waitMessage({
     thread: { rootMessageId: input.correlation.rootMessageId },
+    kinds: ['dm'],
     phases: ['response'],
     afterSeq: input.correlation.afterSeq,
     deliveryMessageId: input.correlation.requestMessageId,

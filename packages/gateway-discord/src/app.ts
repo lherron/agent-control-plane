@@ -1965,9 +1965,11 @@ export class GatewayDiscordApp {
     // Once ACP has admitted an input as a concrete run, do not let the
     // placeholder attach to arbitrary later events from an already-active
     // runtime. Queued runs have no HRC correlation yet and will be finalized by
-    // the delivery path when their own run completes.
+    // the delivery path when their own run completes. A federated interactive
+    // signal is the exception: HRC projects the originating ACP run ID into the
+    // event, giving us an exact cross-node claim rather than a time heuristic.
     if (placeholder.acpRunId !== undefined) {
-      return false
+      return pickNonEmptyString(asRecord(event.payload), 'acpRunId') === placeholder.acpRunId
     }
 
     return true
