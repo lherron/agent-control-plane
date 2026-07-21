@@ -7,7 +7,9 @@ import {
   HrcConflictError,
   type HrcEventEnvelope,
   type HrcHarnessIntent,
+  type HrcMessageRecord,
   type HrcRuntimeIntent,
+  type ScopeLocation,
   resolveDatabasePath,
 } from 'hrc-core'
 import { HrcClient, discoverSocket } from 'hrc-sdk'
@@ -66,6 +68,22 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
     const acpCorrelationId = acpRunId ?? inputAttemptId
     const shouldWaitForCompletion = onEvent !== undefined && waitForCompletion !== false
     const prompt = normalizedIntent.initialPrompt?.trim()
+    const federatedInterfaceRun = await maybeLaunchFederatedInterfaceRun({
+      client,
+      sessionRef,
+      normalizedIntent,
+      prompt,
+      acpRunId,
+      inputAttemptId,
+      runStore,
+      onEvent,
+      shouldWaitForCompletion,
+      waitTimeoutMs,
+    })
+    if (federatedInterfaceRun !== undefined) {
+      return federatedInterfaceRun
+    }
+
     if (!prompt) {
       // Broker cutover (T-01691): HRC retired the headless cold-start path.
       // A fresh scope has no host session, so resolveSession without create
@@ -409,6 +427,195 @@ function readInterfaceSourceFromRun(run: ReturnType<RunStore['getRun']>): unknow
     !Array.isArray(interfaceSource)
     ? interfaceSource
     : undefined
+}
+
+async function maybeLaunchFederatedInterfaceRun(input: {
+  client: HrcClient
+  sessionRef: SessionRef
+  normalizedIntent: HrcRuntimeIntent
+  prompt: string | undefined
+  acpRunId: string | undefined
+  inputAttemptId: string | undefined
+  runStore: RunStore | undefined
+  onEvent: ((event: UnifiedSessionEvent) => void | Promise<void>) | undefined
+  shouldWaitForCompletion: boolean
+  waitTimeoutMs: number
+}): Promise<Awaited<ReturnType<LaunchRoleScopedRun>> | undefined> {
+  const interfaceSource = readInterfaceSourceFromRun(
+    input.acpRunId !== undefined && input.runStore !== undefined
+      ? input.runStore.getRun(input.acpRunId)
+      : undefined
+  )
+  if (!input.prompt || interfaceSource === undefined) {
+    return undefined
+  }
+  // Tests and embedders may inject a deliberately partial legacy client. The
+  // installed HrcClient always has locateScope after the dependency gate above;
+  // a partial double keeps exercising the pre-federation local launch path.
+  if (typeof input.client.locateScope !== 'function') {
+    return undefined
+  }
+
+  const location = await input.client.locateScope(input.sessionRef.scopeRef)
+  if (!shouldUseFederatedInterfaceDispatch(location)) {
+    return undefined
+  }
+
+  const targetSessionRef = toHrcSessionRef(input.sessionRef)
+  const result = await input.client.semanticDm({
+    from: { kind: 'entity', entity: 'human' },
+    to: { kind: 'session', sessionRef: targetSessionRef },
+    body: input.prompt,
+    respondTo: { kind: 'entity', entity: 'human' },
+    runtimeIntent: input.normalizedIntent,
+    createIfMissing: true,
+  })
+  const request = result.request
+  if (request.execution.state === 'failed') {
+    const message =
+      request.execution.errorMessage ??
+      `HRC semantic dispatch ${request.messageId} failed before federation delivery`
+    updateAcpRun(input.runStore, input.acpRunId, {
+      status: 'failed',
+      errorCode: request.execution.errorCode ?? 'semantic_dispatch_failed',
+      errorMessage: message,
+    })
+    throw new Error(message)
+  }
+
+  persistSemanticMessageCorrelation({
+    runStore: input.runStore,
+    acpRunId: input.acpRunId,
+    request,
+    location,
+  })
+  logFederatedInterfaceEvent('dispatch', {
+    acpRunId: input.acpRunId,
+    inputAttemptId: input.inputAttemptId,
+    scopeRef: input.sessionRef.scopeRef,
+    laneRef: input.sessionRef.laneRef,
+    requestMessageId: request.messageId,
+    rootMessageId: request.rootMessageId,
+    localNodeId: location.localNodeId,
+    homeNodeId: readLocationHomeNodeId(location),
+    executionState: request.execution.state,
+  })
+
+  if (input.shouldWaitForCompletion && input.onEvent !== undefined) {
+    const waited = await input.client.waitMessage({
+      thread: { rootMessageId: request.rootMessageId },
+      phases: ['response'],
+      afterSeq: request.messageSeq,
+      deliveryMessageId: request.messageId,
+      timeoutMs: input.waitTimeoutMs,
+    })
+    if (waited.matched) {
+      await input.onEvent(toUnifiedAssistantMessageFromHrcMessage(waited.record))
+      updateAcpRun(input.runStore, input.acpRunId, {
+        status: 'completed',
+        errorCode: null,
+        errorMessage: null,
+      })
+    } else if (waited.reason === 'delivery_failed') {
+      updateAcpRun(input.runStore, input.acpRunId, {
+        status: 'failed',
+        errorCode: waited.errorCode,
+        errorMessage: waited.errorMessage ?? 'HRC federation delivery failed',
+      })
+      throw new Error(waited.errorMessage ?? 'HRC federation delivery failed')
+    } else {
+      throw new Error(`timed out waiting for federated HRC response to ${request.messageId}`)
+    }
+  }
+
+  return {
+    runId: request.messageId,
+    sessionId: targetSessionRef,
+  }
+}
+
+function shouldUseFederatedInterfaceDispatch(location: ScopeLocation): boolean {
+  if (!location.federationConfigured) {
+    return false
+  }
+
+  switch (location.authority.state) {
+    case 'bound':
+      return !location.authority.isLocal
+    case 'unbound':
+      // HRC, not ACP, owns the first-birth placement decision. The semantic
+      // endpoint applies pin/default policy and either executes locally or
+      // forwards after the registry CAS.
+      return true
+    case 'retired':
+      throw new Error(
+        `HRC scope ${location.scopeRef} is retired from ${location.authority.retiredHomeNodeId}`
+      )
+    case 'unknown':
+      throw new Error(
+        `HRC could not determine placement authority for ${location.scopeRef}: ${location.authority.detail}`
+      )
+  }
+}
+
+function readLocationHomeNodeId(location: ScopeLocation): string | undefined {
+  return location.authority.state === 'bound' ? location.authority.record.homeNodeId : undefined
+}
+
+function persistSemanticMessageCorrelation(input: {
+  runStore: RunStore | undefined
+  acpRunId: string | undefined
+  request: HrcMessageRecord
+  location: ScopeLocation
+}): void {
+  if (input.runStore === undefined || input.acpRunId === undefined) {
+    return
+  }
+
+  const current = input.runStore.getRun(input.acpRunId)
+  const metadata = current?.metadata ?? {}
+  const meta = asRecord(metadata['meta'])
+  input.runStore.updateRun(input.acpRunId, {
+    status: 'running',
+    transport: 'federated-message',
+    errorCode: null,
+    errorMessage: null,
+    metadata: {
+      ...metadata,
+      meta: {
+        ...meta,
+        hrcSemanticMessage: {
+          requestMessageId: input.request.messageId,
+          rootMessageId: input.request.rootMessageId,
+          afterSeq: input.request.messageSeq,
+          localNodeId: input.location.localNodeId,
+          ...(readLocationHomeNodeId(input.location) !== undefined
+            ? { homeNodeId: readLocationHomeNodeId(input.location) }
+            : {}),
+        },
+      },
+    },
+  })
+}
+
+function toUnifiedAssistantMessageFromHrcMessage(record: HrcMessageRecord): UnifiedSessionEvent {
+  return {
+    type: 'message_end',
+    messageId: record.messageId,
+    message: {
+      role: 'assistant',
+      content: [{ type: 'text', text: record.body }],
+    },
+  }
+}
+
+function logFederatedInterfaceEvent(
+  phase: 'dispatch' | 'response' | 'delivery_failed',
+  fields: Readonly<Record<string, unknown>>
+): void {
+  console.info(
+    `[acp-server] ${JSON.stringify({ event: `interface.federation.${phase}`, ...fields })}`
+  )
 }
 
 export function normalizeRealLauncherIntent(input: {

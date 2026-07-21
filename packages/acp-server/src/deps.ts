@@ -138,11 +138,13 @@ export type AcpHrcClient = Pick<
   | 'listTargets'
   | 'listSessions'
   | 'launchCommandScopedRun'
+  | 'locateScope'
   | 'resolveSession'
   | 'sendInFlightInput'
   | 'semanticDm'
   | 'startRuntime'
   | 'terminate'
+  | 'waitMessage'
   | 'watch'
   | 'watchMessages'
 > & {

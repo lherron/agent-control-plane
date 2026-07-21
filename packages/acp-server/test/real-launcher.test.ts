@@ -14,6 +14,243 @@ import {
 } from '../src/real-launcher.js'
 
 describe('real launcher helpers', () => {
+  test('routes remote-bound interface runs through semantic messaging without resolving locally', async () => {
+    const calls: string[] = []
+    const runStore = new InMemoryRunStore()
+    const sessionRef = {
+      scopeRef: 'agent:cody:project:hrc-runtime:task:remote-discord',
+      laneRef: 'main' as const,
+    }
+    const acpRun = runStore.createRun({
+      sessionRef,
+      status: 'pending',
+      metadata: {
+        meta: {
+          interfaceSource: {
+            gatewayId: 'discord_prod',
+            bindingId: 'ifb_remote',
+            conversationRef: 'channel:remote',
+            messageRef: 'discord:message:remote',
+          },
+        },
+      },
+    })
+    const launcher = createRealLauncher({
+      hrcDbPath: ':memory:',
+      createClient: () =>
+        ({
+          locateScope: async (scopeRef: string) => {
+            calls.push('locateScope')
+            expect(scopeRef).toBe(sessionRef.scopeRef)
+            return {
+              scopeRef,
+              localNodeId: 'svc',
+              federationConfigured: true,
+              authority: {
+                state: 'bound',
+                source: 'registry',
+                isLocal: false,
+                record: { homeNodeId: 'lab', placementEpoch: 3 },
+              },
+            }
+          },
+          semanticDm: async (input: unknown) => {
+            calls.push('semanticDm')
+            expect(input).toMatchObject({
+              from: { kind: 'entity', entity: 'human' },
+              to: {
+                kind: 'session',
+                sessionRef: `${sessionRef.scopeRef}/lane:main`,
+              },
+              body: 'remember orchid',
+              respondTo: { kind: 'entity', entity: 'human' },
+              createIfMissing: true,
+            })
+            return {
+              request: {
+                messageSeq: 42,
+                messageId: 'msg-remote-request',
+                createdAt: '2026-07-21T01:30:00.000Z',
+                kind: 'dm',
+                phase: 'request',
+                from: { kind: 'entity', entity: 'human' },
+                to: {
+                  kind: 'session',
+                  sessionRef: `${sessionRef.scopeRef}/lane:main`,
+                },
+                rootMessageId: 'msg-remote-request',
+                body: 'remember orchid',
+                bodyFormat: 'text/plain',
+                execution: { state: 'accepted' },
+              },
+            }
+          },
+          resolveSession: async () => {
+            throw new Error('remote interface run must not resolve a local HRC session')
+          },
+          dispatchTurn: async () => {
+            throw new Error('remote interface run must not dispatch a local HRC turn')
+          },
+        }) as unknown as any,
+    })
+
+    const result = await launcher({
+      sessionRef,
+      acpRunId: acpRun.runId,
+      inputAttemptId: 'ia_remote',
+      runStore,
+      waitForCompletion: false,
+      onEvent: async () => {},
+      intent: {
+        placement: {
+          agentRoot: '/tmp/cody',
+          runMode: 'task',
+          bundle: { kind: 'compose', compose: [] },
+        },
+        harness: { provider: 'openai', interactive: false },
+        initialPrompt: '  remember orchid  ',
+      },
+    })
+
+    expect(result).toEqual({
+      runId: 'msg-remote-request',
+      sessionId: `${sessionRef.scopeRef}/lane:main`,
+    })
+    expect(calls).toEqual(['locateScope', 'semanticDm'])
+    expect(runStore.getRun(acpRun.runId)).toMatchObject({
+      status: 'running',
+      transport: 'federated-message',
+      metadata: {
+        meta: {
+          hrcSemanticMessage: {
+            requestMessageId: 'msg-remote-request',
+            rootMessageId: 'msg-remote-request',
+            afterSeq: 42,
+            localNodeId: 'svc',
+            homeNodeId: 'lab',
+          },
+        },
+      },
+    })
+  })
+
+  test('keeps locally-bound interface runs on the existing session launcher', async () => {
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-real-launcher-local-interface-'))
+    const hrcDbPath = join(fixtureDir, 'hrc.sqlite')
+    const db = new Database(hrcDbPath)
+    db.exec(`
+      CREATE TABLE runs (
+        run_id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        error_code TEXT,
+        error_message TEXT
+      );
+      CREATE TABLE events (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id TEXT,
+        event_kind TEXT NOT NULL,
+        event_json TEXT NOT NULL
+      );
+      CREATE TABLE hrc_events (
+        hrc_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id TEXT,
+        event_kind TEXT NOT NULL,
+        payload_json TEXT NOT NULL
+      );
+    `)
+    const calls: string[] = []
+    const runStore = new InMemoryRunStore()
+    const sessionRef = {
+      scopeRef: 'agent:cody:project:hrc-runtime:task:local-discord',
+      laneRef: 'main' as const,
+    }
+    const acpRun = runStore.createRun({
+      sessionRef,
+      status: 'pending',
+      metadata: {
+        meta: {
+          interfaceSource: {
+            gatewayId: 'discord_prod',
+            bindingId: 'ifb_local',
+            conversationRef: 'channel:local',
+            messageRef: 'discord:message:local',
+          },
+        },
+      },
+    })
+    const launcher = createRealLauncher({
+      hrcDbPath,
+      createClient: () =>
+        ({
+          locateScope: async () => {
+            calls.push('locateScope')
+            return {
+              scopeRef: sessionRef.scopeRef,
+              localNodeId: 'svc',
+              federationConfigured: true,
+              authority: {
+                state: 'bound',
+                source: 'ledger',
+                isLocal: true,
+                record: { homeNodeId: 'svc', placementEpoch: 2 },
+              },
+            }
+          },
+          semanticDm: async () => {
+            throw new Error('local interface run must not use semantic federation')
+          },
+          resolveSession: async () => {
+            calls.push('resolveSession')
+            return { found: true, hostSessionId: 'hsid-local', generation: 2 }
+          },
+          dispatchTurn: async () => {
+            calls.push('dispatchTurn')
+            return {
+              runId: 'hrc-run-local',
+              hostSessionId: 'hsid-local',
+              generation: 2,
+              runtimeId: 'rt-local',
+              transport: 'headless',
+              status: 'accepted',
+            }
+          },
+        }) as unknown as any,
+    })
+
+    try {
+      const result = await launcher({
+        sessionRef,
+        acpRunId: acpRun.runId,
+        runStore,
+        waitForCompletion: false,
+        onEvent: async () => {},
+        intent: {
+          placement: {
+            agentRoot: '/tmp/cody',
+            runMode: 'task',
+            bundle: { kind: 'compose', compose: [] },
+          },
+          harness: { provider: 'openai', interactive: false },
+          initialPrompt: 'local prompt',
+        },
+      })
+
+      expect(result).toMatchObject({
+        runId: 'hrc-run-local',
+        sessionId: 'hsid-local',
+        hostSessionId: 'hsid-local',
+      })
+      expect(calls).toEqual(['locateScope', 'resolveSession', 'dispatchTurn'])
+      expect(runStore.getRun(acpRun.runId)).toMatchObject({
+        hrcRunId: 'hrc-run-local',
+        transport: 'headless',
+      })
+    } finally {
+      db.close()
+      rmSync(fixtureDir, { recursive: true, force: true })
+    }
+  })
+
   test('dispatches prompt turns through dispatchTurn and emits canonical hrc_events replies', async () => {
     const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-real-launcher-db-'))
     const hrcDbPath = join(fixtureDir, 'hrc.sqlite')

@@ -1086,6 +1086,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
           interfaceStore,
           ...(jobsStore !== undefined ? { jobsStore } : {}),
           conversationStore,
+          hrcClient: resolvedDeps.hrcClient,
           hrcDbPath: resolveDatabasePath(),
           config: {
             intervalMs: interfaceDispatcherIntervalMs,

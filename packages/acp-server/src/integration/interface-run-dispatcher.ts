@@ -5,7 +5,7 @@ import { normalizeSessionRef } from 'agent-scope'
 import type { UnifiedSessionEvent } from 'spaces-runtime'
 
 import { toCompletedVisibleAssistantMessage } from '../delivery/visible-assistant-messages.js'
-import type { ConversationStore } from '../deps.js'
+import type { AcpHrcClient, ConversationStore } from '../deps.js'
 import type { RunStore, StoredRun } from '../domain/run-store.js'
 import { readOptionalTrimmedRawString as readString } from '../internal/read-helpers.js'
 import { emitDispatchTimeoutHealthEvent } from '../jobs/health-dispatch-timeout.js'
@@ -35,6 +35,7 @@ export type InterfaceRunDispatcherInput = {
   interfaceStore: InterfaceStore
   jobsStore?: JobsStore | undefined
   conversationStore?: ConversationStore | undefined
+  hrcClient?: Pick<AcpHrcClient, 'waitMessage'> | undefined
   hrcDbPath: string
   config: InterfaceRunDispatcherConfig
 }
@@ -57,7 +58,8 @@ type InterfaceRunSource = {
 export function createInterfaceRunDispatcher(
   input: InterfaceRunDispatcherInput
 ): InterfaceRunDispatcher {
-  const { runStore, interfaceStore, jobsStore, conversationStore, hrcDbPath, config } = input
+  const { runStore, interfaceStore, jobsStore, conversationStore, hrcClient, hrcDbPath, config } =
+    input
 
   let running = false
   let inflight: Promise<void> | undefined
@@ -92,6 +94,11 @@ export function createInterfaceRunDispatcher(
     // subsequent input admission for the session.
     if (source === undefined && run.hrcRunId === undefined) {
       return
+    }
+
+    const semanticCorrelation = readSemanticMessageCorrelation(run)
+    if (semanticCorrelation !== undefined) {
+      return reconcileFederatedRun(run, source, semanticCorrelation)
     }
 
     // Determine which resolution path to use based on available correlation data
@@ -216,7 +223,43 @@ export function createInterfaceRunDispatcher(
       return handleFailureOrSkip(run, source, terminalFailureStatus, errorCode, errorMessage)
     }
 
-    // Success path: enqueue delivery + mark run completed
+    finalizeSuccessfulRun(run, source, assistantMessage)
+  }
+
+  async function reconcileFederatedRun(
+    run: StoredRun,
+    source: InterfaceRunSource | undefined,
+    correlation: SemanticMessageCorrelation
+  ): Promise<void> {
+    const reconciliation = await reconcileSemanticMessage({
+      run,
+      correlation,
+      hrcClient,
+      staleTimeoutMs: config.staleTimeoutMs,
+    })
+    if (reconciliation.state === 'pending') {
+      return
+    }
+    if (reconciliation.state === 'failed') {
+      handleFailureOrSkip(
+        run,
+        source,
+        'failed',
+        reconciliation.errorCode,
+        reconciliation.errorMessage
+      )
+      return
+    }
+
+    finalizeSuccessfulRun(run, source, reconciliation.event)
+  }
+
+  function finalizeSuccessfulRun(
+    run: StoredRun,
+    source: InterfaceRunSource | undefined,
+    assistantMessage: UnifiedSessionEvent | undefined
+  ): void {
+    // Success path: enqueue delivery + mark run completed.
     if (assistantMessage !== undefined && source !== undefined) {
       const visible = toCompletedVisibleAssistantMessage(assistantMessage)
       if (visible !== undefined) {
@@ -441,6 +484,131 @@ export function createInterfaceRunDispatcher(
   }
 
   return { start, stop, runOnce }
+}
+
+type SemanticMessageCorrelation = {
+  requestMessageId: string
+  rootMessageId: string
+  afterSeq: number
+  localNodeId?: string | undefined
+  homeNodeId?: string | undefined
+}
+
+type SemanticMessageReconciliation =
+  | { state: 'pending' }
+  | { state: 'response'; event: UnifiedSessionEvent }
+  | { state: 'failed'; errorCode: string; errorMessage: string }
+
+async function reconcileSemanticMessage(input: {
+  run: StoredRun
+  correlation: SemanticMessageCorrelation
+  hrcClient: Pick<AcpHrcClient, 'waitMessage'> | undefined
+  staleTimeoutMs: number
+}): Promise<SemanticMessageReconciliation> {
+  if (input.hrcClient === undefined) {
+    throw new Error(
+      `run ${input.run.runId} has HRC semantic correlation but no HRC client is configured`
+    )
+  }
+
+  const waited = await input.hrcClient.waitMessage({
+    thread: { rootMessageId: input.correlation.rootMessageId },
+    phases: ['response'],
+    afterSeq: input.correlation.afterSeq,
+    deliveryMessageId: input.correlation.requestMessageId,
+    timeoutMs: 1,
+  })
+  if (waited.matched) {
+    logFederatedInterfaceEvent('response', {
+      acpRunId: input.run.runId,
+      scopeRef: input.run.scopeRef,
+      laneRef: input.run.laneRef,
+      requestMessageId: input.correlation.requestMessageId,
+      responseMessageId: waited.record.messageId,
+      localNodeId: input.correlation.localNodeId,
+      homeNodeId: input.correlation.homeNodeId,
+    })
+    return {
+      state: 'response',
+      event: {
+        type: 'message_end',
+        messageId: waited.record.messageId,
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: waited.record.body }],
+        },
+      },
+    }
+  }
+
+  if (waited.reason === 'delivery_failed') {
+    const errorMessage = waited.errorMessage ?? 'HRC federation delivery failed'
+    logFederatedInterfaceEvent('delivery_failed', {
+      acpRunId: input.run.runId,
+      scopeRef: input.run.scopeRef,
+      laneRef: input.run.laneRef,
+      requestMessageId: input.correlation.requestMessageId,
+      localNodeId: input.correlation.localNodeId,
+      homeNodeId: input.correlation.homeNodeId,
+      errorCode: waited.errorCode,
+      errorMessage,
+    })
+    return { state: 'failed', errorCode: waited.errorCode, errorMessage }
+  }
+
+  if (isStale(input.run, input.staleTimeoutMs)) {
+    return {
+      state: 'failed',
+      errorCode: 'turn_timeout',
+      errorMessage: `Federated HRC message ${input.correlation.requestMessageId} exceeded stale timeout (${Math.round(input.staleTimeoutMs / 1000)}s) without a response`,
+    }
+  }
+  return { state: 'pending' }
+}
+
+function readSemanticMessageCorrelation(run: StoredRun): SemanticMessageCorrelation | undefined {
+  const metadata = isRecord(run.metadata) ? run.metadata : undefined
+  const meta = isRecord(metadata?.['meta']) ? metadata['meta'] : undefined
+  const correlation = isRecord(meta?.['hrcSemanticMessage'])
+    ? meta['hrcSemanticMessage']
+    : undefined
+  if (correlation === undefined) {
+    return undefined
+  }
+
+  const requestMessageId = readString(correlation, 'requestMessageId')
+  const rootMessageId = readString(correlation, 'rootMessageId')
+  const afterSeq = correlation['afterSeq']
+  if (
+    requestMessageId === undefined ||
+    rootMessageId === undefined ||
+    typeof afterSeq !== 'number' ||
+    !Number.isSafeInteger(afterSeq) ||
+    afterSeq < 0
+  ) {
+    throw new Error(`run ${run.runId} has invalid HRC semantic message correlation`)
+  }
+
+  return {
+    requestMessageId,
+    rootMessageId,
+    afterSeq,
+    ...(readString(correlation, 'localNodeId') !== undefined
+      ? { localNodeId: readString(correlation, 'localNodeId') }
+      : {}),
+    ...(readString(correlation, 'homeNodeId') !== undefined
+      ? { homeNodeId: readString(correlation, 'homeNodeId') }
+      : {}),
+  }
+}
+
+function logFederatedInterfaceEvent(
+  phase: 'response' | 'delivery_failed',
+  fields: Readonly<Record<string, unknown>>
+): void {
+  console.info(
+    `[interface-run-dispatcher] ${JSON.stringify({ event: `interface.federation.${phase}`, ...fields })}`
+  )
 }
 
 function isStale(run: StoredRun, staleTimeoutMs: number, hrcDbPath?: string): boolean {
