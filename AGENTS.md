@@ -14,11 +14,17 @@ HRC packages (agent-action-render, hrc-core, hrc-sdk, hrc-frame-render, etc.)
 are external dependencies sourced from the local Verdaccio registry at
 `http://127.0.0.1:4873/`.
 
+That endpoint is node-local, not a fleet-wide shared store. Exact immutable
+ASP, HRC, and wrkq client versions referenced by `bun.lock` must exist in the
+execution node's registry before installation. Mirror the producer's exact
+tarballs across registries; do not republish a new timestamp on each node.
+
 ## Build & Run
 
 ```bash
 bun install       # Install dependencies (resolves ASP+HRC deps from Verdaccio)
 bun run build     # Build all ACP packages in order
+just pull-deps    # Explicitly advance published ASP/wrkq pins and commit bun.lock
 ```
 
 ## Validation
@@ -28,6 +34,9 @@ bun run build     # Build all ACP packages in order
 - Typecheck: `bun run typecheck`
 - Lint: `bun run lint` (fix with `bun run lint:fix`)
 - Boundary checks: `bun run check:boundaries`, `bun run check:manifests`
+- Full repository gate: `ASP_PROJECT=agent-control-plane just verify` (prevents
+  ambient project context from selecting another repository during cross-repo
+  validation)
 
 ## Project Structure
 
@@ -96,6 +105,9 @@ Enforced by `bun run check:boundaries`:
 - ACP source **must not** reference HRC-only feature identifiers; this is a
   content scan, not just an import scan. HRC-internal enrichment features should
   never become ACP coupling points.
+- Remote interface ingress may be forwarded through HRC, but HRC remains the
+  placement and native-message authority. ACP must not derive logical node
+  identity or create a second placement registry.
 
 ## ACP Server Lifecycle
 
@@ -108,11 +120,12 @@ The `acp` daemon is managed via launchd:
 - Logs: `/Users/lherron/praesidium/var/logs/acp-server.{log,err.log}`
 
 The binary at `/Users/lherron/.bun/bin/acp` is `bun link`ed from this repo's
-`packages/acp-cli`. After local changes:
+`packages/acp-cli`. `just install` rebuilds, publishes the ACP set, and updates
+the main-checkout links; it does not reload launchd. After runtime changes:
 
 ```bash
-bun run build
-launchctl kickstart -k gui/$(id -u)/com.praesidium.acp-server
+just install
+acp server restart
 acp server status
 ```
 
