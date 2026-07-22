@@ -5,10 +5,12 @@ import { join } from 'node:path'
 import { type SessionRef, parseScopeRef } from 'agent-scope'
 import {
   HrcConflictError,
+  HrcErrorCode,
   type HrcEventEnvelope,
   type HrcHarnessIntent,
   type HrcMessageRecord,
   type HrcRuntimeIntent,
+  HrcRuntimeUnavailableError,
   type ScopeLocation,
   resolveDatabasePath,
 } from 'hrc-core'
@@ -518,12 +520,30 @@ async function maybeLaunchFederatedInterfaceRun(input: {
         errorMessage: null,
       })
     } else if (waited.reason === 'delivery_failed') {
+      const typedFailure = waited as typeof waited & {
+        errorReason?: string | undefined
+        retryable?: boolean | undefined
+        homeNodeId?: string | undefined
+      }
+      const message = waited.errorMessage ?? 'HRC federation delivery failed'
+      const failedHomeNodeId = typedFailure.homeNodeId ?? readLocationHomeNodeId(location)
+      const detail = {
+        reason: typedFailure.errorReason ?? waited.errorCode,
+        retryable: typedFailure.retryable === true,
+        ...(failedHomeNodeId === undefined ? {} : { homeNodeId: failedHomeNodeId }),
+      }
       updateAcpRun(input.runStore, input.acpRunId, {
         status: 'failed',
-        errorCode: waited.errorCode,
-        errorMessage: waited.errorMessage ?? 'HRC federation delivery failed',
+        errorCode:
+          waited.errorCode === HrcErrorCode.RUNTIME_UNAVAILABLE || detail.retryable
+            ? HrcErrorCode.RUNTIME_UNAVAILABLE
+            : HrcErrorCode.STALE_CONTEXT,
+        errorMessage: message,
       })
-      throw new Error(waited.errorMessage ?? 'HRC federation delivery failed')
+      if (waited.errorCode === HrcErrorCode.RUNTIME_UNAVAILABLE || detail.retryable) {
+        throw new HrcRuntimeUnavailableError(message, detail)
+      }
+      throw new HrcConflictError(HrcErrorCode.STALE_CONTEXT, message, detail)
     } else {
       throw new Error(`timed out waiting for federated HRC response to ${request.messageId}`)
     }

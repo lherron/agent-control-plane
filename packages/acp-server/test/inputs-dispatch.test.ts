@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
+import { HrcConflictError, HrcErrorCode, HrcRuntimeUnavailableError } from 'hrc-core'
+
 import type { AcpServerDeps } from '../src/index.js'
 
 import { withWiredServer } from './fixtures/wired-server.js'
@@ -27,6 +29,104 @@ function createLaunchOverrides(calls: LaunchCall[]): Partial<AcpServerDeps> {
 }
 
 describe('POST /v1/inputs dispatch', () => {
+  test('preserves a stale-context HRC refusal as an actionable 409', async () => {
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body: {
+            sessionRef: {
+              scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:T-6808-stale`,
+              laneRef: 'main',
+            },
+            content: 'dispatch through the typed refusal boundary',
+            actor: { agentId: 'tracy' },
+          },
+        })
+
+        expect(response.status).toBe(409)
+        expect(await response.json()).toEqual({
+          error: {
+            code: 'stale_context',
+            message: 'scope is retired on this node',
+            details: {
+              reason: 'scope-retired',
+              retryable: false,
+              homeNodeId: 'max3',
+            },
+          },
+        })
+        expect(fixture.runStore.listRuns()).toMatchObject([
+          {
+            status: 'failed',
+            errorCode: 'stale_context',
+            errorMessage: 'scope is retired on this node',
+          },
+        ])
+      },
+      {
+        ...createLaunchOverrides([]),
+        launchRoleScopedRun: async () => {
+          throw new HrcConflictError(HrcErrorCode.STALE_CONTEXT, 'scope is retired on this node', {
+            reason: 'scope-retired',
+            retryable: false,
+            homeNodeId: 'max3',
+          })
+        },
+      }
+    )
+  })
+
+  test('preserves a retryable HRC outage as an actionable 503', async () => {
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body: {
+            sessionRef: {
+              scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:T-6808-unavailable`,
+              laneRef: 'main',
+            },
+            content: 'dispatch through the typed outage boundary',
+            actor: { agentId: 'tracy' },
+          },
+        })
+
+        expect(response.status).toBe(503)
+        expect(await response.json()).toEqual({
+          error: {
+            code: 'runtime_unavailable',
+            message: 'authoritative home is unreachable',
+            details: {
+              reason: 'peer_unreachable',
+              retryable: true,
+              homeNodeId: 'max3',
+            },
+          },
+        })
+        expect(fixture.runStore.listRuns()).toMatchObject([
+          {
+            status: 'failed',
+            errorCode: 'runtime_unavailable',
+            errorMessage: 'authoritative home is unreachable',
+          },
+        ])
+      },
+      {
+        ...createLaunchOverrides([]),
+        launchRoleScopedRun: async () => {
+          throw new HrcRuntimeUnavailableError('authoritative home is unreachable', {
+            reason: 'peer_unreachable',
+            retryable: true,
+            homeNodeId: 'max3',
+          })
+        },
+      }
+    )
+  })
+
   test('dispatches via launchRoleScopedRun and returns both inputAttempt and run', async () => {
     const launchCalls: LaunchCall[] = []
 

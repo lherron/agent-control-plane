@@ -213,7 +213,14 @@ describe('ACP dispatch fences', () => {
         const response = await postInterfaceMessage(fixture)
         const [storedRun] = fixture.runStore.listRuns()
 
-        expect(response.status).toBe(500)
+        expect(response.status).toBe(409)
+        expect(await response.json()).toEqual({
+          error: {
+            code: 'stale_context',
+            message: 'generation fence is stale',
+            details: { expectedGeneration: 5, activeGeneration: 6 },
+          },
+        })
         expect(storedRun).toMatchObject({
           dispatchFence: {
             expectedHostSessionId: 'hsid-old',

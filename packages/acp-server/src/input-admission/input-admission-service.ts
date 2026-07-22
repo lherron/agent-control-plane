@@ -8,7 +8,11 @@ import type {
   Run,
 } from 'acp-core'
 import { type SessionRef, formatSessionRef } from 'agent-scope'
-import type { HrcActiveRunContributionResponse, HrcRuntimeIntent } from 'hrc-core'
+import {
+  type HrcActiveRunContributionResponse,
+  HrcDomainError,
+  type HrcRuntimeIntent,
+} from 'hrc-core'
 import type { UnifiedSessionEvent } from 'spaces-runtime'
 
 import { createInterfaceResponseCapture } from '../delivery/interface-response-capture.js'
@@ -1182,15 +1186,16 @@ export class InputAdmissionService {
         const current = this.deps.runStore.getRun(run.runId)
         if (current?.status === 'pending') {
           const errorMessage = error instanceof Error ? error.message : String(error)
+          const errorCode = error instanceof HrcDomainError ? error.code : 'launch_failed'
           const failedRun = this.deps.runStore.updateRun(run.runId, {
             status: 'failed',
-            errorCode: 'launch_failed',
+            errorCode,
             errorMessage,
           })
           const failedAdmission = this.deps.inputAdmissionStore.update(
             attempt.inputAttempt.inputAttemptId,
             {
-              currentState: { runStatus: 'failed', errorCode: 'launch_failed' },
+              currentState: { runStatus: 'failed', errorCode },
               status: 'failed',
             }
           )

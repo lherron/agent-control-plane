@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { HrcRuntimeIntent } from 'hrc-core'
+import { HrcDomainError, type HrcRuntimeIntent } from 'hrc-core'
 
 import { InMemoryRunStore } from '../src/domain/run-store.js'
 import {
@@ -131,6 +131,104 @@ describe('real launcher helpers', () => {
           },
         },
       },
+    })
+  })
+
+  test('turns a terminal federated delivery failure into the canonical typed cause', async () => {
+    const runStore = new InMemoryRunStore()
+    const sessionRef = {
+      scopeRef: 'agent:cody:project:hrc-runtime:task:remote-dead-letter',
+      laneRef: 'main' as const,
+    }
+    const acpRun = runStore.createRun({
+      sessionRef,
+      status: 'pending',
+      metadata: {
+        meta: {
+          interfaceSource: {
+            gatewayId: 'discord_prod',
+            bindingId: 'ifb_remote',
+            conversationRef: 'channel:remote',
+            messageRef: 'discord:message:remote',
+          },
+        },
+      },
+    })
+    const launcher = createRealLauncher({
+      hrcDbPath: ':memory:',
+      createClient: () =>
+        ({
+          locateScope: async () => ({
+            scopeRef: sessionRef.scopeRef,
+            localNodeId: 'svc',
+            federationConfigured: true,
+            authority: {
+              state: 'unbound',
+              registry: { state: 'unbound' },
+              declaredPolicy: { kind: 'default_home_node', homeNodeId: 'max3' },
+            },
+          }),
+          semanticDm: async () => ({
+            request: {
+              messageSeq: 42,
+              messageId: 'msg-remote-dead-letter',
+              createdAt: '2026-07-22T20:00:00.000Z',
+              kind: 'dm',
+              phase: 'request',
+              from: { kind: 'entity', entity: 'human' },
+              to: { kind: 'session', sessionRef: `${sessionRef.scopeRef}/lane:main` },
+              rootMessageId: 'msg-remote-dead-letter',
+              body: 'ping',
+              bodyFormat: 'text/plain',
+              execution: { state: 'accepted' },
+            },
+          }),
+          waitMessage: async () => ({
+            matched: false,
+            reason: 'delivery_failed',
+            messageId: 'msg-remote-dead-letter',
+            errorCode: 'runtime_unavailable',
+            errorMessage: 'authoritative home is unreachable',
+            errorReason: 'peer_unreachable',
+            retryable: true,
+            homeNodeId: 'max3',
+          }),
+        }) as unknown as any,
+    })
+
+    let failure: unknown
+    try {
+      await launcher({
+        sessionRef,
+        acpRunId: acpRun.runId,
+        inputAttemptId: 'ia_remote_dead_letter',
+        runStore,
+        onEvent: async () => {},
+        intent: {
+          placement: {
+            agentRoot: '/tmp/cody',
+            runMode: 'task',
+            bundle: { kind: 'compose', compose: [] },
+          },
+          harness: { provider: 'openai', interactive: false },
+          initialPrompt: 'ping',
+        },
+      })
+    } catch (error) {
+      failure = error
+    }
+
+    expect(failure).toBeInstanceOf(HrcDomainError)
+    expect(failure).toMatchObject({
+      code: 'runtime_unavailable',
+      status: 503,
+      message: 'authoritative home is unreachable',
+      detail: { reason: 'peer_unreachable', retryable: true, homeNodeId: 'max3' },
+    })
+    expect(runStore.getRun(acpRun.runId)).toMatchObject({
+      status: 'failed',
+      errorCode: 'runtime_unavailable',
+      errorMessage: 'authoritative home is unreachable',
     })
   })
 

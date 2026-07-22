@@ -1,6 +1,7 @@
 import { WorkRpcError } from '@wrkq/client'
 import { ActorValidationError } from 'acp-core'
 import { InputAttemptConflictError } from 'acp-state-store'
+import { HrcDomainError } from 'hrc-core'
 
 export type AcpErrorBody = {
   error: {
@@ -90,6 +91,19 @@ export function forbidden(code: string, message: string, details?: Record<string
 export function errorResponse(error: unknown): Response {
   if (error instanceof AcpHttpError) {
     return json(error.toResponseBody(), error.status)
+  }
+
+  if (error instanceof HrcDomainError) {
+    return json(
+      {
+        error: {
+          code: error.code,
+          message: error.message,
+          details: error.detail,
+        },
+      } satisfies AcpErrorBody,
+      error.status
+    )
   }
 
   if (error instanceof ActorValidationError) {
