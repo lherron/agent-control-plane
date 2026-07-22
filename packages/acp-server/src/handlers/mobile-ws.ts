@@ -22,6 +22,7 @@ export type MobileRouteKind = 'timeline' | 'diagnostics' | 'dashboard' | 'messag
  */
 export const MOBILE_WS_PATHS = {
   dashboard: '/v1/mobile/dashboard',
+  federationDashboard: '/v2/mobile/dashboard',
   messages: '/v1/mobile/messages/watch',
   timelineTemplate: '/v1/mobile/sessions/:hostSessionId/timeline',
   diagnosticsTemplate: '/v1/mobile/sessions/:hostSessionId/diagnostics',
@@ -29,6 +30,7 @@ export const MOBILE_WS_PATHS = {
 
 export type MobileRouteMatch = {
   kind: MobileRouteKind
+  version?: 1 | 2 | undefined
   /** Only present for session-scoped routes (timeline, diagnostics). */
   hostSessionId?: string | undefined
 }
@@ -37,6 +39,7 @@ export type MobileWebSocketData = {
   deps: ResolvedAcpServerDeps
   url: string
   kind: MobileRouteKind
+  version: 1 | 2
   /**
    * Path-derived host session id for session-scoped routes. Undefined for the
    * dashboard route.
@@ -61,6 +64,9 @@ const SESSION_SCOPED_PATTERN = /^\/v1\/mobile\/sessions\/([^/]+)\/(timeline|diag
 export function parseMobileRouteKind(pathname: string): MobileRouteMatch | undefined {
   if (pathname === MOBILE_WS_PATHS.dashboard) {
     return { kind: 'dashboard' }
+  }
+  if (pathname === MOBILE_WS_PATHS.federationDashboard) {
+    return { kind: 'dashboard', version: 2 }
   }
   if (pathname === MOBILE_WS_PATHS.messages) {
     return { kind: 'messages' }
@@ -89,6 +95,7 @@ export function buildMobileUpgradeData(
     deps,
     url,
     kind: match.kind,
+    version: match.version ?? 1,
     ...(match.hostSessionId !== undefined ? { hostSessionId: match.hostSessionId } : {}),
     abortController: new AbortController(),
   }

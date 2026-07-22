@@ -110,6 +110,9 @@ function createDashboardClient(events: HrcLifecycleEvent[]): AcpHrcClient {
 function createDashboardSocket(input: {
   hrcClient: AcpHrcClient
   url?: string | undefined
+  version?: 1 | 2 | undefined
+  kind?: 'dashboard' | 'timeline' | 'diagnostics' | undefined
+  hostSessionId?: string | undefined
 }): {
   ws: MobileWebSocketLike
   sent: SentEnvelope[]
@@ -122,7 +125,9 @@ function createDashboardSocket(input: {
     data: {
       deps,
       url: input.url ?? 'http://acp.local/v1/mobile/dashboard',
-      kind: 'dashboard',
+      kind: input.kind ?? 'dashboard',
+      version: input.version ?? 1,
+      ...(input.hostSessionId !== undefined ? { hostSessionId: input.hostSessionId } : {}),
       abortController: new AbortController(),
     },
     send(message) {
@@ -139,6 +144,200 @@ function createDashboardSocket(input: {
 afterEach(() => {
   process.env['ACP_MOBILE_DASHBOARD_MAX_REPLAY_EVENTS'] = undefined
   process.env['ACP_MOBILE_DASHBOARD_MAX_REPLAY_AGE_MS'] = undefined
+})
+
+describe('WS /v2/mobile/dashboard federation projection', () => {
+  test('sends the local snapshot first, then node-scoped remote runtime summaries', async () => {
+    const client = createDashboardClient([event(1)])
+    client.listFederationPeerHealth = async () => [
+      {
+        nodeId: 'max3',
+        state: 'healthy',
+        checkedAt: NOW,
+        answeredAt: NOW,
+        latencyMs: 8,
+        protocolVersion: '1',
+        capabilities: { accept: true, locate: true, health: true, runtimeProjection: true },
+      },
+    ]
+    const remoteRuntime: HrcRuntimeSnapshot = {
+      ...RUNTIME,
+      runtimeId: 'runtime-max3',
+      hostSessionId: 'hsid-collision-safe',
+      scopeRef: 'agent:daedalus:project:hrc-runtime',
+      generation: 4,
+      supportsInflightInput: true,
+    }
+    client.listFederatedRuntimes = async () => ({
+      localNodeId: 'svc',
+      generatedAt: NOW,
+      nodes: [
+        {
+          nodeId: 'max3',
+          state: 'answered',
+          checkedAt: NOW,
+          answeredAt: NOW,
+          latencyMs: 7,
+          runtimes: [remoteRuntime],
+        },
+      ],
+    })
+    const { ws, sent } = createDashboardSocket({
+      hrcClient: client,
+      url: 'http://acp.local/v2/mobile/dashboard',
+      version: 2,
+    })
+
+    await openMobileWebSocket(ws)
+
+    expect(sent.slice(0, 2).map((envelope) => envelope.type)).toEqual([
+      'dashboard_snapshot',
+      'federation_snapshot',
+    ])
+    const localSessions = sent[0]!.sessions as SentEnvelope[]
+    expect(localSessions[0]!.session).toBeUndefined()
+    expect(localSessions[0]!.runtime).toBeUndefined()
+    expect(localSessions[0]!.run).toBeUndefined()
+    const federation = sent[1]!
+    expect(federation.localNodeId).toBe('svc')
+    expect(federation.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ nodeId: 'svc', state: 'healthy' }),
+        expect.objectContaining({ nodeId: 'max3', state: 'healthy', answeredAt: NOW }),
+      ])
+    )
+    const sessions = federation.sessions as SentEnvelope[]
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0]).toMatchObject({
+      nodeId: 'max3',
+      sourceKind: 'remote_runtime_projection',
+      sessionRef: 'agent:daedalus:project:hrc-runtime/lane:main',
+      hostSessionId: 'hsid-collision-safe',
+      generation: 4,
+      lastHrcSeq: 0,
+      lastMessageSeq: 0,
+      capabilities: {
+        summary: true,
+        semanticDm: true,
+        timeline: false,
+        history: false,
+        literalInput: false,
+        interrupt: false,
+        answerPrompt: false,
+      },
+    })
+  })
+
+  test('keeps the local dashboard usable when federation calls fail', async () => {
+    const client = createDashboardClient([event(1)])
+    client.listFederationPeerHealth = async () => {
+      throw new Error('peer health timed out')
+    }
+    client.listFederatedRuntimes = async () => {
+      throw new Error('runtime projection timed out')
+    }
+    const { ws, sent, closed } = createDashboardSocket({
+      hrcClient: client,
+      url: 'http://acp.local/v2/mobile/dashboard',
+      version: 2,
+    })
+
+    await openMobileWebSocket(ws)
+
+    expect(sent[0]).toMatchObject({ type: 'dashboard_snapshot' })
+    expect(sent[1]).toMatchObject({
+      type: 'federation_snapshot',
+      sessions: [],
+    })
+    expect(String(sent[1]!.detail)).toContain('peer health timed out')
+    expect(closed).toEqual([])
+  })
+
+  test('preserves cached remote rows and source freshness when a node is unreachable', async () => {
+    const client = createDashboardClient([event(1)])
+    const answeredAt = '2026-07-22T16:00:00.000Z'
+    const checkedAt = '2026-07-22T17:00:00.000Z'
+    client.listFederationPeerHealth = async () => [
+      {
+        nodeId: 'max3',
+        state: 'unreachable',
+        checkedAt,
+        answeredAt,
+        latencyMs: 50,
+        detail: 'peer asleep',
+      },
+    ]
+    client.listFederatedRuntimes = async () => ({
+      localNodeId: 'svc',
+      generatedAt: checkedAt,
+      nodes: [
+        {
+          nodeId: 'max3',
+          state: 'unreachable',
+          checkedAt,
+          answeredAt,
+          latencyMs: 50,
+          detail: 'cached from last answer',
+          runtimes: [{ ...RUNTIME, runtimeId: 'runtime-cached-max3', status: 'active' }],
+        },
+      ],
+    })
+    const { ws, sent } = createDashboardSocket({
+      hrcClient: client,
+      url: 'http://acp.local/v2/mobile/dashboard',
+      version: 2,
+    })
+
+    await openMobileWebSocket(ws)
+
+    const federation = sent[1]!
+    expect(federation.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: 'max3',
+          state: 'unreachable',
+          checkedAt,
+          answeredAt,
+        }),
+      ])
+    )
+    expect(federation.sessions).toEqual([
+      expect.objectContaining({
+        nodeId: 'max3',
+        sourceKind: 'remote_runtime_projection',
+        projectionState: 'unreachable',
+        projectionCheckedAt: checkedAt,
+        projectionAnsweredAt: answeredAt,
+        summaryStatus: 'active',
+      }),
+    ])
+  })
+})
+
+describe('remote projection stream refusal', () => {
+  test('refuses remote timeline before resolving a local session', async () => {
+    let listSessionsCalls = 0
+    const client = {
+      listSessions: async () => {
+        listSessionsCalls += 1
+        return [SESSION]
+      },
+    } as unknown as AcpHrcClient
+    const { ws, sent, closed } = createDashboardSocket({
+      hrcClient: client,
+      url: `http://acp.local/v1/mobile/sessions/${SESSION.hostSessionId}/timeline?sourceKind=remote_runtime_projection`,
+      kind: 'timeline',
+      hostSessionId: SESSION.hostSessionId,
+    })
+
+    await openMobileWebSocket(ws)
+
+    expect(sent).toEqual([
+      expect.objectContaining({ type: 'error', code: 'remote_control_unavailable' }),
+    ])
+    expect(closed).toEqual([{ code: 1008, reason: 'remote control unavailable' }])
+    expect(listSessionsCalls).toBe(0)
+  })
 })
 
 describe('WS /v1/mobile/dashboard', () => {

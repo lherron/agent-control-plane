@@ -177,6 +177,7 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
     [exactRouteKey('GET', '/v1/mobile/pairing')]: handleMobilePairing,
     [exactRouteKey('POST', '/v1/mobile/pair')]: handleMobilePair,
     [exactRouteKey('GET', '/v1/mobile/dashboard')]: handleMobileDashboard,
+    [exactRouteKey('GET', '/v2/mobile/dashboard')]: handleMobileDashboard,
     [exactRouteKey('GET', '/v1/mobile/history')]: handleMobileHistory,
     [exactRouteKey('GET', '/v1/mobile/dm/targets')]: handleMobileDmTargets,
     [exactRouteKey('POST', '/v1/mobile/messages/query')]: handleMobileMessagesQuery,

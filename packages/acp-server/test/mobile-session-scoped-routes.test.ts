@@ -175,6 +175,41 @@ describe('POST /v1/mobile/sessions/:hostSessionId/input', () => {
     )
   })
 
+  test('refuses remote projection literal input before invoking local HRC methods', async () => {
+    let listSessionsCalls = 0
+    const hrcClient = {
+      listSessions: async () => {
+        listSessionsCalls += 1
+        return [SESSION]
+      },
+    } as unknown as AcpHrcClient
+
+    await withWiredServer(
+      async ({ request, json }) => {
+        const response = await request({
+          method: 'POST',
+          path: `/v1/mobile/sessions/${HOST_SESSION_ID}/input`,
+          body: {
+            clientInputId: 'cli-remote-input',
+            text: 'must not be delivered',
+            sourceKind: 'remote_runtime_projection',
+          },
+        })
+        expect(response.status).toBe(422)
+        const body = await json<{ ok: boolean; code: string; clientInputId: string }>(response)
+        expect(body).toEqual(
+          expect.objectContaining({
+            ok: false,
+            code: 'remote_control_unavailable',
+            clientInputId: 'cli-remote-input',
+          })
+        )
+        expect(listSessionsCalls).toBe(0)
+      },
+      { hrcClient }
+    )
+  })
+
   test('legacy POST /v1/mobile/input route is removed (404)', async () => {
     const hrcClient = makeHrcClient({ sessions: [SESSION], runtimes: [RUNTIME] })
     await withWiredServer(
@@ -240,6 +275,40 @@ describe('POST /v1/mobile/sessions/:hostSessionId/interrupt', () => {
     )
   })
 
+  test('refuses remote projection interrupt before invoking local HRC methods', async () => {
+    let listSessionsCalls = 0
+    const hrcClient = {
+      listSessions: async () => {
+        listSessionsCalls += 1
+        return [SESSION]
+      },
+    } as unknown as AcpHrcClient
+
+    await withWiredServer(
+      async ({ request, json }) => {
+        const response = await request({
+          method: 'POST',
+          path: `/v1/mobile/sessions/${HOST_SESSION_ID}/interrupt`,
+          body: {
+            clientInputId: 'cli-remote-interrupt',
+            sourceKind: 'remote_runtime_projection',
+          },
+        })
+        expect(response.status).toBe(422)
+        const body = await json<{ ok: boolean; code: string; clientInputId: string }>(response)
+        expect(body).toEqual(
+          expect.objectContaining({
+            ok: false,
+            code: 'remote_control_unavailable',
+            clientInputId: 'cli-remote-interrupt',
+          })
+        )
+        expect(listSessionsCalls).toBe(0)
+      },
+      { hrcClient }
+    )
+  })
+
   test('legacy POST /v1/mobile/interrupt route is removed (404)', async () => {
     const hrcClient = makeHrcClient({ sessions: [SESSION], runtimes: [RUNTIME] })
     await withWiredServer(
@@ -253,6 +322,34 @@ describe('POST /v1/mobile/sessions/:hostSessionId/interrupt', () => {
           },
         })
         expect(response.status).toBe(404)
+      },
+      { hrcClient }
+    )
+  })
+})
+
+describe('GET /v1/mobile/history', () => {
+  test('refuses remote projection history before invoking local HRC methods', async () => {
+    let watchCalls = 0
+    const hrcClient = {
+      watch: () => {
+        watchCalls += 1
+        return (async function* () {})()
+      },
+    } as unknown as AcpHrcClient
+
+    await withWiredServer(
+      async ({ request, json }) => {
+        const response = await request({
+          method: 'GET',
+          path: '/v1/mobile/history?sourceKind=remote_runtime_projection',
+        })
+        expect(response.status).toBe(422)
+        const body = await json<{ ok: boolean; code: string }>(response)
+        expect(body).toEqual(
+          expect.objectContaining({ ok: false, code: 'remote_control_unavailable' })
+        )
+        expect(watchCalls).toBe(0)
       },
       { hrcClient }
     )

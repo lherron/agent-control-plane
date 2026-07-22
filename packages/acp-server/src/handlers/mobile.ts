@@ -1,4 +1,7 @@
 import type {
+  FederationNodeRuntimeProjection,
+  FederationPeerHealthObservation,
+  FederationRuntimeProjectionReport,
   HrcLifecycleEvent,
   HrcMessageAddress,
   HrcMessageFilter,
@@ -41,12 +44,37 @@ const DEFAULT_DASHBOARD_MAX_REPLAY_EVENTS = 10_000
 const DEFAULT_DASHBOARD_MAX_REPLAY_AGE_MS = 3_600_000
 const MOBILE_WS_PING_INTERVAL_MS = 30_000
 const MOBILE_SESSION_DETAILS_QUERY_PARAM = 'sessionDetails'
+const REMOTE_CONTROL_UNAVAILABLE_MESSAGE =
+  'Remote timeline, history, literal input, and interrupt are unavailable in mobile federation Phase 1.'
 
 type MobileSessionMode = 'interactive' | 'headless'
 type MobileSessionStatus = 'active' | 'stale' | 'inactive'
 type MobileExecutionMode = 'interactive' | 'headless' | 'nonInteractive'
+type MobileSessionSourceKind = 'local_session' | 'remote_runtime_projection'
+type MobileNodeState = 'healthy' | 'unreachable' | 'refused' | 'invalid_response'
+
+type MobileNodeSummary = {
+  nodeId: string
+  state: MobileNodeState
+  checkedAt: string
+  answeredAt?: string | undefined
+  latencyMs: number
+  protocolVersion?: string | undefined
+  capabilities?: {
+    accept: boolean
+    locate: boolean
+    health: boolean
+    runtimeProjection?: boolean | undefined
+  }
+  detail?: string | undefined
+}
 
 type MobileSessionSummary = {
+  nodeId?: string | undefined
+  sourceKind?: MobileSessionSourceKind | undefined
+  projectionState?: 'answered' | 'unreachable' | 'refused' | 'invalid_response' | undefined
+  projectionCheckedAt?: string | undefined
+  projectionAnsweredAt?: string | undefined
   sessionRef: string
   displayRef: string
   title: string
@@ -54,7 +82,7 @@ type MobileSessionSummary = {
   executionMode: MobileExecutionMode
   summaryStatus: MobileSessionStatus
   /** @deprecated Use summaryStatus. Preserved for the older /mobile/sessions client. */
-  status: MobileSessionStatus
+  status?: MobileSessionStatus | undefined
   hostSessionId: string
   generation: number
   runtimeId?: string | undefined
@@ -67,8 +95,13 @@ type MobileSessionSummary = {
     interrupt: boolean
     launchHeadlessTurn: boolean
     history: boolean
+    summary?: boolean | undefined
+    semanticDm?: boolean | undefined
+    timeline?: boolean | undefined
+    literalInput?: boolean | undefined
+    answerPrompt?: boolean | undefined
   }
-  session: {
+  session?: {
     status: string
     generation: number
     priorHostSessionId?: string | undefined
@@ -113,6 +146,30 @@ type MobileSessionSummary = {
         run?: HrcRunRecord | undefined
       }
     | undefined
+}
+
+function thinLocalSessionForFederation(session: MobileSessionSummary): MobileSessionSummary {
+  return {
+    sessionRef: session.sessionRef,
+    displayRef: session.displayRef,
+    title: session.title,
+    mode: session.mode,
+    executionMode: session.executionMode,
+    summaryStatus: session.summaryStatus,
+    hostSessionId: session.hostSessionId,
+    generation: session.generation,
+    ...(session.runtimeId !== undefined ? { runtimeId: session.runtimeId } : {}),
+    ...(session.activeTurnId !== undefined ? { activeTurnId: session.activeTurnId } : {}),
+    lastHrcSeq: session.lastHrcSeq,
+    lastMessageSeq: session.lastMessageSeq,
+    ...(session.lastActivityAt !== undefined ? { lastActivityAt: session.lastActivityAt } : {}),
+    capabilities: {
+      input: session.capabilities.input,
+      interrupt: session.capabilities.interrupt,
+      launchHeadlessTurn: session.capabilities.launchHeadlessTurn,
+      history: session.capabilities.history,
+    },
+  }
 }
 
 type MobileSessionIndex = {
@@ -165,6 +222,31 @@ type MobileDashboardSessionsRefreshed = {
   generatedAt: string
   cursors: MobileDashboardSnapshot['cursors']
   sessions: MobileSessionSummary[]
+}
+
+type MobileFederationSnapshot = {
+  type: 'federation_snapshot'
+  generatedAt: string
+  localNodeId: string
+  nodes: MobileNodeSummary[]
+  sessions: MobileSessionSummary[]
+  detail?: string | undefined
+}
+
+function isRemoteProjectionSource(value: unknown): boolean {
+  return value === 'remote_runtime_projection'
+}
+
+function remoteControlUnavailable(clientInputId?: string): Response {
+  return json(
+    {
+      ok: false,
+      ...(clientInputId !== undefined ? { clientInputId } : {}),
+      code: 'remote_control_unavailable',
+      message: REMOTE_CONTROL_UNAVAILABLE_MESSAGE,
+    },
+    422
+  )
 }
 
 type MobileDmTargetsResponse = {
@@ -354,6 +436,7 @@ function projectSession(input: {
   const includeSessionDetails = input.includeSessionDetails === true || input.raw === true
 
   return {
+    sourceKind: 'local_session',
     sessionRef: sessionRef(input.record.scopeRef, input.record.laneRef),
     displayRef: sessionRef(input.record.scopeRef, input.record.laneRef),
     title: titleForSession(input.record),
@@ -375,6 +458,11 @@ function projectSession(input: {
       interrupt: runtimeActive || input.runtime !== undefined,
       launchHeadlessTurn: false,
       history: true,
+      summary: true,
+      semanticDm: true,
+      timeline: true,
+      literalInput: supportsInput,
+      answerPrompt: true,
     },
     session: {
       status: input.record.status,
@@ -1112,6 +1200,185 @@ async function buildMobileDashboardSnapshot(
   }
 }
 
+function projectMobileNodeState(
+  state: FederationPeerHealthObservation['state'] | FederationNodeRuntimeProjection['state']
+): MobileNodeState {
+  if (state === 'answered' || state === 'healthy') return 'healthy'
+  if (state === 'invalid-response') return 'invalid_response'
+  return state
+}
+
+function projectRemoteRuntime(
+  runtime: HrcRuntimeSnapshot,
+  node: FederationNodeRuntimeProjection
+): MobileSessionSummary {
+  const execution: MobileExecutionMode =
+    runtime.transport === 'headless'
+      ? 'headless'
+      : runtime.supportsInflightInput
+        ? 'interactive'
+        : 'nonInteractive'
+  const mode: MobileSessionMode = execution === 'headless' ? 'headless' : 'interactive'
+  const status = mobileStatus(runtime.status, runtime)
+  const projectionState =
+    node.state === 'invalid-response' ? ('invalid_response' as const) : node.state
+  return {
+    nodeId: node.nodeId,
+    sourceKind: 'remote_runtime_projection',
+    projectionState,
+    projectionCheckedAt: node.checkedAt,
+    ...(node.answeredAt !== undefined ? { projectionAnsweredAt: node.answeredAt } : {}),
+    sessionRef: sessionRef(runtime.scopeRef, runtime.laneRef),
+    displayRef: sessionRef(runtime.scopeRef, runtime.laneRef),
+    title: runtime.scopeRef.split('/').at(-1) || runtime.scopeRef,
+    mode,
+    executionMode: execution,
+    summaryStatus: status,
+    status,
+    hostSessionId: runtime.hostSessionId,
+    generation: runtime.generation,
+    runtimeId: runtime.runtimeId,
+    ...(runtime.activeRunId !== undefined ? { activeTurnId: runtime.activeRunId } : {}),
+    // Remote projections never pretend that a peer-local cursor belongs to svc.
+    lastHrcSeq: 0,
+    lastMessageSeq: 0,
+    lastActivityAt: runtime.lastActivityAt ?? runtime.updatedAt,
+    capabilities: {
+      input: false,
+      interrupt: false,
+      launchHeadlessTurn: false,
+      history: false,
+      summary: true,
+      semanticDm: true,
+      timeline: false,
+      literalInput: false,
+      answerPrompt: false,
+    },
+    session: {
+      status: runtime.status,
+      generation: runtime.generation,
+      createdAt: runtime.createdAt,
+      updatedAt: runtime.updatedAt,
+    },
+    runtime: {
+      status: runtime.status,
+      transport: runtime.transport,
+      ...(runtime.runtimeKind !== undefined ? { runtimeKind: runtime.runtimeKind } : {}),
+      runtimeId: runtime.runtimeId,
+      ...(runtime.launchId !== undefined ? { launchId: runtime.launchId } : {}),
+      ...(runtime.activeRunId !== undefined ? { activeRunId: runtime.activeRunId } : {}),
+      ...(runtime.lastActivityAt !== undefined ? { lastActivityAt: runtime.lastActivityAt } : {}),
+      supportsInflightInput: runtime.supportsInflightInput,
+      adopted: runtime.adopted,
+      createdAt: runtime.createdAt,
+      updatedAt: runtime.updatedAt,
+    },
+  }
+}
+
+async function buildMobileFederationSnapshot(
+  hrcClient: AcpHrcClient
+): Promise<MobileFederationSnapshot> {
+  const generatedAt = new Date().toISOString()
+  if (
+    hrcClient.listFederationPeerHealth === undefined ||
+    hrcClient.listFederatedRuntimes === undefined
+  ) {
+    return {
+      type: 'federation_snapshot',
+      generatedAt,
+      localNodeId: GATEWAY_ID,
+      nodes: [],
+      sessions: [],
+      detail: 'Installed HRC does not expose federation projections.',
+    }
+  }
+
+  const [healthResult, runtimeResult] = await Promise.allSettled([
+    hrcClient.listFederationPeerHealth(),
+    hrcClient.listFederatedRuntimes({}),
+  ])
+  const observations = healthResult.status === 'fulfilled' ? healthResult.value : []
+  const report: FederationRuntimeProjectionReport | undefined =
+    runtimeResult.status === 'fulfilled' ? runtimeResult.value : undefined
+  const localNodeId = report?.localNodeId ?? GATEWAY_ID
+  const nodes = new Map<string, MobileNodeSummary>()
+
+  if (report !== undefined) {
+    nodes.set(localNodeId, {
+      nodeId: localNodeId,
+      state: 'healthy',
+      checkedAt: report.generatedAt,
+      answeredAt: report.generatedAt,
+      latencyMs: 0,
+      capabilities: { accept: true, locate: true, health: true, runtimeProjection: true },
+    })
+    for (const node of report.nodes) {
+      nodes.set(node.nodeId, {
+        nodeId: node.nodeId,
+        state: projectMobileNodeState(node.state),
+        checkedAt: node.checkedAt,
+        ...(node.answeredAt !== undefined ? { answeredAt: node.answeredAt } : {}),
+        latencyMs: node.latencyMs,
+        ...(node.detail !== undefined ? { detail: node.detail } : {}),
+      })
+    }
+  }
+
+  for (const observation of observations) {
+    const existing = nodes.get(observation.nodeId)
+    nodes.set(observation.nodeId, {
+      nodeId: observation.nodeId,
+      state: projectMobileNodeState(observation.state),
+      checkedAt: observation.checkedAt,
+      ...(observation.answeredAt !== undefined
+        ? { answeredAt: observation.answeredAt }
+        : existing?.answeredAt !== undefined
+          ? { answeredAt: existing.answeredAt }
+          : {}),
+      latencyMs: observation.latencyMs,
+      ...(observation.protocolVersion !== undefined
+        ? { protocolVersion: observation.protocolVersion }
+        : {}),
+      ...(observation.capabilities !== undefined
+        ? { capabilities: observation.capabilities }
+        : existing?.capabilities !== undefined
+          ? { capabilities: existing.capabilities }
+          : {}),
+      ...(observation.detail !== undefined
+        ? { detail: observation.detail }
+        : existing?.detail !== undefined
+          ? { detail: existing.detail }
+          : {}),
+    })
+  }
+
+  const details: string[] = []
+  if (healthResult.status === 'rejected') {
+    details.push(
+      `peer health unavailable: ${healthResult.reason instanceof Error ? healthResult.reason.message : String(healthResult.reason)}`
+    )
+  }
+  if (runtimeResult.status === 'rejected') {
+    details.push(
+      `runtime projection unavailable: ${runtimeResult.reason instanceof Error ? runtimeResult.reason.message : String(runtimeResult.reason)}`
+    )
+  }
+
+  return {
+    type: 'federation_snapshot',
+    generatedAt: report?.generatedAt ?? generatedAt,
+    localNodeId,
+    nodes: [...nodes.values()].sort((lhs, rhs) => lhs.nodeId.localeCompare(rhs.nodeId)),
+    sessions:
+      report?.nodes
+        .filter((node) => node.nodeId !== localNodeId)
+        .flatMap((node) => node.runtimes.map((runtime) => projectRemoteRuntime(runtime, node))) ??
+      [],
+    ...(details.length > 0 ? { detail: details.join(' ') } : {}),
+  }
+}
+
 async function validateMobileDashboardReplayCursor(input: {
   hrcClient: AcpHrcClient
   fromHrcSeq: number
@@ -1228,7 +1495,11 @@ async function openMobileDashboardWebSocket(
   const raw = parseMobileRawFlag(parsedURL)
   const includeSessionDetails = parseMobileSessionDetailsFlag(parsedURL)
   const fromHrcSeq = parseDashboardReplayCursor(parsedURL)
-  const snapshot = await buildMobileDashboardSnapshot(deps, parsedURL)
+  const builtSnapshot = await buildMobileDashboardSnapshot(deps, parsedURL)
+  const snapshot: MobileDashboardSnapshot =
+    ws.data.version === 2
+      ? { ...builtSnapshot, sessions: builtSnapshot.sessions.map(thinLocalSessionForFederation) }
+      : builtSnapshot
 
   if (fromHrcSeq !== undefined) {
     const replayError = await validateMobileDashboardReplayCursor({
@@ -1244,13 +1515,19 @@ async function openMobileDashboardWebSocket(
   }
 
   sendMobileJsonEnvelope(ws, snapshot)
-  const sessionsRefreshed: MobileDashboardSessionsRefreshed = {
-    type: 'sessions_refreshed',
-    generatedAt: snapshot.generatedAt,
-    cursors: snapshot.cursors,
-    sessions: snapshot.sessions,
+  if (ws.data.version === 1) {
+    const sessionsRefreshed: MobileDashboardSessionsRefreshed = {
+      type: 'sessions_refreshed',
+      generatedAt: snapshot.generatedAt,
+      cursors: snapshot.cursors,
+      sessions: snapshot.sessions,
+    }
+    sendMobileJsonEnvelope(ws, sessionsRefreshed)
+  } else {
+    // Federation is deliberately second: a slow or failed peer can never delay
+    // the svc-local first frame or turn a usable local dashboard into failure.
+    sendMobileJsonEnvelope(ws, await buildMobileFederationSnapshot(hrcClient))
   }
-  sendMobileJsonEnvelope(ws, sessionsRefreshed)
 
   const seenHrcSeqs = new Set<number>()
   for (const events of Object.values(snapshot.recentEventsBySession)) {
@@ -1349,6 +1626,20 @@ export const handleMobileHealth: RouteHandler = async ({ deps }) => {
     input: hrcClient !== undefined,
     interrupt: hrcClient !== undefined,
     pairing: true,
+    federationDashboard:
+      hrcClient?.listFederationPeerHealth !== undefined &&
+      hrcClient.listFederatedRuntimes !== undefined,
+    nodeHealth: hrcClient?.listFederationPeerHealth !== undefined,
+    remoteRuntimeProjection: hrcClient?.listFederatedRuntimes !== undefined,
+    federationSummary:
+      hrcClient?.listFederationPeerHealth !== undefined &&
+      hrcClient.listFederatedRuntimes !== undefined,
+    nodeRuntimeProjection: hrcClient?.listFederatedRuntimes !== undefined,
+    semanticDm: hrcClient !== undefined,
+    remoteTimeline: false,
+    remoteHistory: false,
+    remoteLiteralInput: false,
+    remoteInterrupt: false,
   }
 
   return json({
@@ -1481,6 +1772,9 @@ export const handleMobileSemanticDm: RouteHandler = async ({ deps, request }) =>
 
 export const handleMobileHistory: RouteHandler = async ({ deps, url }) => {
   const hrcClient = requireHrcClient(deps)
+  if (isRemoteProjectionSource(url.searchParams.get('sourceKind'))) {
+    return remoteControlUnavailable()
+  }
   const limit = Number.parseInt(url.searchParams.get('limit') ?? '80', 10)
   const raw = url.searchParams.get('raw') === 'true'
   const parsedLimit = Number.isFinite(limit) ? limit : 80
@@ -1514,6 +1808,10 @@ export const handleMobileInput: RouteHandler = async ({ deps, request, params })
   const hostSessionId = requireHostSessionIdParam(params)
   const body = requireRecord(await parseJsonBody(request))
   const clientInputId = requireTrimmedStringField(body, 'clientInputId')
+
+  if (isRemoteProjectionSource(body['sourceKind'])) {
+    return remoteControlUnavailable(clientInputId)
+  }
   const text = requireTrimmedStringField(body, 'text')
 
   try {
@@ -1547,6 +1845,10 @@ export const handleMobileInterrupt: RouteHandler = async ({ deps, request, param
   const body = requireRecord(await parseJsonBody(request))
   const clientInputId = requireTrimmedStringField(body, 'clientInputId')
 
+  if (isRemoteProjectionSource(body['sourceKind'])) {
+    return remoteControlUnavailable(clientInputId)
+  }
+
   try {
     const { runtime } = await resolveMobileSessionByHostSessionId(hrcClient, hostSessionId)
     if (runtime === undefined) {
@@ -1574,6 +1876,15 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
   const { deps, url, kind, hostSessionId: pathHostSessionId, abortController } = ws.data
   const hrcClient = requireHrcClient(deps)
   const parsedURL = new URL(url)
+
+  if (
+    (kind === 'timeline' || kind === 'diagnostics') &&
+    isRemoteProjectionSource(parsedURL.searchParams.get('sourceKind'))
+  ) {
+    sendMobileErrorEnvelope(ws, 'remote_control_unavailable', REMOTE_CONTROL_UNAVAILABLE_MESSAGE)
+    ws.close(1008, 'remote control unavailable')
+    return
+  }
 
   if (kind === 'messages') {
     const filter = parseMobileMessageFilter(

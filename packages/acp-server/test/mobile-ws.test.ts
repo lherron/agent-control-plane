@@ -22,6 +22,10 @@ function makeUrl(query: string): URL {
 describe('parseMobileRouteKind', () => {
   test('recognises the dashboard system-wide WS path', () => {
     expect(parseMobileRouteKind(MOBILE_WS_PATHS.dashboard)).toEqual({ kind: 'dashboard' })
+    expect(parseMobileRouteKind(MOBILE_WS_PATHS.federationDashboard)).toEqual({
+      kind: 'dashboard',
+      version: 2,
+    })
   })
 
   test('recognises the hrcchat messages WS path', () => {

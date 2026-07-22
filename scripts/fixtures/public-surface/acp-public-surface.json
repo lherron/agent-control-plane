@@ -51,6 +51,7 @@
       "GET /v1/tasks/:taskId",
       "GET /v1/wrkf/pbc/tasks/:task/inspect",
       "GET /v1/wrkf/ping",
+      "GET /v2/mobile/dashboard",
       "PATCH /v1/admin/agents/:agentId",
       "PATCH /v1/admin/agents/:agentId/profile",
       "PATCH /v1/admin/jobs/:jobId",

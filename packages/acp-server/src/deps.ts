@@ -148,6 +148,8 @@ export type AcpHrcClient = Pick<
   | 'watch'
   | 'watchMessages'
 > & {
+  listFederationPeerHealth?: HrcClient['listFederationPeerHealth']
+  listFederatedRuntimes?: HrcClient['listFederatedRuntimes']
   probe?(request: Readonly<Record<string, unknown>>): Promise<{ outcome: 'idle' | 'work' }>
   submitActiveRunContribution(
     request: HrcActiveRunContributionRequest
