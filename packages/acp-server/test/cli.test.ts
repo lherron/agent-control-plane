@@ -24,7 +24,7 @@ describe('acp-server cli helpers', () => {
 
     expect(resolved.help).toBe(false)
     expect(resolved.options).toEqual({
-      wrkqDbPath: '/tmp/wrkq.db',
+      wrkqDbLocator: '/tmp/wrkq.db',
       coordDbPath: '/Users/lherron/praesidium/var/db/acp-coordination.db',
       interfaceDbPath: '/Users/lherron/praesidium/var/db/acp-interface.db',
       stateDbPath: '/Users/lherron/praesidium/var/db/acp-state.db',
@@ -65,7 +65,7 @@ describe('acp-server cli helpers', () => {
     )
 
     expect(resolved.options).toEqual({
-      wrkqDbPath: '/tmp/override-wrkq.db',
+      wrkqDbLocator: '/tmp/override-wrkq.db',
       coordDbPath: '/tmp/coord.db',
       interfaceDbPath: '/tmp/interface.db',
       stateDbPath: '/tmp/state.db',
@@ -73,6 +73,133 @@ describe('acp-server cli helpers', () => {
       host: '127.0.0.1,100.73.60.81',
       port: 19000,
       actor: 'cli-actor',
+    })
+  })
+
+  describe('canonical wrkq locator configuration', () => {
+    test('resolves the full precedence table, ignores blank candidates, and never selects WRKF_DB_PATH', () => {
+      const cases: Array<{
+        name: string
+        args: string[]
+        env: NodeJS.ProcessEnv
+        expected: string
+      }> = [
+        {
+          name: '--wrkq-db wins over every lower-precedence input',
+          args: ['--wrkq-db', '/cli-locator.db', '--wrkq-db-path', '/cli-path.db'],
+          env: {
+            ACP_WRKQ_DB: '/acp-locator.db',
+            WRKQ_DB: '/wrkq-locator.db',
+            ACP_WRKQ_DB_PATH: '/acp-path.db',
+            WRKQ_DB_PATH: '/wrkq-path.db',
+          },
+          expected: '/cli-locator.db',
+        },
+        {
+          name: '--wrkq-db-path wins over locator and path environment inputs',
+          args: ['--wrkq-db-path', '/cli-path.db'],
+          env: {
+            ACP_WRKQ_DB: '/acp-locator.db',
+            WRKQ_DB: '/wrkq-locator.db',
+            ACP_WRKQ_DB_PATH: '/acp-path.db',
+            WRKQ_DB_PATH: '/wrkq-path.db',
+          },
+          expected: '/cli-path.db',
+        },
+        {
+          name: 'ACP_WRKQ_DB wins over WRKQ_DB and path environment inputs',
+          args: [],
+          env: {
+            ACP_WRKQ_DB: ' rpc://acp:7171 ',
+            WRKQ_DB: 'rpc://wrkq:7171',
+            ACP_WRKQ_DB_PATH: '/acp-path.db',
+            WRKQ_DB_PATH: '/wrkq-path.db',
+          },
+          expected: 'rpc://acp:7171',
+        },
+        {
+          name: 'WRKQ_DB wins over path environment inputs and divergent WRKF_DB_PATH',
+          args: [],
+          env: {
+            WRKQ_DB: 'rpc://wrkq:7171',
+            ACP_WRKQ_DB_PATH: '/acp-path.db',
+            WRKQ_DB_PATH: '/wrkq-path.db',
+            WRKF_DB_PATH: '/divergent-wrkf.db',
+          },
+          expected: 'rpc://wrkq:7171',
+        },
+        {
+          name: 'ACP_WRKQ_DB_PATH wins over WRKQ_DB_PATH',
+          args: [],
+          env: { ACP_WRKQ_DB_PATH: '/acp-path.db', WRKQ_DB_PATH: '/wrkq-path.db' },
+          expected: '/acp-path.db',
+        },
+        {
+          name: 'WRKQ_DB_PATH is the final compatibility fallback',
+          args: [],
+          env: { WRKQ_DB_PATH: '/wrkq-path.db' },
+          expected: '/wrkq-path.db',
+        },
+        {
+          name: 'blank higher-precedence values are absent and fall through',
+          args: ['--wrkq-db', ' ', '--wrkq-db-path', '\t'],
+          env: {
+            ACP_WRKQ_DB: ' ',
+            WRKQ_DB: '\t',
+            ACP_WRKQ_DB_PATH: '\n',
+            WRKQ_DB_PATH: ' /fallback.db ',
+          },
+          expected: '/fallback.db',
+        },
+      ]
+
+      for (const { name, args, env, expected } of cases) {
+        expect(resolveCliOptions(args, env).options.wrkqDbLocator, name).toBe(expected)
+      }
+
+      expect(() =>
+        resolveCliOptions(['--wrkq-db', ' ', '--wrkq-db-path', '\t'], {
+          ACP_WRKQ_DB: ' ',
+          WRKQ_DB: '\t',
+          ACP_WRKQ_DB_PATH: '\n',
+          WRKQ_DB_PATH: '',
+        })
+      ).toThrow('wrkq database locator is required')
+    })
+
+    test('permits equal local dual flags and rejects differing dual flags', () => {
+      expect(
+        resolveCliOptions(['--wrkq-db', '/same.db', '--wrkq-db-path', '/same.db'], {}).options
+          .wrkqDbLocator
+      ).toBe('/same.db')
+
+      expect(() =>
+        resolveCliOptions(['--wrkq-db', '/canonical.db', '--wrkq-db-path', '/legacy.db'], {})
+      ).toThrow('conflict')
+    })
+
+    test('rejects rpc:// on every path-named compatibility input, even beside an equal canonical locator', () => {
+      const cases: Array<{ name: string; args: string[]; env: NodeJS.ProcessEnv }> = [
+        {
+          name: '--wrkq-db-path',
+          args: ['--wrkq-db', 'rpc://mini:7171', '--wrkq-db-path', 'rpc://mini:7171'],
+          env: {},
+        },
+        {
+          name: 'ACP_WRKQ_DB_PATH',
+          args: ['--wrkq-db', 'rpc://mini:7171'],
+          env: { ACP_WRKQ_DB_PATH: 'rpc://mini:7171' },
+        },
+        {
+          name: 'WRKQ_DB_PATH',
+          args: [],
+          env: { WRKQ_DB: 'rpc://mini:7171', WRKQ_DB_PATH: 'rpc://mini:7171' },
+        },
+      ]
+
+      for (const { name, args, env } of cases) {
+        expect(() => resolveCliOptions(args, env), name).toThrow('path-only')
+      }
     })
   })
 
@@ -123,7 +250,7 @@ describe('acp-server cli helpers', () => {
   test('formats startup output and help text', () => {
     expect(
       formatStartupLine({
-        wrkqDbPath: '/tmp/wrkq.db',
+        wrkqDbLocator: 'rpc://mini:7171',
         coordDbPath: '/tmp/coord.db',
         interfaceDbPath: '/tmp/interface.db',
         stateDbPath: '/tmp/state.db',
@@ -132,10 +259,10 @@ describe('acp-server cli helpers', () => {
         port: 18470,
         actor: 'acp-server',
       })
-    ).toContain('wrkq.db = /tmp/wrkq.db')
+    ).toContain('wrkq.locator = rpc://mini:7171')
     expect(
       formatStartupLine({
-        wrkqDbPath: '/tmp/wrkq.db',
+        wrkqDbLocator: '/tmp/wrkq.db',
         coordDbPath: '/tmp/coord.db',
         interfaceDbPath: '/tmp/interface.db',
         stateDbPath: '/tmp/state.db',
@@ -146,7 +273,13 @@ describe('acp-server cli helpers', () => {
       })
     ).toContain('acp-server listening on http://127.0.0.1:18470, http://100.73.60.81:18470')
     expect(renderHelp()).toContain('acp-server')
+    expect(renderHelp()).toContain('--wrkq-db <locator>')
+    expect(renderHelp()).toContain('--wrkq-db-path <path>')
+    expect(renderHelp()).toContain('ACP_WRKQ_DB')
+    expect(renderHelp()).toContain('WRKQ_DB')
     expect(renderHelp()).toContain('ACP_WRKQ_DB_PATH')
+    expect(renderHelp()).toContain('WRKQ_DB_PATH')
+    expect(renderHelp()).not.toContain('WRKF_DB_PATH')
     expect(renderHelp()).toContain('ACP_INTERFACE_DB_PATH')
     expect(renderHelp()).toContain('ACP_STATE_DB_PATH')
     expect(renderHelp()).toContain('ACP_SCHEDULER_ENABLED')

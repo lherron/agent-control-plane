@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, test } from 'bun:test'
-import type { WorkClient } from '@wrkq/client'
+import type { CreateClientOptions, WorkClient } from '@wrkq/client'
 
 import { createWrkfClientLifecycle } from '../wrkf/client-lifecycle.js'
 
@@ -41,6 +41,40 @@ function succeedingFactory(onClose?: () => void): () => Promise<WorkClient> {
 // ---------------------------------------------------------------------------
 
 describe('createWrkfClientLifecycle — fail-closed startup', () => {
+  test('passes one dbLocator to the shared client, leaves token environment untouched, and fails closed', async () => {
+    const originalToken = process.env['WRKQD_TOKEN']
+    const originalTokenFile = process.env['WRKQD_TOKEN_FILE']
+    process.env['WRKQD_TOKEN'] = 'inherited-token'
+    process.env['WRKQD_TOKEN_FILE'] = '/tmp/inherited-token-file'
+    const seen: CreateClientOptions[] = []
+    const initializeFailure = new Error('rpc.initialize authentication refused')
+
+    try {
+      await expect(
+        createWrkfClientLifecycle({
+          dbLocator: 'rpc://mini:7171',
+          clientInfo: { name: 'acp-server', version: '0.1.0' },
+          _createClient: (options) => {
+            seen.push(options)
+            return Promise.reject(initializeFailure)
+          },
+        })
+      ).rejects.toBe(initializeFailure)
+
+      expect(seen).toHaveLength(1)
+      expect(seen[0]?.dbLocator).toBe('rpc://mini:7171')
+      expect(seen[0]?.dbPath).toBeUndefined()
+      expect(seen[0]?.env).toBeUndefined()
+      expect(process.env['WRKQD_TOKEN']).toBe('inherited-token')
+      expect(process.env['WRKQD_TOKEN_FILE']).toBe('/tmp/inherited-token-file')
+    } finally {
+      if (originalToken === undefined) Reflect.deleteProperty(process.env, 'WRKQD_TOKEN')
+      else process.env['WRKQD_TOKEN'] = originalToken
+      if (originalTokenFile === undefined) Reflect.deleteProperty(process.env, 'WRKQD_TOKEN_FILE')
+      else process.env['WRKQD_TOKEN_FILE'] = originalTokenFile
+    }
+  })
+
   test('propagates client creation rejection: startup must throw when wrkf fails to init', async () => {
     // Production requirement: if wrkf cannot initialize, acp-server must NOT start.
     // createWrkfClientLifecycle must NOT catch the error and return a half-initialized lifecycle.
@@ -70,6 +104,47 @@ describe('createWrkfClientLifecycle — fail-closed startup', () => {
     expect(typeof lifecycle.close).toBe('function')
 
     // Clean up
+    await lifecycle.close()
+  })
+
+  test('derives both workflow and store adapters from the one initialized client', async () => {
+    const calls: string[] = []
+    const fakeClient = {
+      wrkf: {
+        workflow: {
+          list: () => {
+            calls.push('workflow adapter')
+            return Promise.resolve([])
+          },
+        },
+        role: {
+          list: () => {
+            calls.push('store adapter')
+            return Promise.resolve([])
+          },
+        },
+      },
+      close: () => Promise.resolve(),
+      kill: () => {},
+    } as unknown as WorkClient
+    const seen: CreateClientOptions[] = []
+
+    const lifecycle = await createWrkfClientLifecycle({
+      dbLocator: 'rpc://mini:7171',
+      clientInfo: { name: 'acp-server', version: '0.1.0' },
+      _createClient: (options) => {
+        seen.push(options)
+        return Promise.resolve(fakeClient)
+      },
+    })
+
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.dbLocator).toBe('rpc://mini:7171')
+    expect(lifecycle.client).toBe(fakeClient)
+    await lifecycle.wrkf?.workflow.list({})
+    await lifecycle.store?.roleAssignmentStore.getRoleMap('T-06784')
+    expect(calls).toEqual(['workflow adapter', 'store adapter'])
+
     await lifecycle.close()
   })
 
