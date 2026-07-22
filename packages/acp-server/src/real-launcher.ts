@@ -70,7 +70,11 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
     const acpCorrelationId = acpRunId ?? inputAttemptId
     const shouldWaitForCompletion = onEvent !== undefined && waitForCompletion !== false
     const prompt = normalizedIntent.initialPrompt?.trim()
-    const federatedInterfaceRun = await maybeLaunchFederatedInterfaceRun({
+    // Placement must be consulted before local resolve-session for every
+    // prompt-bearing input, not only gateway/interface metadata. Unbound or
+    // remote scopes enter HRC's semantic-DM outbox, where the existing durable
+    // remote-establish -> fenced-delivery transition owns the summon.
+    const federatedInterfaceRun = await maybeLaunchFederatedPromptRun({
       client,
       sessionRef,
       normalizedIntent,
@@ -431,7 +435,7 @@ function readInterfaceSourceFromRun(run: ReturnType<RunStore['getRun']>): unknow
     : undefined
 }
 
-async function maybeLaunchFederatedInterfaceRun(input: {
+async function maybeLaunchFederatedPromptRun(input: {
   client: HrcClient
   sessionRef: SessionRef
   normalizedIntent: HrcRuntimeIntent
@@ -443,12 +447,7 @@ async function maybeLaunchFederatedInterfaceRun(input: {
   shouldWaitForCompletion: boolean
   waitTimeoutMs: number
 }): Promise<Awaited<ReturnType<LaunchRoleScopedRun>> | undefined> {
-  const interfaceSource = readInterfaceSourceFromRun(
-    input.acpRunId !== undefined && input.runStore !== undefined
-      ? input.runStore.getRun(input.acpRunId)
-      : undefined
-  )
-  if (!input.prompt || interfaceSource === undefined) {
+  if (!input.prompt) {
     return undefined
   }
   // Tests and embedders may inject a deliberately partial legacy client. The
@@ -459,7 +458,7 @@ async function maybeLaunchFederatedInterfaceRun(input: {
   }
 
   const location = await input.client.locateScope(input.sessionRef.scopeRef)
-  if (!shouldUseFederatedInterfaceDispatch(location)) {
+  if (!shouldUseFederatedSemanticDispatch(location)) {
     return undefined
   }
 
@@ -555,7 +554,7 @@ async function maybeLaunchFederatedInterfaceRun(input: {
   }
 }
 
-function shouldUseFederatedInterfaceDispatch(location: ScopeLocation): boolean {
+function shouldUseFederatedSemanticDispatch(location: ScopeLocation): boolean {
   if (!location.federationConfigured) {
     return false
   }
@@ -569,13 +568,11 @@ function shouldUseFederatedInterfaceDispatch(location: ScopeLocation): boolean {
       // forwards after the registry CAS.
       return true
     case 'retired':
-      throw new Error(
-        `HRC scope ${location.scopeRef} is retired from ${location.authority.retiredHomeNodeId}`
-      )
+      // Preserve the ordinary resolve-session gate's typed retirement cause.
+      return false
     case 'unknown':
-      throw new Error(
-        `HRC could not determine placement authority for ${location.scopeRef}: ${location.authority.detail}`
-      )
+      // Preserve the ordinary resolve-session gate's typed availability cause.
+      return false
   }
 }
 

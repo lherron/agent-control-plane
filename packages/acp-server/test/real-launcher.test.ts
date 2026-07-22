@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { HrcDomainError, type HrcRuntimeIntent } from 'hrc-core'
+import { HrcDomainError, HrcErrorCode, type HrcRuntimeIntent } from 'hrc-core'
 
 import { InMemoryRunStore } from '../src/domain/run-store.js'
 import {
@@ -131,6 +131,109 @@ describe('real launcher helpers', () => {
           },
         },
       },
+    })
+  })
+
+  test('routes plain inputs for a remote-designated virgin scope through semantic messaging', async () => {
+    const calls: string[] = []
+    const runStore = new InMemoryRunStore()
+    const sessionRef = {
+      scopeRef: 'agent:scribe:project:hrc-runtime:task:e2e-t4-acp-regression',
+      laneRef: 'main' as const,
+    }
+    const acpRun = runStore.createRun({
+      sessionRef,
+      status: 'pending',
+      metadata: {},
+    })
+    const launcher = createRealLauncher({
+      hrcDbPath: ':memory:',
+      createClient: () =>
+        ({
+          locateScope: async () => {
+            calls.push('locateScope')
+            return {
+              scopeRef: sessionRef.scopeRef,
+              localNodeId: 'svc',
+              federationConfigured: true,
+              authority: {
+                state: 'unbound',
+                registry: { state: 'unbound' },
+                declaredPolicy: { kind: 'default_home_node', homeNodeId: 'max3' },
+              },
+            }
+          },
+          semanticDm: async (input: unknown) => {
+            calls.push('semanticDm')
+            expect(input).toMatchObject({
+              to: { kind: 'session', sessionRef: `${sessionRef.scopeRef}/lane:main` },
+              body: 'T4 ping',
+              createIfMissing: true,
+              runtimeIntent: {
+                placement: { agentRoot: '/tmp/scribe', runMode: 'task' },
+              },
+            })
+            return {
+              request: {
+                messageSeq: 43,
+                messageId: 'msg-t4-remote-establish',
+                createdAt: '2026-07-22T22:04:16.000Z',
+                kind: 'dm',
+                phase: 'request',
+                from: { kind: 'entity', entity: 'human' },
+                to: { kind: 'session', sessionRef: `${sessionRef.scopeRef}/lane:main` },
+                rootMessageId: 'msg-t4-remote-establish',
+                body: 'T4 ping',
+                bodyFormat: 'text/plain',
+                execution: { state: 'accepted' },
+              },
+            }
+          },
+          resolveSession: async () => {
+            calls.push('resolveSession')
+            throw new HrcDomainError(
+              HrcErrorCode.STALE_CONTEXT,
+              'routes to max3 by default_home_node; this node is svc',
+              {
+                path: 'resolve-session',
+                reason: 'routed-elsewhere',
+                retryable: false,
+                homeNodeId: 'max3',
+              }
+            )
+          },
+          dispatchTurn: async () => {
+            throw new Error('remote virgin input must not dispatch a local HRC turn')
+          },
+        }) as unknown as any,
+    })
+
+    const result = await launcher({
+      sessionRef,
+      acpRunId: acpRun.runId,
+      inputAttemptId: 'ia_t4_remote_virgin',
+      runStore,
+      waitForCompletion: false,
+      onEvent: async () => {},
+      intent: {
+        placement: {
+          agentRoot: '/tmp/scribe',
+          runMode: 'task',
+          bundle: { kind: 'compose', compose: [] },
+        },
+        harness: { provider: 'openai', interactive: false },
+        initialPrompt: 'T4 ping',
+      },
+    })
+
+    expect(result).toEqual({
+      runId: 'msg-t4-remote-establish',
+      sessionId: `${sessionRef.scopeRef}/lane:main`,
+    })
+    expect(calls).toEqual(['locateScope', 'semanticDm'])
+    expect(runStore.getRun(acpRun.runId)).toMatchObject({
+      status: 'running',
+      transport: 'federated-message',
     })
   })
 
