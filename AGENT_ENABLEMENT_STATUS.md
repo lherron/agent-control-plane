@@ -6,7 +6,7 @@ Generated from `agent-enablement.json`. This markdown is a projection, not autho
 
 Rubric: rubric.md@0716846
 Catalog: not-recorded
-AE assessment: 2026-07-05 (agent-enablement/assessments/agent-control-plane/assessment.json)
+AE assessment: 2026-07-22 (agent-enablement/assessments/agent-control-plane/assessment.json)
 PM floor: not swept (etag 0)
 
 ## Profile Summary

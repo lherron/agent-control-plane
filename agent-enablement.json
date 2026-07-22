@@ -9,7 +9,7 @@
   },
   "observations": [],
   "depth": {
-    "lastAssess": "2026-07-05",
+    "lastAssess": "2026-07-22",
     "writer": "ae",
     "etag": 1,
     "assessment": "agent-enablement/assessments/agent-control-plane/assessment.json",
@@ -40,11 +40,11 @@
         "assessment": "agent-enablement/assessments/agent-control-plane/assessment.json",
         "deltas": "agent-enablement/assessments/agent-control-plane/deltas.json",
         "profileHash": "31b9801f535e5661b677b008e2a41068d53c1baf66c1cbedb292909110bc261b",
-        "assessmentHash": "4d66858ace68f34b582ef804105abb20d1528f18193fe67fbda124011011c6bd",
+        "assessmentHash": "059232692d4543259a8df380bd49e87f5af025feb25ddeb187c4b56e0813d9f9",
         "deltasHash": "33ba1f0981b2a545a1e97ac111cf019d8abed03d2e0c59fd7f0d0e6f84b5ac8b"
       },
       "decidedAt": "2026-07-05",
-      "assessedAt": "2026-07-05",
+      "assessedAt": "2026-07-22",
       "profileStatusCounts": {
         "required": 17,
         "recommended": 1
