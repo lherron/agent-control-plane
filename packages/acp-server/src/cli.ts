@@ -119,7 +119,7 @@ export interface ResolveLauncherDepsOptions {
 }
 
 export interface AcpServerCliOptions {
-  wrkqDbPath: string
+  wrkqDbLocator: string
   coordDbPath: string
   interfaceDbPath: string
   stateDbPath: string
@@ -139,15 +139,19 @@ interface StoppableServer {
 type ParsedCliArgs = {
   help: boolean
   options: Partial<AcpServerCliOptions>
+  wrkqDbLocator?: string | undefined
+  wrkqDbPath?: string | undefined
 }
 
 export function parseCliArgs(args: readonly string[]): ParsedCliArgs {
   const options: Partial<AcpServerCliOptions> = {}
+  let wrkqDbLocator: string | undefined
+  let wrkqDbPath: string | undefined
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]
     if (arg === '--help' || arg === '-h') {
-      return { help: true, options }
+      return { help: true, options, wrkqDbLocator, wrkqDbPath }
     }
 
     const nextValue = args[index + 1]
@@ -161,8 +165,11 @@ export function parseCliArgs(args: readonly string[]): ParsedCliArgs {
     }
 
     switch (arg) {
+      case '--wrkq-db':
+        wrkqDbLocator = requireValue(arg)
+        break
       case '--wrkq-db-path':
-        options.wrkqDbPath = requireValue(arg)
+        wrkqDbPath = requireValue(arg)
         break
       case '--coord-db-path':
         options.coordDbPath = requireValue(arg)
@@ -204,7 +211,18 @@ export function parseCliArgs(args: readonly string[]): ParsedCliArgs {
     }
   }
 
-  return { help: false, options }
+  return { help: false, options, wrkqDbLocator, wrkqDbPath }
+}
+
+function nonBlank(value: string | undefined): string | undefined {
+  const trimmed = value?.trim()
+  return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed
+}
+
+function assertLocalPathInput(name: string, value: string | undefined): void {
+  if (nonBlank(value)?.startsWith('rpc://')) {
+    throw new Error(`${name} is path-only and must not use an rpc:// locator`)
+  }
 }
 
 export function resolveCliOptions(
@@ -212,9 +230,24 @@ export function resolveCliOptions(
   env: NodeJS.ProcessEnv = process.env
 ): { help: boolean; options: AcpServerCliOptions } {
   const parsed = parseCliArgs(args)
-  const wrkqDbPath = parsed.options.wrkqDbPath ?? env['ACP_WRKQ_DB_PATH'] ?? env['WRKQ_DB_PATH']
-  if (!parsed.help && (wrkqDbPath === undefined || wrkqDbPath.trim().length === 0)) {
-    throw new Error('ACP_WRKQ_DB_PATH or WRKQ_DB_PATH is required')
+  const cliLocator = nonBlank(parsed.wrkqDbLocator)
+  const cliPath = nonBlank(parsed.wrkqDbPath)
+  const acpLocator = nonBlank(env['ACP_WRKQ_DB'])
+  const wrkqLocator = nonBlank(env['WRKQ_DB'])
+  const acpPath = nonBlank(env['ACP_WRKQ_DB_PATH'])
+  const wrkqPath = nonBlank(env['WRKQ_DB_PATH'])
+
+  assertLocalPathInput('--wrkq-db-path', parsed.wrkqDbPath)
+  assertLocalPathInput('ACP_WRKQ_DB_PATH', env['ACP_WRKQ_DB_PATH'])
+  assertLocalPathInput('WRKQ_DB_PATH', env['WRKQ_DB_PATH'])
+
+  if (cliLocator !== undefined && cliPath !== undefined && cliLocator !== cliPath) {
+    throw new Error('--wrkq-db and --wrkq-db-path conflict; supply one value or equal local paths')
+  }
+
+  const wrkqDbLocator = cliLocator ?? cliPath ?? acpLocator ?? wrkqLocator ?? acpPath ?? wrkqPath
+  if (!parsed.help && wrkqDbLocator === undefined) {
+    throw new Error('wrkq database locator is required')
   }
 
   const envPort = Number.parseInt(env['ACP_PORT'] ?? '', 10)
@@ -243,7 +276,7 @@ export function resolveCliOptions(
   return {
     help: parsed.help,
     options: {
-      wrkqDbPath: wrkqDbPath?.trim() ?? '',
+      wrkqDbLocator: wrkqDbLocator ?? '',
       coordDbPath: parsed.options.coordDbPath ?? env['ACP_COORD_DB_PATH'] ?? DEFAULT_COORD_DB_PATH,
       interfaceDbPath,
       stateDbPath: parsed.options.stateDbPath ?? env['ACP_STATE_DB_PATH'] ?? DEFAULT_STATE_DB_PATH,
@@ -320,7 +353,7 @@ export function formatStartupLine(options: AcpServerCliOptions): string {
 
   return [
     `acp-server listening on ${formatBindUrls(options).join(', ')}`,
-    `wrkq.db = ${options.wrkqDbPath}`,
+    `wrkq.locator = ${options.wrkqDbLocator}`,
     `coord.db = ${options.coordDbPath}`,
     `interface.db = ${options.interfaceDbPath}`,
     `state.db = ${options.stateDbPath}`,
@@ -334,10 +367,13 @@ export function renderHelp(): string {
     'acp-server — Bun.serve wrapper around packages/acp-server',
     '',
     'Usage:',
-    '  acp-server [--wrkq-db-path <path>] [--coord-db-path <path>] [--interface-db-path <path>] [--state-db-path <path>] [--admin-db-path <path>] [--jobs-db-path <path>] [--conversation-db-path <path>] [--agent-assets-dir <path>] [--host <host>] [--port <port>] [--actor <agentId>]',
+    '  acp-server [--wrkq-db <locator>] [--wrkq-db-path <path>] [--coord-db-path <path>] [--interface-db-path <path>] [--state-db-path <path>] [--admin-db-path <path>] [--jobs-db-path <path>] [--conversation-db-path <path>] [--agent-assets-dir <path>] [--host <host>] [--port <port>] [--actor <agentId>]',
     '',
     'Environment:',
-    '  ACP_WRKQ_DB_PATH  Defaults to WRKQ_DB_PATH',
+    '  ACP_WRKQ_DB       Canonical local path or rpc:// locator; defaults to WRKQ_DB',
+    '  WRKQ_DB           Canonical local path or rpc:// locator',
+    '  ACP_WRKQ_DB_PATH  Legacy path-only input; defaults to WRKQ_DB_PATH',
+    '  WRKQ_DB_PATH      Legacy path-only input',
     `  ACP_COORD_DB_PATH Defaults to ${DEFAULT_COORD_DB_PATH}`,
     `  ACP_INTERFACE_DB_PATH Defaults to ${DEFAULT_INTERFACE_DB_PATH}`,
     `  ACP_STATE_DB_PATH Defaults to ${DEFAULT_STATE_DB_PATH}`,
@@ -357,7 +393,6 @@ export function renderHelp(): string {
     `  ACP_CAP_CATALOG_STATE_DIR Defaults to ${DEFAULT_CAP_CATALOG_STATE_DIR}`,
     `  ACP_ACTOR         Defaults to WRKQ_ACTOR or ${DEFAULT_ACTOR}`,
     '  WRKF_BIN          Defaults to wrkf',
-    '  WRKF_DB_PATH      Defaults to the ACP wrkq DB path (wrkf shares the wrkq DB)',
     '  ACP_WRKF_DISABLED Set to 1 or true to bypass wrkf startup in local dev/test',
   ].join('\n')
 }
@@ -913,11 +948,9 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     // Principal-only caller attribution (T-05381): ACP-server is a single wrkq
     // principal `agent:<actor>` for all its CAS writes / workflow mutations.
     principalRef: toPrincipalRef(options.actor),
-    // wrkf is the canonical workflow authority over the SAME wrkq SQLite DB ACP
-    // already uses (options.wrkqDbPath). Defaulting to a separate wrkf.db would
-    // point ACP at an empty, divergent workflow store — exactly the shadow state
-    // the canonical-workflow refactor forbids. WRKF_DB_PATH stays as an override.
-    dbPath: process.env['WRKF_DB_PATH'] ?? options.wrkqDbPath,
+    // The one shared client owns local/remote transport for both wrkq store ports
+    // and wrkf calls. ACP neither interprets the locator nor selects another DB.
+    dbLocator: options.wrkqDbLocator,
     clientInfo: { name: 'acp-server', version: ACP_SERVER_VERSION },
     wrkfDisabled: isEnabledEnvFlag(process.env['ACP_WRKF_DISABLED']),
   })

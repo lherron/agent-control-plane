@@ -40,8 +40,6 @@
 		<string>/Users/lherron/praesidium/var/db/acp-state.db</string>
 		<key>ACP_TRIAGE_COMMAND_TARGET_ID</key>
 		<string>triage-runner</string>
-		<key>ACP_WRKQ_DB_PATH</key>
-		<string>/Users/lherron/praesidium/var/db/wrkq.db</string>
 		<key>ASP_AGENTS_ROOT</key>
 		<string>/Users/lherron/praesidium/var/agents</string>
 		<key>ASP_HOME</key>
@@ -60,8 +58,6 @@
 		<string>en_US.UTF-8</string>
 		<key>PATH</key>
 		<string>/Users/lherron/.local/bin:/Users/lherron/.bun/bin:/Users/lherron/.tooling/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
-		<key>WRKQ_DB_PATH</key>
-		<string>/Users/lherron/praesidium/var/db/wrkq.db</string>
 	</dict>
 	<key>KeepAlive</key>
 	<true/>

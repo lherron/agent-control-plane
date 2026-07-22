@@ -5,7 +5,9 @@ import type { AcpWrkfWorkflowPort } from './port.js'
 
 export interface WrkfLifecycleOptions {
   command?: string | undefined
-  dbPath: string
+  dbLocator?: string | undefined
+  /** Legacy lifecycle input; normalized to dbLocator before client creation. */
+  dbPath?: string | undefined
   clientInfo: { name: string; version: string }
   /**
    * Canonical principal-only caller attribution for this client session
@@ -52,11 +54,15 @@ export async function createWrkfClientLifecycle(
   }
 
   const factory = opts._createClient ?? createClient
+  const dbLocator = opts.dbLocator ?? opts.dbPath
+  if (dbLocator === undefined || dbLocator.trim().length === 0) {
+    throw new Error('wrkq database locator is required')
+  }
   // autoInitialize runs `rpc.initialize` before resolving; a failed handshake
   // rejects here and propagates (fail-closed) — we never return a half-built port.
   const client = await factory({
     command: opts.command ?? process.env['WRKF_BIN'] ?? 'wrkf',
-    dbPath: opts.dbPath,
+    dbLocator: dbLocator.trim(),
     clientInfo: opts.clientInfo,
     // Principal-only caller attribution (T-05381): forward the launch principal
     // so wrkq/wrkf mutations carry `created_by_principal_ref`. wrkq now rejects

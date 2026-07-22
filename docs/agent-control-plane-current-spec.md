@@ -67,7 +67,12 @@ The launchd-managed ACP server uses:
 
 Server CLI/environment options include:
 
-- `ACP_WRKQ_DB_PATH` or `WRKQ_DB_PATH`: required wrkq database path.
+- `ACP_WRKQ_DB` or `WRKQ_DB`: canonical wrkq locator, accepting either a local
+  path or an authenticated `rpc://` wrkqd endpoint. `ACP_WRKQ_DB` has precedence.
+- `ACP_WRKQ_DB_PATH` or `WRKQ_DB_PATH`: legacy path-only compatibility inputs;
+  `rpc://` values are rejected. CLI/environment precedence is `--wrkq-db`,
+  `--wrkq-db-path`, `ACP_WRKQ_DB`, `WRKQ_DB`, `ACP_WRKQ_DB_PATH`, then
+  `WRKQ_DB_PATH`.
 - `ACP_COORD_DB_PATH`: coordination DB, default
   `/Users/lherron/praesidium/var/db/acp-coordination.db`.
 - `ACP_INTERFACE_DB_PATH`: interface DB, default
@@ -80,7 +85,6 @@ Server CLI/environment options include:
   `/Users/lherron/praesidium/var/state/acp-server/assets/agents`.
 - `ACP_HOST`, `ACP_PORT`, `ACP_ACTOR`: server bind and default actor.
 - `WRKF_BIN`: wrkf executable, default `wrkf`.
-- `WRKF_DB_PATH`: wrkf DB, defaulting to the ACP wrkq DB path.
 - `ACP_WRKF_DISABLED=1|true`: bypass wrkf startup for local dev/test.
 - Dispatcher/scheduler knobs:
   `ACP_SCHEDULER_ENABLED`,

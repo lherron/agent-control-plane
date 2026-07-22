@@ -14,7 +14,10 @@ acp-server
 
 Environment variables:
 
-- `ACP_WRKQ_DB_PATH` — defaults to `WRKQ_DB_PATH`
+- `ACP_WRKQ_DB` or `WRKQ_DB` — canonical wrkq locator; accepts a local path or
+  `rpc://` endpoint. `ACP_WRKQ_DB` has precedence.
+- `ACP_WRKQ_DB_PATH` or `WRKQ_DB_PATH` — legacy path-only compatibility inputs;
+  `rpc://` locators are rejected.
 - `ACP_COORD_DB_PATH` — defaults to `/Users/lherron/praesidium/var/db/acp-coordination.db`
 - `ACP_INTERFACE_DB_PATH` — defaults to `/Users/lherron/praesidium/var/db/acp-interface.db`
 - `ACP_STATE_DB_PATH` — defaults to `/Users/lherron/praesidium/var/db/acp-state.db`
@@ -24,8 +27,11 @@ Environment variables:
 - `ACP_PORT` — defaults to `18470`
 - `ACP_ACTOR` — defaults to `WRKQ_ACTOR` or `acp-server`
 - `WRKF_BIN` — defaults to `wrkf`
-- `WRKF_DB_PATH` — defaults to the ACP wrkq DB path
 - `ACP_WRKF_DISABLED` — set `1` or `true` to bypass wrkf startup in local dev/test
+
+The full locator precedence is `--wrkq-db`, `--wrkq-db-path`, `ACP_WRKQ_DB`,
+`WRKQ_DB`, `ACP_WRKQ_DB_PATH`, then `WRKQ_DB_PATH`. Both workflow calls and wrkq
+store ports use the one shared `@wrkq/client` instance.
 
 Check wrkf availability through the running server:
 
