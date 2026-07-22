@@ -86,7 +86,7 @@ describe('acp-server cli helpers', () => {
       }> = [
         {
           name: '--wrkq-db wins over every lower-precedence input',
-          args: ['--wrkq-db', '/cli-locator.db', '--wrkq-db-path', '/cli-path.db'],
+          args: ['--wrkq-db', '/cli-locator.db'],
           env: {
             ACP_WRKQ_DB: '/acp-locator.db',
             WRKQ_DB: '/wrkq-locator.db',

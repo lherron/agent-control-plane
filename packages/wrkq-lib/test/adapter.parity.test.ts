@@ -29,7 +29,7 @@
 import { createWrkqStoreAdapter } from '../src/adapter.js'
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -83,7 +83,10 @@ beforeAll(async () => {
   })
 
   // Install demo-linear so role.set / transition.apply tests have a workflow to attach.
-  await client.wrkf.workflow.install({ path: DEMO_TEMPLATE_PATH })
+  await client.wrkf.workflow.install({
+    body: readFileSync(DEMO_TEMPLATE_PATH, 'utf8'),
+    sourceName: 'demo-linear-template.json',
+  })
 
   // Discover inbox project's canonical id. wrkqadm init seeds one 'inbox' project.
   // container.show returns { id: 'P-00001', slug: 'inbox', ... }.
