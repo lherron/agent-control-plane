@@ -7,6 +7,16 @@ import type { UnifiedSessionEvent } from 'spaces-runtime'
 import { toCompletedVisibleAssistantMessage } from '../delivery/visible-assistant-messages.js'
 import type { AcpHrcClient, ConversationStore } from '../deps.js'
 import type { RunStore, StoredRun } from '../domain/run-store.js'
+import {
+  type SemanticMessageCorrelation,
+  type SemanticMessageFailure,
+  type SemanticMessageResponse,
+  metadataWithSemanticMessageTerminal,
+  normalizeSemanticMessageDeliveryFailure,
+  readSemanticMessageCorrelation,
+  semanticMessageResponse,
+  semanticMessageTimeoutFailure,
+} from '../domain/semantic-message-run.js'
 import { readOptionalTrimmedRawString as readString } from '../internal/read-helpers.js'
 import { emitDispatchTimeoutHealthEvent } from '../jobs/health-dispatch-timeout.js'
 import { isRecord } from '../parsers/body.js'
@@ -55,6 +65,33 @@ type InterfaceRunSource = {
   replyToMessageRef?: string | undefined
 }
 
+type RunReconciliationRoute =
+  | { kind: 'semantic-message'; correlation: SemanticMessageCorrelation }
+  | { kind: 'hrc-run' }
+  | { kind: 'interface-session' }
+  | { kind: 'unsupported' }
+
+function classifyRunReconciliation(
+  run: StoredRun,
+  source: InterfaceRunSource | undefined
+): RunReconciliationRoute {
+  // Semantic message correlation is a first-class run transport. It
+  // intentionally has neither a local HRC run id nor, for plain /v1/inputs,
+  // an interface delivery target, so it must be classified before either
+  // optional field can filter the run out.
+  const semanticCorrelation = readSemanticMessageCorrelation(run)
+  if (semanticCorrelation !== undefined) {
+    return { kind: 'semantic-message', correlation: semanticCorrelation }
+  }
+  if (run.hrcRunId !== undefined) {
+    return { kind: 'hrc-run' }
+  }
+  if (source !== undefined) {
+    return { kind: 'interface-session' }
+  }
+  return { kind: 'unsupported' }
+}
+
 export function createInterfaceRunDispatcher(
   input: InterfaceRunDispatcherInput
 ): InterfaceRunDispatcher {
@@ -87,18 +124,12 @@ export function createInterfaceRunDispatcher(
 
   async function reconcileRun(run: StoredRun): Promise<void> {
     const source = readInterfaceRunSource(run)
-
-    // Runs with a concrete HRC run id can be finalized from HRC terminal state
-    // even when they have no interface delivery target. Without this, headless
-    // ACP inputs that are not Discord-bound stay "running" forever and block
-    // subsequent input admission for the session.
-    if (source === undefined && run.hrcRunId === undefined) {
-      return
+    const route = classifyRunReconciliation(run, source)
+    if (route.kind === 'semantic-message') {
+      return reconcileFederatedRun(run, source, route.correlation)
     }
-
-    const semanticCorrelation = readSemanticMessageCorrelation(run)
-    if (semanticCorrelation !== undefined) {
-      return reconcileFederatedRun(run, source, semanticCorrelation)
+    if (route.kind === 'unsupported') {
+      return
     }
 
     // Determine which resolution path to use based on available correlation data
@@ -237,6 +268,12 @@ export function createInterfaceRunDispatcher(
       hrcClient,
       staleTimeoutMs: config.staleTimeoutMs,
     })
+    const current = runStore.getRun(run.runId)
+    if (current === undefined || (current.status !== 'pending' && current.status !== 'running')) {
+      // Cancellation and any competing terminal transition win over a response
+      // that arrives while waitMessage is yielding to HRC.
+      return
+    }
     if (reconciliation.state === 'pending') {
       return
     }
@@ -245,19 +282,32 @@ export function createInterfaceRunDispatcher(
         run,
         source,
         'failed',
-        reconciliation.errorCode,
-        reconciliation.errorMessage
+        reconciliation.error.code,
+        reconciliation.error.message,
+        metadataWithSemanticMessageTerminal(current, {
+          state: 'failed',
+          error: reconciliation.error,
+        })
       )
       return
     }
 
-    finalizeSuccessfulRun(run, source, reconciliation.event)
+    finalizeSuccessfulRun(
+      run,
+      source,
+      reconciliation.event,
+      metadataWithSemanticMessageTerminal(current, {
+        state: 'completed',
+        response: reconciliation.response,
+      })
+    )
   }
 
   function finalizeSuccessfulRun(
     run: StoredRun,
     source: InterfaceRunSource | undefined,
-    assistantMessage: UnifiedSessionEvent | undefined
+    assistantMessage: UnifiedSessionEvent | undefined,
+    metadata?: Readonly<Record<string, unknown>> | undefined
   ): void {
     // Success path: enqueue delivery + mark run completed.
     if (assistantMessage !== undefined && source !== undefined) {
@@ -350,6 +400,7 @@ export function createInterfaceRunDispatcher(
       status: 'completed',
       errorCode: null,
       errorMessage: null,
+      ...(metadata !== undefined ? { metadata } : {}),
     })
   }
 
@@ -364,7 +415,8 @@ export function createInterfaceRunDispatcher(
     source: InterfaceRunSource | undefined,
     terminalStatus: 'failed' | 'cancelled' | undefined,
     errorCode: string | undefined,
-    errorMessage: string | undefined
+    errorMessage: string | undefined,
+    metadata?: Readonly<Record<string, unknown>> | undefined
   ): void {
     if (terminalStatus === undefined) {
       return
@@ -374,6 +426,7 @@ export function createInterfaceRunDispatcher(
       status: terminalStatus,
       errorCode,
       errorMessage,
+      ...(metadata !== undefined ? { metadata } : {}),
     })
     if (terminalStatus === 'failed' && errorCode === 'dispatch_timeout') {
       emitDispatchTimeoutHealthEvent({
@@ -486,18 +539,10 @@ export function createInterfaceRunDispatcher(
   return { start, stop, runOnce }
 }
 
-type SemanticMessageCorrelation = {
-  requestMessageId: string
-  rootMessageId: string
-  afterSeq: number
-  localNodeId?: string | undefined
-  homeNodeId?: string | undefined
-}
-
 type SemanticMessageReconciliation =
   | { state: 'pending' }
-  | { state: 'response'; event: UnifiedSessionEvent }
-  | { state: 'failed'; errorCode: string; errorMessage: string }
+  | { state: 'response'; event: UnifiedSessionEvent; response: SemanticMessageResponse }
+  | { state: 'failed'; error: SemanticMessageFailure }
 
 async function reconcileSemanticMessage(input: {
   run: StoredRun
@@ -531,6 +576,7 @@ async function reconcileSemanticMessage(input: {
     })
     return {
       state: 'response',
+      response: semanticMessageResponse(waited.record),
       event: {
         type: 'message_end',
         messageId: waited.record.messageId,
@@ -543,64 +589,49 @@ async function reconcileSemanticMessage(input: {
   }
 
   if (waited.reason === 'delivery_failed') {
-    const errorMessage = waited.errorMessage ?? 'HRC federation delivery failed'
+    const typedFailure = waited as typeof waited & {
+      errorReason?: string | undefined
+      retryable?: boolean | undefined
+      homeNodeId?: string | undefined
+    }
+    const error = normalizeSemanticMessageDeliveryFailure({
+      errorCode: waited.errorCode,
+      ...(waited.errorMessage !== undefined ? { errorMessage: waited.errorMessage } : {}),
+      ...(typedFailure.errorReason !== undefined ? { errorReason: typedFailure.errorReason } : {}),
+      ...(typedFailure.retryable !== undefined ? { retryable: typedFailure.retryable } : {}),
+      ...(typedFailure.homeNodeId !== undefined ? { homeNodeId: typedFailure.homeNodeId } : {}),
+      ...(input.correlation.homeNodeId !== undefined
+        ? { fallbackHomeNodeId: input.correlation.homeNodeId }
+        : {}),
+    })
     logFederatedInterfaceEvent('delivery_failed', {
       acpRunId: input.run.runId,
       scopeRef: input.run.scopeRef,
       laneRef: input.run.laneRef,
       requestMessageId: input.correlation.requestMessageId,
       localNodeId: input.correlation.localNodeId,
-      homeNodeId: input.correlation.homeNodeId,
-      errorCode: waited.errorCode,
-      errorMessage,
+      errorCode: error.code,
+      errorMessage: error.message,
+      errorReason: error.reason,
+      retryable: error.retryable,
+      homeNodeId: error.homeNodeId,
     })
-    return { state: 'failed', errorCode: waited.errorCode, errorMessage }
+    return { state: 'failed', error }
   }
 
   if (isStale(input.run, input.staleTimeoutMs)) {
+    const message = `Federated HRC message ${input.correlation.requestMessageId} exceeded stale timeout (${Math.round(input.staleTimeoutMs / 1000)}s) without a response`
     return {
       state: 'failed',
-      errorCode: 'turn_timeout',
-      errorMessage: `Federated HRC message ${input.correlation.requestMessageId} exceeded stale timeout (${Math.round(input.staleTimeoutMs / 1000)}s) without a response`,
+      error: semanticMessageTimeoutFailure({
+        message,
+        ...(input.correlation.homeNodeId !== undefined
+          ? { homeNodeId: input.correlation.homeNodeId }
+          : {}),
+      }),
     }
   }
   return { state: 'pending' }
-}
-
-function readSemanticMessageCorrelation(run: StoredRun): SemanticMessageCorrelation | undefined {
-  const metadata = isRecord(run.metadata) ? run.metadata : undefined
-  const meta = isRecord(metadata?.['meta']) ? metadata['meta'] : undefined
-  const correlation = isRecord(meta?.['hrcSemanticMessage'])
-    ? meta['hrcSemanticMessage']
-    : undefined
-  if (correlation === undefined) {
-    return undefined
-  }
-
-  const requestMessageId = readString(correlation, 'requestMessageId')
-  const rootMessageId = readString(correlation, 'rootMessageId')
-  const afterSeq = correlation['afterSeq']
-  if (
-    requestMessageId === undefined ||
-    rootMessageId === undefined ||
-    typeof afterSeq !== 'number' ||
-    !Number.isSafeInteger(afterSeq) ||
-    afterSeq < 0
-  ) {
-    throw new Error(`run ${run.runId} has invalid HRC semantic message correlation`)
-  }
-
-  return {
-    requestMessageId,
-    rootMessageId,
-    afterSeq,
-    ...(readString(correlation, 'localNodeId') !== undefined
-      ? { localNodeId: readString(correlation, 'localNodeId') }
-      : {}),
-    ...(readString(correlation, 'homeNodeId') !== undefined
-      ? { homeNodeId: readString(correlation, 'homeNodeId') }
-      : {}),
-  }
 }
 
 function logFederatedInterfaceEvent(

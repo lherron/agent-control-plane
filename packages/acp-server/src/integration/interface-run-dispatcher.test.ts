@@ -168,7 +168,7 @@ describe('interface run dispatcher stale activity window', () => {
 
     expect(runStore.getRun(run.runId)).toMatchObject({
       status: 'failed',
-      errorCode: 'peer_delivery_failed',
+      errorCode: 'stale_context',
       errorMessage: 'lab rejected the envelope',
     })
     expect(interfaceStore.deliveries.listQueuedForGateway('discord_prod')).toMatchObject([
@@ -177,6 +177,215 @@ describe('interface run dispatcher stale activity window', () => {
         bodyText: 'The agent encountered an error: lab rejected the envelope',
       },
     ])
+    interfaceStore.close()
+  })
+
+  test('preserves the typed dead-letter cause for a plain federated-message run', async () => {
+    const hrc = createHrcDb()
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-interface-dispatch-'))
+    fixtureDirs.push(fixtureDir)
+    const interfaceStore = openInterfaceStore({ dbPath: join(fixtureDir, 'interface.sqlite') })
+    const runStore = new InMemoryRunStore()
+    const run = runStore.createRun({
+      sessionRef: {
+        scopeRef: 'agent:scribe:project:hrc-runtime:task:T-06805-t4-failure',
+        laneRef: 'main',
+      },
+      status: 'running',
+      metadata: {
+        meta: {
+          hrcSemanticMessage: {
+            requestMessageId: 'msg-t4-failed-request',
+            rootMessageId: 'msg-t4-failed-request',
+            afterSeq: 84,
+            localNodeId: 'svc',
+            homeNodeId: 'max3',
+          },
+        },
+      },
+    })
+    runStore.updateRun(run.runId, { transport: 'federated-message' })
+    const dispatcher = dispatcherModule.createInterfaceRunDispatcher({
+      runStore,
+      interfaceStore,
+      hrcDbPath: hrc.hrcDbPath,
+      hrcClient: {
+        waitMessage: async () =>
+          ({
+            matched: false as const,
+            reason: 'delivery_failed' as const,
+            messageId: 'msg-t4-failed-request',
+            errorCode: 'peer_delivery_failed',
+            errorMessage: 'max3 rejected the envelope',
+            errorReason: 'routed-elsewhere',
+            retryable: false,
+            homeNodeId: 'max3',
+          }) as any,
+      },
+      config: { intervalMs: 1, staleTimeoutMs: 60_000 },
+    })
+
+    await dispatcher.runOnce()
+
+    expect(runStore.getRun(run.runId)).toMatchObject({
+      status: 'failed',
+      errorCode: 'stale_context',
+      errorMessage: 'max3 rejected the envelope',
+      metadata: {
+        meta: {
+          hrcSemanticMessage: {
+            terminal: {
+              state: 'failed',
+              error: {
+                code: 'stale_context',
+                message: 'max3 rejected the envelope',
+                reason: 'routed-elsewhere',
+                retryable: false,
+                homeNodeId: 'max3',
+              },
+            },
+          },
+        },
+      },
+    })
+    interfaceStore.close()
+  })
+
+  test('times out a never-answered plain federated-message run', async () => {
+    const hrc = createHrcDb()
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-interface-dispatch-'))
+    fixtureDirs.push(fixtureDir)
+    const interfaceStore = openInterfaceStore({ dbPath: join(fixtureDir, 'interface.sqlite') })
+    const runStore = new InMemoryRunStore()
+    const run = runStore.createRun({
+      sessionRef: {
+        scopeRef: 'agent:scribe:project:hrc-runtime:task:T-06805-t4-timeout',
+        laneRef: 'main',
+      },
+      status: 'running',
+      metadata: {
+        meta: {
+          hrcSemanticMessage: {
+            requestMessageId: 'msg-t4-timeout-request',
+            rootMessageId: 'msg-t4-timeout-request',
+            afterSeq: 91,
+            localNodeId: 'svc',
+            homeNodeId: 'max3',
+          },
+        },
+      },
+    })
+    runStore.updateRun(run.runId, { transport: 'federated-message' })
+    await Bun.sleep(2)
+    const dispatcher = dispatcherModule.createInterfaceRunDispatcher({
+      runStore,
+      interfaceStore,
+      hrcDbPath: hrc.hrcDbPath,
+      hrcClient: {
+        waitMessage: async () => ({ matched: false as const, reason: 'timeout' as const }),
+      },
+      config: { intervalMs: 1, staleTimeoutMs: 1 },
+    })
+
+    await dispatcher.runOnce()
+
+    expect(runStore.getRun(run.runId)).toMatchObject({
+      status: 'failed',
+      errorCode: 'turn_timeout',
+      metadata: {
+        meta: {
+          hrcSemanticMessage: {
+            terminal: {
+              state: 'failed',
+              error: {
+                code: 'turn_timeout',
+                reason: 'response_timeout',
+                retryable: false,
+                homeNodeId: 'max3',
+              },
+            },
+          },
+        },
+      },
+    })
+    interfaceStore.close()
+  })
+
+  test('does not overwrite cancellation while awaiting a federated-message response', async () => {
+    const hrc = createHrcDb()
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-interface-dispatch-'))
+    fixtureDirs.push(fixtureDir)
+    const interfaceStore = openInterfaceStore({ dbPath: join(fixtureDir, 'interface.sqlite') })
+    const runStore = new InMemoryRunStore()
+    const run = runStore.createRun({
+      sessionRef: {
+        scopeRef: 'agent:scribe:project:hrc-runtime:task:T-06805-t4-cancel',
+        laneRef: 'main',
+      },
+      status: 'running',
+      metadata: {
+        meta: {
+          hrcSemanticMessage: {
+            requestMessageId: 'msg-t4-cancel-request',
+            rootMessageId: 'msg-t4-cancel-request',
+            afterSeq: 104,
+            localNodeId: 'svc',
+            homeNodeId: 'max3',
+          },
+        },
+      },
+    })
+    runStore.updateRun(run.runId, { transport: 'federated-message' })
+    let releaseWait: (() => void) | undefined
+    const waitGate = new Promise<void>((resolve) => {
+      releaseWait = resolve
+    })
+    const dispatcher = dispatcherModule.createInterfaceRunDispatcher({
+      runStore,
+      interfaceStore,
+      hrcDbPath: hrc.hrcDbPath,
+      hrcClient: {
+        waitMessage: async () => {
+          await waitGate
+          return {
+            matched: true as const,
+            record: {
+              messageSeq: 105,
+              messageId: 'msg-t4-cancel-response',
+              createdAt: '2026-07-22T22:33:00.000Z',
+              kind: 'dm' as const,
+              phase: 'response' as const,
+              from: {
+                kind: 'session' as const,
+                sessionRef: `${run.scopeRef}/lane:main`,
+              },
+              to: { kind: 'entity' as const, entity: 'human' },
+              replyToMessageId: 'msg-t4-cancel-request',
+              rootMessageId: 'msg-t4-cancel-request',
+              body: 'late response after cancellation',
+              bodyFormat: 'text/plain' as const,
+              execution: { state: 'not_applicable' as const },
+            },
+          }
+        },
+      },
+      config: { intervalMs: 1, staleTimeoutMs: 60_000 },
+    })
+
+    const reconciliation = dispatcher.runOnce()
+    runStore.updateRun(run.runId, { status: 'cancelled', errorCode: 'cancelled' })
+    releaseWait?.()
+    await reconciliation
+
+    const cancelled = runStore.getRun(run.runId)
+    expect(cancelled).toMatchObject({ status: 'cancelled', errorCode: 'cancelled' })
+    expect(
+      (
+        cancelled?.metadata?.['meta'] as
+          | { hrcSemanticMessage?: { terminal?: unknown } | undefined }
+          | undefined
+      )?.hrcSemanticMessage?.terminal
+    ).toBeUndefined()
     interfaceStore.close()
   })
 

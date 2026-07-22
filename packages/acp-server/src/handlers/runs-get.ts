@@ -1,3 +1,4 @@
+import { projectSemanticMessageRun } from '../domain/semantic-message-run.js'
 import { json, notFound } from '../http.js'
 import { requireRunId } from './shared.js'
 
@@ -12,9 +13,10 @@ export const handleGetRun: RouteHandler = async ({ params, deps }) => {
 
   const queue = deps.inputQueueStore.getByRunId(runId)
   const lastActivityAt = (await deps.runLivenessResolver?.(run)) ?? run.updatedAt
+  const projectedRun = projectSemanticMessageRun(run)
 
   return json({
-    run,
+    run: projectedRun,
     liveness: { lastActivityAt },
     ...(queue !== undefined
       ? {

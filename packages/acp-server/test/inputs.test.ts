@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
+import { createInterfaceRunDispatcher } from '../src/integration/interface-run-dispatcher.js'
 import { withWiredServer } from './fixtures/wired-server.js'
 
 describe('POST /v1/inputs and GET /v1/runs/:runId', () => {
@@ -146,5 +147,80 @@ describe('POST /v1/inputs and GET /v1/runs/:runId', () => {
       },
       { runLivenessResolver: async () => lastActivityAt }
     )
+  })
+
+  test('projects the terminal semantic response for a plain federated-message run', async () => {
+    await withWiredServer(async (fixture) => {
+      const run = fixture.runStore.createRun({
+        sessionRef: {
+          scopeRef: 'agent:scribe:project:hrc-runtime:task:T-06805-t4-caller',
+          laneRef: 'main',
+        },
+        status: 'running',
+        metadata: {
+          meta: {
+            hrcSemanticMessage: {
+              requestMessageId: 'msg-t4-request',
+              rootMessageId: 'msg-t4-request',
+              afterSeq: 6805,
+              localNodeId: 'svc',
+              homeNodeId: 'max3',
+            },
+          },
+        },
+      })
+      fixture.runStore.updateRun(run.runId, { transport: 'federated-message' })
+
+      const dispatcher = createInterfaceRunDispatcher({
+        runStore: fixture.runStore,
+        interfaceStore: fixture.interfaceStore,
+        hrcDbPath: '/tmp/t06805-unused-hrc.sqlite',
+        hrcClient: {
+          waitMessage: async () => ({
+            matched: true as const,
+            record: {
+              messageSeq: 6812,
+              messageId: 'msg-t4-response',
+              createdAt: '2026-07-22T22:22:12.000Z',
+              kind: 'dm' as const,
+              phase: 'response' as const,
+              from: {
+                kind: 'session' as const,
+                sessionRef: `${run.scopeRef}/lane:main`,
+              },
+              to: { kind: 'entity' as const, entity: 'human' },
+              replyToMessageId: 'msg-t4-request',
+              rootMessageId: 'msg-t4-request',
+              body: 'T4B_PONG_6805',
+              bodyFormat: 'text/plain' as const,
+              execution: { state: 'not_applicable' as const },
+            },
+          }),
+        },
+        config: { intervalMs: 1, staleTimeoutMs: 60_000 },
+      })
+      await dispatcher.runOnce()
+
+      const response = await fixture.request({
+        method: 'GET',
+        path: `/v1/runs/${run.runId}`,
+      })
+      const payload = await fixture.json<{
+        run: {
+          status: string
+          response?: { messageId: string; body: string; createdAt: string }
+        }
+      }>(response)
+
+      expect(response.status).toBe(200)
+      expect(payload.run).toMatchObject({
+        status: 'completed',
+        response: {
+          messageId: 'msg-t4-response',
+          body: 'T4B_PONG_6805',
+          createdAt: '2026-07-22T22:22:12.000Z',
+        },
+      })
+    })
   })
 })
