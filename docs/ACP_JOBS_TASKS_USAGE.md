@@ -96,6 +96,21 @@ want an exec's stdout downstream, include its "signal" exit code in
 `successExitCodes`. Authority fields (argv, cwd, binding, scopeRef) reject
 interpolation by design.
 
+There is one narrow exception for diagnostic content. When a terminal failed
+`exec` explicitly selects the current native step through its recorded
+`branches.exitCode` or `branches.default` transition, that target's content
+template may read string result fields and the persisted error projections
+`errorCode` / `errorMessage`. Eligible missing fields render as empty strings,
+which lets one notification cover both process exits and pre-spawn failures:
+
+```toml
+content = "exec error\ncode={{poll.errorCode}}\nmessage={{poll.errorMessage}}\nstderr={{poll.stderr}}"
+```
+
+This exception is content-only, same-run, and same-phase. It does not authorize
+an unrelated or implicit successor, and structured refs remain
+succeeded-source-only.
+
 > Legacy `agent` steps take a static `input` (no interpolation) but support
 > `fresh: true` for a clean per-run context. To hand a payload to a fresh agent
 > turn, either use `agent-dispatch` with `{{...}}` in `input.content`, or have an

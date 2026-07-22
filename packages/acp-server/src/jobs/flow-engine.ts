@@ -469,6 +469,7 @@ async function advanceNativeStep(input: {
   try {
     const { stepDef, resolvedFields } = resolveNativeStepDef({
       jobsStore,
+      job: input.job,
       jobRun: input.jobRun,
       phase: input.phase,
       step: input.step,
@@ -1407,6 +1408,7 @@ function resolveCurrentStepOutputRef(
 
 function resolveNativeStepDef(input: {
   jobsStore: NonNullable<ResolvedAcpServerDeps['jobsStore']>
+  job: JobRecord
   jobRun: JobRunRecord
   phase: JobStepRunPhase
   step: JobFlowStep
@@ -1438,7 +1440,14 @@ function resolveNativeStepDef(input: {
       return resolved
     }
     if (typeof value === 'string') {
-      return resolveNativeContentTemplate(input.jobsStore, input.jobRun, input.phase, value)
+      return resolveNativeContentTemplate(
+        input.jobsStore,
+        input.job,
+        input.jobRun,
+        input.phase,
+        input.step.id,
+        value
+      )
     }
     if (Array.isArray(value)) {
       return value.map(resolveValue)
@@ -1483,8 +1492,10 @@ const NATIVE_TEMPLATE_PATTERN = /\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g
 
 function resolveNativeContentTemplate(
   jobsStore: NonNullable<ResolvedAcpServerDeps['jobsStore']>,
+  job: JobRecord,
   jobRun: JobRunRecord,
   phase: JobStepRunPhase,
+  targetStepId: string,
   value: string
 ): string {
   return value.replace(NATIVE_TEMPLATE_PATTERN, (match, name: string) => {
@@ -1501,8 +1512,60 @@ function resolveNativeContentTemplate(
       $step: stepId,
       field,
     })
-    return resolved ?? match
+    if (resolved !== undefined) {
+      return resolved
+    }
+
+    const diagnostic = resolveFailedBranchDiagnosticOutputRef({
+      jobsStore,
+      job,
+      jobRunId: jobRun.jobRunId,
+      phase,
+      targetStepId,
+      sourceStepId: stepId,
+      field,
+    })
+    return diagnostic.authorized ? diagnostic.value : match
   })
+}
+
+type FailedBranchDiagnosticResolution = { authorized: false } | { authorized: true; value: string }
+
+function resolveFailedBranchDiagnosticOutputRef(input: {
+  jobsStore: NonNullable<ResolvedAcpServerDeps['jobsStore']>
+  job: JobRecord
+  jobRunId: string
+  phase: JobStepRunPhase
+  targetStepId: string
+  sourceStepId: string
+  field: string
+}): FailedBranchDiagnosticResolution {
+  const phaseSteps =
+    input.phase === 'sequence' ? input.job.flow?.sequence : input.job.flow?.onFailure
+  const sourceStep = phaseSteps?.find((step) => step.id === input.sourceStepId)
+  if (sourceStep === undefined || !isExecStep(sourceStep)) {
+    return { authorized: false }
+  }
+
+  const sourceRun = currentStepRun(input.jobsStore, input.jobRunId, input.phase, input.sourceStepId)
+  const branch = sourceRun?.branchTaken
+  if (
+    sourceRun?.status !== 'failed' ||
+    branch?.target !== input.targetStepId ||
+    (branch.kind !== 'exitCode' && branch.kind !== 'default')
+  ) {
+    return { authorized: false }
+  }
+
+  if (input.field === 'errorCode') {
+    return { authorized: true, value: sourceRun.error?.code ?? '' }
+  }
+  if (input.field === 'errorMessage') {
+    return { authorized: true, value: sourceRun.error?.message ?? '' }
+  }
+
+  const value = sourceRun.result?.[input.field]
+  return { authorized: true, value: typeof value === 'string' ? value : '' }
 }
 
 function readCanonicalEventId(jobRun: JobRunRecord): string | undefined {
