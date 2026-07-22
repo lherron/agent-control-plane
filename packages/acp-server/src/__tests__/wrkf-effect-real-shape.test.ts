@@ -1,7 +1,7 @@
 /**
  * REAL-PROCESS shape guard — W5: wrkf effect payload shapes (T-01935)
  *
- * These tests spin a REAL @wrkq/client against the canonical wrkq DB and
+ * These tests spin a REAL @wrkq/client against an isolated scratch wrkq DB and
  * assert the actual shape of effect objects. They PASS NOW (they document
  * reality) and serve as a fidelity guard: if wrkf changes the effect payload
  * format, these tests catch it before the reconciler is broken.
@@ -10,8 +10,7 @@
  *
  * Requires:
  *   - wrkf binary: ~/.local/bin/wrkf (or $WRKF_BIN)
- *   - canonical DB: ~/praesidium/var/db/wrkq.db
- *   - Live wrkf-backed task with effects: T-01489 or any task with pending/delivered effects
+ *   - wrkqadm binary: ~/.local/bin/wrkqadm (or $WRKQADM_BIN)
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * Authoritative effect shapes (from real-run-effects fixtures + live wrkq.db):
@@ -43,22 +42,29 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-import { describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { createWrkfClientLifecycle } from '../wrkf/client-lifecycle.js'
 
-// ─── Binary / DB paths ────────────────────────────────────────────────────────
+// ─── Binary / isolated fixture paths ─────────────────────────────────────────
 
 const WRKF_BINARY =
   process.env['WRKF_BIN'] ?? `${process.env['HOME'] ?? '/Users/lherron'}/.local/bin/wrkf`
 
-const WRKQ_DB_PATH =
-  process.env['WRKQ_DB_PATH'] ??
-  `${process.env['HOME'] ?? '/Users/lherron'}/praesidium/var/db/wrkq.db`
+const WRKQADM_BINARY =
+  process.env['WRKQADM_BIN'] ?? `${process.env['HOME'] ?? '/Users/lherron'}/.local/bin/wrkqadm`
 
-// A live wrkq task that has at least one effect in the DB.
-// T-01489 was used for W4b real-shape tests and has delivered wake_role effects.
-const LIVE_TASK_ID = 'T-01489'
+const DEMO_TEMPLATE_PATH = fileURLToPath(
+  new URL('../../test/fixtures/demo-linear-template.json', import.meta.url)
+)
+
+let fixtureDir = ''
+let fixtureDbPath = ''
+let fixtureTaskId = ''
 
 // ─── Expected effect top-level keys (from real-run-effects-before-ack.json) ──
 const EXPECTED_EFFECT_TOP_KEYS = [
@@ -86,6 +92,65 @@ const _EXPECTED_OBSERVER_DATA_KEYS = ['guardrails', 'instruction', 'targetLane']
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('W5 real-process: @wrkq/client effect shape contract (fidelity guard)', () => {
+  beforeAll(async () => {
+    fixtureDir = mkdtempSync(join(tmpdir(), 'acp-wrkf-effect-shape-'))
+    fixtureDbPath = join(fixtureDir, 'wrkq.db')
+    const childEnv = { ...process.env, WRKQ_DB_PATH: fixtureDbPath } as Record<string, string>
+    const initialized = Bun.spawnSync([WRKQADM_BINARY, '--db', fixtureDbPath, 'init'], {
+      cwd: fixtureDir,
+      env: childEnv,
+    })
+    if (initialized.exitCode !== 0) {
+      throw new Error(`wrkqadm init failed: ${initialized.stderr.toString()}`)
+    }
+
+    const lifecycle = await createWrkfClientLifecycle({
+      command: WRKF_BINARY,
+      dbLocator: fixtureDbPath,
+      clientInfo: { name: 'acp-server-test-effect-shape-setup', version: '0.1.0' },
+    })
+    try {
+      await lifecycle.client!.wrkf.workflow.install({
+        body: readFileSync(DEMO_TEMPLATE_PATH, 'utf8'),
+        sourceName: 'demo-linear-template.json',
+      })
+      const task = await lifecycle.client!.wrkq.task.create({
+        title: 'Real effect shape fixture',
+        path: 'inbox/real-effect-shape',
+      })
+      fixtureTaskId = task.id
+      await lifecycle.client!.wrkq.workflow.attach({
+        task: fixtureTaskId,
+        workflow: 'demo-linear@1',
+      })
+      await lifecycle.client!.wrkf.role.set({
+        task: fixtureTaskId,
+        roleMap: { agent: 'shape-tester' },
+      })
+      await lifecycle.client!.wrkf.evidence.add({
+        task: fixtureTaskId,
+        kind: 'demo_note',
+        ref: 'artifact://real-effect-shape/setup',
+        principal_ref: 'shape-tester',
+        role: 'agent',
+      })
+      await lifecycle.client!.wrkf.transition.apply({
+        task: fixtureTaskId,
+        transition: 'submit',
+        principal_ref: 'shape-tester',
+        role: 'agent',
+      })
+    } finally {
+      await lifecycle.close()
+    }
+  }, 15000)
+
+  afterAll(() => {
+    if (fixtureDir) {
+      rmSync(fixtureDir, { recursive: true, force: true })
+    }
+  })
+
   // ── Shape: effect object has required top-level keys ─────────────────────
   //
   // PASSES NOW. Guards against wrkf changing effect object structure.
@@ -96,11 +161,11 @@ describe('W5 real-process: @wrkq/client effect shape contract (fidelity guard)',
     // This test verifies each effect object in that array has the expected keys.
     const lc = await createWrkfClientLifecycle({
       command: WRKF_BINARY,
-      dbPath: WRKQ_DB_PATH,
+      dbLocator: fixtureDbPath,
       clientInfo: { name: 'acp-server-test-effect-shape', version: '0.1.0' },
     })
     try {
-      const result = await lc.wrkf!.effect.list({ task: LIVE_TASK_ID })
+      const result = await lc.wrkf!.effect.list({ task: fixtureTaskId })
 
       // effect.list returns a bare array
       expect(Array.isArray(result)).toBe(true)
@@ -108,7 +173,7 @@ describe('W5 real-process: @wrkq/client effect shape contract (fidelity guard)',
 
       if (effects.length === 0) {
         console.log(
-          `[FIDELITY GUARD] No effects on ${LIVE_TASK_ID} — effect key assertions skipped`
+          `[FIDELITY GUARD] No effects on ${fixtureTaskId} — effect key assertions skipped`
         )
         return
       }
@@ -145,12 +210,12 @@ describe('W5 real-process: @wrkq/client effect shape contract (fidelity guard)',
   test('REAL-PROCESS: wake_role effect payload has kind="wake_role" and role is a string', async () => {
     const lc = await createWrkfClientLifecycle({
       command: WRKF_BINARY,
-      dbPath: WRKQ_DB_PATH,
+      dbLocator: fixtureDbPath,
       clientInfo: { name: 'acp-server-test-effect-shape', version: '0.1.0' },
     })
     try {
       // effect.list returns a bare array (see shape guard test)
-      const result = await lc.wrkf!.effect.list({ task: LIVE_TASK_ID })
+      const result = await lc.wrkf!.effect.list({ task: fixtureTaskId })
       const effects = (Array.isArray(result) ? result : []) as Array<Record<string, unknown>>
       const wakeRoleEffects = effects.filter((e) => e['kind'] === 'wake_role')
 
@@ -158,7 +223,7 @@ describe('W5 real-process: @wrkq/client effect shape contract (fidelity guard)',
       // The guard is still useful: it checks the list API returns effects at all.
       if (wakeRoleEffects.length === 0) {
         console.log(
-          `[FIDELITY GUARD] No wake_role effects on ${LIVE_TASK_ID} — payload shape assertions skipped`
+          `[FIDELITY GUARD] No wake_role effects on ${fixtureTaskId} — payload shape assertions skipped`
         )
         return
       }
@@ -200,7 +265,7 @@ describe('W5 real-process: @wrkq/client effect shape contract (fidelity guard)',
     // FIDELITY GUARD: The claim response shape is the PRIMARY contract the reconciler
     // depends on. Even for empty claims, wrkf returns a non-null leaseToken.
     //
-    // REAL SHAPE (captured 2026-06-05, from real wrkf binary against canonical DB):
+    // REAL SHAPE (captured 2026-06-05 from the real wrkf binary):
     //   {effects: [], leaseToken: "lease_<hex>", leaseExpiresAt: "<iso-timestamp>"}
     //   Both leaseToken and leaseExpiresAt are ALWAYS strings (never null).
     //
@@ -208,7 +273,7 @@ describe('W5 real-process: @wrkq/client effect shape contract (fidelity guard)',
     // are authoritative: leaseToken is always present.
     const lc = await createWrkfClientLifecycle({
       command: WRKF_BINARY,
-      dbPath: WRKQ_DB_PATH,
+      dbLocator: fixtureDbPath,
       clientInfo: { name: 'acp-server-test-effect-shape', version: '0.1.0' },
     })
     try {
@@ -217,7 +282,7 @@ describe('W5 real-process: @wrkq/client effect shape contract (fidelity guard)',
       const result = (await lc.wrkf!.effect.claim({
         adapter: 'acp-shape-test-readonly',
         kind: 'nonexistent_kind_for_shape_test',
-        task: LIVE_TASK_ID,
+        task: fixtureTaskId,
         limit: 1,
         leaseMs: 1000,
       })) as Record<string, unknown>
@@ -262,11 +327,11 @@ describe('W5 real-process: @wrkq/client effect shape contract (fidelity guard)',
     // for implementers who might be tempted to use effect.list.
     const lc = await createWrkfClientLifecycle({
       command: WRKF_BINARY,
-      dbPath: WRKQ_DB_PATH,
+      dbLocator: fixtureDbPath,
       clientInfo: { name: 'acp-server-test-effect-shape', version: '0.1.0' },
     })
     try {
-      const result = await lc.wrkf!.effect.list({ task: LIVE_TASK_ID })
+      const result = await lc.wrkf!.effect.list({ task: fixtureTaskId })
 
       // effect.list returns a bare array, not an {effects:[...]} object
       expect(Array.isArray(result)).toBe(true)
@@ -283,25 +348,26 @@ describe('W5 real-process: @wrkq/client effect shape contract (fidelity guard)',
     }
   }, 15000)
 
-  // ── Shape: effect idempotencyKey format ───────────────────────────────────
+  // ── Shape: effect idempotencyKey identity components ─────────────────────
   //
   // PASSES NOW. The reconciler uses idempotencyKey as the appendEvent idempotencyKey.
-  // Validates the key follows the pattern: {instanceId}:{revision}:{...}:{effectId}
+  // Effect kinds may insert semantic components before the revision, so the stable
+  // contract is the instance id prefix plus a segment matching the effect revision.
 
-  test('REAL-PROCESS: effect.idempotencyKey follows {instanceId}:{revision}:... pattern', async () => {
+  test('REAL-PROCESS: effect.idempotencyKey starts with instanceId and contains revision', async () => {
     const lc = await createWrkfClientLifecycle({
       command: WRKF_BINARY,
-      dbPath: WRKQ_DB_PATH,
+      dbLocator: fixtureDbPath,
       clientInfo: { name: 'acp-server-test-effect-shape', version: '0.1.0' },
     })
     try {
       // effect.list returns a bare array (see shape guard test)
-      const result = await lc.wrkf!.effect.list({ task: LIVE_TASK_ID })
+      const result = await lc.wrkf!.effect.list({ task: fixtureTaskId })
       const effects = (Array.isArray(result) ? result : []) as Array<Record<string, unknown>>
 
       if (effects.length === 0) {
         console.log(
-          `[FIDELITY GUARD] No effects on ${LIVE_TASK_ID} — idempotencyKey format check skipped`
+          `[FIDELITY GUARD] No effects on ${fixtureTaskId} — idempotencyKey format check skipped`
         )
         return
       }
@@ -310,20 +376,24 @@ describe('W5 real-process: @wrkq/client effect shape contract (fidelity guard)',
         const key = effect['idempotencyKey'] as string
         const parts = key.split(':')
 
-        // Minimum 3 parts: instanceId : revision : ... : effectId
+        // Minimum 3 parts: instanceId : semantic/revision components
         expect(
           parts.length,
           `idempotencyKey should have >= 3 parts: ${key}`
         ).toBeGreaterThanOrEqual(3)
 
-        // First part is the instanceId (wfi_...)
-        expect(parts[0], `idempotencyKey first part should be instanceId: ${key}`).toMatch(/^wfi_/)
+        // First part is the effect's instanceId (wfi_...).
+        expect(parts[0], `idempotencyKey first part should be instanceId: ${key}`).toBe(
+          effect['instanceId']
+        )
+        expect(parts[0]).toMatch(/^wfi_/)
 
-        // Second part is the revision (a number string)
+        // The effect's revision is preserved as a complete segment. Its position is
+        // kind-specific (for example, set_task_state prefixes task-state + task UUID).
         expect(
-          Number.isInteger(Number.parseInt(parts[1]!, 10)),
-          `idempotencyKey second part should be revision number: ${key}`
-        ).toBe(true)
+          parts,
+          `idempotencyKey should contain effect revision ${String(effect['revision'])}: ${key}`
+        ).toContain(String(effect['revision']))
       }
     } finally {
       await lc.close()

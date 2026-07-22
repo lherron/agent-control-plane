@@ -34,7 +34,7 @@
  *   keys of task.inspect and next. These tests PASS now (they document reality). Their purpose
  *   is a fidelity guard: if the real client shape ever changes, these tests catch it; and they
  *   prevent future fakes from diverging silently (the old W2a fake was the root cause here).
- *   Requires: wrkf binary and canonical DB at ~/praesidium/var/db/wrkq.db; live task T-01489.
+ *   Requires: wrkf and wrkqadm binaries; the real-process guard creates an isolated fixture.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * What the impl must change in packages/acp-server/src/handlers/workflow-tasks.ts:
@@ -60,7 +60,11 @@
  *        return json({ source:'wrkf', task, instance: next.instance, next, ... })
  */
 
-import { describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { withWiredServer } from '../../test/fixtures/wired-server.js'
 import { createWrkfClientLifecycle } from '../wrkf/client-lifecycle.js'
@@ -321,7 +325,7 @@ describe('W2a real inspect shape — handler must project body.task from flat in
 // ═════════════════════════════════════════════════════════════════════════════
 // TEST KIND 2: Real-process @wrkq/client shape contract (fidelity guard)
 //
-// These tests spin a REAL @wrkq/client subprocess against the canonical wrkq DB.
+// These tests spin a REAL @wrkq/client subprocess against an isolated scratch wrkq DB.
 // They document the actual client shapes so future fakes can never silently diverge.
 //
 // Expected to PASS now (they observe reality, not assert what the handler does).
@@ -330,18 +334,22 @@ describe('W2a real inspect shape — handler must project body.task from flat in
 //
 // Requires:
 //   - wrkf binary: ~/.local/bin/wrkf (or $WRKF_BIN)
-//   - canonical DB: ~/praesidium/var/db/wrkq.db
-//   - Live wrkf-backed task: T-01489, T-01500
+//   - wrkqadm binary: ~/.local/bin/wrkqadm (or $WRKQADM_BIN)
 // ═════════════════════════════════════════════════════════════════════════════
 
 const WRKF_BINARY =
   process.env['WRKF_BIN'] ?? `${process.env['HOME'] ?? '/Users/lherron'}/.local/bin/wrkf`
 
-const WRKQ_DB_PATH =
-  process.env['WRKQ_DB_PATH'] ??
-  `${process.env['HOME'] ?? '/Users/lherron'}/praesidium/var/db/wrkq.db`
+const WRKQADM_BINARY =
+  process.env['WRKQADM_BIN'] ?? `${process.env['HOME'] ?? '/Users/lherron'}/.local/bin/wrkqadm`
 
-const LIVE_TASK_ID = 'T-01489'
+const DEMO_TEMPLATE_PATH = fileURLToPath(
+  new URL('../../test/fixtures/demo-linear-template.json', import.meta.url)
+)
+
+let fixtureDir = ''
+let fixtureDbPath = ''
+let fixtureTaskId = ''
 
 // Flat inspect keys present on EVERY instance regardless of lifecycle state
 // (measured across 5 live instances — 4 active, 1 closed — on 2026-07-20).
@@ -394,6 +402,48 @@ const EXPECTED_INSTANCE_KEYS = [
 ] as const
 
 describe('W2a real-process: @wrkq/client task.inspect + next shape contract (fidelity guard)', () => {
+  beforeAll(async () => {
+    fixtureDir = mkdtempSync(join(tmpdir(), 'acp-wrkf-inspect-shape-'))
+    fixtureDbPath = join(fixtureDir, 'wrkq.db')
+    const childEnv = { ...process.env, WRKQ_DB_PATH: fixtureDbPath } as Record<string, string>
+    const initialized = Bun.spawnSync([WRKQADM_BINARY, '--db', fixtureDbPath, 'init'], {
+      cwd: fixtureDir,
+      env: childEnv,
+    })
+    if (initialized.exitCode !== 0) {
+      throw new Error(`wrkqadm init failed: ${initialized.stderr.toString()}`)
+    }
+
+    const lifecycle = await createWrkfClientLifecycle({
+      command: WRKF_BINARY,
+      dbLocator: fixtureDbPath,
+      clientInfo: { name: 'acp-server-test-real-shape-setup', version: '0.1.0' },
+    })
+    try {
+      await lifecycle.client!.wrkf.workflow.install({
+        body: readFileSync(DEMO_TEMPLATE_PATH, 'utf8'),
+        sourceName: 'demo-linear-template.json',
+      })
+      const task = await lifecycle.client!.wrkq.task.create({
+        title: 'Real inspect shape fixture',
+        path: 'inbox/real-inspect-shape',
+      })
+      fixtureTaskId = task.id
+      await lifecycle.client!.wrkq.workflow.attach({
+        task: fixtureTaskId,
+        workflow: 'demo-linear@1',
+      })
+    } finally {
+      await lifecycle.close()
+    }
+  }, 15000)
+
+  afterAll(() => {
+    if (fixtureDir) {
+      rmSync(fixtureDir, { recursive: true, force: true })
+    }
+  })
+
   // ── 2a. task.inspect returns FLAT — no task/instance wrapper ──────────────
   //
   // PASSES now (documenting reality). This is the FIDELITY GUARD:
@@ -405,11 +455,11 @@ describe('W2a real-process: @wrkq/client task.inspect + next shape contract (fid
   test('REAL-PROCESS: task.inspect returns flat object — required keys present, NO task/instance wrapper', async () => {
     const lc = await createWrkfClientLifecycle({
       command: WRKF_BINARY,
-      dbPath: WRKQ_DB_PATH,
+      dbLocator: fixtureDbPath,
       clientInfo: { name: 'acp-server-test-real-shape', version: '0.1.0' },
     })
     try {
-      const inspected = (await lc.wrkf!.task.inspect({ task: LIVE_TASK_ID })) as Record<
+      const inspected = (await lc.wrkf!.task.inspect({ task: fixtureTaskId })) as Record<
         string,
         unknown
       >
@@ -462,7 +512,7 @@ describe('W2a real-process: @wrkq/client task.inspect + next shape contract (fid
       ).not.toContain('instance')
 
       // taskRef must follow the wrkq: prefix format
-      expect(String(inspected['taskRef'])).toBe(`wrkq:${LIVE_TASK_ID}`)
+      expect(String(inspected['taskRef'])).toBe(`wrkq:${fixtureTaskId}`)
 
       // Sanity: revision must be a number (not a string)
       expect(typeof inspected['revision']).toBe('number')
@@ -479,11 +529,11 @@ describe('W2a real-process: @wrkq/client task.inspect + next shape contract (fid
   test('REAL-PROCESS: wrkf.next returns { instance, actions, blockedTransitions, openObligations, pendingEffects }', async () => {
     const lc = await createWrkfClientLifecycle({
       command: WRKF_BINARY,
-      dbPath: WRKQ_DB_PATH,
+      dbLocator: fixtureDbPath,
       clientInfo: { name: 'acp-server-test-real-shape', version: '0.1.0' },
     })
     try {
-      const nextResult = (await lc.wrkf!.next({ task: LIVE_TASK_ID })) as Record<string, unknown>
+      const nextResult = (await lc.wrkf!.next({ task: fixtureTaskId })) as Record<string, unknown>
       const keys = Object.keys(nextResult)
 
       // Exact-key guard: additions and removals are both provider contract drift.
@@ -499,7 +549,7 @@ describe('W2a real-process: @wrkq/client task.inspect + next shape contract (fid
       expect(instanceKeys.sort()).toEqual([...EXPECTED_INSTANCE_KEYS].sort())
 
       // instance.taskRef binds back to the task
-      expect(String(instance!['taskRef'])).toBe(`wrkq:${LIVE_TASK_ID}`)
+      expect(String(instance!['taskRef'])).toBe(`wrkq:${fixtureTaskId}`)
 
       // instance does NOT have a nested 'task' wrapper
       expect(instanceKeys).not.toContain('task')
@@ -516,13 +566,13 @@ describe('W2a real-process: @wrkq/client task.inspect + next shape contract (fid
   test('REAL-PROCESS: inspect.id === next.instance.id (same wrkf instance, impl can use either)', async () => {
     const lc = await createWrkfClientLifecycle({
       command: WRKF_BINARY,
-      dbPath: WRKQ_DB_PATH,
+      dbLocator: fixtureDbPath,
       clientInfo: { name: 'acp-server-test-real-shape', version: '0.1.0' },
     })
     try {
       const [inspected, nextResult] = (await Promise.all([
-        lc.wrkf!.task.inspect({ task: LIVE_TASK_ID }),
-        lc.wrkf!.next({ task: LIVE_TASK_ID }),
+        lc.wrkf!.task.inspect({ task: fixtureTaskId }),
+        lc.wrkf!.next({ task: fixtureTaskId }),
       ])) as [Record<string, unknown>, Record<string, unknown>]
 
       const instance = nextResult['instance'] as Record<string, unknown>

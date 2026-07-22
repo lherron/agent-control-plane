@@ -32,7 +32,7 @@
  *   WRKQADM_BIN  default ~/.local/bin/wrkqadm
  */
 
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -133,7 +133,10 @@ describe('wrkf generic non-PBC smoke (T-02589)', () => {
     const wrkf = lc.wrkf as AcpWrkfWorkflowPort
 
     // Install the non-PBC template via the generic workflow port (no PBC pack).
-    await wrkf.workflow.install({ path: DEMO_TEMPLATE_PATH })
+    await wrkf.workflow.install({
+      body: readFileSync(DEMO_TEMPLATE_PATH, 'utf8'),
+      sourceName: 'demo-linear-template.json',
+    })
 
     // Create a fresh wrkq task in the isolated DB and attach the workflow.
     const touch = Bun.spawnSync(
