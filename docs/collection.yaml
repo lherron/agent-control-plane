@@ -1,0 +1,5 @@
+schemaVersion: praesidium.docs.collection.v1
+id: agent-control-plane
+project: agent-control-plane
+contentRoot: .
+defaultVisibility: internal
