@@ -130,6 +130,7 @@ export type ManagedResourceStatusEntry = {
   // owner-only form must NOT claim a stale classification it cannot know).
   isStale?: boolean | undefined
   recommendedAction?: RecommendedAction | undefined
+  desiredProjectionHash?: string | undefined
 }
 
 export type GetManagedResourcesStatusInput =
@@ -800,6 +801,7 @@ export async function statusWithStores(
       state: provenance.state,
       sourcePath: provenance.sourcePath,
       resourceName: provenance.resourceName,
+      desiredProjectionHash: provenance.desiredProjectionHash,
       liveTarget: `job:${provenance.jobId}`,
       disabled: job === undefined ? provenance.state === 'disabled' : job.disabled,
       ...(job === undefined ? {} : jobOperationalFacts(job)),
@@ -820,6 +822,7 @@ export async function statusWithStores(
       state: provenance.state,
       sourcePath: provenance.sourcePath,
       resourceName: provenance.resourceName,
+      desiredProjectionHash: provenance.desiredProjectionHash,
       liveTarget: `binding:${provenance.bindingId}`,
       disabled:
         binding === undefined ? provenance.state === 'disabled' : binding.status === 'disabled',

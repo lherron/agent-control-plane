@@ -135,6 +135,9 @@ name = "my-watcher"
 title = "..."
 enabled = true
 
+[execution]
+node = ["svc", "max3"] # scalar, owner set, or "all"
+
 [trigger]
 cron = "*/15 * * * *"
 
@@ -167,6 +170,23 @@ acp admin managed-resource apply --in /tmp/plan.json              # applies to t
 The compiler validates the flow; a bad flow fails here with a specific error
 code. Editing the TOML and re-applying updates the live job (idempotent by
 source hash).
+
+Execution ownership is independent of HRC scope placement. A profile-level
+default can be set in the agent profile:
+
+```toml
+[jobs]
+default_node = "svc"
+```
+
+An individual schedule overrides it with `[execution].node`. A concrete
+multi-node set deliberately runs one local copy on each listed node; `"all"`
+runs one copy on every node where the catalog is applied. This is static
+fan-out, not failover: a healthy peer does not make up an occurrence missed by
+a down owner. In federated mode an unassigned schedule stays visible but never
+executes. `ACP_SCHEDULER_ENABLED` controls local scheduler capability and
+`ACP_JOB_FLOW_EXEC_ENABLED` controls native exec permission; neither grants
+ownership.
 
 ### B. Direct job file (one-offs / non-agent jobs)
 
@@ -209,6 +229,28 @@ sqlite3 var/db/acp-interface.db \
   "SELECT delivery_request_id, status, created_at FROM delivery_requests \
    WHERE binding_id='<binding>' ORDER BY created_at DESC LIMIT 3;"
 ```
+
+### Relocating a schedule owner
+
+Relocation is a manual break-before-make operation. There is no reassignment
+API, placement epoch, automatic run adoption, or zero-downtime/exactly-once
+guarantee when this sequence is skipped.
+
+1. Disable the schedule in source and apply the disabled catalog to every
+   affected ACP node.
+2. On every node, run `acp admin managed-resource status --in <plan> --json`
+   and verify `disabled: true`, identical `desiredProjectionHash` and
+   `execution.ownerSet`, and no catalog drift.
+3. On each departing owner, wait until `execution.localInflightCount` is zero.
+   Disabled blocks new admission but deliberately allows stamped inflight runs
+   to finish.
+4. While still disabled, change `[execution].node`, compile a fresh plan, apply
+   it everywhere, and verify matching hashes and owner sets on all nodes.
+5. Re-enable the schedule in source, compile again, apply everywhere, and
+   verify that only owner-set members report `execution.eligible: true`.
+
+Never overlap the old and new enabled owner sets during relocation. Skipping
+the disabled drain can duplicate or lose an occurrence.
 
 ---
 

@@ -1,4 +1,6 @@
 import { badRequest, json } from '../http.js'
+import { resolveJobExecPolicy } from '../jobs/exec-policy.js'
+import { getJobExecutionStatus } from '../jobs/execution-status.js'
 import { isRecord, parseJsonBody } from '../parsers/body.js'
 import {
   type ManagedResourcesPlan,
@@ -30,6 +32,50 @@ function requireJobsStore(deps: Parameters<RouteHandler>[0]['deps']) {
     throw new Error('jobs store is not configured')
   }
   return deps.jobsStore
+}
+
+function enabledEnv(value: string | undefined): boolean {
+  return value === '1' || value?.toLowerCase() === 'true'
+}
+
+function withJobExecutionStatus(
+  result: Awaited<ReturnType<typeof statusWithStores>>,
+  jobsStore: ReturnType<typeof requireJobsStore>,
+  deps: Parameters<RouteHandler>[0]['deps']
+) {
+  const identity = deps.jobNodeIdentityAuthority?.getDiagnostics() ?? {
+    startupState: 'uninitialized' as const,
+    quiesced: false,
+  }
+  const schedulerEnabled = enabledEnv(process.env['ACP_SCHEDULER_ENABLED'])
+  const execEnabled = (deps.jobExecPolicy ?? resolveJobExecPolicy()).enabled
+  return {
+    ...result,
+    executionContext: {
+      identity,
+      schedulerEnabled,
+      execEnabled,
+    },
+    resources: result.resources.map((resource) => {
+      if (resource.jobId === undefined) {
+        return resource
+      }
+      const job = jobsStore.getJob(resource.jobId).job
+      if (job === undefined) {
+        return resource
+      }
+      return {
+        ...resource,
+        execution: getJobExecutionStatus({
+          jobsStore,
+          job,
+          identity,
+          schedulerEnabled,
+          execEnabled,
+        }),
+      }
+    }),
+  }
 }
 
 function parseApplyBody(body: unknown): { plan: unknown } {
@@ -106,23 +152,25 @@ export const handleGetManagedResourcesStatus: RouteHandler = async ({ request, d
     }
     const plan = rawBody['plan'] as ManagedResourcesPlan
     const sourceDeletionPolicy = parseSourceDeletionPolicy(rawBody)
+    const jobsStore = requireJobsStore(deps)
     const result = await statusWithStores({
       plan,
       sourceDeletionPolicy,
-      jobsStore: requireJobsStore(deps),
+      jobsStore,
       interfaceStore: deps.interfaceStore,
     })
-    return json(result)
+    return json(withJobExecutionStatus(result, jobsStore, deps))
   }
 
   const body = parseStatusBody(rawBody)
+  const jobsStore = requireJobsStore(deps)
   const result = await statusWithStores({
     ownerScopeRef: body.ownerScopeRef,
     projectionIds: body.projectionIds,
-    jobsStore: requireJobsStore(deps),
+    jobsStore,
     interfaceStore: deps.interfaceStore,
   })
-  return json(result)
+  return json(withJobExecutionStatus(result, jobsStore, deps))
 }
 
 export const handleReconcileManagedResources: RouteHandler = async ({ request, deps }) => {

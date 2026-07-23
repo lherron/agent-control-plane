@@ -67,15 +67,35 @@ describe('admin jobs scheduler endpoint', () => {
               tickIntervalMs: number
               dueCount: number
               claimedCount: number
+              ownedButIncapableCount: number
+              jobs: unknown[]
               errors: unknown[]
               identity: unknown
               note?: string
             }>(response)
-          ).toEqual({
+          ).toMatchObject({
             enabled: true,
             tickIntervalMs: 7000,
             dueCount: 1,
             claimedCount: 1,
+            ownedButIncapableCount: 0,
+            jobs: expect.arrayContaining([
+              expect.objectContaining({
+                jobId: dueJob.jobId,
+                execution: expect.objectContaining({
+                  eligible: false,
+                  eligibilityReason: 'identity_unavailable',
+                  inflightCount: 1,
+                }),
+              }),
+              expect.objectContaining({
+                disabled: true,
+                execution: expect.objectContaining({
+                  eligible: false,
+                  eligibilityReason: 'disabled',
+                }),
+              }),
+            ]),
             errors: [],
             identity: {
               startupState: 'uninitialized',

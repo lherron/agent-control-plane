@@ -539,7 +539,14 @@ describe('managed-resource operator readback (T-05243)', () => {
     })
     expect(
       status.resources.find((resource) => resource.projectionId === SCHEDULED_FLOW_PROJECTION_ID)
-    ).toMatchObject({ hasDrift: false, isStale: false, recommendedAction: 'none' })
+    ).toMatchObject({
+      hasDrift: false,
+      isStale: false,
+      recommendedAction: 'none',
+      desiredProjectionHash: plan.resources.find(
+        (resource) => resource.projectionId === SCHEDULED_FLOW_PROJECTION_ID
+      )?.desiredProjectionHash,
+    })
 
     const reconciled = await reconcileManagedResourcesPlan({
       ...input,

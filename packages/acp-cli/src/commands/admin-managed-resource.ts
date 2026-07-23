@@ -41,6 +41,20 @@ type OperationalFacts = {
     | undefined
   hasDrift?: boolean | undefined
   driftKind?: string | undefined
+  desiredProjectionHash?: string | undefined
+  execution?:
+    | {
+        currentNode?: string | undefined
+        mode?: 'single-node' | 'federated' | undefined
+        ownerSet?: readonly string[] | undefined
+        effectiveOwnerSet?: readonly string[] | undefined
+        eligible: boolean
+        eligibilityReason: string
+        inflightCount: number
+        localInflightCount?: number | undefined
+        ownedButIncapable: readonly string[]
+      }
+    | undefined
 }
 
 type ApplyResponse = {
@@ -156,6 +170,25 @@ function flowLabel(row: OperationalFacts): string {
   return `${flow.stepCount} steps / ${flow.freshStepCount} fresh / ${flow.freshDurationStepCount} freshDuration`
 }
 
+function ownerSetLabel(row: OperationalFacts): string {
+  if (row.execution === undefined) {
+    return '-'
+  }
+  return row.execution.ownerSet?.join(',') ?? 'implicit'
+}
+
+function eligibilityLabel(row: OperationalFacts): string {
+  const execution = row.execution
+  if (execution === undefined) {
+    return '-'
+  }
+  return execution.eligible ? 'yes' : execution.eligibilityReason
+}
+
+function capabilityLabel(row: OperationalFacts): string {
+  return row.execution?.ownedButIncapable.join(',') || '-'
+}
+
 function renderApplyText(response: ApplyResponse): string {
   const table = renderTable(
     [
@@ -191,6 +224,21 @@ function renderStatusText(response: StatusResponse): string {
       { header: 'State', value: (row) => row.state },
       { header: 'Next', value: (row) => valueOrDash(row.nextFireAt) },
       { header: 'Disabled', value: disabledLabel },
+      { header: 'Node', value: (row) => valueOrDash(row.execution?.currentNode) },
+      { header: 'Owners', value: ownerSetLabel },
+      { header: 'Eligible', value: eligibilityLabel },
+      {
+        header: 'Inflight',
+        value: (row) =>
+          row.execution === undefined
+            ? '-'
+            : String(row.execution.localInflightCount ?? row.execution.inflightCount),
+      },
+      { header: 'Capability', value: capabilityLabel },
+      {
+        header: 'Hash',
+        value: (row) => valueOrDash(row.desiredProjectionHash?.slice(0, 12)),
+      },
       { header: 'Drift', value: driftLabel },
       { header: 'Flow', value: flowLabel },
       { header: 'Stale', value: staleLabel },

@@ -3,6 +3,8 @@ import type { JobsStore } from 'acp-jobs-store'
 import { json } from '../http.js'
 
 import type { ResolvedAcpServerDeps } from '../deps.js'
+import { resolveJobExecPolicy } from '../jobs/exec-policy.js'
+import { getJobExecutionStatus } from '../jobs/execution-status.js'
 import type { RouteHandler } from '../routing/route-context.js'
 
 const DEFAULT_TICK_INTERVAL_MS = 5_000
@@ -40,6 +42,17 @@ function readCount(value: unknown): number {
 
 export const handleGetSchedulerState: RouteHandler = async ({ deps }) => {
   const jobsStore = requireJobsStore(deps)
+  const identity = deps.jobNodeIdentityAuthority?.getDiagnostics() ?? {
+    startupState: 'uninitialized' as const,
+    quiesced: false,
+    lastFailure: {
+      code: 'hrc_client_unavailable',
+      message: 'job execution identity authority is not configured',
+      at: new Date().toISOString(),
+    },
+  }
+  const schedulerEnabled = isEnabled(process.env['ACP_SCHEDULER_ENABLED'])
+  const execEnabled = (deps.jobExecPolicy ?? resolveJobExecPolicy()).enabled
   const now = new Date().toISOString()
   const dueCount = readCount(
     jobsStore.sqlite
@@ -67,20 +80,33 @@ export const handleGetSchedulerState: RouteHandler = async ({ deps }) => {
       .get()
   )
 
+  const jobs = jobsStore
+    .listJobs()
+    .jobs.filter((job) => job.trigger.kind === 'schedule')
+    .map((job) => ({
+      jobId: job.jobId,
+      slug: job.slug,
+      disabled: job.disabled,
+      nextFireAt: job.nextFireAt,
+      execution: getJobExecutionStatus({
+        jobsStore,
+        job,
+        identity,
+        schedulerEnabled,
+        execEnabled,
+      }),
+    }))
+
   return json({
-    enabled: isEnabled(process.env['ACP_SCHEDULER_ENABLED']),
+    enabled: schedulerEnabled,
+    execEnabled,
     tickIntervalMs: readTickIntervalMs(),
     dueCount,
     claimedCount,
+    ownedButIncapableCount: jobs.filter((job) => job.execution.ownedButIncapable.length > 0).length,
+    jobs,
     errors: [],
-    identity: deps.jobNodeIdentityAuthority?.getDiagnostics() ?? {
-      startupState: 'uninitialized',
-      quiesced: false,
-      lastFailure: {
-        code: 'hrc_client_unavailable',
-        message: 'job execution identity authority is not configured',
-      },
-    },
+    identity,
     note: 'lastTickAt and nextTickAt are not currently recorded by the scheduler.',
   })
 }
