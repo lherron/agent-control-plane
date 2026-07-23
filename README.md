@@ -10,8 +10,8 @@ for detailed operational behavior; this README is only the repo entry point.
 
 ## Quick Start
 
-Prerequisites: Bun, Just, the local Praesidium dev stack, and the local Verdaccio
-registry at `http://127.0.0.1:4873/` for ASP/HRC workspace dependencies.
+Prerequisites: Bun, Just, the local Praesidium dev stack, and the canonical
+Verdaccio registry at `http://mini:4873/` for ASP/HRC workspace dependencies.
 
 ```bash
 bun install

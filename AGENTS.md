@@ -11,13 +11,12 @@ top-level planning notes for current behavior.
 
 ASP packages (agent-scope, cli-kit, spaces-config, spaces-runtime, etc.) and
 HRC packages (agent-action-render, hrc-core, hrc-sdk, hrc-frame-render, etc.)
-are external dependencies sourced from the local Verdaccio registry at
-`http://127.0.0.1:4873/`.
+are external dependencies sourced from the canonical Verdaccio registry at
+`http://mini:4873/`.
 
-That endpoint is node-local, not a fleet-wide shared store. Exact immutable
-ASP, HRC, and wrkq client versions referenced by `bun.lock` must exist in the
-execution node's registry before installation. Mirror the producer's exact
-tarballs across registries; do not republish a new timestamp on each node.
+Mini is the fleet's sole writable registry store. Exact immutable ASP, HRC, and
+wrkq client versions referenced by `bun.lock` must exist there before
+installation; there is no node-local mirroring or historical-equivalence gate.
 
 ## Build & Run
 
@@ -234,7 +233,7 @@ bun test tests/conformance/acp-workflow
 
 ## Cross-Repo Consumption
 
-`.npmrc` in this repo points `registry=http://127.0.0.1:4873/`. The Verdaccio
+`.npmrc` in this repo points `registry=http://mini:4873/`. The Verdaccio
 upstream policy serves ASP/HRC cross-repo packages from local storage only
 (no public-npm fallthrough on those names) and proxies everything else
 (`chalk`, `commander`, `@anthropic-ai/*`, ...) to the public npmjs registry.
