@@ -196,6 +196,43 @@ function getRecord(record: Record<string, unknown>, key: string): Record<string,
   return value
 }
 
+function getManagedExecutionNodes(
+  desired: Record<string, unknown>,
+  resourceKind: ResourceKindJob
+): readonly string[] | undefined {
+  const execution = desired['execution']
+  if (execution === undefined) return undefined
+  if (resourceKind === 'event-hook') {
+    throw new Error('desiredJson.execution is unsupported for event-hook resources in v1')
+  }
+  if (!isRecord(execution) || Object.keys(execution).some((key) => key !== 'nodes')) {
+    throw new Error('desiredJson.execution must be an object containing only nodes')
+  }
+  const nodes = execution['nodes']
+  if (
+    !Array.isArray(nodes) ||
+    nodes.length === 0 ||
+    nodes.some(
+      (nodeId) =>
+        typeof nodeId !== 'string' ||
+        nodeId === 'local' ||
+        (nodeId !== 'all' && !/^[A-Za-z0-9._-]{1,64}$/.test(nodeId))
+    )
+  ) {
+    throw new Error('desiredJson.execution.nodes must be a non-empty array of valid node ids')
+  }
+  const canonical = [...new Set(nodes)].sort()
+  if (canonical.includes('all') && canonical.length !== 1) {
+    throw new Error('desiredJson.execution.nodes cannot mix "all" with concrete node ids')
+  }
+  if (stableJson(canonical) !== stableJson(nodes)) {
+    throw new Error(
+      'desiredJson.execution.nodes must be deduplicated and deterministically ordered'
+    )
+  }
+  return canonical
+}
+
 function validateManagedEventTrigger(
   trigger: Record<string, unknown>
 ): ValidationError | undefined {
@@ -282,6 +319,7 @@ function desiredToJobInput(input: ApplyManagedJobInput): CreateJobInput | Valida
     ? (desired['output'] as CreateJobInput['output'])
     : undefined
   const flow = isRecord(desired['flow']) ? (desired['flow'] as CreateJobInput['flow']) : undefined
+  const executionNodes = getManagedExecutionNodes(desired, input.resourceKind)
 
   if (input.resourceKind === 'event-hook') {
     const validationError = validateManagedEventTrigger(triggerRecord)
@@ -317,6 +355,7 @@ function desiredToJobInput(input: ApplyManagedJobInput): CreateJobInput | Valida
       input: inputTemplate,
       ...(output !== undefined ? { output } : {}),
       ...(flow !== undefined ? { flow } : {}),
+      ...(executionNodes !== undefined ? { executionNodes } : {}),
       disabled,
       actor: { kind: 'system', id: 'managed-resources' },
       actorStamp: 'system:managed-resources',
@@ -346,6 +385,7 @@ function desiredToJobInput(input: ApplyManagedJobInput): CreateJobInput | Valida
     input: inputTemplate,
     ...(output !== undefined ? { output } : {}),
     ...(flow !== undefined ? { flow } : {}),
+    ...(executionNodes !== undefined ? { executionNodes } : {}),
     disabled,
     actor: { kind: 'system', id: 'managed-resources' },
     actorStamp: 'system:managed-resources',
@@ -362,6 +402,7 @@ function jobInputToPatch(jobInput: CreateJobInput): UpdateJobInput {
     input: jobInput.input,
     output: jobInput.output,
     flow: jobInput.flow,
+    executionNodes: jobInput.executionNodes ?? null,
     disabled: jobInput.disabled,
     actor: jobInput.actor,
     actorStamp: jobInput.actorStamp,
@@ -389,6 +430,11 @@ function liveProjectionFromJob(
     live['flow'] = job.flow
   } else {
     live['flow'] = undefined
+  }
+  if (job.executionNodes !== undefined) {
+    live['execution'] = { nodes: [...job.executionNodes] }
+  } else {
+    live['execution'] = undefined
   }
   live['title'] = job.description
 

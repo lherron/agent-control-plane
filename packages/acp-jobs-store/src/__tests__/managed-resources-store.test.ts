@@ -70,6 +70,7 @@ const SCHEDULED_JOB: ApplyManagedJobInput = {
     disabled: false,
     trigger: { kind: 'schedule' },
     schedule: { cron: '0 8 * * 1-5', windowStart: '08:00', windowEnd: '18:00', windowMinutes: 30 },
+    execution: { nodes: ['max3', 'svc'] },
     input: { content: 'Review new inbox tasks and summarize the highest-risk platform work.' },
   },
   resourceKind: 'scheduled-job',
@@ -204,6 +205,7 @@ describe('same-transaction provenance (Phase D invariant)', () => {
     expect(job).toBeDefined()
     expect(job?.slug).toBe('agent-smokey.daily-triage')
     expect(job?.disabled).toBe(false)
+    expect(job?.executionNodes).toEqual(['max3', 'svc'])
 
     // Provenance row must exist in the SAME store (written in the same SQLite transaction)
     const prov = getManagedJobProvenance(store, SCHEDULED_JOB.projectionId)
@@ -397,6 +399,70 @@ describe('idempotent reapply (Phase D invariant)', () => {
       store.listJobs().jobs.filter((j) => j.slug === 'agent-smokey.daily-triage')
     ).toHaveLength(1)
     expect(getManagedJobProvenance(store, SCHEDULED_JOB.projectionId)).toBeDefined()
+  })
+
+  test('owner-set update, live projection, and drift preserve canonical execution.nodes', () => {
+    const store = freshStore()
+    const created = applyManagedJob(store, SCHEDULED_JOB)
+    expect(created.outcome).toBe('created')
+    if (created.outcome !== 'created') return
+
+    const changed: ApplyManagedJobInput = {
+      ...SCHEDULED_JOB,
+      sourceHash: `sha256-canonical-json/v1:${'c'.repeat(64)}`,
+      desiredProjectionHash: `sha256-canonical-json/v1:${'d'.repeat(64)}`,
+      desiredJson: {
+        ...SCHEDULED_JOB.desiredJson,
+        execution: { nodes: ['svc'] },
+      },
+    }
+    const updated = applyManagedJob(store, changed)
+    expect(updated.outcome).toBe('updated')
+    if (updated.outcome !== 'updated') return
+    expect(updated.job.executionNodes).toEqual(['svc'])
+    expect(detectJobDrift(store, changed.projectionId)).toEqual({ hasDrift: false })
+    expect(applyManagedJob(store, changed).outcome).toBe('noop')
+
+    store.updateJob(updated.job.jobId, { executionNodes: ['max3'] })
+    expect(detectJobDrift(store, changed.projectionId)).toEqual(
+      expect.objectContaining({ hasDrift: true, driftKind: 'shape' })
+    )
+  })
+
+  test.each([
+    [['svc', 'max3'], 'noncanonical ordering'],
+    [['svc', 'svc'], 'duplicate members'],
+    [['all', 'svc'], 'mixed wildcard'],
+    [['local'], 'reserved local'],
+    [[], 'empty owner set'],
+  ])('rejects %s owner set before job mutation (%s)', (nodes) => {
+    const store = freshStore()
+    const invalid: ApplyManagedJobInput = {
+      ...SCHEDULED_JOB,
+      desiredJson: {
+        ...SCHEDULED_JOB.desiredJson,
+        execution: { nodes },
+      },
+    }
+
+    const result = applyManagedJob(store, invalid)
+    expect(result.outcome).toBe('validation_error')
+    expect(store.listJobs().jobs).toHaveLength(0)
+  })
+
+  test('rejects execution placement for event hooks instead of silently dropping it', () => {
+    const store = freshStore()
+    const invalid: ApplyManagedJobInput = {
+      ...EVENT_HOOK,
+      desiredJson: {
+        ...EVENT_HOOK.desiredJson,
+        execution: { nodes: ['svc'] },
+      },
+    }
+
+    const result = applyManagedJob(store, invalid)
+    expect(result.outcome).toBe('validation_error')
+    expect(store.listJobs().jobs).toHaveLength(0)
   })
 
   test('event-hook with source-only trigger.target produces noop on reapply', () => {

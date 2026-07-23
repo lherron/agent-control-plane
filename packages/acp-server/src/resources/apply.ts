@@ -335,6 +335,53 @@ function validateDesiredOutput(
   }
 }
 
+function validateDesiredExecution(
+  errors: Array<{ field: string; message: string }>,
+  resource: Record<string, unknown>,
+  index: number
+): void {
+  const desiredJson = resource['desiredJson']
+  if (!isRecord(desiredJson) || desiredJson['execution'] === undefined) {
+    return
+  }
+  const prefix = `resources[${index}].desiredJson.execution`
+  if (resource['resourceKind'] === 'event-hook') {
+    addError(errors, prefix, 'is unsupported for event-hook resources in v1')
+    return
+  }
+  if (resource['resourceKind'] !== 'scheduled-job') {
+    addError(errors, prefix, 'is only supported for scheduled-job resources')
+    return
+  }
+  const execution = desiredJson['execution']
+  if (!isRecord(execution)) {
+    addError(errors, prefix, 'must be an object')
+    return
+  }
+  unknownFieldErrors(errors, execution, new Set(['nodes']), prefix)
+  const nodes = execution['nodes']
+  if (
+    !Array.isArray(nodes) ||
+    nodes.length === 0 ||
+    nodes.some(
+      (nodeId) =>
+        typeof nodeId !== 'string' ||
+        nodeId === 'local' ||
+        (nodeId !== 'all' && !/^[A-Za-z0-9._-]{1,64}$/.test(nodeId))
+    )
+  ) {
+    addError(errors, `${prefix}.nodes`, 'must be a non-empty array of valid node ids')
+    return
+  }
+  const canonical = [...new Set(nodes)].sort()
+  if (canonical.includes('all') && canonical.length !== 1) {
+    addError(errors, `${prefix}.nodes`, 'cannot mix "all" with concrete node ids')
+  }
+  if (JSON.stringify(canonical) !== JSON.stringify(nodes)) {
+    addError(errors, `${prefix}.nodes`, 'must be deduplicated and deterministically ordered')
+  }
+}
+
 function openCachedJobsStore(dbPath: string): JobsStore {
   const key = `jobs::${dbPath}`
   const cached = storeCache.get(key)
@@ -604,6 +651,7 @@ export function validateManagedResourcesPlan(rawPlan: unknown): PlanValidationRe
       }
       validateOriginPolicy(errors, resource, index)
       validateDesiredOutput(errors, resource, index)
+      validateDesiredExecution(errors, resource, index)
     })
   }
 

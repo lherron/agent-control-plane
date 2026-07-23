@@ -38,6 +38,7 @@ import {
   type ManagedResourcesPlan,
   applyManagedResourcesPlan,
   getManagedResourcesStatus,
+  reconcileManagedResourcesPlan,
   validateManagedResourcesPlan,
 } from '../../../packages/acp-server/src/resources/apply.js'
 import * as managedResourceOrchestrator from '../../../packages/acp-server/src/resources/apply.js'
@@ -100,6 +101,24 @@ function planWithScheduledFreshFlow(): ManagedResourcesPlan {
                   },
                 ],
               },
+            },
+          }
+        : resource
+    ),
+  }
+}
+
+function planWithExecutionNodes(nodes: string[] = ['max3', 'svc']): ManagedResourcesPlan {
+  return {
+    ...CANONICAL_PLAN,
+    resources: CANONICAL_PLAN.resources.map((resource) =>
+      resource.projectionId === SCHEDULED_FLOW_PROJECTION_ID
+        ? {
+            ...resource,
+            desiredProjectionHash: `sha256-canonical-json/v1:${'d'.repeat(64)}`,
+            desiredJson: {
+              ...resource.desiredJson,
+              execution: { nodes },
             },
           }
         : resource
@@ -287,6 +306,66 @@ describe('plan schema validation (Phase E invariant)', () => {
     expect(validateManagedResourcesPlan(42).valid).toBe(false)
     expect(validateManagedResourcesPlan(undefined).valid).toBe(false)
   })
+
+  test('accepts canonical scheduled-job execution.nodes and rejects noncanonical or hook placement', () => {
+    const scheduled = CANONICAL_PLAN.resources.find(
+      (resource) => resource.resourceKind === 'scheduled-job'
+    )
+    const eventHook = CANONICAL_PLAN.resources.find(
+      (resource) => resource.resourceKind === 'event-hook'
+    )
+    if (scheduled === undefined || eventHook === undefined) throw new Error('missing fixtures')
+
+    const valid = {
+      ...CANONICAL_PLAN,
+      resources: CANONICAL_PLAN.resources.map((resource) =>
+        resource.projectionId === scheduled.projectionId
+          ? {
+              ...resource,
+              desiredJson: {
+                ...resource.desiredJson,
+                execution: { nodes: ['max3', 'svc'] },
+              },
+            }
+          : resource
+      ),
+    }
+    expect(validateManagedResourcesPlan(valid).valid).toBe(true)
+
+    for (const nodes of [[], ['svc', 'max3'], ['svc', 'svc'], ['all', 'svc'], ['local']]) {
+      const invalid = {
+        ...valid,
+        resources: valid.resources.map((resource) =>
+          resource.projectionId === scheduled.projectionId
+            ? {
+                ...resource,
+                desiredJson: {
+                  ...resource.desiredJson,
+                  execution: { nodes },
+                },
+              }
+            : resource
+        ),
+      }
+      expect(validateManagedResourcesPlan(invalid).valid).toBe(false)
+    }
+
+    const hookPlacement = {
+      ...CANONICAL_PLAN,
+      resources: CANONICAL_PLAN.resources.map((resource) =>
+        resource.projectionId === eventHook.projectionId
+          ? {
+              ...resource,
+              desiredJson: {
+                ...resource.desiredJson,
+                execution: { nodes: ['svc'] },
+              },
+            }
+          : resource
+      ),
+    }
+    expect(validateManagedResourcesPlan(hookPlacement).valid).toBe(false)
+  })
 })
 
 // ==================================================================
@@ -440,6 +519,39 @@ describe('idempotent reapply via apply/status orchestrator (Phase E invariant)',
 // ==================================================================
 
 describe('managed-resource operator readback (T-05243)', () => {
+  test('owner set survives apply, no-op reapply, plan-aware status, and reconcile without drift', async () => {
+    const plan = planWithExecutionNodes()
+    const input = makePersistentApplyInput(plan)
+    const first = await applyManagedResourcesPlan(input)
+    expect(
+      first.outcomes.find((outcome) => outcome.projectionId === SCHEDULED_FLOW_PROJECTION_ID)
+    ).toMatchObject({ outcome: 'created', hasDrift: false })
+
+    const second = await applyManagedResourcesPlan(input)
+    expect(
+      second.outcomes.find((outcome) => outcome.projectionId === SCHEDULED_FLOW_PROJECTION_ID)
+    ).toMatchObject({ outcome: 'noop', hasDrift: false })
+
+    const status = await getManagedResourcesStatus({
+      plan,
+      jobsDbPath: input.jobsDbPath,
+      interfaceDbPath: input.interfaceDbPath,
+    })
+    expect(
+      status.resources.find((resource) => resource.projectionId === SCHEDULED_FLOW_PROJECTION_ID)
+    ).toMatchObject({ hasDrift: false, isStale: false, recommendedAction: 'none' })
+
+    const reconciled = await reconcileManagedResourcesPlan({
+      ...input,
+      sourceDeletionPolicy: 'disable',
+    })
+    expect(
+      reconciled.apply.outcomes.find(
+        (outcome) => outcome.projectionId === SCHEDULED_FLOW_PROJECTION_ID
+      )
+    ).toMatchObject({ outcome: 'noop', hasDrift: false })
+  })
+
   test('scheduled-job apply returns live job facts, no-drift state, and compact fresh-flow summary', async () => {
     // T-05243: operators must not need a separate job-list/JQ probe after apply.
     // The oracle is the public apply result, not the internal store schema.

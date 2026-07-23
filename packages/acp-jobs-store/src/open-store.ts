@@ -46,6 +46,7 @@ type JobRow = {
   input_json: string
   output_json: string | null
   flow_json: string | null
+  execution_nodes_json: string | null
   disabled: number
   last_fire_at: string | null
   next_fire_at: string | null
@@ -218,6 +219,8 @@ export type JobRecord = {
   input: JobInputTemplate
   output?: JobOutputConfig | undefined
   flow?: JobFlow | undefined
+  /** Static managed schedule admission owner set; ["all"] is the wildcard. */
+  executionNodes?: readonly string[] | undefined
   disabled: boolean
   lastFireAt?: string | undefined
   nextFireAt?: string | undefined
@@ -329,6 +332,7 @@ export type CreateJobInput = {
   input: JobInputTemplate
   output?: JobOutputConfig | undefined
   flow?: JobFlow | undefined
+  executionNodes?: readonly string[] | undefined
   disabled?: boolean | undefined
   actor?: Actor | undefined
   actorStamp?: string | undefined
@@ -343,6 +347,7 @@ export type UpdateJobInput = {
   input?: JobInputTemplate | undefined
   output?: JobOutputConfig | null | undefined
   flow?: JobFlow | undefined
+  executionNodes?: readonly string[] | null | undefined
   disabled?: boolean | undefined
   actor?: Actor | undefined
   actorStamp?: string | undefined
@@ -846,6 +851,12 @@ export const jobsStoreMigrations: readonly JobsStoreMigration[] = [
       ALTER TABLE job_step_runs ADD COLUMN branch_taken_json TEXT;
     `,
   },
+  {
+    id: '010_job_execution_owner_set',
+    sql: `
+      ALTER TABLE jobs ADD COLUMN execution_nodes_json TEXT;
+    `,
+  },
 ]
 
 export interface OpenSqliteJobsStoreOptions {
@@ -1146,6 +1157,42 @@ function parseTriggerJson(value: string): JobTrigger {
   return validation.trigger
 }
 
+function normalizeExecutionNodes(
+  value: readonly string[] | undefined
+): readonly string[] | undefined {
+  if (value === undefined) return undefined
+  if (value.length === 0) {
+    throw new Error('executionNodes must contain at least one node id')
+  }
+  if (
+    value.some(
+      (nodeId) =>
+        typeof nodeId !== 'string' ||
+        nodeId === 'local' ||
+        (nodeId !== 'all' && !/^[A-Za-z0-9._-]{1,64}$/.test(nodeId))
+    )
+  ) {
+    throw new Error('executionNodes contains an invalid or reserved node id')
+  }
+  const normalized = [...new Set(value)].sort()
+  if (normalized.includes('all') && normalized.length !== 1) {
+    throw new Error('executionNodes cannot mix "all" with concrete node ids')
+  }
+  return normalized
+}
+
+function parseExecutionNodesJson(value: string): readonly string[] {
+  const parsed = JSON.parse(value) as unknown
+  if (!Array.isArray(parsed) || parsed.some((nodeId) => typeof nodeId !== 'string')) {
+    throw new Error('stored executionNodes is invalid')
+  }
+  const normalized = normalizeExecutionNodes(parsed)
+  if (normalized === undefined) {
+    throw new Error('stored executionNodes is invalid')
+  }
+  return normalized
+}
+
 function toJobRecord(row: JobRow): JobRecord {
   const flow = parseOptionalJsonRecord(row.flow_json, 'flow') as JobFlow | undefined
   const trigger = parseTriggerJson(row.trigger_json)
@@ -1154,6 +1201,10 @@ function toJobRecord(row: JobRow): JobRecord {
     row.schedule_json !== null
       ? (parseJsonRecord(row.schedule_json, 'schedule') as JobSchedule)
       : undefined
+  const executionNodes =
+    row.execution_nodes_json === null
+      ? undefined
+      : parseExecutionNodesJson(row.execution_nodes_json)
   return {
     jobId: row.job_id,
     slug: row.slug ?? row.job_id,
@@ -1167,6 +1218,7 @@ function toJobRecord(row: JobRow): JobRecord {
     input: parseJsonRecord(row.input_json, 'input'),
     ...(output !== undefined ? { output } : {}),
     ...(flow !== undefined ? { flow } : {}),
+    ...(executionNodes !== undefined ? { executionNodes } : {}),
     disabled: row.disabled !== 0,
     ...(row.last_fire_at !== null ? { lastFireAt: row.last_fire_at } : {}),
     ...(row.next_fire_at !== null ? { nextFireAt: row.next_fire_at } : {}),
@@ -1624,6 +1676,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
       throw new Error('job output is only supported for non-flow jobs')
     }
     const description = normalizeOptionalString(input.description)
+    const executionNodes = normalizeExecutionNodes(input.executionNodes)
 
     sqlite
       .prepare(
@@ -1645,6 +1698,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
             input_json,
             output_json,
             flow_json,
+            execution_nodes_json,
             disabled,
             last_fire_at,
             next_fire_at,
@@ -1655,7 +1709,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
             created_at,
             updated_at,
             archived_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
         `
       )
       .run(
@@ -1675,6 +1729,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
         JSON.stringify(input.input),
         input.output !== undefined ? JSON.stringify(input.output) : null,
         input.flow !== undefined ? JSON.stringify(input.flow) : null,
+        executionNodes !== undefined ? JSON.stringify(executionNodes) : null,
         disabled ? 1 : 0,
         null,
         columns.nextFireAt,
@@ -1732,6 +1787,12 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
     const flow = patch.flow ?? existingJob.flow
     const output =
       'output' in patch ? (patch.output === null ? undefined : patch.output) : existingJob.output
+    const executionNodes =
+      'executionNodes' in patch
+        ? patch.executionNodes === null
+          ? undefined
+          : normalizeExecutionNodes(patch.executionNodes)
+        : existingJob.executionNodes
     if (output !== undefined && flow !== undefined) {
       throw new Error('job output is only supported for non-flow jobs')
     }
@@ -1785,6 +1846,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
               input_json = ?,
               output_json = ?,
               flow_json = ?,
+              execution_nodes_json = ?,
               disabled = ?,
               next_fire_at = ?,
               actor_kind = ?,
@@ -1807,6 +1869,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
         JSON.stringify(patch.input ?? existingJob.input),
         output !== undefined ? JSON.stringify(output) : null,
         flow !== undefined ? JSON.stringify(flow) : null,
+        executionNodes !== undefined ? JSON.stringify(executionNodes) : null,
         disabled ? 1 : 0,
         columns.nextFireAt,
         coalesce(patch.actor?.kind, existing.actor_kind),
