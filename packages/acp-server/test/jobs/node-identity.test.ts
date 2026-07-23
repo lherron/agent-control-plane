@@ -4,6 +4,7 @@ import { createInMemoryJobsStore } from 'acp-jobs-store'
 import {
   createJobNodeIdentityAuthority,
   formatJobIdentityMissedTickDiagnostic,
+  stampLegacyJobRunsAfterIdentity,
 } from '../../src/jobs/node-identity.js'
 
 type Mode = 'single-node' | 'federated'
@@ -139,6 +140,67 @@ describe('job execution HRC identity authority (T-06804)', () => {
       lastFailure: { code: 'hrc_client_unavailable' },
       quiesced: false,
     })
+  })
+
+  test('stamps only legacy nonterminal runs after authoritative identity succeeds', () => {
+    const store = createInMemoryJobsStore()
+    try {
+      const job = store.createJob({
+        projectId: 'agent-control-plane',
+        agentId: 'cody',
+        scopeRef: 'agent:cody:project:agent-control-plane',
+        schedule: { cron: '* * * * *' },
+        input: { content: 'legacy migration' },
+      }).job
+      const nonterminal = store.appendJobRun({
+        jobId: job.jobId,
+        triggeredAt: '2026-07-23T01:00:00.000Z',
+        triggeredBy: 'schedule',
+        status: 'dispatched',
+      }).jobRun
+      const terminal = store.appendJobRun({
+        jobId: job.jobId,
+        triggeredAt: '2026-07-23T00:00:00.000Z',
+        triggeredBy: 'schedule',
+        status: 'succeeded',
+        completedAt: '2026-07-23T00:01:00.000Z',
+      }).jobRun
+
+      expect(
+        stampLegacyJobRunsAfterIdentity(store, {
+          ok: false,
+          code: 'hrc_identity_unavailable',
+          message: 'HRC is unavailable',
+        })
+      ).toEqual({ stamped: 0 })
+      expect(store.getJobRun(nonterminal.jobRunId).jobRun?.executionNodeId).toBeUndefined()
+
+      expect(
+        stampLegacyJobRunsAfterIdentity(store, {
+          ok: true,
+          identity: {
+            nodeId: 'svc',
+            mode: 'federated',
+            verifiedAt: '2026-07-23T02:00:00.000Z',
+          },
+        })
+      ).toEqual({ stamped: 1 })
+      expect(store.getJobRun(nonterminal.jobRunId).jobRun?.executionNodeId).toBe('svc')
+      expect(store.getJobRun(terminal.jobRunId).jobRun?.executionNodeId).toBeUndefined()
+      expect(
+        stampLegacyJobRunsAfterIdentity(store, {
+          ok: true,
+          identity: {
+            nodeId: 'max3',
+            mode: 'federated',
+            verifiedAt: '2026-07-23T03:00:00.000Z',
+          },
+        })
+      ).toEqual({ stamped: 0 })
+      expect(store.getJobRun(nonterminal.jobRunId).jobRun?.executionNodeId).toBe('svc')
+    } finally {
+      store.close()
+    }
   })
 
   test('missed-tick diagnostic distinguishes catch-up from unrecoverable schedules', () => {

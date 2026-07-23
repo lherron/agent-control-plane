@@ -1073,6 +1073,7 @@ export interface JobsStore {
         }
       | undefined
   ): ClaimedDueJob[]
+  stampLegacyNonterminalJobRuns(executionNodeId: string): { stamped: number }
   readonly eventInbox: {
     insert(input: InsertInboxEventInput): {
       event: InboxEventRecord
@@ -2644,6 +2645,30 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
     return results
   }
 
+  const stampLegacyNonterminalJobRuns = (
+    executionNodeId: string
+  ): {
+    stamped: number
+  } => {
+    const nodeId = executionNodeId.trim()
+    if (nodeId.length === 0) {
+      throw new Error('executionNodeId must be non-empty')
+    }
+    const now = new Date().toISOString()
+    const result = sqlite
+      .prepare(
+        `
+          UPDATE job_runs
+          SET execution_node_id = ?,
+              updated_at = ?
+          WHERE execution_node_id IS NULL
+            AND status IN ('pending', 'claimed', 'dispatched')
+        `
+      )
+      .run(nodeId, now)
+    return { stamped: result.changes }
+  }
+
   const claimDueJobs = (input: ClaimDueJobsInput): ClaimedDueJob[] => {
     const now = input.now
     const limit = input.limit ?? DEFAULT_CLAIM_LIMIT
@@ -3204,6 +3229,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
     claimDueJobs,
     listInflightFlowJobRuns,
     listJobRunReaperCandidates,
+    stampLegacyNonterminalJobRuns,
     listDispatchedNonFlowJobRuns,
     getJobOutputSinkAttempt,
     recordJobOutputSinkAttempt,

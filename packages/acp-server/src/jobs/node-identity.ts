@@ -25,6 +25,16 @@ export type JobIdentityVerification =
       current?: Readonly<{ nodeId: string; mode: JobExecutionNodeMode }> | undefined
     }
 
+export function stampLegacyJobRunsAfterIdentity(
+  jobsStore: JobsStore,
+  verification: JobIdentityVerification
+): { stamped: number } {
+  if (!verification.ok) {
+    return { stamped: 0 }
+  }
+  return jobsStore.stampLegacyNonterminalJobRuns(verification.identity.nodeId)
+}
+
 export type JobNodeIdentityDiagnostics = Readonly<{
   startupState: 'uninitialized' | 'ready' | 'failed'
   baseline?: Readonly<{ nodeId: string; mode: JobExecutionNodeMode }> | undefined

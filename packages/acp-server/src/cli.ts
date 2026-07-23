@@ -60,6 +60,7 @@ import { createJobLifecycleEmitter } from './jobs/lifecycle-events.js'
 import {
   createJobNodeIdentityAuthority,
   formatJobIdentityMissedTickDiagnostic,
+  stampLegacyJobRunsAfterIdentity,
 } from './jobs/node-identity.js'
 import { createJobOutputReconciler } from './jobs/output-reconciler.js'
 import { getRunFinalAssistantText } from './jobs/run-final-output.js'
@@ -955,6 +956,14 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     console.error(
       `acp-server job execution identity baseline unavailable: ${jobIdentityStartup.code}: ${jobIdentityStartup.message}`
     )
+  }
+  if (jobsStore !== undefined && jobIdentityStartup !== undefined) {
+    const migration = stampLegacyJobRunsAfterIdentity(jobsStore, jobIdentityStartup)
+    if (migration.stamped > 0) {
+      console.log(
+        `acp-server stamped ${migration.stamped} legacy nonterminal job run(s) with execution node ${jobIdentityStartup.ok ? jobIdentityStartup.identity.nodeId : 'unavailable'}`
+      )
+    }
   }
   const wrkfLifecycle = await createWrkfClientLifecycle({
     ...(process.env['WRKF_BIN'] !== undefined ? { command: process.env['WRKF_BIN'] } : {}),
