@@ -3,6 +3,7 @@ import type {
   ClaimedDueJob,
   EventJobSkipReason,
   InboxEventRecord,
+  JobExecutionIdentity,
   JobRecord,
   JobRunRecord,
   JobsStore,
@@ -29,7 +30,11 @@ export type EventJobEvaluation =
   | { decision: 'skip'; reason: EventJobSkipReason }
   | {
       decision: 'mint'
-      resolved: { scopeRef: string; laneRef: string; input: Readonly<Record<string, unknown>> }
+      resolved: {
+        scopeRef: string
+        laneRef: string
+        input: Readonly<Record<string, unknown>>
+      }
       source: Readonly<Record<string, unknown>>
       targetTaskId?: string | undefined
       cooldownMs?: number | undefined
@@ -52,9 +57,7 @@ export type TickJobsSchedulerInput = {
   eventLeaseMs?: number | undefined
   maxJobRunDurationMs?: number | undefined
   flowAdvanceConcurrency?: number | undefined
-  executionIdentity?:
-    | Readonly<{ nodeId: string; mode: 'single-node' | 'federated'; verifiedAt: string }>
-    | undefined
+  executionIdentity?: JobExecutionIdentity | undefined
 }
 
 export type ScheduledRun = JobRunRecord
@@ -131,10 +134,14 @@ function terminalizeInflightJobRuns(input: {
   now: string
   limit?: number | undefined
   maxJobRunDurationMs: number
+  executionIdentity?: JobExecutionIdentity | undefined
 }): JobRunRecord[] {
   const inflight = input.store.listJobRunReaperCandidates({
     ...(input.limit !== undefined ? { limit: input.limit } : {}),
     now: input.now,
+    ...(input.executionIdentity !== undefined
+      ? { executionNodeId: input.executionIdentity.nodeId }
+      : {}),
   })
   const finalized: JobRunRecord[] = []
 
@@ -147,7 +154,7 @@ function terminalizeInflightJobRuns(input: {
       errorMessage = 'stale claimed non-flow job run'
     } else if (isOrphanedByJobChange(entry, input.now)) {
       errorCode = 'orphaned_by_job_change'
-      errorMessage = 'job run orphaned by job archive, disable, or flow removal'
+      errorMessage = 'job run orphaned by job archive or flow removal'
     } else if (hasExceededMaxDuration(entry.jobRun, input.now, input.maxJobRunDurationMs)) {
       errorCode = 'job_run_max_duration_exceeded'
       errorMessage = 'job run exceeded maximum duration'
@@ -175,7 +182,7 @@ function terminalizeInflightJobRuns(input: {
 function isOrphanedByJobChange(entry: ClaimedDueJob, now: string): boolean {
   return (
     entry.jobRun.status === 'dispatched' &&
-    (entry.job.archivedAt !== undefined || entry.job.disabled || entry.job.flow === undefined) &&
+    (entry.job.archivedAt !== undefined || entry.job.flow === undefined) &&
     hasRunAgeAtLeast(entry.jobRun, now, JOB_CHANGE_ORPHAN_GRACE_MS)
   )
 }
@@ -294,6 +301,9 @@ export async function tickJobsScheduler(input: TickJobsSchedulerInput): Promise<
     ...(input.claimLimit !== undefined ? { limit: input.claimLimit } : {}),
     leaseOwner,
     leaseExpiresAt: flowLeaseExpiresAt,
+    ...(input.executionIdentity !== undefined
+      ? { executionIdentity: input.executionIdentity }
+      : {}),
   } satisfies ClaimDueJobsInput)
 
   // Event-claim sibling branch: drain webhook events and mint event JobRuns.
@@ -316,6 +326,9 @@ export async function tickJobsScheduler(input: TickJobsSchedulerInput): Promise<
     now,
     ...(input.claimLimit !== undefined ? { limit: input.claimLimit } : {}),
     maxJobRunDurationMs: input.maxJobRunDurationMs ?? DEFAULT_MAX_JOB_RUN_DURATION_MS,
+    ...(input.executionIdentity !== undefined
+      ? { executionIdentity: input.executionIdentity }
+      : {}),
   })
   if (input.dispatchThroughInputs === undefined && input.advanceFlowJobRun === undefined) {
     return [...scheduledRuns, ...reapedRuns]
@@ -333,6 +346,9 @@ export async function tickJobsScheduler(input: TickJobsSchedulerInput): Promise<
     const inflight = input.store.listInflightFlowJobRuns({
       ...(input.claimLimit !== undefined ? { limit: input.claimLimit } : {}),
       now,
+      ...(input.executionIdentity !== undefined
+        ? { executionNodeId: input.executionIdentity.nodeId }
+        : {}),
     })
     const claimedIds = new Set(allClaimed.map((entry) => entry.jobRun.jobRunId))
     for (const entry of inflight) {

@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { parseAcpWebhookEvent } from 'acp-core'
 import type { DeliveryRequest, InterfaceStore } from 'acp-interface-store'
 import {
+  type JobExecutionIdentity,
   type JobOutputSink,
   type JobRecord,
   type JobRunRecord,
@@ -32,7 +33,7 @@ export type JobOutputReconcilerInput = {
 }
 
 export type JobOutputReconciler = {
-  runOnce(): Promise<void>
+  runOnce(executionIdentity?: JobExecutionIdentity | undefined): Promise<void>
 }
 
 const DEFAULT_TIMEOUT_MS = 5_000
@@ -44,9 +45,10 @@ export function createJobOutputReconciler(input: JobOutputReconcilerInput): JobO
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const maxPayloadBytes = input.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES
 
-  async function runOnce(): Promise<void> {
+  async function runOnce(executionIdentity?: JobExecutionIdentity | undefined): Promise<void> {
     const entries = input.jobsStore.listDispatchedNonFlowJobRuns({
       ...(input.limit !== undefined ? { limit: input.limit } : {}),
+      ...(executionIdentity !== undefined ? { executionNodeId: executionIdentity.nodeId } : {}),
     })
 
     for (const entry of entries) {

@@ -2,6 +2,7 @@ export {
   createInMemoryJobsStore,
   fingerprintJobOutputSink,
   isValidJobSlug,
+  assertJobExecutionAdmission,
   JOB_SLUG_REGEX,
   jobsStoreMigrations,
   listAppliedJobsStoreMigrations,
@@ -20,6 +21,9 @@ export {
   type InboxEventStatus,
   type InsertInboxEventInput,
   type JobInputTemplate,
+  JobExecutionAdmissionError,
+  type JobExecutionAdmissionFailureCode,
+  type JobExecutionIdentity,
   type JobOutputConfig,
   type JobOutputSink,
   type JobOutputSinkAttemptRecord,
@@ -58,7 +62,10 @@ export {
   type ValidateJobFlowJobInput,
   type ValidateJobFlowOptions,
 } from './flow-validation.js'
-export { isValidFreshDuration, parseFreshDurationMs } from './fresh-duration.js'
+export {
+  isValidFreshDuration,
+  parseFreshDurationMs,
+} from './fresh-duration.js'
 export { isValidCron, nextFireAfter } from './cron.js'
 export {
   applyManagedJob,

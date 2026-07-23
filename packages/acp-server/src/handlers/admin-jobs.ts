@@ -1,6 +1,9 @@
 import {
+  JobExecutionAdmissionError,
+  type JobExecutionIdentity,
   type JobFlowValidationError,
   type JobRecord,
+  type JobsStore,
   isValidCron,
   isValidJobSlug,
   mapJobRunStatusForFlowResponse,
@@ -33,6 +36,17 @@ import { getRunFinalAssistantText } from '../jobs/run-final-output.js'
 import type { RouteHandler } from '../routing/route-context.js'
 
 const MANUAL_FLOW_JOB_RUN_LEASE_MS = 30 * 60_000
+
+function throwJobExecutionAdmissionConflict(error: unknown): never {
+  if (error instanceof JobExecutionAdmissionError) {
+    throw new AcpHttpError(409, error.code, error.message, {
+      jobId: error.jobId,
+      ownerSet: error.ownerSet ?? null,
+      currentNode: error.currentNode,
+    })
+  }
+  throw error
+}
 
 function requireJobsStore(deps: ResolvedAcpServerDeps) {
   if (deps.jobsStore === undefined) {
@@ -86,7 +100,9 @@ function parseOptionalTrigger(body: Record<string, unknown>): JobTrigger | undef
   }
   const result = validateJobTrigger(body['trigger'])
   if (!result.valid) {
-    badRequest(`invalid trigger: ${result.errors.join('; ')}`, { field: 'trigger' })
+    badRequest(`invalid trigger: ${result.errors.join('; ')}`, {
+      field: 'trigger',
+    })
   }
   return result.trigger
 }
@@ -106,12 +122,17 @@ function parseOptionalOutput(input: Record<string, unknown>) {
   }
   const validation = validateJobOutputConfig(input['output'])
   if (!validation.valid) {
-    badRequest(`invalid output: ${validation.errors.join('; ')}`, { field: 'output' })
+    badRequest(`invalid output: ${validation.errors.join('; ')}`, {
+      field: 'output',
+    })
   }
   return validation.output
 }
 
-type InvalidJobFlowValidation = { valid: false; errors: JobFlowValidationError[] }
+type InvalidJobFlowValidation = {
+  valid: false
+  errors: JobFlowValidationError[]
+}
 
 function hasOwnField(input: Record<string, unknown>, field: string): boolean {
   return Object.prototype.hasOwnProperty.call(input, field)
@@ -237,7 +258,9 @@ export const handleCreateAdminJob: RouteHandler = async ({ request, deps, actor 
   const schedule = trigger === undefined ? parseSchedule(body) : undefined
   const output = parseOptionalOutput(body)
   if (output !== undefined && output !== null && flow !== undefined) {
-    badRequest('job output is only supported for non-flow jobs', { field: 'output' })
+    badRequest('job output is only supported for non-flow jobs', {
+      field: 'output',
+    })
   }
   if (flow !== undefined) {
     const validation = validateJobFlowJob({
@@ -313,14 +336,18 @@ export const handlePatchAdminJob: RouteHandler = async ({ request, params, deps,
     'description' in body
       ? body['description'] === null
         ? { description: null }
-        : { description: readOptionalTrimmedStringField(body, 'description') ?? null }
+        : {
+            description: readOptionalTrimmedStringField(body, 'description') ?? null,
+          }
       : {}
   const jobId = requireJobId(params)
   const existing = requireJob(deps, jobId)
   if (output !== undefined && output !== null) {
     const effectiveHasFlow = flow !== undefined || existing.flow !== undefined
     if (effectiveHasFlow) {
-      badRequest('job output is only supported for non-flow jobs', { field: 'output' })
+      badRequest('job output is only supported for non-flow jobs', {
+        field: 'output',
+      })
     }
   }
   const effectiveFlow = flow ?? existing.flow
@@ -355,6 +382,7 @@ export const handleRunAdminJob: RouteHandler = async ({ params, deps, actor }) =
   const jobsStore = requireJobsStore(deps)
   const job = requireJob(deps, requireJobId(params))
   const identityAuthority = deps.jobNodeIdentityAuthority
+  let executionIdentity: JobExecutionIdentity | undefined
   if (identityAuthority !== undefined) {
     const verification = await identityAuthority.verifyFresh('manual_run')
     if (!verification.ok) {
@@ -363,6 +391,7 @@ export const handleRunAdminJob: RouteHandler = async ({ params, deps, actor }) =
         identity: identityAuthority.getDiagnostics(),
       })
     }
+    executionIdentity = verification.identity
   }
   const lifecycle = createJobLifecycleEmitter({
     systemEvents: deps.adminStore.systemEvents,
@@ -381,15 +410,24 @@ export const handleRunAdminJob: RouteHandler = async ({ params, deps, actor }) =
     const now = new Date().toISOString()
     const runActor = actor ?? deps.defaultActor
     const leaseExpiresAt = new Date(Date.parse(now) + MANUAL_FLOW_JOB_RUN_LEASE_MS).toISOString()
-    const created = jobsStore.createJobRun(job.jobId, {
-      triggeredAt: now,
-      triggeredBy: 'manual',
-      status: 'claimed',
-      claimedAt: now,
-      leaseOwner: `manual-job-run:${runActor.kind}:${runActor.id}`,
-      leaseExpiresAt,
-      actor: runActor,
-    })
+    let created: ReturnType<JobsStore['createJobRun']>
+    try {
+      created = jobsStore.createJobRun(
+        job.jobId,
+        {
+          triggeredAt: now,
+          triggeredBy: 'manual',
+          status: 'claimed',
+          claimedAt: now,
+          leaseOwner: `manual-job-run:${runActor.kind}:${runActor.id}`,
+          leaseExpiresAt,
+          actor: runActor,
+        },
+        executionIdentity
+      )
+    } catch (error) {
+      throwJobExecutionAdmissionConflict(error)
+    }
     const advanced = await advanceJobFlow({
       deps,
       job,
@@ -419,13 +457,22 @@ export const handleRunAdminJob: RouteHandler = async ({ params, deps, actor }) =
     throw new Error(`job input.content must be a non-empty string for ${job.jobId}`)
   }
 
-  const created = jobsStore.createJobRun(job.jobId, {
-    triggeredAt: new Date().toISOString(),
-    triggeredBy: 'manual',
-    status: 'claimed',
-    claimedAt: new Date().toISOString(),
-    actor: actor ?? deps.defaultActor,
-  })
+  let created: ReturnType<JobsStore['createJobRun']>
+  try {
+    created = jobsStore.createJobRun(
+      job.jobId,
+      {
+        triggeredAt: new Date().toISOString(),
+        triggeredBy: 'manual',
+        status: 'claimed',
+        claimedAt: new Date().toISOString(),
+        actor: actor ?? deps.defaultActor,
+      },
+      executionIdentity
+    )
+  } catch (error) {
+    throwJobExecutionAdmissionConflict(error)
+  }
   const dispatch = await dispatchJobRunThroughInputs(deps, {
     jobId: job.jobId,
     jobRunId: created.jobRun.jobRunId,

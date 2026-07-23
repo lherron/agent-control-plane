@@ -1026,7 +1026,9 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
               : undefined
           if (mobileWsMatch !== undefined) {
             const upgraded = (
-              server as never as { upgrade(request: Request, options: unknown): boolean }
+              server as never as {
+                upgrade(request: Request, options: unknown): boolean
+              }
             ).upgrade(request, {
               data: buildMobileUpgradeData(resolvedDeps, request.url, mobileWsMatch),
             })
@@ -1277,7 +1279,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
                 }
               }
               if (jobOutputReconciler !== undefined && verification?.ok === true) {
-                await jobOutputReconciler.runOnce()
+                await jobOutputReconciler.runOnce(verification.identity)
               }
             })
             .catch((error) => {

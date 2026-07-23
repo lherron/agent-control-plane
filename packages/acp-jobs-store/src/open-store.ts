@@ -62,6 +62,7 @@ type JobRow = {
 type JobRunRow = {
   job_run_id: string
   job_id: string
+  execution_node_id: string | null
   triggered_at: string
   triggered_by: JobRunTrigger
   status: JobRunStatus
@@ -288,6 +289,8 @@ export type JobStepRunRecord = {
 export type JobRunRecord = {
   jobRunId: string
   jobId: string
+  /** Immutable node identity that admitted this schedule/manual run. */
+  executionNodeId?: string | undefined
   triggeredAt: string
   triggeredBy: JobRunTrigger
   status: JobRunStatus
@@ -386,6 +389,7 @@ export type ListJobsInput = {
 export type AppendJobRunInput = {
   jobRunId?: string | undefined
   jobId: string
+  executionNodeId?: string | undefined
   triggeredAt: string
   triggeredBy: JobRunTrigger
   status: JobRunStatus
@@ -528,6 +532,80 @@ export type ClaimDueJobsInput = {
   leaseExpiresAt?: string | undefined
   actor?: Actor | undefined
   actorStamp?: string | undefined
+  executionIdentity?: JobExecutionIdentity | undefined
+}
+
+export type JobExecutionIdentity = Readonly<{
+  nodeId: string
+  mode: 'single-node' | 'federated'
+  verifiedAt: string
+}>
+
+export type JobExecutionAdmissionFailureCode =
+  | 'job_execution_disabled'
+  | 'job_execution_archived'
+  | 'job_execution_unassigned_federated'
+  | 'job_execution_wrong_node'
+
+export class JobExecutionAdmissionError extends Error {
+  readonly code: JobExecutionAdmissionFailureCode
+  readonly jobId: string
+  readonly ownerSet: readonly string[] | undefined
+  readonly currentNode: string
+
+  constructor(input: {
+    code: JobExecutionAdmissionFailureCode
+    job: JobRecord
+    identity: JobExecutionIdentity
+    message: string
+  }) {
+    super(input.message)
+    this.name = 'JobExecutionAdmissionError'
+    this.code = input.code
+    this.jobId = input.job.jobId
+    this.ownerSet = input.job.executionNodes
+    this.currentNode = input.identity.nodeId
+  }
+}
+
+export function assertJobExecutionAdmission(job: JobRecord, identity: JobExecutionIdentity): void {
+  if (job.archivedAt !== undefined) {
+    throw new JobExecutionAdmissionError({
+      code: 'job_execution_archived',
+      job,
+      identity,
+      message: `job ${job.jobId} is archived`,
+    })
+  }
+  if (job.disabled) {
+    throw new JobExecutionAdmissionError({
+      code: 'job_execution_disabled',
+      job,
+      identity,
+      message: `job ${job.jobId} is disabled`,
+    })
+  }
+  const ownerSet = job.executionNodes
+  if (ownerSet === undefined) {
+    if (identity.mode === 'single-node') {
+      return
+    }
+    throw new JobExecutionAdmissionError({
+      code: 'job_execution_unassigned_federated',
+      job,
+      identity,
+      message: `job ${job.jobId} has no execution owner set in federated mode`,
+    })
+  }
+  if (ownerSet.includes('all') || ownerSet.includes(identity.nodeId)) {
+    return
+  }
+  throw new JobExecutionAdmissionError({
+    code: 'job_execution_wrong_node',
+    job,
+    identity,
+    message: `job ${job.jobId} is not owned by node ${identity.nodeId}`,
+  })
 }
 
 export const jobsStoreMigrations: readonly JobsStoreMigration[] = [
@@ -857,6 +935,15 @@ export const jobsStoreMigrations: readonly JobsStoreMigration[] = [
       ALTER TABLE jobs ADD COLUMN execution_nodes_json TEXT;
     `,
   },
+  {
+    id: '011_job_run_execution_node',
+    sql: `
+      ALTER TABLE job_runs ADD COLUMN execution_node_id TEXT;
+
+      CREATE INDEX IF NOT EXISTS job_runs_execution_node_idx
+        ON job_runs (execution_node_id, status);
+    `,
+  },
 ]
 
 export interface OpenSqliteJobsStoreOptions {
@@ -881,7 +968,10 @@ export interface JobsStore {
     get(jobRunId: string): { jobRun: JobRunRecord | undefined }
     update(jobRunId: string, patch: UpdateJobRunInput): { jobRun: JobRunRecord }
     claimDueRuns(input: ClaimDueJobRunsInput): { jobRuns: JobRunRecord[] }
-    listDispatchedNonFlow(input?: { limit?: number | undefined }): ClaimedDueJob[]
+    listDispatchedNonFlow(input?: {
+      limit?: number | undefined
+      executionNodeId?: string | undefined
+    }): ClaimedDueJob[]
   }
   readonly outputSinkAttempts: {
     get(input: {
@@ -889,7 +979,9 @@ export interface JobsStore {
       sinkIndex: number
       sinkFingerprint: string
     }): { attempt: JobOutputSinkAttemptRecord | undefined }
-    record(input: RecordJobOutputSinkAttemptInput): { attempt: JobOutputSinkAttemptRecord }
+    record(input: RecordJobOutputSinkAttemptInput): {
+      attempt: JobOutputSinkAttemptRecord
+    }
     listByJobRun(jobRunId: string): { attempts: JobOutputSinkAttemptRecord[] }
   }
   readonly jobStepRuns: {
@@ -923,7 +1015,10 @@ export interface JobsStore {
   getJobRun(jobRunId: string): { jobRun: JobRunRecord | undefined }
   updateJobRun(jobRunId: string, patch: UpdateJobRunInput): { jobRun: JobRunRecord }
   claimDueJobRuns(input: ClaimDueJobRunsInput): { jobRuns: JobRunRecord[] }
-  listDispatchedNonFlowJobRuns(input?: { limit?: number | undefined }): ClaimedDueJob[]
+  listDispatchedNonFlowJobRuns(input?: {
+    limit?: number | undefined
+    executionNodeId?: string | undefined
+  }): ClaimedDueJob[]
   getJobOutputSinkAttempt(input: {
     jobRunId: string
     sinkIndex: number
@@ -932,7 +1027,9 @@ export interface JobsStore {
   recordJobOutputSinkAttempt(input: RecordJobOutputSinkAttemptInput): {
     attempt: JobOutputSinkAttemptRecord
   }
-  listJobOutputSinkAttempts(jobRunId: string): { attempts: JobOutputSinkAttemptRecord[] }
+  listJobOutputSinkAttempts(jobRunId: string): {
+    attempts: JobOutputSinkAttemptRecord[]
+  }
   insertJobStepRuns(
     jobRunId: string,
     phase: JobStepRunPhase,
@@ -954,23 +1051,42 @@ export interface JobsStore {
   ): { jobStepRun: JobStepRunRecord | undefined }
   createJobRun(
     jobId: string,
-    input: Omit<AppendJobRunInput, 'jobId'>
+    input: Omit<AppendJobRunInput, 'jobId'>,
+    executionIdentity?: JobExecutionIdentity | undefined
   ): { job: JobRecord; jobRun: JobRunRecord }
   claimDueJobs(input: ClaimDueJobsInput): ClaimedDueJob[]
   listInflightFlowJobRuns(
-    input?: { limit?: number | undefined; now?: string | undefined } | undefined
+    input?:
+      | {
+          limit?: number | undefined
+          now?: string | undefined
+          executionNodeId?: string | undefined
+        }
+      | undefined
   ): ClaimedDueJob[]
   listJobRunReaperCandidates(
-    input?: { limit?: number | undefined; now?: string | undefined } | undefined
+    input?:
+      | {
+          limit?: number | undefined
+          now?: string | undefined
+          executionNodeId?: string | undefined
+        }
+      | undefined
   ): ClaimedDueJob[]
   readonly eventInbox: {
-    insert(input: InsertInboxEventInput): { event: InboxEventRecord; inserted: boolean }
+    insert(input: InsertInboxEventInput): {
+      event: InboxEventRecord
+      inserted: boolean
+    }
     get(eventId: string): { event: InboxEventRecord | undefined }
     claimPending(input: ClaimInboxEventsInput): InboxEventRecord[]
     markProcessed(eventId: string, now?: string | undefined): void
     markFailed(eventId: string, error: string, now?: string | undefined): void
   }
-  insertInboxEvent(input: InsertInboxEventInput): { event: InboxEventRecord; inserted: boolean }
+  insertInboxEvent(input: InsertInboxEventInput): {
+    event: InboxEventRecord
+    inserted: boolean
+  }
   getInboxEvent(eventId: string): { event: InboxEventRecord | undefined }
   claimPendingInboxEvents(input: ClaimInboxEventsInput): InboxEventRecord[]
   markInboxEventProcessed(eventId: string, now?: string | undefined): void
@@ -979,7 +1095,10 @@ export interface JobsStore {
   getEventJobMatch(sourceEventId: string, jobId: string): { match: EventJobMatchRecord | undefined }
   recordEventJobSkip(input: RecordEventJobSkipInput): { recorded: boolean }
   hasRecentMint(jobId: string, targetTaskId: string, sinceIso: string): boolean
-  mintEventJobRun(input: MintEventJobRunInput): { jobRun: JobRunRecord; minted: boolean }
+  mintEventJobRun(input: MintEventJobRunInput): {
+    jobRun: JobRunRecord
+    minted: boolean
+  }
   listEventJobMatches(input?: ListEventJobMatchesInput | undefined): {
     matches: EventJobMatchRecord[]
   }
@@ -1269,6 +1388,7 @@ function toJobRunRecord(row: JobRunRow): JobRunRecord {
   return {
     jobRunId: row.job_run_id,
     jobId: row.job_id,
+    ...(row.execution_node_id !== null ? { executionNodeId: row.execution_node_id } : {}),
     triggeredAt: row.triggered_at,
     triggeredBy: row.triggered_by,
     status: row.status,
@@ -1285,7 +1405,9 @@ function toJobRunRecord(row: JobRunRow): JobRunRecord {
     ...(row.resolved_scope_ref !== null ? { resolvedScopeRef: row.resolved_scope_ref } : {}),
     ...(row.resolved_lane_ref !== null ? { resolvedLaneRef: row.resolved_lane_ref } : {}),
     ...(row.resolved_input_json !== null
-      ? { resolvedInput: parseJsonRecord(row.resolved_input_json, 'resolvedInput') }
+      ? {
+          resolvedInput: parseJsonRecord(row.resolved_input_json, 'resolvedInput'),
+        }
       : {}),
     ...(output !== undefined ? { output } : {}),
     ...(row.source_json !== null ? { source: parseJsonRecord(row.source_json, 'source') } : {}),
@@ -1523,8 +1645,14 @@ function resolveScheduleClaimPolicy(input: {
   schedule: JobSchedule | undefined
   dueAt: string
   now: string
-}): { triggeredBy: JobRunTrigger; skipReason?: ScheduleJobSkipReason | undefined } {
-  const triggeredBy: JobRunTrigger = isWithinTickInterval({ dueAt: input.dueAt, now: input.now })
+}): {
+  triggeredBy: JobRunTrigger
+  skipReason?: ScheduleJobSkipReason | undefined
+} {
+  const triggeredBy: JobRunTrigger = isWithinTickInterval({
+    dueAt: input.dueAt,
+    now: input.now,
+  })
     ? 'schedule'
     : 'catch-up'
 
@@ -1619,7 +1747,11 @@ function scheduleColumnsForTrigger(input: {
     windowStart: getScheduleWindowValue(schedule, 'windowStart'),
     windowEnd: getScheduleWindowValue(schedule, 'windowEnd'),
     scheduleJson: JSON.stringify(schedule),
-    nextFireAt: createNextFireAt({ schedule, disabled: input.disabled, anchor: input.anchor }),
+    nextFireAt: createNextFireAt({
+      schedule,
+      disabled: input.disabled,
+      anchor: input.anchor,
+    }),
   }
 }
 
@@ -1903,6 +2035,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
           INSERT INTO job_runs (
             job_run_id,
             job_id,
+            execution_node_id,
             triggered_at,
             triggered_by,
             status,
@@ -1929,12 +2062,13 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
             actor_stamp,
             created_at,
             updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `
       )
       .run(
         jobRunId,
         input.jobId,
+        input.executionNodeId ?? null,
         input.triggeredAt,
         input.triggeredBy,
         input.status,
@@ -2266,7 +2400,9 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
     attempt: number
   ): { jobStepRun: JobStepRunRecord | undefined } => {
     const row = getJobStepRunRow(sqlite, jobRunId, phase, stepId, attempt)
-    return { jobStepRun: row === undefined ? undefined : toJobStepRunRecord(row) }
+    return {
+      jobStepRun: row === undefined ? undefined : toJobStepRunRecord(row),
+    }
   }
 
   /**
@@ -2355,15 +2491,30 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
 
   const createJobRun = (
     jobId: string,
-    input: Omit<AppendJobRunInput, 'jobId'>
+    input: Omit<AppendJobRunInput, 'jobId'>,
+    executionIdentity?: JobExecutionIdentity | undefined
   ): { job: JobRecord; jobRun: JobRunRecord } => {
-    const job = toJobRecord(requireJobRow(sqlite, jobId))
-    const jobRun = appendJobRun({ ...input, jobId, output: input.output ?? job.output }).jobRun
-    return { job, jobRun }
+    return sqlite.transaction(() => {
+      const job = toJobRecord(requireAnyJobRow(sqlite, jobId))
+      if (executionIdentity !== undefined) {
+        assertJobExecutionAdmission(job, executionIdentity)
+      }
+      const jobRun = appendJobRun({
+        ...input,
+        jobId,
+        output: input.output ?? job.output,
+        ...(executionIdentity !== undefined ? { executionNodeId: executionIdentity.nodeId } : {}),
+      }).jobRun
+      return { job, jobRun }
+    })()
   }
 
   const listInflightFlowJobRuns = (
-    input: { limit?: number | undefined; now?: string | undefined } = {}
+    input: {
+      limit?: number | undefined
+      now?: string | undefined
+      executionNodeId?: string | undefined
+    } = {}
   ): ClaimedDueJob[] => {
     const limit = input.limit ?? DEFAULT_CLAIM_LIMIT
     const now = input.now ?? new Date().toISOString()
@@ -2382,11 +2533,16 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
             )
             AND j.archived_at IS NULL
             AND j.flow_json IS NOT NULL
+            ${input.executionNodeId !== undefined ? 'AND jr.execution_node_id = ?' : ''}
           ORDER BY jr.triggered_at ASC, jr.job_run_id ASC
           LIMIT ?
         `
       )
-      .all(now, limit) as JobRunRow[]
+      .all(
+        now,
+        ...(input.executionNodeId !== undefined ? [input.executionNodeId] : []),
+        limit
+      ) as JobRunRow[]
 
     const results: ClaimedDueJob[] = []
     for (const row of rows) {
@@ -2397,7 +2553,11 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
   }
 
   const listJobRunReaperCandidates = (
-    input: { limit?: number | undefined; now?: string | undefined } = {}
+    input: {
+      limit?: number | undefined
+      now?: string | undefined
+      executionNodeId?: string | undefined
+    } = {}
   ): ClaimedDueJob[] => {
     const limit = input.limit ?? DEFAULT_CLAIM_LIMIT
     const now = input.now ?? new Date().toISOString()
@@ -2417,7 +2577,6 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
             AND (
               j.flow_json IS NOT NULL
               OR j.archived_at IS NOT NULL
-              OR j.disabled != 0
               OR (
                 jr.status = 'claimed'
                 AND j.flow_json IS NULL
@@ -2431,11 +2590,17 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
                 AND jr.run_id IS NULL
               )
             )
+            ${input.executionNodeId !== undefined ? 'AND jr.execution_node_id = ?' : ''}
           ORDER BY jr.triggered_at ASC, jr.job_run_id ASC
           LIMIT ?
         `
       )
-      .all(now, now, limit) as JobRunRow[]
+      .all(
+        now,
+        now,
+        ...(input.executionNodeId !== undefined ? [input.executionNodeId] : []),
+        limit
+      ) as JobRunRow[]
 
     const results: ClaimedDueJob[] = []
     for (const row of rows) {
@@ -2446,7 +2611,10 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
   }
 
   const listDispatchedNonFlowJobRuns = (
-    input: { limit?: number | undefined } = {}
+    input: {
+      limit?: number | undefined
+      executionNodeId?: string | undefined
+    } = {}
   ): ClaimedDueJob[] => {
     const limit = input.limit ?? DEFAULT_CLAIM_LIMIT
     const rows = sqlite
@@ -2458,11 +2626,15 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
           WHERE jr.status = 'dispatched'
             AND j.archived_at IS NULL
             AND j.flow_json IS NULL
+            ${input.executionNodeId !== undefined ? 'AND jr.execution_node_id = ?' : ''}
           ORDER BY jr.dispatched_at ASC, jr.job_run_id ASC
           LIMIT ?
         `
       )
-      .all(limit) as JobRunRow[]
+      .all(
+        ...(input.executionNodeId !== undefined ? [input.executionNodeId] : []),
+        limit
+      ) as JobRunRow[]
 
     const results: ClaimedDueJob[] = []
     for (const row of rows) {
@@ -2507,6 +2679,16 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
 
         const nextAfterNow = nextFireAfter(row.schedule_cron, now)
         const scheduledJob = toJobRecord(row)
+        if (input.executionIdentity !== undefined) {
+          try {
+            assertJobExecutionAdmission(scheduledJob, input.executionIdentity)
+          } catch (error) {
+            if (error instanceof JobExecutionAdmissionError) {
+              continue
+            }
+            throw error
+          }
+        }
         const policy = resolveScheduleClaimPolicy({
           schedule: scheduledJob.schedule,
           dueAt,
@@ -2537,7 +2719,10 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
           continue
         }
 
-        const claimActor: Actor = input.actor ?? { kind: 'system', id: 'scheduler' }
+        const claimActor: Actor = input.actor ?? {
+          kind: 'system',
+          id: 'scheduler',
+        }
         if (policy.skipReason !== undefined) {
           appendJobRun({
             jobId: row.job_id,
@@ -2549,6 +2734,9 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
             errorMessage: policy.skipReason,
             actor: claimActor,
             actorStamp: input.actorStamp ?? actorToStamp(claimActor),
+            ...(input.executionIdentity !== undefined
+              ? { executionNodeId: input.executionIdentity.nodeId }
+              : {}),
           })
           continue
         }
@@ -2562,11 +2750,17 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
           ...(scheduledJob.flow !== undefined &&
           input.leaseOwner !== undefined &&
           input.leaseExpiresAt !== undefined
-            ? { leaseOwner: input.leaseOwner, leaseExpiresAt: input.leaseExpiresAt }
+            ? {
+                leaseOwner: input.leaseOwner,
+                leaseExpiresAt: input.leaseExpiresAt,
+              }
             : {}),
           output: scheduledJob.output,
           actor: claimActor,
           actorStamp: input.actorStamp ?? actorToStamp(claimActor),
+          ...(input.executionIdentity !== undefined
+            ? { executionNodeId: input.executionIdentity.nodeId }
+            : {}),
         }).jobRun
 
         const updatedRow = requireJobRow(sqlite, row.job_id)
@@ -2710,7 +2904,9 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
     const row = sqlite
       .prepare('SELECT * FROM event_job_matches WHERE source_event_id = ? AND job_id = ?')
       .get(sourceEventId, jobId) as EventJobMatchRow | undefined
-    return { match: row === undefined ? undefined : toEventJobMatchRecord(row) }
+    return {
+      match: row === undefined ? undefined : toEventJobMatchRecord(row),
+    }
   }
 
   const recordEventJobSkip = (input: RecordEventJobSkipInput): { recorded: boolean } => {
@@ -2855,7 +3051,9 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
       .get(input.jobRunId, input.sinkIndex, input.sinkFingerprint) as
       | JobOutputSinkAttemptRow
       | undefined
-    return { attempt: row === undefined ? undefined : toJobOutputSinkAttemptRecord(row) }
+    return {
+      attempt: row === undefined ? undefined : toJobOutputSinkAttemptRecord(row),
+    }
   }
 
   const recordJobOutputSinkAttempt = (

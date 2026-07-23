@@ -74,7 +74,7 @@ describe('scheduler job-run reaper (T-05414 red)', () => {
     }
   })
 
-  test('finalizes inflight flow runs orphaned by archived, disabled, or flow-less jobs', async () => {
+  test('finalizes inflight flow runs orphaned by archived or flow-less jobs while disabled runs continue', async () => {
     const store = createInMemoryJobsStore()
     try {
       const archived = createFlowJob(store)
@@ -123,14 +123,17 @@ describe('scheduler job-run reaper (T-05414 red)', () => {
         },
       })
 
-      expect(advanced).toEqual([])
-      for (const jobRunId of [archivedRun.jobRunId, disabledRun.jobRunId, flowlessRun.jobRunId]) {
+      expect(advanced).toEqual([disabledRun.jobRunId])
+      for (const jobRunId of [archivedRun.jobRunId, flowlessRun.jobRunId]) {
         expect(store.getJobRun(jobRunId).jobRun).toMatchObject({
           status: 'failed',
           errorCode: 'orphaned_by_job_change',
           completedAt: '2026-04-28T00:05:00.000Z',
         })
       }
+      expect(store.getJobRun(disabledRun.jobRunId).jobRun).toMatchObject({
+        status: 'dispatched',
+      })
     } finally {
       store.close()
     }
