@@ -1,0 +1,30 @@
+id: acp.jobs.static-owner-set-no-peer-makeup.v1
+kind: accepted_risk
+status: active
+owner_project: agent-control-plane
+accepted_by: Lance
+date: 2026-07-23
+severity: medium
+blast_radius: >
+  When one member of a schedule's static owner set is down, healthy members do
+  not execute that member's occurrences. A multi-member set is independent
+  per-node fan-out and provides neither failover nor cross-node exactly-once.
+mitigation: >
+  Use each node's configured catch-up policy where recovery is acceptable,
+  monitor ownership and capability status, and use the documented
+  break-before-make relocation procedure for planned moves.
+expiry: null
+review_trigger:
+  - operators require peer makeup or automatic failover
+  - missed owner-local occurrences exceed operational tolerance
+  - a cross-node coordinator or shared durable run ledger is introduced
+reopen_when:
+  - static owner sets no longer describe schedule execution
+  - exactly-once or zero-downtime relocation becomes a product requirement
+source:
+  - docs/ACP_JOBS_TASKS_USAGE.md
+  - packages/acp-server/src/jobs/execution-status.ts
+  - wrkq:T-06804
+  - hrcchat#16152
+supersedes: []
+superseded_by: null

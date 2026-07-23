@@ -86,8 +86,12 @@ e2e-cap-pbc:
 wrkq-refactor *args:
     bun scripts/wrkq-refactor.ts {{args}}
 
-# Run all verification (check + lint + typecheck + test)
-verify: check lint typecheck test
+# Validate durable architecture records and generated projections
+architecture-records *args:
+    bun scripts/check-architecture-records.ts {{args}}
+
+# Run all verification (architecture + check + lint + typecheck + test)
+verify: architecture-records check lint typecheck test
 
 # Clean build artifacts
 clean:

@@ -1,0 +1,23 @@
+id: agent-control-plane.verify-gate
+kind: invariant
+status: active
+owner_project: agent-control-plane
+scope: local handoff gate
+predicate: >
+  just verify is agent-control-plane's local handoff gate and must include the
+  architecture-records structure and projection-freshness check.
+authority:
+  repo: agent-control-plane
+  surface: justfile verify recipe
+source:
+  - justfile
+  - scripts/check-architecture-records.ts
+required_tests:
+  - just verify exits 0
+last_verified:
+  date: 2026-07-23
+  evidence: architecture-records wired into verify for T-06804
+reopen_when:
+  - the verify recipe or architecture checker moves
+supersedes: []
+superseded_by: null

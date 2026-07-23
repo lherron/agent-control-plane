@@ -1,0 +1,41 @@
+id: acp.jobs.node-execution-ownership
+kind: invariant
+status: active
+owner_project: agent-control-plane
+scope: managed schedule admission and JobRun lifecycle ownership
+predicate: >
+  A managed schedule has a non-empty static owner set of logical HRC node IDs
+  or the explicit all-nodes wildcard. Every member independently admits one
+  local copy; this is deliberate N-way fan-out, not failover. ACP authorizes
+  each scheduler tick and manual admission with one fresh HRC status identity,
+  transactionally re-reads enabled state and owner membership, and stamps the
+  verified admitting node on the JobRun before side effects. The definition
+  owner set is authorization only and is never copied as a run's singular
+  identity. All later lifecycle work stays on the immutable stamped node.
+  Federated unassigned work fails closed; single-node legacy unassigned work
+  implicitly belongs to the current node. Disabled blocks admission only and
+  does not orphan inflight work.
+authority:
+  repo: agent-control-plane
+  surface: jobs store and scheduler admission/lifecycle paths
+source:
+  - packages/acp-jobs-store/src/open-store.ts
+  - packages/acp-jobs-store/src/scheduler.ts
+  - packages/acp-server/src/jobs/node-identity.ts
+  - packages/acp-server/src/jobs/execution-status.ts
+  - docs/ACP_JOBS_TASKS_USAGE.md
+  - wrkq:T-06804
+  - hrcchat#16152
+required_tests:
+  - bun test packages/acp-jobs-store/src exits 0
+  - bun test packages/acp-server/test/jobs/node-identity.test.ts exits 0
+  - bun test packages/acp-server/test/jobs/execution-status.test.ts exits 0
+last_verified:
+  date: 2026-07-23
+  evidence: T-06804 phases 2 through 6 and full pre-push suite
+reopen_when:
+  - automatic failover, run adoption, placement epochs, or a shared coordinator is introduced
+  - event-hook execution becomes owner-directed
+  - HRC changes the authoritative node identity contract
+supersedes: []
+superseded_by: null

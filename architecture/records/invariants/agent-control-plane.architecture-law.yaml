@@ -1,0 +1,24 @@
+id: agent-control-plane.architecture-law
+kind: invariant
+status: active
+owner_project: agent-control-plane
+scope: repo-local durable architecture authority
+predicate: >
+  Active records under architecture/records are agent-control-plane's durable
+  architecture law. ADRs, generated projections, docs, tasks, chats, and
+  comments are provenance unless an active record imports a predicate.
+authority:
+  repo: agent-control-plane
+  surface: architecture/records
+source:
+  - architecture/README.md
+  - architecture/adr/0001-adopt-durable-architecture-records.md
+required_tests:
+  - just architecture-records exits 0
+last_verified:
+  date: 2026-07-23
+  evidence: minimum DAP adoption for T-06804
+reopen_when:
+  - the architecture authority or record schema changes
+supersedes: []
+superseded_by: null
