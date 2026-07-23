@@ -68,6 +68,7 @@ describe('admin jobs scheduler endpoint', () => {
               dueCount: number
               claimedCount: number
               errors: unknown[]
+              identity: unknown
               note?: string
             }>(response)
           ).toEqual({
@@ -76,6 +77,14 @@ describe('admin jobs scheduler endpoint', () => {
             dueCount: 1,
             claimedCount: 1,
             errors: [],
+            identity: {
+              startupState: 'uninitialized',
+              quiesced: false,
+              lastFailure: {
+                code: 'hrc_client_unavailable',
+                message: 'job execution identity authority is not configured',
+              },
+            },
             note: expect.stringContaining('lastTickAt'),
           })
         },

@@ -52,6 +52,9 @@ export type TickJobsSchedulerInput = {
   eventLeaseMs?: number | undefined
   maxJobRunDurationMs?: number | undefined
   flowAdvanceConcurrency?: number | undefined
+  executionIdentity?:
+    | Readonly<{ nodeId: string; mode: 'single-node' | 'federated'; verifiedAt: string }>
+    | undefined
 }
 
 export type ScheduledRun = JobRunRecord
@@ -605,10 +608,14 @@ export function createJobsScheduler(input: {
   evaluateEventJob?: EvaluateEventJob | undefined
 }) {
   return {
-    tick(now: string | Date): Promise<ScheduledRun[]> {
+    tick(
+      now: string | Date,
+      executionIdentity?: TickJobsSchedulerInput['executionIdentity']
+    ): Promise<ScheduledRun[]> {
       return tickJobsScheduler({
         store: input.store,
         now,
+        ...(executionIdentity !== undefined ? { executionIdentity } : {}),
         ...(input.dispatchThroughInputs !== undefined
           ? { dispatchThroughInputs: input.dispatchThroughInputs }
           : {}),

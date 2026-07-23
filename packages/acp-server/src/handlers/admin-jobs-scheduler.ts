@@ -73,6 +73,14 @@ export const handleGetSchedulerState: RouteHandler = async ({ deps }) => {
     dueCount,
     claimedCount,
     errors: [],
+    identity: deps.jobNodeIdentityAuthority?.getDiagnostics() ?? {
+      startupState: 'uninitialized',
+      quiesced: false,
+      lastFailure: {
+        code: 'hrc_client_unavailable',
+        message: 'job execution identity authority is not configured',
+      },
+    },
     note: 'lastTickAt and nextTickAt are not currently recorded by the scheduler.',
   })
 }

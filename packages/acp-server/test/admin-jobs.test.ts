@@ -9,6 +9,7 @@ import { createInMemoryJobsStore } from 'acp-jobs-store'
 
 import { type AcpServerDeps, InMemoryInputAttemptStore } from '../src/index.js'
 import { advanceJobFlow } from '../src/jobs/flow-engine.js'
+import { createJobNodeIdentityAuthority } from '../src/jobs/node-identity.js'
 
 import { withWiredServer } from './fixtures/wired-server.js'
 
@@ -712,6 +713,53 @@ describe('admin jobs routes', () => {
         },
         {
           jobsStore,
+          ...createLaunchOverrides(launchCalls),
+        }
+      )
+    } finally {
+      jobsStore.close()
+    }
+  })
+
+  test('manual run fails closed before mint or dispatch when the fresh HRC identity read fails', async () => {
+    const jobsStore = createInMemoryJobsStore()
+    const launchCalls: LaunchCall[] = []
+    let statusCalls = 0
+    const identityAuthority = createJobNodeIdentityAuthority({
+      getStatus: (async () => {
+        statusCalls += 1
+        if (statusCalls === 1) {
+          return { node: { nodeId: 'svc', mode: 'federated' } }
+        }
+        throw new Error('fresh status unavailable')
+      }) as never,
+    })
+    await identityAuthority.initialize()
+
+    try {
+      await withWiredServer(
+        async (fixture) => {
+          const created = await createJob(fixture)
+          const response = await fixture.request({
+            method: 'POST',
+            path: `/v1/admin/jobs/${created.job.jobId}/run`,
+          })
+          const payload = await fixture.json<{
+            error: { code: string; details: { jobId: string } }
+          }>(response)
+
+          expect(response.status).toBe(409)
+          expect(payload.error).toMatchObject({
+            code: 'hrc_identity_unavailable',
+            details: { jobId: created.job.jobId },
+          })
+          expect(statusCalls).toBe(2)
+          expect(jobsStore.listJobRuns(created.job.jobId).jobRuns).toHaveLength(0)
+          expect(launchCalls).toHaveLength(0)
+        },
+        {
+          jobsStore,
+          jobNodeIdentityAuthority: identityAuthority,
           ...createLaunchOverrides(launchCalls),
         }
       )

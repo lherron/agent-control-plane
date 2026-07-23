@@ -127,6 +127,7 @@ export type AcpHrcClient = Pick<
   | 'clearContext'
   | 'deliverLiteralBySelector'
   | 'getHealth'
+  | 'getStatus'
   | 'getAttachDescriptor'
   | 'getSession'
   | 'interrupt'
@@ -181,6 +182,7 @@ export interface AcpServerDeps {
   verifyCommandTargetId?: string | undefined
   verifyCommandSessionRef?: SessionRef | undefined
   hrcClient?: AcpHrcClient | undefined
+  jobNodeIdentityAuthority?: import('./jobs/node-identity.js').JobNodeIdentityAuthority | undefined
   inputAttemptStore?: InputAttemptStore | undefined
   inputAdmissionStore?: InputAdmissionStore | undefined
   inputApplicationStore?: InputApplicationStore | undefined

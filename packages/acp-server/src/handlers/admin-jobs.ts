@@ -9,7 +9,7 @@ import {
 } from 'acp-jobs-store'
 import { resolveDatabasePath } from 'hrc-core'
 
-import { badRequest, json, notFound } from '../http.js'
+import { AcpHttpError, badRequest, json, notFound } from '../http.js'
 import {
   isRecord,
   parseJsonBody,
@@ -354,6 +354,16 @@ export const handlePatchAdminJob: RouteHandler = async ({ request, params, deps,
 export const handleRunAdminJob: RouteHandler = async ({ params, deps, actor }) => {
   const jobsStore = requireJobsStore(deps)
   const job = requireJob(deps, requireJobId(params))
+  const identityAuthority = deps.jobNodeIdentityAuthority
+  if (identityAuthority !== undefined) {
+    const verification = await identityAuthority.verifyFresh('manual_run')
+    if (!verification.ok) {
+      throw new AcpHttpError(409, verification.code, verification.message, {
+        jobId: job.jobId,
+        identity: identityAuthority.getDiagnostics(),
+      })
+    }
+  }
   const lifecycle = createJobLifecycleEmitter({
     systemEvents: deps.adminStore.systemEvents,
     jobsStore,

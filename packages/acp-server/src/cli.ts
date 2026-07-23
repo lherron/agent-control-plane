@@ -57,6 +57,10 @@ import {
 import { advanceJobFlow } from './jobs/flow-engine.js'
 import { ensureDispatchTimeoutHealthJob } from './jobs/health-dispatch-timeout.js'
 import { createJobLifecycleEmitter } from './jobs/lifecycle-events.js'
+import {
+  createJobNodeIdentityAuthority,
+  formatJobIdentityMissedTickDiagnostic,
+} from './jobs/node-identity.js'
 import { createJobOutputReconciler } from './jobs/output-reconciler.js'
 import { getRunFinalAssistantText } from './jobs/run-final-output.js'
 import { resolveLaunchIntent } from './launch-role-scoped.js'
@@ -943,6 +947,15 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
       ? openSqliteConversationStore({ dbPath: options.conversationDbPath })
       : undefined
   const launcherDeps = resolveLauncherDeps(process.env, process.cwd())
+  const jobNodeIdentityAuthority =
+    jobsStore !== undefined ? createJobNodeIdentityAuthority(launcherDeps.hrcClient) : undefined
+  const jobIdentityStartup =
+    jobNodeIdentityAuthority !== undefined ? await jobNodeIdentityAuthority.initialize() : undefined
+  if (jobIdentityStartup !== undefined && !jobIdentityStartup.ok) {
+    console.error(
+      `acp-server job execution identity baseline unavailable: ${jobIdentityStartup.code}: ${jobIdentityStartup.message}`
+    )
+  }
   const wrkfLifecycle = await createWrkfClientLifecycle({
     ...(process.env['WRKF_BIN'] !== undefined ? { command: process.env['WRKF_BIN'] } : {}),
     // Principal-only caller attribution (T-05381): ACP-server is a single wrkq
@@ -969,6 +982,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     interfaceStore,
     stateStore,
     ...launcherDeps,
+    ...(jobNodeIdentityAuthority !== undefined ? { jobNodeIdentityAuthority } : {}),
     ...(inputQueueMaxDepth !== undefined || inputQueueTtlMs !== undefined
       ? {
           inputQueuePolicy: {
@@ -1240,19 +1254,29 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
           schedulerTickInProgress = true
           void Promise.resolve()
             .then(async () => {
-              if (jobsScheduler !== undefined) {
+              const verification =
+                jobsScheduler !== undefined || jobOutputReconciler !== undefined
+                  ? await jobNodeIdentityAuthority?.verifyFresh('scheduler_tick')
+                  : undefined
+              if (verification !== undefined && !verification.ok) {
+                console.error(
+                  formatJobIdentityMissedTickDiagnostic(jobsStore, verification, new Date())
+                )
+                return
+              }
+              if (jobsScheduler !== undefined && verification?.ok === true) {
                 // tick() returns every job-run it touched this tick (scheduled
                 // dispatch, dispatch_failed, flow advance, flow_advance_failed,
                 // inflight flow re-advance). Project lifecycle telemetry from the
                 // committed results — idempotent, so re-seen inflight runs no-op.
-                const touched = await jobsScheduler.tick(new Date())
+                const touched = await jobsScheduler.tick(new Date(), verification.identity)
                 if (jobLifecycleEmitter !== undefined) {
                   for (const run of touched) {
                     jobLifecycleEmitter.reconcile(run)
                   }
                 }
               }
-              if (jobOutputReconciler !== undefined) {
+              if (jobOutputReconciler !== undefined && verification?.ok === true) {
                 await jobOutputReconciler.runOnce()
               }
             })
