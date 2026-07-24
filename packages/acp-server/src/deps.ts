@@ -52,6 +52,36 @@ export const DEFAULT_STATE_DB_PATH = '/Users/lherron/praesidium/var/db/acp-state
 export const DEFAULT_AGENT_ASSETS_DIR =
   '/Users/lherron/praesidium/var/state/acp-server/assets/agents'
 
+/**
+ * Resolve the interface-store path for a caller that supplied no `interfaceStore`.
+ *
+ * `DEFAULT_INTERFACE_DB_PATH` is the OPERATOR'S LIVE PRODUCTION DATABASE. That is
+ * a reasonable last resort for a running daemon and a silent disaster for a test:
+ * `acp-cli/test/integration.test.ts` built a server with no interface store, took
+ * this fallback, and wrote its fixture bindings straight into the running
+ * system's `acp-interface.db` — passing green on the operator's Mac for exactly
+ * that reason (T-06914 finding D). It surfaced only in-container, as
+ * `EACCES: mkdir '/Users'`, which is the mild half of the bug.
+ *
+ * So under a test runner the fallback is refused rather than taken. A test that
+ * needs an interface store must say which one — inject `interfaceStore` or point
+ * `ACP_INTERFACE_DB_PATH` at a temp file. This kills the class, not just the one
+ * known instance: any future test that forgets fails loudly on every platform
+ * instead of quietly mutating production state on one of them.
+ */
+function resolveDefaultInterfaceDbPath(env: NodeJS.ProcessEnv = process.env): string {
+  const configured = env['ACP_INTERFACE_DB_PATH']
+  if (configured !== undefined && configured !== '') {
+    return configured
+  }
+  if (env['NODE_ENV'] === 'test') {
+    throw new Error(
+      `refusing to open the default interface DB under a test runner: it resolves to the operator's production database (${DEFAULT_INTERFACE_DB_PATH}). Pass an explicit \`interfaceStore\` to createAcpServer/resolveAcpServerDeps, or set ACP_INTERFACE_DB_PATH to a temp path (":memory:" works for pure unit tests).`
+    )
+  }
+  return DEFAULT_INTERFACE_DB_PATH
+}
+
 export interface PresetRegistry {
   getPreset(presetId: string, version: number): Preset
 }
@@ -250,7 +280,7 @@ export function resolveAcpServerDeps(deps: AcpServerDeps): ResolvedAcpServerDeps
     interfaceStore:
       deps.interfaceStore ??
       openInterfaceStore({
-        dbPath: process.env['ACP_INTERFACE_DB_PATH'] ?? DEFAULT_INTERFACE_DB_PATH,
+        dbPath: resolveDefaultInterfaceDbPath(),
       }),
     ...(stateStore !== undefined ? { stateStore } : {}),
     presetRegistry: deps.presetRegistry ?? { getPreset },

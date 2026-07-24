@@ -31,7 +31,8 @@
  *     formatHrcExternalRef('foo') === 'hrc:foo', and binding the already-prefixed
  *     'hrc:foo' through wrkf also stores 'hrc:foo' (idempotent) — same bytes.
  *
- * Binaries (overridable): WRKF_BIN / WRKQ_BIN / WRKQADM_BIN default ~/.local/bin.
+ * Binaries (overridable): WRKF_BIN / WRKQ_BIN / WRKQADM_BIN default to bare
+ * names resolved through PATH.
  */
 
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -47,10 +48,12 @@ import {
   createWrkfClientLifecycle,
 } from 'acp-server'
 
-const HOME = process.env['HOME'] ?? '/Users/lherron'
-const WRKF_BIN = process.env['WRKF_BIN'] ?? `${HOME}/.local/bin/wrkf`
-const WRKQ_BIN = process.env['WRKQ_BIN'] ?? `${HOME}/.local/bin/wrkq`
-const WRKQADM_BIN = process.env['WRKQADM_BIN'] ?? `${HOME}/.local/bin/wrkqadm`
+// Bare names, resolved through PATH — the same default production code uses
+// (acp-server/src/wrkf/client-lifecycle.ts). Hard-coding ~/.local/bin encoded
+// one operator's layout and ENOENT'd anywhere else, devbox container included.
+const WRKF_BIN = process.env['WRKF_BIN'] ?? 'wrkf'
+const WRKQ_BIN = process.env['WRKQ_BIN'] ?? 'wrkq'
+const WRKQADM_BIN = process.env['WRKQADM_BIN'] ?? 'wrkqadm'
 
 const ACTION = 'implement'
 const ACTOR = 'agent:curly-e2e'

@@ -3,7 +3,7 @@
  *
  * These tests characterize the behavior that `createWrkqStoreAdapter` MUST
  * satisfy once implemented. They run against the REAL @wrkq/client binary
- * (WRKQ_BIN / ~/.local/bin/wrkq) and a fresh isolated temp DB provisioned by
+ * (WRKQ_BIN, or `wrkq` on PATH) and a fresh isolated temp DB provisioned by
  * wrkqadm init — the canonical ~/praesidium/var/db/wrkq.db is never touched.
  *
  * ALL tests in this file are RED until `src/adapter.ts` is created.
@@ -42,9 +42,12 @@ import type { EvidenceItem, LoggedTransitionRecord } from 'acp-core'
 // Binaries (override via env vars for CI)
 // ---------------------------------------------------------------------------
 
-const HOME = process.env['HOME'] ?? '/Users/lherron'
-const WRKQ_BIN = process.env['WRKQ_BIN'] ?? `${HOME}/.local/bin/wrkq`
-const WRKQADM_BIN = process.env['WRKQADM_BIN'] ?? `${HOME}/.local/bin/wrkqadm`
+// Bare names, resolved through PATH — the same default production code uses
+// (acp-server/src/wrkf/client-lifecycle.ts). Hard-coding ~/.local/bin encoded
+// one operator's layout: the binaries live in /usr/local/bin inside the devbox
+// container, so the tests ENOENT'd there even with wrkq/wrkqadm installed.
+const WRKQ_BIN = process.env['WRKQ_BIN'] ?? 'wrkq'
+const WRKQADM_BIN = process.env['WRKQADM_BIN'] ?? 'wrkqadm'
 
 const DEMO_TEMPLATE_PATH = fileURLToPath(
   new URL('./fixtures/demo-linear-template.json', import.meta.url)

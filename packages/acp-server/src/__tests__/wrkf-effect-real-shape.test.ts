@@ -8,9 +8,9 @@
  *
  * Pattern: W4b wrkf-real-inspect-shape.test.ts
  *
- * Requires:
- *   - wrkf binary: ~/.local/bin/wrkf (or $WRKF_BIN)
- *   - wrkqadm binary: ~/.local/bin/wrkqadm (or $WRKQADM_BIN)
+ * Requires (resolved through PATH by default):
+ *   - wrkf binary: `wrkf` (or $WRKF_BIN)
+ *   - wrkqadm binary: `wrkqadm` (or $WRKQADM_BIN)
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * Authoritative effect shapes (from real-run-effects fixtures + live wrkq.db):
@@ -52,11 +52,12 @@ import { createWrkfClientLifecycle } from '../wrkf/client-lifecycle.js'
 
 // ─── Binary / isolated fixture paths ─────────────────────────────────────────
 
-const WRKF_BINARY =
-  process.env['WRKF_BIN'] ?? `${process.env['HOME'] ?? '/Users/lherron'}/.local/bin/wrkf`
+// Bare names, resolved through PATH — the same default production code uses
+// (src/wrkf/client-lifecycle.ts). Hard-coding ~/.local/bin encoded one
+// operator's layout and ENOENT'd anywhere else, including the devbox container.
+const WRKF_BINARY = process.env['WRKF_BIN'] ?? 'wrkf'
 
-const WRKQADM_BINARY =
-  process.env['WRKQADM_BIN'] ?? `${process.env['HOME'] ?? '/Users/lherron'}/.local/bin/wrkqadm`
+const WRKQADM_BINARY = process.env['WRKQADM_BIN'] ?? 'wrkqadm'
 
 const DEMO_TEMPLATE_PATH = fileURLToPath(
   new URL('../../test/fixtures/demo-linear-template.json', import.meta.url)

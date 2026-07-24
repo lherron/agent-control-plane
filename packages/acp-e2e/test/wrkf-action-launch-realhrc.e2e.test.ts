@@ -38,7 +38,8 @@
  *   B) after HRC launch, before bind (hrcRunId pre-committed in the runStore)
  *   C) after bind, response lost (real durable bind then throw)
  *
- * Binaries (overridable): WRKF_BIN / WRKQ_BIN / WRKQADM_BIN default ~/.local/bin.
+ * Binaries (overridable): WRKF_BIN / WRKQ_BIN / WRKQADM_BIN default to bare
+ * names resolved through PATH.
  * HRC: live daemon discovered via `discoverSocket()` + `resolveDatabasePath()`.
  */
 
@@ -69,9 +70,12 @@ const PRAESIDIUM_ROOT = process.env['PRAESIDIUM_ROOT'] ?? join(HOME, 'praesidium
 const E2E_AGENT_ID = 'curly'
 const E2E_AGENT_ROOT = join(PRAESIDIUM_ROOT, 'var', 'agents', E2E_AGENT_ID)
 const E2E_PROJECT_ROOT = join(PRAESIDIUM_ROOT, 'agent-control-plane')
-const WRKF_BIN = process.env['WRKF_BIN'] ?? `${HOME}/.local/bin/wrkf`
-const WRKQ_BIN = process.env['WRKQ_BIN'] ?? `${HOME}/.local/bin/wrkq`
-const WRKQADM_BIN = process.env['WRKQADM_BIN'] ?? `${HOME}/.local/bin/wrkqadm`
+// Bare names, resolved through PATH — the same default production code uses
+// (acp-server/src/wrkf/client-lifecycle.ts). Hard-coding ~/.local/bin encoded
+// one operator's layout and ENOENT'd anywhere else, devbox container included.
+const WRKF_BIN = process.env['WRKF_BIN'] ?? 'wrkf'
+const WRKQ_BIN = process.env['WRKQ_BIN'] ?? 'wrkq'
+const WRKQADM_BIN = process.env['WRKQADM_BIN'] ?? 'wrkqadm'
 
 const ACTION = 'implement'
 const ACTOR = { kind: 'agent' as const, id: 'curly-e2e' }
