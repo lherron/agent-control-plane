@@ -1,12 +1,22 @@
 import { describe, expect, test } from 'bun:test'
 
-import {
-  classifyTask,
-  extractTaskFields,
-  normalizeRefactorTaskList,
-  parseArgs,
-  renderPacket,
-} from './wrkq-refactor'
+async function loadWrkqRefactor() {
+  const ambientProject = process.env.ASP_PROJECT
+  process.env.ASP_PROJECT = 'agent-control-plane-T-00000'
+
+  try {
+    return await import('./wrkq-refactor')
+  } finally {
+    if (ambientProject === undefined) {
+      Reflect.deleteProperty(process.env, 'ASP_PROJECT')
+    } else {
+      process.env.ASP_PROJECT = ambientProject
+    }
+  }
+}
+
+const { classifyTask, extractTaskFields, normalizeRefactorTaskList, parseArgs, renderPacket } =
+  await loadWrkqRefactor()
 
 type ClassifyTaskInput = Parameters<typeof classifyTask>[0]
 
