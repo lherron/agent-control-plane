@@ -35,6 +35,7 @@ type Options = {
   channel?: 'dev' | 'worktree'
   dryRun: boolean
   force: boolean
+  sourceVersions: boolean
   tag?: string
   version?: string
 }
@@ -52,7 +53,7 @@ function run(cmd: string, args: string[], cwd = ROOT): { status: number; out: st
 }
 
 function parseArgs(argv: string[]): Options {
-  const options: Options = { dryRun: false, force: false }
+  const options: Options = { dryRun: false, force: false, sourceVersions: false }
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
@@ -60,6 +61,8 @@ function parseArgs(argv: string[]): Options {
       options.dryRun = true
     } else if (arg === '--force') {
       options.force = true
+    } else if (arg === '--source-versions') {
+      options.sourceVersions = true
     } else if (arg === '--channel') {
       const value = argv[++i]
       if (value !== 'dev' && value !== 'worktree') {
@@ -92,6 +95,10 @@ function parseArgs(argv: string[]): Options {
     }
   }
 
+  if (options.sourceVersions && options.version) {
+    throw new Error('--source-versions cannot be combined with --version')
+  }
+
   return options
 }
 
@@ -99,9 +106,10 @@ function printHelp(): void {
   console.log(`Usage:
   bun scripts/publish-local-verdaccio.ts [--dry-run]
   bun scripts/publish-local-verdaccio.ts --channel worktree [--dry-run]
+  bun scripts/publish-local-verdaccio.ts --source-versions [--tag <tag>] [--force] [--dry-run]
   bun scripts/publish-local-verdaccio.ts --version <semver> [--tag <tag>] [--force] [--dry-run]
 
-Default mode republishes each ACP package at its source version tagged latest.
+Default mode publishes <base>-dev.YYYYMMDDHHMMSS tagged latest.
 Worktree channel publishes <base>-worktree.YYYYMMDDHHMMSS.<shortsha> tagged worktree.`)
 }
 
@@ -116,7 +124,7 @@ function gitShortSha(): string {
 
 export function timestampVersion(
   baseVersion: string,
-  channel: 'worktree',
+  channel: 'dev' | 'worktree',
   now = new Date(),
   shortSha = gitShortSha()
 ): string {
@@ -128,7 +136,8 @@ export function timestampVersion(
     String(now.getMinutes()).padStart(2, '0'),
     String(now.getSeconds()).padStart(2, '0'),
   ].join('')
-  return `${baseVersion.split('-')[0]}-${channel}.${stamp}.${shortSha}`
+  const sourceSuffix = channel === 'worktree' ? `.${shortSha}` : ''
+  return `${baseVersion.split('-')[0]}-${channel}.${stamp}${sourceSuffix}`
 }
 
 function resolveTag(options: Options): string {
@@ -164,6 +173,16 @@ function findBunConditions(value: unknown, path = 'exports'): string[] {
 
 function isNotPublished(output: string): boolean {
   return /E404|404 Not Found|not found/i.test(output)
+}
+
+export function publishActionForVersion(
+  id: string,
+  exists: boolean,
+  force: boolean
+): 'publish' | 'replace' {
+  if (!exists) return 'publish'
+  if (force) return 'replace'
+  throw new Error(`${id} already exists in ${REGISTRY}; use --force to replace it`)
 }
 
 async function registryMetadata(name: string): Promise<RegistryMetadata | undefined> {
@@ -270,21 +289,15 @@ async function publishPackage(
       return
     }
 
-    if (options.channel === 'worktree') {
-      const exists = await versionExists(packed.name, packed.version)
-      if (exists && !options.force) {
-        throw new Error(`${id} already exists in ${REGISTRY}; use --force to replace it`)
-      }
-      if (exists && options.force) {
-        const unpublish = run('npm', ['unpublish', id, '--force', '--registry', REGISTRY])
-        if (unpublish.status !== 0 && !isNotPublished(unpublish.out)) {
-          throw new Error(`npm unpublish failed for ${id}: ${unpublish.out}`)
-        }
-      }
-    } else {
-      const unpublish = run('npm', ['unpublish', packed.name, '--force', '--registry', REGISTRY])
+    const action = publishActionForVersion(
+      id,
+      await versionExists(packed.name, packed.version),
+      options.force
+    )
+    if (action === 'replace') {
+      const unpublish = run('npm', ['unpublish', id, '--force', '--registry', REGISTRY])
       if (unpublish.status !== 0 && !isNotPublished(unpublish.out)) {
-        throw new Error(`npm unpublish failed for ${packed.name}: ${unpublish.out}`)
+        throw new Error(`npm unpublish failed for ${id}: ${unpublish.out}`)
       }
     }
 
@@ -324,11 +337,9 @@ async function main(argv = process.argv.slice(2)) {
   if (!firstManifest.version) {
     throw new Error(`${PACKAGES[0]}/package.json must include version`)
   }
-  const versionOverride =
-    options.version ??
-    (options.channel === 'worktree'
-      ? timestampVersion(firstManifest.version, 'worktree')
-      : undefined)
+  const versionOverride = options.sourceVersions
+    ? undefined
+    : (options.version ?? timestampVersion(firstManifest.version, options.channel ?? 'dev'))
   if (versionOverride && !isSemver(versionOverride)) {
     throw new Error(`Publish version must be valid semver: ${versionOverride}`)
   }
