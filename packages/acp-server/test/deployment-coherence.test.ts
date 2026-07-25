@@ -1,9 +1,15 @@
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import { describe, expect, test } from 'bun:test'
 
 import {
   EXPECTED_CONSUMER_PRODUCERS,
   type InstalledProducerPackage,
   evaluateConsumerDeployment,
+  listConsumerLockSelections,
+  readConsumerDeploymentInputs,
 } from '../src/deployment-coherence.js'
 import type { AcpHrcClient } from '../src/index.js'
 import { withWiredServer } from './fixtures/wired-server.js'
@@ -28,8 +34,8 @@ const hrcBuild = {
   builtAt: '2026-07-25T06:32:58.817Z',
 }
 
-function lockEntry(name: string, version: string): string {
-  return `    "${name}": ["${name}@${version}", "http://mini:4873/${name}/-/${name}-${version}.tgz", {}, "sha512-dGVzdA=="],`
+function lockEntry(name: string, version: string, lockKey = name): string {
+  return `    "${lockKey}": ["${name}@${version}", "http://mini:4873/${name}/-/${name}-${version}.tgz", {}, "sha512-dGVzdA=="],`
 }
 
 function coherentFixture() {
@@ -173,5 +179,101 @@ describe('ASP/HRC consumer deployment coherence', () => {
         expect.stringContaining('installed build tuple disagrees with asp set'),
       ])
     )
+  })
+
+  test('rejects a stale nested Bun resolution and its installed shadow', () => {
+    const fixture = coherentFixture()
+    const packageName = EXPECTED_CONSUMER_PRODUCERS[0]?.packages[0]
+    if (packageName === undefined) throw new Error('invalid fixture')
+    const lockKey = `hrc-core/${packageName}`
+    const staleVersion = '0.1.1-dev.20260721071843'
+
+    fixture.lockText = `${fixture.lockText}\n${lockEntry(packageName, staleVersion, lockKey)}`
+    fixture.installed = [
+      {
+        lockKey,
+        name: packageName,
+        version: staleVersion,
+        praesidiumBuild: { ...aspBuild, setVersion: staleVersion },
+      },
+      ...fixture.installed,
+    ]
+
+    const report = evaluateConsumerDeployment(fixture)
+    const selections = listConsumerLockSelections(fixture.lockText).filter(
+      (selection) => selection.name === packageName
+    )
+
+    expect(report.ok).toBe(false)
+    expect(selections.map((selection) => selection.lockKey)).toEqual([packageName, lockKey])
+    expect(report.findings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(`${lockKey}: lock selects ${staleVersion}`),
+        expect.stringContaining(`${lockKey}: installed version ${staleVersion}`),
+      ])
+    )
+  })
+
+  test('reads and validates the manifest installed at a nested Bun shadow path', async () => {
+    const fixture = coherentFixture()
+    const packageName = EXPECTED_CONSUMER_PRODUCERS[0]?.packages[0]
+    if (packageName === undefined) throw new Error('invalid fixture')
+    const lockKey = `hrc-core/${packageName}`
+    const staleVersion = '0.1.1-dev.20260721071843'
+    fixture.lockText = `${fixture.lockText}\n${lockEntry(packageName, staleVersion, lockKey)}`
+    const repoRoot = await mkdtemp(join(tmpdir(), 'acp-deployment-coherence-'))
+
+    try {
+      await writeFile(join(repoRoot, 'bun.lock'), fixture.lockText)
+      for (const producer of EXPECTED_CONSUMER_PRODUCERS) {
+        for (const name of producer.packages) {
+          const manifestRoot = join(repoRoot, 'node_modules', name)
+          await mkdir(manifestRoot, { recursive: true })
+          await writeFile(
+            join(manifestRoot, 'package.json'),
+            JSON.stringify({
+              name,
+              version: producer.setVersion,
+              praesidiumBuild: producer.setName === 'asp' ? aspBuild : hrcBuild,
+            })
+          )
+        }
+      }
+      const nestedManifestRoot = join(
+        repoRoot,
+        'node_modules',
+        'hrc-core',
+        'node_modules',
+        packageName
+      )
+      await mkdir(nestedManifestRoot, { recursive: true })
+      await writeFile(
+        join(nestedManifestRoot, 'package.json'),
+        JSON.stringify({
+          name: packageName,
+          version: staleVersion,
+          praesidiumBuild: { ...aspBuild, setVersion: staleVersion },
+        })
+      )
+
+      const inputs = await readConsumerDeploymentInputs(repoRoot)
+      const nested = inputs.installed.find((entry) => entry.lockKey === lockKey)
+      const report = evaluateConsumerDeployment(inputs)
+
+      expect(nested).toMatchObject({
+        lockKey,
+        name: packageName,
+        version: staleVersion,
+      })
+      expect(report.ok).toBe(false)
+      expect(report.findings).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining(`${lockKey}: lock selects ${staleVersion}`),
+          expect.stringContaining(`${lockKey}: installed version ${staleVersion}`),
+        ])
+      )
+    } finally {
+      await rm(repoRoot, { recursive: true, force: true })
+    }
   })
 })

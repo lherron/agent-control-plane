@@ -75,9 +75,18 @@ export const EXPECTED_CONSUMER_PRODUCERS = [
 ] as const satisfies readonly ExpectedConsumerProducer[]
 
 export type InstalledProducerPackage = Readonly<{
+  lockKey?: string | undefined
   name: string
   version: string
   praesidiumBuild?: PraesidiumBuild | undefined
+}>
+
+export type ConsumerLockSelection = Readonly<{
+  lockKey: string
+  name: string
+  version: string
+  tarball: string
+  integrity: string
 }>
 
 type RunningStatus = Readonly<{
@@ -94,10 +103,6 @@ export type ConsumerDeploymentReport = Readonly<{
   running?: Readonly<Record<string, unknown>> | undefined
   findings: readonly string[]
 }>
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
 
 function stableBuild(build: PraesidiumBuild): string {
   return JSON.stringify(PRAESIDIUM_BUILD_FIELDS.map((field) => build[field]))
@@ -138,25 +143,59 @@ function expectedBuildFieldsMatch(
   )
 }
 
-function lockSelection(
-  lockText: string,
-  name: string
-): Readonly<{ name: string; version: string; tarball: string; integrity: string }> | undefined {
-  const quotedName = escapeRegExp(JSON.stringify(name))
-  const resolutionPrefix = escapeRegExp(`"${name}@`)
-  const pattern = new RegExp(
-    `^\\s*${quotedName}:\\s*\\[${resolutionPrefix}([^"]+)",\\s*"([^"]+)"[^\\n]*"(sha512-[A-Za-z0-9+/=]+)"\\],?$`,
-    'm'
-  )
-  const match = pattern.exec(lockText)
-  if (match?.[1] === undefined || match[2] === undefined || match[3] === undefined) {
-    return undefined
+function lockSelections(lockText: string, name: string): ConsumerLockSelection[] {
+  const selections: ConsumerLockSelection[] = []
+  const resolutionPrefix = `${name}@`
+  for (const line of lockText.split(/\r?\n/)) {
+    const match = /^\s*"([^"]+)":\s*\[\s*"([^"]+)"(?:,\s*"([^"]+)")?/.exec(line)
+    const lockKey = match?.[1]
+    const resolution = match?.[2]
+    if (
+      lockKey === undefined ||
+      resolution === undefined ||
+      !resolution.startsWith(resolutionPrefix)
+    ) {
+      continue
+    }
+    selections.push({
+      lockKey,
+      name,
+      version: resolution.slice(resolutionPrefix.length),
+      tarball: match?.[3] ?? '',
+      integrity: /"(sha512-[A-Za-z0-9+/=]+)"\s*\],?\s*$/.exec(line)?.[1] ?? '',
+    })
   }
-  return { name, version: match[1], tarball: match[2], integrity: match[3] }
+  return selections
 }
 
 function expectedTarball(name: string, version: string): string {
   return `http://mini:4873/${name}/-/${name}-${version}.tgz`
+}
+
+function packageChainFromLockKey(lockKey: string): string[] {
+  const segments = lockKey.split('/')
+  const chain: string[] = []
+  for (let index = 0; index < segments.length; index++) {
+    const segment = segments[index]
+    if (segment === undefined || segment.length === 0) continue
+    if (segment.startsWith('@') && segments[index + 1] !== undefined) {
+      chain.push(`${segment}/${segments[index + 1]}`)
+      index++
+    } else {
+      chain.push(segment)
+    }
+  }
+  return chain
+}
+
+function installedManifestPath(repoRoot: string, lockKey: string): string {
+  const chain = packageChainFromLockKey(lockKey)
+  let packageRoot = resolve(repoRoot, 'node_modules')
+  for (const [index, packageName] of chain.entries()) {
+    packageRoot = resolve(packageRoot, packageName)
+    if (index < chain.length - 1) packageRoot = resolve(packageRoot, 'node_modules')
+  }
+  return resolve(packageRoot, 'package.json')
 }
 
 function runningRelease(status: RunningStatus | undefined): Record<string, unknown> | undefined {
@@ -169,7 +208,9 @@ export function evaluateConsumerDeployment(input: {
   runningStatus?: RunningStatus | undefined
 }): ConsumerDeploymentReport {
   const findings: string[] = []
-  const installedByName = new Map(input.installed.map((entry) => [entry.name, entry]))
+  const installedByLockKey = new Map(
+    input.installed.map((entry) => [entry.lockKey ?? entry.name, entry])
+  )
   const installedBuilds: {
     aspBuild?: PraesidiumBuild | undefined
     hrcBuild?: PraesidiumBuild | undefined
@@ -178,43 +219,51 @@ export function evaluateConsumerDeployment(input: {
   for (const producer of EXPECTED_CONSUMER_PRODUCERS) {
     let coherentBuild: PraesidiumBuild | undefined
     for (const name of producer.packages) {
-      const selection = lockSelection(input.lockText, name)
-      if (selection === undefined) {
+      const selections = lockSelections(input.lockText, name)
+      if (selections.length === 0) {
         findings.push(`${name}: lock selection is missing`)
-      } else {
+      }
+      for (const selection of selections) {
+        const label = selection.lockKey
         if (selection.version !== producer.setVersion) {
           findings.push(
-            `${name}: lock selects ${selection.version}; expected ${producer.setVersion}`
+            `${label}: lock selects ${selection.version}; expected ${producer.setVersion}`
           )
         }
         if (selection.tarball !== expectedTarball(name, selection.version)) {
-          findings.push(`${name}: lock tarball is not canonical: ${selection.tarball}`)
+          findings.push(`${label}: lock tarball is not canonical: ${selection.tarball}`)
         }
-      }
+        if (selection.integrity.length === 0) {
+          findings.push(`${label}: lock integrity is missing`)
+        }
 
-      const installed = installedByName.get(name)
-      if (installed === undefined) {
-        findings.push(`${name}: installed manifest is missing`)
-        continue
-      }
-      if (installed.version !== producer.setVersion) {
-        findings.push(
-          `${name}: installed version ${installed.version}; expected ${producer.setVersion}`
-        )
-      }
-      if (!isPraesidiumBuild(installed.praesidiumBuild)) {
-        findings.push(`${name}: installed manifest has no praesidiumBuild tuple`)
-        continue
-      }
-      if (!expectedBuildFieldsMatch(installed.praesidiumBuild, producer)) {
-        findings.push(
-          `${name}: installed build tuple does not match expected ${producer.setName} set`
-        )
-      }
-      if (coherentBuild === undefined) {
-        coherentBuild = installed.praesidiumBuild
-      } else if (stableBuild(installed.praesidiumBuild) !== stableBuild(coherentBuild)) {
-        findings.push(`${name}: installed build tuple disagrees with ${producer.setName} set`)
+        const installed = installedByLockKey.get(selection.lockKey)
+        if (installed === undefined) {
+          findings.push(`${label}: installed manifest is missing`)
+          continue
+        }
+        if (installed.name !== name) {
+          findings.push(`${label}: installed manifest name ${installed.name}; expected ${name}`)
+        }
+        if (installed.version !== producer.setVersion) {
+          findings.push(
+            `${label}: installed version ${installed.version}; expected ${producer.setVersion}`
+          )
+        }
+        if (!isPraesidiumBuild(installed.praesidiumBuild)) {
+          findings.push(`${label}: installed manifest has no praesidiumBuild tuple`)
+          continue
+        }
+        if (!expectedBuildFieldsMatch(installed.praesidiumBuild, producer)) {
+          findings.push(
+            `${label}: installed build tuple does not match expected ${producer.setName} set`
+          )
+        }
+        if (coherentBuild === undefined) {
+          coherentBuild = installed.praesidiumBuild
+        } else if (stableBuild(installed.praesidiumBuild) !== stableBuild(coherentBuild)) {
+          findings.push(`${label}: installed build tuple disagrees with ${producer.setName} set`)
+        }
       }
     }
     if (producer.setName === 'asp') installedBuilds.aspBuild = coherentBuild
@@ -267,37 +316,29 @@ type InstalledManifest = {
 export async function readConsumerDeploymentInputs(
   repoRoot: string
 ): Promise<{ lockText: string; installed: InstalledProducerPackage[] }> {
+  const lockText = await readFile(resolve(repoRoot, 'bun.lock'), 'utf8')
   const installed: InstalledProducerPackage[] = []
-  for (const producer of EXPECTED_CONSUMER_PRODUCERS) {
-    for (const name of producer.packages) {
-      const manifestPath = resolve(repoRoot, 'node_modules', name, 'package.json')
-      try {
-        const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as InstalledManifest
-        installed.push({
-          name,
-          version: manifest.version ?? '',
-          ...(isPraesidiumBuild(manifest.praesidiumBuild)
-            ? { praesidiumBuild: manifest.praesidiumBuild }
-            : {}),
-        })
-      } catch {
-        // The evaluator owns the fail-closed diagnostic for absent manifests.
-      }
+  for (const selection of listConsumerLockSelections(lockText)) {
+    const manifestPath = installedManifestPath(repoRoot, selection.lockKey)
+    try {
+      const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as InstalledManifest
+      installed.push({
+        lockKey: selection.lockKey,
+        name: manifest.name ?? '',
+        version: manifest.version ?? '',
+        ...(isPraesidiumBuild(manifest.praesidiumBuild)
+          ? { praesidiumBuild: manifest.praesidiumBuild }
+          : {}),
+      })
+    } catch {
+      // The evaluator owns the fail-closed diagnostic for absent manifests.
     }
   }
-  return {
-    lockText: await readFile(resolve(repoRoot, 'bun.lock'), 'utf8'),
-    installed,
-  }
+  return { lockText, installed }
 }
 
-export function listConsumerLockSelections(
-  lockText: string
-): ReadonlyArray<Readonly<{ name: string; version: string; tarball: string; integrity: string }>> {
+export function listConsumerLockSelections(lockText: string): readonly ConsumerLockSelection[] {
   return EXPECTED_CONSUMER_PRODUCERS.flatMap((producer) =>
-    producer.packages.flatMap((name) => {
-      const selection = lockSelection(lockText, name)
-      return selection === undefined ? [] : [selection]
-    })
+    producer.packages.flatMap((name) => lockSelections(lockText, name))
   )
 }

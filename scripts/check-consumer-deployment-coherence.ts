@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 
 import {
   type ConsumerDeploymentReport,
+  type ConsumerLockSelection,
   evaluateConsumerDeployment,
   listConsumerLockSelections,
   readConsumerDeploymentInputs,
@@ -20,7 +21,7 @@ if (readbackIndex >= 0 && readbackUrl === undefined) {
 
 const inputs = await readConsumerDeploymentInputs(root)
 let report: ConsumerDeploymentReport = evaluateConsumerDeployment(inputs)
-const fetches: Array<{ name: string; version: string; tarball: string; integrity: string }> = []
+const fetches: ConsumerLockSelection[] = []
 
 if (report.ok && fetchMode) {
   for (const [index, selection] of listConsumerLockSelections(inputs.lockText).entries()) {
@@ -34,7 +35,7 @@ if (report.ok && fetchMode) {
     })
     if (!response.ok) {
       throw new Error(
-        `${selection.name}@${selection.version}: cache-empty fetch returned ${response.status}`
+        `${selection.lockKey} (${selection.name}@${selection.version}): cache-empty fetch returned ${response.status}`
       )
     }
     const digest = `sha512-${createHash('sha512')
@@ -42,7 +43,7 @@ if (report.ok && fetchMode) {
       .digest('base64')}`
     if (digest !== selection.integrity) {
       throw new Error(
-        `${selection.name}@${selection.version}: fetched integrity ${digest} != lock ${selection.integrity}`
+        `${selection.lockKey} (${selection.name}@${selection.version}): fetched integrity ${digest} != lock ${selection.integrity}`
       )
     }
     fetches.push(selection)
