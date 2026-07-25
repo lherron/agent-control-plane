@@ -6,6 +6,7 @@
       "GET /v1/admin/agents/:agentId/detail",
       "GET /v1/admin/agents/:agentId/heartbeat",
       "GET /v1/admin/agents/:agentId/system-prompt",
+      "GET /v1/admin/deployment-coherence",
       "GET /v1/admin/interface-identities",
       "GET /v1/admin/jobs",
       "GET /v1/admin/jobs/:jobId",

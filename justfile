@@ -50,6 +50,7 @@ check:
     bun scripts/check-suppressions.ts
     bun scripts/check-boundaries.ts
     bun scripts/check-manifest-edges.ts
+    bun scripts/check-consumer-deployment-coherence.ts
     bun scripts/check-cli-surface.ts
     bun scripts/check-public-surface.ts
     bun scripts/check-enablement-changelog.ts
@@ -206,6 +207,7 @@ install no-sync="" force-sync="" force-link="":
     echo "[install] context=${PRAESIDIUM_INSTALL_CONTEXT} sync=${PRAESIDIUM_INSTALL_SYNC_MODE} link=${PRAESIDIUM_INSTALL_LINK_MODE} publish=${PRAESIDIUM_INSTALL_PUBLISH_CHANNEL} tag=${PRAESIDIUM_INSTALL_PUBLISH_TAG}"
     bun run clean
     bun install
+    bun scripts/check-consumer-deployment-coherence.ts
     bun run install:hooks
     bun run build
     if [ "$PRAESIDIUM_INSTALL_PUBLISH_CHANNEL" = "worktree" ]; then

@@ -17,6 +17,7 @@ import { handleCreateAgentPulpitMessage } from '../handlers/agent-pulpit-message
 import { handleListConversationThreads } from '../handlers/conversation-threads.js'
 import { handleCreateCoordinationMessage } from '../handlers/coordination-messages.js'
 import { handleListFailedDeliveries } from '../handlers/delivery-list-failed.js'
+import { handleGetDeploymentCoherence } from '../handlers/deployment-coherence.js'
 import { handleCreateInput } from '../handlers/inputs.js'
 import { handleCreateInterfaceBinding } from '../handlers/interface-bindings-create.js'
 import { handleListInterfaceBindings } from '../handlers/interface-bindings-list.js'
@@ -158,6 +159,7 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
     ),
     [exactRouteKey('GET', '/v1/admin/jobs')]: handleListAdminJobs,
     [exactRouteKey('GET', '/v1/admin/jobs/scheduler')]: handleGetSchedulerState,
+    [exactRouteKey('GET', '/v1/admin/deployment-coherence')]: handleGetDeploymentCoherence,
     [exactRouteKey('GET', '/v1/conversation/threads')]: handleListConversationThreads,
     [exactRouteKey('POST', '/v1/coordination/messages')]: maybeWrapMutatingRoute(
       'POST',
