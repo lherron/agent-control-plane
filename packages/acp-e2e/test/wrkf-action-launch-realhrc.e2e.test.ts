@@ -96,6 +96,42 @@ type ActionRunRecord = {
   status: string
 }
 
+type StartedActionProjection = {
+  actionRunId: string
+  runId: string
+  instanceId: string
+  workflowRef: string
+  role?: string | undefined
+}
+
+type StartedActionResponse = Omit<StartedActionProjection, 'workflowRef'> & {
+  workflow: {
+    id: string
+    version: string
+  }
+}
+
+function requireNonEmptyStartedField(value: string | undefined, field: string): string {
+  if (value === undefined || value.trim().length === 0) {
+    throw new Error(`wrkf action.start returned no ${field}`)
+  }
+  return value
+}
+
+function projectStartedAction(started: StartedActionResponse): StartedActionProjection {
+  const workflowId = requireNonEmptyStartedField(started.workflow.id, 'workflow.id')
+  const workflowVersion = requireNonEmptyStartedField(started.workflow.version, 'workflow.version')
+  const role =
+    started.role === undefined ? undefined : requireNonEmptyStartedField(started.role, 'role')
+  return {
+    actionRunId: requireNonEmptyStartedField(started.actionRunId, 'actionRunId'),
+    runId: requireNonEmptyStartedField(started.runId, 'runId'),
+    instanceId: requireNonEmptyStartedField(started.instanceId, 'instanceId'),
+    workflowRef: requireNonEmptyStartedField(`${workflowId}@${workflowVersion}`, 'workflowRef'),
+    ...(role !== undefined ? { role } : {}),
+  }
+}
+
 const FAKE_RUNTIME_RESOLVER: NonNullable<AcpServerDeps['runtimeResolver']> = async () => ({
   agentRoot: E2E_AGENT_ROOT,
   projectRoot: E2E_PROJECT_ROOT,
@@ -396,20 +432,22 @@ describe('wrkf action launch/bind adapter — REAL HRC e2e (C-0004 closure)', ()
       // Attempt 1 partial: action.start + ACP durable run + a REAL hostSessionId
       // committed as hrcRunId, then CRASH before bind. Mint the host session OUTSIDE
       // the counted launcher so attempt 2's launcher count starts (and stays) at 0.
-      const started = (await wrkfPort().action.start({
-        task: taskId,
-        action: ACTION,
-        principal_ref: `${ACTOR.kind}:${ACTOR.id}`,
-        idempotencyKey,
-      })) as { actionRunId: string; runId: string; instanceId: string }
+      const started = projectStartedAction(
+        (await wrkfPort().action.start({
+          task: taskId,
+          action: ACTION,
+          principal_ref: `${ACTOR.kind}:${ACTOR.id}`,
+          idempotencyKey,
+        })) as StartedActionResponse
+      )
       const { hostSessionId } = await mintHostSession(ref)
       const { run: acpRun } = runStore.createOrGetRun({
         sessionRef: ref,
         wrkfTaskId: taskId,
         wrkfInstanceId: started.instanceId,
         wrkfRunId: started.runId,
-        workflowRef: 'wrkq-simple-task@1',
-        role: 'implementer',
+        workflowRef: started.workflowRef,
+        role: started.role ?? 'unknown',
         actor: ACTOR,
       })
       runStore.updateRun(acpRun.runId, { hrcRunId: hostSessionId })

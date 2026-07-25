@@ -205,6 +205,27 @@ describe('launchAction — happy path', () => {
     expect(acpRun?.metadata?.['wrkfRunId']).toBe(CANNED_ACTION_RUN.runId)
   })
 
+  test('persists the workflow ref and role returned by action.start across template evolution', async () => {
+    const evolvedActionRun = {
+      ...CANNED_ACTION_RUN,
+      workflow: undefined,
+      workflowRef: 'wrkq-simple-task@future',
+      role: 'evolved-implementer',
+    }
+    const wrkf = makeFakeWrkfPort({ start: async () => evolvedActionRun })
+    const runStore = new InMemoryRunStore()
+    const launcher: LaunchRoleScopedRun = async () => CANNED_LAUNCHED
+
+    await launchAction(
+      { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
+      BASE_INPUT
+    )
+
+    const acpRun = runStore.getRun(ACP_RUN_ID)
+    expect(acpRun?.metadata?.['workflowRef']).toBe(evolvedActionRun.workflowRef)
+    expect(acpRun?.metadata?.['role']).toBe(evolvedActionRun.role)
+  })
+
   test('does NOT persist semantic action-truth scalars (cp_*, session_id, run_status) in ACP run', async () => {
     const wrkf = makeFakeWrkfPort()
     const runStore = new InMemoryRunStore()

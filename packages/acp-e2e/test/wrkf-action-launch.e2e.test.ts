@@ -72,6 +72,42 @@ type ActionRunRecord = {
   status: string
 }
 
+type StartedActionProjection = {
+  actionRunId: string
+  runId: string
+  instanceId: string
+  workflowRef: string
+  role?: string | undefined
+}
+
+type StartedActionResponse = Omit<StartedActionProjection, 'workflowRef'> & {
+  workflow: {
+    id: string
+    version: string
+  }
+}
+
+function requireNonEmptyStartedField(value: string | undefined, field: string): string {
+  if (value === undefined || value.trim().length === 0) {
+    throw new Error(`wrkf action.start returned no ${field}`)
+  }
+  return value
+}
+
+function projectStartedAction(started: StartedActionResponse): StartedActionProjection {
+  const workflowId = requireNonEmptyStartedField(started.workflow.id, 'workflow.id')
+  const workflowVersion = requireNonEmptyStartedField(started.workflow.version, 'workflow.version')
+  const role =
+    started.role === undefined ? undefined : requireNonEmptyStartedField(started.role, 'role')
+  return {
+    actionRunId: requireNonEmptyStartedField(started.actionRunId, 'actionRunId'),
+    runId: requireNonEmptyStartedField(started.runId, 'runId'),
+    instanceId: requireNonEmptyStartedField(started.instanceId, 'instanceId'),
+    workflowRef: requireNonEmptyStartedField(`${workflowId}@${workflowVersion}`, 'workflowRef'),
+    ...(role !== undefined ? { role } : {}),
+  }
+}
+
 const FAKE_RUNTIME_RESOLVER: NonNullable<AcpServerDeps['runtimeResolver']> = async () => ({
   agentRoot: '/tmp/agents/curly-e2e',
   projectRoot: '/tmp/project',
@@ -263,19 +299,21 @@ describe('wrkf action launch/bind adapter — real wrkf e2e (C-0004)', () => {
 
       // Attempt 1 partial: action.start + ACP durable run + hrcRunId committed,
       // then CRASH before bind. Replicate that exact durable state.
-      const started = (await wrkfPort().action.start({
-        task: taskId,
-        action: ACTION,
-        principal_ref: `${ACTOR.kind}:${ACTOR.id}`,
-        idempotencyKey,
-      })) as { actionRunId: string; runId: string; instanceId: string }
+      const started = projectStartedAction(
+        (await wrkfPort().action.start({
+          task: taskId,
+          action: ACTION,
+          principal_ref: `${ACTOR.kind}:${ACTOR.id}`,
+          idempotencyKey,
+        })) as StartedActionResponse
+      )
       const { run: acpRun } = runStore.createOrGetRun({
         sessionRef: sessionRef(taskId),
         wrkfTaskId: taskId,
         wrkfInstanceId: started.instanceId,
         wrkfRunId: started.runId,
-        workflowRef: 'wrkq-simple-task@1',
-        role: 'implementer',
+        workflowRef: started.workflowRef,
+        role: started.role ?? 'unknown',
         actor: ACTOR,
       })
       runStore.updateRun(acpRun.runId, { hrcRunId })
