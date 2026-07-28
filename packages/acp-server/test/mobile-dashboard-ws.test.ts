@@ -341,6 +341,26 @@ describe('remote projection stream refusal', () => {
 })
 
 describe('WS /v1/mobile/dashboard', () => {
+  test('coalesces session freshness reads used by the index and snapshot cursor', async () => {
+    const hrcEvents = [event(41), event(42)]
+    const baseClient = createDashboardClient(hrcEvents)
+    let latestCalls = 0
+    const client = {
+      ...baseClient,
+      listLatestEventBySession: async (
+        ...args: Parameters<AcpHrcClient['listLatestEventBySession']>
+      ) => {
+        latestCalls += 1
+        return baseClient.listLatestEventBySession(...args)
+      },
+    } as AcpHrcClient
+    const { ws } = createDashboardSocket({ hrcClient: client })
+
+    await openMobileWebSocket(ws)
+
+    expect(latestCalls).toBe(1)
+  })
+
   test('sends snapshot with cursors, nested DTO, and bounded recent events', async () => {
     const hrcEvents = Array.from({ length: 12 }, (_, index) => event(index + 1))
     const { ws, sent } = createDashboardSocket({

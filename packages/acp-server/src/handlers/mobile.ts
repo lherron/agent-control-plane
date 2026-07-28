@@ -23,6 +23,7 @@ import {
 
 import type { AcpHrcClient, ResolvedAcpServerDeps } from '../deps.js'
 import type { RouteHandler } from '../routing/route-context.js'
+import { latestHrcSeq, listCachedLatestEventBySession } from './hrc-event-read-window.js'
 import {
   type MobileWebSocketLike,
   abortMobileWebSocket,
@@ -588,10 +589,9 @@ async function listMobileSessions(
       ...(laneRef !== undefined ? { laneRef } : {}),
     }),
     hrcClient.listRuntimes({}),
-    // Indexed SQL query returns one row per (hostSessionId, generation); does not
-    // depend on a bounded recent window, so lastHrcSeq / lastActivityAt stay
-    // reliable on large stores. See HrcLifecycleEventRepository.listLatestPerSession.
-    hrcClient.listLatestEventBySession({
+    // This HRC query groups over the event store. Coalesce concurrent dashboard
+    // reads and retain it briefly rather than rerunning it for every request.
+    listCachedLatestEventBySession(hrcClient, {
       ...(scopeRef !== undefined ? { scopeRef } : {}),
       ...(laneRef !== undefined ? { laneRef } : {}),
     }),
@@ -1162,12 +1162,12 @@ async function buildMobileDashboardSnapshot(
 
   const [index, latestEvents] = await Promise.all([
     listMobileSessions(deps, url),
-    hrcClient.listLatestEventBySession({
+    listCachedLatestEventBySession(hrcClient, {
       ...(scopeRef !== undefined ? { scopeRef } : {}),
       ...(laneRef !== undefined ? { laneRef } : {}),
     }),
   ])
-  const lastHrcSeq = latestEvents.reduce((max, event) => Math.max(max, event.hrcSeq), 0)
+  const lastHrcSeq = latestHrcSeq(latestEvents)
   const lastStreamSeq = latestEvents.reduce((max, event) => Math.max(max, event.streamSeq), 0)
   const recentEventsBySession: Record<string, MobileEventMessage[]> = {}
 

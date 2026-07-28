@@ -1064,27 +1064,6 @@ export function readRunStatus(
   }
 }
 
-export function listLegacyRawRunEvents(hrcDbPath: string, runId: string): RawRunEventRecord[] {
-  const db = new Database(hrcDbPath, { readonly: true })
-  try {
-    const rows = db
-      .query<{ eventKind: string; eventJson: string }, [string]>(
-        `SELECT event_kind AS eventKind, event_json AS eventJson
-          FROM events
-          WHERE run_id = ?
-          ORDER BY seq ASC`
-      )
-      .all(runId)
-
-    return rows.map((row) => ({
-      eventKind: row.eventKind,
-      eventJson: parseJson(row.eventJson),
-    }))
-  } finally {
-    db.close()
-  }
-}
-
 function findLiveTmuxRuntimeForSessionRef(
   hrcDbPath: string,
   sessionRef: SessionRef

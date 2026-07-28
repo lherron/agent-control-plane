@@ -161,7 +161,7 @@ describe('GatewayDiscordApp live tool progress e2e', () => {
 
     expect(harness.eventRequests).toHaveLength(1)
     expect(harness.eventRequests[0]?.searchParams.get('follow')).toBe('true')
-    expect(harness.eventRequests[0]?.searchParams.get('fromSeq')).toBe('1')
+    expect(harness.eventRequests[0]?.searchParams.get('fromSeq')).toBe('101')
     expect(harness.eventRequests[0]?.searchParams.get('sessionRef')).toBe(
       'agent:smokey:project:agent-spaces/lane:main'
     )
@@ -341,6 +341,11 @@ describe('GatewayDiscordApp live tool progress e2e', () => {
       gatewayId: 'discord_prod',
       client: client as never,
       fetchImpl,
+      dashboardSnapshotImpl: async () => ({
+        type: 'dashboard_snapshot',
+        cursors: { lastHrcSeq: 0 },
+        sessions: [],
+      }),
     })
 
     const webhookFor = (channel: FakeChannel): FakeWebhook => {

@@ -3,6 +3,11 @@ import type { SessionDashboardSnapshot } from 'acp-ops-projection'
 import { json } from '../http.js'
 import type { RouteHandler } from '../routing/route-context.js'
 import {
+  boundedReplayFromSeq,
+  latestHrcSeq,
+  listCachedLatestEventBySession,
+} from './hrc-event-read-window.js'
+import {
   DEFAULT_DASHBOARD_LIMIT_EVENTS,
   DEFAULT_DASHBOARD_LIMIT_SESSIONS,
   DEFAULT_DASHBOARD_WINDOW_MS,
@@ -19,6 +24,13 @@ import {
   sessionRecordToRow,
   sortRows,
 } from './ops-dashboard-shared.js'
+
+const DEFAULT_OPS_DASHBOARD_MAX_REPLAY_EVENTS = 10_000
+
+function readPositiveIntegerEnv(name: string, fallback: number): number {
+  const parsed = Number.parseInt(process.env[name] ?? '', 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
 
 function inWindow(ts: string, fromMs: number, toMs: number): boolean {
   const eventMs = Date.parse(ts)
@@ -68,7 +80,17 @@ export const handleOpsDashboardSnapshot: RouteHandler = async ({ url, deps }) =>
   let lastStreamSeq: number | undefined
 
   if (hrcClient !== undefined) {
-    for await (const rawEvent of hrcClient.watch({ fromSeq: 1, follow: false })) {
+    const highWater = latestHrcSeq(await listCachedLatestEventBySession(hrcClient))
+    const fromSeq = boundedReplayFromSeq({
+      requestedFromSeq: 1,
+      lastHrcSeq: highWater,
+      maxReplayEvents: readPositiveIntegerEnv(
+        'ACP_OPS_DASHBOARD_MAX_REPLAY_EVENTS',
+        DEFAULT_OPS_DASHBOARD_MAX_REPLAY_EVENTS
+      ),
+    })
+
+    for await (const rawEvent of hrcClient.watch({ fromSeq, follow: false })) {
       const event = projectCoreHrcEvent(rawEvent)
       if (event === undefined) {
         continue
@@ -85,6 +107,8 @@ export const handleOpsDashboardSnapshot: RouteHandler = async ({ url, deps }) =>
 
       events.push(event)
     }
+
+    lastHrcSeq = Math.max(lastHrcSeq ?? highWater, highWater)
   }
 
   for (const systemEvent of deps.adminStore.systemEvents.list({
