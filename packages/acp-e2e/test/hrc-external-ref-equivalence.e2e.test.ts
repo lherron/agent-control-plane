@@ -38,6 +38,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 
@@ -54,6 +55,9 @@ import {
 const WRKF_BIN = process.env['WRKF_BIN'] ?? 'wrkf'
 const WRKQ_BIN = process.env['WRKQ_BIN'] ?? 'wrkq'
 const WRKQADM_BIN = process.env['WRKQADM_BIN'] ?? 'wrkqadm'
+const EMPTY_HOOK_CATALOG_PATH = fileURLToPath(
+  new URL('../../acp-server/test/fixtures/empty-wrkf-hook-catalog.json', import.meta.url)
+)
 
 const ACTION = 'implement'
 const ACTOR = 'agent:curly-e2e'
@@ -104,6 +108,7 @@ describe('hrc external-ref cross-impl equivalence — real wrkf e2e (C-0009)', (
     lc = await createWrkfClientLifecycle({
       command: WRKF_BIN,
       dbPath,
+      hookCatalogPath: EMPTY_HOOK_CATALOG_PATH,
       clientInfo: { name: 'hrc-extref-equiv-e2e', version: '0.1.0' },
     })
   })

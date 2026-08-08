@@ -36,6 +36,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 
@@ -56,6 +57,9 @@ import type { SessionRef } from 'agent-scope'
 const WRKF_BIN = process.env['WRKF_BIN'] ?? 'wrkf'
 const WRKQ_BIN = process.env['WRKQ_BIN'] ?? 'wrkq'
 const WRKQADM_BIN = process.env['WRKQADM_BIN'] ?? 'wrkqadm'
+const EMPTY_HOOK_CATALOG_PATH = fileURLToPath(
+  new URL('../../acp-server/test/fixtures/empty-wrkf-hook-catalog.json', import.meta.url)
+)
 
 const ACTION = 'implement'
 const ACTOR = { kind: 'agent' as const, id: 'curly-e2e' }
@@ -139,6 +143,7 @@ describe('wrkf action launch/bind adapter — real wrkf e2e (C-0004)', () => {
     lc = await createWrkfClientLifecycle({
       command: WRKF_BIN,
       dbPath,
+      hookCatalogPath: EMPTY_HOOK_CATALOG_PATH,
       clientInfo: { name: 'action-launch-e2e', version: '0.1.0' },
     })
   })

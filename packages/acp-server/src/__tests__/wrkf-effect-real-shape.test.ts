@@ -62,6 +62,9 @@ const WRKQADM_BINARY = process.env['WRKQADM_BIN'] ?? 'wrkqadm'
 const DEMO_TEMPLATE_PATH = fileURLToPath(
   new URL('../../test/fixtures/demo-linear-template.json', import.meta.url)
 )
+const EMPTY_HOOK_CATALOG_PATH = fileURLToPath(
+  new URL('../../test/fixtures/empty-wrkf-hook-catalog.json', import.meta.url)
+)
 
 let fixtureDir = ''
 let fixtureDbPath = ''
@@ -108,6 +111,7 @@ describe('W5 real-process: @wrkq/client effect shape contract (fidelity guard)',
     const lifecycle = await createWrkfClientLifecycle({
       command: WRKF_BINARY,
       dbLocator: fixtureDbPath,
+      hookCatalogPath: EMPTY_HOOK_CATALOG_PATH,
       clientInfo: { name: 'acp-server-test-effect-shape-setup', version: '0.1.0' },
     })
     try {
@@ -163,6 +167,7 @@ describe('W5 real-process: @wrkq/client effect shape contract (fidelity guard)',
     const lc = await createWrkfClientLifecycle({
       command: WRKF_BINARY,
       dbLocator: fixtureDbPath,
+      hookCatalogPath: EMPTY_HOOK_CATALOG_PATH,
       clientInfo: { name: 'acp-server-test-effect-shape', version: '0.1.0' },
     })
     try {
@@ -212,6 +217,7 @@ describe('W5 real-process: @wrkq/client effect shape contract (fidelity guard)',
     const lc = await createWrkfClientLifecycle({
       command: WRKF_BINARY,
       dbLocator: fixtureDbPath,
+      hookCatalogPath: EMPTY_HOOK_CATALOG_PATH,
       clientInfo: { name: 'acp-server-test-effect-shape', version: '0.1.0' },
     })
     try {
@@ -275,6 +281,7 @@ describe('W5 real-process: @wrkq/client effect shape contract (fidelity guard)',
     const lc = await createWrkfClientLifecycle({
       command: WRKF_BINARY,
       dbLocator: fixtureDbPath,
+      hookCatalogPath: EMPTY_HOOK_CATALOG_PATH,
       clientInfo: { name: 'acp-server-test-effect-shape', version: '0.1.0' },
     })
     try {
@@ -329,6 +336,7 @@ describe('W5 real-process: @wrkq/client effect shape contract (fidelity guard)',
     const lc = await createWrkfClientLifecycle({
       command: WRKF_BINARY,
       dbLocator: fixtureDbPath,
+      hookCatalogPath: EMPTY_HOOK_CATALOG_PATH,
       clientInfo: { name: 'acp-server-test-effect-shape', version: '0.1.0' },
     })
     try {
@@ -359,6 +367,7 @@ describe('W5 real-process: @wrkq/client effect shape contract (fidelity guard)',
     const lc = await createWrkfClientLifecycle({
       command: WRKF_BINARY,
       dbLocator: fixtureDbPath,
+      hookCatalogPath: EMPTY_HOOK_CATALOG_PATH,
       clientInfo: { name: 'acp-server-test-effect-shape', version: '0.1.0' },
     })
     try {

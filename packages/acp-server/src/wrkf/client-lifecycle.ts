@@ -9,6 +9,8 @@ export interface WrkfLifecycleOptions {
   /** Legacy lifecycle input; normalized to dbLocator before client creation. */
   dbPath?: string | undefined
   clientInfo: { name: string; version: string }
+  /** Explicit wrkf hook authority catalog passed to the spawned RPC process. */
+  hookCatalogPath?: string | undefined
   /**
    * Canonical principal-only caller attribution for this client session
    * (T-05381). MUST be `agent:<id>`; bare slugs / actor UUIDs / system:* are
@@ -64,6 +66,7 @@ export async function createWrkfClientLifecycle(
     command: opts.command ?? process.env['WRKF_BIN'] ?? 'wrkf',
     dbLocator: dbLocator.trim(),
     clientInfo: opts.clientInfo,
+    ...(opts.hookCatalogPath !== undefined ? { hookCatalogPath: opts.hookCatalogPath } : {}),
     // Principal-only caller attribution (T-05381): forward the launch principal
     // so wrkq/wrkf mutations carry `created_by_principal_ref`. wrkq now rejects
     // mutations with no principal ("principalRef is required").

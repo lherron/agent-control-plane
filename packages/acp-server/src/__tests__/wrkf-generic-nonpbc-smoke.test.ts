@@ -67,6 +67,9 @@ const WRKQADM_BIN = process.env['WRKQADM_BIN'] ?? 'wrkqadm'
 const DEMO_TEMPLATE_PATH = fileURLToPath(
   new URL('../../test/fixtures/demo-linear-template.json', import.meta.url)
 )
+const EMPTY_HOOK_CATALOG_PATH = fileURLToPath(
+  new URL('../../test/fixtures/empty-wrkf-hook-catalog.json', import.meta.url)
+)
 const DEMO_WORKFLOW_REF = 'demo-linear@1'
 const ACTOR = 'agent:demo-tester'
 
@@ -130,6 +133,7 @@ describe('wrkf generic non-PBC smoke (T-02589)', () => {
     lc = await createWrkfClientLifecycle({
       command: WRKF_BIN,
       dbPath,
+      hookCatalogPath: EMPTY_HOOK_CATALOG_PATH,
       clientInfo: { name: 'nonpbc-smoke-test', version: '0.1.0' },
     })
     const wrkf = lc.wrkf as AcpWrkfWorkflowPort
