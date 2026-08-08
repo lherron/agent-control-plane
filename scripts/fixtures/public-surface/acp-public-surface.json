@@ -84,6 +84,7 @@
       "POST /v1/mobile/messages/dm",
       "POST /v1/mobile/messages/query",
       "POST /v1/mobile/pair",
+      "POST /v1/mobile/sessions",
       "POST /v1/mobile/sessions/:hostSessionId/input",
       "POST /v1/mobile/sessions/:hostSessionId/interrupt",
       "POST /v1/pbc/tasks/:taskId/continue",

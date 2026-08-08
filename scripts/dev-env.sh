@@ -60,6 +60,7 @@ ACP_LOG="${ROOT}/acp.log"
 PORT_FILE="${ROOT}/acp.port"
 HRC_SOCKET="${HRC_RUN_DIR}/hrc.sock"
 WRKQ_DB_FILE="${DB_DIR}/wrkq.db"
+WRKF_HOOK_CATALOG_FILE="${ROOT}/empty-hook-catalog.json"
 
 # Every agent id the suites may address. A fixture home is a directory plus an
 # agent-profile.toml — the marker spaces-config actually looks for; a bare
@@ -125,6 +126,13 @@ provision_wrkq_db() {
   fi
   log "initializing ephemeral wrkq db (${WRKQ_DB_FILE})"
   "${WRKQADM_BIN:-wrkqadm}" --db "${WRKQ_DB_FILE}" init >/dev/null
+}
+
+# Local wrkf RPC now fails closed unless its hook authority is explicit. The
+# ephemeral ACP gate does not execute external hooks, so give both the daemon
+# and real-process tests a deliberately empty, environment-owned catalog.
+provision_wrkf_hook_catalog() {
+  printf '%s\n' '{"schemaVersion":"wrkf.hook-catalog.v0","hooks":{}}' > "${WRKF_HOOK_CATALOG_FILE}"
 }
 
 # ---------------------------------------------------------------------------
@@ -243,6 +251,7 @@ start_acp() {
     ACP_AGENT_ASSETS_DIR="${ASSETS_DIR}" \
     ACP_RUNTIME_DIR="${ACP_RUN_DIR}" \
     ACP_CAP_CATALOG_STATE_DIR="${ROOT}/cap-catalog" \
+    WRKF_HOOK_CATALOG="${WRKF_HOOK_CATALOG_FILE}" \
     HRC_RUNTIME_DIR="${HRC_RUN_DIR}" \
     HRC_STATE_DIR="${HRC_STATE}" \
     ASP_AGENTS_ROOT="${AGENTS_DIR}" \
@@ -295,6 +304,7 @@ export ASP_AGENTS_ROOT='${AGENTS_DIR}'
 export ASP_PROJECT='agent-control-plane'
 export WRKQ_DB='${WRKQ_DB_FILE}'
 export ACP_WRKQ_DB='${WRKQ_DB_FILE}'
+export WRKF_HOOK_CATALOG='${WRKF_HOOK_CATALOG_FILE}'
 export ACP_BASE_URL='http://127.0.0.1:${port}'
 export ACP_PORT='${port}'
 export ACP_INTERFACE_DB_PATH='${DB_DIR}/acp-interface.db'
@@ -315,6 +325,7 @@ cmd_up() {
   provision_build
   provision_agents
   provision_wrkq_db
+  provision_wrkf_hook_catalog
   start_hrc
   start_acp
   write_env_file

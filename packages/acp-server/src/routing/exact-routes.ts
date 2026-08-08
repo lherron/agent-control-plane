@@ -28,6 +28,7 @@ import {
   handleReconcileManagedResources,
 } from '../handlers/managed-resources.js'
 import { handleCreateMessage } from '../handlers/messages.js'
+import { handleCreateMobileSession } from '../handlers/mobile-sessions-create.js'
 import {
   handleMobileDashboard,
   handleMobileDmTargets,
@@ -178,6 +179,7 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
     [exactRouteKey('GET', '/v1/mobile/health')]: handleMobileHealth,
     [exactRouteKey('GET', '/v1/mobile/pairing')]: handleMobilePairing,
     [exactRouteKey('POST', '/v1/mobile/pair')]: handleMobilePair,
+    [exactRouteKey('POST', '/v1/mobile/sessions')]: handleCreateMobileSession,
     [exactRouteKey('GET', '/v1/mobile/dashboard')]: handleMobileDashboard,
     [exactRouteKey('GET', '/v2/mobile/dashboard')]: handleMobileDashboard,
     [exactRouteKey('GET', '/v1/mobile/history')]: handleMobileHistory,

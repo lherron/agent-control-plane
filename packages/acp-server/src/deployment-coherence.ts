@@ -58,10 +58,10 @@ export const EXPECTED_CONSUMER_PRODUCERS = [
   },
   {
     setName: 'hrc',
-    setVersion: '0.1.0-dev.20260725013259',
+    setVersion: '0.1.0-dev.20260808102309',
     repository: 'hrc-runtime',
     canonicalRemote: 'git@github.com:lherron/hrc-runtime.git',
-    sourceCommit: '3952456c9a18d04672783ecff6a99dee158827db',
+    sourceCommit: '05dda9c19e11aaa1a8269caf0f3ceecbee51451d',
     packages: [
       'agent-action-render',
       'hrc-core',

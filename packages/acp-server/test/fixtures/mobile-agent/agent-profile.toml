@@ -1,0 +1,9 @@
+schemaVersion = 2
+
+[identity]
+display = "Mobile Test Agent"
+role = "test"
+harness = "claude-code"
+
+[spaces]
+base = []

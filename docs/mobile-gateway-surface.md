@@ -35,8 +35,17 @@ Routes:
 | `GET /v1/mobile/dm/targets` | http | DM target discovery. |
 | `POST /v1/mobile/messages/query`, `POST /v1/mobile/messages/dm` | http | Message query and semantic DM send. |
 | `GET /v1/mobile/messages/watch` | http/ws | Message watch stream. |
+| `POST /v1/mobile/sessions` | http | Provision a new suffix-roster session. The client supplies a stable `requestId` per button press; transport retries reuse it. |
 | `POST /v1/mobile/sessions/:hostSessionId/input` | http | Literal input to a session. |
 | `POST /v1/mobile/sessions/:hostSessionId/interrupt` | http | Interrupt a session. |
+
+`POST /v1/mobile/sessions` accepts `agentId`, `projectId`, optional
+`viewerWindow`, and `requestId`. The server derives an HRC idempotency key from
+`requestId`, passes only the base `:primary` scope to HRC's atomic suffix roster,
+and returns the actual claimed scope. `viewerWindow` defaults to
+`ACP_MOBILE_VIEWER_WINDOW`, or `console` when the environment variable is unset.
+The route uses the same loopback-trusted access convention as the rest of the
+embedded `/v1/mobile/*` surface; it does not add a separate authentication mode.
 
 `handlers/mobile.ts` (~2,000 lines) covers federation-node projection types
 (`FederationNodeRuntimeProjection`, `FederationPeerHealthObservation`, ...)
