@@ -49,7 +49,7 @@ const REMOTE_CONTROL_UNAVAILABLE_MESSAGE =
   'Remote timeline, history, literal input, and interrupt are unavailable in mobile federation Phase 1.'
 
 type MobileSessionMode = 'interactive' | 'headless'
-type MobileSessionStatus = 'active' | 'stale' | 'inactive'
+type MobileSessionStatus = 'active' | 'stale' | 'inactive' | 'detached'
 type MobileExecutionMode = 'interactive' | 'headless' | 'nonInteractive'
 type MobileSessionSourceKind = 'local_session' | 'remote_runtime_projection'
 type MobileNodeState = 'healthy' | 'unreachable' | 'refused' | 'invalid_response'
@@ -182,6 +182,7 @@ type MobileSessionIndex = {
     active: number
     stale: number
     inactive: number
+    detached: number
   }
   sessions: MobileSessionSummary[]
 }
@@ -368,6 +369,7 @@ function mobileStatus(status: string, runtime?: HrcRuntimeSnapshot): MobileSessi
     return 'inactive'
   }
   const runtimeStatus = runtime?.status.toLowerCase()
+  if (runtimeStatus === 'detached') return 'detached'
   if (runtimeStatus?.includes('stale')) return 'stale'
   if (
     runtime === undefined ||
@@ -508,6 +510,7 @@ function countSessions(sessions: MobileSessionSummary[]): MobileSessionIndex['co
     active: sessions.filter((session) => session.summaryStatus === 'active').length,
     stale: sessions.filter((session) => session.summaryStatus === 'stale').length,
     inactive: sessions.filter((session) => session.summaryStatus === 'inactive').length,
+    detached: sessions.filter((session) => session.summaryStatus === 'detached').length,
   }
 }
 
@@ -624,7 +627,7 @@ async function listMobileSessions(
   if (mode === 'interactive' || mode === 'headless') {
     sessions = sessions.filter((session) => session.mode === mode)
   }
-  if (status === 'active' || status === 'stale' || status === 'inactive') {
+  if (status === 'active' || status === 'stale' || status === 'inactive' || status === 'detached') {
     sessions = sessions.filter((session) => session.summaryStatus === status)
   }
   if (query !== undefined && query.length > 0) {
