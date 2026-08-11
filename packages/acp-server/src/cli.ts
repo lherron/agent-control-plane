@@ -2,7 +2,7 @@
 
 import { existsSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 
 import { openSqliteAdminStore } from 'acp-admin-store'
 import { startAcpCapabilityHost } from 'acp-capability-host'
@@ -469,14 +469,42 @@ export function resolveRealLauncherPlacement(
     return undefined
   }
 
-  const paths = resolveAgentPlacementPaths({
+  const resolverCwd = input.cwd ?? process.cwd()
+  let paths = resolveAgentPlacementPaths({
     agentId: parsedScope.agentId,
     ...(parsedScope.projectId !== undefined ? { projectId: parsedScope.projectId } : {}),
     agentRoot,
+    cwd: resolverCwd,
     env,
   })
+
+  if (parsedScope.projectId !== undefined && paths.projectRoot === undefined) {
+    const siblingCandidates = [join(resolverCwd, parsedScope.projectId)]
+    const agentsRoot = dirname(agentRoot)
+    const runtimeVarRoot = dirname(agentsRoot)
+    if (basename(agentsRoot) === 'agents' && basename(runtimeVarRoot) === 'var') {
+      siblingCandidates.push(join(dirname(runtimeVarRoot), parsedScope.projectId))
+    }
+
+    for (const siblingCandidate of siblingCandidates) {
+      paths = resolveAgentPlacementPaths({
+        agentId: parsedScope.agentId,
+        projectId: parsedScope.projectId,
+        agentRoot,
+        cwd: siblingCandidate,
+        env,
+      })
+      if (paths.projectRoot !== undefined) break
+    }
+
+    // A project-scoped placement without its checkout root is not a usable
+    // placement. Let the owning request boundary surface the typed not-found
+    // instead of minting a harness in the agent home.
+    if (paths.projectRoot === undefined) return undefined
+  }
+
   const projectRoot = paths.projectRoot
-  const cwd = paths.cwd ?? projectRoot ?? agentRoot
+  const cwd = projectRoot ?? paths.cwd ?? agentRoot
   const bundle = buildRuntimeBundleRef({
     agentName: parsedScope.agentId,
     agentRoot,

@@ -92,6 +92,24 @@ describe('resolveLaunchIntent admin-store project-root resolution', () => {
     const intent = await resolveLaunchIntent(deps, makeSessionRef('unregistered'))
 
     expect(intent.placement.projectRoot).toBe(WRONG_PROJECT_ROOT)
-    expect(intent.placement.cwd).toBe(WRONG_CWD)
+    expect(intent.placement.cwd).toBe(WRONG_PROJECT_ROOT)
+  })
+
+  test('rejects a project scope when neither runtime nor admin metadata resolves its root', async () => {
+    const adminStore = createInMemoryAdminStore()
+    const deps: LaunchIntentDeps = {
+      adminStore,
+      runtimeResolver: async () => ({
+        agentRoot: WRONG_AGENT_ROOT,
+        cwd: WRONG_AGENT_ROOT,
+        runMode: 'task',
+        bundle: { kind: 'spaces-snapshot', snapshotId: 'snap-1' },
+      }),
+      agentRootResolver: undefined,
+    }
+
+    await expect(resolveLaunchIntent(deps, makeSessionRef('unregistered'))).rejects.toThrow(
+      'project root not found for agent:tester:project:unregistered'
+    )
   })
 })

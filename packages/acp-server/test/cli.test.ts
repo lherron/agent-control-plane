@@ -374,6 +374,68 @@ describe('acp-server cli helpers', () => {
     }
   })
 
+  test('real launcher placement resolves a sibling checkout instead of falling back to agent home', () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'acp-cli-sibling-placement-'))
+    const agentsRoot = join(workspace, 'var', 'agents')
+    const agentRoot = join(agentsRoot, 'mable')
+    const daemonCwd = join(workspace, 'agent-control-plane')
+    const projectRoot = join(workspace, 'hrc-runtime')
+
+    try {
+      mkdirSync(agentRoot, { recursive: true })
+      mkdirSync(join(daemonCwd, '.git'), { recursive: true })
+      mkdirSync(join(projectRoot, '.git'), { recursive: true })
+      writeFileSync(join(agentRoot, 'agent-profile.toml'), 'schemaVersion = 2\n')
+
+      const placement = resolveRealLauncherPlacement(
+        {
+          scopeRef: 'agent:mable:project:hrc-runtime:task:primary-nova',
+          laneRef: 'main',
+        },
+        {
+          cwd: daemonCwd,
+          env: { ASP_AGENTS_ROOT: agentsRoot },
+        }
+      )
+
+      expect(placement).toMatchObject({
+        agentRoot,
+        projectRoot,
+        cwd: projectRoot,
+      })
+    } finally {
+      rmSync(workspace, { recursive: true, force: true })
+    }
+  })
+
+  test('real launcher refuses to mint an agent-home placement for an unresolved project scope', () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'acp-cli-unresolved-placement-'))
+    const agentsRoot = join(workspace, 'var', 'agents')
+    const agentRoot = join(agentsRoot, 'mable')
+    const daemonCwd = join(workspace, 'agent-control-plane')
+
+    try {
+      mkdirSync(agentRoot, { recursive: true })
+      mkdirSync(join(daemonCwd, '.git'), { recursive: true })
+      writeFileSync(join(agentRoot, 'agent-profile.toml'), 'schemaVersion = 2\n')
+
+      expect(
+        resolveRealLauncherPlacement(
+          {
+            scopeRef: 'agent:mable:project:missing-project:task:primary-nova',
+            laneRef: 'main',
+          },
+          {
+            cwd: daemonCwd,
+            env: { ASP_AGENTS_ROOT: agentsRoot },
+          }
+        )
+      ).toBeUndefined()
+    } finally {
+      rmSync(workspace, { recursive: true, force: true })
+    }
+  })
+
   test('real launcher wins over echo launcher and warns on conflicts', () => {
     const warn = mock(() => {})
     const originalWarn = console.warn

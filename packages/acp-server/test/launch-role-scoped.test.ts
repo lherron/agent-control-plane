@@ -248,7 +248,11 @@ describe('resolveLaunchIntent env injection', () => {
         interfaceStore: fixture.interfaceStore,
         inputAttemptStore: fixture.inputAttemptStore,
         runStore: fixture.runStore,
-        runtimeResolver: async () => ({ agentRoot: '/tmp/agents/pbc-writer' }),
+        runtimeResolver: async () => ({
+          agentRoot: '/tmp/agents/pbc-writer',
+          projectRoot: '/tmp/project',
+          cwd: '/tmp/project',
+        }),
       })
 
       const intent = await resolveLaunchIntent(
@@ -280,7 +284,11 @@ describe('resolveLaunchIntent env injection', () => {
         interfaceStore: fixture.interfaceStore,
         inputAttemptStore: fixture.inputAttemptStore,
         runStore: fixture.runStore,
-        runtimeResolver: async () => ({ agentRoot: '/tmp/agents/pbc-writer' }),
+        runtimeResolver: async () => ({
+          agentRoot: '/tmp/agents/pbc-writer',
+          projectRoot: '/tmp/project',
+          cwd: '/tmp/project',
+        }),
       })
 
       const intent = await resolveLaunchIntent(deps, {
