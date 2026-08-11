@@ -179,6 +179,8 @@ export type AcpHrcClient = Pick<
   | 'watch'
   | 'watchMessages'
 > & {
+  listSessionsPage?: HrcClient['listSessionsPage']
+  getSessionFacets?: HrcClient['getSessionFacets']
   listFederationPeerHealth?: HrcClient['listFederationPeerHealth']
   listFederatedRuntimes?: HrcClient['listFederatedRuntimes']
   probe?(request: Readonly<Record<string, unknown>>): Promise<{ outcome: 'idle' | 'work' }>

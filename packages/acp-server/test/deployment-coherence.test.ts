@@ -18,20 +18,20 @@ const aspBuild = {
   schema: 1 as const,
   repository: 'agent-spaces',
   canonicalRemote: 'git@github.com:lherron/agent-spaces.git',
-  sourceCommit: 'cd03ae8063afb5847477b311c3f923468b50c792',
+  sourceCommit: 'af49aeb49081136e0792e39dea001bbd3e8b8025',
   setName: 'asp' as const,
-  setVersion: '0.1.1-dev.20260810073522',
-  builtAt: '2026-08-10T12:35:22.267Z',
+  setVersion: '0.1.1-dev.20260811081345',
+  builtAt: '2026-08-11T13:13:44.973Z',
 }
 
 const hrcBuild = {
   schema: 1 as const,
   repository: 'hrc-runtime',
   canonicalRemote: 'git@github.com:lherron/hrc-runtime.git',
-  sourceCommit: '807ad93b630d7e6521595292d172f1efbfd98a07',
+  sourceCommit: 'b96a7bb50de8bf2070e988600eababb5b31d055c',
   setName: 'hrc' as const,
-  setVersion: '0.1.0-dev.20260810073702',
-  builtAt: '2026-08-10T12:37:02.160Z',
+  setVersion: '0.1.0-dev.20260811162355',
+  builtAt: '2026-08-11T21:23:54.719Z',
 }
 
 function lockEntry(name: string, version: string, lockKey = name): string {

@@ -93,10 +93,41 @@ function event(hrcSeq: number, overrides: Partial<HrcLifecycleEvent> = {}): HrcL
 function createDashboardClient(events: HrcLifecycleEvent[]): AcpHrcClient {
   return {
     listSessions: async () => [SESSION],
+    getSession: async () => SESSION,
     listRuntimes: async () => [RUNTIME],
     listLatestEventBySession: async () => [events.at(-1)].filter(Boolean) as HrcLifecycleEvent[],
     getLatestRunForSession: async () => RUN,
     listRuns: async () => [RUN],
+    listSessionsPage: async () => ({
+      items: [
+        {
+          nodeId: 'svc',
+          hostSessionId: SESSION.hostSessionId,
+          scopeRef: SESSION.scopeRef,
+          laneRef: SESSION.laneRef,
+          generation: SESSION.generation,
+          agentId: 'larry',
+          projectId: 'agent-spaces',
+          createdAt: NOW,
+          effectiveStatus: 'active',
+          executionMode: 'interactive',
+          lastActivityAt: NOW,
+        },
+      ],
+      eventHighWater: { svc: events.at(-1)?.hrcSeq ?? 0 },
+      complete: true,
+      peerStatus: {},
+    }),
+    getSessionFacets: async () => ({
+      total: 1,
+      byEffectiveStatus: { active: 1 },
+      byExecutionMode: { interactive: 1 },
+      byAgentId: { larry: 1 },
+      byNodeId: { svc: 1 },
+      complete: true,
+      peerStatus: {},
+    }),
+    getStatus: async () => ({ node: { nodeId: 'svc' } }) as never,
     watch: (options) =>
       (async function* () {
         const fromSeq = options?.fromSeq ?? 1
@@ -147,40 +178,54 @@ afterEach(() => {
 })
 
 describe('WS /v2/mobile/dashboard federation projection', () => {
-  test('sends the local snapshot first, then node-scoped remote runtime summaries', async () => {
-    const client = createDashboardClient([event(1)])
-    client.listFederationPeerHealth = async () => [
-      {
-        nodeId: 'max3',
-        state: 'healthy',
-        checkedAt: NOW,
-        answeredAt: NOW,
-        latencyMs: 8,
-        protocolVersion: '1',
-        capabilities: { accept: true, locate: true, health: true, runtimeProjection: true },
-      },
-    ]
-    const remoteRuntime: HrcRuntimeSnapshot = {
-      ...RUNTIME,
-      runtimeId: 'runtime-max3',
-      hostSessionId: 'hsid-collision-safe',
-      scopeRef: 'agent:daedalus:project:hrc-runtime',
-      generation: 4,
-      supportsInflightInput: true,
+  test('sends one bounded HRC-owned federated page, then page-derived node health', async () => {
+    const client = createDashboardClient([event(1), event(2)])
+    const latestEventRequests: unknown[] = []
+    client.listLatestEventBySession = async (filter) => {
+      latestEventRequests.push(filter)
+      return [event(2)]
     }
-    client.listFederatedRuntimes = async () => ({
-      localNodeId: 'svc',
-      generatedAt: NOW,
-      nodes: [
+    client.listSessionsPage = async () => ({
+      items: [
+        {
+          nodeId: 'svc',
+          hostSessionId: SESSION.hostSessionId,
+          scopeRef: SESSION.scopeRef,
+          laneRef: SESSION.laneRef,
+          generation: SESSION.generation,
+          agentId: 'larry',
+          projectId: 'agent-spaces',
+          createdAt: NOW,
+          effectiveStatus: 'active',
+          executionMode: 'interactive',
+          lastActivityAt: NOW,
+        },
         {
           nodeId: 'max3',
-          state: 'answered',
-          checkedAt: NOW,
-          answeredAt: NOW,
-          latencyMs: 7,
-          runtimes: [remoteRuntime],
+          hostSessionId: 'hsid-collision-safe',
+          scopeRef: 'agent:daedalus:project:hrc-runtime',
+          laneRef: 'main',
+          generation: 4,
+          agentId: 'daedalus',
+          projectId: 'hrc-runtime',
+          createdAt: NOW,
+          effectiveStatus: 'active',
+          executionMode: 'interactive',
+          lastActivityAt: NOW,
         },
       ],
+      eventHighWater: { svc: 1, max3: 12 },
+      complete: true,
+      peerStatus: { max3: { state: 'healthy', checkedAt: NOW } },
+    })
+    client.getSessionFacets = async () => ({
+      total: 2,
+      byEffectiveStatus: { active: 2 },
+      byExecutionMode: { interactive: 2 },
+      byAgentId: { larry: 1, daedalus: 1 },
+      byNodeId: { svc: 1, max3: 1 },
+      complete: true,
+      peerStatus: { max3: { state: 'healthy', checkedAt: NOW } },
     })
     const { ws, sent } = createDashboardSocket({
       hrcClient: client,
@@ -194,21 +239,36 @@ describe('WS /v2/mobile/dashboard federation projection', () => {
       'dashboard_snapshot',
       'federation_snapshot',
     ])
-    const localSessions = sent[0]!.sessions as SentEnvelope[]
-    expect(localSessions[0]!.session).toBeUndefined()
-    expect(localSessions[0]!.runtime).toBeUndefined()
-    expect(localSessions[0]!.run).toBeUndefined()
+    const pageSessions = sent[0]!.sessions as SentEnvelope[]
+    expect(pageSessions).toHaveLength(2)
+    expect(sent[0]!.cursors).toEqual({ lastHrcSeq: 1, lastStreamSeq: 101, nextFromHrcSeq: 2 })
+    expect(sent[0]!.pageInfo).toMatchObject({
+      localNodeId: 'svc',
+      eventHighWater: { svc: 1, max3: 12 },
+      complete: true,
+    })
+    expect(sent[0]!.facets).toMatchObject({ total: 2 })
+    expect(sent[0]!.recentEventsBySession).toEqual({
+      [`${SESSION.hostSessionId}:${SESSION.generation}`]: [expect.objectContaining({ hrcSeq: 1 })],
+    })
+    expect(sent).toContainEqual(expect.objectContaining({ type: 'hrc_event', hrcSeq: 2 }))
+    expect(latestEventRequests).toEqual([
+      { hostSessionId: SESSION.hostSessionId, generation: SESSION.generation },
+    ])
     const federation = sent[1]!
     expect(federation.localNodeId).toBe('svc')
     expect(federation.nodes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ nodeId: 'svc', state: 'healthy' }),
-        expect.objectContaining({ nodeId: 'max3', state: 'healthy', answeredAt: NOW }),
+        expect.objectContaining({
+          nodeId: 'max3',
+          state: 'healthy',
+          answeredAt: expect.any(String),
+        }),
       ])
     )
-    const sessions = federation.sessions as SentEnvelope[]
-    expect(sessions).toHaveLength(1)
-    expect(sessions[0]).toMatchObject({
+    expect(federation.sessions).toEqual([])
+    expect(pageSessions[1]).toMatchObject({
       nodeId: 'max3',
       sourceKind: 'remote_runtime_projection',
       sessionRef: 'agent:daedalus:project:hrc-runtime/lane:main',
@@ -228,14 +288,27 @@ describe('WS /v2/mobile/dashboard federation projection', () => {
     })
   })
 
-  test('keeps the local dashboard usable when federation calls fail', async () => {
+  test('keeps the local dashboard usable when the HRC page reports a failed peer', async () => {
     const client = createDashboardClient([event(1)])
-    client.listFederationPeerHealth = async () => {
-      throw new Error('peer health timed out')
-    }
-    client.listFederatedRuntimes = async () => {
-      throw new Error('runtime projection timed out')
-    }
+    client.listSessionsPage = async () => ({
+      items: [],
+      eventHighWater: { svc: 1 },
+      complete: false,
+      peerStatus: {
+        max3: { state: 'unreachable', checkedAt: NOW, detail: 'peer health timed out' },
+      },
+    })
+    client.getSessionFacets = async () => ({
+      total: 0,
+      byEffectiveStatus: {},
+      byExecutionMode: {},
+      byAgentId: {},
+      byNodeId: { svc: 0, max3: 0 },
+      complete: false,
+      peerStatus: {
+        max3: { state: 'unreachable', checkedAt: NOW, detail: 'peer health timed out' },
+      },
+    })
     const { ws, sent, closed } = createDashboardSocket({
       hrcClient: client,
       url: 'http://acp.local/v2/mobile/dashboard',
@@ -244,12 +317,17 @@ describe('WS /v2/mobile/dashboard federation projection', () => {
 
     await openMobileWebSocket(ws)
 
-    expect(sent[0]).toMatchObject({ type: 'dashboard_snapshot' })
+    expect(sent[0]).toMatchObject({
+      type: 'dashboard_snapshot',
+      pageInfo: { complete: false, peerStatus: { max3: 'unreachable' } },
+    })
     expect(sent[1]).toMatchObject({
       type: 'federation_snapshot',
       sessions: [],
+      nodes: expect.arrayContaining([
+        expect.objectContaining({ nodeId: 'max3', state: 'unreachable' }),
+      ]),
     })
-    expect(String(sent[1]!.detail)).toContain('peer health timed out')
     expect(closed).toEqual([])
   })
 
@@ -257,30 +335,34 @@ describe('WS /v2/mobile/dashboard federation projection', () => {
     const client = createDashboardClient([event(1)])
     const answeredAt = '2026-07-22T16:00:00.000Z'
     const checkedAt = '2026-07-22T17:00:00.000Z'
-    client.listFederationPeerHealth = async () => [
-      {
-        nodeId: 'max3',
-        state: 'unreachable',
-        checkedAt,
-        answeredAt,
-        latencyMs: 50,
-        detail: 'peer asleep',
-      },
-    ]
-    client.listFederatedRuntimes = async () => ({
-      localNodeId: 'svc',
-      generatedAt: checkedAt,
-      nodes: [
+    client.listSessionsPage = async () => ({
+      items: [
         {
           nodeId: 'max3',
-          state: 'unreachable',
-          checkedAt,
-          answeredAt,
-          latencyMs: 50,
-          detail: 'cached from last answer',
-          runtimes: [{ ...RUNTIME, runtimeId: 'runtime-cached-max3', status: 'active' }],
+          hostSessionId: 'hsid-cached-max3',
+          scopeRef: 'agent:daedalus:project:hrc-runtime',
+          laneRef: 'main',
+          generation: 4,
+          agentId: 'daedalus',
+          projectId: 'hrc-runtime',
+          createdAt: answeredAt,
+          effectiveStatus: 'active',
+          executionMode: 'interactive',
+          lastActivityAt: answeredAt,
         },
       ],
+      eventHighWater: { svc: 1 },
+      complete: false,
+      peerStatus: { max3: { state: 'unreachable', checkedAt, detail: 'peer asleep' } },
+    })
+    client.getSessionFacets = async () => ({
+      total: 1,
+      byEffectiveStatus: { active: 1 },
+      byExecutionMode: { interactive: 1 },
+      byAgentId: { daedalus: 1 },
+      byNodeId: { svc: 0, max3: 1 },
+      complete: false,
+      peerStatus: { max3: { state: 'unreachable', checkedAt, detail: 'peer asleep' } },
     })
     const { ws, sent } = createDashboardSocket({
       hrcClient: client,
@@ -290,24 +372,20 @@ describe('WS /v2/mobile/dashboard federation projection', () => {
 
     await openMobileWebSocket(ws)
 
-    const federation = sent[1]!
-    expect(federation.nodes).toEqual(
+    expect(sent[1]!.nodes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           nodeId: 'max3',
           state: 'unreachable',
-          checkedAt,
-          answeredAt,
         }),
       ])
     )
-    expect(federation.sessions).toEqual([
+    expect(sent[0]!.sessions).toEqual([
       expect.objectContaining({
         nodeId: 'max3',
         sourceKind: 'remote_runtime_projection',
         projectionState: 'unreachable',
         projectionCheckedAt: checkedAt,
-        projectionAnsweredAt: answeredAt,
         summaryStatus: 'active',
       }),
     ])

@@ -53,6 +53,7 @@
       "GET /v1/wrkf/pbc/tasks/:task/inspect",
       "GET /v1/wrkf/ping",
       "GET /v2/mobile/dashboard",
+      "GET /v2/mobile/sessions",
       "PATCH /v1/admin/agents/:agentId",
       "PATCH /v1/admin/agents/:agentId/profile",
       "PATCH /v1/admin/jobs/:jobId",

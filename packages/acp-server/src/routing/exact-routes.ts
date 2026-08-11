@@ -39,6 +39,7 @@ import {
   handleMobilePair,
   handleMobilePairing,
   handleMobileSemanticDm,
+  handleMobileSessionsPage,
 } from '../handlers/mobile.js'
 import { handleOpsDashboardEvents } from '../handlers/ops-dashboard-events.js'
 import { handleOpsDashboardSnapshot } from '../handlers/ops-dashboard-snapshot.js'
@@ -180,6 +181,7 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
     [exactRouteKey('GET', '/v1/mobile/pairing')]: handleMobilePairing,
     [exactRouteKey('POST', '/v1/mobile/pair')]: handleMobilePair,
     [exactRouteKey('POST', '/v1/mobile/sessions')]: handleCreateMobileSession,
+    [exactRouteKey('GET', '/v2/mobile/sessions')]: handleMobileSessionsPage,
     [exactRouteKey('GET', '/v1/mobile/dashboard')]: handleMobileDashboard,
     [exactRouteKey('GET', '/v2/mobile/dashboard')]: handleMobileDashboard,
     [exactRouteKey('GET', '/v1/mobile/history')]: handleMobileHistory,
