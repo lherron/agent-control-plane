@@ -48,12 +48,12 @@
     "spaces-harness-pi-sdk": "latest"
   },
   "overrides": {
-    "agent-action-render": "0.1.0-dev.20260811162355",
-    "hrc-core": "0.1.0-dev.20260811162355",
-    "hrc-events": "0.1.0-dev.20260811162355",
-    "hrc-frame-render": "0.1.0-dev.20260811162355",
-    "hrc-sdk": "0.1.0-dev.20260811162355",
-    "hrc-server": "0.1.0-dev.20260811162355",
-    "hrc-store-sqlite": "0.1.0-dev.20260811162355"
+    "agent-action-render": "0.1.0-dev.20260812070243",
+    "hrc-core": "0.1.0-dev.20260812070243",
+    "hrc-events": "0.1.0-dev.20260812070243",
+    "hrc-frame-render": "0.1.0-dev.20260812070243",
+    "hrc-sdk": "0.1.0-dev.20260812070243",
+    "hrc-server": "0.1.0-dev.20260812070243",
+    "hrc-store-sqlite": "0.1.0-dev.20260812070243"
   }
 }

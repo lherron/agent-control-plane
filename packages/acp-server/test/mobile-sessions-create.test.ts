@@ -7,6 +7,7 @@ import type { AcpHrcClient } from '../src/deps.js'
 import {
   deriveMobileSessionIdempotencyKey,
   resolveConfiguredMobileViewerWindow,
+  resolveMobileTaskId,
   resolveMobileViewerWindow,
 } from '../src/handlers/mobile-sessions-create.js'
 
@@ -81,6 +82,13 @@ describe('mobile session idempotency and viewer defaults', () => {
     )
     expect(resolveConfiguredMobileViewerWindow({ ACP_MOBILE_VIEWER_WINDOW: '  ' })).toBe('console')
   })
+
+  test('defaults legacy requests to primary and allowlists the three mobile scopes', () => {
+    expect(resolveMobileTaskId({})).toBe('primary')
+    expect(resolveMobileTaskId({ taskId: ' minisvc ' })).toBe('minisvc')
+    expect(resolveMobileTaskId({ taskId: 'minilab' })).toBe('minilab')
+    expect(() => resolveMobileTaskId({ taskId: 'primary-nova' })).toThrow(/taskId must be one of/)
+  })
 })
 
 describe('POST /v1/mobile/sessions', () => {
@@ -114,6 +122,7 @@ describe('POST /v1/mobile/sessions', () => {
         expect(starts[0]).toMatchObject({
           baseSessionRef: BASE_SESSION_REF,
           conflictPolicy: 'suffix',
+          summonIntent: 'implicit',
           idempotencyKey: deriveMobileSessionIdempotencyKey(REQUEST_ID),
           restartStyle: 'reuse_pty',
           runtimeIntent: {
@@ -131,6 +140,55 @@ describe('POST /v1/mobile/sessions', () => {
           },
         })
         expect('hostSessionId' in (starts[0] as unknown as Record<string, unknown>)).toBe(false)
+      },
+      { hrcClient, runtimeResolver }
+    )
+  })
+
+  test.each(['primary', 'minisvc', 'minilab'] as const)(
+    'passes the selected %s base scope to HRC',
+    async (taskId) => {
+      const starts: StartRuntimeRequest[] = []
+      const hrcClient = createHrcClient({ onStart: (request) => starts.push(request) })
+      await withWiredServer(
+        async ({ request }) => {
+          const response = await request({
+            method: 'POST',
+            path: '/v1/mobile/sessions',
+            body: { agentId: 'mable', projectId: 'hrc-runtime', taskId, requestId: REQUEST_ID },
+          })
+          expect(response.status).toBe(200)
+          expect(starts).toHaveLength(1)
+          expect(starts[0]).toMatchObject({
+            baseSessionRef: `agent:mable:project:hrc-runtime:task:${taskId}/lane:main`,
+            summonIntent: 'implicit',
+          })
+        },
+        { hrcClient, runtimeResolver }
+      )
+    }
+  )
+
+  test('rejects a task outside the mobile allowlist before calling HRC', async () => {
+    let starts = 0
+    const hrcClient = createHrcClient({ onStart: () => starts++ })
+    await withWiredServer(
+      async ({ request, json }) => {
+        const response = await request({
+          method: 'POST',
+          path: '/v1/mobile/sessions',
+          body: {
+            agentId: 'mable',
+            projectId: 'hrc-runtime',
+            taskId: 'minisvc-nova',
+            requestId: REQUEST_ID,
+          },
+        })
+        expect(response.status).toBe(400)
+        expect(await json<{ error: { code: string } }>(response)).toMatchObject({
+          error: { code: 'malformed_request' },
+        })
+        expect(starts).toBe(0)
       },
       { hrcClient, runtimeResolver }
     )

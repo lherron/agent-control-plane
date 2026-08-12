@@ -23,7 +23,9 @@ import type { RouteHandler } from '../routing/route-context.js'
 const DEFAULT_MOBILE_VIEWER_WINDOW = 'console'
 const MOBILE_VIEWER_WINDOW_ENV = 'ACP_MOBILE_VIEWER_WINDOW'
 const IDEMPOTENCY_KEY_PREFIX = 'acp-mobile-session:v1:'
-const ALLOWED_FIELDS = new Set(['agentId', 'projectId', 'viewerWindow', 'requestId'])
+const DEFAULT_MOBILE_TASK_ID = 'primary'
+const MOBILE_TASK_IDS = new Set(['primary', 'minisvc', 'minilab'])
+const ALLOWED_FIELDS = new Set(['agentId', 'projectId', 'taskId', 'viewerWindow', 'requestId'])
 
 type MobileSessionErrorCode =
   | 'session_roster_exhausted'
@@ -67,6 +69,18 @@ export function resolveMobileViewerWindow(
   return requested ?? configuredDefault
 }
 
+export function resolveMobileTaskId(body: Record<string, unknown>): string {
+  const taskId = readOptionalTrimmedStringField(body, 'taskId') ?? DEFAULT_MOBILE_TASK_ID
+  if (!MOBILE_TASK_IDS.has(taskId)) {
+    throw new HrcDomainError(
+      HrcErrorCode.MALFORMED_REQUEST,
+      'taskId must be one of primary, minisvc, or minilab',
+      { field: 'taskId' }
+    )
+  }
+  return taskId
+}
+
 function isMobileSessionErrorCode(code: string): code is MobileSessionErrorCode {
   return code in MOBILE_SESSION_ERROR_MESSAGES
 }
@@ -76,6 +90,7 @@ function mobileSessionErrorResponse(input: {
   requestId: string
   agentId: string
   projectId: string
+  taskId: string
 }): Response | undefined {
   if (!isMobileSessionErrorCode(input.error.code)) return undefined
 
@@ -86,6 +101,7 @@ function mobileSessionErrorResponse(input: {
         requestId: input.requestId,
         agentId: input.agentId,
         projectId: input.projectId,
+        taskId: input.taskId,
         details: input.error.detail,
       })}`
     )
@@ -112,11 +128,12 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
   const agentId = requireTrimmedStringField(body, 'agentId')
   const projectId = requireTrimmedStringField(body, 'projectId')
   const requestId = requireTrimmedStringField(body, 'requestId')
+  const taskId = resolveMobileTaskId(body)
   const viewerWindow = resolveMobileViewerWindow(
     readOptionalTrimmedStringField(body, 'viewerWindow')
   )
 
-  const baseScopeRef = buildScopeRef({ agentId, projectId, taskId: 'primary' })
+  const baseScopeRef = buildScopeRef({ agentId, projectId, taskId })
   // parseScopeRef is the token/grammar validation boundary for the separate
   // agentId and projectId request fields before any placement or HRC call.
   parseScopeRef(baseScopeRef)
@@ -145,6 +162,7 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
       baseSessionRef: formatSessionRef(baseSession),
       runtimeIntent,
       conflictPolicy: 'suffix',
+      summonIntent: 'implicit',
       idempotencyKey: deriveMobileSessionIdempotencyKey(requestId),
       restartStyle: 'reuse_pty',
     })
@@ -162,7 +180,13 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
     })
   } catch (error) {
     if (error instanceof HrcDomainError) {
-      const mapped = mobileSessionErrorResponse({ error, requestId, agentId, projectId })
+      const mapped = mobileSessionErrorResponse({
+        error,
+        requestId,
+        agentId,
+        projectId,
+        taskId,
+      })
       if (mapped !== undefined) return mapped
     }
     throw error
