@@ -4,8 +4,14 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { HrcDomainError, HrcErrorCode, type HrcRuntimeIntent } from 'hrc-core'
+import {
+  type HrcDispatchOrigin,
+  HrcDomainError,
+  HrcErrorCode,
+  type HrcRuntimeIntent,
+} from 'hrc-core'
 
+import { InMemoryInputAttemptStore } from '../src/domain/input-attempt-store.js'
 import { InMemoryRunStore } from '../src/domain/run-store.js'
 import {
   createRealLauncher,
@@ -13,7 +19,99 @@ import {
   toUnifiedAssistantMessageEndFromRawEvents,
 } from '../src/real-launcher.js'
 
+async function captureDispatchOrigin(input: {
+  actor: { kind: 'human' | 'agent' | 'system'; id: string }
+  metadata?: Readonly<Record<string, unknown>> | undefined
+}): Promise<HrcDispatchOrigin | undefined> {
+  const inputAttemptStore = new InMemoryInputAttemptStore()
+  const runStore = new InMemoryRunStore()
+  const sessionRef = {
+    scopeRef: 'agent:fettle:project:agent-control-plane:task:T-07237-origin-test',
+    laneRef: 'main' as const,
+  }
+  const attempt = inputAttemptStore.createAttempt({
+    sessionRef,
+    content: 'origin test',
+    actor: input.actor,
+    ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+  }).inputAttempt
+  const acpRun = runStore.createRun({
+    sessionRef,
+    actor: { kind: 'system', id: 'wrong-fallback-must-not-win' },
+    status: 'pending',
+  })
+  let origin: HrcDispatchOrigin | undefined
+  const launcher = createRealLauncher({
+    hrcDbPath: ':memory:',
+    inputAttemptStore,
+    createClient: () =>
+      ({
+        resolveSession: async () => ({
+          found: true,
+          hostSessionId: 'hsid-origin-test',
+          generation: 1,
+        }),
+        dispatchTurn: async (request: { origin?: HrcDispatchOrigin | undefined }) => {
+          origin = request.origin
+          return {
+            runId: 'hrc-run-origin-test',
+            hostSessionId: 'hsid-origin-test',
+            generation: 1,
+            runtimeId: 'rt-origin-test',
+            transport: 'headless',
+            status: 'accepted',
+          }
+        },
+      }) as unknown as any,
+  })
+
+  await launcher({
+    sessionRef,
+    intent: {
+      placement: {
+        agentRoot: '/tmp/fettle',
+        runMode: 'task',
+        bundle: { kind: 'compose', compose: [] },
+      },
+      harness: { provider: 'openai', interactive: false },
+      initialPrompt: 'origin test',
+    },
+    acpRunId: acpRun.runId,
+    inputAttemptId: attempt.inputAttemptId,
+    runStore,
+    waitForCompletion: false,
+  })
+
+  return origin
+}
+
 describe('real launcher helpers', () => {
+  test('threads agent origin and job-run causation from the durable input attempt', async () => {
+    expect(
+      await captureDispatchOrigin({
+        actor: { kind: 'agent', id: 'cody' },
+        metadata: {
+          source: { kind: 'job', jobId: 'job_t07237', jobRunId: 'jrun_t07237' },
+        },
+      })
+    ).toEqual({ actor: 'agent:cody', kind: 'agent', causationRef: 'jrun_t07237' })
+  })
+
+  test('threads human origin without causation for non-job input', async () => {
+    expect(
+      await captureDispatchOrigin({
+        actor: { kind: 'human', id: 'lherron' },
+        metadata: { source: { kind: 'interface', gatewayId: 'discord' } },
+      })
+    ).toEqual({ actor: 'human:lherron', kind: 'human' })
+  })
+
+  test('missing input metadata degrades to actor-only origin without blocking dispatch', async () => {
+    expect(
+      await captureDispatchOrigin({ actor: { kind: 'agent', id: 'agent:already-canonical' } })
+    ).toEqual({ actor: 'agent:already-canonical', kind: 'agent' })
+  })
+
   test('routes remote-bound interface runs through semantic messaging without resolving locally', async () => {
     const calls: string[] = []
     const runStore = new InMemoryRunStore()

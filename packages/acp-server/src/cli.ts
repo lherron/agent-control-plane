@@ -26,6 +26,7 @@ import {
   DEFAULT_AGENT_ASSETS_DIR,
   DEFAULT_INTERFACE_DB_PATH,
   DEFAULT_STATE_DB_PATH,
+  type InputAttemptStore,
   type ResolvedAcpServerDeps,
   resolveAcpServerDeps,
 } from './deps.js'
@@ -122,6 +123,7 @@ function readPositiveIntegerEnv(name: string): number | undefined {
 
 export interface ResolveLauncherDepsOptions {
   createHrcClient?: ((socketPath: string) => AcpHrcClient) | undefined
+  inputAttemptStore?: InputAttemptStore | undefined
 }
 
 export interface AcpServerCliOptions {
@@ -571,7 +573,9 @@ export function resolveLauncherDeps(
       verifyCommandTargetId !== undefined
 
     return {
-      launchRoleScopedRun: createRealLauncher(),
+      launchRoleScopedRun: createRealLauncher({
+        inputAttemptStore: _options.inputAttemptStore,
+      }),
       runLivenessResolver: (run) =>
         new Date(lastObservedActivityMs(run, resolveDatabasePath())).toISOString(),
       ...(triageCommandTargetId !== undefined ? { triageCommandTargetId } : {}),
@@ -976,7 +980,9 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     options.conversationDbPath !== undefined
       ? openSqliteConversationStore({ dbPath: options.conversationDbPath })
       : undefined
-  const launcherDeps = resolveLauncherDeps(process.env, process.cwd())
+  const launcherDeps = resolveLauncherDeps(process.env, process.cwd(), {
+    inputAttemptStore: stateStore.inputAttempts,
+  })
   const jobNodeIdentityAuthority =
     jobsStore !== undefined ? createJobNodeIdentityAuthority(launcherDeps.hrcClient) : undefined
   const jobIdentityStartup =
