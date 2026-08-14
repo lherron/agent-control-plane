@@ -195,7 +195,8 @@ trips are commonly agent-initiated and the event-job default denies agent
 origins, a job intended to observe those trips must declare an explicit
 `originPolicy`; causation-cycle and depth checks still run afterward.
 
-The bridge is activated only for the ACP-co-resident `svc` HRC node in v1.
+The bridge is activated only for the ACP-co-resident HRC node declared by HRC
+configuration authority in v1.
 Before dispatch, the built-in `hrc-first-turn-missing-notify` job's in-process
 flow probe compares `payload.nodeId` with ACP's HRC-backed job execution
 identity. A mismatch or unavailable identity logs a warning and completes as a
