@@ -112,6 +112,29 @@ const genericEvent = (overrides: Partial<AcpWebhookEvent> = {}): AcpWebhookEvent
   ...overrides,
 })
 
+const hrcEvent = (overrides: Partial<AcpWebhookEvent> = {}): AcpWebhookEvent => ({
+  schema_version: 1,
+  source: 'hrc',
+  event_id: 'max3:42',
+  canonical_event_id: 'hrc:max3:42',
+  event_seq: 42,
+  event: 'first_turn_missing',
+  occurred_at: '2026-08-14T20:00:00Z',
+  subject: { type: 'hrc-runtime', id: 'runtime-42' },
+  origin: { actor: 'agent:cody', kind: 'agent' },
+  payload: {
+    nodeId: 'max3',
+    runtimeId: 'runtime-42',
+    scopeRef: 'agent:cody:project:agent-control-plane:task:T-07237',
+    generation: 3,
+    invocationId: 'invocation-42',
+    runId: 'run-42',
+    tripEventId: '42',
+    retrievalHint: 'hrc runtime diagnostics 42',
+  },
+  ...overrides,
+})
+
 function eventJob(overrides: Partial<CreateJobInput> = {}): CreateJobInput {
   return {
     projectId: 'acp',
@@ -301,6 +324,164 @@ describe('event_inbox idempotency', () => {
 })
 
 describe('event-claim minting', () => {
+  test('hrc payload predicates mint and dispatch exactly once without wrkq fields', async () => {
+    const store = createInMemoryJobsStore()
+    const job = store.createJob({
+      projectId: 'agent-control-plane',
+      agentId: 'fettle',
+      scopeRef: 'agent:fettle:project:agent-control-plane:task:primary',
+      trigger: {
+        kind: 'event',
+        source: 'hrc',
+        match: {
+          event: 'first_turn_missing',
+          payload: {
+            runtimeId: { eq: 'runtime-42' },
+            tripEventId: { exists: true },
+          },
+        },
+        originPolicy: { agent: 'allow' },
+      },
+      input: {
+        content:
+          'HRC node {{payload.nodeId}} runtime {{payload.runtimeId}} missed its first turn. {{payload.retrievalHint}}',
+      },
+    }).job
+
+    const first = await ingestAndTick(store, hrcEvent(), '2026-08-14T20:01:00Z')
+    expect(first.runs.filter((run) => run.triggeredBy === 'webhook')).toHaveLength(1)
+    expect(first.calls).toEqual([
+      expect.objectContaining({
+        scopeRef: 'agent:fettle:project:agent-control-plane:task:primary',
+        content:
+          'HRC node max3 runtime runtime-42 missed its first turn. hrc runtime diagnostics 42',
+      }),
+    ])
+    expect(store.listEventJobMatches({ sourceEventId: 'hrc:max3:42' }).matches).toEqual([
+      expect.objectContaining({ jobId: job.jobId, outcome: 'minted' }),
+    ])
+
+    const duplicate = await ingestAndTick(store, hrcEvent(), '2026-08-14T20:02:00Z')
+    expect(duplicate.runs.filter((run) => run.triggeredBy === 'webhook')).toHaveLength(0)
+    expect(duplicate.calls).toHaveLength(0)
+    expect(store.listJobRuns(job.jobId).jobRuns).toHaveLength(1)
+  })
+
+  test('hrc origin policy blocks agent trips by default, allows them explicitly, and admits system trips', async () => {
+    const store = createInMemoryJobsStore()
+    const defaultDeny = store.createJob({
+      slug: 'hrc-default-deny',
+      projectId: 'agent-control-plane',
+      agentId: 'fettle',
+      scopeRef: 'agent:fettle:project:agent-control-plane:task:primary',
+      trigger: { kind: 'event', source: 'hrc', match: { event: 'first_turn_missing' } },
+      input: { content: '{{payload.retrievalHint}}' },
+    }).job
+    const explicitAllow = store.createJob({
+      slug: 'hrc-explicit-allow',
+      projectId: 'agent-control-plane',
+      agentId: 'fettle',
+      scopeRef: 'agent:fettle:project:agent-control-plane:task:primary',
+      trigger: {
+        kind: 'event',
+        source: 'hrc',
+        match: { event: 'first_turn_missing' },
+        originPolicy: { agent: 'allow' },
+      },
+      input: { content: '{{payload.retrievalHint}}' },
+    }).job
+
+    const agentTrip = await ingestAndTick(store, hrcEvent(), '2026-08-14T20:01:00Z')
+    expect(agentTrip.runs.filter((run) => run.triggeredBy === 'webhook')).toHaveLength(1)
+    expect(store.listEventJobMatches({ sourceEventId: 'hrc:max3:42' }).matches).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ jobId: defaultDeny.jobId, reason: 'agent_origin_blocked' }),
+        expect.objectContaining({ jobId: explicitAllow.jobId, outcome: 'minted' }),
+      ])
+    )
+
+    const systemTrip = await ingestAndTick(
+      store,
+      hrcEvent({
+        event_id: 'max3:43',
+        canonical_event_id: 'hrc:max3:43',
+        event_seq: 43,
+        origin: { actor: 'system:hrc', kind: 'system' },
+        payload: {
+          ...hrcEvent().payload,
+          tripEventId: '43',
+          retrievalHint: 'hrc runtime diagnostics 43',
+        },
+      }),
+      '2026-08-14T20:02:00Z'
+    )
+    expect(systemTrip.runs.filter((run) => run.triggeredBy === 'webhook')).toHaveLength(2)
+  })
+
+  test('hrc cooldown keys by subject runtime id', async () => {
+    const store = createInMemoryJobsStore()
+    const job = store.createJob({
+      projectId: 'agent-control-plane',
+      agentId: 'fettle',
+      scopeRef: 'agent:fettle:project:agent-control-plane:task:primary',
+      trigger: {
+        kind: 'event',
+        source: 'hrc',
+        match: { event: 'first_turn_missing' },
+        cooldown: '1h',
+      },
+      input: { content: '{{payload.retrievalHint}}' },
+    }).job
+    const systemOrigin = { actor: 'system:hrc', kind: 'system' }
+
+    const first = await ingestAndTick(
+      store,
+      hrcEvent({ origin: systemOrigin }),
+      '2026-08-14T20:01:00Z'
+    )
+    expect(first.runs.filter((run) => run.triggeredBy === 'webhook')).toHaveLength(1)
+
+    const sameRuntime = await ingestAndTick(
+      store,
+      hrcEvent({
+        event_id: 'max3:43',
+        canonical_event_id: 'hrc:max3:43',
+        event_seq: 43,
+        origin: systemOrigin,
+        payload: {
+          ...hrcEvent().payload,
+          tripEventId: '43',
+          retrievalHint: 'hrc runtime diagnostics 43',
+        },
+      }),
+      '2026-08-14T20:02:00Z'
+    )
+    expect(sameRuntime.runs.filter((run) => run.triggeredBy === 'webhook')).toHaveLength(0)
+    expect(store.listEventJobMatches({ sourceEventId: 'hrc:max3:43' }).matches[0]).toEqual(
+      expect.objectContaining({ reason: 'cooldown', targetTaskId: 'hrc-runtime:runtime-42' })
+    )
+
+    const otherRuntime = await ingestAndTick(
+      store,
+      hrcEvent({
+        event_id: 'max3:44',
+        canonical_event_id: 'hrc:max3:44',
+        event_seq: 44,
+        subject: { type: 'hrc-runtime', id: 'runtime-44' },
+        origin: systemOrigin,
+        payload: {
+          ...hrcEvent().payload,
+          runtimeId: 'runtime-44',
+          tripEventId: '44',
+          retrievalHint: 'hrc runtime diagnostics 44',
+        },
+      }),
+      '2026-08-14T20:03:00Z'
+    )
+    expect(otherRuntime.runs.filter((run) => run.triggeredBy === 'webhook')).toHaveLength(1)
+    expect(store.listJobRuns(job.jobId).jobRuns).toHaveLength(2)
+  })
+
   test('one event → two jobs → two distinct JobRuns + two outcome rows + distinct admission keys (check #3)', async () => {
     const store = createInMemoryJobsStore()
     store.createJob(eventJob({ slug: 'job-a' }))

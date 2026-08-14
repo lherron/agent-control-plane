@@ -10,6 +10,10 @@ Used by the upcoming ACP server and wrkq-backed ACP integrations.
 ACP event jobs. `WrkqWebhookEvent` remains the compatibility input for
 `/v1/webhooks/wrkq`; wrkq payloads are adapted into `AcpWebhookEvent` before
 the scheduler evaluates jobs. Generic producers use `/v1/webhooks/events`.
+HRC is a canonical producer there with `source: "hrc"`; its pointer-only rev3
+payload uses `<nodeId>:<tripEventSeq>` for globally unique event identity,
+identifies the originating node/runtime, and carries a producer-built diagnostics
+retrieval hint.
 
 Event trigger matching is deterministic: `trigger.source` is matched first,
 then declared predicates over event, subject, origin, wrkq compatibility fields,

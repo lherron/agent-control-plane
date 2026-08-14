@@ -56,6 +56,7 @@ import {
 } from './jobs/event-job-evaluator.js'
 import { advanceJobFlow } from './jobs/flow-engine.js'
 import { ensureDispatchTimeoutHealthJob } from './jobs/health-dispatch-timeout.js'
+import { ensureHrcFirstTurnMissingJob } from './jobs/hrc-first-turn-missing.js'
 import { createJobLifecycleEmitter } from './jobs/lifecycle-events.js'
 import {
   createJobNodeIdentityAuthority,
@@ -1045,6 +1046,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
   const resolvedDeps = resolveAcpServerDeps(serverDeps)
   if (jobsStore !== undefined) {
     ensureDispatchTimeoutHealthJob(jobsStore)
+    ensureHrcFirstTurnMissingJob(jobsStore)
   }
   const accessLogger = await createAccessLogger(process.env['ACP_ACCESS_LOG_PATH'])
   const bindHosts = resolveBindHosts(options.host)

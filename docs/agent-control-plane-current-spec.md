@@ -172,6 +172,36 @@ It validates the wrkq shape, adapts it into `AcpWebhookEvent`, and stores the
 normalized payload. Scheduler evaluation reads the normalized model; it must not
 assume inbox payloads are wrkq-only.
 
+HRC is a canonical producer on `POST /v1/webhooks/events`. Its rev3 envelope
+uses `source: "hrc"`, `<nodeId>:<tripEventSeq>` as `event_id`, the HRC ledger
+sequence as `event_seq`, the HRC reason code as `event` (`first_turn_missing`
+first), and the HRC-recorded timestamp as `occurred_at`. Qualifying the
+producer-local trip sequence with the logical HRC node id prevents two nodes
+sharing this listener from colliding on the durable `source:event_id` inbox key.
+It always carries both:
+
+- `subject: { "type": "hrc-runtime", "id": "<runtimeId>" }`, which gives
+  cooldowns the per-runtime target key `hrc-runtime:<runtimeId>`;
+- `origin`, recording the initiating principal and kind, with
+  `origin.causation_ref` set to the bare ACP job-run id for a job-created
+  dispatch. Unknown principals use `system:hrc` / `system`.
+
+The HRC payload contains only the pointer fields `nodeId`, `runtimeId`,
+`scopeRef`, `generation`, `invocationId`, `runId`, `tripEventId`, and
+`retrievalHint`. It never contains pane text, argv, or prompt material.
+`tripEventId` remains the node-local sequence used for retrieval;
+`retrievalHint` is producer-built and consumers use it verbatim. Since real HRC
+trips are commonly agent-initiated and the event-job default denies agent
+origins, a job intended to observe those trips must declare an explicit
+`originPolicy`; causation-cycle and depth checks still run afterward.
+
+The bridge is activated only for the ACP-co-resident `svc` HRC node in v1.
+Before dispatch, the built-in `hrc-first-turn-missing-notify` job's in-process
+flow probe compares `payload.nodeId` with ACP's HRC-backed job execution
+identity. A mismatch or unavailable identity logs a warning and completes as a
+no-op, so future cross-node enablement cannot silently execute against the wrong
+node. The comparison never derives node identity from a hostname or IP address.
+
 The wrkq v2 adapter keeps the producer payload and the Discord/system-events
 renderer contract separate. Minimal v2 payloads still require only
 `schema_version: 2`, `event_id`, `event_seq`, and `event`; current wrkq

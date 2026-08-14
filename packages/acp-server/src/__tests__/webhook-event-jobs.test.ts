@@ -187,6 +187,47 @@ function insertWrkqEvent(
   }).event
 }
 
+function insertHrcEvent(
+  store: ReturnType<typeof createInMemoryJobsStore>,
+  input: {
+    eventId: string
+    eventSeq: number
+    origin: { actor: string; kind: string; causation_ref?: string | undefined }
+    runtimeId?: string | undefined
+  }
+) {
+  const runtimeId = input.runtimeId ?? 'runtime-42'
+  const tripEventId = input.eventId.slice(input.eventId.lastIndexOf(':') + 1)
+  const payload = {
+    schema_version: 1,
+    source: 'hrc',
+    event_id: input.eventId,
+    canonical_event_id: `hrc:${input.eventId}`,
+    event_seq: input.eventSeq,
+    event: 'first_turn_missing',
+    occurred_at: '2026-08-14T20:00:00Z',
+    subject: { type: 'hrc-runtime', id: runtimeId },
+    origin: input.origin,
+    payload: {
+      nodeId: 'max3',
+      runtimeId,
+      scopeRef: 'agent:cody:project:agent-control-plane:task:T-07237',
+      generation: 3,
+      invocationId: 'invocation-42',
+      runId: 'run-42',
+      tripEventId,
+      retrievalHint: `hrc runtime diagnostics ${tripEventId}`,
+    },
+  }
+  return store.insertInboxEvent({
+    eventId: input.eventId,
+    eventSeq: input.eventSeq,
+    source: 'hrc',
+    event: 'first_turn_missing',
+    payload,
+  }).event
+}
+
 function appendWebhookRun(
   store: ReturnType<typeof createInMemoryJobsStore>,
   input: { jobId: string; eventId: string; eventSeq: number; jobRunId?: string | undefined }
@@ -370,6 +411,48 @@ describe('admin jobs trigger union', () => {
 })
 
 describe('event job origin policy evaluator', () => {
+  test('hrc agent origins require explicit allow while system:hrc uses the default policy', () => {
+    const store = createInMemoryJobsStore()
+    const defaultPolicy = store.createJob({
+      agentId: 'fettle',
+      projectId: 'agent-control-plane',
+      scopeRef: 'agent:fettle:project:agent-control-plane:task:primary',
+      trigger: { kind: 'event', source: 'hrc', match: { event: 'first_turn_missing' } },
+      input: { content: '{{payload.retrievalHint}}' },
+    }).job
+    const explicitAllow = store.createJob({
+      agentId: 'fettle',
+      projectId: 'agent-control-plane',
+      scopeRef: 'agent:fettle:project:agent-control-plane:task:primary',
+      trigger: {
+        kind: 'event',
+        source: 'hrc',
+        match: { event: 'first_turn_missing' },
+        originPolicy: { agent: 'allow' },
+      },
+      input: { content: '{{payload.retrievalHint}}' },
+    }).job
+    const evaluator = createEventJobEvaluator()
+    const agentEvent = insertHrcEvent(store, {
+      eventId: 'max3:45',
+      eventSeq: 1,
+      origin: { actor: 'agent:cody', kind: 'agent' },
+    })
+
+    expect(evaluator({ job: defaultPolicy, event: agentEvent, store })).toEqual({
+      decision: 'skip',
+      reason: 'agent_origin_blocked',
+    })
+    expect(evaluator({ job: explicitAllow, event: agentEvent, store }).decision).toBe('mint')
+
+    const systemEvent = insertHrcEvent(store, {
+      eventId: 'max3:46',
+      eventSeq: 2,
+      origin: { actor: 'system:hrc', kind: 'system' },
+    })
+    expect(evaluator({ job: defaultPolicy, event: systemEvent, store }).decision).toBe('mint')
+  })
+
   test('absent policy defaults to deny: all agent-origin events blocked', () => {
     expect(
       evaluateEventOriginPolicy({
@@ -441,6 +524,60 @@ describe('event job origin policy evaluator', () => {
 })
 
 describe('event job causation-chain evaluator', () => {
+  test('hrc bare job-run causation refs walk while opaque refs degrade benignly', () => {
+    const store = createInMemoryJobsStore()
+    const job = store.createJob({
+      agentId: 'fettle',
+      projectId: 'agent-control-plane',
+      scopeRef: 'agent:fettle:project:agent-control-plane:task:primary',
+      trigger: {
+        kind: 'event',
+        source: 'hrc',
+        match: { event: 'first_turn_missing' },
+        originPolicy: { agent: 'allow' },
+      },
+      input: { content: '{{payload.retrievalHint}}' },
+    }).job
+    const causalRun = store.appendJobRun({
+      jobId: job.jobId,
+      triggeredAt: '2026-08-14T19:59:00Z',
+      triggeredBy: 'webhook',
+      status: 'dispatched',
+      source: {
+        kind: 'webhook',
+        source: 'hrc',
+        eventId: 'max3:41',
+        canonicalEventId: 'hrc:max3:41',
+        eventSeq: 41,
+      },
+    }).jobRun
+    const evaluator = createEventJobEvaluator()
+    const liveRef = insertHrcEvent(store, {
+      eventId: 'max3:47',
+      eventSeq: 42,
+      origin: {
+        actor: 'agent:cody',
+        kind: 'agent',
+        causation_ref: causalRun.jobRunId,
+      },
+    })
+    expect(evaluator({ job, event: liveRef, store })).toEqual({
+      decision: 'skip',
+      reason: 'causation_cycle',
+    })
+
+    const opaqueRef = insertHrcEvent(store, {
+      eventId: 'max3:48',
+      eventSeq: 43,
+      origin: {
+        actor: 'agent:cody',
+        kind: 'agent',
+        causation_ref: 'opaque-unknown-token',
+      },
+    })
+    expect(evaluator({ job, event: opaqueRef, store }).decision).toBe('mint')
+  })
+
   test('A->B->A skips the second A dispatch with causation_cycle', () => {
     const store = createInMemoryJobsStore()
     const jobA = createAllowEventJob(store, { slug: 'job-a', agentId: 'scribe' })
@@ -690,6 +827,104 @@ describe('POST /v1/webhooks/events', () => {
       c: number
     }
     expect(count.c).toBe(1)
+  })
+
+  test('canonical hrc rev3 payload → 204 + one durable inbox row', async () => {
+    const { jobsStore, deps } = makeDeps()
+    const hrcPayload = {
+      schema_version: 1,
+      source: 'hrc',
+      event_id: 'max3:42',
+      event_seq: 42,
+      event: 'first_turn_missing',
+      occurred_at: '2026-08-14T20:00:00Z',
+      subject: { type: 'hrc-runtime', id: 'runtime-42' },
+      origin: { actor: 'agent:cody', kind: 'agent', causation_ref: 'jrun-42' },
+      payload: {
+        nodeId: 'max3',
+        runtimeId: 'runtime-42',
+        scopeRef: 'agent:cody:project:agent-control-plane:task:T-07237',
+        generation: 3,
+        invocationId: 'invocation-42',
+        runId: 'run-42',
+        tripEventId: '42',
+        retrievalHint: 'hrc runtime diagnostics 42',
+      },
+    }
+
+    const first = await call(
+      handleAcpEventWebhook,
+      jsonRequest('POST', '/v1/webhooks/events', hrcPayload),
+      deps
+    )
+    expect(first.status).toBe(204)
+    const row = jobsStore.getInboxEvent('hrc:max3:42').event
+    expect(row).toBeDefined()
+    expect(row?.source).toBe('hrc')
+    expect(row?.payload).toEqual(expect.objectContaining(hrcPayload))
+
+    const duplicate = await call(
+      handleAcpEventWebhook,
+      jsonRequest('POST', '/v1/webhooks/events', hrcPayload),
+      deps
+    )
+    expect(duplicate.status).toBe(204)
+    const count = jobsStore.sqlite.prepare('SELECT COUNT(*) AS c FROM event_inbox').get() as {
+      c: number
+    }
+    expect(count.c).toBe(1)
+
+    const { schema_version: _schemaVersion, ...missingSchema } = hrcPayload
+    const rejected = await call(
+      handleAcpEventWebhook,
+      jsonRequest('POST', '/v1/webhooks/events', missingSchema),
+      deps
+    )
+    expect(rejected.status).toBe(400)
+  })
+
+  test('same local HRC trip sequence from two nodes produces two inbox rows', async () => {
+    const { jobsStore, deps } = makeDeps()
+    const envelope = (nodeId: string, runtimeId: string) => ({
+      schema_version: 1,
+      source: 'hrc',
+      event_id: `${nodeId}:42`,
+      event_seq: 42,
+      event: 'first_turn_missing',
+      occurred_at: '2026-08-14T20:00:00Z',
+      subject: { type: 'hrc-runtime', id: runtimeId },
+      origin: { actor: 'system:hrc', kind: 'system' },
+      payload: {
+        nodeId,
+        runtimeId,
+        scopeRef: 'agent:cody:project:agent-control-plane:task:T-07237',
+        generation: 3,
+        invocationId: `invocation-${nodeId}`,
+        runId: `run-${nodeId}`,
+        tripEventId: '42',
+        retrievalHint: 'hrc runtime diagnostics 42',
+      },
+    })
+
+    const max3 = await call(
+      handleAcpEventWebhook,
+      jsonRequest('POST', '/v1/webhooks/events', envelope('max3', 'runtime-max3')),
+      deps
+    )
+    const svc = await call(
+      handleAcpEventWebhook,
+      jsonRequest('POST', '/v1/webhooks/events', envelope('svc', 'runtime-svc')),
+      deps
+    )
+
+    expect(max3.status).toBe(204)
+    expect(svc.status).toBe(204)
+    expect(jobsStore.getInboxEvent('hrc:max3:42').event).toBeDefined()
+    expect(jobsStore.getInboxEvent('hrc:svc:42').event).toBeDefined()
+    const count = jobsStore.sqlite.prepare('SELECT COUNT(*) AS c FROM event_inbox').get() as {
+      c: number
+    }
+    expect(count.c).toBe(2)
   })
 
   test('invalid generic envelope → 400', async () => {
