@@ -76,7 +76,7 @@ function hrcFirstTurnMissingJobInput() {
     input: {
       nodeId: '{{payload.nodeId}}',
       content:
-        'HRC first-turn-missing notification\n\nNode: {{payload.nodeId}}\nScope: {{payload.scopeRef}}\nRuntime: {{payload.runtimeId}}\nGeneration: {{payload.generation}}\nInvocation: {{payload.invocationId}}\nRun: {{payload.runId}}\n\n{{payload.retrievalHint}}',
+        'HRC first-turn-missing notification\n\nOrigin: {{origin_actor}} ({{origin_kind}})\nNode: {{payload.nodeId}}\nScope: {{payload.scopeRef}}\nRuntime: {{payload.runtimeId}}\nGeneration: {{payload.generation}}\nInvocation: {{payload.invocationId}}\nRun: {{payload.runId}}\n\n{{payload.retrievalHint}}',
     },
     flow,
     disabled: false,

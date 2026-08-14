@@ -90,6 +90,7 @@ describe('HRC first-turn-missing built-in job', () => {
           originPolicy: { agent: 'allow' },
         },
       })
+      expect(first.input.content).toContain('Origin: {{origin_actor}} ({{origin_kind}})')
       expect(first.input.content).toEndWith('{{payload.retrievalHint}}')
       expect(first.flow?.sequence.map((step) => [step.id, step.kind])).toEqual([
         ['verify_local_node', 'probe'],
@@ -133,7 +134,7 @@ describe('HRC first-turn-missing built-in job', () => {
         {
           scopeRef: 'agent:fettle:project:agent-control-plane:task:primary',
           content:
-            'HRC first-turn-missing notification\n\nNode: max3\nScope: agent:cody:project:agent-control-plane:task:T-07237\nRuntime: runtime-42\nGeneration: 3\nInvocation: invocation-42\nRun: run-42\n\nhrc runtime diagnostics 42',
+            'HRC first-turn-missing notification\n\nOrigin: agent:cody (agent)\nNode: max3\nScope: agent:cody:project:agent-control-plane:task:T-07237\nRuntime: runtime-42\nGeneration: 3\nInvocation: invocation-42\nRun: run-42\n\nhrc runtime diagnostics 42',
         },
       ])
       expect(store.listJobRuns(job.jobId).jobRuns).toHaveLength(1)
