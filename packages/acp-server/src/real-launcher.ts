@@ -253,18 +253,21 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
     let dispatched: Awaited<ReturnType<typeof client.dispatchTurn>>
     try {
       dispatched = await client.dispatchTurn(
-        withHrcDispatchOrigin(
-          {
-            hostSessionId: targetSession.hostSessionId,
-            prompt,
-            ...(normalizedIntent.attachments !== undefined
-              ? { attachments: normalizedIntent.attachments }
-              : {}),
-            fences: dispatchFence,
-            runtimeIntent: normalizedIntent,
-            waitForCompletion: shouldWaitForCompletion,
-          },
-          dispatchOrigin
+        withFirstTurnTimeout(
+          withHrcDispatchOrigin(
+            {
+              hostSessionId: targetSession.hostSessionId,
+              prompt,
+              ...(normalizedIntent.attachments !== undefined
+                ? { attachments: normalizedIntent.attachments }
+                : {}),
+              fences: dispatchFence,
+              runtimeIntent: normalizedIntent,
+              waitForCompletion: shouldWaitForCompletion,
+            },
+            dispatchOrigin
+          ),
+          resolveFirstTurnTimeoutOverrideMs(sessionRef.scopeRef)
         )
       )
     } catch (error) {
@@ -387,6 +390,29 @@ function withHrcDispatchOrigin<T extends object>(
   origin: HrcDispatchOrigin | undefined
 ): T & { origin?: HrcDispatchOrigin } {
   return origin === undefined ? request : { ...request, origin }
+}
+
+// Env-gated, scope-exact passthrough of HRC's per-request first_turn_missing
+// watchdog override (DispatchTurnRequest.firstTurnTimeoutMs, T-07235). Both
+// variables must be set and the dispatch scope must match byte-for-byte;
+// every other dispatch keeps the fleet's global default. The knob exists only
+// in the server environment — unset + restart removes the surface entirely —
+// so a drill can shorten one scope's deadline without minting spurious
+// first_turn_missing terminal failures on unrelated production dispatches.
+function resolveFirstTurnTimeoutOverrideMs(scopeRef: string): number | undefined {
+  const scope = process.env['ACP_HRC_FIRST_TURN_TIMEOUT_SCOPE']?.trim()
+  if (scope === undefined || scope.length === 0 || scope !== scopeRef) {
+    return undefined
+  }
+  const ms = Number(process.env['ACP_HRC_FIRST_TURN_TIMEOUT_MS']?.trim())
+  return Number.isSafeInteger(ms) && ms > 0 ? ms : undefined
+}
+
+function withFirstTurnTimeout<T extends object>(
+  request: T,
+  firstTurnTimeoutMs: number | undefined
+): T & { firstTurnTimeoutMs?: number } {
+  return firstTurnTimeoutMs === undefined ? request : { ...request, firstTurnTimeoutMs }
 }
 
 function findLaunchIdForRun(hrcDbPath: string, runId: string): string | undefined {

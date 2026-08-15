@@ -112,6 +112,106 @@ describe('real launcher helpers', () => {
     ).toEqual({ actor: 'agent:already-canonical', kind: 'agent' })
   })
 
+  describe('first-turn timeout override passthrough', () => {
+    const OVERRIDE_SCOPE = 'agent:fettle:project:agent-control-plane:task:T-07237-origin-test'
+
+    async function captureFirstTurnTimeout(env: {
+      scope?: string | undefined
+      ms?: string | undefined
+    }): Promise<number | undefined> {
+      const priorScope = process.env['ACP_HRC_FIRST_TURN_TIMEOUT_SCOPE']
+      const priorMs = process.env['ACP_HRC_FIRST_TURN_TIMEOUT_MS']
+      if (env.scope === undefined)
+        Reflect.deleteProperty(process.env, 'ACP_HRC_FIRST_TURN_TIMEOUT_SCOPE')
+      else process.env['ACP_HRC_FIRST_TURN_TIMEOUT_SCOPE'] = env.scope
+      if (env.ms === undefined) Reflect.deleteProperty(process.env, 'ACP_HRC_FIRST_TURN_TIMEOUT_MS')
+      else process.env['ACP_HRC_FIRST_TURN_TIMEOUT_MS'] = env.ms
+
+      const inputAttemptStore = new InMemoryInputAttemptStore()
+      const runStore = new InMemoryRunStore()
+      const sessionRef = { scopeRef: OVERRIDE_SCOPE, laneRef: 'main' as const }
+      const attempt = inputAttemptStore.createAttempt({
+        sessionRef,
+        content: 'timeout override test',
+        actor: { kind: 'agent', id: 'mable' },
+      }).inputAttempt
+      const acpRun = runStore.createRun({
+        sessionRef,
+        actor: { kind: 'agent', id: 'mable' },
+        status: 'pending',
+      })
+      let captured: number | undefined
+      try {
+        const launcher = createRealLauncher({
+          hrcDbPath: ':memory:',
+          inputAttemptStore,
+          createClient: () =>
+            ({
+              resolveSession: async () => ({
+                found: true,
+                hostSessionId: 'hsid-timeout-test',
+                generation: 1,
+              }),
+              dispatchTurn: async (request: { firstTurnTimeoutMs?: number | undefined }) => {
+                captured = request.firstTurnTimeoutMs
+                return {
+                  runId: 'hrc-run-timeout-test',
+                  hostSessionId: 'hsid-timeout-test',
+                  generation: 1,
+                  runtimeId: 'rt-timeout-test',
+                  transport: 'headless',
+                  status: 'accepted',
+                }
+              },
+            }) as unknown as any,
+        })
+        await launcher({
+          sessionRef,
+          intent: {
+            placement: {
+              agentRoot: '/tmp/fettle',
+              runMode: 'task',
+              bundle: { kind: 'compose', compose: [] },
+            },
+            harness: { provider: 'openai', interactive: false },
+            initialPrompt: 'timeout override test',
+          },
+          acpRunId: acpRun.runId,
+          inputAttemptId: attempt.inputAttemptId,
+          runStore,
+          waitForCompletion: false,
+        })
+      } finally {
+        if (priorScope === undefined)
+          Reflect.deleteProperty(process.env, 'ACP_HRC_FIRST_TURN_TIMEOUT_SCOPE')
+        else process.env['ACP_HRC_FIRST_TURN_TIMEOUT_SCOPE'] = priorScope
+        if (priorMs === undefined)
+          Reflect.deleteProperty(process.env, 'ACP_HRC_FIRST_TURN_TIMEOUT_MS')
+        else process.env['ACP_HRC_FIRST_TURN_TIMEOUT_MS'] = priorMs
+      }
+      return captured
+    }
+
+    test('passes the override only when scope matches exactly', async () => {
+      expect(await captureFirstTurnTimeout({ scope: OVERRIDE_SCOPE, ms: '1000' })).toBe(1000)
+    })
+
+    test('does not pass the override for a different scope', async () => {
+      expect(
+        await captureFirstTurnTimeout({
+          scope: 'agent:smokey:project:hrc-runtime:task:bridge-echo',
+          ms: '1000',
+        })
+      ).toBeUndefined()
+    })
+
+    test('does not pass the override when env is unset or malformed', async () => {
+      expect(await captureFirstTurnTimeout({})).toBeUndefined()
+      expect(await captureFirstTurnTimeout({ scope: OVERRIDE_SCOPE, ms: 'soon' })).toBeUndefined()
+      expect(await captureFirstTurnTimeout({ scope: OVERRIDE_SCOPE, ms: '-5' })).toBeUndefined()
+    })
+  })
+
   test('routes remote-bound interface runs through semantic messaging without resolving locally', async () => {
     const calls: string[] = []
     const runStore = new InMemoryRunStore()
