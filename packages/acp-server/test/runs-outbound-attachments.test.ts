@@ -194,6 +194,107 @@ describe('run outbound attachments', () => {
     }
   })
 
+  test('POST current resolves the active ACP run from HRC host-session identity', async () => {
+    const mediaStateDir = mkdtempSync(join(tmpdir(), 'acp-outbound-media-'))
+
+    try {
+      await withWiredServer(
+        async (fixture) => {
+          const created = fixture.runStore.createRun({ sessionRef })
+          fixture.runStore.setDispatchFence(created.runId, {
+            expectedHostSessionId: 'hsid-outbound',
+            expectedGeneration: 3,
+          })
+          const run = fixture.runStore.updateRun(created.runId, {
+            status: 'pending',
+            hostSessionId: 'hsid-outbound',
+            generation: 3,
+          })
+
+          const response = await postAttachment({
+            fixture,
+            runId: 'current',
+            file: new File(['current-run'], 'current.txt', { type: 'text/plain' }),
+            headers: {
+              HRC_HOST_SESSION_ID: 'hsid-outbound',
+              HRC_GENERATION: '3',
+            },
+          })
+          const payload = await fixture.json<UploadResponse>(response)
+
+          expect(response.status).toBe(201)
+          expect(payload.filename).toBe('current.txt')
+          expect(fixture.interfaceStore.outboundAttachments.listForRun(run.runId)).toEqual([
+            expect.objectContaining({
+              outboundAttachmentId: payload.outboundAttachmentId,
+              runId: run.runId,
+              filename: 'current.txt',
+            }),
+          ])
+        },
+        { mediaStateDir }
+      )
+    } finally {
+      rmSync(mediaStateDir, { recursive: true, force: true })
+    }
+  })
+
+  test('GET current uses HRC generation to disambiguate active runs for one host session', async () => {
+    await withWiredServer(async (fixture) => {
+      const older = fixture.runStore.createRun({ sessionRef, status: 'running' })
+      fixture.runStore.updateRun(older.runId, {
+        hostSessionId: 'hsid-shared',
+        generation: 2,
+      })
+      const current = fixture.runStore.createRun({ sessionRef, status: 'running' })
+      fixture.runStore.updateRun(current.runId, {
+        hostSessionId: 'hsid-shared',
+        generation: 3,
+      })
+      fixture.interfaceStore.outboundAttachments.create({
+        runId: current.runId,
+        path: '/tmp/current.txt',
+        filename: 'current.txt',
+        contentType: 'text/plain',
+        sizeBytes: 7,
+      })
+
+      const response = await fixture.request({
+        method: 'GET',
+        path: '/v1/runs/current/outbound-attachments',
+        headers: {
+          HRC_HOST_SESSION_ID: 'hsid-shared',
+          HRC_GENERATION: '3',
+        },
+      })
+      const payload = await fixture.json<{ attachments: UploadResponse[] }>(response)
+
+      expect(response.status).toBe(200)
+      expect(payload.attachments).toEqual([
+        expect.objectContaining({ runId: current.runId, filename: 'current.txt' }),
+      ])
+    })
+  })
+
+  test('GET current fails closed when host-session identity matches multiple active runs', async () => {
+    await withWiredServer(async (fixture) => {
+      for (let index = 0; index < 2; index += 1) {
+        const run = fixture.runStore.createRun({ sessionRef, status: 'running' })
+        fixture.runStore.updateRun(run.runId, { hostSessionId: 'hsid-ambiguous' })
+      }
+
+      const response = await fixture.request({
+        method: 'GET',
+        path: '/v1/runs/current/outbound-attachments',
+        headers: { HRC_HOST_SESSION_ID: 'hsid-ambiguous' },
+      })
+      const payload = await fixture.json<ErrorResponse>(response)
+
+      expect(response.status).toBe(409)
+      expect(payload.error.code).toBe('current_run_ambiguous')
+    })
+  })
+
   test('POST attachment is captured onto the next gateway delivery body', async () => {
     const mediaStateDir = mkdtempSync(join(tmpdir(), 'acp-outbound-media-'))
 
@@ -307,6 +408,52 @@ describe('run outbound attachments', () => {
       expect(response.status).toBe(404)
       expect(payload.error.code).toBe('run_not_found')
     })
+  })
+
+  test('POST identifies an unmapped HRC-shaped id instead of reporting run_not_found', async () => {
+    await withWiredServer(async (fixture) => {
+      const hrcRunId = 'run-5cc46aef-a323-4889-9dc0-cd114c72c10c'
+      const response = await postAttachment({
+        fixture,
+        runId: hrcRunId,
+        file: new File([new Uint8Array([1])], 'image.png', { type: 'image/png' }),
+        headers: correlationHeaders(hrcRunId),
+      })
+      const payload = await fixture.json<ErrorResponse>(response)
+
+      expect(response.status).toBe(400)
+      expect(payload.error.code).toBe('run_id_kind_mismatch')
+      expect(payload.error.message).toContain('HRC run id')
+      expect(payload.error.message).toContain('run-<uuid>')
+      expect(payload.error.message).toContain('ACP run id')
+      expect(payload.error.message).toContain('run_<hex12>')
+    })
+  })
+
+  test('POST accepts an HRC-shaped id when its ACP mapping is already known', async () => {
+    const mediaStateDir = mkdtempSync(join(tmpdir(), 'acp-outbound-media-'))
+
+    try {
+      await withWiredServer(
+        async (fixture) => {
+          const hrcRunId = 'run-5cc46aef-a323-4889-9dc0-cd114c72c10c'
+          const created = createRunningRun(fixture)
+          fixture.runStore.updateRun(created.runId, { hrcRunId })
+
+          const response = await postAttachment({
+            fixture,
+            runId: hrcRunId,
+            file: new File(['mapped'], 'mapped.txt', { type: 'text/plain' }),
+            headers: correlationHeaders(hrcRunId),
+          })
+
+          expect(response.status).toBe(201)
+        },
+        { mediaStateDir }
+      )
+    } finally {
+      rmSync(mediaStateDir, { recursive: true, force: true })
+    }
   })
 
   test('POST rejects completed runs with 409', async () => {

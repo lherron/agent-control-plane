@@ -44,6 +44,27 @@ The obsolete ACP-authoritative workflow commands were removed:
 `acp task create`, `acp workflow publish|supervise|supervisor-context|interact|action`,
 `acp workflow patch list|show`, and the `acp supervise` alias.
 
+## Current-run outbound attachments
+
+Inside an ACP-dispatched HRC turn, omit `--run` to attach to that turn's active
+ACP run:
+
+```bash
+acp run attachment add ./report.pdf --alt "Rendered report"
+acp run attachment list --json
+```
+
+The CLI sends `HRC_HOST_SESSION_ID` and `HRC_GENERATION` as correlation context;
+the server resolves the single active ACP run for that host session. This works
+while the ACP run is still pending and its eventual HRC run id has not yet been
+written back. Outside an HRC turn, or for operator/debug access, pass an explicit
+ACP run id with `--run run_<hex12>`.
+
+`run-<uuid>` is an HRC run id, not an ACP `run_<hex12>` id. The server translates
+an HRC id only when its ACP mapping is already durable; otherwise it returns
+`run_id_kind_mismatch` and directs the caller to omit `--run` for current-run
+resolution.
+
 ## Workflow Task Commands
 
 The task lifecycle commands are wrappers over the running ACP server's
