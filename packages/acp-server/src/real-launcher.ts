@@ -199,27 +199,35 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
         persistFenceDispatchError(runStore, acpRunId, error)
         throw error
       }
+      const deliveredHrcRunId = normalizeOptionalRunId(delivered.runId)
+      const deliveredRuntimeId = delivered.runtimeId ?? liveTmuxRuntime.runtimeId
+      const hrcRunCorrelation = tmuxHrcRunCorrelationPatch(deliveredHrcRunId)
 
       updateAcpRun(runStore, acpRunId, {
         status: 'running',
+        ...hrcRunCorrelation,
         hostSessionId: delivered.hostSessionId,
         generation: delivered.generation,
-        runtimeId: delivered.runtimeId ?? liveTmuxRuntime.runtimeId,
+        runtimeId: deliveredRuntimeId,
         transport: 'tmux',
         afterHrcSeq: latestAssistantSeq,
       })
 
       if (shouldWaitForCompletion && onEvent !== undefined) {
-        const assistantMessage = await pollAssistantMessageAfterSeq({
+        const assistantMessage = await waitForTmuxAssistantMessage({
           hrcDbPath,
+          deliveredHrcRunId,
           hostSessionId: delivered.hostSessionId,
           sessionRef,
           afterHrcSeq: latestAssistantSeq,
           timeoutMs: waitTimeoutMs,
+          pollIntervalMs,
+          runStore,
+          acpRunId,
         })
         if (assistantMessage === undefined) {
           throw new Error(
-            `HRC tmux runtime ${delivered.runtimeId ?? liveTmuxRuntime.runtimeId} did not produce an assistant reply event${acpCorrelationId !== undefined ? ` for ${acpCorrelationId}` : ''}`
+            `HRC tmux runtime ${deliveredRuntimeId} did not produce an assistant reply event${acpCorrelationId !== undefined ? ` for ${acpCorrelationId}` : ''}`
           )
         }
         await onEvent(assistantMessage)
@@ -230,17 +238,13 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
         })
       }
 
-      return {
-        runId: delivered.hostSessionId,
-        sessionId: delivered.hostSessionId,
+      return buildTmuxLaunchResult({
+        hrcDbPath,
+        hrcRunId: deliveredHrcRunId,
         hostSessionId: delivered.hostSessionId,
-        runtimeId: delivered.runtimeId ?? liveTmuxRuntime.runtimeId,
-        launchId: findLatestLaunchId(hrcDbPath, {
-          hostSessionId: delivered.hostSessionId,
-          runtimeId: delivered.runtimeId ?? liveTmuxRuntime.runtimeId,
-        }),
+        runtimeId: deliveredRuntimeId,
         generation: delivered.generation,
-      }
+      })
     }
 
     const targetSession = resolved
@@ -343,6 +347,98 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
       generation: dispatched.generation,
     }
   }
+}
+
+function normalizeOptionalRunId(runId: string | undefined): string | undefined {
+  const normalized = runId?.trim()
+  return normalized ? normalized : undefined
+}
+
+function tmuxHrcRunCorrelationPatch(
+  hrcRunId: string | undefined
+): Pick<UpdateRunInput, 'hrcRunId'> {
+  return hrcRunId === undefined ? {} : { hrcRunId }
+}
+
+function buildTmuxLaunchResult(input: {
+  hrcDbPath: string
+  hrcRunId: string | undefined
+  hostSessionId: string
+  runtimeId: string
+  generation: number
+}): {
+  runId: string
+  sessionId: string
+  hostSessionId: string
+  runtimeId: string
+  launchId: string | undefined
+  generation: number
+} {
+  const launchIdFromRun =
+    input.hrcRunId === undefined ? undefined : findLaunchIdForRun(input.hrcDbPath, input.hrcRunId)
+  return {
+    runId: input.hrcRunId ?? input.hostSessionId,
+    sessionId: input.hostSessionId,
+    hostSessionId: input.hostSessionId,
+    runtimeId: input.runtimeId,
+    launchId:
+      launchIdFromRun ??
+      findLatestLaunchId(input.hrcDbPath, {
+        hostSessionId: input.hostSessionId,
+        runtimeId: input.runtimeId,
+      }),
+    generation: input.generation,
+  }
+}
+
+async function waitForTmuxAssistantMessage(options: {
+  hrcDbPath: string
+  deliveredHrcRunId: string | undefined
+  hostSessionId: string
+  sessionRef: SessionRef
+  afterHrcSeq: number
+  timeoutMs: number
+  pollIntervalMs: number
+  runStore: RunStore | undefined
+  acpRunId: string | undefined
+}): Promise<UnifiedSessionEvent | undefined> {
+  if (options.deliveredHrcRunId === undefined) {
+    // Compatibility fallback for older HRC servers that do not return the
+    // broker-created run ID from literal Enter dispatch.
+    return pollAssistantMessageAfterSeq({
+      hrcDbPath: options.hrcDbPath,
+      hostSessionId: options.hostSessionId,
+      sessionRef: options.sessionRef,
+      afterHrcSeq: options.afterHrcSeq,
+      timeoutMs: options.timeoutMs,
+    })
+  }
+
+  const completedRun = await waitForRunCompletion({
+    hrcDbPath: options.hrcDbPath,
+    runId: options.deliveredHrcRunId,
+    timeoutMs: options.timeoutMs,
+    pollIntervalMs: options.pollIntervalMs,
+  })
+  const terminalOutcome = mapHrcRunTerminalStatus(completedRun)
+  if (terminalOutcome === undefined) {
+    throw new Error(
+      `HRC run ${options.deliveredHrcRunId} returned non-terminal status ${completedRun.status} after completion`
+    )
+  }
+  updateAcpRun(options.runStore, options.acpRunId, {
+    status: terminalOutcome.status,
+    errorCode: terminalOutcome.status === 'completed' ? null : completedRun.errorCode,
+    errorMessage: terminalOutcome.status === 'completed' ? null : completedRun.errorMessage,
+  })
+  if (terminalOutcome.status !== 'completed') {
+    throw createHrcRunTerminalError(options.deliveredHrcRunId, completedRun)
+  }
+  return pollCompletedAssistantMessage({
+    hrcDbPath: options.hrcDbPath,
+    runId: options.deliveredHrcRunId,
+    timeoutMs: RAW_EVENT_POLL_GRACE_MS,
+  })
 }
 
 function resolveHrcDispatchOrigin(input: {

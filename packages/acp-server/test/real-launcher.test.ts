@@ -1202,6 +1202,117 @@ describe('real launcher helpers', () => {
     }
   })
 
+  test('persists the exact HRC run returned by broker literal dispatch', async () => {
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-real-launcher-tmux-correlation-'))
+    const hrcDbPath = join(fixtureDir, 'hrc.sqlite')
+    const db = new Database(hrcDbPath)
+    db.exec(`
+      CREATE TABLE continuities (
+        scope_ref TEXT NOT NULL,
+        lane_ref TEXT NOT NULL,
+        active_host_session_id TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (scope_ref, lane_ref)
+      );
+      CREATE TABLE runtimes (
+        runtime_id TEXT PRIMARY KEY,
+        host_session_id TEXT NOT NULL,
+        transport TEXT NOT NULL,
+        status TEXT NOT NULL,
+        tmux_json TEXT,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE hrc_events (
+        hrc_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        host_session_id TEXT NOT NULL,
+        scope_ref TEXT NOT NULL,
+        lane_ref TEXT NOT NULL,
+        event_kind TEXT NOT NULL,
+        payload_json TEXT NOT NULL
+      );
+    `)
+    db.run(
+      `INSERT INTO continuities (scope_ref, lane_ref, active_host_session_id, updated_at)
+        VALUES (?, ?, ?, ?)`,
+      'agent:cody:project:agent-spaces:task:discord-queued',
+      'main',
+      'hsid-discord-queued',
+      '2026-08-16T07:07:54.000Z'
+    )
+    db.run(
+      `INSERT INTO runtimes (runtime_id, host_session_id, transport, status, tmux_json, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)`,
+      'rt-tmux-queued',
+      'hsid-discord-queued',
+      'tmux',
+      'idle',
+      '{"paneId":"%1"}',
+      '2026-08-16T07:07:54.000Z'
+    )
+
+    const sessionRef = {
+      scopeRef: 'agent:cody:project:agent-spaces:task:discord-queued',
+      laneRef: 'main' as const,
+    }
+    const runStore = new InMemoryRunStore()
+    const acpRun = runStore.createRun({ sessionRef, status: 'pending' })
+    let deliveryCount = 0
+    const launcher = createRealLauncher({
+      hrcDbPath,
+      createClient: () =>
+        ({
+          resolveSession: async () => ({
+            found: true,
+            hostSessionId: 'hsid-discord-queued',
+            generation: 1,
+          }),
+          deliverLiteralBySelector: async () => {
+            deliveryCount += 1
+            return {
+              delivered: true,
+              sessionRef: `${sessionRef.scopeRef}/lane:main`,
+              hostSessionId: 'hsid-discord-queued',
+              generation: 1,
+              runtimeId: 'rt-tmux-queued',
+              ...(deliveryCount === 2
+                ? { runId: 'hrc-run-discord-queued-b', status: 'started' }
+                : {}),
+            }
+          },
+        }) as unknown as any,
+    })
+
+    try {
+      const result = await launcher({
+        sessionRef,
+        intent: {
+          placement: {
+            agentRoot: '/tmp/cody',
+            runMode: 'task',
+            bundle: { kind: 'compose', compose: [] },
+          },
+          harness: { provider: 'openai', interactive: true },
+          initialPrompt: 'queued message B',
+        },
+        acpRunId: acpRun.runId,
+        runStore,
+        waitForCompletion: false,
+      })
+
+      expect(result.runId).toBe('hrc-run-discord-queued-b')
+      expect(runStore.getRun(acpRun.runId)).toMatchObject({
+        status: 'running',
+        hrcRunId: 'hrc-run-discord-queued-b',
+        hostSessionId: 'hsid-discord-queued',
+        runtimeId: 'rt-tmux-queued',
+        transport: 'tmux',
+      })
+    } finally {
+      db.close()
+      rmSync(fixtureDir, { recursive: true, force: true })
+    }
+  })
+
   test('returns session identity without dispatch when no prompt is provided', async () => {
     const calls: string[] = []
     const launcher = createRealLauncher({
