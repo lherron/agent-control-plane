@@ -9,6 +9,7 @@ import {
   validateToken,
 } from 'agent-scope'
 import { HrcDomainError, HrcErrorCode } from 'hrc-core'
+import type { HrcRuntimeIntent, RestartStyle, StartRuntimeRequest } from 'hrc-core'
 import { buildHrcRuntimeIntent } from 'hrc-sdk'
 
 import { json } from '../http.js'
@@ -26,16 +27,26 @@ const MOBILE_VIEWER_WINDOW_ENV = 'ACP_MOBILE_VIEWER_WINDOW'
 const IDEMPOTENCY_KEY_PREFIX = 'acp-mobile-session:v1:'
 const DEFAULT_MOBILE_TASK_ID = 'primary'
 const ALLOWED_FIELDS = new Set(['agentId', 'projectId', 'taskId', 'viewerWindow', 'requestId'])
+const MOBILE_RESTART_STYLE: RestartStyle = 'reuse_pty'
+
+/**
+ * The quick-pick lanes the mobile roster owns. Pressing one of these means
+ * "give me a free session near this lane", so a collision walks the suffix
+ * roster (`primary` -> `primary-nova`) instead of failing.
+ */
+const ROSTER_MOBILE_TASK_IDS = new Set(['primary', 'minisvc', 'minilab'])
 
 type MobileSessionErrorCode =
   | 'session_roster_exhausted'
   | 'idempotency_key_conflict'
   | 'roster_claim_superseded'
+  | 'session_scope_occupied'
 
 const MOBILE_SESSION_ERROR_MESSAGES: Record<MobileSessionErrorCode, string> = {
   session_roster_exhausted: 'too many open sessions',
   idempotency_key_conflict: 'requestId was reused for a different session request',
   roster_claim_superseded: 'try again',
+  session_scope_occupied: 'that scope is already open',
 }
 
 function assertAllowedFields(body: Record<string, unknown>): void {
@@ -84,6 +95,49 @@ export function resolveMobileTaskId(body: Record<string, unknown>): string {
     throw new HrcDomainError(HrcErrorCode.MALFORMED_REQUEST, tokenError, { field: 'taskId' })
   }
   return taskId
+}
+
+export type MobileSessionConflictPolicy = 'suffix' | 'reject'
+
+/**
+ * Quick-pick roster lanes keep the suffix family; anything the operator typed
+ * by hand — including the pinned `hrcdev` lane — names ONE exact scope, so it
+ * claims that scope or is refused. There is no next slot to walk and no reuse
+ * of somebody else's live conversation.
+ */
+export function resolveMobileConflictPolicy(taskId: string): MobileSessionConflictPolicy {
+  return ROSTER_MOBILE_TASK_IDS.has(taskId) ? 'suffix' : 'reject'
+}
+
+/**
+ * ACP names the scope and nothing else: `summonIntent: 'implicit'` leaves HRC
+ * to resolve where that scope lives from policy and registry state, so no node
+ * assertion crosses this boundary in either shape.
+ */
+export function buildMobileStartRequest(input: {
+  conflictPolicy: MobileSessionConflictPolicy
+  sessionRef: string
+  runtimeIntent: HrcRuntimeIntent
+  idempotencyKey: string
+}): StartRuntimeRequest {
+  if (input.conflictPolicy === 'suffix') {
+    return {
+      baseSessionRef: input.sessionRef,
+      runtimeIntent: input.runtimeIntent,
+      conflictPolicy: 'suffix',
+      summonIntent: 'implicit',
+      idempotencyKey: input.idempotencyKey,
+      restartStyle: MOBILE_RESTART_STYLE,
+    }
+  }
+  return {
+    sessionRef: input.sessionRef,
+    runtimeIntent: input.runtimeIntent,
+    conflictPolicy: 'reject',
+    summonIntent: 'implicit',
+    idempotencyKey: input.idempotencyKey,
+    restartStyle: MOBILE_RESTART_STYLE,
+  }
 }
 
 function isMobileSessionErrorCode(code: string): code is MobileSessionErrorCode {
@@ -162,17 +216,21 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
     presentation: { viewerWindow },
   }
 
+  const conflictPolicy = resolveMobileConflictPolicy(taskId)
+
   try {
-    const started = await deps.hrcClient.startRuntime({
-      baseSessionRef: formatSessionRef(baseSession),
-      runtimeIntent,
-      conflictPolicy: 'suffix',
-      summonIntent: 'implicit',
-      idempotencyKey: deriveMobileSessionIdempotencyKey(requestId),
-      restartStyle: 'reuse_pty',
-    })
+    const started = await deps.hrcClient.startRuntime(
+      buildMobileStartRequest({
+        conflictPolicy,
+        sessionRef: formatSessionRef(baseSession),
+        runtimeIntent,
+        idempotencyKey: deriveMobileSessionIdempotencyKey(requestId),
+      })
+    )
+    // Both claim-and-start shapes report the scope they actually claimed; the
+    // response DTO is projected from that claim, never from what ACP asked for.
     if (started.claim === undefined) {
-      throw new Error('HRC suffix start response did not include the claimed session')
+      throw new Error(`HRC ${conflictPolicy} start response did not include the claimed session`)
     }
 
     return json({

@@ -35,28 +35,50 @@ Routes:
 | `GET /v1/mobile/dm/targets` | http | DM target discovery. |
 | `POST /v1/mobile/messages/query`, `POST /v1/mobile/messages/dm` | http | Message query and semantic DM send. |
 | `GET /v1/mobile/messages/watch` | http/ws | Message watch stream. |
-| `POST /v1/mobile/sessions` | http | Provision a new suffix-roster session. The client supplies a stable `requestId` per button press; transport retries reuse it. |
+| `POST /v1/mobile/sessions` | http | Provision a new session — a suffix-roster slot for the quick-pick lanes, or the one exact scope the operator named. The client supplies a stable `requestId` per button press; transport retries reuse it. |
 | `POST /v1/mobile/sessions/:hostSessionId/input` | http | Literal input to a session. |
 | `POST /v1/mobile/sessions/:hostSessionId/interrupt` | http | Interrupt a session. |
 
 `POST /v1/mobile/sessions` accepts `agentId`, `projectId`, optional `taskId`,
 optional `viewerWindow`, and `requestId`. The server derives an HRC idempotency
-key from `requestId`, passes the base `agent:<agentId>:project:<projectId>:task:<taskId>`
-scope to HRC's atomic suffix roster, and returns the actual claimed scope.
-`taskId` is trimmed and defaults to `primary`; it is not restricted to a
-server-side allowlist — well-known lanes (`primary`, `minisvc`, `minilab`,
-`hrcdev`) and operator-typed task ids alike are accepted as long as they satisfy
-the canonical agent-scope token grammar (`[A-Za-z0-9._-]{1,64}`). Tokens outside
-that grammar are rejected as `malformed_request` before any HRC call. Reaching
-HRC is not the same as landing a session: HRC's suffix-roster family preflight
-additionally requires every member of the claimed roster family
-(`<taskId>`, `<taskId>-nova`, ...) to name the local node through an exact
-`[placement.task-defaults]` entry in the agent profile, so a task token with no
-such declaration is refused downstream with `stale_context`, not by ACP.
-`viewerWindow` defaults to
-`ACP_MOBILE_VIEWER_WINDOW`, or `console` when the environment variable is unset.
-The route uses the same loopback-trusted access convention as the rest of the
-embedded `/v1/mobile/*` surface; it does not add a separate authentication mode.
+key from `requestId`, names the
+`agent:<agentId>:project:<projectId>:task:<taskId>` scope, and returns the scope
+HRC actually claimed. `taskId` is trimmed and defaults to `primary`; it is not
+restricted to a server-side allowlist — well-known lanes (`primary`, `minisvc`,
+`minilab`, `hrcdev`) and operator-typed task ids alike are accepted as long as
+they satisfy the canonical agent-scope token grammar (`[A-Za-z0-9._-]{1,64}`).
+Tokens outside that grammar are rejected as `malformed_request` before any HRC
+call.
+
+The task token selects the HRC creation policy:
+
+| `taskId` | HRC START shape | Collision behavior |
+|---|---|---|
+| `primary`, `minisvc`, `minilab` | `{ baseSessionRef, conflictPolicy: "suffix" }` | Walks the roster family (`primary` → `primary-nova` → ...). |
+| `hrcdev` and every other valid token | `{ sessionRef, conflictPolicy: "reject" }` | Claims that one scope or refuses it; no next slot, no reuse of a live conversation. |
+
+Both shapes send `summonIntent: "implicit"`, the durable request-derived
+`idempotencyKey`, and `restartStyle: "reuse_pty"`, and neither carries a
+`hostSessionId` or any destination-node assertion: HRC owns placement and
+resolves where the named scope lives from policy and registry state. Both
+responses must carry HRC's claim, and the response DTO (`claimedScope`,
+`sessionRef`, `hostSessionId`, `runtimeId`, `status`, `replayed`) is projected
+from that claim rather than from what ACP asked for.
+
+Reaching HRC is not the same as landing a session. Suffix starts additionally
+require every member of the claimed roster family (`<taskId>`, `<taskId>-nova`,
+...) to name the local node through an exact `[placement.task-defaults]` entry in
+the agent profile, so a quick-pick lane with no such declaration is refused
+downstream with `stale_context`, not by ACP. Exact starts are refused with
+`session_scope_occupied` when that scope is already open, which ACP maps to HTTP
+409 with the stable message `that scope is already open`; the existing
+`session_roster_exhausted` / `idempotency_key_conflict` /
+`roster_claim_superseded` 409 mappings are unchanged.
+
+`viewerWindow` defaults to `ACP_MOBILE_VIEWER_WINDOW`, or `console` when the
+environment variable is unset. The route uses the same loopback-trusted access
+convention as the rest of the embedded `/v1/mobile/*` surface; it does not add a
+separate authentication mode.
 
 `handlers/mobile.ts` (~2,000 lines) covers federation-node projection types
 (`FederationNodeRuntimeProjection`, `FederationPeerHealthObservation`, ...)

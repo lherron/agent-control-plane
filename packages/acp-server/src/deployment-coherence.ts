@@ -33,10 +33,10 @@ type ExpectedConsumerProducer = Readonly<{
 export const EXPECTED_CONSUMER_PRODUCERS = [
   {
     setName: 'asp',
-    setVersion: '0.1.1-dev.20260814075110',
+    setVersion: '0.1.1-dev.20260817150520',
     repository: 'agent-spaces',
     canonicalRemote: 'git@github.com:lherron/agent-spaces.git',
-    sourceCommit: '790b20c02cc5bcbc5dfa7306aaf539e84a8effed',
+    sourceCommit: '6dfec288573ce7854af8e4e5efb5fe5f4ece2f74',
     packages: [
       'agent-scope',
       'agent-spaces',
@@ -58,10 +58,10 @@ export const EXPECTED_CONSUMER_PRODUCERS = [
   },
   {
     setName: 'hrc',
-    setVersion: '0.1.0-dev.20260814181125',
+    setVersion: '0.1.0-dev.20260818075929',
     repository: 'hrc-runtime',
     canonicalRemote: 'git@github.com:lherron/hrc-runtime.git',
-    sourceCommit: '100924f3329425ccbe736a830cd45a6339d4f59c',
+    sourceCommit: '33805f88cae7abf181cbb2d2c0fa23d17409dcf8',
     packages: [
       'agent-action-render',
       'hrc-core',

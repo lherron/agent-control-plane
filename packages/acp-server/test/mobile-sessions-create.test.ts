@@ -5,8 +5,10 @@ import type { StartRuntimeRequest, StartRuntimeResponse } from 'hrc-sdk'
 import type { AcpRuntimePlacement } from '../src/deps.js'
 import type { AcpHrcClient } from '../src/deps.js'
 import {
+  buildMobileStartRequest,
   deriveMobileSessionIdempotencyKey,
   resolveConfiguredMobileViewerWindow,
+  resolveMobileConflictPolicy,
   resolveMobileTaskId,
   resolveMobileViewerWindow,
 } from '../src/handlers/mobile-sessions-create.js'
@@ -17,10 +19,18 @@ const BASE_SCOPE_REF = 'agent:mable:project:hrc-runtime:task:primary'
 const CLAIMED_SCOPE_REF = 'agent:mable:project:hrc-runtime:task:primary-nova'
 const BASE_SESSION_REF = `${BASE_SCOPE_REF}/lane:main`
 const CLAIMED_SESSION_REF = `${CLAIMED_SCOPE_REF}/lane:main`
+const HRCDEV_SESSION_REF = 'agent:mable:project:hrc-runtime:task:hrcdev/lane:main'
 const REQUEST_ID = 'ios-press-01879d8f'
 const TEST_AGENT_ROOT = new URL('./fixtures/mobile-agent/', import.meta.url).pathname
 
-function startedResponse(replayed = false): StartRuntimeResponse {
+/**
+ * Mirrors what HRC reports back: a suffix start claims a roster slot near the
+ * base scope, while an exact start can only ever claim the scope it was given.
+ */
+function startedResponse(request: StartRuntimeRequest, replayed = false): StartRuntimeResponse {
+  const exactSessionRef = (request as { sessionRef?: string }).sessionRef
+  const claimedSessionRef = exactSessionRef ?? CLAIMED_SESSION_REF
+  const claimedScopeRef = claimedSessionRef.slice(0, claimedSessionRef.indexOf('/lane:'))
   return {
     runtimeId: 'rt-mobile-new-session',
     hostSessionId: 'hsid-mobile-new-session',
@@ -28,11 +38,13 @@ function startedResponse(replayed = false): StartRuntimeResponse {
     status: 'ready',
     supportsInFlightInput: false,
     claim: {
-      slot: 'primary-nova',
-      scopeRef: CLAIMED_SCOPE_REF,
-      sessionRef: CLAIMED_SESSION_REF,
+      slot: claimedScopeRef.slice(claimedScopeRef.lastIndexOf(':task:') + ':task:'.length),
+      scopeRef: claimedScopeRef,
+      sessionRef: claimedSessionRef,
       hostSessionId: 'hsid-mobile-new-session',
-      idempotencyKey: deriveMobileSessionIdempotencyKey(REQUEST_ID),
+      idempotencyKey:
+        (request as { idempotencyKey?: string }).idempotencyKey ??
+        deriveMobileSessionIdempotencyKey(REQUEST_ID),
       replayed,
     },
   }
@@ -47,7 +59,7 @@ function createHrcClient(input: {
     startRuntime: async (request: StartRuntimeRequest) => {
       input.onStart?.(request)
       if (input.error !== undefined) throw input.error
-      return startedResponse(calls++ > 0)
+      return startedResponse(request, calls++ > 0)
     },
   } as unknown as AcpHrcClient
 }
@@ -109,6 +121,43 @@ describe('mobile session idempotency and viewer defaults', () => {
       expect((thrown as HrcDomainError).code).toBe(HrcErrorCode.MALFORMED_REQUEST)
       expect((thrown as HrcDomainError).detail).toMatchObject({ field: 'taskId' })
     }
+  })
+
+  test('keeps the quick-pick lanes on the roster and everything else exact', () => {
+    for (const taskId of ['primary', 'minisvc', 'minilab']) {
+      expect(resolveMobileConflictPolicy(taskId)).toBe('suffix')
+    }
+    for (const taskId of ['hrcdev', 'T-07301', 'primary-nova', 'minisvc-alt', 'anything']) {
+      expect(resolveMobileConflictPolicy(taskId)).toBe('reject')
+    }
+  })
+
+  test('builds each HRC start shape without a host session or node assertion', () => {
+    const runtimeIntent = { placement: {} } as unknown as Parameters<
+      typeof buildMobileStartRequest
+    >[0]['runtimeIntent']
+    const shared = {
+      sessionRef: HRCDEV_SESSION_REF,
+      runtimeIntent,
+      idempotencyKey: 'acp-mobile-session:v1:key',
+    }
+
+    expect(buildMobileStartRequest({ ...shared, conflictPolicy: 'suffix' })).toEqual({
+      baseSessionRef: HRCDEV_SESSION_REF,
+      runtimeIntent,
+      conflictPolicy: 'suffix',
+      summonIntent: 'implicit',
+      idempotencyKey: 'acp-mobile-session:v1:key',
+      restartStyle: 'reuse_pty',
+    })
+    expect(buildMobileStartRequest({ ...shared, conflictPolicy: 'reject' })).toEqual({
+      sessionRef: HRCDEV_SESSION_REF,
+      runtimeIntent,
+      conflictPolicy: 'reject',
+      summonIntent: 'implicit',
+      idempotencyKey: 'acp-mobile-session:v1:key',
+      restartStyle: 'reuse_pty',
+    })
   })
 
   test('rejects an empty or non-string taskId at the body-parsing boundary', () => {
@@ -173,8 +222,8 @@ describe('POST /v1/mobile/sessions', () => {
     )
   })
 
-  test.each(['primary', 'minisvc', 'minilab', 'hrcdev', 'T-07301', 'primary-nova'] as const)(
-    'passes the selected %s base scope to HRC',
+  test.each(['primary', 'minisvc', 'minilab'] as const)(
+    'sends the %s quick-pick lane to HRC as a suffix roster start',
     async (taskId) => {
       const starts: StartRuntimeRequest[] = []
       const hrcClient = createHrcClient({ onStart: (request) => starts.push(request) })
@@ -189,13 +238,133 @@ describe('POST /v1/mobile/sessions', () => {
           expect(starts).toHaveLength(1)
           expect(starts[0]).toMatchObject({
             baseSessionRef: `agent:mable:project:hrc-runtime:task:${taskId}/lane:main`,
+            conflictPolicy: 'suffix',
             summonIntent: 'implicit',
+          })
+          expect('sessionRef' in (starts[0] as unknown as Record<string, unknown>)).toBe(false)
+        },
+        { hrcClient, runtimeResolver }
+      )
+    }
+  )
+
+  test.each(['hrcdev', 'T-07301', 'primary-nova', 'codex-01a014ac.7723'] as const)(
+    'sends the operator-typed %s scope to HRC as an exact reject start',
+    async (taskId) => {
+      const starts: StartRuntimeRequest[] = []
+      const hrcClient = createHrcClient({ onStart: (request) => starts.push(request) })
+      await withWiredServer(
+        async ({ request, json }) => {
+          const response = await request({
+            method: 'POST',
+            path: '/v1/mobile/sessions',
+            body: { agentId: 'mable', projectId: 'hrc-runtime', taskId, requestId: REQUEST_ID },
+          })
+          const exactSessionRef = `agent:mable:project:hrc-runtime:task:${taskId}/lane:main`
+
+          expect(response.status).toBe(200)
+          expect(starts).toHaveLength(1)
+          expect(starts[0]).toEqual({
+            sessionRef: exactSessionRef,
+            conflictPolicy: 'reject',
+            summonIntent: 'implicit',
+            idempotencyKey: deriveMobileSessionIdempotencyKey(REQUEST_ID),
+            restartStyle: 'reuse_pty',
+            runtimeIntent: expect.objectContaining({
+              placement: expect.objectContaining({
+                correlation: {
+                  sessionRef: {
+                    scopeRef: `agent:mable:project:hrc-runtime:task:${taskId}`,
+                    laneRef: 'main',
+                  },
+                },
+              }),
+            }),
+          })
+          // The exact response DTO is the same shape as the roster one, built
+          // from the scope HRC says it claimed.
+          expect(await json(response)).toEqual({
+            claimedScope: `mable@hrc-runtime:${taskId}`,
+            sessionRef: exactSessionRef,
+            hostSessionId: 'hsid-mobile-new-session',
+            runtimeId: 'rt-mobile-new-session',
+            status: 'ready',
+            replayed: false,
           })
         },
         { hrcClient, runtimeResolver }
       )
     }
   )
+
+  test('replays an exact start on the same logical press without a second scope', async () => {
+    const starts: StartRuntimeRequest[] = []
+    const hrcClient = createHrcClient({ onStart: (request) => starts.push(request) })
+
+    await withWiredServer(
+      async ({ request, json }) => {
+        const body = {
+          agentId: 'mable',
+          projectId: 'hrc-runtime',
+          taskId: 'hrcdev',
+          requestId: REQUEST_ID,
+        }
+        const first = await request({ method: 'POST', path: '/v1/mobile/sessions', body })
+        const retry = await request({ method: 'POST', path: '/v1/mobile/sessions', body })
+
+        expect(first.status).toBe(200)
+        expect(retry.status).toBe(200)
+        expect(starts.map((start) => (start as { sessionRef?: string }).sessionRef)).toEqual([
+          HRCDEV_SESSION_REF,
+          HRCDEV_SESSION_REF,
+        ])
+        expect(starts[0]?.idempotencyKey).toBe(starts[1]?.idempotencyKey)
+        expect(await json<{ claimedScope: string; replayed: boolean }>(first)).toMatchObject({
+          claimedScope: 'mable@hrc-runtime:hrcdev',
+          replayed: false,
+        })
+        expect(await json<{ claimedScope: string; replayed: boolean }>(retry)).toMatchObject({
+          claimedScope: 'mable@hrc-runtime:hrcdev',
+          replayed: true,
+        })
+      },
+      { hrcClient, runtimeResolver }
+    )
+  })
+
+  test('refuses an occupied exact scope with the stable 409 message', async () => {
+    const hrcClient = createHrcClient({
+      error: new HrcDomainError(
+        HrcErrorCode.SESSION_SCOPE_OCCUPIED,
+        'exact scope agent:mable:project:hrc-runtime:task:hrcdev is occupied',
+        { scopeRef: 'agent:mable:project:hrc-runtime:task:hrcdev' }
+      ),
+    })
+
+    await withWiredServer(
+      async ({ request, json }) => {
+        const response = await request({
+          method: 'POST',
+          path: '/v1/mobile/sessions',
+          body: {
+            agentId: 'mable',
+            projectId: 'hrc-runtime',
+            taskId: 'hrcdev',
+            requestId: REQUEST_ID,
+          },
+        })
+
+        expect(response.status).toBe(409)
+        expect(await json(response)).toEqual({
+          ok: false,
+          requestId: REQUEST_ID,
+          code: HrcErrorCode.SESSION_SCOPE_OCCUPIED,
+          message: 'that scope is already open',
+        })
+      },
+      { hrcClient, runtimeResolver }
+    )
+  })
 
   test('rejects a malformed task token before calling HRC', async () => {
     let starts = 0
