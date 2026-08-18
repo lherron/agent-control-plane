@@ -39,10 +39,21 @@ Routes:
 | `POST /v1/mobile/sessions/:hostSessionId/input` | http | Literal input to a session. |
 | `POST /v1/mobile/sessions/:hostSessionId/interrupt` | http | Interrupt a session. |
 
-`POST /v1/mobile/sessions` accepts `agentId`, `projectId`, optional
-`viewerWindow`, and `requestId`. The server derives an HRC idempotency key from
-`requestId`, passes only the base `:primary` scope to HRC's atomic suffix roster,
-and returns the actual claimed scope. `viewerWindow` defaults to
+`POST /v1/mobile/sessions` accepts `agentId`, `projectId`, optional `taskId`,
+optional `viewerWindow`, and `requestId`. The server derives an HRC idempotency
+key from `requestId`, passes the base `agent:<agentId>:project:<projectId>:task:<taskId>`
+scope to HRC's atomic suffix roster, and returns the actual claimed scope.
+`taskId` is trimmed and defaults to `primary`; it is not restricted to a
+server-side allowlist — well-known lanes (`primary`, `minisvc`, `minilab`,
+`hrcdev`) and operator-typed task ids alike are accepted as long as they satisfy
+the canonical agent-scope token grammar (`[A-Za-z0-9._-]{1,64}`). Tokens outside
+that grammar are rejected as `malformed_request` before any HRC call. Reaching
+HRC is not the same as landing a session: HRC's suffix-roster family preflight
+additionally requires every member of the claimed roster family
+(`<taskId>`, `<taskId>-nova`, ...) to name the local node through an exact
+`[placement.task-defaults]` entry in the agent profile, so a task token with no
+such declaration is refused downstream with `stale_context`, not by ACP.
+`viewerWindow` defaults to
 `ACP_MOBILE_VIEWER_WINDOW`, or `console` when the environment variable is unset.
 The route uses the same loopback-trusted access convention as the rest of the
 embedded `/v1/mobile/*` surface; it does not add a separate authentication mode.

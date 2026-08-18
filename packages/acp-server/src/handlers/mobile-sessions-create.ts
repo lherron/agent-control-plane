@@ -6,6 +6,7 @@ import {
   formatSessionRef,
   normalizeSessionRef,
   parseScopeRef,
+  validateToken,
 } from 'agent-scope'
 import { HrcDomainError, HrcErrorCode } from 'hrc-core'
 import { buildHrcRuntimeIntent } from 'hrc-sdk'
@@ -24,7 +25,6 @@ const DEFAULT_MOBILE_VIEWER_WINDOW = 'console'
 const MOBILE_VIEWER_WINDOW_ENV = 'ACP_MOBILE_VIEWER_WINDOW'
 const IDEMPOTENCY_KEY_PREFIX = 'acp-mobile-session:v1:'
 const DEFAULT_MOBILE_TASK_ID = 'primary'
-const MOBILE_TASK_IDS = new Set(['primary', 'minisvc', 'minilab'])
 const ALLOWED_FIELDS = new Set(['agentId', 'projectId', 'taskId', 'viewerWindow', 'requestId'])
 
 type MobileSessionErrorCode =
@@ -69,14 +69,19 @@ export function resolveMobileViewerWindow(
   return requested ?? configuredDefault
 }
 
+/**
+ * Mobile clients pick a session scope by task token — the well-known operator
+ * lanes (primary, minisvc, minilab, hrcdev) and any task the operator types by
+ * hand. There is no server-side allowlist: the only constraint is the canonical
+ * agent-scope token grammar, checked here so a malformed token is rejected at
+ * the MALFORMED_REQUEST boundary rather than escaping as an untyped ScopeRef
+ * parse failure downstream.
+ */
 export function resolveMobileTaskId(body: Record<string, unknown>): string {
   const taskId = readOptionalTrimmedStringField(body, 'taskId') ?? DEFAULT_MOBILE_TASK_ID
-  if (!MOBILE_TASK_IDS.has(taskId)) {
-    throw new HrcDomainError(
-      HrcErrorCode.MALFORMED_REQUEST,
-      'taskId must be one of primary, minisvc, or minilab',
-      { field: 'taskId' }
-    )
+  const tokenError = validateToken(taskId, 'taskId')
+  if (tokenError !== undefined) {
+    throw new HrcDomainError(HrcErrorCode.MALFORMED_REQUEST, tokenError, { field: 'taskId' })
   }
   return taskId
 }

@@ -83,11 +83,39 @@ describe('mobile session idempotency and viewer defaults', () => {
     expect(resolveConfiguredMobileViewerWindow({ ACP_MOBILE_VIEWER_WINDOW: '  ' })).toBe('console')
   })
 
-  test('defaults legacy requests to primary and allowlists the three mobile scopes', () => {
+  test('defaults legacy requests to primary and trims explicit scopes', () => {
     expect(resolveMobileTaskId({})).toBe('primary')
     expect(resolveMobileTaskId({ taskId: ' minisvc ' })).toBe('minisvc')
     expect(resolveMobileTaskId({ taskId: 'minilab' })).toBe('minilab')
-    expect(() => resolveMobileTaskId({ taskId: 'primary-nova' })).toThrow(/taskId must be one of/)
+    expect(resolveMobileTaskId({ taskId: ' hrcdev ' })).toBe('hrcdev')
+  })
+
+  test('accepts any task id inside the canonical scope-token grammar', () => {
+    expect(resolveMobileTaskId({ taskId: 'T-07301' })).toBe('T-07301')
+    expect(resolveMobileTaskId({ taskId: 'primary-nova' })).toBe('primary-nova')
+    expect(resolveMobileTaskId({ taskId: 'codex-01a014ac.7723' })).toBe('codex-01a014ac.7723')
+    expect(resolveMobileTaskId({ taskId: 'a'.repeat(64) })).toBe('a'.repeat(64))
+  })
+
+  test('rejects task ids outside the canonical scope-token grammar', () => {
+    for (const taskId of ['bad task', 'bad:task', 'bad/task', 'a'.repeat(65)]) {
+      let thrown: unknown
+      try {
+        resolveMobileTaskId({ taskId })
+      } catch (error) {
+        thrown = error
+      }
+      expect(thrown).toBeInstanceOf(HrcDomainError)
+      expect((thrown as HrcDomainError).code).toBe(HrcErrorCode.MALFORMED_REQUEST)
+      expect((thrown as HrcDomainError).detail).toMatchObject({ field: 'taskId' })
+    }
+  })
+
+  test('rejects an empty or non-string taskId at the body-parsing boundary', () => {
+    expect(() => resolveMobileTaskId({ taskId: '   ' })).toThrow(
+      /taskId must be a non-empty string/
+    )
+    expect(() => resolveMobileTaskId({ taskId: 7 })).toThrow(/taskId must be a non-empty string/)
   })
 })
 
@@ -145,7 +173,7 @@ describe('POST /v1/mobile/sessions', () => {
     )
   })
 
-  test.each(['primary', 'minisvc', 'minilab'] as const)(
+  test.each(['primary', 'minisvc', 'minilab', 'hrcdev', 'T-07301', 'primary-nova'] as const)(
     'passes the selected %s base scope to HRC',
     async (taskId) => {
       const starts: StartRuntimeRequest[] = []
@@ -169,7 +197,7 @@ describe('POST /v1/mobile/sessions', () => {
     }
   )
 
-  test('rejects a task outside the mobile allowlist before calling HRC', async () => {
+  test('rejects a malformed task token before calling HRC', async () => {
     let starts = 0
     const hrcClient = createHrcClient({ onStart: () => starts++ })
     await withWiredServer(
@@ -180,13 +208,15 @@ describe('POST /v1/mobile/sessions', () => {
           body: {
             agentId: 'mable',
             projectId: 'hrc-runtime',
-            taskId: 'minisvc-nova',
+            taskId: 'minisvc nova',
             requestId: REQUEST_ID,
           },
         })
         expect(response.status).toBe(400)
-        expect(await json<{ error: { code: string } }>(response)).toMatchObject({
-          error: { code: 'malformed_request' },
+        expect(
+          await json<{ error: { code: string; details?: { field?: string } } }>(response)
+        ).toMatchObject({
+          error: { code: 'malformed_request', details: { field: 'taskId' } },
         })
         expect(starts).toBe(0)
       },
