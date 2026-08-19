@@ -107,6 +107,13 @@ signals, not errors: the app falls back to the frame timeline. Success is
 carries `runtimeId` + `generation` so the client can refuse to attach across a
 runtime rotation. Contract: `clients/hrc-ios/HRCMAC_EMBEDDED_TERMINAL_SPEC.md` §3.2.
 
+The probe cannot start anything, which is what makes it safe to call on every
+window open. It asks hrc-server for a descriptor by **explicit `runtimeId`**, and
+`GET /v1/attach` passes `strictRuntimeId: true` — so a session whose runtime is
+not an attachable broker is refused (`runtime_unavailable` → 409 not_attachable)
+rather than reprovisioned into one. A client that polls attach-info against a
+headless session therefore never conjures a tmux lease as a side effect.
+
 `handlers/mobile.ts` (~2,000 lines) covers federation-node projection types
 (`FederationNodeRuntimeProjection`, `FederationPeerHealthObservation`, ...)
 imported from `hrc-core`, meaning this surface is federation-aware — it can
