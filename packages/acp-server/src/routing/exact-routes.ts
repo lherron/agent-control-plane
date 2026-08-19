@@ -28,6 +28,12 @@ import {
   handleReconcileManagedResources,
 } from '../handlers/managed-resources.js'
 import { handleCreateMessage } from '../handlers/messages.js'
+import {
+  handleListMobileAuthDevices,
+  handleMintMobilePairingCode,
+  handleRevokeMobileAuthDevice,
+  handleSetMobileAuthEnforce,
+} from '../handlers/mobile-auth-admin.js'
 import { handleCreateMobileSession } from '../handlers/mobile-sessions-create.js'
 import {
   handleMobileDashboard,
@@ -189,6 +195,12 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
     [exactRouteKey('POST', '/v1/mobile/messages/query')]: handleMobileMessagesQuery,
     [exactRouteKey('POST', '/v1/mobile/messages/dm')]: handleMobileSemanticDm,
     [exactRouteKey('GET', '/v1/mobile/messages/watch')]: handleMobileMessagesWatch,
+    // Loopback-only operator surface for bearer auth (spec §4): the server is the
+    // state file's only writer, so `acp mobile ...` mutates it through these.
+    [exactRouteKey('POST', '/v1/mobile/auth/pairing-code')]: handleMintMobilePairingCode,
+    [exactRouteKey('GET', '/v1/mobile/auth/devices')]: handleListMobileAuthDevices,
+    [exactRouteKey('POST', '/v1/mobile/auth/devices/revoke')]: handleRevokeMobileAuthDevice,
+    [exactRouteKey('POST', '/v1/mobile/auth/enforce')]: handleSetMobileAuthEnforce,
     [exactRouteKey('GET', '/v1/wrkf/ping')]: handleWrkfPing,
     [exactRouteKey('POST', '/v1/wrkf/effects/deliver')]: maybeWrapMutatingRoute(
       'POST',

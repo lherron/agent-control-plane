@@ -251,6 +251,15 @@ acp agent-pulpit | -
 acp agent-pulpit send | --actor --agent --binding --gateway-type --idempotency-key --json --lane-ref --project --server --text
 acp tail | --actor --from-seq --json --lane-ref --project --scope-ref --server --session --table
 acp render | --actor --json --lane-ref --project --scope-ref --server --session --source --table
+acp mobile | -
+acp mobile pairing-code | --actor --json --server --table
+acp mobile devices | -
+acp mobile devices list | --actor --json --server --table
+acp mobile devices revoke | --actor --device --json --server --table
+acp mobile auth | -
+acp mobile auth status | --actor --json --server --table
+acp mobile auth enable | --actor --force --json --server --table
+acp mobile auth disable | --actor --json --server --table
 acp message | -
 acp message send | --actor --coordination-only --dispatch --from-agent --from-human --from-lane-ref --from-session --from-system --json --project --server --table --text --to-agent --to-human --to-lane-ref --to-session --to-system --wake
 acp message broadcast | --actor --coordination-only --dispatch --from-agent --from-human --from-lane-ref --from-session --from-system --json --project --server --table --text --to-agent --to-human --to-lane-ref --to-session --to-system --wake

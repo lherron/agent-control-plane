@@ -67,6 +67,8 @@ import {
 import { createJobOutputReconciler } from './jobs/output-reconciler.js'
 import { getRunFinalAssistantText } from './jobs/run-final-output.js'
 import { resolveLaunchIntent } from './launch-role-scoped.js'
+import { authorizeMobileRequest, mobileUnauthorizedResponse } from './mobile-auth/gate.js'
+import { resolveMobileAuthStore } from './mobile-auth/store.js'
 import { createPbcWorkerScheduler } from './pbc/worker-scheduler.js'
 import { type PbcContinuationWorkerPort, runPbcContinuationWorker } from './pbc/worker.js'
 import { createRealLauncher, readRunStatus } from './real-launcher.js'
@@ -1048,6 +1050,11 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     acpBaseUrl,
     logger: (message) => console.log(message),
   })
+  // One store instance for the whole daemon: `serverDeps` is resolved twice (HTTP
+  // router + WS upgrade path), and two stores over one flat file would mean two
+  // writers and a gate that could disagree with itself between HTTP and WS.
+  serverDeps.mobileAuthStore = resolveMobileAuthStore()
+  const mobileAuthStore = serverDeps.mobileAuthStore
   const acpServer = createAcpServer(serverDeps)
   const resolvedDeps = resolveAcpServerDeps(serverDeps)
   if (jobsStore !== undefined) {
@@ -1065,11 +1072,28 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
         idleTimeout: 255,
         async fetch(request, server) {
           const url = new URL(request.url)
+          // Socket peer, captured before the body is consumed and before the WS
+          // branch: Bun exposes it only here, and peer-gated routes (mobile bearer
+          // auth, attach-info) cannot observe it from the Request alone.
+          const peer = server.requestIP(request) ?? undefined
           const mobileWsMatch =
             request.headers.get('upgrade')?.toLowerCase() === 'websocket'
               ? parseMobileRouteKind(url.pathname)
               : undefined
           if (mobileWsMatch !== undefined) {
+            // Same decision function as the HTTP router (spec §3) — checked before
+            // `server.upgrade()`, since a socket that completes the handshake is
+            // already inside.
+            if (
+              authorizeMobileRequest({
+                pathname: url.pathname,
+                peer,
+                authorization: request.headers.get('authorization'),
+                store: mobileAuthStore,
+              }) === 'unauthorized'
+            ) {
+              return mobileUnauthorizedResponse()
+            }
             const upgraded = (
               server as never as {
                 upgrade(request: Request, options: unknown): boolean
@@ -1081,10 +1105,6 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
           }
 
           const start = performance.now()
-          // Socket peer, captured before the body is consumed: Bun exposes it only
-          // here, and peer-gated routes (e.g. mobile attach-info) cannot observe it
-          // from the Request alone.
-          const peer = server.requestIP(request) ?? undefined
           const response =
             url.pathname === '/v1/cap/rpc'
               ? await capabilityHost.handleHttpJsonRpc(request)

@@ -39,6 +39,10 @@ Routes:
 | `POST /v1/mobile/sessions/:hostSessionId/input` | http | Literal input to a session. |
 | `POST /v1/mobile/sessions/:hostSessionId/interrupt` | http | Interrupt a session. |
 | `GET /v1/mobile/sessions/:hostSessionId/attach-info` | http | Loopback-only attach descriptor for an embedded terminal (HRCMac). |
+| `POST /v1/mobile/auth/pairing-code` | http | Loopback-only. Mint the single outstanding pairing code. |
+| `GET /v1/mobile/auth/devices` | http | Loopback-only. Paired devices + enforcement posture. |
+| `POST /v1/mobile/auth/devices/revoke` | http | Loopback-only. Revoke one device's bearer token. |
+| `POST /v1/mobile/auth/enforce` | http | Loopback-only. Arm/disarm bearer enforcement. |
 
 `POST /v1/mobile/sessions` accepts `agentId`, `projectId`, optional `taskId`,
 optional `viewerWindow`, and `requestId`. The server derives an HRC idempotency
@@ -77,9 +81,54 @@ downstream with `stale_context`, not by ACP. Exact starts are refused with
 `roster_claim_superseded` 409 mappings are unchanged.
 
 `viewerWindow` defaults to `ACP_MOBILE_VIEWER_WINDOW`, or `console` when the
-environment variable is unset. The route uses the same loopback-trusted access
-convention as the rest of the embedded `/v1/mobile/*` surface; it does not add a
-separate authentication mode.
+environment variable is unset. The route carries no auth of its own; it sits in
+the bearer tier described below like every other non-exempt mobile route.
+
+### Bearer auth (spec: `docs/mobile-surface-bearer-auth-spec.md`)
+
+acp-server binds 127.0.0.1 **and** the tailscale address, so this surface is
+loopback-*trusted* but tailnet-*reachable*. Bearer auth closes that gap. The gate
+covers every `/v*/mobile/*` path — `/v2/mobile/sessions` and the
+`/v2/mobile/dashboard` WS carry the same session data as their `/v1` siblings, and
+a future version's routes land in the bearer tier by default.
+
+Three credential classes, decided per request against the socket peer address
+(never `X-Forwarded-For`; an unobservable peer is not loopback):
+
+| Route class | Loopback peer | Non-loopback peer |
+|---|---|---|
+| `GET /v1/mobile/health`, `GET /v1/mobile/pairing` | open | open (needed pre-pairing; leak nothing secret) |
+| `POST /v1/mobile/pair` | open — codeless ack, or redeem a code | the **pairing code** is the credential; no/invalid/expired code → 401 |
+| every other `/v*/mobile/*` route | no bearer required | `Authorization: Bearer <token>` required, HTTP and WS upgrade alike |
+
+Denials are always `401 {"ok":false,"code":"unauthorized"}` — identical for a
+missing and an invalid credential, so a prober learns nothing. attach-info and the
+`/v1/mobile/auth/*` admin routes keep their stricter loopback-only gate on top: a
+bearer never substitutes for locality.
+
+One decision function (`packages/acp-server/src/mobile-auth/gate.ts`) is called
+from both the HTTP router (`create-acp-server.ts`) and the Bun WS upgrade path
+(`cli.ts`, before `server.upgrade()`), so the two cannot drift. No handler carries
+auth code of its own.
+
+Operator surface — the server is the state file's only writer, so the CLI mutates
+`mobile-auth.json` exclusively through the loopback admin routes:
+
+```
+acp mobile pairing-code                  # single-use, 5 min TTL, voids any outstanding code
+acp mobile devices list
+acp mobile devices revoke --device <id>
+acp mobile auth status
+acp mobile auth enable [--force]         # --force required when no device is paired
+acp mobile auth disable                  # emergency rollback
+```
+
+Enforcement is off by default (`enforce: false` in
+`var/state/acp-server/mobile-auth.json`, overridable with `ACP_MOBILE_AUTH_PATH`).
+While it is off nothing is refused — including the codeless tailnet pair the
+shipped iOS client sends today — but code redemption still mints tokens, so a
+device can be paired before the gate is armed. Tokens are returned exactly once at
+pairing; only their SHA-256 is stored, and they never reach any log.
 
 `GET /v1/mobile/sessions/:hostSessionId/attach-info`
 (`packages/acp-server/src/handlers/mobile-attach-info.ts`) is the only route on

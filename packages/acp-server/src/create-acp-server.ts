@@ -1,5 +1,6 @@
 import { type AcpServerDeps, resolveAcpServerDeps } from './deps.js'
 import { errorResponse } from './http.js'
+import { authorizeMobileRequest, mobileUnauthorizedResponse } from './mobile-auth/gate.js'
 import { buildExactRouteHandlers, exactRouteKey } from './routing/exact-routes.js'
 import { buildParamRoutes, matchParamRoute } from './routing/param-routes.js'
 
@@ -29,6 +30,21 @@ export function createAcpServer(deps: AcpServerDeps): AcpServer {
       try {
         const url = new URL(request.url)
         const pathname = url.pathname
+
+        // Single enforcement point for the mobile surface (spec §3): one decision
+        // function, shared with the WS upgrade path in `cli.ts`, ahead of the
+        // route table so no handler carries auth code of its own.
+        if (
+          authorizeMobileRequest({
+            pathname,
+            peer,
+            authorization: request.headers.get('authorization'),
+            store: resolvedDeps.mobileAuthStore,
+          }) === 'unauthorized'
+        ) {
+          return mobileUnauthorizedResponse()
+        }
+
         const exactRouteHandler = exactRouteHandlers[exactRouteKey(request.method, pathname)]
         if (exactRouteHandler !== undefined) {
           return await exactRouteHandler({ request, url, params: {}, deps: resolvedDeps, peer })

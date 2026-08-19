@@ -20,6 +20,7 @@ import type {
 } from 'hrc-sdk'
 
 import { badRequest, json } from '../http.js'
+import { mobileUnauthorizedResponse } from '../mobile-auth/gate.js'
 import {
   isRecord,
   parseJsonBody,
@@ -27,6 +28,7 @@ import {
   requireRecord,
   requireTrimmedStringField,
 } from '../parsers/body.js'
+import { isLoopbackPeer } from '../routing/peer.js'
 
 import type { AcpHrcClient, ResolvedAcpServerDeps } from '../deps.js'
 import type { RouteHandler } from '../routing/route-context.js'
@@ -2015,16 +2017,54 @@ export const handleMobilePairing: RouteHandler = async () =>
     },
   })
 
-export const handleMobilePair: RouteHandler = async ({ request }) => {
+/**
+ * POST /v1/mobile/pair — the token issuance path (spec §1 pair row, §2).
+ *
+ * The pairing CODE is this route's credential; a bearer is never demanded here,
+ * because a device that has not paired has no bearer by definition. Three cases:
+ *
+ *  - `{ pairingCode }` present: redeemed from ANY peer (loopback included). A
+ *    valid code mints a 256-bit token, returned exactly once; only its SHA-256 is
+ *    stored. Invalid/expired/replayed → the surface's one 401 shape.
+ *  - no code, loopback peer: today's no-op ack, unchanged. It mints nothing.
+ *  - no code, non-loopback peer: 401 once enforcement is armed. While `enforce`
+ *    is false this still acks, because the dark ship is zero behavior change and
+ *    the shipped iOS client pairs with no code today.
+ */
+export const handleMobilePair: RouteHandler = async ({ request, deps, peer }) => {
   const body = requireRecord(await parseJsonBody(request))
   const baseURL = readOptionalTrimmedStringField(body, 'baseURL') ?? DEFAULT_BASE_URL
-  return json({
+  const pairingCode = readOptionalTrimmedStringField(body, 'pairingCode')
+  const deviceName = readOptionalTrimmedStringField(body, 'deviceName')
+  const store = deps.mobileAuthStore
+
+  const ack = {
     ok: true,
     gatewayId: GATEWAY_ID,
     displayName: 'Local ACP',
     baseURL,
     pairedAt: new Date().toISOString(),
-  })
+  }
+
+  if (pairingCode !== undefined && pairingCode.length > 0) {
+    const redeemed = store.redeemPairingCode(pairingCode, deviceName)
+    if (redeemed === undefined) {
+      return mobileUnauthorizedResponse()
+    }
+    return json({
+      ...ack,
+      pairedAt: redeemed.device.pairedAt,
+      deviceId: redeemed.device.deviceId,
+      // Returned once and never again: the server keeps only the hash.
+      token: redeemed.token,
+    })
+  }
+
+  if (store.isEnforcing() && !isLoopbackPeer(peer)) {
+    return mobileUnauthorizedResponse()
+  }
+
+  return json(ack)
 }
 
 export const handleMobileDashboard: RouteHandler = async () =>

@@ -38,6 +38,7 @@ import {
 import { InMemoryInputAttemptStore, type InputAttemptStore } from './domain/input-attempt-store.js'
 import { InMemoryRunStore, type RunStore, type StoredRun } from './domain/run-store.js'
 import type { JobExecPolicy } from './jobs/exec-policy.js'
+import { type MobileAuthStore, resolveMobileAuthStore } from './mobile-auth/store.js'
 import {
   InMemoryWrkfParticipantCaptureStore,
   InMemoryWrkfRouteIdempotencyStore,
@@ -235,6 +236,12 @@ export interface AcpServerDeps {
   wrkf?: AcpWrkfWorkflowPort | undefined
   pbcIdempotencyStore?: WrkfRouteIdempotencyStore | undefined
   pbcCaptureStore?: WrkfParticipantCaptureStore | undefined
+  /**
+   * Mobile-surface bearer auth state (device roster + `enforce`). Injected by
+   * `cli.ts` so the HTTP router and the WS upgrade path share one instance;
+   * defaulted per-path otherwise.
+   */
+  mobileAuthStore?: MobileAuthStore | undefined
 }
 
 export interface ResolvedAcpServerDeps extends AcpServerDeps {
@@ -256,6 +263,7 @@ export interface ResolvedAcpServerDeps extends AcpServerDeps {
   wrkf: AcpWrkfWorkflowPort | undefined
   pbcIdempotencyStore: WrkfRouteIdempotencyStore
   pbcCaptureStore: WrkfParticipantCaptureStore
+  mobileAuthStore: MobileAuthStore
 }
 
 export type DeliveryTargetResolver = (input: {
@@ -321,8 +329,11 @@ export function resolveAcpServerDeps(deps: AcpServerDeps): ResolvedAcpServerDeps
       deps.pbcCaptureStore ??
       durableWrkfStores?.captureStore ??
       new InMemoryWrkfParticipantCaptureStore(),
+    mobileAuthStore: deps.mobileAuthStore ?? resolveMobileAuthStore(),
   }
 }
+
+export type { MobileAuthStore }
 
 export type {
   InputAttemptStore,
