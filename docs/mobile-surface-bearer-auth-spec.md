@@ -1,6 +1,6 @@
 # Mobile Surface Bearer Auth — Design Spec
 
-**Status:** rev 4 — base APPROVED rev 2 (DM #19585); the `/v*` scope amendment is under delta re-ruling (rev 3 REJECT #19590 resolved here)
+**Status:** APPROVED — rev 4 (content ruled in DM #19592, committed as 20d6a8f; base APPROVE #19585, scope-amendment REJECT #19590 resolved here). Ruled by mable@agent-control-plane in daedalus's stead.
 **Author:** mable · 2026-08-19
 **Ruled by:** Lance (option 3, 2026-08-19): enforce bearer auth on `/v1/mobile/*`.
 **Grounding:** T-07335 established the gap — the surface is loopback-*trusted* but tailnet-*reachable* (acp-server binds 127.0.0.1 AND the tailscale address), so any tailnet process can read every session and post input/interrupts into any agent session with no credential. attach-info (T-07335) is currently the only route that enforces locality.
