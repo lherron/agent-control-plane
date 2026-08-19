@@ -38,6 +38,7 @@ Routes:
 | `POST /v1/mobile/sessions` | http | Provision a new session — a suffix-roster slot for the quick-pick lanes, or the one exact scope the operator named. The client supplies a stable `requestId` per button press; transport retries reuse it. |
 | `POST /v1/mobile/sessions/:hostSessionId/input` | http | Literal input to a session. |
 | `POST /v1/mobile/sessions/:hostSessionId/interrupt` | http | Interrupt a session. |
+| `GET /v1/mobile/sessions/:hostSessionId/attach-info` | http | Loopback-only attach descriptor for an embedded terminal (HRCMac). |
 
 `POST /v1/mobile/sessions` accepts `agentId`, `projectId`, optional `taskId`,
 optional `viewerWindow`, and `requestId`. The server derives an HRC idempotency
@@ -79,6 +80,32 @@ downstream with `stale_context`, not by ACP. Exact starts are refused with
 environment variable is unset. The route uses the same loopback-trusted access
 convention as the rest of the embedded `/v1/mobile/*` surface; it does not add a
 separate authentication mode.
+
+`GET /v1/mobile/sessions/:hostSessionId/attach-info`
+(`packages/acp-server/src/handlers/mobile-attach-info.ts`) is the only route on
+this surface that *enforces* the loopback convention rather than assuming it. It
+exists so HRCMac can fast-attach an embedded libghostty terminal to a session's
+durable broker-tmux, and it **proxies** hrc-server's attach descriptor
+(`hrcClient.getAttachDescriptor`) — `argv` is hrc-server's verbatim, and
+`socketPath`/`target` are read back out of that same argv rather than recomputed,
+so exactly one place knows how to build an attach command.
+
+Two fail-closed gates, both answered with `404 {"reason":"not_local"}`:
+
+- the socket peer must be loopback — an *unobservable* peer is not loopback, so a
+  listener that does not thread `server.requestIP()` through
+  `createAcpServer().handler(request, { peer })` denies rather than assumes local
+  (the peer is never read from `X-Forwarded-For`, which a remote caller controls);
+- the session must live on the hrc node this gateway is co-resident with, which is
+  exactly "the local hrc control socket knows this `hostSessionId`" — `listSessions`
+  reads that node's own store and never federated projections.
+
+A local session with nothing to attach to (no durable broker lease, dead runtime,
+headless-without-tui) is `409 {"reason":"not_attachable"}`. Both codes are routing
+signals, not errors: the app falls back to the frame timeline. Success is
+`{ local: true, argv, socketPath, target, bindingFence }`, where `bindingFence`
+carries `runtimeId` + `generation` so the client can refuse to attach across a
+runtime rotation. Contract: `clients/hrc-ios/HRCMAC_EMBEDDED_TERMINAL_SPEC.md` §3.2.
 
 `handlers/mobile.ts` (~2,000 lines) covers federation-node projection types
 (`FederationNodeRuntimeProjection`, `FederationPeerHealthObservation`, ...)

@@ -1081,16 +1081,20 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
           }
 
           const start = performance.now()
+          // Socket peer, captured before the body is consumed: Bun exposes it only
+          // here, and peer-gated routes (e.g. mobile attach-info) cannot observe it
+          // from the Request alone.
+          const peer = server.requestIP(request) ?? undefined
           const response =
             url.pathname === '/v1/cap/rpc'
               ? await capabilityHost.handleHttpJsonRpc(request)
-              : await acpServer.handler(request)
+              : await acpServer.handler(request, { peer })
           if (accessLogger !== null) {
             accessLogger.log({
               request,
               response,
               durationMs: Math.round(performance.now() - start),
-              clientIp: server.requestIP(request)?.address,
+              clientIp: peer?.address,
             })
           }
           return response

@@ -36,6 +36,7 @@
       "GET /v1/mobile/history",
       "GET /v1/mobile/messages/watch",
       "GET /v1/mobile/pairing",
+      "GET /v1/mobile/sessions/:hostSessionId/attach-info",
       "GET /v1/ops/session-dashboard/events",
       "GET /v1/ops/session-dashboard/snapshot",
       "GET /v1/pbc/jobs/:jobId",

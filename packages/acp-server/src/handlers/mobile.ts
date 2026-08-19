@@ -1893,6 +1893,32 @@ async function openMobileDashboardWebSocket(
   }
 }
 
+/**
+ * Look up a session on the LOCAL hrc node by hostSessionId, plus its latest
+ * runtime. Returns undefined when this node does not own the session — callers
+ * decide whether that is a 400, a 404, or a routing signal.
+ */
+export async function findLocalMobileSessionByHostSessionId(
+  hrcClient: AcpHrcClient,
+  hostSessionId: string
+): Promise<
+  | {
+      record: HrcSessionRecord
+      runtime?: HrcRuntimeSnapshot | undefined
+    }
+  | undefined
+> {
+  const records = await hrcClient.listSessions({})
+  const matches = records.filter((candidate) => candidate.hostSessionId === hostSessionId)
+  if (matches.length === 0) {
+    return undefined
+  }
+  // Multiple generations may exist for a hostSessionId — pick the highest.
+  const record = matches.sort((lhs, rhs) => rhs.generation - lhs.generation)[0] as HrcSessionRecord
+  const runtimes = await hrcClient.listRuntimes({ hostSessionId: record.hostSessionId })
+  return { record, runtime: latestRuntimeForSession(record, runtimes) }
+}
+
 async function resolveMobileSessionByHostSessionId(
   hrcClient: AcpHrcClient,
   hostSessionId: string
@@ -1900,15 +1926,11 @@ async function resolveMobileSessionByHostSessionId(
   record: HrcSessionRecord
   runtime?: HrcRuntimeSnapshot | undefined
 }> {
-  const records = await hrcClient.listSessions({})
-  const matches = records.filter((candidate) => candidate.hostSessionId === hostSessionId)
-  if (matches.length === 0) {
+  const resolved = await findLocalMobileSessionByHostSessionId(hrcClient, hostSessionId)
+  if (resolved === undefined) {
     badRequest(`session not found: ${hostSessionId}`, { hostSessionId })
   }
-  // Multiple generations may exist for a hostSessionId — pick the highest.
-  const record = matches.sort((lhs, rhs) => rhs.generation - lhs.generation)[0] as HrcSessionRecord
-  const runtimes = await hrcClient.listRuntimes({ hostSessionId: record.hostSessionId })
-  return { record, runtime: latestRuntimeForSession(record, runtimes) }
+  return resolved
 }
 
 export const handleMobileHealth: RouteHandler = async ({ deps }) => {
