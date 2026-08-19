@@ -11,7 +11,9 @@
 
 Two tiers, evaluated per request against the socket peer address (the `RouteContext.peer` plumbing built in T-07335; fail-closed on absent peer, no `X-Forwarded-For` trust):
 
-There are **three credential classes** on this surface — none (exempt routes), the single-use pairing code (the pair route only), and the bearer token (everything else). The table below is the single normative gate; §2 describes the same rules and adds mechanism, never different rules:
+There are **three credential classes** on this surface — none (exempt routes), the single-use pairing code (the pair route only), and the bearer token (everything else). The table below is the single normative gate; §2 describes the same rules and adds mechanism, never different rules.
+
+**Scope: every `/v*/mobile/*` path, present and future.** The surface is not only `/v1` — `/v2/mobile/sessions` and the `/v2/mobile/dashboard` WS (federation dashboard) exist today and carry the same session data; gating only `/v1` would leave the hole open. The identical table applies to all mobile-prefixed versions; a future version's routes land in the bearer tier by default, and only the exempt rows below (which have no `/v2` counterparts today) are ever open:
 
 | Route class | Loopback peer | Non-loopback peer |
 | --- | --- | --- |
@@ -28,7 +30,7 @@ attach-info keeps its stricter loopback-only gate on top; bearer never substitut
 The client contract already anticipates this — `PairingResponse.token` and `pairingCode` exist in the shipped iOS client and are simply never populated. We fill them in rather than inventing a parallel scheme:
 
 - **Pairing code**: `acp mobile pairing-code` (CLI, talks to the server over loopback — the operator-authority step) mints a single-use code, 8 chars from an unambiguous alphabet, TTL 5 minutes, printed with the gateway URL. At most one outstanding code; minting a new one voids the old.
-- **Pair**: `POST /v1/mobile/pair` accepts `{ pairingCode, deviceName? }` from any peer, per the §1 table (the code is that route's credential; bearer is never demanded there). Valid code → mint a 256-bit random token, return it once in `PairingResponse.token`, store only its SHA-256 alongside `{ deviceName, pairedAt }`. Invalid/expired/replayed code → 401, constant-time compare, code consumed on first success only. The current no-op pair body (no code) remains valid **from loopback peers only** (it mints nothing, as today).
+- **Pair**: `POST /v1/mobile/pair` accepts `{ pairingCode, deviceName? }` from any peer, per the §1 table (the code is that route's credential; bearer is never demanded there). Valid code → mint a 256-bit random token, return it once in `PairingResponse.token`, store only its SHA-256 alongside `{ deviceName, pairedAt, deviceId }` — `deviceId` is a short random operator handle for `devices list|revoke` (deviceName isn't unique); it is never a credential and is never accepted as auth. Invalid/expired/replayed code → 401, constant-time compare, code consumed on first success only. The current no-op pair body (no code) remains valid **from loopback peers only** (it mints nothing, as today).
 - **The unauthenticated descriptor never carries a code**: `GET /v1/mobile/pairing` MUST leave its `pairingCode` field absent. The shipped iOS client falls back to redeeming a descriptor-served code (ConnectionView), and the descriptor route is open by design — populating it would hand the credential to any tailnet caller. Codes travel only through the operator's loopback CLI.
 - **Store**: flat JSON under the acp state dir (`mobile-auth.json`): `{ enforce: bool, devices: [{ tokenHash, deviceName, pairedAt }] }`. Every stored hash is a valid credential; revocation = delete the entry (`acp mobile devices list|revoke`). No scopes, no roles, no expiry in v1.
 - Verification is constant-time against each stored hash. Tokens never appear in logs, access logs included.
