@@ -1,6 +1,6 @@
 # Mobile Surface Bearer Auth — Design Spec
 
-**Status:** DRAFT — pending verification
+**Status:** APPROVED — rev 2 (6da6129), ruled 2026-08-19 by mable@agent-control-plane in daedalus's stead (DM #19585; rev 1 REJECT #19580 resolved in §1)
 **Author:** mable · 2026-08-19
 **Ruled by:** Lance (option 3, 2026-08-19): enforce bearer auth on `/v1/mobile/*`.
 **Grounding:** T-07335 established the gap — the surface is loopback-*trusted* but tailnet-*reachable* (acp-server binds 127.0.0.1 AND the tailscale address), so any tailnet process can read every session and post input/interrupts into any agent session with no credential. attach-info (T-07335) is currently the only route that enforces locality.
@@ -16,7 +16,7 @@ There are **three credential classes** on this surface — none (exempt routes),
 | Route class | Loopback peer | Non-loopback peer |
 | --- | --- | --- |
 | `GET /v1/mobile/health`, `GET /v1/mobile/pairing` (descriptor) | open | open — needed pre-pairing, leak nothing secret |
-| `POST /v1/mobile/pair` | open (today's no-op ack; mints nothing) | **valid pairing code is the credential** — `{ pairingCode }` redeems for a bearer token; missing/invalid/expired code → 401. Bearer is never required here: this is the issuance path, and a device pairing has no bearer yet by definition. |
+| `POST /v1/mobile/pair` | open (today's no-op ack; code redemption is also honored from loopback — a valid code mints a token regardless of peer) | **valid pairing code is the credential** — `{ pairingCode }` redeems for a bearer token; missing/invalid/expired code → 401. Bearer is never required here: this is the issuance path, and a device pairing has no bearer yet by definition. |
 | Every other `/v1/mobile/*` route | no bearer required — preserves local scripting, HRCMac, and attach-info semantics unchanged | `Authorization: Bearer <token>` required, HTTP and WS upgrade alike. Missing or invalid → `401 {"ok":false,"code":"unauthorized"}`, identical body for both cases. |
 
 WS upgrades (dashboard, timeline, messages/watch, diagnostics) are in the third row — the shared iOS/Mac client already sends the bearer on upgrade requests, so no client protocol change is needed.
