@@ -107,6 +107,22 @@ describe('createWrkfClientLifecycle — fail-closed startup', () => {
     await lifecycle.close()
   })
 
+  test('forwards an explicit hook catalog to the shared client', async () => {
+    const seen: CreateClientOptions[] = []
+    const lifecycle = await createWrkfClientLifecycle({
+      dbPath: '/tmp/wrkf-test.db',
+      hookCatalogPath: '/tmp/empty-hook-catalog.json',
+      clientInfo: { name: 'acp-server', version: '0.1.0' },
+      _createClient: (options) => {
+        seen.push(options)
+        return succeedingFactory()(options)
+      },
+    })
+
+    expect(seen[0]?.hookCatalogPath).toBe('/tmp/empty-hook-catalog.json')
+    await lifecycle.close()
+  })
+
   test('derives both workflow and store adapters from the one initialized client', async () => {
     const calls: string[] = []
     const fakeClient = {

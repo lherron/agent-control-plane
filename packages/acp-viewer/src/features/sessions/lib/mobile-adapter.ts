@@ -31,7 +31,7 @@ export function parseSessionRef(ref: string): SessionRef {
   return { scopeRef: ref.slice(0, idx), laneRef: ref.slice(idx + marker.length) || 'main' }
 }
 
-type RowStatus = 'busy' | 'idle' | 'launching' | 'stale' | 'dead'
+type RowStatus = 'busy' | 'idle' | 'launching' | 'stale' | 'dead' | 'detached'
 
 // Row sort priorities: stale/dead surface first, then busy, then everything else.
 const PRIORITY_BUSY = 60
@@ -44,6 +44,7 @@ function deriveRowStatus(s: MobileSessionSummary): RowStatus {
   const summary = s.summaryStatus ?? s.status
   if (summary === 'stale') return 'stale'
   if (summary === 'inactive') return 'dead'
+  if (summary === 'detached') return 'detached'
   // active session — refine by runtime/run
   if (s.activeTurnId !== undefined || s.run?.status === 'running') return 'busy'
   const rt = s.runtime?.status?.toLowerCase() ?? ''
@@ -67,11 +68,16 @@ function normalizeTransport(t: string | undefined): 'tmux' | 'sdk' | undefined {
 export function mobileSessionToRow(s: MobileSessionSummary): SessionTimelineRow | undefined {
   if (!s.hostSessionId || !s.sessionRef) return undefined
   const status = deriveRowStatus(s)
-  const continuity = status === 'stale' || status === 'dead' ? 'broken' : 'healthy'
+  const continuity =
+    status === 'stale' || status === 'dead'
+      ? 'broken'
+      : status === 'detached'
+        ? 'blocked'
+        : 'healthy'
   const priority =
     status === 'busy'
       ? PRIORITY_BUSY
-      : status === 'stale' || status === 'dead'
+      : status === 'stale' || status === 'dead' || status === 'detached'
         ? PRIORITY_BROKEN
         : PRIORITY_DEFAULT
   const transport = s.runtime ? normalizeTransport(s.runtime.transport) : undefined
@@ -101,7 +107,8 @@ export function mobileSessionToRow(s: MobileSessionSummary): SessionTimelineRow 
     ...(s.run !== undefined ? { acp: { latestRunId: s.run.runId } } : {}),
     visualState: {
       priority,
-      colorRole: status === 'stale' || status === 'dead' ? 'warning' : 'runtime',
+      colorRole:
+        status === 'stale' || status === 'dead' || status === 'detached' ? 'warning' : 'runtime',
       continuity,
     },
     stats: {

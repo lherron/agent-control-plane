@@ -2,9 +2,11 @@ import { Database } from 'bun:sqlite'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+import type { Actor } from 'acp-core'
 import { type SessionRef, parseScopeRef } from 'agent-scope'
 import {
   HrcConflictError,
+  type HrcDispatchOrigin,
   HrcErrorCode,
   type HrcEventEnvelope,
   type HrcHarnessIntent,
@@ -18,7 +20,7 @@ import { HrcClient, discoverSocket } from 'hrc-sdk'
 import { parseAgentProfile, resolveHarnessCatalogEntry } from 'spaces-config'
 import type { UnifiedSessionEvent } from 'spaces-runtime'
 
-import type { LaunchRoleScopedRun, RunStore } from './deps.js'
+import type { InputAttemptStore, LaunchRoleScopedRun, RunStore } from './deps.js'
 import type { DispatchFence, UpdateRunInput } from './domain/run-store.js'
 import { readOptionalString as readString } from './wrkf/value.js'
 
@@ -41,12 +43,14 @@ type RealLauncherOptions = {
   watchTimeoutMs?: number | undefined
   pollIntervalMs?: number | undefined
   createClient?: ((socketPath: string) => HrcClient) | undefined
+  inputAttemptStore?: InputAttemptStore | undefined
 }
 
 export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRoleScopedRun {
   const socketPath = options.socketPath ?? discoverSocket()
   const hrcDbPath = options.hrcDbPath ?? resolveDatabasePath()
   const createClient = options.createClient ?? ((path: string) => new HrcClient(path))
+  const inputAttemptStore = options.inputAttemptStore
   const waitTimeoutMs = options.watchTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
 
@@ -195,27 +199,35 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
         persistFenceDispatchError(runStore, acpRunId, error)
         throw error
       }
+      const deliveredHrcRunId = normalizeOptionalRunId(delivered.runId)
+      const deliveredRuntimeId = delivered.runtimeId ?? liveTmuxRuntime.runtimeId
+      const hrcRunCorrelation = tmuxHrcRunCorrelationPatch(deliveredHrcRunId)
 
       updateAcpRun(runStore, acpRunId, {
         status: 'running',
+        ...hrcRunCorrelation,
         hostSessionId: delivered.hostSessionId,
         generation: delivered.generation,
-        runtimeId: delivered.runtimeId ?? liveTmuxRuntime.runtimeId,
+        runtimeId: deliveredRuntimeId,
         transport: 'tmux',
         afterHrcSeq: latestAssistantSeq,
       })
 
       if (shouldWaitForCompletion && onEvent !== undefined) {
-        const assistantMessage = await pollAssistantMessageAfterSeq({
+        const assistantMessage = await waitForTmuxAssistantMessage({
           hrcDbPath,
+          deliveredHrcRunId,
           hostSessionId: delivered.hostSessionId,
           sessionRef,
           afterHrcSeq: latestAssistantSeq,
           timeoutMs: waitTimeoutMs,
+          pollIntervalMs,
+          runStore,
+          acpRunId,
         })
         if (assistantMessage === undefined) {
           throw new Error(
-            `HRC tmux runtime ${delivered.runtimeId ?? liveTmuxRuntime.runtimeId} did not produce an assistant reply event${acpCorrelationId !== undefined ? ` for ${acpCorrelationId}` : ''}`
+            `HRC tmux runtime ${deliveredRuntimeId} did not produce an assistant reply event${acpCorrelationId !== undefined ? ` for ${acpCorrelationId}` : ''}`
           )
         }
         await onEvent(assistantMessage)
@@ -226,32 +238,42 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
         })
       }
 
-      return {
-        runId: delivered.hostSessionId,
-        sessionId: delivered.hostSessionId,
+      return buildTmuxLaunchResult({
+        hrcDbPath,
+        hrcRunId: deliveredHrcRunId,
         hostSessionId: delivered.hostSessionId,
-        runtimeId: delivered.runtimeId ?? liveTmuxRuntime.runtimeId,
-        launchId: findLatestLaunchId(hrcDbPath, {
-          hostSessionId: delivered.hostSessionId,
-          runtimeId: delivered.runtimeId ?? liveTmuxRuntime.runtimeId,
-        }),
+        runtimeId: deliveredRuntimeId,
         generation: delivered.generation,
-      }
+      })
     }
 
     const targetSession = resolved
+    const dispatchOrigin = resolveHrcDispatchOrigin({
+      inputAttemptStore,
+      inputAttemptId,
+      acpRunId,
+      runStore,
+    })
     let dispatched: Awaited<ReturnType<typeof client.dispatchTurn>>
     try {
-      dispatched = await client.dispatchTurn({
-        hostSessionId: targetSession.hostSessionId,
-        prompt,
-        ...(normalizedIntent.attachments !== undefined
-          ? { attachments: normalizedIntent.attachments }
-          : {}),
-        fences: dispatchFence,
-        runtimeIntent: normalizedIntent,
-        waitForCompletion: shouldWaitForCompletion,
-      })
+      dispatched = await client.dispatchTurn(
+        withFirstTurnTimeout(
+          withHrcDispatchOrigin(
+            {
+              hostSessionId: targetSession.hostSessionId,
+              prompt,
+              ...(normalizedIntent.attachments !== undefined
+                ? { attachments: normalizedIntent.attachments }
+                : {}),
+              fences: dispatchFence,
+              runtimeIntent: normalizedIntent,
+              waitForCompletion: shouldWaitForCompletion,
+            },
+            dispatchOrigin
+          ),
+          resolveFirstTurnTimeoutOverrideMs(sessionRef.scopeRef)
+        )
+      )
     } catch (error) {
       persistFenceDispatchError(runStore, acpRunId, error)
       throw error
@@ -325,6 +347,168 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
       generation: dispatched.generation,
     }
   }
+}
+
+function normalizeOptionalRunId(runId: string | undefined): string | undefined {
+  const normalized = runId?.trim()
+  return normalized ? normalized : undefined
+}
+
+function tmuxHrcRunCorrelationPatch(
+  hrcRunId: string | undefined
+): Pick<UpdateRunInput, 'hrcRunId'> {
+  return hrcRunId === undefined ? {} : { hrcRunId }
+}
+
+function buildTmuxLaunchResult(input: {
+  hrcDbPath: string
+  hrcRunId: string | undefined
+  hostSessionId: string
+  runtimeId: string
+  generation: number
+}): {
+  runId: string
+  sessionId: string
+  hostSessionId: string
+  runtimeId: string
+  launchId: string | undefined
+  generation: number
+} {
+  const launchIdFromRun =
+    input.hrcRunId === undefined ? undefined : findLaunchIdForRun(input.hrcDbPath, input.hrcRunId)
+  return {
+    runId: input.hrcRunId ?? input.hostSessionId,
+    sessionId: input.hostSessionId,
+    hostSessionId: input.hostSessionId,
+    runtimeId: input.runtimeId,
+    launchId:
+      launchIdFromRun ??
+      findLatestLaunchId(input.hrcDbPath, {
+        hostSessionId: input.hostSessionId,
+        runtimeId: input.runtimeId,
+      }),
+    generation: input.generation,
+  }
+}
+
+async function waitForTmuxAssistantMessage(options: {
+  hrcDbPath: string
+  deliveredHrcRunId: string | undefined
+  hostSessionId: string
+  sessionRef: SessionRef
+  afterHrcSeq: number
+  timeoutMs: number
+  pollIntervalMs: number
+  runStore: RunStore | undefined
+  acpRunId: string | undefined
+}): Promise<UnifiedSessionEvent | undefined> {
+  if (options.deliveredHrcRunId === undefined) {
+    // Compatibility fallback for older HRC servers that do not return the
+    // broker-created run ID from literal Enter dispatch.
+    return pollAssistantMessageAfterSeq({
+      hrcDbPath: options.hrcDbPath,
+      hostSessionId: options.hostSessionId,
+      sessionRef: options.sessionRef,
+      afterHrcSeq: options.afterHrcSeq,
+      timeoutMs: options.timeoutMs,
+    })
+  }
+
+  const completedRun = await waitForRunCompletion({
+    hrcDbPath: options.hrcDbPath,
+    runId: options.deliveredHrcRunId,
+    timeoutMs: options.timeoutMs,
+    pollIntervalMs: options.pollIntervalMs,
+  })
+  const terminalOutcome = mapHrcRunTerminalStatus(completedRun)
+  if (terminalOutcome === undefined) {
+    throw new Error(
+      `HRC run ${options.deliveredHrcRunId} returned non-terminal status ${completedRun.status} after completion`
+    )
+  }
+  updateAcpRun(options.runStore, options.acpRunId, {
+    status: terminalOutcome.status,
+    errorCode: terminalOutcome.status === 'completed' ? null : completedRun.errorCode,
+    errorMessage: terminalOutcome.status === 'completed' ? null : completedRun.errorMessage,
+  })
+  if (terminalOutcome.status !== 'completed') {
+    throw createHrcRunTerminalError(options.deliveredHrcRunId, completedRun)
+  }
+  return pollCompletedAssistantMessage({
+    hrcDbPath: options.hrcDbPath,
+    runId: options.deliveredHrcRunId,
+    timeoutMs: RAW_EVENT_POLL_GRACE_MS,
+  })
+}
+
+function resolveHrcDispatchOrigin(input: {
+  inputAttemptStore: InputAttemptStore | undefined
+  inputAttemptId: string | undefined
+  acpRunId: string | undefined
+  runStore: RunStore | undefined
+}): HrcDispatchOrigin | undefined {
+  if (input.inputAttemptStore !== undefined && input.inputAttemptId !== undefined) {
+    const attempt = input.inputAttemptStore.getById(input.inputAttemptId)?.inputAttempt
+    if (attempt !== undefined) {
+      return hrcDispatchOriginFromActor(attempt.actor, attempt.metadata)
+    }
+  }
+
+  const run =
+    input.runStore !== undefined && input.acpRunId !== undefined
+      ? input.runStore.getRun(input.acpRunId)
+      : undefined
+  if (run === undefined) {
+    return undefined
+  }
+
+  const runMetadata = asRecord(run.metadata)
+  return hrcDispatchOriginFromActor(run.actor, asRecord(runMetadata['meta']))
+}
+
+function hrcDispatchOriginFromActor(
+  actor: Actor,
+  metadata: Readonly<Record<string, unknown>> | undefined
+): HrcDispatchOrigin {
+  const prefix = `${actor.kind}:`
+  const source = asRecord(metadata?.['source'])
+  const jobRunId = source['kind'] === 'job' ? readString(source, 'jobRunId') : undefined
+
+  return {
+    actor: actor.id.startsWith(prefix) ? actor.id : `${prefix}${actor.id}`,
+    kind: actor.kind,
+    ...(jobRunId !== undefined ? { causationRef: jobRunId } : {}),
+  }
+}
+
+function withHrcDispatchOrigin<T extends object>(
+  request: T,
+  origin: HrcDispatchOrigin | undefined
+): T & { origin?: HrcDispatchOrigin } {
+  return origin === undefined ? request : { ...request, origin }
+}
+
+// Env-gated, scope-exact passthrough of HRC's per-request first_turn_missing
+// watchdog override (DispatchTurnRequest.firstTurnTimeoutMs, T-07235). Both
+// variables must be set and the dispatch scope must match byte-for-byte;
+// every other dispatch keeps the fleet's global default. The knob exists only
+// in the server environment — unset + restart removes the surface entirely —
+// so a drill can shorten one scope's deadline without minting spurious
+// first_turn_missing terminal failures on unrelated production dispatches.
+function resolveFirstTurnTimeoutOverrideMs(scopeRef: string): number | undefined {
+  const scope = process.env['ACP_HRC_FIRST_TURN_TIMEOUT_SCOPE']?.trim()
+  if (scope === undefined || scope.length === 0 || scope !== scopeRef) {
+    return undefined
+  }
+  const ms = Number(process.env['ACP_HRC_FIRST_TURN_TIMEOUT_MS']?.trim())
+  return Number.isSafeInteger(ms) && ms > 0 ? ms : undefined
+}
+
+function withFirstTurnTimeout<T extends object>(
+  request: T,
+  firstTurnTimeoutMs: number | undefined
+): T & { firstTurnTimeoutMs?: number } {
+  return firstTurnTimeoutMs === undefined ? request : { ...request, firstTurnTimeoutMs }
 }
 
 function findLaunchIdForRun(hrcDbPath: string, runId: string): string | undefined {
@@ -1059,27 +1243,6 @@ export function readRunStatus(
       ...(row.errorCode !== null ? { errorCode: row.errorCode } : {}),
       ...(row.errorMessage !== null ? { errorMessage: row.errorMessage } : {}),
     }
-  } finally {
-    db.close()
-  }
-}
-
-export function listLegacyRawRunEvents(hrcDbPath: string, runId: string): RawRunEventRecord[] {
-  const db = new Database(hrcDbPath, { readonly: true })
-  try {
-    const rows = db
-      .query<{ eventKind: string; eventJson: string }, [string]>(
-        `SELECT event_kind AS eventKind, event_json AS eventJson
-          FROM events
-          WHERE run_id = ?
-          ORDER BY seq ASC`
-      )
-      .all(runId)
-
-    return rows.map((row) => ({
-      eventKind: row.eventKind,
-      eventJson: parseJson(row.eventJson),
-    }))
   } finally {
     db.close()
   }

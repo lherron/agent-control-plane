@@ -6,6 +6,7 @@
       "GET /v1/admin/agents/:agentId/detail",
       "GET /v1/admin/agents/:agentId/heartbeat",
       "GET /v1/admin/agents/:agentId/system-prompt",
+      "GET /v1/admin/deployment-coherence",
       "GET /v1/admin/interface-identities",
       "GET /v1/admin/jobs",
       "GET /v1/admin/jobs/:jobId",
@@ -29,12 +30,14 @@
       "GET /v1/interface/bindings",
       "GET /v1/job-runs/:jobRunId",
       "GET /v1/jobs/:jobId/runs",
+      "GET /v1/mobile/auth/devices",
       "GET /v1/mobile/dashboard",
       "GET /v1/mobile/dm/targets",
       "GET /v1/mobile/health",
       "GET /v1/mobile/history",
       "GET /v1/mobile/messages/watch",
       "GET /v1/mobile/pairing",
+      "GET /v1/mobile/sessions/:hostSessionId/attach-info",
       "GET /v1/ops/session-dashboard/events",
       "GET /v1/ops/session-dashboard/snapshot",
       "GET /v1/pbc/jobs/:jobId",
@@ -52,6 +55,7 @@
       "GET /v1/wrkf/pbc/tasks/:task/inspect",
       "GET /v1/wrkf/ping",
       "GET /v2/mobile/dashboard",
+      "GET /v2/mobile/sessions",
       "PATCH /v1/admin/agents/:agentId",
       "PATCH /v1/admin/agents/:agentId/profile",
       "PATCH /v1/admin/jobs/:jobId",
@@ -80,9 +84,13 @@
       "POST /v1/interface/messages",
       "POST /v1/interrupt",
       "POST /v1/messages",
+      "POST /v1/mobile/auth/devices/revoke",
+      "POST /v1/mobile/auth/enforce",
+      "POST /v1/mobile/auth/pairing-code",
       "POST /v1/mobile/messages/dm",
       "POST /v1/mobile/messages/query",
       "POST /v1/mobile/pair",
+      "POST /v1/mobile/sessions",
       "POST /v1/mobile/sessions/:hostSessionId/input",
       "POST /v1/mobile/sessions/:hostSessionId/interrupt",
       "POST /v1/pbc/tasks/:taskId/continue",
@@ -929,6 +937,83 @@
         "path": "acp render"
       },
       {
+        "description": "operate the mobile surface (pairing and bearer auth)",
+        "options": [],
+        "path": "acp mobile"
+      },
+      {
+        "description": "mint a single-use pairing code (5 minute TTL; voids any outstanding code)",
+        "options": [
+          "--actor",
+          "--json",
+          "--server",
+          "--table"
+        ],
+        "path": "acp mobile pairing-code"
+      },
+      {
+        "description": "manage paired mobile devices",
+        "options": [],
+        "path": "acp mobile devices"
+      },
+      {
+        "description": "list paired devices and enforcement posture",
+        "options": [
+          "--actor",
+          "--json",
+          "--server",
+          "--table"
+        ],
+        "path": "acp mobile devices list"
+      },
+      {
+        "description": "revoke one device's bearer token",
+        "options": [
+          "--actor",
+          "--device",
+          "--json",
+          "--server",
+          "--table"
+        ],
+        "path": "acp mobile devices revoke"
+      },
+      {
+        "description": "mobile bearer auth enforcement",
+        "options": [],
+        "path": "acp mobile auth"
+      },
+      {
+        "description": "show enforcement posture and paired devices",
+        "options": [
+          "--actor",
+          "--json",
+          "--server",
+          "--table"
+        ],
+        "path": "acp mobile auth status"
+      },
+      {
+        "description": "enforce bearer auth on non-loopback mobile callers",
+        "options": [
+          "--actor",
+          "--force",
+          "--json",
+          "--server",
+          "--table"
+        ],
+        "path": "acp mobile auth enable"
+      },
+      {
+        "description": "stop enforcing bearer auth (emergency rollback)",
+        "options": [
+          "--actor",
+          "--json",
+          "--server",
+          "--table"
+        ],
+        "path": "acp mobile auth disable"
+      },
+      {
         "description": "send coordination messages",
         "options": [],
         "path": "acp message"
@@ -1322,6 +1407,15 @@
         "acp message",
         "acp message broadcast",
         "acp message send",
+        "acp mobile",
+        "acp mobile auth",
+        "acp mobile auth disable",
+        "acp mobile auth enable",
+        "acp mobile auth status",
+        "acp mobile devices",
+        "acp mobile devices list",
+        "acp mobile devices revoke",
+        "acp mobile pairing-code",
         "acp project",
         "acp project create",
         "acp project default-agent",

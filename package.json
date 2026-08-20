@@ -10,10 +10,11 @@
     "build": "bun run build:ordered",
     "build:ordered": "bun run --filter 'acp-core' build && bun run --filter 'coordination-substrate' build && bun run --filter 'wrkq-lib' build && bun run --filter 'acp-admin-store' build && bun run --filter 'acp-conversation' build && bun run --filter 'acp-interface-store' build && bun run --filter 'acp-jobs-store' build && bun run --filter 'acp-state-store' build && bun run --filter 'acp-ops-projection' build && bun run --filter 'acp-ops-reducer' build && bun run --filter 'gateway-discord' build && bun run --filter 'gateway-ios' build && bun run --filter 'acp-capability-host' build && bun run --filter 'acp-server' build && bun run --filter 'acp-cli' build && bun run --filter 'wlearn' build && bun run --filter 'acp-viewer' build && bun run --filter 'acp-e2e' build",
     "build:parallel": "bun run --filter '*' build",
-    "check": "bun run check:suppressions && bun run check:boundaries && bun run check:manifests && bun run lint && bun run typecheck && bun run test",
+    "check": "bun run check:suppressions && bun run check:boundaries && bun run check:manifests && bun run check:consumer-deployment && bun run lint && bun run typecheck && bun run test",
     "check:suppressions": "bun scripts/check-suppressions.ts",
     "check:boundaries": "bun scripts/check-boundaries.ts",
     "check:manifests": "bun scripts/check-manifest-edges.ts",
+    "check:consumer-deployment": "bun scripts/check-consumer-deployment-coherence.ts",
     "check:public-surface": "bun scripts/check-public-surface.ts",
     "check:enablement-changelog": "bun scripts/check-enablement-changelog.ts",
     "check:architecture-records": "bun scripts/check-architecture-records.ts",
@@ -45,5 +46,14 @@
     "spaces-harness-codex": "latest",
     "spaces-harness-pi": "latest",
     "spaces-harness-pi-sdk": "latest"
+  },
+  "overrides": {
+    "agent-action-render": "0.1.0-dev.20260818075929",
+    "hrc-core": "0.1.0-dev.20260818075929",
+    "hrc-events": "0.1.0-dev.20260818075929",
+    "hrc-frame-render": "0.1.0-dev.20260818075929",
+    "hrc-sdk": "0.1.0-dev.20260818075929",
+    "hrc-server": "0.1.0-dev.20260818075929",
+    "hrc-store-sqlite": "0.1.0-dev.20260818075929"
   }
 }

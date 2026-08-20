@@ -23,6 +23,8 @@ type RequestOptions = {
   path: string
   body?: unknown
   headers?: HeadersInit | undefined
+  /** Socket peer to present to peer-gated routes; omitted means "unobservable". */
+  peer?: { address: string; family?: string | undefined; port?: number | undefined } | undefined
 }
 
 export type WiredServerFixture = {
@@ -75,7 +77,8 @@ export async function withWiredServer<T>(
           method: options.method,
           headers,
           ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
-        })
+        }),
+        options.peer !== undefined ? { peer: options.peer } : undefined
       )
     },
     async json<T>(response: Response): Promise<T> {

@@ -91,6 +91,7 @@ function createHrcClientDouble(overrides: Partial<AcpHrcClient> = {}): AcpHrcCli
       (async function* () {
         throw new Error('watch not implemented')
       } as unknown as AcpHrcClient['watch']),
+    listLatestEventBySession: overrides.listLatestEventBySession ?? (async () => []),
   }
 }
 
@@ -504,17 +505,16 @@ describe('GET /v1/ops/session-dashboard/events', () => {
 
   // -- No unbounded buffering -----------------------------------------------
 
-  test('does not buffer unbounded events in memory during replay', async () => {
-    // Emit a large number of events. The handler should stream them out
-    // incrementally, not collect them all in memory first.
-    const MANY_EVENTS = 10_000
-    let _emittedCount = 0
+  test('clamps an old replay cursor to the configured maximum depth', async () => {
+    const MANY_EVENTS = 20_000
+    let watchedFromSeq: number | undefined
 
     const hrcClient = createHrcClientDouble({
-      watch: (_options) =>
+      listLatestEventBySession: async () => [createHrcEvent({ hrcSeq: MANY_EVENTS })],
+      watch: (options) =>
         (async function* () {
-          for (let i = 1; i <= MANY_EVENTS; i++) {
-            _emittedCount = i
+          watchedFromSeq = options?.fromSeq
+          for (let i = options?.fromSeq ?? 1; i <= MANY_EVENTS; i++) {
             yield createHrcEvent({ hrcSeq: i })
           }
         })(),
@@ -528,10 +528,9 @@ describe('GET /v1/ops/session-dashboard/events', () => {
         const text = await response.text()
         const events = parseNdjson(text).filter((e): e is DashboardEvent => e !== null)
 
-        // All events should have been streamed
-        expect(events.length).toBe(MANY_EVENTS)
-        // Verify none were lost or reordered
-        expect(events[0]!.hrcSeq).toBe(1)
+        expect(watchedFromSeq).toBe(10_001)
+        expect(events.length).toBe(10_000)
+        expect(events[0]!.hrcSeq).toBe(10_001)
         expect(events[events.length - 1]!.hrcSeq).toBe(MANY_EVENTS)
       },
       { hrcClient }

@@ -16,7 +16,9 @@
 import { describe, expect, test } from 'bun:test'
 
 import type { SessionDashboardSnapshot } from 'acp-ops-projection'
+import type { HrcLifecycleEvent } from 'hrc-core'
 
+import type { AcpHrcClient } from '../src/index.js'
 import { withWiredServer } from './fixtures/wired-server.js'
 
 // ---------------------------------------------------------------------------
@@ -258,5 +260,42 @@ describe('GET /v1/ops/session-dashboard/snapshot', () => {
       expect(Number.isInteger(body.cursors.nextFromSeq)).toBe(true)
       expect(body.cursors.nextFromSeq).toBeGreaterThanOrEqual(0)
     })
+  })
+
+  test('reads only the bounded tail of the HRC event log', async () => {
+    let watchedFromSeq: number | undefined
+    const latestEvent: HrcLifecycleEvent = {
+      hrcSeq: 25_000,
+      streamSeq: 25_000,
+      ts: new Date().toISOString(),
+      hostSessionId: 'hsid-bounded-snapshot',
+      scopeRef: 'agent:cody:project:agent-control-plane',
+      laneRef: 'main',
+      generation: 1,
+      category: 'session',
+      eventKind: 'session.updated',
+      replayed: false,
+      payload: {},
+    }
+    const hrcClient = {
+      listLatestEventBySession: async () => [latestEvent],
+      listSessions: async () => [],
+      watch: (options?: { fromSeq?: number }) =>
+        (async function* () {
+          watchedFromSeq = options?.fromSeq
+          yield latestEvent
+        })(),
+    } as unknown as AcpHrcClient
+
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request(snapshotRequest())
+        expect(response.status).toBe(200)
+        expect(watchedFromSeq).toBe(15_001)
+        const body = await fixture.json<SessionDashboardSnapshot>(response)
+        expect(body.cursors.lastHrcSeq).toBe(25_000)
+      },
+      { hrcClient }
+    )
   })
 })

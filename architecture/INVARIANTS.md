@@ -10,6 +10,10 @@ A managed schedule has a non-empty static owner set of logical HRC node IDs or t
 
 Active records under architecture/records are agent-control-plane's durable architecture law. ADRs, generated projections, docs, tasks, chats, and comments are provenance unless an active record imports a predicate.
 
+## agent-control-plane.asp-hrc-consumer-coherence
+
+ACP selects one exact canonical ASP package set and one exact canonical HRC package set across every direct and transitive bun.lock edge. Every selected tarball uses the canonical mini registry locator and its lock integrity is cache-empty fetchable. Installed package manifests must equal the lock and carry one exact praesidiumBuild tuple per set. The served ACP deployment readback must agree with HRC's atomic running release, including its locked ASP tuple and runningEqualsInstalled=true. This consumer invariant imports producer predicates agent-spaces.canonical-package-publication and hrc-runtime.canonical-package-publication plus hrc-runtime.observable-release; it does not redefine producer contracts.
+
 ## agent-control-plane.verify-gate
 
 just verify is agent-control-plane's local handoff gate and must include the architecture-records structure and projection-freshness check.

@@ -17,6 +17,7 @@ import { handleCreateAgentPulpitMessage } from '../handlers/agent-pulpit-message
 import { handleListConversationThreads } from '../handlers/conversation-threads.js'
 import { handleCreateCoordinationMessage } from '../handlers/coordination-messages.js'
 import { handleListFailedDeliveries } from '../handlers/delivery-list-failed.js'
+import { handleGetDeploymentCoherence } from '../handlers/deployment-coherence.js'
 import { handleCreateInput } from '../handlers/inputs.js'
 import { handleCreateInterfaceBinding } from '../handlers/interface-bindings-create.js'
 import { handleListInterfaceBindings } from '../handlers/interface-bindings-list.js'
@@ -28,6 +29,13 @@ import {
 } from '../handlers/managed-resources.js'
 import { handleCreateMessage } from '../handlers/messages.js'
 import {
+  handleListMobileAuthDevices,
+  handleMintMobilePairingCode,
+  handleRevokeMobileAuthDevice,
+  handleSetMobileAuthEnforce,
+} from '../handlers/mobile-auth-admin.js'
+import { handleCreateMobileSession } from '../handlers/mobile-sessions-create.js'
+import {
   handleMobileDashboard,
   handleMobileDmTargets,
   handleMobileHealth,
@@ -37,6 +45,7 @@ import {
   handleMobilePair,
   handleMobilePairing,
   handleMobileSemanticDm,
+  handleMobileSessionsPage,
 } from '../handlers/mobile.js'
 import { handleOpsDashboardEvents } from '../handlers/ops-dashboard-events.js'
 import { handleOpsDashboardSnapshot } from '../handlers/ops-dashboard-snapshot.js'
@@ -158,6 +167,7 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
     ),
     [exactRouteKey('GET', '/v1/admin/jobs')]: handleListAdminJobs,
     [exactRouteKey('GET', '/v1/admin/jobs/scheduler')]: handleGetSchedulerState,
+    [exactRouteKey('GET', '/v1/admin/deployment-coherence')]: handleGetDeploymentCoherence,
     [exactRouteKey('GET', '/v1/conversation/threads')]: handleListConversationThreads,
     [exactRouteKey('POST', '/v1/coordination/messages')]: maybeWrapMutatingRoute(
       'POST',
@@ -176,6 +186,8 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
     [exactRouteKey('GET', '/v1/mobile/health')]: handleMobileHealth,
     [exactRouteKey('GET', '/v1/mobile/pairing')]: handleMobilePairing,
     [exactRouteKey('POST', '/v1/mobile/pair')]: handleMobilePair,
+    [exactRouteKey('POST', '/v1/mobile/sessions')]: handleCreateMobileSession,
+    [exactRouteKey('GET', '/v2/mobile/sessions')]: handleMobileSessionsPage,
     [exactRouteKey('GET', '/v1/mobile/dashboard')]: handleMobileDashboard,
     [exactRouteKey('GET', '/v2/mobile/dashboard')]: handleMobileDashboard,
     [exactRouteKey('GET', '/v1/mobile/history')]: handleMobileHistory,
@@ -183,6 +195,12 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
     [exactRouteKey('POST', '/v1/mobile/messages/query')]: handleMobileMessagesQuery,
     [exactRouteKey('POST', '/v1/mobile/messages/dm')]: handleMobileSemanticDm,
     [exactRouteKey('GET', '/v1/mobile/messages/watch')]: handleMobileMessagesWatch,
+    // Loopback-only operator surface for bearer auth (spec §4): the server is the
+    // state file's only writer, so `acp mobile ...` mutates it through these.
+    [exactRouteKey('POST', '/v1/mobile/auth/pairing-code')]: handleMintMobilePairingCode,
+    [exactRouteKey('GET', '/v1/mobile/auth/devices')]: handleListMobileAuthDevices,
+    [exactRouteKey('POST', '/v1/mobile/auth/devices/revoke')]: handleRevokeMobileAuthDevice,
+    [exactRouteKey('POST', '/v1/mobile/auth/enforce')]: handleSetMobileAuthEnforce,
     [exactRouteKey('GET', '/v1/wrkf/ping')]: handleWrkfPing,
     [exactRouteKey('POST', '/v1/wrkf/effects/deliver')]: maybeWrapMutatingRoute(
       'POST',

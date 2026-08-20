@@ -1,0 +1,44 @@
+id: agent-control-plane.asp-hrc-consumer-coherence
+kind: invariant
+status: active
+owner_project: agent-control-plane
+scope: ACP direct and transitive ASP/HRC consumer deployment
+predicate: >
+  ACP selects one exact canonical ASP package set and one exact canonical HRC
+  package set across every direct and transitive bun.lock edge. Every selected
+  tarball uses the canonical mini registry locator and its lock integrity is
+  cache-empty fetchable. Installed package manifests must equal the lock and
+  carry one exact praesidiumBuild tuple per set. The served ACP deployment
+  readback must agree with HRC's atomic running release, including its locked
+  ASP tuple and runningEqualsInstalled=true. This consumer invariant imports
+  producer predicates agent-spaces.canonical-package-publication and
+  hrc-runtime.canonical-package-publication plus
+  hrc-runtime.observable-release; it does not redefine producer contracts.
+authority:
+  repo: agent-control-plane
+  surface: dependency lock, installed tuple checker, and served deployment readback
+source:
+  - bun.lock
+  - scripts/check-consumer-deployment-coherence.ts
+  - packages/acp-server/src/deployment-coherence.ts
+  - packages/acp-server/src/handlers/deployment-coherence.ts
+  - packages/acp-server/test/deployment-coherence.test.ts
+  - wrkq:T-06687
+  - wrkq:T-06951
+  - wrkq:T-06958
+  - wrkq:T-06960
+required_tests:
+  - bun scripts/check-consumer-deployment-coherence.ts exits 0
+  - bun scripts/check-consumer-deployment-coherence.ts --fetch exits 0
+  - bun test packages/acp-server/test/deployment-coherence.test.ts exits 0
+  - installed GET /v1/admin/deployment-coherence returns ok true
+last_verified:
+  date: 2026-07-25
+  evidence: T-06960 canonical producer tuple consumption and live ACP/HRC readback
+reopen_when:
+  - ACP adds or removes an ASP/HRC dependency edge or package
+  - ASP or HRC publishes a replacement coherent package set
+  - the canonical registry locator or praesidiumBuild schema changes
+  - HRC changes its served release readback contract
+supersedes: []
+superseded_by: null

@@ -33,7 +33,7 @@ describe('wrkq locator static surfaces', () => {
   })
 
   test('manifests stay on latest while lockfile and install resolve the required client snapshot', () => {
-    const requiredVersion = '0.1.0-dev.20260722041214'
+    const requiredVersion = '0.1.0-dev.20260725110837'
     const manifestPaths = ['packages/acp-server/package.json', 'packages/wrkq-lib/package.json']
 
     for (const path of manifestPaths) {

@@ -120,6 +120,45 @@ describe('parseAcpWebhookEvent + wrkq adapter', () => {
     expect(result.ok).toBe(true)
   })
 
+  test('accepts the canonical hrc rev3 envelope', () => {
+    const hrcEnvelope = {
+      schema_version: 1,
+      source: 'hrc',
+      event_id: 'max3:42',
+      event_seq: 42,
+      event: 'first_turn_missing',
+      occurred_at: '2026-08-14T20:00:00Z',
+      subject: { type: 'hrc-runtime', id: 'runtime-42' },
+      origin: {
+        actor: 'agent:cody',
+        kind: 'agent',
+        causation_ref: 'jrun-42',
+      },
+      payload: {
+        nodeId: 'max3',
+        runtimeId: 'runtime-42',
+        scopeRef: 'agent:cody:project:agent-control-plane:task:T-07237',
+        generation: 3,
+        invocationId: 'invocation-42',
+        runId: 'run-42',
+        tripEventId: '42',
+        retrievalHint: 'hrc runtime diagnostics 42',
+      },
+    }
+    const result = parseAcpWebhookEvent(hrcEnvelope)
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.event.canonical_event_id).toBe('hrc:max3:42')
+      expect(result.event.origin).toEqual(hrcEnvelope.origin)
+      expect(result.event.subject).toEqual(hrcEnvelope.subject)
+    }
+
+    expect(parseAcpWebhookEvent({ ...hrcEnvelope, schema_version: undefined }).ok).toBe(false)
+    expect(parseAcpWebhookEvent({ ...hrcEnvelope, event_seq: -1 }).ok).toBe(false)
+    expect(parseAcpWebhookEvent({ ...hrcEnvelope, source: 'HRC' }).ok).toBe(false)
+  })
+
   test('rejects malformed generic identity/source/seq/payload', () => {
     expect(parseAcpWebhookEvent({ ...acpEvent(), source: 'Bad Source' }).ok).toBe(false)
     expect(parseAcpWebhookEvent({ ...acpEvent(), event_id: '' }).ok).toBe(false)

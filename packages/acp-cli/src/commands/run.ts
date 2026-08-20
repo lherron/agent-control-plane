@@ -47,6 +47,8 @@ type DeleteFallbackResponse = OutboundAttachmentListResponse & {
   reason: string
 }
 
+const CURRENT_RUN_SELECTOR = 'current'
+
 const CONTENT_TYPES_BY_EXTENSION: Readonly<Record<string, string>> = {
   '.gif': 'image/gif',
   '.jpeg': 'image/jpeg',
@@ -68,13 +70,17 @@ function contentTypeFromFilename(filename: string): string | undefined {
   return CONTENT_TYPES_BY_EXTENSION[filename.slice(dotIndex).toLowerCase()]
 }
 
-function resolveRunId(parsed: ReturnType<typeof parseArgs>, env: NodeJS.ProcessEnv): string {
-  const runId = readStringFlag(parsed, '--run') ?? env['HRC_RUN_ID']
-  if (runId === undefined || runId.trim().length === 0) {
-    throw new CliUsageError('--run is required (or set HRC_RUN_ID)')
+function resolveRunSelector(parsed: ReturnType<typeof parseArgs>, env: NodeJS.ProcessEnv): string {
+  const explicitRunId = readStringFlag(parsed, '--run')?.trim()
+  if (explicitRunId !== undefined && explicitRunId.length > 0) {
+    return explicitRunId
   }
 
-  return runId.trim()
+  if (env['HRC_HOST_SESSION_ID']?.trim()) {
+    return CURRENT_RUN_SELECTOR
+  }
+
+  throw new CliUsageError('--run is required when HRC_HOST_SESSION_ID is unavailable')
 }
 
 async function requireFile(path: string): Promise<void> {
@@ -193,8 +199,7 @@ export async function runRunCommand(
     const env = deps.env ?? process.env
     const attachmentSubcommand = args[1]
     const attachmentPath = parsed.positionals[0]
-    const runFlag = readStringFlag(parsed, '--run')
-    const runId = resolveRunId(parsed, env)
+    const runId = resolveRunSelector(parsed, env)
     const serverUrl = resolveServerUrl(readStringFlag(parsed, '--server'), env)
     const actorAgentId = resolveOptionalActorAgentId(readStringFlag(parsed, '--actor'), env)
 
@@ -221,7 +226,7 @@ export async function runRunCommand(
           ? { alt: readStringFlag(parsed, '--alt') }
           : {}),
         ...(actorAgentId !== undefined ? { actorAgentId } : {}),
-        headers: correlationHeadersFromEnv(env, { includeHrcRunId: runFlag === undefined }),
+        headers: correlationHeadersFromEnv(env, { includeHrcRunId: false }),
       })
 
       return hasFlag(parsed, '--json')
@@ -239,6 +244,7 @@ export async function runRunCommand(
       const response = await requester.requestJson<OutboundAttachmentListResponse>({
         method: 'GET',
         path: `/v1/runs/${encodeURIComponent(runId)}/outbound-attachments`,
+        headers: correlationHeadersFromEnv(env, { includeHrcRunId: false }),
       })
       return hasFlag(parsed, '--json')
         ? asJson(response)
@@ -256,7 +262,7 @@ export async function runRunCommand(
         const response = await requester.requestJson<Record<string, unknown>>({
           method: 'DELETE',
           path: `/v1/runs/${encodeURIComponent(runId)}/outbound-attachments`,
-          headers: correlationHeadersFromEnv(env, { includeHrcRunId: runFlag === undefined }),
+          headers: correlationHeadersFromEnv(env, { includeHrcRunId: false }),
         })
         return hasFlag(parsed, '--json') ? asJson(response) : asText('cleared outbound attachments')
       } catch (error) {
@@ -267,6 +273,7 @@ export async function runRunCommand(
         const response = await requester.requestJson<OutboundAttachmentListResponse>({
           method: 'GET',
           path: `/v1/runs/${encodeURIComponent(runId)}/outbound-attachments`,
+          headers: correlationHeadersFromEnv(env, { includeHrcRunId: false }),
         })
         const fallback: DeleteFallbackResponse = {
           ...response,

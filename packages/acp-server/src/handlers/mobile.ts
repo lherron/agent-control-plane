@@ -11,8 +11,16 @@ import type {
   HrcSessionRecord,
   HrcTargetView,
 } from 'hrc-core'
+import type {
+  SessionFacetsRequest,
+  SessionFacetsResponse,
+  SessionPageItem,
+  SessionPageRequest,
+  SessionPeerStatus,
+} from 'hrc-sdk'
 
 import { badRequest, json } from '../http.js'
+import { mobileUnauthorizedResponse } from '../mobile-auth/gate.js'
 import {
   isRecord,
   parseJsonBody,
@@ -20,9 +28,11 @@ import {
   requireRecord,
   requireTrimmedStringField,
 } from '../parsers/body.js'
+import { isLoopbackPeer } from '../routing/peer.js'
 
 import type { AcpHrcClient, ResolvedAcpServerDeps } from '../deps.js'
 import type { RouteHandler } from '../routing/route-context.js'
+import { latestHrcSeq, listCachedLatestEventBySession } from './hrc-event-read-window.js'
 import {
   type MobileWebSocketLike,
   abortMobileWebSocket,
@@ -37,6 +47,7 @@ const GATEWAY_ID = 'acp-local'
 const API_VERSION = 'v1'
 const DEFAULT_BASE_URL = 'http://127.0.0.1:18470'
 const DEFAULT_DASHBOARD_RECENT_EVENTS_PER_SESSION = 5
+const MOBILE_SESSION_PAGE_SIZE = 50
 const MAX_DASHBOARD_RECENT_EVENTS_PER_SESSION = 10
 const MAX_DASHBOARD_SNAPSHOT_EVENTS = 200
 const MAX_MOBILE_SESSION_RUNS = 10_000
@@ -48,7 +59,7 @@ const REMOTE_CONTROL_UNAVAILABLE_MESSAGE =
   'Remote timeline, history, literal input, and interrupt are unavailable in mobile federation Phase 1.'
 
 type MobileSessionMode = 'interactive' | 'headless'
-type MobileSessionStatus = 'active' | 'stale' | 'inactive'
+type MobileSessionStatus = 'active' | 'stale' | 'inactive' | 'detached'
 type MobileExecutionMode = 'interactive' | 'headless' | 'nonInteractive'
 type MobileSessionSourceKind = 'local_session' | 'remote_runtime_projection'
 type MobileNodeState = 'healthy' | 'unreachable' | 'refused' | 'invalid_response'
@@ -181,8 +192,29 @@ type MobileSessionIndex = {
     active: number
     stale: number
     inactive: number
+    detached: number
   }
   sessions: MobileSessionSummary[]
+}
+
+type MobileSessionPageInfo = {
+  nextCursor?: string | undefined
+  localNodeId: string
+  eventHighWater: Record<string, number>
+  complete: boolean
+  peerStatus: Record<string, string>
+}
+
+type MobileSessionFacets = Omit<SessionFacetsResponse, 'peerStatus'> & {
+  peerStatus: Record<string, string>
+}
+
+type MobileSessionPagePayload = {
+  generatedAt: string
+  sessions: MobileSessionSummary[]
+  recentEventsBySession: Record<string, MobileEventMessage[]>
+  pageInfo: MobileSessionPageInfo
+  facets: MobileSessionFacets
 }
 
 type MobileEventMessage = {
@@ -215,6 +247,8 @@ type MobileDashboardSnapshot = {
   }
   sessions: MobileSessionSummary[]
   recentEventsBySession: Record<string, MobileEventMessage[]>
+  pageInfo?: MobileSessionPageInfo | undefined
+  facets?: MobileSessionFacets | undefined
 }
 
 type MobileDashboardSessionsRefreshed = {
@@ -367,6 +401,7 @@ function mobileStatus(status: string, runtime?: HrcRuntimeSnapshot): MobileSessi
     return 'inactive'
   }
   const runtimeStatus = runtime?.status.toLowerCase()
+  if (runtimeStatus === 'detached') return 'detached'
   if (runtimeStatus?.includes('stale')) return 'stale'
   if (
     runtime === undefined ||
@@ -507,6 +542,7 @@ function countSessions(sessions: MobileSessionSummary[]): MobileSessionIndex['co
     active: sessions.filter((session) => session.summaryStatus === 'active').length,
     stale: sessions.filter((session) => session.summaryStatus === 'stale').length,
     inactive: sessions.filter((session) => session.summaryStatus === 'inactive').length,
+    detached: sessions.filter((session) => session.summaryStatus === 'detached').length,
   }
 }
 
@@ -588,10 +624,9 @@ async function listMobileSessions(
       ...(laneRef !== undefined ? { laneRef } : {}),
     }),
     hrcClient.listRuntimes({}),
-    // Indexed SQL query returns one row per (hostSessionId, generation); does not
-    // depend on a bounded recent window, so lastHrcSeq / lastActivityAt stay
-    // reliable on large stores. See HrcLifecycleEventRepository.listLatestPerSession.
-    hrcClient.listLatestEventBySession({
+    // This HRC query groups over the event store. Coalesce concurrent dashboard
+    // reads and retain it briefly rather than rerunning it for every request.
+    listCachedLatestEventBySession(hrcClient, {
       ...(scopeRef !== undefined ? { scopeRef } : {}),
       ...(laneRef !== undefined ? { laneRef } : {}),
     }),
@@ -624,7 +659,7 @@ async function listMobileSessions(
   if (mode === 'interactive' || mode === 'headless') {
     sessions = sessions.filter((session) => session.mode === mode)
   }
-  if (status === 'active' || status === 'stale' || status === 'inactive') {
+  if (status === 'active' || status === 'stale' || status === 'inactive' || status === 'detached') {
     sessions = sessions.filter((session) => session.summaryStatus === status)
   }
   if (query !== undefined && query.length > 0) {
@@ -648,6 +683,221 @@ async function listMobileSessions(
     refreshedAt: new Date().toISOString(),
     counts: countSessions(sessions),
     sessions,
+  }
+}
+
+function parseMobileSessionPageLimit(url: URL, parameter = 'limit'): number {
+  const raw = url.searchParams.get(parameter)
+  if (raw === null) return MOBILE_SESSION_PAGE_SIZE
+  if (!/^\d+$/.test(raw)) {
+    badRequest(`${parameter} must be an integer between 1 and ${MOBILE_SESSION_PAGE_SIZE}`)
+  }
+  const parsed = Number(raw)
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > MOBILE_SESSION_PAGE_SIZE) {
+    badRequest(`${parameter} must be an integer between 1 and ${MOBILE_SESSION_PAGE_SIZE}`)
+  }
+  return parsed
+}
+
+function parseMobileSessionPageRequest(
+  url: URL,
+  options: { limitParameter?: string | undefined } = {}
+): SessionPageRequest {
+  const effectiveStatus = url.searchParams.get('effectiveStatus')?.trim() || undefined
+  if (
+    effectiveStatus !== undefined &&
+    !['active', 'detached', 'inactive', 'stale'].includes(effectiveStatus)
+  ) {
+    badRequest('effectiveStatus is invalid')
+  }
+  const executionMode = url.searchParams.get('executionMode')?.trim() || undefined
+  if (
+    executionMode !== undefined &&
+    !['headless', 'interactive', 'nonInteractive'].includes(executionMode)
+  ) {
+    badRequest('executionMode is invalid')
+  }
+  const nodeId = url.searchParams.get('nodeId')?.trim() || undefined
+  const cursor = url.searchParams.get('cursor')?.trim() || undefined
+  const q = url.searchParams.get('q')?.trim() || undefined
+  const agentId = url.searchParams.get('agentId')?.trim() || undefined
+  const projectId = url.searchParams.get('projectId')?.trim() || undefined
+  const laneRef = url.searchParams.get('laneRef')?.trim() || undefined
+  return {
+    limit: parseMobileSessionPageLimit(url, options.limitParameter ?? 'limit'),
+    ...(cursor !== undefined ? { cursor } : {}),
+    ...(q !== undefined ? { q } : {}),
+    ...(agentId !== undefined ? { agentId } : {}),
+    ...(projectId !== undefined ? { projectId } : {}),
+    ...(laneRef !== undefined ? { laneRef } : {}),
+    ...(effectiveStatus !== undefined
+      ? { effectiveStatus: effectiveStatus as SessionPageRequest['effectiveStatus'] }
+      : {}),
+    ...(executionMode !== undefined
+      ? { executionMode: executionMode as SessionPageRequest['executionMode'] }
+      : {}),
+    ...(nodeId !== undefined ? { nodes: nodeId } : {}),
+  }
+}
+
+function sessionFacetRequest(request: SessionPageRequest): SessionFacetsRequest {
+  return {
+    ...(request.q !== undefined ? { q: request.q } : {}),
+    ...(request.agentId !== undefined ? { agentId: request.agentId } : {}),
+    ...(request.projectId !== undefined ? { projectId: request.projectId } : {}),
+    ...(request.laneRef !== undefined ? { laneRef: request.laneRef } : {}),
+    ...(request.effectiveStatus !== undefined ? { effectiveStatus: request.effectiveStatus } : {}),
+    ...(request.executionMode !== undefined ? { executionMode: request.executionMode } : {}),
+    ...(request.nodes !== undefined ? { nodes: request.nodes } : {}),
+  }
+}
+
+function flattenPeerStatus(status: Record<string, SessionPeerStatus>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(status).map(([nodeId, observation]) => [nodeId, observation.state])
+  )
+}
+
+function peerProjectionState(
+  status: SessionPeerStatus | undefined
+): MobileSessionSummary['projectionState'] {
+  if (status === undefined || status.state === 'healthy') return 'answered'
+  return status.state === 'invalid-response' ? 'invalid_response' : status.state
+}
+
+function projectThinIndexedSession(input: {
+  item: SessionPageItem
+  localNodeId: string
+  peerStatus: Record<string, SessionPeerStatus>
+}): MobileSessionSummary {
+  const { item } = input
+  const isLocal = item.nodeId === input.localNodeId
+  const peer = input.peerStatus[item.nodeId]
+  const mode: MobileSessionMode = item.executionMode === 'headless' ? 'headless' : 'interactive'
+  return {
+    nodeId: item.nodeId,
+    sourceKind: isLocal ? 'local_session' : 'remote_runtime_projection',
+    ...(!isLocal
+      ? {
+          projectionState: peerProjectionState(peer),
+          ...(peer?.checkedAt !== undefined ? { projectionCheckedAt: peer.checkedAt } : {}),
+          ...(peer?.state === 'healthy' && peer.checkedAt !== undefined
+            ? { projectionAnsweredAt: peer.checkedAt }
+            : {}),
+        }
+      : {}),
+    sessionRef: sessionRef(item.scopeRef, item.laneRef),
+    displayRef: sessionRef(item.scopeRef, item.laneRef),
+    title: item.agentId,
+    mode,
+    executionMode: item.executionMode,
+    summaryStatus: item.effectiveStatus,
+    status: item.effectiveStatus,
+    hostSessionId: item.hostSessionId,
+    generation: item.generation,
+    lastHrcSeq: 0,
+    lastMessageSeq: 0,
+    lastActivityAt: item.lastActivityAt,
+    capabilities: {
+      input: false,
+      interrupt: false,
+      launchHeadlessTurn: false,
+      history: isLocal,
+      summary: true,
+      semanticDm: true,
+      timeline: isLocal,
+      literalInput: false,
+      answerPrompt: isLocal,
+    },
+    session: {
+      status: item.effectiveStatus,
+      generation: item.generation,
+      createdAt: item.createdAt,
+      updatedAt: item.lastActivityAt,
+    },
+  }
+}
+
+async function projectIndexedSession(input: {
+  hrcClient: AcpHrcClient
+  item: SessionPageItem
+  localNodeId: string
+  peerStatus: Record<string, SessionPeerStatus>
+}): Promise<MobileSessionSummary> {
+  const thin = projectThinIndexedSession(input)
+  if (input.item.nodeId !== input.localNodeId) return thin
+
+  const [sessionResult, runtimesResult] = await Promise.allSettled([
+    input.hrcClient.getSession(input.item.hostSessionId),
+    input.hrcClient.listRuntimes({ hostSessionId: input.item.hostSessionId, all: true, limit: 20 }),
+  ])
+  if (sessionResult.status !== 'fulfilled') return thin
+  const record = sessionResult.value
+  const runtime =
+    runtimesResult.status === 'fulfilled'
+      ? latestRuntimeForSession(record, runtimesResult.value)
+      : undefined
+  const projected = projectSession({ record, runtime })
+  return {
+    ...projected,
+    nodeId: input.item.nodeId,
+    sourceKind: 'local_session',
+    mode: input.item.executionMode === 'headless' ? 'headless' : 'interactive',
+    executionMode: input.item.executionMode,
+    summaryStatus: input.item.effectiveStatus,
+    status: input.item.effectiveStatus,
+    lastActivityAt: input.item.lastActivityAt,
+  }
+}
+
+async function loadMobileSessionPage(
+  deps: ResolvedAcpServerDeps,
+  url: URL,
+  options: { limitParameter?: string | undefined } = {}
+): Promise<MobileSessionPagePayload> {
+  const hrcClient = requireHrcClient(deps)
+  if (hrcClient.listSessionsPage === undefined || hrcClient.getSessionFacets === undefined) {
+    throw new Error('Installed HRC does not expose paginated session index APIs.')
+  }
+  const request = parseMobileSessionPageRequest(url, options)
+  const [page, facets, status] = await Promise.all([
+    hrcClient.listSessionsPage(request),
+    hrcClient.getSessionFacets(sessionFacetRequest(request)),
+    hrcClient.getStatus({ includeSessions: false }),
+  ])
+  const localNodeId = status.node.nodeId
+  const seen = new Set<string>()
+  const items = page.items.filter((item) => {
+    const key = `${item.nodeId}\u0000${item.hostSessionId}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+  const sessions = await Promise.all(
+    items.map((item) =>
+      projectIndexedSession({ hrcClient, item, localNodeId, peerStatus: page.peerStatus })
+    )
+  )
+  return {
+    generatedAt: new Date().toISOString(),
+    sessions,
+    recentEventsBySession: {},
+    pageInfo: {
+      ...(page.nextCursor !== undefined ? { nextCursor: page.nextCursor } : {}),
+      localNodeId,
+      eventHighWater: page.eventHighWater,
+      complete: page.complete,
+      peerStatus: flattenPeerStatus(page.peerStatus),
+    },
+    facets: {
+      total: facets.total,
+      byEffectiveStatus: facets.byEffectiveStatus,
+      byExecutionMode: facets.byExecutionMode,
+      byAgentId: facets.byAgentId,
+      byNodeId: facets.byNodeId,
+      complete: facets.complete,
+      peerStatus: flattenPeerStatus(facets.peerStatus),
+    },
   }
 }
 
@@ -1159,17 +1409,25 @@ async function buildMobileDashboardSnapshot(
   const scopeRef = url.searchParams.get('scopeRef') ?? undefined
   const laneRef = url.searchParams.get('laneRef') ?? undefined
   const recentEventsPerSession = parseDashboardRecentEventsPerSession(url)
+  const usesPaginatedIndex = url.pathname === '/v2/mobile/dashboard'
 
-  const [index, latestEvents] = await Promise.all([
-    listMobileSessions(deps, url),
-    hrcClient.listLatestEventBySession({
-      ...(scopeRef !== undefined ? { scopeRef } : {}),
-      ...(laneRef !== undefined ? { laneRef } : {}),
-    }),
-  ])
-  const lastHrcSeq = latestEvents.reduce((max, event) => Math.max(max, event.hrcSeq), 0)
-  const lastStreamSeq = latestEvents.reduce((max, event) => Math.max(max, event.streamSeq), 0)
+  const sessionResult = usesPaginatedIndex
+    ? await loadMobileSessionPage(deps, url, { limitParameter: 'sessionLimit' })
+    : await listMobileSessions(deps, url)
+  const latestEvents = usesPaginatedIndex
+    ? []
+    : await listCachedLatestEventBySession(hrcClient, {
+        ...(scopeRef !== undefined ? { scopeRef } : {}),
+        ...(laneRef !== undefined ? { laneRef } : {}),
+      })
+  const lastHrcSeq =
+    usesPaginatedIndex && 'pageInfo' in sessionResult
+      ? (sessionResult.pageInfo.eventHighWater[sessionResult.pageInfo.localNodeId] ?? 0)
+      : latestHrcSeq(latestEvents)
+  let lastStreamSeq = latestEvents.reduce((max, event) => Math.max(max, event.streamSeq), 0)
   const recentEventsBySession: Record<string, MobileEventMessage[]> = {}
+  const sessions = sessionResult.sessions
+  const wantedSessionKeys = new Set(sessions.map((session) => sessionGenerationKey(session)))
 
   if (lastHrcSeq > 0 && recentEventsPerSession > 0) {
     const recentEvents = await collectEvents(
@@ -1183,6 +1441,19 @@ async function buildMobileDashboardSnapshot(
       MAX_DASHBOARD_SNAPSHOT_EVENTS
     )
     for (const event of recentEvents) {
+      // The page high-water is captured before its rows. Events after it must
+      // flow through the live watch so their matching row update is not lost.
+      if (event.hrcSeq > lastHrcSeq) continue
+      lastStreamSeq = Math.max(lastStreamSeq, event.streamSeq)
+      if (
+        event.hostSessionId === undefined ||
+        event.generation === undefined ||
+        !wantedSessionKeys.has(
+          sessionGenerationKey(event as { hostSessionId: string; generation: number })
+        )
+      ) {
+        continue
+      }
       pushBoundedRecentEvent(recentEventsBySession, projectEvent(event), recentEventsPerSession)
     }
   }
@@ -1195,8 +1466,47 @@ async function buildMobileDashboardSnapshot(
       lastStreamSeq,
       nextFromHrcSeq: lastHrcSeq + 1,
     },
-    sessions: index.sessions,
+    sessions,
     recentEventsBySession,
+    ...(usesPaginatedIndex && 'pageInfo' in sessionResult
+      ? { pageInfo: sessionResult.pageInfo, facets: sessionResult.facets }
+      : {}),
+  }
+}
+
+async function buildIndexedFederationSnapshot(
+  hrcClient: AcpHrcClient,
+  snapshot: MobileDashboardSnapshot
+): Promise<MobileFederationSnapshot> {
+  const generatedAt = snapshot.generatedAt
+  const localNodeId = (await hrcClient.getStatus({ includeSessions: false })).node.nodeId
+  const peerStatus = snapshot.pageInfo?.peerStatus ?? {}
+  const nodeIds = new Set([
+    ...Object.keys(snapshot.facets?.byNodeId ?? {}),
+    ...Object.keys(peerStatus),
+    localNodeId,
+  ])
+  return {
+    type: 'federation_snapshot',
+    generatedAt,
+    localNodeId,
+    nodes: [...nodeIds]
+      .sort((lhs, rhs) => lhs.localeCompare(rhs))
+      .map((nodeId) => {
+        const rawState = nodeId === localNodeId ? 'healthy' : peerStatus[nodeId]
+        const state: MobileNodeState =
+          rawState === 'refused' || rawState === 'unreachable' || rawState === 'invalid_response'
+            ? rawState
+            : 'healthy'
+        return {
+          nodeId,
+          state,
+          checkedAt: generatedAt,
+          ...(state === 'healthy' ? { answeredAt: generatedAt } : {}),
+          latencyMs: 0,
+        }
+      }),
+    sessions: [],
   }
 }
 
@@ -1497,7 +1807,7 @@ async function openMobileDashboardWebSocket(
   const fromHrcSeq = parseDashboardReplayCursor(parsedURL)
   const builtSnapshot = await buildMobileDashboardSnapshot(deps, parsedURL)
   const snapshot: MobileDashboardSnapshot =
-    ws.data.version === 2
+    ws.data.version === 2 && builtSnapshot.pageInfo === undefined
       ? { ...builtSnapshot, sessions: builtSnapshot.sessions.map(thinLocalSessionForFederation) }
       : builtSnapshot
 
@@ -1524,9 +1834,12 @@ async function openMobileDashboardWebSocket(
     }
     sendMobileJsonEnvelope(ws, sessionsRefreshed)
   } else {
-    // Federation is deliberately second: a slow or failed peer can never delay
-    // the svc-local first frame or turn a usable local dashboard into failure.
-    sendMobileJsonEnvelope(ws, await buildMobileFederationSnapshot(hrcClient))
+    sendMobileJsonEnvelope(
+      ws,
+      snapshot.pageInfo !== undefined
+        ? await buildIndexedFederationSnapshot(hrcClient, snapshot)
+        : await buildMobileFederationSnapshot(hrcClient)
+    )
   }
 
   const seenHrcSeqs = new Set<number>()
@@ -1582,6 +1895,32 @@ async function openMobileDashboardWebSocket(
   }
 }
 
+/**
+ * Look up a session on the LOCAL hrc node by hostSessionId, plus its latest
+ * runtime. Returns undefined when this node does not own the session — callers
+ * decide whether that is a 400, a 404, or a routing signal.
+ */
+export async function findLocalMobileSessionByHostSessionId(
+  hrcClient: AcpHrcClient,
+  hostSessionId: string
+): Promise<
+  | {
+      record: HrcSessionRecord
+      runtime?: HrcRuntimeSnapshot | undefined
+    }
+  | undefined
+> {
+  const records = await hrcClient.listSessions({})
+  const matches = records.filter((candidate) => candidate.hostSessionId === hostSessionId)
+  if (matches.length === 0) {
+    return undefined
+  }
+  // Multiple generations may exist for a hostSessionId — pick the highest.
+  const record = matches.sort((lhs, rhs) => rhs.generation - lhs.generation)[0] as HrcSessionRecord
+  const runtimes = await hrcClient.listRuntimes({ hostSessionId: record.hostSessionId })
+  return { record, runtime: latestRuntimeForSession(record, runtimes) }
+}
+
 async function resolveMobileSessionByHostSessionId(
   hrcClient: AcpHrcClient,
   hostSessionId: string
@@ -1589,15 +1928,11 @@ async function resolveMobileSessionByHostSessionId(
   record: HrcSessionRecord
   runtime?: HrcRuntimeSnapshot | undefined
 }> {
-  const records = await hrcClient.listSessions({})
-  const matches = records.filter((candidate) => candidate.hostSessionId === hostSessionId)
-  if (matches.length === 0) {
+  const resolved = await findLocalMobileSessionByHostSessionId(hrcClient, hostSessionId)
+  if (resolved === undefined) {
     badRequest(`session not found: ${hostSessionId}`, { hostSessionId })
   }
-  // Multiple generations may exist for a hostSessionId — pick the highest.
-  const record = matches.sort((lhs, rhs) => rhs.generation - lhs.generation)[0] as HrcSessionRecord
-  const runtimes = await hrcClient.listRuntimes({ hostSessionId: record.hostSessionId })
-  return { record, runtime: latestRuntimeForSession(record, runtimes) }
+  return resolved
 }
 
 export const handleMobileHealth: RouteHandler = async ({ deps }) => {
@@ -1663,6 +1998,9 @@ export const handleMobileHealth: RouteHandler = async ({ deps }) => {
   })
 }
 
+export const handleMobileSessionsPage: RouteHandler = async ({ deps, url }) =>
+  json(await loadMobileSessionPage(deps, url))
+
 export const handleMobilePairing: RouteHandler = async () =>
   json({
     version: 1,
@@ -1679,16 +2017,54 @@ export const handleMobilePairing: RouteHandler = async () =>
     },
   })
 
-export const handleMobilePair: RouteHandler = async ({ request }) => {
+/**
+ * POST /v1/mobile/pair — the token issuance path (spec §1 pair row, §2).
+ *
+ * The pairing CODE is this route's credential; a bearer is never demanded here,
+ * because a device that has not paired has no bearer by definition. Three cases:
+ *
+ *  - `{ pairingCode }` present: redeemed from ANY peer (loopback included). A
+ *    valid code mints a 256-bit token, returned exactly once; only its SHA-256 is
+ *    stored. Invalid/expired/replayed → the surface's one 401 shape.
+ *  - no code, loopback peer: today's no-op ack, unchanged. It mints nothing.
+ *  - no code, non-loopback peer: 401 once enforcement is armed. While `enforce`
+ *    is false this still acks, because the dark ship is zero behavior change and
+ *    the shipped iOS client pairs with no code today.
+ */
+export const handleMobilePair: RouteHandler = async ({ request, deps, peer }) => {
   const body = requireRecord(await parseJsonBody(request))
   const baseURL = readOptionalTrimmedStringField(body, 'baseURL') ?? DEFAULT_BASE_URL
-  return json({
+  const pairingCode = readOptionalTrimmedStringField(body, 'pairingCode')
+  const deviceName = readOptionalTrimmedStringField(body, 'deviceName')
+  const store = deps.mobileAuthStore
+
+  const ack = {
     ok: true,
     gatewayId: GATEWAY_ID,
     displayName: 'Local ACP',
     baseURL,
     pairedAt: new Date().toISOString(),
-  })
+  }
+
+  if (pairingCode !== undefined && pairingCode.length > 0) {
+    const redeemed = store.redeemPairingCode(pairingCode, deviceName)
+    if (redeemed === undefined) {
+      return mobileUnauthorizedResponse()
+    }
+    return json({
+      ...ack,
+      pairedAt: redeemed.device.pairedAt,
+      deviceId: redeemed.device.deviceId,
+      // Returned once and never again: the server keeps only the hash.
+      token: redeemed.token,
+    })
+  }
+
+  if (store.isEnforcing() && !isLoopbackPeer(peer)) {
+    return mobileUnauthorizedResponse()
+  }
+
+  return json(ack)
 }
 
 export const handleMobileDashboard: RouteHandler = async () =>

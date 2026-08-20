@@ -226,10 +226,16 @@ describe('GatewayDiscordApp live progress run claiming', () => {
       gatewayId: 'discord_prod',
       client: client as never,
       fetchImpl,
+      dashboardSnapshotImpl: async () => ({
+        type: 'dashboard_snapshot',
+        cursors: { lastHrcSeq: 42 },
+        sessions: [],
+      }),
     })
 
     await app.refreshBindings()
     expect(eventRequests).toHaveLength(1)
+    expect(eventRequests[0]?.searchParams.get('fromSeq')).toBe('43')
     expect(eventRequests[0]?.searchParams.get('sessionRef')).toBe(
       'agent:smokey:project:agent-spaces/lane:main'
     )

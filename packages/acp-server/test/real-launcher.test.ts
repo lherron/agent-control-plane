@@ -4,8 +4,14 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { HrcDomainError, HrcErrorCode, type HrcRuntimeIntent } from 'hrc-core'
+import {
+  type HrcDispatchOrigin,
+  HrcDomainError,
+  HrcErrorCode,
+  type HrcRuntimeIntent,
+} from 'hrc-core'
 
+import { InMemoryInputAttemptStore } from '../src/domain/input-attempt-store.js'
 import { InMemoryRunStore } from '../src/domain/run-store.js'
 import {
   createRealLauncher,
@@ -13,7 +19,199 @@ import {
   toUnifiedAssistantMessageEndFromRawEvents,
 } from '../src/real-launcher.js'
 
+async function captureDispatchOrigin(input: {
+  actor: { kind: 'human' | 'agent' | 'system'; id: string }
+  metadata?: Readonly<Record<string, unknown>> | undefined
+}): Promise<HrcDispatchOrigin | undefined> {
+  const inputAttemptStore = new InMemoryInputAttemptStore()
+  const runStore = new InMemoryRunStore()
+  const sessionRef = {
+    scopeRef: 'agent:fettle:project:agent-control-plane:task:T-07237-origin-test',
+    laneRef: 'main' as const,
+  }
+  const attempt = inputAttemptStore.createAttempt({
+    sessionRef,
+    content: 'origin test',
+    actor: input.actor,
+    ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+  }).inputAttempt
+  const acpRun = runStore.createRun({
+    sessionRef,
+    actor: { kind: 'system', id: 'wrong-fallback-must-not-win' },
+    status: 'pending',
+  })
+  let origin: HrcDispatchOrigin | undefined
+  const launcher = createRealLauncher({
+    hrcDbPath: ':memory:',
+    inputAttemptStore,
+    createClient: () =>
+      ({
+        resolveSession: async () => ({
+          found: true,
+          hostSessionId: 'hsid-origin-test',
+          generation: 1,
+        }),
+        dispatchTurn: async (request: { origin?: HrcDispatchOrigin | undefined }) => {
+          origin = request.origin
+          return {
+            runId: 'hrc-run-origin-test',
+            hostSessionId: 'hsid-origin-test',
+            generation: 1,
+            runtimeId: 'rt-origin-test',
+            transport: 'headless',
+            status: 'accepted',
+          }
+        },
+      }) as unknown as any,
+  })
+
+  await launcher({
+    sessionRef,
+    intent: {
+      placement: {
+        agentRoot: '/tmp/fettle',
+        runMode: 'task',
+        bundle: { kind: 'compose', compose: [] },
+      },
+      harness: { provider: 'openai', interactive: false },
+      initialPrompt: 'origin test',
+    },
+    acpRunId: acpRun.runId,
+    inputAttemptId: attempt.inputAttemptId,
+    runStore,
+    waitForCompletion: false,
+  })
+
+  return origin
+}
+
 describe('real launcher helpers', () => {
+  test('threads agent origin and job-run causation from the durable input attempt', async () => {
+    expect(
+      await captureDispatchOrigin({
+        actor: { kind: 'agent', id: 'cody' },
+        metadata: {
+          source: { kind: 'job', jobId: 'job_t07237', jobRunId: 'jrun_t07237' },
+        },
+      })
+    ).toEqual({ actor: 'agent:cody', kind: 'agent', causationRef: 'jrun_t07237' })
+  })
+
+  test('threads human origin without causation for non-job input', async () => {
+    expect(
+      await captureDispatchOrigin({
+        actor: { kind: 'human', id: 'lherron' },
+        metadata: { source: { kind: 'interface', gatewayId: 'discord' } },
+      })
+    ).toEqual({ actor: 'human:lherron', kind: 'human' })
+  })
+
+  test('missing input metadata degrades to actor-only origin without blocking dispatch', async () => {
+    expect(
+      await captureDispatchOrigin({ actor: { kind: 'agent', id: 'agent:already-canonical' } })
+    ).toEqual({ actor: 'agent:already-canonical', kind: 'agent' })
+  })
+
+  describe('first-turn timeout override passthrough', () => {
+    const OVERRIDE_SCOPE = 'agent:fettle:project:agent-control-plane:task:T-07237-origin-test'
+
+    async function captureFirstTurnTimeout(env: {
+      scope?: string | undefined
+      ms?: string | undefined
+    }): Promise<number | undefined> {
+      const priorScope = process.env['ACP_HRC_FIRST_TURN_TIMEOUT_SCOPE']
+      const priorMs = process.env['ACP_HRC_FIRST_TURN_TIMEOUT_MS']
+      if (env.scope === undefined)
+        Reflect.deleteProperty(process.env, 'ACP_HRC_FIRST_TURN_TIMEOUT_SCOPE')
+      else process.env['ACP_HRC_FIRST_TURN_TIMEOUT_SCOPE'] = env.scope
+      if (env.ms === undefined) Reflect.deleteProperty(process.env, 'ACP_HRC_FIRST_TURN_TIMEOUT_MS')
+      else process.env['ACP_HRC_FIRST_TURN_TIMEOUT_MS'] = env.ms
+
+      const inputAttemptStore = new InMemoryInputAttemptStore()
+      const runStore = new InMemoryRunStore()
+      const sessionRef = { scopeRef: OVERRIDE_SCOPE, laneRef: 'main' as const }
+      const attempt = inputAttemptStore.createAttempt({
+        sessionRef,
+        content: 'timeout override test',
+        actor: { kind: 'agent', id: 'mable' },
+      }).inputAttempt
+      const acpRun = runStore.createRun({
+        sessionRef,
+        actor: { kind: 'agent', id: 'mable' },
+        status: 'pending',
+      })
+      let captured: number | undefined
+      try {
+        const launcher = createRealLauncher({
+          hrcDbPath: ':memory:',
+          inputAttemptStore,
+          createClient: () =>
+            ({
+              resolveSession: async () => ({
+                found: true,
+                hostSessionId: 'hsid-timeout-test',
+                generation: 1,
+              }),
+              dispatchTurn: async (request: { firstTurnTimeoutMs?: number | undefined }) => {
+                captured = request.firstTurnTimeoutMs
+                return {
+                  runId: 'hrc-run-timeout-test',
+                  hostSessionId: 'hsid-timeout-test',
+                  generation: 1,
+                  runtimeId: 'rt-timeout-test',
+                  transport: 'headless',
+                  status: 'accepted',
+                }
+              },
+            }) as unknown as any,
+        })
+        await launcher({
+          sessionRef,
+          intent: {
+            placement: {
+              agentRoot: '/tmp/fettle',
+              runMode: 'task',
+              bundle: { kind: 'compose', compose: [] },
+            },
+            harness: { provider: 'openai', interactive: false },
+            initialPrompt: 'timeout override test',
+          },
+          acpRunId: acpRun.runId,
+          inputAttemptId: attempt.inputAttemptId,
+          runStore,
+          waitForCompletion: false,
+        })
+      } finally {
+        if (priorScope === undefined)
+          Reflect.deleteProperty(process.env, 'ACP_HRC_FIRST_TURN_TIMEOUT_SCOPE')
+        else process.env['ACP_HRC_FIRST_TURN_TIMEOUT_SCOPE'] = priorScope
+        if (priorMs === undefined)
+          Reflect.deleteProperty(process.env, 'ACP_HRC_FIRST_TURN_TIMEOUT_MS')
+        else process.env['ACP_HRC_FIRST_TURN_TIMEOUT_MS'] = priorMs
+      }
+      return captured
+    }
+
+    test('passes the override only when scope matches exactly', async () => {
+      expect(await captureFirstTurnTimeout({ scope: OVERRIDE_SCOPE, ms: '1000' })).toBe(1000)
+    })
+
+    test('does not pass the override for a different scope', async () => {
+      expect(
+        await captureFirstTurnTimeout({
+          scope: 'agent:smokey:project:hrc-runtime:task:bridge-echo',
+          ms: '1000',
+        })
+      ).toBeUndefined()
+    })
+
+    test('does not pass the override when env is unset or malformed', async () => {
+      expect(await captureFirstTurnTimeout({})).toBeUndefined()
+      expect(await captureFirstTurnTimeout({ scope: OVERRIDE_SCOPE, ms: 'soon' })).toBeUndefined()
+      expect(await captureFirstTurnTimeout({ scope: OVERRIDE_SCOPE, ms: '-5' })).toBeUndefined()
+    })
+  })
+
   test('routes remote-bound interface runs through semantic messaging without resolving locally', async () => {
     const calls: string[] = []
     const runStore = new InMemoryRunStore()
@@ -997,6 +1195,117 @@ describe('real launcher helpers', () => {
         status: 'failed',
         errorCode: 'runtime_teardown',
         errorMessage: 'broker terminated the runtime',
+      })
+    } finally {
+      db.close()
+      rmSync(fixtureDir, { recursive: true, force: true })
+    }
+  })
+
+  test('persists the exact HRC run returned by broker literal dispatch', async () => {
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-real-launcher-tmux-correlation-'))
+    const hrcDbPath = join(fixtureDir, 'hrc.sqlite')
+    const db = new Database(hrcDbPath)
+    db.exec(`
+      CREATE TABLE continuities (
+        scope_ref TEXT NOT NULL,
+        lane_ref TEXT NOT NULL,
+        active_host_session_id TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (scope_ref, lane_ref)
+      );
+      CREATE TABLE runtimes (
+        runtime_id TEXT PRIMARY KEY,
+        host_session_id TEXT NOT NULL,
+        transport TEXT NOT NULL,
+        status TEXT NOT NULL,
+        tmux_json TEXT,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE hrc_events (
+        hrc_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        host_session_id TEXT NOT NULL,
+        scope_ref TEXT NOT NULL,
+        lane_ref TEXT NOT NULL,
+        event_kind TEXT NOT NULL,
+        payload_json TEXT NOT NULL
+      );
+    `)
+    db.run(
+      `INSERT INTO continuities (scope_ref, lane_ref, active_host_session_id, updated_at)
+        VALUES (?, ?, ?, ?)`,
+      'agent:cody:project:agent-spaces:task:discord-queued',
+      'main',
+      'hsid-discord-queued',
+      '2026-08-16T07:07:54.000Z'
+    )
+    db.run(
+      `INSERT INTO runtimes (runtime_id, host_session_id, transport, status, tmux_json, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)`,
+      'rt-tmux-queued',
+      'hsid-discord-queued',
+      'tmux',
+      'idle',
+      '{"paneId":"%1"}',
+      '2026-08-16T07:07:54.000Z'
+    )
+
+    const sessionRef = {
+      scopeRef: 'agent:cody:project:agent-spaces:task:discord-queued',
+      laneRef: 'main' as const,
+    }
+    const runStore = new InMemoryRunStore()
+    const acpRun = runStore.createRun({ sessionRef, status: 'pending' })
+    let deliveryCount = 0
+    const launcher = createRealLauncher({
+      hrcDbPath,
+      createClient: () =>
+        ({
+          resolveSession: async () => ({
+            found: true,
+            hostSessionId: 'hsid-discord-queued',
+            generation: 1,
+          }),
+          deliverLiteralBySelector: async () => {
+            deliveryCount += 1
+            return {
+              delivered: true,
+              sessionRef: `${sessionRef.scopeRef}/lane:main`,
+              hostSessionId: 'hsid-discord-queued',
+              generation: 1,
+              runtimeId: 'rt-tmux-queued',
+              ...(deliveryCount === 2
+                ? { runId: 'hrc-run-discord-queued-b', status: 'started' }
+                : {}),
+            }
+          },
+        }) as unknown as any,
+    })
+
+    try {
+      const result = await launcher({
+        sessionRef,
+        intent: {
+          placement: {
+            agentRoot: '/tmp/cody',
+            runMode: 'task',
+            bundle: { kind: 'compose', compose: [] },
+          },
+          harness: { provider: 'openai', interactive: true },
+          initialPrompt: 'queued message B',
+        },
+        acpRunId: acpRun.runId,
+        runStore,
+        waitForCompletion: false,
+      })
+
+      expect(result.runId).toBe('hrc-run-discord-queued-b')
+      expect(runStore.getRun(acpRun.runId)).toMatchObject({
+        status: 'running',
+        hrcRunId: 'hrc-run-discord-queued-b',
+        hostSessionId: 'hsid-discord-queued',
+        runtimeId: 'rt-tmux-queued',
+        transport: 'tmux',
       })
     } finally {
       db.close()

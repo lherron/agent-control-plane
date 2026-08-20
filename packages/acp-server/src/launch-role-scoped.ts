@@ -281,9 +281,15 @@ async function resolveLaunchPlacement(
   const resolvedProjectRoot = readOptionalString(resolvedPlacement, 'projectRoot')
   const adminProjectRoot = readAdminProjectRoot(deps, parsedScope.projectId)
   const projectRoot = adminProjectRoot ?? resolvedProjectRoot
+  if (parsedScope.projectId !== undefined && projectRoot === undefined) {
+    notFound(`project root not found for ${sessionRef.scopeRef}`, {
+      scopeRef: sessionRef.scopeRef,
+      laneRef: sessionRef.laneRef,
+      projectId: parsedScope.projectId,
+    })
+  }
   const resolvedCwd = readOptionalString(resolvedPlacement, 'cwd')
-  const cwd =
-    adminProjectRoot !== undefined ? adminProjectRoot : (resolvedCwd ?? projectRoot ?? agentRoot)
+  const cwd = projectRoot ?? resolvedCwd ?? agentRoot
   const bundle = shouldRebuildDefaultBundle(resolvedBundle, adminProjectRoot)
     ? buildRuntimeBundleRef({
         agentName: parsedScope.agentId,

@@ -217,6 +217,13 @@ describe('mobileSessionToRow', () => {
     expect(row?.visualState.continuity).toBe('broken')
   })
 
+  test('preserves detached as unavailable without conflating it with dead', () => {
+    const row = mobileSessionToRow({ ...IDLE_ACTIVE_SESSION, summaryStatus: 'detached' })
+    expect(row?.runtime?.status).toBe('detached')
+    expect(row?.visualState.continuity).toBe('blocked')
+    expect(row?.visualState.colorRole).toBe('warning')
+  })
+
   test('returns undefined without identity fields', () => {
     expect(mobileSessionToRow({ ...IDLE_ACTIVE_SESSION, hostSessionId: '' })).toBeUndefined()
   })
@@ -227,5 +234,6 @@ describe('isLiveSession', () => {
     expect(isLiveSession(IDLE_ACTIVE_SESSION)).toBe(true)
     expect(isLiveSession({ ...IDLE_ACTIVE_SESSION, summaryStatus: 'stale' })).toBe(false)
     expect(isLiveSession({ ...IDLE_ACTIVE_SESSION, summaryStatus: 'inactive' })).toBe(false)
+    expect(isLiveSession({ ...IDLE_ACTIVE_SESSION, summaryStatus: 'detached' })).toBe(false)
   })
 })

@@ -404,6 +404,9 @@ type MobileSessionSummary = {
 type MobileDashboardSnapshot = {
   type?: string | undefined
   sessions?: MobileSessionSummary[] | undefined
+  cursors?: {
+    lastHrcSeq?: number | undefined
+  }
 }
 
 export type DashboardSnapshotFetcher = (
@@ -522,6 +525,7 @@ export class GatewayDiscordApp {
   private readonly bindings = new BindingIndex()
   private readonly placeholdersByRunId = new Map<string, PendingPlaceholder>()
   private readonly liveSubscriptionsBySessionRef = new Map<string, LiveSubscription>()
+  private readonly liveSubscriptionPrimesBySessionRef = new Map<string, Promise<void>>()
   private readonly pendingPlaceholdersBySessionRef = new Map<string, PendingPlaceholder[]>()
   private readonly sessionEventsManager: SessionEventsManager
   private readonly keywordRoutesByMessageId = new Map<string, IngressRoute>()
@@ -745,7 +749,7 @@ export class GatewayDiscordApp {
       `/v1/interface/bindings?gatewayId=${encodeURIComponent(this.gatewayId)}`
     )
     this.bindings.replaceAll(payload.bindings)
-    this.reconcileLiveSubscriptions(payload.bindings)
+    await this.reconcileLiveSubscriptions(payload.bindings)
     return payload.bindings
   }
 
@@ -1292,7 +1296,7 @@ export class GatewayDiscordApp {
     }
   }
 
-  private reconcileLiveSubscriptions(bindings: DiscordInterfaceBinding[]): void {
+  private async reconcileLiveSubscriptions(bindings: DiscordInterfaceBinding[]): Promise<void> {
     const desired = new Map<string, { sessionRef: string; projectId: string }>()
     for (const binding of bindings) {
       if (binding.status !== 'active') {
@@ -1309,20 +1313,53 @@ export class GatewayDiscordApp {
       })
     }
 
-    for (const entry of desired.values()) {
-      if (!this.liveSubscriptionsBySessionRef.has(entry.sessionRef)) {
-        this.startLiveSubscription(entry)
-      }
-    }
-
     for (const sessionRef of [...this.liveSubscriptionsBySessionRef.keys()]) {
       if (!desired.has(sessionRef)) {
         this.stopLiveSubscription(sessionRef, 'binding_removed')
       }
     }
+
+    const additions = [...desired.values()].filter(
+      (entry) => !this.liveSubscriptionsBySessionRef.has(entry.sessionRef)
+    )
+    if (additions.length === 0) {
+      return
+    }
+
+    const lastHrcSeq = await this.primeLiveSubscriptionsCursor()
+    if (lastHrcSeq === undefined) {
+      return
+    }
+    for (const entry of additions) {
+      this.startLiveSubscription(entry, lastHrcSeq)
+    }
   }
 
-  private startLiveSubscription(input: { sessionRef: string; projectId: string }): void {
+  /** Prime all subscriptions discovered in one binding refresh from one current
+   * mobile-dashboard high water. A failed probe starts no unbounded stream; the
+   * next binding refresh retries. */
+  private async primeLiveSubscriptionsCursor(): Promise<number | undefined> {
+    try {
+      const snapshot = await this.dashboardSnapshotImpl(this.acpBaseUrl)
+      const lastHrcSeq = snapshot.cursors?.lastHrcSeq
+      if (typeof lastHrcSeq !== 'number' || !Number.isFinite(lastHrcSeq) || lastHrcSeq < 0) {
+        throw new Error('dashboard snapshot did not include a valid lastHrcSeq cursor')
+      }
+      return Math.floor(lastHrcSeq)
+    } catch (error) {
+      log.warn('gw.live_progress.prime_failed', {
+        message: 'Failed to prime live-progress subscriptions; retrying on binding refresh',
+        trace: { gatewayId: this.gatewayId },
+        err: { message: error instanceof Error ? error.message : String(error) },
+      })
+      return undefined
+    }
+  }
+
+  private startLiveSubscription(
+    input: { sessionRef: string; projectId: string },
+    lastHrcSeq: number
+  ): void {
     this.stopLiveSubscription(input.sessionRef, 'replaced')
 
     const subscription: LiveSubscription = {
@@ -1330,7 +1367,7 @@ export class GatewayDiscordApp {
       projectId: input.projectId,
       claimedHrcRunIds: new Set(),
       abortController: new AbortController(),
-      lastHrcSeq: 0,
+      lastHrcSeq,
       reconnectDelayMs: LIVE_SUBSCRIPTION_INITIAL_RECONNECT_MS,
     }
 
@@ -1849,10 +1886,26 @@ export class GatewayDiscordApp {
   }
 
   private ensureLiveSubscriptionForSessionRef(sessionRef: string, projectId: string): void {
-    if (this.liveSubscriptionsBySessionRef.has(sessionRef)) {
+    if (
+      this.liveSubscriptionsBySessionRef.has(sessionRef) ||
+      this.liveSubscriptionPrimesBySessionRef.has(sessionRef)
+    ) {
       return
     }
-    this.startLiveSubscription({ sessionRef, projectId })
+
+    const pending = (async () => {
+      const lastHrcSeq = await this.primeLiveSubscriptionsCursor()
+      if (
+        lastHrcSeq !== undefined &&
+        !this.deliveryLoopStopped &&
+        !this.liveSubscriptionsBySessionRef.has(sessionRef)
+      ) {
+        this.startLiveSubscription({ sessionRef, projectId }, lastHrcSeq)
+      }
+    })().finally(() => {
+      this.liveSubscriptionPrimesBySessionRef.delete(sessionRef)
+    })
+    this.liveSubscriptionPrimesBySessionRef.set(sessionRef, pending)
   }
 
   private removePendingPlaceholder(placeholder: PendingPlaceholder, reason: string): void {

@@ -26,10 +26,10 @@
  * with `wrkqadm init` (so the schema matches the binary). The acp server is
  * wired with that DB + the real wrkf port (mirrors test/fixtures/wired-server).
  *
- * Binaries (overridable):
- *   WRKF_BIN     default ~/.local/bin/wrkf
- *   WRKQ_BIN     default ~/.local/bin/wrkq
- *   WRKQADM_BIN  default ~/.local/bin/wrkqadm
+ * Binaries (overridable), resolved through PATH by default:
+ *   WRKF_BIN     default `wrkf`
+ *   WRKQ_BIN     default `wrkq`
+ *   WRKQADM_BIN  default `wrkqadm`
  */
 
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
@@ -57,13 +57,18 @@ import { applyFreshTransition } from '../wrkf/transition-apply.js'
 
 // ── Binaries ────────────────────────────────────────────────────────────────
 
-const HOME = process.env['HOME'] ?? '/Users/lherron'
-const WRKF_BIN = process.env['WRKF_BIN'] ?? `${HOME}/.local/bin/wrkf`
-const WRKQ_BIN = process.env['WRKQ_BIN'] ?? `${HOME}/.local/bin/wrkq`
-const WRKQADM_BIN = process.env['WRKQADM_BIN'] ?? `${HOME}/.local/bin/wrkqadm`
+// Bare names, resolved through PATH — the same default production code uses
+// (src/wrkf/client-lifecycle.ts). Hard-coding ~/.local/bin encoded one
+// operator's layout and ENOENT'd anywhere else, including the devbox container.
+const WRKF_BIN = process.env['WRKF_BIN'] ?? 'wrkf'
+const WRKQ_BIN = process.env['WRKQ_BIN'] ?? 'wrkq'
+const WRKQADM_BIN = process.env['WRKQADM_BIN'] ?? 'wrkqadm'
 
 const DEMO_TEMPLATE_PATH = fileURLToPath(
   new URL('../../test/fixtures/demo-linear-template.json', import.meta.url)
+)
+const EMPTY_HOOK_CATALOG_PATH = fileURLToPath(
+  new URL('../../test/fixtures/empty-wrkf-hook-catalog.json', import.meta.url)
 )
 const DEMO_WORKFLOW_REF = 'demo-linear@1'
 const ACTOR = 'agent:demo-tester'
@@ -128,6 +133,7 @@ describe('wrkf generic non-PBC smoke (T-02589)', () => {
     lc = await createWrkfClientLifecycle({
       command: WRKF_BIN,
       dbPath,
+      hookCatalogPath: EMPTY_HOOK_CATALOG_PATH,
       clientInfo: { name: 'nonpbc-smoke-test', version: '0.1.0' },
     })
     const wrkf = lc.wrkf as AcpWrkfWorkflowPort

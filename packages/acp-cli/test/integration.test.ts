@@ -106,9 +106,23 @@ describe('acp-cli integration', () => {
     const coordDbPath = join(coordDir, 'coordination.db')
     const coordStore = openCoordinationStore(coordDbPath)
     const wrkqStore = createInMemoryWrkqStoreAdapter()
+
+    // The interface store is DECLARED, not inherited. `createAcpServer` with no
+    // `interfaceStore` used to fall back to the operator's production
+    // acp-interface.db, and this test wrote its fixture bindings straight into
+    // it — green on the operator's Mac for exactly that reason, EACCES anywhere
+    // else (T-06914 finding D). That fallback now throws under a test runner, so
+    // naming a temp DB here is the contract rather than tidiness.
+    const previousInterfaceDbPath = process.env['ACP_INTERFACE_DB_PATH']
+    process.env['ACP_INTERFACE_DB_PATH'] = join(coordDir, 'interface.db')
     const server = createAcpServer({ wrkqStore, coordStore })
 
     cleanup = () => {
+      if (previousInterfaceDbPath === undefined) {
+        Reflect.deleteProperty(process.env, 'ACP_INTERFACE_DB_PATH')
+      } else {
+        process.env['ACP_INTERFACE_DB_PATH'] = previousInterfaceDbPath
+      }
       coordStore.close()
       rmSync(coordDir, { recursive: true, force: true })
     }

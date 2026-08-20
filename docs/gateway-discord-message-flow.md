@@ -76,6 +76,14 @@ Two parallel outbound paths exist:
 A reaction of `x` / `cancel` / `❌` on an active placeholder cancels the
 underlying run via `POST /v1/runs/:runId/cancel` (`cancelPlaceholderRun`).
 
+An agent can add a file to the response currently being composed with
+`acp run attachment add <path>` and no `--run`. The CLI targets
+`POST /v1/runs/current/outbound-attachments`; ACP resolves `current` to the
+single active run matching the caller's `HRC_HOST_SESSION_ID`, then enforces the
+existing host-session and generation dispatch fence. `--run` is reserved for an
+explicit ACP id (`run_<hex12>`). An unmapped HRC id (`run-<uuid>`) receives
+`run_id_kind_mismatch` instead of a misleading `run_not_found`.
+
 ## Lifecycle cards (system-events → Discord)
 
 Separately from per-run progress, gateway-discord polls

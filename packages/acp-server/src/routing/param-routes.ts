@@ -21,6 +21,7 @@ import { handleFailGatewayDelivery } from '../handlers/gateway-deliveries-fail.j
 import { handleStreamGatewayDeliveries } from '../handlers/gateway-deliveries-stream.js'
 import { handleGetInputAttempt } from '../handlers/input-attempts-get.js'
 import { handleGetJobRun, handleListJobRuns } from '../handlers/job-runs.js'
+import { handleMobileAttachInfo } from '../handlers/mobile-attach-info.js'
 import { handleMobileInput, handleMobileInterrupt } from '../handlers/mobile.js'
 import { handleCancelRun } from '../handlers/runs-cancel.js'
 import { handleGetRun } from '../handlers/runs-get.js'
@@ -307,6 +308,11 @@ export function buildParamRoutes(): ParamRoute[] {
     ),
     createParamRoute('POST', '/v1/mobile/sessions/:hostSessionId/input', handleMobileInput),
     createParamRoute('POST', '/v1/mobile/sessions/:hostSessionId/interrupt', handleMobileInterrupt),
+    createParamRoute(
+      'GET',
+      '/v1/mobile/sessions/:hostSessionId/attach-info',
+      handleMobileAttachInfo
+    ),
   ]
 }
 

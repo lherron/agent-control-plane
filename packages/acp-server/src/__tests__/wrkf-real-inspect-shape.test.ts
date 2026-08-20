@@ -74,6 +74,9 @@ import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
 
 const TASK_ID = 'T-WRKF02'
 const WRKF_INSTANCE_ID = 'wfi_twrkf02_real_shape_test'
+const EMPTY_HOOK_CATALOG_PATH = fileURLToPath(
+  new URL('../../test/fixtures/empty-wrkf-hook-catalog.json', import.meta.url)
+)
 
 // ── Real flat inspect shape ────────────────────────────────────────────────────
 //
@@ -332,16 +335,17 @@ describe('W2a real inspect shape — handler must project body.task from flat in
 // They will FAIL if the live wrkf client changes its response shape — which is
 // exactly what we want: a CI gate that catches shape drift.
 //
-// Requires:
-//   - wrkf binary: ~/.local/bin/wrkf (or $WRKF_BIN)
-//   - wrkqadm binary: ~/.local/bin/wrkqadm (or $WRKQADM_BIN)
+// Requires (resolved through PATH by default):
+//   - wrkf binary: `wrkf` (or $WRKF_BIN)
+//   - wrkqadm binary: `wrkqadm` (or $WRKQADM_BIN)
 // ═════════════════════════════════════════════════════════════════════════════
 
-const WRKF_BINARY =
-  process.env['WRKF_BIN'] ?? `${process.env['HOME'] ?? '/Users/lherron'}/.local/bin/wrkf`
+// Bare names, resolved through PATH — the same default production code uses
+// (src/wrkf/client-lifecycle.ts). Hard-coding ~/.local/bin encoded one
+// operator's layout and ENOENT'd anywhere else, including the devbox container.
+const WRKF_BINARY = process.env['WRKF_BIN'] ?? 'wrkf'
 
-const WRKQADM_BINARY =
-  process.env['WRKQADM_BIN'] ?? `${process.env['HOME'] ?? '/Users/lherron'}/.local/bin/wrkqadm`
+const WRKQADM_BINARY = process.env['WRKQADM_BIN'] ?? 'wrkqadm'
 
 const DEMO_TEMPLATE_PATH = fileURLToPath(
   new URL('../../test/fixtures/demo-linear-template.json', import.meta.url)
@@ -417,6 +421,7 @@ describe('W2a real-process: @wrkq/client task.inspect + next shape contract (fid
     const lifecycle = await createWrkfClientLifecycle({
       command: WRKF_BINARY,
       dbLocator: fixtureDbPath,
+      hookCatalogPath: EMPTY_HOOK_CATALOG_PATH,
       clientInfo: { name: 'acp-server-test-real-shape-setup', version: '0.1.0' },
     })
     try {
@@ -456,6 +461,7 @@ describe('W2a real-process: @wrkq/client task.inspect + next shape contract (fid
     const lc = await createWrkfClientLifecycle({
       command: WRKF_BINARY,
       dbLocator: fixtureDbPath,
+      hookCatalogPath: EMPTY_HOOK_CATALOG_PATH,
       clientInfo: { name: 'acp-server-test-real-shape', version: '0.1.0' },
     })
     try {
@@ -530,6 +536,7 @@ describe('W2a real-process: @wrkq/client task.inspect + next shape contract (fid
     const lc = await createWrkfClientLifecycle({
       command: WRKF_BINARY,
       dbLocator: fixtureDbPath,
+      hookCatalogPath: EMPTY_HOOK_CATALOG_PATH,
       clientInfo: { name: 'acp-server-test-real-shape', version: '0.1.0' },
     })
     try {
@@ -567,6 +574,7 @@ describe('W2a real-process: @wrkq/client task.inspect + next shape contract (fid
     const lc = await createWrkfClientLifecycle({
       command: WRKF_BINARY,
       dbLocator: fixtureDbPath,
+      hookCatalogPath: EMPTY_HOOK_CATALOG_PATH,
       clientInfo: { name: 'acp-server-test-real-shape', version: '0.1.0' },
     })
     try {

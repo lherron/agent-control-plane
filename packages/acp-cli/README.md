@@ -44,6 +44,27 @@ The obsolete ACP-authoritative workflow commands were removed:
 `acp task create`, `acp workflow publish|supervise|supervisor-context|interact|action`,
 `acp workflow patch list|show`, and the `acp supervise` alias.
 
+## Current-run outbound attachments
+
+Inside an ACP-dispatched HRC turn, omit `--run` to attach to that turn's active
+ACP run:
+
+```bash
+acp run attachment add ./report.pdf --alt "Rendered report"
+acp run attachment list --json
+```
+
+The CLI sends `HRC_HOST_SESSION_ID` and `HRC_GENERATION` as correlation context;
+the server resolves the single active ACP run for that host session. This works
+while the ACP run is still pending and its eventual HRC run id has not yet been
+written back. Outside an HRC turn, or for operator/debug access, pass an explicit
+ACP run id with `--run run_<hex12>`.
+
+`run-<uuid>` is an HRC run id, not an ACP `run_<hex12>` id. The server translates
+an HRC id only when its ACP mapping is already durable; otherwise it returns
+`run_id_kind_mismatch` and directs the caller to omit `--run` for current-run
+resolution.
+
 ## Workflow Task Commands
 
 The task lifecycle commands are wrappers over the running ACP server's
@@ -230,6 +251,15 @@ acp agent-pulpit | -
 acp agent-pulpit send | --actor --agent --binding --gateway-type --idempotency-key --json --lane-ref --project --server --text
 acp tail | --actor --from-seq --json --lane-ref --project --scope-ref --server --session --table
 acp render | --actor --json --lane-ref --project --scope-ref --server --session --source --table
+acp mobile | -
+acp mobile pairing-code | --actor --json --server --table
+acp mobile devices | -
+acp mobile devices list | --actor --json --server --table
+acp mobile devices revoke | --actor --device --json --server --table
+acp mobile auth | -
+acp mobile auth status | --actor --json --server --table
+acp mobile auth enable | --actor --force --json --server --table
+acp mobile auth disable | --actor --json --server --table
 acp message | -
 acp message send | --actor --coordination-only --dispatch --from-agent --from-human --from-lane-ref --from-session --from-system --json --project --server --table --text --to-agent --to-human --to-lane-ref --to-session --to-system --wake
 acp message broadcast | --actor --coordination-only --dispatch --from-agent --from-human --from-lane-ref --from-session --from-system --json --project --server --table --text --to-agent --to-human --to-lane-ref --to-session --to-system --wake

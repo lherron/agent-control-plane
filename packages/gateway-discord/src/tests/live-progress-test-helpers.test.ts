@@ -155,6 +155,7 @@ export type LiveProgressHarness = {
 }
 
 const encoder = new TextEncoder()
+const LIVE_PROGRESS_HRC_TAIL = 100
 
 export function createRateLimitError(): Error & { status: number; retryAfter: number } {
   const error = new Error('rate limited') as Error & { status: number; retryAfter: number }
@@ -336,6 +337,11 @@ export function createLiveProgressHarness(
     gatewayId: 'discord_prod',
     client: client as never,
     fetchImpl,
+    dashboardSnapshotImpl: async () => ({
+      type: 'dashboard_snapshot',
+      cursors: { lastHrcSeq: LIVE_PROGRESS_HRC_TAIL },
+      sessions: [],
+    }),
   })
 
   return {
@@ -345,7 +351,14 @@ export function createLiveProgressHarness(
     eventRequests,
     interfaceMessages,
     cancelledRunIds,
-    emit: (event) => enqueue(`${JSON.stringify(event)}\n`),
+    emit: (event) =>
+      enqueue(
+        `${JSON.stringify({
+          ...event,
+          hrcSeq: Number(event['hrcSeq'] ?? 0) + LIVE_PROGRESS_HRC_TAIL,
+          streamSeq: Number(event['streamSeq'] ?? 0) + LIVE_PROGRESS_HRC_TAIL,
+        })}\n`
+      ),
     closeEvents: () => {
       streamController?.close()
       streamController = undefined

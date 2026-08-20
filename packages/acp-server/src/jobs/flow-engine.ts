@@ -33,6 +33,7 @@ import { handleCreateInput } from '../handlers/inputs.js'
 import { dispatchStepThroughInputs } from './dispatch-step.js'
 import { resolveJobExecPolicy } from './exec-policy.js'
 import { ExecStepError, runExecStep } from './exec-step.js'
+import { HRC_EVENT_LOCAL_NODE_PROBE } from './hrc-first-turn-missing.js'
 import {
   type RunOutcome,
   evaluateExpectation,
@@ -86,6 +87,7 @@ const AGENT_STEP_TERMINATE_TIMEOUT_MS = 50
 const PROBE_REGISTRY: Record<string, ProbeRunner> = {
   'hrc-stale-tty-reap.v1': runHrcClientProbe,
   'wrkq-refactor-eligible.v1': runWrkqRefactorEligibilityProbe,
+  [HRC_EVENT_LOCAL_NODE_PROBE]: runHrcEventLocalNodeProbe,
 }
 
 const TERMINAL_STEP_STATUSES = new Set<JobStepRunStatus>([
@@ -439,6 +441,31 @@ async function runWrkqRefactorEligibilityProbe(input: {
   })
 
   return { outcome: listed.items.length > 0 ? 'work' : 'idle' }
+}
+
+async function runHrcEventLocalNodeProbe(input: {
+  deps: ResolvedAcpServerDeps
+  jobRun: JobRunRecord
+}): Promise<{ outcome: ProbeOutcome }> {
+  const payloadNodeId = input.jobRun.resolvedInput?.['nodeId']
+  const identity = input.deps.jobNodeIdentityAuthority?.getDiagnostics()
+  const expectedNodeId = identity?.current?.nodeId ?? identity?.baseline?.nodeId
+
+  if (
+    typeof payloadNodeId === 'string' &&
+    payloadNodeId.length > 0 &&
+    expectedNodeId !== undefined &&
+    payloadNodeId === expectedNodeId
+  ) {
+    return { outcome: 'work' }
+  }
+
+  const observed =
+    typeof payloadNodeId === 'string' && payloadNodeId.length > 0 ? payloadNodeId : '<missing>'
+  console.warn(
+    `[hrc-first-turn-missing] WARN nodeId tripwire blocked dispatch for job run ${input.jobRun.jobRunId}: payload node ${observed} does not match co-resident HRC node ${expectedNodeId ?? '<unavailable>'}`
+  )
+  return { outcome: 'idle' }
 }
 
 async function advanceNativeStep(input: {

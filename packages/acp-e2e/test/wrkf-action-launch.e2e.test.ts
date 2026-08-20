@@ -29,12 +29,14 @@
  *      — no relaunch, no second bind. wrkf binding-truth wins over the ACP
  *      operational orphan marker.
  *
- * Binaries (overridable): WRKF_BIN / WRKQ_BIN / WRKQADM_BIN default ~/.local/bin.
+ * Binaries (overridable): WRKF_BIN / WRKQ_BIN / WRKQADM_BIN default to bare
+ * names resolved through PATH.
  */
 
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 
@@ -49,10 +51,15 @@ import {
 import type { AcpServerDeps } from 'acp-server'
 import type { SessionRef } from 'agent-scope'
 
-const HOME = process.env['HOME'] ?? '/Users/lherron'
-const WRKF_BIN = process.env['WRKF_BIN'] ?? `${HOME}/.local/bin/wrkf`
-const WRKQ_BIN = process.env['WRKQ_BIN'] ?? `${HOME}/.local/bin/wrkq`
-const WRKQADM_BIN = process.env['WRKQADM_BIN'] ?? `${HOME}/.local/bin/wrkqadm`
+// Bare names, resolved through PATH — the same default production code uses
+// (acp-server/src/wrkf/client-lifecycle.ts). Hard-coding ~/.local/bin encoded
+// one operator's layout and ENOENT'd anywhere else, devbox container included.
+const WRKF_BIN = process.env['WRKF_BIN'] ?? 'wrkf'
+const WRKQ_BIN = process.env['WRKQ_BIN'] ?? 'wrkq'
+const WRKQADM_BIN = process.env['WRKQADM_BIN'] ?? 'wrkqadm'
+const EMPTY_HOOK_CATALOG_PATH = fileURLToPath(
+  new URL('../../acp-server/test/fixtures/empty-wrkf-hook-catalog.json', import.meta.url)
+)
 
 const ACTION = 'implement'
 const ACTOR = { kind: 'agent' as const, id: 'curly-e2e' }
@@ -67,6 +74,42 @@ type ActionRunRecord = {
   runId: string
   externalRunRef?: string
   status: string
+}
+
+type StartedActionProjection = {
+  actionRunId: string
+  runId: string
+  instanceId: string
+  workflowRef: string
+  role?: string | undefined
+}
+
+type StartedActionResponse = Omit<StartedActionProjection, 'workflowRef'> & {
+  workflow: {
+    id: string
+    version: string
+  }
+}
+
+function requireNonEmptyStartedField(value: string | undefined, field: string): string {
+  if (value === undefined || value.trim().length === 0) {
+    throw new Error(`wrkf action.start returned no ${field}`)
+  }
+  return value
+}
+
+function projectStartedAction(started: StartedActionResponse): StartedActionProjection {
+  const workflowId = requireNonEmptyStartedField(started.workflow.id, 'workflow.id')
+  const workflowVersion = requireNonEmptyStartedField(started.workflow.version, 'workflow.version')
+  const role =
+    started.role === undefined ? undefined : requireNonEmptyStartedField(started.role, 'role')
+  return {
+    actionRunId: requireNonEmptyStartedField(started.actionRunId, 'actionRunId'),
+    runId: requireNonEmptyStartedField(started.runId, 'runId'),
+    instanceId: requireNonEmptyStartedField(started.instanceId, 'instanceId'),
+    workflowRef: requireNonEmptyStartedField(`${workflowId}@${workflowVersion}`, 'workflowRef'),
+    ...(role !== undefined ? { role } : {}),
+  }
 }
 
 const FAKE_RUNTIME_RESOLVER: NonNullable<AcpServerDeps['runtimeResolver']> = async () => ({
@@ -100,6 +143,7 @@ describe('wrkf action launch/bind adapter — real wrkf e2e (C-0004)', () => {
     lc = await createWrkfClientLifecycle({
       command: WRKF_BIN,
       dbPath,
+      hookCatalogPath: EMPTY_HOOK_CATALOG_PATH,
       clientInfo: { name: 'action-launch-e2e', version: '0.1.0' },
     })
   })
@@ -260,19 +304,21 @@ describe('wrkf action launch/bind adapter — real wrkf e2e (C-0004)', () => {
 
       // Attempt 1 partial: action.start + ACP durable run + hrcRunId committed,
       // then CRASH before bind. Replicate that exact durable state.
-      const started = (await wrkfPort().action.start({
-        task: taskId,
-        action: ACTION,
-        principal_ref: `${ACTOR.kind}:${ACTOR.id}`,
-        idempotencyKey,
-      })) as { actionRunId: string; runId: string; instanceId: string }
+      const started = projectStartedAction(
+        (await wrkfPort().action.start({
+          task: taskId,
+          action: ACTION,
+          principal_ref: `${ACTOR.kind}:${ACTOR.id}`,
+          idempotencyKey,
+        })) as StartedActionResponse
+      )
       const { run: acpRun } = runStore.createOrGetRun({
         sessionRef: sessionRef(taskId),
         wrkfTaskId: taskId,
         wrkfInstanceId: started.instanceId,
         wrkfRunId: started.runId,
-        workflowRef: 'wrkq-simple-task@1',
-        role: 'implementer',
+        workflowRef: started.workflowRef,
+        role: started.role ?? 'unknown',
         actor: ACTOR,
       })
       runStore.updateRun(acpRun.runId, { hrcRunId })

@@ -38,7 +38,8 @@
  *   B) after HRC launch, before bind (hrcRunId pre-committed in the runStore)
  *   C) after bind, response lost (real durable bind then throw)
  *
- * Binaries (overridable): WRKF_BIN / WRKQ_BIN / WRKQADM_BIN default ~/.local/bin.
+ * Binaries (overridable): WRKF_BIN / WRKQ_BIN / WRKQADM_BIN default to bare
+ * names resolved through PATH.
  * HRC: live daemon discovered via `discoverSocket()` + `resolveDatabasePath()`.
  */
 
@@ -46,6 +47,7 @@ import { Database } from 'bun:sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 
@@ -69,9 +71,15 @@ const PRAESIDIUM_ROOT = process.env['PRAESIDIUM_ROOT'] ?? join(HOME, 'praesidium
 const E2E_AGENT_ID = 'curly'
 const E2E_AGENT_ROOT = join(PRAESIDIUM_ROOT, 'var', 'agents', E2E_AGENT_ID)
 const E2E_PROJECT_ROOT = join(PRAESIDIUM_ROOT, 'agent-control-plane')
-const WRKF_BIN = process.env['WRKF_BIN'] ?? `${HOME}/.local/bin/wrkf`
-const WRKQ_BIN = process.env['WRKQ_BIN'] ?? `${HOME}/.local/bin/wrkq`
-const WRKQADM_BIN = process.env['WRKQADM_BIN'] ?? `${HOME}/.local/bin/wrkqadm`
+// Bare names, resolved through PATH — the same default production code uses
+// (acp-server/src/wrkf/client-lifecycle.ts). Hard-coding ~/.local/bin encoded
+// one operator's layout and ENOENT'd anywhere else, devbox container included.
+const WRKF_BIN = process.env['WRKF_BIN'] ?? 'wrkf'
+const WRKQ_BIN = process.env['WRKQ_BIN'] ?? 'wrkq'
+const WRKQADM_BIN = process.env['WRKQADM_BIN'] ?? 'wrkqadm'
+const EMPTY_HOOK_CATALOG_PATH = fileURLToPath(
+  new URL('../../acp-server/test/fixtures/empty-wrkf-hook-catalog.json', import.meta.url)
+)
 
 const ACTION = 'implement'
 const ACTOR = { kind: 'agent' as const, id: 'curly-e2e' }
@@ -90,6 +98,42 @@ type ActionRunRecord = {
   runId: string
   externalRunRef?: string
   status: string
+}
+
+type StartedActionProjection = {
+  actionRunId: string
+  runId: string
+  instanceId: string
+  workflowRef: string
+  role?: string | undefined
+}
+
+type StartedActionResponse = Omit<StartedActionProjection, 'workflowRef'> & {
+  workflow: {
+    id: string
+    version: string
+  }
+}
+
+function requireNonEmptyStartedField(value: string | undefined, field: string): string {
+  if (value === undefined || value.trim().length === 0) {
+    throw new Error(`wrkf action.start returned no ${field}`)
+  }
+  return value
+}
+
+function projectStartedAction(started: StartedActionResponse): StartedActionProjection {
+  const workflowId = requireNonEmptyStartedField(started.workflow.id, 'workflow.id')
+  const workflowVersion = requireNonEmptyStartedField(started.workflow.version, 'workflow.version')
+  const role =
+    started.role === undefined ? undefined : requireNonEmptyStartedField(started.role, 'role')
+  return {
+    actionRunId: requireNonEmptyStartedField(started.actionRunId, 'actionRunId'),
+    runId: requireNonEmptyStartedField(started.runId, 'runId'),
+    instanceId: requireNonEmptyStartedField(started.instanceId, 'instanceId'),
+    workflowRef: requireNonEmptyStartedField(`${workflowId}@${workflowVersion}`, 'workflowRef'),
+    ...(role !== undefined ? { role } : {}),
+  }
 }
 
 const FAKE_RUNTIME_RESOLVER: NonNullable<AcpServerDeps['runtimeResolver']> = async () => ({
@@ -140,6 +184,7 @@ describe('wrkf action launch/bind adapter — REAL HRC e2e (C-0004 closure)', ()
     lc = await createWrkfClientLifecycle({
       command: WRKF_BIN,
       dbPath,
+      hookCatalogPath: EMPTY_HOOK_CATALOG_PATH,
       clientInfo: { name: 'action-launch-realhrc-e2e', version: '0.1.0' },
     })
 
@@ -392,20 +437,22 @@ describe('wrkf action launch/bind adapter — REAL HRC e2e (C-0004 closure)', ()
       // Attempt 1 partial: action.start + ACP durable run + a REAL hostSessionId
       // committed as hrcRunId, then CRASH before bind. Mint the host session OUTSIDE
       // the counted launcher so attempt 2's launcher count starts (and stays) at 0.
-      const started = (await wrkfPort().action.start({
-        task: taskId,
-        action: ACTION,
-        principal_ref: `${ACTOR.kind}:${ACTOR.id}`,
-        idempotencyKey,
-      })) as { actionRunId: string; runId: string; instanceId: string }
+      const started = projectStartedAction(
+        (await wrkfPort().action.start({
+          task: taskId,
+          action: ACTION,
+          principal_ref: `${ACTOR.kind}:${ACTOR.id}`,
+          idempotencyKey,
+        })) as StartedActionResponse
+      )
       const { hostSessionId } = await mintHostSession(ref)
       const { run: acpRun } = runStore.createOrGetRun({
         sessionRef: ref,
         wrkfTaskId: taskId,
         wrkfInstanceId: started.instanceId,
         wrkfRunId: started.runId,
-        workflowRef: 'wrkq-simple-task@1',
-        role: 'implementer',
+        workflowRef: started.workflowRef,
+        role: started.role ?? 'unknown',
         actor: ACTOR,
       })
       runStore.updateRun(acpRun.runId, { hrcRunId: hostSessionId })

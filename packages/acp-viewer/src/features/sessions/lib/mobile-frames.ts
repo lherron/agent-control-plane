@@ -29,7 +29,7 @@ export type MobileDashboardCursors = {
   nextFromHrcSeq: number
 }
 
-export type MobileSessionStatus = 'active' | 'stale' | 'inactive'
+export type MobileSessionStatus = 'active' | 'stale' | 'inactive' | 'detached'
 
 export type MobileSessionSummary = {
   sessionRef: string

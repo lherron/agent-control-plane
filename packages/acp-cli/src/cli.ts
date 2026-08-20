@@ -24,6 +24,7 @@ import { runJobRunCommand } from './commands/job-run.js'
 import { runJobCommand } from './commands/job.js'
 import { runMembershipCommand } from './commands/membership.js'
 import { runMessageCommand } from './commands/message.js'
+import { runMobileCommand } from './commands/mobile.js'
 import { runProjectCommand } from './commands/project.js'
 import { runRenderCommand } from './commands/render.js'
 import { runRunCommand } from './commands/run.js'
@@ -491,18 +492,18 @@ function addRuntimeCommands(program: Command, deps: CommandDependencies): void {
   const attachment = run.command('attachment').description('manage outbound attachments')
   common(attachment.command('add').description('add one outbound attachment'))
     .argument('<path>')
-    .option('--run <runId>')
+    .option('--run <runId>', 'ACP run id; omit in an HRC turn to resolve its active ACP run')
     .option('--project <projectId>')
     .option('--alt <text>')
     .option('--filename <name>')
     .option('--content-type <mime>')
     .action(runLeafWithPositionals(deps, ['attachment', 'add'], runRunCommand))
   common(attachment.command('list').description('list outbound attachments'))
-    .option('--run <runId>')
+    .option('--run <runId>', 'ACP run id; omit in an HRC turn to resolve its active ACP run')
     .option('--project <projectId>')
     .action(runLeaf(deps, ['attachment', 'list'], runRunCommand))
   common(attachment.command('clear').description('clear outbound attachments'))
-    .option('--run <runId>')
+    .option('--run <runId>', 'ACP run id; omit in an HRC turn to resolve its active ACP run')
     .option('--project <projectId>')
     .action(runLeaf(deps, ['attachment', 'clear'], runRunCommand))
 
@@ -548,6 +549,37 @@ function addRuntimeCommands(program: Command, deps: CommandDependencies): void {
     .option('--project <projectId>')
     .option('--source <replay|capture>')
     .action(runLeaf(deps, [], runRenderCommand))
+}
+
+function addMobileCommands(program: Command, deps: CommandDependencies): void {
+  const mobile = program
+    .command('mobile')
+    .description('operate the mobile surface (pairing and bearer auth)')
+
+  tabular(
+    mobile
+      .command('pairing-code')
+      .description('mint a single-use pairing code (5 minute TTL; voids any outstanding code)')
+  ).action(runLeaf(deps, ['pairing-code'], runMobileCommand))
+
+  const devices = mobile.command('devices').description('manage paired mobile devices')
+  tabular(
+    devices.command('list').description('list paired devices and enforcement posture')
+  ).action(runLeaf(deps, ['devices', 'list'], runMobileCommand))
+  tabular(devices.command('revoke').description("revoke one device's bearer token"))
+    .requiredOption('--device <deviceId>')
+    .action(runLeaf(deps, ['devices', 'revoke'], runMobileCommand))
+
+  const auth = mobile.command('auth').description('mobile bearer auth enforcement')
+  tabular(auth.command('status').description('show enforcement posture and paired devices')).action(
+    runLeaf(deps, ['auth', 'status'], runMobileCommand)
+  )
+  tabular(auth.command('enable').description('enforce bearer auth on non-loopback mobile callers'))
+    .option('--force', 'arm even with no paired devices (locks out every remote client)')
+    .action(runLeaf(deps, ['auth', 'enable'], runMobileCommand))
+  tabular(
+    auth.command('disable').description('stop enforcing bearer auth (emergency rollback)')
+  ).action(runLeaf(deps, ['auth', 'disable'], runMobileCommand))
 }
 
 function addCoordinationCommands(program: Command, deps: CommandDependencies): void {
@@ -690,6 +722,7 @@ export function buildProgram(
   addAdminCommands(program, deps)
   addGovernanceCommands(program, deps)
   addRuntimeCommands(program, deps)
+  addMobileCommands(program, deps)
   addCoordinationCommands(program, deps)
 
   program

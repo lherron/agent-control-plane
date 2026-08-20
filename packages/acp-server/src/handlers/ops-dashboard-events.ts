@@ -2,6 +2,11 @@ import type { DashboardEvent } from 'acp-ops-projection'
 import { badRequest } from '../http.js'
 import type { RouteHandler } from '../routing/route-context.js'
 import {
+  boundedReplayFromSeq,
+  latestHrcSeq,
+  listCachedLatestEventBySession,
+} from './hrc-event-read-window.js'
+import {
   type DashboardFilters,
   compareDashboardEvents,
   eventMatchesFilters,
@@ -16,6 +21,12 @@ const NDJSON_HEADERS = {
   'transfer-encoding': 'chunked',
 }
 const HEARTBEAT_MS = 100
+const DEFAULT_OPS_DASHBOARD_MAX_REPLAY_EVENTS = 10_000
+
+function readPositiveIntegerEnv(name: string, fallback: number): number {
+  const parsed = Number.parseInt(process.env[name] ?? '', 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
 
 function isDashboardEvent(value: DashboardEvent | undefined): value is DashboardEvent {
   return value !== undefined
@@ -58,11 +69,21 @@ export const handleOpsDashboardEvents: RouteHandler = async ({ request, url, dep
     })
   }
 
+  const lastHrcSeq = latestHrcSeq(await listCachedLatestEventBySession(hrcClient))
+  const boundedFromSeq = boundedReplayFromSeq({
+    requestedFromSeq: fromSeq,
+    lastHrcSeq,
+    maxReplayEvents: readPositiveIntegerEnv(
+      'ACP_OPS_DASHBOARD_MAX_REPLAY_EVENTS',
+      DEFAULT_OPS_DASHBOARD_MAX_REPLAY_EVENTS
+    ),
+  })
+
   if (!follow) {
     return new Response(
       await collectFiniteDashboardEvents({
         hrcClient,
-        fromSeq,
+        fromSeq: boundedFromSeq,
         filters,
         limit,
         deps,
@@ -75,7 +96,11 @@ export const handleOpsDashboardEvents: RouteHandler = async ({ request, url, dep
   }
 
   const abortController = new AbortController()
-  const iterable = hrcClient.watch({ fromSeq, follow, signal: abortController.signal })
+  const iterable = hrcClient.watch({
+    fromSeq: boundedFromSeq,
+    follow,
+    signal: abortController.signal,
+  })
   const iterator = iterable[Symbol.asyncIterator]()
   const encoder = new TextEncoder()
   let controllerRef: ReadableStreamDefaultController<Uint8Array> | undefined

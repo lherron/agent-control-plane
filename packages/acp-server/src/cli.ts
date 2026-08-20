@@ -2,7 +2,7 @@
 
 import { existsSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 
 import { openSqliteAdminStore } from 'acp-admin-store'
 import { startAcpCapabilityHost } from 'acp-capability-host'
@@ -26,6 +26,7 @@ import {
   DEFAULT_AGENT_ASSETS_DIR,
   DEFAULT_INTERFACE_DB_PATH,
   DEFAULT_STATE_DB_PATH,
+  type InputAttemptStore,
   type ResolvedAcpServerDeps,
   resolveAcpServerDeps,
 } from './deps.js'
@@ -56,6 +57,7 @@ import {
 } from './jobs/event-job-evaluator.js'
 import { advanceJobFlow } from './jobs/flow-engine.js'
 import { ensureDispatchTimeoutHealthJob } from './jobs/health-dispatch-timeout.js'
+import { ensureHrcFirstTurnMissingJob } from './jobs/hrc-first-turn-missing.js'
 import { createJobLifecycleEmitter } from './jobs/lifecycle-events.js'
 import {
   createJobNodeIdentityAuthority,
@@ -65,6 +67,8 @@ import {
 import { createJobOutputReconciler } from './jobs/output-reconciler.js'
 import { getRunFinalAssistantText } from './jobs/run-final-output.js'
 import { resolveLaunchIntent } from './launch-role-scoped.js'
+import { authorizeMobileRequest, mobileUnauthorizedResponse } from './mobile-auth/gate.js'
+import { resolveMobileAuthStore } from './mobile-auth/store.js'
 import { createPbcWorkerScheduler } from './pbc/worker-scheduler.js'
 import { type PbcContinuationWorkerPort, runPbcContinuationWorker } from './pbc/worker.js'
 import { createRealLauncher, readRunStatus } from './real-launcher.js'
@@ -121,6 +125,7 @@ function readPositiveIntegerEnv(name: string): number | undefined {
 
 export interface ResolveLauncherDepsOptions {
   createHrcClient?: ((socketPath: string) => AcpHrcClient) | undefined
+  inputAttemptStore?: InputAttemptStore | undefined
 }
 
 export interface AcpServerCliOptions {
@@ -469,14 +474,42 @@ export function resolveRealLauncherPlacement(
     return undefined
   }
 
-  const paths = resolveAgentPlacementPaths({
+  const resolverCwd = input.cwd ?? process.cwd()
+  let paths = resolveAgentPlacementPaths({
     agentId: parsedScope.agentId,
     ...(parsedScope.projectId !== undefined ? { projectId: parsedScope.projectId } : {}),
     agentRoot,
+    cwd: resolverCwd,
     env,
   })
+
+  if (parsedScope.projectId !== undefined && paths.projectRoot === undefined) {
+    const siblingCandidates = [join(resolverCwd, parsedScope.projectId)]
+    const agentsRoot = dirname(agentRoot)
+    const runtimeVarRoot = dirname(agentsRoot)
+    if (basename(agentsRoot) === 'agents' && basename(runtimeVarRoot) === 'var') {
+      siblingCandidates.push(join(dirname(runtimeVarRoot), parsedScope.projectId))
+    }
+
+    for (const siblingCandidate of siblingCandidates) {
+      paths = resolveAgentPlacementPaths({
+        agentId: parsedScope.agentId,
+        projectId: parsedScope.projectId,
+        agentRoot,
+        cwd: siblingCandidate,
+        env,
+      })
+      if (paths.projectRoot !== undefined) break
+    }
+
+    // A project-scoped placement without its checkout root is not a usable
+    // placement. Let the owning request boundary surface the typed not-found
+    // instead of minting a harness in the agent home.
+    if (paths.projectRoot === undefined) return undefined
+  }
+
   const projectRoot = paths.projectRoot
-  const cwd = paths.cwd ?? projectRoot ?? agentRoot
+  const cwd = projectRoot ?? paths.cwd ?? agentRoot
   const bundle = buildRuntimeBundleRef({
     agentName: parsedScope.agentId,
     agentRoot,
@@ -542,7 +575,9 @@ export function resolveLauncherDeps(
       verifyCommandTargetId !== undefined
 
     return {
-      launchRoleScopedRun: createRealLauncher(),
+      launchRoleScopedRun: createRealLauncher({
+        inputAttemptStore: _options.inputAttemptStore,
+      }),
       runLivenessResolver: (run) =>
         new Date(lastObservedActivityMs(run, resolveDatabasePath())).toISOString(),
       ...(triageCommandTargetId !== undefined ? { triageCommandTargetId } : {}),
@@ -947,7 +982,9 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     options.conversationDbPath !== undefined
       ? openSqliteConversationStore({ dbPath: options.conversationDbPath })
       : undefined
-  const launcherDeps = resolveLauncherDeps(process.env, process.cwd())
+  const launcherDeps = resolveLauncherDeps(process.env, process.cwd(), {
+    inputAttemptStore: stateStore.inputAttempts,
+  })
   const jobNodeIdentityAuthority =
     jobsStore !== undefined ? createJobNodeIdentityAuthority(launcherDeps.hrcClient) : undefined
   const jobIdentityStartup =
@@ -1013,10 +1050,16 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     acpBaseUrl,
     logger: (message) => console.log(message),
   })
+  // One store instance for the whole daemon: `serverDeps` is resolved twice (HTTP
+  // router + WS upgrade path), and two stores over one flat file would mean two
+  // writers and a gate that could disagree with itself between HTTP and WS.
+  serverDeps.mobileAuthStore = resolveMobileAuthStore()
+  const mobileAuthStore = serverDeps.mobileAuthStore
   const acpServer = createAcpServer(serverDeps)
   const resolvedDeps = resolveAcpServerDeps(serverDeps)
   if (jobsStore !== undefined) {
     ensureDispatchTimeoutHealthJob(jobsStore)
+    ensureHrcFirstTurnMissingJob(jobsStore)
   }
   const accessLogger = await createAccessLogger(process.env['ACP_ACCESS_LOG_PATH'])
   const bindHosts = resolveBindHosts(options.host)
@@ -1029,11 +1072,28 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
         idleTimeout: 255,
         async fetch(request, server) {
           const url = new URL(request.url)
+          // Socket peer, captured before the body is consumed and before the WS
+          // branch: Bun exposes it only here, and peer-gated routes (mobile bearer
+          // auth, attach-info) cannot observe it from the Request alone.
+          const peer = server.requestIP(request) ?? undefined
           const mobileWsMatch =
             request.headers.get('upgrade')?.toLowerCase() === 'websocket'
               ? parseMobileRouteKind(url.pathname)
               : undefined
           if (mobileWsMatch !== undefined) {
+            // Same decision function as the HTTP router (spec §3) — checked before
+            // `server.upgrade()`, since a socket that completes the handshake is
+            // already inside.
+            if (
+              authorizeMobileRequest({
+                pathname: url.pathname,
+                peer,
+                authorization: request.headers.get('authorization'),
+                store: mobileAuthStore,
+              }) === 'unauthorized'
+            ) {
+              return mobileUnauthorizedResponse()
+            }
             const upgraded = (
               server as never as {
                 upgrade(request: Request, options: unknown): boolean
@@ -1048,13 +1108,13 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
           const response =
             url.pathname === '/v1/cap/rpc'
               ? await capabilityHost.handleHttpJsonRpc(request)
-              : await acpServer.handler(request)
+              : await acpServer.handler(request, { peer })
           if (accessLogger !== null) {
             accessLogger.log({
               request,
               response,
               durationMs: Math.round(performance.now() - start),
-              clientIp: server.requestIP(request)?.address,
+              clientIp: peer?.address,
             })
           }
           return response

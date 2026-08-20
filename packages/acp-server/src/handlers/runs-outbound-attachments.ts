@@ -24,6 +24,9 @@ import {
 import type { RouteHandler } from '../routing/route-context.js'
 
 const ACTIVE_RUN_STATUSES = new Set(['pending', 'started', 'running'])
+const CURRENT_RUN_SELECTOR = 'current'
+const HRC_RUN_ID_PATTERN =
+  /^run-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const SUPPORTED_CONTENT_TYPES = new Set([
   'image/png',
   'image/jpeg',
@@ -144,9 +147,97 @@ function findRun(deps: Parameters<RouteHandler>[0]['deps'], requestedRunId: stri
   return deps.runStore.listRuns().find((run) => run.hrcRunId === requestedRunId)
 }
 
-function requireRun(deps: Parameters<RouteHandler>[0]['deps'], requestedRunId: string) {
+function requireCurrentRun(
+  deps: Parameters<RouteHandler>[0]['deps'],
+  correlation: CorrelationFields
+) {
+  const hostSessionId = correlation.hrcHostSessionId
+  if (hostSessionId === undefined) {
+    throw new AcpHttpError(
+      400,
+      'current_run_context_missing',
+      'current ACP run resolution requires HRC_HOST_SESSION_ID',
+      { requiredField: 'HRC_HOST_SESSION_ID' }
+    )
+  }
+
+  const activeRuns = deps.runStore
+    .listRuns()
+    .filter(
+      (run) => run.hostSessionId === hostSessionId && ACTIVE_RUN_STATUSES.has(String(run.status))
+    )
+  const hrcRunMatches =
+    correlation.hrcRunId === undefined
+      ? []
+      : activeRuns.filter((run) => run.hrcRunId === correlation.hrcRunId)
+  const requestedGeneration =
+    correlation.hrcGeneration === undefined
+      ? undefined
+      : Number.parseInt(correlation.hrcGeneration, 10)
+  const generationMatches =
+    requestedGeneration === undefined || !Number.isInteger(requestedGeneration)
+      ? []
+      : activeRuns.filter(
+          (run) => (run.dispatchFence?.expectedGeneration ?? run.generation) === requestedGeneration
+        )
+  const candidates =
+    hrcRunMatches.length > 0
+      ? hrcRunMatches
+      : generationMatches.length > 0
+        ? generationMatches
+        : activeRuns
+
+  const candidate = candidates[0]
+  if (candidate === undefined) {
+    throw new AcpHttpError(
+      404,
+      'current_run_not_found',
+      `no active ACP run found for HRC host session: ${hostSessionId}`,
+      { hostSessionId }
+    )
+  }
+
+  if (candidates.length > 1) {
+    throw new AcpHttpError(
+      409,
+      'current_run_ambiguous',
+      `multiple active ACP runs found for HRC host session: ${hostSessionId}`,
+      {
+        hostSessionId,
+        runIds: candidates.map((run) => run.runId),
+      }
+    )
+  }
+
+  return candidate
+}
+
+function requireRun(
+  deps: Parameters<RouteHandler>[0]['deps'],
+  requestedRunId: string,
+  correlation: CorrelationFields
+) {
+  if (requestedRunId === CURRENT_RUN_SELECTOR) {
+    return requireCurrentRun(deps, correlation)
+  }
+
   const run = findRun(deps, requestedRunId)
   if (run === undefined) {
+    if (HRC_RUN_ID_PATTERN.test(requestedRunId)) {
+      throw new AcpHttpError(
+        400,
+        'run_id_kind_mismatch',
+        `received HRC run id ${requestedRunId} (run-<uuid>), but this endpoint requires an ACP run id (run_<hex12>); omit --run to resolve the current ACP run`,
+        {
+          runId: requestedRunId,
+          receivedKind: 'hrc_run_id',
+          receivedShape: 'run-<uuid>',
+          expectedKind: 'acp_run_id',
+          expectedShape: 'run_<hex12>',
+        }
+      )
+    }
+
     throw new AcpHttpError(404, 'run_not_found', `run not found: ${requestedRunId}`, {
       runId: requestedRunId,
     })
@@ -324,7 +415,7 @@ export const handlePostRunOutboundAttachment: RouteHandler = async ({
   deps,
 }) => {
   const requestedRunId = requireRunId(params)
-  const run = requireRun(deps, requestedRunId)
+  const run = requireRun(deps, requestedRunId, getCorrelationFields(request, url, undefined))
   assertRunAcceptsOutbound(run)
 
   const form = await request.formData()
@@ -394,9 +485,10 @@ export const handlePostRunOutboundMessage: RouteHandler = async ({
   deps,
 }) => {
   const requestedRunId = requireRunId(params)
-  const run = requireRun(deps, requestedRunId)
+  const correlation = getCorrelationFields(request, url, undefined)
+  const run = requireRun(deps, requestedRunId, correlation)
   assertRunAcceptsOutbound(run)
-  assertCorrelation(run, requestedRunId, getCorrelationFields(request, url, undefined))
+  assertCorrelation(run, requestedRunId, correlation)
 
   const body = requireRecord(await parseJsonBody(request))
   const text = requireTrimmedStringField(body, 'text')
@@ -462,9 +554,9 @@ export const handlePostRunOutboundMessage: RouteHandler = async ({
   )
 }
 
-export const handleListRunOutboundAttachments: RouteHandler = ({ params, deps }) => {
+export const handleListRunOutboundAttachments: RouteHandler = ({ request, url, params, deps }) => {
   const requestedRunId = requireRunId(params)
-  const run = requireRun(deps, requestedRunId)
+  const run = requireRun(deps, requestedRunId, getCorrelationFields(request, url, undefined))
 
   return json({
     attachments: deps.interfaceStore.outboundAttachments.listForRun(run.runId),

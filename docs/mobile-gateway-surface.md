@@ -35,8 +35,133 @@ Routes:
 | `GET /v1/mobile/dm/targets` | http | DM target discovery. |
 | `POST /v1/mobile/messages/query`, `POST /v1/mobile/messages/dm` | http | Message query and semantic DM send. |
 | `GET /v1/mobile/messages/watch` | http/ws | Message watch stream. |
+| `POST /v1/mobile/sessions` | http | Provision a new session — a suffix-roster slot for the quick-pick lanes, or the one exact scope the operator named. The client supplies a stable `requestId` per button press; transport retries reuse it. |
 | `POST /v1/mobile/sessions/:hostSessionId/input` | http | Literal input to a session. |
 | `POST /v1/mobile/sessions/:hostSessionId/interrupt` | http | Interrupt a session. |
+| `GET /v1/mobile/sessions/:hostSessionId/attach-info` | http | Loopback-only attach descriptor for an embedded terminal (HRCMac). |
+| `POST /v1/mobile/auth/pairing-code` | http | Loopback-only. Mint the single outstanding pairing code. |
+| `GET /v1/mobile/auth/devices` | http | Loopback-only. Paired devices + enforcement posture. |
+| `POST /v1/mobile/auth/devices/revoke` | http | Loopback-only. Revoke one device's bearer token. |
+| `POST /v1/mobile/auth/enforce` | http | Loopback-only. Arm/disarm bearer enforcement. |
+
+`POST /v1/mobile/sessions` accepts `agentId`, `projectId`, optional `taskId`,
+optional `viewerWindow`, and `requestId`. The server derives an HRC idempotency
+key from `requestId`, names the
+`agent:<agentId>:project:<projectId>:task:<taskId>` scope, and returns the scope
+HRC actually claimed. `taskId` is trimmed and defaults to `primary`; it is not
+restricted to a server-side allowlist — well-known lanes (`primary`, `minisvc`,
+`minilab`, `hrcdev`) and operator-typed task ids alike are accepted as long as
+they satisfy the canonical agent-scope token grammar (`[A-Za-z0-9._-]{1,64}`).
+Tokens outside that grammar are rejected as `malformed_request` before any HRC
+call.
+
+The task token selects the HRC creation policy:
+
+| `taskId` | HRC START shape | Collision behavior |
+|---|---|---|
+| `primary`, `minisvc`, `minilab` | `{ baseSessionRef, conflictPolicy: "suffix" }` | Walks the roster family (`primary` → `primary-nova` → ...). |
+| `hrcdev` and every other valid token | `{ sessionRef, conflictPolicy: "reject" }` | Claims that one scope or refuses it; no next slot, no reuse of a live conversation. |
+
+Both shapes send `summonIntent: "implicit"`, the durable request-derived
+`idempotencyKey`, and `restartStyle: "reuse_pty"`, and neither carries a
+`hostSessionId` or any destination-node assertion: HRC owns placement and
+resolves where the named scope lives from policy and registry state. Both
+responses must carry HRC's claim, and the response DTO (`claimedScope`,
+`sessionRef`, `hostSessionId`, `runtimeId`, `status`, `replayed`) is projected
+from that claim rather than from what ACP asked for.
+
+Reaching HRC is not the same as landing a session. Suffix starts additionally
+require every member of the claimed roster family (`<taskId>`, `<taskId>-nova`,
+...) to name the local node through an exact `[placement.task-defaults]` entry in
+the agent profile, so a quick-pick lane with no such declaration is refused
+downstream with `stale_context`, not by ACP. Exact starts are refused with
+`session_scope_occupied` when that scope is already open, which ACP maps to HTTP
+409 with the stable message `that scope is already open`; the existing
+`session_roster_exhausted` / `idempotency_key_conflict` /
+`roster_claim_superseded` 409 mappings are unchanged.
+
+`viewerWindow` defaults to `ACP_MOBILE_VIEWER_WINDOW`, or `console` when the
+environment variable is unset. The route carries no auth of its own; it sits in
+the bearer tier described below like every other non-exempt mobile route.
+
+### Bearer auth (spec: `docs/mobile-surface-bearer-auth-spec.md`)
+
+acp-server binds 127.0.0.1 **and** the tailscale address, so this surface is
+loopback-*trusted* but tailnet-*reachable*. Bearer auth closes that gap. The gate
+covers every `/v*/mobile/*` path — `/v2/mobile/sessions` and the
+`/v2/mobile/dashboard` WS carry the same session data as their `/v1` siblings, and
+a future version's routes land in the bearer tier by default.
+
+Three credential classes, decided per request against the socket peer address
+(never `X-Forwarded-For`; an unobservable peer is not loopback):
+
+| Route class | Loopback peer | Non-loopback peer |
+|---|---|---|
+| `GET /v1/mobile/health`, `GET /v1/mobile/pairing` | open | open (needed pre-pairing; leak nothing secret) |
+| `POST /v1/mobile/pair` | open — codeless ack, or redeem a code | the **pairing code** is the credential; no/invalid/expired code → 401 |
+| every other `/v*/mobile/*` route | no bearer required | `Authorization: Bearer <token>` required, HTTP and WS upgrade alike |
+
+Denials are always `401 {"ok":false,"code":"unauthorized"}` — identical for a
+missing and an invalid credential, so a prober learns nothing. attach-info and the
+`/v1/mobile/auth/*` admin routes keep their stricter loopback-only gate on top: a
+bearer never substitutes for locality.
+
+One decision function (`packages/acp-server/src/mobile-auth/gate.ts`) is called
+from both the HTTP router (`create-acp-server.ts`) and the Bun WS upgrade path
+(`cli.ts`, before `server.upgrade()`), so the two cannot drift. No handler carries
+auth code of its own.
+
+Operator surface — the server is the state file's only writer, so the CLI mutates
+`mobile-auth.json` exclusively through the loopback admin routes:
+
+```
+acp mobile pairing-code                  # single-use, 5 min TTL, voids any outstanding code
+acp mobile devices list
+acp mobile devices revoke --device <id>
+acp mobile auth status
+acp mobile auth enable [--force]         # --force required when no device is paired
+acp mobile auth disable                  # emergency rollback
+```
+
+Enforcement is off by default (`enforce: false` in
+`var/state/acp-server/mobile-auth.json`, overridable with `ACP_MOBILE_AUTH_PATH`).
+While it is off nothing is refused — including the codeless tailnet pair the
+shipped iOS client sends today — but code redemption still mints tokens, so a
+device can be paired before the gate is armed. Tokens are returned exactly once at
+pairing; only their SHA-256 is stored, and they never reach any log.
+
+`GET /v1/mobile/sessions/:hostSessionId/attach-info`
+(`packages/acp-server/src/handlers/mobile-attach-info.ts`) is the only route on
+this surface that *enforces* the loopback convention rather than assuming it. It
+exists so HRCMac can fast-attach an embedded libghostty terminal to a session's
+durable broker-tmux, and it **proxies** hrc-server's attach descriptor
+(`hrcClient.getAttachDescriptor`) — `argv` is hrc-server's verbatim, and
+`socketPath`/`target` are read back out of that same argv rather than recomputed,
+so exactly one place knows how to build an attach command.
+
+Two fail-closed gates, both answered with `404 {"reason":"not_local"}`:
+
+- the socket peer must be loopback — an *unobservable* peer is not loopback, so a
+  listener that does not thread `server.requestIP()` through
+  `createAcpServer().handler(request, { peer })` denies rather than assumes local
+  (the peer is never read from `X-Forwarded-For`, which a remote caller controls);
+- the session must live on the hrc node this gateway is co-resident with, which is
+  exactly "the local hrc control socket knows this `hostSessionId`" — `listSessions`
+  reads that node's own store and never federated projections.
+
+A local session with nothing to attach to (no durable broker lease, dead runtime,
+headless-without-tui) is `409 {"reason":"not_attachable"}`. Both codes are routing
+signals, not errors: the app falls back to the frame timeline. Success is
+`{ local: true, argv, socketPath, target, bindingFence }`, where `bindingFence`
+carries `runtimeId` + `generation` so the client can refuse to attach across a
+runtime rotation. Contract: `clients/hrc-ios/HRCMAC_EMBEDDED_TERMINAL_SPEC.md` §3.2.
+
+The probe cannot start anything, which is what makes it safe to call on every
+window open. It asks hrc-server for a descriptor by **explicit `runtimeId`**, and
+`GET /v1/attach` passes `strictRuntimeId: true` — so a session whose runtime is
+not an attachable broker is refused (`runtime_unavailable` → 409 not_attachable)
+rather than reprovisioned into one. A client that polls attach-info against a
+headless session therefore never conjures a tmux lease as a side effect.
 
 `handlers/mobile.ts` (~2,000 lines) covers federation-node projection types
 (`FederationNodeRuntimeProjection`, `FederationPeerHealthObservation`, ...)

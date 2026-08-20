@@ -113,8 +113,8 @@ describe('runtime-oriented CLI commands', () => {
         async fetchImpl(input, init) {
           const request = input instanceof Request ? input : new Request(input, init)
           expect(request.method).toBe('POST')
-          expect(new URL(request.url).pathname).toBe('/v1/runs/hrc-run-123/outbound-attachments')
-          expect(request.headers.get('HRC_RUN_ID')).toBe('hrc-run-123')
+          expect(new URL(request.url).pathname).toBe('/v1/runs/current/outbound-attachments')
+          expect(request.headers.get('HRC_RUN_ID')).toBeNull()
           expect(request.headers.get('HRC_HOST_SESSION_ID')).toBe('hsid-123')
           expect(request.headers.get('HRC_GENERATION')).toBe('7')
           expect(request.headers.get('content-type')).toContain('multipart/form-data')
@@ -191,7 +191,7 @@ describe('runtime-oriented CLI commands', () => {
     }
   })
 
-  test('run attachment add exits 1 when no run id is available', async () => {
+  test('run attachment add requires --run outside an HRC session', async () => {
     const fixture = withTempFile('diagram.png', 'png-bytes')
 
     try {
@@ -200,16 +200,17 @@ describe('runtime-oriented CLI commands', () => {
       })
 
       expect(result.exitCode).toBe(2)
-      expect(result.stderr).toContain('--run is required (or set HRC_RUN_ID)')
+      expect(result.stderr).toContain('--run is required when HRC_HOST_SESSION_ID is unavailable')
     } finally {
       rmSync(fixture.dir, { recursive: true, force: true })
     }
   })
 
   test('run attachment add exits 1 when the file does not exist', async () => {
-    const result = await runCli(['run', 'attachment', 'add', '/tmp/acp-cli-missing-file.png'], {
-      env: { HRC_RUN_ID: 'run_123' },
-    })
+    const result = await runCli(
+      ['run', 'attachment', 'add', '/tmp/acp-cli-missing-file.png', '--run', 'run_123'],
+      { env: {} }
+    )
 
     expect(result.exitCode).toBe(2)
     expect(result.stderr).toContain('file does not exist: /tmp/acp-cli-missing-file.png')
@@ -232,13 +233,15 @@ describe('runtime-oriented CLI commands', () => {
         },
         assert(request) {
           expect(request.method).toBe('GET')
-          expect(new URL(request.url).pathname).toBe('/v1/runs/run_123/outbound-attachments')
+          expect(new URL(request.url).pathname).toBe('/v1/runs/current/outbound-attachments')
+          expect(request.headers.get('HRC_RUN_ID')).toBeNull()
+          expect(request.headers.get('HRC_HOST_SESSION_ID')).toBe('hsid-123')
         },
       },
     ])
 
     const output = await runRunCommand(['attachment', 'list', '--json'], {
-      env: { HRC_RUN_ID: 'run_123' },
+      env: { HRC_RUN_ID: 'run-123', HRC_HOST_SESSION_ID: 'hsid-123' },
       fetchImpl: queue.fetchImpl,
     })
 
@@ -263,8 +266,8 @@ describe('runtime-oriented CLI commands', () => {
         body: { error: { code: 'route_not_found', message: 'not found' } },
         assert(request) {
           expect(request.method).toBe('DELETE')
-          expect(new URL(request.url).pathname).toBe('/v1/runs/run_123/outbound-attachments')
-          expect(request.headers.get('HRC_RUN_ID')).toBe('run_123')
+          expect(new URL(request.url).pathname).toBe('/v1/runs/current/outbound-attachments')
+          expect(request.headers.get('HRC_RUN_ID')).toBeNull()
           expect(request.headers.get('HRC_HOST_SESSION_ID')).toBe('hsid-123')
         },
       },
@@ -282,7 +285,9 @@ describe('runtime-oriented CLI commands', () => {
         },
         assert(request) {
           expect(request.method).toBe('GET')
-          expect(new URL(request.url).pathname).toBe('/v1/runs/run_123/outbound-attachments')
+          expect(new URL(request.url).pathname).toBe('/v1/runs/current/outbound-attachments')
+          expect(request.headers.get('HRC_RUN_ID')).toBeNull()
+          expect(request.headers.get('HRC_HOST_SESSION_ID')).toBe('hsid-123')
         },
       },
     ])
