@@ -54,6 +54,7 @@
       "GET /v1/tasks/:taskId",
       "GET /v1/wrkf/pbc/tasks/:task/inspect",
       "GET /v1/wrkf/ping",
+      "GET /v1/wrkq/tasks",
       "GET /v2/mobile/dashboard",
       "GET /v2/mobile/sessions",
       "PATCH /v1/admin/agents/:agentId",
@@ -1346,6 +1347,7 @@
     "docs/agent-control-plane-current-spec.md": {
       "apiReferences": [
         "GET /v1/tasks/:taskId",
+        "GET /v1/wrkq/tasks",
         "POST /v1/tasks/:taskId/evidence",
         "POST /v1/tasks/:taskId/transitions",
         "POST /v1/webhooks/events",

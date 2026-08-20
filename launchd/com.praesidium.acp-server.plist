@@ -56,6 +56,8 @@
 		<string>/Users/lherron/praesidium/var/state/hrc</string>
 		<key>LANG</key>
 		<string>en_US.UTF-8</string>
+		<key>WRKF_HOOK_CATALOG</key>
+		<string>/Users/lherron/praesidium/agent-control-plane/config/wrkf-hook-catalog.json</string>
 		<key>PATH</key>
 		<string>/Users/lherron/.local/bin:/Users/lherron/.bun/bin:/Users/lherron/.tooling/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
 	</dict>

@@ -61,6 +61,7 @@ import { handleCreateWorkflowParticipantRun } from '../handlers/workflow-partici
 import { handleLaunchWrkfAction } from '../handlers/wrkf-action-launch.js'
 import { handleWrkfPbcDeliverEffects } from '../handlers/wrkf-pbc-deliver-effects.js'
 import { handleWrkfPing } from '../handlers/wrkf-ping.js'
+import { handleListWrkqTasks } from '../handlers/wrkq-tasks.js'
 import { handleLaunchSession } from '../launch-role-scoped.js'
 import { withActorAndAuthz } from '../middleware/actor-and-authz.js'
 
@@ -202,6 +203,7 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
     [exactRouteKey('POST', '/v1/mobile/auth/devices/revoke')]: handleRevokeMobileAuthDevice,
     [exactRouteKey('POST', '/v1/mobile/auth/enforce')]: handleSetMobileAuthEnforce,
     [exactRouteKey('GET', '/v1/wrkf/ping')]: handleWrkfPing,
+    [exactRouteKey('GET', '/v1/wrkq/tasks')]: handleListWrkqTasks,
     [exactRouteKey('POST', '/v1/wrkf/effects/deliver')]: maybeWrapMutatingRoute(
       'POST',
       '/v1/wrkf/effects/deliver',

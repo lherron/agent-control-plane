@@ -85,6 +85,9 @@ Server CLI/environment options include:
   `/Users/lherron/praesidium/var/state/acp-server/assets/agents`.
 - `ACP_HOST`, `ACP_PORT`, `ACP_ACTOR`: server bind and default actor.
 - `WRKF_BIN`: wrkf executable, default `wrkf`.
+- `WRKF_HOOK_CATALOG`: required wrkf hook-catalog path. The launchd-managed
+  server uses `config/wrkf-hook-catalog.json`, an explicit empty v0 catalog;
+  deployments that need hooks replace that file with their managed catalog.
 - `ACP_WRKF_DISABLED=1|true`: bypass wrkf startup for local dev/test.
 - Dispatcher/scheduler knobs:
   `ACP_SCHEDULER_ENABLED`,
@@ -101,6 +104,15 @@ Server CLI/environment options include:
 
 Current route behavior:
 
+- `GET /v1/wrkq/tasks` is the read-only wrkq board feed. It calls the existing
+  `wrkq.task.list` port with summary mode forced on and returns
+  `{ tasks, nextCursor }`; task rows contain only `id`, `title`, `state`,
+  `priority`, `kind`, `path`, derived project slug, and `updatedAt`. Optional
+  native filters are `project` (root path, recursive by default), `path`,
+  repeatable or comma-separated `state`, `limit` (default `100`, maximum `200`),
+  `sort`, `direction`, `recursive`, and `cursor`. The default ordering is
+  `updated_at desc`. This route is distinct from the wrkf-backed workflow routes
+  below and exposes no mutation surface.
 - `GET /v1/tasks/:taskId` calls wrkf `task.inspect`, `task.timeline`, `next`,
   `evidence.list`, `obligation.list`, `effect.list`, and `run.list`, then
   returns `{ source: "wrkf", task, instance, next, timeline, evidence,
