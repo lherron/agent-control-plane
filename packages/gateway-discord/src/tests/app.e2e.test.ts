@@ -240,6 +240,53 @@ async function captureIngressPostForMessage(
 }
 
 describe('GatewayDiscordApp local e2e', () => {
+  test('alerts once per continuous live-progress cursor-prime failure', async () => {
+    const jobRunsChannel = new FakeChannel('chan_job_runs')
+    const client = new FakeClient()
+    client.addChannel(jobRunsChannel)
+
+    const app = new GatewayDiscordApp({
+      acpBaseUrl: 'http://acp.test',
+      gatewayId: 'discord_prod',
+      client: client as never,
+      jobRunsChannelId: jobRunsChannel.id,
+      dashboardSnapshotImpl: async () => {
+        throw new Error('dashboard snapshot websocket closed before snapshot (code=1000)')
+      },
+      fetchImpl: createFetch(async (request) => {
+        const url = new URL(request.url)
+        if (url.pathname === '/v1/interface/bindings') {
+          return Response.json({
+            bindings: [
+              {
+                bindingId: 'ifb_prime_failure',
+                gatewayId: 'discord_prod',
+                conversationRef: 'channel:chan_bound',
+                scopeRef: 'agent:cody:project:agent-control-plane',
+                laneRef: 'main',
+                projectId: 'agent-control-plane',
+                status: 'active',
+                createdAt: '2026-08-22T20:00:00.000Z',
+                updatedAt: '2026-08-22T20:00:00.000Z',
+              },
+            ],
+          })
+        }
+        return new Response('not found', { status: 404 })
+      }),
+    })
+
+    await app.refreshBindings()
+    await app.refreshBindings()
+
+    const webhook = [...jobRunsChannel.webhooks.values()].find(
+      (item) => item.name === 'agent-pulpit'
+    )
+    expect(webhook?.sent).toHaveLength(1)
+    expect(webhook?.sent[0]?.content).toContain('Gateway live progress disabled')
+    expect(webhook?.sent[0]?.content).toContain('code=1000')
+  })
+
   test('steers ordinary Discord messages by default when active contribution is available', async () => {
     const channel = new FakeChannel('chan_steer_default')
     const client = new FakeClient()

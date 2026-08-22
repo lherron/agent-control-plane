@@ -414,7 +414,7 @@ export type DashboardSnapshotFetcher = (
   options?: { timeoutMs?: number | undefined }
 ) => Promise<MobileDashboardSnapshot>
 
-async function fetchDashboardSnapshotViaWebSocket(
+export async function fetchDashboardSnapshotViaWebSocket(
   acpBaseUrl: string,
   options?: { timeoutMs?: number | undefined }
 ): Promise<MobileDashboardSnapshot> {
@@ -423,44 +423,58 @@ async function fetchDashboardSnapshotViaWebSocket(
 
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(wsUrl)
+    let settled = false
     const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      reject(new Error(`dashboard snapshot timeout after ${timeoutMs}ms`))
       try {
         ws.close()
       } catch {
         // ignore
       }
-      reject(new Error(`dashboard snapshot timeout after ${timeoutMs}ms`))
     }, timeoutMs)
 
     ws.addEventListener('message', (event) => {
       try {
         const payload = JSON.parse(String((event as MessageEvent).data)) as MobileDashboardSnapshot
         if (payload?.type === 'dashboard_snapshot') {
+          if (settled) return
+          settled = true
           clearTimeout(timer)
+          // Bun dispatches the resulting close event synchronously. Resolve the
+          // snapshot before closing so that clean client teardown cannot win
+          // the promise race and masquerade as a pre-snapshot server close.
+          resolve(payload)
           try {
             ws.close()
           } catch {
             // ignore
           }
-          resolve(payload)
         }
       } catch (error) {
+        if (settled) return
+        settled = true
         clearTimeout(timer)
+        reject(error instanceof Error ? error : new Error(String(error)))
         try {
           ws.close()
         } catch {
           // ignore
         }
-        reject(error instanceof Error ? error : new Error(String(error)))
       }
     })
 
     ws.addEventListener('error', () => {
+      if (settled) return
+      settled = true
       clearTimeout(timer)
       reject(new Error('dashboard snapshot websocket error'))
     })
 
     ws.addEventListener('close', (event) => {
+      if (settled) return
+      settled = true
       clearTimeout(timer)
       reject(
         new Error(
@@ -548,6 +562,7 @@ export class GatewayDiscordApp {
   private readonly workActivityChannelId?: string | undefined
   private systemEventsLoopPromise: Promise<void> | undefined
   private systemEventsLoopStopped = false
+  private liveSubscriptionPrimeFailureActive = false
   // Monotonic event_id cursor: gap-free, no-skip, no-duplicate (unlike occurredAt
   // which can collide). In-memory, so the guarantee is best-effort near-real-time
   // egress — across a gateway restart the cursor re-primes to "now" rather than
@@ -1345,14 +1360,63 @@ export class GatewayDiscordApp {
       if (typeof lastHrcSeq !== 'number' || !Number.isFinite(lastHrcSeq) || lastHrcSeq < 0) {
         throw new Error('dashboard snapshot did not include a valid lastHrcSeq cursor')
       }
+      if (this.liveSubscriptionPrimeFailureActive) {
+        this.liveSubscriptionPrimeFailureActive = false
+        log.info('gw.live_progress.prime_recovered', {
+          message: 'Live-progress cursor priming recovered',
+          trace: { gatewayId: this.gatewayId },
+        })
+      }
       return Math.floor(lastHrcSeq)
     } catch (error) {
-      log.warn('gw.live_progress.prime_failed', {
+      const message = error instanceof Error ? error.message : String(error)
+      log.error('gw.live_progress.prime_failed', {
         message: 'Failed to prime live-progress subscriptions; retrying on binding refresh',
         trace: { gatewayId: this.gatewayId },
+        err: { message },
+      })
+      if (!this.liveSubscriptionPrimeFailureActive) {
+        this.liveSubscriptionPrimeFailureActive = true
+        await this.alertLiveSubscriptionPrimeFailure(message)
+      }
+      return undefined
+    }
+  }
+
+  /** Emit one operator-visible Discord alert per continuous prime-failure
+   * incident. Binding refreshes retry every ~30s, so alerting every attempt would
+   * turn a persistent outage into a channel flood; a successful prime resets the
+   * incident latch and makes the next failure alertable again. */
+  private async alertLiveSubscriptionPrimeFailure(reason: string): Promise<void> {
+    if (this.jobRunsChannelId === undefined) {
+      log.error('gw.live_progress.alert_unavailable', {
+        message: 'Cannot post live-progress failure alert because job-runs channel is unset',
+        trace: { gatewayId: this.gatewayId },
+      })
+      return
+    }
+
+    try {
+      await this.webhooks.send(this.jobRunsChannelId, {
+        content: [
+          '🚨 **Gateway live progress disabled**',
+          `Gateway: \`${this.gatewayId}\``,
+          `Reason: ${reason.slice(0, 500)}`,
+          'No new live-progress subscriptions were started. Cursor priming will keep retrying.',
+        ].join('\n'),
+      })
+      log.info('gw.live_progress.alert_sent', {
+        message: 'Posted live-progress failure alert to Discord',
+        trace: { gatewayId: this.gatewayId },
+        data: { channelId: this.jobRunsChannelId },
+      })
+    } catch (error) {
+      log.error('gw.live_progress.alert_failed', {
+        message: 'Failed to post live-progress failure alert to Discord',
+        trace: { gatewayId: this.gatewayId },
+        data: { channelId: this.jobRunsChannelId },
         err: { message: error instanceof Error ? error.message : String(error) },
       })
-      return undefined
     }
   }
 
@@ -1373,6 +1437,11 @@ export class GatewayDiscordApp {
 
     this.liveSubscriptionsBySessionRef.set(input.sessionRef, subscription)
     this.sessionEventsManager.subscribe(input.sessionRef, input.projectId)
+    log.info('gw.live_progress.subscription_started', {
+      message: 'Started live-progress subscription',
+      trace: { gatewayId: this.gatewayId, projectId: input.projectId },
+      data: { sessionRef: input.sessionRef, fromSeq: lastHrcSeq + 1 || 1 },
+    })
     void this.runLiveSubscription(subscription)
   }
 
