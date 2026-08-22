@@ -1634,7 +1634,7 @@ function readHarnessIntentFromAgentProfile(agentRoot: string): HrcHarnessIntent 
 
   try {
     const profile = parseAgentProfile(readFileSync(profilePath, 'utf8'), profilePath)
-    const entry = resolveHarnessCatalogEntry(profile.identity?.harness)
+    const entry = resolveHarnessCatalogEntry(profile.provisioning?.harness)
     if (entry === undefined) {
       return undefined
     }

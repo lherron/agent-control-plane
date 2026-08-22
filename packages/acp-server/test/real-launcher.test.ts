@@ -1411,11 +1411,13 @@ describe('real launcher helpers', () => {
       writeFileSync(
         join(agentRoot, 'agent-profile.toml'),
         [
-          'schemaVersion = 2',
+          'version = 3',
           '',
           '[identity]',
           'display = "Sparky"',
           'role = "smoke"',
+          '',
+          '[provisioning]',
           'harness = "agent-sdk"',
           '',
         ].join('\n')
@@ -1454,11 +1456,13 @@ describe('real launcher helpers', () => {
       writeFileSync(
         join(agentRoot, 'agent-profile.toml'),
         [
-          'schemaVersion = 2',
+          'version = 3',
           '',
           '[identity]',
           'display = "Mneme"',
           'role = "media-memory"',
+          '',
+          '[provisioning]',
           'harness = "codex"',
           '',
         ].join('\n')
