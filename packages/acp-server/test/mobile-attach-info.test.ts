@@ -12,6 +12,7 @@ const NOW = '2026-08-19T14:00:00.000Z'
 const HOST_SESSION_ID = 'hsid-attach-info'
 const SOCKET_PATH = '/Users/lherron/praesidium/var/run/hrc/btmux/agent control.sock'
 const TARGET = 'hrc-clod-acp:tui'
+const TMUX_BINARY = '/opt/homebrew/bin/tmux'
 const LOOPBACK = { address: '127.0.0.1', family: 'IPv4', port: 51234 }
 const TAILSCALE = { address: '100.73.60.81', family: 'IPv4', port: 51235 }
 
@@ -45,7 +46,7 @@ const RUNTIME: HrcRuntimeSnapshot = {
 
 const DESCRIPTOR = {
   transport: 'tmux' as const,
-  argv: ['tmux', '-S', SOCKET_PATH, 'attach-session', '-t', TARGET],
+  argv: [TMUX_BINARY, '-S', SOCKET_PATH, 'attach-session', '-t', TARGET],
   bindingFence: {
     hostSessionId: HOST_SESSION_ID,
     runtimeId: RUNTIME.runtimeId,
@@ -268,5 +269,15 @@ describe('parseTmuxAttachArgv', () => {
       parseTmuxAttachArgv(['tmux', '-L', 'name', 'attach-session', '-t', TARGET])
     ).toBeUndefined()
     expect(parseTmuxAttachArgv(['tmux', '-S', '', 'attach-session', '-t', TARGET])).toBeUndefined()
+    expect(
+      parseTmuxAttachArgv([
+        '/opt/homebrew/bin/not-tmux',
+        '-S',
+        SOCKET_PATH,
+        'attach-session',
+        '-t',
+        TARGET,
+      ])
+    ).toBeUndefined()
   })
 })

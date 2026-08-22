@@ -20,6 +20,7 @@
  * {reason: 'not_attachable'}`.
  */
 
+import { basename, isAbsolute } from 'node:path'
 import { HrcDomainError } from 'hrc-core'
 
 import { badRequest, json } from '../http.js'
@@ -45,18 +46,23 @@ function notAttachable(detail: Record<string, unknown>): Response {
 /**
  * Read `socketPath` and `target` back out of hrc-server's attach argv.
  *
- * The broker attach descriptor is exactly `tmux -S <socket> attach-session -t
- * <target>` (hrc-server `attachRuntime`). Matching that shape positionally keeps
- * the descriptor the single source of truth; anything else (a ghostty surface
- * descriptor, a future argv shape) is reported as not-attachable rather than
- * guessed at, because a mis-parsed socket/target would attach the wrong pane.
+ * The broker attach descriptor is exactly `<absolute path to tmux> -S <socket>
+ * attach-session -t <target>` (hrc-server `attachRuntime`). A bare `tmux` is
+ * retained temporarily for rolling compatibility with an older local hrc-server.
+ * Matching that shape positionally keeps the descriptor the single source of
+ * truth; anything else (a ghostty surface descriptor, a future argv shape) is
+ * reported as not-attachable rather than guessed at, because a mis-parsed
+ * socket/target would attach the wrong pane.
  */
 export function parseTmuxAttachArgv(argv: readonly string[]): ParsedTmuxAttach | undefined {
   if (argv.length !== 6) {
     return undefined
   }
   const [command, socketFlag, socketPath, subcommand, targetFlag, target] = argv
-  if (command !== 'tmux' || socketFlag !== '-S' || subcommand !== 'attach-session') {
+  const isTmuxCommand =
+    command === 'tmux' ||
+    (command !== undefined && isAbsolute(command) && basename(command) === 'tmux')
+  if (!isTmuxCommand || socketFlag !== '-S' || subcommand !== 'attach-session') {
     return undefined
   }
   if (targetFlag !== '-t') {
