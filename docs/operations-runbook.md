@@ -96,6 +96,26 @@ Read any Consul value manually with `consul kv get <key>`.
 - `ACP_ACCESS_LOG_PATH` — optional Apache-combined access log; unset disables
   it.
 
+The `com.praesidium.log-rotation` LaunchAgent runs every 15 minutes and rotates
+ACP and HRC server stdout/stderr at 64 MiB, retaining seven gzip archives per
+file. It uses copytruncate semantics because launchd owns open descriptors for
+the configured paths: the active inode is truncated in place and is never
+renamed or recreated. A kernel-backed `lockf` lock prevents overlapping runs
+without leaving a stale-lock wedge after process or host failure.
+
+Install or refresh the job only after coordinating active log readers; its
+`RunAtLoad` pass may rotate eligible logs immediately:
+
+```bash
+just install-log-rotation
+launchctl print "gui/$(id -u)/com.praesidium.log-rotation"
+```
+
+The retired `/Users/lherron/praesidium/var/logs/acp-access.log` was a stale
+artifact, not an active request-rate source. Access logging remains explicitly
+opt-in through `ACP_ACCESS_LOG_PATH`; do not infer traffic from that legacy
+filename when the variable is unset.
+
 ## State databases
 
 Default paths, each overridable by its own `ACP_*_DB_PATH` env var:

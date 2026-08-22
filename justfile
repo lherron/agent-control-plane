@@ -226,6 +226,24 @@ install no-sync="" force-sync="" force-link="":
       echo "[install] skipping bun link; linked worktree installs must not update local ACP wrappers"
     fi
 
+# Install and activate the periodic copytruncate job. RunAtLoad means this may
+# rotate eligible production logs immediately; coordinate active log readers
+# before invoking it for the first time.
+install-log-rotation:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source_plist="$(git rev-parse --show-toplevel)/launchd/com.praesidium.log-rotation.plist"
+    installed_plist="$HOME/Library/LaunchAgents/com.praesidium.log-rotation.plist"
+    service_target="gui/$(id -u)/com.praesidium.log-rotation"
+    plutil -lint "$source_plist"
+    install -m 0644 "$source_plist" "$installed_plist"
+    if launchctl print "$service_target" >/dev/null 2>&1; then
+      launchctl bootout "$service_target"
+    fi
+    launchctl bootstrap "gui/$(id -u)" "$installed_plist"
+    launchctl print "$service_target" >/dev/null
+    echo "[install] activated $service_target"
+
 # Publish ordinary ACP package versions to local Verdaccio
 publish-dev:
     bun scripts/publish-local-verdaccio.ts
