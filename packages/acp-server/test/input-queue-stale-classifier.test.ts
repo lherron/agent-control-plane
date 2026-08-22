@@ -122,6 +122,53 @@ function testingHooks(): DispatcherTestHooks {
 }
 
 describe('input queue stale pending classifier', () => {
+  test('idle sweep only inspects pending-run admission and queue state', async () => {
+    const deps = createDeps()
+    for (let index = 0; index < 100; index += 1) {
+      deps.runStore.createRun({
+        sessionRef: {
+          scopeRef: `agent:larry:project:agent-spaces:task:T-idle-${index}`,
+          laneRef: 'main',
+        },
+        status: 'completed',
+      })
+    }
+    deps.runStore.createRun({
+      sessionRef: {
+        scopeRef: 'agent:larry:project:agent-spaces:task:T-idle-pending',
+        laneRef: 'main',
+      },
+      status: 'pending',
+    })
+
+    let allRunsCalls = 0
+    let queueLookups = 0
+    let admissionLookups = 0
+    const originalListRuns = deps.runStore.listRuns.bind(deps.runStore)
+    const originalQueueLookup = deps.inputQueueStore.getByRunId.bind(deps.inputQueueStore)
+    const originalAdmissionLookup = deps.inputAdmissionStore.getByRunId.bind(
+      deps.inputAdmissionStore
+    )
+    deps.runStore.listRuns = () => {
+      allRunsCalls += 1
+      return originalListRuns()
+    }
+    deps.inputQueueStore.getByRunId = (runId) => {
+      queueLookups += 1
+      return originalQueueLookup(runId)
+    }
+    deps.inputAdmissionStore.getByRunId = (runId) => {
+      admissionLookups += 1
+      return originalAdmissionLookup(runId)
+    }
+
+    await createInputQueueDispatcher(deps).runOnce()
+
+    expect(allRunsCalls).toBe(0)
+    expect(queueLookups).toBe(1)
+    expect(admissionLookups).toBe(1)
+  })
+
   test('R1 parked partial-correlation run is protected by an active running sibling', async () => {
     const deps = createDeps()
     const sessionRef = {

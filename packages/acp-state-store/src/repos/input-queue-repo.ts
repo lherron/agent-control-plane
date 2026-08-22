@@ -1,5 +1,6 @@
 import type { InputQueueItem, InputQueueStatus } from 'acp-core'
 
+import type { SqliteStatement } from '../sqlite.js'
 import type { InputQueueCreateInput, InputQueueUpdateInput } from '../types.js'
 import type { RepoContext } from './shared.js'
 import { shortId } from './shared.js'
@@ -81,7 +82,11 @@ function mapRow(row: InputQueueRow): InputQueueItem {
 }
 
 export class InputQueueRepo {
-  constructor(private readonly context: RepoContext) {}
+  private readonly getByRunIdStatement: SqliteStatement
+
+  constructor(private readonly context: RepoContext) {
+    this.getByRunIdStatement = context.sqlite.prepare(`${INPUT_QUEUE_SELECT_SQL} WHERE run_id = ?`)
+  }
 
   create(input: InputQueueCreateInput): InputQueueItem {
     const now = new Date().toISOString()
@@ -134,9 +139,7 @@ export class InputQueueRepo {
   }
 
   getByRunId(runId: string): InputQueueItem | undefined {
-    const row = this.context.sqlite
-      .prepare(`${INPUT_QUEUE_SELECT_SQL} WHERE run_id = ?`)
-      .get(runId) as InputQueueRow | undefined
+    const row = this.getByRunIdStatement.get(runId) as InputQueueRow | undefined
 
     return row === undefined ? undefined : mapRow(row)
   }

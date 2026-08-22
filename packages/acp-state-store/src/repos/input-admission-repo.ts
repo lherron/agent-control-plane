@@ -1,5 +1,6 @@
 import type { InputAdmissionRecord } from 'acp-core'
 
+import type { SqliteStatement } from '../sqlite.js'
 import type { InputAdmissionCreateInput, InputAdmissionUpdateInput } from '../types.js'
 import type { RepoContext } from './shared.js'
 
@@ -36,7 +37,27 @@ function mapRow(row: InputAdmissionRow): InputAdmissionRecord {
 }
 
 export class InputAdmissionRepo {
-  constructor(private readonly context: RepoContext) {}
+  private readonly getByRunIdStatement: SqliteStatement
+
+  constructor(private readonly context: RepoContext) {
+    this.getByRunIdStatement = context.sqlite.prepare(
+      `SELECT input_attempt_id,
+              admission_kind,
+              intent_json,
+              original_response_json,
+              current_state_json,
+              run_id,
+              input_application_id,
+              queue_item_id,
+              status,
+              created_at,
+              updated_at
+         FROM input_admissions
+        WHERE run_id = ?
+        ORDER BY created_at DESC
+        LIMIT 1`
+    )
+  }
 
   create(input: InputAdmissionCreateInput): InputAdmissionRecord {
     const now = new Date().toISOString()
@@ -96,25 +117,7 @@ export class InputAdmissionRepo {
   }
 
   getByRunId(runId: string): InputAdmissionRecord | undefined {
-    const row = this.context.sqlite
-      .prepare(
-        `SELECT input_attempt_id,
-                admission_kind,
-                intent_json,
-                original_response_json,
-                current_state_json,
-                run_id,
-                input_application_id,
-                queue_item_id,
-                status,
-                created_at,
-                updated_at
-           FROM input_admissions
-          WHERE run_id = ?
-          ORDER BY created_at DESC
-          LIMIT 1`
-      )
-      .get(runId) as InputAdmissionRow | undefined
+    const row = this.getByRunIdStatement.get(runId) as InputAdmissionRow | undefined
 
     return row === undefined ? undefined : mapRow(row)
   }

@@ -210,14 +210,17 @@ function classifyStalePendingRunBlocker(
 
 function failStalePendingRunBlockers(deps: InputQueueDispatcherDeps): void {
   const timeoutMs = stalePendingRunTimeoutMs(deps)
-  const runs = deps.runStore.listRuns()
-  for (const run of runs) {
-    const siblings = runs.filter(
-      (candidate) =>
-        candidate.runId !== run.runId &&
-        candidate.scopeRef === run.scopeRef &&
-        candidate.laneRef === run.laneRef
-    )
+  const pendingRuns = deps.runStore.listRunsByStatus('pending')
+  const siblingsBySession = new Map<string, readonly StoredRun[]>()
+  for (const run of pendingRuns) {
+    const sessionKey = `${run.scopeRef}\0${run.laneRef}`
+    let siblings = siblingsBySession.get(sessionKey)
+    if (siblings === undefined) {
+      siblings = deps.runStore.listRunsForSession(
+        normalizeSessionRef({ scopeRef: run.scopeRef, laneRef: run.laneRef })
+      )
+      siblingsBySession.set(sessionKey, siblings)
+    }
     const queueItem = deps.inputQueueStore.getByRunId(run.runId)
     const blockerKind = classifyStalePendingRunBlocker({
       run,

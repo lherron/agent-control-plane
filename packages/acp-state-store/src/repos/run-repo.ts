@@ -1,6 +1,7 @@
 import type { Actor } from 'acp-core'
 import type { SessionRef } from 'agent-scope'
 
+import type { SqliteStatement } from '../sqlite.js'
 import type {
   AcquireLaunchClaimInput,
   AcquireLaunchClaimResult,
@@ -244,7 +245,22 @@ function toPersistedRun(run: StoredRun): PersistedRun {
 }
 
 export class RunRepo {
-  constructor(private readonly context: RepoContext) {}
+  private readonly listRunsByStatusStatement: SqliteStatement
+  private readonly listRunsForSessionStatement: SqliteStatement
+
+  constructor(private readonly context: RepoContext) {
+    this.listRunsByStatusStatement = context.sqlite.prepare(
+      `${RUN_SELECT_SQL}
+          WHERE status = ?
+       ORDER BY created_at ASC, run_id ASC`
+    )
+    this.listRunsForSessionStatement = context.sqlite.prepare(
+      `${RUN_SELECT_SQL}
+          WHERE scope_ref = ?
+            AND lane_ref = ?
+       ORDER BY created_at ASC, run_id ASC`
+    )
+  }
 
   createRun(input: {
     sessionRef: SessionRef
@@ -433,26 +449,16 @@ export class RunRepo {
   }
 
   listRunsByStatus(status: string): readonly StoredRun[] {
-    const rows = this.context.sqlite
-      .prepare(
-        `${RUN_SELECT_SQL}
-          WHERE status = ?
-       ORDER BY created_at ASC, run_id ASC`
-      )
-      .all(status) as RunRow[]
+    const rows = this.listRunsByStatusStatement.all(status) as RunRow[]
 
     return rows.map((row) => mapRunRow(row))
   }
 
   listRunsForSession(sessionRef: SessionRef): readonly StoredRun[] {
-    const rows = this.context.sqlite
-      .prepare(
-        `${RUN_SELECT_SQL}
-          WHERE scope_ref = ?
-            AND lane_ref = ?
-       ORDER BY created_at ASC, run_id ASC`
-      )
-      .all(sessionRef.scopeRef, sessionRef.laneRef) as RunRow[]
+    const rows = this.listRunsForSessionStatement.all(
+      sessionRef.scopeRef,
+      sessionRef.laneRef
+    ) as RunRow[]
 
     return rows.map((row) => mapRunRow(row))
   }
