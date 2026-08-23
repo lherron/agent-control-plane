@@ -41,6 +41,14 @@ import {
   handleMobileWebSocketMessage,
   openMobileWebSocket,
 } from './handlers/mobile.js'
+import {
+  buildPluginEventsUpgradeData,
+  closePluginEventsWebSocket,
+  handlePluginEventsWebSocketMessage,
+  isPluginEventsWebSocketData,
+  isPluginEventsWebSocketPath,
+  openPluginEventsWebSocket,
+} from './handlers/plugin-events-ws.js'
 import { InputAdmissionService } from './input-admission/input-admission-service.js'
 import { createInputQueueDispatcher } from './integration/input-queue-dispatcher.js'
 import {
@@ -1088,10 +1096,18 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
           // branch: Bun exposes it only here, and peer-gated routes (mobile bearer
           // auth, attach-info) cannot observe it from the Request alone.
           const peer = server.requestIP(request) ?? undefined
-          const mobileWsMatch =
-            request.headers.get('upgrade')?.toLowerCase() === 'websocket'
-              ? parseMobileRouteKind(url.pathname)
-              : undefined
+          const isWebSocketUpgrade = request.headers.get('upgrade')?.toLowerCase() === 'websocket'
+          if (isWebSocketUpgrade && isPluginEventsWebSocketPath(url.pathname)) {
+            const upgraded = (
+              server as never as {
+                upgrade(request: Request, options: unknown): boolean
+              }
+            ).upgrade(request, {
+              data: buildPluginEventsUpgradeData(resolvedDeps, request.url),
+            })
+            return upgraded ? undefined : new Response('WebSocket upgrade failed', { status: 400 })
+          }
+          const mobileWsMatch = isWebSocketUpgrade ? parseMobileRouteKind(url.pathname) : undefined
           if (mobileWsMatch !== undefined) {
             // Same decision function as the HTTP router (spec §3) — checked before
             // `server.upgrade()`, since a socket that completes the handshake is
@@ -1133,6 +1149,10 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
         },
         websocket: {
           open(ws) {
+            if (isPluginEventsWebSocketData(ws.data)) {
+              void openPluginEventsWebSocket(ws as never)
+              return
+            }
             void openMobileWebSocket(ws as never).catch((error) => {
               try {
                 ws.send(
@@ -1148,9 +1168,17 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
             })
           },
           message(ws, message) {
+            if (isPluginEventsWebSocketData(ws.data)) {
+              handlePluginEventsWebSocketMessage(ws as never, message as never)
+              return
+            }
             handleMobileWebSocketMessage(ws as never, message as never)
           },
           close(ws) {
+            if (isPluginEventsWebSocketData(ws.data)) {
+              closePluginEventsWebSocket(ws as never)
+              return
+            }
             closeMobileWebSocket(ws as never)
           },
         },

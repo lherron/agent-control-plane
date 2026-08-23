@@ -50,6 +50,11 @@ import {
 } from '../handlers/mobile.js'
 import { handleOpsDashboardEvents } from '../handlers/ops-dashboard-events.js'
 import { handleOpsDashboardSnapshot } from '../handlers/ops-dashboard-snapshot.js'
+import {
+  handlePluginEventsTail,
+  handlePluginEventsUpgradeRequired,
+  handleResolvePluginEventCursor,
+} from '../handlers/plugin-events.js'
 import { handleResolveRuntime } from '../handlers/runtime-resolve.js'
 import { handleSessionRefEvents } from '../handlers/session-refs-events.js'
 import { handleListSessions } from '../handlers/sessions-list.js'
@@ -180,6 +185,9 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
     [exactRouteKey('GET', '/v1/gateway/deliveries')]: handleListFailedDeliveries,
     [exactRouteKey('GET', '/v1/ops/session-dashboard/snapshot')]: handleOpsDashboardSnapshot,
     [exactRouteKey('GET', '/v1/ops/session-dashboard/events')]: handleOpsDashboardEvents,
+    [exactRouteKey('GET', '/v1/plugins/events/tail')]: handlePluginEventsTail,
+    [exactRouteKey('POST', '/v1/plugins/events/resolve-cursor')]: handleResolvePluginEventCursor,
+    [exactRouteKey('GET', '/v1/plugins/events')]: handlePluginEventsUpgradeRequired,
     [exactRouteKey('POST', '/v1/runtime/resolve')]: handleResolveRuntime,
     [exactRouteKey('POST', '/v1/sessions/launch')]: handleLaunchSession,
     [exactRouteKey('POST', '/v1/sessions/resolve')]: handleResolveSession,

@@ -186,9 +186,11 @@ export type AcpHrcClient = Pick<
   | 'sendInFlightInput'
   | 'semanticDm'
   | 'startRuntime'
+  | 'tailEvents'
   | 'terminate'
   | 'waitMessage'
   | 'watch'
+  | 'watchBoundedEvents'
   | 'watchMessages'
 > & {
   listSessionsPage?: HrcClient['listSessionsPage']

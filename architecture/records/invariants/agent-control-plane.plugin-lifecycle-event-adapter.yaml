@@ -29,7 +29,7 @@ required_tests:
   - disconnect-after-ready resume gate
   - pre-admission and live ledger replacement gates
   - one-decoded-record, WebSocket byte ceiling, and 1013 slow-consumer gates
-last_verified: 2026-08-23 design approval; implementation gates pending
+last_verified: 2026-08-23 T-07494; focused event-stream tests, full just verify, installed ACP 0.1.0-dev.20260823133145, and live tail/ready/event/cursor-reconnect smoke passed
 reopen_when: Cursor authority, HRC adapter method, canonical event mapping, replacement handling, WebSocket bound, facade transport policy, or plugin trust model changes.
 supersedes: []
 superseded_by: []
