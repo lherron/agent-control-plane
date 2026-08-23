@@ -6,6 +6,10 @@
 
 A managed schedule has a non-empty static owner set of logical HRC node IDs or the explicit all-nodes wildcard. Every member independently admits one local copy; this is deliberate N-way fan-out, not failover. ACP authorizes each scheduler tick and manual admission with one fresh HRC status identity, transactionally re-reads enabled state and owner membership, and stamps the verified admitting node on the JobRun before side effects. The definition owner set is authorization only and is never copied as a run's singular identity. All later lifecycle work stays on the immutable stamped node. Federated unassigned work fails closed; single-node legacy unassigned work implicitly belongs to the current node. Disabled blocks admission only and does not orphan inflight work.
 
+## agent-control-plane.agent-inspection-adapter
+
+ACP hosts the shared read-only agent inspection HTTP contract at GET /admin/agents with optional projectId and POST /admin/agents/:agentId/inspect. The handlers validate identifiers and forward only those identifiers and declared inspection overrides to the Agent Spaces authority configured with ACP's trusted project-id resolver. ACP never constructs, receives, caches, or forwards filesystem roots, environment snapshots, clocks, probe results, scaffolds, or compile context. Taskboard's same-path routes remain transparent consumers of these ACP endpoints, and an optional ACP operational dossier remains separate enrichment that cannot define roster membership or producer configuration.
+
 ## agent-control-plane.architecture-law
 
 Active records under architecture/records are agent-control-plane's durable architecture law. ADRs, generated projections, docs, tasks, chats, and comments are provenance unless an active record imports a predicate.

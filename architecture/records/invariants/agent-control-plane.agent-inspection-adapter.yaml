@@ -1,0 +1,37 @@
+id: agent-control-plane.agent-inspection-adapter
+kind: invariant
+status: active
+owner_project: agent-control-plane
+scope: ACP agent roster and inspection HTTP adapter
+predicate: >
+  ACP hosts the shared read-only agent inspection HTTP contract at GET
+  /admin/agents with optional projectId and POST
+  /admin/agents/:agentId/inspect. The handlers validate identifiers and forward
+  only those identifiers and declared inspection overrides to the Agent Spaces
+  authority configured with ACP's trusted project-id resolver. ACP never
+  constructs, receives, caches, or forwards filesystem roots, environment
+  snapshots, clocks, probe results, scaffolds, or compile context. Taskboard's
+  same-path routes remain transparent consumers of these ACP endpoints, and an
+  optional ACP operational dossier remains separate enrichment that cannot
+  define roster membership or producer configuration.
+authority: hrcchat#20422
+source:
+  - hrcchat#20422
+  - packages/acp-server/src/handlers/admin-agents.ts
+  - package.json
+required_tests:
+  - ACP handlers send only validated identifiers and declared inspection overrides to Agent Spaces
+  - ACP handlers never construct receive cache or forward evaluation context
+  - Taskboard proxy responses remain field-for-field identical to direct ACP responses for both shared paths
+  - unknown agent unknown project and producer failure remain distinct result shapes
+  - optional operational dossier absence cannot remove an agent from the canonical roster
+last_verified:
+  date: 2026-08-23
+  evidence: hrcchat#20422 revision 2 approved by daedalus
+reopen_when:
+  - ACP begins owning roster discovery or inspection-context assembly
+  - either shared HTTP path or its DTO changes
+  - Taskboard ceases to be a transparent same-path consumer
+  - operational enrichment becomes authoritative for roster membership or producer configuration
+supersedes: []
+superseded_by: null
