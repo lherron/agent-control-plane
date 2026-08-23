@@ -55,6 +55,7 @@
       "GET /v1/wrkf/pbc/tasks/:task/inspect",
       "GET /v1/wrkf/ping",
       "GET /v1/wrkq/tasks",
+      "GET /v1/wrkq/tasks/:taskId",
       "GET /v2/mobile/dashboard",
       "GET /v2/mobile/sessions",
       "PATCH /v1/admin/agents/:agentId",
@@ -1348,6 +1349,7 @@
       "apiReferences": [
         "GET /v1/tasks/:taskId",
         "GET /v1/wrkq/tasks",
+        "GET /v1/wrkq/tasks/:taskId",
         "POST /v1/tasks/:taskId/evidence",
         "POST /v1/tasks/:taskId/transitions",
         "POST /v1/webhooks/events",

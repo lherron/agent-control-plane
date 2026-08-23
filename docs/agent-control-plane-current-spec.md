@@ -113,6 +113,14 @@ Current route behavior:
   `sort`, `direction`, `recursive`, and `cursor`. The default ordering is
   `updated_at desc`. This route is distinct from the wrkf-backed workflow routes
   below and exposes no mutation surface.
+- `GET /v1/wrkq/tasks/:taskId` is the read-only wrkq task-inspector feed. It
+  requires a canonical `T-<digits>` id, calls the typed `wrkq.task.show`,
+  `wrkq.comment.list`, and `wrkq.relation.list` client facades, and returns
+  `{ task, comments, relations }`. `comments` defaults to the latest `5`, accepts
+  `0...25`, and is collected through the canonical ascending cursor so the
+  facade does not depend on the CLI compatibility projection. The task body,
+  ownership, claim, schedule, workflow metadata, outcome, comments and
+  relations are read projections only; this route exposes no mutation surface.
 - `GET /v1/tasks/:taskId` calls wrkf `task.inspect`, `task.timeline`, `next`,
   `evidence.list`, `obligation.list`, `effect.list`, and `run.list`, then
   returns `{ source: "wrkf", task, instance, next, timeline, evidence,

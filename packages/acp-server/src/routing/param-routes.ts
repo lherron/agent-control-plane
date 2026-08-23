@@ -52,6 +52,7 @@ import { handleWrkfPbcApproveTransition } from '../handlers/wrkf-pbc-approve-tra
 import { handleWrkfPbcInspect } from '../handlers/wrkf-pbc-inspect.js'
 import { handleWrkfPbcRunStep } from '../handlers/wrkf-pbc-run-step.js'
 import { handleWrkfPbcRunUntilBlocked } from '../handlers/wrkf-pbc-run-until-blocked.js'
+import { handleGetWrkqTask } from '../handlers/wrkq-tasks.js'
 import { withActorAndAuthz } from '../middleware/actor-and-authz.js'
 import {
   handlePbcContinue,
@@ -201,6 +202,7 @@ export function buildParamRoutes(): ParamRoute[] {
       withSpec('POST', '/v1/gateway/deliveries/:deliveryRequestId/requeue', handleRequeueDelivery)
     ),
     createParamRoute('GET', '/v1/tasks/:taskId', handleGetWorkflowTask),
+    createParamRoute('GET', '/v1/wrkq/tasks/:taskId', handleGetWrkqTask),
     createParamRoute('POST', '/v1/tasks/:taskId/evidence', handleAttachWorkflowEvidence),
     createParamRoute('POST', '/v1/tasks/:taskId/transitions', handleApplyWorkflowTransition),
     createParamRoute(
