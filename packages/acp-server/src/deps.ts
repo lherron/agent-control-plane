@@ -22,6 +22,7 @@ import type {
   LaunchCommandScopedRunBinding,
 } from 'hrc-core'
 import type { HrcClient } from 'hrc-sdk'
+import type { AspcService } from 'spaces-aspc'
 import type { UnifiedSessionEvent } from 'spaces-runtime'
 import type { WrkqStoreAdapter } from 'wrkq-lib'
 
@@ -119,6 +120,16 @@ export type AgentRootResolver = (input: { agentId: string; sessionRef: SessionRe
   | undefined
   | Promise<string | undefined>
 
+/**
+ * Identifier-only Agent Spaces authority exposed to the shared HTTP adapter.
+ * The omitted ASPC operations accept evaluation context and must never enter
+ * ACP's dependency surface.
+ */
+export type AgentInspectionAuthority = Pick<
+  AspcService,
+  'catalogAgentInspection' | 'inspectAgentSelection'
+>
+
 export type LaunchRoleScopedRun = (input: {
   sessionRef: SessionRef
   intent: HrcRuntimeIntent
@@ -208,6 +219,7 @@ export interface AcpServerDeps {
   sessionResolver?: SessionResolver | undefined
   runtimeResolver?: RuntimeResolver | undefined
   agentRootResolver?: AgentRootResolver | undefined
+  agentInspectionAuthority?: AgentInspectionAuthority | undefined
   launchRoleScopedRun?: LaunchRoleScopedRun | undefined
   launchCommandScopedRun?: LaunchCommandScopedRun | undefined
   triageCommandTargetId?: string | undefined

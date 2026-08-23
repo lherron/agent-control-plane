@@ -15,6 +15,7 @@ import { type SessionRef, normalizeSessionRef, parseScopeRef } from 'agent-scope
 import { openCoordinationStore } from 'coordination-substrate'
 import { resolveControlSocketPath, resolveDatabasePath } from 'hrc-core'
 import { HrcClient } from 'hrc-sdk'
+import { createAspcService } from 'spaces-aspc'
 import { buildRuntimeBundleRef, getAgentsRoot, resolveAgentPlacementPaths } from 'spaces-config'
 import type { WrkqStoreAdapter } from 'wrkq-lib'
 
@@ -33,6 +34,7 @@ import {
 import { createDevFlowLauncher } from './dev-flow-launcher.js'
 import { createEchoLauncher } from './echo-launcher.js'
 import { dispatchJobRunThroughInputs } from './handlers/admin-jobs.js'
+import { resolveAgentInspectionProjectRoot } from './handlers/agent-inspection.js'
 import { buildMobileUpgradeData, parseMobileRouteKind } from './handlers/mobile-ws.js'
 import {
   closeMobileWebSocket,
@@ -1019,12 +1021,22 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
   const wrkqStore = wrkfLifecycle.store
   const inputQueueMaxDepth = readPositiveIntegerEnv('ACP_INPUT_QUEUE_MAX_DEPTH')
   const inputQueueTtlMs = readPositiveIntegerEnv('ACP_INPUT_QUEUE_TTL_MS')
+  const aspcService = createAspcService({
+    resolveProjectRoot: (projectId) => resolveAgentInspectionProjectRoot(adminStore, projectId),
+  })
+  const agentInspectionAuthority = {
+    catalogAgentInspection: (request: Parameters<typeof aspcService.catalogAgentInspection>[0]) =>
+      aspcService.catalogAgentInspection(request),
+    inspectAgentSelection: (request: Parameters<typeof aspcService.inspectAgentSelection>[0]) =>
+      aspcService.inspectAgentSelection(request),
+  }
   const serverDeps = {
     ...(wrkqStore !== undefined ? { wrkqStore } : {}),
     coordStore,
     ...(adminStore !== undefined ? { adminStore } : {}),
     ...(jobsStore !== undefined ? { jobsStore } : {}),
     ...(conversationStore !== undefined ? { conversationStore } : {}),
+    agentInspectionAuthority,
     interfaceStore,
     stateStore,
     ...launcherDeps,

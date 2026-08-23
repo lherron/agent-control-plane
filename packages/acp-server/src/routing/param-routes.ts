@@ -13,6 +13,7 @@ import {
 import { handleListProjectMemberships } from '../handlers/admin-memberships.js'
 import { handleGetAdminProjectDetail } from '../handlers/admin-projects-detail.js'
 import { handleGetAdminProject, handleSetProjectDefaultAgent } from '../handlers/admin-projects.js'
+import { handleInspectAgentSelection } from '../handlers/agent-inspection.js'
 import { handleGetConversationThread } from '../handlers/conversation-threads.js'
 import { handleListConversationTurns } from '../handlers/conversation-turns.js'
 import { handleRequeueDelivery } from '../handlers/delivery-requeue.js'
@@ -123,6 +124,7 @@ export function buildParamRoutes(): ParamRoute[] {
   }
 
   return [
+    createParamRoute('POST', '/admin/agents/:agentId/inspect', handleInspectAgentSelection),
     createParamRoute(
       'GET',
       '/v1/gateway/:gatewayId/deliveries/stream',

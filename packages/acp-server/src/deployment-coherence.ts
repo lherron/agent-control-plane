@@ -33,10 +33,10 @@ type ExpectedConsumerProducer = Readonly<{
 export const EXPECTED_CONSUMER_PRODUCERS = [
   {
     setName: 'asp',
-    setVersion: '0.1.1-dev.20260821190658',
+    setVersion: '0.1.1-dev.20260823052310',
     repository: 'agent-spaces',
     canonicalRemote: 'git@github.com:lherron/agent-spaces.git',
-    sourceCommit: '4e8a1ffb075a76eaf41e0305e9bf5bef19b03e50',
+    sourceCommit: '3aefda508d88fe7e09bffa68c4d28c053ebfb53f',
     packages: [
       'agent-scope',
       'agent-spaces',
@@ -45,7 +45,6 @@ export const EXPECTED_CONSUMER_PRODUCERS = [
       'spaces-aspc-protocol',
       'spaces-config',
       'spaces-execution',
-      'spaces-harness-broker',
       'spaces-harness-broker-client',
       'spaces-harness-broker-protocol',
       'spaces-harness-claude',

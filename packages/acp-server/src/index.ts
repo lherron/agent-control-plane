@@ -11,6 +11,7 @@ export type {
   AcpHrcClient,
   AcpRuntimePlacement,
   AcpServerDeps,
+  AgentInspectionAuthority,
   AgentRootResolver,
   AuthorizeFn,
   DeliveryTargetResolver,

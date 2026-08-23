@@ -39,6 +39,8 @@
     "coordination-substrate": "*",
     "hrc-core": "latest",
     "hrc-sdk": "latest",
+    "spaces-aspc": "latest",
+    "spaces-aspc-protocol": "latest",
     "spaces-config": "latest",
     "spaces-runtime": "latest",
     "wrkq-lib": "*"

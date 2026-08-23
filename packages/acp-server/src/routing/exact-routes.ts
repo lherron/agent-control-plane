@@ -13,6 +13,7 @@ import {
 import { handleCreateMembership, handleListMemberships } from '../handlers/admin-memberships.js'
 import { handleCreateAdminProject, handleListAdminProjects } from '../handlers/admin-projects.js'
 import { handleAppendSystemEvent, handleListSystemEvents } from '../handlers/admin-system-events.js'
+import { handleCatalogAgentInspection } from '../handlers/agent-inspection.js'
 import { handleCreateAgentPulpitMessage } from '../handlers/agent-pulpit-messages.js'
 import { handleListConversationThreads } from '../handlers/conversation-threads.js'
 import { handleCreateCoordinationMessage } from '../handlers/coordination-messages.js'
@@ -86,6 +87,7 @@ function maybeWrapMutatingRoute(
 
 export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRouteHandlers {
   return {
+    [exactRouteKey('GET', '/admin/agents')]: handleCatalogAgentInspection,
     [exactRouteKey('POST', '/v1/interface/bindings')]: maybeWrapMutatingRoute(
       'POST',
       '/v1/interface/bindings',
