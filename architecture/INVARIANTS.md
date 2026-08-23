@@ -18,6 +18,10 @@ Active records under architecture/records are agent-control-plane's durable arch
 
 ACP selects one exact canonical ASP package set and one exact canonical HRC package set across every direct and transitive bun.lock edge. Every selected tarball uses the canonical mini registry locator and its lock integrity is cache-empty fetchable. Installed package manifests must equal the lock and carry one exact praesidiumBuild tuple per set. The served ACP deployment readback must agree with HRC's atomic running release, including its locked ASP tuple and runningEqualsInstalled=true. This consumer invariant imports producer predicates agent-spaces.canonical-package-publication and hrc-runtime.canonical-package-publication plus hrc-runtime.observable-release; it does not redefine producer contracts.
 
+## agent-control-plane.plugin-lifecycle-event-adapter
+
+ACP exclusively owns opaque plugin-event cursors binding HRC ledger incarnation and sequence, resolves every subscription against current HRC authority, and opens the typed bounded HRC stream with both asserted values. It forwards the canonical event envelope and ordered gaps without treating advisory ready as progress, maps pre-admission or live ledger replacement to cursor_invalid, and never resumes a sequence across incarnations. The adapter holds at most one decoded record outside the typed client buffer, stops pulling at its fixed WebSocket buffered-byte ceiling, and closes a slow consumer without an application replay array. It uses the configured ACP facade and existing transport/authentication policy with no route-specific capability, permission, consent, redaction, or loopback gate, and it does not reuse the mobile event-pump or diagnostics sender.
+
 ## agent-control-plane.verify-gate
 
 just verify is agent-control-plane's local handoff gate and must include the architecture-records structure and projection-freshness check.
