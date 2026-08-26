@@ -28,10 +28,10 @@ const hrcBuild = {
   schema: 1 as const,
   repository: 'hrc-runtime',
   canonicalRemote: 'git@github.com:lherron/hrc-runtime.git',
-  sourceCommit: 'afa1467340abdad592a2017b5ef2105fd51a8f57',
+  sourceCommit: '073e3d277369fb21700f2fe091fdb88abf7b7667',
   setName: 'hrc' as const,
-  setVersion: '0.1.0-dev.20260823151017',
-  builtAt: '2026-08-23T20:10:16.791Z',
+  setVersion: '0.1.0-dev.20260825194549',
+  builtAt: '2026-08-26T00:45:48.796Z',
 }
 
 function lockEntry(name: string, version: string, lockKey = name): string {

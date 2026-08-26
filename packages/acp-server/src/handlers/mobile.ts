@@ -1910,7 +1910,13 @@ export async function findLocalMobileSessionByHostSessionId(
     }
   | undefined
 > {
-  const records = await hrcClient.listSessions({})
+  // `all: true` is load-bearing (T-07575). HRC now bounds an unscoped
+  // `/v1/sessions` to a recency window for display callers, and this is not a
+  // display caller: it backs attach-info, timeline, input and interrupt. Without
+  // it, HRCMac could not attach to or open any session older than the window —
+  // a bounded view turning into a lost capability. The dashboard's own read
+  // (`listMobileSessions`) deliberately stays bounded; that is the fix.
+  const records = await hrcClient.listSessions({ all: true })
   const matches = records.filter((candidate) => candidate.hostSessionId === hostSessionId)
   if (matches.length === 0) {
     return undefined
