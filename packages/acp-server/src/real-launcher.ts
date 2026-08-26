@@ -9,6 +9,7 @@ import {
   type HrcDispatchOrigin,
   HrcErrorCode,
   type HrcEventEnvelope,
+  type HrcHarness,
   type HrcHarnessIntent,
   type HrcMessageRecord,
   type HrcRuntimeIntent,
@@ -1638,14 +1639,32 @@ function readHarnessIntentFromAgentProfile(agentRoot: string): HrcHarnessIntent 
     if (entry === undefined) {
       return undefined
     }
+    // spaces-config can name frontends HRC has not admitted yet (e.g.
+    // agent-harness-tui, pending T-07568); only HRC-known harness ids are
+    // forwarded as an explicit id, anything else lets HRC pick its default.
+    const frontend = entry.frontend
     return {
       provider: entry.provider,
       interactive: entry.transport !== 'sdk',
-      ...(entry.frontend !== undefined ? { id: entry.frontend } : {}),
+      ...(frontend !== undefined && isHrcHarness(frontend) ? { id: frontend } : {}),
     }
   } catch {
     return undefined
   }
+}
+
+const HRC_HARNESS_IDS: ReadonlySet<string> = new Set<HrcHarness>([
+  'agent-harness',
+  'agent-sdk',
+  'claude-code',
+  'codex-cli',
+  'pi',
+  'pi-cli',
+  'pi-sdk',
+])
+
+function isHrcHarness(value: string): value is HrcHarness {
+  return HRC_HARNESS_IDS.has(value)
 }
 
 function readHarnessProviderFromProjectModules(input: {
