@@ -11,6 +11,19 @@ export const PRAESIDIUM_BUILD_FIELDS = [
   'builtAt',
 ] as const
 
+/**
+ * The coherence identity of a producer set. `setVersion` and `builtAt` are deliberately
+ * absent: every node mints its own canonical set from the same source commit, so those two
+ * fields are per-node informational and must never drive a finding.
+ */
+export const PRAESIDIUM_BUILD_IDENTITY_FIELDS = [
+  'schema',
+  'repository',
+  'canonicalRemote',
+  'sourceCommit',
+  'setName',
+] as const
+
 export type PraesidiumBuild = Readonly<{
   schema: 1
   repository: string
@@ -23,9 +36,16 @@ export type PraesidiumBuild = Readonly<{
 
 type ExpectedConsumerProducer = Readonly<{
   setName: 'asp' | 'hrc'
+  /**
+   * The concrete version pinned by `package.json` overrides and `bun.lock`. Bun needs one
+   * version to resolve, and both files are committed, so this is identical on every node.
+   * It is a pin, not an identity: coherence is decided by `sourceCommit`, and a set minted
+   * on another node from the same commit under a different `setVersion` is still coherent.
+   */
   setVersion: string
   repository: string
   canonicalRemote: string
+  /** The coherence identity of this producer set, together with the three fields above. */
   sourceCommit: string
   packages: readonly string[]
 }>
@@ -100,11 +120,13 @@ export type ConsumerDeploymentReport = Readonly<{
     hrcBuild?: PraesidiumBuild | undefined
   }>
   running?: Readonly<Record<string, unknown>> | undefined
+  /** Per-node set versions and build timestamps. Never a coherence failure. */
+  informational: readonly string[]
   findings: readonly string[]
 }>
 
-function stableBuild(build: PraesidiumBuild): string {
-  return JSON.stringify(PRAESIDIUM_BUILD_FIELDS.map((field) => build[field]))
+function buildIdentity(build: PraesidiumBuild): string {
+  return JSON.stringify(PRAESIDIUM_BUILD_IDENTITY_FIELDS.map((field) => build[field]))
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -137,8 +159,7 @@ function expectedBuildFieldsMatch(
     build.repository === expected.repository &&
     build.canonicalRemote === expected.canonicalRemote &&
     build.sourceCommit === expected.sourceCommit &&
-    build.setName === expected.setName &&
-    build.setVersion === expected.setVersion
+    build.setName === expected.setName
   )
 }
 
@@ -260,7 +281,7 @@ export function evaluateConsumerDeployment(input: {
         }
         if (coherentBuild === undefined) {
           coherentBuild = installed.praesidiumBuild
-        } else if (stableBuild(installed.praesidiumBuild) !== stableBuild(coherentBuild)) {
+        } else if (buildIdentity(installed.praesidiumBuild) !== buildIdentity(coherentBuild)) {
           findings.push(`${label}: installed build tuple disagrees with ${producer.setName} set`)
         }
       }
@@ -283,16 +304,16 @@ export function evaluateConsumerDeployment(input: {
       if (
         installedBuilds.aspBuild !== undefined &&
         (!isPraesidiumBuild(runningAsp) ||
-          stableBuild(runningAsp) !== stableBuild(installedBuilds.aspBuild))
+          buildIdentity(runningAsp) !== buildIdentity(installedBuilds.aspBuild))
       ) {
-        findings.push('running ASP build tuple does not match ACP installed ASP')
+        findings.push('running ASP build identity does not match ACP installed ASP')
       }
       if (
         installedBuilds.hrcBuild !== undefined &&
         (!isPraesidiumBuild(runningHrc) ||
-          stableBuild(runningHrc) !== stableBuild(installedBuilds.hrcBuild))
+          buildIdentity(runningHrc) !== buildIdentity(installedBuilds.hrcBuild))
       ) {
-        findings.push('running HRC build tuple does not match ACP installed HRC')
+        findings.push('running HRC build identity does not match ACP installed HRC')
       }
     }
   }
@@ -302,8 +323,42 @@ export function evaluateConsumerDeployment(input: {
     expected: EXPECTED_CONSUMER_PRODUCERS,
     installed: installedBuilds,
     ...(running !== undefined ? { running } : {}),
+    informational: describeSetVersions(installedBuilds, running),
     findings,
   }
+}
+
+function describeSetVersions(
+  installedBuilds: {
+    aspBuild?: PraesidiumBuild | undefined
+    hrcBuild?: PraesidiumBuild | undefined
+  },
+  running: Record<string, unknown> | undefined
+): string[] {
+  const lines: string[] = []
+  for (const setName of ['asp', 'hrc'] as const) {
+    const key = setName === 'asp' ? 'aspBuild' : 'hrcBuild'
+    const installed = setName === 'asp' ? installedBuilds.aspBuild : installedBuilds.hrcBuild
+    const runningRaw = running?.[key]
+    const runningBuild = isPraesidiumBuild(runningRaw) ? runningRaw : undefined
+    if (installed !== undefined) {
+      lines.push(`${setName}: installed set ${installed.setVersion} built ${installed.builtAt}`)
+    }
+    if (runningBuild !== undefined) {
+      lines.push(`${setName}: running set ${runningBuild.setVersion} built ${runningBuild.builtAt}`)
+    }
+    if (
+      installed !== undefined &&
+      runningBuild !== undefined &&
+      buildIdentity(installed) === buildIdentity(runningBuild) &&
+      installed.setVersion !== runningBuild.setVersion
+    ) {
+      lines.push(
+        `${setName}: installed and running sets were minted separately from source commit ${installed.sourceCommit}`
+      )
+    }
+  }
+  return lines
 }
 
 type InstalledManifest = {

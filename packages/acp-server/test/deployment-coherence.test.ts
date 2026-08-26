@@ -80,6 +80,55 @@ describe('ASP/HRC consumer deployment coherence', () => {
     })
   })
 
+  test('accepts a running set minted on another node from the same source commit', () => {
+    const fixture = coherentFixture()
+    const runningHrcBuild = {
+      ...hrcBuild,
+      setVersion: '0.1.0-dev.20260825214048',
+      builtAt: '2026-08-26T02:40:48.000Z',
+    }
+    fixture.runningStatus.release = { ...fixture.runningStatus.release, hrcBuild: runningHrcBuild }
+    const [first] = EXPECTED_CONSUMER_PRODUCERS[0]?.packages ?? []
+    if (first === undefined) throw new Error('invalid fixture')
+    fixture.installed = fixture.installed.map((entry) =>
+      entry.name === first
+        ? {
+            ...entry,
+            praesidiumBuild: {
+              ...aspBuild,
+              setVersion: '0.1.1-dev.20260825120000',
+              builtAt: '2026-08-25T12:00:00.000Z',
+            },
+          }
+        : entry
+    )
+
+    const report = evaluateConsumerDeployment(fixture)
+
+    expect(report.findings).toEqual([])
+    expect(report.ok).toBe(true)
+    expect(report.informational).toEqual(
+      expect.arrayContaining([
+        `hrc: installed set ${hrcBuild.setVersion} built ${hrcBuild.builtAt}`,
+        `hrc: running set ${runningHrcBuild.setVersion} built ${runningHrcBuild.builtAt}`,
+        `hrc: installed and running sets were minted separately from source commit ${hrcBuild.sourceCommit}`,
+      ])
+    )
+  })
+
+  test('still fails closed when the running set carries a different source commit', () => {
+    const fixture = coherentFixture()
+    fixture.runningStatus.release = {
+      ...fixture.runningStatus.release,
+      hrcBuild: { ...hrcBuild, sourceCommit: 'b'.repeat(40) },
+    }
+
+    const report = evaluateConsumerDeployment(fixture)
+
+    expect(report.ok).toBe(false)
+    expect(report.findings).toEqual(['running HRC build identity does not match ACP installed HRC'])
+  })
+
   test('serves the lock/install/running readback through ACP', async () => {
     await withWiredServer(
       async (fixture) => {
@@ -149,7 +198,7 @@ describe('ASP/HRC consumer deployment coherence', () => {
         expect.stringContaining(`${aspPackage}: installed manifest is missing`),
         expect.stringContaining('running HRC release is unmanaged'),
         expect.stringContaining('running HRC release does not equal the installed release'),
-        expect.stringContaining('running ASP build tuple does not match ACP installed ASP'),
+        expect.stringContaining('running ASP build identity does not match ACP installed ASP'),
       ])
     )
   })
@@ -164,7 +213,7 @@ describe('ASP/HRC consumer deployment coherence', () => {
       if (entry.name === second) {
         return {
           ...entry,
-          praesidiumBuild: { ...aspBuild, builtAt: '2026-07-25T06:23:00.000Z' },
+          praesidiumBuild: { ...aspBuild, sourceCommit: 'a'.repeat(40) },
         }
       }
       return entry
