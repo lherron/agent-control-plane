@@ -397,9 +397,7 @@ async function runHrcClientProbe(input: {
 
   if (probe === undefined) {
     const staleRuntimes = await input.deps.hrcClient.listRuntimes({ stale: true })
-    const hasStaleTtyRuntime = staleRuntimes.some(
-      (runtime) => runtime.transport === 'tmux' || runtime.transport === 'ghostty'
-    )
+    const hasStaleTtyRuntime = staleRuntimes.some((runtime) => runtime.transport === 'tmux')
     return { outcome: hasStaleTtyRuntime ? 'work' : 'idle' }
   }
 

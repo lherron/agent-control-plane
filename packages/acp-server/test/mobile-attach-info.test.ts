@@ -196,14 +196,14 @@ describe('GET /v1/mobile/sessions/:hostSessionId/attach-info', () => {
     )
   })
 
-  test('409 not_attachable for a non-tmux (ghostty surface) descriptor', async () => {
+  test('409 not_attachable for an attach argv this gateway cannot parse', async () => {
     const hrcClient = makeHrcClient({
       sessions: [SESSION],
       runtimes: [RUNTIME],
       descriptor: {
-        transport: 'ghostty',
-        argv: ['ghostmux', 'focus', 'surface-1'],
-        bindingFence: { ...DESCRIPTOR.bindingFence, surfaceId: 'surface-1' },
+        transport: 'tmux',
+        argv: [TMUX_BINARY, '-S', SOCKET_PATH, 'attach-session', '-t', TARGET, '-d'],
+        bindingFence: DESCRIPTOR.bindingFence,
       },
     })
 

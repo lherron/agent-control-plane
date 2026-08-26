@@ -50,7 +50,7 @@ function notAttachable(detail: Record<string, unknown>): Response {
  * attach-session -t <target>` (hrc-server `attachRuntime`). A bare `tmux` is
  * retained temporarily for rolling compatibility with an older local hrc-server.
  * Matching that shape positionally keeps the descriptor the single source of
- * truth; anything else (a ghostty surface descriptor, a future argv shape) is
+ * truth; any other shape (a future argv the gateway has not been taught) is
  * reported as not-attachable rather than guessed at, because a mis-parsed
  * socket/target would attach the wrong pane.
  */
