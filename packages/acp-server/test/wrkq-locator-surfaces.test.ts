@@ -33,7 +33,15 @@ describe('wrkq locator static surfaces', () => {
   })
 
   test('manifests stay on latest while lockfile and install resolve the required client snapshot', () => {
-    const requiredVersion = '0.1.0-dev.20260725110837'
+    // Single source of truth: the root override is the only place the pinned
+    // snapshot is written, so a bump is one edit.
+    const rootManifest = JSON.parse(readRepoFile('package.json')) as {
+      overrides?: Record<string, string>
+    }
+    const requiredVersion = rootManifest.overrides?.['@wrkq/client']
+    expect(requiredVersion, 'root package.json overrides["@wrkq/client"]').toMatch(
+      /^\d+\.\d+\.\d+-dev\.\d+$/
+    )
     const manifestPaths = ['packages/acp-server/package.json', 'packages/wrkq-lib/package.json']
 
     for (const path of manifestPaths) {
