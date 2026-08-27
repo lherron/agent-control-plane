@@ -6,7 +6,6 @@ export type {
   WrkqTaskCreateOrFindResult,
 } from './create-or-find.js'
 export {
-  HRC_COLLABORATION_FALLBACK_DURING_BURN_IN,
   collaborationMessageSeq,
   createCollaborationLedger,
   formatCollaborationMessage,

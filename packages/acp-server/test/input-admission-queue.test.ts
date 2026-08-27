@@ -46,7 +46,9 @@ describe('input admission queue', () => {
             content: 'first input',
           },
         })
-        const firstPayload = await fixture.json<{ run: { runId: string; status: string } }>(first)
+        const firstPayload = await fixture.json<{
+          run: { runId: string; status: string }
+        }>(first)
         expect(first.status).toBe(201)
         expect(firstPayload.run.status).toBe('running')
 
@@ -83,7 +85,9 @@ describe('input admission queue', () => {
         expect(replayPayload.admission).toEqual(secondPayload.admission)
         expect(launchCalls).toHaveLength(1)
 
-        fixture.runStore.updateRun(firstPayload.run.runId, { status: 'completed' })
+        fixture.runStore.updateRun(firstPayload.run.runId, {
+          status: 'completed',
+        })
         const dispatcher = createInputQueueDispatcher({
           adminStore: stores.adminStore,
           hrcClient: undefined,
@@ -103,7 +107,10 @@ describe('input admission queue', () => {
             if (input.acpRunId !== undefined) {
               input.runStore?.updateRun(input.acpRunId, { status: 'running' })
             }
-            return { runId: input.acpRunId ?? 'run-fallback', sessionId: 'session-queue' }
+            return {
+              runId: input.acpRunId ?? 'run-fallback',
+              sessionId: 'session-queue',
+            }
           },
           inputQueuePolicy: {},
           config: { intervalMs: 60_000 },
@@ -137,7 +144,10 @@ describe('input admission queue', () => {
           if (input.acpRunId !== undefined) {
             input.runStore?.updateRun(input.acpRunId, { status: 'running' })
           }
-          return { runId: input.acpRunId ?? 'run-fallback', sessionId: 'session-first' }
+          return {
+            runId: input.acpRunId ?? 'run-fallback',
+            sessionId: 'session-first',
+          }
         },
       }
     )
@@ -208,7 +218,10 @@ describe('input admission queue', () => {
           if (input.acpRunId !== undefined) {
             input.runStore?.updateRun(input.acpRunId, { status: 'running' })
           }
-          return { runId: input.acpRunId ?? 'run-sqlite-queue', sessionId: 'session-sqlite-queue' }
+          return {
+            runId: input.acpRunId ?? 'run-sqlite-queue',
+            sessionId: 'session-sqlite-queue',
+          }
         },
         inputQueuePolicy: {},
         config: { intervalMs: 60_000 },
@@ -307,7 +320,9 @@ describe('input admission queue', () => {
             content: 'first input never records HRC correlation',
           },
         })
-        const firstPayload = await fixture.json<{ run: { runId: string; status: string } }>(first)
+        const firstPayload = await fixture.json<{
+          run: { runId: string; status: string }
+        }>(first)
         expect(firstPayload.run.status).toBe('pending')
 
         const second = await fixture.request({
@@ -383,7 +398,10 @@ describe('input admission queue', () => {
         }),
         launchRoleScopedRun: async (input) => {
           initialLaunchCalls.push(input)
-          return { runId: 'hrc-stale-pending-first', sessionId: 'session-stale-pending-first' }
+          return {
+            runId: 'hrc-stale-pending-first',
+            sessionId: 'session-stale-pending-first',
+          }
         },
       }
     )
@@ -439,8 +457,12 @@ describe('input admission queue', () => {
           admission: { queueItemId: string }
         }>(third)
 
-        fixture.runStore.updateRun(firstPayload.run.runId, { status: 'completed' })
-        fixture.runStore.updateRun(secondPayload.run.runId, { status: 'completed' })
+        fixture.runStore.updateRun(firstPayload.run.runId, {
+          status: 'completed',
+        })
+        fixture.runStore.updateRun(secondPayload.run.runId, {
+          status: 'completed',
+        })
         stores.inputQueueStore.update(secondPayload.admission.queueItemId, {
           status: 'dispatching',
         })
@@ -464,7 +486,10 @@ describe('input admission queue', () => {
             if (input.acpRunId !== undefined) {
               input.runStore?.updateRun(input.acpRunId, { status: 'running' })
             }
-            return { runId: input.acpRunId ?? 'run-fallback', sessionId: 'session-terminal-head' }
+            return {
+              runId: input.acpRunId ?? 'run-fallback',
+              sessionId: 'session-terminal-head',
+            }
           },
           inputQueuePolicy: {},
           config: { intervalMs: 60_000 },
@@ -495,7 +520,10 @@ describe('input admission queue', () => {
           if (input.acpRunId !== undefined) {
             input.runStore?.updateRun(input.acpRunId, { status: 'running' })
           }
-          return { runId: input.acpRunId ?? 'hrc-terminal-head', sessionId: 'hsid-terminal-head' }
+          return {
+            runId: input.acpRunId ?? 'hrc-terminal-head',
+            sessionId: 'hsid-terminal-head',
+          }
         },
       }
     )
@@ -522,7 +550,9 @@ describe('input admission queue', () => {
             content: 'first input wedges with partial HRC correlation',
           },
         })
-        const firstPayload = await fixture.json<{ run: { runId: string; status: string } }>(first)
+        const firstPayload = await fixture.json<{
+          run: { runId: string; status: string }
+        }>(first)
         expect(firstPayload.run.status).toBe('pending')
 
         // Simulate real-launcher writing hostSessionId after resolveSession but before
@@ -604,7 +634,10 @@ describe('input admission queue', () => {
         }),
         launchRoleScopedRun: async (input) => {
           initialLaunchCalls.push(input)
-          return { runId: 'hrc-partial-corr-first', sessionId: 'hsid-partial-corr-first' }
+          return {
+            runId: 'hrc-partial-corr-first',
+            sessionId: 'hsid-partial-corr-first',
+          }
         },
       }
     )
@@ -664,7 +697,9 @@ describe('input admission queue', () => {
         }>(third)
 
         // Mark the first run as completed so it does not block dispatch on its own merits.
-        fixture.runStore.updateRun(firstPayload.run.runId, { status: 'completed' })
+        fixture.runStore.updateRun(firstPayload.run.runId, {
+          status: 'completed',
+        })
 
         // Simulate a wedged dispatcher: queued head was leased but never reached terminal state.
         // Leave the run in a non-terminal state to verify the lease-timeout path fails it.
@@ -674,7 +709,9 @@ describe('input admission queue', () => {
           leasedAt: oldLease,
           leaseOwner: 'wedged-dispatcher',
         })
-        fixture.runStore.updateRun(secondPayload.run.runId, { status: 'pending' })
+        fixture.runStore.updateRun(secondPayload.run.runId, {
+          status: 'pending',
+        })
 
         await Bun.sleep(2)
         const dispatcher = createInputQueueDispatcher({
@@ -696,7 +733,10 @@ describe('input admission queue', () => {
             if (input.acpRunId !== undefined) {
               input.runStore?.updateRun(input.acpRunId, { status: 'running' })
             }
-            return { runId: input.acpRunId ?? 'run-lease', sessionId: 'session-lease' }
+            return {
+              runId: input.acpRunId ?? 'run-lease',
+              sessionId: 'session-lease',
+            }
           },
           inputQueuePolicy: {},
           config: { intervalMs: 60_000, leaseTimeoutMs: 1 },
@@ -716,7 +756,9 @@ describe('input admission queue', () => {
         )
         expect(queuedLaunchCalls).toHaveLength(1)
         expect(queuedLaunchCalls[0]?.acpRunId).toBe(thirdPayload.run.runId)
-        const events = stores.adminStore.systemEvents.list({ projectId: fixture.seed.projectId })
+        const events = stores.adminStore.systemEvents.list({
+          projectId: fixture.seed.projectId,
+        })
         const leaseExpiredEvent = events.find((e) => e.kind === 'input.queue.lease_expired')
         expect(leaseExpiredEvent).toBeDefined()
         expect(leaseExpiredEvent?.payload).toMatchObject({
@@ -741,7 +783,10 @@ describe('input admission queue', () => {
           if (input.acpRunId !== undefined) {
             input.runStore?.updateRun(input.acpRunId, { status: 'running' })
           }
-          return { runId: input.acpRunId ?? 'hrc-lease-first', sessionId: 'hsid-lease-first' }
+          return {
+            runId: input.acpRunId ?? 'hrc-lease-first',
+            sessionId: 'hsid-lease-first',
+          }
         },
       }
     )
@@ -819,7 +864,10 @@ describe('input admission queue', () => {
               launchedRunIds.push(input.acpRunId)
               input.runStore?.updateRun(input.acpRunId, { status: 'running' })
             }
-            return { runId: input.acpRunId ?? 'run-bulk', sessionId: 'session-bulk' }
+            return {
+              runId: input.acpRunId ?? 'run-bulk',
+              sessionId: 'session-bulk',
+            }
           },
           inputQueuePolicy: {},
           config: { intervalMs: 60_000 },
@@ -848,7 +896,10 @@ describe('input admission queue', () => {
           if (input.acpRunId !== undefined) {
             input.runStore?.updateRun(input.acpRunId, { status: 'running' })
           }
-          return { runId: input.acpRunId ?? 'hrc-bulk-first', sessionId: 'hsid-bulk-first' }
+          return {
+            runId: input.acpRunId ?? 'hrc-bulk-first',
+            sessionId: 'hsid-bulk-first',
+          }
         },
       }
     )
@@ -923,8 +974,12 @@ describe('input admission queue', () => {
             admission: { queueItemId: string }
           }>(b2)
 
-          fixture.runStore.updateRun(a1Payload.run.runId, { status: 'completed' })
-          fixture.runStore.updateRun(b1Payload.run.runId, { status: 'completed' })
+          fixture.runStore.updateRun(a1Payload.run.runId, {
+            status: 'completed',
+          })
+          fixture.runStore.updateRun(b1Payload.run.runId, {
+            status: 'completed',
+          })
 
           // runtimeResolver runs BEFORE the launcher try/catch in dispatchItem, so a throw
           // here surfaces from dispatchItem itself — exercising the new runOnce-level
@@ -951,9 +1006,14 @@ describe('input admission queue', () => {
             launchRoleScopedRun: async (input) => {
               launchCalls.push(input)
               if (input.acpRunId !== undefined) {
-                input.runStore?.updateRun(input.acpRunId, { status: 'running' })
+                input.runStore?.updateRun(input.acpRunId, {
+                  status: 'running',
+                })
               }
-              return { runId: input.acpRunId ?? 'run-throw', sessionId: 'session-throw' }
+              return {
+                runId: input.acpRunId ?? 'run-throw',
+                sessionId: 'session-throw',
+              }
             },
             inputQueuePolicy: {},
             config: { intervalMs: 60_000 },
@@ -994,7 +1054,10 @@ describe('input admission queue', () => {
             if (input.acpRunId !== undefined) {
               input.runStore?.updateRun(input.acpRunId, { status: 'running' })
             }
-            return { runId: input.acpRunId ?? 'hrc-throw-first', sessionId: 'hsid-throw-first' }
+            return {
+              runId: input.acpRunId ?? 'hrc-throw-first',
+              sessionId: 'hsid-throw-first',
+            }
           },
         }
       )
@@ -1068,7 +1131,10 @@ describe('input admission queue', () => {
           if (input.acpRunId !== undefined) {
             input.runStore?.updateRun(input.acpRunId, { status: 'running' })
           }
-          return { runId: input.acpRunId ?? 'run-fallback', sessionId: 'session-depth' }
+          return {
+            runId: input.acpRunId ?? 'run-fallback',
+            sessionId: 'session-depth',
+          }
         },
       }
     )
@@ -1114,11 +1180,17 @@ describe('input admission queue', () => {
         expect(queuedItem?.resetPolicy).toBe('pin_generation')
         expect(queuedItem?.expectedGeneration).toBe(3)
 
-        fixture.runStore.updateRun(firstPayload.run.runId, { status: 'completed' })
+        fixture.runStore.updateRun(firstPayload.run.runId, {
+          status: 'completed',
+        })
         const dispatcher = createInputQueueDispatcher({
           adminStore: stores.adminStore,
           hrcClient: {
-            resolveSession: async () => ({ found: true, hostSessionId: 'hsid-pin', generation: 4 }),
+            resolveSession: async () => ({
+              found: true,
+              hostSessionId: 'hsid-pin',
+              generation: 4,
+            }),
           } as never,
           inputAdmissionStore: stores.inputAdmissionStore,
           inputQueueStore: stores.inputQueueStore,
@@ -1134,7 +1206,10 @@ describe('input admission queue', () => {
           inputQueuePolicy: {},
           launchRoleScopedRun: async (input) => {
             launchCalls.push(input)
-            return { runId: input.acpRunId ?? 'run-fallback', sessionId: 'session-pin' }
+            return {
+              runId: input.acpRunId ?? 'run-fallback',
+              sessionId: 'session-pin',
+            }
           },
           config: { intervalMs: 60_000 },
         })
@@ -1165,7 +1240,10 @@ describe('input admission queue', () => {
               generation: 3,
             })
           }
-          return { runId: input.acpRunId ?? 'run-fallback', sessionId: 'session-pin' }
+          return {
+            runId: input.acpRunId ?? 'run-fallback',
+            sessionId: 'session-pin',
+          }
         },
       }
     )
@@ -1207,7 +1285,9 @@ describe('input admission queue', () => {
         }>(second)
 
         await Bun.sleep(5)
-        fixture.runStore.updateRun(firstPayload.run.runId, { status: 'completed' })
+        fixture.runStore.updateRun(firstPayload.run.runId, {
+          status: 'completed',
+        })
         const dispatcher = createInputQueueDispatcher({
           adminStore: stores.adminStore,
           hrcClient: undefined,
@@ -1225,7 +1305,10 @@ describe('input admission queue', () => {
           inputQueuePolicy: { ttlMs: 1 },
           launchRoleScopedRun: async (input) => {
             launchCalls.push(input)
-            return { runId: input.acpRunId ?? 'run-fallback', sessionId: 'session-ttl' }
+            return {
+              runId: input.acpRunId ?? 'run-fallback',
+              sessionId: 'session-ttl',
+            }
           },
           config: { intervalMs: 60_000 },
         })
@@ -1252,7 +1335,10 @@ describe('input admission queue', () => {
           if (input.acpRunId !== undefined) {
             input.runStore?.updateRun(input.acpRunId, { status: 'running' })
           }
-          return { runId: input.acpRunId ?? 'run-fallback', sessionId: 'session-ttl' }
+          return {
+            runId: input.acpRunId ?? 'run-fallback',
+            sessionId: 'session-ttl',
+          }
         },
       }
     )
@@ -1285,7 +1371,9 @@ describe('input admission queue', () => {
               content: 'start active run',
             },
           })
-          const firstPayload = await fixture.json<{ run: { runId: string; status: string } }>(first)
+          const firstPayload = await fixture.json<{
+            run: { runId: string; status: string }
+          }>(first)
           expect(firstPayload.run.status).toBe('running')
 
           const contributionBody = {
@@ -1310,14 +1398,22 @@ describe('input admission queue', () => {
           })
           const payload = await fixture.json<{
             run: { runId: string; status: string }
-            inputApplication: { inputApplicationId: string; status: string; targetRunId: string }
+            inputApplication: {
+              inputApplicationId: string
+              status: string
+              targetRunId: string
+            }
             admission: {
               kind: string
               runId: string
               queueItemId: string
               inputApplicationId: string
             }
-            currentState: { queueStatus: string; applicationStatus: string; reason: string }
+            currentState: {
+              queueStatus: string
+              applicationStatus: string
+              reason: string
+            }
           }>(contribution)
           const replayPayload = await fixture.json<{ admission: unknown }>(replay)
 
@@ -1556,9 +1652,10 @@ describe('input admission queue', () => {
     )
   })
 
-  test('federated interface contribution sends an unthreaded semantic DM to the waiting peer run', async () => {
+  test('legacy federated transport no longer writes an HRC semantic message', async () => {
     const stores = createAdmissionStores()
     const semanticCalls: unknown[] = []
+    const contributionCalls: unknown[] = []
 
     await withWiredServer(
       async (fixture) => {
@@ -1580,7 +1677,9 @@ describe('input admission queue', () => {
             },
           },
         })
-        fixture.runStore.updateRun(active.runId, { transport: 'federated-message' })
+        fixture.runStore.updateRun(active.runId, {
+          transport: 'federated-message',
+        })
 
         const body = {
           idempotencyKey: 'federated-ask-apple',
@@ -1593,8 +1692,16 @@ describe('input admission queue', () => {
             contributionSemantics: 'interrupt_and_continue',
           },
         }
-        const first = await fixture.request({ method: 'POST', path: '/v1/inputs', body })
-        const replay = await fixture.request({ method: 'POST', path: '/v1/inputs', body })
+        const first = await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body,
+        })
+        const replay = await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          body,
+        })
         const payload = await fixture.json<{
           admission: { kind: string; runId: string }
           inputApplication: { status: string; targetRunId: string }
@@ -1610,17 +1717,8 @@ describe('input admission queue', () => {
           targetRunId: active.runId,
         })
         expect(replayPayload.admission).toEqual(payload.admission)
-        expect(semanticCalls).toEqual([
-          {
-            from: { kind: 'entity', entity: 'human' },
-            to: {
-              kind: 'session',
-              sessionRef: `${sessionRef.scopeRef}/lane:${sessionRef.laneRef}`,
-            },
-            body: 'Apple',
-            createIfMissing: false,
-          },
-        ])
+        expect(semanticCalls).toEqual([])
+        expect(contributionCalls).toHaveLength(1)
       },
       {
         ...stores,
@@ -1646,8 +1744,23 @@ describe('input admission queue', () => {
               },
             }
           },
-          submitActiveRunContribution: async () => {
-            throw new Error('local contribution path must not run')
+          submitActiveRunContribution: async (request: unknown) => {
+            contributionCalls.push(request)
+            return {
+              status: 'accepted',
+              inputApplicationId: 'iap-federated-legacy',
+              hostSessionId: 'hsid-federated-legacy',
+              generation: 1,
+              runtimeId: 'rt-federated-legacy',
+              runId: 'hrc-federated-legacy',
+              capability: {
+                supported: true,
+                deliverySemantics: 'sequential_followup',
+                ackSemantics: 'accepted_only',
+                ordering: 'fifo',
+                supportsAttachments: false,
+              },
+            }
           },
         } as never,
       }
@@ -1724,7 +1837,10 @@ describe('input admission queue', () => {
           if (input.acpRunId !== undefined) {
             input.runStore?.updateRun(input.acpRunId, { status: 'running' })
           }
-          return { runId: input.acpRunId ?? 'hrc-busy-default', sessionId: 'hsid-busy-default' }
+          return {
+            runId: input.acpRunId ?? 'hrc-busy-default',
+            sessionId: 'hsid-busy-default',
+          }
         },
       }
     )
@@ -1839,7 +1955,10 @@ describe('input admission queue', () => {
           idempotencyKey: 'transport-pending-second',
           sessionRef,
           content: 'recover this later',
-          intent: { kind: 'contribute_to_active_run', fallback: 'pending_only' },
+          intent: {
+            kind: 'contribute_to_active_run',
+            fallback: 'pending_only',
+          },
         }
         const contribution = await fixture.request({
           method: 'POST',
@@ -1916,7 +2035,10 @@ describe('input admission queue', () => {
               runtimeId: 'rt-transport-pending',
             })
           }
-          return { runId: 'hrc-transport-pending', sessionId: 'hsid-transport-pending' }
+          return {
+            runId: 'hrc-transport-pending',
+            sessionId: 'hsid-transport-pending',
+          }
         },
         hrcClient: {
           submitActiveRunContribution: async () => {
@@ -1953,7 +2075,11 @@ describe('input admission queue', () => {
         })
         const payload = await fixture.json<{
           admission: { kind: string }
-          currentState: { controlStatus: string; action: string; runtimeId: string }
+          currentState: {
+            controlStatus: string
+            action: string
+            runtimeId: string
+          }
         }>(response)
 
         expect(response.status).toBe(201)

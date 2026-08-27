@@ -2354,8 +2354,7 @@
         "createCollaborationLedger",
         "createOrFindWrkqTask",
         "createWrkqStoreAdapter",
-        "formatCollaborationMessage",
-        "HRC_COLLABORATION_FALLBACK_DURING_BURN_IN"
+        "formatCollaborationMessage"
       ]
     }
   },

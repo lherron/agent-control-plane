@@ -13,13 +13,6 @@ export type CollaborationAddress = {
   scopeRef?: string | undefined
 }
 
-/**
- * Burn-in seam owned by rollout wave 4. Keep true while HRC's historical
- * message store remains the pre-flag-day fallback; wave 4 flips this one
- * compiled constant after the HRC store is frozen.
- */
-export const HRC_COLLABORATION_FALLBACK_DURING_BURN_IN = true
-
 export type CollaborationMessage = {
   /** EN-xxxxx friendly id from wrkq. */
   messageId: string
@@ -33,7 +26,7 @@ export type CollaborationMessage = {
   state: 'pending' | 'presented' | 'acked' | 'deferred' | 'dead'
   body: string
   taskId?: string | undefined
-  /** HRC message id correlated by ACP's burn-in dual-write, when present. */
+  /** Historical HRC message id retained on pre-flag-day envelopes, when present. */
   legacyMessageId?: string | undefined
   createdAt: string
   updatedAt: string

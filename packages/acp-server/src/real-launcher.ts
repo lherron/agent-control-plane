@@ -7,13 +7,10 @@ import { type SessionRef, parseScopeRef } from 'agent-scope'
 import {
   HrcConflictError,
   type HrcDispatchOrigin,
-  HrcErrorCode,
   type HrcEventEnvelope,
   type HrcHarness,
   type HrcHarnessIntent,
-  type HrcMessageRecord,
   type HrcRuntimeIntent,
-  HrcRuntimeUnavailableError,
   type ScopeLocation,
   resolveDatabasePath,
 } from 'hrc-core'
@@ -66,7 +63,11 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
   }) => {
     const client = createClient(socketPath)
     const liveTmuxRuntime = findLiveTmuxRuntimeForSessionRef(hrcDbPath, sessionRef)
-    const launchIntent = withAcpLaunchContextEnv(intent, { acpRunId, inputAttemptId, runStore })
+    const launchIntent = withAcpLaunchContextEnv(intent, {
+      acpRunId,
+      inputAttemptId,
+      runStore,
+    })
     const normalizedIntent = normalizeRealLauncherIntent({
       sessionRef,
       intent: launchIntent,
@@ -75,25 +76,15 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
     const acpCorrelationId = acpRunId ?? inputAttemptId
     const shouldWaitForCompletion = onEvent !== undefined && waitForCompletion !== false
     const prompt = normalizedIntent.initialPrompt?.trim()
-    // Placement must be consulted before local resolve-session for every
-    // prompt-bearing input, not only gateway/interface metadata. Unbound or
-    // remote scopes enter HRC's semantic-DM outbox, where the existing durable
-    // remote-establish -> fenced-delivery transition owns the summon.
-    const federatedInterfaceRun = await maybeLaunchFederatedPromptRun({
+    // Human prompt delivery moved to the collaboration ledger in rooms wave 4.
+    // Admission returns before this launcher for those envelopes, while this
+    // placement gate prevents stale callers from locally first-birthing an
+    // unbound scope or launching against a remote authority.
+    await assertPromptLaunchOwnedLocally({
       client,
       sessionRef,
-      normalizedIntent,
       prompt,
-      acpRunId,
-      inputAttemptId,
-      runStore,
-      onEvent,
-      shouldWaitForCompletion,
-      waitTimeoutMs,
     })
-    if (federatedInterfaceRun !== undefined) {
-      return federatedInterfaceRun
-    }
 
     if (!prompt) {
       // Broker cutover (T-01691): HRC retired the headless cold-start path.
@@ -294,7 +285,9 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
     if (shouldWaitForCompletion) {
       const completedRun =
         dispatched.status === 'completed'
-          ? (readRunStatus(hrcDbPath, dispatched.runId) ?? { status: 'completed' })
+          ? (readRunStatus(hrcDbPath, dispatched.runId) ?? {
+              status: 'completed',
+            })
           : await waitForRunCompletion({
               hrcDbPath,
               runId: dispatched.runId,
@@ -620,140 +613,36 @@ function readInterfaceSourceFromRun(run: ReturnType<RunStore['getRun']>): unknow
     : undefined
 }
 
-async function maybeLaunchFederatedPromptRun(input: {
+async function assertPromptLaunchOwnedLocally(input: {
   client: HrcClient
   sessionRef: SessionRef
-  normalizedIntent: HrcRuntimeIntent
   prompt: string | undefined
-  acpRunId: string | undefined
-  inputAttemptId: string | undefined
-  runStore: RunStore | undefined
-  onEvent: ((event: UnifiedSessionEvent) => void | Promise<void>) | undefined
-  shouldWaitForCompletion: boolean
-  waitTimeoutMs: number
-}): Promise<Awaited<ReturnType<LaunchRoleScopedRun>> | undefined> {
+}): Promise<void> {
   if (!input.prompt) {
-    return undefined
+    return
   }
-  // Tests and embedders may inject a deliberately partial legacy client. The
-  // installed HrcClient always has locateScope after the dependency gate above;
-  // a partial double keeps exercising the pre-federation local launch path.
+  // Embedders may inject a partial legacy client. The installed HrcClient has
+  // locateScope; preserve the legacy local path only for those partial doubles.
   if (typeof input.client.locateScope !== 'function') {
-    return undefined
+    return
   }
 
   const location = await input.client.locateScope(input.sessionRef.scopeRef)
-  if (!shouldUseFederatedSemanticDispatch(location)) {
-    return undefined
+  if (!requiresCollaborationLedgerDelivery(location)) {
+    return
   }
 
-  const targetSessionRef = toHrcSessionRef(input.sessionRef)
-  // Rooms wave 2 records human ingress in InputAdmissionService before this
-  // launcher runs. Keep the HRC semantic path as live delivery during burn-in;
-  // wave 4 removes this write after the fleet cutover.
-  const result = await input.client.semanticDm({
-    from: { kind: 'entity', entity: 'human' },
-    to: { kind: 'session', sessionRef: targetSessionRef },
-    body: input.prompt,
-    respondTo: { kind: 'entity', entity: 'human' },
-    runtimeIntent: input.normalizedIntent,
-    createIfMissing: true,
-  })
-  const request = result.request
-  if (request.execution.state === 'failed') {
-    const message =
-      request.execution.errorMessage ??
-      `HRC semantic dispatch ${request.messageId} failed before federation delivery`
-    updateAcpRun(input.runStore, input.acpRunId, {
-      status: 'failed',
-      errorCode: request.execution.errorCode ?? 'semantic_dispatch_failed',
-      errorMessage: message,
-    })
-    throw new Error(message)
-  }
-
-  persistSemanticMessageCorrelation({
-    runStore: input.runStore,
-    acpRunId: input.acpRunId,
-    request,
-    location,
-  })
-  logFederatedInterfaceEvent('dispatch', {
-    acpRunId: input.acpRunId,
-    inputAttemptId: input.inputAttemptId,
-    scopeRef: input.sessionRef.scopeRef,
-    laneRef: input.sessionRef.laneRef,
-    requestMessageId: request.messageId,
-    rootMessageId: request.rootMessageId,
-    localNodeId: location.localNodeId,
-    homeNodeId: readLocationHomeNodeId(location),
-    executionState: request.execution.state,
-  })
-
-  if (input.shouldWaitForCompletion && input.onEvent !== undefined) {
-    const waited = await input.client.waitMessage({
-      thread: { rootMessageId: request.rootMessageId },
-      kinds: ['dm'],
-      phases: ['response'],
-      afterSeq: request.messageSeq,
-      deliveryMessageId: request.messageId,
-      timeoutMs: input.waitTimeoutMs,
-    })
-    if (waited.matched) {
-      await input.onEvent(toUnifiedAssistantMessageFromHrcMessage(waited.record))
-      updateAcpRun(input.runStore, input.acpRunId, {
-        status: 'completed',
-        errorCode: null,
-        errorMessage: null,
-      })
-    } else if (waited.reason === 'delivery_failed') {
-      const typedFailure = waited as typeof waited & {
-        errorReason?: string | undefined
-        retryable?: boolean | undefined
-        homeNodeId?: string | undefined
-      }
-      const message = waited.errorMessage ?? 'HRC federation delivery failed'
-      const failedHomeNodeId = typedFailure.homeNodeId ?? readLocationHomeNodeId(location)
-      const detail = {
-        reason: typedFailure.errorReason ?? waited.errorCode,
-        retryable: typedFailure.retryable === true,
-        ...(failedHomeNodeId === undefined ? {} : { homeNodeId: failedHomeNodeId }),
-      }
-      updateAcpRun(input.runStore, input.acpRunId, {
-        status: 'failed',
-        errorCode:
-          waited.errorCode === HrcErrorCode.RUNTIME_UNAVAILABLE || detail.retryable
-            ? HrcErrorCode.RUNTIME_UNAVAILABLE
-            : HrcErrorCode.STALE_CONTEXT,
-        errorMessage: message,
-      })
-      if (waited.errorCode === HrcErrorCode.RUNTIME_UNAVAILABLE || detail.retryable) {
-        throw new HrcRuntimeUnavailableError(message, detail)
-      }
-      throw new HrcConflictError(HrcErrorCode.STALE_CONTEXT, message, detail)
-    } else {
-      throw new Error(`timed out waiting for federated HRC response to ${request.messageId}`)
-    }
-  }
-
-  return {
-    runId: request.messageId,
-    sessionId: targetSessionRef,
-  }
+  throw new Error(
+    `prompt delivery for ${toHrcSessionRef(input.sessionRef)} is owned by the collaboration ledger; ACP local launch refused`
+  )
 }
 
-function shouldUseFederatedSemanticDispatch(location: ScopeLocation): boolean {
-  if (!location.federationConfigured) {
-    return false
-  }
-
+function requiresCollaborationLedgerDelivery(location: ScopeLocation): boolean {
   switch (location.authority.state) {
     case 'bound':
       return !location.authority.isLocal
     case 'unbound':
-      // HRC, not ACP, owns the first-birth placement decision. The semantic
-      // endpoint applies pin/default policy and either executes locally or
-      // forwards after the registry CAS.
+      // The HRC ledger kicker, not ACP, owns first-birth placement and summon.
       return true
     case 'retired':
       // Preserve the ordinary resolve-session gate's typed retirement cause.
@@ -762,66 +651,6 @@ function shouldUseFederatedSemanticDispatch(location: ScopeLocation): boolean {
       // Preserve the ordinary resolve-session gate's typed availability cause.
       return false
   }
-}
-
-function readLocationHomeNodeId(location: ScopeLocation): string | undefined {
-  return location.authority.state === 'bound' ? location.authority.record.homeNodeId : undefined
-}
-
-function persistSemanticMessageCorrelation(input: {
-  runStore: RunStore | undefined
-  acpRunId: string | undefined
-  request: HrcMessageRecord
-  location: ScopeLocation
-}): void {
-  if (input.runStore === undefined || input.acpRunId === undefined) {
-    return
-  }
-
-  const current = input.runStore.getRun(input.acpRunId)
-  const metadata = current?.metadata ?? {}
-  const meta = asRecord(metadata['meta'])
-  input.runStore.updateRun(input.acpRunId, {
-    status: 'running',
-    transport: 'federated-message',
-    errorCode: null,
-    errorMessage: null,
-    metadata: {
-      ...metadata,
-      meta: {
-        ...meta,
-        hrcSemanticMessage: {
-          requestMessageId: input.request.messageId,
-          rootMessageId: input.request.rootMessageId,
-          afterSeq: input.request.messageSeq,
-          localNodeId: input.location.localNodeId,
-          ...(readLocationHomeNodeId(input.location) !== undefined
-            ? { homeNodeId: readLocationHomeNodeId(input.location) }
-            : {}),
-        },
-      },
-    },
-  })
-}
-
-function toUnifiedAssistantMessageFromHrcMessage(record: HrcMessageRecord): UnifiedSessionEvent {
-  return {
-    type: 'message_end',
-    messageId: record.messageId,
-    message: {
-      role: 'assistant',
-      content: [{ type: 'text', text: record.body }],
-    },
-  }
-}
-
-function logFederatedInterfaceEvent(
-  phase: 'dispatch' | 'response' | 'delivery_failed',
-  fields: Readonly<Record<string, unknown>>
-): void {
-  console.info(
-    `[acp-server] ${JSON.stringify({ event: `interface.federation.${phase}`, ...fields })}`
-  )
 }
 
 export function normalizeRealLauncherIntent(input: {
@@ -908,7 +737,10 @@ export function toUnifiedAssistantMessageEndFromRawEvents(
       if (output !== undefined && output.trim().length > 0) {
         finalOutput = {
           type: 'message_end',
-          message: { role: 'assistant', content: [{ type: 'text', text: output }] },
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: output }],
+          },
         }
       }
     }
@@ -1233,7 +1065,14 @@ export function readRunStatus(
   const db = new Database(hrcDbPath, { readonly: true })
   try {
     const row = db
-      .query<{ status: string; errorCode: string | null; errorMessage: string | null }, [string]>(
+      .query<
+        {
+          status: string
+          errorCode: string | null
+          errorMessage: string | null
+        },
+        [string]
+      >(
         `SELECT status, error_code AS errorCode, error_message AS errorMessage
           FROM runs
           WHERE run_id = ?`

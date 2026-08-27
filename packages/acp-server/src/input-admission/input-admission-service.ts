@@ -7,7 +7,7 @@ import type {
   InputResetPolicy,
   Run,
 } from 'acp-core'
-import { type SessionRef, formatScopeHandle, formatSessionRef, parseScopeRef } from 'agent-scope'
+import { type SessionRef, formatScopeHandle, parseScopeRef } from 'agent-scope'
 import {
   type HrcActiveRunContributionResponse,
   HrcDomainError,
@@ -38,7 +38,11 @@ export type InputAdmissionResult = {
     laneRef: string
     taskId?: string | undefined
     idempotencyKey?: string | undefined
-    actor: { kind: 'human' | 'agent' | 'system'; id: string; displayName?: string | undefined }
+    actor: {
+      kind: 'human' | 'agent' | 'system'
+      id: string
+      displayName?: string | undefined
+    }
     createdAt: string
     metadata?: Readonly<Record<string, unknown>> | undefined
   }
@@ -63,7 +67,11 @@ export type AdmitInput = {
   taskId?: string | undefined
   idempotencyKey?: string | undefined
   content: string
-  actor: { kind: 'human' | 'agent' | 'system'; id: string; displayName?: string | undefined }
+  actor: {
+    kind: 'human' | 'agent' | 'system'
+    id: string
+    displayName?: string | undefined
+  }
   metadata?: Readonly<Record<string, unknown>> | undefined
   intent?: InputIntent | undefined
   dispatch?: boolean | undefined
@@ -165,7 +173,10 @@ function queueDepthExceeded(
 function queueFenceFromResetPolicy(
   resetPolicy: InputResetPolicy,
   activeRun: StoredRun | undefined
-): { expectedHostSessionId?: string | undefined; expectedGeneration?: number | undefined } {
+): {
+  expectedHostSessionId?: string | undefined
+  expectedGeneration?: number | undefined
+} {
   if (resetPolicy === 'follow_latest' || activeRun === undefined) {
     return {}
   }
@@ -250,47 +261,6 @@ function findTargetActiveRun(
   return deps.runStore.listRunsForSession(sessionRef).filter(isActiveRun).at(-1)
 }
 
-function readFederatedSemanticMessage(run: StoredRun):
-  | {
-      requestMessageId: string
-      rootMessageId: string
-      homeNodeId?: string | undefined
-    }
-  | undefined {
-  if (run.transport !== 'federated-message') return undefined
-  const metadata =
-    typeof run.metadata === 'object' && run.metadata !== null && !Array.isArray(run.metadata)
-      ? (run.metadata as Record<string, unknown>)
-      : undefined
-  const meta =
-    typeof metadata?.['meta'] === 'object' &&
-    metadata['meta'] !== null &&
-    !Array.isArray(metadata['meta'])
-      ? (metadata['meta'] as Record<string, unknown>)
-      : undefined
-  const correlation =
-    typeof meta?.['hrcSemanticMessage'] === 'object' &&
-    meta['hrcSemanticMessage'] !== null &&
-    !Array.isArray(meta['hrcSemanticMessage'])
-      ? (meta['hrcSemanticMessage'] as Record<string, unknown>)
-      : undefined
-  const requestMessageId = correlation?.['requestMessageId']
-  const rootMessageId = correlation?.['rootMessageId']
-  const homeNodeId = correlation?.['homeNodeId']
-  if (typeof requestMessageId !== 'string' || typeof rootMessageId !== 'string') return undefined
-  return {
-    requestMessageId,
-    rootMessageId,
-    ...(typeof homeNodeId === 'string' ? { homeNodeId } : {}),
-  }
-}
-
-function logFederatedContribution(fields: Readonly<Record<string, unknown>>): void {
-  console.info(
-    `[acp-server] ${JSON.stringify({ event: 'interface.federation.contribution', ...fields })}`
-  )
-}
-
 function isContributionAmbiguousError(error: unknown): boolean {
   const candidate = error as Record<string, unknown>
   return (
@@ -315,12 +285,24 @@ function classifyContributionDeliveryError(error: unknown): {
   pendingAdmission: boolean
 } {
   if (isContributionAmbiguousError(error)) {
-    return { status: 'ambiguous', errorCode: 'delivery_ambiguous', pendingAdmission: true }
+    return {
+      status: 'ambiguous',
+      errorCode: 'delivery_ambiguous',
+      pendingAdmission: true,
+    }
   }
   if (isContributionTransportError(error)) {
-    return { status: 'pending', errorCode: 'delivery_transport_error', pendingAdmission: true }
+    return {
+      status: 'pending',
+      errorCode: 'delivery_transport_error',
+      pendingAdmission: true,
+    }
   }
-  return { status: 'failed', errorCode: 'delivery_failed', pendingAdmission: false }
+  return {
+    status: 'failed',
+    errorCode: 'delivery_failed',
+    pendingAdmission: false,
+  }
 }
 
 export class InputAdmissionService {
@@ -336,9 +318,9 @@ export class InputAdmissionService {
     actor: AdmitInput['actor']
     idempotencyKey?: string | undefined
     inputAttemptId: string
-  }): Promise<void> {
+  }): Promise<boolean> {
     if (input.actor.kind !== 'human' || this.deps.collaborationLedgerForPrincipal === undefined) {
-      return
+      return false
     }
     const targetScopeHandle = formatScopeHandle(parseScopeRef(input.sessionRef.scopeRef))
     const humanLedger = await this.deps.collaborationLedgerForPrincipal('agent:lance')
@@ -348,6 +330,40 @@ export class InputAdmissionService {
       body: input.content,
       idempotencyKey: input.idempotencyKey ?? `acp:input-attempt:${input.inputAttemptId}`,
     })
+    return true
+  }
+
+  private createAcceptedCollaborationAdmission(input: {
+    attempt: ReturnType<ResolvedAcpServerDeps['inputAttemptStore']['createAttempt']>
+    intent: Exclude<InputIntent, { kind: 'control_active_run' }>
+  }): InputAdmissionResult {
+    const currentState = { delivery: 'collaboration_ledger' }
+    const admission = this.deps.inputAdmissionStore.create({
+      inputAttemptId: input.attempt.inputAttempt.inputAttemptId,
+      admissionKind: 'accepted_in_flight',
+      intent: input.intent,
+      originalResponse: admissionResponse({
+        kind: 'accepted_in_flight',
+        inputAttemptId: input.attempt.inputAttempt.inputAttemptId,
+        currentState,
+      }),
+      currentState,
+      status: 'accepted',
+    })
+    recordInputAdmissionEvent(this.deps, {
+      eventKind: 'input.application.accepted',
+      scopeRef: input.attempt.inputAttempt.scopeRef,
+      laneRef: input.attempt.inputAttempt.laneRef,
+      inputAttemptId: input.attempt.inputAttempt.inputAttemptId,
+      admission,
+      payload: currentState,
+    })
+    return {
+      inputAttempt: input.attempt.inputAttempt,
+      admission,
+      currentState,
+      created: true,
+    }
   }
 
   private createRejectedAdmission(input: {
@@ -649,13 +665,19 @@ export class InputAdmissionService {
       }
     }
 
-    await this.recordHumanCollaborationSay({
+    const collaborationRecorded = await this.recordHumanCollaborationSay({
       sessionRef: input.sessionRef,
       content: input.content,
       actor: input.actor,
       ...(input.idempotencyKey !== undefined ? { idempotencyKey: input.idempotencyKey } : {}),
       inputAttemptId: attempt.inputAttempt.inputAttemptId,
     })
+    if (collaborationRecorded) {
+      return this.createAcceptedCollaborationAdmission({
+        attempt,
+        intent: input.intent,
+      })
+    }
 
     const targetRun = findTargetActiveRun(this.deps, input.sessionRef)
     if (targetRun !== undefined) {
@@ -693,62 +715,12 @@ export class InputAdmissionService {
     }
 
     try {
-      const federatedCorrelation =
-        targetRun === undefined ? undefined : readFederatedSemanticMessage(targetRun)
-      if (targetRun?.transport === 'federated-message') {
-        if (federatedCorrelation === undefined) {
-          throw new Error(`run ${targetRun.runId} has invalid HRC semantic message correlation`)
-        }
-        // This is intentionally a new unthreaded semantic request. Threading
-        // it as a response would make the peer accept it as transcript output
-        // and skip delivery; an unthreaded DM reaches the already-waiting
-        // remote runtime and lets its original turn finalizer own the answer.
-        // The durable human say was recorded above; this remains the live HRC
-        // delivery half of the burn-in dual-write until wave 4.
-        const delivered = await this.deps.hrcClient.semanticDm({
-          from: {
-            kind: 'entity',
-            entity: input.actor.kind === 'human' ? 'human' : 'system',
-          },
-          to: { kind: 'session', sessionRef: formatSessionRef(input.sessionRef) },
-          body: input.content,
-          createIfMissing: false,
-        })
-        if (delivered.request.execution.state === 'failed') {
-          throw new Error(
-            delivered.request.execution.errorMessage ??
-              delivered.request.execution.errorCode ??
-              'federated contribution delivery failed'
-          )
-        }
-        application = this.deps.inputApplicationStore.update(application.inputApplicationId, {
-          status: 'accepted',
-          deliveryAttempts: application.deliveryAttempts + 1,
-        })
-        logFederatedContribution({
-          acpRunId: targetRun.runId,
-          inputAttemptId: attempt.inputAttempt.inputAttemptId,
-          inputApplicationId: application.inputApplicationId,
-          scopeRef: input.sessionRef.scopeRef,
-          laneRef: input.sessionRef.laneRef,
-          originalRequestMessageId: federatedCorrelation.requestMessageId,
-          originalRootMessageId: federatedCorrelation.rootMessageId,
-          contributionMessageId: delivered.request.messageId,
-          contributionRootMessageId: delivered.request.rootMessageId,
-          homeNodeId: federatedCorrelation.homeNodeId,
-          executionState: delivered.request.execution.state,
-        })
-        return this.createAcceptedContributionAdmission({
-          attempt,
-          intent: input.intent,
-          application,
-          targetRun,
-        })
-      }
-
       const response = await this.deps.hrcClient.submitActiveRunContribution({
         selector: {
-          sessionRef: { scopeRef: input.sessionRef.scopeRef, laneRef: input.sessionRef.laneRef },
+          sessionRef: {
+            scopeRef: input.sessionRef.scopeRef,
+            laneRef: input.sessionRef.laneRef,
+          },
           ...(targetRun?.hostSessionId !== undefined
             ? { hostSessionId: targetRun.hostSessionId }
             : {}),
@@ -1020,13 +992,16 @@ export class InputAdmissionService {
       }
     }
 
-    await this.recordHumanCollaborationSay({
+    const collaborationRecorded = await this.recordHumanCollaborationSay({
       sessionRef: input.sessionRef,
       content: input.content,
       actor: input.actor,
       ...(input.idempotencyKey !== undefined ? { idempotencyKey: input.idempotencyKey } : {}),
       inputAttemptId: attempt.inputAttempt.inputAttemptId,
     })
+    if (collaborationRecorded) {
+      return this.createAcceptedCollaborationAdmission({ attempt, intent })
+    }
 
     const seq = this.deps.sessionAdmissionSequenceStore.reserve({
       scopeRef: input.sessionRef.scopeRef,

@@ -10,9 +10,10 @@ import type { CollaborationLedger, CollaborationSayInput } from 'wrkq-lib'
 import { withWiredServer } from './fixtures/wired-server.js'
 
 describe('POST /v1/interface/messages', () => {
-  test('records Discord ingress as an exact-principal human say before HRC delivery', async () => {
+  test('records Discord ingress as an exact-principal ledger-only human say', async () => {
     const principals: string[] = []
     const says: CollaborationSayInput[] = []
+    let launchCalls = 0
     const ledger: CollaborationLedger = {
       async listMessagesByMember() {
         return { messages: [] }
@@ -65,6 +66,7 @@ describe('POST /v1/interface/messages', () => {
             idempotencyKey: 'interface:discord_prod:discord:message:ledger-1',
           },
         ])
+        expect(launchCalls).toBe(0)
       },
       {
         collaborationLedgerForPrincipal: async (principalRef) => {
@@ -79,7 +81,10 @@ describe('POST /v1/interface/messages', () => {
           bundle: { kind: 'compose', compose: [] },
           harness: { provider: 'openai', interactive: true },
         }),
-        launchRoleScopedRun: async () => ({ runId: 'launch-ledger', sessionId: 'session-ledger' }),
+        launchRoleScopedRun: async () => {
+          launchCalls += 1
+          return { runId: 'launch-ledger', sessionId: 'session-ledger' }
+        },
       }
     )
   })

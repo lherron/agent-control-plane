@@ -4,12 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import {
-  type HrcDispatchOrigin,
-  HrcDomainError,
-  HrcErrorCode,
-  type HrcRuntimeIntent,
-} from 'hrc-core'
+import type { HrcDispatchOrigin, HrcRuntimeIntent } from 'hrc-core'
 
 import { InMemoryInputAttemptStore } from '../src/domain/input-attempt-store.js'
 import { InMemoryRunStore } from '../src/domain/run-store.js'
@@ -51,7 +46,9 @@ async function captureDispatchOrigin(input: {
           hostSessionId: 'hsid-origin-test',
           generation: 1,
         }),
-        dispatchTurn: async (request: { origin?: HrcDispatchOrigin | undefined }) => {
+        dispatchTurn: async (request: {
+          origin?: HrcDispatchOrigin | undefined
+        }) => {
           origin = request.origin
           return {
             runId: 'hrc-run-origin-test',
@@ -94,7 +91,11 @@ describe('real launcher helpers', () => {
           source: { kind: 'job', jobId: 'job_t07237', jobRunId: 'jrun_t07237' },
         },
       })
-    ).toEqual({ actor: 'agent:cody', kind: 'agent', causationRef: 'jrun_t07237' })
+    ).toEqual({
+      actor: 'agent:cody',
+      kind: 'agent',
+      causationRef: 'jrun_t07237',
+    })
   })
 
   test('threads human origin without causation for non-job input', async () => {
@@ -108,7 +109,9 @@ describe('real launcher helpers', () => {
 
   test('missing input metadata degrades to actor-only origin without blocking dispatch', async () => {
     expect(
-      await captureDispatchOrigin({ actor: { kind: 'agent', id: 'agent:already-canonical' } })
+      await captureDispatchOrigin({
+        actor: { kind: 'agent', id: 'agent:already-canonical' },
+      })
     ).toEqual({ actor: 'agent:already-canonical', kind: 'agent' })
   })
 
@@ -152,7 +155,9 @@ describe('real launcher helpers', () => {
                 hostSessionId: 'hsid-timeout-test',
                 generation: 1,
               }),
-              dispatchTurn: async (request: { firstTurnTimeoutMs?: number | undefined }) => {
+              dispatchTurn: async (request: {
+                firstTurnTimeoutMs?: number | undefined
+              }) => {
                 captured = request.firstTurnTimeoutMs
                 return {
                   runId: 'hrc-run-timeout-test',
@@ -212,7 +217,7 @@ describe('real launcher helpers', () => {
     })
   })
 
-  test('routes remote-bound interface runs through semantic messaging without resolving locally', async () => {
+  test('refuses local launch for a remote-bound prompt without writing an HRC message', async () => {
     const calls: string[] = []
     const runStore = new InMemoryRunStore()
     const sessionRef = {
@@ -252,36 +257,8 @@ describe('real launcher helpers', () => {
               },
             }
           },
-          semanticDm: async (input: unknown) => {
-            calls.push('semanticDm')
-            expect(input).toMatchObject({
-              from: { kind: 'entity', entity: 'human' },
-              to: {
-                kind: 'session',
-                sessionRef: `${sessionRef.scopeRef}/lane:main`,
-              },
-              body: 'remember orchid',
-              respondTo: { kind: 'entity', entity: 'human' },
-              createIfMissing: true,
-            })
-            return {
-              request: {
-                messageSeq: 42,
-                messageId: 'msg-remote-request',
-                createdAt: '2026-07-21T01:30:00.000Z',
-                kind: 'dm',
-                phase: 'request',
-                from: { kind: 'entity', entity: 'human' },
-                to: {
-                  kind: 'session',
-                  sessionRef: `${sessionRef.scopeRef}/lane:main`,
-                },
-                rootMessageId: 'msg-remote-request',
-                body: 'remember orchid',
-                bodyFormat: 'text/plain',
-                execution: { state: 'accepted' },
-              },
-            }
+          semanticDm: async () => {
+            throw new Error('remote interface run must not write an HRC message')
           },
           resolveSession: async () => {
             throw new Error('remote interface run must not resolve a local HRC session')
@@ -292,47 +269,31 @@ describe('real launcher helpers', () => {
         }) as unknown as any,
     })
 
-    const result = await launcher({
-      sessionRef,
-      acpRunId: acpRun.runId,
-      inputAttemptId: 'ia_remote',
-      runStore,
-      waitForCompletion: false,
-      onEvent: async () => {},
-      intent: {
-        placement: {
-          agentRoot: '/tmp/cody',
-          runMode: 'task',
-          bundle: { kind: 'compose', compose: [] },
-        },
-        harness: { provider: 'openai', interactive: false },
-        initialPrompt: '  remember orchid  ',
-      },
-    })
-
-    expect(result).toEqual({
-      runId: 'msg-remote-request',
-      sessionId: `${sessionRef.scopeRef}/lane:main`,
-    })
-    expect(calls).toEqual(['locateScope', 'semanticDm'])
-    expect(runStore.getRun(acpRun.runId)).toMatchObject({
-      status: 'running',
-      transport: 'federated-message',
-      metadata: {
-        meta: {
-          hrcSemanticMessage: {
-            requestMessageId: 'msg-remote-request',
-            rootMessageId: 'msg-remote-request',
-            afterSeq: 42,
-            localNodeId: 'svc',
-            homeNodeId: 'lab',
+    await expect(
+      launcher({
+        sessionRef,
+        acpRunId: acpRun.runId,
+        inputAttemptId: 'ia_remote',
+        runStore,
+        waitForCompletion: false,
+        onEvent: async () => {},
+        intent: {
+          placement: {
+            agentRoot: '/tmp/cody',
+            runMode: 'task',
+            bundle: { kind: 'compose', compose: [] },
           },
+          harness: { provider: 'openai', interactive: false },
+          initialPrompt: '  remember orchid  ',
         },
-      },
-    })
+      })
+    ).rejects.toThrow('owned by the collaboration ledger; ACP local launch refused')
+
+    expect(calls).toEqual(['locateScope'])
+    expect(runStore.getRun(acpRun.runId)).toMatchObject({ status: 'pending' })
   })
 
-  test('routes plain inputs for a remote-designated virgin scope through semantic messaging', async () => {
+  test('refuses to first-birth an unbound prompt scope from the local launcher', async () => {
     const calls: string[] = []
     const runStore = new InMemoryRunStore()
     const sessionRef = {
@@ -357,48 +318,18 @@ describe('real launcher helpers', () => {
               authority: {
                 state: 'unbound',
                 registry: { state: 'unbound' },
-                declaredPolicy: { kind: 'default_home_node', homeNodeId: 'max3' },
+                declaredPolicy: {
+                  kind: 'default_home_node',
+                  homeNodeId: 'max3',
+                },
               },
             }
           },
-          semanticDm: async (input: unknown) => {
-            calls.push('semanticDm')
-            expect(input).toMatchObject({
-              to: { kind: 'session', sessionRef: `${sessionRef.scopeRef}/lane:main` },
-              body: 'T4 ping',
-              createIfMissing: true,
-              runtimeIntent: {
-                placement: { agentRoot: '/tmp/scribe', runMode: 'task' },
-              },
-            })
-            return {
-              request: {
-                messageSeq: 43,
-                messageId: 'msg-t4-remote-establish',
-                createdAt: '2026-07-22T22:04:16.000Z',
-                kind: 'dm',
-                phase: 'request',
-                from: { kind: 'entity', entity: 'human' },
-                to: { kind: 'session', sessionRef: `${sessionRef.scopeRef}/lane:main` },
-                rootMessageId: 'msg-t4-remote-establish',
-                body: 'T4 ping',
-                bodyFormat: 'text/plain',
-                execution: { state: 'accepted' },
-              },
-            }
+          semanticDm: async () => {
+            throw new Error('unbound prompt must not write an HRC message')
           },
           resolveSession: async () => {
-            calls.push('resolveSession')
-            throw new HrcDomainError(
-              HrcErrorCode.STALE_CONTEXT,
-              'routes to max3 by default_home_node; this node is svc',
-              {
-                path: 'resolve-session',
-                reason: 'routed-elsewhere',
-                retryable: false,
-                homeNodeId: 'max3',
-              }
-            )
+            throw new Error('unbound prompt must not resolve a local HRC session')
           },
           dispatchTurn: async () => {
             throw new Error('remote virgin input must not dispatch a local HRC turn')
@@ -406,131 +337,28 @@ describe('real launcher helpers', () => {
         }) as unknown as any,
     })
 
-    const result = await launcher({
-      sessionRef,
-      acpRunId: acpRun.runId,
-      inputAttemptId: 'ia_t4_remote_virgin',
-      runStore,
-      waitForCompletion: false,
-      onEvent: async () => {},
-      intent: {
-        placement: {
-          agentRoot: '/tmp/scribe',
-          runMode: 'task',
-          bundle: { kind: 'compose', compose: [] },
-        },
-        harness: { provider: 'openai', interactive: false },
-        initialPrompt: 'T4 ping',
-      },
-    })
-
-    expect(result).toEqual({
-      runId: 'msg-t4-remote-establish',
-      sessionId: `${sessionRef.scopeRef}/lane:main`,
-    })
-    expect(calls).toEqual(['locateScope', 'semanticDm'])
-    expect(runStore.getRun(acpRun.runId)).toMatchObject({
-      status: 'running',
-      transport: 'federated-message',
-    })
-  })
-
-  test('turns a terminal federated delivery failure into the canonical typed cause', async () => {
-    const runStore = new InMemoryRunStore()
-    const sessionRef = {
-      scopeRef: 'agent:cody:project:hrc-runtime:task:remote-dead-letter',
-      laneRef: 'main' as const,
-    }
-    const acpRun = runStore.createRun({
-      sessionRef,
-      status: 'pending',
-      metadata: {
-        meta: {
-          interfaceSource: {
-            gatewayId: 'discord_prod',
-            bindingId: 'ifb_remote',
-            conversationRef: 'channel:remote',
-            messageRef: 'discord:message:remote',
-          },
-        },
-      },
-    })
-    const launcher = createRealLauncher({
-      hrcDbPath: ':memory:',
-      createClient: () =>
-        ({
-          locateScope: async () => ({
-            scopeRef: sessionRef.scopeRef,
-            localNodeId: 'svc',
-            federationConfigured: true,
-            authority: {
-              state: 'unbound',
-              registry: { state: 'unbound' },
-              declaredPolicy: { kind: 'default_home_node', homeNodeId: 'max3' },
-            },
-          }),
-          semanticDm: async () => ({
-            request: {
-              messageSeq: 42,
-              messageId: 'msg-remote-dead-letter',
-              createdAt: '2026-07-22T20:00:00.000Z',
-              kind: 'dm',
-              phase: 'request',
-              from: { kind: 'entity', entity: 'human' },
-              to: { kind: 'session', sessionRef: `${sessionRef.scopeRef}/lane:main` },
-              rootMessageId: 'msg-remote-dead-letter',
-              body: 'ping',
-              bodyFormat: 'text/plain',
-              execution: { state: 'accepted' },
-            },
-          }),
-          waitMessage: async () => ({
-            matched: false,
-            reason: 'delivery_failed',
-            messageId: 'msg-remote-dead-letter',
-            errorCode: 'runtime_unavailable',
-            errorMessage: 'authoritative home is unreachable',
-            errorReason: 'peer_unreachable',
-            retryable: true,
-            homeNodeId: 'max3',
-          }),
-        }) as unknown as any,
-    })
-
-    let failure: unknown
-    try {
-      await launcher({
+    await expect(
+      launcher({
         sessionRef,
         acpRunId: acpRun.runId,
-        inputAttemptId: 'ia_remote_dead_letter',
+        inputAttemptId: 'ia_t4_remote_virgin',
         runStore,
+        waitForCompletion: false,
         onEvent: async () => {},
         intent: {
           placement: {
-            agentRoot: '/tmp/cody',
+            agentRoot: '/tmp/scribe',
             runMode: 'task',
             bundle: { kind: 'compose', compose: [] },
           },
           harness: { provider: 'openai', interactive: false },
-          initialPrompt: 'ping',
+          initialPrompt: 'T4 ping',
         },
       })
-    } catch (error) {
-      failure = error
-    }
+    ).rejects.toThrow('owned by the collaboration ledger; ACP local launch refused')
 
-    expect(failure).toBeInstanceOf(HrcDomainError)
-    expect(failure).toMatchObject({
-      code: 'runtime_unavailable',
-      status: 503,
-      message: 'authoritative home is unreachable',
-      detail: { reason: 'peer_unreachable', retryable: true, homeNodeId: 'max3' },
-    })
-    expect(runStore.getRun(acpRun.runId)).toMatchObject({
-      status: 'failed',
-      errorCode: 'runtime_unavailable',
-      errorMessage: 'authoritative home is unreachable',
-    })
+    expect(calls).toEqual(['locateScope'])
+    expect(runStore.getRun(acpRun.runId)).toMatchObject({ status: 'pending' })
   })
 
   test('keeps locally-bound interface runs on the existing session launcher', async () => {
@@ -941,7 +769,11 @@ describe('real launcher helpers', () => {
               },
               create: true,
             })
-            return { found: true, hostSessionId: 'hsid-discord', generation: 1 }
+            return {
+              found: true,
+              hostSessionId: 'hsid-discord',
+              generation: 1,
+            }
           },
           dispatchTurn: async () => {
             throw new Error('dispatchTurn should not be called when live tmux exists')
@@ -950,7 +782,9 @@ describe('real launcher helpers', () => {
             calls.push('deliverLiteralBySelector')
             if (calls.filter((call) => call === 'deliverLiteralBySelector').length === 1) {
               expect(input).toEqual({
-                selector: { sessionRef: 'agent:cody:project:agent-spaces:task:discord/lane:main' },
+                selector: {
+                  sessionRef: 'agent:cody:project:agent-spaces:task:discord/lane:main',
+                },
                 text: 'What is 2+2?',
                 enter: false,
                 fences: {
@@ -960,7 +794,9 @@ describe('real launcher helpers', () => {
               })
             } else {
               expect(input).toEqual({
-                selector: { sessionRef: 'agent:cody:project:agent-spaces:task:discord/lane:main' },
+                selector: {
+                  sessionRef: 'agent:cody:project:agent-spaces:task:discord/lane:main',
+                },
                 text: '',
                 enter: true,
                 fences: {
@@ -1067,7 +903,10 @@ describe('real launcher helpers', () => {
       pollIntervalMs: 1,
       createClient: () =>
         ({
-          resolveSession: async () => ({ found: true, hostSessionId: 'hsid-failed' }),
+          resolveSession: async () => ({
+            found: true,
+            hostSessionId: 'hsid-failed',
+          }),
           dispatchTurn: async () => {
             db.run(
               'INSERT INTO runs (run_id, status, error_code, error_message) VALUES (?, ?, ?, ?)',
@@ -1147,7 +986,10 @@ describe('real launcher helpers', () => {
       pollIntervalMs: 1,
       createClient: () =>
         ({
-          resolveSession: async () => ({ found: true, hostSessionId: 'hsid-terminated' }),
+          resolveSession: async () => ({
+            found: true,
+            hostSessionId: 'hsid-terminated',
+          }),
           dispatchTurn: async () => {
             db.run(
               'INSERT INTO runs (run_id, status, error_code, error_message) VALUES (?, ?, ?, ?)',
@@ -1367,7 +1209,9 @@ describe('real launcher helpers', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'acp-real-launcher-'))
 
     try {
-      mkdirSync(join(projectRoot, 'asp_modules', 'rex', 'claude'), { recursive: true })
+      mkdirSync(join(projectRoot, 'asp_modules', 'rex', 'claude'), {
+        recursive: true,
+      })
 
       const intent = {
         placement: {

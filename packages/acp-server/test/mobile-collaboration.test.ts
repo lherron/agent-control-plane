@@ -96,7 +96,7 @@ describe('mobile collaboration ledger', () => {
     )
   })
 
-  test('human DM dual-writes through agent:lance while HRC remains live delivery', async () => {
+  test('human DM writes only the agent:lance collaboration ledger', async () => {
     const principals: string[] = []
     const sayCalls: CollaborationSayInput[] = []
     const humanLedger = ledger({ sayCalls })
@@ -117,19 +117,20 @@ describe('mobile collaboration ledger', () => {
           body: {
             body: 'Please reply in the room.',
             roomKey: 'T-07614',
+            idempotencyKey: 'ios:message:flag-day-1',
             to: { kind: 'session', sessionRef: SESSION_REF },
           },
         })
 
         expect(response.status).toBe(200)
-        expect(semanticCalls).toHaveLength(1)
+        expect(semanticCalls).toHaveLength(0)
         expect(principals).toEqual(['agent:lance'])
         expect(sayCalls).toEqual([
           {
             ref: 'T-07614',
             to: [MEMBER_REF],
             body: 'Please reply in the room.',
-            idempotencyKey: 'acp:hrc-message:msg-delivered',
+            idempotencyKey: 'ios:message:flag-day-1',
           },
         ])
       },

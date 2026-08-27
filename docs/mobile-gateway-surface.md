@@ -33,7 +33,7 @@ Routes:
 | `GET /v1/mobile/dashboard` | websocket | Session dashboard snapshot + live updates (`dashboard_snapshot` envelope) — this is what gateway-discord itself polls to detect steerable active runs. |
 | `GET /v1/mobile/history` | http | Progressive history / timeline paging. |
 | `GET /v1/mobile/dm/targets` | http | DM target discovery. |
-| `POST /v1/mobile/messages/query`, `POST /v1/mobile/messages/dm` | http | Message query and semantic DM send. |
+| `POST /v1/mobile/messages/query`, `POST /v1/mobile/messages/dm` | http | Collaboration-ledger query and room-envelope send. |
 | `GET /v1/mobile/messages/watch` | http/ws | Message watch stream. |
 | `POST /v1/mobile/sessions` | http | Provision a new session — a suffix-roster slot for the quick-pick lanes, or the one exact scope the operator named. The client supplies a stable `requestId` per button press; transport retries reuse it. |
 | `POST /v1/mobile/sessions/:hostSessionId/input` | http | Literal input to a session. |

@@ -262,28 +262,43 @@ describe('timeline history', () => {
     expect(page.hasMoreBefore).toBe(false)
   })
 
-  it('queries messages with sessionRef and beforeMessageSeq', async () => {
+  it('queries ledger envelopes with beforeMessageSeq and never reads HRC messages', async () => {
     const client = createMockClient({
       eventPages: [[], []],
       messagePages: [[message(12), message(11)], [message(10)]],
     })
+    let ledgerCalls = 0
+    const ledger: CollaborationLedger = {
+      async listMessagesByMember() {
+        ledgerCalls += 1
+        return {
+          messages:
+            ledgerCalls === 1
+              ? [collaborationMessage(12), collaborationMessage(11)]
+              : [collaborationMessage(10)],
+        }
+      },
+      async listMessagesByRoom() {
+        return { messages: [] }
+      },
+      async say() {
+        throw new Error('say is not used by history')
+      },
+    }
 
     const page = await getTimelineHistoryPage(
       client,
-      historyUrl(`sessionRef=${encodeURIComponent(SESSION_REF)}&beforeMessageSeq=13&limit=2`)
+      historyUrl(`sessionRef=${encodeURIComponent(SESSION_REF)}&beforeMessageSeq=13&limit=2`),
+      ledger
     )
 
     expect(page.oldestCursor.messageSeq).toBe(11)
     expect(page.newestCursor.messageSeq).toBe(12)
     expect(page.hasMoreBefore).toBe(true)
-    expect(client.messageCalls[0]).toEqual({
-      hostSessionId: 'host-main',
-      generation: 1,
-      order: 'desc',
-    })
+    expect(client.messageCalls).toEqual([])
   })
 
-  it('reads room envelopes first, renders room + sender, and suppresses correlated HRC fallback', async () => {
+  it('renders room envelopes with room + sender and ignores frozen HRC history', async () => {
     const client = createMockClient({
       eventPages: [[], []],
       messagePages: [[message(12)], []],
@@ -326,6 +341,7 @@ describe('timeline history', () => {
       ],
     })
     expect(page.frames.some((frame) => frame.frameId === 'message:msg-12')).toBe(false)
+    expect(client.messageCalls).toEqual([])
   })
 
   it('filters history by hostSessionId when sibling generations share a sessionRef', async () => {
@@ -354,7 +370,7 @@ describe('timeline history', () => {
     expect(page.frames.some((frame) => frame.lastHrcSeq === 501)).toBe(true)
     expect(page.frames.some((frame) => frame.lastHrcSeq === 502)).toBe(false)
     expect(client.watchCalls[0]).toMatchObject({ hostSessionId: 'host-main', generation: 1 })
-    expect(client.messageCalls[0]).toMatchObject({ hostSessionId: 'host-main', generation: 1 })
+    expect(client.messageCalls).toEqual([])
   })
 
   it('resolves absent hostSessionId to active latest generation for that sessionRef', async () => {
@@ -380,7 +396,7 @@ describe('timeline history', () => {
     )
 
     expect(client.watchCalls[0]).toMatchObject({ hostSessionId: 'host-latest', generation: 3 })
-    expect(client.messageCalls[0]).toMatchObject({ hostSessionId: 'host-latest', generation: 3 })
+    expect(client.messageCalls).toEqual([])
     expect(page.frames.map((frame) => frame.lastHrcSeq)).toEqual([602])
   })
 
