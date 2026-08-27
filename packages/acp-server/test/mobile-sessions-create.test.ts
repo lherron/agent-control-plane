@@ -7,10 +7,8 @@ import type { AcpHrcClient } from '../src/deps.js'
 import {
   buildMobileStartRequest,
   deriveMobileSessionIdempotencyKey,
-  resolveConfiguredMobileViewerWindow,
   resolveMobileConflictPolicy,
   resolveMobileTaskId,
-  resolveMobileViewerWindow,
 } from '../src/handlers/mobile-sessions-create.js'
 
 import { withWiredServer } from './fixtures/wired-server.js'
@@ -83,16 +81,6 @@ describe('mobile session idempotency and viewer defaults', () => {
     expect(first).not.toBe(nextPress)
     expect(first).toMatch(/^acp-mobile-session:v1:[a-f0-9]{64}$/)
     expect(first).not.toContain(REQUEST_ID)
-  })
-
-  test('uses request override, configured default, then console fallback', () => {
-    expect(resolveMobileViewerWindow('operator-window', 'console-alt')).toBe('operator-window')
-    expect(resolveMobileViewerWindow(undefined, 'console-alt')).toBe('console-alt')
-    expect(resolveConfiguredMobileViewerWindow({})).toBe('console')
-    expect(resolveConfiguredMobileViewerWindow({ ACP_MOBILE_VIEWER_WINDOW: 'console-alt' })).toBe(
-      'console-alt'
-    )
-    expect(resolveConfiguredMobileViewerWindow({ ACP_MOBILE_VIEWER_WINDOW: '  ' })).toBe('console')
   })
 
   test('defaults legacy requests to primary and trims explicit scopes', () => {
@@ -217,6 +205,33 @@ describe('POST /v1/mobile/sessions', () => {
           },
         })
         expect('hostSessionId' in (starts[0] as unknown as Record<string, unknown>)).toBe(false)
+      },
+      { hrcClient, runtimeResolver }
+    )
+  })
+
+  /**
+   * T-07603 removed the service-default window key. ACP no longer names a window
+   * at all: HRC derives placement from scope shape, so a mobile `:primary` session
+   * reaches the operator's interactive window with NO hint on the wire. The
+   * explicit-hint case above is the complement — a client-supplied key is still
+   * forwarded and still overrides the derived placement.
+   */
+  test('sends NO presentation hint when the client does not ask for a window', async () => {
+    const starts: StartRuntimeRequest[] = []
+    const hrcClient = createHrcClient({ onStart: (request) => starts.push(request) })
+
+    await withWiredServer(
+      async ({ request }) => {
+        const response = await request({
+          method: 'POST',
+          path: '/v1/mobile/sessions',
+          body: { agentId: 'mable', projectId: 'hrc-runtime', requestId: REQUEST_ID },
+        })
+
+        expect(response.status).toBe(200)
+        expect(starts).toHaveLength(1)
+        expect(starts[0]?.runtimeIntent).not.toHaveProperty('presentation')
       },
       { hrcClient, runtimeResolver }
     )

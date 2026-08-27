@@ -22,8 +22,6 @@ import {
 } from '../parsers/body.js'
 import type { RouteHandler } from '../routing/route-context.js'
 
-const DEFAULT_MOBILE_VIEWER_WINDOW = 'console'
-const MOBILE_VIEWER_WINDOW_ENV = 'ACP_MOBILE_VIEWER_WINDOW'
 const IDEMPOTENCY_KEY_PREFIX = 'acp-mobile-session:v1:'
 const DEFAULT_MOBILE_TASK_ID = 'primary'
 const ALLOWED_FIELDS = new Set(['agentId', 'projectId', 'taskId', 'viewerWindow', 'requestId'])
@@ -62,22 +60,6 @@ function assertAllowedFields(body: Record<string, unknown>): void {
 export function deriveMobileSessionIdempotencyKey(requestId: string): string {
   const digest = createHash('sha256').update(requestId, 'utf8').digest('hex')
   return `${IDEMPOTENCY_KEY_PREFIX}${digest}`
-}
-
-export function resolveConfiguredMobileViewerWindow(env: NodeJS.ProcessEnv = process.env): string {
-  return env[MOBILE_VIEWER_WINDOW_ENV]?.trim() || DEFAULT_MOBILE_VIEWER_WINDOW
-}
-
-// Deployment configuration is captured once when acp-server loads. It is not
-// re-read from ambient process state per request: request intent comes only from
-// the explicit viewerWindow field, while this value is the stable service default.
-const CONFIGURED_MOBILE_VIEWER_WINDOW = resolveConfiguredMobileViewerWindow()
-
-export function resolveMobileViewerWindow(
-  requested: string | undefined,
-  configuredDefault = CONFIGURED_MOBILE_VIEWER_WINDOW
-): string {
-  return requested ?? configuredDefault
 }
 
 /**
@@ -188,9 +170,11 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
   const projectId = requireTrimmedStringField(body, 'projectId')
   const requestId = requireTrimmedStringField(body, 'requestId')
   const taskId = resolveMobileTaskId(body)
-  const viewerWindow = resolveMobileViewerWindow(
-    readOptionalTrimmedStringField(body, 'viewerWindow')
-  )
+  // T-07603: no service default. HRC derives placement from scope shape, so a
+  // mobile session lands in the operator's interactive window without ACP naming
+  // a window at all. An explicit client-supplied key is still forwarded and still
+  // overrides the derived placement.
+  const viewerWindow = readOptionalTrimmedStringField(body, 'viewerWindow')
 
   const baseScopeRef = buildScopeRef({ agentId, projectId, taskId })
   // parseScopeRef is the token/grammar validation boundary for the separate
@@ -213,7 +197,7 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
     ...baseIntent,
     harness: inferredIntent.harness,
     execution: inferredIntent.execution,
-    presentation: { viewerWindow },
+    ...(viewerWindow !== undefined ? { presentation: { viewerWindow } } : {}),
   }
 
   const conflictPolicy = resolveMobileConflictPolicy(taskId)
