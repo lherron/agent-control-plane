@@ -319,7 +319,6 @@
     },
   },
   "overrides": {
-    "@wrkq/client": "0.1.0-dev.20260827132122",
     "agent-action-render": "0.1.0-dev.20260825215557",
     "agent-scope": "0.1.1-dev.20260825213756",
     "agent-spaces": "0.1.1-dev.20260825213756",
@@ -789,7 +788,7 @@
 
     "@vladfrangu/async_event_emitter": ["@vladfrangu/async_event_emitter@2.4.7", "http://mini:4873/@vladfrangu/async_event_emitter/-/async_event_emitter-2.4.7.tgz", {}, "sha512-Xfe6rpCTxSxfbswi/W/Pz7zp1WWSNn4A0eW4mLkQUewCrXXtMj31lCg+iQyTkh/CkusZSq9eDflu7tjEDXUY6g=="],
 
-    "@wrkq/client": ["@wrkq/client@0.1.0-dev.20260827132122", "http://mini:4873/@wrkq/client/-/client-0.1.0-dev.20260827132122.tgz", {}, "sha512-3jPiG8GilkNF5d78/WBe9IDDUWMqPhLfhZ2GT9/ODNbPV/gC680V9+OsJtTDviOPjTIfKoAitl8lua7ezrmrMg=="],
+    "@wrkq/client": ["@wrkq/client@0.1.0-dev.20260827143050", "http://mini:4873/@wrkq/client/-/client-0.1.0-dev.20260827143050.tgz", {}, "sha512-TA5CW0ejE79aM6JXe8H3gXGMenj1ZD9ib1UUyg51A368CV/Lwfd/hZati4phVTwT8AXENjIz6gtwifr36vlvKg=="],
 
     "acp-admin-store": ["acp-admin-store@workspace:packages/acp-admin-store"],
 

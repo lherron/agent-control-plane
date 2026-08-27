@@ -32,17 +32,17 @@ describe('wrkq locator static surfaces', () => {
     }
   })
 
-  test('manifests stay on latest while lockfile and install resolve the required client snapshot', () => {
-    // Single source of truth: the root override is the only place the pinned
-    // snapshot is written, so a bump is one edit.
+  test('manifests stay on latest while lockfile and install agree on the resolved client snapshot', () => {
     const rootManifest = JSON.parse(readRepoFile('package.json')) as {
       overrides?: Record<string, string>
     }
-    const requiredVersion = rootManifest.overrides?.['@wrkq/client']
-    expect(requiredVersion, 'root package.json overrides["@wrkq/client"]').toMatch(
-      /^\d+\.\d+\.\d+-dev\.\d+$/
-    )
-    const manifestPaths = ['packages/acp-server/package.json', 'packages/wrkq-lib/package.json']
+    expect(rootManifest.overrides?.['@wrkq/client']).toBeUndefined()
+    const manifestPaths = [
+      'packages/acp-cli/package.json',
+      'packages/acp-server/package.json',
+      'packages/gateway-ios/package.json',
+      'packages/wrkq-lib/package.json',
+    ]
 
     for (const path of manifestPaths) {
       const manifest = JSON.parse(readRepoFile(path)) as {
@@ -51,10 +51,13 @@ describe('wrkq locator static surfaces', () => {
       expect(manifest.dependencies?.['@wrkq/client'], path).toBe('latest')
     }
 
-    expect(readRepoFile('bun.lock')).toContain(`@wrkq/client@${requiredVersion}`)
+    const lockedVersion = readRepoFile('bun.lock').match(
+      /"@wrkq\/client": \["@wrkq\/client@(\d+\.\d+\.\d+-dev\.\d+)"/
+    )?.[1]
+    expect(lockedVersion, 'bun.lock @wrkq/client resolution').toMatch(/^\d+\.\d+\.\d+-dev\.\d+$/)
     const installed = JSON.parse(readRepoFile('node_modules/@wrkq/client/package.json')) as {
       version: string
     }
-    expect(installed.version).toBe(requiredVersion)
+    expect(installed.version).toBe(lockedVersion)
   })
 })
