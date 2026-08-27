@@ -121,11 +121,14 @@ EOF
 # daemon has a locator that is not the canonical ~/praesidium/var/db/wrkq.db.
 provision_wrkq_db() {
   mkdir -p "${DB_DIR}"
-  if [[ -f "${WRKQ_DB_FILE}" ]]; then
-    return 0
+  if [[ ! -f "${WRKQ_DB_FILE}" ]]; then
+    log "initializing ephemeral wrkq db (${WRKQ_DB_FILE})"
+    "${WRKQADM_BIN:-wrkqadm}" --db "${WRKQ_DB_FILE}" init >/dev/null
   fi
-  log "initializing ephemeral wrkq db (${WRKQ_DB_FILE})"
-  "${WRKQADM_BIN:-wrkqadm}" --db "${WRKQ_DB_FILE}" init >/dev/null
+  # env-up is reusable across dependency bumps. An existing ephemeral DB may
+  # predate the currently installed wrkq binary, so initialization alone is
+  # insufficient: always apply any pending migrations before ACP opens it.
+  "${WRKQADM_BIN:-wrkqadm}" --db "${WRKQ_DB_FILE}" migrate >/dev/null
 }
 
 # Local wrkf RPC now fails closed unless its hook authority is explicit. The

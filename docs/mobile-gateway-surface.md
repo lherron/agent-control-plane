@@ -176,9 +176,13 @@ federation Phase 1" — only local-session control is live today.
 
 `gateway-ios` is a **separate, standalone process** — `bun run packages/gateway-ios/src/main.ts` — that binds its own port
 (`ACP_IOS_GATEWAY_HOST`/`ACP_IOS_GATEWAY_PORT`, default
-`127.0.0.1:18480`) and talks **directly to the HRC control socket**
-(`HRC_SOCKET_PATH` / `HRC_CONTROL_SOCKET`) via `HrcClient` — it does not go
-through `acp-server` or ACP's own HTTP routes at all. It is not booted by
+`127.0.0.1:18480`). Lifecycle/live-delivery data comes directly from the HRC
+control socket (`HRC_SOCKET_PATH` / `HRC_CONTROL_SOCKET`), while durable room
+history comes from wrkq through `@wrkq/client` (`ACP_WRKQ_DB` / `WRKQ_DB`,
+with the legacy path variables accepted). During the rooms burn-in window,
+history is ledger-first with the frozen HRC message store retained as the
+lookback fallback. The process does not go through `acp-server` or ACP's own
+HTTP routes. It is not booted by
 `acp server start`/`restart`; nothing in `server-runtime.ts` references it.
 
 Route surface (`packages/gateway-ios/src/routes.ts`):
@@ -222,6 +226,6 @@ iOS app today is `/v1/mobile/*` on `acp-server` (surface 1 above).
 
 - Building or debugging the real mobile app integration → `/v1/mobile/*` on
   `:18470` (surface 1).
-- Poking at raw HRC session/timeline/diagnostics data with a lighter,
-  directly-HRC-backed surface → `gateway-ios` standalone on `:18480`
+- Poking at raw HRC session/diagnostics data and ledger-backed collaboration
+  history with a lighter standalone surface → `gateway-ios` on `:18480`
   (surface 2), keeping in mind the open caveats above.

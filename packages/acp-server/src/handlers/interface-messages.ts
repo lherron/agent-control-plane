@@ -225,6 +225,7 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
   const inputActor = { kind: 'human' as const, id: source.authorRef }
   const timestamp = new Date().toISOString()
   const parsedScope = parseScopeRef(sessionRef.scopeRef)
+  const clientIdempotencyKey = readOptionalTrimmedStringField(body, 'idempotencyKey')
   const inputMetadata = {
     interfaceSource: {
       gatewayId: source.gatewayId,
@@ -234,9 +235,7 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
       messageRef: source.messageRef,
       authorRef: source.authorRef,
       replyToMessageRef: source.messageRef,
-      ...(readOptionalTrimmedStringField(body, 'idempotencyKey') !== undefined
-        ? { clientIdempotencyKey: readOptionalTrimmedStringField(body, 'idempotencyKey') }
-        : {}),
+      ...(clientIdempotencyKey !== undefined ? { clientIdempotencyKey } : {}),
     },
     ...(attachments !== undefined ? { attachments } : {}),
   } satisfies Readonly<Record<string, unknown>>

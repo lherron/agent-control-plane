@@ -16,7 +16,8 @@
  * NEVER rename eventKinds or invent new categories.
  */
 
-import type { HrcLifecycleEvent } from 'hrc-core'
+import type { HrcLifecycleEvent, HrcMessageAddress, HrcMessageRecord } from 'hrc-core'
+import { type CollaborationMessage, formatCollaborationMessage } from 'wrkq-lib'
 
 import type {
   FrameAction,
@@ -648,27 +649,123 @@ function reduceEvent(state: ReducerState, event: HrcLifecycleEvent): FrameUpdate
 }
 
 // ---------------------------------------------------------------------------
-// Core reducer: process a single hrcchat message
+// Core reducer: process one durable collaboration message
 // ---------------------------------------------------------------------------
 
-/**
- * Reduce a single hrcchat message.
- *
- * Deliberate high-water-only sink: messages do NOT currently produce frames.
- * The `'message'` ReducerInput variant exists so the projector/history/pump can
- * carry messages through the pipeline, but the only state this arm mutates is
- * `highWaterMessageSeq` (for cursor advancement). It intentionally ignores the
- * message body/id/createdAt and always returns a no-op. Do not assume a frame
- * is produced from a message here.
- */
-function reduceMessage(
-  state: ReducerState,
-  message: { messageSeq: number; messageId: string; body: string; createdAt: string }
-): FrameUpdate[] {
-  if (message.messageSeq > state.highWaterMessageSeq) {
-    state.highWaterMessageSeq = message.messageSeq
+function messageAddressSessionRef(address: HrcMessageAddress): string | undefined {
+  return address.kind === 'session' ? address.sessionRef : undefined
+}
+
+function messageSessionRef(message: HrcMessageRecord): string {
+  return (
+    message.execution.sessionRef ??
+    messageAddressSessionRef(message.to) ??
+    messageAddressSessionRef(message.from) ??
+    'agent:unknown/lane:main'
+  )
+}
+
+function messageFrameKind(message: HrcMessageRecord): 'user_prompt' | 'assistant_message' {
+  if (
+    message.phase === 'response' ||
+    (message.to.kind === 'entity' && message.to.entity === 'human')
+  ) {
+    return 'assistant_message'
   }
-  return [{ action: 'noop' }]
+  return 'user_prompt'
+}
+
+/**
+ * Reduce a durable message into a visible mobile frame.
+ *
+ * Both the wrkq room-envelope arm and the frozen HRC fallback use this frame
+ * constructor during burn-in, keeping cursor/idempotency behavior identical.
+ */
+function createDurableMessageFrame(input: {
+  state: ReducerState
+  messageId: string
+  messageSeq: number
+  sessionRef: string
+  frameKind: 'user_prompt' | 'assistant_message'
+  body: string
+  createdAt: string
+  payload: Record<string, unknown>
+  runId?: string | undefined
+}): FrameUpdate[] {
+  const { state } = input
+  if (input.messageSeq > state.highWaterMessageSeq) {
+    state.highWaterMessageSeq = input.messageSeq
+  }
+
+  const key = `message:${input.messageId}`
+  if (state.frames.has(key)) {
+    return [{ action: 'noop' }]
+  }
+
+  const frame: TimelineFrame = {
+    frameId: key,
+    frameSeq: state.nextFrameSeq++,
+    lastHrcSeq: 0,
+    lastMessageSeq: input.messageSeq,
+    sessionRef: input.sessionRef,
+    mode: 'interactive',
+    frameKind: input.frameKind,
+    sourceEvents: [],
+    blocks: [{ kind: 'markdown', text: input.body, payload: input.payload }],
+    actions: [],
+    ...(input.runId !== undefined ? { runId: input.runId } : {}),
+    ts: input.createdAt,
+  }
+  state.frames.set(key, { frame, appliedHrcSeqs: new Set() })
+  return [{ action: 'create', frame }]
+}
+
+function reduceMessage(state: ReducerState, message: HrcMessageRecord): FrameUpdate[] {
+  return createDurableMessageFrame({
+    state,
+    messageId: message.messageId,
+    messageSeq: message.messageSeq,
+    sessionRef: messageSessionRef(message),
+    frameKind: messageFrameKind(message),
+    body: message.body,
+    createdAt: message.createdAt,
+    payload: { messageId: message.messageId, from: message.from, to: message.to },
+    ...(message.execution.runId !== undefined ? { runId: message.execution.runId } : {}),
+  })
+}
+
+function collaborationFrameKind(
+  message: CollaborationMessage,
+  memberRef: string
+): 'user_prompt' | 'assistant_message' {
+  return message.recipient?.scopeRef === memberRef || message.sender.principalRef === 'agent:lance'
+    ? 'user_prompt'
+    : 'assistant_message'
+}
+
+function reduceCollaborationMessage(
+  state: ReducerState,
+  message: CollaborationMessage,
+  sessionRef: string,
+  memberRef: string
+): FrameUpdate[] {
+  return createDurableMessageFrame({
+    state,
+    messageId: message.messageId,
+    messageSeq: message.messageSeq,
+    sessionRef,
+    frameKind: collaborationFrameKind(message, memberRef),
+    body: formatCollaborationMessage(message),
+    createdAt: message.createdAt,
+    payload: {
+      envelopeId: message.messageId,
+      roomKey: message.roomKey,
+      sender: message.sender,
+      recipient: message.recipient,
+      obligation: message.obligation,
+      state: message.state,
+    },
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -696,6 +793,14 @@ export function reduce(state: ReducerState, input: ReducerInput): ReducerResult 
       break
     case 'message':
       frameUpdates = reduceMessage(state, input.message)
+      break
+    case 'collaboration':
+      frameUpdates = reduceCollaborationMessage(
+        state,
+        input.message,
+        input.sessionRef,
+        input.memberRef
+      )
       break
     default: {
       const _exhaustive: never = input

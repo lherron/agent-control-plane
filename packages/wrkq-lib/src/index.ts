@@ -5,3 +5,17 @@ export type {
   WrkqTaskCreateOrFindInput,
   WrkqTaskCreateOrFindResult,
 } from './create-or-find.js'
+export {
+  HRC_COLLABORATION_FALLBACK_DURING_BURN_IN,
+  collaborationMessageSeq,
+  createCollaborationLedger,
+  formatCollaborationMessage,
+} from './collaboration.js'
+export type {
+  CollaborationAddress,
+  CollaborationLedger,
+  CollaborationMessage,
+  CollaborationMessageList,
+  CollaborationSayInput,
+  CollaborationSayReceipt,
+} from './collaboration.js'

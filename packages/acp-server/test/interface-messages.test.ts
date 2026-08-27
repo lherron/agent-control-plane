@@ -5,10 +5,85 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createInMemoryAdminStore } from 'acp-admin-store'
 import type { HrcRuntimeIntent } from 'hrc-core'
+import type { CollaborationLedger, CollaborationSayInput } from 'wrkq-lib'
 
 import { withWiredServer } from './fixtures/wired-server.js'
 
 describe('POST /v1/interface/messages', () => {
+  test('records Discord ingress as an exact-principal human say before HRC delivery', async () => {
+    const principals: string[] = []
+    const says: CollaborationSayInput[] = []
+    const ledger: CollaborationLedger = {
+      async listMessagesByMember() {
+        return { messages: [] }
+      },
+      async listMessagesByRoom() {
+        return { messages: [] }
+      },
+      async say(input) {
+        says.push(input)
+        return { roomKey: input.ref, groupId: 'EN-00001', envelopes: [] }
+      },
+    }
+
+    await withWiredServer(
+      async (fixture) => {
+        fixture.interfaceStore.bindings.create({
+          bindingId: 'ifb_ledger',
+          gatewayId: 'discord_prod',
+          conversationRef: 'channel:ledger',
+          scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
+          laneRef: 'main',
+          projectId: fixture.seed.projectId,
+          status: 'active',
+          createdAt: '2026-08-27T17:00:00.000Z',
+          updatedAt: '2026-08-27T17:00:00.000Z',
+        })
+
+        const response = await fixture.request({
+          method: 'POST',
+          path: '/v1/interface/messages',
+          body: {
+            idempotencyKey: 'discord:message:ledger-1',
+            source: {
+              gatewayId: 'discord_prod',
+              conversationRef: 'channel:ledger',
+              messageRef: 'discord:message:ledger-1',
+              authorRef: 'discord:user:lance',
+            },
+            content: 'Render this from the collaboration room.',
+          },
+        })
+
+        expect(response.status).toBe(201)
+        expect(principals).toEqual(['agent:lance'])
+        expect(says).toEqual([
+          {
+            ref: `curly@${fixture.seed.projectId}`,
+            to: [`curly@${fixture.seed.projectId}`],
+            body: 'Render this from the collaboration room.',
+            idempotencyKey: 'interface:discord_prod:discord:message:ledger-1',
+          },
+        ])
+      },
+      {
+        collaborationLedgerForPrincipal: async (principalRef) => {
+          principals.push(principalRef)
+          return ledger
+        },
+        runtimeResolver: async () => ({
+          agentRoot: '/tmp/agents/curly',
+          projectRoot: '/tmp/project',
+          cwd: '/tmp/project',
+          runMode: 'task',
+          bundle: { kind: 'compose', compose: [] },
+          harness: { provider: 'openai', interactive: true },
+        }),
+        launchRoleScopedRun: async () => ({ runId: 'launch-ledger', sessionId: 'session-ledger' }),
+      }
+    )
+  })
+
   test('uses the registered project root for project-scoped interface dispatch', async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'acp-interface-placement-'))
     const adminStore = createInMemoryAdminStore()

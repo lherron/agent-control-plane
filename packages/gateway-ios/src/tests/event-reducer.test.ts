@@ -762,11 +762,11 @@ describe('event-reducer: unknown events', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Message inputs are handled (noop for MVP)
+// Durable collaboration messages are visible timeline frames
 // ---------------------------------------------------------------------------
 
 describe('event-reducer: message inputs', () => {
-  it('hrcchat message input produces noop for MVP', () => {
+  it('message input produces a visible frame and advances the message cursor', () => {
     const state = createReducerState()
     const msgInput: ReducerInput = {
       kind: 'message',
@@ -787,8 +787,79 @@ describe('event-reducer: message inputs', () => {
 
     const result = reduce(state, msgInput)
     expect(result.frameUpdates.length).toBe(1)
-    expect(result.frameUpdates[0]!.action).toBe('noop')
+    expect(result.frameUpdates[0]!.action).toBe('create')
+    expect(result.frameUpdates[0]).toMatchObject({
+      frame: {
+        frameId: 'message:msg-chat-001',
+        frameKind: 'user_prompt',
+        lastMessageSeq: 42,
+        blocks: [{ kind: 'markdown', text: 'Hello!' }],
+      },
+    })
     expect(result.state.highWaterMessageSeq).toBe(42)
+  })
+
+  it('deduplicates replay of the same durable message id', () => {
+    const state = createReducerState()
+    const message: ReducerInput = {
+      kind: 'message',
+      message: {
+        messageSeq: 43,
+        messageId: 'EN-00043',
+        createdAt: '2026-08-27T17:00:00.000Z',
+        kind: 'dm',
+        phase: 'response',
+        from: { kind: 'session', sessionRef: 'agent:cody:project:test/lane:main' },
+        to: { kind: 'entity', entity: 'human' },
+        rootMessageId: 'EN-00043',
+        body: '[T-07614 · cody@test:T-07614]\nLedger reply',
+        bodyFormat: 'text/plain',
+        execution: { state: 'not_applicable' },
+      },
+    }
+
+    expect(reduce(state, message).frameUpdates[0]?.action).toBe('create')
+    expect(reduce(state, message).frameUpdates[0]?.action).toBe('noop')
+    expect(state.frames.size).toBe(1)
+  })
+
+  it('renders a wrkq room envelope with room key and sender', () => {
+    const state = createReducerState()
+    const result = reduce(state, {
+      kind: 'collaboration',
+      sessionRef: 'agent:cody:project:agent-control-plane:task:T-07614/lane:main',
+      memberRef: 'cody@agent-control-plane:T-07614',
+      message: {
+        messageId: 'EN-00044',
+        messageSeq: 44,
+        roomKey: 'T-07614',
+        groupId: 'EN-00044',
+        sender: { principalRef: 'agent:lance' },
+        recipient: {
+          principalRef: 'agent:cody',
+          scopeRef: 'cody@agent-control-plane:T-07614',
+        },
+        obligation: 'reply_required',
+        state: 'presented',
+        body: 'Please verify the mobile timeline.',
+        taskId: 'T-07614',
+        createdAt: '2026-08-27T17:00:00.000Z',
+        updatedAt: '2026-08-27T17:00:01.000Z',
+      },
+    })
+
+    expect(result.frameUpdates[0]).toMatchObject({
+      action: 'create',
+      frame: {
+        frameKind: 'user_prompt',
+        blocks: [
+          {
+            text: '[T-07614 · agent:lance]\nPlease verify the mobile timeline.',
+            payload: { roomKey: 'T-07614', envelopeId: 'EN-00044' },
+          },
+        ],
+      },
+    })
   })
 })
 

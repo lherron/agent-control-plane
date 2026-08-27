@@ -24,7 +24,7 @@ import type {
 import type { HrcClient } from 'hrc-sdk'
 import type { AspcService } from 'spaces-aspc'
 import type { UnifiedSessionEvent } from 'spaces-runtime'
-import type { WrkqStoreAdapter } from 'wrkq-lib'
+import type { CollaborationLedger, WrkqStoreAdapter } from 'wrkq-lib'
 
 import {
   InMemoryInputAdmissionStore,
@@ -247,6 +247,14 @@ export interface AcpServerDeps {
   inputQueuePolicy?: InputQueuePolicy | undefined
   agentAssetsDir?: string | undefined
   workClient?: WorkClient | undefined
+  /** Exact-principal wrkq connection for collaboration mutations. */
+  workClientForPrincipal?: ((principalRef: string) => Promise<WorkClient>) | undefined
+  /** Ledger-first collaboration read port. */
+  collaborationLedger?: CollaborationLedger | undefined
+  /** Exact-principal collaboration mutation port. */
+  collaborationLedgerForPrincipal?:
+    | ((principalRef: string) => Promise<CollaborationLedger>)
+    | undefined
   wrkf?: AcpWrkfWorkflowPort | undefined
   pbcIdempotencyStore?: WrkfRouteIdempotencyStore | undefined
   pbcCaptureStore?: WrkfParticipantCaptureStore | undefined
@@ -274,6 +282,11 @@ export interface ResolvedAcpServerDeps extends AcpServerDeps {
   inputQueuePolicy: InputQueuePolicy
   nativeStepExecutor?: Omit<NativeStepExecutorDeps, 'store'> | undefined
   workClient?: WorkClient | undefined
+  workClientForPrincipal?: ((principalRef: string) => Promise<WorkClient>) | undefined
+  collaborationLedger?: CollaborationLedger | undefined
+  collaborationLedgerForPrincipal?:
+    | ((principalRef: string) => Promise<CollaborationLedger>)
+    | undefined
   wrkf: AcpWrkfWorkflowPort | undefined
   pbcIdempotencyStore: WrkfRouteIdempotencyStore
   pbcCaptureStore: WrkfParticipantCaptureStore
@@ -334,6 +347,15 @@ export function resolveAcpServerDeps(deps: AcpServerDeps): ResolvedAcpServerDeps
       ? { nativeStepExecutor: deps.nativeStepExecutor }
       : {}),
     ...(deps.workClient !== undefined ? { workClient: deps.workClient } : {}),
+    ...(deps.workClientForPrincipal !== undefined
+      ? { workClientForPrincipal: deps.workClientForPrincipal }
+      : {}),
+    ...(deps.collaborationLedger !== undefined
+      ? { collaborationLedger: deps.collaborationLedger }
+      : {}),
+    ...(deps.collaborationLedgerForPrincipal !== undefined
+      ? { collaborationLedgerForPrincipal: deps.collaborationLedgerForPrincipal }
+      : {}),
     wrkf: deps.wrkf,
     pbcIdempotencyStore:
       deps.pbcIdempotencyStore ??

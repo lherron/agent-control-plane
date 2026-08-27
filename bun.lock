@@ -280,9 +280,11 @@
         "gateway-ios": "./src/main.ts",
       },
       "dependencies": {
+        "@wrkq/client": "latest",
         "agent-scope": "latest",
         "hrc-core": "latest",
         "hrc-sdk": "latest",
+        "wrkq-lib": "*",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -317,7 +319,7 @@
     },
   },
   "overrides": {
-    "@wrkq/client": "0.1.0-dev.20260823154156",
+    "@wrkq/client": "0.1.0-dev.20260827132122",
     "agent-action-render": "0.1.0-dev.20260825215557",
     "agent-scope": "0.1.1-dev.20260825213756",
     "agent-spaces": "0.1.1-dev.20260825213756",
@@ -787,7 +789,7 @@
 
     "@vladfrangu/async_event_emitter": ["@vladfrangu/async_event_emitter@2.4.7", "http://mini:4873/@vladfrangu/async_event_emitter/-/async_event_emitter-2.4.7.tgz", {}, "sha512-Xfe6rpCTxSxfbswi/W/Pz7zp1WWSNn4A0eW4mLkQUewCrXXtMj31lCg+iQyTkh/CkusZSq9eDflu7tjEDXUY6g=="],
 
-    "@wrkq/client": ["@wrkq/client@0.1.0-dev.20260823154156", "http://mini:4873/@wrkq/client/-/client-0.1.0-dev.20260823154156.tgz", {}, "sha512-9gs6jLDC5xtLMRTjcGmPSsu0l2F97vU3SRcaxTk91fATjreVjypzRbP/E/ayarGO3SbJ1I9yEzotuxZN4WUJzw=="],
+    "@wrkq/client": ["@wrkq/client@0.1.0-dev.20260827132122", "http://mini:4873/@wrkq/client/-/client-0.1.0-dev.20260827132122.tgz", {}, "sha512-3jPiG8GilkNF5d78/WBe9IDDUWMqPhLfhZ2GT9/ODNbPV/gC680V9+OsJtTDviOPjTIfKoAitl8lua7ezrmrMg=="],
 
     "acp-admin-store": ["acp-admin-store@workspace:packages/acp-admin-store"],
 

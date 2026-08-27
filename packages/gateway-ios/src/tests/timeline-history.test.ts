@@ -5,6 +5,7 @@ import type {
   HrcMessageRecord,
   HrcSessionRecord,
 } from 'hrc-core'
+import type { CollaborationLedger, CollaborationMessage } from 'wrkq-lib'
 
 import { createGatewayIosFetchHandler } from '../routes.js'
 import { type TimelineHistoryClient, getTimelineHistoryPage } from '../timeline-history.js'
@@ -122,6 +123,28 @@ function createMockClient(input: {
 
 function historyUrl(query: string): URL {
   return new URL(`http://gateway.test/v1/history?${query}`)
+}
+
+function collaborationMessage(
+  messageSeq: number,
+  overrides: Partial<CollaborationMessage> = {}
+): CollaborationMessage {
+  const messageId = `EN-${String(messageSeq).padStart(5, '0')}`
+  return {
+    messageId,
+    messageSeq,
+    roomKey: 'T-01332',
+    groupId: messageId,
+    sender: { principalRef: 'agent:lance' },
+    recipient: { principalRef: 'agent:larry', scopeRef: 'larry@agent-spaces:T-01332' },
+    obligation: 'reply_required',
+    state: 'presented',
+    body: `ledger body ${messageSeq}`,
+    taskId: 'T-01332',
+    createdAt: `2026-04-30T10:02:${String(messageSeq % 60).padStart(2, '0')}.000Z`,
+    updatedAt: `2026-04-30T10:02:${String(messageSeq % 60).padStart(2, '0')}.000Z`,
+    ...overrides,
+  }
 }
 
 describe('timeline history', () => {
@@ -258,6 +281,51 @@ describe('timeline history', () => {
       generation: 1,
       order: 'desc',
     })
+  })
+
+  it('reads room envelopes first, renders room + sender, and suppresses correlated HRC fallback', async () => {
+    const client = createMockClient({
+      eventPages: [[], []],
+      messagePages: [[message(12)], []],
+    })
+    const ledgerCalls: Array<{ memberRef: string; beforeMessageSeq?: number; limit?: number }> = []
+    const ledgerMessage = collaborationMessage(13, { legacyMessageId: 'msg-12' })
+    const ledger: CollaborationLedger = {
+      async listMessagesByMember(input) {
+        ledgerCalls.push(input)
+        return { messages: ledgerCalls.length === 1 ? [ledgerMessage] : [] }
+      },
+      async listMessagesByRoom() {
+        return { messages: [] }
+      },
+      async say() {
+        throw new Error('say is not used by history')
+      },
+    }
+
+    const page = await getTimelineHistoryPage(
+      client,
+      historyUrl(`sessionRef=${encodeURIComponent(SESSION_REF)}&limit=10`),
+      ledger
+    )
+
+    expect(ledgerCalls[0]).toEqual({
+      memberRef: 'larry@agent-spaces:T-01332',
+      presentToPrincipalRef: 'agent:lance',
+      limit: 10,
+    })
+    expect(page.frames).toHaveLength(1)
+    expect(page.frames[0]).toMatchObject({
+      frameId: 'message:EN-00013',
+      frameKind: 'user_prompt',
+      blocks: [
+        {
+          text: '[T-01332 · agent:lance]\nledger body 13',
+          payload: { roomKey: 'T-01332', envelopeId: 'EN-00013' },
+        },
+      ],
+    })
+    expect(page.frames.some((frame) => frame.frameId === 'message:msg-12')).toBe(false)
   })
 
   it('filters history by hostSessionId when sibling generations share a sessionRef', async () => {

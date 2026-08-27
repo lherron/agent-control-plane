@@ -1,5 +1,6 @@
 import type { Server, ServerWebSocket } from 'bun'
 import type { HrcClient } from 'hrc-sdk'
+import type { CollaborationLedger } from 'wrkq-lib'
 
 import type { MobileSessionSummary } from './contracts.js'
 import { type DiagnosticsWsData, createDiagnosticsWsHandler } from './diagnostics-ws.js'
@@ -58,6 +59,7 @@ export type WsData = {
 
 export type GatewayIosRouteDeps = {
   hrcClient: HrcClient
+  collaborationLedger?: CollaborationLedger | undefined
   gatewayId: string
   /** Session resolver for timeline WS. Omitted hostSessionId means active/latest for that sessionRef. */
   resolveSession?:
@@ -124,7 +126,13 @@ export function createGatewayIosRoutes(deps: GatewayIosRouteDeps): GatewayIosRou
     routes.push({
       method: 'GET',
       path: '/v1/history',
-      handle: (request) => handleHistoryRequest(request, { hrcClient: deps.hrcClient }),
+      handle: (request) =>
+        handleHistoryRequest(request, {
+          hrcClient: deps.hrcClient,
+          ...(deps.collaborationLedger !== undefined
+            ? { collaborationLedger: deps.collaborationLedger }
+            : {}),
+        }),
     })
   }
 
@@ -184,6 +192,9 @@ export function createGatewayIosWsHandlers(deps: GatewayIosRouteDeps) {
   const timelineHandler = createTimelineWsHandler({
     hrcClient: deps.hrcClient,
     historyClient: deps.hrcClient,
+    ...(deps.collaborationLedger !== undefined
+      ? { collaborationLedger: deps.collaborationLedger }
+      : {}),
     resolveSession:
       deps.resolveSession ??
       (async () => {

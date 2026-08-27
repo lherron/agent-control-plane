@@ -17,7 +17,7 @@ import { resolveControlSocketPath, resolveDatabasePath } from 'hrc-core'
 import { HrcClient } from 'hrc-sdk'
 import { createAspcService } from 'spaces-aspc'
 import { buildRuntimeBundleRef, getAgentsRoot, resolveAgentPlacementPaths } from 'spaces-config'
-import type { WrkqStoreAdapter } from 'wrkq-lib'
+import { type WrkqStoreAdapter, createCollaborationLedger } from 'wrkq-lib'
 
 import { createAccessLogger } from './access-log.js'
 import { createAcpServer } from './create-acp-server.js'
@@ -1027,6 +1027,10 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
   // derives from its single shared WorkClient (undefined when wrkf is disabled).
   // ACP no longer opens wrkq.db directly.
   const wrkqStore = wrkfLifecycle.store
+  const collaborationLedger =
+    wrkfLifecycle.client !== undefined
+      ? createCollaborationLedger(wrkfLifecycle.client, toPrincipalRef(options.actor))
+      : undefined
   const inputQueueMaxDepth = readPositiveIntegerEnv('ACP_INPUT_QUEUE_MAX_DEPTH')
   const inputQueueTtlMs = readPositiveIntegerEnv('ACP_INPUT_QUEUE_TTL_MS')
   const aspcService = createAspcService({
@@ -1059,6 +1063,18 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
       : {}),
     agentAssetsDir: options.agentAssetsDir,
     ...(wrkfLifecycle.client !== undefined ? { workClient: wrkfLifecycle.client } : {}),
+    workClientForPrincipal: (principalRef: string) =>
+      wrkfLifecycle.clientForPrincipal(principalRef),
+    ...(collaborationLedger !== undefined ? { collaborationLedger } : {}),
+    ...(wrkfLifecycle.client !== undefined
+      ? {
+          collaborationLedgerForPrincipal: async (principalRef: string) =>
+            createCollaborationLedger(
+              await wrkfLifecycle.clientForPrincipal(principalRef),
+              principalRef
+            ),
+        }
+      : {}),
     wrkf: wrkfLifecycle.wrkf,
   }
   const capabilityHost = await startAcpCapabilityHost({

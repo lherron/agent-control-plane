@@ -1,5 +1,11 @@
+import { formatScopeHandle, parseScopeRef } from 'agent-scope'
 import type { HrcLifecycleEvent, HrcMessageFilter, HrcMessageRecord } from 'hrc-core'
 import { normalizeSessionRef, splitSessionRef } from 'hrc-core'
+import {
+  type CollaborationLedger,
+  type CollaborationMessage,
+  HRC_COLLABORATION_FALLBACK_DURING_BURN_IN,
+} from 'wrkq-lib'
 
 import type { HistoryPage } from './contracts.js'
 import { projectTimeline } from './frame-projector.js'
@@ -10,6 +16,7 @@ import type { ReducerInput } from './types.js'
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 200
 const INITIAL_BEFORE_HRC_SEQ = Number.MAX_SAFE_INTEGER
+const HUMAN_COLLABORATION_PRINCIPAL = 'agent:lance'
 
 export type TimelineHistoryClient = SessionGenerationClient & {
   watch(options?: {
@@ -209,6 +216,25 @@ async function collectSessionMessagesBefore(
     .slice(0, limit)
 }
 
+async function collectCollaborationMessagesBefore(
+  collaborationLedger: CollaborationLedger | undefined,
+  query: ParsedHistoryQuery,
+  limit: number,
+  beforeMessageSeq = query.beforeMessageSeq
+): Promise<CollaborationMessage[]> {
+  if (collaborationLedger === undefined || limit <= 0 || beforeMessageSeq === 0) return []
+  const memberRef = formatScopeHandle(parseScopeRef(query.scopeRef))
+  const result = await collaborationLedger.listMessagesByMember({
+    memberRef,
+    presentToPrincipalRef: HUMAN_COLLABORATION_PRINCIPAL,
+    ...(beforeMessageSeq !== undefined ? { beforeMessageSeq } : {}),
+    limit,
+  })
+  return result.messages
+    .filter((message) => beforeMessageSeq === undefined || message.messageSeq < beforeMessageSeq)
+    .slice(0, limit)
+}
+
 function inputTimestamp(input: ReducerInput): string {
   return input.kind === 'event' ? input.event.ts : input.message.createdAt
 }
@@ -224,7 +250,7 @@ function sortChronological(a: ReducerInput, b: ReducerInput): number {
 
 function buildCursor(
   events: HrcLifecycleEvent[],
-  messages: HrcMessageRecord[]
+  messages: Array<HrcMessageRecord | CollaborationMessage>
 ): {
   oldestCursor: HistoryPage['oldestCursor']
   newestCursor: HistoryPage['newestCursor']
@@ -246,6 +272,7 @@ function buildCursor(
 
 async function hasMoreBefore(
   hrcClient: TimelineHistoryClient,
+  collaborationLedger: CollaborationLedger | undefined,
   query: ParsedHistoryQuery,
   oldestCursor: HistoryPage['oldestCursor']
 ): Promise<boolean> {
@@ -255,8 +282,19 @@ async function hasMoreBefore(
       : []
   if (olderEvents.length > 0) return true
 
-  const olderMessages =
+  const olderCollaboration =
     oldestCursor.messageSeq > 0
+      ? await collectCollaborationMessagesBefore(
+          collaborationLedger,
+          query,
+          1,
+          oldestCursor.messageSeq
+        )
+      : []
+  if (olderCollaboration.length > 0) return true
+
+  const olderMessages =
+    HRC_COLLABORATION_FALLBACK_DURING_BURN_IN && oldestCursor.messageSeq > 0
       ? await collectSessionMessagesBefore(hrcClient, query, 1, oldestCursor.messageSeq)
       : []
   return olderMessages.length > 0
@@ -279,7 +317,8 @@ export async function projectPastWindow(
     beforeHrcSeq?: number | undefined
     beforeMessageSeq?: number | undefined
     limit: number
-  }
+  },
+  collaborationLedger?: CollaborationLedger | undefined
 ): Promise<HistoryPage> {
   const resolved = await resolveSessionGeneration(hrcClient, {
     sessionRef: opts.sessionRef,
@@ -297,53 +336,89 @@ export async function projectPastWindow(
     limit: opts.limit,
   }
 
-  const [eventsDescending, messagesDescending] = await Promise.all([
+  const [eventsDescending, collaborationDescending, messagesDescending] = await Promise.all([
     collectSessionEventsBefore(hrcClient, query, query.limit),
-    collectSessionMessagesBefore(hrcClient, query, query.limit),
+    collectCollaborationMessagesBefore(collaborationLedger, query, query.limit),
+    HRC_COLLABORATION_FALLBACK_DURING_BURN_IN
+      ? collectSessionMessagesBefore(hrcClient, query, query.limit)
+      : Promise.resolve([]),
   ])
 
+  const correlatedLegacyIds = new Set(
+    collaborationDescending.flatMap((message) =>
+      message.legacyMessageId !== undefined ? [message.legacyMessageId] : []
+    )
+  )
   const events = [...eventsDescending].reverse()
-  const messages = [...messagesDescending].reverse()
+  const collaboration = [...collaborationDescending].reverse()
+  const messages = messagesDescending
+    .filter((message) => !correlatedLegacyIds.has(message.messageId))
+    .reverse()
+  const memberRef = formatScopeHandle(parseScopeRef(query.scopeRef))
   const inputs: ReducerInput[] = [
     ...events.map((event) => ({ kind: 'event' as const, event })),
+    ...collaboration.map((message) => ({
+      kind: 'collaboration' as const,
+      message,
+      sessionRef: query.sessionRef,
+      memberRef,
+    })),
     ...messages.map((message) => ({ kind: 'message' as const, message })),
-  ].sort(sortChronological)
+  ]
+    .sort(sortChronological)
+    .slice(-query.limit)
 
   const { frames } = projectTimeline(inputs)
-  const { oldestCursor, newestCursor } = buildCursor(events, messages)
+  const selectedEvents = inputs.flatMap((input) => (input.kind === 'event' ? [input.event] : []))
+  const selectedMessages = inputs.flatMap((input) =>
+    input.kind === 'event' ? [] : [input.message]
+  )
+  const { oldestCursor, newestCursor } = buildCursor(selectedEvents, selectedMessages)
 
   return {
     frames,
     oldestCursor,
     newestCursor,
-    hasMoreBefore: await hasMoreBefore(hrcClient, query, oldestCursor),
+    hasMoreBefore: await hasMoreBefore(hrcClient, collaborationLedger, query, oldestCursor),
   }
 }
 
 export async function getTimelineHistoryPage(
   hrcClient: TimelineHistoryClient,
-  url: URL
+  url: URL,
+  collaborationLedger?: CollaborationLedger | undefined
 ): Promise<HistoryPage> {
   const query = parseHistoryQuery(url)
 
   // If hostSessionId is omitted, resolve only this sessionRef lineage to its
   // active/latest generation. Do not broaden history to every generation.
-  return projectPastWindow(hrcClient, {
-    sessionRef: query.sessionRef,
-    hostSessionId: query.hostSessionId,
-    generation: query.generation,
-    beforeHrcSeq: query.beforeHrcSeq,
-    beforeMessageSeq: query.beforeMessageSeq,
-    limit: query.limit,
-  })
+  return projectPastWindow(
+    hrcClient,
+    {
+      sessionRef: query.sessionRef,
+      hostSessionId: query.hostSessionId,
+      generation: query.generation,
+      beforeHrcSeq: query.beforeHrcSeq,
+      beforeMessageSeq: query.beforeMessageSeq,
+      limit: query.limit,
+    },
+    collaborationLedger
+  )
 }
 
 export async function handleHistoryRequest(
   request: Request,
-  options: { hrcClient: TimelineHistoryClient }
+  options: {
+    hrcClient: TimelineHistoryClient
+    collaborationLedger?: CollaborationLedger | undefined
+  }
 ): Promise<Response> {
   try {
-    const page = await getTimelineHistoryPage(options.hrcClient, new URL(request.url))
+    const page = await getTimelineHistoryPage(
+      options.hrcClient,
+      new URL(request.url),
+      options.collaborationLedger
+    )
     return Response.json(page)
   } catch (error) {
     if (error instanceof HistoryRequestError) {

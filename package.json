@@ -48,7 +48,7 @@
     "spaces-harness-pi-sdk": "latest"
   },
   "overrides": {
-    "@wrkq/client": "0.1.0-dev.20260823154156",
+    "@wrkq/client": "0.1.0-dev.20260827132122",
     "agent-action-render": "0.1.0-dev.20260825215557",
     "agent-scope": "0.1.1-dev.20260825213756",
     "agent-spaces": "0.1.1-dev.20260825213756",

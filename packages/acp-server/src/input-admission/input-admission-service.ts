@@ -7,7 +7,7 @@ import type {
   InputResetPolicy,
   Run,
 } from 'acp-core'
-import { type SessionRef, formatSessionRef } from 'agent-scope'
+import { type SessionRef, formatScopeHandle, formatSessionRef, parseScopeRef } from 'agent-scope'
 import {
   type HrcActiveRunContributionResponse,
   HrcDomainError,
@@ -330,6 +330,26 @@ export class InputAdmissionService {
     this.deps = withAdmissionDefaults(deps)
   }
 
+  private async recordHumanCollaborationSay(input: {
+    sessionRef: SessionRef
+    content: string
+    actor: AdmitInput['actor']
+    idempotencyKey?: string | undefined
+    inputAttemptId: string
+  }): Promise<void> {
+    if (input.actor.kind !== 'human' || this.deps.collaborationLedgerForPrincipal === undefined) {
+      return
+    }
+    const targetScopeHandle = formatScopeHandle(parseScopeRef(input.sessionRef.scopeRef))
+    const humanLedger = await this.deps.collaborationLedgerForPrincipal('agent:lance')
+    await humanLedger.say({
+      ref: targetScopeHandle,
+      to: [targetScopeHandle],
+      body: input.content,
+      idempotencyKey: input.idempotencyKey ?? `acp:input-attempt:${input.inputAttemptId}`,
+    })
+  }
+
   private createRejectedAdmission(input: {
     attempt: ReturnType<ResolvedAcpServerDeps['inputAttemptStore']['createAttempt']>
     intent: InputIntent
@@ -629,6 +649,14 @@ export class InputAdmissionService {
       }
     }
 
+    await this.recordHumanCollaborationSay({
+      sessionRef: input.sessionRef,
+      content: input.content,
+      actor: input.actor,
+      ...(input.idempotencyKey !== undefined ? { idempotencyKey: input.idempotencyKey } : {}),
+      inputAttemptId: attempt.inputAttempt.inputAttemptId,
+    })
+
     const targetRun = findTargetActiveRun(this.deps, input.sessionRef)
     if (targetRun !== undefined) {
       this.deps.inputAttemptStore.associateRun(attempt.inputAttempt.inputAttemptId, targetRun.runId)
@@ -675,6 +703,8 @@ export class InputAdmissionService {
         // it as a response would make the peer accept it as transcript output
         // and skip delivery; an unthreaded DM reaches the already-waiting
         // remote runtime and lets its original turn finalizer own the answer.
+        // The durable human say was recorded above; this remains the live HRC
+        // delivery half of the burn-in dual-write until wave 4.
         const delivered = await this.deps.hrcClient.semanticDm({
           from: {
             kind: 'entity',
@@ -989,6 +1019,14 @@ export class InputAdmissionService {
         created: false,
       }
     }
+
+    await this.recordHumanCollaborationSay({
+      sessionRef: input.sessionRef,
+      content: input.content,
+      actor: input.actor,
+      ...(input.idempotencyKey !== undefined ? { idempotencyKey: input.idempotencyKey } : {}),
+      inputAttemptId: attempt.inputAttempt.inputAttemptId,
+    })
 
     const seq = this.deps.sessionAdmissionSequenceStore.reserve({
       scopeRef: input.sessionRef.scopeRef,

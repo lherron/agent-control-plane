@@ -164,6 +164,57 @@ describe('createWrkfClientLifecycle — fail-closed startup', () => {
     await lifecycle.close()
   })
 
+  test('pools exact-principal collaboration clients and closes every connection', async () => {
+    const seen: CreateClientOptions[] = []
+    const closed: string[] = []
+    const lifecycle = await createWrkfClientLifecycle({
+      dbLocator: 'rpc://mini:7171',
+      principalRef: 'agent:acp-server',
+      clientInfo: { name: 'acp-server', version: '0.1.0' },
+      _createClient: (options) => {
+        seen.push(options)
+        const principalRef = options.principalRef ?? 'missing'
+        return Promise.resolve({
+          close: async () => {
+            closed.push(principalRef)
+          },
+          kill: () => {},
+        } as unknown as WorkClient)
+      },
+    })
+
+    const primary = await lifecycle.clientForPrincipal('agent:acp-server')
+    const lanceOne = await lifecycle.clientForPrincipal('agent:lance')
+    const lanceTwo = await lifecycle.clientForPrincipal('agent:lance')
+
+    expect(primary).toBe(lifecycle.client)
+    expect(lanceTwo).toBe(lanceOne)
+    expect(seen.map((options) => options.principalRef)).toEqual(['agent:acp-server', 'agent:lance'])
+    expect(seen[1]?.dbLocator).toBe('rpc://mini:7171')
+
+    await lifecycle.close()
+    expect(closed.sort()).toEqual(['agent:acp-server', 'agent:lance'])
+    await expect(lifecycle.clientForPrincipal('agent:mable')).rejects.toThrow(
+      'wrkq client lifecycle is closed'
+    )
+  })
+
+  test('rejects non-principal attribution before opening a collaboration client', async () => {
+    const seen: CreateClientOptions[] = []
+    const lifecycle = await createWrkfClientLifecycle({
+      dbPath: '/tmp/wrkf-test.db',
+      clientInfo: { name: 'acp-server', version: '0.1.0' },
+      _createClient: (options) => {
+        seen.push(options)
+        return succeedingFactory()(options)
+      },
+    })
+
+    await expect(lifecycle.clientForPrincipal('lance')).rejects.toThrow('exact agent:<id>')
+    expect(seen).toHaveLength(1)
+    await lifecycle.close()
+  })
+
   test('close() is idempotent and does not throw', async () => {
     const lifecycle = await createWrkfClientLifecycle({
       _createClient: succeedingFactory(),

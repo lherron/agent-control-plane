@@ -2339,13 +2339,23 @@
       ],
       "rootExportSource": "./src/index.ts",
       "rootTypes": [
+        "CollaborationAddress",
+        "CollaborationLedger",
+        "CollaborationMessage",
+        "CollaborationMessageList",
+        "CollaborationSayInput",
+        "CollaborationSayReceipt",
         "WrkqStoreAdapter",
         "WrkqTaskCreateOrFindInput",
         "WrkqTaskCreateOrFindResult"
       ],
       "rootValues": [
+        "collaborationMessageSeq",
+        "createCollaborationLedger",
         "createOrFindWrkqTask",
-        "createWrkqStoreAdapter"
+        "createWrkqStoreAdapter",
+        "formatCollaborationMessage",
+        "HRC_COLLABORATION_FALLBACK_DURING_BURN_IN"
       ]
     }
   },

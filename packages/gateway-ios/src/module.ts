@@ -7,8 +7,10 @@
  * token enforcement runs in front of the route table.
  */
 
+import { type WorkClient, createClient } from '@wrkq/client'
 import type { Server } from 'bun'
 import { HrcClient } from 'hrc-sdk'
+import { createCollaborationLedger } from 'wrkq-lib'
 import { DEFAULT_GATEWAY_ID, DEFAULT_HOST, DEFAULT_PORT } from './config.js'
 import { createLogger } from './logger.js'
 import { type WsData, createGatewayIosServeConfig } from './routes.js'
@@ -19,6 +21,7 @@ const log = createLogger({ component: 'gateway-ios' })
 
 export type GatewayIosModuleOptions = {
   hrcSocketPath: string
+  wrkqDbLocator: string
   host?: string | undefined
   port?: number | undefined
   bearerToken?: string | undefined
@@ -37,10 +40,11 @@ export function createGatewayIosModule(options: GatewayIosModuleOptions): Gatewa
   const bearerToken = options.bearerToken
 
   let server: Server<WsData> | undefined
+  let workClient: WorkClient | undefined
 
   return {
     async start() {
-      if (server) {
+      if (server || workClient) {
         throw new Error('gateway-ios is already running')
       }
 
@@ -49,10 +53,19 @@ export function createGatewayIosModule(options: GatewayIosModuleOptions): Gatewa
       })
 
       const hrcClient = new HrcClient(options.hrcSocketPath)
+      workClient = await createClient({
+        command: process.env['WRKQ_BIN'] ?? 'wrkq',
+        dbLocator: options.wrkqDbLocator,
+        principalRef: 'agent:gateway-ios',
+        clientInfo: { name: 'gateway-ios', version: '0.1.0' },
+        autoInitialize: true,
+      })
+      const collaborationLedger = createCollaborationLedger(workClient, 'agent:gateway-ios')
       const sessionIndex = createSessionIndex({ client: hrcClient })
 
       const serveConfig = createGatewayIosServeConfig({
         hrcClient,
+        collaborationLedger,
         gatewayId,
         resolveSession: async ({ sessionRef, hostSessionId, generation }) => {
           const selected = await resolveSessionGeneration(hrcClient, {
@@ -101,10 +114,12 @@ export function createGatewayIosModule(options: GatewayIosModuleOptions): Gatewa
     },
 
     async stop() {
-      if (!server) return
+      if (!server && !workClient) return
       log.info('gateway.stopping', { data: { gatewayId } })
-      server.stop(true)
+      server?.stop(true)
       server = undefined
+      await workClient?.close()
+      workClient = undefined
       log.info('gateway.stopped', { data: { gatewayId } })
     },
   }

@@ -25,9 +25,11 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@wrkq/client": "latest",
     "hrc-core": "latest",
     "hrc-sdk": "latest",
-    "agent-scope": "latest"
+    "agent-scope": "latest",
+    "wrkq-lib": "*"
   },
   "devDependencies": {
     "@types/bun": "latest",

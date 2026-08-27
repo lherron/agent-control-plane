@@ -11,8 +11,15 @@
  */
 
 import type { HrcLifecycleEvent, HrcMessageRecord } from 'hrc-core'
+import type { CollaborationMessage } from 'wrkq-lib'
 
 /** A single input to the reducer — either an HRC lifecycle event or a durable message. */
 export type ReducerInput =
   | { kind: 'event'; event: HrcLifecycleEvent }
   | { kind: 'message'; message: HrcMessageRecord }
+  | {
+      kind: 'collaboration'
+      message: CollaborationMessage
+      sessionRef: string
+      memberRef: string
+    }

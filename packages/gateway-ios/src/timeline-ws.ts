@@ -14,6 +14,7 @@
 
 import type { ServerWebSocket } from 'bun'
 import type { HrcLifecycleEvent, HrcMessageRecord } from 'hrc-core'
+import type { CollaborationLedger } from 'wrkq-lib'
 
 import type {
   FrameMessage,
@@ -57,6 +58,7 @@ export type TimelineWsDeps = {
   hrcClient: EventPumpHrcClient
   /** HRC client for querying past events/messages (history paging). */
   historyClient: TimelineHistoryClient
+  collaborationLedger?: CollaborationLedger | undefined
   /** Resolve a session summary from sessionRef plus optional hostSessionId. */
   resolveSession: (selector: {
     sessionRef: string
@@ -175,14 +177,18 @@ export function createTimelineWsHandler(deps: TimelineWsDeps) {
             // Query past events/messages using the shared projector from
             // timeline-history.ts — same logic as GET /v1/history.
             // beforeHrcSeq/beforeMessageSeq = undefined → query from head.
-            const history = await projectPastWindow(deps.historyClient, {
-              sessionRef,
-              hostSessionId: session.hostSessionId,
-              generation: session.generation,
-              beforeHrcSeq: undefined,
-              beforeMessageSeq: undefined,
-              limit: SNAPSHOT_HISTORY_LIMIT,
-            })
+            const history = await projectPastWindow(
+              deps.historyClient,
+              {
+                sessionRef,
+                hostSessionId: session.hostSessionId,
+                generation: session.generation,
+                beforeHrcSeq: undefined,
+                beforeMessageSeq: undefined,
+                limit: SNAPSHOT_HISTORY_LIMIT,
+              },
+              deps.collaborationLedger
+            )
 
             // Snapshot high-water = newest cursors from the projected window.
             // The pump will only emit buffered items strictly newer than this.

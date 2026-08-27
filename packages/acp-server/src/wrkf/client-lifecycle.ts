@@ -40,6 +40,17 @@ export interface WrkfLifecycle {
   store: WrkqStoreAdapter | undefined
   /** Shared @wrkq/client instance backing wrkf + wrkq store ports. */
   client: WorkClient | undefined
+  /**
+   * Return a wrkq client authenticated as the exact caller principal.
+   *
+   * wrkq attribution is connection-scoped: mutations cannot override their
+   * caller with a per-request `from` field. Collaboration writes on behalf of
+   * a human therefore need their own authenticated connection (for example,
+   * `agent:lance`) while ACP's workflow/store traffic keeps using the primary
+   * `agent:acp-server` client. Connections are pooled by principal and closed
+   * with this lifecycle.
+   */
+  clientForPrincipal(principalRef: string): Promise<WorkClient>
   close(): Promise<void>
 }
 
@@ -51,6 +62,9 @@ export async function createWrkfClientLifecycle(
       wrkf: undefined,
       store: undefined,
       client: undefined,
+      async clientForPrincipal(): Promise<WorkClient> {
+        throw new Error('wrkq client lifecycle is disabled')
+      },
       async close(): Promise<void> {},
     }
   }
@@ -62,17 +76,23 @@ export async function createWrkfClientLifecycle(
   }
   // autoInitialize runs `rpc.initialize` before resolving; a failed handshake
   // rejects here and propagates (fail-closed) — we never return a half-built port.
-  const client = await factory({
-    command: opts.command ?? process.env['WRKF_BIN'] ?? 'wrkf',
-    dbLocator: dbLocator.trim(),
-    clientInfo: opts.clientInfo,
-    ...(opts.hookCatalogPath !== undefined ? { hookCatalogPath: opts.hookCatalogPath } : {}),
-    // Principal-only caller attribution (T-05381): forward the launch principal
-    // so wrkq/wrkf mutations carry `created_by_principal_ref`. wrkq now rejects
-    // mutations with no principal ("principalRef is required").
-    principalRef: opts.principalRef ?? 'agent:acp-server',
-    autoInitialize: true,
-  })
+  const primaryPrincipalRef = opts.principalRef ?? 'agent:acp-server'
+  const createAttributedClient = (principalRef: string): Promise<WorkClient> =>
+    factory({
+      command: opts.command ?? process.env['WRKF_BIN'] ?? 'wrkf',
+      dbLocator: dbLocator.trim(),
+      clientInfo: opts.clientInfo,
+      ...(opts.hookCatalogPath !== undefined ? { hookCatalogPath: opts.hookCatalogPath } : {}),
+      // Principal-only caller attribution (T-05381): forward the launch principal
+      // so wrkq/wrkf mutations carry `created_by_principal_ref`. wrkq now rejects
+      // mutations with no principal ("principalRef is required").
+      principalRef,
+      autoInitialize: true,
+    })
+  const client = await createAttributedClient(primaryPrincipalRef)
+  const clientsByPrincipal = new Map<string, Promise<WorkClient>>([
+    [primaryPrincipalRef, Promise.resolve(client)],
+  ])
 
   let closed = false
   return {
@@ -81,12 +101,41 @@ export async function createWrkfClientLifecycle(
     // this one client — the Phase-1 lifecycle owns the single shared WorkClient.
     store: createWrkqStoreAdapter(client),
     client,
+    clientForPrincipal(principalRef: string): Promise<WorkClient> {
+      if (closed) {
+        return Promise.reject(new Error('wrkq client lifecycle is closed'))
+      }
+      const normalized = principalRef.trim()
+      if (!/^agent:[^\s:]+$/.test(normalized)) {
+        return Promise.reject(
+          new Error(`wrkq collaboration principal must be an exact agent:<id> ref: ${principalRef}`)
+        )
+      }
+      const existing = clientsByPrincipal.get(normalized)
+      if (existing !== undefined) {
+        return existing
+      }
+      const created = createAttributedClient(normalized)
+      clientsByPrincipal.set(normalized, created)
+      void created.catch(() => {
+        if (clientsByPrincipal.get(normalized) === created) {
+          clientsByPrincipal.delete(normalized)
+        }
+      })
+      return created
+    },
     async close(): Promise<void> {
       if (closed) {
         return
       }
       closed = true
-      await closeOrKill(client)
+      const clients = await Promise.allSettled(clientsByPrincipal.values())
+      await Promise.all(
+        clients.flatMap((result) =>
+          result.status === 'fulfilled' ? [closeOrKill(result.value)] : []
+        )
+      )
+      clientsByPrincipal.clear()
     },
   }
 }

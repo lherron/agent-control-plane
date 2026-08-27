@@ -1,3 +1,4 @@
+import { formatScopeHandle, parseScopeRef } from 'agent-scope'
 import type {
   FederationNodeRuntimeProjection,
   FederationPeerHealthObservation,
@@ -11,6 +12,7 @@ import type {
   HrcSessionRecord,
   HrcTargetView,
 } from 'hrc-core'
+import { splitSessionRef } from 'hrc-core'
 import type {
   SessionFacetsRequest,
   SessionFacetsResponse,
@@ -18,6 +20,11 @@ import type {
   SessionPageRequest,
   SessionPeerStatus,
 } from 'hrc-sdk'
+import {
+  type CollaborationMessage,
+  HRC_COLLABORATION_FALLBACK_DURING_BURN_IN,
+  formatCollaborationMessage,
+} from 'wrkq-lib'
 
 import { badRequest, json } from '../http.js'
 import { mobileUnauthorizedResponse } from '../mobile-auth/gate.js'
@@ -54,6 +61,7 @@ const MAX_MOBILE_SESSION_RUNS = 10_000
 const DEFAULT_DASHBOARD_MAX_REPLAY_EVENTS = 10_000
 const DEFAULT_DASHBOARD_MAX_REPLAY_AGE_MS = 3_600_000
 const MOBILE_WS_PING_INTERVAL_MS = 30_000
+const HUMAN_COLLABORATION_PRINCIPAL = 'agent:lance'
 const MOBILE_SESSION_DETAILS_QUERY_PARAM = 'sessionDetails'
 const REMOTE_CONTROL_UNAVAILABLE_MESSAGE =
   'Remote timeline, history, literal input, and interrupt are unavailable in mobile federation Phase 1.'
@@ -288,7 +296,7 @@ type MobileDmTargetsResponse = {
 }
 
 type MobileMessagesResponse = {
-  messages: HrcMessageRecord[]
+  messages: Array<CollaborationMessage | HrcMessageRecord>
 }
 
 type MobileTimelineFrame = {
@@ -574,6 +582,7 @@ async function collectEvents(
 }
 
 async function collectMessages(
+  deps: ResolvedAcpServerDeps,
   hrcClient: AcpHrcClient,
   options: {
     sessionRef?: string | undefined
@@ -582,14 +591,34 @@ async function collectMessages(
     beforeMessageSeq?: number | undefined
     limit?: number | undefined
   }
-): Promise<HrcMessageRecord[]> {
-  const response = await hrcClient.listMessages({
-    ...(options.hostSessionId !== undefined ? { hostSessionId: options.hostSessionId } : {}),
-    ...(options.generation !== undefined ? { generation: options.generation } : {}),
-    order: 'desc',
-    limit: Math.max(options.limit ?? 80, 1),
-  })
-  return response.messages
+): Promise<Array<HrcMessageRecord | CollaborationMessage>> {
+  const limit = Math.max(options.limit ?? 80, 1)
+  const collaborationPromise =
+    deps.collaborationLedger !== undefined && options.sessionRef !== undefined
+      ? deps.collaborationLedger.listMessagesByMember({
+          memberRef: formatScopeHandle(parseScopeRef(splitSessionRef(options.sessionRef).scopeRef)),
+          presentToPrincipalRef: HUMAN_COLLABORATION_PRINCIPAL,
+          ...(options.beforeMessageSeq !== undefined
+            ? { beforeMessageSeq: options.beforeMessageSeq }
+            : {}),
+          limit,
+        })
+      : Promise.resolve({ messages: [] })
+  const hrcPromise = HRC_COLLABORATION_FALLBACK_DURING_BURN_IN
+    ? hrcClient.listMessages({
+        ...(options.hostSessionId !== undefined ? { hostSessionId: options.hostSessionId } : {}),
+        ...(options.generation !== undefined ? { generation: options.generation } : {}),
+        order: 'desc',
+        limit,
+      })
+    : Promise.resolve({ messages: [] })
+  const [collaboration, response] = await Promise.all([collaborationPromise, hrcPromise])
+  const correlatedLegacyIds = new Set(
+    collaboration.messages.flatMap((message) =>
+      message.legacyMessageId !== undefined ? [message.legacyMessageId] : []
+    )
+  )
+  const legacy = response.messages
     .filter(
       (message) =>
         options.beforeMessageSeq === undefined || message.messageSeq < options.beforeMessageSeq
@@ -602,7 +631,13 @@ async function collectMessages(
         addressSessionRef(message.from) === options.sessionRef ||
         addressSessionRef(message.to) === options.sessionRef
     )
-    .slice(0, options.limit ?? 80)
+    .filter((message) => !correlatedLegacyIds.has(message.messageId))
+  return [...collaboration.messages, ...legacy]
+    .sort((lhs, rhs) => {
+      const byTime = rhs.createdAt.localeCompare(lhs.createdAt)
+      return byTime !== 0 ? byTime : rhs.messageSeq - lhs.messageSeq
+    })
+    .slice(0, limit)
 }
 
 async function listMobileSessions(
@@ -969,6 +1004,7 @@ function projectFrame(
 type TimelineInput =
   | { kind: 'event'; event: HrcLifecycleEvent }
   | { kind: 'message'; message: HrcMessageRecord }
+  | { kind: 'collaboration'; message: CollaborationMessage; sessionRef: string }
 
 function stringField(record: Record<string, unknown>, key: string): string | undefined {
   const value = record[key]
@@ -1063,6 +1099,20 @@ function parseMobileMessageFilter(input: Record<string, unknown>): HrcMessageFil
   return filter
 }
 
+function collaborationMemberRefFromMobileFilter(
+  input: Record<string, unknown>
+): string | undefined {
+  for (const field of ['participant', 'to', 'from'] as const) {
+    if (input[field] === undefined) continue
+    const selected = parseMobileMessageAddress(input[field], field)
+    const selectedSessionRef = addressSessionRef(selected)
+    if (selectedSessionRef !== undefined) {
+      return formatScopeHandle(parseScopeRef(splitSessionRef(selectedSessionRef).scopeRef))
+    }
+  }
+  return undefined
+}
+
 function sessionRefFromMessage(message: HrcMessageRecord, fallbackSessionRef?: string): string {
   return (
     message.execution.sessionRef ??
@@ -1121,6 +1171,51 @@ function projectMessage(
     ...(message.execution.runId !== undefined ? { runId: message.execution.runId } : {}),
     ts: message.createdAt,
   }
+}
+
+function projectCollaborationMessage(
+  message: CollaborationMessage,
+  sessionRefValue: string,
+  memberRef: string,
+  mode: MobileSessionMode = 'interactive'
+): MobileTimelineFrame {
+  const frameKind: MobileTimelineFrame['frameKind'] =
+    message.recipient?.scopeRef === memberRef || message.sender.principalRef === 'agent:lance'
+      ? 'user_prompt'
+      : 'assistant_message'
+
+  return {
+    frameId: `msg-${message.messageId}`,
+    frameSeq: message.messageSeq,
+    lastHrcSeq: 0,
+    lastMessageSeq: message.messageSeq,
+    sessionRef: sessionRefValue,
+    mode,
+    frameKind,
+    sourceEvents: [],
+    blocks: [
+      {
+        kind: 'markdown',
+        text: formatCollaborationMessage(message),
+        payload: {
+          envelopeId: message.messageId,
+          roomKey: message.roomKey,
+          sender: message.sender,
+          recipient: message.recipient,
+          obligation: message.obligation,
+          state: message.state,
+        },
+      },
+    ],
+    actions: [],
+    ts: message.createdAt,
+  }
+}
+
+function isCollaborationMessage(
+  message: HrcMessageRecord | CollaborationMessage
+): message is CollaborationMessage {
+  return 'roomKey' in message
 }
 
 function messageContent(payload: unknown): string | undefined {
@@ -1326,7 +1421,7 @@ function resequenceFrames(frames: MobileTimelineFrame[]): MobileTimelineFrame[] 
 
 function historyPage(
   events: HrcLifecycleEvent[],
-  messages: HrcMessageRecord[],
+  messages: Array<HrcMessageRecord | CollaborationMessage>,
   raw: boolean,
   fallbackSessionRef?: string
 ): MobileHistoryPage {
@@ -1338,15 +1433,30 @@ function historyPage(
   const newestMessage = sortedMessages[sortedMessages.length - 1]?.messageSeq ?? 0
   const inputs: TimelineInput[] = [
     ...sorted.map((event) => ({ kind: 'event' as const, event })),
-    ...sortedMessages.map((message) => ({ kind: 'message' as const, message })),
+    ...sortedMessages.map(
+      (message): TimelineInput =>
+        isCollaborationMessage(message)
+          ? {
+              kind: 'collaboration',
+              message,
+              sessionRef: fallbackSessionRef ?? 'agent:unknown/lane:main',
+            }
+          : { kind: 'message', message }
+    ),
   ].sort(sortInputs)
+  const memberRef =
+    fallbackSessionRef !== undefined
+      ? formatScopeHandle(parseScopeRef(splitSessionRef(fallbackSessionRef).scopeRef))
+      : 'unknown@unknown:primary'
   const frames = inputs
     .map((input) =>
       input.kind === 'event'
         ? raw
           ? projectFrame(input.event)
           : projectPrimaryEvent(input.event)
-        : projectMessage(input.message, fallbackSessionRef)
+        : input.kind === 'collaboration'
+          ? projectCollaborationMessage(input.message, input.sessionRef, memberRef)
+          : projectMessage(input.message, fallbackSessionRef)
     )
     .filter((frame): frame is MobileTimelineFrame => frame !== undefined)
 
@@ -2124,8 +2234,59 @@ export const handleMobileDmTargets: RouteHandler = async ({ deps, url }) => {
 export const handleMobileMessagesQuery: RouteHandler = async ({ deps, request }) => {
   const hrcClient = requireHrcClient(deps)
   const body = requireRecord(await parseJsonBody(request))
-  const response = await hrcClient.listMessages(parseMobileMessageFilter(body))
-  return json({ messages: response.messages } satisfies MobileMessagesResponse)
+  const filter = parseMobileMessageFilter(body)
+  const roomKey = stringField(body, 'roomKey')
+  const memberRef = collaborationMemberRefFromMobileFilter(body)
+  const beforeMessageSeq = readNonNegativeInteger(body['beforeMessageSeq'])
+  const limit = filter.limit ?? 50
+  const collaborationPromise =
+    deps.collaborationLedger === undefined
+      ? Promise.resolve({ messages: [] as CollaborationMessage[] })
+      : roomKey !== undefined
+        ? deps.collaborationLedger.listMessagesByRoom({
+            roomKey,
+            presentToPrincipalRef: HUMAN_COLLABORATION_PRINCIPAL,
+            ...(beforeMessageSeq !== undefined ? { beforeMessageSeq } : {}),
+            limit,
+          })
+        : memberRef !== undefined
+          ? deps.collaborationLedger.listMessagesByMember({
+              memberRef,
+              presentToPrincipalRef: HUMAN_COLLABORATION_PRINCIPAL,
+              ...(beforeMessageSeq !== undefined ? { beforeMessageSeq } : {}),
+              limit,
+            })
+          : Promise.resolve({ messages: [] as CollaborationMessage[] })
+  // HRC's frozen message rows have no room identity, so they cannot safely
+  // participate in a room-key query. Session/member reads below retain the
+  // burn-in fallback; an explicit room query is ledger-authoritative.
+  const hrcPromise =
+    HRC_COLLABORATION_FALLBACK_DURING_BURN_IN && roomKey === undefined
+      ? hrcClient.listMessages(filter)
+      : Promise.resolve({ messages: [] as HrcMessageRecord[] })
+  const [collaboration, response] = await Promise.all([collaborationPromise, hrcPromise])
+  const correlatedLegacyIds = new Set(
+    collaboration.messages.flatMap((message) =>
+      message.legacyMessageId !== undefined ? [message.legacyMessageId] : []
+    )
+  )
+  const messages = [
+    ...collaboration.messages,
+    ...response.messages.filter((message) => !correlatedLegacyIds.has(message.messageId)),
+  ]
+    .sort((lhs, rhs) => {
+      const byTime =
+        filter.order === 'asc'
+          ? lhs.createdAt.localeCompare(rhs.createdAt)
+          : rhs.createdAt.localeCompare(lhs.createdAt)
+      return byTime !== 0
+        ? byTime
+        : filter.order === 'asc'
+          ? lhs.messageSeq - rhs.messageSeq
+          : rhs.messageSeq - lhs.messageSeq
+    })
+    .slice(0, limit)
+  return json({ messages } satisfies MobileMessagesResponse)
 }
 
 export const handleMobileSemanticDm: RouteHandler = async ({ deps, request }) => {
@@ -2138,7 +2299,17 @@ export const handleMobileSemanticDm: RouteHandler = async ({ deps, request }) =>
     typeof body['replyToMessageId'] === 'string' && body['replyToMessageId'].trim().length > 0
       ? body['replyToMessageId'].trim()
       : undefined
+  const targetSessionRef = addressSessionRef(to)
+  if (targetSessionRef === undefined) {
+    badRequest('mobile human collaboration sends require to.kind=session')
+  }
+  const targetScopeHandle = formatScopeHandle(
+    parseScopeRef(splitSessionRef(targetSessionRef).scopeRef)
+  )
+  const roomKey = stringField(body, 'roomKey') ?? targetScopeHandle
 
+  // HRC remains live delivery during burn-in. The correlated room say below is
+  // durable authority; wave 4 removes this HRC write after fleet cutover.
   const response = await hrcClient.semanticDm({
     from: HUMAN_MESSAGE_ADDRESS,
     to,
@@ -2149,7 +2320,18 @@ export const handleMobileSemanticDm: RouteHandler = async ({ deps, request }) =>
     ...(replyToMessageId !== undefined ? { replyToMessageId } : {}),
   })
 
-  return json(response)
+  if (deps.collaborationLedgerForPrincipal === undefined) {
+    throw new Error('collaboration ledger is not configured')
+  }
+  const humanLedger = await deps.collaborationLedgerForPrincipal(HUMAN_COLLABORATION_PRINCIPAL)
+  const collaboration = await humanLedger.say({
+    ref: roomKey,
+    to: [targetScopeHandle],
+    body: text,
+    idempotencyKey: `acp:hrc-message:${response.request.messageId}`,
+  })
+
+  return json({ ...response, collaboration })
 }
 
 export const handleMobileHistory: RouteHandler = async ({ deps, url }) => {
@@ -2166,7 +2348,7 @@ export const handleMobileHistory: RouteHandler = async ({ deps, url }) => {
   const hostSessionId = url.searchParams.get('hostSessionId') ?? undefined
   const [events, messages] = await Promise.all([
     collectEvents(hrcClient, parseMobileEventCursor(url), parsedLimit),
-    collectMessages(hrcClient, {
+    collectMessages(deps, hrcClient, {
       sessionRef: sessionRefValue,
       hostSessionId,
       ...(Number.isFinite(generation) ? { generation } : {}),
@@ -2347,7 +2529,7 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
     })
     const [historyEvents, historyMessages] = await Promise.all([
       collectEvents(hrcClient, { ...options, fromSeq: 1, follow: false }, 80),
-      collectMessages(hrcClient, {
+      collectMessages(deps, hrcClient, {
         sessionRef: sessionRefValue,
         hostSessionId: pathHostSessionId,
         ...(Number.isFinite(generation) ? { generation } : {}),

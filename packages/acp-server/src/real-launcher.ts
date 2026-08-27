@@ -648,6 +648,9 @@ async function maybeLaunchFederatedPromptRun(input: {
   }
 
   const targetSessionRef = toHrcSessionRef(input.sessionRef)
+  // Rooms wave 2 records human ingress in InputAdmissionService before this
+  // launcher runs. Keep the HRC semantic path as live delivery during burn-in;
+  // wave 4 removes this write after the fleet cutover.
   const result = await input.client.semanticDm({
     from: { kind: 'entity', entity: 'human' },
     to: { kind: 'session', sessionRef: targetSessionRef },
