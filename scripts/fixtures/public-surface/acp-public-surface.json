@@ -2010,11 +2010,13 @@
         "SessionDashboardSnapshot",
         "SessionDashboardSummary",
         "SessionRef",
+        "SessionRuntimeTransport",
         "SessionTimelineRow"
       ],
       "rootValues": [
         "admissionLabel",
         "admissionLabelFromResponse",
+        "asSessionRuntimeTransport",
         "buildSummary",
         "CREDENTIAL_KEY_PARTS",
         "defaultRedactionOptions",

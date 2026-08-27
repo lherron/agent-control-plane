@@ -3,6 +3,7 @@ import {
   type DashboardEvent,
   type HrcLifecycleEvent,
   type SessionTimelineRow,
+  asSessionRuntimeTransport,
   buildSummary,
   defaultRedactionOptions,
   deriveSessionRow,
@@ -397,5 +398,43 @@ describe('session dashboard redaction red contract', () => {
       payloadPreview: payload,
       redacted: false,
     })
+  })
+})
+
+describe('runtime transport narrowing', () => {
+  const runtimeEvent = (transport: string): DashboardEvent => ({
+    id: 'hrc:1',
+    hrcSeq: 1,
+    ts: '2026-04-23T23:46:00.000Z',
+    sessionRef: { scopeRef: 'project:agent-control-plane', laneRef: 'main' },
+    hostSessionId: 'host-session-1',
+    generation: 1,
+    eventKind: 'runtime.launching',
+    family: 'runtime',
+    severity: 'info',
+    label: 'runtime.launching',
+    redacted: false,
+    payloadPreview: { transport },
+  })
+
+  // 'headless' is the dominant transport in the hrc store and was silently
+  // dropped by an older 'tmux' | 'sdk' whitelist, leaving most rows with no
+  // transport at all. Every HRC transport must survive the projection.
+  test.each(['sdk', 'tmux', 'headless'])('deriveSessionRow keeps transport %s', (transport) => {
+    expect(deriveSessionRow([runtimeEvent(transport)], 90_000).runtime?.transport).toBe(transport)
+  })
+
+  test('deriveSessionRow drops a transport outside the HRC vocabulary', () => {
+    expect(deriveSessionRow([runtimeEvent('ghostty')], 90_000).runtime?.transport).toBeUndefined()
+  })
+
+  test('asSessionRuntimeTransport accepts the HRC vocabulary and nothing else', () => {
+    expect(asSessionRuntimeTransport('sdk')).toBe('sdk')
+    expect(asSessionRuntimeTransport('tmux')).toBe('tmux')
+    expect(asSessionRuntimeTransport('headless')).toBe('headless')
+    expect(asSessionRuntimeTransport('ghostty')).toBeUndefined()
+    expect(asSessionRuntimeTransport('federated-message')).toBeUndefined()
+    expect(asSessionRuntimeTransport('')).toBeUndefined()
+    expect(asSessionRuntimeTransport(undefined)).toBeUndefined()
   })
 })

@@ -4,6 +4,7 @@ import {
   type SessionDashboardSnapshot,
   type SessionRef,
   type SessionTimelineRow,
+  asSessionRuntimeTransport,
   buildSummary,
   deriveSessionRow,
   projectHrcToDashboardEvent,
@@ -55,10 +56,6 @@ function deriveRowStatus(s: MobileSessionSummary): RowStatus {
   return 'idle'
 }
 
-function normalizeTransport(t: string | undefined): 'tmux' | 'sdk' | undefined {
-  return t === 'tmux' || t === 'sdk' ? t : undefined
-}
-
 /**
  * Map a roster MobileSessionSummary into a SessionTimelineRow so active sessions
  * render even when they have no recent events (idle-but-active). Event-derived
@@ -80,7 +77,7 @@ export function mobileSessionToRow(s: MobileSessionSummary): SessionTimelineRow 
       : status === 'stale' || status === 'dead' || status === 'detached'
         ? PRIORITY_BROKEN
         : PRIORITY_DEFAULT
-  const transport = s.runtime ? normalizeTransport(s.runtime.transport) : undefined
+  const transport = s.runtime ? asSessionRuntimeTransport(s.runtime.transport) : undefined
 
   const runtime: SessionTimelineRow['runtime'] = s.runtime
     ? {

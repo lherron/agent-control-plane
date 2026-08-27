@@ -201,6 +201,24 @@ describe('mobileSessionToRow', () => {
     expect(row?.stats.lastEventAt).toBe('2026-06-07T16:04:56.281Z')
   })
 
+  // The roster path narrowed transport separately from the projection and
+  // dropped 'headless' the same way; both now share asSessionRuntimeTransport.
+  const withRosterTransport = (transport: string): MobileSessionSummary => ({
+    ...IDLE_ACTIVE_SESSION,
+    runtime: { status: 'ready', runtimeId: 'rt-a21c11b6', transport },
+  })
+
+  test.each(['sdk', 'tmux', 'headless'])(
+    'carries roster transport %s onto the row',
+    (transport) => {
+      expect(mobileSessionToRow(withRosterTransport(transport))?.runtime?.transport).toBe(transport)
+    }
+  )
+
+  test('drops a roster transport outside the HRC vocabulary', () => {
+    expect(mobileSessionToRow(withRosterTransport('ghostty'))?.runtime?.transport).toBeUndefined()
+  })
+
   test('marks busy when a run is running or a turn is active', () => {
     expect(
       mobileSessionToRow({ ...IDLE_ACTIVE_SESSION, run: { status: 'running', runId: 'r1' } })

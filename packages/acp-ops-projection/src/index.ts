@@ -50,6 +50,29 @@ export type DashboardEvent = {
   redacted: boolean
 }
 
+/**
+ * HRC's runtime transport vocabulary, mirrored from `HrcLifecycleTransport`.
+ *
+ * Timeline rows are derived from HRC lifecycle events, so this is deliberately
+ * HRC's runtime transport and NOT ACP's run transport (`hrc`, `hrc-command`,
+ * `federated-message`), which is a different concept that never reaches here.
+ */
+export type SessionRuntimeTransport = 'sdk' | 'tmux' | 'headless'
+
+const SESSION_RUNTIME_TRANSPORTS: readonly SessionRuntimeTransport[] = ['sdk', 'tmux', 'headless']
+
+/**
+ * Narrow a transport read off an untyped event payload. Unknown spellings are
+ * dropped rather than passed through so a stale producer cannot widen the row
+ * contract; every current HRC transport must be listed above or it goes missing
+ * from the timeline.
+ */
+export function asSessionRuntimeTransport(
+  value: string | undefined
+): SessionRuntimeTransport | undefined {
+  return SESSION_RUNTIME_TRANSPORTS.find((transport) => transport === value)
+}
+
 export type SessionTimelineRow = {
   rowId: string
   sessionRef: SessionRef
@@ -59,7 +82,7 @@ export type SessionTimelineRow = {
     | {
         runtimeId?: string | undefined
         launchId?: string | undefined
-        transport?: 'tmux' | 'sdk' | undefined
+        transport?: SessionRuntimeTransport | undefined
         harness?: string | undefined
         provider?: string | undefined
         status?: 'launching' | 'idle' | 'busy' | 'stale' | 'dead' | string | undefined
@@ -833,7 +856,8 @@ function buildRuntime(
 
   if (runtimeId !== undefined) runtime.runtimeId = runtimeId
   if (launchId !== undefined) runtime.launchId = launchId
-  if (transport === 'tmux' || transport === 'sdk') runtime.transport = transport
+  const runtimeTransport = asSessionRuntimeTransport(transport)
+  if (runtimeTransport !== undefined) runtime.transport = runtimeTransport
   if (harness !== undefined) runtime.harness = harness
   if (provider !== undefined) runtime.provider = provider
   if (status !== undefined) runtime.status = status
