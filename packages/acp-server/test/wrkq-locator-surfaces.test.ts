@@ -34,12 +34,15 @@ describe('wrkq locator static surfaces', () => {
 
   test('manifests stay on latest while lockfile and install agree on the resolved client snapshot', () => {
     const rootManifest = JSON.parse(readRepoFile('package.json')) as {
+      dependencies?: Record<string, string>
       overrides?: Record<string, string>
     }
+    expect(rootManifest.dependencies?.['@wrkq/client']).toBe('latest')
     expect(rootManifest.overrides?.['@wrkq/client']).toBeUndefined()
     const manifestPaths = [
       'packages/acp-cli/package.json',
       'packages/acp-server/package.json',
+      'packages/gateway-discord/package.json',
       'packages/gateway-ios/package.json',
       'packages/wrkq-lib/package.json',
     ]
@@ -59,5 +62,15 @@ describe('wrkq locator static surfaces', () => {
       version: string
     }
     expect(installed.version).toBe(lockedVersion)
+    for (const path of manifestPaths) {
+      const installedPath = Bun.resolveSync(
+        '@wrkq/client/package.json',
+        resolve(repoRoot, path, '..')
+      )
+      const workspaceInstalled = JSON.parse(readFileSync(installedPath, 'utf8')) as {
+        version: string
+      }
+      expect(workspaceInstalled.version, installedPath).toBe(lockedVersion)
+    }
   })
 })

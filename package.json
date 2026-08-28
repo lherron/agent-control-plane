@@ -40,7 +40,7 @@
     "typescript": "^5.7.2"
   },
   "dependencies": {
-    "@wrkq/client": "0.1.0-dev.20260827182824",
+    "@wrkq/client": "latest",
     "agent-spaces": "latest",
     "spaces-execution": "latest",
     "spaces-harness-claude": "latest",
