@@ -25,6 +25,8 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@wrkq/client": "latest",
+    "acp-interface-store": "*",
     "acp-core": "*",
     "acp-ops-projection": "*",
     "agent-action-render": "latest",

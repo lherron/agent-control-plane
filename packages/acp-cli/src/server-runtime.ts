@@ -4,6 +4,8 @@ import { connect } from 'node:net'
 import { dirname } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 
+import { createClient } from '@wrkq/client'
+import { openInterfaceStore } from 'acp-interface-store'
 import { type AcpServerCliOptions, resolveCliOptions, startAcpServeBin } from 'acp-server'
 import {
   DEFAULT_BINDINGS_REFRESH_MS,
@@ -447,6 +449,12 @@ async function startGatewayInProcess(
   const jobRunsChannelId = await resolveJobRunsChannelId(env)
   const workActivityChannelId = await resolveWorkActivityChannelId(env)
   const acpBaseUrl = resolvePrimaryServerBaseUrl(options)
+  const ledgerClient = await createClient({
+    dbLocator: options.wrkqDbLocator,
+    principalRef: 'agent:gateway-discord',
+    clientInfo: { name: 'gateway-discord', version: '0.1.0' },
+  })
+  const ledgerStore = openInterfaceStore({ dbPath: options.interfaceDbPath })
   const app = new GatewayDiscordApp({
     acpBaseUrl,
     gatewayId: resolveGatewayId(env),
@@ -457,8 +465,19 @@ async function startGatewayInProcess(
     deliveryIdleMs: envNumber(['ACP_DELIVERY_IDLE_MS'], DEFAULT_DELIVERY_IDLE_MS),
     ...(jobRunsChannelId !== undefined ? { jobRunsChannelId } : {}),
     ...(workActivityChannelId !== undefined ? { workActivityChannelId } : {}),
+    ledgerHumanEgress: {
+      client: ledgerClient,
+      store: ledgerStore,
+      closeOnStop: true,
+    },
   })
-  await app.start()
+  try {
+    await app.start()
+  } catch (error) {
+    await ledgerClient.close()
+    ledgerStore.close()
+    throw error
+  }
   return app
 }
 

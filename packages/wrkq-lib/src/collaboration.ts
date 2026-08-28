@@ -50,6 +50,7 @@ export type CollaborationSayInput = {
 }
 
 export type CollaborationSayReceipt = {
+  roomUuid: string
   roomKey: string
   groupId: string
   envelopes: CollaborationMessage[]
@@ -239,6 +240,7 @@ export function createCollaborationLedger(
         ...(input.idempotencyKey !== undefined ? { idempotencyKey: input.idempotencyKey } : {}),
       })
       return {
+        roomUuid: receipt.room.uuid,
         roomKey: receipt.room.key,
         groupId: receipt.groupId,
         envelopes: receipt.envelopes.map(projectEnvelope),

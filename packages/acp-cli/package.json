@@ -28,6 +28,7 @@
   "dependencies": {
     "acp-admin-store": "*",
     "acp-core": "*",
+    "acp-interface-store": "*",
     "acp-ops-projection": "*",
     "acp-server": "*",
     "@wrkq/client": "latest",

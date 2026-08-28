@@ -1859,6 +1859,7 @@
         "DeliveryOutcome",
         "DeliveryRequest",
         "DeliveryRequestStatus",
+        "DiscordLedgerProjectionRoute",
         "EnqueueDeliveryRequestIdempotencyInput",
         "EnqueueDeliveryRequestIdempotencyResult",
         "EnqueueDeliveryRequestInput",
@@ -1877,6 +1878,7 @@
         "OpenInterfaceStoreOptions",
         "OutboundAttachment",
         "OutboundAttachmentState",
+        "RecordDiscordLedgerProjectionRouteInput",
         "RecordIfNewMessageSourceResult",
         "RequeueDeliveryRequestResult",
         "ResolveDeliveryTargetResult"

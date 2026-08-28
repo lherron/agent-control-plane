@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 
+import type { WorkClient, WrkqEnvelope } from '@wrkq/client'
 import type { DeliveryRequest, InputIntent, InterfaceSessionRef } from 'acp-core'
+import type { DiscordLedgerProjectionRoute, InterfaceStore } from 'acp-interface-store'
 import { parseScopeRef, validateScopeRef } from 'agent-scope'
 import {
   Client,
@@ -49,6 +51,7 @@ import {
   buildDiscordThreadName,
   parseDiscordKeyword,
 } from './keywords.js'
+import { DiscordLedgerHumanEgress } from './ledger-human-egress.js'
 import { createLogger } from './logger.js'
 import { type RenderOptions, extractImagesFromFrame, extractMediaRefsFromFrame } from './render.js'
 import {
@@ -375,6 +378,20 @@ type InterfaceMessageResponse = {
   currentState?: Record<string, unknown> | undefined
 }
 
+function collaborationRouteFromState(
+  state: Record<string, unknown> | undefined
+): { roomUuid: string; roomKey: string } | undefined {
+  if (state?.['delivery'] !== 'collaboration_ledger') return undefined
+  const roomUuid = state['roomUuid']
+  const roomKey = state['roomKey']
+  return typeof roomUuid === 'string' &&
+    roomUuid.length > 0 &&
+    typeof roomKey === 'string' &&
+    roomKey.length > 0
+    ? { roomUuid, roomKey }
+    : undefined
+}
+
 type AcpRunLookupResponse = {
   run?: {
     status?: string | undefined
@@ -506,6 +523,13 @@ export type GatewayDiscordAppOptions = {
    * (the #work-activity egress, T-05270). Unset disables only those cards; the
    * shared system-events poll loop still runs if jobRunsChannelId is set. */
   workActivityChannelId?: string | undefined
+  ledgerHumanEgress?:
+    | {
+        client: WorkClient
+        store: InterfaceStore
+        closeOnStop?: boolean | undefined
+      }
+    | undefined
 }
 
 export const log = createLogger({ component: 'gateway-discord' })
@@ -562,6 +586,12 @@ export class GatewayDiscordApp {
   private readonly workActivityChannelId?: string | undefined
   private systemEventsLoopPromise: Promise<void> | undefined
   private systemEventsLoopStopped = false
+  private ledgerHumanEgressLoopPromise: Promise<void> | undefined
+  private ledgerHumanEgressLoopStopped = false
+  private readonly ledgerHumanEgress?: DiscordLedgerHumanEgress | undefined
+  private readonly ledgerHumanEgressResources?:
+    | { client: WorkClient; store: InterfaceStore; closeOnStop: boolean }
+    | undefined
   private liveSubscriptionPrimeFailureActive = false
   // Monotonic event_id cursor: gap-free, no-skip, no-duplicate (unlike occurredAt
   // which can collide). In-memory, so the guarantee is best-effort near-real-time
@@ -607,6 +637,23 @@ export class GatewayDiscordApp {
     this.webhooks = createWebhookManager({
       client: this.client as unknown as Parameters<typeof createWebhookManager>[0]['client'],
     })
+    this.ledgerHumanEgress =
+      options.ledgerHumanEgress === undefined
+        ? undefined
+        : new DiscordLedgerHumanEgress({
+            gatewayId: this.gatewayId,
+            client: options.ledgerHumanEgress.client,
+            store: options.ledgerHumanEgress.store,
+            send: (input) => this.sendLedgerHumanEnvelope(input.route, input.envelope),
+          })
+    this.ledgerHumanEgressResources =
+      options.ledgerHumanEgress === undefined
+        ? undefined
+        : {
+            client: options.ledgerHumanEgress.client,
+            store: options.ledgerHumanEgress.store,
+            closeOnStop: options.ledgerHumanEgress.closeOnStop === true,
+          }
     const renderCallback: OnRenderCallback = (sessionRef, projectId, runId, frame, run) => {
       this.scheduleProgressEdit(sessionRef, projectId, runId, frame, run)
     }
@@ -666,6 +713,12 @@ export class GatewayDiscordApp {
     this.deliveryLoopStopped = false
     this.deliveryLoopPromise = this.runDeliveryLoop()
 
+    if (this.ledgerHumanEgress !== undefined) {
+      await this.ledgerHumanEgress.initializeCursor()
+      this.ledgerHumanEgressLoopStopped = false
+      this.ledgerHumanEgressLoopPromise = this.runLedgerHumanEgressLoop()
+    }
+
     if (this.jobRunsChannelId !== undefined || this.workActivityChannelId !== undefined) {
       // One global system-events loop feeds every configured lifecycle channel.
       // Prime the cursor to the current tail so a (re)start never floods a channel
@@ -689,6 +742,7 @@ export class GatewayDiscordApp {
   async stop(): Promise<void> {
     this.deliveryLoopStopped = true
     this.systemEventsLoopStopped = true
+    this.ledgerHumanEgressLoopStopped = true
     this.stopAllLiveSubscriptions('app_stop')
     for (const placeholder of this.placeholdersByRunId.values()) {
       this.clearPlaceholderTimers(placeholder)
@@ -716,10 +770,19 @@ export class GatewayDiscordApp {
       this.systemEventsLoopPromise = undefined
     }
 
+    if (this.ledgerHumanEgressLoopPromise) {
+      await this.ledgerHumanEgressLoopPromise
+      this.ledgerHumanEgressLoopPromise = undefined
+    }
+
     this.client.off(Events.MessageCreate, this.onMessageCreateBound)
     this.client.off(Events.MessageReactionAdd, this.onMessageReactionAddBound)
     if (this.createdClient) {
       this.client.destroy()
+    }
+    if (this.ledgerHumanEgressResources?.closeOnStop === true) {
+      await this.ledgerHumanEgressResources.client.close()
+      this.ledgerHumanEgressResources.store.close()
     }
   }
 
@@ -764,6 +827,11 @@ export class GatewayDiscordApp {
       `/v1/interface/bindings?gatewayId=${encodeURIComponent(this.gatewayId)}`
     )
     this.bindings.replaceAll(payload.bindings)
+    this.ledgerHumanEgress?.pruneBindings(
+      payload.bindings
+        .filter((binding) => binding.status === 'active')
+        .map((binding) => binding.bindingId)
+    )
     await this.reconcileLiveSubscriptions(payload.bindings)
     return payload.bindings
   }
@@ -930,6 +998,18 @@ export class GatewayDiscordApp {
     }
 
     const payload = (await response.json()) as InterfaceMessageResponse
+    const collaborationRoute = collaborationRouteFromState(payload.currentState)
+    if (collaborationRoute !== undefined && this.ledgerHumanEgress !== undefined) {
+      this.ledgerHumanEgress.recordRoute({
+        ...collaborationRoute,
+        bindingId: routeBinding.bindingId,
+        conversationRef: route.conversation.conversationRef,
+        ...(route.conversation.threadRef !== undefined
+          ? { threadRef: route.conversation.threadRef }
+          : {}),
+        humanPrincipalRef: 'agent:lance',
+      })
+    }
     if (pendingPlaceholder) {
       if (payload.runId !== undefined) {
         pendingPlaceholder.acpRunId = payload.runId
@@ -1206,6 +1286,53 @@ export class GatewayDiscordApp {
         await sleep(this.deliveryIdleMs)
       }
     }
+  }
+
+  private async runLedgerHumanEgressLoop(): Promise<void> {
+    while (!this.ledgerHumanEgressLoopStopped) {
+      try {
+        await this.ledgerHumanEgress?.pollOnce()
+        await sleep(this.deliveryPollMs)
+      } catch (error) {
+        log.error('gw.ledger_human_egress.loop_error', {
+          message: 'Discord ledger human-egress iteration failed',
+          trace: { gatewayId: this.gatewayId },
+          err: { message: error instanceof Error ? error.message : String(error) },
+        })
+        await sleep(this.deliveryIdleMs)
+      }
+    }
+  }
+
+  private async sendLedgerHumanEnvelope(
+    route: DiscordLedgerProjectionRoute,
+    envelope: WrkqEnvelope
+  ): Promise<{ messageId: string }> {
+    const channelId =
+      threadRefToThreadId(route.threadRef) ?? conversationRefToChannelId(route.conversationRef)
+    if (channelId === undefined) {
+      throw new Error(`Discord ledger route has no channel: ${route.bindingId}`)
+    }
+    const agentId = envelope.from.principalRef.startsWith('agent:')
+      ? envelope.from.principalRef.slice('agent:'.length)
+      : envelope.from.principalRef
+    const sender = envelope.from.scopeRef ?? envelope.from.principalRef
+    const sent = await this.webhooks.send(channelId, {
+      content: `-# ${sender}\n${envelope.body}`,
+      username: agentId,
+      avatarURL: avatarFor(agentId),
+    })
+    log.info('gw.ledger_human_egress.sent', {
+      trace: { gatewayId: this.gatewayId },
+      data: {
+        envelopeId: envelope.id,
+        roomKey: envelope.roomKey,
+        bindingId: route.bindingId,
+        channelId,
+        messageId: sent.id,
+      },
+    })
+    return { messageId: sent.id }
   }
 
   /** Read the current max system-event id so a (re)start tails new events only.

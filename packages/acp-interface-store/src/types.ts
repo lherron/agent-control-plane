@@ -11,6 +11,22 @@ export type InterfaceStoreActorIdentity = {
 }
 
 export type InterfaceBindingStatus = 'active' | 'disabled'
+
+export interface DiscordLedgerProjectionRoute {
+  gatewayId: string
+  roomUuid: string
+  roomKey: string
+  bindingId: string
+  conversationRef: string
+  threadRef?: string | undefined
+  humanPrincipalRef: string
+  updatedAt: string
+}
+
+export type RecordDiscordLedgerProjectionRouteInput = Omit<
+  DiscordLedgerProjectionRoute,
+  'updatedAt'
+>
 export type DeliveryRequestStatus = CoreDeliveryRequestStatus
 export type DeliveryBodyKind = 'text/markdown'
 

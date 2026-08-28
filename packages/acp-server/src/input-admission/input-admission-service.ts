@@ -14,6 +14,7 @@ import {
   type HrcRuntimeIntent,
 } from 'hrc-core'
 import type { UnifiedSessionEvent } from 'spaces-runtime'
+import type { CollaborationSayReceipt } from 'wrkq-lib'
 
 import { createInterfaceResponseCapture } from '../delivery/interface-response-capture.js'
 import type { ResolvedAcpServerDeps } from '../deps.js'
@@ -318,26 +319,32 @@ export class InputAdmissionService {
     actor: AdmitInput['actor']
     idempotencyKey?: string | undefined
     inputAttemptId: string
-  }): Promise<boolean> {
+  }): Promise<CollaborationSayReceipt | undefined> {
     if (input.actor.kind !== 'human' || this.deps.collaborationLedgerForPrincipal === undefined) {
-      return false
+      return undefined
     }
     const targetScopeHandle = formatScopeHandle(parseScopeRef(input.sessionRef.scopeRef))
     const humanLedger = await this.deps.collaborationLedgerForPrincipal('agent:lance')
-    await humanLedger.say({
+    return humanLedger.say({
       ref: targetScopeHandle,
       to: [targetScopeHandle],
       body: input.content,
       idempotencyKey: input.idempotencyKey ?? `acp:input-attempt:${input.inputAttemptId}`,
     })
-    return true
   }
 
   private createAcceptedCollaborationAdmission(input: {
     attempt: ReturnType<ResolvedAcpServerDeps['inputAttemptStore']['createAttempt']>
     intent: Exclude<InputIntent, { kind: 'control_active_run' }>
+    collaboration: CollaborationSayReceipt
   }): InputAdmissionResult {
-    const currentState = { delivery: 'collaboration_ledger' }
+    const currentState = {
+      delivery: 'collaboration_ledger',
+      roomUuid: input.collaboration.roomUuid,
+      roomKey: input.collaboration.roomKey,
+      groupId: input.collaboration.groupId,
+      envelopeId: input.collaboration.envelopes[0]?.messageId,
+    }
     const admission = this.deps.inputAdmissionStore.create({
       inputAttemptId: input.attempt.inputAttempt.inputAttemptId,
       admissionKind: 'accepted_in_flight',
@@ -665,17 +672,18 @@ export class InputAdmissionService {
       }
     }
 
-    const collaborationRecorded = await this.recordHumanCollaborationSay({
+    const collaboration = await this.recordHumanCollaborationSay({
       sessionRef: input.sessionRef,
       content: input.content,
       actor: input.actor,
       ...(input.idempotencyKey !== undefined ? { idempotencyKey: input.idempotencyKey } : {}),
       inputAttemptId: attempt.inputAttempt.inputAttemptId,
     })
-    if (collaborationRecorded) {
+    if (collaboration !== undefined) {
       return this.createAcceptedCollaborationAdmission({
         attempt,
         intent: input.intent,
+        collaboration,
       })
     }
 
@@ -992,15 +1000,15 @@ export class InputAdmissionService {
       }
     }
 
-    const collaborationRecorded = await this.recordHumanCollaborationSay({
+    const collaboration = await this.recordHumanCollaborationSay({
       sessionRef: input.sessionRef,
       content: input.content,
       actor: input.actor,
       ...(input.idempotencyKey !== undefined ? { idempotencyKey: input.idempotencyKey } : {}),
       inputAttemptId: attempt.inputAttempt.inputAttemptId,
     })
-    if (collaborationRecorded) {
-      return this.createAcceptedCollaborationAdmission({ attempt, intent })
+    if (collaboration !== undefined) {
+      return this.createAcceptedCollaborationAdmission({ attempt, intent, collaboration })
     }
 
     const seq = this.deps.sessionAdmissionSequenceStore.reserve({

@@ -4,6 +4,7 @@ import { dirname } from 'node:path'
 import { DeliveryTargetResolver } from './delivery-target-resolver.js'
 import { BindingRepo } from './repos/binding-repo.js'
 import { DeliveryRequestRepo } from './repos/delivery-request-repo.js'
+import { DiscordLedgerProjectionRepo } from './repos/discord-ledger-projection-repo.js'
 import { LastDeliveryContextRepo } from './repos/last-delivery-context-repo.js'
 import { MessageSourceRepo } from './repos/message-source-repo.js'
 import { OutboundAttachmentRepo } from './repos/outbound-attachment-repo.js'
@@ -18,6 +19,7 @@ export interface InterfaceStore {
   readonly sqlite: SqliteDatabase
   readonly bindings: BindingRepo
   readonly deliveries: DeliveryRequestRepo
+  readonly discordLedgerProjection: DiscordLedgerProjectionRepo
   readonly lastDeliveryContext: LastDeliveryContextRepo
   readonly deliveryTargets: DeliveryTargetResolver
   readonly messageSources: MessageSourceRepo
@@ -89,6 +91,27 @@ function initializeSchema(sqlite: SqliteDatabase): void {
 
     CREATE INDEX IF NOT EXISTS interface_message_sources_binding_idx
       ON interface_message_sources (binding_id, received_at);
+
+    CREATE TABLE IF NOT EXISTS discord_ledger_projection_cursors (
+      gateway_id TEXT PRIMARY KEY,
+      high_water INTEGER NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS discord_ledger_projection_routes (
+      gateway_id TEXT NOT NULL,
+      room_uuid TEXT NOT NULL,
+      room_key TEXT NOT NULL,
+      binding_id TEXT NOT NULL,
+      conversation_ref TEXT NOT NULL,
+      thread_ref TEXT,
+      human_principal_ref TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (gateway_id, room_uuid)
+    );
+
+    CREATE INDEX IF NOT EXISTS discord_ledger_projection_routes_binding_idx
+      ON discord_ledger_projection_routes (gateway_id, binding_id);
 
     CREATE TABLE IF NOT EXISTS delivery_requests (
       delivery_request_id TEXT PRIMARY KEY,
@@ -488,12 +511,14 @@ export function openInterfaceStore(options: OpenInterfaceStoreOptions): Interfac
 
   const bindings = new BindingRepo(context)
   const deliveries = new DeliveryRequestRepo(context)
+  const discordLedgerProjection = new DiscordLedgerProjectionRepo(context)
   const lastDeliveryContext = new LastDeliveryContextRepo(context)
 
   const store = {
     sqlite,
     bindings,
     deliveries,
+    discordLedgerProjection,
     lastDeliveryContext,
     deliveryTargets: new DeliveryTargetResolver({
       bindings,

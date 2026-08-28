@@ -19,6 +19,7 @@ export type {
   FailedDeliveryRecord,
   DeliveryRequest,
   DeliveryRequestStatus,
+  DiscordLedgerProjectionRoute,
   EnqueueDeliveryRequestIdempotencyInput,
   EnqueueDeliveryRequestIdempotencyResult,
   EnqueueDeliveryRequestInput,
@@ -33,6 +34,7 @@ export type {
   OutboundAttachment,
   OutboundAttachmentState,
   RecordIfNewMessageSourceResult,
+  RecordDiscordLedgerProjectionRouteInput,
   RequeueDeliveryRequestResult,
   ResolveDeliveryTargetResult,
 } from './types.js'
