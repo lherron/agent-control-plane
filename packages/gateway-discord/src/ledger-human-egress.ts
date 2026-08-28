@@ -130,6 +130,7 @@ export class DiscordLedgerHumanEgress {
     await this.deps.client.wrkq.envelope.present({
       envelope: envelope.id,
       memberRef: route.humanPrincipalRef,
+      principalRef: 'agent:gateway-discord',
       driveAttemptId: sent.messageId,
       deliveryOutcome: 'discord',
     })

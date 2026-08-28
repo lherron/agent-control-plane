@@ -100,6 +100,7 @@ describe('Discord ledger human egress', () => {
       {
         envelope: 'EN-00042',
         memberRef: 'agent:lance',
+        principalRef: 'agent:gateway-discord',
         driveAttemptId: 'discord-message-1',
         deliveryOutcome: 'discord',
       },
