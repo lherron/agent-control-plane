@@ -178,6 +178,55 @@ afterEach(() => {
 })
 
 describe('WS /v2/mobile/dashboard federation projection', () => {
+  test('keeps the retired accept capability false on local and peer node summaries', async () => {
+    const client = createDashboardClient([event(1)])
+    client.listSessionsPage = undefined
+    client.getSessionFacets = undefined
+    client.listFederationPeerHealth = async () => [
+      {
+        nodeId: 'max3',
+        state: 'healthy',
+        checkedAt: NOW,
+        answeredAt: NOW,
+        latencyMs: 4,
+        protocolVersion: '1',
+        capabilities: { locate: true, health: true, runtimeProjection: true },
+      },
+    ]
+    client.listFederatedRuntimes = async () => ({
+      localNodeId: 'svc',
+      generatedAt: NOW,
+      nodes: [],
+    })
+    const { ws, sent } = createDashboardSocket({ hrcClient: client, version: 2 })
+
+    await openMobileWebSocket(ws)
+
+    expect(sent.find((envelope) => envelope.type === 'federation_snapshot')).toMatchObject({
+      type: 'federation_snapshot',
+      nodes: expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: 'svc',
+          capabilities: {
+            accept: false,
+            locate: true,
+            health: true,
+            runtimeProjection: true,
+          },
+        }),
+        expect.objectContaining({
+          nodeId: 'max3',
+          capabilities: {
+            accept: false,
+            locate: true,
+            health: true,
+            runtimeProjection: true,
+          },
+        }),
+      ]),
+    })
+  })
+
   test('sends one bounded HRC-owned federated page, then page-derived node health', async () => {
     const client = createDashboardClient([event(1), event(2)])
     const latestEventRequests: unknown[] = []

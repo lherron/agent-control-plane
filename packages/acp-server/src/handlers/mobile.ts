@@ -1801,7 +1801,7 @@ async function buildMobileFederationSnapshot(
       checkedAt: report.generatedAt,
       answeredAt: report.generatedAt,
       latencyMs: 0,
-      capabilities: { accept: true, locate: true, health: true, runtimeProjection: true },
+      capabilities: { accept: false, locate: true, health: true, runtimeProjection: true },
     })
     for (const node of report.nodes) {
       nodes.set(node.nodeId, {
@@ -1831,7 +1831,17 @@ async function buildMobileFederationSnapshot(
         ? { protocolVersion: observation.protocolVersion }
         : {}),
       ...(observation.capabilities !== undefined
-        ? { capabilities: observation.capabilities }
+        ? {
+            capabilities: {
+              // `accept` was retired upstream (T-07616); keep it on the iOS wire, always false.
+              accept: false,
+              locate: observation.capabilities.locate,
+              health: observation.capabilities.health,
+              ...(observation.capabilities.runtimeProjection !== undefined
+                ? { runtimeProjection: observation.capabilities.runtimeProjection }
+                : {}),
+            },
+          }
         : existing?.capabilities !== undefined
           ? { capabilities: existing.capabilities }
           : {}),
