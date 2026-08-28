@@ -34,6 +34,11 @@ const hrcBuild = {
   builtAt: '2026-08-26T02:55:56.445Z',
 }
 
+const fixturePackages = {
+  asp: ['agent-scope', 'spaces-aspc-facade'],
+  hrc: ['hrc-core'],
+} as const
+
 function lockEntry(name: string, version: string, lockKey = name): string {
   return `    "${lockKey}": ["${name}@${version}", "http://mini:4873/${name}/-/${name}-${version}.tgz", {}, "sha512-dGVzdA=="],`
 }
@@ -42,7 +47,7 @@ function coherentFixture() {
   const installed: InstalledProducerPackage[] = []
   const lockLines: string[] = []
   for (const producer of EXPECTED_CONSUMER_PRODUCERS) {
-    for (const name of producer.packages) {
+    for (const name of fixturePackages[producer.setName]) {
       lockLines.push(lockEntry(name, producer.setVersion))
       installed.push({
         name,
@@ -54,6 +59,21 @@ function coherentFixture() {
   return {
     lockText: lockLines.join('\n'),
     installed,
+    manifests: [
+      {
+        path: 'package.json',
+        dependencies: Object.fromEntries(
+          EXPECTED_CONSUMER_PRODUCERS.flatMap((producer) =>
+            fixturePackages[producer.setName].map((name) => [name, producer.setVersion])
+          )
+        ),
+        overrides: Object.fromEntries(
+          EXPECTED_CONSUMER_PRODUCERS.flatMap((producer) =>
+            fixturePackages[producer.setName].map((name) => [name, producer.setVersion])
+          )
+        ),
+      },
+    ],
     runningStatus: {
       release: {
         mode: 'atomic',
@@ -88,21 +108,6 @@ describe('ASP/HRC consumer deployment coherence', () => {
       builtAt: '2026-08-26T02:40:48.000Z',
     }
     fixture.runningStatus.release = { ...fixture.runningStatus.release, hrcBuild: runningHrcBuild }
-    const [first] = EXPECTED_CONSUMER_PRODUCERS[0]?.packages ?? []
-    if (first === undefined) throw new Error('invalid fixture')
-    fixture.installed = fixture.installed.map((entry) =>
-      entry.name === first
-        ? {
-            ...entry,
-            praesidiumBuild: {
-              ...aspBuild,
-              setVersion: '0.1.1-dev.20260825120000',
-              builtAt: '2026-08-25T12:00:00.000Z',
-            },
-          }
-        : entry
-    )
-
     const report = evaluateConsumerDeployment(fixture)
 
     expect(report.findings).toEqual([])
@@ -164,8 +169,8 @@ describe('ASP/HRC consumer deployment coherence', () => {
 
   test('fails closed on lock, locator, installed tuple, and running-release drift', () => {
     const fixture = coherentFixture()
-    const aspPackage = EXPECTED_CONSUMER_PRODUCERS[0]?.packages[0]
-    const hrcPackage = EXPECTED_CONSUMER_PRODUCERS[1]?.packages[0]
+    const aspPackage = fixturePackages.asp[0]
+    const hrcPackage = fixturePackages.hrc[0]
     if (aspPackage === undefined || hrcPackage === undefined) throw new Error('invalid fixture')
 
     fixture.lockText = fixture.lockText
@@ -180,7 +185,9 @@ describe('ASP/HRC consumer deployment coherence', () => {
           'http://127.0.0.1:4873/'
         )
       )
-    fixture.installed = fixture.installed.filter((entry) => entry.name !== aspPackage)
+    fixture.installed = fixture.installed.map((entry) =>
+      entry.name === aspPackage ? { ...entry, version: '0.1.1-dev.20260721071843' } : entry
+    )
     fixture.runningStatus.release = {
       ...fixture.runningStatus.release,
       mode: 'unmanaged',
@@ -195,7 +202,7 @@ describe('ASP/HRC consumer deployment coherence', () => {
       expect.arrayContaining([
         expect.stringContaining(`${aspPackage}: lock selects 0.1.1-dev.20260721071843`),
         expect.stringContaining(`${hrcPackage}: lock tarball is not canonical`),
-        expect.stringContaining(`${aspPackage}: installed manifest is missing`),
+        expect.stringContaining(`${aspPackage}: installed version 0.1.1-dev.20260721071843`),
         expect.stringContaining('running HRC release is unmanaged'),
         expect.stringContaining('running HRC release does not equal the installed release'),
         expect.stringContaining('running ASP build identity does not match ACP installed ASP'),
@@ -205,7 +212,7 @@ describe('ASP/HRC consumer deployment coherence', () => {
 
   test('rejects a missing build record and disagreement within one installed set', () => {
     const fixture = coherentFixture()
-    const [first, second] = EXPECTED_CONSUMER_PRODUCERS[0]?.packages ?? []
+    const [first, second] = fixturePackages.asp
     if (first === undefined || second === undefined) throw new Error('invalid fixture')
 
     fixture.installed = fixture.installed.map((entry) => {
@@ -224,15 +231,15 @@ describe('ASP/HRC consumer deployment coherence', () => {
     expect(report.ok).toBe(false)
     expect(report.findings).toEqual(
       expect.arrayContaining([
-        `${first}: installed manifest has no praesidiumBuild tuple`,
-        expect.stringContaining('installed build tuple disagrees with asp set'),
+        `${first}: root override does not name a tuple-bearing producer package`,
+        expect.stringContaining('installed build tuple does not match expected asp set'),
       ])
     )
   })
 
   test('rejects a stale nested Bun resolution and its installed shadow', () => {
     const fixture = coherentFixture()
-    const packageName = EXPECTED_CONSUMER_PRODUCERS[0]?.packages[0]
+    const packageName = fixturePackages.asp[0]
     if (packageName === undefined) throw new Error('invalid fixture')
     const lockKey = `hrc-core/${packageName}`
     const staleVersion = '0.1.1-dev.20260721071843'
@@ -265,7 +272,7 @@ describe('ASP/HRC consumer deployment coherence', () => {
 
   test('reads and validates the manifest installed at a nested Bun shadow path', async () => {
     const fixture = coherentFixture()
-    const packageName = EXPECTED_CONSUMER_PRODUCERS[0]?.packages[0]
+    const packageName = fixturePackages.asp[0]
     if (packageName === undefined) throw new Error('invalid fixture')
     const lockKey = `hrc-core/${packageName}`
     const staleVersion = '0.1.1-dev.20260721071843'
@@ -274,8 +281,18 @@ describe('ASP/HRC consumer deployment coherence', () => {
 
     try {
       await writeFile(join(repoRoot, 'bun.lock'), fixture.lockText)
+      await writeFile(
+        join(repoRoot, 'package.json'),
+        JSON.stringify({
+          overrides: Object.fromEntries(
+            EXPECTED_CONSUMER_PRODUCERS.flatMap((producer) =>
+              fixturePackages[producer.setName].map((name) => [name, producer.setVersion])
+            )
+          ),
+        })
+      )
       for (const producer of EXPECTED_CONSUMER_PRODUCERS) {
-        for (const name of producer.packages) {
+        for (const name of fixturePackages[producer.setName]) {
           const manifestRoot = join(repoRoot, 'node_modules', name)
           await mkdir(manifestRoot, { recursive: true })
           await writeFile(

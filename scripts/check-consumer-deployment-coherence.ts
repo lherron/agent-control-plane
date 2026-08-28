@@ -24,7 +24,10 @@ let report: ConsumerDeploymentReport = evaluateConsumerDeployment(inputs)
 const fetches: ConsumerLockSelection[] = []
 
 if (report.ok && fetchMode) {
-  for (const [index, selection] of listConsumerLockSelections(inputs.lockText).entries()) {
+  for (const [index, selection] of listConsumerLockSelections(
+    inputs.lockText,
+    inputs.installed
+  ).entries()) {
     const url = new URL(selection.tarball)
     url.searchParams.set('praesidium-cache-empty', `${Date.now()}-${process.pid}-${index}`)
     const response = await fetch(url, {

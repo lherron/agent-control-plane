@@ -1,5 +1,5 @@
-import { readFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { readFile, readdir, stat } from 'node:fs/promises'
+import { join, relative, resolve } from 'node:path'
 
 export const PRAESIDIUM_BUILD_FIELDS = [
   'schema',
@@ -11,11 +11,6 @@ export const PRAESIDIUM_BUILD_FIELDS = [
   'builtAt',
 ] as const
 
-/**
- * The coherence identity of a producer set. `setVersion` and `builtAt` are deliberately
- * absent: every node mints its own canonical set from the same source commit, so those two
- * fields are per-node informational and must never drive a finding.
- */
 export const PRAESIDIUM_BUILD_IDENTITY_FIELDS = [
   'schema',
   'repository',
@@ -29,27 +24,22 @@ export type PraesidiumBuild = Readonly<{
   repository: string
   canonicalRemote: string
   sourceCommit: string
-  setName: 'asp' | 'hrc'
+  setName: string
   setVersion: string
   builtAt: string
 }>
 
-type ExpectedConsumerProducer = Readonly<{
-  setName: 'asp' | 'hrc'
-  /**
-   * The concrete version pinned by `package.json` overrides and `bun.lock`. Bun needs one
-   * version to resolve, and both files are committed, so this is identical on every node.
-   * It is a pin, not an identity: coherence is decided by `sourceCommit`, and a set minted
-   * on another node from the same commit under a different `setVersion` is still coherent.
-   */
+export type ProducerSetName = 'asp' | 'hrc'
+
+export type ExpectedConsumerProducer = Readonly<{
+  setName: ProducerSetName
   setVersion: string
   repository: string
   canonicalRemote: string
-  /** The coherence identity of this producer set, together with the three fields above. */
   sourceCommit: string
-  packages: readonly string[]
 }>
 
+/** Producer identity and pin authority. Package membership is deliberately derived. */
 export const EXPECTED_CONSUMER_PRODUCERS = [
   {
     setName: 'asp',
@@ -57,23 +47,6 @@ export const EXPECTED_CONSUMER_PRODUCERS = [
     repository: 'agent-spaces',
     canonicalRemote: 'git@github.com:lherron/agent-spaces.git',
     sourceCommit: '1e3231ec8d3ccc38c50b9f61fb8deeacc8ef60d4',
-    packages: [
-      'agent-scope',
-      'agent-spaces',
-      'cli-kit',
-      'spaces-aspc',
-      'spaces-aspc-protocol',
-      'spaces-config',
-      'spaces-execution',
-      'spaces-harness-broker-client',
-      'spaces-harness-broker-protocol',
-      'spaces-harness-claude',
-      'spaces-harness-codex',
-      'spaces-harness-pi',
-      'spaces-harness-pi-sdk',
-      'spaces-runtime',
-      'spaces-runtime-contracts',
-    ],
   },
   {
     setName: 'hrc',
@@ -81,20 +54,12 @@ export const EXPECTED_CONSUMER_PRODUCERS = [
     repository: 'hrc-runtime',
     canonicalRemote: 'git@github.com:lherron/hrc-runtime.git',
     sourceCommit: '8f104d1055005d5253e54ef17b0685c82fbc43e8',
-    packages: [
-      'agent-action-render',
-      'hrc-core',
-      'hrc-events',
-      'hrc-frame-render',
-      'hrc-sdk',
-      'hrc-server',
-      'hrc-store-sqlite',
-    ],
   },
 ] as const satisfies readonly ExpectedConsumerProducer[]
 
 export type InstalledProducerPackage = Readonly<{
   lockKey?: string | undefined
+  manifestPath?: string | undefined
   name: string
   version: string
   praesidiumBuild?: PraesidiumBuild | undefined
@@ -108,8 +73,19 @@ export type ConsumerLockSelection = Readonly<{
   integrity: string
 }>
 
-type RunningStatus = Readonly<{
-  release?: unknown
+export type ConsumerManifest = Readonly<{
+  path: string
+  dependencies?: Readonly<Record<string, string>> | undefined
+  devDependencies?: Readonly<Record<string, string>> | undefined
+  overrides?: Readonly<Record<string, string>> | undefined
+}>
+
+type RunningStatus = Readonly<{ release?: unknown }>
+
+export type ConsumerDeploymentInputs = Readonly<{
+  lockText: string
+  installed: readonly InstalledProducerPackage[]
+  manifests: readonly ConsumerManifest[]
 }>
 
 export type ConsumerDeploymentReport = Readonly<{
@@ -120,7 +96,6 @@ export type ConsumerDeploymentReport = Readonly<{
     hrcBuild?: PraesidiumBuild | undefined
   }>
   running?: Readonly<Record<string, unknown>> | undefined
-  /** Per-node set versions and build timestamps. Never a coherence failure. */
   informational: readonly string[]
   findings: readonly string[]
 }>
@@ -133,21 +108,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function isPraesidiumBuild(value: unknown): value is PraesidiumBuild {
+export function isPraesidiumBuild(value: unknown): value is PraesidiumBuild {
   if (!isRecord(value)) return false
   const keys = Object.keys(value).sort()
-  const expectedKeys = [...PRAESIDIUM_BUILD_FIELDS].sort()
   return (
-    JSON.stringify(keys) === JSON.stringify(expectedKeys) &&
+    JSON.stringify(keys) === JSON.stringify([...PRAESIDIUM_BUILD_FIELDS].sort()) &&
     value['schema'] === 1 &&
     typeof value['repository'] === 'string' &&
     typeof value['canonicalRemote'] === 'string' &&
     typeof value['sourceCommit'] === 'string' &&
-    (value['setName'] === 'asp' || value['setName'] === 'hrc') &&
+    typeof value['setName'] === 'string' &&
     typeof value['setVersion'] === 'string' &&
     typeof value['builtAt'] === 'string' &&
     !Number.isNaN(Date.parse(value['builtAt']))
   )
+}
+
+export function expectedConsumerProducer(
+  setName: string
+): (typeof EXPECTED_CONSUMER_PRODUCERS)[number] | undefined {
+  return EXPECTED_CONSUMER_PRODUCERS.find((producer) => producer.setName === setName)
 }
 
 function expectedBuildFieldsMatch(
@@ -159,28 +139,24 @@ function expectedBuildFieldsMatch(
     build.repository === expected.repository &&
     build.canonicalRemote === expected.canonicalRemote &&
     build.sourceCommit === expected.sourceCommit &&
-    build.setName === expected.setName
+    build.setName === expected.setName &&
+    build.setVersion === expected.setVersion
   )
 }
 
-function lockSelections(lockText: string, name: string): ConsumerLockSelection[] {
+function allLockSelections(lockText: string): ConsumerLockSelection[] {
   const selections: ConsumerLockSelection[] = []
-  const resolutionPrefix = `${name}@`
   for (const line of lockText.split(/\r?\n/)) {
     const match = /^\s*"([^"]+)":\s*\[\s*"([^"]+)"(?:,\s*"([^"]+)")?/.exec(line)
     const lockKey = match?.[1]
     const resolution = match?.[2]
-    if (
-      lockKey === undefined ||
-      resolution === undefined ||
-      !resolution.startsWith(resolutionPrefix)
-    ) {
-      continue
-    }
+    if (lockKey === undefined || resolution === undefined) continue
+    const separator = resolution.lastIndexOf('@')
+    if (separator <= 0 || separator === resolution.length - 1) continue
     selections.push({
       lockKey,
-      name,
-      version: resolution.slice(resolutionPrefix.length),
+      name: resolution.slice(0, separator),
+      version: resolution.slice(separator + 1),
       tarball: match?.[3] ?? '',
       integrity: /"(sha512-[A-Za-z0-9+/=]+)"\s*\],?\s*$/.exec(line)?.[1] ?? '',
     })
@@ -192,112 +168,144 @@ function expectedTarball(name: string, version: string): string {
   return `http://mini:4873/${name}/-/${name}-${version}.tgz`
 }
 
-function packageChainFromLockKey(lockKey: string): string[] {
-  const segments = lockKey.split('/')
-  const chain: string[] = []
-  for (let index = 0; index < segments.length; index++) {
-    const segment = segments[index]
-    if (segment === undefined || segment.length === 0) continue
-    if (segment.startsWith('@') && segments[index + 1] !== undefined) {
-      chain.push(`${segment}/${segments[index + 1]}`)
-      index++
-    } else {
-      chain.push(segment)
-    }
-  }
-  return chain
-}
-
-function installedManifestPath(repoRoot: string, lockKey: string): string {
-  const chain = packageChainFromLockKey(lockKey)
-  let packageRoot = resolve(repoRoot, 'node_modules')
-  for (const [index, packageName] of chain.entries()) {
-    packageRoot = resolve(packageRoot, packageName)
-    if (index < chain.length - 1) packageRoot = resolve(packageRoot, 'node_modules')
-  }
-  return resolve(packageRoot, 'package.json')
-}
-
 function runningRelease(status: RunningStatus | undefined): Record<string, unknown> | undefined {
   return isRecord(status?.release) ? status.release : undefined
+}
+
+function tupleMembers(
+  installed: readonly InstalledProducerPackage[]
+): Map<string, PraesidiumBuild> {
+  const members = new Map<string, PraesidiumBuild>()
+  for (const entry of installed) {
+    if (isPraesidiumBuild(entry.praesidiumBuild)) members.set(entry.name, entry.praesidiumBuild)
+  }
+  return members
+}
+
+/** Validate root overrides and every root/workspace direct producer dependency. */
+export function producerManifestAgreementFindings(
+  manifests: readonly ConsumerManifest[],
+  members: ReadonlyMap<string, PraesidiumBuild>
+): string[] {
+  const findings: string[] = []
+  const root = manifests.find((manifest) => manifest.path === 'package.json')
+  const overrides = root?.overrides ?? {}
+  for (const [name, build] of members) {
+    const expected = expectedConsumerProducer(build.setName)
+    if (expected !== undefined && overrides[name] !== expected.setVersion) {
+      findings.push(
+        `${name}: root override ${overrides[name] ?? 'missing'}; expected ${expected.setVersion}`
+      )
+    }
+  }
+  for (const name of Object.keys(overrides)) {
+    if (name !== '@wrkq/client' && !members.has(name)) {
+      findings.push(`${name}: root override does not name a tuple-bearing producer package`)
+    }
+  }
+  for (const manifest of manifests) {
+    for (const dependencies of [manifest.dependencies, manifest.devDependencies]) {
+      for (const [name, specifier] of Object.entries(dependencies ?? {})) {
+        const build = members.get(name)
+        if (build === undefined) continue
+        const expected = expectedConsumerProducer(build.setName)
+        if (expected !== undefined && specifier !== expected.setVersion) {
+          findings.push(
+            `${manifest.path}: ${name} specifier ${specifier}; expected ${expected.setVersion}`
+          )
+        }
+      }
+    }
+  }
+  return findings
 }
 
 export function evaluateConsumerDeployment(input: {
   lockText: string
   installed: readonly InstalledProducerPackage[]
+  manifests?: readonly ConsumerManifest[] | undefined
   runningStatus?: RunningStatus | undefined
 }): ConsumerDeploymentReport {
-  const findings: string[] = []
+  const findings = new Set<string>()
   const installedByLockKey = new Map(
     input.installed.map((entry) => [entry.lockKey ?? entry.name, entry])
   )
+  const members = tupleMembers(input.installed)
   const installedBuilds: {
     aspBuild?: PraesidiumBuild | undefined
     hrcBuild?: PraesidiumBuild | undefined
   } = {}
 
-  for (const producer of EXPECTED_CONSUMER_PRODUCERS) {
-    let coherentBuild: PraesidiumBuild | undefined
-    for (const name of producer.packages) {
-      const selections = lockSelections(input.lockText, name)
-      if (selections.length === 0) {
-        findings.push(`${name}: lock selection is missing`)
-      }
-      for (const selection of selections) {
-        const label = selection.lockKey
-        if (selection.version !== producer.setVersion) {
-          findings.push(
-            `${label}: lock selects ${selection.version}; expected ${producer.setVersion}`
-          )
-        }
-        if (selection.tarball !== expectedTarball(name, selection.version)) {
-          findings.push(`${label}: lock tarball is not canonical: ${selection.tarball}`)
-        }
-        if (selection.integrity.length === 0) {
-          findings.push(`${label}: lock integrity is missing`)
-        }
-
-        const installed = installedByLockKey.get(selection.lockKey)
-        if (installed === undefined) {
-          findings.push(`${label}: installed manifest is missing`)
-          continue
-        }
-        if (installed.name !== name) {
-          findings.push(`${label}: installed manifest name ${installed.name}; expected ${name}`)
-        }
-        if (installed.version !== producer.setVersion) {
-          findings.push(
-            `${label}: installed version ${installed.version}; expected ${producer.setVersion}`
-          )
-        }
-        if (!isPraesidiumBuild(installed.praesidiumBuild)) {
-          findings.push(`${label}: installed manifest has no praesidiumBuild tuple`)
-          continue
-        }
-        if (!expectedBuildFieldsMatch(installed.praesidiumBuild, producer)) {
-          findings.push(
-            `${label}: installed build tuple does not match expected ${producer.setName} set`
-          )
-        }
-        if (coherentBuild === undefined) {
-          coherentBuild = installed.praesidiumBuild
-        } else if (buildIdentity(installed.praesidiumBuild) !== buildIdentity(coherentBuild)) {
-          findings.push(`${label}: installed build tuple disagrees with ${producer.setName} set`)
-        }
-      }
+  for (const entry of input.installed) {
+    const build = entry.praesidiumBuild
+    if (!isPraesidiumBuild(build)) continue
+    const label = entry.lockKey ?? entry.name
+    const expected = expectedConsumerProducer(build.setName)
+    if (expected === undefined) {
+      findings.add(`${label}: installed manifest names unknown producer set ${build.setName}`)
+      continue
     }
-    if (producer.setName === 'asp') installedBuilds.aspBuild = coherentBuild
-    else installedBuilds.hrcBuild = coherentBuild
+    if (entry.version !== expected.setVersion) {
+      findings.add(`${label}: installed version ${entry.version}; expected ${expected.setVersion}`)
+    }
+    if (!expectedBuildFieldsMatch(build, expected)) {
+      findings.add(
+        `${label}: installed build tuple does not match expected ${expected.setName} set`
+      )
+    }
+    const key = expected.setName === 'asp' ? 'aspBuild' : 'hrcBuild'
+    const coherentBuild = installedBuilds[key]
+    if (coherentBuild === undefined) installedBuilds[key] = build
+    else if (buildIdentity(build) !== buildIdentity(coherentBuild)) {
+      findings.add(`${label}: installed build tuple disagrees with ${expected.setName} set`)
+    }
+  }
+
+  const memberNames = new Set(members.keys())
+  const selections = allLockSelections(input.lockText).filter((selection) =>
+    memberNames.has(selection.name)
+  )
+  const selectionKeys = new Set(selections.map((selection) => selection.lockKey))
+  for (const entry of input.installed) {
+    if (!isPraesidiumBuild(entry.praesidiumBuild)) continue
+    const key = entry.lockKey ?? entry.name
+    if (!selectionKeys.has(key)) findings.add(`${key}: lock selection is missing`)
+  }
+  for (const selection of selections) {
+    const expected = expectedConsumerProducer(members.get(selection.name)?.setName ?? '')
+    if (expected === undefined) continue
+    if (selection.version !== expected.setVersion) {
+      findings.add(
+        `${selection.lockKey}: lock selects ${selection.version}; expected ${expected.setVersion}`
+      )
+    }
+    if (selection.tarball !== expectedTarball(selection.name, selection.version)) {
+      findings.add(`${selection.lockKey}: lock tarball is not canonical: ${selection.tarball}`)
+    }
+    if (selection.integrity.length === 0) {
+      findings.add(`${selection.lockKey}: lock integrity is missing`)
+    }
+    const installed = installedByLockKey.get(selection.lockKey)
+    if (installed === undefined) {
+      findings.add(`${selection.lockKey}: installed manifest is missing`)
+    } else if (installed.name !== selection.name) {
+      findings.add(
+        `${selection.lockKey}: installed manifest name ${installed.name}; expected ${selection.name}`
+      )
+    }
+  }
+
+  for (const finding of producerManifestAgreementFindings(input.manifests ?? [], members)) {
+    findings.add(finding)
   }
 
   const running = runningRelease(input.runningStatus)
   if (input.runningStatus !== undefined) {
-    if (running === undefined) {
-      findings.push('running HRC status has no release readback')
-    } else {
-      if (running['mode'] !== 'atomic') findings.push('running HRC release is unmanaged')
+    if (running === undefined) findings.add('running HRC status has no release readback')
+    else {
+      if (running['mode'] !== 'atomic') findings.add('running HRC release is unmanaged')
       if (running['runningEqualsInstalled'] !== true) {
-        findings.push('running HRC release does not equal the installed release')
+        findings.add('running HRC release does not equal the installed release')
       }
       const runningAsp = running['aspBuild']
       const runningHrc = running['hrcBuild']
@@ -306,25 +314,25 @@ export function evaluateConsumerDeployment(input: {
         (!isPraesidiumBuild(runningAsp) ||
           buildIdentity(runningAsp) !== buildIdentity(installedBuilds.aspBuild))
       ) {
-        findings.push('running ASP build identity does not match ACP installed ASP')
+        findings.add('running ASP build identity does not match ACP installed ASP')
       }
       if (
         installedBuilds.hrcBuild !== undefined &&
         (!isPraesidiumBuild(runningHrc) ||
           buildIdentity(runningHrc) !== buildIdentity(installedBuilds.hrcBuild))
       ) {
-        findings.push('running HRC build identity does not match ACP installed HRC')
+        findings.add('running HRC build identity does not match ACP installed HRC')
       }
     }
   }
 
   return {
-    ok: findings.length === 0,
+    ok: findings.size === 0,
     expected: EXPECTED_CONSUMER_PRODUCERS,
     installed: installedBuilds,
     ...(running !== undefined ? { running } : {}),
     informational: describeSetVersions(installedBuilds, running),
-    findings,
+    findings: [...findings],
   }
 }
 
@@ -338,7 +346,7 @@ function describeSetVersions(
   const lines: string[] = []
   for (const setName of ['asp', 'hrc'] as const) {
     const key = setName === 'asp' ? 'aspBuild' : 'hrcBuild'
-    const installed = setName === 'asp' ? installedBuilds.aspBuild : installedBuilds.hrcBuild
+    const installed = installedBuilds[key]
     const runningRaw = running?.[key]
     const runningBuild = isPraesidiumBuild(runningRaw) ? runningRaw : undefined
     if (installed !== undefined) {
@@ -367,32 +375,86 @@ type InstalledManifest = {
   praesidiumBuild?: unknown
 }
 
-export async function readConsumerDeploymentInputs(
-  repoRoot: string
-): Promise<{ lockText: string; installed: InstalledProducerPackage[] }> {
-  const lockText = await readFile(resolve(repoRoot, 'bun.lock'), 'utf8')
-  const installed: InstalledProducerPackage[] = []
-  for (const selection of listConsumerLockSelections(lockText)) {
-    const manifestPath = installedManifestPath(repoRoot, selection.lockKey)
-    try {
-      const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as InstalledManifest
-      installed.push({
-        lockKey: selection.lockKey,
-        name: manifest.name ?? '',
-        version: manifest.version ?? '',
-        ...(isPraesidiumBuild(manifest.praesidiumBuild)
-          ? { praesidiumBuild: manifest.praesidiumBuild }
-          : {}),
-      })
-    } catch {
-      // The evaluator owns the fail-closed diagnostic for absent manifests.
-    }
-  }
-  return { lockText, installed }
+type RawConsumerManifest = {
+  workspaces?: string[]
+  dependencies?: Record<string, string>
+  devDependencies?: Record<string, string>
+  overrides?: Record<string, string>
 }
 
-export function listConsumerLockSelections(lockText: string): readonly ConsumerLockSelection[] {
-  return EXPECTED_CONSUMER_PRODUCERS.flatMap((producer) =>
-    producer.packages.flatMap((name) => lockSelections(lockText, name))
-  )
+async function consumerManifestPaths(repoRoot: string): Promise<string[]> {
+  const paths = new Set<string>([resolve(repoRoot, 'package.json')])
+  const root = JSON.parse(
+    await readFile(resolve(repoRoot, 'package.json'), 'utf8')
+  ) as RawConsumerManifest
+  for (const pattern of root.workspaces ?? []) {
+    if (pattern.endsWith('/*')) {
+      const base = resolve(repoRoot, pattern.slice(0, -2))
+      for (const entry of await readdir(base, { withFileTypes: true }).catch(() => [])) {
+        if (!entry.isDirectory()) continue
+        const path = join(base, entry.name, 'package.json')
+        if ((await stat(path).catch(() => undefined))?.isFile()) paths.add(path)
+      }
+    } else {
+      const path = resolve(repoRoot, pattern, 'package.json')
+      if ((await stat(path).catch(() => undefined))?.isFile()) paths.add(path)
+    }
+  }
+  return [...paths]
+}
+
+function lockKeyFromManifestPath(path: string): string | undefined {
+  const marker = 'node_modules/'
+  const start = path.indexOf(marker)
+  if (start === -1 || !path.endsWith('/package.json')) return undefined
+  return path
+    .slice(start + marker.length, -'/package.json'.length)
+    .split('/node_modules/')
+    .join('/')
+}
+
+export async function readConsumerDeploymentInputs(
+  repoRoot: string
+): Promise<ConsumerDeploymentInputs> {
+  const lockText = await readFile(resolve(repoRoot, 'bun.lock'), 'utf8')
+  const installed: InstalledProducerPackage[] = []
+  const glob = new Bun.Glob('node_modules/**/package.json')
+  for await (const manifestPath of glob.scan({ cwd: repoRoot, onlyFiles: true })) {
+    try {
+      const manifest = JSON.parse(
+        await readFile(resolve(repoRoot, manifestPath), 'utf8')
+      ) as InstalledManifest
+      if (!isPraesidiumBuild(manifest.praesidiumBuild)) continue
+      installed.push({
+        lockKey: lockKeyFromManifestPath(manifestPath),
+        manifestPath,
+        name: manifest.name ?? '',
+        version: manifest.version ?? '',
+        praesidiumBuild: manifest.praesidiumBuild,
+      })
+    } catch {
+      // The evaluator fails closed for members it can identify from another installed selection.
+    }
+  }
+  const manifests: ConsumerManifest[] = []
+  for (const path of await consumerManifestPaths(repoRoot)) {
+    const raw = JSON.parse(await readFile(path, 'utf8')) as RawConsumerManifest
+    manifests.push({
+      path: relative(repoRoot, path),
+      ...(raw.dependencies !== undefined ? { dependencies: raw.dependencies } : {}),
+      ...(raw.devDependencies !== undefined ? { devDependencies: raw.devDependencies } : {}),
+      ...(raw.overrides !== undefined ? { overrides: raw.overrides } : {}),
+    })
+  }
+  return { lockText, installed, manifests }
+}
+
+export function listConsumerLockSelections(
+  lockText: string,
+  installed?: readonly InstalledProducerPackage[]
+): readonly ConsumerLockSelection[] {
+  const selections = allLockSelections(lockText)
+  if (installed === undefined) return selections
+  const members = new Set(tupleMembers(installed).keys())
+  return selections.filter((selection) => members.has(selection.name))
 }

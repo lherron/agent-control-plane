@@ -23,9 +23,9 @@
   },
   "dependencies": {
     "acp-core": "*",
-    "agent-scope": "latest",
+    "agent-scope": "0.1.1-dev.20260825213756",
     "better-sqlite3": "^11.10.0",
-    "hrc-core": "latest"
+    "hrc-core": "0.1.0-dev.20260825215557"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",

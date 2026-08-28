@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 // scripts/lib/ -> repo root
 const ROOT = resolve(import.meta.dir, '..', '..')
@@ -217,18 +217,187 @@ async function usedPackageNames(
   return used
 }
 
-async function lockfileVersions(): Promise<Map<string, string>> {
-  const lock = await readFile(join(ROOT, 'bun.lock'), 'utf8')
-  const versions = new Map<string, string>()
+/** Every concrete package resolution, including nested workspace lock keys. */
+export function lockedPackageVersions(lock: string): Map<string, Set<string>> {
+  const versions = new Map<string, Set<string>>()
   for (const line of lock.split(/\r?\n/)) {
     const match = line.match(/^\s*("(?:\\.|[^"\\])*"):\s*\[("(?:\\.|[^"\\])*")/)
-    if (!match?.[1] || !match[2]) continue
-    const name = JSON.parse(match[1]) as string
+    if (!match?.[2]) continue
     const resolution = JSON.parse(match[2]) as string
-    const prefix = `${name}@`
-    if (resolution.startsWith(prefix)) versions.set(name, resolution.slice(prefix.length))
+    const separator = resolution.lastIndexOf('@')
+    if (separator <= 0 || separator === resolution.length - 1) continue
+    const name = resolution.slice(0, separator)
+    const version = resolution.slice(separator + 1)
+    const found = versions.get(name) ?? new Set<string>()
+    found.add(version)
+    versions.set(name, found)
   }
   return versions
+}
+
+const PACKAGES_BLOCK_OPEN = '\n  "packages": {\n'
+const PACKAGES_BLOCK_CLOSE = '\n  }'
+
+type PackagesBlock = { head: string; entries: Map<string, string>; tail: string }
+
+function lockEntryKey(line: string): string | undefined {
+  const match = line.match(/^ {4}("(?:\\.|[^"\\])*"):\s*\[/)
+  return match?.[1] === undefined ? undefined : (JSON.parse(match[1]) as string)
+}
+
+function packagesBlock(lock: string): PackagesBlock {
+  const open = lock.indexOf(PACKAGES_BLOCK_OPEN)
+  if (open === -1) throw new Error('bun.lock has no "packages" block')
+  const bodyStart = open + PACKAGES_BLOCK_OPEN.length
+  const bodyEnd = lock.indexOf(PACKAGES_BLOCK_CLOSE, bodyStart)
+  if (bodyEnd === -1) throw new Error('bun.lock "packages" block is unterminated')
+  const entries = new Map<string, string>()
+  for (const line of lock.slice(bodyStart, bodyEnd).split('\n')) {
+    if (line.trim() === '') continue
+    const key = lockEntryKey(line)
+    if (key === undefined) throw new Error(`unrecognized bun.lock resolution line: ${line}`)
+    entries.set(key, line)
+  }
+  return { head: lock.slice(0, bodyStart), entries, tail: lock.slice(bodyEnd + 1) }
+}
+
+function splitLockKey(key: string): string[] {
+  const parts = key.split('/')
+  const segments: string[] = []
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index] as string
+    const next = parts[index + 1]
+    if (part.startsWith('@') && next !== undefined) {
+      segments.push(`${part}/${next}`)
+      index += 1
+    } else segments.push(part)
+  }
+  return segments
+}
+
+type LockEntryInfo = {
+  dependencies?: Record<string, string>
+  peerDependencies?: Record<string, string>
+  optionalDependencies?: Record<string, string>
+  optionalPeers?: string[]
+}
+
+function entryDependencies(line: string): string[] {
+  const match = line.match(/^ {4}"(?:\\.|[^"\\])*":\s*(\[.*\]),?$/)
+  if (!match?.[1]) return []
+  const info = (JSON.parse(match[1]) as [string, string?, LockEntryInfo?])[2]
+  if (!info) return []
+  const optionalPeers = new Set(info.optionalPeers ?? [])
+  return [
+    ...Object.keys(info.dependencies ?? {}),
+    ...Object.keys(info.optionalDependencies ?? {}),
+    ...Object.keys(info.peerDependencies ?? {}).filter((name) => !optionalPeers.has(name)),
+  ]
+}
+
+function resolveDependencyKey(
+  from: string,
+  dependency: string,
+  keys: { has(key: string): boolean }
+): string | undefined {
+  const segments = splitLockKey(from)
+  for (let depth = segments.length; depth >= 0; depth -= 1) {
+    const candidate = [...segments.slice(0, depth), dependency].join('/')
+    if (keys.has(candidate)) return candidate
+  }
+  return undefined
+}
+
+function ownedBySynced(key: string, synced: ReadonlySet<string>): boolean {
+  for (const name of synced) {
+    if (key === name || key.startsWith(`${name}/`) || key.endsWith(`/${name}`)) return true
+    if (key.includes(`/${name}/`)) return true
+  }
+  return false
+}
+
+function rewriteWorkspaceSpecifiers(
+  head: string,
+  synced: ReadonlySet<string>,
+  specifier: string
+): string {
+  let rewritten = head
+  for (const name of synced) {
+    const key = JSON.stringify(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    rewritten = rewritten.replace(
+      new RegExp(`^(\\s*${key}: )"[^"]*"`, 'gm'),
+      `$1${JSON.stringify(specifier)}`
+    )
+  }
+  return rewritten
+}
+
+/** Rebuild `before` with only synced resolutions and their newly-required closure from `after`. */
+export function confineLockToSyncedPackages(
+  before: string,
+  after: string,
+  synced: ReadonlySet<string>,
+  workspaceSpecifier: string = TAG_SPECIFIER
+): string {
+  const beforeBlock = packagesBlock(before)
+  const afterEntries = packagesBlock(after).entries
+  const merged = new Map<string, string>()
+  for (const [key, line] of beforeBlock.entries) {
+    if (!ownedBySynced(key, synced)) {
+      merged.set(key, line)
+      continue
+    }
+    const advanced = afterEntries.get(key)
+    if (advanced !== undefined) merged.set(key, advanced)
+  }
+  const introduced: string[] = []
+  for (const [key, line] of afterEntries) {
+    if (merged.has(key) || !ownedBySynced(key, synced)) continue
+    merged.set(key, line)
+    introduced.push(key)
+  }
+  const pending = [...merged.keys()].filter((key) => ownedBySynced(key, synced))
+  while (pending.length > 0) {
+    const key = pending.pop() as string
+    for (const dependency of entryDependencies(merged.get(key) as string)) {
+      if (resolveDependencyKey(key, dependency, merged) !== undefined) continue
+      const source = resolveDependencyKey(key, dependency, afterEntries)
+      if (source === undefined || merged.has(source)) continue
+      merged.set(source, afterEntries.get(source) as string)
+      introduced.push(source)
+      pending.push(source)
+    }
+  }
+  const head = rewriteWorkspaceSpecifiers(beforeBlock.head, synced, workspaceSpecifier)
+  return `${head}${orderedLockEntries(beforeBlock.entries, merged, introduced).join('\n\n')}\n${beforeBlock.tail}`
+}
+
+function orderedLockEntries(
+  before: ReadonlyMap<string, string>,
+  merged: ReadonlyMap<string, string>,
+  introduced: readonly string[]
+): string[] {
+  const keys = [...before.keys()].filter((key) => merged.has(key))
+  for (const key of [...introduced].sort()) {
+    const at = keys.findIndex((existing) => existing > key)
+    keys.splice(at === -1 ? keys.length : at, 0, key)
+  }
+  return keys.map((key) => merged.get(key) as string)
+}
+
+async function lockfileVersions(): Promise<Map<string, Set<string>>> {
+  return lockedPackageVersions(await readFile(join(ROOT, 'bun.lock'), 'utf8'))
+}
+
+function isSingleVersion(
+  versions: ReadonlySet<string> | undefined,
+  expected: string | undefined
+): boolean {
+  return expected !== undefined && versions?.size === 1 && versions.has(expected)
+}
+
+function lockedVersionText(versions: ReadonlySet<string> | undefined): string {
+  return versions === undefined ? 'missing' : [...versions].sort().join(', ')
 }
 
 async function lockfileIsLatest(
@@ -237,7 +406,7 @@ async function lockfileIsLatest(
 ): Promise<boolean> {
   const used = await usedPackageNames(discover, latest)
   const locked = await lockfileVersions()
-  return [...used].every((name) => locked.get(name) === latest.get(name))
+  return [...used].every((name) => isSingleVersion(locked.get(name), latest.get(name)))
 }
 
 export async function checkVerdaccioFreshness(spec: SyncSpec): Promise<VerdaccioFreshness> {
@@ -249,8 +418,8 @@ export async function checkVerdaccioFreshness(spec: SyncSpec): Promise<Verdaccio
   for (const name of used) {
     const expected = latest.get(name)
     const actual = locked.get(name)
-    if (actual !== expected)
-      stale.push(`${name}: locked ${actual ?? 'missing'}, latest ${expected}`)
+    if (!isSingleVersion(actual, expected))
+      stale.push(`${name}: locked ${lockedVersionText(actual)}, latest ${expected}`)
   }
   return { fresh: stale.length === 0, summary: summaryForGroups(spec.groups, latest), stale }
 }
@@ -414,15 +583,17 @@ async function isolatedBunfigContent(): Promise<string> {
   return `${lines.join('\n')}\n`
 }
 
-async function bunInstallFromVerdaccio(label: string, tmpPrefix: string): Promise<void> {
+async function bunInstallFromVerdaccio(
+  label: string,
+  tmpPrefix: string,
+  mode: 'resolve' | 'relink' = 'resolve'
+): Promise<void> {
   const tmp = await mkdtemp(join(tmpdir(), tmpPrefix))
   try {
     const bunfig = join(tmp, 'bunfig.toml')
     await writeFile(bunfig, await isolatedBunfigContent())
-    // --no-cache bypasses bun's manifest cache so we always see Verdaccio's
-    // current dist-tags. Without it, a freshly-published dev version can
-    // "fail to resolve" until the cache TTL expires.
-    const install = run('bun', ['install', '--no-cache', `--config=${bunfig}`])
+    const flag = mode === 'relink' ? '--frozen-lockfile' : '--no-cache'
+    const install = run('bun', ['install', flag, `--config=${bunfig}`])
     if (install.status !== 0) {
       throw new Error(`bun install failed while syncing ${label} packages:\n${install.out}`)
     }
@@ -431,36 +602,61 @@ async function bunInstallFromVerdaccio(label: string, tmpPrefix: string): Promis
   }
 }
 
-/**
- * Commit the advanced bun.lock as one lockfile-only pathspec commit. Reached ONLY
- * from `commitSyncedLockfile`, i.e. from this repo's own deliberate `just
- * pull-deps` — a sync never commits on its own (T-07629): an install driven from
- * a producer repo must not write git history in a repo it does not own.
- * Failure is tolerated (mid-rebase, concurrent index lock, ...).
- *
- * Skipped entirely when GIT_INDEX_FILE is set: that means we were invoked from a
- * git hook (a pre-commit that builds → syncs), and committing here would move
- * HEAD out from under the in-flight commit and abort it with "cannot lock ref
- * 'HEAD'". The outer commit will carry the lock change instead.
- */
-function commitLockfile(label: string, summary: string): void {
-  const { GIT_INDEX_FILE } = process.env
-  if (GIT_INDEX_FILE) return
-  const status = run('git', ['status', '--porcelain', '--', 'bun.lock'])
-  if (status.status !== 0 || status.out.trim() === '') return
-  const commit = run('git', [
-    'commit',
-    '--no-verify',
-    '-m',
-    `chore: sync bun.lock (${summary})`,
-    '--',
-    'bun.lock',
-  ])
-  if (commit.status === 0) {
-    console.log(`COMMITTED  bun.lock (${label} sync)`)
-  } else {
-    console.warn(`WARN  could not auto-commit bun.lock:\n${commit.out.trim()}`)
+async function nestedPackageDirs(discover: (root: string) => Promise<string[]>): Promise<string[]> {
+  const dirs: string[] = []
+  for (const manifestPath of await discover(ROOT)) {
+    const modules = join(dirname(manifestPath), 'node_modules')
+    if (modules === join(ROOT, 'node_modules')) continue
+    for (const entry of await readdir(modules, { withFileTypes: true }).catch(() => [])) {
+      if (!entry.name.startsWith('@')) {
+        dirs.push(join(modules, entry.name))
+        continue
+      }
+      const scope = join(modules, entry.name)
+      for (const scoped of await readdir(scope, { withFileTypes: true }).catch(() => [])) {
+        dirs.push(join(scope, scoped.name))
+      }
+    }
   }
+  return dirs
+}
+
+async function pruneNestedPackageDirs(
+  discover: (root: string) => Promise<string[]>,
+  before: readonly string[]
+): Promise<void> {
+  const known = new Set(before)
+  for (const dir of await nestedPackageDirs(discover)) {
+    if (!known.has(dir)) await rm(dir, { recursive: true, force: true })
+  }
+}
+
+/** Resolve once, splice only the owned package closure, then relink from the frozen result. */
+export async function installConfinedPackages(options: {
+  label: string
+  tmpPrefix: string
+  synced: ReadonlySet<string>
+  lockBefore: string
+  discover?: (root: string) => Promise<string[]>
+  workspaceSpecifier?: string
+  beforeRelink?: () => Promise<void>
+}): Promise<void> {
+  const discover = options.discover ?? packagesManifestPaths
+  const lockPath = join(ROOT, 'bun.lock')
+  const nestedBefore = await nestedPackageDirs(discover)
+  await bunInstallFromVerdaccio(options.label, options.tmpPrefix)
+  await options.beforeRelink?.()
+  await writeFile(
+    lockPath,
+    confineLockToSyncedPackages(
+      options.lockBefore,
+      await readFile(lockPath, 'utf8'),
+      options.synced,
+      options.workspaceSpecifier ?? TAG_SPECIFIER
+    )
+  )
+  await pruneNestedPackageDirs(discover, nestedBefore)
+  await bunInstallFromVerdaccio(options.label, options.tmpPrefix, 'relink')
 }
 
 /**
@@ -479,7 +675,9 @@ function announceDirtyLockfile(label: string): void {
 
 export async function commitSyncedLockfile(groups: readonly CoherenceGroup[]): Promise<void> {
   const locked = await lockfileVersions()
-  commitLockfile('dependency', summaryForGroups(groups, locked))
+  announceDirtyLockfile(
+    `dependency ${summaryForGroups(groups, new Map([...locked].map(([name, versions]) => [name, [...versions][0] ?? '?'])))}`
+  )
 }
 
 /**
@@ -515,14 +713,19 @@ export async function syncFromVerdaccio(spec: SyncSpec): Promise<void> {
     }
 
     const stale = !(await installedAreLatest(latest)) || !(await lockfileIsLatest(discover, latest))
-    if (stale) {
-      await rewriteManifests(discover, latest, (_name, version) => version)
-      await bunInstallFromVerdaccio(spec.label, tmpPrefix)
-      await rewriteManifests(discover, latest, () => TAG_SPECIFIER)
-    }
     if (stale || normalized.changed) {
-      // Reconcile bun.lock so it records the tag specifier, not the exact pin.
-      await bunInstallFromVerdaccio(spec.label, tmpPrefix)
+      const lockBefore = await readFile(join(ROOT, 'bun.lock'), 'utf8')
+      await rewriteManifests(discover, latest, (_name, version) => version)
+      await installConfinedPackages({
+        label: spec.label,
+        tmpPrefix,
+        synced: new Set(latest.keys()),
+        lockBefore,
+        discover,
+        beforeRelink: async () => {
+          await rewriteManifests(discover, latest, () => TAG_SPECIFIER)
+        },
+      })
     }
     await verifyInstalled(latest, spec.label)
     // Only report churn this run produced — a bun.lock dirtied by someone

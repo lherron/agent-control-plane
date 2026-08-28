@@ -5,8 +5,7 @@ import { join } from 'node:path'
 const source = readFileSync(join(import.meta.dir, 'lib', 'verdaccio-sync.ts'), 'utf8')
 
 // T-07629: a producer repo's `just install` drives this sync in every consumer.
-// It must not write git history in a repo it does not own — only this repo's own
-// `just pull-deps` commits, through commitSyncedLockfile.
+// It must never write git history in a consumer repo. Pulls leave reviewable diffs.
 describe('verdaccio sync lockfile ownership', () => {
   test('syncFromVerdaccio never commits', () => {
     const sync = source.slice(source.indexOf('export async function syncFromVerdaccio'))
@@ -15,12 +14,9 @@ describe('verdaccio sync lockfile ownership', () => {
     expect(sync).toContain('announceDirtyLockfile(spec.label)')
   })
 
-  test('commitSyncedLockfile is the only caller of commitLockfile', () => {
-    const callers = source.split('\n').filter((line) => /(?<!function )commitLockfile\(/.test(line))
-    expect(callers).toHaveLength(1)
-    expect(source.indexOf(callers[0] as string)).toBeGreaterThan(
-      source.indexOf('export async function commitSyncedLockfile')
-    )
+  test('no sync helper runs git commit', () => {
+    expect(source).not.toContain("'commit',")
+    expect(source).not.toContain('commitLockfile')
   })
 
   test('the commit is not merely flagged off', () => {

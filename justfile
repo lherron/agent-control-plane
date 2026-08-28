@@ -181,19 +181,22 @@ clean:
 rebuild:
     bun run rebuild
 
-# Explicitly advance locally-published dependency pins and create one lockfile-only commit.
+# Explicitly advance the moving wrkq stream. The lock diff remains uncommitted.
 pull-deps:
     #!/usr/bin/env bash
     set -euo pipefail
     git diff --quiet -- bun.lock && git diff --cached --quiet -- bun.lock || { echo "pull-deps: bun.lock must be clean before pulling" >&2; exit 1; }
-    bun scripts/sync-asp-from-verdaccio.ts --pull
     bun scripts/sync-wrkq-from-verdaccio.ts --pull
     bun scripts/commit-verdaccio-lock.ts
 
 # Advisory and read-only.
 check-deps:
-    bun scripts/sync-asp-from-verdaccio.ts --check
     bun scripts/sync-wrkq-from-verdaccio.ts --check
+    bun scripts/report-producer-advance.ts
+
+# Deliberate operator-managed ASP/HRC tuple advance. Add --dry-run for a read-only plan.
+advance-producers set version *args:
+    bun scripts/advance-producers.ts "set={{ set }}" "version={{ version }}" {{ args }}
 
 # Install dependencies
 # Linked Git worktrees auto-disable wrapper linking and publish to an isolated worktree
@@ -206,8 +209,9 @@ install no-sync="" force-sync="" force-link="":
     eval "$(bun scripts/install-policy.ts shell --no-sync="{{ no-sync }}" --force-sync="{{ force-sync }}" --force-link="{{ force-link }}")"
     echo "[install] context=${PRAESIDIUM_INSTALL_CONTEXT} sync=${PRAESIDIUM_INSTALL_SYNC_MODE} link=${PRAESIDIUM_INSTALL_LINK_MODE} publish=${PRAESIDIUM_INSTALL_PUBLISH_CHANNEL} tag=${PRAESIDIUM_INSTALL_PUBLISH_TAG}"
     bun run clean
-    bun install
+    bun install --frozen-lockfile
     bun scripts/check-consumer-deployment-coherence.ts
+    bun scripts/report-producer-advance.ts
     bun run install:hooks
     bun run build
     if [ "$PRAESIDIUM_INSTALL_PUBLISH_CHANNEL" = "worktree" ]; then

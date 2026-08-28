@@ -5,7 +5,6 @@
     "packages/*"
   ],
   "scripts": {
-    "sync:asp": "bun scripts/sync-asp-from-verdaccio.ts",
     "sync:wrkq": "bun scripts/sync-wrkq-from-verdaccio.ts",
     "build": "bun run build:ordered",
     "build:ordered": "bun run --filter 'acp-core' build && bun run --filter 'coordination-substrate' build && bun run --filter 'wrkq-lib' build && bun run --filter 'acp-admin-store' build && bun run --filter 'acp-conversation' build && bun run --filter 'acp-interface-store' build && bun run --filter 'acp-jobs-store' build && bun run --filter 'acp-state-store' build && bun run --filter 'acp-ops-projection' build && bun run --filter 'acp-ops-reducer' build && bun run --filter 'gateway-discord' build && bun run --filter 'gateway-ios' build && bun run --filter 'acp-capability-host' build && bun run --filter 'acp-server' build && bun run --filter 'acp-cli' build && bun run --filter 'wlearn' build && bun run --filter 'acp-viewer' build && bun run --filter 'acp-e2e' build",
@@ -41,12 +40,12 @@
   },
   "dependencies": {
     "@wrkq/client": "latest",
-    "agent-spaces": "latest",
-    "spaces-execution": "latest",
-    "spaces-harness-claude": "latest",
-    "spaces-harness-codex": "latest",
-    "spaces-harness-pi": "latest",
-    "spaces-harness-pi-sdk": "latest"
+    "agent-spaces": "0.1.1-dev.20260825213756",
+    "spaces-execution": "0.1.1-dev.20260825213756",
+    "spaces-harness-claude": "0.1.1-dev.20260825213756",
+    "spaces-harness-codex": "0.1.1-dev.20260825213756",
+    "spaces-harness-pi": "0.1.1-dev.20260825213756",
+    "spaces-harness-pi-sdk": "0.1.1-dev.20260825213756"
   },
   "overrides": {
     "agent-action-render": "0.1.0-dev.20260825215557",
@@ -60,6 +59,7 @@
     "hrc-server": "0.1.0-dev.20260825215557",
     "hrc-store-sqlite": "0.1.0-dev.20260825215557",
     "spaces-aspc": "0.1.1-dev.20260825213756",
+    "spaces-aspc-facade": "0.1.1-dev.20260825213756",
     "spaces-aspc-protocol": "0.1.1-dev.20260825213756",
     "spaces-config": "0.1.1-dev.20260825213756",
     "spaces-execution": "0.1.1-dev.20260825213756",
@@ -71,6 +71,7 @@
     "spaces-harness-pi": "0.1.1-dev.20260825213756",
     "spaces-harness-pi-sdk": "0.1.1-dev.20260825213756",
     "spaces-runtime": "0.1.1-dev.20260825213756",
-    "spaces-runtime-contracts": "0.1.1-dev.20260825213756"
+    "spaces-runtime-contracts": "0.1.1-dev.20260825213756",
+    "spaces-turn-runner": "0.1.1-dev.20260825213756"
   }
 }
