@@ -1,9 +1,11 @@
 import { spawnSync } from 'node:child_process'
-import { readFile, writeFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 
 import {
   EXPECTED_CONSUMER_PRODUCERS,
+  type ExpectedConsumerProducer,
   type PraesidiumBuild,
   type ProducerSetName,
   evaluateConsumerDeployment,
@@ -32,12 +34,76 @@ type RegistryMetadata = {
   'dist-tags'?: { latest?: string }
 }
 
-function run(command: string, args: string[]): { status: number; output: string } {
-  const result = spawnSync(command, args, { cwd: ROOT, encoding: 'utf8', stdio: 'pipe' })
+function run(
+  command: string,
+  args: string[],
+  cwd: string = ROOT
+): { status: number; output: string } {
+  const result = spawnSync(command, args, { cwd, encoding: 'utf8', stdio: 'pipe' })
   return {
     status: result.status ?? -1,
     output: `${result.stdout || ''}${result.stderr || ''}`,
   }
+}
+
+type GitResult = Readonly<{ status: number; output: string }>
+export type GitRunner = (args: readonly string[], cwd?: string) => GitResult
+
+const runGit: GitRunner = (args, cwd = ROOT) => run('git', [...args], cwd)
+
+export async function verifySourceCommitAgainstCanonicalRemote(
+  canonicalRemote: string,
+  sourceCommit: string,
+  git: GitRunner = runGit
+): Promise<void> {
+  const remoteHead = git(['ls-remote', canonicalRemote, 'refs/heads/main'])
+  if (remoteHead.status !== 0) {
+    throw new Error(
+      `${canonicalRemote}: canonical producer remote is unreachable:\n${remoteHead.output.trim()}`
+    )
+  }
+  const match = /^([0-9a-f]{40,64})\s+refs\/heads\/main$/m.exec(remoteHead.output)
+  const head = match?.[1]
+  if (head === undefined) {
+    throw new Error(`${canonicalRemote}: canonical producer remote has no refs/heads/main`)
+  }
+
+  const scratch = await mkdtemp(join(tmpdir(), 'acp-producer-provenance-'))
+  try {
+    const init = git(['init', '--bare', '--quiet', scratch])
+    if (init.status !== 0) {
+      throw new Error(`failed to create producer provenance scratch repo:\n${init.output.trim()}`)
+    }
+    const fetch = git(['fetch', '--quiet', canonicalRemote, head], scratch)
+    if (fetch.status !== 0) {
+      throw new Error(
+        `${canonicalRemote}: failed to fetch canonical producer head:\n${fetch.output.trim()}`
+      )
+    }
+    const contains = git(['merge-base', '--is-ancestor', sourceCommit, 'FETCH_HEAD'], scratch)
+    if (contains.status === 0) return
+    if (contains.status === 1) {
+      throw new Error(
+        `${sourceCommit}: producer source commit is not contained by ${canonicalRemote} refs/heads/main`
+      )
+    }
+    throw new Error(
+      `${sourceCommit}: could not prove containment in ${canonicalRemote}:\n${contains.output.trim()}`
+    )
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+}
+
+export async function assertPublishedProducerIdentity(
+  build: PraesidiumBuild,
+  expected: ExpectedConsumerProducer,
+  git: GitRunner = runGit
+): Promise<void> {
+  if (build.setName !== expected.setName || build.repository !== expected.repository) {
+    throw new Error(`${build.repository}: wrong-repository producer tuple`)
+  }
+  await verifySourceCommitAgainstCanonicalRemote(expected.canonicalRemote, build.sourceCommit, git)
 }
 
 async function registryMetadata(name: string): Promise<RegistryMetadata> {
@@ -91,7 +157,6 @@ async function assertCompletePublishedSet(
           build.setName !== setName ||
           build.setVersion !== version ||
           build.repository !== anchorBuild.repository ||
-          build.canonicalRemote !== anchorBuild.canonicalRemote ||
           build.sourceCommit !== anchorBuild.sourceCommit
         ) {
           failures.push(`${name}@${version}: published tuple disagrees with anchor`)
@@ -221,16 +286,10 @@ export async function advanceProducers(argv: readonly string[] = Bun.argv.slice(
     console.log(`PRODUCER_MEMBERS ${name} ${membership[name].join(',')}`)
   }
   const anchor = await resolvePublishedManifest(ANCHORS[setName], requestedVersion)
-  if (
-    anchor.build.setName !== setName ||
-    anchor.build.repository !== producer.repository ||
-    anchor.build.canonicalRemote !== producer.canonicalRemote
-  ) {
-    throw new Error(`${ANCHORS[setName]}@${anchor.version}: wrong-repository producer tuple`)
-  }
+  await assertPublishedProducerIdentity(anchor.build, producer)
   await assertCompletePublishedSet(setName, anchor.version, anchor.build, membership[setName])
   console.log(
-    `PRODUCER_PLAN ${setName} ${producer.setVersion}@${producer.sourceCommit} -> ${anchor.version}@${anchor.build.sourceCommit}; members=${membership[setName].join(',')}`
+    `PRODUCER_PLAN ${setName} ${producer.setVersion}@${producer.sourceCommit} -> ${anchor.version}@${anchor.build.sourceCommit}; tupleRemote=${anchor.build.canonicalRemote}; members=${membership[setName].join(',')}`
   )
   if (dryRun) {
     console.log('PRODUCER_DRY_RUN no files written')

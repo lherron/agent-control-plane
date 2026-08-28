@@ -9,7 +9,7 @@ just advance-producers set=hrc version=latest --dry-run
 just advance-producers set=hrc version=0.1.0-dev.YYYYMMDDHHMMSS
 ```
 
-The dry run reads the anchor manifest from Verdaccio, derives the complete installed ASP/HRC membership from `praesidiumBuild`, verifies that every current member was published at the requested version, and prints the planned table, manifest, override, and lock movement without writing.
+The dry run reads the anchor manifest from Verdaccio, derives the complete installed ASP/HRC membership from `praesidiumBuild`, verifies that every current member was published at the requested version, and prints the planned table, manifest, override, and lock movement without writing. A publisher's tuple remote is informational because node-local SSH aliases vary. The command instead resolves and fetches `main` from ACP's fixed canonical remote in `EXPECTED_CONSUMER_PRODUCERS`, then refuses unless the published source commit is contained by that branch. An unreachable canonical remote is a hard failure.
 
 The real command refuses a dirty tracked tree. It rewrites the selected tuple identity and exact pins, resolves through an isolated Bun configuration, confines `bun.lock` to the selected producer set and its required new dependency closure, then relinks with `--frozen-lockfile`. If a new tuple-bearing package appears, it adds that package's override and repeats to a bounded fixpoint. It leaves the resulting diff uncommitted for review and landing.
 
