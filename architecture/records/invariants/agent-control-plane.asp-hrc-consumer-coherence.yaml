@@ -5,21 +5,36 @@ owner_project: agent-control-plane
 scope: ACP direct and transitive ASP/HRC consumer deployment
 predicate: >
   ACP selects one exact canonical ASP package set and one exact canonical HRC
-  package set across every direct and transitive bun.lock edge. Every selected
-  tarball uses the canonical mini registry locator and its lock integrity is
-  cache-empty fetchable. Installed package manifests must equal the lock and
-  carry one exact praesidiumBuild tuple per set. The served ACP deployment
-  readback must agree with HRC's atomic running release, including its locked
-  ASP tuple and runningEqualsInstalled=true. This consumer invariant imports
-  producer predicates agent-spaces.canonical-package-publication and
+  package set across every direct and transitive bun.lock edge.
+  EXPECTED_CONSUMER_PRODUCERS is ACP's sole identity authority for each set's
+  name, repository, canonical remote, source commit, and concrete version;
+  membership is derived from the exact praesidiumBuild tuples carried by locked
+  and installed package manifests under the imported producer publication
+  predicates, never from a hand-maintained package list. Every derived member
+  has a root override at the set version, every ACP-authored dependency or
+  devDependency edge naming it uses that exact version, and every lock and
+  installed selection agrees with the tuple. Registry latest is advisory for
+  ASP/HRC: routine dependency sync cannot advance either tuple, routine install
+  is frozen, and only the explicit operator advance may change the identity,
+  manifests, overrides, and lock as one confined uncommitted diff while
+  preserving unrelated lock resolutions. The wrkq stream remains outside this
+  authority and independently follows latest. Every selected tarball uses the
+  canonical mini registry locator and its lock integrity is cache-empty
+  fetchable. The served ACP deployment readback must agree with HRC's atomic
+  running release, including its locked ASP tuple and
+  runningEqualsInstalled=true. This consumer invariant imports producer
+  predicates agent-spaces.canonical-package-publication and
   hrc-runtime.canonical-package-publication plus
   hrc-runtime.observable-release; it does not redefine producer contracts.
 authority:
   repo: agent-control-plane
-  surface: dependency lock, installed tuple checker, and served deployment readback
+  surface: producer identity table, derived membership and override gate, dependency lock, explicit producer advance, installed tuple checker, and served deployment readback
 source:
   - bun.lock
+  - package.json
+  - justfile
   - scripts/check-consumer-deployment-coherence.ts
+  - scripts/lib/verdaccio-sync.ts
   - packages/acp-server/src/deployment-coherence.ts
   - packages/acp-server/src/handlers/deployment-coherence.ts
   - packages/acp-server/test/deployment-coherence.test.ts
@@ -27,10 +42,14 @@ source:
   - wrkq:T-06951
   - wrkq:T-06958
   - wrkq:T-06960
+  - wrkq:T-07626
 required_tests:
   - bun scripts/check-consumer-deployment-coherence.ts exits 0
   - bun scripts/check-consumer-deployment-coherence.ts --fetch exits 0
+  - bun test packages/acp-server/src/deployment-coherence-pins.test.ts exits 0
   - bun test packages/acp-server/test/deployment-coherence.test.ts exits 0
+  - bun test scripts/verdaccio-sync.lock-confinement.test.ts scripts/verdaccio-sync.reconcile-scope.test.ts exits 0
+  - bun scripts/advance-producers.ts --dry-run set=hrc version=latest leaves the tracked tree unchanged
   - installed GET /v1/admin/deployment-coherence returns ok true
 last_verified:
   date: 2026-07-25
@@ -39,6 +58,8 @@ reopen_when:
   - ACP adds or removes an ASP/HRC dependency edge or package
   - ASP or HRC publishes a replacement coherent package set
   - the canonical registry locator or praesidiumBuild schema changes
+  - ASP/HRC publication stops minting latest as an install side effect or gains a release signal
+  - Bun lock resolution, override, or frozen-install semantics change
   - HRC changes its served release readback contract
 supersedes: []
 superseded_by: null
