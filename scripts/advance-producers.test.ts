@@ -11,6 +11,7 @@ import {
   type GitRunner,
   assertPostAdvanceConsumerDeployment,
   assertPublishedProducerIdentity,
+  restoreFailedProducerAdvance,
 } from './advance-producers.js'
 
 const hrc = EXPECTED_CONSUMER_PRODUCERS.find((producer) => producer.setName === 'hrc')
@@ -110,6 +111,55 @@ describe('post-advance consumer deployment', () => {
       assertPostAdvanceConsumerDeployment(root)
 
       expect(await readFile(join(root, 'post-advance-readback.txt'), 'utf8')).toBe(fixtureVersion)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  test('failed post-check restores the lock and relinks installed packages to it', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'acp-failed-advance-'))
+    try {
+      const oldPackage = join(root, 'fixtures/old-package')
+      const newPackage = join(root, 'fixtures/new-package')
+      await mkdir(oldPackage, { recursive: true })
+      await mkdir(newPackage, { recursive: true })
+      await writeFile(
+        join(oldPackage, 'package.json'),
+        JSON.stringify({ name: 'fixture-producer', version: '1.0.0' })
+      )
+      await writeFile(
+        join(newPackage, 'package.json'),
+        JSON.stringify({ name: 'fixture-producer', version: '2.0.0' })
+      )
+
+      const rootManifest = join(root, 'package.json')
+      await writeFile(
+        rootManifest,
+        JSON.stringify({ dependencies: { 'fixture-producer': 'file:./fixtures/old-package' } })
+      )
+      expect(Bun.spawnSync(['bun', 'install'], { cwd: root }).exitCode).toBe(0)
+      const snapshots = new Map([
+        ['package.json', await readFile(rootManifest, 'utf8')],
+        ['bun.lock', await readFile(join(root, 'bun.lock'), 'utf8')],
+      ])
+
+      await writeFile(
+        rootManifest,
+        JSON.stringify({ dependencies: { 'fixture-producer': 'file:./fixtures/new-package' } })
+      )
+      expect(Bun.spawnSync(['bun', 'install'], { cwd: root }).exitCode).toBe(0)
+      expect(
+        JSON.parse(await readFile(join(root, 'node_modules/fixture-producer/package.json'), 'utf8'))
+          .version
+      ).toBe('2.0.0')
+
+      await restoreFailedProducerAdvance(snapshots, root)
+
+      expect(await readFile(join(root, 'bun.lock'), 'utf8')).toBe(snapshots.get('bun.lock'))
+      expect(
+        JSON.parse(await readFile(join(root, 'node_modules/fixture-producer/package.json'), 'utf8'))
+          .version
+      ).toBe('1.0.0')
     } finally {
       await rm(root, { recursive: true, force: true })
     }

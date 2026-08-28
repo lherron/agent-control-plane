@@ -286,8 +286,32 @@ function assertUnrelatedLockSelectionsUnchanged(
   }
 }
 
-async function restoreSnapshots(snapshots: ReadonlyMap<string, string>): Promise<void> {
-  for (const [path, content] of snapshots) await writeFile(resolve(ROOT, path), content)
+async function restoreSnapshots(
+  snapshots: ReadonlyMap<string, string>,
+  root: string = ROOT
+): Promise<void> {
+  for (const [path, content] of snapshots) await writeFile(resolve(root, path), content)
+}
+
+export async function restoreFailedProducerAdvance(
+  snapshots: ReadonlyMap<string, string>,
+  root: string = ROOT
+): Promise<void> {
+  await restoreSnapshots(snapshots, root)
+  const result = spawnSync('bun', ['install', '--frozen-lockfile'], {
+    cwd: root,
+    encoding: 'utf8',
+    stdio: 'pipe',
+  })
+  if (result.error !== undefined) {
+    throw new Error(`failed to relink restored producer dependencies: ${result.error.message}`)
+  }
+  if (result.status !== 0) {
+    const output = `${result.stdout || ''}${result.stderr || ''}`.trim()
+    throw new Error(
+      `failed to relink restored producer dependencies with exit code ${result.status ?? 'unknown'}${output === '' ? '' : `:\n${output}`}`
+    )
+  }
 }
 
 export async function advanceProducers(argv: readonly string[] = Bun.argv.slice(2)): Promise<void> {
@@ -373,7 +397,14 @@ export async function advanceProducers(argv: readonly string[] = Bun.argv.slice(
       `PRODUCER_ADVANCED ${setName} ${producer.setVersion} -> ${anchor.version} (${anchor.build.sourceCommit}) — review and commit with your landing`
     )
   } catch (error) {
-    await restoreSnapshots(snapshots)
+    try {
+      await restoreFailedProducerAdvance(snapshots)
+    } catch (rollbackError) {
+      throw new AggregateError(
+        [error, rollbackError],
+        'producer advance failed and rollback could not restore installed dependencies'
+      )
+    }
     throw error
   }
 }
