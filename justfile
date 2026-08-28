@@ -195,8 +195,8 @@ check-deps:
     bun scripts/report-producer-advance.ts
 
 # Deliberate operator-managed ASP/HRC tuple advance. Add --dry-run for a read-only plan.
-advance-producers set version *args:
-    bun scripts/advance-producers.ts "set={{ set }}" "version={{ version }}" {{ args }}
+advance-producers *args:
+    bun scripts/advance-producers.ts {{ args }}
 
 # Install dependencies
 # Linked Git worktrees auto-disable wrapper linking and publish to an isolated worktree
