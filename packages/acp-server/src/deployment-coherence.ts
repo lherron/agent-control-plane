@@ -14,7 +14,6 @@ export const PRAESIDIUM_BUILD_FIELDS = [
 export const PRAESIDIUM_BUILD_IDENTITY_FIELDS = [
   'schema',
   'repository',
-  'canonicalRemote',
   'sourceCommit',
   'setName',
 ] as const
@@ -137,7 +136,6 @@ function expectedBuildFieldsMatch(
   return (
     build.schema === 1 &&
     build.repository === expected.repository &&
-    build.canonicalRemote === expected.canonicalRemote &&
     build.sourceCommit === expected.sourceCommit &&
     build.setName === expected.setName &&
     build.setVersion === expected.setVersion
@@ -350,10 +348,14 @@ function describeSetVersions(
     const runningRaw = running?.[key]
     const runningBuild = isPraesidiumBuild(runningRaw) ? runningRaw : undefined
     if (installed !== undefined) {
-      lines.push(`${setName}: installed set ${installed.setVersion} built ${installed.builtAt}`)
+      lines.push(
+        `${setName}: installed set ${installed.setVersion} built ${installed.builtAt}; canonicalRemote ${installed.canonicalRemote}`
+      )
     }
     if (runningBuild !== undefined) {
-      lines.push(`${setName}: running set ${runningBuild.setVersion} built ${runningBuild.builtAt}`)
+      lines.push(
+        `${setName}: running set ${runningBuild.setVersion} built ${runningBuild.builtAt}; canonicalRemote ${runningBuild.canonicalRemote}`
+      )
     }
     if (
       installed !== undefined &&

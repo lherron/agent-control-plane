@@ -114,14 +114,36 @@ describe('ASP/HRC consumer deployment coherence', () => {
     expect(report.ok).toBe(true)
     expect(report.informational).toEqual(
       expect.arrayContaining([
-        `hrc: installed set ${hrcBuild.setVersion} built ${hrcBuild.builtAt}`,
-        `hrc: running set ${runningHrcBuild.setVersion} built ${runningHrcBuild.builtAt}`,
+        `hrc: installed set ${hrcBuild.setVersion} built ${hrcBuild.builtAt}; canonicalRemote ${hrcBuild.canonicalRemote}`,
+        `hrc: running set ${runningHrcBuild.setVersion} built ${runningHrcBuild.builtAt}; canonicalRemote ${runningHrcBuild.canonicalRemote}`,
         `hrc: installed and running sets were minted separately from source commit ${hrcBuild.sourceCommit}`,
       ])
     )
   })
 
-  test('still fails closed when the running set carries a different source commit', () => {
+  test('accepts an alias-stamped tuple from the same source commit and reports the spelling', () => {
+    const fixture = coherentFixture()
+    const aliasRemote = 'git@gh-hrc-runtime:lherron/hrc-runtime.git'
+    const aliasBuild = { ...hrcBuild, canonicalRemote: aliasRemote }
+    fixture.installed = fixture.installed.map((entry) =>
+      entry.name === 'hrc-core' ? { ...entry, praesidiumBuild: aliasBuild } : entry
+    )
+    fixture.runningStatus.release = { ...fixture.runningStatus.release, hrcBuild: aliasBuild }
+
+    const report = evaluateConsumerDeployment(fixture)
+
+    expect(report.ok).toBe(true)
+    expect(report.findings).toEqual([])
+    expect(report.installed.hrcBuild?.canonicalRemote).toBe(aliasRemote)
+    expect(report.informational).toEqual(
+      expect.arrayContaining([
+        `hrc: installed set ${aliasBuild.setVersion} built ${aliasBuild.builtAt}; canonicalRemote ${aliasRemote}`,
+        `hrc: running set ${aliasBuild.setVersion} built ${aliasBuild.builtAt}; canonicalRemote ${aliasRemote}`,
+      ])
+    )
+  })
+
+  test('still fails closed on a different source commit with the same remote spelling', () => {
     const fixture = coherentFixture()
     fixture.runningStatus.release = {
       ...fixture.runningStatus.release,
