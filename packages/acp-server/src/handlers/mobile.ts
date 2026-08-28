@@ -382,12 +382,24 @@ function executionMode(
   return runtime?.supportsInflightInput === true ? 'interactive' : 'nonInteractive'
 }
 
+/**
+ * `mode` is the binary the app buckets on: only an `interactive` execution mode
+ * is an interactive session; `headless` and `nonInteractive` (wrkc/webhook-driven
+ * workers) are both headless, and a headless transport is headless regardless.
+ */
+function modeForExecution(
+  execution: MobileExecutionMode,
+  runtime?: HrcRuntimeSnapshot
+): MobileSessionMode {
+  if (runtime?.transport === 'headless') return 'headless'
+  return execution === 'interactive' ? 'interactive' : 'headless'
+}
+
 function mobileMode(
   execution: MobileExecutionMode,
   runtime?: HrcRuntimeSnapshot
 ): MobileSessionMode {
-  if (execution === 'headless' || runtime?.transport === 'headless') return 'headless'
-  return 'interactive'
+  return modeForExecution(execution, runtime)
 }
 
 const DEAD_RUNTIME_STATUSES = new Set(['dead', 'stopped', 'crashed', 'exited', 'terminated'])
@@ -818,7 +830,7 @@ function projectThinIndexedSession(input: {
   const { item } = input
   const isLocal = item.nodeId === input.localNodeId
   const peer = input.peerStatus[item.nodeId]
-  const mode: MobileSessionMode = item.executionMode === 'headless' ? 'headless' : 'interactive'
+  const mode: MobileSessionMode = modeForExecution(item.executionMode)
   return {
     nodeId: item.nodeId,
     sourceKind: isLocal ? 'local_session' : 'remote_runtime_projection',
@@ -887,7 +899,7 @@ async function projectIndexedSession(input: {
     ...projected,
     nodeId: input.item.nodeId,
     sourceKind: 'local_session',
-    mode: input.item.executionMode === 'headless' ? 'headless' : 'interactive',
+    mode: modeForExecution(input.item.executionMode, runtime),
     executionMode: input.item.executionMode,
     summaryStatus: input.item.effectiveStatus,
     status: input.item.effectiveStatus,
@@ -1574,7 +1586,7 @@ function projectRemoteRuntime(
       : runtime.supportsInflightInput
         ? 'interactive'
         : 'nonInteractive'
-  const mode: MobileSessionMode = execution === 'headless' ? 'headless' : 'interactive'
+  const mode: MobileSessionMode = modeForExecution(execution, runtime)
   const status = mobileStatus(runtime.status, runtime)
   const projectionState =
     node.state === 'invalid-response' ? ('invalid_response' as const) : node.state

@@ -66,6 +66,21 @@ function createPaginatedClient(input: {
         executionMode: 'headless',
         lastActivityAt: '2026-08-11T19:30:00.000Z',
       },
+      {
+        // A wrkc/webhook-driven codex worker: HRC reports nonInteractive, the
+        // app must bucket it as headless (it is not a session you can type into).
+        nodeId: 'max3',
+        hostSessionId: 'hsid-worker',
+        scopeRef: 'agent:cody:project:agent-control-plane:task:T-07626',
+        laneRef: 'main',
+        generation: 1,
+        agentId: 'cody',
+        projectId: 'agent-control-plane',
+        createdAt: '2026-08-11T19:00:00.000Z',
+        effectiveStatus: 'active',
+        executionMode: 'nonInteractive',
+        lastActivityAt: '2026-08-11T19:40:00.000Z',
+      },
     ],
     nextCursor: 'opaque-next',
     eventHighWater: { svc: 400, max3: 500 },
@@ -134,7 +149,12 @@ describe('GET /v2/mobile/sessions', () => {
             nodes: 'max3,svc',
           },
         ])
-        expect(body.sessions).toHaveLength(2)
+        expect(body.sessions).toHaveLength(3)
+        expect(body.sessions.map((session) => [session.executionMode, session.mode])).toEqual([
+          ['interactive', 'interactive'],
+          ['headless', 'headless'],
+          ['nonInteractive', 'headless'],
+        ])
         expect(body.sessions[0]).toMatchObject({
           nodeId: 'svc',
           hostSessionId: 'hsid-local',
