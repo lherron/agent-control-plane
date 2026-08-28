@@ -5,7 +5,8 @@
  * REAL `launchAction` adapter against:
  *   - the REAL spawned `wrkf` binary (via `createWrkfClientLifecycle` over an
  *     isolated, freshly-migrated wrkq DB), AND
- *   - the REAL, LIVE HRC daemon (real `hrc.sock`, real `state.sqlite`).
+ *   - a REAL HRC daemon owned by this suite (real scratch `hrc.sock`, real
+ *     scratch `state.sqlite`).
  *
  * The prior C-0004 e2e proved action-start / bind idempotency against the real
  * wrkf binary, but stubbed the HRC launch behind a `countingLauncher` returning a
@@ -13,9 +14,9 @@
  * made-up `hrc:hrc-run-A-001`, not a real HRC-minted host session, and "no
  * duplicate launch" was only ever proven against an in-process counter.
  *
- * THIS TEST CLOSES THAT GAP. The launcher here calls the live
+ * THIS TEST CLOSES THAT GAP. The launcher here calls the scratch daemon
  * `HrcClient.resolveSession({ create: true })` for the run's `sessionRef` — the
- * EXACT production no-prompt path in `real-launcher.ts` (lines 70-112): the
+ * EXACT no-prompt path in `real-launcher.ts` (lines 70-112): the
  * broker-cutover (T-01691) empty-prompt branch that MINTS a real host session
  * via the daemon but provisions NO runtime and dispatches NO turn (no model /
  * agent spawn). The minted `hostSessionId` is real, durable, and idempotent
@@ -25,13 +26,13 @@
  *
  * The launcher is still wrapped to COUNT invocations — that counter remains the
  * proof of "no duplicate HRC launch". On top of it, EACH scenario opens the REAL
- * `state.sqlite` (readonly `bun:sqlite`) and asserts exactly ONE `sessions` row
+ * scratch `state.sqlite` (readonly `bun:sqlite`) and asserts exactly ONE `sessions` row
  * and ONE `continuities` row exist for the test scope — proving no duplicate
  * launch at the real daemon, not merely in the in-process seam.
  *
- * Each scenario uses a UNIQUE scopeRef (a per-run nonce + the seeded taskId) so
- * the shared, live HRC `state.sqlite` cannot collide across scenarios or repeated
- * test runs — the per-scope session/continuity counts stay exactly 1.
+ * Each scenario uses a UNIQUE scopeRef (a per-run nonce + the seeded taskId),
+ * while the whole HRC support root is isolated and deleted in `afterAll`. The
+ * production HRC socket and state database are never opened by this suite.
  *
  * Failure points injected (identical to the counting-seam e2e):
  *   A) after action.start (before durable run / launch)
@@ -40,11 +41,11 @@
  *
  * Binaries (overridable): WRKF_BIN / WRKQ_BIN / WRKQADM_BIN default to bare
  * names resolved through PATH.
- * HRC: live daemon discovered via `discoverSocket()` + `resolveDatabasePath()`.
+ * HRC: real daemon booted through public `hrc-server` under a scratch support root.
  */
 
 import { Database } from 'bun:sqlite'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -63,8 +64,13 @@ import {
 import type { AcpServerDeps } from 'acp-server'
 import type { SessionRef } from 'agent-scope'
 import type { HrcRuntimeIntent } from 'hrc-core'
-import { resolveDatabasePath } from 'hrc-core'
-import { HrcClient, discoverSocket } from 'hrc-sdk'
+import type { HrcClient } from 'hrc-sdk'
+
+import {
+  type ScratchHrcDaemon,
+  createScratchHrcDaemon,
+  runAllTeardownSteps,
+} from './fixtures/scratch-hrc.js'
 
 const HOME = process.env['HOME'] ?? '/Users/lherron'
 const PRAESIDIUM_ROOT = process.env['PRAESIDIUM_ROOT'] ?? join(HOME, 'praesidium')
@@ -86,8 +92,7 @@ const ACTOR = { kind: 'agent' as const, id: 'curly-e2e' }
 
 const T = 30_000
 
-// Unique per file run so the SHARED, live HRC state.sqlite never collides across
-// scenarios or repeated runs — keeps each scope's session/continuity count at 1.
+// Unique per file run so every scenario's scope remains independently assertable.
 const RUN_NONCE = crypto.randomUUID().slice(0, 8)
 
 type RawActionClient = {
@@ -162,10 +167,11 @@ const NO_SPAWN_INTENT: HrcRuntimeIntent = {
 describe('wrkf action launch/bind adapter — REAL HRC e2e (C-0004 closure)', () => {
   let tmpDir: string
   let dbPath: string
-  let lc: WrkfLifecycle
+  let lc: WrkfLifecycle | undefined
   let childEnv: Record<string, string | undefined>
   let hrcDbPath: string
   let hrcClient: HrcClient
+  let scratchHrc: ScratchHrcDaemon | undefined
   const seededTaskIds: string[] = []
 
   beforeAll(async () => {
@@ -188,21 +194,29 @@ describe('wrkf action launch/bind adapter — REAL HRC e2e (C-0004 closure)', ()
       clientInfo: { name: 'action-launch-realhrc-e2e', version: '0.1.0' },
     })
 
-    // Live HRC daemon: real socket + real state.sqlite.
-    hrcDbPath = resolveDatabasePath()
-    hrcClient = new HrcClient(discoverSocket())
+    // Real HRC daemon: real socket + state.sqlite, isolated under a scratch root.
+    scratchHrc = await createScratchHrcDaemon('acp-action-launch-realhrc-')
+    hrcDbPath = scratchHrc.databasePath
+    hrcClient = scratchHrc.client
   })
 
   afterAll(async () => {
-    await lc?.close()
-    closeSeededTasks()
-    if (tmpDir) {
-      rmSync(tmpDir, { recursive: true, force: true })
-    }
+    const scratchRoot = scratchHrc?.scratchRoot
+    await runAllTeardownSteps([
+      async () => await lc?.close(),
+      () => closeSeededTasks(),
+      async () => await scratchHrc?.close(),
+      () => rmSync(tmpDir, { recursive: true, force: true }),
+      () => {
+        if (scratchRoot !== undefined && existsSync(scratchRoot)) {
+          throw new Error(`scratch HRC root survived teardown: ${scratchRoot}`)
+        }
+      },
+    ])
   })
 
   function wrkfPort(): WrkfActionLaunchDeps['wrkf'] {
-    const port = lc.wrkf
+    const port = lc?.wrkf
     if (port === undefined) {
       throw new Error('wrkf port not available')
     }
@@ -210,7 +224,7 @@ describe('wrkf action launch/bind adapter — REAL HRC e2e (C-0004 closure)', ()
   }
 
   function rawClient(): RawActionClient {
-    const client = lc.client as unknown as RawActionClient | undefined
+    const client = lc?.client as unknown as RawActionClient | undefined
     if (client === undefined) {
       throw new Error('wrkf client not available')
     }
@@ -261,7 +275,7 @@ describe('wrkf action launch/bind adapter — REAL HRC e2e (C-0004 closure)', ()
     }
   }
 
-  // Unique per scenario AND per file run → never collides in the shared live HRC db.
+  // Unique per scenario AND per file run for exact scratch-database assertions.
   function sessionRef(taskId: string): SessionRef {
     return {
       scopeRef: `agent:${E2E_AGENT_ID}:project:acps-e2e-${RUN_NONCE}:task:${taskId}`,
@@ -273,7 +287,7 @@ describe('wrkf action launch/bind adapter — REAL HRC e2e (C-0004 closure)', ()
     return `${ref.scopeRef}/lane:${ref.laneRef}`
   }
 
-  /** Mint a REAL host session via the live daemon (no-spawn resolveSession path). */
+  /** Mint a REAL host session via the scratch daemon (no-spawn resolveSession path). */
   async function mintHostSession(
     ref: SessionRef
   ): Promise<{ hostSessionId: string; generation: number }> {
@@ -289,8 +303,8 @@ describe('wrkf action launch/bind adapter — REAL HRC e2e (C-0004 closure)', ()
   }
 
   /**
-   * A REAL HRC launch seam: calls the live `resolveSession({ create: true })` for
-   * the run's sessionRef — exactly the production no-prompt mint path — and counts
+   * A REAL HRC launch seam: calls the scratch daemon's `resolveSession({ create: true })`
+   * for the run's sessionRef — exactly the no-prompt mint path — and counts
    * invocations. Returns the host session as the launch's runId/hostSessionId, so
    * the canonical binding becomes `hrc:<hostSessionId>` (a real HRC-minted id).
    */
@@ -323,7 +337,7 @@ describe('wrkf action launch/bind adapter — REAL HRC e2e (C-0004 closure)', ()
     return res.items
   }
 
-  /** Real-HRC proof: open the live state.sqlite readonly and count rows. */
+  /** Real-HRC proof: open the scratch daemon's state.sqlite readonly and count rows. */
   function countHrcSessions(ref: SessionRef): number {
     const db = new Database(hrcDbPath, { readonly: true })
     try {
