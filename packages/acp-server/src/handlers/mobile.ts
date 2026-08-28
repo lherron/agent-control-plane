@@ -56,6 +56,7 @@ const MAX_MOBILE_SESSION_RUNS = 10_000
 const DEFAULT_DASHBOARD_MAX_REPLAY_EVENTS = 10_000
 const DEFAULT_DASHBOARD_MAX_REPLAY_AGE_MS = 3_600_000
 const MOBILE_WS_PING_INTERVAL_MS = 30_000
+const MOBILE_COLLABORATION_MATCH_WINDOW_MS = 120_000
 const HUMAN_COLLABORATION_PRINCIPAL = 'agent:lance'
 const MOBILE_SESSION_DETAILS_QUERY_PARAM = 'sessionDetails'
 const REMOTE_CONTROL_UNAVAILABLE_MESSAGE =
@@ -632,7 +633,7 @@ async function pollCollaborationMessages(input: {
   selector: { roomKey: string } | { memberRef: string }
   afterMessageSeq: number
   signal: AbortSignal
-  onMessage(message: CollaborationMessage): void
+  onMessage(message: CollaborationMessage): void | Promise<void>
 }): Promise<void> {
   const ledger = input.deps.collaborationLedger
   if (ledger === undefined) throw new Error('collaboration ledger is not configured')
@@ -655,7 +656,7 @@ async function pollCollaborationMessages(input: {
       .filter((message) => message.messageSeq > cursor)
       .sort((lhs, rhs) => lhs.messageSeq - rhs.messageSeq)
     for (const message of fresh) {
-      input.onMessage(message)
+      await input.onMessage(message)
       cursor = Math.max(cursor, message.messageSeq)
     }
     await waitForCollaborationPoll(input.signal)
@@ -1372,6 +1373,114 @@ function resequenceFrames(frames: MobileTimelineFrame[]): MobileTimelineFrame[] 
   return frames.map((frame, index) => ({ ...frame, frameSeq: index + 1 }))
 }
 
+type ProjectedCollaborationFrame = {
+  frame: MobileTimelineFrame
+  message: CollaborationMessage
+}
+
+function timelineTimestampDistance(lhs: string, rhs: string): number | undefined {
+  const lhsMs = Date.parse(lhs)
+  const rhsMs = Date.parse(rhs)
+  if (!Number.isFinite(lhsMs) || !Number.isFinite(rhsMs)) return undefined
+  return Math.abs(lhsMs - rhsMs)
+}
+
+function collaborationMatchesHrcFrame(
+  collaboration: ProjectedCollaborationFrame,
+  hrcFrame: MobileTimelineFrame
+): boolean {
+  if (
+    collaboration.frame.frameKind !== 'user_prompt' ||
+    hrcFrame.frameKind !== 'user_prompt' ||
+    collaboration.frame.sessionRef !== hrcFrame.sessionRef
+  ) {
+    return false
+  }
+  const distance = timelineTimestampDistance(collaboration.frame.ts, hrcFrame.ts)
+  if (distance === undefined || distance > MOBILE_COLLABORATION_MATCH_WINDOW_MS) return false
+  return hrcFrame.blocks.some(
+    (block) => typeof block.text === 'string' && block.text.includes(collaboration.message.body)
+  )
+}
+
+function mergeCollaborationIdentity(
+  hrcFrame: MobileTimelineFrame,
+  collaboration: ProjectedCollaborationFrame
+): MobileTimelineFrame {
+  const collaborationPayload = collaboration.frame.blocks.find(
+    (block) => block.kind === 'markdown'
+  )?.payload
+  const collaborationMetadata = isRecord(collaborationPayload) ? collaborationPayload : {}
+  const actionsById = new Map(
+    [...hrcFrame.actions, ...collaboration.frame.actions].map((action) => [action.actionId, action])
+  )
+  return {
+    ...hrcFrame,
+    lastMessageSeq: Math.max(hrcFrame.lastMessageSeq ?? 0, collaboration.message.messageSeq),
+    blocks: hrcFrame.blocks.map((block) => ({
+      ...block,
+      payload: {
+        ...(isRecord(block.payload) ? block.payload : {}),
+        ...collaborationMetadata,
+        envelopeId: collaboration.message.messageId,
+        messageSeq: collaboration.message.messageSeq,
+      },
+    })),
+    actions: [...actionsById.values()],
+  }
+}
+
+function closestCollaborationMatch(
+  hrcFrame: MobileTimelineFrame,
+  collaborations: readonly ProjectedCollaborationFrame[]
+): ProjectedCollaborationFrame | undefined {
+  return collaborations
+    .filter((collaboration) => collaborationMatchesHrcFrame(collaboration, hrcFrame))
+    .sort((lhs, rhs) => {
+      const lhsDistance = timelineTimestampDistance(lhs.frame.ts, hrcFrame.ts) ?? Number.MAX_VALUE
+      const rhsDistance = timelineTimestampDistance(rhs.frame.ts, hrcFrame.ts) ?? Number.MAX_VALUE
+      return lhsDistance - rhsDistance || lhs.message.messageSeq - rhs.message.messageSeq
+    })[0]
+}
+
+function dedupeCollaborationFrames(
+  projected: Array<
+    | { kind: 'event'; frame: MobileTimelineFrame }
+    | { kind: 'collaboration'; frame: MobileTimelineFrame; message: CollaborationMessage }
+  >
+): MobileTimelineFrame[] {
+  const collaborations = projected
+    .filter(
+      (
+        item
+      ): item is {
+        kind: 'collaboration'
+        frame: MobileTimelineFrame
+        message: CollaborationMessage
+      } => item.kind === 'collaboration' && item.frame.frameKind === 'user_prompt'
+    )
+    .map(({ frame, message }) => ({ frame, message }))
+  const matchedMessageIds = new Set<string>()
+  const mergedByFrameId = new Map<string, MobileTimelineFrame>()
+
+  for (const item of projected) {
+    if (item.kind !== 'event' || item.frame.frameKind !== 'user_prompt') continue
+    const match = closestCollaborationMatch(
+      item.frame,
+      collaborations.filter(({ message }) => !matchedMessageIds.has(message.messageId))
+    )
+    if (match === undefined) continue
+    matchedMessageIds.add(match.message.messageId)
+    mergedByFrameId.set(item.frame.frameId, mergeCollaborationIdentity(item.frame, match))
+  }
+
+  return projected
+    .filter(
+      (item) => item.kind !== 'collaboration' || !matchedMessageIds.has(item.message.messageId)
+    )
+    .map((item) => mergedByFrameId.get(item.frame.frameId) ?? item.frame)
+}
+
 function historyPage(
   events: HrcLifecycleEvent[],
   messages: CollaborationMessage[],
@@ -1398,15 +1507,28 @@ function historyPage(
     fallbackSessionRef !== undefined
       ? formatScopeHandle(parseScopeRef(splitSessionRef(fallbackSessionRef).scopeRef))
       : 'unknown@unknown:primary'
-  const frames = inputs
+  const projected = inputs
     .map((input) =>
       input.kind === 'event'
-        ? raw
-          ? projectFrame(input.event)
-          : projectPrimaryEvent(input.event)
-        : projectCollaborationMessage(input.message, input.sessionRef, memberRef)
+        ? {
+            kind: 'event' as const,
+            frame: raw ? projectFrame(input.event) : projectPrimaryEvent(input.event),
+          }
+        : {
+            kind: 'collaboration' as const,
+            frame: projectCollaborationMessage(input.message, input.sessionRef, memberRef),
+            message: input.message,
+          }
     )
-    .filter((frame): frame is MobileTimelineFrame => frame !== undefined)
+    .filter(
+      (
+        item
+      ): item is
+        | { kind: 'event'; frame: MobileTimelineFrame }
+        | { kind: 'collaboration'; frame: MobileTimelineFrame; message: CollaborationMessage } =>
+        item.frame !== undefined
+    )
+  const frames = raw ? projected.map(({ frame }) => frame) : dedupeCollaborationFrames(projected)
 
   return {
     frames: resequenceFrames(frames),
@@ -2385,7 +2507,9 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
       selector: roomKey !== undefined ? { roomKey } : { memberRef: memberRef as string },
       afterMessageSeq: afterSeq ?? 0,
       signal: abortController.signal,
-      onMessage: (message) => sendMobileJsonEnvelope(ws, { type: 'message', message }),
+      onMessage: (message) => {
+        sendMobileJsonEnvelope(ws, { type: 'message', message })
+      },
     })
     return
   }
@@ -2492,24 +2616,120 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
       })
     }
 
+    const memberRef =
+      sessionRefValue === undefined
+        ? undefined
+        : formatScopeHandle(parseScopeRef(splitSessionRef(sessionRefValue).scopeRef))
+    const liveMessageFloor = Number.isFinite(fromMessageSeq) ? fromMessageSeq : 0
+    const handledMessageIds = new Set<string>()
+    const pendingCollaborations = new Map<
+      string,
+      ProjectedCollaborationFrame & { timer: ReturnType<typeof setTimeout> }
+    >()
+    let liveMergeQueue = Promise.resolve()
+
+    const queueLiveMerge = (operation: () => void | Promise<void>): Promise<void> => {
+      const queued = liveMergeQueue.then(operation)
+      liveMergeQueue = queued.catch(() => undefined)
+      return queued
+    }
+
+    const clearPendingCollaboration = (messageId: string): void => {
+      const pending = pendingCollaborations.get(messageId)
+      if (pending !== undefined) clearTimeout(pending.timer)
+      pendingCollaborations.delete(messageId)
+    }
+
+    const flushPendingCollaboration = (messageId: string): void => {
+      const pending = pendingCollaborations.get(messageId)
+      if (pending === undefined || handledMessageIds.has(messageId)) return
+      pendingCollaborations.delete(messageId)
+      handledMessageIds.add(messageId)
+      sendFrame(pending.frame)
+    }
+
+    const recentLiveCollaborations = async (): Promise<ProjectedCollaborationFrame[]> => {
+      if (sessionRefValue === undefined || memberRef === undefined) return []
+      const messages = await collectMessages(deps, { sessionRef: sessionRefValue, limit: 80 })
+      return messages
+        .filter(
+          (message) =>
+            message.messageSeq > liveMessageFloor && !handledMessageIds.has(message.messageId)
+        )
+        .map((message) => ({
+          message,
+          frame: projectCollaborationMessage(message, sessionRefValue, memberRef),
+        }))
+    }
+
+    const processLiveEvent = async (event: HrcLifecycleEvent): Promise<void> => {
+      const frame = raw ? projectFrame(event) : projectPrimaryEvent(event)
+      if (raw || frame?.frameKind !== 'user_prompt') {
+        sendFrame(frame)
+        if (raw) sendMobileJsonEnvelope(ws, projectEvent(event))
+        return
+      }
+
+      await queueLiveMerge(async () => {
+        const candidatesById = new Map<string, ProjectedCollaborationFrame>()
+        for (const pending of pendingCollaborations.values()) {
+          candidatesById.set(pending.message.messageId, pending)
+        }
+        for (const collaboration of await recentLiveCollaborations()) {
+          candidatesById.set(collaboration.message.messageId, collaboration)
+        }
+        const match = closestCollaborationMatch(frame, [...candidatesById.values()])
+        if (match === undefined) {
+          sendFrame(frame)
+          return
+        }
+        clearPendingCollaboration(match.message.messageId)
+        handledMessageIds.add(match.message.messageId)
+        sendFrame(mergeCollaborationIdentity(frame, match))
+      })
+    }
+
+    const processLiveMessage = async (message: CollaborationMessage): Promise<void> => {
+      if (sessionRefValue === undefined || memberRef === undefined) return
+      await queueLiveMerge(() => {
+        if (handledMessageIds.has(message.messageId)) return
+        const frame = projectCollaborationMessage(message, sessionRefValue, memberRef)
+        if (raw || frame.frameKind !== 'user_prompt') {
+          handledMessageIds.add(message.messageId)
+          sendFrame(frame)
+          return
+        }
+        const timer = setTimeout(() => {
+          void queueLiveMerge(() => flushPendingCollaboration(message.messageId))
+        }, MOBILE_COLLABORATION_MATCH_WINDOW_MS)
+        pendingCollaborations.set(message.messageId, { frame, message, timer })
+      })
+    }
+
+    abortController.signal.addEventListener(
+      'abort',
+      () => {
+        for (const pending of pendingCollaborations.values()) clearTimeout(pending.timer)
+        pendingCollaborations.clear()
+      },
+      { once: true }
+    )
+
     const pumpEvents = async (): Promise<void> => {
       for await (const event of hrcClient.watch(options)) {
         if (abortController.signal.aborted) break
-        sendFrame(raw ? projectFrame(event) : projectPrimaryEvent(event))
-        if (raw) sendMobileJsonEnvelope(ws, projectEvent(event))
+        await processLiveEvent(event)
       }
     }
 
     const pumpMessages = async (): Promise<void> => {
-      if (sessionRefValue === undefined) return
-      const memberRef = formatScopeHandle(parseScopeRef(splitSessionRef(sessionRefValue).scopeRef))
+      if (memberRef === undefined) return
       await pollCollaborationMessages({
         deps,
         selector: { memberRef },
         afterMessageSeq: Number.isFinite(fromMessageSeq) ? fromMessageSeq : 0,
         signal: abortController.signal,
-        onMessage: (message) =>
-          sendFrame(projectCollaborationMessage(message, sessionRefValue, memberRef)),
+        onMessage: processLiveMessage,
       })
     }
 

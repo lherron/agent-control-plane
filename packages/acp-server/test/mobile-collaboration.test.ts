@@ -1,12 +1,15 @@
 import { describe, expect, test } from 'bun:test'
-import type { HrcMessageRecord } from 'hrc-core'
+import type { HrcLifecycleEvent, HrcMessageRecord, HrcSessionRecord } from 'hrc-core'
 import type { CollaborationLedger, CollaborationMessage, CollaborationSayInput } from 'wrkq-lib'
 
-import type { AcpHrcClient } from '../src/deps.js'
+import type { AcpHrcClient, ResolvedAcpServerDeps } from '../src/deps.js'
+import type { MobileWebSocketLike } from '../src/handlers/mobile-ws.js'
+import { openMobileWebSocket } from '../src/handlers/mobile.js'
 import { withWiredServer } from './fixtures/wired-server.js'
 
 const SESSION_REF = 'agent:cody:project:agent-control-plane:task:T-07614/lane:main'
 const MEMBER_REF = 'cody@agent-control-plane:T-07614'
+const HOST_SESSION_ID = 'hsid-mobile-collaboration'
 
 function hrcMessage(messageId = 'msg-legacy'): HrcMessageRecord {
   return {
@@ -60,7 +63,192 @@ function ledger(input: {
   }
 }
 
+function hrcPrompt(
+  hrcSeq: number,
+  text: string,
+  ts: string,
+  overrides: Partial<HrcLifecycleEvent> = {}
+): HrcLifecycleEvent {
+  return {
+    hrcSeq,
+    streamSeq: hrcSeq,
+    ts,
+    hostSessionId: HOST_SESSION_ID,
+    scopeRef: 'agent:cody:project:agent-control-plane:task:T-07614',
+    laneRef: 'main',
+    generation: 1,
+    category: 'turn',
+    eventKind: 'turn.user_prompt',
+    replayed: false,
+    payload: { text },
+    ...overrides,
+  }
+}
+
+function historyClient(events: HrcLifecycleEvent[]): AcpHrcClient {
+  return {
+    watch: () =>
+      (async function* () {
+        yield* events
+      })(),
+  } as unknown as AcpHrcClient
+}
+
+async function readHistory(input: {
+  events: HrcLifecycleEvent[]
+  messages: CollaborationMessage[]
+}): Promise<{
+  frames: Array<{
+    frameId: string
+    frameKind: string
+    lastHrcSeq: number
+    lastMessageSeq?: number | undefined
+    blocks: Array<{ text?: string | undefined; payload?: Record<string, unknown> | undefined }>
+  }>
+  newestCursor: { hrcSeq: number; messageSeq: number }
+}> {
+  return withWiredServer(
+    async (fixture) => {
+      const response = await fixture.request({
+        method: 'GET',
+        path: `/v1/mobile/history?sessionRef=${encodeURIComponent(SESSION_REF)}&hostSessionId=${HOST_SESSION_ID}&generation=1&limit=80`,
+      })
+      expect(response.status).toBe(200)
+      return fixture.json(response)
+    },
+    { hrcClient: historyClient(input.events), collaborationLedger: ledger(input) }
+  )
+}
+
 describe('mobile collaboration ledger', () => {
+  test('history keeps the HRC prompt and carries collaboration identity and cursors onto it', async () => {
+    const message = ledgerMessage()
+    const hrcText = `[T-07614 · lance (gen 1) → you · reply required]\nhistory: wrkc log T-07614\n${message.body}`
+    const history = await readHistory({
+      events: [hrcPrompt(41, hrcText, '2026-08-27T17:00:02.000Z')],
+      messages: [message],
+    })
+
+    expect(history.frames).toHaveLength(1)
+    expect(history.frames[0]).toMatchObject({
+      frameId: 'hrc-41',
+      frameKind: 'user_prompt',
+      lastHrcSeq: 41,
+      lastMessageSeq: 5,
+      blocks: [
+        {
+          text: hrcText,
+          payload: { envelopeId: 'EN-00005', messageSeq: 5, roomKey: 'T-07614' },
+        },
+      ],
+    })
+    expect(history.newestCursor).toEqual({ hrcSeq: 41, messageSeq: 5 })
+  })
+
+  test('history retains a collaboration prompt that has no delivered HRC prompt', async () => {
+    const history = await readHistory({ events: [], messages: [ledgerMessage()] })
+
+    expect(history.frames).toHaveLength(1)
+    expect(history.frames[0]).toMatchObject({
+      frameId: 'msg-EN-00005',
+      frameKind: 'user_prompt',
+      lastHrcSeq: 0,
+      lastMessageSeq: 5,
+    })
+  })
+
+  test('history matches repeated bodies one-to-one and retains both legitimate deliveries', async () => {
+    const first = ledgerMessage()
+    const second = ledgerMessage({
+      messageId: 'EN-00006',
+      messageSeq: 6,
+      createdAt: '2026-08-27T17:00:10.000Z',
+      updatedAt: '2026-08-27T17:00:10.000Z',
+    })
+    const history = await readHistory({
+      events: [
+        hrcPrompt(41, `kicker header\n${first.body}`, '2026-08-27T17:00:01.000Z'),
+        hrcPrompt(42, `kicker header\n${second.body}`, '2026-08-27T17:00:11.000Z'),
+      ],
+      messages: [first, second],
+    })
+
+    expect(history.frames.map((frame) => frame.frameId)).toEqual(['hrc-41', 'hrc-42'])
+    expect(history.frames.map((frame) => frame.lastMessageSeq)).toEqual([5, 6])
+    expect(history.frames.map((frame) => frame.blocks[0]?.payload?.['envelopeId'])).toEqual([
+      'EN-00005',
+      'EN-00006',
+    ])
+  })
+
+  test('live timeline merges a ledger message discovered alongside its HRC prompt', async () => {
+    const message = ledgerMessage()
+    const liveEvent = hrcPrompt(
+      41,
+      `kicker header\nhistory: wrkc log T-07614\n${message.body}`,
+      '2026-08-27T17:00:02.000Z'
+    )
+    const session: HrcSessionRecord = {
+      hostSessionId: HOST_SESSION_ID,
+      scopeRef: 'agent:cody:project:agent-control-plane:task:T-07614',
+      laneRef: 'main',
+      generation: 1,
+      status: 'ready',
+      createdAt: '2026-08-27T16:00:00.000Z',
+      updatedAt: '2026-08-27T17:00:00.000Z',
+      ancestorScopeRefs: [],
+    }
+    let historyRead = true
+    const collaboration = ledger({ messages: [message] })
+    collaboration.listMessagesByMember = async () => {
+      if (historyRead) {
+        historyRead = false
+        return { messages: [] }
+      }
+      return { messages: [message] }
+    }
+    const hrcClient = {
+      listSessions: async () => [session],
+      listRuntimes: async () => [],
+      listLatestEventBySession: async () => [],
+      getLatestRunForSession: async () => undefined,
+      watch: (options?: { follow?: boolean }) =>
+        (async function* () {
+          if (options?.follow === true) yield liveEvent
+        })(),
+    } as unknown as AcpHrcClient
+    const sent: Array<Record<string, unknown>> = []
+    const deps = { hrcClient, collaborationLedger: collaboration } as ResolvedAcpServerDeps
+    const ws: MobileWebSocketLike = {
+      data: {
+        deps,
+        url: `http://acp.test/v1/mobile/sessions/${HOST_SESSION_ID}/timeline`,
+        kind: 'timeline',
+        version: 1,
+        hostSessionId: HOST_SESSION_ID,
+        abortController: new AbortController(),
+      },
+      send(raw) {
+        const envelope = JSON.parse(raw) as Record<string, unknown>
+        sent.push(envelope)
+        if (envelope['type'] === 'frame') this.data.abortController.abort()
+        return raw.length
+      },
+      close() {},
+    }
+
+    await openMobileWebSocket(ws)
+
+    const frames = sent.filter((envelope) => envelope['type'] === 'frame')
+    expect(frames).toHaveLength(1)
+    expect(frames[0]?.['frame']).toMatchObject({
+      frameId: 'hrc-41',
+      lastHrcSeq: 41,
+      lastMessageSeq: 5,
+      blocks: [{ payload: { envelopeId: 'EN-00005', messageSeq: 5 } }],
+    })
+  })
+
   test('room-key messages query is ledger-only because HRC rows have no room identity', async () => {
     const collaboration = ledger({
       messages: [ledgerMessage({ legacyMessageId: 'msg-legacy' })],
