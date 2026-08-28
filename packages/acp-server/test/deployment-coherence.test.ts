@@ -6,7 +6,9 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   EXPECTED_CONSUMER_PRODUCERS,
+  type ExpectedConsumerProducer,
   type InstalledProducerPackage,
+  type PraesidiumBuild,
   evaluateConsumerDeployment,
   listConsumerLockSelections,
   readConsumerDeploymentInputs,
@@ -14,25 +16,48 @@ import {
 import type { AcpHrcClient } from '../src/index.js'
 import { withWiredServer } from './fixtures/wired-server.js'
 
-const aspBuild = {
-  schema: 1 as const,
-  repository: 'agent-spaces',
-  canonicalRemote: 'git@github.com:lherron/agent-spaces.git',
-  sourceCommit: '1e3231ec8d3ccc38c50b9f61fb8deeacc8ef60d4',
-  setName: 'asp' as const,
-  setVersion: '0.1.1-dev.20260825213756',
-  builtAt: '2026-08-26T02:37:56.457Z',
+const TEST_EXPECTED_CONSUMER_PRODUCERS = [
+  {
+    setName: 'asp',
+    setVersion: '1.2.3-test',
+    repository: 'agent-spaces',
+    canonicalRemote: 'git@github.com:lherron/agent-spaces.git',
+    sourceCommit: 'a'.repeat(40),
+  },
+  {
+    setName: 'hrc',
+    setVersion: '4.5.6-test',
+    repository: 'hrc-runtime',
+    canonicalRemote: 'git@github.com:lherron/hrc-runtime.git',
+    sourceCommit: 'b'.repeat(40),
+  },
+] as const satisfies readonly ExpectedConsumerProducer[]
+
+function expectedProducer(
+  setName: 'asp' | 'hrc',
+  expected: readonly ExpectedConsumerProducer[] = TEST_EXPECTED_CONSUMER_PRODUCERS
+): ExpectedConsumerProducer {
+  const producer = expected.find((candidate) => candidate.setName === setName)
+  if (producer === undefined) throw new Error(`missing ${setName} producer fixture`)
+  return producer
 }
 
-const hrcBuild = {
-  schema: 1 as const,
-  repository: 'hrc-runtime',
-  canonicalRemote: 'git@github.com:lherron/hrc-runtime.git',
-  sourceCommit: '8f104d1055005d5253e54ef17b0685c82fbc43e8',
-  setName: 'hrc' as const,
-  setVersion: '0.1.0-dev.20260825215557',
-  builtAt: '2026-08-26T02:55:56.445Z',
+function buildFor(
+  setName: 'asp' | 'hrc',
+  builtAt: string,
+  expected: readonly ExpectedConsumerProducer[] = TEST_EXPECTED_CONSUMER_PRODUCERS
+): PraesidiumBuild {
+  const producer = expectedProducer(setName, expected)
+  return { schema: 1, ...producer, builtAt }
 }
+
+function differentSourceCommit(sourceCommit: string): string {
+  const replacement = sourceCommit.endsWith('0') ? '1' : '0'
+  return `${sourceCommit.slice(0, -1)}${replacement}`
+}
+
+const aspBuild = buildFor('asp', '2026-08-26T02:37:56.457Z')
+const hrcBuild = buildFor('hrc', '2026-08-26T02:55:56.445Z')
 
 const fixturePackages = {
   asp: ['agent-scope', 'spaces-aspc-facade'],
@@ -43,16 +68,20 @@ function lockEntry(name: string, version: string, lockKey = name): string {
   return `    "${lockKey}": ["${name}@${version}", "http://mini:4873/${name}/-/${name}-${version}.tgz", {}, "sha512-dGVzdA=="],`
 }
 
-function coherentFixture() {
+function coherentFixture(
+  expected: readonly ExpectedConsumerProducer[] = TEST_EXPECTED_CONSUMER_PRODUCERS
+) {
+  const fixtureAspBuild = buildFor('asp', aspBuild.builtAt, expected)
+  const fixtureHrcBuild = buildFor('hrc', hrcBuild.builtAt, expected)
   const installed: InstalledProducerPackage[] = []
   const lockLines: string[] = []
-  for (const producer of EXPECTED_CONSUMER_PRODUCERS) {
+  for (const producer of expected) {
     for (const name of fixturePackages[producer.setName]) {
       lockLines.push(lockEntry(name, producer.setVersion))
       installed.push({
         name,
         version: producer.setVersion,
-        praesidiumBuild: producer.setName === 'asp' ? aspBuild : hrcBuild,
+        praesidiumBuild: producer.setName === 'asp' ? fixtureAspBuild : fixtureHrcBuild,
       })
     }
   }
@@ -63,12 +92,12 @@ function coherentFixture() {
       {
         path: 'package.json',
         dependencies: Object.fromEntries(
-          EXPECTED_CONSUMER_PRODUCERS.flatMap((producer) =>
+          expected.flatMap((producer) =>
             fixturePackages[producer.setName].map((name) => [name, producer.setVersion])
           )
         ),
         overrides: Object.fromEntries(
-          EXPECTED_CONSUMER_PRODUCERS.flatMap((producer) =>
+          expected.flatMap((producer) =>
             fixturePackages[producer.setName].map((name) => [name, producer.setVersion])
           )
         ),
@@ -78,8 +107,8 @@ function coherentFixture() {
       release: {
         mode: 'atomic',
         releaseId: 'release-test',
-        hrcBuild,
-        aspBuild,
+        hrcBuild: fixtureHrcBuild,
+        aspBuild: fixtureAspBuild,
         runningEqualsInstalled: true,
       },
     },
@@ -88,10 +117,12 @@ function coherentFixture() {
 
 describe('ASP/HRC consumer deployment coherence', () => {
   test('accepts one canonical lock/install tuple that matches the served atomic release', () => {
-    const report = evaluateConsumerDeployment(coherentFixture())
+    const report = evaluateConsumerDeployment(coherentFixture(), TEST_EXPECTED_CONSUMER_PRODUCERS)
 
     expect(report.ok).toBe(true)
     expect(report.findings).toEqual([])
+    expect(report.expected).toEqual(TEST_EXPECTED_CONSUMER_PRODUCERS)
+    expect(report.expected).not.toEqual(EXPECTED_CONSUMER_PRODUCERS)
     expect(report.installed).toEqual({ aspBuild, hrcBuild })
     expect(report.running).toMatchObject({
       mode: 'atomic',
@@ -104,11 +135,11 @@ describe('ASP/HRC consumer deployment coherence', () => {
     const fixture = coherentFixture()
     const runningHrcBuild = {
       ...hrcBuild,
-      setVersion: '0.1.0-dev.20260825214048',
+      setVersion: `${hrcBuild.setVersion}-other-node`,
       builtAt: '2026-08-26T02:40:48.000Z',
     }
     fixture.runningStatus.release = { ...fixture.runningStatus.release, hrcBuild: runningHrcBuild }
-    const report = evaluateConsumerDeployment(fixture)
+    const report = evaluateConsumerDeployment(fixture, TEST_EXPECTED_CONSUMER_PRODUCERS)
 
     expect(report.findings).toEqual([])
     expect(report.ok).toBe(true)
@@ -130,7 +161,7 @@ describe('ASP/HRC consumer deployment coherence', () => {
     )
     fixture.runningStatus.release = { ...fixture.runningStatus.release, hrcBuild: aliasBuild }
 
-    const report = evaluateConsumerDeployment(fixture)
+    const report = evaluateConsumerDeployment(fixture, TEST_EXPECTED_CONSUMER_PRODUCERS)
 
     expect(report.ok).toBe(true)
     expect(report.findings).toEqual([])
@@ -147,16 +178,17 @@ describe('ASP/HRC consumer deployment coherence', () => {
     const fixture = coherentFixture()
     fixture.runningStatus.release = {
       ...fixture.runningStatus.release,
-      hrcBuild: { ...hrcBuild, sourceCommit: 'b'.repeat(40) },
+      hrcBuild: { ...hrcBuild, sourceCommit: differentSourceCommit(hrcBuild.sourceCommit) },
     }
 
-    const report = evaluateConsumerDeployment(fixture)
+    const report = evaluateConsumerDeployment(fixture, TEST_EXPECTED_CONSUMER_PRODUCERS)
 
     expect(report.ok).toBe(false)
     expect(report.findings).toEqual(['running HRC build identity does not match ACP installed HRC'])
   })
 
   test('serves the lock/install/running readback through ACP', async () => {
+    const productionFixture = coherentFixture(EXPECTED_CONSUMER_PRODUCERS)
     await withWiredServer(
       async (fixture) => {
         const response = await fixture.request({
@@ -164,26 +196,36 @@ describe('ASP/HRC consumer deployment coherence', () => {
           path: '/v1/admin/deployment-coherence',
         })
         expect(response.status).toBe(200)
-        expect(
-          await fixture.json<{
-            ok: boolean
-            installed: { aspBuild: typeof aspBuild; hrcBuild: typeof hrcBuild }
-            running: { releaseId: string; runningEqualsInstalled: boolean }
-            findings: string[]
-          }>(response)
-        ).toMatchObject({
+        const body = await fixture.json<{
+          ok: boolean
+          expected: readonly ExpectedConsumerProducer[]
+          installed: { aspBuild?: PraesidiumBuild; hrcBuild?: PraesidiumBuild }
+          running: { releaseId: string; runningEqualsInstalled: boolean }
+          findings: string[]
+        }>(response)
+        expect(body).toMatchObject({
           ok: true,
-          installed: { aspBuild, hrcBuild },
           running: {
             releaseId: 'release-test',
             runningEqualsInstalled: true,
           },
           findings: [],
         })
+        for (const expected of body.expected) {
+          const installed =
+            expected.setName === 'asp' ? body.installed.aspBuild : body.installed.hrcBuild
+          expect(installed).toMatchObject({
+            schema: 1,
+            repository: expected.repository,
+            sourceCommit: expected.sourceCommit,
+            setName: expected.setName,
+            setVersion: expected.setVersion,
+          })
+        }
       },
       {
         hrcClient: {
-          getStatus: async () => coherentFixture().runningStatus,
+          getStatus: async () => productionFixture.runningStatus,
         } as unknown as AcpHrcClient,
       }
     )
@@ -194,12 +236,10 @@ describe('ASP/HRC consumer deployment coherence', () => {
     const aspPackage = fixturePackages.asp[0]
     const hrcPackage = fixturePackages.hrc[0]
     if (aspPackage === undefined || hrcPackage === undefined) throw new Error('invalid fixture')
+    const staleVersion = `${aspBuild.setVersion}-stale`
 
     fixture.lockText = fixture.lockText
-      .replace(
-        lockEntry(aspPackage, aspBuild.setVersion),
-        lockEntry(aspPackage, '0.1.1-dev.20260721071843')
-      )
+      .replace(lockEntry(aspPackage, aspBuild.setVersion), lockEntry(aspPackage, staleVersion))
       .replace(
         lockEntry(hrcPackage, hrcBuild.setVersion),
         lockEntry(hrcPackage, hrcBuild.setVersion).replace(
@@ -208,23 +248,23 @@ describe('ASP/HRC consumer deployment coherence', () => {
         )
       )
     fixture.installed = fixture.installed.map((entry) =>
-      entry.name === aspPackage ? { ...entry, version: '0.1.1-dev.20260721071843' } : entry
+      entry.name === aspPackage ? { ...entry, version: staleVersion } : entry
     )
     fixture.runningStatus.release = {
       ...fixture.runningStatus.release,
       mode: 'unmanaged',
-      aspBuild: { ...aspBuild, sourceCommit: 'stale' },
+      aspBuild: { ...aspBuild, sourceCommit: differentSourceCommit(aspBuild.sourceCommit) },
       runningEqualsInstalled: false,
     }
 
-    const report = evaluateConsumerDeployment(fixture)
+    const report = evaluateConsumerDeployment(fixture, TEST_EXPECTED_CONSUMER_PRODUCERS)
 
     expect(report.ok).toBe(false)
     expect(report.findings).toEqual(
       expect.arrayContaining([
-        expect.stringContaining(`${aspPackage}: lock selects 0.1.1-dev.20260721071843`),
+        expect.stringContaining(`${aspPackage}: lock selects ${staleVersion}`),
         expect.stringContaining(`${hrcPackage}: lock tarball is not canonical`),
-        expect.stringContaining(`${aspPackage}: installed version 0.1.1-dev.20260721071843`),
+        expect.stringContaining(`${aspPackage}: installed version ${staleVersion}`),
         expect.stringContaining('running HRC release is unmanaged'),
         expect.stringContaining('running HRC release does not equal the installed release'),
         expect.stringContaining('running ASP build identity does not match ACP installed ASP'),
@@ -242,13 +282,16 @@ describe('ASP/HRC consumer deployment coherence', () => {
       if (entry.name === second) {
         return {
           ...entry,
-          praesidiumBuild: { ...aspBuild, sourceCommit: 'a'.repeat(40) },
+          praesidiumBuild: {
+            ...aspBuild,
+            sourceCommit: differentSourceCommit(aspBuild.sourceCommit),
+          },
         }
       }
       return entry
     })
 
-    const report = evaluateConsumerDeployment(fixture)
+    const report = evaluateConsumerDeployment(fixture, TEST_EXPECTED_CONSUMER_PRODUCERS)
 
     expect(report.ok).toBe(false)
     expect(report.findings).toEqual(
@@ -264,7 +307,7 @@ describe('ASP/HRC consumer deployment coherence', () => {
     const packageName = fixturePackages.asp[0]
     if (packageName === undefined) throw new Error('invalid fixture')
     const lockKey = `hrc-core/${packageName}`
-    const staleVersion = '0.1.1-dev.20260721071843'
+    const staleVersion = `${aspBuild.setVersion}-stale`
 
     fixture.lockText = `${fixture.lockText}\n${lockEntry(packageName, staleVersion, lockKey)}`
     fixture.installed = [
@@ -277,7 +320,7 @@ describe('ASP/HRC consumer deployment coherence', () => {
       ...fixture.installed,
     ]
 
-    const report = evaluateConsumerDeployment(fixture)
+    const report = evaluateConsumerDeployment(fixture, TEST_EXPECTED_CONSUMER_PRODUCERS)
     const selections = listConsumerLockSelections(fixture.lockText).filter(
       (selection) => selection.name === packageName
     )
@@ -297,7 +340,7 @@ describe('ASP/HRC consumer deployment coherence', () => {
     const packageName = fixturePackages.asp[0]
     if (packageName === undefined) throw new Error('invalid fixture')
     const lockKey = `hrc-core/${packageName}`
-    const staleVersion = '0.1.1-dev.20260721071843'
+    const staleVersion = `${aspBuild.setVersion}-stale`
     fixture.lockText = `${fixture.lockText}\n${lockEntry(packageName, staleVersion, lockKey)}`
     const repoRoot = await mkdtemp(join(tmpdir(), 'acp-deployment-coherence-'))
 
@@ -307,13 +350,13 @@ describe('ASP/HRC consumer deployment coherence', () => {
         join(repoRoot, 'package.json'),
         JSON.stringify({
           overrides: Object.fromEntries(
-            EXPECTED_CONSUMER_PRODUCERS.flatMap((producer) =>
+            TEST_EXPECTED_CONSUMER_PRODUCERS.flatMap((producer) =>
               fixturePackages[producer.setName].map((name) => [name, producer.setVersion])
             )
           ),
         })
       )
-      for (const producer of EXPECTED_CONSUMER_PRODUCERS) {
+      for (const producer of TEST_EXPECTED_CONSUMER_PRODUCERS) {
         for (const name of fixturePackages[producer.setName]) {
           const manifestRoot = join(repoRoot, 'node_modules', name)
           await mkdir(manifestRoot, { recursive: true })
@@ -346,7 +389,7 @@ describe('ASP/HRC consumer deployment coherence', () => {
 
       const inputs = await readConsumerDeploymentInputs(repoRoot)
       const nested = inputs.installed.find((entry) => entry.lockKey === lockKey)
-      const report = evaluateConsumerDeployment(inputs)
+      const report = evaluateConsumerDeployment(inputs, TEST_EXPECTED_CONSUMER_PRODUCERS)
 
       expect(nested).toMatchObject({
         lockKey,

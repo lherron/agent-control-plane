@@ -89,7 +89,7 @@ export type ConsumerDeploymentInputs = Readonly<{
 
 export type ConsumerDeploymentReport = Readonly<{
   ok: boolean
-  expected: typeof EXPECTED_CONSUMER_PRODUCERS
+  expected: readonly ExpectedConsumerProducer[]
   installed: Readonly<{
     aspBuild?: PraesidiumBuild | undefined
     hrcBuild?: PraesidiumBuild | undefined
@@ -123,10 +123,15 @@ export function isPraesidiumBuild(value: unknown): value is PraesidiumBuild {
   )
 }
 
-export function expectedConsumerProducer(
+function findExpectedConsumerProducer(
+  expected: readonly ExpectedConsumerProducer[],
   setName: string
-): (typeof EXPECTED_CONSUMER_PRODUCERS)[number] | undefined {
-  return EXPECTED_CONSUMER_PRODUCERS.find((producer) => producer.setName === setName)
+): ExpectedConsumerProducer | undefined {
+  return expected.find((producer) => producer.setName === setName)
+}
+
+export function expectedConsumerProducer(setName: string): ExpectedConsumerProducer | undefined {
+  return findExpectedConsumerProducer(EXPECTED_CONSUMER_PRODUCERS, setName)
 }
 
 function expectedBuildFieldsMatch(
@@ -183,13 +188,14 @@ function tupleMembers(
 /** Validate root overrides and every root/workspace direct producer dependency. */
 export function producerManifestAgreementFindings(
   manifests: readonly ConsumerManifest[],
-  members: ReadonlyMap<string, PraesidiumBuild>
+  members: ReadonlyMap<string, PraesidiumBuild>,
+  expectedProducers: readonly ExpectedConsumerProducer[] = EXPECTED_CONSUMER_PRODUCERS
 ): string[] {
   const findings: string[] = []
   const root = manifests.find((manifest) => manifest.path === 'package.json')
   const overrides = root?.overrides ?? {}
   for (const [name, build] of members) {
-    const expected = expectedConsumerProducer(build.setName)
+    const expected = findExpectedConsumerProducer(expectedProducers, build.setName)
     if (expected !== undefined && overrides[name] !== expected.setVersion) {
       findings.push(
         `${name}: root override ${overrides[name] ?? 'missing'}; expected ${expected.setVersion}`
@@ -206,7 +212,7 @@ export function producerManifestAgreementFindings(
       for (const [name, specifier] of Object.entries(dependencies ?? {})) {
         const build = members.get(name)
         if (build === undefined) continue
-        const expected = expectedConsumerProducer(build.setName)
+        const expected = findExpectedConsumerProducer(expectedProducers, build.setName)
         if (expected !== undefined && specifier !== expected.setVersion) {
           findings.push(
             `${manifest.path}: ${name} specifier ${specifier}; expected ${expected.setVersion}`
@@ -218,12 +224,15 @@ export function producerManifestAgreementFindings(
   return findings
 }
 
-export function evaluateConsumerDeployment(input: {
-  lockText: string
-  installed: readonly InstalledProducerPackage[]
-  manifests?: readonly ConsumerManifest[] | undefined
-  runningStatus?: RunningStatus | undefined
-}): ConsumerDeploymentReport {
+export function evaluateConsumerDeployment(
+  input: {
+    lockText: string
+    installed: readonly InstalledProducerPackage[]
+    manifests?: readonly ConsumerManifest[] | undefined
+    runningStatus?: RunningStatus | undefined
+  },
+  expectedProducers: readonly ExpectedConsumerProducer[] = EXPECTED_CONSUMER_PRODUCERS
+): ConsumerDeploymentReport {
   const findings = new Set<string>()
   const installedByLockKey = new Map(
     input.installed.map((entry) => [entry.lockKey ?? entry.name, entry])
@@ -238,7 +247,7 @@ export function evaluateConsumerDeployment(input: {
     const build = entry.praesidiumBuild
     if (!isPraesidiumBuild(build)) continue
     const label = entry.lockKey ?? entry.name
-    const expected = expectedConsumerProducer(build.setName)
+    const expected = findExpectedConsumerProducer(expectedProducers, build.setName)
     if (expected === undefined) {
       findings.add(`${label}: installed manifest names unknown producer set ${build.setName}`)
       continue
@@ -270,7 +279,10 @@ export function evaluateConsumerDeployment(input: {
     if (!selectionKeys.has(key)) findings.add(`${key}: lock selection is missing`)
   }
   for (const selection of selections) {
-    const expected = expectedConsumerProducer(members.get(selection.name)?.setName ?? '')
+    const expected = findExpectedConsumerProducer(
+      expectedProducers,
+      members.get(selection.name)?.setName ?? ''
+    )
     if (expected === undefined) continue
     if (selection.version !== expected.setVersion) {
       findings.add(
@@ -293,7 +305,11 @@ export function evaluateConsumerDeployment(input: {
     }
   }
 
-  for (const finding of producerManifestAgreementFindings(input.manifests ?? [], members)) {
+  for (const finding of producerManifestAgreementFindings(
+    input.manifests ?? [],
+    members,
+    expectedProducers
+  )) {
     findings.add(finding)
   }
 
@@ -326,7 +342,7 @@ export function evaluateConsumerDeployment(input: {
 
   return {
     ok: findings.size === 0,
-    expected: EXPECTED_CONSUMER_PRODUCERS,
+    expected: expectedProducers,
     installed: installedBuilds,
     ...(running !== undefined ? { running } : {}),
     informational: describeSetVersions(installedBuilds, running),
