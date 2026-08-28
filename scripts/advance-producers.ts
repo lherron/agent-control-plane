@@ -8,7 +8,6 @@ import {
   type ExpectedConsumerProducer,
   type PraesidiumBuild,
   type ProducerSetName,
-  evaluateConsumerDeployment,
   isPraesidiumBuild,
   readConsumerDeploymentInputs,
 } from '../packages/acp-server/src/deployment-coherence.js'
@@ -50,6 +49,21 @@ type GitResult = Readonly<{ status: number; output: string }>
 export type GitRunner = (args: readonly string[], cwd?: string) => GitResult
 
 const runGit: GitRunner = (args, cwd = ROOT) => run('git', [...args], cwd)
+
+export function assertPostAdvanceConsumerDeployment(root: string = ROOT): void {
+  const result = spawnSync('bun', ['scripts/check-consumer-deployment-coherence.ts'], {
+    cwd: root,
+    stdio: ['ignore', 'inherit', 'inherit'],
+  })
+  if (result.error !== undefined) {
+    throw new Error(`failed to run post-advance coherence check: ${result.error.message}`)
+  }
+  if (result.status !== 0) {
+    const termination =
+      result.signal === null ? `exit code ${result.status ?? 'unknown'}` : result.signal
+    throw new Error(`post-advance coherence check failed with ${termination}`)
+  }
+}
 
 export async function verifySourceCommitAgainstCanonicalRemote(
   canonicalRemote: string,
@@ -354,8 +368,7 @@ export async function advanceProducers(argv: readonly string[] = Bun.argv.slice(
     const unexpected = changed.filter((path) => !allowed.has(path))
     if (unexpected.length > 0)
       throw new Error(`producer advance touched unexpected files: ${unexpected.join(', ')}`)
-    const report = evaluateConsumerDeployment(await readConsumerDeploymentInputs(ROOT))
-    if (!report.ok) throw new Error(`post-advance coherence failed:\n${report.findings.join('\n')}`)
+    assertPostAdvanceConsumerDeployment()
     console.log(
       `PRODUCER_ADVANCED ${setName} ${producer.setVersion} -> ${anchor.version} (${anchor.build.sourceCommit}) — review and commit with your landing`
     )
