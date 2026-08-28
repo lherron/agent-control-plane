@@ -1313,14 +1313,18 @@ export class GatewayDiscordApp {
     if (channelId === undefined) {
       throw new Error(`Discord ledger route has no channel: ${route.bindingId}`)
     }
-    const agentId = envelope.from.principalRef.startsWith('agent:')
-      ? envelope.from.principalRef.slice('agent:'.length)
-      : envelope.from.principalRef
     const sender = envelope.from.scopeRef ?? envelope.from.principalRef
-    const sent = await this.webhooks.send(channelId, {
+    const channel = await this.client.channels.fetch(channelId)
+    if (
+      channel === null ||
+      !channel.isTextBased() ||
+      !('send' in channel) ||
+      typeof channel.send !== 'function'
+    ) {
+      throw new Error(`Discord ledger route is not sendable: ${channelId}`)
+    }
+    const sent = await channel.send({
       content: `-# ${sender}\n${envelope.body}`,
-      username: agentId,
-      avatarURL: avatarFor(agentId),
     })
     log.info('gw.ledger_human_egress.sent', {
       trace: { gatewayId: this.gatewayId },
