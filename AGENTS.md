@@ -14,6 +14,10 @@ installation; `.npmrc` serves ASP/HRC names from local storage only and proxies
 everything else to public npm. `just pull-deps` advances published pins and
 commits `bun.lock`.
 
+## Build & deploy
+
+Read `~/praesidium/build_deploy_guide.md` before building, installing, or promoting anything in agent-spaces, hrc-runtime, or agent-control-plane. It is the agent digest of the published references `/a/hrc-build-deploy-guide` and `/a/asp-hrc-acp-dev-guide` on the taskboard. The rules that bite most: push before `just install` (a main-checkout install refuses an unpushed or non-clean tree); install ≠ activate (`hrc server restart --reason …`, then read back `runningEqualsInstalled`); an HRC install before `just pull-deps` ships the OLD agent-spaces tuple; fleet promotion is `just deploy-*` / `just fleet-status`, never by hand.
+
 ## Validation
 
 - Conformance suite (canonical workflow-kernel tests, run before declaring ACP work done): `bun test tests/conformance/acp-workflow`
