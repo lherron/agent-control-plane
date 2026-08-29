@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { isSourceLinkedCheckout } from './fixtures/source-linked'
 
 const repoRoot = resolve(import.meta.dir, '../../..')
 
@@ -32,45 +33,48 @@ describe('wrkq locator static surfaces', () => {
     }
   })
 
-  test('manifests stay on latest while lockfile and install agree on the resolved client snapshot', () => {
-    const rootManifest = JSON.parse(readRepoFile('package.json')) as {
-      dependencies?: Record<string, string>
-      overrides?: Record<string, string>
-    }
-    expect(rootManifest.dependencies?.['@wrkq/client']).toBe('latest')
-    expect(rootManifest.overrides?.['@wrkq/client']).toBeUndefined()
-    const manifestPaths = [
-      'packages/acp-cli/package.json',
-      'packages/acp-server/package.json',
-      'packages/gateway-discord/package.json',
-      'packages/gateway-ios/package.json',
-      'packages/wrkq-lib/package.json',
-    ]
-
-    for (const path of manifestPaths) {
-      const manifest = JSON.parse(readRepoFile(path)) as {
+  test.skipIf(isSourceLinkedCheckout())(
+    'manifests stay on latest while lockfile and install agree on the resolved client snapshot',
+    () => {
+      const rootManifest = JSON.parse(readRepoFile('package.json')) as {
         dependencies?: Record<string, string>
+        overrides?: Record<string, string>
       }
-      expect(manifest.dependencies?.['@wrkq/client'], path).toBe('latest')
-    }
+      expect(rootManifest.dependencies?.['@wrkq/client']).toBe('latest')
+      expect(rootManifest.overrides?.['@wrkq/client']).toBeUndefined()
+      const manifestPaths = [
+        'packages/acp-cli/package.json',
+        'packages/acp-server/package.json',
+        'packages/gateway-discord/package.json',
+        'packages/gateway-ios/package.json',
+        'packages/wrkq-lib/package.json',
+      ]
 
-    const lockedVersion = readRepoFile('bun.lock').match(
-      /"@wrkq\/client": \["@wrkq\/client@(\d+\.\d+\.\d+-dev\.\d+)"/
-    )?.[1]
-    expect(lockedVersion, 'bun.lock @wrkq/client resolution').toMatch(/^\d+\.\d+\.\d+-dev\.\d+$/)
-    const installed = JSON.parse(readRepoFile('node_modules/@wrkq/client/package.json')) as {
-      version: string
-    }
-    expect(installed.version).toBe(lockedVersion)
-    for (const path of manifestPaths) {
-      const installedPath = Bun.resolveSync(
-        '@wrkq/client/package.json',
-        resolve(repoRoot, path, '..')
-      )
-      const workspaceInstalled = JSON.parse(readFileSync(installedPath, 'utf8')) as {
+      for (const path of manifestPaths) {
+        const manifest = JSON.parse(readRepoFile(path)) as {
+          dependencies?: Record<string, string>
+        }
+        expect(manifest.dependencies?.['@wrkq/client'], path).toBe('latest')
+      }
+
+      const lockedVersion = readRepoFile('bun.lock').match(
+        /"@wrkq\/client": \["@wrkq\/client@(\d+\.\d+\.\d+-dev\.\d+)"/
+      )?.[1]
+      expect(lockedVersion, 'bun.lock @wrkq/client resolution').toMatch(/^\d+\.\d+\.\d+-dev\.\d+$/)
+      const installed = JSON.parse(readRepoFile('node_modules/@wrkq/client/package.json')) as {
         version: string
       }
-      expect(workspaceInstalled.version, installedPath).toBe(lockedVersion)
+      expect(installed.version).toBe(lockedVersion)
+      for (const path of manifestPaths) {
+        const installedPath = Bun.resolveSync(
+          '@wrkq/client/package.json',
+          resolve(repoRoot, path, '..')
+        )
+        const workspaceInstalled = JSON.parse(readFileSync(installedPath, 'utf8')) as {
+          version: string
+        }
+        expect(workspaceInstalled.version, installedPath).toBe(lockedVersion)
+      }
     }
-  })
+  )
 })

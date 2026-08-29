@@ -14,6 +14,7 @@ import {
   readConsumerDeploymentInputs,
 } from '../src/deployment-coherence.js'
 import type { AcpHrcClient } from '../src/index.js'
+import { isSourceLinkedCheckout } from './fixtures/source-linked'
 import { withWiredServer } from './fixtures/wired-server.js'
 
 const TEST_EXPECTED_CONSUMER_PRODUCERS = [
@@ -187,49 +188,52 @@ describe('ASP/HRC consumer deployment coherence', () => {
     expect(report.findings).toEqual(['running HRC build identity does not match ACP installed HRC'])
   })
 
-  test('serves the lock/install/running readback through ACP', async () => {
-    const productionFixture = coherentFixture(EXPECTED_CONSUMER_PRODUCERS)
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'GET',
-          path: '/v1/admin/deployment-coherence',
-        })
-        expect(response.status).toBe(200)
-        const body = await fixture.json<{
-          ok: boolean
-          expected: readonly ExpectedConsumerProducer[]
-          installed: { aspBuild?: PraesidiumBuild; hrcBuild?: PraesidiumBuild }
-          running: { releaseId: string; runningEqualsInstalled: boolean }
-          findings: string[]
-        }>(response)
-        expect(body).toMatchObject({
-          ok: true,
-          running: {
-            releaseId: 'release-test',
-            runningEqualsInstalled: true,
-          },
-          findings: [],
-        })
-        for (const expected of body.expected) {
-          const installed =
-            expected.setName === 'asp' ? body.installed.aspBuild : body.installed.hrcBuild
-          expect(installed).toMatchObject({
-            schema: 1,
-            repository: expected.repository,
-            sourceCommit: expected.sourceCommit,
-            setName: expected.setName,
-            setVersion: expected.setVersion,
+  test.skipIf(isSourceLinkedCheckout())(
+    'serves the lock/install/running readback through ACP',
+    async () => {
+      const productionFixture = coherentFixture(EXPECTED_CONSUMER_PRODUCERS)
+      await withWiredServer(
+        async (fixture) => {
+          const response = await fixture.request({
+            method: 'GET',
+            path: '/v1/admin/deployment-coherence',
           })
+          expect(response.status).toBe(200)
+          const body = await fixture.json<{
+            ok: boolean
+            expected: readonly ExpectedConsumerProducer[]
+            installed: { aspBuild?: PraesidiumBuild; hrcBuild?: PraesidiumBuild }
+            running: { releaseId: string; runningEqualsInstalled: boolean }
+            findings: string[]
+          }>(response)
+          expect(body).toMatchObject({
+            ok: true,
+            running: {
+              releaseId: 'release-test',
+              runningEqualsInstalled: true,
+            },
+            findings: [],
+          })
+          for (const expected of body.expected) {
+            const installed =
+              expected.setName === 'asp' ? body.installed.aspBuild : body.installed.hrcBuild
+            expect(installed).toMatchObject({
+              schema: 1,
+              repository: expected.repository,
+              sourceCommit: expected.sourceCommit,
+              setName: expected.setName,
+              setVersion: expected.setVersion,
+            })
+          }
+        },
+        {
+          hrcClient: {
+            getStatus: async () => productionFixture.runningStatus,
+          } as unknown as AcpHrcClient,
         }
-      },
-      {
-        hrcClient: {
-          getStatus: async () => productionFixture.runningStatus,
-        } as unknown as AcpHrcClient,
-      }
-    )
-  })
+      )
+    }
+  )
 
   test('fails closed on lock, locator, installed tuple, and running-release drift', () => {
     const fixture = coherentFixture()

@@ -6,10 +6,27 @@ repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || {
   exit 2
 }
 
-lefthook_bin="$repo_root/node_modules/.bin/lefthook"
-if [ ! -x "$lefthook_bin" ]; then
-  echo "ACP pre-commit hook error: lefthook is not installed at $lefthook_bin." >&2
-  echo "Run 'just install' from $repo_root, then retry the commit." >&2
+# Walk up for the binary instead of assuming this repo's node_modules. A
+# standalone install resolves at the first step, exactly as before. Under the
+# praesidium dev workspace agent-control-plane installs as one workspace with
+# agent-spaces and hrc-runtime, and bun hoists binaries to the shared root,
+# leaving no repo-local node_modules/.bin — this guard would then refuse every
+# commit even though lefthook is present one directory up.
+lefthook_bin=""
+search_dir="$repo_root"
+while :; do
+  if [ -x "$search_dir/node_modules/.bin/lefthook" ]; then
+    lefthook_bin="$search_dir/node_modules/.bin/lefthook"
+    break
+  fi
+  parent="$(dirname "$search_dir")"
+  [ "$parent" = "$search_dir" ] && break
+  search_dir="$parent"
+done
+
+if [ -z "$lefthook_bin" ]; then
+  echo "ACP pre-commit hook error: lefthook is not installed in any node_modules/.bin at or above $repo_root." >&2
+  echo "Run 'just install' from $repo_root (or the workspace root), then retry." >&2
   exit 127
 fi
 
