@@ -41,7 +41,7 @@
     "spaces-config": "0.1.1-dev.20260825213756"
   },
   "devDependencies": {
-    "@types/bun": "latest",
+    "@types/bun": "1.3.14",
     "coordination-substrate": "*",
     "typescript": "^5.8.3"
   }

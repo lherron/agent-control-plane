@@ -50,6 +50,7 @@ check:
     bun scripts/check-suppressions.ts
     bun scripts/check-boundaries.ts
     bun scripts/check-manifest-edges.ts
+    bun scripts/check-dependency-pins.ts
     bun scripts/check-consumer-deployment-coherence.ts
     bun scripts/check-cli-surface.ts
     bun scripts/check-public-surface.ts
@@ -198,6 +199,10 @@ check-deps:
     bun scripts/sync-wrkq-from-verdaccio.ts --check
     bun scripts/report-producer-advance.ts
 
+# Prune stale nested copies that shadow exact root dependency pins.
+doctor:
+    bun scripts/workspace-doctor.ts
+
 # Deliberate operator-managed ASP/HRC tuple advance. Add --dry-run for a read-only plan.
 advance-producers *args:
     bun scripts/advance-producers.ts {{ args }}
@@ -214,6 +219,7 @@ install no-sync="" force-sync="" force-link="":
     echo "[install] context=${PRAESIDIUM_INSTALL_CONTEXT} sync=${PRAESIDIUM_INSTALL_SYNC_MODE} link=${PRAESIDIUM_INSTALL_LINK_MODE} publish=${PRAESIDIUM_INSTALL_PUBLISH_CHANNEL} tag=${PRAESIDIUM_INSTALL_PUBLISH_TAG}"
     bun run clean
     bun install --frozen-lockfile
+    bun scripts/workspace-doctor.ts
     bun scripts/check-consumer-deployment-coherence.ts
     bun scripts/report-producer-advance.ts
     bun run install:hooks

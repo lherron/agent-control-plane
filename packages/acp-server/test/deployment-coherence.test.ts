@@ -132,6 +132,16 @@ describe('ASP/HRC consumer deployment coherence', () => {
     })
   })
 
+  test('accepts the exact Bun types override as an ACP-local tooling pin', () => {
+    const fixture = coherentFixture()
+    fixture.manifests[0]!.overrides['@types/bun'] = '1.3.14'
+
+    const report = evaluateConsumerDeployment(fixture, TEST_EXPECTED_CONSUMER_PRODUCERS)
+
+    expect(report.ok).toBe(true)
+    expect(report.findings).toEqual([])
+  })
+
   test('accepts a running set minted on another node from the same source commit', () => {
     const fixture = coherentFixture()
     const runningHrcBuild = {

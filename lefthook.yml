@@ -21,6 +21,8 @@ pre-commit:
       run: bun scripts/check-boundaries.ts
     manifests:
       run: bun scripts/check-manifest-edges.ts
+    dependency-pins:
+      run: bun scripts/check-dependency-pins.ts
     cli-surface:
       run: bun scripts/check-cli-surface.ts
     public-surface:

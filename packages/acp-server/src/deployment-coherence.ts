@@ -99,6 +99,9 @@ export type ConsumerDeploymentReport = Readonly<{
   findings: readonly string[]
 }>
 
+/** Root overrides that constrain ACP-local tooling rather than ASP/HRC producer sets. */
+const NON_PRODUCER_ROOT_OVERRIDES = new Set(['@types/bun', '@wrkq/client'])
+
 function buildIdentity(build: PraesidiumBuild): string {
   return JSON.stringify(PRAESIDIUM_BUILD_IDENTITY_FIELDS.map((field) => build[field]))
 }
@@ -203,7 +206,7 @@ export function producerManifestAgreementFindings(
     }
   }
   for (const name of Object.keys(overrides)) {
-    if (name !== '@wrkq/client' && !members.has(name)) {
+    if (!NON_PRODUCER_ROOT_OVERRIDES.has(name) && !members.has(name)) {
       findings.push(`${name}: root override does not name a tuple-bearing producer package`)
     }
   }

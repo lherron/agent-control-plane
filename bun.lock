@@ -15,7 +15,7 @@
       },
       "devDependencies": {
         "@biomejs/biome": "^1.9.4",
-        "@types/bun": "^1.1.14",
+        "@types/bun": "1.3.14",
         "lefthook": "^1.11.5",
         "typescript": "^5.7.2",
       },
@@ -29,7 +29,7 @@
       },
       "devDependencies": {
         "@types/better-sqlite3": "^7.6.12",
-        "@types/bun": "latest",
+        "@types/bun": "1.3.14",
         "typescript": "^5.8.3",
       },
     },
@@ -41,7 +41,7 @@
         "catalog-store": "0.1.1",
       },
       "devDependencies": {
-        "@types/bun": "latest",
+        "@types/bun": "1.3.14",
         "typescript": "^5.8.3",
       },
     },
@@ -67,7 +67,7 @@
         "spaces-config": "0.1.1-dev.20260825213756",
       },
       "devDependencies": {
-        "@types/bun": "latest",
+        "@types/bun": "1.3.14",
         "coordination-substrate": "*",
         "typescript": "^5.8.3",
       },
@@ -82,7 +82,7 @@
       },
       "devDependencies": {
         "@types/better-sqlite3": "^7.6.12",
-        "@types/bun": "latest",
+        "@types/bun": "1.3.14",
         "typescript": "^5.8.3",
       },
     },
@@ -93,7 +93,7 @@
         "agent-scope": "0.1.1-dev.20260825213756",
       },
       "devDependencies": {
-        "@types/bun": "latest",
+        "@types/bun": "1.3.14",
         "typescript": "^5.8.3",
       },
     },
@@ -116,7 +116,7 @@
         "spaces-runtime": "0.1.1-dev.20260825213756",
       },
       "devDependencies": {
-        "@types/bun": "latest",
+        "@types/bun": "1.3.14",
         "typescript": "^5.8.3",
       },
     },
@@ -130,7 +130,7 @@
       },
       "devDependencies": {
         "@types/better-sqlite3": "^7.6.12",
-        "@types/bun": "latest",
+        "@types/bun": "1.3.14",
         "typescript": "^5.8.3",
       },
     },
@@ -143,7 +143,7 @@
       },
       "devDependencies": {
         "@types/better-sqlite3": "^7.6.12",
-        "@types/bun": "latest",
+        "@types/bun": "1.3.14",
         "typescript": "^5.8.3",
       },
     },
@@ -154,7 +154,7 @@
         "agent-action-render": "0.1.0-dev.20260828102502",
       },
       "devDependencies": {
-        "@types/bun": "latest",
+        "@types/bun": "1.3.14",
         "typescript": "^5.8.3",
       },
     },
@@ -165,7 +165,7 @@
         "acp-ops-projection": "workspace:*",
       },
       "devDependencies": {
-        "@types/bun": "latest",
+        "@types/bun": "1.3.14",
         "typescript": "^5.8.3",
       },
     },
@@ -196,7 +196,7 @@
         "wrkq-lib": "*",
       },
       "devDependencies": {
-        "@types/bun": "latest",
+        "@types/bun": "1.3.14",
         "typescript": "^5.8.3",
       },
     },
@@ -211,7 +211,7 @@
       },
       "devDependencies": {
         "@types/better-sqlite3": "^7.6.12",
-        "@types/bun": "latest",
+        "@types/bun": "1.3.14",
         "typescript": "^5.8.3",
       },
     },
@@ -234,7 +234,7 @@
       },
       "devDependencies": {
         "@tailwindcss/vite": "^4.1.7",
-        "@types/bun": "latest",
+        "@types/bun": "1.3.14",
         "@types/react": "^19.2.2",
         "@types/react-dom": "^19.2.2",
         "@vitejs/plugin-react": "^5.1.0",
@@ -250,7 +250,7 @@
         "agent-scope": "0.1.1-dev.20260825213756",
       },
       "devDependencies": {
-        "@types/bun": "latest",
+        "@types/bun": "1.3.14",
         "typescript": "^5.8.3",
       },
     },
@@ -273,7 +273,7 @@
         "spaces-runtime": "0.1.1-dev.20260825213756",
       },
       "devDependencies": {
-        "@types/bun": "latest",
+        "@types/bun": "1.3.14",
         "typescript": "^5.8.3",
       },
     },
@@ -291,7 +291,7 @@
         "wrkq-lib": "*",
       },
       "devDependencies": {
-        "@types/bun": "latest",
+        "@types/bun": "1.3.14",
         "typescript": "^5.8.3",
       },
     },
@@ -305,7 +305,7 @@
         "acp-core": "*",
       },
       "devDependencies": {
-        "@types/bun": "latest",
+        "@types/bun": "1.3.14",
         "typescript": "^5.8.3",
       },
     },
@@ -317,12 +317,13 @@
         "acp-core": "*",
       },
       "devDependencies": {
-        "@types/bun": "latest",
+        "@types/bun": "1.3.14",
         "typescript": "^5.8.3",
       },
     },
   },
   "overrides": {
+    "@types/bun": "1.3.14",
     "agent-action-render": "0.1.0-dev.20260828102502",
     "agent-scope": "0.1.1-dev.20260825213756",
     "agent-spaces": "0.1.1-dev.20260825213756",
@@ -1436,41 +1437,17 @@
 
     "@tailwindcss/oxide-wasm32-wasi/tslib": ["tslib@2.8.1", "http://mini:4873/tslib/-/tslib-2.8.1.tgz", { "bundled": true }, "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="],
 
-    "acp-admin-store/@types/bun": ["@types/bun@1.4.0", "http://mini:4873/@types/bun/-/bun-1.4.0.tgz", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
+    "acp-cli/@wrkq/client": ["@wrkq/client@0.1.0-dev.20260828161615", "http://mini:4873/@wrkq/client/-/client-0.1.0-dev.20260828161615.tgz", {}, "sha512-m6Zvs75mtCwBaCo+3RmA078Pz1Wuwksawb/AJWJvONZ25f8RKCgJoNG1nan+kVJrk/rfcWS2f4tfGrzBHMwccg=="],
 
-    "acp-capability-host/@types/bun": ["@types/bun@1.4.0", "http://mini:4873/@types/bun/-/bun-1.4.0.tgz", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
-
-    "acp-cli/@types/bun": ["@types/bun@1.4.0", "http://mini:4873/@types/bun/-/bun-1.4.0.tgz", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
-
-    "acp-conversation/@types/bun": ["@types/bun@1.4.0", "http://mini:4873/@types/bun/-/bun-1.4.0.tgz", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
-
-    "acp-core/@types/bun": ["@types/bun@1.4.0", "http://mini:4873/@types/bun/-/bun-1.4.0.tgz", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
-
-    "acp-e2e/@types/bun": ["@types/bun@1.4.0", "http://mini:4873/@types/bun/-/bun-1.4.0.tgz", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
-
-    "acp-interface-store/@types/bun": ["@types/bun@1.4.0", "http://mini:4873/@types/bun/-/bun-1.4.0.tgz", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
-
-    "acp-jobs-store/@types/bun": ["@types/bun@1.4.0", "http://mini:4873/@types/bun/-/bun-1.4.0.tgz", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
-
-    "acp-ops-projection/@types/bun": ["@types/bun@1.4.0", "http://mini:4873/@types/bun/-/bun-1.4.0.tgz", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
-
-    "acp-ops-reducer/@types/bun": ["@types/bun@1.4.0", "http://mini:4873/@types/bun/-/bun-1.4.0.tgz", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
-
-    "acp-server/@types/bun": ["@types/bun@1.4.0", "http://mini:4873/@types/bun/-/bun-1.4.0.tgz", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
-
-    "acp-state-store/@types/bun": ["@types/bun@1.4.0", "http://mini:4873/@types/bun/-/bun-1.4.0.tgz", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
-
-    "acp-viewer/@types/bun": ["@types/bun@1.4.0", "http://mini:4873/@types/bun/-/bun-1.4.0.tgz", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
+    "acp-server/@wrkq/client": ["@wrkq/client@0.1.0-dev.20260828161615", "http://mini:4873/@wrkq/client/-/client-0.1.0-dev.20260828161615.tgz", {}, "sha512-m6Zvs75mtCwBaCo+3RmA078Pz1Wuwksawb/AJWJvONZ25f8RKCgJoNG1nan+kVJrk/rfcWS2f4tfGrzBHMwccg=="],
 
     "cli-highlight/chalk": ["chalk@4.1.2", "http://mini:4873/chalk/-/chalk-4.1.2.tgz", { "dependencies": { "ansi-styles": "^4.1.0", "supports-color": "^7.1.0" } }, "sha512-oKnbhFyRIXpUuez8iBMmyEa4nbj4IOQyuhc/wy9kY7/WVPcwIO9VA668Pu8RkO7+0G76SLROeyw9CpQ061i4mA=="],
 
     "cliui/strip-ansi": ["strip-ansi@6.0.1", "http://mini:4873/strip-ansi/-/strip-ansi-6.0.1.tgz", { "dependencies": { "ansi-regex": "^5.0.1" } }, "sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A=="],
 
-    "coordination-substrate/@types/bun": ["@types/bun@1.4.0", "http://mini:4873/@types/bun/-/bun-1.4.0.tgz", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
+    "gateway-discord/@wrkq/client": ["@wrkq/client@0.1.0-dev.20260828161615", "http://mini:4873/@wrkq/client/-/client-0.1.0-dev.20260828161615.tgz", {}, "sha512-m6Zvs75mtCwBaCo+3RmA078Pz1Wuwksawb/AJWJvONZ25f8RKCgJoNG1nan+kVJrk/rfcWS2f4tfGrzBHMwccg=="],
 
-    "gateway-discord/@types/bun": ["@types/bun@1.4.0", "http://mini:4873/@types/bun/-/bun-1.4.0.tgz", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
-
-    "gateway-ios/@types/bun": ["@types/bun@1.4.0", "http://mini:4873/@types/bun/-/bun-1.4.0.tgz", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
+    "gateway-ios/@wrkq/client": ["@wrkq/client@0.1.0-dev.20260828161615", "http://mini:4873/@wrkq/client/-/client-0.1.0-dev.20260828161615.tgz", {}, "sha512-m6Zvs75mtCwBaCo+3RmA078Pz1Wuwksawb/AJWJvONZ25f8RKCgJoNG1nan+kVJrk/rfcWS2f4tfGrzBHMwccg=="],
 
     "hrc-events/diff": ["diff@7.0.0", "http://mini:4873/diff/-/diff-7.0.0.tgz", {}, "sha512-PJWHUb1RFevKCwaFA9RlG5tCd+FO5iRh9A8HEtkmBH2Li03iJriB6m6JIN4rGz3K3JLawI7/veA1xzRKP6ISBw=="],
 
@@ -1484,56 +1461,18 @@
 
     "string-width/strip-ansi": ["strip-ansi@6.0.1", "http://mini:4873/strip-ansi/-/strip-ansi-6.0.1.tgz", { "dependencies": { "ansi-regex": "^5.0.1" } }, "sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A=="],
 
-    "wlearn/@types/bun": ["@types/bun@1.4.0", "http://mini:4873/@types/bun/-/bun-1.4.0.tgz", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
-
     "wrap-ansi/strip-ansi": ["strip-ansi@6.0.1", "http://mini:4873/strip-ansi/-/strip-ansi-6.0.1.tgz", { "dependencies": { "ansi-regex": "^5.0.1" } }, "sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A=="],
 
-    "wrkq-lib/@types/bun": ["@types/bun@1.4.0", "http://mini:4873/@types/bun/-/bun-1.4.0.tgz", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
+    "wrkq-lib/@wrkq/client": ["@wrkq/client@0.1.0-dev.20260828161615", "http://mini:4873/@wrkq/client/-/client-0.1.0-dev.20260828161615.tgz", {}, "sha512-m6Zvs75mtCwBaCo+3RmA078Pz1Wuwksawb/AJWJvONZ25f8RKCgJoNG1nan+kVJrk/rfcWS2f4tfGrzBHMwccg=="],
 
     "@mariozechner/pi-ai/@aws-sdk/client-bedrock-runtime/@aws-sdk/token-providers": ["@aws-sdk/token-providers@3.1075.0", "http://mini:4873/@aws-sdk/token-providers/-/token-providers-3.1075.0.tgz", { "dependencies": { "@aws-sdk/core": "^3.974.23", "@aws-sdk/nested-clients": "^3.997.23", "@aws-sdk/types": "^3.973.13", "@smithy/core": "^3.24.6", "@smithy/types": "^4.14.3", "tslib": "^2.6.2" } }, "sha512-SsunyegDXq68TaN5Iut8ElErGIAA6DeuKPKd5/v0lpSmZBI7ZKOC5OALyi1MRHsl/cuO/zHkJL3vKnNHdGaI+Q=="],
 
     "@mariozechner/pi-ai/@aws-sdk/client-bedrock-runtime/@smithy/node-http-handler": ["@smithy/node-http-handler@4.8.2", "http://mini:4873/@smithy/node-http-handler/-/node-http-handler-4.8.2.tgz", { "dependencies": { "@smithy/core": "^3.26.0", "@smithy/types": "^4.15.0", "tslib": "^2.6.2" } }, "sha512-wfl1uwrAqMH9/pi4kqBo5LBcFwrJLxuDLqL7p7qNcJIFcyZDUc6pzhYk4CYv+DP7fIUpQCZumwNnkhPKS52osQ=="],
 
-    "acp-admin-store/@types/bun/bun-types": ["bun-types@1.4.0", "http://mini:4873/bun-types/-/bun-types-1.4.0.tgz", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
-
-    "acp-capability-host/@types/bun/bun-types": ["bun-types@1.4.0", "http://mini:4873/bun-types/-/bun-types-1.4.0.tgz", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
-
-    "acp-cli/@types/bun/bun-types": ["bun-types@1.4.0", "http://mini:4873/bun-types/-/bun-types-1.4.0.tgz", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
-
-    "acp-conversation/@types/bun/bun-types": ["bun-types@1.4.0", "http://mini:4873/bun-types/-/bun-types-1.4.0.tgz", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
-
-    "acp-core/@types/bun/bun-types": ["bun-types@1.4.0", "http://mini:4873/bun-types/-/bun-types-1.4.0.tgz", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
-
-    "acp-e2e/@types/bun/bun-types": ["bun-types@1.4.0", "http://mini:4873/bun-types/-/bun-types-1.4.0.tgz", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
-
-    "acp-interface-store/@types/bun/bun-types": ["bun-types@1.4.0", "http://mini:4873/bun-types/-/bun-types-1.4.0.tgz", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
-
-    "acp-jobs-store/@types/bun/bun-types": ["bun-types@1.4.0", "http://mini:4873/bun-types/-/bun-types-1.4.0.tgz", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
-
-    "acp-ops-projection/@types/bun/bun-types": ["bun-types@1.4.0", "http://mini:4873/bun-types/-/bun-types-1.4.0.tgz", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
-
-    "acp-ops-reducer/@types/bun/bun-types": ["bun-types@1.4.0", "http://mini:4873/bun-types/-/bun-types-1.4.0.tgz", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
-
-    "acp-server/@types/bun/bun-types": ["bun-types@1.4.0", "http://mini:4873/bun-types/-/bun-types-1.4.0.tgz", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
-
-    "acp-state-store/@types/bun/bun-types": ["bun-types@1.4.0", "http://mini:4873/bun-types/-/bun-types-1.4.0.tgz", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
-
-    "acp-viewer/@types/bun/bun-types": ["bun-types@1.4.0", "http://mini:4873/bun-types/-/bun-types-1.4.0.tgz", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
-
     "cliui/strip-ansi/ansi-regex": ["ansi-regex@5.0.1", "http://mini:4873/ansi-regex/-/ansi-regex-5.0.1.tgz", {}, "sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ=="],
-
-    "coordination-substrate/@types/bun/bun-types": ["bun-types@1.4.0", "http://mini:4873/bun-types/-/bun-types-1.4.0.tgz", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
-
-    "gateway-discord/@types/bun/bun-types": ["bun-types@1.4.0", "http://mini:4873/bun-types/-/bun-types-1.4.0.tgz", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
-
-    "gateway-ios/@types/bun/bun-types": ["bun-types@1.4.0", "http://mini:4873/bun-types/-/bun-types-1.4.0.tgz", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
 
     "string-width/strip-ansi/ansi-regex": ["ansi-regex@5.0.1", "http://mini:4873/ansi-regex/-/ansi-regex-5.0.1.tgz", {}, "sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ=="],
 
-    "wlearn/@types/bun/bun-types": ["bun-types@1.4.0", "http://mini:4873/bun-types/-/bun-types-1.4.0.tgz", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
-
     "wrap-ansi/strip-ansi/ansi-regex": ["ansi-regex@5.0.1", "http://mini:4873/ansi-regex/-/ansi-regex-5.0.1.tgz", {}, "sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ=="],
-
-    "wrkq-lib/@types/bun/bun-types": ["bun-types@1.4.0", "http://mini:4873/bun-types/-/bun-types-1.4.0.tgz", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
   }
 }
