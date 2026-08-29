@@ -26,10 +26,12 @@
 #
 #   env-up    idempotent, self-healing, prints what it started
 #   env-down  teardown; env-up after a crashed env-down still works
+#   run -- …  owns the environment for one command and always tears it down
 #
-# `just verify` — the declared landing gate — depends on env-up. So this script
-# is load-bearing for landing, not a convenience: if it stops provisioning
-# honestly, the gate stops meaning anything. Keep it boring.
+# `just verify` — the declared landing gate — executes through `run`. So this
+# script is load-bearing for landing, not a convenience: if it stops
+# provisioning or reaping honestly, the gate stops meaning anything. Keep it
+# boring.
 
 set -euo pipefail
 
@@ -61,6 +63,15 @@ PORT_FILE="${ROOT}/acp.port"
 HRC_SOCKET="${HRC_RUN_DIR}/hrc.sock"
 WRKQ_DB_FILE="${DB_DIR}/wrkq.db"
 WRKF_HOOK_CATALOG_FILE="${ROOT}/empty-hook-catalog.json"
+PROCESS_REGISTRY="${ROOT}/processes"
+
+# A deliberately finite ceiling for manually provisioned roots. A successful
+# `run` never reaches it because its EXIT trap tears down immediately; this is
+# crash recovery for SIGKILL, host restarts, and older harness revisions that
+# intentionally left their daemons behind.
+STALE_AFTER_SECONDS=$((12 * 60 * 60))
+TEARDOWN_ON_EXIT=0
+RUN_CHILD_PID=""
 
 # Every agent id the suites may address. A fixture home is a directory plus an
 # agent-profile.toml — the marker spaces-config actually looks for; a bare
@@ -77,6 +88,207 @@ die() { printf '[dev-env] ERROR: %s\n' "$*" >&2; exit 1; }
 require_bin() {
   command -v "$1" >/dev/null 2>&1 || die "required binary '$1' not found on PATH ($2)"
 }
+
+process_group_id() {
+  ps -o pgid= -p "$1" 2>/dev/null | tr -d '[:space:]'
+}
+
+register_process() {
+  local kind="$1" pid="$2" pgid
+  [[ "${pid}" =~ ^[0-9]+$ ]] || return 0
+  kill -0 "${pid}" 2>/dev/null || return 0
+  pgid="$(process_group_id "${pid}")"
+  [[ "${pgid}" =~ ^[0-9]+$ ]] || return 0
+  # Only session leaders establish a trusted daemon group. Descendants may
+  # reuse that group after its ACP leader has been registered.
+  if [[ "${kind}" == "hrc" || "${kind}" == "acp" ]]; then
+    [[ "${pgid}" == "${pid}" ]] || return 0
+  elif [[ ! -f "${PROCESS_REGISTRY}" ]] || ! awk -v pgid="${pgid}" '$1 == "acp" && $3 == pgid { found = 1 } END { exit !found }' "${PROCESS_REGISTRY}"; then
+    return 0
+  fi
+  mkdir -p "${ROOT}"
+  if [[ ! -f "${PROCESS_REGISTRY}" ]] || ! awk -v pid="${pid}" -v pgid="${pgid}" '$2 == pid && $3 == pgid { found = 1 } END { exit !found }' "${PROCESS_REGISTRY}"; then
+    printf '%s %s %s\n' "${kind}" "${pid}" "${pgid}" >> "${PROCESS_REGISTRY}"
+  fi
+}
+
+register_acp_descendants() {
+  local parent_pid="$1" child command kind
+  while IFS= read -r child; do
+    [[ "${child}" =~ ^[0-9]+$ ]] || continue
+    command="$(ps -o command= -p "${child}" 2>/dev/null || true)"
+    kind="acp-child"
+    [[ "${command}" == *wrkf* ]] && kind="wrkf"
+    register_process "${kind}" "${child}"
+    register_acp_descendants "${child}"
+  done < <(pgrep -P "${parent_pid}" 2>/dev/null || true)
+}
+
+group_alive() {
+  local pgid="$1"
+  [[ "${pgid}" =~ ^[0-9]+$ ]] || return 1
+  kill -0 -- "-${pgid}" 2>/dev/null
+}
+
+signal_registered_groups() {
+  local root="$1" signal="$2" kind pid pgid own_pgid
+  local registry="${root}/processes"
+  [[ -f "${registry}" ]] || return 0
+  own_pgid="$(process_group_id "$$")"
+  while read -r kind pid pgid; do
+    [[ "${pgid}" =~ ^[0-9]+$ ]] || continue
+    # A corrupt/reused registry must never signal the harness's own process
+    # group. Daemons are always launched in fresh sessions below.
+    [[ "${pgid}" == "${own_pgid}" ]] && continue
+    kill -"${signal}" -- "-${pgid}" 2>/dev/null || true
+  done < "${registry}"
+}
+
+# Old revisions did not have a process-group registry. Find those survivors by
+# the environment-owned root they inherited. The snapshot is private and
+# short-lived because `ps eww` includes process environments.
+root_process_pids() {
+  local root="$1" snapshot shell_pid pid
+  shell_pid="${BASHPID:-$$}"
+  snapshot="$(mktemp "${TMPDIR:-/tmp}/acp-dev-env-ps.XXXXXX")"
+  chmod 600 "${snapshot}"
+  ps eww -axo pid=,command= > "${snapshot}"
+  while IFS= read -r pid; do
+    [[ "${pid}" =~ ^[0-9]+$ ]] || continue
+    kill -0 "${pid}" 2>/dev/null && printf '%s\n' "${pid}"
+  done < <(awk -v self="$$" -v shell_pid="${shell_pid}" \
+      -v marker="ACP_DEV_ENV_ROOT=${root}" \
+      -v hrc_marker="HRC_RUNTIME_DIR=${root}/" \
+      -v acp_marker="ACP_RUNTIME_DIR=${root}/" '
+    $1 != self && $1 != shell_pid && (index($0, marker) || index($0, hrc_marker) || index($0, acp_marker)) { print $1 }
+  ' "${snapshot}")
+  rm -f "${snapshot}"
+}
+
+signal_root_processes() {
+  local root="$1" signal="$2" pid
+  while IFS= read -r pid; do
+    [[ "${pid}" =~ ^[0-9]+$ ]] || continue
+    kill -"${signal}" "${pid}" 2>/dev/null || true
+  done < <(root_process_pids "${root}")
+}
+
+registered_processes_alive() {
+  local root="$1" kind pid pgid own_pgid
+  local registry="${root}/processes"
+  [[ -f "${registry}" ]] || return 1
+  own_pgid="$(process_group_id "$$")"
+  while read -r kind pid pgid; do
+    [[ "${pgid}" == "${own_pgid}" ]] && continue
+    group_alive "${pgid}" && return 0
+  done < "${registry}"
+  return 1
+}
+
+wait_for_root_exit() {
+  local root="$1" waited=0
+  while (( waited < 100 )); do
+    if ! registered_processes_alive "${root}" && [[ -z "$(root_process_pids "${root}")" ]]; then
+      return 0
+    fi
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  return 1
+}
+
+teardown_root() {
+  local root="$1" survivors
+  [[ -d "${root}" ]] || return 0
+
+  signal_registered_groups "${root}" TERM
+  signal_root_processes "${root}" TERM
+  if ! wait_for_root_exit "${root}"; then
+    signal_registered_groups "${root}" KILL
+    signal_root_processes "${root}" KILL
+    wait_for_root_exit "${root}" || true
+  fi
+
+  if [[ -S "${root}/hrc-run/tmux.sock" ]]; then
+    tmux -S "${root}/hrc-run/tmux.sock" kill-server 2>/dev/null || true
+  fi
+
+  survivors="$(root_process_pids "${root}")"
+  if registered_processes_alive "${root}" || [[ -n "${survivors}" ]]; then
+    log "ERROR: processes survived teardown for ${root}: ${survivors:-registered process group}" >&2
+    return 1
+  fi
+
+  rm -rf "${root}"
+}
+
+root_mtime() {
+  stat -f '%m' "$1" 2>/dev/null || stat -c '%Y' "$1" 2>/dev/null
+}
+
+root_has_dead_recorded_pid() {
+  local root="$1" pid_file pid found=0 kind pgid
+  for pid_file in "${root}/owner.pid" "${root}/hrc.pid" "${root}/acp.pid"; do
+    [[ -f "${pid_file}" ]] || continue
+    found=1
+    pid="$(cat "${pid_file}" 2>/dev/null || true)"
+    [[ "${pid}" =~ ^[0-9]+$ ]] && kill -0 "${pid}" 2>/dev/null || return 0
+  done
+  if [[ -f "${root}/processes" ]]; then
+    while read -r kind pid pgid; do
+      found=1
+      [[ "${pid}" =~ ^[0-9]+$ ]] && kill -0 "${pid}" 2>/dev/null || return 0
+    done < "${root}/processes"
+  fi
+  [[ "${found}" == 0 ]] && return 0
+  return 1
+}
+
+sweep_stale_roots() {
+  local base candidate now modified age
+  base="${TMPDIR:-/tmp}"
+  base="${base%/}"
+  now="$(date +%s)"
+  for candidate in "${base}"/acp-dev-env-"$(id -u)"-*; do
+    [[ -d "${candidate}" ]] || continue
+    modified="$(root_mtime "${candidate}" || true)"
+    [[ "${modified}" =~ ^[0-9]+$ ]] || modified="${now}"
+    age=$((now - modified))
+    if root_has_dead_recorded_pid "${candidate}" || (( age >= STALE_AFTER_SECONDS )); then
+      log "sweeping stale environment ${candidate} (age ${age}s)"
+      teardown_root "${candidate}"
+    fi
+  done
+}
+
+cleanup_on_exit() {
+  local status="$?" cleanup_status=0
+  trap - EXIT INT TERM HUP
+  if [[ -n "${RUN_CHILD_PID}" ]] && kill -0 "${RUN_CHILD_PID}" 2>/dev/null; then
+    kill -TERM "${RUN_CHILD_PID}" 2>/dev/null || true
+    wait "${RUN_CHILD_PID}" 2>/dev/null || true
+  fi
+  if (( TEARDOWN_ON_EXIT )); then
+    teardown_root "${ROOT}" || cleanup_status=$?
+  fi
+  if (( status == 0 && cleanup_status != 0 )); then
+    status="${cleanup_status}"
+  fi
+  exit "${status}"
+}
+
+handle_signal() {
+  local signal="$1" status="$2"
+  if [[ -n "${RUN_CHILD_PID}" ]] && kill -0 "${RUN_CHILD_PID}" 2>/dev/null; then
+    kill -"${signal}" "${RUN_CHILD_PID}" 2>/dev/null || true
+  fi
+  exit "${status}"
+}
+
+trap cleanup_on_exit EXIT
+trap 'handle_signal INT 130' INT
+trap 'handle_signal TERM 143' TERM
+trap 'handle_signal HUP 129' HUP
 
 # ---------------------------------------------------------------------------
 # Build
@@ -159,6 +371,7 @@ hrc_responds() {
 start_hrc() {
   if hrc_responds; then
     log "HRC daemon already healthy on ${HRC_SOCKET} (reused)"
+    register_process hrc "$(cat "${HRC_PID_FILE}" 2>/dev/null || cat "${HRC_RUN_DIR}/server.pid" 2>/dev/null || true)"
     return 0
   fi
 
@@ -171,14 +384,20 @@ start_hrc() {
   log "starting ephemeral HRC daemon (hrc server serve) → ${HRC_LOG}"
   (
     cd "${REPO_ROOT}"
-    HRC_RUNTIME_DIR="${HRC_RUN_DIR}" HRC_STATE_DIR="${HRC_STATE}" ASP_AGENTS_ROOT="${AGENTS_DIR}" \
-      nohup hrc server serve >"${HRC_LOG}" 2>&1 &
+    ACP_DEV_ENV_ROOT="${ROOT}" HRC_RUNTIME_DIR="${HRC_RUN_DIR}" HRC_STATE_DIR="${HRC_STATE}" ASP_AGENTS_ROOT="${AGENTS_DIR}" \
+      nohup perl -MPOSIX -e 'POSIX::setsid() >= 0 or die "setsid: $!"; exec @ARGV or die "exec: $!"' \
+        hrc server serve >"${HRC_LOG}" 2>&1 &
     printf '%s\n' "$!" > "${HRC_PID_FILE}"
   )
+  register_process hrc "$(cat "${HRC_PID_FILE}")"
 
   local waited=0
   while (( waited < 60 )); do
-    hrc_responds && { log "HRC daemon healthy (pid $(cat "${HRC_PID_FILE}"))"; return 0; }
+    if hrc_responds; then
+      register_process hrc "$(cat "${HRC_PID_FILE}")"
+      log "HRC daemon healthy (pid $(cat "${HRC_PID_FILE}"))"
+      return 0
+    fi
     sleep 1
     waited=$((waited + 1))
   done
@@ -230,6 +449,8 @@ start_acp() {
 
   if acp_responds "${port}"; then
     log "acp-server already healthy on 127.0.0.1:${port} (reused)"
+    register_process acp "$(cat "${ACP_PID_FILE}" 2>/dev/null || true)"
+    register_acp_descendants "$(cat "${ACP_PID_FILE}" 2>/dev/null || true)"
     return 0
   fi
 
@@ -258,13 +479,21 @@ start_acp() {
     HRC_RUNTIME_DIR="${HRC_RUN_DIR}" \
     HRC_STATE_DIR="${HRC_STATE}" \
     ASP_AGENTS_ROOT="${AGENTS_DIR}" \
-      nohup bun "${REPO_ROOT}/packages/acp-server/src/cli.ts" >"${ACP_LOG}" 2>&1 &
+    ACP_DEV_ENV_ROOT="${ROOT}" \
+      nohup perl -MPOSIX -e 'POSIX::setsid() >= 0 or die "setsid: $!"; exec @ARGV or die "exec: $!"' \
+        bun "${REPO_ROOT}/packages/acp-server/src/cli.ts" >"${ACP_LOG}" 2>&1 &
     printf '%s\n' "$!" > "${ACP_PID_FILE}"
   )
+  register_process acp "$(cat "${ACP_PID_FILE}")"
 
   local waited=0
   while (( waited < 60 )); do
-    acp_responds "${port}" && { log "acp-server healthy (pid $(cat "${ACP_PID_FILE}"))"; return 0; }
+    if acp_responds "${port}"; then
+      register_process acp "$(cat "${ACP_PID_FILE}")"
+      register_acp_descendants "$(cat "${ACP_PID_FILE}")"
+      log "acp-server healthy (pid $(cat "${ACP_PID_FILE}"))"
+      return 0
+    fi
     sleep 1
     waited=$((waited + 1))
   done
@@ -324,7 +553,10 @@ cmd_up() {
   require_bin curl 'image substrate'
   require_bin "${WRKQADM_BIN:-wrkqadm}" 'devbox:base >= 286ecea0 bakes it at /usr/local/bin'
 
+  TEARDOWN_ON_EXIT=1
+  sweep_stale_roots
   mkdir -p "${ROOT}" "${HRC_RUN_DIR}" "${HRC_STATE}" "${AGENTS_DIR}" "${DB_DIR}" "${ACP_RUN_DIR}" "${ASSETS_DIR}"
+  printf '%s\n' "$$" > "${ROOT}/owner.pid"
   provision_build
   provision_agents
   provision_wrkq_db
@@ -344,6 +576,8 @@ cmd_up() {
   log "  acp-server   http://127.0.0.1:$(cat "${PORT_FILE}")  pid $(cat "${ACP_PID_FILE}" 2>/dev/null || echo '?')"
   log "  logs         ${HRC_LOG} ${ACP_LOG}"
   log "  env file     ${ENV_FILE}   (source it to point a shell here)"
+  rm -f "${ROOT}/owner.pid"
+  TEARDOWN_ON_EXIT=0
 }
 
 cmd_down() {
@@ -351,10 +585,29 @@ cmd_down() {
     log "nothing to tear down (${ROOT} absent)"
     return 0
   fi
-  kill_pidfile "${ACP_PID_FILE}"
-  stop_hrc
-  rm -rf "${ROOT}"
+  teardown_root "${ROOT}"
   log "environment removed (${ROOT})"
+}
+
+cmd_run() {
+  [[ "${1:-}" == "--" ]] && shift
+  (( $# > 0 )) || die "usage: dev-env.sh run -- <command> [args...]"
+
+  TEARDOWN_ON_EXIT=1
+  cmd_up
+  # cmd_up disarms failure-only cleanup after success; the owned run immediately
+  # rearms it for success, command failure, and signals.
+  TEARDOWN_ON_EXIT=1
+  set -a
+  # shellcheck disable=SC1090
+  source "${ENV_FILE}"
+  set +a
+  "$@" &
+  RUN_CHILD_PID="$!"
+  wait "${RUN_CHILD_PID}"
+  local status="$?"
+  RUN_CHILD_PID=""
+  return "${status}"
 }
 
 # Print the exports so a caller can `eval "$(scripts/dev-env.sh env)"` without
@@ -368,5 +621,6 @@ case "${1:-}" in
   up)   cmd_up ;;
   down) cmd_down ;;
   env)  cmd_env ;;
-  *)    die "usage: dev-env.sh <up|down|env>" ;;
+  run)  shift; cmd_run "$@" ;;
+  *)    die "usage: dev-env.sh <up|down|env|run -- command...>" ;;
 esac

@@ -15,10 +15,10 @@ info:
     @echo "  just build     - Build all packages"
     @echo "  just test      - Run tests"
     @echo "  just lint      - Run biome linter"
-    @echo "  just verify    - Declared landing gate: env-up + architecture + check + lint + typecheck + test"
+    @echo "  just verify    - Owned dev-env + architecture + check + lint + typecheck + test"
     @echo "  just env-up    - Provision the ephemeral HRC daemon, acp-server, and wrkq DB"
     @echo "  just env-down  - Tear that environment down"
-    @echo "  just e2e       - Run the acp-e2e suite against the provisioned environment"
+    @echo "  just e2e       - Run acp-e2e in an owned ephemeral environment"
     @echo "  just install   - Install deps, materialize Git hooks, build, and link binaries"
 
 # Build all packages
@@ -117,15 +117,18 @@ architecture-records *args:
 # would silently satisfy-by-looking-right). The stages that DO need the
 # environment live in the body below.
 
-# Run all verification (env-up + architecture + check + lint + typecheck + test)
-verify: env-up architecture-records
+# Run all verification in one owned environment. The dev-env wrapper tears its
+# daemons down on success, failure, SIGINT, and SIGTERM.
+verify: architecture-records
     #!/usr/bin/env bash
     set -euo pipefail
-    eval "$(bash scripts/dev-env.sh env)"
-    just check
-    just lint
-    just typecheck
-    just test
+    bash scripts/dev-env.sh run -- bash -c '
+      set -euo pipefail
+      just check
+      just lint
+      just typecheck
+      just test
+    '
 
 # -- Ephemeral development environment (T-06914) -----------------------------
 #
@@ -138,9 +141,8 @@ verify: env-up architecture-records
 # one temp root and touches none of the real ones. See scripts/dev-env.sh for
 # the why in full.
 #
-# `env-up` leaves its daemons running on purpose — a second `env-up` reuses
-# them, so back-to-back `just verify` / `just e2e` do not pay for a restart.
-# Reap them with `just env-down` when you are done for the day.
+# `env-up` remains the explicit interactive/reusable form. Landing and e2e gates
+# use `dev-env.sh run`, whose owning shell always reaps the process registry.
 
 # Provision the ephemeral e2e environment (idempotent, self-healing)
 env-up:
@@ -162,16 +164,18 @@ env-down:
 # filed rather than papered over; folding it in here would make `e2e` mean
 # "green on the operator's laptop" again.
 
-# Run the e2e suite against the ephemeral environment
-e2e: env-up
+# Run the e2e suite against an owned ephemeral environment
+e2e:
     #!/usr/bin/env bash
     set -euo pipefail
-    eval "$(bash scripts/dev-env.sh env)"
-    echo "[e2e] acp-server ${ACP_BASE_URL}, HRC ${HRC_RUNTIME_DIR}/hrc.sock, wrkq ${WRKQ_DB}"
-    # Prove the provisioned daemon is the one answering before trusting the suite.
-    curl -fsS "${ACP_BASE_URL}/v1/mobile/health" >/dev/null
-    echo "[e2e] acp-server health ok"
-    bun run --filter 'acp-e2e' test
+    bash scripts/dev-env.sh run -- bash -c '
+      set -euo pipefail
+      echo "[e2e] acp-server ${ACP_BASE_URL}, HRC ${HRC_RUNTIME_DIR}/hrc.sock, wrkq ${WRKQ_DB}"
+      # Prove the provisioned daemon is the one answering before trusting the suite.
+      curl -fsS "${ACP_BASE_URL}/v1/mobile/health" >/dev/null
+      echo "[e2e] acp-server health ok"
+      bun run --filter 'acp-e2e' test
+    '
 
 # Clean build artifacts
 clean:
