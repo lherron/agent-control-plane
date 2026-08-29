@@ -28,7 +28,10 @@ function envelope(
     roomKey: 'T-00001',
     roomKind: 'task',
     groupId: 'EN-00042',
-    from: { principalRef: 'agent:smokey', scopeRef: 'smokey@agent-control-plane:T-00001' },
+    from: {
+      principalRef: 'agent:smokey',
+      scopeRef: 'smokey@agent-control-plane:T-00001',
+    },
     to: input.to === undefined ? { principalRef: 'agent:lance' } : input.to,
     replyTo: 'smokey@agent-control-plane:T-00001',
     obligation: input.obligation ?? 'reply_required',
@@ -104,7 +107,11 @@ describe('Discord ledger routing and renders', () => {
             scopeRef: 'daedalus@agent-control-plane:primary',
           },
         }),
-        { controlPlaneChannelId: 'control-plane', projectId: 'agent-control-plane', route }
+        {
+          controlPlaneChannelId: 'control-plane',
+          projectId: 'agent-control-plane',
+          route,
+        }
       ).map((sink) => sink.kind)
     ).toEqual(['mirror'])
   })
@@ -226,6 +233,8 @@ describe('Discord ledger human egress', () => {
       client,
       store,
       controlPlaneChannelId: 'control-plane',
+      maxDeliveryAttempts: 3,
+      findRecentMessageId: async () => undefined,
       send: async (sink) => {
         sent.push(sink.kind)
         return { messageId: `discord-message-${sent.length}` }
@@ -296,6 +305,8 @@ describe('Discord ledger human egress', () => {
       client,
       store,
       controlPlaneChannelId: 'control-plane',
+      maxDeliveryAttempts: 3,
+      findRecentMessageId: async () => undefined,
       send: async (sink) => {
         attempted.push(sink.kind)
         if (sink.kind === 'mirror') throw new Error('mirror unavailable')
@@ -306,6 +317,270 @@ describe('Discord ledger human egress', () => {
     expect(egress.pollOnce()).rejects.toThrow('Discord ledger egress failed for EN-00042')
     expect(attempted).toEqual(['mirror', 'human-notice'])
     expect(presented).toHaveLength(1)
+    store.close()
+  })
+
+  test('T5 reconciles both sinks from the last 100 messages without resending', async () => {
+    const store = openInterfaceStore({ dbPath: ':memory:' })
+    store.discordLedgerProjection.recordRoute(route)
+    for (const target of [
+      { sink: 'mirror', channelId: 'control-plane' },
+      { sink: 'human-notice', channelId: '2', bindingId: route.bindingId },
+    ]) {
+      store.discordLedgerDeliveries.beginAttempt({
+        gatewayId: 'discord',
+        envelopeId: 'EN-00042',
+        ...target,
+        maxAttempts: 3,
+      })
+    }
+
+    const presented: unknown[] = []
+    const client = {
+      wrkq: {
+        envelope: {
+          show: async () => envelope(),
+          present: async (params: unknown) => {
+            presented.push(params)
+            return {
+              envelope: envelope({ presented: true }),
+              recorded: true,
+              historyHint: false,
+              messageCount: 1,
+            }
+          },
+        },
+      },
+    } as unknown as WorkClient
+    const sent: string[] = []
+    const egress = new DiscordLedgerEgress({
+      gatewayId: 'discord',
+      client,
+      store,
+      maxDeliveryAttempts: 3,
+      findRecentMessageId: async (channelId) => `found-${channelId}`,
+      send: async (sink) => {
+        sent.push(sink.kind)
+        return { messageId: `resent-${sink.kind}` }
+      },
+    })
+
+    expect(await egress.reconcileAttempting()).toBe(2)
+    expect(sent).toEqual([])
+    expect(store.discordLedgerDeliveries.listByEnvelope('discord', 'EN-00042')).toEqual([
+      expect.objectContaining({
+        sink: 'human-notice',
+        state: 'sent',
+        discordMessageId: 'found-2',
+        attempts: 1,
+      }),
+      expect.objectContaining({
+        sink: 'mirror',
+        state: 'sent',
+        discordMessageId: 'found-control-plane',
+        attempts: 1,
+      }),
+    ])
+    expect(presented).toEqual([
+      expect.objectContaining({
+        envelope: 'EN-00042',
+        driveAttemptId: 'found-2',
+        deliveryOutcome: 'discord',
+      }),
+    ])
+    store.close()
+  })
+
+  test('T5 resends both sinks when the reconciliation window misses', async () => {
+    const store = openInterfaceStore({ dbPath: ':memory:' })
+    store.discordLedgerProjection.recordRoute(route)
+    for (const target of [
+      { sink: 'mirror', channelId: 'control-plane' },
+      { sink: 'human-notice', channelId: '2', bindingId: route.bindingId },
+    ]) {
+      store.discordLedgerDeliveries.beginAttempt({
+        gatewayId: 'discord',
+        envelopeId: 'EN-00042',
+        ...target,
+        maxAttempts: 3,
+      })
+    }
+
+    const client = {
+      wrkq: {
+        envelope: {
+          show: async () => envelope(),
+          present: async () => ({
+            envelope: envelope({ presented: true }),
+            recorded: true,
+            historyHint: false,
+            messageCount: 1,
+          }),
+        },
+        room: {
+          show: async () => ({ workRef: { path: 'agent-control-plane/task' } }),
+        },
+      },
+    } as unknown as WorkClient
+    const sent: string[] = []
+    const egress = new DiscordLedgerEgress({
+      gatewayId: 'discord',
+      client,
+      store,
+      maxDeliveryAttempts: 3,
+      findRecentMessageId: async () => undefined,
+      send: async (sink) => {
+        sent.push(sink.kind)
+        return { messageId: `resent-${sink.kind}` }
+      },
+    })
+
+    expect(await egress.reconcileAttempting()).toBe(2)
+    expect(sent).toEqual(['human-notice', 'mirror'])
+    expect(
+      store.discordLedgerDeliveries
+        .listByEnvelope('discord', 'EN-00042')
+        .map((delivery) => [delivery.sink, delivery.state, delivery.attempts])
+    ).toEqual([
+      ['human-notice', 'sent', 2],
+      ['mirror', 'sent', 2],
+    ])
+    store.close()
+  })
+
+  test('T5b bounds repeated crash-then-reconcile cycles beyond the ceiling', async () => {
+    const store = openInterfaceStore({ dbPath: ':memory:' })
+    const maxDeliveryAttempts = 3
+    store.discordLedgerDeliveries.beginAttempt({
+      gatewayId: 'discord',
+      envelopeId: 'EN-00042',
+      sink: 'mirror',
+      channelId: 'control-plane',
+      maxAttempts: maxDeliveryAttempts,
+    })
+
+    const client = {
+      wrkq: {
+        envelope: { show: async () => envelope() },
+        room: {
+          show: async () => ({ workRef: { path: 'agent-control-plane/task' } }),
+        },
+      },
+    } as unknown as WorkClient
+    let acceptedPosts = 1
+    const cycles = maxDeliveryAttempts + 3
+    for (let cycle = 0; cycle < cycles; cycle += 1) {
+      const restarted = new DiscordLedgerEgress({
+        gatewayId: 'discord',
+        client,
+        store,
+        maxDeliveryAttempts,
+        findRecentMessageId: async () => undefined,
+        send: async () => {
+          acceptedPosts += 1
+          throw new Error('simulated crash after Discord accepted the post')
+        },
+      })
+      try {
+        await restarted.reconcileAttempting()
+      } catch {
+        // A real process would disappear here. The next object is its restart.
+      }
+    }
+
+    expect(cycles).toBeGreaterThan(maxDeliveryAttempts)
+    expect(acceptedPosts).toBe(maxDeliveryAttempts)
+    expect(
+      store.discordLedgerDeliveries.get({
+        gatewayId: 'discord',
+        envelopeId: 'EN-00042',
+        sink: 'mirror',
+      })
+    ).toEqual(
+      expect.objectContaining({
+        state: 'failed',
+        attempts: maxDeliveryAttempts,
+        failureReason: 'simulated crash after Discord accepted the post',
+      })
+    )
+    expect(store.discordLedgerDeliveries.listAttempting('discord')).toEqual([])
+    store.close()
+  })
+
+  test('T6 advances after a poison sink fails and still delivers a later envelope', async () => {
+    const store = openInterfaceStore({ dbPath: ':memory:' })
+    store.discordLedgerProjection.advanceCursor('discord', 40)
+    const events = [
+      {
+        id: 41,
+        timestamp: '2026-08-28T00:00:01Z',
+        event_type: 'envelope.created',
+        payload: JSON.stringify({ id: 'EN-00041', room_uuid: 'room-uuid' }),
+      },
+      {
+        id: 42,
+        timestamp: '2026-08-28T00:00:02Z',
+        event_type: 'envelope.created',
+        payload: JSON.stringify({ id: 'EN-00042', room_uuid: 'room-uuid' }),
+      },
+    ]
+    const client = {
+      call: async (_method: string, params: { cursor: number }) => ({
+        items: events.filter((event) => event.id > params.cursor),
+        high_water: 42,
+      }),
+      wrkq: {
+        envelope: {
+          show: async ({ envelope: id }: { envelope: string }) => {
+            const value = envelope({
+              to: {
+                principalRef: 'agent:daedalus',
+                scopeRef: 'daedalus@agent-control-plane:primary',
+              },
+            })
+            value.id = id
+            value.groupId = id
+            return value
+          },
+        },
+        room: {
+          show: async () => ({ workRef: { path: 'agent-control-plane/task' } }),
+        },
+      },
+    } as unknown as WorkClient
+    const sent: string[] = []
+    const egress = new DiscordLedgerEgress({
+      gatewayId: 'discord',
+      client,
+      store,
+      controlPlaneChannelId: 'control-plane',
+      maxDeliveryAttempts: 2,
+      findRecentMessageId: async () => undefined,
+      send: async (sink) => {
+        sent.push(sink.envelope.id)
+        if (sink.envelope.id === 'EN-00041') throw new Error('poison')
+        return { messageId: `message-${sink.envelope.id}` }
+      },
+    })
+
+    await expect(egress.pollOnce()).rejects.toThrow('Discord ledger egress failed for EN-00041')
+    expect(store.discordLedgerProjection.getCursor('discord')).toBe(40)
+    expect(await egress.pollOnce()).toBe(42)
+    expect(sent).toEqual(['EN-00041', 'EN-00041', 'EN-00042'])
+    expect(
+      store.discordLedgerDeliveries.get({
+        gatewayId: 'discord',
+        envelopeId: 'EN-00041',
+        sink: 'mirror',
+      })
+    ).toEqual(expect.objectContaining({ state: 'failed', attempts: 2 }))
+    expect(
+      store.discordLedgerDeliveries.get({
+        gatewayId: 'discord',
+        envelopeId: 'EN-00042',
+        sink: 'mirror',
+      })
+    ).toEqual(expect.objectContaining({ state: 'sent', attempts: 1 }))
     store.close()
   })
 })

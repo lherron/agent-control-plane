@@ -3,6 +3,8 @@ export const DEFAULT_MEDIA_MAX_BYTES = 25 * 1024 * 1024
 export const DEFAULT_BINDINGS_REFRESH_MS = 30_000
 export const DEFAULT_DELIVERY_POLL_MS = 1_000
 export const DEFAULT_DELIVERY_IDLE_MS = 2_500
+export const DEFAULT_LEDGER_MAX_DELIVERY_ATTEMPTS = 3
+export const DEFAULT_LEDGER_MAX_RATE_LIMIT_ATTEMPTS = 3
 
 export const MEDIA_MIME_EXT: Record<string, string> = {
   'image/png': 'png',

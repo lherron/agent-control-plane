@@ -1,5 +1,6 @@
 import type { WorkClient, WrkqEnvelope } from '@wrkq/client'
 import type {
+  DiscordLedgerDelivery,
   DiscordLedgerProjectionRoute,
   InterfaceStore,
   RecordDiscordLedgerProjectionRouteInput,
@@ -34,7 +35,9 @@ export type DiscordLedgerHumanEgressDeps = {
   client: WorkClient
   store: InterfaceStore
   controlPlaneChannelId?: string | undefined
+  maxDeliveryAttempts: number
   resolveRoomProjectId?(roomUuid: string): Promise<string | undefined>
+  findRecentMessageId(channelId: string, envelopeId: string): Promise<string | undefined>
   send(sink: DiscordLedgerSink): Promise<{ messageId: string }>
 }
 
@@ -192,6 +195,43 @@ export class DiscordLedgerEgress {
 
   pruneBindings(activeBindingIds: readonly string[]): void {
     this.deps.store.discordLedgerProjection.pruneBindings(this.deps.gatewayId, activeBindingIds)
+    this.deps.store.discordLedgerDeliveries.pruneBindings(this.deps.gatewayId, activeBindingIds)
+  }
+
+  /** Reconcile sends that may have reached Discord before their terminal write.
+   * This runs before the ledger cursor resumes, so a miss can consume at most
+   * one additional durable attempt per startup reconciliation pass. */
+  async reconcileAttempting(): Promise<number> {
+    const attempting = this.deps.store.discordLedgerDeliveries.listAttempting(this.deps.gatewayId)
+    const failures: unknown[] = []
+
+    for (const delivery of attempting) {
+      try {
+        const foundMessageId = await this.deps.findRecentMessageId(
+          delivery.channelId,
+          delivery.envelopeId
+        )
+        if (foundMessageId !== undefined) {
+          this.deps.store.discordLedgerDeliveries.markSent(delivery, foundMessageId)
+          await this.recordHumanPresentation(delivery, foundMessageId)
+          continue
+        }
+
+        const sink = await this.hydrateDeliverySink(delivery)
+        if (sink === undefined) {
+          this.deps.store.discordLedgerDeliveries.markFailed(delivery, 'sink_unresolvable')
+          continue
+        }
+        await this.driveSink(sink)
+      } catch (error) {
+        failures.push(error)
+      }
+    }
+
+    if (failures.length > 0) {
+      throw new AggregateError(failures, 'Discord ledger startup reconciliation failed')
+    }
+    return attempting.length
   }
 
   async initializeCursor(): Promise<number> {
@@ -245,7 +285,9 @@ export class DiscordLedgerEgress {
     const hasHumanSink = route?.humanPrincipalRef === payload.to_principal_ref
     if (this.deps.controlPlaneChannelId === undefined && !hasHumanSink) return
 
-    const envelope = await this.deps.client.wrkq.envelope.show({ envelope: payload.id })
+    const envelope = await this.deps.client.wrkq.envelope.show({
+      envelope: payload.id,
+    })
     const projectId =
       this.deps.controlPlaneChannelId === undefined
         ? undefined
@@ -261,23 +303,116 @@ export class DiscordLedgerEgress {
     const failures: unknown[] = []
     for (const sink of sinks) {
       try {
-        const sent = await this.deps.send(sink)
-        if (sink.kind === 'human-notice') {
-          await this.deps.client.wrkq.envelope.present({
-            envelope: envelope.id,
-            memberRef: sink.route.humanPrincipalRef,
-            principalRef: 'agent:gateway-discord',
-            driveAttemptId: sent.messageId,
-            deliveryOutcome: 'discord',
-          })
-        }
+        await this.driveSink(sink)
       } catch (error) {
         failures.push(error)
       }
     }
-    if (failures.length > 0) {
+
+    const deliveries = this.deps.store.discordLedgerDeliveries.listByEnvelope(
+      this.deps.gatewayId,
+      envelope.id
+    )
+    const everySelectedSinkIsTerminal = sinks.every((sink) =>
+      deliveries.some(
+        (delivery) =>
+          delivery.sink === sink.kind && (delivery.state === 'sent' || delivery.state === 'failed')
+      )
+    )
+    if (!everySelectedSinkIsTerminal || failures.length > 0) {
       throw new AggregateError(failures, `Discord ledger egress failed for ${envelope.id}`)
     }
+  }
+
+  private async driveSink(sink: DiscordLedgerSink): Promise<void> {
+    const claim = this.deps.store.discordLedgerDeliveries.beginAttempt({
+      gatewayId: this.deps.gatewayId,
+      envelopeId: sink.envelope.id,
+      sink: sink.kind,
+      channelId: sink.channelId,
+      ...(sink.kind === 'human-notice' ? { bindingId: sink.route.bindingId } : {}),
+      maxAttempts: this.deps.maxDeliveryAttempts,
+    })
+    if (claim.outcome !== 'attempting') return
+
+    let sent: { messageId: string }
+    try {
+      sent = await this.deps.send(sink)
+    } catch (error) {
+      if (claim.delivery.attempts >= this.deps.maxDeliveryAttempts) {
+        this.deps.store.discordLedgerDeliveries.markFailed(
+          claim.delivery,
+          error instanceof Error ? error.message : String(error)
+        )
+        return
+      }
+      throw error
+    }
+
+    this.deps.store.discordLedgerDeliveries.markSent(claim.delivery, sent.messageId)
+    if (sink.kind === 'human-notice') {
+      await this.presentHumanNotice(sink.envelope.id, sink.route.humanPrincipalRef, sent.messageId)
+    }
+  }
+
+  private async hydrateDeliverySink(
+    delivery: DiscordLedgerDelivery
+  ): Promise<DiscordLedgerSink | undefined> {
+    const envelope = await this.deps.client.wrkq.envelope.show({
+      envelope: delivery.envelopeId,
+    })
+    if (delivery.sink === 'mirror') {
+      return {
+        kind: 'mirror',
+        channelId: delivery.channelId,
+        payload: chatCard(envelope, await this.roomProjectId(envelope.roomUuid)),
+        envelope,
+      }
+    }
+    if (delivery.sink !== 'human-notice') return undefined
+
+    const route = this.deps.store.discordLedgerProjection.getRoute(
+      this.deps.gatewayId,
+      envelope.roomUuid
+    )
+    if (route === undefined || route.bindingId !== delivery.bindingId) return undefined
+    return {
+      kind: 'human-notice',
+      channelId: delivery.channelId,
+      payload: humanNotice(envelope),
+      envelope,
+      route,
+    }
+  }
+
+  private async recordHumanPresentation(
+    delivery: DiscordLedgerDelivery,
+    messageId: string
+  ): Promise<void> {
+    if (delivery.sink !== 'human-notice') return
+    const envelope = await this.deps.client.wrkq.envelope.show({
+      envelope: delivery.envelopeId,
+    })
+    const route = this.deps.store.discordLedgerProjection.getRoute(
+      this.deps.gatewayId,
+      envelope.roomUuid
+    )
+    if (route === undefined || route.bindingId !== delivery.bindingId) return
+    await this.presentHumanNotice(envelope.id, route.humanPrincipalRef, messageId)
+  }
+
+  private async presentHumanNotice(
+    envelopeId: string,
+    humanPrincipalRef: string,
+    messageId: string
+  ): Promise<void> {
+    await this.deps.client.wrkq.envelope.present({
+      envelope: envelopeId,
+      memberRef: humanPrincipalRef,
+      principalRef: 'agent:gateway-discord',
+      driveAttemptId: messageId,
+      deliveryOutcome: 'discord',
+    })
   }
 
   private roomProjectId(roomUuid: string): Promise<string | undefined> {

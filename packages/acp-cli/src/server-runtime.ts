@@ -11,6 +11,8 @@ import {
   DEFAULT_BINDINGS_REFRESH_MS,
   DEFAULT_DELIVERY_IDLE_MS,
   DEFAULT_DELIVERY_POLL_MS,
+  DEFAULT_LEDGER_MAX_DELIVERY_ATTEMPTS,
+  DEFAULT_LEDGER_MAX_RATE_LIMIT_ATTEMPTS,
   DEFAULT_MAX_CHARS,
   GatewayDiscordApp,
   envNumber,
@@ -77,6 +79,7 @@ export function renderServerHelp(): string {
     '  ACP_DISABLE_DISCORD_GATEWAY=1 disables the in-process Discord gateway',
     '  DISCORD_TOKEN             Discord bot token; falls back to DISCORD_BLASTER_TOKEN, then Consul',
     '  ACP_DISCORD_TOKEN_KV      Consul KV path for token fallback',
+    '  ACP_DISCORD_CONTROL_PLANE_CHANNEL_ID fixed room-ledger mirror channel; falls back to Consul',
     '  ACP_LAUNCHD_LABEL         LaunchAgent label (default: com.praesidium.acp-server)',
   ].join('\n')
 }
@@ -284,7 +287,10 @@ export async function launchctlKickstart(
   }
 }
 
-function resolveStatusEndpoint(args: readonly string[]): { host: string; port: number } {
+function resolveStatusEndpoint(args: readonly string[]): {
+  host: string
+  port: number
+} {
   const host = resolvePrimaryBindHost(valueAfter(args, '--host') ?? process.env['ACP_HOST'])
   const rawPort = valueAfter(args, '--port') ?? process.env['ACP_PORT']
   const port = rawPort === undefined ? DEFAULT_PORT : Number.parseInt(rawPort, 10)
@@ -437,6 +443,16 @@ async function resolveWorkActivityChannelId(
   return consulKvGet(key)
 }
 
+/** Resolve the fixed room-ledger mirror channel. Env wins over Consul; unset
+ * leaves the root mirror off while routed human notices remain live. */
+async function resolveControlPlaneChannelId(
+  env: NodeJS.ProcessEnv = process.env
+): Promise<string | undefined> {
+  const envValue = optionalEnvValue(env, 'ACP_DISCORD_CONTROL_PLANE_CHANNEL_ID')
+  if (envValue !== undefined) return envValue
+  return consulKvGet('cfg/dev/_global/discord/control_plane_channel_id')
+}
+
 function writeServerProcessLog(event: string, details?: Record<string, unknown>): void {
   const suffix = details === undefined ? '' : ` ${JSON.stringify(details)}`
   process.stderr.write(`${new Date().toISOString()} [acp-server] INFO ${event}${suffix}\n`)
@@ -448,6 +464,7 @@ async function startGatewayInProcess(
 ): Promise<GatewayDiscordApp> {
   const jobRunsChannelId = await resolveJobRunsChannelId(env)
   const workActivityChannelId = await resolveWorkActivityChannelId(env)
+  const controlPlaneChannelId = await resolveControlPlaneChannelId(env)
   const acpBaseUrl = resolvePrimaryServerBaseUrl(options)
   const ledgerClient = await createClient({
     dbLocator: options.wrkqDbLocator,
@@ -465,6 +482,15 @@ async function startGatewayInProcess(
     deliveryIdleMs: envNumber(['ACP_DELIVERY_IDLE_MS'], DEFAULT_DELIVERY_IDLE_MS),
     ...(jobRunsChannelId !== undefined ? { jobRunsChannelId } : {}),
     ...(workActivityChannelId !== undefined ? { workActivityChannelId } : {}),
+    ...(controlPlaneChannelId !== undefined ? { controlPlaneChannelId } : {}),
+    maxDeliveryAttempts: envNumber(
+      ['ACP_DISCORD_LEDGER_MAX_DELIVERY_ATTEMPTS'],
+      DEFAULT_LEDGER_MAX_DELIVERY_ATTEMPTS
+    ),
+    maxRateLimitAttempts: envNumber(
+      ['ACP_DISCORD_LEDGER_MAX_RATE_LIMIT_ATTEMPTS'],
+      DEFAULT_LEDGER_MAX_RATE_LIMIT_ATTEMPTS
+    ),
     ledgerHumanEgress: {
       client: ledgerClient,
       store: ledgerStore,

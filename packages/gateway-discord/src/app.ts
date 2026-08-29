@@ -29,6 +29,8 @@ import {
   DEFAULT_BINDINGS_REFRESH_MS,
   DEFAULT_DELIVERY_IDLE_MS,
   DEFAULT_DELIVERY_POLL_MS,
+  DEFAULT_LEDGER_MAX_DELIVERY_ATTEMPTS,
+  DEFAULT_LEDGER_MAX_RATE_LIMIT_ATTEMPTS,
   DEFAULT_MAX_CHARS,
   VIRTU_BOT_ID,
   envNumber,
@@ -525,6 +527,8 @@ export type GatewayDiscordAppOptions = {
   workActivityChannelId?: string | undefined
   /** When set, mirror all wrkq room envelopes into this fixed channel root. */
   controlPlaneChannelId?: string | undefined
+  maxDeliveryAttempts?: number | undefined
+  maxRateLimitAttempts?: number | undefined
   ledgerHumanEgress?:
     | {
         client: WorkClient
@@ -591,6 +595,7 @@ export class GatewayDiscordApp {
   private ledgerHumanEgressLoopPromise: Promise<void> | undefined
   private ledgerHumanEgressLoopStopped = false
   private readonly ledgerHumanEgress?: DiscordLedgerEgress | undefined
+  private readonly maxRateLimitAttempts: number
   private readonly ledgerHumanEgressResources?:
     | { client: WorkClient; store: InterfaceStore; closeOnStop: boolean }
     | undefined
@@ -639,6 +644,8 @@ export class GatewayDiscordApp {
     this.webhooks = createWebhookManager({
       client: this.client as unknown as Parameters<typeof createWebhookManager>[0]['client'],
     })
+    this.maxRateLimitAttempts =
+      options.maxRateLimitAttempts ?? DEFAULT_LEDGER_MAX_RATE_LIMIT_ATTEMPTS
     this.ledgerHumanEgress =
       options.ledgerHumanEgress === undefined
         ? undefined
@@ -650,6 +657,10 @@ export class GatewayDiscordApp {
             options.controlPlaneChannelId.trim().length > 0
               ? { controlPlaneChannelId: options.controlPlaneChannelId.trim() }
               : {}),
+            maxDeliveryAttempts:
+              options.maxDeliveryAttempts ?? DEFAULT_LEDGER_MAX_DELIVERY_ATTEMPTS,
+            findRecentMessageId: (channelId, envelopeId) =>
+              this.findRecentLedgerMessageId(channelId, envelopeId),
             send: (sink) => this.sendLedgerEnvelopeSink(sink),
           })
     this.ledgerHumanEgressResources =
@@ -671,7 +682,9 @@ export class GatewayDiscordApp {
         log.error('gw.messageCreate.failed', {
           message: 'handleMessageCreate threw; keeping gateway alive',
           trace: { gatewayId: this.gatewayId },
-          err: { message: error instanceof Error ? error.message : String(error) },
+          err: {
+            message: error instanceof Error ? error.message : String(error),
+          },
         })
       }
     }
@@ -682,7 +695,9 @@ export class GatewayDiscordApp {
         log.error('gw.messageReactionAdd.failed', {
           message: 'handleMessageReactionAdd threw; keeping gateway alive',
           trace: { gatewayId: this.gatewayId },
-          err: { message: error instanceof Error ? error.message : String(error) },
+          err: {
+            message: error instanceof Error ? error.message : String(error),
+          },
         })
       }
     }
@@ -711,7 +726,9 @@ export class GatewayDiscordApp {
         log.warn('gw.bindings.refresh_failed', {
           message: 'Failed to refresh bindings',
           trace: { gatewayId: this.gatewayId },
-          err: { message: error instanceof Error ? error.message : String(error) },
+          err: {
+            message: error instanceof Error ? error.message : String(error),
+          },
         })
       })
     }, this.bindingsRefreshMs)
@@ -720,6 +737,7 @@ export class GatewayDiscordApp {
     this.deliveryLoopPromise = this.runDeliveryLoop()
 
     if (this.ledgerHumanEgress !== undefined) {
+      await this.ledgerHumanEgress.reconcileAttempting()
       await this.ledgerHumanEgress.initializeCursor()
       this.ledgerHumanEgressLoopStopped = false
       this.ledgerHumanEgressLoopPromise = this.runLedgerHumanEgressLoop()
@@ -820,7 +838,10 @@ export class GatewayDiscordApp {
       log.info('gw.discord.cancel_reaction.deferred', {
         message: 'Cancel reaction recorded before ACP run id was available',
         trace: { gatewayId: this.gatewayId, projectId: placeholder.projectId },
-        data: { messageId: placeholder.ui.id, sessionRef: placeholder.sessionRef },
+        data: {
+          messageId: placeholder.ui.id,
+          sessionRef: placeholder.sessionRef,
+        },
       })
       return
     }
@@ -829,9 +850,9 @@ export class GatewayDiscordApp {
   }
 
   async refreshBindings(): Promise<DiscordInterfaceBinding[]> {
-    const payload = await this.fetchJson<{ bindings: DiscordInterfaceBinding[] }>(
-      `/v1/interface/bindings?gatewayId=${encodeURIComponent(this.gatewayId)}`
-    )
+    const payload = await this.fetchJson<{
+      bindings: DiscordInterfaceBinding[]
+    }>(`/v1/interface/bindings?gatewayId=${encodeURIComponent(this.gatewayId)}`)
     this.bindings.replaceAll(payload.bindings)
     this.ledgerHumanEgress?.pruneBindings(
       payload.bindings
@@ -1103,7 +1124,9 @@ export class GatewayDiscordApp {
         log.warn('gw.discord.reaction.fetch_failed', {
           message: 'Could not fetch partial Discord reaction',
           trace: { gatewayId: this.gatewayId },
-          err: { message: error instanceof Error ? error.message : String(error) },
+          err: {
+            message: error instanceof Error ? error.message : String(error),
+          },
         })
         return undefined
       }
@@ -1120,7 +1143,9 @@ export class GatewayDiscordApp {
         log.warn('gw.discord.reaction_user.fetch_failed', {
           message: 'Could not fetch partial Discord reaction user',
           trace: { gatewayId: this.gatewayId },
-          err: { message: error instanceof Error ? error.message : String(error) },
+          err: {
+            message: error instanceof Error ? error.message : String(error),
+          },
         })
         return undefined
       }
@@ -1150,7 +1175,11 @@ export class GatewayDiscordApp {
 
     log.info('gw.discord.cancel_reaction.applied', {
       message: 'Discord cancel reaction cancelled active run',
-      trace: { gatewayId: this.gatewayId, projectId: placeholder.projectId, runId },
+      trace: {
+        gatewayId: this.gatewayId,
+        projectId: placeholder.projectId,
+        runId,
+      },
       data: {
         actorRef: actorId !== undefined ? `discord:user:${actorId}` : undefined,
         messageId: placeholder.ui.id,
@@ -1183,9 +1212,14 @@ export class GatewayDiscordApp {
     } catch (error) {
       log.debug('gw.discord.steer_detection_failed', {
         message: 'Could not determine steering capability; using standard queueing',
-        trace: { gatewayId: this.gatewayId, projectId: projectIdFromScopeRef(sessionRef.scopeRef) },
+        trace: {
+          gatewayId: this.gatewayId,
+          projectId: projectIdFromScopeRef(sessionRef.scopeRef),
+        },
         data: { sessionRef: canonicalSessionRefString(sessionRef) },
-        err: { message: error instanceof Error ? error.message : String(error) },
+        err: {
+          message: error instanceof Error ? error.message : String(error),
+        },
       })
       return false
     }
@@ -1287,7 +1321,9 @@ export class GatewayDiscordApp {
         log.error('gw.deliveries.loop_error', {
           message: 'Delivery loop iteration failed',
           trace: { gatewayId: this.gatewayId },
-          err: { message: error instanceof Error ? error.message : String(error) },
+          err: {
+            message: error instanceof Error ? error.message : String(error),
+          },
         })
         await sleep(this.deliveryIdleMs)
       }
@@ -1303,7 +1339,9 @@ export class GatewayDiscordApp {
         log.error('gw.ledger_human_egress.loop_error', {
           message: 'Discord ledger human-egress iteration failed',
           trace: { gatewayId: this.gatewayId },
-          err: { message: error instanceof Error ? error.message : String(error) },
+          err: {
+            message: error instanceof Error ? error.message : String(error),
+          },
         })
         await sleep(this.deliveryIdleMs)
       }
@@ -1311,7 +1349,9 @@ export class GatewayDiscordApp {
   }
 
   private async sendLedgerEnvelopeSink(sink: DiscordLedgerSink): Promise<{ messageId: string }> {
-    const sent = await this.webhooks.send(sink.channelId, sink.payload)
+    const sent = await this.webhooks.send(sink.channelId, sink.payload, {
+      maxRateLimitAttempts: this.maxRateLimitAttempts,
+    })
     log.info('gw.ledger_egress.sent', {
       trace: { gatewayId: this.gatewayId },
       data: {
@@ -1324,6 +1364,34 @@ export class GatewayDiscordApp {
       },
     })
     return { messageId: sent.id }
+  }
+
+  private async findRecentLedgerMessageId(
+    channelId: string,
+    envelopeId: string
+  ): Promise<string | undefined> {
+    const channel = await this.client.channels.fetch(channelId)
+    if (!channel || !channel.isTextBased() || !('messages' in channel)) {
+      throw new Error(`Discord channel ${channelId} cannot reconcile ledger messages`)
+    }
+    const messages = await channel.messages.fetch({ limit: 100 })
+    for (const message of messages.values()) {
+      if (
+        message.content.includes(envelopeId) ||
+        message.embeds.some(
+          (embed) =>
+            embed.title?.includes(envelopeId) === true ||
+            embed.description?.includes(envelopeId) === true ||
+            embed.footer?.text.includes(envelopeId) === true ||
+            embed.fields.some(
+              (field) => field.name.includes(envelopeId) || field.value.includes(envelopeId)
+            )
+        )
+      ) {
+        return message.id
+      }
+    }
+    return undefined
   }
 
   /** Read the current max system-event id so a (re)start tails new events only.
@@ -1344,7 +1412,9 @@ export class GatewayDiscordApp {
       log.warn('gw.jobruns.prime_failed', {
         message: 'Failed to prime job-runs cursor; starting from 0',
         trace: { gatewayId: this.gatewayId },
-        err: { message: error instanceof Error ? error.message : String(error) },
+        err: {
+          message: error instanceof Error ? error.message : String(error),
+        },
       })
       return '0'
     }
@@ -1404,8 +1474,14 @@ export class GatewayDiscordApp {
         log.warn('gw.system_events.post_failed', {
           message: 'Failed to post lifecycle card',
           trace: { gatewayId: this.gatewayId },
-          data: { eventId: event.eventId, kind: event.kind, channelId: target.channelId },
-          err: { message: error instanceof Error ? error.message : String(error) },
+          data: {
+            eventId: event.eventId,
+            kind: event.kind,
+            channelId: target.channelId,
+          },
+          err: {
+            message: error instanceof Error ? error.message : String(error),
+          },
         })
       }
     }
@@ -1422,7 +1498,9 @@ export class GatewayDiscordApp {
         log.error('gw.jobruns.loop_error', {
           message: 'job-runs loop iteration failed',
           trace: { gatewayId: this.gatewayId },
-          err: { message: error instanceof Error ? error.message : String(error) },
+          err: {
+            message: error instanceof Error ? error.message : String(error),
+          },
         })
         await sleep(this.deliveryIdleMs)
       }
@@ -1533,7 +1611,9 @@ export class GatewayDiscordApp {
         message: 'Failed to post live-progress failure alert to Discord',
         trace: { gatewayId: this.gatewayId },
         data: { channelId: this.jobRunsChannelId },
-        err: { message: error instanceof Error ? error.message : String(error) },
+        err: {
+          message: error instanceof Error ? error.message : String(error),
+        },
       })
     }
   }
@@ -1578,8 +1658,14 @@ export class GatewayDiscordApp {
         url.searchParams.set('fromSeq', String(subscription.lastHrcSeq + 1 || 1))
 
         log.debug('gw.live_progress.subscribe', {
-          trace: { gatewayId: this.gatewayId, projectId: subscription.projectId },
-          data: { sessionRef: subscription.sessionRef, fromSeq: subscription.lastHrcSeq + 1 || 1 },
+          trace: {
+            gatewayId: this.gatewayId,
+            projectId: subscription.projectId,
+          },
+          data: {
+            sessionRef: subscription.sessionRef,
+            fromSeq: subscription.lastHrcSeq + 1 || 1,
+          },
         })
 
         const response = await this.fetchImpl(url, {
@@ -1628,7 +1714,9 @@ export class GatewayDiscordApp {
               nextFromSeq: subscription.lastHrcSeq + 1,
               backoffMs: subscription.reconnectDelayMs,
             },
-            err: { message: error instanceof Error ? error.message : String(error) },
+            err: {
+              message: error instanceof Error ? error.message : String(error),
+            },
           })
           await sleep(subscription.reconnectDelayMs)
           subscription.reconnectDelayMs = Math.min(
@@ -1671,7 +1759,9 @@ export class GatewayDiscordApp {
           projectId: subscription.projectId,
           sessionRef: subscription.sessionRef,
         },
-        err: { message: error instanceof Error ? error.message : String(error) },
+        err: {
+          message: error instanceof Error ? error.message : String(error),
+        },
       })
       return
     }
@@ -1959,7 +2049,9 @@ export class GatewayDiscordApp {
       log.warn('gw.discord.typing.error', {
         trace: { gatewayId: this.gatewayId, projectId },
         data: { channelId, sessionRef },
-        err: { message: error instanceof Error ? error.message : String(error) },
+        err: {
+          message: error instanceof Error ? error.message : String(error),
+        },
       })
     }
   }
@@ -2164,7 +2256,10 @@ export class GatewayDiscordApp {
       (candidate) =>
         candidate.claimedHrcRunId === undefined &&
         this.eventMatchesPendingPlaceholder(candidate, event, hrcRunId) &&
-        eventTimestampIsClaimable({ pendingSince: candidate.pendingSince, eventTs: event.ts })
+        eventTimestampIsClaimable({
+          pendingSince: candidate.pendingSince,
+          eventTs: event.ts,
+        })
     )
     if (placeholder === undefined) {
       return undefined
@@ -2174,8 +2269,15 @@ export class GatewayDiscordApp {
     subscription.claimedHrcRunIds.add(hrcRunId)
     clearTimeout(placeholder.pendingTimeout)
     log.debug('gw.live_progress.run_claimed', {
-      trace: { gatewayId: this.gatewayId, projectId: placeholder.projectId, runId: hrcRunId },
-      data: { sessionRef: subscription.sessionRef, acpRunId: placeholder.acpRunId },
+      trace: {
+        gatewayId: this.gatewayId,
+        projectId: placeholder.projectId,
+        runId: hrcRunId,
+      },
+      data: {
+        sessionRef: subscription.sessionRef,
+        acpRunId: placeholder.acpRunId,
+      },
     })
     return placeholder
   }
@@ -2281,7 +2383,9 @@ export class GatewayDiscordApp {
         message: 'Falling back to generated avatar because agent profile avatar was unavailable',
         trace: { gatewayId: this.gatewayId },
         data: { agentId },
-        err: { message: error instanceof Error ? error.message : String(error) },
+        err: {
+          message: error instanceof Error ? error.message : String(error),
+        },
       })
     }
 
@@ -2368,7 +2472,10 @@ export class GatewayDiscordApp {
             message:
               'Placeholder has no webhookId; deleting stale placeholder and sending fresh webhook message',
             trace: { gatewayId: this.gatewayId },
-            data: { runId: delivery.runId, placeholderMessageId: placeholder.ui.id },
+            data: {
+              runId: delivery.runId,
+              placeholderMessageId: placeholder.ui.id,
+            },
           })
           await this.deletePlaceholder(placeholder.ui)
           // Fall through to fresh webhook delivery below
@@ -2440,7 +2547,10 @@ export class GatewayDiscordApp {
       })
       return { ok: true, rateLimited: false, webhookGone: false }
     } catch (error) {
-      classifyDiscordError(error, 'edit', { channelId: ui.channelId, uiId: ui.id })
+      classifyDiscordError(error, 'edit', {
+        channelId: ui.channelId,
+        uiId: ui.id,
+      })
       return {
         ok: false,
         rateLimited: isDiscordRateLimit(error),
@@ -2490,7 +2600,11 @@ export class GatewayDiscordApp {
     content: string
     sessionRef?: InterfaceSessionRef | undefined
   }): Promise<
-    | (UiHandle & { kind: 'message'; webhookId?: string; identity?: DiscordAgentMessageIdentity })
+    | (UiHandle & {
+        kind: 'message'
+        webhookId?: string
+        identity?: DiscordAgentMessageIdentity
+      })
     | undefined
   > {
     try {
@@ -2533,7 +2647,9 @@ export class GatewayDiscordApp {
         message: 'Failed to send placeholder',
         trace: { gatewayId: this.gatewayId },
         data: { channelId: input.channelId },
-        err: { message: error instanceof Error ? error.message : String(error) },
+        err: {
+          message: error instanceof Error ? error.message : String(error),
+        },
       })
       return undefined
     }
