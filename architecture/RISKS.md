@@ -8,3 +8,17 @@
 - Accepted by: Lance
 - Blast radius: When one member of a schedule's static owner set is down, healthy members do not execute that member's occurrences. A multi-member set is independent per-node fan-out and provides neither failover nor cross-node exactly-once.
 - Mitigation: Use each node's configured catch-up policy where recovery is acceptable, monitor ownership and capability status, and use the documented break-before-make relocation procedure for planned moves.
+
+## agent-control-plane.discord-room-egress-bounded-loss-duplication.v1
+
+- Severity: medium
+- Accepted by: Lance
+- Blast radius: A Discord sink can terminate failed with zero accepted posts after its persistent attempt budget is exhausted, allowing the shared cursor and later room traffic to advance. Conversely, Discord can accept a post before a process crash prevents the sent write; if that post has fallen outside the 100-message reconciliation window, a later attempt can duplicate it. Such accepted posts are bounded above by maxDeliveryAttempts but cannot all be durably identified. Routed human envelopes also intentionally appear in both the root mirror and their existing human-notice target.
+- Mitigation: Persist and increment attempts before every send, cap retries across restarts, expose terminal failed rows, carry the EN id in both renders, scan the last 100 target messages before resending, and observe the enabled feed during its initial soak.
+
+## agent-control-plane.discord-room-egress-no-origin-suppression.v1
+
+- Severity: low
+- Accepted by: Lance
+- Blast radius: The root mirror applies no provenance or echo-suppression discriminator: every observed wrkq envelope is eligible, including one created from Discord ingress. An unbound control-plane root remains read-only and creates no envelope; if that root is separately given an ingress binding, a human's message is ingested and then visibly mirrored back as an additional line, subject to the separately recorded delivery-duplication risk. This observer feed is not a security or authorship boundary.
+- Mitigation: Keep the control-plane root unbound while it is intended to be read-only, retain the gateway's own-bot ingress guard, and preserve the acceptance gate that caller metadata and interface-shaped idempotency keys never suppress a room envelope.

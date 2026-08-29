@@ -1,0 +1,50 @@
+id: agent-control-plane.discord-room-ledger-egress
+kind: invariant
+status: active
+owner_project: agent-control-plane
+scope: gateway-discord projection of wrkq room envelopes into Discord
+predicate: >
+  Gateway-discord tails wrkq envelope.created once on one monotonic cursor and
+  fans each envelope out to independent sinks: the configured control-plane
+  root mirror is always selected, and an eligible routed bare-principal human
+  notice is additionally selected. The mirror is an unconditional,
+  non-authoritative observer and never writes an envelope presentation; only
+  the human-notice sink preserves that receipt. Both renders carry the EN id.
+  Delivery state is durable per gateway, envelope, and sink: one atomic write
+  increments a persistent attempt counter and sets attempting before every
+  send, observed successful responses are written sent, exhausted sends become
+  failed, and the cursor advances only after every sink is sent or failed. Startup
+  reconciliation adopts an attempting send only when its EN id is found in the
+  last 100 messages of that sink's target; a miss resends only while the
+  persistent maxDeliveryAttempts budget remains. This feed bounds webhook 429
+  retries without changing the unbounded default used by existing event feeds.
+  Sender handles use parseScopeHandle, and room project is resolved from the
+  room rather than inferred from the sender. With the control-plane channel
+  unset, the root mirror is disabled; the human-notice subtext change remains
+  independent and live.
+authority: Lance via wrkq:R-00032 rev 5; Daedalus approval 2026-08-29
+source:
+  - packages/gateway-discord/src/ledger-human-egress.ts
+  - packages/gateway-discord/src/app.ts
+  - packages/gateway-discord/src/webhooks.ts
+  - packages/acp-interface-store/src/open-store.ts
+  - packages/gateway-discord/src/tests/ledger-human-egress.test.ts
+  - wrkq:R-00032
+required_tests:
+  - routed human envelopes produce both sinks while scoped seat envelopes produce only the root mirror
+  - only the human-notice sink writes envelope.present and both renders contain the EN id
+  - attempting reconciliation covers both sinks and never resends after maxDeliveryAttempts
+  - the attempting transition and attempt increment commit atomically before send
+  - exhausted sends including persistent 429 become failed and release the shared cursor
+  - controlPlaneChannelId unset disables only the root mirror
+  - parseScopeHandle and per-room project resolution gates remain green
+  - ASP_PROJECT=agent-control-plane just verify exits 0
+  - installed gateway passes a real Discord root-mirror and routed-thread fan-out smoke
+last_verified: 2026-08-29 EN-01367 architecture approved against current source before implementation; no build or test gate run
+reopen_when:
+  - the wrkq envelope cursor, sink fan-out, presentation ownership, or delivery-state model changes
+  - maxDeliveryAttempts stops persisting across restarts or ceases to precede each send
+  - Discord reconciliation no longer uses the EN id and bounded channel history
+  - root mirror ingress or per-room threading enters scope
+supersedes: []
+superseded_by: null

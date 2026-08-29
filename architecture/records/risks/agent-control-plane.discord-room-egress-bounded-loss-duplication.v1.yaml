@@ -1,0 +1,37 @@
+id: agent-control-plane.discord-room-egress-bounded-loss-duplication.v1
+kind: accepted_risk
+status: active
+owner_project: agent-control-plane
+accepted_by: Lance
+date: 2026-08-29
+severity: medium
+blast_radius: >
+  A Discord sink can terminate failed with zero accepted posts after its
+  persistent attempt budget is exhausted, allowing the shared cursor and later
+  room traffic to advance. Conversely, Discord can accept a post before a
+  process crash prevents the sent write; if that post has fallen outside the
+  100-message reconciliation window, a later attempt can duplicate it. Such
+  accepted posts are bounded above by maxDeliveryAttempts but cannot all be
+  durably identified. Routed human envelopes also intentionally appear in both
+  the root mirror and their existing human-notice target.
+mitigation: >
+  Persist and increment attempts before every send, cap retries across
+  restarts, expose terminal failed rows, carry the EN id in both renders, scan
+  the last 100 target messages before resending, and observe the enabled feed
+  during its initial soak.
+expiry: null
+review_trigger:
+  - failed delivery rows or duplicate EN ids exceed operational tolerance
+  - traffic volume makes the 100-message reconciliation window materially shorter
+  - operators require exactly-once delivery or no-loss mirror semantics
+reopen_when:
+  - Discord adds a usable idempotency contract
+  - the delivery attempt budget or reconciliation window changes
+  - the shared cursor may no longer advance past a failed sink
+source:
+  - packages/gateway-discord/src/ledger-human-egress.ts
+  - packages/gateway-discord/src/webhooks.ts
+  - packages/acp-interface-store/src/open-store.ts
+  - wrkq:R-00032
+supersedes: []
+superseded_by: null

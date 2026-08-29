@@ -1,0 +1,34 @@
+id: agent-control-plane.discord-room-egress-no-origin-suppression.v1
+kind: accepted_risk
+status: active
+owner_project: agent-control-plane
+accepted_by: Lance
+date: 2026-08-29
+severity: low
+blast_radius: >
+  The root mirror applies no provenance or echo-suppression discriminator: every
+  observed wrkq envelope is eligible, including one created from Discord
+  ingress. An unbound control-plane root remains read-only and creates no
+  envelope; if that root is separately given an ingress binding, a human's
+  message is ingested and then visibly mirrored back as an additional line,
+  subject to the separately recorded delivery-duplication risk. This observer
+  feed is not a security or authorship boundary.
+mitigation: >
+  Keep the control-plane root unbound while it is intended to be read-only,
+  retain the gateway's own-bot ingress guard, and preserve the acceptance gate
+  that caller metadata and interface-shaped idempotency keys never suppress a
+  room envelope.
+expiry: null
+review_trigger:
+  - control-plane root ingress becomes a product requirement
+  - mirrored ingress materially harms operator usability
+  - wrkq gains authenticated envelope-origin authority
+reopen_when:
+  - provenance or echo suppression re-enters scope
+  - the control-plane mirror becomes authoritative or security-sensitive
+source:
+  - packages/gateway-discord/src/app.ts
+  - packages/gateway-discord/src/ledger-human-egress.ts
+  - wrkq:R-00032
+supersedes: []
+superseded_by: null
