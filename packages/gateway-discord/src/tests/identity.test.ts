@@ -12,6 +12,8 @@ async function loadIdentityModule(): Promise<{
     laneRef?: string | undefined
   }
   formatSessionSubtext: (sessionRef: SessionRef) => string
+  formatScopeHandleDisplay: (scopeHandle: string) => string
+  actorSlug: (actor: string) => string
   avatarFor: (agentId: string) => string
 }> {
   return import('../identity.js')
@@ -62,5 +64,12 @@ describe('Discord agent identity helpers', () => {
     expect(avatarFor('cody')).toBe('https://api.dicebear.com/7.x/bottts/png?seed=cody')
     expect(avatarFor('larry')).toBe('https://api.dicebear.com/7.x/bottts/png?seed=larry')
     expect(avatarFor('cody')).toBe(avatarFor('cody'))
+  })
+
+  test('scope-handle display parses collaboration handle form', async () => {
+    const { actorSlug, formatScopeHandleDisplay } = await loadIdentityModule()
+
+    expect(formatScopeHandleDisplay('clod@wrkq:primary')).toBe('clod@wrkq:primary')
+    expect(actorSlug('agent:clod')).toBe('clod')
   })
 })

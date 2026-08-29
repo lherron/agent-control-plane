@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
 
-import type { WorkClient, WrkqEnvelope } from '@wrkq/client'
+import type { WorkClient } from '@wrkq/client'
 import type { DeliveryRequest, InputIntent, InterfaceSessionRef } from 'acp-core'
-import type { DiscordLedgerProjectionRoute, InterfaceStore } from 'acp-interface-store'
+import type { InterfaceStore } from 'acp-interface-store'
 import { parseScopeRef, validateScopeRef } from 'agent-scope'
 import {
   Client,
@@ -51,7 +51,7 @@ import {
   buildDiscordThreadName,
   parseDiscordKeyword,
 } from './keywords.js'
-import { DiscordLedgerHumanEgress } from './ledger-human-egress.js'
+import { DiscordLedgerEgress, type DiscordLedgerSink } from './ledger-human-egress.js'
 import { createLogger } from './logger.js'
 import { type RenderOptions, extractImagesFromFrame, extractMediaRefsFromFrame } from './render.js'
 import {
@@ -523,6 +523,8 @@ export type GatewayDiscordAppOptions = {
    * (the #work-activity egress, T-05270). Unset disables only those cards; the
    * shared system-events poll loop still runs if jobRunsChannelId is set. */
   workActivityChannelId?: string | undefined
+  /** When set, mirror all wrkq room envelopes into this fixed channel root. */
+  controlPlaneChannelId?: string | undefined
   ledgerHumanEgress?:
     | {
         client: WorkClient
@@ -588,7 +590,7 @@ export class GatewayDiscordApp {
   private systemEventsLoopStopped = false
   private ledgerHumanEgressLoopPromise: Promise<void> | undefined
   private ledgerHumanEgressLoopStopped = false
-  private readonly ledgerHumanEgress?: DiscordLedgerHumanEgress | undefined
+  private readonly ledgerHumanEgress?: DiscordLedgerEgress | undefined
   private readonly ledgerHumanEgressResources?:
     | { client: WorkClient; store: InterfaceStore; closeOnStop: boolean }
     | undefined
@@ -640,11 +642,15 @@ export class GatewayDiscordApp {
     this.ledgerHumanEgress =
       options.ledgerHumanEgress === undefined
         ? undefined
-        : new DiscordLedgerHumanEgress({
+        : new DiscordLedgerEgress({
             gatewayId: this.gatewayId,
             client: options.ledgerHumanEgress.client,
             store: options.ledgerHumanEgress.store,
-            send: (input) => this.sendLedgerHumanEnvelope(input.route, input.envelope),
+            ...(options.controlPlaneChannelId !== undefined &&
+            options.controlPlaneChannelId.trim().length > 0
+              ? { controlPlaneChannelId: options.controlPlaneChannelId.trim() }
+              : {}),
+            send: (sink) => this.sendLedgerEnvelopeSink(sink),
           })
     this.ledgerHumanEgressResources =
       options.ledgerHumanEgress === undefined
@@ -1304,35 +1310,16 @@ export class GatewayDiscordApp {
     }
   }
 
-  private async sendLedgerHumanEnvelope(
-    route: DiscordLedgerProjectionRoute,
-    envelope: WrkqEnvelope
-  ): Promise<{ messageId: string }> {
-    const channelId =
-      threadRefToThreadId(route.threadRef) ?? conversationRefToChannelId(route.conversationRef)
-    if (channelId === undefined) {
-      throw new Error(`Discord ledger route has no channel: ${route.bindingId}`)
-    }
-    const sender = envelope.from.scopeRef ?? envelope.from.principalRef
-    const channel = await this.client.channels.fetch(channelId)
-    if (
-      channel === null ||
-      !channel.isTextBased() ||
-      !('send' in channel) ||
-      typeof channel.send !== 'function'
-    ) {
-      throw new Error(`Discord ledger route is not sendable: ${channelId}`)
-    }
-    const sent = await channel.send({
-      content: `-# ${sender}\n${envelope.body}`,
-    })
-    log.info('gw.ledger_human_egress.sent', {
+  private async sendLedgerEnvelopeSink(sink: DiscordLedgerSink): Promise<{ messageId: string }> {
+    const sent = await this.webhooks.send(sink.channelId, sink.payload)
+    log.info('gw.ledger_egress.sent', {
       trace: { gatewayId: this.gatewayId },
       data: {
-        envelopeId: envelope.id,
-        roomKey: envelope.roomKey,
-        bindingId: route.bindingId,
-        channelId,
+        envelopeId: sink.envelope.id,
+        roomKey: sink.envelope.roomKey,
+        sink: sink.kind,
+        ...(sink.kind === 'human-notice' ? { bindingId: sink.route.bindingId } : {}),
+        channelId: sink.channelId,
         messageId: sent.id,
       },
     })

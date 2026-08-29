@@ -1,4 +1,4 @@
-import { parseScopeRef } from 'agent-scope'
+import { formatScopeHandle, parseScopeHandle, parseScopeRef } from 'agent-scope'
 
 export type DiscordSessionRef = {
   scopeRef: string
@@ -53,6 +53,19 @@ export function formatSessionSubtext(sessionRef: DiscordSessionRef): string {
   }
 
   return text
+}
+
+/** Validate and preserve an HRC scope handle for Discord display. Collaboration
+ * envelopes carry handle-form refs (`agent@project:task`), not canonical
+ * `agent:...:project:...` ScopeRefs. */
+export function formatScopeHandleDisplay(scopeHandle: string): string {
+  return formatScopeHandle(parseScopeHandle(scopeHandle))
+}
+
+/** "agent:cody" -> "cody"; non-principal labels are returned unchanged. */
+export function actorSlug(actor: string): string {
+  const separator = actor.indexOf(':')
+  return separator === -1 ? actor : actor.slice(separator + 1)
 }
 
 export const avatarFor = (agentId: string): string =>
