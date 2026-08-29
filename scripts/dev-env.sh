@@ -186,9 +186,9 @@ registered_processes_alive() {
 }
 
 wait_for_root_exit() {
-  local root="$1" waited=0
+  local root="$1" trust_registry="${2:-1}" waited=0
   while (( waited < 100 )); do
-    if ! registered_processes_alive "${root}" && [[ -z "$(root_process_pids "${root}")" ]]; then
+    if { (( ! trust_registry )) || ! registered_processes_alive "${root}"; } && [[ -z "$(root_process_pids "${root}")" ]]; then
       return 0
     fi
     sleep 0.1
@@ -198,23 +198,23 @@ wait_for_root_exit() {
 }
 
 teardown_root() {
-  local root="$1" survivors
+  local root="$1" trust_registry="${2:-1}" survivors
   [[ -d "${root}" ]] || return 0
 
-  signal_registered_groups "${root}" TERM
+  (( trust_registry )) && signal_registered_groups "${root}" TERM
   signal_root_processes "${root}" TERM
-  if ! wait_for_root_exit "${root}"; then
-    signal_registered_groups "${root}" KILL
+  if ! wait_for_root_exit "${root}" "${trust_registry}"; then
+    (( trust_registry )) && signal_registered_groups "${root}" KILL
     signal_root_processes "${root}" KILL
-    wait_for_root_exit "${root}" || true
+    wait_for_root_exit "${root}" "${trust_registry}" || true
   fi
 
-  if [[ -S "${root}/hrc-run/tmux.sock" ]]; then
+  if (( trust_registry )) && [[ -S "${root}/hrc-run/tmux.sock" ]]; then
     tmux -S "${root}/hrc-run/tmux.sock" kill-server 2>/dev/null || true
   fi
 
   survivors="$(root_process_pids "${root}")"
-  if registered_processes_alive "${root}" || [[ -n "${survivors}" ]]; then
+  if { (( trust_registry )) && registered_processes_alive "${root}"; } || [[ -n "${survivors}" ]]; then
     log "ERROR: processes survived teardown for ${root}: ${survivors:-registered process group}" >&2
     return 1
   fi
@@ -256,7 +256,10 @@ sweep_stale_roots() {
     age=$((now - modified))
     if root_has_dead_recorded_pid "${candidate}" || (( age >= STALE_AFTER_SECONDS )); then
       log "sweeping stale environment ${candidate} (age ${age}s)"
-      teardown_root "${candidate}"
+      # Startup sweep is identity-scoped, never PID-scoped: only processes
+      # whose env/argv names this acp-dev-env-* root are reachable. A stale
+      # registry whose PID/PGID was reused cannot target a production daemon.
+      teardown_root "${candidate}" 0
     fi
   done
 }
