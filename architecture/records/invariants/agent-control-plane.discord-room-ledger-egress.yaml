@@ -40,7 +40,7 @@ required_tests:
   - parseScopeHandle and per-room project resolution gates remain green
   - ASP_PROJECT=agent-control-plane just verify exits 0
   - installed gateway passes a real Discord root-mirror and routed-thread fan-out smoke
-last_verified: 2026-08-29 EN-01367 architecture approved against current source before implementation; no build or test gate run
+last_verified: 2026-08-29 EN-01367 architecture approved against current source before implementation; no implementation evidence claimed
 reopen_when:
   - the wrkq envelope cursor, sink fan-out, presentation ownership, or delivery-state model changes
   - maxDeliveryAttempts stops persisting across restarts or ceases to precede each send
