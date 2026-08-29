@@ -23,7 +23,7 @@ export type CollaborationMessage = {
   sender: CollaborationAddress
   recipient?: CollaborationAddress | undefined
   obligation: 'reply_required' | 'fyi' | 'none'
-  state: 'pending' | 'presented' | 'acked' | 'deferred' | 'dead'
+  state: 'pending' | 'presented' | 'acked' | 'deferred' | 'failed'
   body: string
   taskId?: string | undefined
   /** Historical HRC message id retained on pre-flag-day envelopes, when present. */
@@ -96,7 +96,7 @@ function projectEnvelope(envelope: WrkqEnvelope): CollaborationMessage {
     state !== 'presented' &&
     state !== 'acked' &&
     state !== 'deferred' &&
-    state !== 'dead'
+    state !== 'failed'
   ) {
     throw new Error(`invalid collaboration state on ${envelope.id}: ${state}`)
   }

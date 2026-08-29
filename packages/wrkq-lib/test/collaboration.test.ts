@@ -176,4 +176,36 @@ describe('collaboration ledger adapter', () => {
       'presented'
     )
   })
+
+  test('projects failed terminal envelopes without aborting collaboration history', async () => {
+    const client = {
+      wrkq: {
+        room: {
+          async list() {
+            return { items: [{ key: 'T-07614' }] }
+          },
+          async logView() {
+            return {
+              items: [
+                envelope('EN-00015', 'T-07614', '2026-08-27T17:00:15Z', {
+                  state: 'failed',
+                  terminal: true,
+                  failureReason: 'runtime_terminated',
+                }),
+              ],
+            }
+          },
+        },
+      },
+    } as unknown as WorkClient
+
+    const result = await createCollaborationLedger(client, 'agent:acp-server').listMessagesByMember(
+      {
+        memberRef: 'cody@agent-control-plane:T-07614',
+      }
+    )
+
+    expect(result.messages).toHaveLength(1)
+    expect(result.messages[0]?.state).toBe('failed')
+  })
 })
