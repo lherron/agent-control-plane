@@ -4,6 +4,7 @@ import { dirname } from 'node:path'
 import { DeliveryTargetResolver } from './delivery-target-resolver.js'
 import { BindingRepo } from './repos/binding-repo.js'
 import { DeliveryRequestRepo } from './repos/delivery-request-repo.js'
+import { DiscordLedgerDeliveryRepo } from './repos/discord-ledger-delivery-repo.js'
 import { DiscordLedgerProjectionRepo } from './repos/discord-ledger-projection-repo.js'
 import { LastDeliveryContextRepo } from './repos/last-delivery-context-repo.js'
 import { MessageSourceRepo } from './repos/message-source-repo.js'
@@ -19,6 +20,7 @@ export interface InterfaceStore {
   readonly sqlite: SqliteDatabase
   readonly bindings: BindingRepo
   readonly deliveries: DeliveryRequestRepo
+  readonly discordLedgerDeliveries: DiscordLedgerDeliveryRepo
   readonly discordLedgerProjection: DiscordLedgerProjectionRepo
   readonly lastDeliveryContext: LastDeliveryContextRepo
   readonly deliveryTargets: DeliveryTargetResolver
@@ -112,6 +114,26 @@ function initializeSchema(sqlite: SqliteDatabase): void {
 
     CREATE INDEX IF NOT EXISTS discord_ledger_projection_routes_binding_idx
       ON discord_ledger_projection_routes (gateway_id, binding_id);
+
+    CREATE TABLE IF NOT EXISTS discord_ledger_deliveries (
+      gateway_id TEXT NOT NULL,
+      envelope_id TEXT NOT NULL,
+      sink TEXT NOT NULL,
+      channel_id TEXT NOT NULL,
+      binding_id TEXT,
+      state TEXT NOT NULL CHECK (state IN ('attempting', 'sent', 'failed')),
+      discord_message_id TEXT,
+      attempts INTEGER NOT NULL,
+      failure_reason TEXT,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (gateway_id, envelope_id, sink)
+    );
+
+    CREATE INDEX IF NOT EXISTS discord_ledger_deliveries_binding_idx
+      ON discord_ledger_deliveries (gateway_id, binding_id);
+
+    CREATE INDEX IF NOT EXISTS discord_ledger_deliveries_attempting_idx
+      ON discord_ledger_deliveries (gateway_id, state, updated_at);
 
     CREATE TABLE IF NOT EXISTS delivery_requests (
       delivery_request_id TEXT PRIMARY KEY,
@@ -518,6 +540,7 @@ export function openInterfaceStore(options: OpenInterfaceStoreOptions): Interfac
     sqlite,
     bindings,
     deliveries,
+    discordLedgerDeliveries: new DiscordLedgerDeliveryRepo(context),
     discordLedgerProjection,
     lastDeliveryContext,
     deliveryTargets: new DeliveryTargetResolver({

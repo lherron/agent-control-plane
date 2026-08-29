@@ -85,9 +85,23 @@ export type WebhookManagerOptions = {
   sleep?: ((ms: number) => Promise<void>) | undefined
 }
 
+export type WebhookSendOptions = {
+  /**
+   * Optional ceiling on total tries when Discord answers 429. Leave it unset
+   * for the unbounded retry this manager has always done; set it when the
+   * caller needs the send to terminate, and it throws the 429 once the ceiling
+   * is reached.
+   */
+  maxRateLimitAttempts?: number | undefined
+}
+
 export type WebhookManager = {
   getOrCreateWebhook(channelId: string): Promise<ManagedWebhook>
-  send(channelId: string, payload: WebhookPayload): Promise<WebhookMessage>
+  send(
+    channelId: string,
+    payload: WebhookPayload,
+    options?: WebhookSendOptions | undefined
+  ): Promise<WebhookMessage>
   editMessage(
     channelId: string,
     messageId: string,
@@ -169,16 +183,25 @@ function retryAfterMs(error: unknown): number | undefined {
   return retryAfterSeconds * 1000
 }
 
+/**
+ * Retry 429s after Retry-After. `maxAttempts` is an OPTIONAL ceiling on the
+ * total number of tries; when it is undefined the loop is unbounded, exactly as
+ * it has always been, so callers that pass no ceiling are unaffected. On
+ * exhaustion the last 429 is rethrown, which gives the caller a terminal
+ * outcome instead of a loop that never returns.
+ */
 async function withRateLimitRetry<T>(
   operation: () => Promise<T>,
-  sleep: (ms: number) => Promise<void>
+  sleep: (ms: number) => Promise<void>,
+  maxAttempts?: number | undefined
 ): Promise<T> {
-  for (;;) {
+  for (let attempt = 1; ; attempt += 1) {
     try {
       return await operation()
     } catch (error) {
       const ms = retryAfterMs(error)
       if (ms === undefined) throw error
+      if (maxAttempts !== undefined && attempt >= maxAttempts) throw error
       await sleep(ms)
     }
   }
@@ -344,7 +367,8 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
   async function runWebhookOperation<T>(
     channelId: string,
     webhookId: string | undefined,
-    operation: (webhook: ManagedWebhook) => Promise<T>
+    operation: (webhook: ManagedWebhook) => Promise<T>,
+    maxRateLimitAttempts?: number | undefined
   ): Promise<T> {
     return enqueue(channelId, async () => {
       try {
@@ -355,7 +379,8 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
                 ? await getOrCreateWebhook(channelId)
                 : await findWebhookById(channelId, webhookId)
             ),
-          sleep
+          sleep,
+          maxRateLimitAttempts
         )
       } catch (error) {
         if (isInvalidWebhookError(error)) {
@@ -390,10 +415,19 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
 
   return {
     getOrCreateWebhook,
-    async send(channelId, payload) {
+    async send(channelId, payload, options) {
       if (!webhookPayloadHasContent(payload)) {
         throw new Error(
           'Webhook send payload must include at least one of content/embeds/files/components'
+        )
+      }
+      const maxRateLimitAttempts = options?.maxRateLimitAttempts
+      if (
+        maxRateLimitAttempts !== undefined &&
+        (!Number.isInteger(maxRateLimitAttempts) || maxRateLimitAttempts < 1)
+      ) {
+        throw new Error(
+          `maxRateLimitAttempts must be a positive integer, received ${String(maxRateLimitAttempts)}`
         )
       }
       let resolvedWebhookId: string | undefined
@@ -404,10 +438,15 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
           ...normalizeSendPayload(payload),
           ...(threadId !== undefined ? { threadId } : {}),
         }
-        const message = await runWebhookOperation(channelId, undefined, (webhook) => {
-          resolvedWebhookId = webhook.id
-          return ensureWebhookAvatar(webhook, webhookAvatar).then(() => webhook.send(sendPayload))
-        })
+        const message = await runWebhookOperation(
+          channelId,
+          undefined,
+          (webhook) => {
+            resolvedWebhookId = webhook.id
+            return ensureWebhookAvatar(webhook, webhookAvatar).then(() => webhook.send(sendPayload))
+          },
+          maxRateLimitAttempts
+        )
         log.info('gw.discord.webhook.send', {
           data: {
             channelId,

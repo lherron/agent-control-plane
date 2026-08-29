@@ -14,6 +14,7 @@ class FakeWebhookClient {
   readonly avatarEdits: Array<{ avatar?: Buffer | string | null | undefined }> = []
   readonly attempts: string[] = []
   queuedErrors: unknown[] = []
+  persistentError: unknown
 
   constructor(
     readonly id: string,
@@ -23,6 +24,7 @@ class FakeWebhookClient {
 
   async send(payload: WebhookPayload): Promise<{ id: string }> {
     this.attempts.push(payload.content)
+    if (this.persistentError) throw this.persistentError
     const error = this.queuedErrors.shift()
     if (error) throw error
     this.sends.push(payload)
@@ -85,7 +87,11 @@ async function loadWebhooksModule(): Promise<{
     sleep?: ((ms: number) => Promise<void>) | undefined
   }) => {
     getOrCreateWebhook: (channelId: string) => Promise<FakeWebhookClient>
-    send: (channelId: string, payload: WebhookPayload) => Promise<{ id: string }>
+    send: (
+      channelId: string,
+      payload: WebhookPayload,
+      options?: { maxRateLimitAttempts?: number | undefined } | undefined
+    ) => Promise<{ id: string }>
     editMessage: (
       channelId: string,
       messageId: string,
@@ -340,6 +346,73 @@ describe('Discord webhook rate limiting', () => {
     expect(slept).toEqual([100])
     expect(webhook.attempts).toEqual(['first', 'first', 'second'])
     expect(webhook.sends.map((payload) => payload.content)).toEqual(['first', 'second'])
+  })
+
+  test('retries an unset ceiling without bound, exactly as before', async () => {
+    const { createWebhookManager } = await loadWebhooksModule()
+    const client = new FakeClient()
+    const channel = new FakeChannel('chan_unbounded')
+    client.addChannel(channel)
+    const slept: number[] = []
+    const manager = createWebhookManager({
+      client,
+      webhookName: 'agent-pulpit',
+      sleep: async (ms) => {
+        slept.push(ms)
+      },
+    })
+    const webhook = await manager.getOrCreateWebhook(channel.id)
+    for (let i = 0; i < 6; i += 1) {
+      webhook.queuedErrors.push(rateLimitError('0.1'))
+    }
+
+    await manager.send(channel.id, { content: 'unbounded' })
+
+    expect(slept).toEqual([100, 100, 100, 100, 100, 100])
+    expect(webhook.attempts).toHaveLength(7)
+    expect(webhook.sends.map((payload) => payload.content)).toEqual(['unbounded'])
+  })
+
+  test('T7: a persistent 429 throws once the ceiling is reached instead of looping forever', async () => {
+    const { createWebhookManager } = await loadWebhooksModule()
+    const client = new FakeClient()
+    const channel = new FakeChannel('chan_ceiling')
+    client.addChannel(channel)
+    const slept: number[] = []
+    const manager = createWebhookManager({
+      client,
+      webhookName: 'agent-pulpit',
+      sleep: async (ms) => {
+        slept.push(ms)
+      },
+    })
+    const webhook = await manager.getOrCreateWebhook(channel.id)
+    webhook.persistentError = rateLimitError('0.1')
+
+    await expect(
+      manager.send(channel.id, { content: 'always rate limited' }, { maxRateLimitAttempts: 3 })
+    ).rejects.toThrow('Discord 429')
+
+    expect(webhook.attempts).toHaveLength(3)
+    expect(slept).toEqual([100, 100])
+    expect(webhook.sends).toHaveLength(0)
+
+    // The channel queue is free again, so the next send is not held behind it.
+    webhook.persistentError = undefined
+    await manager.send(channel.id, { content: 'after the ceiling' })
+    expect(webhook.sends.map((payload) => payload.content)).toEqual(['after the ceiling'])
+  })
+
+  test('rejects a ceiling that is not a positive integer', async () => {
+    const { createWebhookManager } = await loadWebhooksModule()
+    const client = new FakeClient()
+    const channel = new FakeChannel('chan_bad_ceiling')
+    client.addChannel(channel)
+    const manager = createWebhookManager({ client, webhookName: 'agent-pulpit' })
+
+    await expect(
+      manager.send(channel.id, { content: 'nope' }, { maxRateLimitAttempts: 0 })
+    ).rejects.toThrow('maxRateLimitAttempts must be a positive integer')
   })
 
   test('does not sleep or queue-penalize successful sends', async () => {

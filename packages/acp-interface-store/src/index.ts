@@ -11,7 +11,13 @@ export {
   type DriftReport as ManagedBindingDriftReport,
   type ManagedBindingProvenanceRecord,
 } from './managed-resources.js'
+export {
+  DELIVERY_ATTEMPTS_EXHAUSTED,
+  DiscordLedgerDeliveryRepo,
+} from './repos/discord-ledger-delivery-repo.js'
 export type {
+  BeginDiscordLedgerDeliveryAttemptInput,
+  BeginDiscordLedgerDeliveryAttemptResult,
   CreateOutboundAttachmentInput,
   DeliveryBodyKind,
   DeliveryFailureInput,
@@ -19,6 +25,9 @@ export type {
   FailedDeliveryRecord,
   DeliveryRequest,
   DeliveryRequestStatus,
+  DiscordLedgerDelivery,
+  DiscordLedgerDeliveryKey,
+  DiscordLedgerDeliveryState,
   DiscordLedgerProjectionRoute,
   EnqueueDeliveryRequestIdempotencyInput,
   EnqueueDeliveryRequestIdempotencyResult,

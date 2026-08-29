@@ -27,6 +27,45 @@ export type RecordDiscordLedgerProjectionRouteInput = Omit<
   DiscordLedgerProjectionRoute,
   'updatedAt'
 >
+
+export type DiscordLedgerDeliveryState = 'attempting' | 'sent' | 'failed'
+
+/** Identity of one delivery: a single envelope aimed at a single sink. */
+export interface DiscordLedgerDeliveryKey {
+  gatewayId: string
+  envelopeId: string
+  sink: string
+}
+
+export interface DiscordLedgerDelivery extends DiscordLedgerDeliveryKey {
+  /** Discord channel the attempt targets; reconciliation reads it back. */
+  channelId: string
+  /** Set for route-scoped sinks, so the row prunes with its binding. */
+  bindingId?: string | undefined
+  state: DiscordLedgerDeliveryState
+  discordMessageId?: string | undefined
+  attempts: number
+  failureReason?: string | undefined
+  updatedAt: string
+}
+
+export interface BeginDiscordLedgerDeliveryAttemptInput extends DiscordLedgerDeliveryKey {
+  channelId: string
+  bindingId?: string | undefined
+  /** Ceiling on total attempts for this (envelope, sink). */
+  maxAttempts: number
+}
+
+/**
+ * `attempting` - the attempt was durably claimed; send now.
+ * `exhausted`  - the budget ran out and the row is now `failed`; never resent.
+ * `terminal`   - the row was already `sent` or `failed`; do not send.
+ */
+export type BeginDiscordLedgerDeliveryAttemptResult = {
+  outcome: 'attempting' | 'exhausted' | 'terminal'
+  delivery: DiscordLedgerDelivery
+}
+
 export type DeliveryRequestStatus = CoreDeliveryRequestStatus
 export type DeliveryBodyKind = 'text/markdown'
 

@@ -1853,12 +1853,17 @@
       "rootTypes": [
         "ApplyManagedBindingInput",
         "ApplyManagedBindingResult",
+        "BeginDiscordLedgerDeliveryAttemptInput",
+        "BeginDiscordLedgerDeliveryAttemptResult",
         "CreateOutboundAttachmentInput",
         "DeliveryBodyKind",
         "DeliveryFailureInput",
         "DeliveryOutcome",
         "DeliveryRequest",
         "DeliveryRequestStatus",
+        "DiscordLedgerDelivery",
+        "DiscordLedgerDeliveryKey",
+        "DiscordLedgerDeliveryState",
         "DiscordLedgerProjectionRoute",
         "EnqueueDeliveryRequestIdempotencyInput",
         "EnqueueDeliveryRequestIdempotencyResult",
@@ -1885,8 +1890,10 @@
       ],
       "rootValues": [
         "applyManagedBinding",
+        "DELIVERY_ATTEMPTS_EXHAUSTED",
         "detectBindingDrift",
         "disableManagedBinding",
+        "DiscordLedgerDeliveryRepo",
         "getManagedBindingProvenance",
         "listManagedBindingProvenances",
         "openInterfaceStore"
