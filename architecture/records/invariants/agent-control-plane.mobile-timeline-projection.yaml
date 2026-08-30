@@ -1,0 +1,71 @@
+id: agent-control-plane.mobile-timeline-projection
+kind: invariant
+status: active
+owner_project: agent-control-plane
+scope: local mobile session timeline projection, history cursors, WebSocket snapshot/live seam, and client epoch contract
+predicate: >
+  ACP is the sole mobile timeline projector. For one exact sessionRef,
+  hostSessionId, generation, HRC-ledger incarnation, and wrkq-ledger
+  incarnation, it persists one rebuildable projection epoch of presentation
+  atoms keyed by canonical source identity. Each atom carries immutable
+  projected content, logical-frame grouping metadata, append-or-replace
+  operation, source position, and an immutable signed timeline ordinal.
+  Mutable wrkq obligation and envelope state are excluded from the atom and
+  from cursor progress; any such UI state is a separately refreshed overlay.
+  Admission is serialized and transactional per exact session. A first closed
+  newest cohort receives consecutive ordinals, live and bounded forward
+  catch-up preserve each producer's sequence and append in durable ACP
+  admission order, and closed older cohorts prepend below the current minimum.
+  Source timestamps never reorder admitted atoms, and replay, reconnect, page
+  repetition, or buffered live delivery cannot renumber an admitted source
+  identity. Numeric exhaustion and a non-contiguous admitted-source range fail
+  through an explicit projection reset.
+  Every open captures both producer heads and incarnations and stages
+  reconciliation under hard ceilings of 2,048 projected atoms and 16 MiB of
+  encoded/projected work. Complete catch-up commits at the live end. Catch-up
+  that cannot reach both captured heads within either ceiling commits nothing,
+  retires the old epoch, and builds one bounded closed newest epoch at the
+  captured vector. A single oversize atom fails without cursor advance. The
+  same ceilings govern first snapshots and older-page admission.
+  ACP-owned canonical history cursors bind their type and version, exact
+  session identity, both producer incarnations, projection epoch, exclusive
+  timeline ordinal, and producer-vector positions. Malformed encoding is 400;
+  wrong type, future position, fence mismatch, retired epoch, or replaced
+  producer incarnation is 409 cursor_invalid with no atoms. Snapshot
+  construction buffers source arrivals beyond its captured vector, emits one
+  newest bounded snapshot, and then admits each later source identity once.
+  Reset state replaces rather than merges epochs; no cursor, connection, or
+  client store may apply atoms across an epoch boundary.
+  Clients union by atom id and order by timeline ordinal. Logical frame id is
+  grouping metadata only: adjacent append atoms may coalesce, non-adjacent
+  same-frame atoms remain at their own ordinals, and replace atoms suppress
+  older replace presentation without moving unrelated atoms. Prefix
+  completeness is unknown until an authoritative start atom or source
+  exhaustion. Historical prepend preserves atom anchors and follow state;
+  initial and explicit reset snapshots bottom once.
+authority:
+  repo: agent-control-plane
+  surface: /v1/mobile/history, the mobile timeline WebSocket projector, and the ACP-to-HRCMac/iOS timeline contract
+source:
+  - wrkq:P-00454
+  - wrkq:T-07718
+  - wrkq:T-07720
+  - wrkq:T-07724
+  - wrkq:T-07725
+  - packages/acp-server/src/handlers/mobile.ts
+  - packages/gateway-ios/src/event-pump.ts
+  - packages/gateway-ios/src/event-reducer.ts
+required_tests:
+  - just architecture-records
+  - bounded first-snapshot, catch-up-or-reset, byte ceiling, oversize, epoch, replay, restart, gap, and ordinal-exhaustion gates
+  - exact cursor, producer replacement, snapshot/live seam, multi-page wrkq catch-up, non-contiguous frame, prefix, and mutable-overlay gates
+  - T-07724 production-wire ordering E2E and T-07725 installed-client re-entry E2E
+last_verified: 2026-08-29 P-00454 rev 4 design approval; implementation gates pending
+reopen_when:
+  - mobile projection or public history-cursor authority moves away from ACP
+  - producer identity, incarnation fencing, source-order preservation, atom identity, ordinal immutability, or epoch replacement semantics change
+  - snapshot, reconciliation, page, encoded-byte, or oversize admission bounds change
+  - mutable wrkq obligation or envelope state enters durable atom identity, content, ordering, or cursor progress
+  - clients flatten non-contiguous logical-frame atoms, infer prefix completeness from adjacency, or apply state across projection epochs
+supersedes: []
+superseded_by: null
