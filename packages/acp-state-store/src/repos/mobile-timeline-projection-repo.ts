@@ -361,7 +361,8 @@ export class MobileTimelineProjectionRepo {
                   logical_frame_id, operation, source_kind, source_seq, source_ts,
                   payload_json, prefix_state
              FROM mobile_timeline_atoms
-            WHERE projection_epoch = ? ORDER BY timeline_ordinal DESC LIMIT ?
+            WHERE projection_epoch = ?
+            ORDER BY mobile_timeline_atoms.timeline_ordinal DESC LIMIT ?
          ) ORDER BY CAST(timeline_ordinal AS INTEGER) ASC`
       )
       .all(projectionEpoch, limit) as AtomRow[]
@@ -383,7 +384,7 @@ export class MobileTimelineProjectionRepo {
                   payload_json, prefix_state
              FROM mobile_timeline_atoms
             WHERE projection_epoch = ? AND timeline_ordinal < ?
-            ORDER BY timeline_ordinal DESC LIMIT ?
+            ORDER BY mobile_timeline_atoms.timeline_ordinal DESC LIMIT ?
          ) ORDER BY CAST(timeline_ordinal AS INTEGER) ASC`
       )
       .all(projectionEpoch, before, limit) as AtomRow[]
@@ -545,7 +546,9 @@ export class MobileTimelineProjectionRepo {
         `SELECT projection_epoch, atom_id, CAST(timeline_ordinal AS TEXT) AS timeline_ordinal,
                 logical_frame_id, operation, source_kind, source_seq, source_ts,
                 payload_json, prefix_state
-           FROM mobile_timeline_atoms WHERE projection_epoch = ? ORDER BY timeline_ordinal ASC`
+           FROM mobile_timeline_atoms
+          WHERE projection_epoch = ?
+          ORDER BY mobile_timeline_atoms.timeline_ordinal ASC`
       )
       .all(epoch)
       .map((row) => atomFromRow(row as AtomRow))

@@ -234,4 +234,35 @@ describe('mobile timeline projection repo', () => {
       store.close()
     }
   })
+
+  test('pages timeline ordinals numerically after crossing the first digit', () => {
+    const store = openAcpStateStore({ dbPath: ':memory:' })
+    try {
+      const first = store.mobileTimeline.replaceEpoch({
+        identity: IDENTITY,
+        hrcLedgerIncarnationId: 'hrc-a',
+        wrkqLedgerIncarnationId: 'wrkq-a',
+        hrcOldestSeq: 1,
+        hrcNewestSeq: 12,
+        messageOldestSeq: 0,
+        messageNewestSeq: 0,
+        hrcExhaustedBefore: true,
+        wrkqExhaustedBefore: true,
+        atoms: Array.from({ length: 12 }, (_, index) => atom(`hrc:hrc-a:${index + 1}`, index + 1)),
+      })
+
+      expect(
+        store.mobileTimeline
+          .listNewest(first.projection.projectionEpoch, 5)
+          .map((item) => item.timelineOrdinal)
+      ).toEqual(['7', '8', '9', '10', '11'])
+      expect(
+        store.mobileTimeline
+          .listBefore(first.projection.projectionEpoch, '12', 3)
+          .map((item) => item.timelineOrdinal)
+      ).toEqual(['9', '10', '11'])
+    } finally {
+      store.close()
+    }
+  })
 })
