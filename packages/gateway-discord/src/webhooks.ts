@@ -63,6 +63,7 @@ export type ManagedWebhook = {
   edit?(options: { avatar?: Buffer | string | null | undefined }): Promise<ManagedWebhook>
   send(payload: DiscordWebhookSendPayload): Promise<WebhookMessage>
   editMessage(messageId: string, payload: DiscordWebhookEditPayload): Promise<WebhookMessage>
+  deleteMessage?(messageId: string, threadId?: string | undefined): Promise<void>
 }
 
 export type WebhookChannel = {
@@ -119,6 +120,9 @@ export type WebhookManager = {
     webhookId: string,
     payload: WebhookPayload
   ): Promise<WebhookMessage>
+  /** Delete a message this webhook posted. A webhook may delete its own
+   * messages without Manage Messages, which the bot user may not hold. */
+  deleteMessage(channelId: string, messageId: string, webhookId: string): Promise<void>
 }
 
 const DEFAULT_WEBHOOK_NAME = 'agent-pulpit'
@@ -467,6 +471,18 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
         })
         throw error
       }
+    },
+    async deleteMessage(channelId: string, messageId: string, webhookId: string) {
+      const threadId = await resolveThreadIdForPost(channelId)
+      await runWebhookOperation(channelId, webhookId, async (webhook) => {
+        if (typeof webhook.deleteMessage !== 'function') {
+          throw new Error(`Discord webhook ${webhook.id} does not support deleteMessage`)
+        }
+        await webhook.deleteMessage(messageId, threadId)
+      })
+      log.info('gw.discord.webhook.delete', {
+        data: { channelId, webhookId, messageId, outcome: 'deleted' },
+      })
     },
     async editMessage(
       channelId: string,

@@ -82,6 +82,11 @@ class FakeWebhook {
     this.avatarEdits.push(input)
     return this
   }
+
+  async deleteMessage(messageId: string): Promise<void> {
+    const entry = this.sent.find((item) => item.message.id === messageId)
+    if (entry) await entry.message.delete()
+  }
 }
 
 class FakeChannel {
@@ -396,6 +401,107 @@ describe('GatewayDiscordApp local e2e', () => {
 
     const webhook = [...channel.webhooks.values()].find((w) => w.name === 'agent-pulpit')
     expect(webhook?.edits.at(-1)?.payload.content).toContain('↪️ **Steered active run:**')
+  })
+
+  test('retires the placeholder on a ledger-routed ingress instead of painting a steer', async () => {
+    const channel = new FakeChannel('chan_ledger_route')
+    const client = new FakeClient()
+    client.addChannel(channel)
+    const paths: string[] = []
+    const captured: CapturedInterfaceMessage[] = []
+
+    const app = new GatewayDiscordApp({
+      acpBaseUrl: 'http://acp.test',
+      gatewayId: 'discord_prod',
+      client: client as never,
+      dashboardSnapshotImpl: async () => ({
+        type: 'dashboard_snapshot',
+        sessions: [
+          {
+            sessionRef: 'agent:cody:project:agent-spaces/lane:main',
+            status: 'active',
+            summaryStatus: 'active',
+            activeTurnId: 'hrc_run_active',
+            capabilities: { input: true },
+          },
+        ],
+      }),
+      fetchImpl: createFetch(async (request) => {
+        const url = new URL(request.url)
+        paths.push(url.pathname)
+
+        if (url.pathname === '/v1/interface/bindings') {
+          return Response.json({
+            bindings: [
+              {
+                bindingId: 'ifb_ledger_route',
+                gatewayId: 'discord_prod',
+                conversationRef: 'channel:chan_ledger_route',
+                scopeRef: 'agent:cody:project:agent-spaces',
+                laneRef: 'main',
+                sessionRef: {
+                  scopeRef: 'agent:cody:project:agent-spaces',
+                  laneRef: 'main',
+                },
+                projectId: 'agent-spaces',
+                status: 'active',
+                createdAt: '2026-05-07T10:00:00.000Z',
+                updatedAt: '2026-05-07T10:00:00.000Z',
+              },
+            ],
+          })
+        }
+
+        if (url.pathname === '/v1/interface/messages') {
+          captured.push((await request.json()) as CapturedInterfaceMessage)
+          return Response.json(
+            {
+              inputAttemptId: 'ia_ledger',
+              admission: {
+                kind: 'accepted_in_flight',
+                inputAttemptId: 'ia_ledger',
+                inputApplicationId: 'iap_ledger',
+              },
+              currentState: {
+                delivery: 'collaboration_ledger',
+                roomUuid: 'room_ledger_1',
+                roomKey: 'R-00001',
+              },
+            },
+            { status: 201 }
+          )
+        }
+
+        if (url.pathname === '/v1/session-refs/events') {
+          return new Response(new ReadableStream())
+        }
+
+        return new Response('not found', { status: 404 })
+      }),
+    })
+
+    await app.refreshBindings()
+    await app.handleMessageCreate({
+      guildId: 'guild_1',
+      author: { id: 'user_1', bot: false },
+      content: 'fold the new context into the active task',
+      attachments: { size: 0 },
+      channelId: 'chan_ledger_route',
+      id: 'msg_ledger_route',
+      channel: {
+        isThread: () => false,
+      },
+      reply: async () => undefined,
+    } as never)
+
+    expect(captured).toHaveLength(1)
+    const webhook = [...channel.webhooks.values()].find((w) => w.name === 'agent-pulpit')
+    // The placeholder was posted, then deleted — never edited into a steer notice.
+    expect(webhook?.sent).toHaveLength(1)
+    expect(webhook?.sent[0]?.message.deleted).toBe(true)
+    expect(webhook?.edits.some((e) => String(e.payload.content ?? '').includes('Steered'))).toBe(
+      false
+    )
   })
 
   test('ordinary Discord messages fall back to normal queueing when contribution is unavailable', async () => {

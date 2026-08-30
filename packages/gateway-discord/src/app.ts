@@ -1038,7 +1038,16 @@ export class GatewayDiscordApp {
       })
     }
     if (pendingPlaceholder) {
-      if (payload.runId !== undefined) {
+      if (collaborationRoute !== undefined) {
+        // Ledger-routed ingress: the seat answers through the collaboration
+        // ledger and that answer is rendered by ledger egress as its own
+        // message, so the placeholder has nothing to become. ACP labels this
+        // admission `accepted_in_flight` even when no run exists — that is
+        // not a steer, and painting it as one left the human with a fake
+        // "Steered active run" notice plus the real reply (#hcs, 2026-08-30).
+        this.removePendingPlaceholder(pendingPlaceholder, 'collaboration_ledger')
+        await this.deletePlaceholder(pendingPlaceholder.ui)
+      } else if (payload.runId !== undefined) {
         pendingPlaceholder.acpRunId = payload.runId
         await this.refreshPendingPlaceholderCorrelation(pendingPlaceholder)
         this.placeholdersByRunId.set(payload.runId, pendingPlaceholder)
@@ -2655,12 +2664,20 @@ export class GatewayDiscordApp {
     }
   }
 
-  private async deletePlaceholder(ui: UiHandle & { kind: 'message' }): Promise<void> {
+  private async deletePlaceholder(
+    ui: UiHandle & { kind: 'message'; webhookId?: string | undefined }
+  ): Promise<void> {
     if (!ui.channelId) {
       return
     }
 
     try {
+      if (ui.webhookId) {
+        // Webhook-created placeholder: delete via the same webhook, which owns
+        // the message; the bot user may lack Manage Messages for it.
+        await this.webhooks.deleteMessage(ui.channelId, ui.id, ui.webhookId)
+        return
+      }
       const channel = await this.client.channels.fetch(ui.channelId)
       if (!channel || !channel.isTextBased() || !('messages' in channel)) {
         return
