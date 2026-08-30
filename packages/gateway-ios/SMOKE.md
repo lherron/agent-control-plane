@@ -18,9 +18,9 @@ After the fix the gateway binds the configured port and serves all routes.
 | 2 | `GET /v1/health` returns ok + hrc capabilities populated | PASS |
 | 3 | `GET /v1/sessions` returns sessions, mode bucketing works (445 sessions, 120 interactive / 325 headless) | PASS |
 | 4 | `GET /v1/sessions?mode=interactive&q=cody` filters correctly (34 matches) | PASS |
-| 5 | `WS /v1/timeline` connects and emits a `snapshot` envelope | PASS (with caveat) |
+| 5 | `WS /v1/timeline` connects and emits a `snapshot` envelope | SUPERSEDED — use ACP `/v1/mobile/sessions/:hostSessionId/timeline` |
 | 6 | `WS /v1/diagnostics/events?fromHrcSeq=…&follow=true` delivers raw events; eventKind, category, payload all preserved | PASS (62 events, samples include `session.resolved` cat=session, `runtime.created` cat=runtime, payload keys intact) |
-| 7 | `GET /v1/history?beforeHrcSeq=…&limit=…` returns projected frames with `oldestCursor`, `newestCursor`, `hasMoreBefore` | PASS |
+| 7 | `GET /v1/history?beforeHrcSeq=…&limit=…` returns projected frames with `oldestCursor`, `newestCursor`, `hasMoreBefore` | SUPERSEDED — use ACP `/v1/mobile/history` with its opaque cursor |
 | 8 | `POST /v1/input` malformed body → 400 + `code='malformed_request'` | PASS |
 | 9 | `POST /v1/input` to a session with no interactive runtime → ok=false (code='runtime_unavailable') | PASS (with caveat, see below) |
 | 10 | `POST /v1/interrupt` accepted | PASS |
@@ -30,7 +30,7 @@ After the fix the gateway binds the configured port and serves all routes.
 ## Caveats / defects discovered
 
 1. **P5 status derivation reports all sessions as `inactive`.** With ~445 live sessions and clearly-busy runtimes (e.g., `cody@agent-spaces` with `runtimeId rt-fd9b7a71-…` and recent activity at `2026-04-30T01:10:16Z`), the index returns `status: 'inactive'` for every entry and `counts.active=0`. The status logic in `src/session-index.ts` needs a follow-up fix.
-2. **P3 timeline WS snapshot is empty by design.** Curly's P3 reply explicitly noted "Snapshot builds empty frame list; real replay will come from P4 history module integration in P7." That integration didn't land. The WS connects and the envelope shape is correct, but `snapshotHighWater` is `{0,0}` and `history.frames` is `[]`. Wiring `timeline-ws.ts` to call into `timeline-history`'s reverse-paged projection is the missing follow-up.
+2. **The original gateway-owned timeline was retired.** ACP now owns the durable projection, opaque history cursor, snapshot, and live atom stream. Gateway-ios returns `410 timeline_moved` from the former history and timeline routes.
 3. **P6 input-on-headless returns the wrong error code.** Spec asks for `code='session_not_interactive'`; current behavior is `code='runtime_unavailable'` from HRC because the mode-based fast-fail is missing — the route goes straight to `literalInputBySelector`. Functionally the rejection happens; the discriminator just isn't right.
 4. **Diagnostics WS emits a `snapshot` envelope.** The diagnostics route is supposed to emit `hrc_event` envelopes only. Sharing the unified pump means a snapshot wrapper sneaks in. Cosmetic only — clients can discriminate on `type`.
 5. **Two pre-existing hrc-server tests fail** (`cli-adapter.execution-mode`, `launch-exec`) outside the gateway-ios scope. Not introduced by this work.
@@ -48,13 +48,13 @@ A SwiftUI iOS app pointed at `http://127.0.0.1:18480/v1/...` (with optional `Aut
 - List + filter sessions by mode/status/text.
 - Force-refresh the session index.
 - Open the diagnostics WebSocket and receive a live stream of raw HRC lifecycle events with full payloads, filterable by category and eventKind.
-- Request projected history pages (frames in chronological order with cursors).
+- Request projected history pages from ACP (atoms in timeline-ordinal order with opaque cursors).
 - Submit literal input and interrupt requests; both routes are wired and validate fences.
 - Be enforced by a bearer token if `ACP_IOS_GATEWAY_TOKEN` is set.
 
 ## What still needs work for the iOS app to render a useful timeline
 
-- Wire the timeline WS snapshot to actually populate `history.frames` from the reverse-paged projector (caveat 2).
+- Consume ACP's `/v1/mobile/history` and `/v1/mobile/sessions/:hostSessionId/timeline` atom projection.
 - Fix the session status derivation so the iOS list shows `active`/`stale`/`inactive` correctly (caveat 1).
 - Fix the input-headless code discriminator (caveat 3).
 

@@ -53,14 +53,14 @@ source:
   - wrkq:T-07724
   - wrkq:T-07725
   - packages/acp-server/src/handlers/mobile.ts
-  - packages/gateway-ios/src/event-pump.ts
-  - packages/gateway-ios/src/event-reducer.ts
+  - packages/acp-server/src/mobile-timeline-projector.ts
+  - packages/acp-state-store/src/repos/mobile-timeline-projection-repo.ts
 required_tests:
   - just architecture-records
   - bounded first-snapshot, catch-up-or-reset, byte ceiling, oversize, epoch, replay, restart, gap, and ordinal-exhaustion gates
   - exact cursor, producer replacement, snapshot/live seam, multi-page wrkq catch-up, non-contiguous frame, prefix, and mutable-overlay gates
   - T-07724 production-wire ordering E2E and T-07725 installed-client re-entry E2E
-last_verified: 2026-08-29 P-00454 rev 4 design approval; implementation gates pending
+last_verified: 2026-08-29 T-07718 implementation and repository gates; T-07724 production-wire and T-07725 installed-client gates pending
 reopen_when:
   - mobile projection or public history-cursor authority moves away from ACP
   - producer identity, incarnation fencing, source-order preservation, atom identity, ordinal immutability, or epoch replacement semantics change

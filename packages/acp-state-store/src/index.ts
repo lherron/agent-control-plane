@@ -6,6 +6,18 @@ export { InputApplicationRepo } from './repos/input-application-repo.js'
 export { InputQueueRepo } from './repos/input-queue-repo.js'
 export { RunRepo, deriveRunId } from './repos/run-repo.js'
 export { SessionAdmissionSequenceRepo } from './repos/session-admission-sequence-repo.js'
+export {
+  MobileTimelineOrdinalExhaustedError,
+  MobileTimelineProjectionCorruptError,
+  MobileTimelineProjectionRepo,
+} from './repos/mobile-timeline-projection-repo.js'
+export type {
+  MobileTimelineAtomInput,
+  MobileTimelineAtomRecord,
+  MobileTimelinePrefixState,
+  MobileTimelineProjectionIdentity,
+  MobileTimelineProjectionRecord,
+} from './repos/mobile-timeline-projection-repo.js'
 export { TransitionOutboxRepo } from './repos/transition-outbox-repo.js'
 export { WorkflowRuntimeRepo } from './repos/workflow-runtime-repo.js'
 export { WrkfRouteIdempotencyRepo } from './repos/wrkf-route-idempotency-repo.js'

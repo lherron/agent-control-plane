@@ -15,8 +15,6 @@ import type {
   TimelineFrameKind,
 } from '../contracts.js'
 
-import type { ReducerInput } from '../types.js'
-
 // ---------- TimelineFrameKind exhaustiveness ---------------------------------
 
 describe('TimelineFrameKind', () => {
@@ -287,29 +285,6 @@ describe('MobileFence', () => {
     expect(hostOnly.expectedHostSessionId).toBe('host-abc')
     expect(genOnly.expectedGeneration).toBe(2)
     expect(full.expectedHostSessionId).toBe('host-abc')
-  })
-})
-
-// ---------- ReducerInput -----------------------------------------------------
-
-describe('ReducerInput', () => {
-  it('discriminates event and message kinds', () => {
-    function handle(input: ReducerInput): string {
-      switch (input.kind) {
-        case 'event':
-          return `event:${input.event.eventKind}`
-        case 'message':
-          return `message:${input.message.messageId}`
-        default: {
-          const _exhaustive: never = input
-          throw new Error(`Unhandled: ${JSON.stringify(_exhaustive)}`)
-        }
-      }
-    }
-
-    // We only need to validate the type shape compiles; runtime values
-    // are synthetic since we don't import real HRC records here.
-    expect(typeof handle).toBe('function')
   })
 })
 

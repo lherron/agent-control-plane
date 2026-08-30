@@ -10,7 +10,7 @@
  * 6. Drain each buffer: deliver only items strictly newer than that source's high-water.
  * 7. Continue forwarding live items as the iterators yield them.
  *
- * Used by both timeline-ws.ts and diagnostics-ws.ts.
+ * Used by diagnostics-ws.ts. ACP owns the mobile timeline pump.
  */
 
 import type { HrcLifecycleEvent, HrcMessageRecord } from 'hrc-core'

@@ -1,16 +1,12 @@
 import type { Server, ServerWebSocket } from 'bun'
 import type { HrcClient } from 'hrc-sdk'
-import type { CollaborationLedger } from 'wrkq-lib'
 
-import type { MobileSessionSummary } from './contracts.js'
 import { type DiagnosticsWsData, createDiagnosticsWsHandler } from './diagnostics-ws.js'
 import { handleHealth } from './health.js'
 import { handleInput, handleInterrupt } from './input.js'
 import type { InputHandlerDeps } from './input.js'
 import { createLogger } from './logger.js'
 import { createSessionIndex } from './session-index.js'
-import { handleHistoryRequest } from './timeline-history.js'
-import { type TimelineWsData, createTimelineWsHandler } from './timeline-ws.js'
 
 const log = createLogger({ component: 'routes' })
 
@@ -52,23 +48,13 @@ export type GatewayIosRoutes = GatewayIosRoute[] & {
 
 /** Combined WS data union — Bun needs a single type for all WS connections. */
 export type WsData = {
-  route: 'timeline' | 'diagnostics'
-  timeline?: TimelineWsData | undefined
+  route: 'diagnostics'
   diagnostics?: DiagnosticsWsData | undefined
 }
 
 export type GatewayIosRouteDeps = {
   hrcClient: HrcClient
-  collaborationLedger?: CollaborationLedger | undefined
-  gatewayId: string
-  /** Session resolver for timeline WS. Omitted hostSessionId means active/latest for that sessionRef. */
-  resolveSession?:
-    | ((selector: {
-        sessionRef: string
-        hostSessionId?: string | undefined
-        generation?: number | undefined
-      }) => Promise<MobileSessionSummary>)
-    | undefined
+  gatewayId?: string | undefined
 }
 
 function notFound(): Response {
@@ -100,10 +86,11 @@ export function createGatewayIosRoutes(deps: GatewayIosRouteDeps): GatewayIosRou
   // -- P5: health + session index + sessions/refresh --
   // Phase-local route tests may construct only the deps their route owns.
   if (deps.gatewayId !== undefined) {
+    const gatewayId = deps.gatewayId
     routes.push({
       method: 'GET',
       path: '/v1/health',
-      handle: async () => Response.json(await handleHealth(deps.hrcClient, deps.gatewayId)),
+      handle: async () => Response.json(await handleHealth(deps.hrcClient, gatewayId)),
     })
     routes.push({
       method: 'GET',
@@ -122,17 +109,19 @@ export function createGatewayIosRoutes(deps: GatewayIosRouteDeps): GatewayIosRou
       },
     })
 
-    // -- P4: progressive history --
+    // Timeline/history authority moved to the durable ACP /v1/mobile surface.
     routes.push({
       method: 'GET',
       path: '/v1/history',
-      handle: (request) =>
-        handleHistoryRequest(request, {
-          hrcClient: deps.hrcClient,
-          ...(deps.collaborationLedger !== undefined
-            ? { collaborationLedger: deps.collaborationLedger }
-            : {}),
-        }),
+      handle: async () =>
+        Response.json(
+          {
+            ok: false,
+            code: 'timeline_moved',
+            message: 'Use the ACP /v1/mobile/history route.',
+          },
+          { status: 410 }
+        ),
     })
   }
 
@@ -167,11 +156,11 @@ export function createGatewayIosFetchHandler(
 }
 
 // ---------------------------------------------------------------------------
-// P3: WebSocket handlers (timeline + diagnostics)
+// WebSocket handlers (diagnostics only; timeline authority lives in ACP)
 // ---------------------------------------------------------------------------
 
 /**
- * Create WebSocket handlers for timeline and diagnostics routes.
+ * Create WebSocket handlers for diagnostics routes and retire the old timeline route.
  * Returns Bun.serve-compatible websocket config and a WS upgrade handler.
  *
  * Usage in P7 composition:
@@ -189,19 +178,6 @@ export function createGatewayIosFetchHandler(
  * ```
  */
 export function createGatewayIosWsHandlers(deps: GatewayIosRouteDeps) {
-  const timelineHandler = createTimelineWsHandler({
-    hrcClient: deps.hrcClient,
-    historyClient: deps.hrcClient,
-    ...(deps.collaborationLedger !== undefined
-      ? { collaborationLedger: deps.collaborationLedger }
-      : {}),
-    resolveSession:
-      deps.resolveSession ??
-      (async () => {
-        throw new Error('resolveSession not configured')
-      }),
-  })
-
   const diagnosticsHandler = createDiagnosticsWsHandler({
     hrcClient: deps.hrcClient,
   })
@@ -219,14 +195,6 @@ export function createGatewayIosWsHandlers(deps: GatewayIosRouteDeps) {
         close(ws: ServerWebSocket<WsData>): void
       }
     | undefined {
-    if (data.route === 'timeline' && data.timeline) {
-      const routeData = data.timeline
-      return {
-        open: (ws) => timelineHandler.open(createWsProxy(ws, routeData)),
-        message: (ws, message) => timelineHandler.message(createWsProxy(ws, routeData), message),
-        close: (ws) => timelineHandler.close(createWsProxy(ws, routeData)),
-      }
-    }
     if (data.route === 'diagnostics' && data.diagnostics) {
       const routeData = data.diagnostics
       return {
@@ -249,28 +217,17 @@ export function createGatewayIosWsHandlers(deps: GatewayIosRouteDeps) {
       const url = new URL(req.url)
 
       if (url.pathname === '/v1/timeline') {
-        // sessionRef is a lineage/display selector. When hostSessionId is not
-        // present, the timeline handler resolves active/latest for that
-        // sessionRef only; it must never stream all sibling generations.
-        const data = timelineHandler.parseUpgrade(url)
-        if (!data) {
-          return new Response(
-            JSON.stringify({ error: 'Missing required query param: sessionRef' }),
-            { status: 400, headers: { 'Content-Type': 'application/json' } }
-          )
-        }
-
-        const wsData: WsData = { route: 'timeline', timeline: data }
-        const upgraded = server.upgrade(req, { data: wsData })
-        if (!upgraded) {
-          return new Response('WebSocket upgrade failed', { status: 500 })
-        }
-        return undefined
+        return Response.json(
+          {
+            ok: false,
+            code: 'timeline_moved',
+            message: 'Use the ACP /v1/mobile/sessions/:hostSessionId/timeline route.',
+          },
+          { status: 410 }
+        )
       }
 
       if (url.pathname === '/v1/diagnostics/events') {
-        // Same selector rule as timeline: absent hostSessionId means
-        // active/latest for this sessionRef, not all generations.
         const data = diagnosticsHandler.parseUpgrade(url)
         if (!data) {
           return new Response(

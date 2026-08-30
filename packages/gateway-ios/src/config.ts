@@ -35,7 +35,6 @@ function envNumber(names: string[], fallback: number): number {
 
 export type GatewayIosConfig = {
   hrcSocketPath: string
-  wrkqDbLocator: string
   host: string
   port: number
   bearerToken: string | undefined
@@ -46,7 +45,6 @@ export type GatewayIosConfig = {
 export function resolveConfig(): GatewayIosConfig {
   return {
     hrcSocketPath: requiredEnv('HRC_SOCKET_PATH', 'HRC_CONTROL_SOCKET'),
-    wrkqDbLocator: requiredEnv('ACP_WRKQ_DB', 'WRKQ_DB', 'ACP_WRKQ_DB_PATH', 'WRKQ_DB_PATH'),
     host: optionalEnv('ACP_IOS_GATEWAY_HOST') ?? DEFAULT_HOST,
     port: envNumber(['ACP_IOS_GATEWAY_PORT'], DEFAULT_PORT),
     bearerToken: optionalEnv('ACP_IOS_GATEWAY_TOKEN'),

@@ -24,6 +24,12 @@ import { type CollaborationMessage, formatCollaborationMessage } from 'wrkq-lib'
 import { badRequest, json } from '../http.js'
 import { mobileUnauthorizedResponse } from '../mobile-auth/gate.js'
 import {
+  MobileTimelineCursorInvalidError,
+  MobileTimelineItemOversizeError,
+  MobileTimelineMalformedCursorError,
+  createMobileTimelineProjector,
+} from '../mobile-timeline-projector.js'
+import {
   isRecord,
   parseJsonBody,
   readOptionalTrimmedStringField,
@@ -339,14 +345,6 @@ type MobileTimelineFrame = {
   ts: string
 }
 
-type MobileHistoryPage = {
-  frames: MobileTimelineFrame[]
-  oldestCursor: { hrcSeq: number; messageSeq: number }
-  newestCursor: { hrcSeq: number; messageSeq: number }
-  hasMoreBefore: boolean
-  events?: MobileEventMessage[] | undefined
-}
-
 type MobileWebSocket = MobileWebSocketLike
 
 function requireHrcClient(deps: ResolvedAcpServerDeps): AcpHrcClient {
@@ -587,32 +585,6 @@ async function collectEvents(
     if (events.length >= limit) break
   }
   return events
-}
-
-async function collectMessages(
-  deps: ResolvedAcpServerDeps,
-  options: {
-    sessionRef?: string | undefined
-    beforeMessageSeq?: number | undefined
-    limit?: number | undefined
-  }
-): Promise<CollaborationMessage[]> {
-  const limit = Math.max(options.limit ?? 80, 1)
-  if (deps.collaborationLedger === undefined || options.sessionRef === undefined) return []
-  const collaboration = await deps.collaborationLedger.listMessagesByMember({
-    memberRef: formatScopeHandle(parseScopeRef(splitSessionRef(options.sessionRef).scopeRef)),
-    presentToPrincipalRef: HUMAN_COLLABORATION_PRINCIPAL,
-    ...(options.beforeMessageSeq !== undefined
-      ? { beforeMessageSeq: options.beforeMessageSeq }
-      : {}),
-    limit,
-  })
-  return collaboration.messages
-    .sort((lhs, rhs) => {
-      const byTime = rhs.createdAt.localeCompare(lhs.createdAt)
-      return byTime !== 0 ? byTime : rhs.messageSeq - lhs.messageSeq
-    })
-    .slice(0, limit)
 }
 
 async function waitForCollaborationPoll(signal: AbortSignal): Promise<void> {
@@ -1024,10 +996,6 @@ function projectFrame(
   }
 }
 
-type TimelineInput =
-  | { kind: 'event'; event: HrcLifecycleEvent }
-  | { kind: 'collaboration'; message: CollaborationMessage; sessionRef: string }
-
 function stringField(record: Record<string, unknown>, key: string): string | undefined {
   const value = record[key]
   return typeof value === 'string' && value.trim().length > 0 ? value : undefined
@@ -1355,24 +1323,6 @@ function projectPrimaryEvent(
   }
 }
 
-function inputTimestamp(input: TimelineInput): string {
-  return input.kind === 'event' ? input.event.ts : input.message.createdAt
-}
-
-function inputSeq(input: TimelineInput): number {
-  return input.kind === 'event' ? input.event.hrcSeq : input.message.messageSeq
-}
-
-function sortInputs(lhs: TimelineInput, rhs: TimelineInput): number {
-  const byTime = inputTimestamp(lhs).localeCompare(inputTimestamp(rhs))
-  if (byTime !== 0) return byTime
-  return inputSeq(lhs) - inputSeq(rhs)
-}
-
-function resequenceFrames(frames: MobileTimelineFrame[]): MobileTimelineFrame[] {
-  return frames.map((frame, index) => ({ ...frame, frameSeq: index + 1 }))
-}
-
 type ProjectedCollaborationFrame = {
   frame: MobileTimelineFrame
   message: CollaborationMessage
@@ -1441,102 +1391,6 @@ function closestCollaborationMatch(
       const rhsDistance = timelineTimestampDistance(rhs.frame.ts, hrcFrame.ts) ?? Number.MAX_VALUE
       return lhsDistance - rhsDistance || lhs.message.messageSeq - rhs.message.messageSeq
     })[0]
-}
-
-function dedupeCollaborationFrames(
-  projected: Array<
-    | { kind: 'event'; frame: MobileTimelineFrame }
-    | { kind: 'collaboration'; frame: MobileTimelineFrame; message: CollaborationMessage }
-  >
-): MobileTimelineFrame[] {
-  const collaborations = projected
-    .filter(
-      (
-        item
-      ): item is {
-        kind: 'collaboration'
-        frame: MobileTimelineFrame
-        message: CollaborationMessage
-      } => item.kind === 'collaboration' && item.frame.frameKind === 'user_prompt'
-    )
-    .map(({ frame, message }) => ({ frame, message }))
-  const matchedMessageIds = new Set<string>()
-  const mergedByFrameId = new Map<string, MobileTimelineFrame>()
-
-  for (const item of projected) {
-    if (item.kind !== 'event' || item.frame.frameKind !== 'user_prompt') continue
-    const match = closestCollaborationMatch(
-      item.frame,
-      collaborations.filter(({ message }) => !matchedMessageIds.has(message.messageId))
-    )
-    if (match === undefined) continue
-    matchedMessageIds.add(match.message.messageId)
-    mergedByFrameId.set(item.frame.frameId, mergeCollaborationIdentity(item.frame, match))
-  }
-
-  return projected
-    .filter(
-      (item) => item.kind !== 'collaboration' || !matchedMessageIds.has(item.message.messageId)
-    )
-    .map((item) => mergedByFrameId.get(item.frame.frameId) ?? item.frame)
-}
-
-function historyPage(
-  events: HrcLifecycleEvent[],
-  messages: CollaborationMessage[],
-  raw: boolean,
-  fallbackSessionRef?: string
-): MobileHistoryPage {
-  const sorted = [...events].sort((lhs, rhs) => lhs.hrcSeq - rhs.hrcSeq)
-  const sortedMessages = [...messages].sort((lhs, rhs) => lhs.messageSeq - rhs.messageSeq)
-  const oldest = sorted[0]?.hrcSeq ?? 0
-  const newest = sorted[sorted.length - 1]?.hrcSeq ?? 0
-  const oldestMessage = sortedMessages[0]?.messageSeq ?? 0
-  const newestMessage = sortedMessages[sortedMessages.length - 1]?.messageSeq ?? 0
-  const inputs: TimelineInput[] = [
-    ...sorted.map((event) => ({ kind: 'event' as const, event })),
-    ...sortedMessages.map(
-      (message): TimelineInput => ({
-        kind: 'collaboration',
-        message,
-        sessionRef: fallbackSessionRef ?? 'agent:unknown/lane:main',
-      })
-    ),
-  ].sort(sortInputs)
-  const memberRef =
-    fallbackSessionRef !== undefined
-      ? formatScopeHandle(parseScopeRef(splitSessionRef(fallbackSessionRef).scopeRef))
-      : 'unknown@unknown:primary'
-  const projected = inputs
-    .map((input) =>
-      input.kind === 'event'
-        ? {
-            kind: 'event' as const,
-            frame: raw ? projectFrame(input.event) : projectPrimaryEvent(input.event),
-          }
-        : {
-            kind: 'collaboration' as const,
-            frame: projectCollaborationMessage(input.message, input.sessionRef, memberRef),
-            message: input.message,
-          }
-    )
-    .filter(
-      (
-        item
-      ): item is
-        | { kind: 'event'; frame: MobileTimelineFrame }
-        | { kind: 'collaboration'; frame: MobileTimelineFrame; message: CollaborationMessage } =>
-        item.frame !== undefined
-    )
-  const frames = raw ? projected.map(({ frame }) => frame) : dedupeCollaborationFrames(projected)
-
-  return {
-    frames: resequenceFrames(frames),
-    oldestCursor: { hrcSeq: oldest, messageSeq: oldestMessage },
-    newestCursor: { hrcSeq: newest, messageSeq: newestMessage },
-    hasMoreBefore: false,
-    ...(raw ? { events: sorted.map(projectEvent) } : {}),
-  }
 }
 
 function readPositiveIntegerEnv(name: string, fallback: number): number {
@@ -2387,25 +2241,193 @@ export const handleMobileSemanticDm: RouteHandler = async ({ deps, request }) =>
   return json({ collaboration })
 }
 
+const mobileTimelineProjectorCache = new WeakMap<
+  ResolvedAcpServerDeps,
+  ReturnType<typeof createMobileTimelineProjector>
+>()
+
+function logicalFrameIdForEvent(event: HrcLifecycleEvent, frame: MobileTimelineFrame): string {
+  if (frame.frameKind === 'assistant_message') {
+    return `assistant:${event.runId ?? event.runtimeId ?? event.hostSessionId}:${event.generation}`
+  }
+  if (frame.frameKind === 'tool_call' || frame.frameKind === 'tool_result') {
+    const toolUseId = frame.blocks.find((block) => block.toolUseId !== undefined)?.toolUseId
+    return `tool:${toolUseId ?? event.runId ?? event.hrcSeq}`
+  }
+  if (frame.frameKind === 'turn_status') return `turn-status:${event.runId ?? event.hostSessionId}`
+  if (frame.frameKind === 'session_status') {
+    return `session-status:${event.hostSessionId}:${event.generation}`
+  }
+  return frame.frameId
+}
+
+function immutableCollaborationFrame(
+  message: CollaborationMessage,
+  sessionRefValue: string,
+  memberRef: string
+): MobileTimelineFrame {
+  const frame = projectCollaborationMessage(message, sessionRefValue, memberRef)
+  return {
+    ...frame,
+    blocks: frame.blocks.map((block) => ({
+      ...block,
+      text: message.body,
+      payload: {
+        envelopeId: message.messageId,
+        roomKey: message.roomKey,
+        sender: message.sender,
+        recipient: message.recipient,
+        ...(message.taskId !== undefined ? { taskId: message.taskId } : {}),
+      },
+    })),
+  }
+}
+
+function mobileTimelineProjector(deps: ResolvedAcpServerDeps, hrcClient: AcpHrcClient) {
+  const cached = mobileTimelineProjectorCache.get(deps)
+  if (cached !== undefined) return cached
+  if (deps.stateStore === undefined || deps.collaborationLedger === undefined) {
+    throw new Error('mobile timeline projection is not configured')
+  }
+  const projector = createMobileTimelineProjector({
+    store: deps.stateStore.mobileTimeline,
+    hrcClient,
+    collaborationLedger: deps.collaborationLedger,
+    projectHrc(event, matchedCollaboration) {
+      const projected = projectPrimaryEvent(event)
+      if (projected === undefined) return undefined
+      const frame =
+        matchedCollaboration === undefined
+          ? projected
+          : mergeCollaborationIdentity(projected, {
+              message: matchedCollaboration,
+              frame: immutableCollaborationFrame(
+                matchedCollaboration,
+                projected.sessionRef,
+                matchedCollaboration.recipient?.scopeRef ??
+                  matchedCollaboration.sender.scopeRef ??
+                  'unknown'
+              ),
+            })
+      const replace =
+        frame.frameKind === 'turn_status' ||
+        frame.frameKind === 'session_status' ||
+        frame.frameKind === 'input_ack'
+      return {
+        logicalFrameId: logicalFrameIdForEvent(event, frame),
+        operation: replace ? 'replace' : 'append',
+        payload: { frame: { ...frame, frameSeq: 0 } },
+        prefixState:
+          frame.frameKind === 'user_prompt' || event.eventKind === 'turn.started'
+            ? 'complete'
+            : 'unknown',
+      }
+    },
+    projectCollaboration(message) {
+      const memberRef = message.recipient?.scopeRef ?? message.sender.scopeRef ?? 'unknown'
+      const frame = immutableCollaborationFrame(message, 'agent:unknown/lane:main', memberRef)
+      return {
+        logicalFrameId: frame.frameId,
+        operation: 'append',
+        payload: {
+          frame: {
+            ...frame,
+            frameSeq: 0,
+            blocks: frame.blocks,
+          },
+        },
+        prefixState: 'complete',
+      }
+    },
+    collaborationMatchesHrc(event, message) {
+      const frame = projectPrimaryEvent(event)
+      if (frame === undefined) return false
+      return collaborationMatchesHrcFrame(
+        {
+          message,
+          frame: immutableCollaborationFrame(
+            message,
+            frame.sessionRef,
+            message.recipient?.scopeRef ?? message.sender.scopeRef ?? 'unknown'
+          ),
+        },
+        frame
+      )
+    },
+  })
+  mobileTimelineProjectorCache.set(deps, projector)
+  return projector
+}
+
 export const handleMobileHistory: RouteHandler = async ({ deps, url }) => {
   const hrcClient = requireHrcClient(deps)
   if (isRemoteProjectionSource(url.searchParams.get('sourceKind'))) {
     return remoteControlUnavailable()
   }
-  const limit = Number.parseInt(url.searchParams.get('limit') ?? '80', 10)
-  const raw = url.searchParams.get('raw') === 'true'
-  const parsedLimit = Number.isFinite(limit) ? limit : 80
-  const beforeMessageSeq = Number.parseInt(url.searchParams.get('beforeMessageSeq') ?? '', 10)
-  const sessionRefValue = url.searchParams.get('sessionRef') ?? undefined
-  const [events, messages] = await Promise.all([
-    collectEvents(hrcClient, parseMobileEventCursor(url), parsedLimit),
-    collectMessages(deps, {
-      sessionRef: sessionRefValue,
-      ...(Number.isFinite(beforeMessageSeq) ? { beforeMessageSeq } : {}),
-      limit: parsedLimit,
-    }),
-  ])
-  return json(historyPage(events, messages, raw, sessionRefValue))
+  const sessionRefValue = url.searchParams.get('sessionRef')?.trim()
+  const hostSessionId = url.searchParams.get('hostSessionId')?.trim()
+  const generationRaw = url.searchParams.get('generation')
+  const generation = generationRaw === null ? Number.NaN : Number(generationRaw)
+  if (sessionRefValue === undefined || sessionRefValue.length === 0)
+    badRequest('sessionRef is required')
+  if (hostSessionId === undefined || hostSessionId.length === 0)
+    badRequest('hostSessionId is required')
+  if (!Number.isSafeInteger(generation) || generation < 0) {
+    badRequest('generation must be a non-negative safe integer')
+  }
+  if (url.searchParams.has('beforeHrcSeq') || url.searchParams.has('beforeMessageSeq')) {
+    badRequest('raw producer cursors are retired; use the opaque cursor parameter')
+  }
+  const rawLimit = url.searchParams.get('limit')
+  const limit = rawLimit === null ? 50 : Number(rawLimit)
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+    badRequest('limit must be an integer from 1 through 100')
+  }
+  if (deps.stateStore === undefined || deps.collaborationLedger === undefined) {
+    return json(
+      { ok: false, code: 'timeline_unavailable', message: 'timeline projection is not configured' },
+      503
+    )
+  }
+  const memberRef = formatScopeHandle(parseScopeRef(splitSessionRef(sessionRefValue).scopeRef))
+  const identity = { sessionRef: sessionRefValue, hostSessionId, generation, memberRef }
+  try {
+    const projector = mobileTimelineProjector(deps, hrcClient)
+    const cursor = url.searchParams.get('cursor')
+    const page =
+      cursor === null
+        ? await projector.open(identity, { target: limit })
+        : await projector.page(identity, cursor, { target: limit })
+    const frames = page.atoms
+      .map((atom) => atom.payload['frame'])
+      .filter((frame): frame is MobileTimelineFrame => isRecord(frame))
+      .map((frame, index) => ({ ...frame, frameSeq: index + 1 }))
+    return json({
+      projectionEpoch: page.projectionEpoch,
+      atoms: page.atoms,
+      olderCursor: page.olderCursor,
+      hasMoreBefore: page.hasMoreBefore,
+      snapshotHighWater: page.highWater,
+      ...(page.resetReason !== undefined ? { resetReason: page.resetReason } : {}),
+      // Transitional compatibility for T-07720: the new atom contract is
+      // authoritative, while current clients can still paint the same frames.
+      frames,
+      oldestCursor: {
+        hrcSeq: page.atoms.find((atom) => atom.sourceKind === 'hrc')?.sourceSeq ?? 0,
+        messageSeq: page.atoms.find((atom) => atom.sourceKind === 'wrkq')?.sourceSeq ?? 0,
+      },
+      newestCursor: page.highWater,
+    })
+  } catch (error) {
+    if (
+      error instanceof MobileTimelineMalformedCursorError ||
+      error instanceof MobileTimelineCursorInvalidError ||
+      error instanceof MobileTimelineItemOversizeError
+    ) {
+      return json({ ok: false, code: error.code, message: error.message }, error.status)
+    }
+    throw error
+  }
 }
 
 function requireHostSessionIdParam(params: Record<string, string>): string {
@@ -2548,6 +2570,12 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
   }
   let liveFrameSeq = 1
   let sessionRefValue: string | undefined
+  let activeTimelineProjector: ReturnType<typeof createMobileTimelineProjector> | undefined
+  let timelineHrcLedgerIncarnationId: string | undefined
+  let timelineWrkqLedgerIncarnationId: string | undefined
+  let timelineIdentity:
+    | { sessionRef: string; hostSessionId: string; generation: number; memberRef: string }
+    | undefined
 
   if (kind === 'timeline') {
     let resolved: { record: HrcSessionRecord; runtime?: HrcRuntimeSnapshot | undefined }
@@ -2582,14 +2610,43 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
       raw,
       includeSessionDetails,
     })
-    const [historyEvents, historyMessages] = await Promise.all([
-      collectEvents(hrcClient, { ...options, fromSeq: 1, follow: false }, 80),
-      collectMessages(deps, {
-        sessionRef: sessionRefValue,
-        limit: 80,
-      }),
-    ])
-    const history = historyPage(historyEvents, historyMessages, raw, sessionRefValue)
+    if (deps.stateStore === undefined || deps.collaborationLedger === undefined) {
+      sendMobileErrorEnvelope(ws, 'timeline_unavailable', 'timeline projection is not configured')
+      ws.close(1011, 'timeline unavailable')
+      return
+    }
+    const memberRef = formatScopeHandle(parseScopeRef(record.scopeRef))
+    timelineIdentity = {
+      sessionRef: sessionRefValue,
+      hostSessionId: record.hostSessionId,
+      generation: record.generation,
+      memberRef,
+    }
+    activeTimelineProjector = mobileTimelineProjector(deps, hrcClient)
+    const projected = await activeTimelineProjector.open(timelineIdentity, { target: 50 })
+    const activeProjection = await deps.stateStore.mobileTimeline.getActive(timelineIdentity)
+    if (activeProjection === undefined) {
+      throw new Error('mobile timeline projection disappeared after open')
+    }
+    timelineHrcLedgerIncarnationId = activeProjection.hrcLedgerIncarnationId
+    timelineWrkqLedgerIncarnationId = activeProjection.wrkqLedgerIncarnationId
+    const frames = projected.atoms
+      .map((atom) => atom.payload['frame'])
+      .filter((frame): frame is MobileTimelineFrame => isRecord(frame))
+      .map((frame, index) => ({ ...frame, frameSeq: index + 1, sessionRef: sessionRefValue }))
+    const history = {
+      projectionEpoch: projected.projectionEpoch,
+      atoms: projected.atoms,
+      frames,
+      olderCursor: projected.olderCursor,
+      hasMoreBefore: projected.hasMoreBefore,
+      oldestCursor: {
+        hrcSeq: projected.atoms.find((atom) => atom.sourceKind === 'hrc')?.sourceSeq ?? 0,
+        messageSeq: projected.atoms.find((atom) => atom.sourceKind === 'wrkq')?.sourceSeq ?? 0,
+      },
+      newestCursor: projected.highWater,
+      ...(projected.resetReason !== undefined ? { resetReason: projected.resetReason } : {}),
+    }
     liveFrameSeq = (history.frames.at(-1)?.frameSeq ?? 0) + 1
     // The snapshot establishes the baseline up to history.newestCursor. Advance
     // the live follow cursors to that high-water so pumpEvents/pumpMessages do
@@ -2605,6 +2662,8 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
       type: 'snapshot',
       session,
       snapshotHighWater: history.newestCursor,
+      projectionEpoch: projected.projectionEpoch,
+      ...(projected.resetReason !== undefined ? { resetReason: projected.resetReason } : {}),
       history,
     })
   }
@@ -2624,6 +2683,18 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
         type: 'frame',
         frame: { ...frame, frameSeq: liveFrameSeq++ },
       })
+    }
+
+    const sendAtoms = (
+      atoms: Awaited<ReturnType<NonNullable<typeof activeTimelineProjector>['admitLiveHrc']>>
+    ): void => {
+      for (const atom of atoms) {
+        sendMobileJsonEnvelope(ws, {
+          type: 'atom',
+          projectionEpoch: atom.projectionEpoch,
+          atom,
+        })
+      }
     }
 
     const memberRef =
@@ -2650,17 +2721,41 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
       pendingCollaborations.delete(messageId)
     }
 
-    const flushPendingCollaboration = (messageId: string): void => {
+    const flushPendingCollaboration = async (messageId: string): Promise<void> => {
       const pending = pendingCollaborations.get(messageId)
       if (pending === undefined || handledMessageIds.has(messageId)) return
       pendingCollaborations.delete(messageId)
       handledMessageIds.add(messageId)
+      if (activeTimelineProjector !== undefined && timelineIdentity !== undefined) {
+        sendAtoms(
+          await activeTimelineProjector.admitLiveCollaboration(timelineIdentity, pending.message)
+        )
+      }
       sendFrame(pending.frame)
     }
 
     const recentLiveCollaborations = async (): Promise<ProjectedCollaborationFrame[]> => {
-      if (sessionRefValue === undefined || memberRef === undefined) return []
-      const messages = await collectMessages(deps, { sessionRef: sessionRefValue, limit: 80 })
+      if (
+        sessionRefValue === undefined ||
+        memberRef === undefined ||
+        deps.collaborationLedger === undefined ||
+        timelineWrkqLedgerIncarnationId === undefined
+      ) {
+        return []
+      }
+      const messages: CollaborationMessage[] = []
+      let afterMessageSeq = liveMessageFloor
+      while (!abortController.signal.aborted) {
+        const page = await deps.collaborationLedger.pageMessagesByMember({
+          memberRef,
+          afterMessageSeq,
+          expectedLedgerIncarnationId: timelineWrkqLedgerIncarnationId,
+          limit: 500,
+        })
+        messages.push(...page.messages)
+        afterMessageSeq = page.messages.at(-1)?.messageSeq ?? afterMessageSeq
+        if (!page.hasMoreAfter) break
+      }
       return messages
         .filter(
           (message) =>
@@ -2675,6 +2770,9 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
     const processLiveEvent = async (event: HrcLifecycleEvent): Promise<void> => {
       const frame = raw ? projectFrame(event) : projectPrimaryEvent(event)
       if (raw || frame?.frameKind !== 'user_prompt') {
+        if (activeTimelineProjector !== undefined && timelineIdentity !== undefined) {
+          sendAtoms(await activeTimelineProjector.admitLiveHrc(timelineIdentity, event))
+        }
         sendFrame(frame)
         if (raw) sendMobileJsonEnvelope(ws, projectEvent(event))
         return
@@ -2690,22 +2788,38 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
         }
         const match = closestCollaborationMatch(frame, [...candidatesById.values()])
         if (match === undefined) {
+          if (activeTimelineProjector !== undefined && timelineIdentity !== undefined) {
+            sendAtoms(await activeTimelineProjector.admitLiveHrc(timelineIdentity, event))
+          }
           sendFrame(frame)
           return
         }
         clearPendingCollaboration(match.message.messageId)
         handledMessageIds.add(match.message.messageId)
+        if (activeTimelineProjector !== undefined && timelineIdentity !== undefined) {
+          await activeTimelineProjector.admitLiveCollaboration(timelineIdentity, match.message, {
+            suppressAtom: true,
+          })
+          sendAtoms(
+            await activeTimelineProjector.admitLiveHrc(timelineIdentity, event, match.message)
+          )
+        }
         sendFrame(mergeCollaborationIdentity(frame, match))
       })
     }
 
     const processLiveMessage = async (message: CollaborationMessage): Promise<void> => {
       if (sessionRefValue === undefined || memberRef === undefined) return
-      await queueLiveMerge(() => {
+      await queueLiveMerge(async () => {
         if (handledMessageIds.has(message.messageId)) return
         const frame = projectCollaborationMessage(message, sessionRefValue, memberRef)
         if (raw || frame.frameKind !== 'user_prompt') {
           handledMessageIds.add(message.messageId)
+          if (activeTimelineProjector !== undefined && timelineIdentity !== undefined) {
+            sendAtoms(
+              await activeTimelineProjector.admitLiveCollaboration(timelineIdentity, message)
+            )
+          }
           sendFrame(frame)
           return
         }
@@ -2726,21 +2840,58 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
     )
 
     const pumpEvents = async (): Promise<void> => {
-      for await (const event of hrcClient.watch(options)) {
+      if (timelineIdentity === undefined || timelineHrcLedgerIncarnationId === undefined) return
+      for await (const record of hrcClient.watchBoundedEvents({
+        ledgerIncarnationId: timelineHrcLedgerIncarnationId,
+        afterSeq: options.fromSeq ?? 0,
+        hostSessionId: timelineIdentity.hostSessionId,
+        generation: timelineIdentity.generation,
+        signal: abortController.signal,
+      })) {
         if (abortController.signal.aborted) break
-        await processLiveEvent(event)
+        if (record.type === 'ready') continue
+        if (record.type === 'ledger_replaced') {
+          sendMobileErrorEnvelope(
+            ws,
+            'cursor_invalid',
+            'HRC event ledger incarnation changed; reopen the timeline'
+          )
+          ws.close(1012, 'timeline epoch replaced')
+          return
+        }
+        if (record.type === 'gap') {
+          sendMobileErrorEnvelope(
+            ws,
+            'timeline_reset_required',
+            `HRC bounded delivery reported ${record.reason}; reopen the timeline`
+          )
+          ws.close(1012, 'timeline reset required')
+          return
+        }
+        await processLiveEvent(record.event)
       }
     }
 
     const pumpMessages = async (): Promise<void> => {
-      if (memberRef === undefined) return
-      await pollCollaborationMessages({
-        deps,
-        selector: { memberRef },
-        afterMessageSeq: Number.isFinite(fromMessageSeq) ? fromMessageSeq : 0,
-        signal: abortController.signal,
-        onMessage: processLiveMessage,
-      })
+      if (memberRef === undefined || deps.collaborationLedger === undefined) return
+      let afterMessageSeq = Number.isFinite(fromMessageSeq) ? fromMessageSeq : 0
+      let expectedLedgerIncarnationId: string | undefined
+      while (!abortController.signal.aborted) {
+        const page = await deps.collaborationLedger.pageMessagesByMember({
+          memberRef,
+          afterMessageSeq,
+          ...(expectedLedgerIncarnationId !== undefined ? { expectedLedgerIncarnationId } : {}),
+          limit: 500,
+        })
+        expectedLedgerIncarnationId = page.ledgerIncarnationId
+        for (const message of page.messages) {
+          if (abortController.signal.aborted) return
+          await processLiveMessage(message)
+          afterMessageSeq = message.messageSeq
+        }
+        if (page.hasMoreAfter) continue
+        await waitForCollaborationPoll(abortController.signal)
+      }
     }
 
     await Promise.all([pumpEvents(), pumpMessages()])

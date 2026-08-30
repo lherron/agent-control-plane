@@ -15,6 +15,7 @@ export type {
   CollaborationLedger,
   CollaborationMessage,
   CollaborationMessageList,
+  CollaborationMessagePage,
   CollaborationSayInput,
   CollaborationSayReceipt,
 } from './collaboration.js'

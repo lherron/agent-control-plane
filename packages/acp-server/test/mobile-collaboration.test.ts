@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { openAcpStateStore } from 'acp-state-store'
 import type { HrcLifecycleEvent, HrcMessageRecord, HrcSessionRecord } from 'hrc-core'
 import type { CollaborationLedger, CollaborationMessage, CollaborationSayInput } from 'wrkq-lib'
 
@@ -50,6 +51,28 @@ function ledger(input: {
   sayCalls?: CollaborationSayInput[]
 }): CollaborationLedger {
   return {
+    async pageMessagesByMember(pageInput) {
+      const all = input.messages ?? []
+      const filtered = all.filter(
+        (message) =>
+          (pageInput.beforeMessageSeq === undefined ||
+            message.messageSeq < pageInput.beforeMessageSeq) &&
+          (pageInput.afterMessageSeq === undefined ||
+            message.messageSeq > pageInput.afterMessageSeq)
+      )
+      const messages =
+        pageInput.afterMessageSeq === undefined
+          ? filtered.slice(-pageInput.limit)
+          : filtered.slice(0, pageInput.limit)
+      return {
+        ledgerIncarnationId: 'wrkq-test-ledger',
+        headMessageSeq: all.at(-1)?.messageSeq ?? 0,
+        hasMoreBefore:
+          pageInput.beforeMessageSeq !== undefined && filtered.length > messages.length,
+        hasMoreAfter: pageInput.afterMessageSeq !== undefined && filtered.length > messages.length,
+        messages,
+      }
+    },
     async listMessagesByMember() {
       return { messages: input.messages ?? [] }
     },
@@ -87,6 +110,21 @@ function hrcPrompt(
 
 function historyClient(events: HrcLifecycleEvent[]): AcpHrcClient {
   return {
+    tailEvents: async (options) => {
+      const matching = events.filter(
+        (event) =>
+          (options.hostSessionId === undefined || event.hostSessionId === options.hostSessionId) &&
+          (options.generation === undefined || event.generation === options.generation) &&
+          (options.beforeHrcSeq === undefined || event.hrcSeq < options.beforeHrcSeq)
+      )
+      const selected = matching.slice(-options.limit)
+      return {
+        events: selected,
+        ledgerIncarnationId: 'hrc-test-ledger',
+        headHrcSeq: events.at(-1)?.hrcSeq ?? 0,
+        truncated: matching.length > selected.length,
+      }
+    },
     watch: () =>
       (async function* () {
         yield* events
@@ -98,6 +136,7 @@ async function readHistory(input: {
   events: HrcLifecycleEvent[]
   messages: CollaborationMessage[]
 }): Promise<{
+  atoms: Array<{ payload: Record<string, unknown> }>
   frames: Array<{
     frameId: string
     frameKind: string
@@ -155,6 +194,9 @@ describe('mobile collaboration ledger', () => {
       lastHrcSeq: 0,
       lastMessageSeq: 5,
     })
+    expect(JSON.stringify(history.atoms)).not.toContain('reply_required')
+    expect(JSON.stringify(history.atoms)).not.toContain('pending')
+    expect(history.frames[0]?.blocks[0]?.text).toBe('ledger-backed mobile prompt')
   })
 
   test('history matches repeated bodies one-to-one and retains both legitimate deliveries', async () => {
@@ -200,25 +242,58 @@ describe('mobile collaboration ledger', () => {
     }
     let historyRead = true
     const collaboration = ledger({ messages: [message] })
-    collaboration.listMessagesByMember = async () => {
+    collaboration.pageMessagesByMember = async () => {
       if (historyRead) {
         historyRead = false
-        return { messages: [] }
+        return {
+          ledgerIncarnationId: 'wrkq-test-ledger',
+          headMessageSeq: 0,
+          hasMoreBefore: false,
+          hasMoreAfter: false,
+          messages: [],
+        }
       }
-      return { messages: [message] }
+      return {
+        ledgerIncarnationId: 'wrkq-test-ledger',
+        headMessageSeq: message.messageSeq,
+        hasMoreBefore: false,
+        hasMoreAfter: false,
+        messages: [message],
+      }
     }
     const hrcClient = {
       listSessions: async () => [session],
       listRuntimes: async () => [],
       listLatestEventBySession: async () => [],
       getLatestRunForSession: async () => undefined,
-      watch: (options?: { follow?: boolean }) =>
+      tailEvents: async () => ({
+        events: [],
+        ledgerIncarnationId: 'hrc-test-ledger',
+        headHrcSeq: 0,
+        truncated: false,
+      }),
+      watchBoundedEvents: () =>
         (async function* () {
-          if (options?.follow === true) yield liveEvent
+          yield {
+            type: 'ready' as const,
+            ledgerIncarnationId: 'hrc-test-ledger',
+            acceptedAfterHrcSeq: 0,
+            replayHeadHrcSeq: 0,
+          }
+          yield {
+            type: 'event' as const,
+            ledgerIncarnationId: 'hrc-test-ledger',
+            event: liveEvent,
+          }
         })(),
     } as unknown as AcpHrcClient
     const sent: Array<Record<string, unknown>> = []
-    const deps = { hrcClient, collaborationLedger: collaboration } as ResolvedAcpServerDeps
+    const stateStore = openAcpStateStore({ dbPath: ':memory:' })
+    const deps = {
+      hrcClient,
+      collaborationLedger: collaboration,
+      stateStore,
+    } as ResolvedAcpServerDeps
     const ws: MobileWebSocketLike = {
       data: {
         deps,
@@ -237,7 +312,11 @@ describe('mobile collaboration ledger', () => {
       close() {},
     }
 
-    await openMobileWebSocket(ws)
+    try {
+      await openMobileWebSocket(ws)
+    } finally {
+      stateStore.close()
+    }
 
     const frames = sent.filter((envelope) => envelope['type'] === 'frame')
     expect(frames).toHaveLength(1)

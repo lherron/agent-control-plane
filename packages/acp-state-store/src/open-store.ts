@@ -5,6 +5,7 @@ import { InputAdmissionRepo } from './repos/input-admission-repo.js'
 import { InputApplicationRepo } from './repos/input-application-repo.js'
 import { InputAttemptRepo } from './repos/input-attempt-repo.js'
 import { InputQueueRepo } from './repos/input-queue-repo.js'
+import { MobileTimelineProjectionRepo } from './repos/mobile-timeline-projection-repo.js'
 import { PbcContinuationJobsRepo } from './repos/pbc-continuation-jobs-repo.js'
 import { RunRepo } from './repos/run-repo.js'
 import { SessionAdmissionSequenceRepo } from './repos/session-admission-sequence-repo.js'
@@ -32,6 +33,7 @@ export interface AcpStateStore {
   readonly wrkfRouteIdempotency: WrkfRouteIdempotencyRepo
   readonly wrkfParticipantCaptures: WrkfParticipantCapturesRepo
   readonly pbcContinuationJobs: PbcContinuationJobsRepo
+  readonly mobileTimeline: MobileTimelineProjectionRepo
   runInTransaction<T>(fn: (store: AcpStateStore) => T): T
   close(): void
 }
@@ -428,6 +430,50 @@ function initializeSchema(sqlite: SqliteDatabase): void {
 
     CREATE INDEX IF NOT EXISTS pbc_continuation_jobs_status_idx
       ON pbc_continuation_jobs (status, created_at);
+
+    CREATE TABLE IF NOT EXISTS mobile_timeline_projection_epochs (
+      projection_epoch TEXT PRIMARY KEY,
+      session_ref TEXT NOT NULL,
+      host_session_id TEXT NOT NULL,
+      generation INTEGER NOT NULL,
+      hrc_ledger_incarnation_id TEXT NOT NULL,
+      wrkq_ledger_incarnation_id TEXT NOT NULL,
+      hrc_oldest_seq INTEGER NOT NULL,
+      hrc_newest_seq INTEGER NOT NULL,
+      message_oldest_seq INTEGER NOT NULL,
+      message_newest_seq INTEGER NOT NULL,
+      hrc_exhausted_before INTEGER NOT NULL CHECK (hrc_exhausted_before IN (0, 1)),
+      wrkq_exhausted_before INTEGER NOT NULL CHECK (wrkq_exhausted_before IN (0, 1)),
+      min_timeline_ordinal INTEGER,
+      max_timeline_ordinal INTEGER,
+      active INTEGER NOT NULL CHECK (active IN (0, 1)),
+      reset_reason TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS mobile_timeline_projection_active_idx
+      ON mobile_timeline_projection_epochs (session_ref, host_session_id, generation)
+      WHERE active = 1;
+
+    CREATE TABLE IF NOT EXISTS mobile_timeline_atoms (
+      projection_epoch TEXT NOT NULL,
+      atom_id TEXT NOT NULL,
+      timeline_ordinal INTEGER NOT NULL,
+      logical_frame_id TEXT NOT NULL,
+      operation TEXT NOT NULL CHECK (operation IN ('append', 'replace')),
+      source_kind TEXT NOT NULL CHECK (source_kind IN ('hrc', 'wrkq')),
+      source_seq INTEGER NOT NULL,
+      source_ts TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      prefix_state TEXT NOT NULL CHECK (prefix_state IN ('unknown', 'complete')),
+      PRIMARY KEY (projection_epoch, atom_id),
+      UNIQUE (projection_epoch, timeline_ordinal),
+      FOREIGN KEY (projection_epoch) REFERENCES mobile_timeline_projection_epochs(projection_epoch)
+    );
+
+    CREATE INDEX IF NOT EXISTS mobile_timeline_atoms_ordinal_idx
+      ON mobile_timeline_atoms (projection_epoch, timeline_ordinal);
   `)
 }
 
@@ -1026,6 +1072,7 @@ export function openAcpStateStore(options: OpenAcpStateStoreOptions): AcpStateSt
     wrkfRouteIdempotency: new WrkfRouteIdempotencyRepo(context),
     wrkfParticipantCaptures: new WrkfParticipantCapturesRepo(context),
     pbcContinuationJobs: new PbcContinuationJobsRepo(context),
+    mobileTimeline: new MobileTimelineProjectionRepo(context),
     runInTransaction<T>(fn: (activeStore: AcpStateStore) => T): T {
       return sqlite.transaction(() => fn(store))()
     },

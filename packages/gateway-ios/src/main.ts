@@ -18,7 +18,6 @@ async function main() {
 
   const mod = createGatewayIosModule({
     hrcSocketPath: config.hrcSocketPath,
-    wrkqDbLocator: config.wrkqDbLocator,
     host: config.host,
     port: config.port,
     bearerToken: config.bearerToken,

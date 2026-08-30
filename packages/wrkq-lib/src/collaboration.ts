@@ -1,4 +1,9 @@
-import type { WorkClient, WrkqEnvelope } from '@wrkq/client'
+import type {
+  WorkClient,
+  WrkqEnvelope,
+  WrkqEnvelopeMemberPage,
+  WrkqEnvelopeMemberPageParams,
+} from '@wrkq/client'
 
 /**
  * ACP's stable collaboration projection over wrkq rooms/envelopes.
@@ -37,6 +42,14 @@ export type CollaborationMessageList = {
   nextCursor?: string | undefined
 }
 
+export type CollaborationMessagePage = {
+  ledgerIncarnationId: string
+  headMessageSeq: number
+  hasMoreBefore: boolean
+  hasMoreAfter: boolean
+  messages: CollaborationMessage[]
+}
+
 export type CollaborationSayInput = {
   ref: string
   to?: string[] | undefined
@@ -58,6 +71,13 @@ export type CollaborationSayReceipt = {
 
 /** High-level port implemented strictly through @wrkq/client RPC. */
 export interface CollaborationLedger {
+  pageMessagesByMember(input: {
+    memberRef: string
+    beforeMessageSeq?: number | undefined
+    afterMessageSeq?: number | undefined
+    expectedLedgerIncarnationId?: string | undefined
+    limit: number
+  }): Promise<CollaborationMessagePage>
   listMessagesByMember(input: {
     memberRef: string
     /** Scope-less human principal viewing the returned envelopes through ACP. */
@@ -185,6 +205,38 @@ export function createCollaborationLedger(
   principalRef: string
 ): CollaborationLedger {
   return {
+    async pageMessagesByMember(input): Promise<CollaborationMessagePage> {
+      const limit = normalizedLimit(input.limit)
+      if (limit > 500) {
+        throw new Error(`collaboration message page limit must be at most 500: ${limit}`)
+      }
+      if ((input.beforeMessageSeq === undefined) === (input.afterMessageSeq === undefined)) {
+        throw new Error(
+          'collaboration member page requires exactly one of beforeMessageSeq or afterMessageSeq'
+        )
+      }
+      const shared = {
+        memberRef: input.memberRef,
+        ...(input.expectedLedgerIncarnationId !== undefined
+          ? { expectedLedgerIncarnation: input.expectedLedgerIncarnationId }
+          : {}),
+        limit,
+        principalRef,
+        scopeRef: input.memberRef,
+      }
+      const request: WrkqEnvelopeMemberPageParams =
+        input.beforeMessageSeq !== undefined
+          ? { ...shared, beforeMessageSeq: input.beforeMessageSeq }
+          : { ...shared, afterMessageSeq: input.afterMessageSeq as number }
+      const page: WrkqEnvelopeMemberPage = await client.wrkq.envelope.memberPage(request)
+      return {
+        ledgerIncarnationId: page.ledgerIncarnation,
+        headMessageSeq: page.headMessageSeq,
+        hasMoreBefore: page.hasMoreBefore,
+        hasMoreAfter: page.hasMoreAfter,
+        messages: page.items.map(projectEnvelope),
+      }
+    },
     async listMessagesByMember(input): Promise<CollaborationMessageList> {
       const limit = normalizedLimit(input.limit)
       const rooms = await client.wrkq.room.list({
