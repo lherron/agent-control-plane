@@ -441,7 +441,11 @@ describe('Discord ledger human egress', () => {
     })
 
     expect(await egress.reconcileAttempting()).toBe(2)
-    expect(sent).toEqual(['human-notice', 'mirror'])
+    // Reconciliation drives the attempting rows oldest-first, and `updated_at`
+    // has millisecond resolution: two sinks claimed in the same breath are
+    // coeval, so which one leads is a coin flip on a clock tick. Both are
+    // resent, and that is the whole claim.
+    expect([...sent].sort()).toEqual(['human-notice', 'mirror'])
     expect(
       store.discordLedgerDeliveries
         .listByEnvelope('discord', 'EN-00042')
