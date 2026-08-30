@@ -1,6 +1,8 @@
+import { createHash } from 'node:crypto'
 import type {
   MobileTimelineAtomInput,
   MobileTimelineAtomRecord,
+  MobileTimelinePageReceipt,
   MobileTimelineProjectionIdentity,
   MobileTimelineProjectionRecord,
   MobileTimelineProjectionRepo,
@@ -15,9 +17,15 @@ const MAX_TARGET = 100
 const DEFAULT_MAX_ATOMS = 2_048
 const DEFAULT_MAX_BYTES = 16 * 1024 * 1024
 const PRODUCER_PAGE_LIMIT = 500
-const CURSOR_VERSION = 1
+const CURSOR_VERSION = 2
 const CURSOR_TYPE = 'mobile_history'
 const MAX_CURSOR_BYTES = 4_096
+
+/**
+ * Response-contract version. It is part of page-receipt identity so a receipt
+ * minted under one response shape can never satisfy a later one.
+ */
+export const MOBILE_HISTORY_RESPONSE_CONTRACT_VERSION = 2
 
 export type MobileTimelineProjectorIdentity = MobileTimelineProjectionIdentity & {
   memberRef: string
@@ -52,8 +60,18 @@ export class MobileTimelineItemOversizeError extends Error {
   readonly status = 422
 }
 
+/**
+ * A captured producer head at the top of the representable range leaves no
+ * exclusive `head + 1` frontier to mint. Failing here keeps the alternative —
+ * wrapping or silently skipping the head — off the table.
+ */
+export class MobileTimelineSourcePositionExhaustedError extends Error {
+  readonly code = 'projection_reset'
+  readonly status = 409
+}
+
 type CursorPayload = {
-  v: 1
+  v: 2
   type: 'mobile_history'
   sessionRef: string
   hostSessionId: string
@@ -61,6 +79,7 @@ type CursorPayload = {
   hrcLedgerIncarnationId: string
   wrkqLedgerIncarnationId: string
   projectionEpoch: string
+  originTimelineOrdinal: string
   beforeTimelineOrdinal: string
   beforeHrcSeq: number
   beforeMessageSeq: number
@@ -99,6 +118,30 @@ type ClosedSources = {
   wrkqHead: number
   hrcHasMoreBefore: boolean
   wrkqHasMoreBefore: boolean
+}
+
+/**
+ * One raw source row in cross-producer merge order, carrying the atom it
+ * projects to when it projects to one. Selection walks raw rows rather than
+ * atoms so reverse frontiers can advance past rows that project away,
+ * deduplicate, or are intentionally suppressed.
+ */
+type MergedRow = {
+  source: 'hrc' | 'wrkq'
+  seq: number
+  rawBytes: number
+  atom: MobileTimelineAtomInput | undefined
+}
+
+type ScanBudget = { records: number; bytes: number }
+
+type Selection = {
+  atoms: MobileTimelineAtomInput[]
+  hrcConsumed: number
+  wrkqConsumed: number
+  hrcLowestConsumedSeq: number | undefined
+  wrkqLowestConsumedSeq: number | undefined
+  ceilingReached: boolean
 }
 
 function options(input: Partial<ProjectorOptions> = {}): ProjectorOptions {
@@ -175,6 +218,28 @@ function encodeCursor(payload: CursorPayload): string {
   return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')
 }
 
+function cursorDigest(token: string): string {
+  return createHash('sha256').update(token, 'utf8').digest('hex')
+}
+
+/**
+ * The exclusive frontier that keeps a captured head reachable when a cohort
+ * consumed no row from that producer. Head 0 (an empty ledger) yields 1.
+ */
+function frontierAboveHead(head: number, source: 'hrc' | 'wrkq'): number {
+  if (!Number.isSafeInteger(head) || head < 0) {
+    throw new MobileTimelineSourcePositionExhaustedError(
+      `${source} producer head ${head} is not a representable source position`
+    )
+  }
+  if (head >= Number.MAX_SAFE_INTEGER) {
+    throw new MobileTimelineSourcePositionExhaustedError(
+      `${source} producer head reached the representable source-position ceiling`
+    )
+  }
+  return head + 1
+}
+
 function parseCursor(token: string): CursorPayload {
   if (
     token.length === 0 ||
@@ -193,6 +258,11 @@ function parseCursor(token: string): CursorPayload {
     throw new MobileTimelineMalformedCursorError('history cursor payload must be an object')
   }
   const value = parsed as Record<string, unknown>
+  // Version and type are fenced before shape so a retired v1 cursor is refused
+  // as an invalid cursor rather than reported as malformed encoding.
+  if (value['v'] !== CURSOR_VERSION || value['type'] !== CURSOR_TYPE) {
+    throw new MobileTimelineCursorInvalidError('history cursor type or version is retired')
+  }
   const keys = [
     'beforeHrcSeq',
     'beforeMessageSeq',
@@ -200,6 +270,7 @@ function parseCursor(token: string): CursorPayload {
     'generation',
     'hostSessionId',
     'hrcLedgerIncarnationId',
+    'originTimelineOrdinal',
     'projectionEpoch',
     'sessionRef',
     'type',
@@ -210,14 +281,13 @@ function parseCursor(token: string): CursorPayload {
     throw new MobileTimelineMalformedCursorError('history cursor fields are malformed')
   }
   if (
-    value['v'] !== CURSOR_VERSION ||
-    value['type'] !== CURSOR_TYPE ||
     typeof value['sessionRef'] !== 'string' ||
     typeof value['hostSessionId'] !== 'string' ||
     typeof value['generation'] !== 'number' ||
     typeof value['hrcLedgerIncarnationId'] !== 'string' ||
     typeof value['wrkqLedgerIncarnationId'] !== 'string' ||
     typeof value['projectionEpoch'] !== 'string' ||
+    typeof value['originTimelineOrdinal'] !== 'string' ||
     typeof value['beforeTimelineOrdinal'] !== 'string' ||
     typeof value['beforeHrcSeq'] !== 'number' ||
     typeof value['beforeMessageSeq'] !== 'number'
@@ -232,6 +302,7 @@ function parseCursor(token: string): CursorPayload {
     payload.beforeHrcSeq < 0 ||
     !Number.isSafeInteger(payload.beforeMessageSeq) ||
     payload.beforeMessageSeq < 0 ||
+    !/^-?(0|[1-9]\d*)$/.test(payload.originTimelineOrdinal) ||
     !/^-?(0|[1-9]\d*)$/.test(payload.beforeTimelineOrdinal) ||
     encodeCursor(payload) !== token
   ) {
@@ -256,10 +327,10 @@ export function createMobileTimelineProjector(deps: ProjectorDeps) {
     })
   }
 
-  function projectClosed(
+  function mergeClosed(
     sources: Pick<ClosedSources, 'hrc' | 'wrkq' | 'hrcIncarnation' | 'wrkqIncarnation'>
-  ) {
-    const atoms: MobileTimelineAtomInput[] = []
+  ): MergedRow[] {
+    const rows: MergedRow[] = []
     const matchedByHrcSeq = new Map<number, CollaborationMessage>()
     const suppressedMessageIds = new Set<string>()
     if (deps.collaborationMatchesHrc !== undefined) {
@@ -278,45 +349,94 @@ export function createMobileTimelineProjector(deps: ProjectorDeps) {
     for (const item of stableClosedMerge(sources.hrc, sources.wrkq)) {
       if (item.source === 'hrc') {
         const projected = deps.projectHrc(item.value, matchedByHrcSeq.get(item.value.hrcSeq))
-        if (projected !== undefined) {
-          atoms.push({
-            ...projected,
-            atomId: `hrc:${sources.hrcIncarnation}:${item.value.hrcSeq}`,
-            sourceKind: 'hrc',
-            sourceSeq: item.value.hrcSeq,
-            sourceTs: item.value.ts,
-          })
-        }
-      } else {
-        if (suppressedMessageIds.has(item.value.messageId)) continue
-        const projected = deps.projectCollaboration(item.value)
-        if (projected !== undefined) {
-          atoms.push({
-            ...projected,
-            atomId: `wrkq:${sources.wrkqIncarnation}:${item.value.messageId}:${item.value.messageSeq}`,
-            sourceKind: 'wrkq',
-            sourceSeq: item.value.messageSeq,
-            sourceTs: item.value.createdAt,
-          })
-        }
+        rows.push({
+          source: 'hrc',
+          seq: item.value.hrcSeq,
+          rawBytes: encodedBytes(item.value),
+          atom:
+            projected === undefined
+              ? undefined
+              : {
+                  ...projected,
+                  atomId: `hrc:${sources.hrcIncarnation}:${item.value.hrcSeq}`,
+                  sourceKind: 'hrc',
+                  sourceSeq: item.value.hrcSeq,
+                  sourceTs: item.value.ts,
+                },
+        })
+        continue
       }
+      const projected = suppressedMessageIds.has(item.value.messageId)
+        ? undefined
+        : deps.projectCollaboration(item.value)
+      rows.push({
+        source: 'wrkq',
+        seq: item.value.messageSeq,
+        rawBytes: encodedBytes(item.value),
+        atom:
+          projected === undefined
+            ? undefined
+            : {
+                ...projected,
+                atomId: `wrkq:${sources.wrkqIncarnation}:${item.value.messageId}:${item.value.messageSeq}`,
+                sourceKind: 'wrkq',
+                sourceSeq: item.value.messageSeq,
+                sourceTs: item.value.createdAt,
+              },
+      })
     }
-    return atoms
+    return rows
   }
 
-  function boundedNewest(atoms: MobileTimelineAtomInput[], config: ProjectorOptions) {
-    const selected: MobileTimelineAtomInput[] = []
-    let bytes = 0
-    for (let index = atoms.length - 1; index >= 0 && selected.length < config.target; index -= 1) {
-      const item = atoms[index] as MobileTimelineAtomInput
-      const itemBytes = encodedBytes(item)
-      if (itemBytes > config.maxBytes)
+  /**
+   * Consumes raw rows newest-first under the record/byte ceilings until the
+   * target atom count is met. Every consumed row counts as scan progress,
+   * whether or not it produced an atom.
+   */
+  function selectNewest(
+    rows: MergedRow[],
+    config: ProjectorOptions,
+    budget: ScanBudget
+  ): Selection {
+    const atoms: MobileTimelineAtomInput[] = []
+    let hrcConsumed = 0
+    let wrkqConsumed = 0
+    let hrcLowestConsumedSeq: number | undefined
+    let wrkqLowestConsumedSeq: number | undefined
+    let ceilingReached = false
+    for (let index = rows.length - 1; index >= 0; index -= 1) {
+      const row = rows[index] as MergedRow
+      const atomBytes = row.atom === undefined ? 0 : encodedBytes(row.atom)
+      if (atomBytes > config.maxBytes) {
         throw new MobileTimelineItemOversizeError('timeline atom is oversize')
-      if (bytes + itemBytes > config.maxBytes || selected.length >= config.maxAtoms) break
-      selected.push(item)
-      bytes += itemBytes
+      }
+      if (row.atom !== undefined && atoms.length >= config.target) break
+      if (
+        budget.records + 1 > config.maxAtoms ||
+        budget.bytes + row.rawBytes + atomBytes > config.maxBytes
+      ) {
+        ceilingReached = true
+        break
+      }
+      budget.records += 1
+      budget.bytes += row.rawBytes + atomBytes
+      if (row.atom !== undefined) atoms.push(row.atom)
+      if (row.source === 'hrc') {
+        hrcConsumed += 1
+        hrcLowestConsumedSeq = row.seq
+      } else {
+        wrkqConsumed += 1
+        wrkqLowestConsumedSeq = row.seq
+      }
     }
-    return selected.reverse()
+    return {
+      atoms: atoms.reverse(),
+      hrcConsumed,
+      wrkqConsumed,
+      hrcLowestConsumedSeq,
+      wrkqLowestConsumedSeq,
+      ceilingReached,
+    }
   }
 
   async function recentSources(
@@ -358,31 +478,32 @@ export function createMobileTimelineProjector(deps: ProjectorDeps) {
       hrcLedgerIncarnationId: projection.hrcLedgerIncarnationId,
       wrkqLedgerIncarnationId: projection.wrkqLedgerIncarnationId,
       projectionEpoch: projection.projectionEpoch,
+      originTimelineOrdinal: projection.originTimelineOrdinal,
       beforeTimelineOrdinal: beforeOrdinal,
-      beforeHrcSeq: projection.hrcOldestSeq,
-      beforeMessageSeq: projection.messageOldestSeq,
+      beforeHrcSeq: projection.hrcBeforeSeq,
+      beforeMessageSeq: projection.messageBeforeSeq,
     })
   }
 
+  /**
+   * `boundary` is the exclusive epoch coordinate this response was read at. It
+   * survives a zero-atom page, so an initial cohort that projected nothing
+   * still mints a valid origin-anchored older cursor.
+   */
   function response(
     projection: MobileTimelineProjectionRecord,
     atoms: MobileTimelineAtomRecord[],
+    boundary: string,
     resetReason?: string
   ): MobileTimelinePage {
-    const oldest = atoms[0]
-    const committedOlder =
-      oldest === undefined
-        ? []
-        : deps.store.listBefore(projection.projectionEpoch, oldest.timelineOrdinal, 1)
+    const nextBoundary = atoms[0]?.timelineOrdinal ?? boundary
+    const committedOlder = deps.store.listBefore(projection.projectionEpoch, nextBoundary, 1)
     const hasMoreBefore =
       committedOlder.length > 0 || !projection.hrcExhaustedBefore || !projection.wrkqExhaustedBefore
     return {
       projectionEpoch: projection.projectionEpoch,
       atoms,
-      olderCursor:
-        hasMoreBefore && oldest !== undefined
-          ? cursorFor(projection, oldest.timelineOrdinal)
-          : null,
+      olderCursor: hasMoreBefore ? cursorFor(projection, nextBoundary) : null,
       hasMoreBefore,
       highWater: { hrcSeq: projection.hrcNewestSeq, messageSeq: projection.messageNewestSeq },
       ...(resetReason !== undefined ? { resetReason } : {}),
@@ -395,24 +516,28 @@ export function createMobileTimelineProjector(deps: ProjectorDeps) {
     sources: ClosedSources,
     resetReason?: string
   ): Promise<MobileTimelinePage> {
-    const atoms = boundedNewest(projectClosed(sources), config)
-    const selectedHrc = atoms.filter((item) => item.sourceKind === 'hrc')
-    const selectedWrkq = atoms.filter((item) => item.sourceKind === 'wrkq')
+    const selection = selectNewest(mergeClosed(sources), config, { records: 0, bytes: 0 })
     const replaced = deps.store.replaceEpoch({
       identity,
       hrcLedgerIncarnationId: sources.hrcIncarnation,
       wrkqLedgerIncarnationId: sources.wrkqIncarnation,
-      hrcOldestSeq: selectedHrc[0]?.sourceSeq ?? sources.hrcHead,
+      hrcBeforeSeq: selection.hrcLowestConsumedSeq ?? frontierAboveHead(sources.hrcHead, 'hrc'),
       hrcNewestSeq: sources.hrcHead,
-      messageOldestSeq: selectedWrkq[0]?.sourceSeq ?? sources.wrkqHead,
+      messageBeforeSeq:
+        selection.wrkqLowestConsumedSeq ?? frontierAboveHead(sources.wrkqHead, 'wrkq'),
       messageNewestSeq: sources.wrkqHead,
-      hrcExhaustedBefore: !sources.hrcHasMoreBefore && selectedHrc.length === sources.hrc.length,
+      hrcExhaustedBefore: !sources.hrcHasMoreBefore && selection.hrcConsumed === sources.hrc.length,
       wrkqExhaustedBefore:
-        !sources.wrkqHasMoreBefore && selectedWrkq.length === sources.wrkq.length,
+        !sources.wrkqHasMoreBefore && selection.wrkqConsumed === sources.wrkq.length,
       ...(resetReason !== undefined ? { resetReason } : {}),
-      atoms,
+      atoms: selection.atoms,
     })
-    return response(replaced.projection, replaced.atoms, resetReason)
+    return response(
+      replaced.projection,
+      replaced.atoms,
+      replaced.projection.originTimelineOrdinal,
+      resetReason
+    )
   }
 
   async function hrcAfter(
@@ -531,6 +656,9 @@ export function createMobileTimelineProjector(deps: ProjectorDeps) {
     ) {
       return replaceFromRecent(identity, config, sources, 'catch_up_limit_exceeded')
     }
+    // Forward admission moves only the producer high-waters; a reverse frontier
+    // and the epoch origin are untouched, so a pending historical head stays
+    // eligible for the next older scan.
     const appended = deps.store.appendAtoms({
       projectionEpoch: active.projectionEpoch,
       atoms,
@@ -539,14 +667,15 @@ export function createMobileTimelineProjector(deps: ProjectorDeps) {
     })
     return response(
       appended.projection,
-      deps.store.listNewest(active.projectionEpoch, config.target)
+      deps.store.listNewest(active.projectionEpoch, config.target),
+      appended.projection.originTimelineOrdinal
     )
   }
 
   async function olderSources(
     identity: MobileTimelineProjectorIdentity,
     projection: MobileTimelineProjectionRecord,
-    config: ProjectorOptions
+    limit: number
   ): Promise<ClosedSources> {
     const [hrc, wrkq] = await Promise.all([
       projection.hrcExhaustedBefore
@@ -557,8 +686,8 @@ export function createMobileTimelineProjector(deps: ProjectorDeps) {
             truncated: false,
           })
         : deps.hrcClient.tailEvents({
-            limit: Math.min(PRODUCER_PAGE_LIMIT, config.target),
-            beforeHrcSeq: projection.hrcOldestSeq,
+            limit,
+            beforeHrcSeq: projection.hrcBeforeSeq,
             ledgerIncarnationId: projection.hrcLedgerIncarnationId,
             hostSessionId: identity.hostSessionId,
             generation: identity.generation,
@@ -573,9 +702,9 @@ export function createMobileTimelineProjector(deps: ProjectorDeps) {
           })
         : deps.collaborationLedger.pageMessagesByMember({
             memberRef: identity.memberRef,
-            beforeMessageSeq: projection.messageOldestSeq,
+            beforeMessageSeq: projection.messageBeforeSeq,
             expectedLedgerIncarnationId: projection.wrkqLedgerIncarnationId,
-            limit: Math.min(PRODUCER_PAGE_LIMIT, config.target),
+            limit,
           }),
     ])
     return {
@@ -612,19 +741,122 @@ export function createMobileTimelineProjector(deps: ProjectorDeps) {
       payload.projectionEpoch !== active.projectionEpoch ||
       payload.hrcLedgerIncarnationId !== active.hrcLedgerIncarnationId ||
       payload.wrkqLedgerIncarnationId !== active.wrkqLedgerIncarnationId ||
-      active.minTimelineOrdinal === null ||
-      active.maxTimelineOrdinal === null ||
-      BigInt(payload.beforeTimelineOrdinal) < BigInt(active.minTimelineOrdinal) ||
-      BigInt(payload.beforeTimelineOrdinal) > BigInt(active.maxTimelineOrdinal) ||
-      !deps.store.hasOrdinal(active.projectionEpoch, payload.beforeTimelineOrdinal) ||
-      payload.beforeHrcSeq < active.hrcOldestSeq ||
-      payload.beforeHrcSeq > active.hrcNewestSeq ||
-      payload.beforeMessageSeq < active.messageOldestSeq ||
-      payload.beforeMessageSeq > active.messageNewestSeq
+      payload.originTimelineOrdinal !== active.originTimelineOrdinal ||
+      !isBoundary(active, payload.beforeTimelineOrdinal) ||
+      // Reverse frontiers only ever move older, so a live cursor never sits
+      // below the epoch's current frontier; the exclusive upper sentinel is
+      // the canonical no-row-consumed state at the producer head.
+      payload.beforeHrcSeq < active.hrcBeforeSeq ||
+      payload.beforeHrcSeq > active.hrcNewestSeq + 1 ||
+      payload.beforeMessageSeq < active.messageBeforeSeq ||
+      payload.beforeMessageSeq > active.messageNewestSeq + 1
     ) {
       throw new MobileTimelineCursorInvalidError('history cursor fence is no longer current')
     }
     return payload
+  }
+
+  /** A boundary names either the persisted epoch origin or a committed atom. */
+  function isBoundary(active: MobileTimelineProjectionRecord, value: string): boolean {
+    if (value === active.originTimelineOrdinal) return true
+    if (active.minTimelineOrdinal === null || active.maxTimelineOrdinal === null) return false
+    const candidate = BigInt(value)
+    if (
+      candidate < BigInt(active.minTimelineOrdinal) ||
+      candidate > BigInt(active.maxTimelineOrdinal)
+    ) {
+      return false
+    }
+    return deps.store.hasOrdinal(active.projectionEpoch, value)
+  }
+
+  function replayReceipt(receipt: MobileTimelinePageReceipt): MobileTimelinePage {
+    const atoms = deps.store.listByAtomIds(receipt.projectionEpoch, receipt.atomIds)
+    atoms.forEach((atom, index) => {
+      if (atom.timelineOrdinal !== receipt.timelineOrdinals[index]) {
+        throw new MobileTimelineProjectionCorruptError(
+          `page receipt atom ${atom.atomId} renumbered from ${receipt.timelineOrdinals[index]} to ${atom.timelineOrdinal}`
+        )
+      }
+    })
+    return {
+      projectionEpoch: receipt.projectionEpoch,
+      atoms,
+      olderCursor: receipt.olderCursor,
+      hasMoreBefore: receipt.hasMoreBefore,
+      highWater: {
+        hrcSeq: receipt.highWaterHrcSeq,
+        messageSeq: receipt.highWaterMessageSeq,
+      },
+      ...(receipt.resetReason !== null ? { resetReason: receipt.resetReason } : {}),
+    }
+  }
+
+  async function pageUnlocked(
+    identity: MobileTimelineProjectorIdentity,
+    token: string,
+    config: ProjectorOptions
+  ): Promise<MobileTimelinePage> {
+    const cursor = decodeAndValidateCursor(token, identity)
+    let projection = deps.store.getActive(identity) as MobileTimelineProjectionRecord
+    const receiptKey = {
+      projectionEpoch: projection.projectionEpoch,
+      requestDigest: cursorDigest(token),
+      requestedLimit: config.target,
+      responseContractVersion: MOBILE_HISTORY_RESPONSE_CONTRACT_VERSION,
+    }
+    const recorded = deps.store.getPageReceipt(receiptKey)
+    if (recorded !== undefined) return replayReceipt(recorded)
+
+    const boundary = cursor.beforeTimelineOrdinal
+    let atoms = deps.store.listBefore(projection.projectionEpoch, boundary, config.target)
+    const budget: ScanBudget = { records: 0, bytes: 0 }
+    while (
+      atoms.length < config.target &&
+      (!projection.hrcExhaustedBefore || !projection.wrkqExhaustedBefore) &&
+      budget.records < config.maxAtoms &&
+      budget.bytes < config.maxBytes
+    ) {
+      const readLimit = Math.min(PRODUCER_PAGE_LIMIT, config.target)
+      const sources = await olderSources(identity, projection, readLimit)
+      const selection = selectNewest(
+        mergeClosed(sources),
+        { ...config, target: config.target - atoms.length },
+        budget
+      )
+      const prepended = deps.store.prependAtoms({
+        projectionEpoch: projection.projectionEpoch,
+        atoms: selection.atoms,
+        hrcBeforeSeq: selection.hrcLowestConsumedSeq ?? projection.hrcBeforeSeq,
+        messageBeforeSeq: selection.wrkqLowestConsumedSeq ?? projection.messageBeforeSeq,
+        // Exhaustion follows raw-row consumption, never selected-atom counts:
+        // a producer that returned rows nobody projected is not exhausted.
+        hrcExhaustedBefore:
+          !sources.hrcHasMoreBefore && selection.hrcConsumed === sources.hrc.length,
+        wrkqExhaustedBefore:
+          !sources.wrkqHasMoreBefore && selection.wrkqConsumed === sources.wrkq.length,
+      })
+      projection = prepended.projection
+      atoms = deps.store.listBefore(projection.projectionEpoch, boundary, config.target)
+      if (selection.ceilingReached) break
+      // No raw row was consumable this round; another identical read would only
+      // repeat it, so the request ends bounded rather than looping.
+      if (selection.hrcConsumed === 0 && selection.wrkqConsumed === 0) break
+    }
+
+    const page = response(projection, atoms, boundary)
+    deps.store.putPageReceipt({
+      ...receiptKey,
+      boundaryTimelineOrdinal: boundary,
+      atomIds: page.atoms.map((atom) => atom.atomId),
+      timelineOrdinals: page.atoms.map((atom) => atom.timelineOrdinal),
+      olderCursor: page.olderCursor,
+      hasMoreBefore: page.hasMoreBefore,
+      highWaterHrcSeq: page.highWater.hrcSeq,
+      highWaterMessageSeq: page.highWater.messageSeq,
+      resetReason: page.resetReason ?? null,
+    })
+    return page
   }
 
   async function admitLiveHrcUnlocked(
@@ -699,44 +931,7 @@ export function createMobileTimelineProjector(deps: ProjectorDeps) {
       input: Partial<ProjectorOptions> = {}
     ) {
       const config = options(input)
-      return serialize(identity, async () => {
-        const cursor = decodeAndValidateCursor(token, identity)
-        let projection = deps.store.getActive(identity) as MobileTimelineProjectionRecord
-        let atoms = deps.store.listBefore(
-          projection.projectionEpoch,
-          cursor.beforeTimelineOrdinal,
-          config.target
-        )
-        if (
-          atoms.length < config.target &&
-          (!projection.hrcExhaustedBefore || !projection.wrkqExhaustedBefore)
-        ) {
-          const sources = await olderSources(identity, projection, config)
-          const selected = boundedNewest(projectClosed(sources), {
-            ...config,
-            target: config.target - atoms.length,
-          })
-          const selectedHrc = selected.filter((item) => item.sourceKind === 'hrc')
-          const selectedWrkq = selected.filter((item) => item.sourceKind === 'wrkq')
-          const prepended = deps.store.prependAtoms({
-            projectionEpoch: projection.projectionEpoch,
-            atoms: selected,
-            hrcOldestSeq: selectedHrc[0]?.sourceSeq ?? projection.hrcOldestSeq,
-            messageOldestSeq: selectedWrkq[0]?.sourceSeq ?? projection.messageOldestSeq,
-            hrcExhaustedBefore:
-              !sources.hrcHasMoreBefore && selectedHrc.length === sources.hrc.length,
-            wrkqExhaustedBefore:
-              !sources.wrkqHasMoreBefore && selectedWrkq.length === sources.wrkq.length,
-          })
-          projection = prepended.projection
-          atoms = deps.store.listBefore(
-            projection.projectionEpoch,
-            cursor.beforeTimelineOrdinal,
-            config.target
-          )
-        }
-        return response(projection, atoms)
-      })
+      return serialize(identity, () => pageUnlocked(identity, token, config))
     },
 
     decodeAndValidateCursor,

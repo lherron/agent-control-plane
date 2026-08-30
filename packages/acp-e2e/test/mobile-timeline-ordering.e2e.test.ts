@@ -12,17 +12,17 @@
  * collaboration envelopes, and a full paging walk), records inspectable
  * evidence, and every gate below asserts against that recorded evidence.
  *
- * OPT-IN. This is an acceptance gate, not a unit suite: it spawns a real HRC
- * daemon, a real `wrkf` RPC process and the production `acp-server`, binds an
- * ephemeral port on a non-loopback interface, and needs the `wrkf`/`wrkqadm`
- * binaries on PATH. Run it with:
+ * It spawns a real HRC daemon, a real `wrkf` RPC process and the production
+ * `acp-server`, binds an ephemeral port on a non-loopback interface, and needs
+ * the `wrkf`/`wrkqadm` binaries on PATH — the same environment the other
+ * `*.e2e.test.ts` suites in this package already require. Run it on its own
+ * with:
  *
  *     bun run test:acceptance            # from the repository root
  *
- * It is deliberately out of the default `bun run test` gate until the campaign
- * closes the defect it currently reports (see the run's JSON evidence report
- * and the `exactly_once_no_gaps` finding); promoting it into the default gate
- * is the campaign's call, not this suite's.
+ * T-07728 closed the `exactly_once_no_gaps` defect this suite found, so the
+ * campaign promoted it into the default `bun run test` gate; it now runs
+ * unconditionally alongside the rest of `acp-e2e`.
  */
 
 import { afterAll, describe, expect, test } from 'bun:test'
@@ -263,9 +263,7 @@ function encodeCursor(payload: Record<string, unknown>): string {
 
 // ── The single production-wire drive ────────────────────────────────────────
 
-const ACCEPTANCE_ENABLED = process.env['ACP_TIMELINE_ACCEPTANCE'] === '1'
-
-describe.skipIf(!ACCEPTANCE_ENABLED)('T-07724 production-wire mobile timeline ordering', () => {
+describe('T-07724 production-wire mobile timeline ordering', () => {
   test('drives snapshot, live catch-up, and older paging over the production wire', async () => {
     const started = new Date().toISOString()
     const current = await createTimelineStack()

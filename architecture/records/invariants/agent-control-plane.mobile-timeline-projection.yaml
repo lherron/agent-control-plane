@@ -80,7 +80,7 @@ required_tests:
   - exact cursor, producer replacement, snapshot/live seam, multi-page wrkq catch-up, non-contiguous frame, prefix, and mutable-overlay gates
   - symmetric lost-head, raw-frontier progress, zero-atom origin, v1 retirement, and cursor-plus-limit receipt replay gates
   - T-07724 production-wire ordering E2E and T-07725 installed-client re-entry E2E
-last_verified: 2026-08-29 T-07718 implementation and repository gates; T-07724 production-wire and T-07725 installed-client gates pending
+last_verified: 2026-08-30 T-07728 source-frontier/cursor-v2/page-receipt implementation; T-07724 production-wire gate green with zero oracle findings and promoted into the default test path; T-07725 installed-client gate pending
 reopen_when:
   - mobile projection or public history-cursor authority moves away from ACP
   - producer identity, incarnation fencing, source-order preservation, atom identity, ordinal immutability, or epoch replacement semantics change

@@ -27,6 +27,7 @@ import {
   MobileTimelineCursorInvalidError,
   MobileTimelineItemOversizeError,
   MobileTimelineMalformedCursorError,
+  MobileTimelineSourcePositionExhaustedError,
   createMobileTimelineProjector,
 } from '../mobile-timeline-projector.js'
 import {
@@ -2422,7 +2423,8 @@ export const handleMobileHistory: RouteHandler = async ({ deps, url }) => {
     if (
       error instanceof MobileTimelineMalformedCursorError ||
       error instanceof MobileTimelineCursorInvalidError ||
-      error instanceof MobileTimelineItemOversizeError
+      error instanceof MobileTimelineItemOversizeError ||
+      error instanceof MobileTimelineSourcePositionExhaustedError
     ) {
       return json({ ok: false, code: error.code, message: error.message }, error.status)
     }

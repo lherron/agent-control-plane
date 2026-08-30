@@ -3,7 +3,10 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { Database } from 'bun:sqlite'
+
 import {
+  MOBILE_TIMELINE_PROJECTION_CONTRACT_VERSION,
   MobileTimelineOrdinalExhaustedError,
   MobileTimelineProjectionCorruptError,
   openAcpStateStore,
@@ -36,9 +39,9 @@ describe('mobile timeline projection repo', () => {
         identity: IDENTITY,
         hrcLedgerIncarnationId: 'hrc-a',
         wrkqLedgerIncarnationId: 'wrkq-a',
-        hrcOldestSeq: 10,
+        hrcBeforeSeq: 10,
         hrcNewestSeq: 12,
-        messageOldestSeq: 0,
+        messageBeforeSeq: 0,
         messageNewestSeq: 0,
         hrcExhaustedBefore: false,
         wrkqExhaustedBefore: true,
@@ -67,9 +70,9 @@ describe('mobile timeline projection repo', () => {
         identity: IDENTITY,
         hrcLedgerIncarnationId: 'hrc-b',
         wrkqLedgerIncarnationId: 'wrkq-a',
-        hrcOldestSeq: 20,
+        hrcBeforeSeq: 20,
         hrcNewestSeq: 20,
-        messageOldestSeq: 0,
+        messageBeforeSeq: 0,
         messageNewestSeq: 0,
         hrcExhaustedBefore: true,
         wrkqExhaustedBefore: true,
@@ -94,9 +97,9 @@ describe('mobile timeline projection repo', () => {
         identity: IDENTITY,
         hrcLedgerIncarnationId: 'hrc-a',
         wrkqLedgerIncarnationId: 'wrkq-a',
-        hrcOldestSeq: 10,
+        hrcBeforeSeq: 10,
         hrcNewestSeq: 10,
-        messageOldestSeq: 0,
+        messageBeforeSeq: 0,
         messageNewestSeq: 0,
         hrcExhaustedBefore: false,
         wrkqExhaustedBefore: true,
@@ -115,8 +118,8 @@ describe('mobile timeline projection repo', () => {
       store.mobileTimeline.prependAtoms({
         projectionEpoch: epoch,
         atoms: [atom('hrc:hrc-a:8', 8), atom('hrc:hrc-a:9', 9)],
-        hrcOldestSeq: 8,
-        messageOldestSeq: 0,
+        hrcBeforeSeq: 8,
+        messageBeforeSeq: 0,
         hrcExhaustedBefore: true,
         wrkqExhaustedBefore: true,
       })
@@ -143,13 +146,13 @@ describe('mobile timeline projection repo', () => {
         identity: IDENTITY,
         hrcLedgerIncarnationId: 'hrc-a',
         wrkqLedgerIncarnationId: 'wrkq-a',
-        hrcOldestSeq: 10,
+        hrcBeforeSeq: 10,
         hrcNewestSeq: 10,
-        messageOldestSeq: 0,
+        messageBeforeSeq: 0,
         messageNewestSeq: 0,
         hrcExhaustedBefore: true,
         wrkqExhaustedBefore: true,
-        initialOrdinal: '9223372036854775807',
+        originTimelineOrdinal: '9223372036854775807',
         atoms: [atom('hrc:hrc-a:10', 10)],
       })
 
@@ -175,9 +178,9 @@ describe('mobile timeline projection repo', () => {
         identity: IDENTITY,
         hrcLedgerIncarnationId: 'hrc-a',
         wrkqLedgerIncarnationId: 'wrkq-a',
-        hrcOldestSeq: 10,
+        hrcBeforeSeq: 10,
         hrcNewestSeq: 11,
-        messageOldestSeq: 0,
+        messageBeforeSeq: 0,
         messageNewestSeq: 0,
         hrcExhaustedBefore: true,
         wrkqExhaustedBefore: true,
@@ -213,9 +216,9 @@ describe('mobile timeline projection repo', () => {
         identity: IDENTITY,
         hrcLedgerIncarnationId: 'hrc-a',
         wrkqLedgerIncarnationId: 'wrkq-a',
-        hrcOldestSeq: 10,
+        hrcBeforeSeq: 10,
         hrcNewestSeq: 12,
-        messageOldestSeq: 0,
+        messageBeforeSeq: 0,
         messageNewestSeq: 0,
         hrcExhaustedBefore: true,
         wrkqExhaustedBefore: true,
@@ -235,6 +238,227 @@ describe('mobile timeline projection repo', () => {
     }
   })
 
+  test('anchors a zero-atom epoch on its origin and prepends below it', () => {
+    const store = openAcpStateStore({ dbPath: ':memory:' })
+    try {
+      const empty = store.mobileTimeline.replaceEpoch({
+        identity: IDENTITY,
+        hrcLedgerIncarnationId: 'hrc-a',
+        wrkqLedgerIncarnationId: 'wrkq-a',
+        hrcBeforeSeq: 13,
+        hrcNewestSeq: 12,
+        messageBeforeSeq: 1,
+        messageNewestSeq: 0,
+        hrcExhaustedBefore: false,
+        wrkqExhaustedBefore: true,
+        atoms: [],
+      })
+      expect(empty.projection.originTimelineOrdinal).toBe('0')
+      expect(empty.projection.minTimelineOrdinal).toBeNull()
+      expect(empty.projection.maxTimelineOrdinal).toBeNull()
+      expect(empty.projection.contractVersion).toBe(MOBILE_TIMELINE_PROJECTION_CONTRACT_VERSION)
+
+      const epoch = empty.projection.projectionEpoch
+      store.mobileTimeline.prependAtoms({
+        projectionEpoch: epoch,
+        atoms: [atom('hrc:hrc-a:11', 11), atom('hrc:hrc-a:12', 12)],
+        hrcBeforeSeq: 11,
+        messageBeforeSeq: 1,
+        hrcExhaustedBefore: false,
+        wrkqExhaustedBefore: true,
+      })
+      expect(
+        store.mobileTimeline.listBefore(epoch, '0', 10).map((item) => item.timelineOrdinal)
+      ).toEqual(['-2', '-1'])
+
+      // Live admission after an origin-anchored prepend still appends above the
+      // origin rather than colliding with the negative range.
+      store.mobileTimeline.appendAtoms({
+        projectionEpoch: epoch,
+        atoms: [atom('hrc:hrc-a:13', 13)],
+        hrcNewestSeq: 13,
+        messageNewestSeq: 0,
+      })
+      expect(
+        store.mobileTimeline.listNewest(epoch, 10).map((item) => item.timelineOrdinal)
+      ).toEqual(['-2', '-1', '0'])
+      const after = store.mobileTimeline.getActive(IDENTITY)
+      expect([after?.hrcBeforeSeq, after?.hrcNewestSeq]).toEqual([11, 13])
+    } finally {
+      store.close()
+    }
+  })
+
+  test('keys page receipts by cursor digest and limit, and retires them with the epoch', () => {
+    const store = openAcpStateStore({ dbPath: ':memory:' })
+    try {
+      const first = store.mobileTimeline.replaceEpoch({
+        identity: IDENTITY,
+        hrcLedgerIncarnationId: 'hrc-a',
+        wrkqLedgerIncarnationId: 'wrkq-a',
+        hrcBeforeSeq: 10,
+        hrcNewestSeq: 11,
+        messageBeforeSeq: 1,
+        messageNewestSeq: 0,
+        hrcExhaustedBefore: false,
+        wrkqExhaustedBefore: true,
+        atoms: [atom('hrc:hrc-a:10', 10), atom('hrc:hrc-a:11', 11)],
+      })
+      const epoch = first.projection.projectionEpoch
+      const base = {
+        projectionEpoch: epoch,
+        requestDigest: 'digest-a',
+        responseContractVersion: 2,
+        boundaryTimelineOrdinal: '2',
+        olderCursor: 'cursor-a',
+        hasMoreBefore: true,
+        highWaterHrcSeq: 11,
+        highWaterMessageSeq: 0,
+        resetReason: null,
+      }
+      store.mobileTimeline.putPageReceipt({
+        ...base,
+        requestedLimit: 2,
+        atomIds: ['hrc:hrc-a:10', 'hrc:hrc-a:11'],
+        timelineOrdinals: ['0', '1'],
+      })
+      store.mobileTimeline.putPageReceipt({
+        ...base,
+        requestedLimit: 1,
+        atomIds: ['hrc:hrc-a:11'],
+        timelineOrdinals: ['1'],
+      })
+
+      // One cursor, two limits, two receipts: neither can satisfy the other.
+      expect(
+        store.mobileTimeline.getPageReceipt({
+          projectionEpoch: epoch,
+          requestDigest: 'digest-a',
+          requestedLimit: 2,
+          responseContractVersion: 2,
+        })?.atomIds
+      ).toEqual(['hrc:hrc-a:10', 'hrc:hrc-a:11'])
+      expect(
+        store.mobileTimeline.getPageReceipt({
+          projectionEpoch: epoch,
+          requestDigest: 'digest-a',
+          requestedLimit: 1,
+          responseContractVersion: 2,
+        })?.atomIds
+      ).toEqual(['hrc:hrc-a:11'])
+      expect(
+        store.mobileTimeline.getPageReceipt({
+          projectionEpoch: epoch,
+          requestDigest: 'digest-a',
+          requestedLimit: 1,
+          responseContractVersion: 3,
+        })
+      ).toBeUndefined()
+
+      // A first writer wins: a second put for the same identity never rewrites.
+      const rewritten = store.mobileTimeline.putPageReceipt({
+        ...base,
+        requestedLimit: 1,
+        atomIds: ['hrc:hrc-a:10'],
+        timelineOrdinals: ['0'],
+      })
+      expect(rewritten.atomIds).toEqual(['hrc:hrc-a:11'])
+
+      expect(() =>
+        store.mobileTimeline.putPageReceipt({
+          ...base,
+          requestDigest: 'digest-b',
+          requestedLimit: 1,
+          atomIds: ['hrc:hrc-a:10', 'hrc:hrc-a:11'],
+          timelineOrdinals: ['0', '1'],
+        })
+      ).toThrow(MobileTimelineProjectionCorruptError)
+
+      expect(
+        store.mobileTimeline
+          .listByAtomIds(epoch, ['hrc:hrc-a:11', 'hrc:hrc-a:10'])
+          .map((item) => item.atomId)
+      ).toEqual(['hrc:hrc-a:11', 'hrc:hrc-a:10'])
+
+      store.mobileTimeline.replaceEpoch({
+        identity: IDENTITY,
+        hrcLedgerIncarnationId: 'hrc-b',
+        wrkqLedgerIncarnationId: 'wrkq-a',
+        hrcBeforeSeq: 20,
+        hrcNewestSeq: 20,
+        messageBeforeSeq: 1,
+        messageNewestSeq: 0,
+        hrcExhaustedBefore: true,
+        wrkqExhaustedBefore: true,
+        resetReason: 'producer_incarnation_changed',
+        atoms: [atom('hrc:hrc-b:20', 20)],
+      })
+      expect(
+        store.mobileTimeline.getPageReceipt({
+          projectionEpoch: epoch,
+          requestDigest: 'digest-a',
+          requestedLimit: 2,
+          responseContractVersion: 2,
+        })
+      ).toBeUndefined()
+    } finally {
+      store.close()
+    }
+  })
+
+  test('retires v1 projections instead of reinterpreting their oldest-seq columns', () => {
+    const supportDir = mkdtempSync(join(tmpdir(), 't07728-v1-retirement-'))
+    const dbPath = join(supportDir, 'state.db')
+    try {
+      const legacy = new Database(dbPath)
+      legacy.exec(`
+        CREATE TABLE mobile_timeline_projection_epochs (
+          projection_epoch TEXT PRIMARY KEY,
+          session_ref TEXT NOT NULL,
+          host_session_id TEXT NOT NULL,
+          generation INTEGER NOT NULL,
+          hrc_ledger_incarnation_id TEXT NOT NULL,
+          wrkq_ledger_incarnation_id TEXT NOT NULL,
+          hrc_oldest_seq INTEGER NOT NULL,
+          hrc_newest_seq INTEGER NOT NULL,
+          message_oldest_seq INTEGER NOT NULL,
+          message_newest_seq INTEGER NOT NULL,
+          hrc_exhausted_before INTEGER NOT NULL CHECK (hrc_exhausted_before IN (0, 1)),
+          wrkq_exhausted_before INTEGER NOT NULL CHECK (wrkq_exhausted_before IN (0, 1)),
+          min_timeline_ordinal INTEGER,
+          max_timeline_ordinal INTEGER,
+          active INTEGER NOT NULL CHECK (active IN (0, 1)),
+          reset_reason TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO mobile_timeline_projection_epochs VALUES (
+          'tlp_v1', '${IDENTITY.sessionRef}', '${IDENTITY.hostSessionId}', ${IDENTITY.generation},
+          'hrc-a', 'wrkq-a', 10, 12, 0, 0, 0, 1, NULL, NULL, 1, NULL,
+          '2026-08-29T00:00:00.000Z', '2026-08-29T00:00:00.000Z'
+        );
+      `)
+      legacy.close()
+
+      const store = openAcpStateStore({ dbPath })
+      try {
+        expect(store.mobileTimeline.getActive(IDENTITY)).toBeUndefined()
+        const retired = store.mobileTimeline.getEpoch('tlp_v1')
+        expect(retired?.active).toBe(false)
+        expect(retired?.contractVersion).toBe(1)
+        const columns = store.sqlite
+          .prepare('PRAGMA table_info(mobile_timeline_projection_epochs)')
+          .all() as Array<{ name: string }>
+        expect(columns.map((column) => column.name)).not.toContain('hrc_oldest_seq')
+        expect(columns.map((column) => column.name)).toContain('hrc_before_seq')
+      } finally {
+        store.close()
+      }
+    } finally {
+      rmSync(supportDir, { recursive: true, force: true })
+    }
+  })
+
   test('pages timeline ordinals numerically after crossing the first digit', () => {
     const store = openAcpStateStore({ dbPath: ':memory:' })
     try {
@@ -242,9 +466,9 @@ describe('mobile timeline projection repo', () => {
         identity: IDENTITY,
         hrcLedgerIncarnationId: 'hrc-a',
         wrkqLedgerIncarnationId: 'wrkq-a',
-        hrcOldestSeq: 1,
+        hrcBeforeSeq: 1,
         hrcNewestSeq: 12,
-        messageOldestSeq: 0,
+        messageBeforeSeq: 0,
         messageNewestSeq: 0,
         hrcExhaustedBefore: true,
         wrkqExhaustedBefore: true,

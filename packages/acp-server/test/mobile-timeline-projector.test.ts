@@ -7,6 +7,7 @@ import {
   MobileTimelineCursorInvalidError,
   MobileTimelineItemOversizeError,
   MobileTimelineMalformedCursorError,
+  MobileTimelineSourcePositionExhaustedError,
   createMobileTimelineProjector,
 } from '../src/mobile-timeline-projector.js'
 
@@ -33,6 +34,11 @@ function event(hrcSeq: number, text: string, ts: string, frame = 'assistant'): H
   }
 }
 
+/** A raw HRC row that is read and consumed but projects to no public atom. */
+function nonProjecting(hrcSeq: number, ts: string): HrcLifecycleEvent {
+  return event(hrcSeq, `noise ${hrcSeq}`, ts, 'noise')
+}
+
 function message(messageSeq: number, body: string, createdAt: string): CollaborationMessage {
   return {
     messageId: `EN-${String(messageSeq).padStart(5, '0')}`,
@@ -52,6 +58,7 @@ function message(messageSeq: number, body: string, createdAt: string): Collabora
 function fixture() {
   const events: HrcLifecycleEvent[] = []
   const messages: CollaborationMessage[] = []
+  const reads = { hrc: 0, wrkq: 0 }
   let hrcIncarnation = 'hrc-a'
   let wrkqIncarnation = 'wrkq-a'
   const state = openAcpStateStore({ dbPath: ':memory:' })
@@ -59,6 +66,7 @@ function fixture() {
     store: state.mobileTimeline,
     hrcClient: {
       async tailEvents(options): Promise<HrcEventTail> {
+        reads.hrc += 1
         const matching = events.filter(
           (item) =>
             item.hostSessionId === options.hostSessionId &&
@@ -76,6 +84,7 @@ function fixture() {
     },
     collaborationLedger: {
       async pageMessagesByMember(input): Promise<CollaborationMessagePage> {
+        reads.wrkq += 1
         const matching = messages.filter(
           (item) =>
             (input.beforeMessageSeq === undefined || item.messageSeq < input.beforeMessageSeq) &&
@@ -96,6 +105,7 @@ function fixture() {
     },
     projectHrc(item) {
       const payload = item.payload as { text: string; frame: string }
+      if (payload.frame === 'noise') return undefined
       return {
         logicalFrameId: payload.frame,
         operation: 'append',
@@ -116,6 +126,7 @@ function fixture() {
     events,
     messages,
     projector,
+    reads,
     state,
     replaceHrc: () => {
       hrcIncarnation = 'hrc-b'
@@ -126,13 +137,30 @@ function fixture() {
   }
 }
 
+function decodeCursor(token: string): Record<string, unknown> {
+  return JSON.parse(Buffer.from(token, 'base64url').toString('utf8')) as Record<string, unknown>
+}
+
 function rewriteCursor(token: string, change: (value: Record<string, unknown>) => void): string {
-  const value = JSON.parse(Buffer.from(token, 'base64url').toString('utf8')) as Record<
-    string,
-    unknown
-  >
+  const value = decodeCursor(token)
   change(value)
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url')
+}
+
+/** Walks `olderCursor` to exhaustion and returns every atom oldest-first. */
+async function walkOlder(
+  fx: ReturnType<typeof fixture>,
+  page: { atoms: Array<{ sourceKind: string; sourceSeq: number }>; olderCursor: string | null },
+  target: number
+) {
+  const walked: Array<{ sourceKind: string; sourceSeq: number }> = [...page.atoms]
+  let cursor = page.olderCursor
+  for (let guard = 0; cursor !== null && guard < 50; guard += 1) {
+    const older = await fx.projector.page(IDENTITY, cursor, { target })
+    walked.unshift(...older.atoms)
+    cursor = older.olderCursor
+  }
+  return walked.map((atom) => `${atom.sourceKind}:${atom.sourceSeq}`)
 }
 
 describe('mobile timeline projector', () => {
@@ -161,6 +189,269 @@ describe('mobile timeline projector', () => {
       fx.state.close()
     }
   })
+
+  // ── T-07728 ────────────────────────────────────────────────────────────────
+
+  test('delivers the HRC head a wrkq-only first cohort selected none of', async () => {
+    const fx = fixture()
+    try {
+      for (let seq = 1; seq <= 4; seq += 1) {
+        fx.events.push(event(seq, `assistant ${seq}`, `2026-08-30T00:00:0${seq}.000Z`))
+      }
+      for (let seq = 1; seq <= 5; seq += 1) {
+        fx.messages.push(message(seq, `envelope ${seq}`, `2026-08-30T01:00:0${seq}.000Z`))
+      }
+
+      const opened = await fx.projector.open(IDENTITY, { target: 3 })
+      // The bounded newest window is entirely collaboration, so no HRC row was
+      // consumed and the frontier must sit one above the captured head.
+      expect(opened.atoms.map((atom) => atom.sourceKind)).toEqual(['wrkq', 'wrkq', 'wrkq'])
+      expect(fx.state.mobileTimeline.getActive(IDENTITY)?.hrcBeforeSeq).toBe(5)
+
+      expect(await walkOlder(fx, opened, 3)).toEqual([
+        'hrc:1',
+        'hrc:2',
+        'hrc:3',
+        'hrc:4',
+        'wrkq:1',
+        'wrkq:2',
+        'wrkq:3',
+        'wrkq:4',
+        'wrkq:5',
+      ])
+    } finally {
+      fx.state.close()
+    }
+  })
+
+  test('delivers the collaboration head an HRC-only first cohort selected none of', async () => {
+    const fx = fixture()
+    try {
+      for (let seq = 1; seq <= 4; seq += 1) {
+        fx.messages.push(message(seq, `envelope ${seq}`, `2026-08-30T00:00:0${seq}.000Z`))
+      }
+      for (let seq = 1; seq <= 5; seq += 1) {
+        fx.events.push(event(seq, `assistant ${seq}`, `2026-08-30T01:00:0${seq}.000Z`))
+      }
+
+      const opened = await fx.projector.open(IDENTITY, { target: 3 })
+      expect(opened.atoms.map((atom) => atom.sourceKind)).toEqual(['hrc', 'hrc', 'hrc'])
+      expect(fx.state.mobileTimeline.getActive(IDENTITY)?.messageBeforeSeq).toBe(5)
+
+      expect(await walkOlder(fx, opened, 3)).toEqual([
+        'wrkq:1',
+        'wrkq:2',
+        'wrkq:3',
+        'wrkq:4',
+        'hrc:1',
+        'hrc:2',
+        'hrc:3',
+        'hrc:4',
+        'hrc:5',
+      ])
+    } finally {
+      fx.state.close()
+    }
+  })
+
+  test('mints an origin-anchored cursor for an all-producers-zero-atom first cohort', async () => {
+    const fx = fixture()
+    try {
+      fx.events.push(
+        event(1, 'A1', '2026-08-30T01:00:01.000Z'),
+        event(2, 'A2', '2026-08-30T01:00:02.000Z'),
+        nonProjecting(3, '2026-08-30T01:00:03.000Z'),
+        nonProjecting(4, '2026-08-30T01:00:04.000Z')
+      )
+
+      const opened = await fx.projector.open(IDENTITY, { target: 2 })
+      expect(opened.atoms).toEqual([])
+      expect(opened.hasMoreBefore).toBe(true)
+      expect(opened.olderCursor).not.toBeNull()
+      const fence = decodeCursor(opened.olderCursor as string)
+      expect([fence['beforeTimelineOrdinal'], fence['originTimelineOrdinal']]).toEqual(['0', '0'])
+      const active = fx.state.mobileTimeline.getActive(IDENTITY)
+      expect(active?.minTimelineOrdinal).toBeNull()
+      expect(active?.hrcBeforeSeq).toBe(3)
+
+      const older = await fx.projector.page(IDENTITY, opened.olderCursor as string, { target: 2 })
+      expect(older.atoms.map((atom) => [atom.sourceSeq, atom.timelineOrdinal])).toEqual([
+        [1, '-2'],
+        [2, '-1'],
+      ])
+      expect(older.resetReason).toBeUndefined()
+    } finally {
+      fx.state.close()
+    }
+  })
+
+  test('advances frontiers through non-projecting rows and replays the zero-atom page', async () => {
+    const fx = fixture()
+    try {
+      fx.events.push(event(1, 'A1', '2026-08-30T01:00:00.000Z'))
+      for (let seq = 2; seq <= 20; seq += 1) {
+        fx.events.push(nonProjecting(seq, `2026-08-30T01:00:${String(seq).padStart(2, '0')}.000Z`))
+      }
+
+      const opened = await fx.projector.open(IDENTITY, { target: 2, maxAtoms: 3 })
+      expect(opened.atoms).toEqual([])
+      const cursor = opened.olderCursor as string
+      expect(decodeCursor(cursor)['beforeHrcSeq']).toBe(19)
+
+      const continued = await fx.projector.page(IDENTITY, cursor, { target: 2, maxAtoms: 3 })
+      // The record ceiling stops the scan before any atom is presentable: the
+      // page is empty but the source vector moved and paging can continue.
+      expect(continued.atoms).toEqual([])
+      expect(continued.hasMoreBefore).toBe(true)
+      expect(decodeCursor(continued.olderCursor as string)['beforeHrcSeq']).toBe(16)
+      expect(decodeCursor(continued.olderCursor as string)['beforeTimelineOrdinal']).toBe('0')
+
+      const readsAfterFirst = { ...fx.reads }
+      const replay = await fx.projector.page(IDENTITY, cursor, { target: 2, maxAtoms: 3 })
+      expect(replay).toEqual(continued)
+      expect(fx.reads).toEqual(readsAfterFirst)
+      expect(fx.state.mobileTimeline.getActive(IDENTITY)?.hrcBeforeSeq).toBe(16)
+    } finally {
+      fx.state.close()
+    }
+  })
+
+  test('keeps one cursor at two limits on separate receipts, each within its own bound', async () => {
+    for (const order of [
+      [100, 1],
+      [1, 100],
+    ]) {
+      const fx = fixture()
+      try {
+        for (let seq = 1; seq <= 6; seq += 1) {
+          fx.events.push(event(seq, `assistant ${seq}`, `2026-08-30T01:00:0${seq}.000Z`))
+        }
+        const opened = await fx.projector.open(IDENTITY, { target: 2 })
+        const cursor = opened.olderCursor as string
+        const [firstLimit, secondLimit] = order as [number, number]
+
+        const first = await fx.projector.page(IDENTITY, cursor, { target: firstLimit })
+        expect(first.atoms.length).toBeLessThanOrEqual(firstLimit)
+        const second = await fx.projector.page(IDENTITY, cursor, { target: secondLimit })
+        expect(second.atoms.length).toBeLessThanOrEqual(secondLimit)
+        expect(second.atoms.length).not.toBe(first.atoms.length)
+
+        const readsAfter = { ...fx.reads }
+        expect(await fx.projector.page(IDENTITY, cursor, { target: firstLimit })).toEqual(first)
+        expect(await fx.projector.page(IDENTITY, cursor, { target: secondLimit })).toEqual(second)
+        expect(fx.reads).toEqual(readsAfter)
+      } finally {
+        fx.state.close()
+      }
+    }
+  })
+
+  test('leaves reverse frontiers and pre-live receipts untouched by live arrivals', async () => {
+    const fx = fixture()
+    try {
+      for (let seq = 1; seq <= 6; seq += 1) {
+        fx.events.push(event(seq, `assistant ${seq}`, `2026-08-30T01:00:0${seq}.000Z`))
+      }
+      const opened = await fx.projector.open(IDENTITY, { target: 2 })
+      const cursor = opened.olderCursor as string
+      const paged = await fx.projector.page(IDENTITY, cursor, { target: 2 })
+      const frontierBefore = fx.state.mobileTimeline.getActive(IDENTITY)
+
+      const live = event(7, 'live', '2026-08-30T01:00:07.000Z')
+      fx.events.push(live)
+      const admitted = await fx.projector.admitLiveHrc(IDENTITY, live)
+      expect(admitted.map((atom) => atom.sourceSeq)).toEqual([7])
+
+      const after = fx.state.mobileTimeline.getActive(IDENTITY)
+      expect(after?.hrcBeforeSeq).toBe(frontierBefore?.hrcBeforeSeq)
+      expect(after?.messageBeforeSeq).toBe(frontierBefore?.messageBeforeSeq)
+      expect(after?.originTimelineOrdinal).toBe(frontierBefore?.originTimelineOrdinal)
+      expect(after?.hrcNewestSeq).toBe(7)
+
+      const replay = await fx.projector.page(IDENTITY, cursor, { target: 2 })
+      expect(replay).toEqual(paged)
+      expect(replay.atoms.some((atom) => atom.sourceSeq === 7)).toBe(false)
+    } finally {
+      fx.state.close()
+    }
+  })
+
+  test('refuses retired v1 cursors and source positions outside the frontier range', async () => {
+    const fx = fixture()
+    try {
+      for (let seq = 1; seq <= 4; seq += 1) {
+        fx.events.push(event(seq, `assistant ${seq}`, `2026-08-30T01:00:0${seq}.000Z`))
+      }
+      const opened = await fx.projector.open(IDENTITY, { target: 2 })
+      const cursor = opened.olderCursor as string
+      const payload = decodeCursor(cursor)
+
+      const { originTimelineOrdinal: _retired, ...withoutOrigin } = payload
+      const legacy = { ...withoutOrigin, v: 1 }
+      expect(() =>
+        fx.projector.decodeAndValidateCursor(
+          Buffer.from(JSON.stringify(legacy), 'utf8').toString('base64url'),
+          IDENTITY
+        )
+      ).toThrow(MobileTimelineCursorInvalidError)
+
+      // The canonical no-row-consumed sentinel is head + 1 and is accepted; one
+      // past it is not, and neither is a position below the current frontier.
+      expect(() =>
+        fx.projector.decodeAndValidateCursor(
+          rewriteCursor(cursor, (value) => {
+            value['beforeHrcSeq'] = 5
+          }),
+          IDENTITY
+        )
+      ).not.toThrow()
+      expect(() =>
+        fx.projector.decodeAndValidateCursor(
+          rewriteCursor(cursor, (value) => {
+            value['beforeHrcSeq'] = 6
+          }),
+          IDENTITY
+        )
+      ).toThrow(MobileTimelineCursorInvalidError)
+      expect(() =>
+        fx.projector.decodeAndValidateCursor(
+          rewriteCursor(cursor, (value) => {
+            value['beforeHrcSeq'] = 2
+          }),
+          IDENTITY
+        )
+      ).toThrow(MobileTimelineCursorInvalidError)
+      expect(() =>
+        fx.projector.decodeAndValidateCursor(
+          rewriteCursor(cursor, (value) => {
+            value['originTimelineOrdinal'] = '-1'
+          }),
+          IDENTITY
+        )
+      ).toThrow(MobileTimelineCursorInvalidError)
+    } finally {
+      fx.state.close()
+    }
+  })
+
+  test('fails explicitly when a captured head leaves no representable frontier', async () => {
+    const fx = fixture()
+    try {
+      fx.messages.push(
+        message(Number.MAX_SAFE_INTEGER, 'ledger ceiling', '2026-08-30T00:00:01.000Z')
+      )
+      fx.events.push(event(1, 'A1', '2026-08-30T01:00:01.000Z'))
+
+      await expect(fx.projector.open(IDENTITY, { target: 1 })).rejects.toBeInstanceOf(
+        MobileTimelineSourcePositionExhaustedError
+      )
+      expect(fx.state.mobileTimeline.getActive(IDENTITY)).toBeUndefined()
+    } finally {
+      fx.state.close()
+    }
+  })
+
+  // ── T-07718 contract, unchanged ────────────────────────────────────────────
 
   test('commits complete bounded catch-up but resets all-or-nothing when one more atom remains', async () => {
     const fx = fixture()
@@ -255,6 +546,14 @@ describe('mobile timeline projector', () => {
           IDENTITY
         )
       ).toThrow(MobileTimelineCursorInvalidError)
+      expect(() =>
+        fx.projector.decodeAndValidateCursor(
+          rewriteCursor(cursor, (value) => {
+            value['beforeTimelineOrdinal'] = '1000000'
+          }),
+          IDENTITY
+        )
+      ).toThrow(MobileTimelineCursorInvalidError)
     } finally {
       fx.state.close()
     }
@@ -269,7 +568,9 @@ describe('mobile timeline projector', () => {
         event(2, 'x'.repeat(350), '2026-08-30T01:00:02.000Z'),
         event(3, 'y'.repeat(350), '2026-08-30T01:00:03.000Z')
       )
-      const reset = await fx.projector.open(IDENTITY, { target: 1, maxBytes: 1_000 })
+      // The closed-cohort ceiling now charges staged raw rows as well as
+      // projected atoms, matching the catch-up path it is compared against.
+      const reset = await fx.projector.open(IDENTITY, { target: 1, maxBytes: 1_500 })
       expect(reset.projectionEpoch).not.toBe(first.projectionEpoch)
       expect(reset.resetReason).toBe('catch_up_limit_exceeded')
       expect(reset.atoms.map((atom) => atom.sourceSeq)).toEqual([3])

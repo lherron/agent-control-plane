@@ -436,14 +436,16 @@ function initializeSchema(sqlite: SqliteDatabase): void {
       session_ref TEXT NOT NULL,
       host_session_id TEXT NOT NULL,
       generation INTEGER NOT NULL,
+      contract_version INTEGER NOT NULL,
       hrc_ledger_incarnation_id TEXT NOT NULL,
       wrkq_ledger_incarnation_id TEXT NOT NULL,
-      hrc_oldest_seq INTEGER NOT NULL,
+      hrc_before_seq INTEGER NOT NULL,
       hrc_newest_seq INTEGER NOT NULL,
-      message_oldest_seq INTEGER NOT NULL,
+      message_before_seq INTEGER NOT NULL,
       message_newest_seq INTEGER NOT NULL,
       hrc_exhausted_before INTEGER NOT NULL CHECK (hrc_exhausted_before IN (0, 1)),
       wrkq_exhausted_before INTEGER NOT NULL CHECK (wrkq_exhausted_before IN (0, 1)),
+      origin_timeline_ordinal INTEGER NOT NULL,
       min_timeline_ordinal INTEGER,
       max_timeline_ordinal INTEGER,
       active INTEGER NOT NULL CHECK (active IN (0, 1)),
@@ -474,6 +476,24 @@ function initializeSchema(sqlite: SqliteDatabase): void {
 
     CREATE INDEX IF NOT EXISTS mobile_timeline_atoms_ordinal_idx
       ON mobile_timeline_atoms (projection_epoch, timeline_ordinal);
+
+    CREATE TABLE IF NOT EXISTS mobile_timeline_page_receipts (
+      projection_epoch TEXT NOT NULL,
+      request_digest TEXT NOT NULL,
+      requested_limit INTEGER NOT NULL,
+      response_contract_version INTEGER NOT NULL,
+      boundary_timeline_ordinal INTEGER NOT NULL,
+      atom_ids_json TEXT NOT NULL,
+      timeline_ordinals_json TEXT NOT NULL,
+      older_cursor TEXT,
+      has_more_before INTEGER NOT NULL CHECK (has_more_before IN (0, 1)),
+      high_water_hrc_seq INTEGER NOT NULL,
+      high_water_message_seq INTEGER NOT NULL,
+      reset_reason TEXT,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (projection_epoch, request_digest, requested_limit, response_contract_version),
+      FOREIGN KEY (projection_epoch) REFERENCES mobile_timeline_projection_epochs(projection_epoch)
+    );
   `)
 }
 
@@ -1023,6 +1043,55 @@ function rebuildInputQueueForStatusConstraint(sqlite: SqliteDatabase): void {
   `)
 }
 
+/**
+ * T-07728: v1 projections conflated an admitted atom's oldest source sequence
+ * with the exclusive reverse frontier, so a producer head that no cohort
+ * selected became permanently unreachable. Frontier state is not derivable from
+ * a v1 row, so v1 epochs are retired rather than reinterpreted; the next open
+ * mints a replacement epoch under the frontier contract.
+ */
+function migrateMobileTimelineSourceFrontiers(sqlite: SqliteDatabase): void {
+  const columns = listTableColumns(sqlite, 'mobile_timeline_projection_epochs')
+  if (columns.size === 0 || columns.has('hrc_before_seq')) return
+
+  addColumnIfMissing(
+    sqlite,
+    'mobile_timeline_projection_epochs',
+    columns,
+    'contract_version',
+    'INTEGER NOT NULL DEFAULT 1'
+  )
+  addColumnIfMissing(
+    sqlite,
+    'mobile_timeline_projection_epochs',
+    columns,
+    'hrc_before_seq',
+    'INTEGER NOT NULL DEFAULT 0'
+  )
+  addColumnIfMissing(
+    sqlite,
+    'mobile_timeline_projection_epochs',
+    columns,
+    'message_before_seq',
+    'INTEGER NOT NULL DEFAULT 0'
+  )
+  addColumnIfMissing(
+    sqlite,
+    'mobile_timeline_projection_epochs',
+    columns,
+    'origin_timeline_ordinal',
+    'INTEGER NOT NULL DEFAULT 0'
+  )
+
+  sqlite.exec('UPDATE mobile_timeline_projection_epochs SET active = 0 WHERE contract_version < 2')
+
+  for (const legacy of ['hrc_oldest_seq', 'message_oldest_seq']) {
+    if (!columns.has(legacy)) continue
+    sqlite.exec(`ALTER TABLE mobile_timeline_projection_epochs DROP COLUMN ${legacy}`)
+    columns.delete(legacy)
+  }
+}
+
 function migrateLegacySchema(sqlite: SqliteDatabase): void {
   sqlite.transaction(() => {
     migrateRunsActorColumns(sqlite)
@@ -1030,6 +1099,7 @@ function migrateLegacySchema(sqlite: SqliteDatabase): void {
     migrateTransitionOutboxActorColumns(sqlite)
     migrateWorkflowObligationLifecycleColumns(sqlite)
     migrateWorkflowEventSourcingColumns(sqlite)
+    migrateMobileTimelineSourceFrontiers(sqlite)
   })()
   rebuildRunsForQueuedStatus(sqlite)
   rebuildInputAttemptsForNullableRun(sqlite)

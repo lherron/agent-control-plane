@@ -7,6 +7,7 @@ export { InputQueueRepo } from './repos/input-queue-repo.js'
 export { RunRepo, deriveRunId } from './repos/run-repo.js'
 export { SessionAdmissionSequenceRepo } from './repos/session-admission-sequence-repo.js'
 export {
+  MOBILE_TIMELINE_PROJECTION_CONTRACT_VERSION,
   MobileTimelineOrdinalExhaustedError,
   MobileTimelineProjectionCorruptError,
   MobileTimelineProjectionRepo,
@@ -14,6 +15,8 @@ export {
 export type {
   MobileTimelineAtomInput,
   MobileTimelineAtomRecord,
+  MobileTimelinePageReceipt,
+  MobileTimelinePageReceiptKey,
   MobileTimelinePrefixState,
   MobileTimelineProjectionIdentity,
   MobileTimelineProjectionRecord,
