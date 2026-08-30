@@ -315,4 +315,32 @@ describe('mobile timeline projector', () => {
       fx.state.close()
     }
   })
+
+  test('retires an epoch with an internal ordinal gap instead of mixing around it', async () => {
+    const fx = fixture()
+    try {
+      fx.events.push(
+        event(1, 'one', '2026-08-30T01:00:01.000Z'),
+        event(2, 'two', '2026-08-30T01:00:02.000Z'),
+        event(3, 'three', '2026-08-30T01:00:03.000Z')
+      )
+      const first = await fx.projector.open(IDENTITY, { target: 3 })
+      fx.state.sqlite
+        .prepare(
+          'DELETE FROM mobile_timeline_atoms WHERE projection_epoch = ? AND timeline_ordinal = 1'
+        )
+        .run(first.projectionEpoch)
+
+      const reset = await fx.projector.open(IDENTITY, { target: 3 })
+      expect(reset.projectionEpoch).not.toBe(first.projectionEpoch)
+      expect(reset.resetReason).toBe('projection_corrupt')
+      expect(reset.atoms.map((item) => item.timelineOrdinal)).toEqual(['0', '1', '2'])
+      const retired = fx.state.sqlite
+        .prepare('SELECT active FROM mobile_timeline_projection_epochs WHERE projection_epoch = ?')
+        .get(first.projectionEpoch) as { active: number }
+      expect(retired.active).toBe(0)
+    } finally {
+      fx.state.close()
+    }
+  })
 })

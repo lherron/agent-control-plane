@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'bun:test'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
-import { MobileTimelineOrdinalExhaustedError, openAcpStateStore } from '../src/index.js'
+import {
+  MobileTimelineOrdinalExhaustedError,
+  MobileTimelineProjectionCorruptError,
+  openAcpStateStore,
+} from '../src/index.js'
 
 const IDENTITY = {
   sessionRef: 'agent:cody:project:agent-control-plane:task:T-07718/lane:main',
@@ -154,6 +161,75 @@ describe('mobile timeline projection repo', () => {
           messageNewestSeq: 0,
         })
       ).toThrow(MobileTimelineOrdinalExhaustedError)
+    } finally {
+      store.close()
+    }
+  })
+
+  test('restores the exact epoch and ordinals after a store restart', () => {
+    const supportDir = mkdtempSync(join(tmpdir(), 't07718-projection-restart-'))
+    const dbPath = join(supportDir, 'state.db')
+    try {
+      const firstStore = openAcpStateStore({ dbPath })
+      const first = firstStore.mobileTimeline.replaceEpoch({
+        identity: IDENTITY,
+        hrcLedgerIncarnationId: 'hrc-a',
+        wrkqLedgerIncarnationId: 'wrkq-a',
+        hrcOldestSeq: 10,
+        hrcNewestSeq: 11,
+        messageOldestSeq: 0,
+        messageNewestSeq: 0,
+        hrcExhaustedBefore: true,
+        wrkqExhaustedBefore: true,
+        atoms: [atom('hrc:hrc-a:10', 10), atom('hrc:hrc-a:11', 11)],
+      })
+      firstStore.close()
+
+      const reopened = openAcpStateStore({ dbPath })
+      try {
+        expect(reopened.mobileTimeline.getActive(IDENTITY)?.projectionEpoch).toBe(
+          first.projection.projectionEpoch
+        )
+        expect(
+          reopened.mobileTimeline
+            .listNewest(first.projection.projectionEpoch, 10)
+            .map((item) => [item.atomId, item.timelineOrdinal])
+        ).toEqual([
+          ['hrc:hrc-a:10', '0'],
+          ['hrc:hrc-a:11', '1'],
+        ])
+      } finally {
+        reopened.close()
+      }
+    } finally {
+      rmSync(supportDir, { recursive: true, force: true })
+    }
+  })
+
+  test('fails explicitly when durable atom ordinals contain an internal gap', () => {
+    const store = openAcpStateStore({ dbPath: ':memory:' })
+    try {
+      const first = store.mobileTimeline.replaceEpoch({
+        identity: IDENTITY,
+        hrcLedgerIncarnationId: 'hrc-a',
+        wrkqLedgerIncarnationId: 'wrkq-a',
+        hrcOldestSeq: 10,
+        hrcNewestSeq: 12,
+        messageOldestSeq: 0,
+        messageNewestSeq: 0,
+        hrcExhaustedBefore: true,
+        wrkqExhaustedBefore: true,
+        atoms: [atom('hrc:hrc-a:10', 10), atom('hrc:hrc-a:11', 11), atom('hrc:hrc-a:12', 12)],
+      })
+      store.sqlite
+        .prepare(
+          'DELETE FROM mobile_timeline_atoms WHERE projection_epoch = ? AND timeline_ordinal = 1'
+        )
+        .run(first.projection.projectionEpoch)
+
+      expect(() => store.mobileTimeline.getActive(IDENTITY)).toThrow(
+        MobileTimelineProjectionCorruptError
+      )
     } finally {
       store.close()
     }

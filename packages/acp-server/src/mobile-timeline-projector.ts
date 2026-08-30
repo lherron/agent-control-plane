@@ -5,6 +5,7 @@ import type {
   MobileTimelineProjectionRecord,
   MobileTimelineProjectionRepo,
 } from 'acp-state-store'
+import { MobileTimelineProjectionCorruptError } from 'acp-state-store'
 import type { HrcLifecycleEvent } from 'hrc-core'
 import type { HrcEventTail } from 'hrc-sdk'
 import type { CollaborationLedger, CollaborationMessage, CollaborationMessagePage } from 'wrkq-lib'
@@ -466,7 +467,15 @@ export function createMobileTimelineProjector(deps: ProjectorDeps) {
 
   async function openUnlocked(identity: MobileTimelineProjectorIdentity, config: ProjectorOptions) {
     const sources = await recentSources(identity, config)
-    const active = deps.store.getActive(identity)
+    let active: MobileTimelineProjectionRecord | undefined
+    try {
+      active = deps.store.getActive(identity)
+    } catch (error) {
+      if (error instanceof MobileTimelineProjectionCorruptError) {
+        return replaceFromRecent(identity, config, sources, 'projection_corrupt')
+      }
+      throw error
+    }
     if (active === undefined) return replaceFromRecent(identity, config, sources)
     if (
       active.hrcLedgerIncarnationId !== sources.hrcIncarnation ||
@@ -586,7 +595,15 @@ export function createMobileTimelineProjector(deps: ProjectorDeps) {
     identity: MobileTimelineProjectorIdentity
   ): CursorPayload {
     const payload = parseCursor(token)
-    const active = deps.store.getActive(identity)
+    let active: MobileTimelineProjectionRecord | undefined
+    try {
+      active = deps.store.getActive(identity)
+    } catch (error) {
+      if (error instanceof MobileTimelineProjectionCorruptError) {
+        throw new MobileTimelineCursorInvalidError('history projection is corrupt and must reset')
+      }
+      throw error
+    }
     if (
       payload.sessionRef !== identity.sessionRef ||
       payload.hostSessionId !== identity.hostSessionId ||

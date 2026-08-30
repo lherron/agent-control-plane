@@ -175,7 +175,10 @@ export class MobileTimelineProjectionRepo {
       .get(identity.sessionRef, identity.hostSessionId, identity.generation) as
       | ProjectionRow
       | undefined
-    return row === undefined ? undefined : projectionFromRow(row)
+    if (row === undefined) return undefined
+    const projection = projectionFromRow(row)
+    this.assertContiguousOrdinals(projection)
+    return projection
   }
 
   getEpoch(projectionEpoch: string): MobileTimelineProjectionRecord | undefined {
@@ -186,7 +189,10 @@ export class MobileTimelineProjectionRepo {
            FROM mobile_timeline_projection_epochs WHERE projection_epoch = ?`
       )
       .get(projectionEpoch) as ProjectionRow | undefined
-    return row === undefined ? undefined : projectionFromRow(row)
+    if (row === undefined) return undefined
+    const projection = projectionFromRow(row)
+    this.assertContiguousOrdinals(projection)
+    return projection
   }
 
   replaceEpoch(input: {
@@ -393,6 +399,38 @@ export class MobileTimelineProjectionRepo {
       )
       .get(projectionEpoch, value) as { present: number } | undefined
     return row?.present === 1
+  }
+
+  private assertContiguousOrdinals(projection: MobileTimelineProjectionRecord): void {
+    const row = this.context.sqlite
+      .prepare(
+        `SELECT COUNT(*) AS atom_count,
+                CAST(MIN(timeline_ordinal) AS TEXT) AS min_ordinal,
+                CAST(MAX(timeline_ordinal) AS TEXT) AS max_ordinal
+           FROM mobile_timeline_atoms WHERE projection_epoch = ?`
+      )
+      .get(projection.projectionEpoch) as {
+      atom_count: number
+      min_ordinal: string | null
+      max_ordinal: string | null
+    }
+    if (row.atom_count === 0) {
+      if (projection.minTimelineOrdinal === null && projection.maxTimelineOrdinal === null) return
+      throw new MobileTimelineProjectionCorruptError(
+        `projection ${projection.projectionEpoch} has bounds without atoms`
+      )
+    }
+    if (
+      row.min_ordinal === null ||
+      row.max_ordinal === null ||
+      row.min_ordinal !== projection.minTimelineOrdinal ||
+      row.max_ordinal !== projection.maxTimelineOrdinal ||
+      BigInt(row.atom_count) !== ordinal(row.max_ordinal) - ordinal(row.min_ordinal) + 1n
+    ) {
+      throw new MobileTimelineProjectionCorruptError(
+        `projection ${projection.projectionEpoch} has a non-contiguous atom ordinal range`
+      )
+    }
   }
 
   private requireEpoch(epoch: string): MobileTimelineProjectionRecord {
