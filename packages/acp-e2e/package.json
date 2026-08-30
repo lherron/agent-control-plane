@@ -7,9 +7,11 @@
   "scripts": {
     "build": "rm -rf dist && tsc",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "test:acceptance": "ACP_TIMELINE_ACCEPTANCE=1 bun test test/mobile-timeline-ordering.e2e.test.ts"
   },
   "dependencies": {
+    "@wrkq/client": "0.1.0-dev.20260829205613",
     "acp-cli": "*",
     "acp-core": "*",
     "acp-interface-store": "*",
@@ -21,6 +23,7 @@
     "hrc-core": "0.1.0-dev.20260829201542",
     "hrc-sdk": "0.1.0-dev.20260829201542",
     "hrc-server": "0.1.0-dev.20260829201542",
+    "hrc-store-sqlite": "0.1.0-dev.20260829201542",
     "spaces-config": "0.1.1-dev.20260825213756",
     "spaces-runtime": "0.1.1-dev.20260825213756"
   },

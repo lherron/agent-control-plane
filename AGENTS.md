@@ -21,6 +21,12 @@ Read `~/praesidium/build_deploy_guide.md` before building, installing, or promot
 ## Validation
 
 - Conformance suite (canonical workflow-kernel tests, run before declaring ACP work done): `bun test tests/conformance/acp-workflow`
+- Mobile timeline acceptance gate (opt-in, P-00454/T-07724): `bun run test:acceptance` — spawns an
+  isolated real HRC daemon, an isolated real wrkq store and the production `acp-server`, drives
+  `/v1/mobile/history` and the timeline WebSocket over real HTTP with bearer auth, and writes
+  `var/e2e-reports/mobile-timeline-ordering.json`. Needs `wrkf`/`wrkqadm` on PATH and a non-loopback
+  IPv4 interface. It is out of the default `bun run test` gate while it reports an open campaign
+  defect; promoting it belongs to the campaign.
 - Full repository gate: `ASP_PROJECT=agent-control-plane just verify` — the env var prevents ambient project context from selecting another repository during cross-repo validation.
 - Live discovery: `bun scripts/discover-acp.ts <area>` (areas: `routes`, `packages`, `cli`, `adoption`, `all`; `--json` available) computes current route/package/handler/command facts from the tree — prefer it over static prose.
 - Enablement lessons route through the [Agent enablement changelog](docs/agent-enablement-changelog.md).

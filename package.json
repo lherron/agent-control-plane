@@ -27,6 +27,7 @@
     "lint:fix": "biome check --write .",
     "test": "bash -lc 'bun test scripts/*.test.ts tests/conformance/acp-workflow && for pkg in \"acp-core\" \"coordination-substrate\" \"wrkq-lib\" \"acp-admin-store\" \"acp-conversation\" \"acp-interface-store\" \"acp-jobs-store\" \"acp-state-store\" \"acp-ops-projection\" \"acp-ops-reducer\" \"gateway-discord\" \"gateway-ios\" \"acp-capability-host\" \"acp-server\" \"acp-cli\" \"wlearn\" \"acp-viewer\" \"acp-e2e\"; do bun run --filter \"$pkg\" test || exit $?; done'",
     "test:fast": "bun run test",
+    "test:acceptance": "bun run --filter 'acp-e2e' test:acceptance",
     "clean": "rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo",
     "rebuild": "bun run clean && bun run build",
     "install:hooks": "bun scripts/install-git-hooks.ts",
