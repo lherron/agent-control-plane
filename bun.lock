@@ -1,5 +1,6 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "agent-control-plane",
@@ -283,11 +284,9 @@
         "gateway-ios": "./src/main.ts",
       },
       "dependencies": {
-        "@wrkq/client": "latest",
         "agent-scope": "0.1.1-dev.20260825213756",
         "hrc-core": "0.1.0-dev.20260829201542",
         "hrc-sdk": "0.1.0-dev.20260829201542",
-        "wrkq-lib": "*",
       },
       "devDependencies": {
         "@types/bun": "1.3.14",
