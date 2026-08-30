@@ -22,7 +22,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "agent-action-render": "0.1.0-dev.20260828102502"
+    "agent-action-render": "0.1.0-dev.20260829201542"
   },
   "devDependencies": {
     "@types/bun": "1.3.14",

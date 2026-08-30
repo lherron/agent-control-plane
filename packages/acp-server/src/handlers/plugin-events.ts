@@ -129,7 +129,7 @@ export function parsePluginEventFilters(url: URL): AcpPluginEventFilters {
 
 export function toHrcEventFilters(
   filters: AcpPluginEventFilters
-): Omit<HrcEventTailOptions, 'limit'> &
+): Omit<HrcEventTailOptions, 'limit' | 'beforeHrcSeq' | 'ledgerIncarnationId'> &
   Omit<WatchBoundedEventsOptions, 'ledgerIncarnationId' | 'afterSeq' | 'signal'> {
   const { category, ...rest } = filters
   return {
