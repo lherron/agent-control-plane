@@ -94,6 +94,8 @@ describe('Discord ledger routing and renders', () => {
       ),
     })
     expect(sinks[1]?.payload).toEqual({
+      username: 'smokey@agent-control-plane:T-00001',
+      avatar_url: 'https://api.dicebear.com/7.x/bottts/png?seed=smokey',
       content: '-# smokey@agent-control-plane:T-00001 . EN-00042\nledger reply',
     })
   })
@@ -154,6 +156,9 @@ describe('Discord ledger routing and renders', () => {
     const value = envelope()
     expect(firstEmbed(chatCard(value, 'agent-control-plane'))['description']).toContain(value.id)
     expect(humanNotice(value).content).toContain(value.id)
+    // The reply renders under the speaking agent, not the webhook default.
+    expect(humanNotice(value).username).toBe(chatCard(value, undefined).username)
+    expect(humanNotice(value).avatar_url).toBe(chatCard(value, undefined).avatar_url)
 
     const sinks = resolveEnvelopeSinks(value, { route })
     expect(sinks.map((sink) => sink.kind)).toEqual(['human-notice'])

@@ -115,9 +115,14 @@ export function chatCard(envelope: WrkqEnvelope, projectId: string | undefined):
 }
 
 /** Pure Sink-B render. The EN id is intentionally live even when Sink A is
- * disabled: it is the reconciliation/readback key for every new notice. */
+ * disabled: it is the reconciliation/readback key for every new notice. The
+ * speaking agent is carried by the webhook identity, exactly as Sink A does —
+ * without it Discord shows the webhook's default name ("agent-pulpit") on what
+ * is, to the human in the channel, the agent's own reply. */
 export function humanNotice(envelope: WrkqEnvelope): WebhookPayload {
   return {
+    username: displayParty(envelope.from),
+    avatar_url: avatarFor(actorSlug(envelope.from.principalRef)),
     content: `-# ${displayParty(envelope.from)} . ${envelope.id}\n${envelope.body}`,
   }
 }
