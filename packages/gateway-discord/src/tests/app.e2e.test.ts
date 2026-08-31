@@ -410,12 +410,15 @@ describe('GatewayDiscordApp local e2e', () => {
     expect(webhook?.edits.at(-1)?.payload.content).toContain('↪️ **Steered active run:**')
   })
 
-  test('keeps typing after deleting a ledger-routed placeholder until its human notice lands', async () => {
+  test('renders ledger-routed progress and replaces the placeholder with its human notice', async () => {
     const channel = new FakeChannel('chan_ledger_route')
     const client = new FakeClient()
     client.addChannel(channel)
     const paths: string[] = []
     const captured: CapturedInterfaceMessage[] = []
+    const eventRequests: URL[] = []
+    const eventEncoder = new TextEncoder()
+    let eventController: ReadableStreamDefaultController<Uint8Array> | undefined
     const store = openInterfaceStore({ dbPath: ':memory:' })
     store.discordLedgerProjection.advanceCursor('discord_prod', 40)
     const ledgerEvents = [
@@ -479,6 +482,7 @@ describe('GatewayDiscordApp local e2e', () => {
       ledgerHumanEgress: { client: workClient, store },
       dashboardSnapshotImpl: async () => ({
         type: 'dashboard_snapshot',
+        cursors: { lastHrcSeq: 100 },
         sessions: [
           {
             sessionRef: 'agent:cody:project:agent-spaces/lane:main',
@@ -537,7 +541,14 @@ describe('GatewayDiscordApp local e2e', () => {
         }
 
         if (url.pathname === '/v1/session-refs/events') {
-          return new Response(new ReadableStream())
+          eventRequests.push(url)
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                eventController = controller
+              },
+            })
+          )
         }
 
         return new Response('not found', { status: 404 })
@@ -560,21 +571,83 @@ describe('GatewayDiscordApp local e2e', () => {
 
     expect(captured).toHaveLength(1)
     const webhook = [...channel.webhooks.values()].find((w) => w.name === 'agent-pulpit')
-    // The placeholder was posted, then deleted — never edited into a steer notice —
-    // while the native typing affordance continues through ledger processing.
+    // The active binding is the subscription roster for ledger routes too.
+    await Bun.sleep(10)
+    expect(eventRequests).toHaveLength(1)
+    expect(eventRequests[0]?.searchParams.get('sessionRef')).toBe(
+      'agent:cody:project:agent-spaces/lane:main'
+    )
+
+    // The placeholder stays alive as the progress surface and never becomes the
+    // false accepted_in_flight steer banner fixed by 11741a2.
     expect(webhook?.sent).toHaveLength(1)
-    expect(webhook?.sent[0]?.message.deleted).toBe(true)
+    expect(webhook?.sent[0]?.message.deleted).toBe(false)
     expect(webhook?.edits.some((e) => String(e.payload.content ?? '').includes('Steered'))).toBe(
       false
     )
+
+    const emitEvent = (hrcSeq: number, eventKind: string, payload: Record<string, unknown>) => {
+      eventController?.enqueue(
+        eventEncoder.encode(
+          `${JSON.stringify({
+            hrcSeq,
+            streamSeq: hrcSeq - 100,
+            ts: new Date(Date.now() + 1_000).toISOString(),
+            hostSessionId: 'hsid_ledger',
+            scopeRef: 'agent:cody:project:agent-spaces',
+            laneRef: 'main',
+            generation: 7,
+            runtimeId: 'rt_ledger',
+            runId: 'hrc_run_ledger',
+            category: 'turn',
+            eventKind,
+            replayed: false,
+            payload,
+          })}\n`
+        )
+      )
+    }
+    emitEvent(101, 'tool_execution_start', {
+      type: 'tool_execution_start',
+      toolUseId: 'tool_ledger_shell',
+      toolName: 'Bash',
+      input: { command: 'inspect source && run checks' },
+    })
+    emitEvent(102, 'tool_execution_start', {
+      type: 'tool_execution_start',
+      toolUseId: 'tool_ledger_question',
+      toolName: 'AskUserQuestion',
+      input: {
+        questions: [
+          {
+            header: 'Publish target',
+            question: 'Which feed should receive this episode?',
+            options: [
+              { label: 'Private feed', description: 'Publish privately.' },
+              { label: 'Public feed', description: 'Publish publicly.' },
+            ],
+          },
+        ],
+      },
+    })
+    await Bun.sleep(30)
+    const liveContent = webhook?.edits.at(-1)?.payload.content ?? ''
+    expect(liveContent).toContain('shell: inspect source && run checks')
+    expect(liveContent).toContain('Which feed should receive this episode?')
+    const pingsAtQuestion = channel.typingPings
     await Bun.sleep(15)
-    expect(channel.typingPings).toBeGreaterThanOrEqual(2)
+    expect(channel.typingPings).toBe(pingsAtQuestion)
 
     const egress = (app as unknown as { ledgerHumanEgress: { pollOnce(): Promise<number> } })
       .ledgerHumanEgress
     await egress.pollOnce()
-    expect(webhook?.sent).toHaveLength(2)
-    expect(webhook?.sent[1]?.content).toContain('ledger reply')
+    // Egress finalizes the same webhook message; there is no stale progress
+    // bubble beside a separately posted reply.
+    expect(webhook?.sent).toHaveLength(1)
+    expect(webhook?.sent[0]?.message.deleted).toBe(false)
+    expect(webhook?.edits.at(-1)?.messageId).toBe(webhook?.sent[0]?.message.id)
+    expect(webhook?.edits.at(-1)?.payload.content).toContain('EN-00042')
+    expect(webhook?.edits.at(-1)?.payload.content).toContain('ledger reply')
     const pingsAtReply = channel.typingPings
     await Bun.sleep(15)
     expect(channel.typingPings).toBe(pingsAtReply)
@@ -646,6 +719,7 @@ describe('GatewayDiscordApp local e2e', () => {
       ledgerHumanEgress: { client: workClient, store },
       dashboardSnapshotImpl: async () => ({
         type: 'dashboard_snapshot',
+        cursors: { lastHrcSeq: 0 },
         sessions: [],
       }),
       fetchImpl: createFetch(async (request) => {
@@ -704,7 +778,7 @@ describe('GatewayDiscordApp local e2e', () => {
     await Bun.sleep(15)
     expect(channel.typingPings).toBeGreaterThanOrEqual(2)
     const webhook = [...channel.webhooks.values()].find((w) => w.name === 'agent-pulpit')
-    expect(webhook?.sent[0]?.message.deleted).toBe(true)
+    expect(webhook?.sent[0]?.message.deleted).toBe(false)
 
     const egress = (app as unknown as { ledgerHumanEgress: { pollOnce(): Promise<number> } })
       .ledgerHumanEgress
@@ -714,6 +788,103 @@ describe('GatewayDiscordApp local e2e', () => {
     expect(channel.typingPings).toBe(pingsAtFailure)
     expect(webhook?.sent).toHaveLength(1)
     expect(webhook?.edits).toHaveLength(0)
+    expect(webhook?.sent[0]?.message.deleted).toBe(true)
+
+    await app.stop()
+    store.close()
+  })
+
+  test('deletes an uncompleted ledger progress placeholder at the live timeout', async () => {
+    const channel = new FakeChannel('chan_ledger_timeout')
+    const client = new FakeClient()
+    client.addChannel(channel)
+    const store = openInterfaceStore({ dbPath: ':memory:' })
+    store.discordLedgerProjection.advanceCursor('discord_prod', 60)
+    const workClient = {
+      call: async () => ({ items: [], high_water: 60 }),
+      wrkq: {
+        envelope: {
+          show: async () => {
+            throw new Error('no envelope events expected')
+          },
+        },
+        room: { show: async () => ({ workRef: null }) },
+      },
+    } as unknown as WorkClient
+    const app = new GatewayDiscordApp({
+      acpBaseUrl: 'http://acp.test',
+      gatewayId: 'discord_prod',
+      client: client as never,
+      typingRefreshMs: 5,
+      liveProgressTimeoutMs: 15,
+      ledgerHumanEgress: { client: workClient, store },
+      dashboardSnapshotImpl: async () => ({
+        type: 'dashboard_snapshot',
+        cursors: { lastHrcSeq: 0 },
+        sessions: [],
+      }),
+      fetchImpl: createFetch(async (request) => {
+        const url = new URL(request.url)
+        if (url.pathname === '/v1/interface/bindings') {
+          return Response.json({
+            bindings: [
+              {
+                bindingId: 'ifb_ledger_timeout',
+                gatewayId: 'discord_prod',
+                conversationRef: 'channel:chan_ledger_timeout',
+                sessionRef: {
+                  scopeRef: 'agent:cody:project:agent-spaces',
+                  laneRef: 'main',
+                },
+                projectId: 'agent-spaces',
+                status: 'active',
+                createdAt: '2026-05-07T10:00:00.000Z',
+                updatedAt: '2026-05-07T10:00:00.000Z',
+              },
+            ],
+          })
+        }
+        if (url.pathname === '/v1/interface/messages') {
+          return Response.json(
+            {
+              inputAttemptId: 'ia_ledger_timeout',
+              admission: { kind: 'accepted_in_flight' },
+              currentState: {
+                delivery: 'collaboration_ledger',
+                roomUuid: 'room_ledger_timeout',
+                roomKey: 'R-00003',
+                envelopeId: 'EN-00061',
+              },
+            },
+            { status: 201 }
+          )
+        }
+        if (url.pathname === '/v1/session-refs/events') {
+          return new Response(new ReadableStream())
+        }
+        return new Response('not found', { status: 404 })
+      }),
+    })
+
+    await app.refreshBindings()
+    await app.handleMessageCreate({
+      guildId: 'guild_1',
+      author: { id: 'user_1', bot: false },
+      content: 'please time out cleanly',
+      attachments: { size: 0 },
+      channelId: 'chan_ledger_timeout',
+      id: 'msg_ledger_timeout',
+      channel: { isThread: () => false },
+      reply: async () => undefined,
+    } as never)
+
+    const webhook = [...channel.webhooks.values()].find((w) => w.name === 'agent-pulpit')
+    expect(webhook?.sent[0]?.message.deleted).toBe(false)
+    await Bun.sleep(30)
+    expect(webhook?.sent[0]?.message.deleted).toBe(true)
+    const pingsAtTimeout = channel.typingPings
+    await Bun.sleep(15)
+    expect(channel.typingPings).toBe(pingsAtTimeout)
 
     await app.stop()
     store.close()

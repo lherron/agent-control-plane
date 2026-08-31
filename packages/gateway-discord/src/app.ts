@@ -352,6 +352,7 @@ type PendingPlaceholder = {
   editDisabled: boolean
   webhookGone: boolean
   lastSuccessfulEditAt: number
+  ledgerInFlight?: LedgerInFlight | undefined
 }
 
 type LedgerInFlight = {
@@ -363,7 +364,7 @@ type LedgerInFlight = {
   sessionRef: string
   projectId: string
   pendingSince: number
-  typingTimer: ReturnType<typeof setInterval>
+  placeholder: PendingPlaceholder
   timeout?: ReturnType<typeof setTimeout> | undefined
 }
 
@@ -1077,19 +1078,22 @@ export class GatewayDiscordApp {
     if (pendingPlaceholder) {
       if (collaborationRoute !== undefined) {
         // Ledger-routed ingress: the seat answers through the collaboration
-        // ledger and that answer is rendered by ledger egress as its own
-        // message, so the placeholder has nothing to become. ACP labels this
-        // admission `accepted_in_flight` even when no run exists — that is
-        // not a steer, and painting it as one left the human with a fake
-        // "Steered active run" notice plus the real reply (#hcs, 2026-08-30).
-        this.removePendingPlaceholder(pendingPlaceholder, 'collaboration_ledger')
-        await this.deletePlaceholder(pendingPlaceholder.ui)
+        // ledger, but HRC still emits the ordinary session lifecycle. Keep the
+        // placeholder in the pending roster so the existing session/time-window
+        // claim and RenderFrame engine can use it as the live progress surface.
+        // The correlated human notice replaces this message at egress, preserving
+        // the single-bubble guarantee from 11741a2 without painting a fake steer.
         if (this.ledgerHumanEgress !== undefined) {
           this.registerLedgerInFlight({
             placeholder: pendingPlaceholder,
             route: collaborationRoute,
             bindingId: routeBinding.bindingId,
           })
+        } else {
+          // A deployment without ledger egress cannot ever replace this live
+          // surface. Preserve the prior no-stale-placeholder behavior.
+          this.removePendingPlaceholder(pendingPlaceholder, 'collaboration_ledger_no_egress')
+          await this.deletePlaceholder(pendingPlaceholder.ui)
         }
       } else if (payload.runId !== undefined) {
         pendingPlaceholder.acpRunId = payload.runId
@@ -1402,11 +1406,56 @@ export class GatewayDiscordApp {
   }
 
   private async sendLedgerEnvelopeSink(sink: DiscordLedgerSink): Promise<{ messageId: string }> {
+    if (sink.kind === 'human-notice') {
+      const inFlights = this.ledgerInFlightsForReply(sink)
+      const replacement = inFlights.at(-1)
+      const ui = replacement?.placeholder.ui
+      if (replacement !== undefined && ui?.channelId !== undefined && ui.webhookId !== undefined) {
+        try {
+          const edited = await this.webhooks.editMessage(
+            ui.channelId,
+            ui.id,
+            ui.webhookId,
+            sink.payload
+          )
+          for (const inFlight of inFlights) {
+            await this.retireLedgerInFlight(inFlight, 'human_notice', {
+              deletePlaceholder: inFlight !== replacement,
+            })
+          }
+          log.info('gw.ledger_egress.sent', {
+            trace: { gatewayId: this.gatewayId },
+            data: {
+              envelopeId: sink.envelope.id,
+              roomKey: sink.envelope.roomKey,
+              sink: sink.kind,
+              bindingId: sink.route.bindingId,
+              channelId: sink.channelId,
+              messageId: edited.id,
+              outcome: 'placeholder_replaced',
+            },
+          })
+          return { messageId: edited.id }
+        } catch (error) {
+          // A missing webhook/message means the progress surface is already
+          // gone. Fall back to a fresh human notice; transient edit failures
+          // remain retryable through the durable ledger delivery state.
+          if (!isDiscordWebhookGone(error)) {
+            throw error
+          }
+        }
+      }
+    }
+
     const sent = await this.webhooks.send(sink.channelId, sink.payload, {
       maxRateLimitAttempts: this.maxRateLimitAttempts,
     })
     if (sink.kind === 'human-notice') {
-      this.retireLedgerInFlightsForReply(sink)
+      for (const inFlight of this.ledgerInFlightsForReply(sink)) {
+        await this.retireLedgerInFlight(inFlight, 'human_notice_fallback', {
+          deletePlaceholder: true,
+        })
+      }
     }
     log.info('gw.ledger_egress.sent', {
       trace: { gatewayId: this.gatewayId },
@@ -2038,10 +2087,16 @@ export class GatewayDiscordApp {
           trace: { gatewayId: this.gatewayId, projectId: input.projectId },
           data: { sessionRef, timeoutMs: PENDING_PLACEHOLDER_TIMEOUT_MS },
         })
-        this.removePendingPlaceholder(pending, 'pending_timeout')
-        void this.describePendingPlaceholderTimeout(pending).then((reason) =>
-          this.failPlaceholder(pending.ui, reason)
-        )
+        if (pending.ledgerInFlight !== undefined) {
+          void this.retireLedgerInFlight(pending.ledgerInFlight, 'pending_timeout', {
+            deletePlaceholder: true,
+          })
+        } else {
+          this.removePendingPlaceholder(pending, 'pending_timeout')
+          void this.describePendingPlaceholderTimeout(pending).then((reason) =>
+            this.failPlaceholder(pending.ui, reason)
+          )
+        }
       }, PENDING_PLACEHOLDER_TIMEOUT_MS),
       runTimeout: setTimeout(() => {
         log.warn('gw.live_progress.run_timeout', {
@@ -2054,7 +2109,13 @@ export class GatewayDiscordApp {
             timeoutMs: this.liveProgressTimeoutMs,
           },
         })
-        this.removePendingPlaceholder(pending, 'run_timeout')
+        if (pending.ledgerInFlight !== undefined) {
+          void this.retireLedgerInFlight(pending.ledgerInFlight, 'run_timeout', {
+            deletePlaceholder: true,
+          })
+        } else {
+          this.removePendingPlaceholder(pending, 'run_timeout')
+        }
       }, this.liveProgressTimeoutMs),
       editDisabled: false,
       webhookGone: false,
@@ -2095,9 +2156,6 @@ export class GatewayDiscordApp {
     }
     bindingId: string
   }): void {
-    const typingTargetId = input.placeholder.ui.threadId ?? input.placeholder.ui.channelId
-    if (typingTargetId === undefined) return
-
     const inFlight: LedgerInFlight = {
       roomUuid: input.route.roomUuid,
       roomKey: input.route.roomKey,
@@ -2111,15 +2169,16 @@ export class GatewayDiscordApp {
       sessionRef: input.placeholder.sessionRef,
       projectId: input.placeholder.projectId,
       pendingSince: input.placeholder.pendingSince,
-      typingTimer: this.startTypingLoop(
-        typingTargetId,
-        input.placeholder.sessionRef,
-        input.placeholder.projectId
-      ),
+      placeholder: input.placeholder,
     }
+    input.placeholder.ledgerInFlight = inFlight
     inFlight.timeout = setTimeout(() => {
-      this.removeLedgerInFlight(inFlight, 'timeout')
+      void this.retireLedgerInFlight(inFlight, 'timeout', { deletePlaceholder: true })
     }, this.liveProgressTimeoutMs)
+    // Admission can occur after a startup prime failure or while bindings are
+    // refreshing. Reassert this exact ledger session as a live-subscription
+    // demand so the first HRC event can claim the retained placeholder.
+    this.ensureLiveSubscriptionForSessionRef(inFlight.sessionRef, inFlight.projectId)
 
     const current = this.ledgerInFlightsByRoomUuid.get(inFlight.roomUuid) ?? []
     current.push(inFlight)
@@ -2135,28 +2194,40 @@ export class GatewayDiscordApp {
     })
   }
 
-  private retireLedgerInFlightsForReply(
+  private ledgerInFlightsForReply(
     sink: Extract<DiscordLedgerSink, { kind: 'human-notice' }>
-  ): void {
+  ): LedgerInFlight[] {
     const replyMessageSeq = sink.envelope.messageSeq
     const replyCreatedAt = Date.parse(sink.envelope.createdAt)
-    for (const inFlight of this.ledgerInFlightsByRoomUuid.get(sink.route.roomUuid) ?? []) {
-      if (inFlight.bindingId !== sink.route.bindingId) continue
-      const followsInput =
-        inFlight.inputMessageSeq !== undefined
-          ? replyMessageSeq > inFlight.inputMessageSeq
-          : Number.isFinite(replyCreatedAt) && replyCreatedAt >= inFlight.pendingSince - 1_000
-      if (followsInput) {
-        this.removeLedgerInFlight(inFlight, 'human_notice')
+    return (this.ledgerInFlightsByRoomUuid.get(sink.route.roomUuid) ?? []).filter((inFlight) => {
+      if (inFlight.bindingId !== sink.route.bindingId) return false
+      return inFlight.inputMessageSeq !== undefined
+        ? replyMessageSeq > inFlight.inputMessageSeq
+        : Number.isFinite(replyCreatedAt) && replyCreatedAt >= inFlight.pendingSince - 1_000
+    })
+  }
+
+  private async retireFailedLedgerInFlight(
+    envelope: import('@wrkq/client').WrkqEnvelope
+  ): Promise<void> {
+    for (const inFlight of this.ledgerInFlightsByRoomUuid.get(envelope.roomUuid) ?? []) {
+      if (inFlight.inputEnvelopeId === envelope.id) {
+        await this.retireLedgerInFlight(inFlight, `envelope_${envelope.state}`, {
+          deletePlaceholder: true,
+        })
       }
     }
   }
 
-  private retireFailedLedgerInFlight(envelope: import('@wrkq/client').WrkqEnvelope): void {
-    for (const inFlight of this.ledgerInFlightsByRoomUuid.get(envelope.roomUuid) ?? []) {
-      if (inFlight.inputEnvelopeId === envelope.id) {
-        this.removeLedgerInFlight(inFlight, `envelope_${envelope.state}`)
-      }
+  private async retireLedgerInFlight(
+    inFlight: LedgerInFlight,
+    reason: string,
+    options: { deletePlaceholder: boolean }
+  ): Promise<void> {
+    this.removeLedgerInFlight(inFlight, reason)
+    this.removePendingPlaceholder(inFlight.placeholder, reason)
+    if (options.deletePlaceholder) {
+      await this.deletePlaceholder(inFlight.placeholder.ui)
     }
   }
 
@@ -2168,6 +2239,9 @@ export class GatewayDiscordApp {
       this.ledgerInFlightsByRoomUuid.set(inFlight.roomUuid, next)
     } else {
       this.ledgerInFlightsByRoomUuid.delete(inFlight.roomUuid)
+    }
+    if (inFlight.placeholder.ledgerInFlight === inFlight) {
+      inFlight.placeholder.ledgerInFlight = undefined
     }
     this.clearLedgerInFlight(inFlight)
     log.info('gw.discord.ledger_in_flight.retired', {
@@ -2183,7 +2257,6 @@ export class GatewayDiscordApp {
   }
 
   private clearLedgerInFlight(inFlight: LedgerInFlight): void {
-    clearInterval(inFlight.typingTimer)
     if (inFlight.timeout !== undefined) {
       clearTimeout(inFlight.timeout)
       inFlight.timeout = undefined
