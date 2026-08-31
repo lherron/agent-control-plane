@@ -51,9 +51,44 @@ describe('InMemoryRunStore', () => {
     expect(store.getRun(run.runId)).not.toHaveProperty('errorCode')
     expect(store.getRun(run.runId)).not.toHaveProperty('errorMessage')
   })
+
+  test('does not overwrite a terminal run through a stale active-status transition', () => {
+    const store = new InMemoryRunStore()
+    const run = store.createRun({ sessionRef, status: 'pending' })
+    store.updateRun(run.runId, { status: 'completed' })
+
+    const staleFailure = store.updateRunIfStatus(run.runId, 'pending', {
+      status: 'failed',
+      errorCode: 'dispatch_timeout',
+    })
+
+    expect(staleFailure).toBeUndefined()
+    expect(store.getRun(run.runId)).toMatchObject({ status: 'completed' })
+    expect(store.getRun(run.runId)).not.toHaveProperty('errorCode')
+  })
 })
 
 describe('SqliteRunStore', () => {
+  test('atomically rejects a stale active-status transition after completion', () => {
+    const dbPath = createDbPath()
+    const store = openAcpStateStore({ dbPath })
+    try {
+      const run = store.runs.createRun({ sessionRef, status: 'pending' })
+      store.runs.updateRun(run.runId, { status: 'completed' })
+
+      const staleFailure = store.runs.updateRunIfStatus(run.runId, 'pending', {
+        status: 'failed',
+        errorCode: 'dispatch_timeout',
+      })
+
+      expect(staleFailure).toBeUndefined()
+      expect(store.runs.getRun(run.runId)).toMatchObject({ status: 'completed' })
+      expect(store.runs.getRun(run.runId)).not.toHaveProperty('errorCode')
+    } finally {
+      store.close()
+    }
+  })
+
   test('persists runs, HRC correlation, and dispatch fences across reopen', () => {
     const dbPath = createDbPath()
     const firstStore = openAcpStateStore({ dbPath })

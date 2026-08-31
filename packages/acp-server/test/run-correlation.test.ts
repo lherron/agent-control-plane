@@ -5,7 +5,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { createInterfaceRunDispatcher } from '../src/integration/interface-run-dispatcher.js'
-import { createRealLauncher } from '../src/real-launcher.js'
+import {
+  LAUNCH_CORRELATION_WINDOW_MS,
+  createRealLauncher,
+  hasInFlightHrcRunForSessionSince,
+} from '../src/real-launcher.js'
 
 import { type WiredServerFixture, withWiredServer } from './fixtures/wired-server.js'
 
@@ -35,6 +39,8 @@ function createHeadlessHrcDb(): { db: Database; hrcDbPath: string; cleanup(): vo
       error_code TEXT,
       error_message TEXT,
       host_session_id TEXT,
+      scope_ref TEXT,
+      lane_ref TEXT,
       accepted_at TEXT,
       completed_at TEXT
     );
@@ -335,10 +341,14 @@ describe('ACP run correlation', () => {
             new Date(acpRun?.createdAt ?? '').getTime() + 100
           ).toISOString()
           hrc.db.run(
-            'INSERT INTO runs (run_id, status, host_session_id, accepted_at) VALUES (?, ?, ?, ?)',
+            `INSERT INTO runs (
+               run_id, status, host_session_id, scope_ref, lane_ref, accepted_at
+             ) VALUES (?, ?, ?, ?, ?, ?)`,
             'hrc-run-in-flight',
             'running',
             hostSessionId,
+            acpRun?.scopeRef,
+            acpRun?.laneRef,
             acceptedAt
           )
 
@@ -375,6 +385,132 @@ describe('ACP run correlation', () => {
           }),
         }
       )
+    } finally {
+      hrc.cleanup()
+    }
+  })
+
+  test('dispatcher protects a stale pending run when HRC auto-rotates its session at dispatch', async () => {
+    const hrc = createHeadlessHrcDb()
+
+    try {
+      await withWiredServer(
+        async (fixture) => {
+          addInterfaceBinding(fixture)
+
+          const response = await postInterfaceMessage(fixture)
+          const payload = await fixture.json<{ runId: string }>(response)
+          expect(response.status).toBe(201)
+
+          const preRotationHostSessionId = 'hsid-pre-rotation'
+          const postRotationHostSessionId = 'hsid-post-rotation'
+          fixture.runStore.updateRun(payload.runId, {
+            hostSessionId: preRotationHostSessionId,
+            generation: 10,
+          })
+          fixture.runStore.setDispatchFence(payload.runId, {
+            expectedHostSessionId: preRotationHostSessionId,
+            expectedGeneration: 10,
+          })
+
+          const acpRun = fixture.runStore.getRun(payload.runId)
+          expect(acpRun).toMatchObject({
+            status: 'pending',
+            hostSessionId: preRotationHostSessionId,
+            generation: 10,
+          })
+          expect(acpRun?.hrcRunId).toBeUndefined()
+
+          const acceptedAt = new Date(
+            new Date(acpRun?.createdAt ?? '').getTime() + 100
+          ).toISOString()
+          hrc.db.run(
+            `INSERT INTO runs (
+               run_id, status, host_session_id, scope_ref, lane_ref, accepted_at
+             ) VALUES (?, ?, ?, ?, ?, ?)`,
+            'hrc-run-after-auto-rotation',
+            'running',
+            postRotationHostSessionId,
+            acpRun?.scopeRef,
+            acpRun?.laneRef,
+            acceptedAt
+          )
+
+          await Bun.sleep(2)
+          const dispatcher = createInterfaceRunDispatcher({
+            runStore: fixture.runStore,
+            interfaceStore: fixture.interfaceStore,
+            conversationStore: fixture.conversationStore,
+            hrcDbPath: hrc.hrcDbPath,
+            config: { intervalMs: 1, staleTimeoutMs: 1_000, dispatchStaleTimeoutMs: 1 },
+          })
+          await dispatcher.runOnce()
+
+          expect(fixture.runStore.getRun(payload.runId)).toMatchObject({
+            status: 'pending',
+            hostSessionId: preRotationHostSessionId,
+            generation: 10,
+          })
+          const queued = fixture.interfaceStore.deliveries.listQueuedForGateway('discord_prod')
+          expect(queued.some((delivery) => delivery.bodyText.includes('dispatch timeout'))).toBe(
+            false
+          )
+        },
+        {
+          runtimeResolver: async () => ({
+            agentRoot: '/tmp/agents/curly',
+            projectRoot: '/tmp/project',
+            cwd: '/tmp/project',
+            runMode: 'task',
+            bundle: { kind: 'compose', compose: [] },
+            harness: { provider: 'openai', interactive: true },
+          }),
+          launchRoleScopedRun: async () => ({
+            runId: 'hrc-run-pending-correlation',
+            sessionId: 'session-pending-correlation',
+          }),
+        }
+      )
+    } finally {
+      hrc.cleanup()
+    }
+  })
+
+  test('rotated-session launch evidence preserves terminal and time-window bounds', () => {
+    const hrc = createHeadlessHrcDb()
+    const sessionRef = {
+      scopeRef: 'agent:mneme:project:signal-pipeline:task:primary',
+      laneRef: 'main',
+    }
+    const since = '2026-08-31T11:55:09.993Z'
+    const until = new Date(Date.parse(since) + LAUNCH_CORRELATION_WINDOW_MS).toISOString()
+
+    try {
+      hrc.db.run(
+        `INSERT INTO runs (
+           run_id, status, host_session_id, scope_ref, lane_ref, accepted_at, completed_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        'hrc-run-terminal-after-rotation',
+        'completed',
+        'hsid-post-rotation-terminal',
+        sessionRef.scopeRef,
+        sessionRef.laneRef,
+        '2026-08-31T11:55:11.946Z',
+        '2026-08-31T11:56:20.805Z'
+      )
+      hrc.db.run(
+        `INSERT INTO runs (
+           run_id, status, host_session_id, scope_ref, lane_ref, accepted_at
+         ) VALUES (?, ?, ?, ?, ?, ?)`,
+        'hrc-run-outside-window-after-rotation',
+        'running',
+        'hsid-post-rotation-late',
+        sessionRef.scopeRef,
+        sessionRef.laneRef,
+        until
+      )
+
+      expect(hasInFlightHrcRunForSessionSince(hrc.hrcDbPath, sessionRef, since, until)).toBe(false)
     } finally {
       hrc.cleanup()
     }

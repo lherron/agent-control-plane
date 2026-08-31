@@ -101,6 +101,11 @@ export interface RunStore {
   listRunsForSession(sessionRef: SessionRef): readonly StoredRun[]
   listRunsByStatus(status: Run['status']): readonly StoredRun[]
   updateRun(runId: string, patch: UpdateRunInput): StoredRun
+  updateRunIfStatus(
+    runId: string,
+    expectedStatus: Run['status'],
+    patch: UpdateRunInput
+  ): StoredRun | undefined
   setDispatchFence(runId: string, dispatchFence: DispatchFence): StoredRun
 }
 
@@ -253,6 +258,21 @@ export class InMemoryRunStore implements RunStore {
 
     this.runs.set(runId, next)
     return structuredClone(next)
+  }
+
+  updateRunIfStatus(
+    runId: string,
+    expectedStatus: Run['status'],
+    patch: UpdateRunInput
+  ): StoredRun | undefined {
+    const run = this.runs.get(runId)
+    if (run === undefined) {
+      throw new Error(`run not found: ${runId}`)
+    }
+    if (run.status !== expectedStatus) {
+      return undefined
+    }
+    return this.updateRun(runId, patch)
   }
 
   setDispatchFence(runId: string, dispatchFence: DispatchFence): StoredRun {

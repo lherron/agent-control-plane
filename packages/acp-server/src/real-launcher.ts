@@ -996,6 +996,59 @@ export function hasInFlightHrcRunSince(
   }
 }
 
+/**
+ * Session-lineage variant of {@link hasInFlightHrcRunSince}. HRC can
+ * auto-rotate a generation while accepting the dispatch, which moves the
+ * in-flight run to a successor host_session_id. Scope+lane remain stable
+ * across that rotation and are therefore the durable launch correlation key.
+ *
+ * The accepted-at window and non-terminal bound intentionally match the
+ * host-session query: old unrelated turns must not protect a phantom ACP run,
+ * and terminal HRC runs must not hide a lost ACP completion write-back.
+ */
+export function hasInFlightHrcRunForSessionSince(
+  hrcDbPath: string,
+  sessionRef: { scopeRef: string; laneRef: string },
+  sinceIso: string,
+  untilIso?: string
+): boolean {
+  const db = new Database(hrcDbPath, { readonly: true })
+  try {
+    const row =
+      untilIso === undefined
+        ? db
+            .query<{ runId: string }, [string, string, string]>(
+              `SELECT run_id AS runId
+                 FROM runs
+                WHERE scope_ref = ?
+                  AND lane_ref = ?
+                  AND accepted_at IS NOT NULL
+                  AND completed_at IS NULL
+                  AND accepted_at >= ?
+                LIMIT 1`
+            )
+            .get(sessionRef.scopeRef, sessionRef.laneRef, sinceIso)
+        : db
+            .query<{ runId: string }, [string, string, string, string]>(
+              `SELECT run_id AS runId
+                 FROM runs
+                WHERE scope_ref = ?
+                  AND lane_ref = ?
+                  AND accepted_at IS NOT NULL
+                  AND completed_at IS NULL
+                  AND accepted_at >= ?
+                  AND accepted_at < ?
+                LIMIT 1`
+            )
+            .get(sessionRef.scopeRef, sessionRef.laneRef, sinceIso, untilIso)
+    return row !== null && row !== undefined
+  } catch {
+    return false
+  } finally {
+    db.close()
+  }
+}
+
 export type RecentlyCompletedHrcRunEvidence = {
   runId: string
   acceptedAt: string

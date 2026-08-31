@@ -480,6 +480,32 @@ export class RunRepo {
     })()
   }
 
+  updateRunIfStatus(
+    runId: string,
+    expectedStatus: StoredRun['status'],
+    patch: UpdateRunInput
+  ): StoredRun | undefined {
+    return this.context.sqlite.transaction(() => {
+      const current = this.require(runId)
+      if (current.status !== expectedStatus) {
+        return undefined
+      }
+      const next: StoredRun = {
+        ...current,
+        ...('status' in patch ? { status: patch.status ?? current.status } : {}),
+        ...applyDefinedRunPatch(patch),
+        updatedAt: new Date().toISOString(),
+      }
+      applyNullableStringPatch(next, patch, 'errorCode')
+      applyNullableStringPatch(next, patch, 'errorMessage')
+
+      if (!this.persist(next, expectedStatus)) {
+        return undefined
+      }
+      return this.require(runId)
+    })()
+  }
+
   setDispatchFence(runId: string, dispatchFence: DispatchFence): StoredRun {
     return this.context.sqlite.transaction(() => {
       const current = this.require(runId)
@@ -494,9 +520,9 @@ export class RunRepo {
     })()
   }
 
-  private persist(run: StoredRun): void {
+  private persist(run: StoredRun, expectedStatus?: StoredRun['status']): boolean {
     const persisted = toPersistedRun(run)
-    this.context.sqlite
+    const result = this.context.sqlite
       .prepare(
         `UPDATE runs
             SET scope_ref = ?,
@@ -517,7 +543,8 @@ export class RunRepo {
                 after_hrc_seq = ?,
                 metadata_json = ?,
                 updated_at = ?
-          WHERE run_id = ?`
+          WHERE run_id = ?
+            ${expectedStatus === undefined ? '' : 'AND status = ?'}`
       )
       .run(
         persisted.scopeRef,
@@ -538,8 +565,10 @@ export class RunRepo {
         persisted.afterHrcSeq,
         persisted.metadataJson,
         persisted.updatedAt,
-        persisted.runId
+        persisted.runId,
+        ...(expectedStatus === undefined ? [] : [expectedStatus])
       )
+    return result.changes === 1
   }
 
   private require(runId: string): StoredRun {

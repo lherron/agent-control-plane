@@ -21,7 +21,7 @@ import { readOptionalTrimmedRawString as readString } from '../internal/read-hel
 import { emitDispatchTimeoutHealthEvent } from '../jobs/health-dispatch-timeout.js'
 import { isRecord } from '../parsers/body.js'
 import {
-  hasInFlightHrcRunSince,
+  hasInFlightHrcRunForSessionSince,
   launchCorrelationUntilIso,
   mapHrcRunTerminalStatus,
   readCompletedAssistantMessageAfterSeq,
@@ -152,9 +152,11 @@ export function createInterfaceRunDispatcher(
         // SDK-headless dispatchTurn blocks until the HRC turn completes, so a
         // long-running turn can leave the ACP run pending+no-hrcRunId well past
         // the dispatch timeout even though HRC accepted and is actively
-        // processing it. Treat an IN-FLIGHT HRC run accepted on the same host
-        // session within a bounded window after this ACP run was created as
-        // evidence the launch is still working. The in-flight bound is essential:
+        // processing it. Treat an IN-FLIGHT HRC run accepted on the same scope
+        // and lane within a bounded window after this ACP run was created as
+        // evidence the launch is still working. Session lineage, rather than a
+        // fixed host-session id, survives HRC generation auto-rotation at dispatch.
+        // The in-flight bound is essential:
         // once the correlated HRC run is TERMINAL but this ACP run is still
         // pending+no-hrcRunId, the write-back was permanently lost and the
         // phantom must be failed, not protected (T-04935). The window bound is
@@ -162,9 +164,9 @@ export function createInterfaceRunDispatcher(
         // later keeps a long-dead pending run alive (T-04297 follow-up).
         const launchObserved =
           run.hostSessionId !== undefined &&
-          hasInFlightHrcRunSince(
+          hasInFlightHrcRunForSessionSince(
             hrcDbPath,
-            run.hostSessionId,
+            { scopeRef: run.scopeRef, laneRef: run.laneRef },
             run.createdAt,
             launchCorrelationUntilIso(run.createdAt)
           )
@@ -422,12 +424,15 @@ export function createInterfaceRunDispatcher(
       return
     }
 
-    const terminalRun = runStore.updateRun(run.runId, {
+    const terminalRun = runStore.updateRunIfStatus(run.runId, run.status, {
       status: terminalStatus,
       errorCode,
       errorMessage,
       ...(metadata !== undefined ? { metadata } : {}),
     })
+    if (terminalRun === undefined) {
+      return
+    }
     if (terminalStatus === 'failed' && errorCode === 'dispatch_timeout') {
       emitDispatchTimeoutHealthEvent({
         jobsStore,
