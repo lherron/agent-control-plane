@@ -73,6 +73,7 @@ import {
   type FinalDeliveryWritePlan,
   buildProgressEditContent,
   planFinalDeliveryWrite,
+  planLedgerHumanNoticeContent,
 } from './write-plan.js'
 
 const MAX_INGRESS_FAILURE_REASON_CHARS = 400
@@ -539,6 +540,9 @@ export type GatewayDiscordAppOptions = {
   fetchImpl?: FetchLike | undefined
   dashboardSnapshotImpl?: DashboardSnapshotFetcher | undefined
   maxChars?: number | undefined
+  /** Keep the rendered tool-call trace in ledger-routed final reply cards.
+   * Defaults on; ACP_DISCORD_RETAIN_TURN_PROGRESS wires the runtime override. */
+  retainTurnProgress?: boolean | undefined
   renderOptions?: RenderOptions | undefined
   bindingsRefreshMs?: number | undefined
   deliveryPollMs?: number | undefined
@@ -588,6 +592,7 @@ export class GatewayDiscordApp {
   private readonly fetchImpl: FetchLike
   private readonly dashboardSnapshotImpl: DashboardSnapshotFetcher
   private readonly maxChars: number
+  private readonly retainTurnProgress: boolean
   private readonly renderOptions: RenderOptions
   private readonly bindingsRefreshMs: number
   private readonly deliveryPollMs: number
@@ -653,6 +658,7 @@ export class GatewayDiscordApp {
     this.fetchImpl = options.fetchImpl ?? fetch
     this.dashboardSnapshotImpl = options.dashboardSnapshotImpl ?? fetchDashboardSnapshotViaWebSocket
     this.maxChars = options.maxChars ?? DEFAULT_MAX_CHARS
+    this.retainTurnProgress = options.retainTurnProgress ?? true
     this.renderOptions = options.renderOptions ?? {
       useBlockQuotes: process.env['ACP_DISCORD_USE_BLOCKQUOTES'] === '1',
     }
@@ -1412,12 +1418,21 @@ export class GatewayDiscordApp {
       const ui = replacement?.placeholder.ui
       if (replacement !== undefined && ui?.channelId !== undefined && ui.webhookId !== undefined) {
         try {
-          const edited = await this.webhooks.editMessage(
-            ui.channelId,
-            ui.id,
-            ui.webhookId,
-            sink.payload
-          )
+          const hrcRunId = replacement.placeholder.claimedHrcRunId
+          const run =
+            hrcRunId === undefined
+              ? undefined
+              : this.sessionEventsManager.getRunState(replacement.sessionRef, hrcRunId)
+          const payload = {
+            ...sink.payload,
+            content: planLedgerHumanNoticeContent({
+              replyContent: sink.payload.content ?? '',
+              run,
+              retainTurnProgress: this.retainTurnProgress,
+              maxChars: Math.min(this.maxChars, 2000),
+            }),
+          }
+          const edited = await this.webhooks.editMessage(ui.channelId, ui.id, ui.webhookId, payload)
           for (const inFlight of inFlights) {
             await this.retireLedgerInFlight(inFlight, 'human_notice', {
               deletePlaceholder: inFlight !== replacement,

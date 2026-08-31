@@ -4,7 +4,11 @@ import type { DeliveryOutcome, DeliveryRequest } from 'acp-core'
 import type { DiscordAgentMessageIdentity } from '../identity.js'
 import type { RunState } from '../session-events-manager.js'
 import type { RenderFrame } from '../types.js'
-import { buildProgressEditContent, planFinalDeliveryWrite } from '../write-plan.js'
+import {
+  buildProgressEditContent,
+  planFinalDeliveryWrite,
+  planLedgerHumanNoticeContent,
+} from '../write-plan.js'
 
 const identity: DiscordAgentMessageIdentity = {
   agentId: 'cody',
@@ -51,6 +55,88 @@ function runState(overrides: Partial<RunState> = {}): RunState {
 }
 
 describe('Discord write planner', () => {
+  test('retains rendered tool steps while preserving the complete ledger reply', () => {
+    const reply =
+      '-# cody@agent-spaces . EN-00042\nDone.\nAttachment: /var/media/report.pdf (application/pdf, discord message msg_42)'
+    const content = planLedgerHumanNoticeContent({
+      replyContent: reply,
+      run: runState({
+        toolExecutions: [
+          {
+            toolUseId: 'tool-read',
+            toolName: 'Read',
+            input: { file_path: '/tmp/report.pdf' },
+            status: 'completed',
+            seq: 1,
+          },
+          {
+            toolUseId: 'tool-shell',
+            toolName: 'command_execution',
+            input: { command: "/bin/zsh -lc 'printf READY'" },
+            status: 'completed',
+            seq: 2,
+          },
+        ],
+      }),
+      retainTurnProgress: true,
+      maxChars: 2000,
+    })
+
+    expect(content).toContain('📖 Read: /tmp/report.pdf')
+    expect(content).toContain('shell: printf READY')
+    expect(content).toContain(reply.slice(reply.indexOf('\n') + 1))
+    expect(content.indexOf('📖 Read:')).toBeLessThan(content.indexOf('shell:'))
+    expect(content.indexOf('shell:')).toBeLessThan(content.indexOf('Done.'))
+  })
+
+  test('restores replace-only ledger replies when progress retention is off', () => {
+    const reply = '-# cody@agent-spaces . EN-00042\nreplace-only reply'
+    const content = planLedgerHumanNoticeContent({
+      replyContent: reply,
+      run: runState({
+        toolExecutions: [
+          {
+            toolUseId: 'tool-read',
+            toolName: 'Read',
+            input: { file_path: '/tmp/hidden.ts' },
+            status: 'completed',
+            seq: 1,
+          },
+        ],
+      }),
+      retainTurnProgress: false,
+      maxChars: 2000,
+    })
+
+    expect(content).toBe(reply)
+  })
+
+  test('drops oldest ledger tool steps before touching a long reply', () => {
+    const replyBody = `REPLY-START ${'reply text '.repeat(18)}REPLY-END`
+    const reply = `-# cody@agent-spaces . EN-00042\n${replyBody}`
+    const content = planLedgerHumanNoticeContent({
+      replyContent: reply,
+      run: runState({
+        toolExecutions: Array.from({ length: 10 }, (_, index) => ({
+          toolUseId: `tool-${index}`,
+          toolName: 'Read',
+          input: { file_path: `/tmp/fixture-${index}.ts` },
+          status: 'completed' as const,
+          seq: index,
+        })),
+      }),
+      retainTurnProgress: true,
+      maxChars: 350,
+    })
+
+    expect(content.length).toBeLessThanOrEqual(350)
+    expect(content).toContain(replyBody)
+    expect(content).toContain('… +')
+    expect(content).toContain('earlier steps')
+    expect(content).not.toContain('/tmp/fixture-0.ts')
+    expect(content).toContain('/tmp/fixture-9.ts')
+  })
+
   test('preserves assistant/tool ordering and de-dupes delivery text from final segment', () => {
     const plan = planFinalDeliveryWrite({
       delivery: delivery('AFTER-LIVE\r\n'),

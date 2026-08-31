@@ -410,7 +410,7 @@ describe('GatewayDiscordApp local e2e', () => {
     expect(webhook?.edits.at(-1)?.payload.content).toContain('↪️ **Steered active run:**')
   })
 
-  test('renders ledger-routed progress and replaces the placeholder with its human notice', async () => {
+  test('retains ledger-routed progress alongside the final human notice by default', async () => {
     const channel = new FakeChannel('chan_ledger_route')
     const client = new FakeClient()
     client.addChannel(channel)
@@ -630,6 +630,10 @@ describe('GatewayDiscordApp local e2e', () => {
         ],
       },
     })
+    emitEvent(103, 'turn_end', {
+      type: 'turn_end',
+      content: 'ledger reply',
+    })
     await Bun.sleep(30)
     const liveContent = webhook?.edits.at(-1)?.payload.content ?? ''
     expect(liveContent).toContain('shell: inspect source && run checks')
@@ -648,6 +652,10 @@ describe('GatewayDiscordApp local e2e', () => {
     expect(webhook?.edits.at(-1)?.messageId).toBe(webhook?.sent[0]?.message.id)
     expect(webhook?.edits.at(-1)?.payload.content).toContain('EN-00042')
     expect(webhook?.edits.at(-1)?.payload.content).toContain('ledger reply')
+    expect(webhook?.edits.at(-1)?.payload.content).toContain('shell: inspect source && run checks')
+    expect(webhook?.edits.at(-1)?.payload.content).toContain(
+      'Which feed should receive this episode?'
+    )
     const pingsAtReply = channel.typingPings
     await Bun.sleep(15)
     expect(channel.typingPings).toBe(pingsAtReply)

@@ -15,6 +15,14 @@ export type FinalDeliveryWritePlan = {
   chunks: string[]
 }
 
+export type LedgerHumanNoticeWritePlanInput = {
+  replyContent: string
+  run?: RunState | undefined
+  retainTurnProgress: boolean
+  maxChars: number
+  maxLines?: number | undefined
+}
+
 function formatToolSummary(toolInput: Record<string, unknown>): string {
   const truncate = (value: string, max: number) =>
     value.length > max ? `${value.slice(0, max)}...` : value
@@ -27,6 +35,61 @@ function formatToolSummary(toolInput: Record<string, unknown>): string {
 
   const json = JSON.stringify(toolInput)
   return json.length > 2 ? truncate(json, 80) : ''
+}
+
+function buildToolTraceFrame(run: RunState): RenderFrame {
+  return {
+    runId: run.runId,
+    projectId: run.projectId,
+    phase: 'final',
+    blocks: [...run.toolExecutions]
+      .sort((left, right) => left.seq - right.seq)
+      .map((tool) => ({
+        t: 'tool' as const,
+        toolName: tool.toolName,
+        summary: formatToolSummary(tool.input),
+        input: tool.input,
+        approved: tool.status === 'completed' ? true : tool.status === 'failed' ? false : undefined,
+      })),
+    updatedAt: Date.now(),
+  }
+}
+
+/** Keep a compact rendered tool trace in a ledger-routed final Discord card.
+ *
+ * The human notice is immutable input: its provenance header, reply body, and
+ * attachment reference lines are never shortened or rewritten. The trace gets
+ * only the remaining Discord budget and is omitted if even its collapse marker
+ * cannot fit. This makes the reply win every budget conflict.
+ */
+export function planLedgerHumanNoticeContent(input: LedgerHumanNoticeWritePlanInput): string {
+  const { replyContent, run } = input
+  if (!input.retainTurnProgress || run === undefined || run.toolExecutions.length === 0) {
+    return replyContent
+  }
+
+  const separatorLength = 1
+  const traceBudget = input.maxChars - replyContent.length - separatorLength
+  if (traceBudget <= 0) {
+    return replyContent
+  }
+
+  const trace = buildProgressBubble(buildToolTraceFrame(run), {
+    maxChars: traceBudget,
+    maxLines: input.maxLines ?? 12,
+  }).replace(/^_\.\.\. \+(\d+) earlier tools_$/m, '_… +$1 earlier steps_')
+
+  if (trace.length === 0 || trace.length > traceBudget) {
+    return replyContent
+  }
+
+  // humanNotice() always starts with its reconciliation/provenance line. Keep
+  // that line first, insert the trace, then preserve the reply body byte-for-byte.
+  const headerEnd = replyContent.indexOf('\n')
+  if (headerEnd < 0) {
+    return `${trace}\n${replyContent}`
+  }
+  return `${replyContent.slice(0, headerEnd + 1)}${trace}\n${replyContent.slice(headerEnd + 1)}`
 }
 
 function appendDeliveryAttachments(blocks: RenderBlock[], delivery: DeliveryRequest): void {

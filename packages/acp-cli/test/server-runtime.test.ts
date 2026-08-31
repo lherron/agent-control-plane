@@ -8,6 +8,7 @@ import {
   formatAcpServerStatus,
   renderServerHelp,
   resolveAcpServerPaths,
+  resolveDiscordRetainTurnProgress,
 } from '../src/server-runtime.js'
 
 describe('acp server runtime', () => {
@@ -84,5 +85,16 @@ describe('acp server runtime', () => {
     expect(renderServerHelp()).toContain('acp server serve')
     expect(renderServerHelp()).toContain('--no-discord')
     expect(renderServerHelp()).toContain('Comma-separated bind host list')
+    expect(renderServerHelp()).toContain('ACP_DISCORD_RETAIN_TURN_PROGRESS=0')
+    expect(renderServerHelp()).toContain('bootout/bootstrap')
+  })
+
+  test('retains Discord turn progress by default and accepts explicit off values', () => {
+    expect(resolveDiscordRetainTurnProgress({})).toBe(true)
+    expect(resolveDiscordRetainTurnProgress({ ACP_DISCORD_RETAIN_TURN_PROGRESS: '1' })).toBe(true)
+    expect(resolveDiscordRetainTurnProgress({ ACP_DISCORD_RETAIN_TURN_PROGRESS: '0' })).toBe(false)
+    expect(resolveDiscordRetainTurnProgress({ ACP_DISCORD_RETAIN_TURN_PROGRESS: 'false' })).toBe(
+      false
+    )
   })
 })

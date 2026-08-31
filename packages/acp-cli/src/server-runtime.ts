@@ -80,6 +80,8 @@ export function renderServerHelp(): string {
     '  DISCORD_TOKEN             Discord bot token; falls back to DISCORD_BLASTER_TOKEN, then Consul',
     '  ACP_DISCORD_TOKEN_KV      Consul KV path for token fallback',
     '  ACP_DISCORD_CONTROL_PLANE_CHANNEL_ID fixed room-ledger mirror channel; falls back to Consul',
+    '  ACP_DISCORD_RETAIN_TURN_PROGRESS=0 removes tool traces from final reply cards (default: 1)',
+    '                              LaunchAgent env changes require bootout/bootstrap; kickstart does not re-read plists',
     '  ACP_LAUNCHD_LABEL         LaunchAgent label (default: com.praesidium.acp-server)',
   ].join('\n')
 }
@@ -375,6 +377,12 @@ function optionalEnvValue(env: NodeJS.ProcessEnv, ...names: string[]): string | 
   return undefined
 }
 
+export function resolveDiscordRetainTurnProgress(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = optionalEnvValue(env, 'ACP_DISCORD_RETAIN_TURN_PROGRESS')
+  if (raw === undefined) return true
+  return !['0', 'false', 'off', 'no'].includes(raw.trim().toLowerCase())
+}
+
 function resolveGatewayId(env: NodeJS.ProcessEnv = process.env): string {
   return optionalEnvValue(env, 'ACP_GATEWAY_ID', 'CP_GATEWAY_ID') ?? DEFAULT_GATEWAY_ID
 }
@@ -477,6 +485,7 @@ async function startGatewayInProcess(
     gatewayId: resolveGatewayId(env),
     discordToken: await resolveDiscordToken(env),
     maxChars: envNumber(['DISCORD_MAX_CHARS'], DEFAULT_MAX_CHARS),
+    retainTurnProgress: resolveDiscordRetainTurnProgress(env),
     bindingsRefreshMs: envNumber(['ACP_BINDINGS_REFRESH_MS'], DEFAULT_BINDINGS_REFRESH_MS),
     deliveryPollMs: envNumber(['ACP_DELIVERY_POLL_MS'], DEFAULT_DELIVERY_POLL_MS),
     deliveryIdleMs: envNumber(['ACP_DELIVERY_IDLE_MS'], DEFAULT_DELIVERY_IDLE_MS),
