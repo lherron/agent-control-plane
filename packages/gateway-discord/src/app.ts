@@ -354,6 +354,19 @@ type PendingPlaceholder = {
   lastSuccessfulEditAt: number
 }
 
+type LedgerInFlight = {
+  roomUuid: string
+  roomKey: string
+  bindingId: string
+  inputEnvelopeId?: string | undefined
+  inputMessageSeq?: number | undefined
+  sessionRef: string
+  projectId: string
+  pendingSince: number
+  typingTimer: ReturnType<typeof setInterval>
+  timeout?: ReturnType<typeof setTimeout> | undefined
+}
+
 type LiveSubscription = {
   sessionRef: string
   projectId: string
@@ -382,16 +395,29 @@ type InterfaceMessageResponse = {
 
 function collaborationRouteFromState(
   state: Record<string, unknown> | undefined
-): { roomUuid: string; roomKey: string } | undefined {
+): { roomUuid: string; roomKey: string; envelopeId?: string | undefined } | undefined {
   if (state?.['delivery'] !== 'collaboration_ledger') return undefined
   const roomUuid = state['roomUuid']
   const roomKey = state['roomKey']
+  const envelopeId = state['envelopeId']
   return typeof roomUuid === 'string' &&
     roomUuid.length > 0 &&
     typeof roomKey === 'string' &&
     roomKey.length > 0
-    ? { roomUuid, roomKey }
+    ? {
+        roomUuid,
+        roomKey,
+        ...(typeof envelopeId === 'string' && envelopeId.length > 0 ? { envelopeId } : {}),
+      }
     : undefined
+}
+
+function envelopeMessageSeq(envelopeId: string | undefined): number | undefined {
+  if (envelopeId === undefined) return undefined
+  const match = /^EN-(\d+)$/.exec(envelopeId)
+  if (match?.[1] === undefined) return undefined
+  const value = Number(match[1])
+  return Number.isSafeInteger(value) ? value : undefined
 }
 
 type AcpRunLookupResponse = {
@@ -517,6 +543,7 @@ export type GatewayDiscordAppOptions = {
   deliveryPollMs?: number | undefined
   deliveryIdleMs?: number | undefined
   liveProgressTimeoutMs?: number | undefined
+  typingRefreshMs?: number | undefined
   /** When set, post job.dispatched/job.completed lifecycle cards to this fixed
    * Discord channel (the #job-runs egress). Unset disables job-runs cards. */
   jobRunsChannelId?: string | undefined
@@ -565,6 +592,7 @@ export class GatewayDiscordApp {
   private readonly deliveryPollMs: number
   private readonly deliveryIdleMs: number
   private readonly liveProgressTimeoutMs: number
+  private readonly typingRefreshMs: number
   private readonly discordToken?: string | undefined
   private readonly bindings = new BindingIndex()
   private readonly placeholdersByRunId = new Map<string, PendingPlaceholder>()
@@ -574,6 +602,7 @@ export class GatewayDiscordApp {
   private readonly sessionEventsManager: SessionEventsManager
   private readonly keywordRoutesByMessageId = new Map<string, IngressRoute>()
   private readonly activePlaceholdersByMessageId = new Map<string, PendingPlaceholder>()
+  private readonly ledgerInFlightsByRoomUuid = new Map<string, LedgerInFlight[]>()
   private readonly agentAvatarCache = new Map<string, AgentAvatarResolution | undefined>()
   private readonly createdClient: boolean
   private readonly onMessageCreateBound: (message: Message) => Promise<void>
@@ -630,6 +659,7 @@ export class GatewayDiscordApp {
     this.deliveryPollMs = options.deliveryPollMs ?? DEFAULT_DELIVERY_POLL_MS
     this.deliveryIdleMs = options.deliveryIdleMs ?? DEFAULT_DELIVERY_IDLE_MS
     this.liveProgressTimeoutMs = options.liveProgressTimeoutMs ?? DEFAULT_LIVE_PROGRESS_TIMEOUT_MS
+    this.typingRefreshMs = options.typingRefreshMs ?? TYPING_REFRESH_MS
     this.jobRunsChannelId =
       options.jobRunsChannelId !== undefined && options.jobRunsChannelId.trim().length > 0
         ? options.jobRunsChannelId.trim()
@@ -662,6 +692,7 @@ export class GatewayDiscordApp {
             findRecentMessageId: (channelId, envelopeId) =>
               this.findRecentLedgerMessageId(channelId, envelopeId),
             send: (sink) => this.sendLedgerEnvelopeSink(sink),
+            onEnvelopeFailed: (envelope) => this.retireFailedLedgerInFlight(envelope),
           })
     this.ledgerHumanEgressResources =
       options.ledgerHumanEgress === undefined
@@ -779,6 +810,12 @@ export class GatewayDiscordApp {
     this.placeholdersByRunId.clear()
     this.pendingPlaceholdersBySessionRef.clear()
     this.activePlaceholdersByMessageId.clear()
+    for (const inFlights of this.ledgerInFlightsByRoomUuid.values()) {
+      for (const inFlight of inFlights) {
+        this.clearLedgerInFlight(inFlight)
+      }
+    }
+    this.ledgerInFlightsByRoomUuid.clear()
     if (this.bindingsTimer) {
       clearInterval(this.bindingsTimer)
       this.bindingsTimer = undefined
@@ -1047,6 +1084,13 @@ export class GatewayDiscordApp {
         // "Steered active run" notice plus the real reply (#hcs, 2026-08-30).
         this.removePendingPlaceholder(pendingPlaceholder, 'collaboration_ledger')
         await this.deletePlaceholder(pendingPlaceholder.ui)
+        if (this.ledgerHumanEgress !== undefined) {
+          this.registerLedgerInFlight({
+            placeholder: pendingPlaceholder,
+            route: collaborationRoute,
+            bindingId: routeBinding.bindingId,
+          })
+        }
       } else if (payload.runId !== undefined) {
         pendingPlaceholder.acpRunId = payload.runId
         await this.refreshPendingPlaceholderCorrelation(pendingPlaceholder)
@@ -1361,6 +1405,9 @@ export class GatewayDiscordApp {
     const sent = await this.webhooks.send(sink.channelId, sink.payload, {
       maxRateLimitAttempts: this.maxRateLimitAttempts,
     })
+    if (sink.kind === 'human-notice') {
+      this.retireLedgerInFlightsForReply(sink)
+    }
     log.info('gw.ledger_egress.sent', {
       trace: { gatewayId: this.gatewayId },
       data: {
@@ -2036,7 +2083,111 @@ export class GatewayDiscordApp {
     void this.sendTypingPing(channelId, sessionRef, projectId)
     return setInterval(() => {
       void this.sendTypingPing(channelId, sessionRef, projectId)
-    }, TYPING_REFRESH_MS)
+    }, this.typingRefreshMs)
+  }
+
+  private registerLedgerInFlight(input: {
+    placeholder: PendingPlaceholder
+    route: {
+      roomUuid: string
+      roomKey: string
+      envelopeId?: string | undefined
+    }
+    bindingId: string
+  }): void {
+    const typingTargetId = input.placeholder.ui.threadId ?? input.placeholder.ui.channelId
+    if (typingTargetId === undefined) return
+
+    const inFlight: LedgerInFlight = {
+      roomUuid: input.route.roomUuid,
+      roomKey: input.route.roomKey,
+      bindingId: input.bindingId,
+      ...(input.route.envelopeId !== undefined
+        ? {
+            inputEnvelopeId: input.route.envelopeId,
+            inputMessageSeq: envelopeMessageSeq(input.route.envelopeId),
+          }
+        : {}),
+      sessionRef: input.placeholder.sessionRef,
+      projectId: input.placeholder.projectId,
+      pendingSince: input.placeholder.pendingSince,
+      typingTimer: this.startTypingLoop(
+        typingTargetId,
+        input.placeholder.sessionRef,
+        input.placeholder.projectId
+      ),
+    }
+    inFlight.timeout = setTimeout(() => {
+      this.removeLedgerInFlight(inFlight, 'timeout')
+    }, this.liveProgressTimeoutMs)
+
+    const current = this.ledgerInFlightsByRoomUuid.get(inFlight.roomUuid) ?? []
+    current.push(inFlight)
+    this.ledgerInFlightsByRoomUuid.set(inFlight.roomUuid, current)
+    log.info('gw.discord.ledger_in_flight.started', {
+      trace: { gatewayId: this.gatewayId, projectId: inFlight.projectId },
+      data: {
+        roomUuid: inFlight.roomUuid,
+        roomKey: inFlight.roomKey,
+        bindingId: inFlight.bindingId,
+        inputEnvelopeId: inFlight.inputEnvelopeId,
+      },
+    })
+  }
+
+  private retireLedgerInFlightsForReply(
+    sink: Extract<DiscordLedgerSink, { kind: 'human-notice' }>
+  ): void {
+    const replyMessageSeq = sink.envelope.messageSeq
+    const replyCreatedAt = Date.parse(sink.envelope.createdAt)
+    for (const inFlight of this.ledgerInFlightsByRoomUuid.get(sink.route.roomUuid) ?? []) {
+      if (inFlight.bindingId !== sink.route.bindingId) continue
+      const followsInput =
+        inFlight.inputMessageSeq !== undefined
+          ? replyMessageSeq > inFlight.inputMessageSeq
+          : Number.isFinite(replyCreatedAt) && replyCreatedAt >= inFlight.pendingSince - 1_000
+      if (followsInput) {
+        this.removeLedgerInFlight(inFlight, 'human_notice')
+      }
+    }
+  }
+
+  private retireFailedLedgerInFlight(envelope: import('@wrkq/client').WrkqEnvelope): void {
+    for (const inFlight of this.ledgerInFlightsByRoomUuid.get(envelope.roomUuid) ?? []) {
+      if (inFlight.inputEnvelopeId === envelope.id) {
+        this.removeLedgerInFlight(inFlight, `envelope_${envelope.state}`)
+      }
+    }
+  }
+
+  private removeLedgerInFlight(inFlight: LedgerInFlight, reason: string): void {
+    const current = this.ledgerInFlightsByRoomUuid.get(inFlight.roomUuid)
+    if (current === undefined || !current.includes(inFlight)) return
+    const next = current.filter((candidate) => candidate !== inFlight)
+    if (next.length > 0) {
+      this.ledgerInFlightsByRoomUuid.set(inFlight.roomUuid, next)
+    } else {
+      this.ledgerInFlightsByRoomUuid.delete(inFlight.roomUuid)
+    }
+    this.clearLedgerInFlight(inFlight)
+    log.info('gw.discord.ledger_in_flight.retired', {
+      trace: { gatewayId: this.gatewayId, projectId: inFlight.projectId },
+      data: {
+        reason,
+        roomUuid: inFlight.roomUuid,
+        roomKey: inFlight.roomKey,
+        bindingId: inFlight.bindingId,
+        inputEnvelopeId: inFlight.inputEnvelopeId,
+      },
+    })
+  }
+
+  private clearLedgerInFlight(inFlight: LedgerInFlight): void {
+    clearInterval(inFlight.typingTimer)
+    if (inFlight.timeout !== undefined) {
+      clearTimeout(inFlight.timeout)
+      inFlight.timeout = undefined
+    }
   }
 
   private async sendTypingPing(

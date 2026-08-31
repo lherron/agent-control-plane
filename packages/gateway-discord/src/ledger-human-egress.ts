@@ -39,6 +39,7 @@ export type DiscordLedgerHumanEgressDeps = {
   resolveRoomProjectId?(roomUuid: string): Promise<string | undefined>
   findRecentMessageId(channelId: string, envelopeId: string): Promise<string | undefined>
   send(sink: DiscordLedgerSink): Promise<{ messageId: string }>
+  onEnvelopeFailed?(envelope: WrkqEnvelope): void | Promise<void>
 }
 
 const PAGE_LIMIT = 200
@@ -256,7 +257,7 @@ export class DiscordLedgerEgress {
     const cursor = await this.initializeCursor()
     const page = await this.eventsView({
       cursor,
-      eventTypes: ['envelope.created'],
+      eventTypes: ['envelope.created', 'envelope.failed'],
       limit: PAGE_LIMIT,
     })
 
@@ -278,6 +279,16 @@ export class DiscordLedgerEgress {
   }
 
   private async projectEvent(event: MonitorEvent): Promise<void> {
+    if (event.event_type === 'envelope.failed') {
+      if (this.deps.onEnvelopeFailed !== undefined && event.resource_id !== undefined) {
+        const envelope = await this.deps.client.wrkq.envelope.show({
+          envelope: event.resource_id,
+        })
+        await this.deps.onEnvelopeFailed(envelope)
+      }
+      return
+    }
+
     const payload = decodeCreatedPayload(event)
     if (payload?.id === undefined || payload.room_uuid === undefined) {
       return

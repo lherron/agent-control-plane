@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { MessageType } from 'discord.js'
 
+import type { WorkClient, WrkqEnvelope } from '@wrkq/client'
 import type { DeliveryRequest } from 'acp-core'
+import { openInterfaceStore } from 'acp-interface-store'
 
 import { withWiredServer } from '../../../acp-server/test/fixtures/wired-server.js'
 import { GatewayDiscordApp } from '../app.js'
@@ -100,11 +102,16 @@ class FakeChannel {
 
   private nextId = 1
   private readonly messageById = new Map<string, FakeSentMessage>()
+  typingPings = 0
 
   constructor(readonly id: string) {}
 
   isTextBased(): true {
     return true
+  }
+
+  async sendTyping(): Promise<void> {
+    this.typingPings += 1
   }
 
   async send(input: string | FakeSendPayload): Promise<FakeSentMessage> {
@@ -403,17 +410,73 @@ describe('GatewayDiscordApp local e2e', () => {
     expect(webhook?.edits.at(-1)?.payload.content).toContain('↪️ **Steered active run:**')
   })
 
-  test('retires the placeholder on a ledger-routed ingress instead of painting a steer', async () => {
+  test('keeps typing after deleting a ledger-routed placeholder until its human notice lands', async () => {
     const channel = new FakeChannel('chan_ledger_route')
     const client = new FakeClient()
     client.addChannel(channel)
     const paths: string[] = []
     const captured: CapturedInterfaceMessage[] = []
+    const store = openInterfaceStore({ dbPath: ':memory:' })
+    store.discordLedgerProjection.advanceCursor('discord_prod', 40)
+    const ledgerEvents = [
+      {
+        id: 41,
+        timestamp: '2026-08-31T14:38:33Z',
+        resource_id: 'reply-envelope-uuid',
+        event_type: 'envelope.created',
+        payload: JSON.stringify({
+          id: 'EN-00042',
+          room_uuid: 'room_ledger_1',
+          to_principal_ref: 'agent:lance',
+        }),
+      },
+    ]
+    const replyEnvelope = {
+      uuid: 'reply-envelope-uuid',
+      id: 'EN-00042',
+      messageSeq: 42,
+      roomUuid: 'room_ledger_1',
+      roomKey: 'R-00001',
+      roomKind: 'adhoc',
+      groupId: 'EN-00042',
+      from: {
+        principalRef: 'agent:cody',
+        scopeRef: 'cody@agent-spaces:primary',
+      },
+      to: { principalRef: 'agent:lance' },
+      replyTo: 'cody@agent-spaces:primary',
+      obligation: 'reply_required',
+      body: 'ledger reply',
+      state: 'pending',
+      terminal: false,
+      roundCount: 0,
+      urgent: false,
+      meta: {},
+      presentedTo: [],
+      etag: 1,
+      createdAt: '2026-08-31T14:38:33Z',
+      updatedAt: '2026-08-31T14:38:33Z',
+    } as unknown as WrkqEnvelope
+    const workClient = {
+      call: async (_method: string, params: { cursor: number }) => ({
+        items: ledgerEvents.filter((event) => event.id > params.cursor),
+        high_water: 41,
+      }),
+      wrkq: {
+        envelope: {
+          show: async () => replyEnvelope,
+          present: async () => ({ envelope: replyEnvelope, recorded: true }),
+        },
+        room: { show: async () => ({ workRef: null }) },
+      },
+    } as unknown as WorkClient
 
     const app = new GatewayDiscordApp({
       acpBaseUrl: 'http://acp.test',
       gatewayId: 'discord_prod',
       client: client as never,
+      typingRefreshMs: 5,
+      ledgerHumanEgress: { client: workClient, store },
       dashboardSnapshotImpl: async () => ({
         type: 'dashboard_snapshot',
         sessions: [
@@ -466,6 +529,7 @@ describe('GatewayDiscordApp local e2e', () => {
                 delivery: 'collaboration_ledger',
                 roomUuid: 'room_ledger_1',
                 roomKey: 'R-00001',
+                envelopeId: 'EN-00041',
               },
             },
             { status: 201 }
@@ -496,12 +560,163 @@ describe('GatewayDiscordApp local e2e', () => {
 
     expect(captured).toHaveLength(1)
     const webhook = [...channel.webhooks.values()].find((w) => w.name === 'agent-pulpit')
-    // The placeholder was posted, then deleted — never edited into a steer notice.
+    // The placeholder was posted, then deleted — never edited into a steer notice —
+    // while the native typing affordance continues through ledger processing.
     expect(webhook?.sent).toHaveLength(1)
     expect(webhook?.sent[0]?.message.deleted).toBe(true)
     expect(webhook?.edits.some((e) => String(e.payload.content ?? '').includes('Steered'))).toBe(
       false
     )
+    await Bun.sleep(15)
+    expect(channel.typingPings).toBeGreaterThanOrEqual(2)
+
+    const egress = (app as unknown as { ledgerHumanEgress: { pollOnce(): Promise<number> } })
+      .ledgerHumanEgress
+    await egress.pollOnce()
+    expect(webhook?.sent).toHaveLength(2)
+    expect(webhook?.sent[1]?.content).toContain('ledger reply')
+    const pingsAtReply = channel.typingPings
+    await Bun.sleep(15)
+    expect(channel.typingPings).toBe(pingsAtReply)
+
+    await app.stop()
+    store.close()
+  })
+
+  test('stops ledger-routed typing when the correlated input envelope fails', async () => {
+    const channel = new FakeChannel('chan_ledger_failure')
+    const client = new FakeClient()
+    client.addChannel(channel)
+    const store = openInterfaceStore({ dbPath: ':memory:' })
+    store.discordLedgerProjection.advanceCursor('discord_prod', 50)
+    const failedEnvelope = {
+      uuid: 'failed-envelope-uuid',
+      id: 'EN-00051',
+      messageSeq: 51,
+      roomUuid: 'room_ledger_failure',
+      roomKey: 'R-00002',
+      roomKind: 'adhoc',
+      groupId: 'EN-00051',
+      from: { principalRef: 'agent:lance' },
+      to: { principalRef: 'agent:cody', scopeRef: 'cody@agent-spaces:primary' },
+      replyTo: 'agent:lance',
+      obligation: 'reply_required',
+      body: 'please do the work',
+      state: 'failed',
+      terminal: true,
+      failureReason: 'runtime_terminated',
+      roundCount: 0,
+      urgent: false,
+      meta: {},
+      presentedTo: [],
+      etag: 2,
+      createdAt: '2026-08-31T14:38:21Z',
+      updatedAt: '2026-08-31T14:38:30Z',
+    } as unknown as WrkqEnvelope
+    const workClient = {
+      call: async (_method: string, params: { cursor: number }) => ({
+        items:
+          params.cursor < 51
+            ? [
+                {
+                  id: 51,
+                  timestamp: '2026-08-31T14:38:30Z',
+                  resource_id: 'failed-envelope-uuid',
+                  event_type: 'envelope.failed',
+                  payload: JSON.stringify({
+                    state: 'failed',
+                    reason: 'runtime_terminated',
+                    room_uuid: 'room_ledger_failure',
+                  }),
+                },
+              ]
+            : [],
+        high_water: 51,
+      }),
+      wrkq: {
+        envelope: { show: async () => failedEnvelope },
+        room: { show: async () => ({ workRef: null }) },
+      },
+    } as unknown as WorkClient
+    const app = new GatewayDiscordApp({
+      acpBaseUrl: 'http://acp.test',
+      gatewayId: 'discord_prod',
+      client: client as never,
+      typingRefreshMs: 5,
+      ledgerHumanEgress: { client: workClient, store },
+      dashboardSnapshotImpl: async () => ({
+        type: 'dashboard_snapshot',
+        sessions: [],
+      }),
+      fetchImpl: createFetch(async (request) => {
+        const url = new URL(request.url)
+        if (url.pathname === '/v1/interface/bindings') {
+          return Response.json({
+            bindings: [
+              {
+                bindingId: 'ifb_ledger_failure',
+                gatewayId: 'discord_prod',
+                conversationRef: 'channel:chan_ledger_failure',
+                scopeRef: 'agent:cody:project:agent-spaces',
+                laneRef: 'main',
+                projectId: 'agent-spaces',
+                status: 'active',
+                createdAt: '2026-05-07T10:00:00.000Z',
+                updatedAt: '2026-05-07T10:00:00.000Z',
+              },
+            ],
+          })
+        }
+        if (url.pathname === '/v1/interface/messages') {
+          return Response.json(
+            {
+              inputAttemptId: 'ia_ledger_failure',
+              admission: { kind: 'accepted_in_flight' },
+              currentState: {
+                delivery: 'collaboration_ledger',
+                roomUuid: 'room_ledger_failure',
+                roomKey: 'R-00002',
+                envelopeId: 'EN-00051',
+              },
+            },
+            { status: 201 }
+          )
+        }
+        if (url.pathname === '/v1/session-refs/events') {
+          return new Response(new ReadableStream())
+        }
+        return new Response('not found', { status: 404 })
+      }),
+    })
+
+    await app.refreshBindings()
+    await app.handleMessageCreate({
+      guildId: 'guild_1',
+      author: { id: 'user_1', bot: false },
+      content: 'please do the work',
+      attachments: { size: 0 },
+      channelId: 'chan_ledger_failure',
+      id: 'msg_ledger_failure',
+      channel: { isThread: () => false },
+      reply: async () => undefined,
+    } as never)
+
+    await Bun.sleep(15)
+    expect(channel.typingPings).toBeGreaterThanOrEqual(2)
+    const webhook = [...channel.webhooks.values()].find((w) => w.name === 'agent-pulpit')
+    expect(webhook?.sent[0]?.message.deleted).toBe(true)
+
+    const egress = (app as unknown as { ledgerHumanEgress: { pollOnce(): Promise<number> } })
+      .ledgerHumanEgress
+    await egress.pollOnce()
+    const pingsAtFailure = channel.typingPings
+    await Bun.sleep(15)
+    expect(channel.typingPings).toBe(pingsAtFailure)
+    expect(webhook?.sent).toHaveLength(1)
+    expect(webhook?.edits).toHaveLength(0)
+
+    await app.stop()
+    store.close()
   })
 
   test('ordinary Discord messages fall back to normal queueing when contribution is unavailable', async () => {
