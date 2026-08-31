@@ -318,10 +318,30 @@ function appendAttachmentContext(
   entries: Array<{
     source: AttachmentRef
     resolved?: AttachmentRef | undefined
-  }>
+  }>,
+  discordMessageId?: string | undefined
 ): string {
   if (entries.length === 0) {
     return content
+  }
+
+  if (discordMessageId !== undefined) {
+    const lines = entries.map(({ source, resolved }) => {
+      const contentType = source.contentType ?? resolved?.contentType ?? 'application/octet-stream'
+      if (resolved?.path === undefined) {
+        const filename = source.filename ?? resolved?.filename ?? 'attachment'
+        return `Attachment unavailable: ${filename} (${contentType}, discord message ${discordMessageId})`
+      }
+
+      // wrkc envelopes are durable while Discord CDN URLs are signed and
+      // short-lived, so only the downloaded path enters presented body text.
+      // The spool is deliberately node-local (the gateway and target agent are
+      // co-located today); native wrkc attachments would require a spec change.
+      // Path/filename, type, and Discord source id remain meaningful metadata
+      // even if a later retention policy has aged the spool file out.
+      return `Attachment: ${resolved.path} (${contentType}, discord message ${discordMessageId})`
+    })
+    return `${content}\n\n${lines.join('\n')}`
   }
 
   const sections = entries.map(({ source, resolved }, index) => {
@@ -340,6 +360,27 @@ function appendAttachmentContext(
   })
 
   return `${content}\n\n${sections.join('\n\n')}`
+}
+
+function discordMessageIdFromMetadata(
+  metadata: Readonly<Record<string, unknown>> | undefined
+): string | undefined {
+  const interfaceSource = metadata?.['interfaceSource']
+  if (
+    typeof interfaceSource !== 'object' ||
+    interfaceSource === null ||
+    Array.isArray(interfaceSource)
+  ) {
+    return undefined
+  }
+
+  const messageRef = (interfaceSource as Readonly<Record<string, unknown>>)['messageRef']
+  if (typeof messageRef !== 'string' || !messageRef.startsWith('discord:message:')) {
+    return undefined
+  }
+
+  const messageId = messageRef.slice('discord:message:'.length)
+  return /^[a-zA-Z0-9_-]+$/.test(messageId) ? messageId : undefined
 }
 
 function metadataWithResolvedAttachments(
@@ -363,7 +404,7 @@ export class InputAdmissionService {
   }
 
   private async prepareInputDelivery(
-    input: Pick<AdmitInput, 'attachments' | 'content'>,
+    input: Pick<AdmitInput, 'attachments' | 'content' | 'metadata'>,
     inputAttemptId: string
   ): Promise<PreparedInputDelivery> {
     if (input.attachments === undefined || input.attachments.length === 0) {
@@ -375,14 +416,16 @@ export class InputAdmissionService {
       resolved?: AttachmentRef | undefined
     }> = []
     const resolvedAttachments: AttachmentRef[] = []
+    const discordMessageId = discordMessageIdFromMetadata(input.metadata)
 
     for (const [index, source] of input.attachments.entries()) {
-      // Each attachment gets an attempt-scoped spool directory. The input
-      // attempt is minted before this method runs, so duplicate interface
-      // delivery returns the prior admission without downloading again.
+      // Discord attachments share a message-keyed spool directory so a body
+      // reference can be traced directly to durable ingress. Other callers
+      // retain the attempt-scoped fallback. The attempt is minted first, so an
+      // idempotent replay returns its prior admission without re-downloading.
       const resolved = (
         await resolveAttachmentRefs([source], {
-          runId: `${inputAttemptId}-${index + 1}`,
+          runId: discordMessageId ?? `${inputAttemptId}-${index + 1}`,
           stateDir: this.deps.mediaStateDir,
           maxBytes: this.deps.attachmentMaxBytes,
           fetchImpl: this.deps.attachmentFetchImpl,
@@ -395,7 +438,7 @@ export class InputAdmissionService {
     }
 
     return {
-      content: appendAttachmentContext(input.content, entries),
+      content: appendAttachmentContext(input.content, entries, discordMessageId),
       ...(resolvedAttachments.length > 0 ? { resolvedAttachments } : {}),
     }
   }
@@ -775,6 +818,7 @@ export class InputAdmissionService {
       {
         content: input.content,
         ...(input.attachments !== undefined ? { attachments: input.attachments } : {}),
+        ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
       },
       attempt.inputAttempt.inputAttemptId
     )
@@ -1119,6 +1163,7 @@ export class InputAdmissionService {
       {
         content: input.content,
         ...(input.attachments !== undefined ? { attachments: input.attachments } : {}),
+        ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
       },
       attempt.inputAttempt.inputAttemptId
     )

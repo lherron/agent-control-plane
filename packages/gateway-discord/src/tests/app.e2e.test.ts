@@ -1274,10 +1274,13 @@ describe('GatewayDiscordApp local e2e', () => {
           expect(String(attachment?.['path'])).toContain(
             join(mediaStateDir, 'media', 'attachments')
           )
-          // ACP carries both source metadata and the durable local spool path
-          // so ledger-only and non-image-aware harnesses can inspect it.
+          // ACP renders the durable node-local spool path into prompt text for
+          // non-image-aware harnesses without persisting an expiring CDN URL.
           expect(launches[0]?.intent.initialPrompt).toBe(
-            `<media:image> (1 image)\n\n[attachment 1]\nfilename: photo.jpg\ncontent_type: image/jpeg\nsize_bytes: 10\nsource_url: https://cdn.discordapp.test/attachments/photo.jpg\nlocal_path: ${attachment?.['path']}`
+            `<media:image> (1 image)\n\nAttachment: ${attachment?.['path']} (image/jpeg, discord message msg_image_only_e2e)`
+          )
+          expect(String(attachment?.['path'])).toContain(
+            join(mediaStateDir, 'media', 'attachments', 'msg_image_only_e2e', 'photo.jpg')
           )
           expect(readFileSync(String(attachment?.['path']), 'utf8')).toBe('jpeg-bytes')
 

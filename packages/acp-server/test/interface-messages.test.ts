@@ -147,12 +147,14 @@ describe('POST /v1/interface/messages', () => {
 
           expect(response.status).toBe(201)
           expect(says).toHaveLength(1)
-          expect(says[0]?.body).toContain('What is in this image?')
-          expect(says[0]?.body).toContain('filename: cody.png')
-          expect(says[0]?.body).toContain('content_type: image/png')
-          expect(says[0]?.body).toContain(`source_url: ${sourceUrl}`)
-          const localPath = says[0]?.body.match(/^local_path: (.+)$/m)?.[1]
-          expect(localPath).toContain(join(mediaStateDir, 'media', 'attachments'))
+          expect(says[0]?.body).not.toContain(sourceUrl)
+          const localPath = says[0]?.body.match(/^Attachment: (.+) \(image\/png,/m)?.[1]
+          expect(localPath).toContain(
+            join(mediaStateDir, 'media', 'attachments', '1543995780468047953', 'cody.png')
+          )
+          expect(says[0]?.body).toBe(
+            `What is in this image?\n\nAttachment: ${localPath} (image/png, discord message 1543995780468047953)`
+          )
           expect(readFileSync(String(localPath), 'utf8')).toBe('fixture-image-bytes')
         },
         {
@@ -216,14 +218,17 @@ describe('POST /v1/interface/messages', () => {
 
           expect(response.status).toBe(201)
           expect(contributions).toHaveLength(1)
-          expect(contributions[0]?.prompt).toContain('Use this image as more context.')
-          expect(contributions[0]?.prompt).toContain('filename: contribution.png')
-          expect(contributions[0]?.prompt).toContain('content_type: image/png')
-          expect(contributions[0]?.prompt).toContain(
-            'source_url: https://cdn.discordapp.test/contribution.png'
-          )
-          expect(contributions[0]?.prompt).toContain(
-            `local_path: ${join(mediaStateDir, 'media', 'attachments')}`
+          const prompt = contributions[0]?.prompt
+          expect(prompt).not.toContain('https://cdn.discordapp.test/contribution.png')
+          expect(prompt).toContain('Use this image as more context.')
+          expect(prompt).toContain(
+            `Attachment: ${join(
+              mediaStateDir,
+              'media',
+              'attachments',
+              'contribution-attachment',
+              'contribution.png'
+            )} (image/png, discord message contribution-attachment)`
           )
         },
         {
@@ -636,7 +641,7 @@ describe('POST /v1/interface/messages', () => {
           expect(readFileSync(resolved.path, 'utf8')).toBe('png-bytes')
           expect(launches).toHaveLength(1)
           expect(launches[0]?.intent).toMatchObject({
-            initialPrompt: `<media:image> (1 image)\n\n[attachment 1]\nfilename: ../../bad image\ncontent_type: image/png\nsize_bytes: 12345\nsource_url: https://cdn.discordapp.test/image.png\nlocal_path: ${resolved.path}`,
+            initialPrompt: `<media:image> (1 image)\n\nAttachment: ${resolved.path} (image/png, discord message media)`,
             attachments: [
               {
                 kind: 'file',
@@ -732,7 +737,7 @@ describe('POST /v1/interface/messages', () => {
           expect(response.status).toBe(201)
           expect(launches).toHaveLength(1)
           expect(launches[0]?.intent).toMatchObject({
-            initialPrompt: `files attached\n\n[attachment 1]\nfilename: local image.png\ncontent_type: image/png\nsize_bytes: 11\nsource_path: ${pathToFileURL(existingPath).href}\nlocal_path: ${existingPath}\n\n[attachment 2]\nfilename: missing.png\nsource_url: https://cdn.discordapp.test/missing.png`,
+            initialPrompt: `files attached\n\nAttachment: ${existingPath} (image/png, discord message files)\nAttachment unavailable: missing.png (application/octet-stream, discord message files)`,
             attachments: [
               {
                 kind: 'file',
@@ -815,7 +820,7 @@ describe('POST /v1/interface/messages', () => {
           expect(launches).toHaveLength(1)
           expect(launches[0]?.intent).toMatchObject({
             initialPrompt:
-              'oversized media but text remains\n\n[attachment 1]\nfilename: large.png\nsource_url: https://cdn.discordapp.test/large.png',
+              'oversized media but text remains\n\nAttachment unavailable: large.png (application/octet-stream, discord message limit)',
             placement: {
               agentRoot: '/tmp/agents/curly',
               projectRoot: '/tmp/project',
