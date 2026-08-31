@@ -1321,7 +1321,7 @@ export class GatewayDiscordApp {
     })
     const threadRef = `thread:${thread.id}`
     const route: IngressRoute = {
-      content: keyword.content,
+      content: resolveDiscordIngressContent(message, keyword.content),
       conversation: {
         conversationRef: conversation.conversationRef,
         threadRef,

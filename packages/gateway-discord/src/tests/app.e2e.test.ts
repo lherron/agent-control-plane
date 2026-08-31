@@ -1274,15 +1274,15 @@ describe('GatewayDiscordApp local e2e', () => {
           expect(String(attachment?.['path'])).toContain(
             join(mediaStateDir, 'media', 'attachments')
           )
-          // ACP appends `[attached file: <path>]` so harnesses without native
-          // image-block injection (claude-agent-sdk) can Read the file.
+          // ACP carries both source metadata and the durable local spool path
+          // so ledger-only and non-image-aware harnesses can inspect it.
           expect(launches[0]?.intent.initialPrompt).toBe(
-            `<media:image> (1 image)\n\n[attached file: ${attachment?.['path']}]`
+            `<media:image> (1 image)\n\n[attachment 1]\nfilename: photo.jpg\ncontent_type: image/jpeg\nsize_bytes: 10\nsource_url: https://cdn.discordapp.test/attachments/photo.jpg\nlocal_path: ${attachment?.['path']}`
           )
           expect(readFileSync(String(attachment?.['path']), 'utf8')).toBe('jpeg-bytes')
 
           const run = fixture.runStore.listRuns()[0]
-          expect(run?.metadata.content).toBe('<media:image> (1 image)')
+          expect(run?.metadata.content).toBe(launches[0]?.intent.initialPrompt)
           expect(run?.metadata.meta).toMatchObject({
             attachments: [
               {
