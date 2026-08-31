@@ -1,0 +1,47 @@
+{
+  "op": 0,
+  "t": "MESSAGE_CREATE",
+  "s": 3,
+  "d": {
+    "type": 0,
+    "tts": false,
+    "timestamp": "2026-08-31T14:48:00.118000+00:00",
+    "pinned": false,
+    "mentions": [],
+    "mention_roles": [],
+    "mention_everyone": false,
+    "id": "1543995780468047953",
+    "flags": 0,
+    "embeds": [],
+    "edited_timestamp": null,
+    "content": "T-07794 real payload fixture 1788187677661",
+    "components": [],
+    "channel_type": 0,
+    "channel_id": "1165715502807658557",
+    "author": {
+      "username": "virtu",
+      "public_flags": 0,
+      "id": "1165644636807778414",
+      "global_name": null,
+      "discriminator": "5006",
+      "bot": true,
+      "avatar": "b304f76f44d59d374e7213255a9666a3"
+    },
+    "attachments": [
+      {
+        "width": 1024,
+        "url": "https://cdn.discordapp.com/attachments/1165715502807658557/1543995780166066348/cody.png?ex=6a96e5a0&is=6a959420&hm=3c8f4239c41d93caaf24d63b96efe3fb1b574a1218f6049fc583fbf397db08fa&",
+        "size": 1592152,
+        "proxy_url": "https://media.discordapp.net/attachments/1165715502807658557/1543995780166066348/cody.png?ex=6a96e5a0&is=6a959420&hm=3c8f4239c41d93caaf24d63b96efe3fb1b574a1218f6049fc583fbf397db08fa&",
+        "placeholder_version": 1,
+        "placeholder": "zfcJDwIIR8iJd4iBenmIV5d2iIAo93YO",
+        "id": "1543995780166066348",
+        "height": 1024,
+        "filename": "cody.png",
+        "content_type": "image/png",
+        "content_scan_version": 4
+      }
+    ],
+    "guild_id": "824445867913379840"
+  }
+}

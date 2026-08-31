@@ -89,6 +89,169 @@ describe('POST /v1/interface/messages', () => {
     )
   })
 
+  test('spools Discord attachments before minting the ledger envelope body', async () => {
+    const mediaStateDir = mkdtempSync(join(tmpdir(), 'acp-interface-ledger-media-'))
+    const says: CollaborationSayInput[] = []
+    const ledger: CollaborationLedger = {
+      async listMessagesByMember() {
+        return { messages: [] }
+      },
+      async listMessagesByRoom() {
+        return { messages: [] }
+      },
+      async say(input) {
+        says.push(input)
+        return { roomKey: input.ref, groupId: 'EN-07794', envelopes: [] }
+      },
+    }
+
+    try {
+      await withWiredServer(
+        async (fixture) => {
+          fixture.interfaceStore.bindings.create({
+            bindingId: 'ifb_ledger_attachment',
+            gatewayId: 'discord_prod',
+            conversationRef: 'channel:ledger-attachment',
+            scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
+            laneRef: 'main',
+            projectId: fixture.seed.projectId,
+            status: 'active',
+            createdAt: '2026-08-31T14:48:00.000Z',
+            updatedAt: '2026-08-31T14:48:00.000Z',
+          })
+
+          const sourceUrl =
+            'https://cdn.discordapp.com/attachments/1165715502807658557/1543995780166066348/cody.png?ex=6a96e5a0&is=6a959420&hm=fixture&'
+          const response = await fixture.request({
+            method: 'POST',
+            path: '/v1/interface/messages',
+            body: {
+              source: {
+                gatewayId: 'discord_prod',
+                conversationRef: 'channel:ledger-attachment',
+                messageRef: 'discord:message:1543995780468047953',
+                authorRef: 'discord:user:1165644636807778414',
+              },
+              content: 'What is in this image?',
+              attachments: [
+                {
+                  kind: 'url',
+                  url: sourceUrl,
+                  filename: 'cody.png',
+                  contentType: 'image/png',
+                  sizeBytes: 1592152,
+                },
+              ],
+            },
+          })
+
+          expect(response.status).toBe(201)
+          expect(says).toHaveLength(1)
+          expect(says[0]?.body).toContain('What is in this image?')
+          expect(says[0]?.body).toContain('filename: cody.png')
+          expect(says[0]?.body).toContain('content_type: image/png')
+          expect(says[0]?.body).toContain(`source_url: ${sourceUrl}`)
+          const localPath = says[0]?.body.match(/^local_path: (.+)$/m)?.[1]
+          expect(localPath).toContain(join(mediaStateDir, 'media', 'attachments'))
+          expect(readFileSync(String(localPath), 'utf8')).toBe('fixture-image-bytes')
+        },
+        {
+          mediaStateDir,
+          attachmentFetchImpl: async () =>
+            new Response('fixture-image-bytes', {
+              headers: { 'content-type': 'image/png', 'content-length': '19' },
+            }),
+          collaborationLedgerForPrincipal: async () => ledger,
+        }
+      )
+    } finally {
+      rmSync(mediaStateDir, { recursive: true, force: true })
+    }
+  })
+
+  test('includes spooled attachment context in an active-run contribution', async () => {
+    const mediaStateDir = mkdtempSync(join(tmpdir(), 'acp-interface-contribution-media-'))
+    const contributions: Array<{ prompt?: string | undefined }> = []
+
+    try {
+      await withWiredServer(
+        async (fixture) => {
+          fixture.interfaceStore.bindings.create({
+            bindingId: 'ifb_contribution_attachment',
+            gatewayId: 'discord_prod',
+            conversationRef: 'channel:contribution-attachment',
+            scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
+            laneRef: 'main',
+            projectId: fixture.seed.projectId,
+            status: 'active',
+            createdAt: '2026-08-31T14:48:00.000Z',
+            updatedAt: '2026-08-31T14:48:00.000Z',
+          })
+
+          const response = await fixture.request({
+            method: 'POST',
+            path: '/v1/interface/messages',
+            body: {
+              source: {
+                gatewayId: 'discord_prod',
+                conversationRef: 'channel:contribution-attachment',
+                messageRef: 'discord:message:contribution-attachment',
+                authorRef: 'discord:user:lance',
+              },
+              content: 'Use this image as more context.',
+              intent: {
+                kind: 'contribute_to_active_run',
+                fallback: 'reject',
+              },
+              attachments: [
+                {
+                  kind: 'url',
+                  url: 'https://cdn.discordapp.test/contribution.png',
+                  filename: 'contribution.png',
+                  contentType: 'image/png',
+                },
+              ],
+            },
+          })
+
+          expect(response.status).toBe(201)
+          expect(contributions).toHaveLength(1)
+          expect(contributions[0]?.prompt).toContain('Use this image as more context.')
+          expect(contributions[0]?.prompt).toContain('filename: contribution.png')
+          expect(contributions[0]?.prompt).toContain('content_type: image/png')
+          expect(contributions[0]?.prompt).toContain(
+            'source_url: https://cdn.discordapp.test/contribution.png'
+          )
+          expect(contributions[0]?.prompt).toContain(
+            `local_path: ${join(mediaStateDir, 'media', 'attachments')}`
+          )
+        },
+        {
+          mediaStateDir,
+          attachmentFetchImpl: async () =>
+            new Response('contribution-image', {
+              headers: { 'content-type': 'image/png', 'content-length': '18' },
+            }),
+          hrcClient: {
+            submitActiveRunContribution: async (request: { prompt?: string | undefined }) => {
+              contributions.push(request)
+              return {
+                status: 'accepted',
+                inputApplicationId: 'iap_attachment_contribution',
+                hostSessionId: 'hsid_attachment_contribution',
+                generation: 1,
+                runtimeId: 'rt_attachment_contribution',
+                runId: 'hrc_attachment_contribution',
+              }
+            },
+          } as never,
+        }
+      )
+    } finally {
+      rmSync(mediaStateDir, { recursive: true, force: true })
+    }
+  })
+
   test('uses the registered project root for project-scoped interface dispatch', async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'acp-interface-placement-'))
     const adminStore = createInMemoryAdminStore()
@@ -169,7 +332,10 @@ describe('POST /v1/interface/messages', () => {
           }),
           launchRoleScopedRun: async (input) => {
             launches.push(input)
-            return { runId: 'launch-run-placement', sessionId: 'session-placement' }
+            return {
+              runId: 'launch-run-placement',
+              sessionId: 'session-placement',
+            }
           },
         }
       )
@@ -216,9 +382,10 @@ describe('POST /v1/interface/messages', () => {
             content: 'Please summarize the status of T-01144.',
           },
         })
-        const firstPayload = await fixture.json<{ inputAttemptId: string; runId: string }>(
-          firstResponse
-        )
+        const firstPayload = await fixture.json<{
+          inputAttemptId: string
+          runId: string
+        }>(firstResponse)
 
         expect(firstResponse.status).toBe(201)
         expect(firstPayload.inputAttemptId).toMatch(/^ia_/)
@@ -276,9 +443,10 @@ describe('POST /v1/interface/messages', () => {
             content: 'Please summarize the status of T-01144.',
           },
         })
-        const secondPayload = await fixture.json<{ inputAttemptId: string; runId: string }>(
-          secondResponse
-        )
+        const secondPayload = await fixture.json<{
+          inputAttemptId: string
+          runId: string
+        }>(secondResponse)
 
         expect(secondResponse.status).toBe(200)
         expect(secondPayload).toEqual(firstPayload)
@@ -431,12 +599,14 @@ describe('POST /v1/interface/messages', () => {
               ],
             },
           })
-          const payload = await fixture.json<{ inputAttemptId: string; runId: string }>(response)
+          const payload = await fixture.json<{
+            inputAttemptId: string
+            runId: string
+          }>(response)
 
           expect(response.status).toBe(201)
           const run = fixture.runStore.getRun(payload.runId)
           expect(run?.metadata).toMatchObject({
-            content: '<media:image> (1 image)',
             meta: {
               attachments: [
                 {
@@ -462,13 +632,11 @@ describe('POST /v1/interface/messages', () => {
               path: string
             }>
           )[0]
-          expect(resolved.path).toContain(
-            join(mediaStateDir, 'media', 'attachments', payload.runId)
-          )
+          expect(resolved.path).toContain(join(mediaStateDir, 'media', 'attachments'))
           expect(readFileSync(resolved.path, 'utf8')).toBe('png-bytes')
           expect(launches).toHaveLength(1)
           expect(launches[0]?.intent).toMatchObject({
-            initialPrompt: `<media:image> (1 image)\n\n[attached file: ${resolved.path}]`,
+            initialPrompt: `<media:image> (1 image)\n\n[attachment 1]\nfilename: ../../bad image\ncontent_type: image/png\nsize_bytes: 12345\nsource_url: https://cdn.discordapp.test/image.png\nlocal_path: ${resolved.path}`,
             attachments: [
               {
                 kind: 'file',
@@ -564,7 +732,7 @@ describe('POST /v1/interface/messages', () => {
           expect(response.status).toBe(201)
           expect(launches).toHaveLength(1)
           expect(launches[0]?.intent).toMatchObject({
-            initialPrompt: `files attached\n\n[attached file: ${existingPath}]`,
+            initialPrompt: `files attached\n\n[attachment 1]\nfilename: local image.png\ncontent_type: image/png\nsize_bytes: 11\nsource_path: ${pathToFileURL(existingPath).href}\nlocal_path: ${existingPath}\n\n[attachment 2]\nfilename: missing.png\nsource_url: https://cdn.discordapp.test/missing.png`,
             attachments: [
               {
                 kind: 'file',
@@ -646,7 +814,8 @@ describe('POST /v1/interface/messages', () => {
           expect(response.status).toBe(201)
           expect(launches).toHaveLength(1)
           expect(launches[0]?.intent).toMatchObject({
-            initialPrompt: 'oversized media but text remains',
+            initialPrompt:
+              'oversized media but text remains\n\n[attachment 1]\nfilename: large.png\nsource_url: https://cdn.discordapp.test/large.png',
             placement: {
               agentRoot: '/tmp/agents/curly',
               projectRoot: '/tmp/project',

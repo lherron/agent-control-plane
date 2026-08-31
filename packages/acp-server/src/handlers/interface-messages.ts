@@ -1,12 +1,10 @@
 import type { AttachmentRef, InputIntent, InterfaceMessageAttachment } from 'acp-core'
 import { type SessionRef, normalizeSessionRef, parseScopeRef } from 'agent-scope'
 
-import { resolveAttachmentRefs } from '../attachments.js'
 import { createInterfaceResponseCapture } from '../delivery/interface-response-capture.js'
 import { toCompletedVisibleAssistantMessage } from '../delivery/visible-assistant-messages.js'
 import { AcpHttpError, badRequest, json } from '../http.js'
 import { InputAdmissionService } from '../input-admission/input-admission-service.js'
-import { readPlainRecordOrEmpty as readRecord } from '../internal/read-helpers.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
 import {
   parseJsonBody,
@@ -159,11 +157,15 @@ function readIntent(body: Record<string, unknown>): InputIntent | undefined {
     case 'control_active_run': {
       const action = intent['action']
       if (action !== 'interrupt' && action !== 'cancel' && action !== 'pause') {
-        badRequest('intent.action must be interrupt, cancel, or pause', { field: 'intent.action' })
+        badRequest('intent.action must be interrupt, cancel, or pause', {
+          field: 'intent.action',
+        })
       }
       const fallback = intent['fallback']
       if (fallback !== undefined && fallback !== 'reject') {
-        badRequest('intent.fallback must be reject when provided', { field: 'intent.fallback' })
+        badRequest('intent.fallback must be reject when provided', {
+          field: 'intent.fallback',
+        })
       }
       return {
         kind,
@@ -180,23 +182,6 @@ function readIntent(body: Record<string, unknown>): InputIntent | undefined {
 
 function toSessionRef(scopeRef: string, laneRef: string): SessionRef {
   return normalizeSessionRef({ scopeRef, laneRef })
-}
-
-/**
- * Append a footer to the prompt listing each resolved attachment's local file
- * path so non-image-aware harnesses can read the file with their tool surface.
- * No-op when there are no file-kind attachments.
- */
-function appendAttachmentPathsToPrompt(
-  prompt: string,
-  resolved: AttachmentRef[] | undefined
-): string {
-  if (resolved === undefined || resolved.length === 0) return prompt
-  const filePaths = resolved
-    .filter((a): a is AttachmentRef & { path: string } => a.kind === 'file' && !!a.path)
-    .map((a) => `[attached file: ${a.path}]`)
-  if (filePaths.length === 0) return prompt
-  return `${prompt}\n\n${filePaths.join('\n')}`
 }
 
 export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
@@ -259,6 +244,7 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
     content,
     actor: inputActor,
     metadata: inputMetadata,
+    ...(attachments !== undefined ? { attachments } : {}),
     ...(intent !== undefined ? { intent } : {}),
     dispatch: false,
   })
@@ -304,29 +290,6 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
 
   let launched: Awaited<ReturnType<NonNullable<typeof deps.launchRoleScopedRun>>> | undefined
 
-  if (createdAttempt.created && admittedRunId !== undefined) {
-    const resolvedAttachments = await resolveAttachmentRefs(attachments, {
-      runId: admittedRunId,
-      stateDir: deps.mediaStateDir,
-      maxBytes: deps.attachmentMaxBytes,
-      fetchImpl: deps.attachmentFetchImpl,
-    })
-    if (resolvedAttachments !== undefined) {
-      const run = deps.runStore.getRun(admittedRunId)
-      if (run?.metadata !== undefined) {
-        deps.runStore.updateRun(admittedRunId, {
-          metadata: {
-            ...run.metadata,
-            meta: {
-              ...readRecord(run.metadata['meta']),
-              resolvedAttachments,
-            },
-          },
-        })
-      }
-    }
-  }
-
   if (
     createdAttempt.created &&
     admittedRunId !== undefined &&
@@ -339,14 +302,11 @@ export const handleCreateInterfaceMessage: RouteHandler = async (context) => {
         | AttachmentRef[]
         | undefined) ?? undefined
 
-    // Augment the prompt with resolved file paths so agents on harnesses that
-    // don't natively inject image content blocks (claude-agent-sdk today) can
-    // still see attached files via their Read tool. Codex agents get images
-    // through the `-i` CLI flag separately and are unaffected by this hint.
-    const promptWithAttachmentPaths = appendAttachmentPathsToPrompt(content, resolvedAttachments)
+    const promptWithAttachmentContext =
+      typeof run?.metadata?.['content'] === 'string' ? run.metadata['content'] : content
 
     const intent = await resolveLaunchIntent(deps, sessionRef, {
-      initialPrompt: promptWithAttachmentPaths,
+      initialPrompt: promptWithAttachmentContext,
       ...(resolvedAttachments !== undefined ? { attachments: resolvedAttachments } : {}),
     })
     const responseCapture = createInterfaceResponseCapture({

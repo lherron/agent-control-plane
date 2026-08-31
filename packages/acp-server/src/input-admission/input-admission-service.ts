@@ -16,6 +16,7 @@ import {
 import type { UnifiedSessionEvent } from 'spaces-runtime'
 import type { CollaborationSayReceipt } from 'wrkq-lib'
 
+import { resolveAttachmentRefs } from '../attachments.js'
 import { createInterfaceResponseCapture } from '../delivery/interface-response-capture.js'
 import type { ResolvedAcpServerDeps } from '../deps.js'
 import {
@@ -74,6 +75,7 @@ export type AdmitInput = {
     displayName?: string | undefined
   }
   metadata?: Readonly<Record<string, unknown>> | undefined
+  attachments?: AttachmentRef[] | undefined
   intent?: InputIntent | undefined
   dispatch?: boolean | undefined
   launch?: {
@@ -89,6 +91,11 @@ export type AdmitInput = {
       | undefined
     waitForCompletion?: boolean | undefined
   }
+}
+
+type PreparedInputDelivery = {
+  content: string
+  resolvedAttachments?: AttachmentRef[] | undefined
 }
 
 type AdmissionFallbackStores = Pick<
@@ -306,11 +313,91 @@ function classifyContributionDeliveryError(error: unknown): {
   }
 }
 
+function appendAttachmentContext(
+  content: string,
+  entries: Array<{
+    source: AttachmentRef
+    resolved?: AttachmentRef | undefined
+  }>
+): string {
+  if (entries.length === 0) {
+    return content
+  }
+
+  const sections = entries.map(({ source, resolved }, index) => {
+    const filename = source.filename ?? resolved?.filename
+    const contentType = source.contentType ?? resolved?.contentType
+    const sizeBytes = source.sizeBytes ?? resolved?.sizeBytes
+    return [
+      `[attachment ${index + 1}]`,
+      ...(filename !== undefined ? [`filename: ${filename}`] : []),
+      ...(contentType !== undefined ? [`content_type: ${contentType}`] : []),
+      ...(sizeBytes !== undefined ? [`size_bytes: ${sizeBytes}`] : []),
+      ...(source.url !== undefined ? [`source_url: ${source.url}`] : []),
+      ...(source.path !== undefined ? [`source_path: ${source.path}`] : []),
+      ...(resolved?.path !== undefined ? [`local_path: ${resolved.path}`] : []),
+    ].join('\n')
+  })
+
+  return `${content}\n\n${sections.join('\n\n')}`
+}
+
+function metadataWithResolvedAttachments(
+  metadata: Readonly<Record<string, unknown>> | undefined,
+  resolvedAttachments: AttachmentRef[] | undefined
+): Readonly<Record<string, unknown>> | undefined {
+  if (resolvedAttachments === undefined) {
+    return metadata
+  }
+  return {
+    ...(metadata ?? {}),
+    resolvedAttachments,
+  }
+}
+
 export class InputAdmissionService {
   private readonly deps: ResolvedAcpServerDeps
 
   constructor(deps: ResolvedAcpServerDeps) {
     this.deps = withAdmissionDefaults(deps)
+  }
+
+  private async prepareInputDelivery(
+    input: Pick<AdmitInput, 'attachments' | 'content'>,
+    inputAttemptId: string
+  ): Promise<PreparedInputDelivery> {
+    if (input.attachments === undefined || input.attachments.length === 0) {
+      return { content: input.content }
+    }
+
+    const entries: Array<{
+      source: AttachmentRef
+      resolved?: AttachmentRef | undefined
+    }> = []
+    const resolvedAttachments: AttachmentRef[] = []
+
+    for (const [index, source] of input.attachments.entries()) {
+      // Each attachment gets an attempt-scoped spool directory. The input
+      // attempt is minted before this method runs, so duplicate interface
+      // delivery returns the prior admission without downloading again.
+      const resolved = (
+        await resolveAttachmentRefs([source], {
+          runId: `${inputAttemptId}-${index + 1}`,
+          stateDir: this.deps.mediaStateDir,
+          maxBytes: this.deps.attachmentMaxBytes,
+          fetchImpl: this.deps.attachmentFetchImpl,
+        })
+      )?.[0]
+      entries.push({ source, ...(resolved !== undefined ? { resolved } : {}) })
+      if (resolved !== undefined) {
+        resolvedAttachments.push(resolved)
+      }
+    }
+
+    return {
+      content: appendAttachmentContext(input.content, entries),
+      ...(resolvedAttachments.length > 0 ? { resolvedAttachments } : {}),
+    }
   }
 
   private async recordHumanCollaborationSay(input: {
@@ -427,6 +514,8 @@ export class InputAdmissionService {
     attempt: ReturnType<ResolvedAcpServerDeps['inputAttemptStore']['createAttempt']>
     intent: Extract<InputIntent, { kind: 'contribute_to_active_run' }>
     application: InputApplication
+    delivery: PreparedInputDelivery
+    metadata?: Readonly<Record<string, unknown>> | undefined
     reason: string
     response?: HrcActiveRunContributionResponse | undefined
   }): InputAdmissionResult {
@@ -477,8 +566,18 @@ export class InputAdmissionService {
       actor: input.attempt.inputAttempt.actor,
       status: 'queued',
       metadata: {
+        content: input.delivery.content,
         inputApplicationId: input.application.inputApplicationId,
         contributionFallback: true,
+        ...(metadataWithResolvedAttachments(input.metadata, input.delivery.resolvedAttachments) !==
+        undefined
+          ? {
+              meta: metadataWithResolvedAttachments(
+                input.metadata,
+                input.delivery.resolvedAttachments
+              ),
+            }
+          : {}),
       },
     })
     this.deps.inputAttemptStore.associateRun(input.attempt.inputAttempt.inputAttemptId, run.runId)
@@ -672,9 +771,17 @@ export class InputAdmissionService {
       }
     }
 
+    const delivery = await this.prepareInputDelivery(
+      {
+        content: input.content,
+        ...(input.attachments !== undefined ? { attachments: input.attachments } : {}),
+      },
+      attempt.inputAttempt.inputAttemptId
+    )
+
     const collaboration = await this.recordHumanCollaborationSay({
       sessionRef: input.sessionRef,
-      content: input.content,
+      content: delivery.content,
       actor: input.actor,
       ...(input.idempotencyKey !== undefined ? { idempotencyKey: input.idempotencyKey } : {}),
       inputAttemptId: attempt.inputAttempt.inputAttemptId,
@@ -712,6 +819,8 @@ export class InputAdmissionService {
             attempt,
             intent: input.intent,
             application,
+            delivery,
+            ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
             reason: 'hrc_client_not_configured',
           })
         : this.createRejectedAdmission({
@@ -738,7 +847,7 @@ export class InputAdmissionService {
         inputAttemptId: attempt.inputAttempt.inputAttemptId,
         inputApplicationId: application.inputApplicationId,
         ...(input.idempotencyKey !== undefined ? { idempotencyKey: input.idempotencyKey } : {}),
-        prompt: input.content,
+        prompt: delivery.content,
         inputType: input.actor.kind === 'human' ? 'human' : 'system',
         semantics: input.intent.contributionSemantics ?? 'append_context',
       })
@@ -781,6 +890,8 @@ export class InputAdmissionService {
             attempt,
             intent: input.intent,
             application,
+            delivery,
+            ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
             reason: response.capability?.reason ?? 'active_run_contribution_rejected',
             response,
           })
@@ -797,6 +908,8 @@ export class InputAdmissionService {
           attempt,
           intent: input.intent,
           application,
+          delivery,
+          ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
           reason: response.errorCode ?? 'active_run_contribution_rejected',
           response,
         })
@@ -829,6 +942,8 @@ export class InputAdmissionService {
           attempt,
           intent: input.intent,
           application,
+          delivery,
+          ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
           reason: application.lastErrorCode ?? 'delivery_failed',
         })
       }
@@ -1000,15 +1115,27 @@ export class InputAdmissionService {
       }
     }
 
+    const delivery = await this.prepareInputDelivery(
+      {
+        content: input.content,
+        ...(input.attachments !== undefined ? { attachments: input.attachments } : {}),
+      },
+      attempt.inputAttempt.inputAttemptId
+    )
+
     const collaboration = await this.recordHumanCollaborationSay({
       sessionRef: input.sessionRef,
-      content: input.content,
+      content: delivery.content,
       actor: input.actor,
       ...(input.idempotencyKey !== undefined ? { idempotencyKey: input.idempotencyKey } : {}),
       inputAttemptId: attempt.inputAttempt.inputAttemptId,
     })
     if (collaboration !== undefined) {
-      return this.createAcceptedCollaborationAdmission({ attempt, intent, collaboration })
+      return this.createAcceptedCollaborationAdmission({
+        attempt,
+        intent,
+        collaboration,
+      })
     }
 
     const seq = this.deps.sessionAdmissionSequenceStore.reserve({
@@ -1034,8 +1161,13 @@ export class InputAdmissionService {
       actor: input.actor,
       status: busy ? 'queued' : 'pending',
       metadata: {
-        content: input.content,
-        ...(input.metadata !== undefined ? { meta: input.metadata } : {}),
+        content: delivery.content,
+        ...(metadataWithResolvedAttachments(input.metadata, delivery.resolvedAttachments) !==
+        undefined
+          ? {
+              meta: metadataWithResolvedAttachments(input.metadata, delivery.resolvedAttachments),
+            }
+          : {}),
       },
     })
     this.deps.inputAttemptStore.associateRun(attempt.inputAttempt.inputAttemptId, run.runId)
@@ -1142,10 +1274,12 @@ export class InputAdmissionService {
     const launchIntent =
       input.launch?.intent ??
       (await resolveLaunchIntent(this.deps, input.sessionRef, {
-        initialPrompt: input.launch?.initialPrompt ?? input.content,
+        initialPrompt: input.launch?.initialPrompt ?? delivery.content,
         ...(input.launch?.attachments !== undefined
           ? { attachments: input.launch.attachments }
-          : {}),
+          : delivery.resolvedAttachments !== undefined
+            ? { attachments: delivery.resolvedAttachments }
+            : {}),
         ...(causationEnv !== undefined ? { env: causationEnv } : {}),
       }))
 

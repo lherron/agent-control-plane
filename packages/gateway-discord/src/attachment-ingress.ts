@@ -13,6 +13,11 @@ type DiscordAttachmentCollectionLike = {
   values?: () => Iterable<DiscordAttachmentLike>
 }
 
+type DiscordEmbedLike = {
+  title?: string | null | undefined
+  url?: string | null | undefined
+}
+
 const IMAGE_EXTENSION_PATTERN = /\.(avif|bmp|gif|heic|heif|jpe?g|png|tiff?|webp)$/i
 
 function discordAttachmentValues(attachments: unknown): DiscordAttachmentLike[] {
@@ -21,6 +26,15 @@ function discordAttachmentValues(attachments: unknown): DiscordAttachmentLike[] 
     return []
   }
   return Array.from(values.call(attachments))
+}
+
+function discordEmbedValues(embeds: unknown): DiscordEmbedLike[] {
+  if (Array.isArray(embeds)) {
+    return embeds as DiscordEmbedLike[]
+  }
+
+  const values = (embeds as { values?: () => Iterable<DiscordEmbedLike> } | undefined)?.values
+  return typeof values === 'function' ? Array.from(values.call(embeds)) : []
 }
 
 function optionalNonEmptyString(value: string | null | undefined): string | undefined {
@@ -66,6 +80,32 @@ function buildAttachmentPlaceholder(attachments: DiscordAttachmentLike[]): strin
   return `${tag} (${count} ${noun})`
 }
 
+function appendDiscordEmbedContext(content: string, embeds: DiscordEmbedLike[]): string {
+  const rendered = embeds.flatMap((embed, index) => {
+    const title = optionalNonEmptyString(embed.title)
+    const url = optionalNonEmptyString(embed.url)
+    if (title === undefined && url === undefined) {
+      return []
+    }
+
+    return [
+      [
+        `[Discord embed ${index + 1}]`,
+        ...(title !== undefined ? [`title: ${title}`] : []),
+        ...(url !== undefined ? [`url: ${url}`] : []),
+      ].join('\n'),
+    ]
+  })
+
+  if (rendered.length === 0) {
+    return content
+  }
+
+  const base =
+    content || `<discord:embed> (${rendered.length} ${rendered.length === 1 ? 'embed' : 'embeds'})`
+  return `${base}\n\n${rendered.join('\n\n')}`
+}
+
 export function mapDiscordMessageAttachments(
   message: Pick<Message, 'attachments'>
 ): InterfaceMessageAttachment[] {
@@ -92,12 +132,11 @@ export function mapDiscordMessageAttachments(
 }
 
 export function resolveDiscordIngressContent(
-  message: Pick<Message, 'attachments' | 'content'>
+  message: Pick<Message, 'attachments' | 'content' | 'embeds'>,
+  contentOverride?: string
 ): string {
-  const content = message.content.trim()
-  if (content) {
-    return content
-  }
+  const content = (contentOverride ?? message.content).trim()
+  const base = content || buildAttachmentPlaceholder(discordAttachmentValues(message.attachments))
 
-  return buildAttachmentPlaceholder(discordAttachmentValues(message.attachments))
+  return appendDiscordEmbedContext(base, discordEmbedValues(message.embeds))
 }

@@ -410,7 +410,10 @@ function reconcileTerminalQueueItem(deps: InputQueueDispatcherDeps, item: InputQ
 }
 
 function sameSessionHasActiveRun(deps: InputQueueDispatcherDeps, item: InputQueueItem): boolean {
-  const sessionRef = normalizeSessionRef({ scopeRef: item.scopeRef, laneRef: item.laneRef })
+  const sessionRef = normalizeSessionRef({
+    scopeRef: item.scopeRef,
+    laneRef: item.laneRef,
+  })
   return deps.runStore
     .listRunsForSession(sessionRef)
     .some(
@@ -432,18 +435,6 @@ function attachmentRefsFromRunMetadata(
 function promptFromRunMetadata(metadata: Readonly<Record<string, unknown>> | undefined): string {
   const content = metadata?.['content']
   return typeof content === 'string' ? content : ''
-}
-
-function appendAttachmentPathsToPrompt(
-  prompt: string,
-  resolved: AttachmentRef[] | undefined
-): string {
-  if (resolved === undefined || resolved.length === 0) return prompt
-  const filePaths = resolved
-    .filter((a): a is AttachmentRef & { path: string } => a.kind === 'file' && !!a.path)
-    .map((a) => `[attached file: ${a.path}]`)
-  if (filePaths.length === 0) return prompt
-  return `${prompt}\n\n${filePaths.join('\n')}`
 }
 
 function queueItemExpiredByTtl(deps: InputQueueDispatcherDeps, item: InputQueueItem): boolean {
@@ -553,7 +544,9 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
       leaseOwner,
       attempts: item.attempts + 1,
     })
-    const pendingRun = deps.runStore.updateRun(item.runId, { status: 'pending' })
+    const pendingRun = deps.runStore.updateRun(item.runId, {
+      status: 'pending',
+    })
     const dispatchingAdmission = deps.inputAdmissionStore.update(item.inputAttemptId, {
       status: admissionStatusForQueueStatus('dispatching'),
       currentState: { queueStatus: 'dispatching', seq: item.seq },
@@ -568,12 +561,12 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
       queueItem: leased,
     })
 
-    const sessionRef = normalizeSessionRef({ scopeRef: item.scopeRef, laneRef: item.laneRef })
+    const sessionRef = normalizeSessionRef({
+      scopeRef: item.scopeRef,
+      laneRef: item.laneRef,
+    })
     const attachments = attachmentRefsFromRunMetadata(pendingRun.metadata)
-    const prompt = appendAttachmentPathsToPrompt(
-      promptFromRunMetadata(pendingRun.metadata),
-      attachments
-    )
+    const prompt = promptFromRunMetadata(pendingRun.metadata)
     const causationEnv = causationLaunchEnvFromRunMetadata(pendingRun.metadata)
     const intent = await resolveLaunchIntent(
       {
@@ -604,7 +597,11 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
       })
       const runningAdmission = deps.inputAdmissionStore.update(item.inputAttemptId, {
         status: admissionStatusForRunStatus(launchedRun.status),
-        currentState: { queueStatus: 'running', runStatus: launchedRun.status, seq: item.seq },
+        currentState: {
+          queueStatus: 'running',
+          runStatus: launchedRun.status,
+          seq: item.seq,
+        },
       })
       recordInputAdmissionEvent(deps, {
         eventKind: 'input.started',
@@ -630,7 +627,11 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
         })
         deps.inputAdmissionStore.update(item.inputAttemptId, {
           status: 'queued',
-          currentState: { queueStatus: 'queued', reason: 'runtime_busy', seq: item.seq },
+          currentState: {
+            queueStatus: 'queued',
+            reason: 'runtime_busy',
+            seq: item.seq,
+          },
         })
         return
       }
@@ -648,7 +649,11 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
       })
       deps.inputAdmissionStore.update(item.inputAttemptId, {
         status: 'failed',
-        currentState: { queueStatus: 'failed', errorCode: 'launch_failed', seq: item.seq },
+        currentState: {
+          queueStatus: 'failed',
+          errorCode: 'launch_failed',
+          seq: item.seq,
+        },
       })
     }
   }
