@@ -37,30 +37,62 @@ function formatToolSummary(toolInput: Record<string, unknown>): string {
   return json.length > 2 ? truncate(json, 80) : ''
 }
 
-function buildToolTraceFrame(run: RunState): RenderFrame {
-  return {
-    runId: run.runId,
-    projectId: run.projectId,
-    phase: 'final',
-    blocks: [...run.toolExecutions]
-      .sort((left, right) => left.seq - right.seq)
-      .map((tool) => ({
+function buildTurnTimelineFrame(run: RunState): RenderFrame {
+  const timeline: Array<{ seq: number; block: RenderBlock }> = [...run.toolExecutions].map(
+    (tool) => ({
+      seq: tool.seq,
+      block: {
         t: 'tool' as const,
         toolName: tool.toolName,
         summary: formatToolSummary(tool.input),
         input: tool.input,
         approved: tool.status === 'completed' ? true : tool.status === 'failed' ? false : undefined,
-      })),
+      },
+    })
+  )
+
+  // Interleave the agent's pre-answer narration so the trace reads in true
+  // chronology (T-07825): an agent that narrates before calling a tool must
+  // not render the tool line above that narration. The final non-empty
+  // segment is the concluding answer — the opaque reply body below already
+  // carries it, so the timeline stops at the last in-flight step. Narration
+  // is blockquoted to stay visually distinct from the concluding reply.
+  const narration = run.assistantSegments
+    .filter((segment) => segment.text.trim().length > 0)
+    .sort((left, right) => left.seq - right.seq)
+    .slice(0, -1)
+  for (const segment of narration) {
+    timeline.push({
+      seq: segment.seq,
+      block: {
+        t: 'markdown' as const,
+        md: segment.text
+          .trimEnd()
+          .split('\n')
+          .map((line) => `> ${line}`)
+          .join('\n'),
+      },
+    })
+  }
+
+  return {
+    runId: run.runId,
+    projectId: run.projectId,
+    phase: 'final',
+    blocks: timeline.sort((left, right) => left.seq - right.seq).map((item) => item.block),
     updatedAt: Date.now(),
   }
 }
 
-/** Keep a compact rendered tool trace in a ledger-routed final Discord card.
+/** Keep a compact rendered turn timeline in a ledger-routed final Discord card.
  *
- * The human notice is immutable input: its provenance header, reply body, and
- * attachment reference lines are never shortened or rewritten. The trace gets
- * only the remaining Discord budget and is omitted if even its collapse marker
- * cannot fit. This makes the reply win every budget conflict.
+ * The timeline interleaves tool steps with the agent's pre-answer narration in
+ * event order, so the card reads chronologically (T-07825); the concluding
+ * answer is the reply body below it, byte-for-byte. The human notice is
+ * immutable input: its provenance header, reply body, and attachment reference
+ * lines are never shortened or rewritten. The timeline gets only the remaining
+ * Discord budget and is omitted if even its collapse marker cannot fit. This
+ * makes the reply win every budget conflict.
  */
 export function planLedgerHumanNoticeContent(input: LedgerHumanNoticeWritePlanInput): string {
   const { replyContent, run } = input
@@ -74,7 +106,7 @@ export function planLedgerHumanNoticeContent(input: LedgerHumanNoticeWritePlanIn
     return replyContent
   }
 
-  const trace = buildProgressBubble(buildToolTraceFrame(run), {
+  const trace = buildProgressBubble(buildTurnTimelineFrame(run), {
     maxChars: traceBudget,
     maxLines: input.maxLines ?? 12,
   }).replace(/^_\.\.\. \+(\d+) earlier tools_$/m, '_… +$1 earlier steps_')

@@ -89,18 +89,61 @@ describe('Discord write planner', () => {
     expect(content.indexOf('shell:')).toBeLessThan(content.indexOf('Done.'))
   })
 
+  test('interleaves pre-answer narration with tool steps in chronological order', () => {
+    // Live evidence shape (mneme EN-02012, T-07825): narrate -> tool -> answer.
+    const replyBody =
+      "I'll check with pwd and return the exact path.\n\n/Users/lherron/praesidium/signal-pipeline"
+    const reply = `-# mneme@signal-pipeline . EN-02012\n${replyBody}`
+    const content = planLedgerHumanNoticeContent({
+      replyContent: reply,
+      run: runState({
+        assistantSegments: [
+          { id: 'narrate', seq: 1, text: "I'll check with pwd and return the exact path." },
+          { id: 'answer', seq: 5, text: '/Users/lherron/praesidium/signal-pipeline' },
+        ],
+        toolExecutions: [
+          {
+            toolUseId: 'tool-pwd',
+            toolName: 'command_execution',
+            input: { command: '/bin/zsh -lc pwd' },
+            status: 'completed',
+            seq: 3,
+          },
+        ],
+      }),
+      retainTurnProgress: true,
+      maxChars: 2000,
+    })
+
+    const narrationQuoteIndex = content.indexOf("> I'll check with pwd")
+    const toolIndex = content.indexOf('shell: pwd')
+    const replyBodyIndex = content.indexOf(replyBody)
+
+    // Timeline reads chronologically: narration before the tool it preceded.
+    expect(narrationQuoteIndex).toBeGreaterThanOrEqual(0)
+    expect(toolIndex).toBeGreaterThan(narrationQuoteIndex)
+    // The opaque reply body concludes the card, byte-for-byte.
+    expect(replyBodyIndex).toBeGreaterThan(toolIndex)
+    // The concluding answer never appears inside the timeline (only in the reply).
+    expect(content).not.toContain('> /Users/lherron/praesidium/signal-pipeline')
+  })
+
   test('restores replace-only ledger replies when progress retention is off', () => {
     const reply = '-# cody@agent-spaces . EN-00042\nreplace-only reply'
     const content = planLedgerHumanNoticeContent({
       replyContent: reply,
       run: runState({
+        assistantSegments: [
+          { id: 'narrate', seq: 1, text: 'about to read' },
+          { id: 'answer', seq: 3, text: 'replace-only reply' },
+        ],
         toolExecutions: [
           {
             toolUseId: 'tool-read',
             toolName: 'Read',
             input: { file_path: '/tmp/hidden.ts' },
             status: 'completed',
-            seq: 1,
+            seq: 2,
           },
         ],
       }),
