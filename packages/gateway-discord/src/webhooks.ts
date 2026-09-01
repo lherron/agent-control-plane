@@ -60,7 +60,9 @@ export type ManagedWebhook = {
   id: string
   token?: string | null | undefined
   name?: string | null | undefined
-  edit?(options: { avatar?: Buffer | string | null | undefined }): Promise<ManagedWebhook>
+  edit?(options: {
+    avatar?: Buffer | string | null | undefined
+  }): Promise<ManagedWebhook>
   send(payload: DiscordWebhookSendPayload): Promise<WebhookMessage>
   editMessage(messageId: string, payload: DiscordWebhookEditPayload): Promise<WebhookMessage>
   deleteMessage?(messageId: string, threadId?: string | undefined): Promise<void>
@@ -137,6 +139,17 @@ function webhookValues(collection: WebhookCollection): Iterable<ManagedWebhook> 
     return collection.values()
   }
   return collection as Iterable<ManagedWebhook>
+}
+
+function hasUsableWebhookToken(webhook: ManagedWebhook): boolean {
+  return typeof webhook.token === 'string' && webhook.token.trim().length > 0
+}
+
+function requireUsableWebhookToken(webhook: ManagedWebhook, channelId: string): ManagedWebhook {
+  if (!hasUsableWebhookToken(webhook)) {
+    throw new Error(`Discord webhook ${webhook.id} in channel ${channelId} has no usable token`)
+  }
+  return webhook
 }
 
 function normalizeSendPayload(payload: WebhookPayload): DiscordWebhookSendPayload {
@@ -241,7 +254,11 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
     const isThread = typeof channel.isThread === 'function' && channel.isThread()
     if (isThread && channel.parentId) {
       const parent = await fetchTextChannel(channel.parentId)
-      return { webhookChannelId: channel.parentId, threadId: channelId, container: parent }
+      return {
+        webhookChannelId: channel.parentId,
+        threadId: channelId,
+        container: parent,
+      }
     }
     return { webhookChannelId: channelId, container: channel }
   }
@@ -253,11 +270,14 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
       const { webhookChannelId, container } = await resolveWebhookContainer(channelId)
 
       const cached = cache.get(webhookChannelId)
-      if (cached !== undefined) {
+      if (cached !== undefined && hasUsableWebhookToken(cached)) {
         log.debug('gw.discord.webhook.resolve', {
           data: { channelId, webhookId: cached.id, outcome: 'cached' },
         })
         return cached
+      }
+      if (cached !== undefined) {
+        cache.delete(webhookChannelId)
       }
 
       if (typeof container.fetchWebhooks !== 'function') {
@@ -267,7 +287,7 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
       }
       const webhooks = await container.fetchWebhooks()
       for (const webhook of webhookValues(webhooks)) {
-        if (webhook.name === webhookName) {
+        if (webhook.name === webhookName && hasUsableWebhookToken(webhook)) {
           cache.set(webhookChannelId, webhook)
           log.info('gw.discord.webhook.resolve', {
             data: { channelId, webhookId: webhook.id, outcome: 'existing' },
@@ -282,6 +302,7 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
         )
       }
       const webhook = await container.createWebhook({ name: webhookName })
+      requireUsableWebhookToken(webhook, webhookChannelId)
       cache.set(webhookChannelId, webhook)
       log.info('gw.discord.webhook.resolve', {
         data: { channelId, webhookId: webhook.id, outcome: 'created' },
@@ -290,7 +311,9 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
     } catch (error) {
       log.warn('gw.discord.webhook.resolve', {
         data: { channelId, outcome: 'error' },
-        err: { message: error instanceof Error ? error.message : String(error) },
+        err: {
+          message: error instanceof Error ? error.message : String(error),
+        },
       })
       throw error
     }
@@ -303,11 +326,14 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
       const { webhookChannelId, container } = await resolveWebhookContainer(channelId)
 
       const cached = cache.get(webhookChannelId)
-      if (cached?.id === webhookId) {
+      if (cached?.id === webhookId && hasUsableWebhookToken(cached)) {
         log.debug('gw.discord.webhook.resolve', {
           data: { channelId, webhookId, outcome: 'cached' },
         })
         return cached
+      }
+      if (cached?.id === webhookId) {
+        cache.delete(webhookChannelId)
       }
 
       if (typeof container.fetchWebhooks !== 'function') {
@@ -318,6 +344,7 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
       const webhooks = await container.fetchWebhooks()
       for (const webhook of webhookValues(webhooks)) {
         if (webhook.id === webhookId) {
+          requireUsableWebhookToken(webhook, webhookChannelId)
           cache.set(webhookChannelId, webhook)
           log.info('gw.discord.webhook.resolve', {
             data: { channelId, webhookId, outcome: 'by_id' },
@@ -330,7 +357,9 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
     } catch (error) {
       log.warn('gw.discord.webhook.resolve', {
         data: { channelId, webhookId, outcome: 'error' },
-        err: { message: error instanceof Error ? error.message : String(error) },
+        err: {
+          message: error instanceof Error ? error.message : String(error),
+        },
       })
       throw error
     }
@@ -413,7 +442,11 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
     await webhook.edit({ avatar: avatar.data })
     webhookAvatarKeys.set(webhook.id, avatar.key)
     log.info('gw.discord.webhook.avatar', {
-      data: { webhookId: webhook.id, avatarKey: avatar.key, outcome: 'updated' },
+      data: {
+        webhookId: webhook.id,
+        avatarKey: avatar.key,
+        outcome: 'updated',
+      },
     })
   }
 
@@ -467,7 +500,9 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
             ...(resolvedWebhookId !== undefined ? { webhookId: resolvedWebhookId } : {}),
             outcome: 'error',
           },
-          err: { message: error instanceof Error ? error.message : String(error) },
+          err: {
+            message: error instanceof Error ? error.message : String(error),
+          },
         })
         throw error
       }
@@ -527,7 +562,9 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
             messageId,
             outcome: 'error',
           },
-          err: { message: error instanceof Error ? error.message : String(error) },
+          err: {
+            message: error instanceof Error ? error.message : String(error),
+          },
         })
         throw error
       }
@@ -569,7 +606,9 @@ export function createWebhookManager(options: WebhookManagerOptions): WebhookMan
             messageId,
             outcome: 'error',
           },
-          err: { message: error instanceof Error ? error.message : String(error) },
+          err: {
+            message: error instanceof Error ? error.message : String(error),
+          },
         })
         throw error
       }

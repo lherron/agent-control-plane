@@ -46,7 +46,12 @@ test('gateway-discord renderer maps RenderFrame to message content', () => {
 
 test('gateway-discord renderer maps actions to stable customIds', () => {
   const actions = renderActionsToCustomIds('proj1', 'run1', [
-    { id: 'perm:req:allow', kind: 'approve', label: 'Approve', style: 'primary' },
+    {
+      id: 'perm:req:allow',
+      kind: 'approve',
+      label: 'Approve',
+      style: 'primary',
+    },
   ])
 
   expect(actions).toHaveLength(1)
@@ -58,6 +63,22 @@ test('splitIntoChunks emits prose as raw markdown by default', () => {
 
   expect(chunks).toHaveLength(1)
   expect(chunks[0]).toBe('Hello world\nThis is some text')
+})
+
+test('splitIntoChunks keeps exactly 2000 characters in one Discord message', () => {
+  const chunks = splitIntoChunks('x'.repeat(2000), 2000)
+
+  expect(chunks).toEqual(['x'.repeat(2000)])
+})
+
+test('splitIntoChunks splits over-limit prose at a sentence boundary', () => {
+  const firstSentence = `${'word '.repeat(390).trim()}. `
+  const content = `${firstSentence}${'tail '.repeat(80)}`
+  const chunks = splitIntoChunks(content, 2000)
+
+  expect(chunks.length).toBeGreaterThan(1)
+  expect(chunks.every((chunk) => chunk.length <= 2000)).toBe(true)
+  expect(chunks[0]).toBe(firstSentence.trimEnd())
 })
 
 test('splitIntoChunks preserves agent-emitted code fences with default prose mode', () => {
@@ -345,7 +366,9 @@ describe('renderBlock tool rendering', () => {
     expect(fullContent).toContain('```')
     expect(fullContent).toContain('image')
 
-    const compactContent = renderFrameToDiscordContent(frame, 2000, { compact: true })
+    const compactContent = renderFrameToDiscordContent(frame, 2000, {
+      compact: true,
+    })
     expect(compactContent).not.toContain('```')
     expect(compactContent).not.toContain('image')
     expect(compactContent).toContain('💻 shell: echo hi')
@@ -363,7 +386,11 @@ describe('renderBlock notice rendering', () => {
       projectId: 'p1',
       phase: 'progress',
       blocks: [
-        { t: 'notice', level: 'info', message: 'connected to live session stream' },
+        {
+          t: 'notice',
+          level: 'info',
+          message: 'connected to live session stream',
+        },
         { t: 'notice', level: 'warn', message: 'tool output was compacted' },
         { t: 'notice', level: 'error', message: 'tool progress edit failed' },
       ] as never,

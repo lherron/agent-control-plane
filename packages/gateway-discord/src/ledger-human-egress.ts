@@ -6,6 +6,7 @@ import type {
   RecordDiscordLedgerProjectionRouteInput,
 } from 'acp-interface-store'
 import { conversationRefToChannelId, threadRefToThreadId } from './bindings.js'
+import { httpErrorField } from './discord-errors.js'
 import { actorSlug, avatarFor, formatScopeHandleDisplay } from './identity.js'
 import { isTaskboardTaskId, taskboardTaskUrl } from './taskboard-links.js'
 import type { WebhookPayload } from './webhooks.js'
@@ -39,12 +40,17 @@ export type DiscordLedgerHumanEgressDeps = {
   resolveRoomProjectId?(roomUuid: string): Promise<string | undefined>
   findRecentMessageId(channelId: string, envelopeId: string): Promise<string | undefined>
   send(sink: DiscordLedgerSink): Promise<{ messageId: string }>
+  onHumanDeliveryFailed?(
+    sink: Extract<DiscordLedgerSink, { kind: 'human-notice' }>,
+    reason: string
+  ): Promise<void>
   onEnvelopeFailed?(envelope: WrkqEnvelope): void | Promise<void>
 }
 
 const PAGE_LIMIT = 200
 const EMBED_TITLE_MAX = 256
 const EMBED_DESCRIPTION_MAX = 4096
+const FAILURE_REASON_MAX = 300
 
 export type DiscordLedgerSink =
   | {
@@ -69,6 +75,29 @@ export type ResolveEnvelopeSinksOptions = {
 
 function truncate(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value
+}
+
+/** Discord client errors except 429 are deterministic for an unchanged
+ * request. Retrying the same payload only burns the delivery budget and leaves
+ * the addressed envelope pending, so the ledger must retire them immediately. */
+export function isTerminalDiscordDeliveryError(error: unknown): boolean {
+  const status = httpErrorField(error, 'status')
+  const code = httpErrorField(error, 'code')
+  const httpStatus =
+    typeof status === 'number' ? status : typeof code === 'number' ? code : undefined
+  return httpStatus !== undefined && httpStatus >= 400 && httpStatus < 500 && httpStatus !== 429
+}
+
+function deliveryFailureReason(error: unknown): string {
+  const status = httpErrorField(error, 'status')
+  const code = httpErrorField(error, 'code')
+  const httpStatus =
+    typeof status === 'number' ? status : typeof code === 'number' ? code : undefined
+  const message = error instanceof Error ? error.message : String(error)
+  return truncate(
+    httpStatus === undefined ? message : `discord_http_${httpStatus}: ${message}`,
+    FAILURE_REASON_MAX
+  )
 }
 
 function displayParty(party: WrkqEnvelope['from']): string {
@@ -349,17 +378,29 @@ export class DiscordLedgerEgress {
       ...(sink.kind === 'human-notice' ? { bindingId: sink.route.bindingId } : {}),
       maxAttempts: this.deps.maxDeliveryAttempts,
     })
-    if (claim.outcome !== 'attempting') return
+    if (claim.outcome !== 'attempting') {
+      if (claim.delivery.state === 'failed' && sink.kind === 'human-notice') {
+        await this.finalizeHumanDeliveryFailure(
+          sink,
+          claim.delivery.failureReason ?? 'discord_delivery_failed'
+        )
+      }
+      return
+    }
 
     let sent: { messageId: string }
     try {
       sent = await this.deps.send(sink)
     } catch (error) {
-      if (claim.delivery.attempts >= this.deps.maxDeliveryAttempts) {
-        this.deps.store.discordLedgerDeliveries.markFailed(
-          claim.delivery,
-          error instanceof Error ? error.message : String(error)
-        )
+      if (
+        isTerminalDiscordDeliveryError(error) ||
+        claim.delivery.attempts >= this.deps.maxDeliveryAttempts
+      ) {
+        const failureReason = deliveryFailureReason(error)
+        this.deps.store.discordLedgerDeliveries.markFailed(claim.delivery, failureReason)
+        if (sink.kind === 'human-notice') {
+          await this.finalizeHumanDeliveryFailure(sink, failureReason)
+        }
         return
       }
       throw error
@@ -369,6 +410,18 @@ export class DiscordLedgerEgress {
     if (sink.kind === 'human-notice') {
       await this.presentHumanNotice(sink.envelope.id, sink.route.humanPrincipalRef, sent.messageId)
     }
+  }
+
+  private async finalizeHumanDeliveryFailure(
+    sink: Extract<DiscordLedgerSink, { kind: 'human-notice' }>,
+    reason: string
+  ): Promise<void> {
+    await this.deps.client.wrkq.envelope.fail({
+      envelope: sink.envelope.id,
+      reason: 'undeliverable',
+      principalRef: 'agent:gateway-discord',
+    })
+    await this.deps.onHumanDeliveryFailed?.(sink, reason)
   }
 
   private async hydrateDeliverySink(

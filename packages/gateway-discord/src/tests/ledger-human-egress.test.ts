@@ -325,6 +325,97 @@ describe('Discord ledger human egress', () => {
     store.close()
   })
 
+  test('retires a non-429 Discord 4xx after one attempt, fails the envelope, and requests a visible stub', async () => {
+    const store = openInterfaceStore({ dbPath: ':memory:' })
+    store.discordLedgerProjection.advanceCursor('discord', 40)
+    store.discordLedgerProjection.recordRoute(route)
+
+    const failed: unknown[] = []
+    const stubs: string[] = []
+    const client = {
+      call: async (_method: string, params: { cursor: number }) =>
+        params.cursor === 40
+          ? {
+              items: [
+                {
+                  id: 41,
+                  timestamp: '2026-08-28T00:00:01Z',
+                  resource_id: 'EN-00042',
+                  event_type: 'envelope.created',
+                  payload: JSON.stringify({
+                    id: 'EN-00042',
+                    room_uuid: 'room-uuid',
+                    to_principal_ref: 'agent:lance',
+                  }),
+                },
+              ],
+              high_water: 41,
+            }
+          : { items: [], high_water: params.cursor },
+      wrkq: {
+        envelope: {
+          show: async () => envelope(),
+          fail: async (params: unknown) => {
+            failed.push(params)
+            const value = envelope()
+            value.state = 'failed'
+            value.terminal = true
+            value.failureReason = 'undeliverable'
+            return value
+          },
+        },
+        room: { show: async () => ({ workRef: null }) },
+      },
+    } as unknown as WorkClient
+    let sends = 0
+    const egress = new DiscordLedgerEgress({
+      gatewayId: 'discord',
+      client,
+      store,
+      maxDeliveryAttempts: 3,
+      findRecentMessageId: async () => undefined,
+      send: async () => {
+        sends += 1
+        const error = new Error('Invalid Form Body content[BASE_TYPE_MAX_LENGTH]') as Error & {
+          status: number
+        }
+        error.status = 400
+        throw error
+      },
+      onHumanDeliveryFailed: async (_sink, reason) => {
+        stubs.push(reason)
+      },
+    })
+
+    expect(await egress.pollOnce()).toBe(41)
+    expect(await egress.pollOnce()).toBe(41)
+    expect(sends).toBe(1)
+    expect(
+      store.discordLedgerDeliveries.get({
+        gatewayId: 'discord',
+        envelopeId: 'EN-00042',
+        sink: 'human-notice',
+      })
+    ).toEqual(
+      expect.objectContaining({
+        state: 'failed',
+        attempts: 1,
+        failureReason: expect.stringContaining('discord_http_400'),
+      })
+    )
+    expect(failed).toEqual([
+      {
+        envelope: 'EN-00042',
+        reason: 'undeliverable',
+        principalRef: 'agent:gateway-discord',
+      },
+    ])
+    expect(stubs).toEqual([
+      expect.stringContaining('Invalid Form Body content[BASE_TYPE_MAX_LENGTH]'),
+    ])
+    store.close()
+  })
+
   test('T5 reconciles both sinks from the last 100 messages without resending', async () => {
     const store = openInterfaceStore({ dbPath: ':memory:' })
     store.discordLedgerProjection.recordRoute(route)

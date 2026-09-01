@@ -53,7 +53,10 @@ class FakeSentMessage {
 
 class FakeWebhook {
   readonly sent: Array<FakeWebhookSendPayload & { message: FakeSentMessage }> = []
-  readonly edits: Array<{ messageId: string; payload: FakeWebhookSendPayload }> = []
+  readonly edits: Array<{
+    messageId: string
+    payload: FakeWebhookSendPayload
+  }> = []
   readonly avatarEdits: Array<{ avatar?: Buffer | string | null | undefined }> = []
   private nextId = 1
 
@@ -80,7 +83,9 @@ class FakeWebhook {
     return new FakeSentMessage(messageId, this.channelId, payload.content)
   }
 
-  async edit(input: { avatar?: Buffer | string | null | undefined }): Promise<this> {
+  async edit(input: {
+    avatar?: Buffer | string | null | undefined
+  }): Promise<this> {
     this.avatarEdits.push(input)
     return this
   }
@@ -795,14 +800,16 @@ describe('GatewayDiscordApp local e2e', () => {
     await Bun.sleep(15)
     expect(channel.typingPings).toBe(pingsAtFailure)
     expect(webhook?.sent).toHaveLength(1)
-    expect(webhook?.edits).toHaveLength(0)
-    expect(webhook?.sent[0]?.message.deleted).toBe(true)
+    expect(webhook?.edits).toHaveLength(1)
+    expect(webhook?.edits[0]?.payload.content).toContain('Reply failed (runtime_terminated)')
+    expect(webhook?.edits[0]?.payload.content).toContain('wrkc show EN-00051')
+    expect(webhook?.sent[0]?.message.deleted).toBe(false)
 
     await app.stop()
     store.close()
   })
 
-  test('deletes an uncompleted ledger progress placeholder at the live timeout', async () => {
+  test('edits an uncompleted ledger progress placeholder at the live timeout', async () => {
     const channel = new FakeChannel('chan_ledger_timeout')
     const client = new FakeClient()
     client.addChannel(channel)
@@ -889,13 +896,82 @@ describe('GatewayDiscordApp local e2e', () => {
     const webhook = [...channel.webhooks.values()].find((w) => w.name === 'agent-pulpit')
     expect(webhook?.sent[0]?.message.deleted).toBe(false)
     await Bun.sleep(30)
-    expect(webhook?.sent[0]?.message.deleted).toBe(true)
+    expect(webhook?.sent[0]?.message.deleted).toBe(false)
+    expect(webhook?.edits.at(-1)?.payload.content).toContain('Reply timed out before completion')
+    expect(webhook?.edits.at(-1)?.payload.content).toContain('wrkc show EN-00061')
     const pingsAtTimeout = channel.typingPings
     await Bun.sleep(15)
     expect(channel.typingPings).toBe(pingsAtTimeout)
 
     await app.stop()
     store.close()
+  })
+
+  test('posts a visible ledger human-delivery failure stub when no placeholder remains', async () => {
+    const channel = new FakeChannel('chan_ledger_failure_stub')
+    const client = new FakeClient()
+    client.addChannel(channel)
+    const app = new GatewayDiscordApp({
+      acpBaseUrl: 'http://acp.test',
+      gatewayId: 'discord_prod',
+      client: client as never,
+      fetchImpl: createFetch(async () => Response.json({ bindings: [] })),
+    })
+    const failedReply = {
+      uuid: 'reply-failure-uuid',
+      id: 'EN-00071',
+      messageSeq: 71,
+      roomUuid: 'room_ledger_failure_stub',
+      roomKey: 'R-00004',
+      roomKind: 'adhoc',
+      groupId: 'EN-00071',
+      from: {
+        principalRef: 'agent:cody',
+        scopeRef: 'cody@agent-spaces:primary',
+      },
+      to: { principalRef: 'agent:lance' },
+      replyTo: 'cody@agent-spaces:primary',
+      obligation: 'reply_required',
+      body: 'full reply text',
+      state: 'pending',
+      terminal: false,
+      meta: {},
+      presentedTo: [],
+      etag: 1,
+      createdAt: '2026-09-01T00:00:00Z',
+      updatedAt: '2026-09-01T00:00:00Z',
+    } as unknown as WrkqEnvelope
+
+    await (
+      app as unknown as {
+        showLedgerHumanDeliveryFailure(sink: unknown, reason: string): Promise<void>
+      }
+    ).showLedgerHumanDeliveryFailure(
+      {
+        kind: 'human-notice',
+        channelId: channel.id,
+        payload: {
+          username: 'cody@agent-spaces:primary',
+          content: '-# cody@agent-spaces:primary . EN-00071\nfull reply text',
+        },
+        envelope: failedReply,
+        route: {
+          gatewayId: 'discord_prod',
+          roomUuid: failedReply.roomUuid,
+          roomKey: failedReply.roomKey,
+          bindingId: 'ifb_failure_stub',
+          conversationRef: `channel:${channel.id}`,
+          humanPrincipalRef: 'agent:lance',
+        },
+      },
+      'discord_http_400: Invalid Form Body'
+    )
+
+    const webhook = [...channel.webhooks.values()].find((value) => value.name === 'agent-pulpit')
+    expect(webhook?.sent).toHaveLength(1)
+    expect(webhook?.sent[0]?.content).toBe(
+      '⚠️ reply delivery failed (discord_http_400: Invalid Form Body) — full text: wrkc show EN-00071'
+    )
   })
 
   test('ordinary Discord messages fall back to normal queueing when contribution is unavailable', async () => {
@@ -921,7 +997,10 @@ describe('GatewayDiscordApp local e2e', () => {
         acpBaseUrl: 'http://acp.test',
         gatewayId: 'discord_prod',
         client: client as never,
-        dashboardSnapshotImpl: async () => ({ type: 'dashboard_snapshot', sessions: [] }),
+        dashboardSnapshotImpl: async () => ({
+          type: 'dashboard_snapshot',
+          sessions: [],
+        }),
         fetchImpl: createFetch(async (request) => {
           const url = new URL(request.url)
           paths.push(url.pathname)
@@ -992,7 +1071,10 @@ describe('GatewayDiscordApp local e2e', () => {
       acpBaseUrl: 'http://acp.test',
       gatewayId: 'discord_prod',
       client: client as never,
-      dashboardSnapshotImpl: async () => ({ type: 'dashboard_snapshot', sessions: [] }),
+      dashboardSnapshotImpl: async () => ({
+        type: 'dashboard_snapshot',
+        sessions: [],
+      }),
       fetchImpl: createFetch(async (request) => {
         const url = new URL(request.url)
 
@@ -1006,7 +1088,10 @@ describe('GatewayDiscordApp local e2e', () => {
 
         if (url.pathname === '/v1/interface/messages') {
           captured.push((await request.json()) as CapturedInterfaceMessage)
-          return Response.json({ inputAttemptId: 'ia_thread_exact', runId: 'run_thread_exact' })
+          return Response.json({
+            inputAttemptId: 'ia_thread_exact',
+            runId: 'run_thread_exact',
+          })
         }
 
         if (url.pathname === '/v1/session-refs/events') {
@@ -1076,12 +1161,18 @@ describe('GatewayDiscordApp local e2e', () => {
 
         if (url.pathname === '/v1/interface/messages') {
           captured.push((await request.json()) as CapturedInterfaceMessage)
-          return Response.json({ inputAttemptId: 'ia_unexpected', runId: 'run_unexpected' })
+          return Response.json({
+            inputAttemptId: 'ia_unexpected',
+            runId: 'run_unexpected',
+          })
         }
 
         return new Response('not found', { status: 404 })
       }),
-      dashboardSnapshotImpl: async () => ({ type: 'dashboard_snapshot', sessions: [] }),
+      dashboardSnapshotImpl: async () => ({
+        type: 'dashboard_snapshot',
+        sessions: [],
+      }),
     })
 
     await app.refreshBindings()
@@ -1504,7 +1595,10 @@ describe('GatewayDiscordApp local e2e', () => {
           }),
           launchRoleScopedRun: async (input) => {
             launches.push(input)
-            return { runId: 'launch-run-image-only', sessionId: 'session-image-only' }
+            return {
+              runId: 'launch-run-image-only',
+              sessionId: 'session-image-only',
+            }
           },
         }
       )
@@ -1752,7 +1846,9 @@ describe('GatewayDiscordApp local e2e', () => {
     }
 
     await (
-      app as unknown as { deliverToDiscord(delivery: DeliveryRequest): Promise<void> }
+      app as unknown as {
+        deliverToDiscord(delivery: DeliveryRequest): Promise<void>
+      }
     ).deliverToDiscord(delivery)
 
     const webhook = [...channel.webhooks.values()].find((w) => w.name === 'agent-pulpit')
@@ -1814,7 +1910,9 @@ describe('GatewayDiscordApp local e2e', () => {
       }
 
       await (
-        app as unknown as { deliverToDiscord(delivery: DeliveryRequest): Promise<void> }
+        app as unknown as {
+          deliverToDiscord(delivery: DeliveryRequest): Promise<void>
+        }
       ).deliverToDiscord(delivery)
 
       expect(channel.sent).toHaveLength(0)
@@ -1979,7 +2077,9 @@ describe('GatewayDiscordApp local e2e', () => {
     }
 
     await (
-      app as unknown as { deliverToDiscord(delivery: DeliveryRequest): Promise<void> }
+      app as unknown as {
+        deliverToDiscord(delivery: DeliveryRequest): Promise<void>
+      }
     ).deliverToDiscord(delivery)
 
     expect(channel.sent).toHaveLength(0)
@@ -2053,7 +2153,9 @@ describe('GatewayDiscordApp local e2e', () => {
     }
 
     await (
-      app as unknown as { deliverToDiscord(delivery: DeliveryRequest): Promise<void> }
+      app as unknown as {
+        deliverToDiscord(delivery: DeliveryRequest): Promise<void>
+      }
     ).deliverToDiscord(delivery)
 
     // Bot path must not be used — channel.sent contains no agent finals.
@@ -2105,7 +2207,9 @@ describe('GatewayDiscordApp local e2e', () => {
     }
 
     await (
-      app as unknown as { deliverToDiscord(delivery: DeliveryRequest): Promise<void> }
+      app as unknown as {
+        deliverToDiscord(delivery: DeliveryRequest): Promise<void>
+      }
     ).deliverToDiscord(delivery)
 
     const webhook = [...channel.webhooks.values()].find((w) => w.name === 'agent-pulpit')

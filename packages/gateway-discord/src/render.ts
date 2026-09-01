@@ -318,7 +318,10 @@ export function buildProgressBubble(
         ),
       })
     } else if (block.t === 'notice') {
-      entries.push({ kind: 'notice', line: formatNoticeLine(block.level, block.message) })
+      entries.push({
+        kind: 'notice',
+        line: formatNoticeLine(block.level, block.message),
+      })
     } else if (block.t === 'markdown') {
       entries.push({ kind: 'text', text: block.md })
     }
@@ -623,7 +626,7 @@ function splitSegmentsByTables(segments: ContentSegment[]): ContentSegment[] {
 
 /**
  * Split a single text block into chunks that fit within maxChars.
- * Splits at newline boundaries when possible.
+ * Splits at paragraph, line, sentence, then word boundaries when possible.
  */
 function splitTextBlock(text: string, maxChars: number): string[] {
   if (text.length <= maxChars) return [text]
@@ -637,15 +640,31 @@ function splitTextBlock(text: string, maxChars: number): string[] {
       break
     }
 
-    // Find the last newline within the limit
-    let splitAt = remaining.lastIndexOf('\n', maxChars)
+    // Prefer semantic boundaries so long human replies remain readable across
+    // Discord messages. The later fallbacks still guarantee hard compliance.
+    let splitAt = remaining.lastIndexOf('\n\n', maxChars)
     if (splitAt <= 0) {
-      // No newline found, force split at maxChars
+      splitAt = remaining.lastIndexOf('\n', maxChars)
+    }
+    if (splitAt <= 0) {
+      const prefix = remaining.slice(0, maxChars + 1)
+      const sentence = /[.!?][\]})"']*\s+/g
+      let match: RegExpExecArray | null = sentence.exec(prefix)
+      while (match !== null) {
+        splitAt = match.index + match[0].length
+        match = sentence.exec(prefix)
+      }
+    }
+    if (splitAt <= 0) {
+      splitAt = remaining.lastIndexOf(' ', maxChars)
+    }
+    if (splitAt <= 0) {
+      // No semantic boundary found, force split at maxChars.
       splitAt = maxChars
     }
 
-    chunks.push(remaining.slice(0, splitAt))
-    remaining = remaining.slice(splitAt).replace(/^\n/, '')
+    chunks.push(remaining.slice(0, splitAt).trimEnd())
+    remaining = remaining.slice(splitAt).replace(/^\s+/, '')
   }
 
   return chunks

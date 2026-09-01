@@ -55,7 +55,12 @@ import {
 } from './keywords.js'
 import { DiscordLedgerEgress, type DiscordLedgerSink } from './ledger-human-egress.js'
 import { createLogger } from './logger.js'
-import { type RenderOptions, extractImagesFromFrame, extractMediaRefsFromFrame } from './render.js'
+import {
+  type RenderOptions,
+  extractImagesFromFrame,
+  extractMediaRefsFromFrame,
+  splitIntoChunks,
+} from './render.js'
 import {
   type OnRenderCallback,
   type RunState,
@@ -699,6 +704,8 @@ export class GatewayDiscordApp {
             findRecentMessageId: (channelId, envelopeId) =>
               this.findRecentLedgerMessageId(channelId, envelopeId),
             send: (sink) => this.sendLedgerEnvelopeSink(sink),
+            onHumanDeliveryFailed: (sink, reason) =>
+              this.showLedgerHumanDeliveryFailure(sink, reason),
             onEnvelopeFailed: (envelope) => this.retireFailedLedgerInFlight(envelope),
           })
     this.ledgerHumanEgressResources =
@@ -1423,16 +1430,32 @@ export class GatewayDiscordApp {
             hrcRunId === undefined
               ? undefined
               : this.sessionEventsManager.getRunState(replacement.sessionRef, hrcRunId)
+          const plannedContent = planLedgerHumanNoticeContent({
+            replyContent: sink.payload.content ?? '',
+            run,
+            retainTurnProgress: this.retainTurnProgress,
+            maxChars: Math.min(this.maxChars, 2000),
+          })
+          const chunks = splitIntoChunks(
+            plannedContent,
+            Math.min(this.maxChars, 2000),
+            this.renderOptions
+          )
           const payload = {
             ...sink.payload,
-            content: planLedgerHumanNoticeContent({
-              replyContent: sink.payload.content ?? '',
-              run,
-              retainTurnProgress: this.retainTurnProgress,
-              maxChars: Math.min(this.maxChars, 2000),
-            }),
+            content: chunks[0] ?? '',
           }
           const edited = await this.webhooks.editMessage(ui.channelId, ui.id, ui.webhookId, payload)
+          for (const chunk of chunks.slice(1)) {
+            await this.webhooks.send(
+              ui.channelId,
+              {
+                ...sink.payload,
+                content: chunk,
+              },
+              { maxRateLimitAttempts: this.maxRateLimitAttempts }
+            )
+          }
           for (const inFlight of inFlights) {
             await this.retireLedgerInFlight(inFlight, 'human_notice', {
               deletePlaceholder: inFlight !== replacement,
@@ -1462,9 +1485,29 @@ export class GatewayDiscordApp {
       }
     }
 
-    const sent = await this.webhooks.send(sink.channelId, sink.payload, {
-      maxRateLimitAttempts: this.maxRateLimitAttempts,
-    })
+    const chunks =
+      sink.kind === 'human-notice'
+        ? splitIntoChunks(
+            sink.payload.content ?? '',
+            Math.min(this.maxChars, 2000),
+            this.renderOptions
+          )
+        : [sink.payload.content]
+    let sent: { id: string } | undefined
+    for (const chunk of chunks) {
+      const message = await this.webhooks.send(
+        sink.channelId,
+        {
+          ...sink.payload,
+          ...(chunk !== undefined ? { content: chunk } : {}),
+        },
+        { maxRateLimitAttempts: this.maxRateLimitAttempts }
+      )
+      sent ??= message
+    }
+    if (sent === undefined) {
+      throw new Error(`Discord ledger ${sink.kind} produced no message`)
+    }
     if (sink.kind === 'human-notice') {
       for (const inFlight of this.ledgerInFlightsForReply(sink)) {
         await this.retireLedgerInFlight(inFlight, 'human_notice_fallback', {
@@ -2104,7 +2147,7 @@ export class GatewayDiscordApp {
         })
         if (pending.ledgerInFlight !== undefined) {
           void this.retireLedgerInFlight(pending.ledgerInFlight, 'pending_timeout', {
-            deletePlaceholder: true,
+            notice: `Reply timed out before an agent run started — full details: wrkc show ${pending.ledgerInFlight.inputEnvelopeId}`,
           })
         } else {
           this.removePendingPlaceholder(pending, 'pending_timeout')
@@ -2126,10 +2169,11 @@ export class GatewayDiscordApp {
         })
         if (pending.ledgerInFlight !== undefined) {
           void this.retireLedgerInFlight(pending.ledgerInFlight, 'run_timeout', {
-            deletePlaceholder: true,
+            notice: `Reply timed out before completion — full details: wrkc show ${pending.ledgerInFlight.inputEnvelopeId}`,
           })
         } else {
           this.removePendingPlaceholder(pending, 'run_timeout')
+          void this.failPlaceholder(pending.ui, 'Reply timed out before completion.')
         }
       }, this.liveProgressTimeoutMs),
       editDisabled: false,
@@ -2188,7 +2232,9 @@ export class GatewayDiscordApp {
     }
     input.placeholder.ledgerInFlight = inFlight
     inFlight.timeout = setTimeout(() => {
-      void this.retireLedgerInFlight(inFlight, 'timeout', { deletePlaceholder: true })
+      void this.retireLedgerInFlight(inFlight, 'timeout', {
+        notice: `Reply timed out before completion — full details: wrkc show ${inFlight.inputEnvelopeId}`,
+      })
     }, this.liveProgressTimeoutMs)
     // Admission can occur after a startup prime failure or while bindings are
     // refreshing. Reassert this exact ledger session as a live-subscription
@@ -2228,22 +2274,67 @@ export class GatewayDiscordApp {
     for (const inFlight of this.ledgerInFlightsByRoomUuid.get(envelope.roomUuid) ?? []) {
       if (inFlight.inputEnvelopeId === envelope.id) {
         await this.retireLedgerInFlight(inFlight, `envelope_${envelope.state}`, {
-          deletePlaceholder: true,
+          notice: `Reply failed (${envelope.failureReason ?? envelope.state}) — full details: wrkc show ${envelope.id}`,
         })
       }
     }
   }
 
+  private async showLedgerHumanDeliveryFailure(
+    sink: Extract<DiscordLedgerSink, { kind: 'human-notice' }>,
+    reason: string
+  ): Promise<void> {
+    const notice = `reply delivery failed (${reason}) — full text: wrkc show ${sink.envelope.id}`
+    let shown = false
+    for (const inFlight of this.ledgerInFlightsForReply(sink)) {
+      shown =
+        (await this.retireLedgerInFlight(inFlight, 'human_notice_delivery_failed', {
+          notice,
+        })) || shown
+    }
+    if (shown) return
+
+    try {
+      await this.webhooks.send(
+        sink.channelId,
+        { ...sink.payload, content: `⚠️ ${notice}` },
+        { maxRateLimitAttempts: this.maxRateLimitAttempts }
+      )
+      return
+    } catch (error) {
+      log.warn('gw.ledger_human_egress.failure_stub_webhook_error', {
+        trace: { gatewayId: this.gatewayId },
+        data: { envelopeId: sink.envelope.id, channelId: sink.channelId },
+        err: {
+          message: error instanceof Error ? error.message : String(error),
+        },
+      })
+    }
+
+    const channel = await this.client.channels.fetch(sink.channelId)
+    if (!channel || !channel.isTextBased() || !('send' in channel)) {
+      throw new Error(`Discord channel ${sink.channelId} cannot post delivery failure stub`)
+    }
+    await channel.send(`⚠️ ${notice}`)
+  }
+
   private async retireLedgerInFlight(
     inFlight: LedgerInFlight,
     reason: string,
-    options: { deletePlaceholder: boolean }
-  ): Promise<void> {
+    options: {
+      deletePlaceholder?: boolean | undefined
+      notice?: string | undefined
+    }
+  ): Promise<boolean> {
     this.removeLedgerInFlight(inFlight, reason)
     this.removePendingPlaceholder(inFlight.placeholder, reason)
+    if (options.notice !== undefined) {
+      return this.failPlaceholder(inFlight.placeholder.ui, options.notice)
+    }
     if (options.deletePlaceholder) {
       await this.deletePlaceholder(inFlight.placeholder.ui)
     }
+    return true
   }
 
   private removeLedgerInFlight(inFlight: LedgerInFlight, reason: string): void {
@@ -2952,9 +3043,9 @@ export class GatewayDiscordApp {
   private async failPlaceholder(
     ui: UiHandle & { kind: 'message'; webhookId?: string | undefined },
     reason: string
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (!ui.channelId) {
-      return
+      return false
     }
 
     try {
@@ -2963,19 +3054,22 @@ export class GatewayDiscordApp {
         await this.webhooks.editMessage(ui.channelId, ui.id, ui.webhookId, {
           content: `⚠️ ${reason}`,
         })
-        return
+        return true
       }
 
       const channel = await this.client.channels.fetch(ui.channelId)
       if (!channel || !channel.isTextBased() || !('messages' in channel)) {
-        return
+        return false
       }
       const message = await channel.messages.fetch(ui.id)
       if (message) {
         await message.edit({ content: `⚠️ ${reason}` })
+        return true
       }
+      return false
     } catch {
       // best-effort cleanup only
+      return false
     }
   }
 

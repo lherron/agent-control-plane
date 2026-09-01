@@ -36,7 +36,9 @@ class FakeWebhookClient {
     return { id: messageId }
   }
 
-  async edit(input: { avatar?: Buffer | string | null | undefined }): Promise<this> {
+  async edit(input: {
+    avatar?: Buffer | string | null | undefined
+  }): Promise<this> {
     this.avatarEdits.push(input)
     return this
   }
@@ -109,7 +111,10 @@ async function loadWebhooksModule(): Promise<{
 }
 
 function discordError(status: number): Error & { status: number; code: number } {
-  const error = new Error(`Discord ${status}`) as Error & { status: number; code: number }
+  const error = new Error(`Discord ${status}`) as Error & {
+    status: number
+    code: number
+  }
   error.status = status
   error.code = status
   return error
@@ -136,7 +141,10 @@ describe('Discord webhook provisioning', () => {
     const client = new FakeClient()
     const channel = new FakeChannel('chan_identity')
     client.addChannel(channel)
-    const manager = createWebhookManager({ client, webhookName: 'agent-pulpit' })
+    const manager = createWebhookManager({
+      client,
+      webhookName: 'agent-pulpit',
+    })
 
     const first = await manager.getOrCreateWebhook(channel.id)
     const second = await manager.getOrCreateWebhook(channel.id)
@@ -152,7 +160,10 @@ describe('Discord webhook provisioning', () => {
     const channel = new FakeChannel('chan_existing')
     const existing = await channel.createWebhook({ name: 'agent-pulpit' })
     client.addChannel(channel)
-    const manager = createWebhookManager({ client, webhookName: 'agent-pulpit' })
+    const manager = createWebhookManager({
+      client,
+      webhookName: 'agent-pulpit',
+    })
 
     const resolved = await manager.getOrCreateWebhook(channel.id)
 
@@ -160,12 +171,34 @@ describe('Discord webhook provisioning', () => {
     expect(channel.createWebhookCount).toBe(1)
   })
 
+  test('never reuses a same-name webhook whose token is unavailable', async () => {
+    const { createWebhookManager } = await loadWebhooksModule()
+    const client = new FakeClient()
+    const channel = new FakeChannel('chan_tokenless_existing')
+    const tokenless = new FakeWebhookClient('foreign_webhook', '', 'agent-pulpit')
+    channel.webhooks.set(tokenless.id, tokenless)
+    client.addChannel(channel)
+    const manager = createWebhookManager({
+      client,
+      webhookName: 'agent-pulpit',
+    })
+
+    await manager.send(channel.id, { content: 'must use a tokenful webhook' })
+
+    expect(tokenless.attempts).toEqual([])
+    expect(channel.createWebhookCount).toBe(1)
+    expect([...channel.webhooks.values()].at(-1)?.token).toBe('token_1')
+  })
+
   test('invalidates a cached webhook after 404 or 403 and re-provisions on the next send', async () => {
     const { createWebhookManager } = await loadWebhooksModule()
     const client = new FakeClient()
     const channel = new FakeChannel('chan_invalidated')
     client.addChannel(channel)
-    const manager = createWebhookManager({ client, webhookName: 'agent-pulpit' })
+    const manager = createWebhookManager({
+      client,
+      webhookName: 'agent-pulpit',
+    })
 
     const stale = await manager.getOrCreateWebhook(channel.id)
     stale.queuedErrors.push(discordError(404))
@@ -189,7 +222,10 @@ describe('Discord webhook payloads', () => {
     const client = new FakeClient()
     const channel = new FakeChannel('chan_avatar_camel')
     client.addChannel(channel)
-    const manager = createWebhookManager({ client, webhookName: 'agent-pulpit' })
+    const manager = createWebhookManager({
+      client,
+      webhookName: 'agent-pulpit',
+    })
 
     await manager.send(channel.id, {
       content: 'agent message',
@@ -212,7 +248,10 @@ describe('Discord webhook payloads', () => {
     const client = new FakeClient()
     const channel = new FakeChannel('chan_avatar_snake')
     client.addChannel(channel)
-    const manager = createWebhookManager({ client, webhookName: 'agent-pulpit' })
+    const manager = createWebhookManager({
+      client,
+      webhookName: 'agent-pulpit',
+    })
 
     await manager.send(channel.id, {
       content: 'legacy agent message',
@@ -235,13 +274,19 @@ describe('Discord webhook payloads', () => {
     const client = new FakeClient()
     const channel = new FakeChannel('chan_avatar_bytes')
     client.addChannel(channel)
-    const manager = createWebhookManager({ client, webhookName: 'agent-pulpit' })
+    const manager = createWebhookManager({
+      client,
+      webhookName: 'agent-pulpit',
+    })
     const avatar = Buffer.from('fake-png-bytes')
 
     await manager.send(channel.id, {
       content: 'agent message',
       username: 'cody',
-      webhookAvatar: { key: 'cody:/v1/assets/agents/cody/pfp.png', data: avatar },
+      webhookAvatar: {
+        key: 'cody:/v1/assets/agents/cody/pfp.png',
+        data: avatar,
+      },
     })
 
     const webhook = await manager.getOrCreateWebhook(channel.id)
@@ -261,9 +306,14 @@ describe('Discord webhook edits', () => {
     const client = new FakeClient()
     const channel = new FakeChannel('chan_edit_by_id')
     const firstWebhook = await channel.createWebhook({ name: 'agent-pulpit' })
-    const placeholderWebhook = await channel.createWebhook({ name: 'agent-pulpit' })
+    const placeholderWebhook = await channel.createWebhook({
+      name: 'agent-pulpit',
+    })
     client.addChannel(channel)
-    const manager = createWebhookManager({ client, webhookName: 'agent-pulpit' })
+    const manager = createWebhookManager({
+      client,
+      webhookName: 'agent-pulpit',
+    })
 
     await manager.getOrCreateWebhook(channel.id)
     await manager.editMessage(channel.id, 'placeholder_message', placeholderWebhook.id, {
@@ -288,13 +338,36 @@ describe('Discord webhook edits', () => {
     const channel = new FakeChannel('chan_missing_edit_webhook')
     await channel.createWebhook({ name: 'agent-pulpit' })
     client.addChannel(channel)
-    const manager = createWebhookManager({ client, webhookName: 'agent-pulpit' })
+    const manager = createWebhookManager({
+      client,
+      webhookName: 'agent-pulpit',
+    })
 
     await expect(
       manager.editMessage(channel.id, 'placeholder_message', 'missing_webhook', {
         content: 'final content',
       })
     ).rejects.toThrow('Discord webhook missing_webhook was not found')
+  })
+
+  test('rejects an explicit token-less webhook before attempting an edit', async () => {
+    const { createWebhookManager } = await loadWebhooksModule()
+    const client = new FakeClient()
+    const channel = new FakeChannel('chan_tokenless_edit')
+    const tokenless = new FakeWebhookClient('tokenless_webhook', '', 'agent-pulpit')
+    channel.webhooks.set(tokenless.id, tokenless)
+    client.addChannel(channel)
+    const manager = createWebhookManager({
+      client,
+      webhookName: 'agent-pulpit',
+    })
+
+    await expect(
+      manager.editMessage(channel.id, 'placeholder_message', tokenless.id, {
+        content: 'final content',
+      })
+    ).rejects.toThrow('has no usable token')
+    expect(tokenless.edits).toEqual([])
   })
 })
 
@@ -408,7 +481,10 @@ describe('Discord webhook rate limiting', () => {
     const client = new FakeClient()
     const channel = new FakeChannel('chan_bad_ceiling')
     client.addChannel(channel)
-    const manager = createWebhookManager({ client, webhookName: 'agent-pulpit' })
+    const manager = createWebhookManager({
+      client,
+      webhookName: 'agent-pulpit',
+    })
 
     await expect(
       manager.send(channel.id, { content: 'nope' }, { maxRateLimitAttempts: 0 })
