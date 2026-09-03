@@ -42,10 +42,10 @@ export type ExpectedConsumerProducer = Readonly<{
 export const EXPECTED_CONSUMER_PRODUCERS = [
   {
     setName: 'asp',
-    setVersion: '0.1.1-dev.20260825213756',
+    setVersion: '0.1.1-dev.20260902202923',
     repository: 'agent-spaces',
     canonicalRemote: 'git@github.com:lherron/agent-spaces.git',
-    sourceCommit: '1e3231ec8d3ccc38c50b9f61fb8deeacc8ef60d4',
+    sourceCommit: 'a8282d14b85f1d4bff06130b44e09f5594f938ea',
   },
   {
     setName: 'hrc',
