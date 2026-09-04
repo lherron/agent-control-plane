@@ -73,6 +73,19 @@ function firstEmbed(payload: WebhookPayload): Record<string, unknown> {
   return payload.embeds?.[0] as Record<string, unknown>
 }
 
+function attributedEnvelopeShow(params: {
+  envelope: string
+  principalRef?: string | undefined
+}): Promise<WrkqEnvelope> {
+  if (params.principalRef !== 'agent:gateway-discord') {
+    return Promise.reject(new Error('principalRef is required'))
+  }
+  const value = envelope()
+  value.id = params.envelope
+  value.groupId = params.envelope
+  return Promise.resolve(value)
+}
+
 describe('Discord ledger routing and renders', () => {
   test('T1 fans a routed human envelope out to both sinks', () => {
     const sinks = resolveEnvelopeSinks(envelope(), {
@@ -216,7 +229,7 @@ describe('Discord ledger human egress', () => {
           : { items: [], high_water: params.cursor },
       wrkq: {
         envelope: {
-          show: async () => envelope(),
+          show: attributedEnvelopeShow,
           present: async (params: unknown) => {
             presented.push(params)
             return {
@@ -288,7 +301,7 @@ describe('Discord ledger human egress', () => {
           : { items: [], high_water: params.cursor },
       wrkq: {
         envelope: {
-          show: async () => envelope(),
+          show: attributedEnvelopeShow,
           present: async (params: unknown) => {
             presented.push(params)
             return {
@@ -354,7 +367,7 @@ describe('Discord ledger human egress', () => {
           : { items: [], high_water: params.cursor },
       wrkq: {
         envelope: {
-          show: async () => envelope(),
+          show: attributedEnvelopeShow,
           fail: async (params: unknown) => {
             failed.push(params)
             const value = envelope()
@@ -435,7 +448,7 @@ describe('Discord ledger human egress', () => {
     const client = {
       wrkq: {
         envelope: {
-          show: async () => envelope(),
+          show: attributedEnvelopeShow,
           present: async (params: unknown) => {
             presented.push(params)
             return {
@@ -505,7 +518,7 @@ describe('Discord ledger human egress', () => {
     const client = {
       wrkq: {
         envelope: {
-          show: async () => envelope(),
+          show: attributedEnvelopeShow,
           present: async () => ({
             envelope: envelope({ presented: true }),
             recorded: true,
@@ -561,7 +574,7 @@ describe('Discord ledger human egress', () => {
 
     const client = {
       wrkq: {
-        envelope: { show: async () => envelope() },
+        envelope: { show: attributedEnvelopeShow },
         room: {
           show: async () => ({ workRef: { path: 'agent-control-plane/task' } }),
         },
@@ -631,7 +644,11 @@ describe('Discord ledger human egress', () => {
       }),
       wrkq: {
         envelope: {
-          show: async ({ envelope: id }: { envelope: string }) => {
+          show: async (params: { envelope: string; principalRef?: string | undefined }) => {
+            const id = params.envelope
+            if (params.principalRef !== 'agent:gateway-discord') {
+              throw new Error('principalRef is required')
+            }
             const value = envelope({
               to: {
                 principalRef: 'agent:daedalus',
@@ -681,6 +698,53 @@ describe('Discord ledger human egress', () => {
         sink: 'mirror',
       })
     ).toEqual(expect.objectContaining({ state: 'sent', attempts: 1 }))
+    store.close()
+  })
+
+  test('attributes envelope.show while projecting failed envelopes', async () => {
+    const store = openInterfaceStore({ dbPath: ':memory:' })
+    store.discordLedgerProjection.advanceCursor('discord', 40)
+    const shown: string[] = []
+    const failed: string[] = []
+    const client = {
+      call: async (_method: string, params: { cursor: number }) =>
+        params.cursor === 40
+          ? {
+              items: [
+                {
+                  id: 41,
+                  timestamp: '2026-09-04T00:00:00Z',
+                  resource_id: 'EN-00042',
+                  event_type: 'envelope.failed',
+                },
+              ],
+              high_water: 41,
+            }
+          : { items: [], high_water: params.cursor },
+      wrkq: {
+        envelope: {
+          show: async (params: { envelope: string; principalRef?: string | undefined }) => {
+            shown.push(params.principalRef ?? 'missing')
+            return attributedEnvelopeShow(params)
+          },
+        },
+      },
+    } as unknown as WorkClient
+    const egress = new DiscordLedgerEgress({
+      gatewayId: 'discord',
+      client,
+      store,
+      maxDeliveryAttempts: 3,
+      findRecentMessageId: async () => undefined,
+      send: async () => ({ messageId: 'unused' }),
+      onEnvelopeFailed: async (value) => {
+        failed.push(value.id)
+      },
+    })
+
+    expect(await egress.pollOnce()).toBe(41)
+    expect(shown).toEqual(['agent:gateway-discord'])
+    expect(failed).toEqual(['EN-00042'])
     store.close()
   })
 })

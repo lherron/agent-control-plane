@@ -51,6 +51,7 @@ const PAGE_LIMIT = 200
 const EMBED_TITLE_MAX = 256
 const EMBED_DESCRIPTION_MAX = 4096
 const FAILURE_REASON_MAX = 300
+const EGRESS_PRINCIPAL_REF = 'agent:gateway-discord'
 
 export type DiscordLedgerSink =
   | {
@@ -312,6 +313,7 @@ export class DiscordLedgerEgress {
       if (this.deps.onEnvelopeFailed !== undefined && event.resource_id !== undefined) {
         const envelope = await this.deps.client.wrkq.envelope.show({
           envelope: event.resource_id,
+          principalRef: EGRESS_PRINCIPAL_REF,
         })
         await this.deps.onEnvelopeFailed(envelope)
       }
@@ -332,6 +334,7 @@ export class DiscordLedgerEgress {
 
     const envelope = await this.deps.client.wrkq.envelope.show({
       envelope: payload.id,
+      principalRef: EGRESS_PRINCIPAL_REF,
     })
     const projectId =
       this.deps.controlPlaneChannelId === undefined
@@ -419,7 +422,7 @@ export class DiscordLedgerEgress {
     await this.deps.client.wrkq.envelope.fail({
       envelope: sink.envelope.id,
       reason: 'undeliverable',
-      principalRef: 'agent:gateway-discord',
+      principalRef: EGRESS_PRINCIPAL_REF,
     })
     await this.deps.onHumanDeliveryFailed?.(sink, reason)
   }
@@ -429,6 +432,7 @@ export class DiscordLedgerEgress {
   ): Promise<DiscordLedgerSink | undefined> {
     const envelope = await this.deps.client.wrkq.envelope.show({
       envelope: delivery.envelopeId,
+      principalRef: EGRESS_PRINCIPAL_REF,
     })
     if (delivery.sink === 'mirror') {
       return {
@@ -461,6 +465,7 @@ export class DiscordLedgerEgress {
     if (delivery.sink !== 'human-notice') return
     const envelope = await this.deps.client.wrkq.envelope.show({
       envelope: delivery.envelopeId,
+      principalRef: EGRESS_PRINCIPAL_REF,
     })
     const route = this.deps.store.discordLedgerProjection.getRoute(
       this.deps.gatewayId,
@@ -478,7 +483,7 @@ export class DiscordLedgerEgress {
     await this.deps.client.wrkq.envelope.present({
       envelope: envelopeId,
       memberRef: humanPrincipalRef,
-      principalRef: 'agent:gateway-discord',
+      principalRef: EGRESS_PRINCIPAL_REF,
       driveAttemptId: messageId,
       deliveryOutcome: 'discord',
     })
