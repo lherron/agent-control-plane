@@ -1,0 +1,40 @@
+id: agent-control-plane.mobile-session-creation
+kind: invariant
+status: active
+owner_project: agent-control-plane
+scope: ACP-owned POST /v1/mobile/sessions wire contract and client mutation fence
+predicate: >
+  POST /v1/mobile/sessions is the sole ACP mobile creation door and preserves one
+  request id and byte-equivalent logical body across uncertain retries. It asks
+  the authoritative HRC home for the closed first_turn materialization mode;
+  idempotency ownership remains at that home. Successful creation carries the
+  claimed identifiers, status, replayed disposition, and nullable runtimeId;
+  awaiting_first_turn is success and legacy started responses remain accepted.
+  Every HRC domain failure is projected as one bounded flat mobile error with
+  requestId, stable code and reason, retryable action hint, attemptState, and
+  known claimed identifiers. During migration clients also decode the nested
+  ACP error envelope, and behavior never parses English. Retryable is never
+  evidence of non-mutation. Automatic client-fence retirement is permitted only
+  by explicit not_claimed state or the closed legacy refusal set
+  session_roster_exhausted, session_scope_occupied, roster_claim_superseded, and
+  idempotency_key_conflict. Claimed_not_started, started, unknown, and legacy
+  runtime_unavailable without attempt state preserve the exact request fence and
+  expose same-request retry or warned start-over. Persisted submitted attempts
+  reconcile once with the exact body; unresolved attempts become explicit
+  uncertain state rather than an unexplained durable lock.
+authority:
+  repo: agent-control-plane
+  surface: POST /v1/mobile/sessions and wrkq:T-08407
+source:
+  - wrkq:T-08407
+  - packages/acp-server/src/handlers/mobile-sessions-create.ts
+  - packages/acp-server/src/handlers/mobile.ts
+required_tests:
+  - just architecture-records
+  - wrkq:T-08407 success/error wire, mutation-state classification, exact retry, restart reconciliation, and mixed-envelope compatibility gates
+  - wrkq:T-08407 installed HRCMac and native iOS compatibility proof
+last_verified: 2026-09-12 wrkq:T-08407 revision 4 architecture approval; implementation evidence pending
+reopen_when:
+  - mobile creation authority, idempotency ownership, success or error shape, attempt-state semantics, client fence retirement, or mixed-version compatibility changes
+supersedes: []
+superseded_by: null
