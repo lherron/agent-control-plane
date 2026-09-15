@@ -282,17 +282,44 @@ type LockEntryInfo = {
   optionalPeers?: string[]
 }
 
-function entryDependencies(line: string): string[] {
+/** Dependency NAME plus the requirement the entry records for it. */
+function entryDependencySpecs(line: string): Array<[string, string]> {
   const match = line.match(/^ {4}"(?:\\.|[^"\\])*":\s*(\[.*\]),?$/)
   if (!match?.[1]) return []
   const info = (JSON.parse(match[1]) as [string, string?, LockEntryInfo?])[2]
   if (!info) return []
   const optionalPeers = new Set(info.optionalPeers ?? [])
-  return [
-    ...Object.keys(info.dependencies ?? {}),
-    ...Object.keys(info.optionalDependencies ?? {}),
-    ...Object.keys(info.peerDependencies ?? {}).filter((name) => !optionalPeers.has(name)),
-  ]
+  const specs: Array<[string, string]> = []
+  for (const [name, requirement] of Object.entries(info.dependencies ?? {})) {
+    specs.push([name, requirement])
+  }
+  for (const [name, requirement] of Object.entries(info.optionalDependencies ?? {})) {
+    specs.push([name, requirement])
+  }
+  for (const [name, requirement] of Object.entries(info.peerDependencies ?? {})) {
+    if (!optionalPeers.has(name)) specs.push([name, requirement])
+  }
+  return specs
+}
+
+/** The version a lock entry resolves, e.g. `["cap-rpc@1.2.3", …]` -> `1.2.3`. */
+function entryResolvedVersion(line: string): string | undefined {
+  const match = line.match(/\[\s*("(?:\\.|[^"\\])*")/)
+  if (!match?.[1]) return undefined
+  const resolution = JSON.parse(match[1]) as string
+  const separator = resolution.lastIndexOf('@')
+  return separator <= 0 ? undefined : resolution.slice(separator + 1)
+}
+
+/**
+ * True when `requirement` names ONE exact version that `line` does not resolve.
+ * Ranges are left alone: only an exact pin lets us say the entry is wrong
+ * without implementing semver.
+ */
+function entryContradictsRequirement(line: string, requirement: string): boolean {
+  if (!/^\d[\w.+-]*$/.test(requirement)) return false
+  const resolved = entryResolvedVersion(line)
+  return resolved !== undefined && resolved !== requirement
 }
 
 function resolveDependencyKey(
@@ -416,12 +443,22 @@ export function confineLockToSyncedPackages(
   const pending = [...merged.keys()].filter((key) => ownedBySynced(key, adopted))
   while (pending.length > 0) {
     const key = pending.pop() as string
-    for (const dependency of entryDependencies(merged.get(key) as string)) {
-      if (resolveDependencyKey(key, dependency, merged) !== undefined) continue
+    for (const [dependency, requirement] of entryDependencySpecs(merged.get(key) as string)) {
+      // A carried-over entry can bear the right NAME at the wrong version, which
+      // silently satisfies the closure and leaves the lock unable to install.
+      const resolved = resolveDependencyKey(key, dependency, merged)
+      if (
+        resolved !== undefined &&
+        !entryContradictsRequirement(merged.get(resolved) as string, requirement)
+      ) {
+        continue
+      }
       const source = resolveDependencyKey(key, dependency, afterEntries)
-      if (source === undefined || merged.has(source)) continue
-      merged.set(source, afterEntries.get(source) as string)
-      introduced.push(source)
+      if (source === undefined) continue
+      const advanced = afterEntries.get(source) as string
+      if (merged.get(source) === advanced) continue
+      if (!merged.has(source)) introduced.push(source)
+      merged.set(source, advanced)
       pending.push(source)
     }
   }
