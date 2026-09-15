@@ -342,18 +342,65 @@ function rewriteWorkspaceSpecifiers(
   return rewritten
 }
 
+/**
+ * Packages the lock is merely CATCHING UP to: not part of the synced set, but
+ * every version this install selected for them is one the tracked manifests
+ * already declare. Copying the stale `before` entry forward instead would leave
+ * a lock that disagrees with its own manifests, which a frozen relink rejects.
+ */
+/** The package a lock entry resolves, e.g. `["@wrkq/client@1.2.3", …]` -> `@wrkq/client`. */
+function entryPackageName(line: string): string | undefined {
+  const match = line.match(/\[\s*("(?:\\.|[^"\\])*")/)
+  if (!match?.[1]) return undefined
+  const resolution = JSON.parse(match[1]) as string
+  const separator = resolution.lastIndexOf('@')
+  return separator <= 0 ? resolution : resolution.slice(0, separator)
+}
+
+function catchingUpPackages(
+  after: string,
+  synced: ReadonlySet<string>,
+  declared: ReadonlyMap<string, ReadonlySet<string>>
+): Set<string> {
+  const catchUp = new Set<string>()
+  if (declared.size === 0) return catchUp
+  for (const [name, versions] of lockedPackageVersions(after)) {
+    if (synced.has(name) || versions.size === 0) continue
+    const declaredVersions = declared.get(name)
+    if (declaredVersions === undefined) continue
+    if ([...versions].every((version) => declaredVersions.has(version))) catchUp.add(name)
+  }
+  return catchUp
+}
+
 /** Rebuild `before` with only synced resolutions and their newly-required closure from `after`. */
 export function confineLockToSyncedPackages(
   before: string,
   after: string,
   synced: ReadonlySet<string>,
-  workspaceSpecifier: WorkspaceSpecifier = TAG_SPECIFIER
+  workspaceSpecifier: WorkspaceSpecifier = TAG_SPECIFIER,
+  declared: ReadonlyMap<string, ReadonlySet<string>> = new Map()
 ): string {
   const beforeBlock = packagesBlock(before)
-  const afterEntries = packagesBlock(after).entries
+  const afterBlock = packagesBlock(after)
+  const afterEntries = afterBlock.entries
+  const catchUp = catchingUpPackages(after, synced, declared)
+  const adopted = new Set([...synced, ...catchUp])
   const merged = new Map<string, string>()
   for (const [key, line] of beforeBlock.entries) {
-    if (!ownedBySynced(key, synced)) {
+    if (!ownedBySynced(key, adopted)) {
+      // A resolution the fresh install dropped, for a package the tracked
+      // manifests no longer declare, is an orphan. Copying it forward would
+      // resurrect a dependency nothing asks for and desync the lock again.
+      const name = entryPackageName(line)
+      if (
+        declared.size > 0 &&
+        !afterEntries.has(key) &&
+        name !== undefined &&
+        !declared.has(name)
+      ) {
+        continue
+      }
       merged.set(key, line)
       continue
     }
@@ -362,11 +409,11 @@ export function confineLockToSyncedPackages(
   }
   const introduced: string[] = []
   for (const [key, line] of afterEntries) {
-    if (merged.has(key) || !ownedBySynced(key, synced)) continue
+    if (merged.has(key) || !ownedBySynced(key, adopted)) continue
     merged.set(key, line)
     introduced.push(key)
   }
-  const pending = [...merged.keys()].filter((key) => ownedBySynced(key, synced))
+  const pending = [...merged.keys()].filter((key) => ownedBySynced(key, adopted))
   while (pending.length > 0) {
     const key = pending.pop() as string
     for (const dependency of entryDependencies(merged.get(key) as string)) {
@@ -378,7 +425,11 @@ export function confineLockToSyncedPackages(
       pending.push(source)
     }
   }
-  const head = rewriteWorkspaceSpecifiers(beforeBlock.head, synced, workspaceSpecifier)
+  // The head is a projection of the tracked manifests, not a resolution: it is
+  // the only place an ADDED or REMOVED declaration shows up, so it has to come
+  // from the fresh install. Entries below still come from `before` for anything
+  // outside the adopted set, which is what confinement actually protects.
+  const head = rewriteWorkspaceSpecifiers(afterBlock.head, synced, workspaceSpecifier)
   return `${head}${orderedLockEntries(beforeBlock.entries, merged, introduced).join('\n\n')}\n${beforeBlock.tail}`
 }
 
@@ -649,6 +700,7 @@ export async function installConfinedPackages(options: {
   lockBefore: string
   discover?: (root: string) => Promise<string[]>
   workspaceSpecifier?: WorkspaceSpecifier
+  declared?: ReadonlyMap<string, ReadonlySet<string>>
   beforeRelink?: () => Promise<void>
 }): Promise<void> {
   const discover = options.discover ?? packagesManifestPaths
@@ -662,7 +714,8 @@ export async function installConfinedPackages(options: {
       options.lockBefore,
       await readFile(lockPath, 'utf8'),
       options.synced,
-      options.workspaceSpecifier ?? TAG_SPECIFIER
+      options.workspaceSpecifier ?? TAG_SPECIFIER,
+      options.declared ?? new Map()
     )
   )
   await pruneNestedPackageDirs(discover, nestedBefore)

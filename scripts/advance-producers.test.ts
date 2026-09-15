@@ -11,6 +11,8 @@ import {
   type GitRunner,
   assertPostAdvanceConsumerDeployment,
   assertPublishedProducerIdentity,
+  assertUnrelatedLockSelectionsUnchanged,
+  declaredManifestVersions,
   parseArguments,
   restoreFailedProducerAdvance,
 } from './advance-producers.js'
@@ -198,5 +200,99 @@ describe('producer advance arguments', () => {
   test('refuses an unknown set and an empty request', () => {
     expect(() => parseArguments(['set=wrkq', 'version=1'])).toThrow(/usage/)
     expect(() => parseArguments([])).toThrow(/usage/)
+  })
+})
+
+describe('unrelated lock selections during an advance', () => {
+  function lock(entries: Record<string, string>): string {
+    const lines = Object.entries(entries).map(
+      ([name, version]) =>
+        `    ${JSON.stringify(name)}: [${JSON.stringify(`${name}@${version}`)}, "http://mini:4873/x.tgz", {}, "sha512-x"],`
+    )
+    return `{\n  "packages": {\n${lines.join('\n')}\n  }\n}\n`
+  }
+
+  const members = new Set(['agent-spaces'])
+
+  test('refuses a non-member the manifests never declared at that version', () => {
+    expect(() =>
+      assertUnrelatedLockSelectionsUnchanged(
+        lock({ 'agent-spaces': '1.0.0', 'unrelated-pkg': '1.0.0' }),
+        lock({ 'agent-spaces': '2.0.0', 'unrelated-pkg': '9.9.9' }),
+        members,
+        declaredManifestVersions(new Map())
+      )
+    ).toThrow(/moved unrelated lock selections: unrelated-pkg/)
+  })
+
+  test('allows a non-member whose declared pin the lock is catching up to', () => {
+    const snapshots = new Map([
+      ['package.json', JSON.stringify({ overrides: { 'cap-service': '9.9.9' } })],
+    ])
+    expect(declaredManifestVersions(snapshots).get('cap-service')).toEqual(new Set(['9.9.9']))
+    expect(() =>
+      assertUnrelatedLockSelectionsUnchanged(
+        lock({ 'agent-spaces': '1.0.0', 'cap-service': '1.0.0' }),
+        lock({ 'agent-spaces': '2.0.0', 'cap-service': '9.9.9' }),
+        members,
+        declaredManifestVersions(snapshots)
+      )
+    ).not.toThrow()
+  })
+
+  test('still refuses a declared package that moved somewhere else entirely', () => {
+    const snapshots = new Map([
+      [
+        'packages/acp-server/package.json',
+        JSON.stringify({ dependencies: { 'cap-service': '9.9.9' } }),
+      ],
+    ])
+    expect(() =>
+      assertUnrelatedLockSelectionsUnchanged(
+        lock({ 'agent-spaces': '1.0.0', 'cap-service': '1.0.0' }),
+        lock({ 'agent-spaces': '2.0.0', 'cap-service': '8.8.8' }),
+        members,
+        declaredManifestVersions(snapshots)
+      )
+    ).toThrow(/moved unrelated lock selections: cap-service/)
+  })
+
+  test('reads declarations from deps, devDeps and overrides, ignoring non-manifests', () => {
+    const snapshots = new Map([
+      ['package.json', JSON.stringify({ overrides: { a: '1' } })],
+      [
+        'packages/x/package.json',
+        JSON.stringify({ dependencies: { b: '2' }, devDependencies: { c: '3' } }),
+      ],
+      ['bun.lock', 'not a manifest'],
+    ])
+    const declared = declaredManifestVersions(snapshots)
+    expect([...declared.keys()].sort()).toEqual(['a', 'b', 'c'])
+  })
+
+  test('allows dropping a selection the manifests no longer declare', () => {
+    expect(() =>
+      assertUnrelatedLockSelectionsUnchanged(
+        lock({ 'agent-spaces': '1.0.0', 'orphan-pkg': '1.0.0' }),
+        lock({ 'agent-spaces': '2.0.0' }),
+        members,
+        declaredManifestVersions(
+          new Map([['package.json', JSON.stringify({ overrides: { 'agent-spaces': '2.0.0' } })]])
+        )
+      )
+    ).not.toThrow()
+  })
+
+  test('still refuses a dropped selection the manifests DO declare', () => {
+    expect(() =>
+      assertUnrelatedLockSelectionsUnchanged(
+        lock({ 'agent-spaces': '1.0.0', 'cap-service': '1.0.0' }),
+        lock({ 'agent-spaces': '2.0.0' }),
+        members,
+        declaredManifestVersions(
+          new Map([['package.json', JSON.stringify({ overrides: { 'cap-service': '1.0.0' } })]])
+        )
+      )
+    ).toThrow(/moved unrelated lock selections: cap-service/)
   })
 })

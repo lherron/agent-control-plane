@@ -289,16 +289,63 @@ function equalVersionSets(a: ReadonlySet<string> | undefined, b: ReadonlySet<str
   return JSON.stringify([...(a ?? [])].sort()) === JSON.stringify([...(b ?? [])].sort())
 }
 
-function assertUnrelatedLockSelectionsUnchanged(
+/**
+ * Every exact version the tracked manifests declare, per package, read from the
+ * pre-advance snapshots. Root overrides count as a declaration.
+ */
+export function declaredManifestVersions(
+  snapshots: ReadonlyMap<string, string>
+): Map<string, Set<string>> {
+  const declared = new Map<string, Set<string>>()
+  for (const [path, content] of snapshots) {
+    if (!path.endsWith('package.json')) continue
+    const manifest = JSON.parse(content) as {
+      dependencies?: Record<string, string>
+      devDependencies?: Record<string, string>
+      overrides?: Record<string, string>
+    }
+    for (const group of [manifest.dependencies, manifest.devDependencies, manifest.overrides]) {
+      for (const [name, version] of Object.entries(group ?? {})) {
+        const found = declared.get(name) ?? new Set<string>()
+        found.add(version)
+        declared.set(name, found)
+      }
+    }
+  }
+  return declared
+}
+
+export function assertUnrelatedLockSelectionsUnchanged(
   before: string,
   after: string,
-  members: ReadonlySet<string>
+  members: ReadonlySet<string>,
+  declared: ReadonlyMap<string, ReadonlySet<string>> = new Map()
 ): void {
   const beforeVersions = lockedPackageVersions(before)
   const afterVersions = lockedPackageVersions(after)
   const moved: string[] = []
   for (const [name, versions] of beforeVersions) {
-    if (!members.has(name) && !equalVersionSets(versions, afterVersions.get(name))) moved.push(name)
+    if (members.has(name)) continue
+    const selected = afterVersions.get(name)
+    if (equalVersionSets(versions, selected)) continue
+    // A lock catching up to a version the tracked manifests ALREADY declare is
+    // the lock doing its job, not this advance dragging something along. The
+    // guard exists for packages nobody declared, and those still fail here.
+    const declaredVersions = declared.get(name)
+    if (selected === undefined || selected.size === 0) {
+      // Dropped by the fresh resolution AND no longer declared: a removal the
+      // lock should reflect, not an unrelated package being dragged along.
+      if (declared.size > 0 && declaredVersions === undefined) continue
+      moved.push(name)
+      continue
+    }
+    if (
+      declaredVersions !== undefined &&
+      [...selected].every((version) => declaredVersions.has(version))
+    ) {
+      continue
+    }
+    moved.push(name)
   }
   if (moved.length > 0) {
     throw new Error(`producer advance moved unrelated lock selections: ${moved.sort().join(', ')}`)
@@ -409,6 +456,7 @@ export async function advanceProducers(argv: readonly string[] = Bun.argv.slice(
       }
     }
     const setNames = advancing.map((entry) => entry.producer.setName)
+    const declared = declaredManifestVersions(snapshots)
     for (let iteration = 1; iteration <= 3; iteration += 1) {
       const lockBeforeIteration = await readFile(resolve(ROOT, 'bun.lock'), 'utf8')
       await installConfinedPackages({
@@ -417,6 +465,7 @@ export async function advanceProducers(argv: readonly string[] = Bun.argv.slice(
         synced: members,
         lockBefore: lockBeforeIteration,
         workspaceSpecifier: (name) => versionByMember.get(name) as string,
+        declared,
       })
       const nextMembership = await producerMembership()
       const added: { name: string; version: string }[] = []
@@ -445,7 +494,7 @@ export async function advanceProducers(argv: readonly string[] = Bun.argv.slice(
     }
 
     const lockAfter = await readFile(resolve(ROOT, 'bun.lock'), 'utf8')
-    assertUnrelatedLockSelectionsUnchanged(lockBeforeAdvance, lockAfter, members)
+    assertUnrelatedLockSelectionsUnchanged(lockBeforeAdvance, lockAfter, members, declared)
     const changed = run('git', ['diff', '--name-only']).output.trim().split('\n').filter(Boolean)
     const allowed = new Set(['bun.lock', 'package.json', TABLE_PATH, ...manifestPaths])
     const unexpected = changed.filter((path) => !allowed.has(path))
