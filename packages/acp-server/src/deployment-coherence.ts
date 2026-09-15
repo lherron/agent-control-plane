@@ -424,14 +424,22 @@ async function consumerManifestPaths(repoRoot: string): Promise<string[]> {
   return [...paths]
 }
 
+/** bun's isolated linker keeps its backup of the previous tree here. */
+const INSTALL_BACKUP_PREFIX = 'node_modules/.old_modules'
+
 function lockKeyFromManifestPath(path: string): string | undefined {
   const marker = 'node_modules/'
   const start = path.indexOf(marker)
   if (start === -1 || !path.endsWith('/package.json')) return undefined
-  return path
-    .slice(start + marker.length, -'/package.json'.length)
-    .split('/node_modules/')
-    .join('/')
+  const stored = path.slice(start + marker.length, -'/package.json'.length)
+  // The isolated linker stores each resolution under
+  // `node_modules/.bun/<name>@<version>/node_modules/<name>`. The lock key is
+  // the package itself, not the store directory that happens to hold it.
+  if (stored.startsWith('.bun/')) {
+    const nested = stored.lastIndexOf('/node_modules/')
+    return nested === -1 ? undefined : stored.slice(nested + '/node_modules/'.length)
+  }
+  return stored.split('/node_modules/').join('/')
 }
 
 export async function readConsumerDeploymentInputs(
@@ -440,7 +448,11 @@ export async function readConsumerDeploymentInputs(
   const lockText = await readFile(resolve(repoRoot, 'bun.lock'), 'utf8')
   const installed: InstalledProducerPackage[] = []
   const glob = new Bun.Glob('node_modules/**/package.json')
-  for await (const manifestPath of glob.scan({ cwd: repoRoot, onlyFiles: true })) {
+  // `dot` is required: the isolated linker puts every real manifest under the
+  // DOTTED `node_modules/.bun/`, so without it this scan sees nothing at all and
+  // the coherence findings below become vacuous.
+  for await (const manifestPath of glob.scan({ cwd: repoRoot, onlyFiles: true, dot: true })) {
+    if (manifestPath.startsWith(INSTALL_BACKUP_PREFIX)) continue
     try {
       const manifest = JSON.parse(
         await readFile(resolve(repoRoot, manifestPath), 'utf8')

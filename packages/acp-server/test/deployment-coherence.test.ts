@@ -422,3 +422,55 @@ describe('ASP/HRC consumer deployment coherence', () => {
     }
   })
 })
+
+describe('reading an isolated-linker install', () => {
+  test('sees the dotted .bun store, keys it by package, and ignores the backup tree', async () => {
+    const repoRoot = await mkdtemp(join(tmpdir(), 'acp-deployment-isolated-'))
+    try {
+      await writeFile(join(repoRoot, 'bun.lock'), '{\n  "packages": {\n  }\n}\n')
+      await writeFile(join(repoRoot, 'package.json'), JSON.stringify({}))
+
+      // bun's isolated linker: the real manifest lives under a DOTTED directory,
+      // nested one more `node_modules` deep than a hoisted install.
+      const stored = join(
+        repoRoot,
+        'node_modules/.bun',
+        `hrc-core@${hrcBuild.setVersion}`,
+        'node_modules/hrc-core'
+      )
+      await mkdir(stored, { recursive: true })
+      await writeFile(
+        join(stored, 'package.json'),
+        JSON.stringify({
+          name: 'hrc-core',
+          version: hrcBuild.setVersion,
+          praesidiumBuild: hrcBuild,
+        })
+      )
+
+      // The previous tree bun keeps around holds STALE copies; counting them
+      // would resurrect versions this install already replaced.
+      const backup = join(repoRoot, 'node_modules/.old_modules-deadbeef/hrc-core')
+      await mkdir(backup, { recursive: true })
+      await writeFile(
+        join(backup, 'package.json'),
+        JSON.stringify({
+          name: 'hrc-core',
+          version: '0.0.0-stale',
+          praesidiumBuild: { ...hrcBuild, setVersion: '0.0.0-stale' },
+        })
+      )
+
+      const inputs = await readConsumerDeploymentInputs(repoRoot)
+
+      expect(inputs.installed).toHaveLength(1)
+      expect(inputs.installed[0]).toMatchObject({
+        lockKey: 'hrc-core',
+        name: 'hrc-core',
+        version: hrcBuild.setVersion,
+      })
+    } finally {
+      await rm(repoRoot, { recursive: true, force: true })
+    }
+  })
+})
