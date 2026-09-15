@@ -1,8 +1,10 @@
-schemaVersion = 2
+version = 3
 
 [identity]
 display = "Mobile Test Agent"
 role = "test"
+
+[provisioning]
 harness = "claude-code"
 
 [spaces]

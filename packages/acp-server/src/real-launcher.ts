@@ -644,9 +644,6 @@ function requiresCollaborationLedgerDelivery(location: ScopeLocation): boolean {
     case 'unbound':
       // The HRC ledger kicker, not ACP, owns first-birth placement and summon.
       return true
-    case 'retired':
-      // Preserve the ordinary resolve-session gate's typed retirement cause.
-      return false
     case 'unknown':
       // Preserve the ordinary resolve-session gate's typed availability cause.
       return false

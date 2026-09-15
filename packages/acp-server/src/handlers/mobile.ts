@@ -81,7 +81,8 @@ type MobileNodeSummary = {
   checkedAt: string
   answeredAt?: string | undefined
   latencyMs: number
-  protocolVersion?: string | undefined
+  // `protocolVersion` was retired from the federation wire upstream (hrc v1.3);
+  // the probe no longer reports one, so the iOS wire no longer carries it.
   capabilities?: {
     accept: boolean
     locate: boolean
@@ -1682,9 +1683,6 @@ async function buildMobileFederationSnapshot(
           ? { answeredAt: existing.answeredAt }
           : {}),
       latencyMs: observation.latencyMs,
-      ...(observation.protocolVersion !== undefined
-        ? { protocolVersion: observation.protocolVersion }
-        : {}),
       ...(observation.capabilities !== undefined
         ? {
             capabilities: {
