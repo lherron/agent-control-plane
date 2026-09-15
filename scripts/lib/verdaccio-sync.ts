@@ -316,17 +316,27 @@ function ownedBySynced(key: string, synced: ReadonlySet<string>): boolean {
   return false
 }
 
+/**
+ * A specifier per synced package. A set advance pins its own members to its own
+ * tuple version, so two sets advanced in one install need two specifiers.
+ */
+export type WorkspaceSpecifier = string | ((name: string) => string)
+
+function specifierFor(specifier: WorkspaceSpecifier, name: string): string {
+  return typeof specifier === 'function' ? specifier(name) : specifier
+}
+
 function rewriteWorkspaceSpecifiers(
   head: string,
   synced: ReadonlySet<string>,
-  specifier: string
+  specifier: WorkspaceSpecifier
 ): string {
   let rewritten = head
   for (const name of synced) {
     const key = JSON.stringify(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     rewritten = rewritten.replace(
       new RegExp(`^(\\s*${key}: )"[^"]*"`, 'gm'),
-      `$1${JSON.stringify(specifier)}`
+      `$1${JSON.stringify(specifierFor(specifier, name))}`
     )
   }
   return rewritten
@@ -337,7 +347,7 @@ export function confineLockToSyncedPackages(
   before: string,
   after: string,
   synced: ReadonlySet<string>,
-  workspaceSpecifier: string = TAG_SPECIFIER
+  workspaceSpecifier: WorkspaceSpecifier = TAG_SPECIFIER
 ): string {
   const beforeBlock = packagesBlock(before)
   const afterEntries = packagesBlock(after).entries
@@ -638,7 +648,7 @@ export async function installConfinedPackages(options: {
   synced: ReadonlySet<string>
   lockBefore: string
   discover?: (root: string) => Promise<string[]>
-  workspaceSpecifier?: string
+  workspaceSpecifier?: WorkspaceSpecifier
   beforeRelink?: () => Promise<void>
 }): Promise<void> {
   const discover = options.discover ?? packagesManifestPaths

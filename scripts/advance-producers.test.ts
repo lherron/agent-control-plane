@@ -11,6 +11,7 @@ import {
   type GitRunner,
   assertPostAdvanceConsumerDeployment,
   assertPublishedProducerIdentity,
+  parseArguments,
   restoreFailedProducerAdvance,
 } from './advance-producers.js'
 
@@ -163,5 +164,39 @@ describe('post-advance consumer deployment', () => {
     } finally {
       await rm(root, { recursive: true, force: true })
     }
+  })
+})
+
+describe('producer advance arguments', () => {
+  test('reads the single-set form', () => {
+    expect(parseArguments(['set=asp', 'version=0.1.1-dev.1'])).toEqual({
+      requests: [{ setName: 'asp', version: '0.1.1-dev.1' }],
+      dryRun: false,
+    })
+  })
+
+  test('reads both tuples from the paired form, so one install covers both', () => {
+    expect(parseArguments(['asp=0.1.1-dev.1', 'hrc=0.1.0-dev.2'])).toEqual({
+      requests: [
+        { setName: 'asp', version: '0.1.1-dev.1' },
+        { setName: 'hrc', version: '0.1.0-dev.2' },
+      ],
+      dryRun: false,
+    })
+  })
+
+  test('carries --dry-run through the paired form', () => {
+    expect(parseArguments(['asp=0.1.1-dev.1', 'hrc=0.1.0-dev.2', '--dry-run']).dryRun).toBe(true)
+  })
+
+  test('refuses a set named twice', () => {
+    expect(() => parseArguments(['set=asp', 'version=0.1.1-dev.1', 'asp=0.1.1-dev.2'])).toThrow(
+      /named twice/
+    )
+  })
+
+  test('refuses an unknown set and an empty request', () => {
+    expect(() => parseArguments(['set=wrkq', 'version=1'])).toThrow(/usage/)
+    expect(() => parseArguments([])).toThrow(/usage/)
   })
 })

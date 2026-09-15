@@ -185,9 +185,19 @@ async function assertCompletePublishedSet(
   }
 }
 
-function parseArguments(argv: readonly string[]): {
-  setName: ProducerSetName
-  version: string
+export type ProducerRequest = Readonly<{ setName: ProducerSetName; version: string }>
+
+const USAGE = [
+  'usage: advance-producers set=<asp|hrc> version=<setVersion|latest> [--dry-run]',
+  '   or: advance-producers asp=<setVersion|latest> hrc=<setVersion|latest> [--dry-run]',
+  '',
+  'The paired form rewrites both tuples before a single confined install. It is',
+  'required when both sets are stale at once: advancing one alone leaves the',
+  "other's dead pins in the graph and the install cannot resolve them.",
+].join('\n')
+
+export function parseArguments(argv: readonly string[]): {
+  requests: readonly ProducerRequest[]
   dryRun: boolean
 } {
   const values = new Map<string, string>()
@@ -196,14 +206,23 @@ function parseArguments(argv: readonly string[]): {
     const [key, ...rest] = normalized.split('=')
     if (key && rest.length > 0) values.set(key, rest.join('='))
   }
+  const requests: ProducerRequest[] = []
   const setName = values.get('set')
   const version = values.get('version')
-  if ((setName !== 'asp' && setName !== 'hrc') || version === undefined) {
-    throw new Error(
-      'usage: advance-producers set=<asp|hrc> version=<setVersion|latest> [--dry-run]'
-    )
+  if (setName !== undefined || version !== undefined) {
+    if ((setName !== 'asp' && setName !== 'hrc') || version === undefined) throw new Error(USAGE)
+    requests.push({ setName, version })
   }
-  return { setName, version, dryRun: argv.includes('--dry-run') }
+  for (const name of ['asp', 'hrc'] as const) {
+    const pinned = values.get(name)
+    if (pinned === undefined) continue
+    if (requests.some((request) => request.setName === name)) {
+      throw new Error(`advance-producers: producer set ${name} named twice\n${USAGE}`)
+    }
+    requests.push({ setName: name, version: pinned })
+  }
+  if (requests.length === 0) throw new Error(USAGE)
+  return { requests, dryRun: argv.includes('--dry-run') }
 }
 
 function assertCleanTrackedTree(): void {
@@ -315,33 +334,52 @@ export async function restoreFailedProducerAdvance(
 }
 
 export async function advanceProducers(argv: readonly string[] = Bun.argv.slice(2)): Promise<void> {
-  const { setName, version: requestedVersion, dryRun } = parseArguments(argv)
+  const { requests, dryRun } = parseArguments(argv)
   assertCleanTrackedTree()
-  const producer = EXPECTED_CONSUMER_PRODUCERS.find((entry) => entry.setName === setName)
-  if (producer === undefined) throw new Error(`unknown producer set ${setName}`)
   const membership = await producerMembership()
   for (const name of ['asp', 'hrc'] as const) {
     console.log(`PRODUCER_MEMBERS ${name} ${membership[name].join(',')}`)
   }
-  const anchor = await resolvePublishedManifest(ANCHORS[setName], requestedVersion)
-  await assertPublishedProducerIdentity(anchor.build, producer)
-  await assertCompletePublishedSet(setName, anchor.version, anchor.build, membership[setName])
-  console.log(
-    `PRODUCER_PLAN ${setName} ${producer.setVersion}@${producer.sourceCommit} -> ${anchor.version}@${anchor.build.sourceCommit}; tupleRemote=${anchor.build.canonicalRemote}; members=${membership[setName].join(',')}`
-  )
+
+  type PlannedAdvance = Readonly<{
+    producer: ExpectedConsumerProducer
+    version: string
+    sourceCommit: string
+  }>
+  const planned: PlannedAdvance[] = []
+  for (const request of requests) {
+    const producer = EXPECTED_CONSUMER_PRODUCERS.find((entry) => entry.setName === request.setName)
+    if (producer === undefined) throw new Error(`unknown producer set ${request.setName}`)
+    const anchor = await resolvePublishedManifest(ANCHORS[request.setName], request.version)
+    await assertPublishedProducerIdentity(anchor.build, producer)
+    await assertCompletePublishedSet(
+      request.setName,
+      anchor.version,
+      anchor.build,
+      membership[request.setName]
+    )
+    console.log(
+      `PRODUCER_PLAN ${request.setName} ${producer.setVersion}@${producer.sourceCommit} -> ${anchor.version}@${anchor.build.sourceCommit}; tupleRemote=${anchor.build.canonicalRemote}; members=${membership[request.setName].join(',')}`
+    )
+    planned.push({ producer, version: anchor.version, sourceCommit: anchor.build.sourceCommit })
+  }
   if (dryRun) {
     console.log('PRODUCER_DRY_RUN no files written')
     return
   }
-  if (
-    anchor.version === producer.setVersion &&
-    anchor.build.sourceCommit === producer.sourceCommit
-  ) {
+
+  const advancing = planned.filter(
+    (entry) =>
+      entry.version !== entry.producer.setVersion ||
+      entry.sourceCommit !== entry.producer.sourceCommit
+  )
+  for (const entry of planned) {
+    if (advancing.includes(entry)) continue
     console.log(
-      `PRODUCER_ADVANCED ${setName} ${producer.setVersion} -> ${anchor.version} (${anchor.build.sourceCommit}) — no change`
+      `PRODUCER_ADVANCED ${entry.producer.setName} ${entry.producer.setVersion} -> ${entry.version} (${entry.sourceCommit}) — no change`
     )
-    return
   }
+  if (advancing.length === 0) return
 
   const manifestPaths = (await packagesManifestPaths(ROOT)).map((path) =>
     path.slice(ROOT.length + 1)
@@ -351,37 +389,58 @@ export async function advanceProducers(argv: readonly string[] = Bun.argv.slice(
   for (const path of snapshotPaths) snapshots.set(path, await readFile(resolve(ROOT, path), 'utf8'))
   const lockBeforeAdvance = snapshots.get('bun.lock') as string
   try {
-    let members = new Set(membership[setName])
-    await rewriteProducerFiles(
-      setName,
-      producer.setVersion,
-      anchor.version,
-      producer.sourceCommit,
-      anchor.build.sourceCommit,
-      members
-    )
+    // Every requested tuple is rewritten BEFORE any install, so a set advanced
+    // alongside a second stale set never has to resolve the other's dead pins.
+    const members = new Set<string>()
+    const versionByMember = new Map<string, string>()
+    for (const entry of advancing) {
+      const setMembers = new Set(membership[entry.producer.setName])
+      await rewriteProducerFiles(
+        entry.producer.setName,
+        entry.producer.setVersion,
+        entry.version,
+        entry.producer.sourceCommit,
+        entry.sourceCommit,
+        setMembers
+      )
+      for (const name of setMembers) {
+        members.add(name)
+        versionByMember.set(name, entry.version)
+      }
+    }
+    const setNames = advancing.map((entry) => entry.producer.setName)
     for (let iteration = 1; iteration <= 3; iteration += 1) {
       const lockBeforeIteration = await readFile(resolve(ROOT, 'bun.lock'), 'utf8')
       await installConfinedPackages({
-        label: setName.toUpperCase(),
-        tmpPrefix: `advance-${setName}-`,
+        label: setNames.map((name) => name.toUpperCase()).join('+'),
+        tmpPrefix: `advance-${setNames.join('-')}-`,
         synced: members,
         lockBefore: lockBeforeIteration,
-        workspaceSpecifier: anchor.version,
+        workspaceSpecifier: (name) => versionByMember.get(name) as string,
       })
       const nextMembership = await producerMembership()
-      const added = nextMembership[setName].filter((name) => !members.has(name))
+      const added: { name: string; version: string }[] = []
+      for (const entry of advancing) {
+        for (const name of nextMembership[entry.producer.setName]) {
+          if (!members.has(name)) added.push({ name, version: entry.version })
+        }
+      }
       if (added.length === 0) break
       if (iteration === 3) {
-        throw new Error(`producer membership did not reach fixpoint: ${added.join(', ')}`)
+        throw new Error(
+          `producer membership did not reach fixpoint: ${added.map((item) => item.name).join(', ')}`
+        )
       }
-      members = new Set([...members, ...added])
       const rootPath = resolve(ROOT, 'package.json')
       const root = JSON.parse(await readFile(rootPath, 'utf8')) as {
         overrides?: Record<string, string>
       }
       root.overrides ??= {}
-      for (const name of added) root.overrides[name] = anchor.version
+      for (const item of added) {
+        members.add(item.name)
+        versionByMember.set(item.name, item.version)
+        root.overrides[item.name] = item.version
+      }
       await writeFile(rootPath, `${JSON.stringify(root, null, 2)}\n`)
     }
 
@@ -393,9 +452,11 @@ export async function advanceProducers(argv: readonly string[] = Bun.argv.slice(
     if (unexpected.length > 0)
       throw new Error(`producer advance touched unexpected files: ${unexpected.join(', ')}`)
     assertPostAdvanceConsumerDeployment()
-    console.log(
-      `PRODUCER_ADVANCED ${setName} ${producer.setVersion} -> ${anchor.version} (${anchor.build.sourceCommit}) — review and commit with your landing`
-    )
+    for (const entry of advancing) {
+      console.log(
+        `PRODUCER_ADVANCED ${entry.producer.setName} ${entry.producer.setVersion} -> ${entry.version} (${entry.sourceCommit}) — review and commit with your landing`
+      )
+    }
   } catch (error) {
     try {
       await restoreFailedProducerAdvance(snapshots)
