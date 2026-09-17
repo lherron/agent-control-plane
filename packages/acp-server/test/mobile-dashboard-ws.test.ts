@@ -641,3 +641,56 @@ describe('WS /v1/mobile/dashboard', () => {
     expect(ws.data.abortController.signal.aborted).toBe(true)
   })
 })
+
+// T-08575: retained rows advance the event cursor but never replace the
+// runtime-derived current-activity timestamp.
+describe('T-08575 dashboard freshness retained-origin fence', () => {
+  for (const fixture of [
+    {
+      id: 'T6 retained historical latest',
+      eventTs: '2026-09-16T08:00:00.000Z',
+      evidenceOrigin: 'retained' as const,
+      expected: 'runtime',
+    },
+    {
+      id: 'T6 C ordinary historical latest',
+      eventTs: '2026-09-16T08:00:00.000Z',
+      evidenceOrigin: undefined,
+      expected: 'event',
+    },
+    {
+      id: 'T6b retained fresh latest',
+      eventTs: '2026-09-16T10:00:00.000Z',
+      evidenceOrigin: 'retained' as const,
+      expected: 'runtime',
+    },
+    {
+      id: 'T6b C ordinary fresh latest',
+      eventTs: '2026-09-16T10:00:00.000Z',
+      evidenceOrigin: undefined,
+      expected: 'event',
+    },
+  ]) {
+    test(`${fixture.id} keeps cursor progression separate from current activity`, async () => {
+      const runtimeLastActivityAt = '2026-09-16T09:00:00.000Z'
+      const latest = {
+        ...event(85, { ts: fixture.eventTs }),
+        ...(fixture.evidenceOrigin !== undefined ? { evidenceOrigin: fixture.evidenceOrigin } : {}),
+      } as HrcLifecycleEvent & { evidenceOrigin?: 'retained' }
+      const client = createDashboardClient([latest])
+      client.listRuntimes = async () => [
+        { ...RUNTIME, lastActivityAt: runtimeLastActivityAt } as HrcRuntimeSnapshot,
+      ]
+      client.listLatestEventBySession = async () => [latest]
+      const { ws, sent } = createDashboardSocket({ hrcClient: client })
+
+      await openMobileWebSocket(ws)
+
+      const sessions = sent[0]?.sessions as Array<Record<string, unknown>>
+      expect(sessions[0]?.lastHrcSeq).toBe(85)
+      expect(sessions[0]?.lastActivityAt).toBe(
+        fixture.expected === 'runtime' ? runtimeLastActivityAt : fixture.eventTs
+      )
+    })
+  }
+})

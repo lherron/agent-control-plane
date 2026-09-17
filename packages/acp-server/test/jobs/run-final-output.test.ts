@@ -350,3 +350,76 @@ describe('getRunFinalAssistantText', () => {
     expect(result).toBeUndefined()
   })
 })
+
+function makeRetainedOutputStore(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'acp-run-final-output-retained-'))
+  tempDirs.push(dir)
+  const path = join(dir, 'state.sqlite')
+  const db = new Database(path)
+  db.exec(`
+    CREATE TABLE hrc_events (
+      hrc_seq INTEGER PRIMARY KEY,
+      host_session_id TEXT NOT NULL,
+      scope_ref TEXT NOT NULL,
+      lane_ref TEXT NOT NULL,
+      run_id TEXT,
+      event_kind TEXT NOT NULL,
+      replayed INTEGER NOT NULL DEFAULT 0,
+      payload_json TEXT NOT NULL,
+      evidence_origin TEXT CHECK (evidence_origin IS NULL OR evidence_origin = 'retained')
+    );
+  `)
+  db.close()
+  return path
+}
+
+function insertOutputMessage(
+  db: Database,
+  input: { hrcSeq: number; text: string; evidenceOrigin: 'retained' | null }
+): void {
+  db.run(
+    `INSERT INTO hrc_events (
+      hrc_seq, host_session_id, scope_ref, lane_ref, run_id, event_kind,
+      payload_json, evidence_origin
+    ) VALUES (?, 'hsid-output', 'agent:larry@project:demo', 'main', ?, 'turn.message', ?, ?)`,
+    input.hrcSeq,
+    `run-${input.hrcSeq}`,
+    JSON.stringify({
+      type: 'message_end',
+      message: { role: 'assistant', content: [{ type: 'text', text: input.text }] },
+    }),
+    input.evidenceOrigin
+  )
+}
+
+// T-08575: S1 and S2 must stay coherent on ordinary-origin output, and S1
+// schema failures must reach callers instead of becoming an empty result.
+describe('T-08575 run final output retained-evidence fence', () => {
+  test('T3c S1 and S2 select the same latest ordinary-origin assistant message', () => {
+    const path = makeRetainedOutputStore()
+    const db = new Database(path)
+    insertOutputMessage(db, { hrcSeq: 7, text: 'LIVE-EARLY', evidenceOrigin: null })
+    insertOutputMessage(db, { hrcSeq: 8, text: 'OLD-EARLY', evidenceOrigin: 'retained' })
+    insertOutputMessage(db, { hrcSeq: 9, text: 'X', evidenceOrigin: null })
+    insertOutputMessage(db, { hrcSeq: 10, text: 'OLD-REPLY', evidenceOrigin: 'retained' })
+    db.close()
+
+    const run = makeRun({ hostSessionId: 'hsid-output', generation: 1 })
+    expect(getRunFinalAssistantText(makeDeps(run, path), run.runId)).toBe('X')
+  })
+
+  test('T-Q1b missing hrc_events table propagates the SQLite/schema error', () => {
+    const path = makeRetainedOutputStore()
+    const db = new Database(path)
+    db.exec('ALTER TABLE hrc_events RENAME TO hrc_events_removed')
+    db.close()
+    const run = makeRun({ hostSessionId: 'hsid-output', generation: 1 })
+    expect(() => getRunFinalAssistantText(makeDeps(run, path), run.runId)).toThrow()
+  })
+
+  test('T-Q1b control returns undefined for an empty recognized hrc_events table', () => {
+    const path = makeRetainedOutputStore()
+    const run = makeRun({ hostSessionId: 'hsid-output', generation: 1 })
+    expect(getRunFinalAssistantText(makeDeps(run, path), run.runId)).toBeUndefined()
+  })
+})

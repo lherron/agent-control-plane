@@ -8,6 +8,7 @@ import { openInterfaceStore } from 'acp-interface-store'
 
 import { InMemoryRunStore } from '../domain/run-store.js'
 import type { StoredRun } from '../domain/run-store.js'
+import { readCompletedAssistantMessageAfterSeq } from '../real-launcher.js'
 import * as dispatcherModule from './interface-run-dispatcher.js'
 
 type ActivityModule = typeof dispatcherModule & {
@@ -1064,3 +1065,631 @@ function makeRun(overrides: Partial<StoredRun> = {}): StoredRun {
 function isoAgo(now: number, ageMs: number): string {
   return new Date(now - ageMs).toISOString()
 }
+
+type EvidenceOrigin = 'retained' | null
+
+function createEvidenceHrcDb(): { db: Database; hrcDbPath: string } {
+  const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-interface-retained-'))
+  fixtureDirs.push(fixtureDir)
+  const hrcDbPath = join(fixtureDir, 'hrc.sqlite')
+  const db = new Database(hrcDbPath)
+  db.exec(`
+    CREATE TABLE runs (
+      run_id TEXT PRIMARY KEY,
+      host_session_id TEXT NOT NULL,
+      runtime_id TEXT,
+      scope_ref TEXT NOT NULL,
+      lane_ref TEXT NOT NULL,
+      generation INTEGER NOT NULL,
+      transport TEXT NOT NULL,
+      status TEXT NOT NULL,
+      accepted_at TEXT,
+      started_at TEXT,
+      completed_at TEXT,
+      updated_at TEXT NOT NULL,
+      error_code TEXT,
+      error_message TEXT,
+      operation_id TEXT,
+      invocation_id TEXT,
+      dispatched_input_id TEXT
+    );
+    CREATE TABLE hrc_events (
+      hrc_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      stream_seq INTEGER NOT NULL UNIQUE,
+      ts TEXT NOT NULL,
+      host_session_id TEXT NOT NULL,
+      scope_ref TEXT NOT NULL,
+      lane_ref TEXT NOT NULL,
+      generation INTEGER NOT NULL,
+      runtime_id TEXT,
+      run_id TEXT,
+      launch_id TEXT,
+      app_id TEXT,
+      app_session_key TEXT,
+      category TEXT NOT NULL,
+      event_kind TEXT NOT NULL,
+      transport TEXT,
+      error_code TEXT,
+      replayed INTEGER NOT NULL DEFAULT 0,
+      payload_json TEXT NOT NULL,
+      evidence_origin TEXT CHECK (evidence_origin IS NULL OR evidence_origin = 'retained')
+    );
+  `)
+  return { db, hrcDbPath }
+}
+
+function insertEvidenceEvent(
+  db: Database,
+  input: {
+    hrcSeq: number
+    ts?: string | undefined
+    hostSessionId: string
+    scopeRef: string
+    laneRef: string
+    generation: number
+    runId?: string | undefined
+    eventKind: string
+    payload: Record<string, unknown>
+    evidenceOrigin: EvidenceOrigin
+    replayed?: boolean | undefined
+  }
+): void {
+  db.run(
+    `INSERT INTO hrc_events (
+      hrc_seq, stream_seq, ts, host_session_id, scope_ref, lane_ref, generation,
+      run_id, category, event_kind, replayed, payload_json, evidence_origin
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'turn', ?, ?, ?, ?)`,
+    input.hrcSeq,
+    input.hrcSeq,
+    input.ts ?? new Date().toISOString(),
+    input.hostSessionId,
+    input.scopeRef,
+    input.laneRef,
+    input.generation,
+    input.runId ?? null,
+    input.eventKind,
+    input.replayed === true ? 1 : 0,
+    JSON.stringify(input.payload),
+    input.evidenceOrigin
+  )
+}
+
+function assistantPayload(text: string): Record<string, unknown> {
+  return {
+    type: 'message_end',
+    message: { role: 'assistant', content: [{ type: 'text', text }] },
+  }
+}
+
+function createTmuxActuationFixture(input: {
+  hrcDbPath: string
+  runStore?: InMemoryRunStore | undefined
+  generation?: number | undefined
+  hrcRunId?: string | undefined
+}) {
+  const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-interface-retained-store-'))
+  fixtureDirs.push(fixtureDir)
+  const interfaceStore = openInterfaceStore({ dbPath: join(fixtureDir, 'interface.sqlite') })
+  const runStore = input.runStore ?? new InMemoryRunStore()
+  const sessionRef = {
+    scopeRef: 'agent:smokey:project:agent-control-plane:task:T-08575',
+    laneRef: 'main' as const,
+  }
+  const run = runStore.createRun({
+    sessionRef,
+    status: 'running',
+    metadata: {
+      meta: {
+        interfaceSource: {
+          gatewayId: 'discord_prod',
+          bindingId: 'ifb_retained',
+          conversationRef: 'channel:retained',
+          messageRef: 'discord:message:prompt',
+          replyToMessageRef: 'discord:message:prompt',
+        },
+      },
+    },
+  })
+  runStore.updateRun(run.runId, {
+    hostSessionId: 'hsid-retained',
+    runtimeId: 'rt-retained',
+    transport: input.hrcRunId === undefined ? 'tmux' : 'headless',
+    afterHrcSeq: 10,
+    ...(input.generation !== undefined ? { generation: input.generation } : {}),
+    ...(input.hrcRunId !== undefined ? { hrcRunId: input.hrcRunId } : {}),
+  })
+  const dispatcher = dispatcherModule.createInterfaceRunDispatcher({
+    runStore,
+    interfaceStore,
+    hrcDbPath: input.hrcDbPath,
+    config: { intervalMs: 1, staleTimeoutMs: 10 },
+  })
+  return { dispatcher, interfaceStore, runStore, run, sessionRef }
+}
+
+function insertCompletedPair(
+  db: Database,
+  input: {
+    firstSeq: number
+    text: string
+    runId: string
+    evidenceOrigin: EvidenceOrigin
+    replayed?: boolean | undefined
+    ts?: string | undefined
+  }
+): void {
+  const common = {
+    hostSessionId: 'hsid-retained',
+    scopeRef: 'agent:smokey:project:agent-control-plane:task:T-08575',
+    laneRef: 'main',
+    generation: 7,
+    runId: input.runId,
+    evidenceOrigin: input.evidenceOrigin,
+    replayed: input.replayed,
+    ts: input.ts,
+  }
+  insertEvidenceEvent(db, {
+    ...common,
+    hrcSeq: input.firstSeq,
+    eventKind: 'turn.message',
+    payload: assistantPayload(input.text),
+  })
+  insertEvidenceEvent(db, {
+    ...common,
+    hrcSeq: input.firstSeq + 1,
+    eventKind: 'turn.completed',
+    payload: { success: true, transport: 'tmux' },
+  })
+}
+
+// T-08575: present-origin HRC history remains queryable but cannot actuate a
+// current interface run; ordinary and replayed controls preserve today's path.
+describe('T-08575 retained-evidence actuation fence', () => {
+  test('T1 retained completion cannot finalize or enqueue delivery', async () => {
+    const hrc = createEvidenceHrcDb()
+    const fx = createTmuxActuationFixture({ hrcDbPath: hrc.hrcDbPath, generation: 7 })
+    insertCompletedPair(hrc.db, {
+      firstSeq: 11,
+      text: 'OLD-REPLY',
+      runId: 'run-hist',
+      evidenceOrigin: 'retained',
+      ts: isoAgo(Date.now(), 2 * 60 * 60_000),
+    })
+
+    await fx.dispatcher.runOnce()
+
+    expect(fx.runStore.getRun(fx.run.runId)?.status).toBe('running')
+    expect(fx.interfaceStore.deliveries.listByRun(fx.run.runId)).toHaveLength(0)
+    expect(JSON.stringify(fx.runStore.getRun(fx.run.runId)?.metadata)).not.toContain(
+      'deliveryRequestId'
+    )
+    expect(hrc.db.query('SELECT hrc_seq FROM hrc_events').all()).toHaveLength(2)
+    fx.interfaceStore.close()
+    hrc.db.close()
+  })
+
+  for (const control of [
+    { id: 'C', replayed: false },
+    { id: "C'", replayed: true },
+  ]) {
+    test(`T1 ${control.id} ordinary-origin completion still finalizes and delivers`, async () => {
+      const hrc = createEvidenceHrcDb()
+      const fx = createTmuxActuationFixture({ hrcDbPath: hrc.hrcDbPath, generation: 7 })
+      insertCompletedPair(hrc.db, {
+        firstSeq: 11,
+        text: 'OLD-REPLY',
+        runId: 'run-control',
+        evidenceOrigin: null,
+        replayed: control.replayed,
+      })
+
+      await fx.dispatcher.runOnce()
+
+      expect(fx.runStore.getRun(fx.run.runId)?.status).toBe('completed')
+      expect(fx.interfaceStore.deliveries.listByRun(fx.run.runId)).toMatchObject([
+        { bodyText: 'OLD-REPLY' },
+      ])
+      fx.interfaceStore.close()
+      hrc.db.close()
+    })
+  }
+
+  test('T1b a live completion after retained history finalizes exactly once with live text', async () => {
+    const hrc = createEvidenceHrcDb()
+    const fx = createTmuxActuationFixture({ hrcDbPath: hrc.hrcDbPath, generation: 7 })
+    insertCompletedPair(hrc.db, {
+      firstSeq: 11,
+      text: 'OLD-REPLY',
+      runId: 'run-hist',
+      evidenceOrigin: 'retained',
+    })
+    insertCompletedPair(hrc.db, {
+      firstSeq: 13,
+      text: 'NEW-REPLY',
+      runId: 'run-live',
+      evidenceOrigin: null,
+    })
+
+    await fx.dispatcher.runOnce()
+
+    expect(fx.runStore.getRun(fx.run.runId)?.status).toBe('completed')
+    expect(fx.interfaceStore.deliveries.listByRun(fx.run.runId)).toMatchObject([
+      { bodyText: 'NEW-REPLY' },
+    ])
+    expect(fx.interfaceStore.deliveries.listByRun(fx.run.runId)).toHaveLength(1)
+    fx.interfaceStore.close()
+    hrc.db.close()
+  })
+
+  for (const generation of [undefined, 7] as const) {
+    test(`T4 retained old activity cannot regress live activity (${generation === undefined ? 'without' : 'with'} generation)`, async () => {
+      const now = Date.now()
+      const hrc = createEvidenceHrcDb()
+      const run = makeRun({
+        updatedAt: isoAgo(now, 20_000),
+        hostSessionId: 'hsid-retained',
+        generation,
+        afterHrcSeq: 10,
+      })
+      insertEvidenceEvent(hrc.db, {
+        hrcSeq: 11,
+        ts: new Date(now).toISOString(),
+        hostSessionId: 'hsid-retained',
+        scopeRef: run.scopeRef,
+        laneRef: run.laneRef,
+        generation: generation ?? 0,
+        runId: 'run-live',
+        eventKind: 'turn.tool_call',
+        payload: { tool: 'live' },
+        evidenceOrigin: null,
+      })
+      insertEvidenceEvent(hrc.db, {
+        hrcSeq: 12,
+        ts: isoAgo(now, 2 * 60 * 60_000),
+        hostSessionId: 'hsid-retained',
+        scopeRef: run.scopeRef,
+        laneRef: run.laneRef,
+        generation: generation ?? 0,
+        runId: 'run-hist',
+        eventKind: 'turn.tool_call',
+        payload: { tool: 'retained' },
+        evidenceOrigin: 'retained',
+      })
+
+      expect(lastObservedActivityMs(run, hrc.hrcDbPath)).toBeGreaterThanOrEqual(now - 1_000)
+      expect(isStaleFromLastObservedActivity(run, hrc.hrcDbPath, 10_000)).toBe(false)
+      hrc.db.close()
+    })
+
+    test(`T4 C ordinary old activity remains the latest actuator (${generation === undefined ? 'without' : 'with'} generation)`, () => {
+      const now = Date.now()
+      const hrc = createEvidenceHrcDb()
+      const run = makeRun({
+        updatedAt: isoAgo(now, 20_000),
+        hostSessionId: 'hsid-retained',
+        generation,
+        afterHrcSeq: 10,
+      })
+      for (const [hrcSeq, ts] of [
+        [11, new Date(now).toISOString()],
+        [12, isoAgo(now, 2 * 60 * 60_000)],
+      ] as const) {
+        insertEvidenceEvent(hrc.db, {
+          hrcSeq,
+          ts,
+          hostSessionId: 'hsid-retained',
+          scopeRef: run.scopeRef,
+          laneRef: run.laneRef,
+          generation: generation ?? 0,
+          runId: `run-${hrcSeq}`,
+          eventKind: 'turn.tool_call',
+          payload: {},
+          evidenceOrigin: null,
+        })
+      }
+      expect(isStaleFromLastObservedActivity(run, hrc.hrcDbPath, 10_000)).toBe(true)
+      hrc.db.close()
+    })
+  }
+
+  test('T4b retained old activity is fenced on the own-hrcRunId activity branch', () => {
+    const now = Date.now()
+    const hrc = createEvidenceHrcDb()
+    const run = makeRun({
+      updatedAt: isoAgo(now, 20_000),
+      hrcRunId: 'run-live',
+      hostSessionId: 'hsid-retained',
+      generation: 7,
+    })
+    insertEvidenceEvent(hrc.db, {
+      hrcSeq: 11,
+      ts: new Date(now).toISOString(),
+      hostSessionId: 'hsid-retained',
+      scopeRef: run.scopeRef,
+      laneRef: run.laneRef,
+      generation: 7,
+      runId: 'run-live',
+      eventKind: 'turn.tool_call',
+      payload: {},
+      evidenceOrigin: null,
+    })
+    insertEvidenceEvent(hrc.db, {
+      hrcSeq: 12,
+      ts: isoAgo(now, 2 * 60 * 60_000),
+      hostSessionId: 'hsid-retained',
+      scopeRef: run.scopeRef,
+      laneRef: run.laneRef,
+      generation: 7,
+      runId: 'run-live',
+      eventKind: 'turn.tool_call',
+      payload: {},
+      evidenceOrigin: 'retained',
+    })
+    expect(isStaleFromLastObservedActivity(run, hrc.hrcDbPath, 10_000)).toBe(false)
+    hrc.db.close()
+  })
+
+  test('T4b C ordinary old activity still makes the own-run branch stale', () => {
+    const now = Date.now()
+    const hrc = createEvidenceHrcDb()
+    const run = makeRun({
+      updatedAt: isoAgo(now, 20_000),
+      hrcRunId: 'run-live',
+      hostSessionId: 'hsid-retained',
+      generation: 7,
+    })
+    insertEvidenceEvent(hrc.db, {
+      hrcSeq: 11,
+      ts: new Date(now).toISOString(),
+      hostSessionId: 'hsid-retained',
+      scopeRef: run.scopeRef,
+      laneRef: run.laneRef,
+      generation: 7,
+      runId: 'run-live',
+      eventKind: 'turn.tool_call',
+      payload: {},
+      evidenceOrigin: null,
+    })
+    insertEvidenceEvent(hrc.db, {
+      hrcSeq: 12,
+      ts: isoAgo(now, 2 * 60 * 60_000),
+      hostSessionId: 'hsid-retained',
+      scopeRef: run.scopeRef,
+      laneRef: run.laneRef,
+      generation: 7,
+      runId: 'run-live',
+      eventKind: 'turn.tool_call',
+      payload: {},
+      evidenceOrigin: null,
+    })
+    expect(isStaleFromLastObservedActivity(run, hrc.hrcDbPath, 10_000)).toBe(true)
+    hrc.db.close()
+  })
+
+  for (const branch of ['without-generation', 'with-generation', 'own-run'] as const) {
+    test(`T4c fresh retained audit activity cannot delay timeout (${branch})`, () => {
+      const now = Date.now()
+      const hrc = createEvidenceHrcDb()
+      const run = makeRun({
+        updatedAt: isoAgo(now, 20_000),
+        hostSessionId: 'hsid-retained',
+        generation: branch === 'without-generation' ? undefined : 7,
+        hrcRunId: branch === 'own-run' ? 'run-live' : undefined,
+        afterHrcSeq: 10,
+      })
+      insertEvidenceEvent(hrc.db, {
+        hrcSeq: 11,
+        ts: new Date(now).toISOString(),
+        hostSessionId: 'hsid-retained',
+        scopeRef: run.scopeRef,
+        laneRef: run.laneRef,
+        generation: branch === 'without-generation' ? 0 : 7,
+        runId: branch === 'own-run' ? 'run-live' : 'run-recovered',
+        eventKind: 'runtime.interrupted',
+        payload: { reason: 'retained-audit' },
+        evidenceOrigin: 'retained',
+      })
+      expect(isStaleFromLastObservedActivity(run, hrc.hrcDbPath, 10_000)).toBe(true)
+      hrc.db.close()
+    })
+
+    test(`T4c C fresh ordinary activity still delays timeout (${branch})`, () => {
+      const now = Date.now()
+      const hrc = createEvidenceHrcDb()
+      const run = makeRun({
+        updatedAt: isoAgo(now, 20_000),
+        hostSessionId: 'hsid-retained',
+        generation: branch === 'without-generation' ? undefined : 7,
+        hrcRunId: branch === 'own-run' ? 'run-live' : undefined,
+        afterHrcSeq: 10,
+      })
+      insertEvidenceEvent(hrc.db, {
+        hrcSeq: 11,
+        ts: new Date(now).toISOString(),
+        hostSessionId: 'hsid-retained',
+        scopeRef: run.scopeRef,
+        laneRef: run.laneRef,
+        generation: branch === 'without-generation' ? 0 : 7,
+        runId: branch === 'own-run' ? 'run-live' : 'run-ordinary',
+        eventKind: 'runtime.interrupted',
+        payload: {},
+        evidenceOrigin: null,
+      })
+      expect(isStaleFromLastObservedActivity(run, hrc.hrcDbPath, 10_000)).toBe(false)
+      hrc.db.close()
+    })
+  }
+
+  for (const generation of [undefined, 7] as const) {
+    test(`T4 runOnce does not emit turn_timeout from retained old activity (${generation === undefined ? 'without' : 'with'} generation)`, async () => {
+      const hrc = createEvidenceHrcDb()
+      const fx = createTmuxActuationFixture({ hrcDbPath: hrc.hrcDbPath, generation })
+      await Bun.sleep(20)
+      insertEvidenceEvent(hrc.db, {
+        hrcSeq: 11,
+        hostSessionId: 'hsid-retained',
+        scopeRef: fx.sessionRef.scopeRef,
+        laneRef: fx.sessionRef.laneRef,
+        generation: generation ?? 0,
+        runId: 'run-live',
+        eventKind: 'turn.tool_call',
+        payload: {},
+        evidenceOrigin: null,
+      })
+      insertEvidenceEvent(hrc.db, {
+        hrcSeq: 12,
+        ts: isoAgo(Date.now(), 2 * 60 * 60_000),
+        hostSessionId: 'hsid-retained',
+        scopeRef: fx.sessionRef.scopeRef,
+        laneRef: fx.sessionRef.laneRef,
+        generation: generation ?? 0,
+        runId: 'run-hist',
+        eventKind: 'turn.tool_call',
+        payload: {},
+        evidenceOrigin: 'retained',
+      })
+
+      await fx.dispatcher.runOnce()
+
+      expect(fx.runStore.getRun(fx.run.runId)?.status).toBe('running')
+      expect(fx.runStore.getRun(fx.run.runId)?.errorCode).not.toBe('turn_timeout')
+      fx.interfaceStore.close()
+      hrc.db.close()
+    })
+  }
+
+  for (const branch of ['without-generation', 'with-generation', 'own-run'] as const) {
+    for (const control of [
+      { id: 'retained', origin: 'retained' as const, expectedStatus: 'failed' },
+      { id: 'C', origin: null, expectedStatus: 'running' },
+    ]) {
+      test(`T4c runOnce ${control.id} fresh activity (${branch})`, async () => {
+        const hrc = createEvidenceHrcDb()
+        const fx = createTmuxActuationFixture({
+          hrcDbPath: hrc.hrcDbPath,
+          generation: branch === 'without-generation' ? undefined : 7,
+          hrcRunId: branch === 'own-run' ? 'run-live' : undefined,
+        })
+        await Bun.sleep(20)
+        insertEvidenceEvent(hrc.db, {
+          hrcSeq: 11,
+          hostSessionId: 'hsid-retained',
+          scopeRef: fx.sessionRef.scopeRef,
+          laneRef: fx.sessionRef.laneRef,
+          generation: branch === 'without-generation' ? 0 : 7,
+          runId: branch === 'own-run' ? 'run-live' : 'run-recovered',
+          eventKind: 'runtime.interrupted',
+          payload: {},
+          evidenceOrigin: control.origin,
+        })
+
+        await fx.dispatcher.runOnce()
+
+        expect(fx.runStore.getRun(fx.run.runId)?.status).toBe(control.expectedStatus)
+        if (control.expectedStatus === 'failed') {
+          expect(fx.runStore.getRun(fx.run.runId)?.errorCode).toBe('turn_timeout')
+        }
+        fx.interfaceStore.close()
+        hrc.db.close()
+      })
+    }
+  }
+
+  test('K1 own terminal run may finalize from its retained final output', async () => {
+    const hrc = createEvidenceHrcDb()
+    const fx = createTmuxActuationFixture({
+      hrcDbPath: hrc.hrcDbPath,
+      generation: 7,
+      hrcRunId: 'run-own',
+    })
+    insertRunStatus(hrc.db, {
+      runId: 'run-own',
+      hostSessionId: 'hsid-retained',
+      runtimeId: 'rt-retained',
+      scopeRef: fx.sessionRef.scopeRef,
+      laneRef: fx.sessionRef.laneRef,
+      generation: 7,
+      transport: 'headless',
+      status: 'completed',
+    })
+    insertCompletedPair(hrc.db, {
+      firstSeq: 11,
+      text: 'RECOVERED-OWN-OUTPUT',
+      runId: 'run-own',
+      evidenceOrigin: 'retained',
+    })
+
+    await fx.dispatcher.runOnce()
+
+    expect(fx.runStore.getRun(fx.run.runId)?.status).toBe('completed')
+    expect(fx.interfaceStore.deliveries.listByRun(fx.run.runId)).toMatchObject([
+      { bodyText: 'RECOVERED-OWN-OUTPUT' },
+    ])
+    fx.interfaceStore.close()
+    hrc.db.close()
+  })
+
+  test('U-up observes old-to-new schema upgrade without recreating the dispatcher', async () => {
+    const hrc = createHrcDb()
+    const fx = createTmuxActuationFixture({ hrcDbPath: hrc.hrcDbPath, generation: 7 })
+    await fx.dispatcher.runOnce()
+    expect(fx.runStore.getRun(fx.run.runId)?.status).toBe('running')
+
+    hrc.db.exec(
+      "ALTER TABLE hrc_events ADD COLUMN evidence_origin TEXT CHECK (evidence_origin IS NULL OR evidence_origin = 'retained')"
+    )
+    insertCompletedPair(hrc.db, {
+      firstSeq: 11,
+      text: 'OLD-REPLY',
+      runId: 'run-hist',
+      evidenceOrigin: 'retained',
+    })
+    await fx.dispatcher.runOnce()
+    expect(fx.runStore.getRun(fx.run.runId)?.status).toBe('running')
+
+    insertCompletedPair(hrc.db, {
+      firstSeq: 13,
+      text: 'NEW-REPLY',
+      runId: 'run-live',
+      evidenceOrigin: null,
+    })
+    await fx.dispatcher.runOnce()
+    expect(fx.runStore.getRun(fx.run.runId)?.status).toBe('completed')
+    expect(fx.interfaceStore.deliveries.listByRun(fx.run.runId)).toMatchObject([
+      { bodyText: 'NEW-REPLY' },
+    ])
+    fx.interfaceStore.close()
+    hrc.db.close()
+  })
+
+  test('U-err S3 reader surfaces a missing hrc_events table', () => {
+    const hrc = createEvidenceHrcDb()
+    hrc.db.exec('ALTER TABLE hrc_events RENAME TO hrc_events_removed')
+    expect(() =>
+      readCompletedAssistantMessageAfterSeq({
+        hrcDbPath: hrc.hrcDbPath,
+        hostSessionId: 'hsid-retained',
+        sessionRef: {
+          scopeRef: 'agent:smokey:project:agent-control-plane:task:T-08575',
+          laneRef: 'main',
+        },
+        afterHrcSeq: 10,
+      })
+    ).toThrow()
+    hrc.db.close()
+  })
+
+  test('U-err S4 preserves fallback to run.updatedAt when hrc_events disappears', () => {
+    const now = Date.now()
+    const hrc = createEvidenceHrcDb()
+    const run = makeRun({
+      updatedAt: new Date(now).toISOString(),
+      hostSessionId: 'hsid-retained',
+      generation: 7,
+      afterHrcSeq: 10,
+    })
+    hrc.db.exec('ALTER TABLE hrc_events RENAME TO hrc_events_removed')
+    expect(lastObservedActivityMs(run, hrc.hrcDbPath)).toBe(Date.parse(run.updatedAt))
+    hrc.db.close()
+  })
+})
