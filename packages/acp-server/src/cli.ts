@@ -27,6 +27,7 @@ import {
   DEFAULT_AGENT_ASSETS_DIR,
   DEFAULT_INTERFACE_DB_PATH,
   DEFAULT_STATE_DB_PATH,
+  type HrcAgentSources,
   type InputAttemptStore,
   type ResolvedAcpServerDeps,
   resolveAcpServerDeps,
@@ -554,6 +555,21 @@ function readVerifyCommandTargetId(env: NodeJS.ProcessEnv): string | undefined {
   return value && value.length > 0 ? value : undefined
 }
 
+function readHrcAgentSources(env: NodeJS.ProcessEnv): HrcAgentSources | undefined {
+  const agentsRoot = env['ASP_AGENTS_ROOT']?.trim()
+  const aspHome = env['ASP_HOME']?.trim()
+  if (
+    (agentsRoot === undefined || agentsRoot === '') &&
+    (aspHome === undefined || aspHome === '')
+  ) {
+    return undefined
+  }
+  return {
+    ...(agentsRoot !== undefined && agentsRoot !== '' ? { agentsRoot } : {}),
+    ...(aspHome !== undefined && aspHome !== '' ? { aspHome } : {}),
+  }
+}
+
 export function resolveLauncherDeps(
   env: NodeJS.ProcessEnv = process.env,
   cwd = process.cwd(),
@@ -576,6 +592,7 @@ export function resolveLauncherDeps(
       ((socketPath: string) => new HrcClient(socketPath) as unknown as AcpHrcClient)
     const socketPath = resolveControlSocketPath()
     const hrcClient: AcpHrcClient = createHrcClient(socketPath)
+    const hrcAgentSources = readHrcAgentSources(env)
     const triageCommandTargetId = readTriageCommandTargetId(env)
     const implCommandTargetId = readImplCommandTargetId(env)
     const verifyCommandTargetId = readVerifyCommandTargetId(env)
@@ -608,6 +625,7 @@ export function resolveLauncherDeps(
       runtimeResolver: (sessionRef) => resolveRealLauncherPlacement(sessionRef, { cwd, env }),
       agentRootResolver: ({ agentId }) => resolveRealLauncherAgentRoot(agentId, { cwd, env }),
       hrcClient,
+      ...(hrcAgentSources !== undefined ? { hrcAgentSources } : {}),
       sessionResolver: async (sessionRef) => {
         const result = await hrcClient.resolveSession({
           sessionRef: toHrcSessionRef(sessionRef.scopeRef, sessionRef.laneRef),

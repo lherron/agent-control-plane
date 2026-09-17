@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { realpathSync } from 'node:fs'
 
 import {
   buildScopeRef,
@@ -9,8 +10,15 @@ import {
   validateToken,
 } from 'agent-scope'
 import { HrcDomainError, HrcErrorCode } from 'hrc-core'
-import type { HrcRuntimeIntent, RestartStyle, StartRuntimeRequest } from 'hrc-core'
-import { buildHrcRuntimeIntent } from 'hrc-sdk'
+import type {
+  DeclarationRunMode,
+  HrcRuntimeIntent,
+  ResolveRuntimeIntentRequest,
+  ResolveRuntimeIntentResponse,
+  ResolvedDeclarationAgentSources,
+  RestartStyle,
+  StartRuntimeRequest,
+} from 'hrc-core'
 
 import { json } from '../http.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
@@ -122,6 +130,77 @@ export function buildMobileStartRequest(input: {
   }
 }
 
+/**
+ * T-08572 bounded pre-start branch: any declaration-resolution rejection sends
+ * no claim or start request. Typed HRC rejections keep the HRC status, code
+ * and detail, labelled with the declaration stage. Untyped rejections keep
+ * today's projection without the label.
+ */
+function declarationFailure(error: unknown, requestId: string): unknown {
+  if (error instanceof HrcDomainError) {
+    return new HrcDomainError(error.code, error.message, {
+      ...error.detail,
+      stage: 'declaration',
+      attemptState: 'not_claimed',
+      requestId,
+    })
+  }
+  return error
+}
+
+function realpathOrNull(path: string): string | null {
+  try {
+    return realpathSync(path)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * T-08572 non-substitution assertion on the producer's single-provenance echo:
+ * provenance must be caller-side, every sent key must echo the same directory
+ * by realpath (never raw strings), and the intent placement agentRoot must be
+ * the base agentRoot. Fails closed before the start request as internal_error
+ * with no attempt-state label.
+ */
+function assertDeclarationProvenance(input: {
+  sentAgentSources: { agentsRoot?: string | undefined; aspHome?: string | undefined } | undefined
+  agentSources: ResolvedDeclarationAgentSources | undefined
+  sentAgentRoot: string
+  intentAgentRoot: unknown
+}): void {
+  const fail = (reason: string): never => {
+    throw new HrcDomainError(
+      HrcErrorCode.INTERNAL_ERROR,
+      `HRC declaration echo mismatch: ${reason}`,
+      {
+        reason,
+      }
+    )
+  }
+  const provenance = input.agentSources?.provenance
+  if (provenance !== 'caller-agent-root' && provenance !== 'caller') {
+    fail(`provenance ${provenance ?? 'missing'}`)
+  }
+  for (const key of ['agentsRoot', 'aspHome'] as const) {
+    const sent = input.sentAgentSources?.[key]
+    if (sent === undefined) continue
+    const echoed = input.agentSources?.[key]
+    if (typeof echoed !== 'string') fail(`echo missing ${key}`)
+    const sentReal = realpathOrNull(sent)
+    const echoedReal = typeof echoed === 'string' ? realpathOrNull(echoed) : null
+    if (sentReal === null || echoedReal === null || sentReal !== echoedReal) {
+      fail(`echo substituted ${key}`)
+    }
+  }
+  const sentRootReal = realpathOrNull(input.sentAgentRoot)
+  const intentRootReal =
+    typeof input.intentAgentRoot === 'string' ? realpathOrNull(input.intentAgentRoot) : null
+  if (sentRootReal === null || intentRootReal === null || sentRootReal !== intentRootReal) {
+    fail('intent agentRoot')
+  }
+}
+
 function isMobileSessionErrorCode(code: string): code is MobileSessionErrorCode {
   return code in MOBILE_SESSION_ERROR_MESSAGES
 }
@@ -182,21 +261,35 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
   parseScopeRef(baseScopeRef)
   const baseSession = normalizeSessionRef({ scopeRef: baseScopeRef, laneRef: 'main' })
   const baseIntent = await resolveLaunchIntent(deps, baseSession)
-  const inferredIntent = buildHrcRuntimeIntent({
+  const declarationRequest: ResolveRuntimeIntentRequest = {
     agentId,
     agentRoot: baseIntent.placement.agentRoot,
     ...(baseIntent.placement.projectRoot !== undefined
       ? { projectRoot: baseIntent.placement.projectRoot }
       : {}),
-    cwd: baseIntent.placement.cwd,
-    runMode: baseIntent.placement.runMode,
+    cwd: baseIntent.placement.cwd as string,
+    runMode: baseIntent.placement.runMode as DeclarationRunMode,
     interactive: true,
     preferredMode: 'headless',
+    ...(deps.hrcAgentSources !== undefined ? { agentSources: deps.hrcAgentSources } : {}),
+  }
+  let resolved: ResolveRuntimeIntentResponse
+  try {
+    resolved = await deps.hrcClient.resolveRuntimeIntent(declarationRequest)
+  } catch (error) {
+    throw declarationFailure(error, requestId)
+  }
+  for (const line of resolved.declaration.warnings) console.error(line)
+  assertDeclarationProvenance({
+    sentAgentSources: deps.hrcAgentSources,
+    agentSources: resolved.declaration.agentSources,
+    sentAgentRoot: baseIntent.placement.agentRoot,
+    intentAgentRoot: (resolved.intent.placement as { agentRoot?: unknown } | undefined)?.agentRoot,
   })
   const runtimeIntent = {
     ...baseIntent,
-    harness: inferredIntent.harness,
-    execution: inferredIntent.execution,
+    harness: resolved.intent.harness,
+    execution: resolved.intent.execution,
     ...(viewerWindow !== undefined ? { presentation: { viewerWindow } } : {}),
   }
 

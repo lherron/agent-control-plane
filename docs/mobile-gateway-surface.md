@@ -84,6 +84,19 @@ downstream with `stale_context`, not by ACP. Exact starts are refused with
 environment variable is unset. The route carries no auth of its own; it sits in
 the bearer tier described below like every other non-exempt mobile route.
 
+Before any HRC claim or start request, the route obtains the runtime-intent
+`harness` and `execution` from HRC declaration resolution
+(`HrcClient.resolveRuntimeIntent`) at ACP's resolved placement with ACP's agent
+sources; base scope, placement, bundle, correlation, request identity, conflict
+policy and viewer choice stay ACP's own, and there is no in-process declaration
+interpretation and no fallback. A declaration-resolution rejection sends no
+claim or start request and is the one bounded exception to the flat error law:
+it is returned in the nested ACP error envelope at the HRC domain status with
+the HRC code and detail unchanged plus `stage: "declaration"`,
+`attemptState: "not_claimed"` and the `requestId` (`runtime_unavailable` 503,
+`declaration_invalid` 422, `unsupported_capability` 422, `malformed_request`
+400 with detail code `configured_context_mismatch`).
+
 ### Bearer auth (spec: `docs/mobile-surface-bearer-auth-spec.md`)
 
 acp-server binds 127.0.0.1 **and** the tailscale address, so this surface is

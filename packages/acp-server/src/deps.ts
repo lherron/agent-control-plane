@@ -183,6 +183,7 @@ export type AcpHrcClient = Pick<
   | 'launchCommandScopedRun'
   | 'locateScope'
   | 'resolveSession'
+  | 'resolveRuntimeIntent'
   | 'sendInFlightInput'
   | 'semanticDm'
   | 'startRuntime'
@@ -202,6 +203,11 @@ export type AcpHrcClient = Pick<
     request: HrcActiveRunContributionRequest
   ): Promise<HrcActiveRunContributionResponse>
   getActiveRunContribution(inputApplicationId: string): Promise<HrcActiveRunContributionResponse>
+}
+
+export type HrcAgentSources = {
+  agentsRoot?: string | undefined
+  aspHome?: string | undefined
 }
 
 export interface AcpServerDeps {
@@ -229,6 +235,13 @@ export interface AcpServerDeps {
   verifyCommandTargetId?: string | undefined
   verifyCommandSessionRef?: SessionRef | undefined
   hrcClient?: AcpHrcClient | undefined
+  /**
+   * T-08572: caller agent-source context for HRC declaration resolution
+   * (ASP_AGENTS_ROOT/ASP_HOME from the acp-server launcher env). Attached only
+   * where the real launcher wires runtimeResolver; test/dev modes leave it
+   * undefined. Keys with unset or empty env values are omitted.
+   */
+  hrcAgentSources?: HrcAgentSources | undefined
   jobNodeIdentityAuthority?: import('./jobs/node-identity.js').JobNodeIdentityAuthority | undefined
   inputAttemptStore?: InputAttemptStore | undefined
   inputAdmissionStore?: InputAdmissionStore | undefined
