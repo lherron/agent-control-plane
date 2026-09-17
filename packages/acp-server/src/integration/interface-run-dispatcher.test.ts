@@ -1703,7 +1703,7 @@ describe('T-08575 retained-evidence actuation fence', () => {
       afterHrcSeq: 10,
     })
     insertSessionEvent(hrc.db, {
-      hrcSeq: 10,
+      hrcSeq: 11,
       hostSessionId: 'hsid-retained',
       scopeRef: run.scopeRef,
       laneRef: run.laneRef,
@@ -1719,7 +1719,7 @@ describe('T-08575 retained-evidence actuation fence', () => {
         "ALTER TABLE hrc_events ADD COLUMN evidence_origin TEXT CHECK (evidence_origin IS NULL OR evidence_origin = 'retained')"
       )
       insertEvidenceEvent(writer, {
-        hrcSeq: 11,
+        hrcSeq: 12,
         ts: isoAgo(now, 2 * 60 * 60_000),
         hostSessionId: 'hsid-retained',
         scopeRef: run.scopeRef,
