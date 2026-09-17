@@ -57,9 +57,11 @@ predicate: >
   Clients union by atom id and order by timeline ordinal. Logical frame id is
   grouping metadata only: adjacent append atoms may coalesce, non-adjacent
   same-frame atoms remain at their own ordinals, and replace atoms suppress
-  older replace presentation without moving unrelated atoms. Prefix
-  completeness is unknown until an authoritative start atom or source
-  exhaustion. Historical prepend preserves atom anchors and follow state;
+  older replace presentation without moving unrelated atoms. HRC status atoms
+  whose source event carries an evidence origin are append-only history under
+  their own frame identity with unknown prefix state, and never replace
+  current status. Prefix completeness is unknown until an authoritative start
+  atom or source exhaustion. Historical prepend preserves atom anchors and follow state;
   initial and explicit reset snapshots bottom once.
 authority:
   repo: agent-control-plane
@@ -74,6 +76,7 @@ source:
   - packages/acp-server/src/handlers/mobile.ts
   - packages/acp-server/src/mobile-timeline-projector.ts
   - packages/acp-state-store/src/repos/mobile-timeline-projection-repo.ts
+  - wrkq:T-08575
 required_tests:
   - just architecture-records
   - bounded first-snapshot, catch-up-or-reset, byte ceiling, oversize, epoch, replay, restart, gap, and ordinal-exhaustion gates

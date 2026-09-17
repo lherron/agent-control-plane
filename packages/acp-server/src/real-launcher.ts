@@ -20,6 +20,7 @@ import type { UnifiedSessionEvent } from 'spaces-runtime'
 
 import type { InputAttemptStore, LaunchRoleScopedRun, RunStore } from './deps.js'
 import type { DispatchFence, UpdateRunInput } from './domain/run-store.js'
+import { readHrcEvidence } from './hrc-evidence-origin.js'
 import { readOptionalString as readString } from './wrkf/value.js'
 
 const DEFAULT_WAIT_TIMEOUT_MS = 180_000
@@ -1192,19 +1193,22 @@ export function readLatestAssistantMessageSeq(
 ): number {
   const db = new Database(hrcDbPath, { readonly: true })
   try {
-    const row = db
-      .query<{ hrcSeq: number | null }, [string, string, string]>(
-        `SELECT MAX(hrc_seq) AS hrcSeq
-          FROM hrc_events
-          WHERE host_session_id = ?
-            AND scope_ref = ?
-            AND lane_ref = ?
-            AND event_kind = 'turn.message'`
-      )
-      .get(input.hostSessionId, input.sessionRef.scopeRef, input.sessionRef.laneRef)
+    // Schema and SQLite errors propagate: arming a launch at 0 would treat all
+    // ordinary history as new output. An empty table still yields 0.
+    const row = readHrcEvidence(db, (actuatingClause) =>
+      db
+        .query<{ hrcSeq: number | null }, [string, string, string]>(
+          `SELECT MAX(hrc_seq) AS hrcSeq
+            FROM hrc_events
+            WHERE host_session_id = ?
+              AND scope_ref = ?
+              AND lane_ref = ?
+              AND event_kind = 'turn.message'
+              ${actuatingClause}`
+        )
+        .get(input.hostSessionId, input.sessionRef.scopeRef, input.sessionRef.laneRef)
+    )
     return row?.hrcSeq ?? 0
-  } catch {
-    return 0
   } finally {
     db.close()
   }
@@ -1238,24 +1242,27 @@ export function readAssistantMessageAfterSeq(options: {
 }): UnifiedSessionEvent | undefined {
   const db = new Database(options.hrcDbPath, { readonly: true })
   try {
-    const row = db
-      .query<{ hrcSeq: number; payloadJson: string }, [string, string, string, number]>(
-        `SELECT hrc_seq AS hrcSeq, payload_json AS payloadJson
-          FROM hrc_events
-          WHERE host_session_id = ?
-            AND scope_ref = ?
-            AND lane_ref = ?
-            AND event_kind = 'turn.message'
-            AND hrc_seq > ?
-          ORDER BY hrc_seq ASC
-          LIMIT 1`
-      )
-      .get(
-        options.hostSessionId,
-        options.sessionRef.scopeRef,
-        options.sessionRef.laneRef,
-        options.afterHrcSeq
-      )
+    const row = readHrcEvidence(db, (actuatingClause) =>
+      db
+        .query<{ hrcSeq: number; payloadJson: string }, [string, string, string, number]>(
+          `SELECT hrc_seq AS hrcSeq, payload_json AS payloadJson
+            FROM hrc_events
+            WHERE host_session_id = ?
+              AND scope_ref = ?
+              AND lane_ref = ?
+              AND event_kind = 'turn.message'
+              AND hrc_seq > ?
+              ${actuatingClause}
+            ORDER BY hrc_seq ASC
+            LIMIT 1`
+        )
+        .get(
+          options.hostSessionId,
+          options.sessionRef.scopeRef,
+          options.sessionRef.laneRef,
+          options.afterHrcSeq
+        )
+    )
     if (!row) {
       return undefined
     }
@@ -1274,26 +1281,29 @@ export function readCompletedAssistantMessageAfterSeq(options: {
 }): UnifiedSessionEvent | undefined {
   const db = new Database(options.hrcDbPath, { readonly: true })
   try {
-    const rows = db
-      .query<
-        { eventKind: string; hrcRunId: string | null; payloadJson: string },
-        [string, string, string, number]
-      >(
-        `SELECT event_kind AS eventKind, run_id AS hrcRunId, payload_json AS payloadJson
-          FROM hrc_events
-          WHERE host_session_id = ?
-            AND scope_ref = ?
-            AND lane_ref = ?
-            AND event_kind IN ('turn.message', 'turn.completed')
-            AND hrc_seq > ?
-          ORDER BY hrc_seq ASC`
-      )
-      .all(
-        options.hostSessionId,
-        options.sessionRef.scopeRef,
-        options.sessionRef.laneRef,
-        options.afterHrcSeq
-      )
+    const rows = readHrcEvidence(db, (actuatingClause) =>
+      db
+        .query<
+          { eventKind: string; hrcRunId: string | null; payloadJson: string },
+          [string, string, string, number]
+        >(
+          `SELECT event_kind AS eventKind, run_id AS hrcRunId, payload_json AS payloadJson
+            FROM hrc_events
+            WHERE host_session_id = ?
+              AND scope_ref = ?
+              AND lane_ref = ?
+              AND event_kind IN ('turn.message', 'turn.completed')
+              AND hrc_seq > ?
+              ${actuatingClause}
+            ORDER BY hrc_seq ASC`
+        )
+        .all(
+          options.hostSessionId,
+          options.sessionRef.scopeRef,
+          options.sessionRef.laneRef,
+          options.afterHrcSeq
+        )
+    )
 
     type Candidate = {
       hasAssistantMessage: boolean

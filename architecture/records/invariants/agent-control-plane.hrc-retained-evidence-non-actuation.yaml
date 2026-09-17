@@ -1,0 +1,61 @@
+id: agent-control-plane.hrc-retained-evidence-non-actuation
+kind: invariant
+status: active
+owner_project: agent-control-plane
+scope: ACP readers of HRC lifecycle evidence that act on current runs, and ACP mobile status and freshness projection
+predicate: >
+  HRC evidence with a non-NULL evidence origin (hrc_events.evidence_origin,
+  typed evidenceOrigin) is history and never actuates current ACP work.
+  (A) Every ACP reader that supplies HRC activity to a current run's stale or
+  turn_timeout decision admits only ordinary-origin rows, whatever its key,
+  including the run's own persisted hrcRunId.
+  (B) ACP readers that select HRC evidence for a current run without that
+  run's own HRC run identity (by hrc_seq, host session, scope, lane or
+  generation) admit only ordinary-origin rows for finalize, delivery, launcher
+  completion, launch baseline, job or admin output, mobile status replacement
+  and session freshness. On a store with evidence_origin present this is
+  evidence_origin IS NULL; the rule never enumerates origin values or event
+  kinds, and any non-NULL origin is non-actuating.
+  (C) The only exception: a reader keyed on the ACP run's own persisted
+  hrcRunId and consulted only after that run's runs status is terminal may
+  supply that run's final output, finalize and deliver from that run's
+  present-origin rows. It never supplies activity or timeout evidence.
+  Column presence is detected per read on the reading connection, in the same
+  read transaction as the guarded select; absence is never cached, an
+  unrecognized schema is an error, and a positively old schema keeps the
+  unguarded query because it cannot contain present-origin rows. ACP never
+  masks a schema or SQLite error in the launch baseline by arming at zero.
+  Present-origin mobile status rows append under their own frame identity,
+  never replace a current status frame, and never assert prefix completeness;
+  a present-origin latest event advances the session cursor but never sets
+  current freshness. replayed is never an actuation discriminator.
+  Rollback floor: while the schema-tolerant readback (table_info, absent column
+  reads zero, otherwise count of non-NULL evidence_origin) is greater than zero
+  on any HRC store ACP reads, ACP never runs a release below this guard;
+  deactivating HRC projection does not lift the floor and no history is deleted.
+authority:
+  repo: agent-control-plane
+  surface: acp-server HRC evidence readers (real-launcher, interface-run-dispatcher), mobile timeline status projection and session freshness
+source:
+  - wrkq:T-08575
+  - wrkq:T-08566
+  - packages/acp-server/src/hrc-evidence-origin.ts
+  - packages/acp-server/src/real-launcher.ts
+  - packages/acp-server/src/integration/interface-run-dispatcher.ts
+  - packages/acp-server/src/handlers/mobile.ts
+required_tests:
+  - just architecture-records
+  - hrc-evidence-origin schema detection, no-cache upgrade, error propagation and rollback readback recipe
+  - per-actuator retained-origin reds with NULL-origin and replayed controls (finalize/delivery, launcher wait, launch baseline, job output, activity/timeout on every key, mobile status replace and freshness)
+  - production read-transaction gates T-TX1..4 with a schema change injected after detection
+  - own-hrcRunId terminal final-output exception K1
+  - installed isolated proofs against old, migrated and mid-upgrade HRC stores, and the rollback readback on real store copies
+last_verified: 2026-09-17 T-08575 source landing; Daedalus APPROVE EN-13382 on SPEC rev 5
+reopen_when:
+  - HRC adds an evidence origin value, changes evidence_origin placement, or writes non-current bookkeeping rows into hrc_events
+  - an ACP reader selects HRC evidence for current-run completion, delivery, output, activity or status by sequence, session, scope, lane or generation
+  - the own-run final-output exception widens beyond terminal own-hrcRunId final output
+  - schema detection is cached, moved outside the guarded read transaction, or tolerates errors
+  - mobile status or freshness projection changes its replace or latest-event semantics
+supersedes: []
+superseded_by: null

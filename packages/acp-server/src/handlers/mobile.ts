@@ -21,6 +21,7 @@ import type {
 } from 'hrc-sdk'
 import { type CollaborationMessage, formatCollaborationMessage } from 'wrkq-lib'
 
+import { hasHrcEvidenceOrigin } from '../hrc-evidence-origin.js'
 import { badRequest, json } from '../http.js'
 import { mobileUnauthorizedResponse } from '../mobile-auth/gate.js'
 import {
@@ -503,7 +504,14 @@ function projectSession(input: {
       : {}),
     lastHrcSeq: input.lastEvent?.hrcSeq ?? 0,
     lastMessageSeq: 0,
-    lastActivityAt: input.lastEvent?.ts ?? input.runtime?.lastActivityAt ?? input.record.updatedAt,
+    // A latest event with an evidence origin is history re-projected at a fresh
+    // hrc_seq: it advances the cursor but never sets current freshness.
+    lastActivityAt:
+      (input.lastEvent !== undefined && !hasHrcEvidenceOrigin(input.lastEvent)
+        ? input.lastEvent.ts
+        : undefined) ??
+      input.runtime?.lastActivityAt ??
+      input.record.updatedAt,
     capabilities: {
       input: supportsInput,
       interrupt: runtimeActive || input.runtime !== undefined,
@@ -2308,13 +2316,23 @@ function mobileTimelineProjector(deps: ResolvedAcpServerDeps, hrcClient: AcpHrcC
                   'unknown'
               ),
             })
-      const replace =
+      const statusFrame =
         frame.frameKind === 'turn_status' ||
         frame.frameKind === 'session_status' ||
         frame.frameKind === 'input_ack'
+      // Status rows with an evidence origin are history: they append under their
+      // own frame id and never replace current status or assert a complete prefix.
+      if (statusFrame && hasHrcEvidenceOrigin(event)) {
+        return {
+          logicalFrameId: frame.frameId,
+          operation: 'append',
+          payload: { frame: { ...frame, frameSeq: 0 } },
+          prefixState: 'unknown',
+        }
+      }
       return {
         logicalFrameId: logicalFrameIdForEvent(event, frame),
-        operation: replace ? 'replace' : 'append',
+        operation: statusFrame ? 'replace' : 'append',
         payload: { frame: { ...frame, frameSeq: 0 } },
         prefixState:
           frame.frameKind === 'user_prompt' || event.eventKind === 'turn.started'

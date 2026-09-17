@@ -17,6 +17,7 @@ import {
   semanticMessageResponse,
   semanticMessageTimeoutFailure,
 } from '../domain/semantic-message-run.js'
+import { readHrcEvidence } from '../hrc-evidence-origin.js'
 import { readOptionalTrimmedRawString as readString } from '../internal/read-helpers.js'
 import { emitDispatchTimeoutHealthEvent } from '../jobs/health-dispatch-timeout.js'
 import { isRecord } from '../parsers/body.js'
@@ -673,16 +674,20 @@ function readLastCorrelatedHrcEventMs(
   hrcDbPath: string,
   now: number
 ): number | undefined {
-  const correlation = buildHrcActivityQuery(run)
-  if (correlation === undefined) {
+  if (run.hrcRunId === undefined && run.hostSessionId === undefined) {
     return undefined
   }
 
   const db = new Database(hrcDbPath, { readonly: true })
   try {
-    const row = db
-      .query<{ ts: string }, Array<string | number>>(correlation.sql)
-      .get(...correlation.params)
+    const row = readHrcEvidence(db, (actuatingClause) => {
+      const correlation = buildHrcActivityQuery(run, actuatingClause)
+      return correlation === undefined
+        ? undefined
+        : db
+            .query<{ ts: string }, Array<string | number>>(correlation.sql)
+            .get(...correlation.params)
+    })
     if (row === null || row === undefined) {
       return undefined
     }
@@ -700,8 +705,11 @@ function readLastCorrelatedHrcEventMs(
   }
 }
 
+// Activity decides stale/turn_timeout for every correlation key, including the
+// run's own hrcRunId: rows with an evidence origin never count as current activity.
 function buildHrcActivityQuery(
-  run: StoredRun
+  run: StoredRun,
+  actuatingClause: string
 ): { sql: string; params: Array<string | number> } | undefined {
   if (run.hrcRunId !== undefined) {
     const clauses = ['run_id = ?']
@@ -721,6 +729,7 @@ function buildHrcActivityQuery(
       sql: `SELECT ts
         FROM hrc_events
         WHERE ${clauses.join(' AND ')}
+          ${actuatingClause}
         ORDER BY hrc_seq DESC
         LIMIT 1`,
       params,
@@ -748,6 +757,7 @@ function buildHrcActivityQuery(
     sql: `SELECT ts
       FROM hrc_events
       WHERE ${clauses.join(' AND ')}
+        ${actuatingClause}
       ORDER BY hrc_seq DESC
       LIMIT 1`,
     params,
