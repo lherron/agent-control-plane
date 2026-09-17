@@ -10,31 +10,53 @@ predicate: >
   idempotency ownership remains at that home. Successful creation carries the
   claimed identifiers, status, replayed disposition, and nullable runtimeId;
   awaiting_first_turn is success and legacy started responses remain accepted.
-  Every HRC domain failure is projected as one bounded flat mobile error with
-  requestId, stable code and reason, retryable action hint, attemptState, and
-  known claimed identifiers. During migration clients also decode the nested
-  ACP error envelope, and behavior never parses English. Retryable is never
-  evidence of non-mutation. Automatic client-fence retirement is permitted only
-  by explicit not_claimed state or the closed legacy refusal set
-  session_roster_exhausted, session_scope_occupied, roster_claim_superseded, and
-  idempotency_key_conflict. Claimed_not_started, started, unknown, and legacy
-  runtime_unavailable without attempt state preserve the exact request fence and
-  expose same-request retry or warned start-over. Persisted submitted attempts
-  reconcile once with the exact body; unresolved attempts become explicit
-  uncertain state rather than an unexplained durable lock.
+  Before any HRC claim or start request, ACP obtains the runtime-intent harness
+  and execution only from HRC declaration resolution at ACP's resolved placement
+  with ACP's agent sources, and keeps base scope, placement, request identity,
+  conflict policy and viewer choice as its own; there is no in-process
+  declaration interpretation and no fallback. A declaration-resolution rejection
+  sends no claim or start request and is the one bounded exception to the flat
+  error law below: it is returned in the nested ACP error envelope at the HRC
+  domain status with the HRC code and detail unchanged plus stage declaration,
+  attemptState not_claimed and requestId, for runtime_unavailable 503,
+  declaration_invalid 422, unsupported_capability 422 and malformed_request 400
+  with detail code configured_context_mismatch. attemptState not_claimed is
+  asserted only on that branch and never on a claim or start failure, a missing
+  response or any uncertain result. Every HRC claim or start failure is
+  projected as one bounded flat mobile error with requestId, stable code and
+  reason, retryable action hint, attemptState, and known claimed identifiers.
+  During migration clients also decode the nested ACP error envelope, and
+  behavior never parses English. Retryable is never evidence of non-mutation.
+  Automatic client-fence retirement is permitted only by explicit not_claimed
+  state or the closed legacy refusal set session_roster_exhausted,
+  session_scope_occupied, roster_claim_superseded, and idempotency_key_conflict.
+  Claimed_not_started, started, unknown, and legacy runtime_unavailable without
+  attempt state preserve the exact request fence and expose same-request retry
+  or warned start-over. Persisted submitted attempts reconcile once with the
+  exact body; unresolved attempts become explicit uncertain state rather than an
+  unexplained durable lock.
 authority:
   repo: agent-control-plane
-  surface: POST /v1/mobile/sessions and wrkq:T-08407
+  surface: POST /v1/mobile/sessions, wrkq:T-08407 and wrkq:T-08572
 source:
   - wrkq:T-08407
+  - wrkq:T-08572
   - packages/acp-server/src/handlers/mobile-sessions-create.ts
   - packages/acp-server/src/handlers/mobile.ts
+  - wrkq:T-08564
 required_tests:
   - just architecture-records
   - wrkq:T-08407 success/error wire, mutation-state classification, exact retry, restart reconciliation, and mixed-envelope compatibility gates
   - wrkq:T-08407 installed HRCMac and native iOS compatibility proof
-last_verified: 2026-09-12 wrkq:T-08407 revision 4 architecture approval; implementation evidence pending
+  - wrkq:T-08572 declaration-branch gates (exact inputs, harness/execution only, zero start requests on every rejection, bounded not_claimed label)
+  - wrkq:T-08572 installed happy path after the governed producer advance, and installed-release isolated dead-socket refusal with no claim row
+last_verified: >
+  2026-09-12 wrkq:T-08407 revision 4 architecture approval; T-08407 delivered
+  plugin-only, so first_turn materialization and the flat claim/start error
+  projection remain unimplemented in ACP (open gap; overlap wrkq:T-07127).
+  2026-09-17 wrkq:T-08572 declaration branch approval; implementation evidence pending
 reopen_when:
   - mobile creation authority, idempotency ownership, success or error shape, attempt-state semantics, client fence retirement, or mixed-version compatibility changes
+  - the declaration-resolution branch, its error statuses or label, or its producer API changes
 supersedes: []
 superseded_by: null
