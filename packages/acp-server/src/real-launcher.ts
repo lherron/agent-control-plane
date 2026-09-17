@@ -1556,7 +1556,6 @@ function readHarnessIntentFromAgentProfile(agentRoot: string): HrcHarnessIntent 
 }
 
 const HRC_HARNESS_IDS: ReadonlySet<string> = new Set<HrcHarness>([
-  'agent-harness',
   'agent-sdk',
   'claude-code',
   'codex-cli',
