@@ -729,6 +729,55 @@ async function pruneNestedPackageDirs(
   }
 }
 
+/**
+ * Bun's isolated linker is additive in the root store: a resolve install that
+ * moves a group member to a new version leaves the replaced
+ * `node_modules/.bun/<name>@<old>` dir behind, and a frozen relink never
+ * removes it. The deployment-coherence evaluator grades every installed
+ * manifest, so the orphan fails the post-advance gate (T-08572 H3). Mirror
+ * pruneNestedPackageDirs for the root store: remove store dirs for coherence
+ * group members (names in `synced` ONLY, never third-party) whose version the
+ * confined lock does not select. Unknown shapes and unlisted members are left
+ * alone. Returns the removed dir names for the advance log.
+ */
+export async function pruneUnselectedRootStoreVersions(options: {
+  root?: string
+  synced: ReadonlySet<string>
+  lockText: string
+}): Promise<string[]> {
+  const removed: string[] = []
+  const store = join(options.root ?? ROOT, 'node_modules', '.bun')
+  const entries = await readdir(store, { withFileTypes: true }).catch(() => undefined)
+  if (entries === undefined) return removed
+  const selected = lockedPackageVersions(options.lockText)
+  for (const entry of entries) {
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue
+    const parsed = parseRootStoreDir(entry.name)
+    if (parsed === undefined) continue
+    if (!options.synced.has(parsed.name)) continue
+    const versions = selected.get(parsed.name)
+    if (versions === undefined || versions.size === 0) continue
+    if ([...versions].some((v) => parsed.rest === v || parsed.rest.startsWith(`${v}+`))) continue
+    await rm(join(store, entry.name), { recursive: true, force: true })
+    removed.push(entry.name)
+  }
+  return removed
+}
+
+/** Split a root-store dir into its package name and version remainder. */
+function parseRootStoreDir(dir: string): { name: string; rest: string } | undefined {
+  if (dir.startsWith('@')) {
+    const match = /^(@[^+]+)\+([^@]+)@(.+)$/.exec(dir)
+    if (match?.[1] === undefined || match?.[2] === undefined || match?.[3] === undefined) {
+      return undefined
+    }
+    return { name: `${match[1]}/${match[2]}`, rest: match[3] }
+  }
+  const at = dir.indexOf('@')
+  if (at <= 0 || at === dir.length - 1) return undefined
+  return { name: dir.slice(0, at), rest: dir.slice(at + 1) }
+}
+
 /** Resolve once, splice only the owned package closure, then relink from the frozen result. */
 export async function installConfinedPackages(options: {
   label: string
@@ -756,6 +805,13 @@ export async function installConfinedPackages(options: {
     )
   )
   await pruneNestedPackageDirs(discover, nestedBefore)
+  const pruned = await pruneUnselectedRootStoreVersions({
+    synced: options.synced,
+    lockText: await readFile(lockPath, 'utf8'),
+  })
+  if (pruned.length > 0) {
+    console.log(`ROOT_STORE_PRUNE ${pruned.sort().join(', ')}`)
+  }
   await bunInstallFromVerdaccio(options.label, options.tmpPrefix, 'relink')
 }
 
