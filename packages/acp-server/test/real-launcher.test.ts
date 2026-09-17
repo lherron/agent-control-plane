@@ -11,6 +11,7 @@ import { InMemoryRunStore } from '../src/domain/run-store.js'
 import {
   createRealLauncher,
   normalizeRealLauncherIntent,
+  readAssistantMessageAfterSeq,
   toUnifiedAssistantMessageEndFromRawEvents,
 } from '../src/real-launcher.js'
 
@@ -1522,6 +1523,59 @@ type RetainedLauncherStore = {
   fixtureDir: string
 }
 
+type SqlStatementFactory = (this: Database, sql: string) => object
+
+function patchSchemaDetection(inject: () => void): {
+  injected: () => boolean
+  restore: () => void
+} {
+  const prototype = Database.prototype as unknown as {
+    query: SqlStatementFactory
+    prepare: SqlStatementFactory
+  }
+  const originalQuery = prototype.query
+  const originalPrepare = prototype.prepare
+  let didInject = false
+
+  const wrapStatement = (statement: object, sql: string): object => {
+    if (!/table_info/i.test(sql)) return statement
+    return new Proxy(statement, {
+      get(target, property) {
+        const value = Reflect.get(target, property)
+        if (
+          (property === 'all' || property === 'get' || property === 'values') &&
+          typeof value === 'function'
+        ) {
+          return (...args: unknown[]) => {
+            const result = Reflect.apply(value, target, args)
+            if (!didInject) {
+              inject()
+              didInject = true
+            }
+            return result
+          }
+        }
+        return typeof value === 'function' ? value.bind(target) : value
+      },
+    })
+  }
+
+  prototype.query = function query(sql: string): object {
+    return wrapStatement(originalQuery.call(this, sql), sql)
+  }
+  prototype.prepare = function prepare(sql: string): object {
+    return wrapStatement(originalPrepare.call(this, sql), sql)
+  }
+
+  return {
+    injected: () => didInject,
+    restore: () => {
+      prototype.query = originalQuery
+      prototype.prepare = originalPrepare
+    },
+  }
+}
+
 function createRetainedLauncherStore(
   input: {
     evidenceColumn?: boolean | undefined
@@ -1609,6 +1663,25 @@ function insertRetainedLauncherEvent(
     input.replayed === true ? 1 : 0,
     JSON.stringify(payload),
     input.evidenceOrigin
+  )
+}
+
+function insertOrdinaryLauncherEvent(
+  db: Database,
+  input: { hrcSeq: number; text: string; runId?: string | undefined }
+): void {
+  db.run(
+    `INSERT INTO hrc_events (
+      hrc_seq, host_session_id, scope_ref, lane_ref, generation, run_id,
+      event_kind, replayed, payload_json
+    ) VALUES (?, 'hsid-retained-launcher', ?, 'main', 1, ?, 'turn.message', 0, ?)`,
+    input.hrcSeq,
+    'agent:smokey:project:agent-control-plane:task:T-08575',
+    input.runId ?? 'run-live',
+    JSON.stringify({
+      type: 'message_end',
+      message: { role: 'assistant', content: input.text },
+    })
   )
 }
 
@@ -1754,6 +1827,61 @@ describe('T-08575 real launcher retained-evidence fence', () => {
     }
   })
 
+  test('T-TX2 fallback wait detects and selects from one production read transaction', async () => {
+    const store = createRetainedLauncherStore()
+    store.db.exec('PRAGMA journal_mode = WAL')
+    insertOrdinaryLauncherEvent(store.db, { hrcSeq: 5, text: 'LIVE-BASELINE' })
+    const writer = new Database(store.hrcDbPath)
+    writer.exec('PRAGMA journal_mode = WAL')
+    const runStore = new InMemoryRunStore()
+    const acpRun = retainedAcpRun(runStore)
+    const seen: unknown[] = []
+    let detectionPatch: ReturnType<typeof patchSchemaDetection> | undefined
+    const client = retainedLauncherClient(() => {
+      detectionPatch = patchSchemaDetection(() => {
+        writer.exec(
+          "ALTER TABLE hrc_events ADD COLUMN evidence_origin TEXT CHECK (evidence_origin IS NULL OR evidence_origin = 'retained')"
+        )
+        insertRetainedLauncherEvent(writer, {
+          hrcSeq: 9,
+          text: 'OLD-REPLY',
+          evidenceOrigin: 'retained',
+        })
+      })
+    })
+    const launcher = createRealLauncher({
+      hrcDbPath: store.hrcDbPath,
+      pollIntervalMs: 2,
+      watchTimeoutMs: 50,
+      createClient: () => client.client,
+    })
+
+    try {
+      await expect(
+        launcher({
+          ...retainedLauncherInput(runStore, acpRun.runId),
+          waitForCompletion: true,
+          onEvent: async (event) => seen.push(event),
+        })
+      ).rejects.toThrow('did not produce an assistant reply event')
+      expect(detectionPatch?.injected()).toBe(true)
+      expect(JSON.stringify(seen)).not.toContain('OLD-REPLY')
+      expect(
+        readAssistantMessageAfterSeq({
+          hrcDbPath: store.hrcDbPath,
+          hostSessionId: 'hsid-retained-launcher',
+          sessionRef: retainedLauncherInput(runStore, acpRun.runId).sessionRef,
+          afterHrcSeq: 5,
+        })
+      ).toBeUndefined()
+    } finally {
+      detectionPatch?.restore()
+      writer.close()
+      store.db.close()
+      rmSync(store.fixtureDir, { recursive: true, force: true })
+    }
+  })
+
   for (const control of [
     { id: 'retained', origin: 'retained' as const, expectedSeq: 5, replayed: false },
     { id: 'C', origin: null, expectedSeq: 9, replayed: false },
@@ -1791,6 +1919,51 @@ describe('T-08575 real launcher retained-evidence fence', () => {
       }
     })
   }
+
+  test('T-TX1 launch baseline detects and selects from one production read transaction', async () => {
+    const store = createRetainedLauncherStore()
+    store.db.exec('PRAGMA journal_mode = WAL')
+    insertOrdinaryLauncherEvent(store.db, { hrcSeq: 5, text: 'LIVE-BASELINE' })
+    const writer = new Database(store.hrcDbPath)
+    writer.exec('PRAGMA journal_mode = WAL')
+    const detectionPatch = patchSchemaDetection(() => {
+      writer.exec(
+        "ALTER TABLE hrc_events ADD COLUMN evidence_origin TEXT CHECK (evidence_origin IS NULL OR evidence_origin = 'retained')"
+      )
+      insertRetainedLauncherEvent(writer, {
+        hrcSeq: 9,
+        text: 'HISTORICAL-BASELINE',
+        evidenceOrigin: 'retained',
+      })
+    })
+    const runStore = new InMemoryRunStore()
+    const firstRun = retainedAcpRun(runStore)
+    const launcher = createRealLauncher({
+      hrcDbPath: store.hrcDbPath,
+      createClient: () => retainedLauncherClient().client,
+    })
+
+    try {
+      await launcher({
+        ...retainedLauncherInput(runStore, firstRun.runId),
+        waitForCompletion: false,
+      })
+      expect(detectionPatch.injected()).toBe(true)
+      expect(runStore.getRun(firstRun.runId)?.afterHrcSeq).toBe(5)
+
+      const followUpRun = retainedAcpRun(runStore)
+      await launcher({
+        ...retainedLauncherInput(runStore, followUpRun.runId),
+        waitForCompletion: false,
+      })
+      expect(runStore.getRun(followUpRun.runId)?.afterHrcSeq).toBe(5)
+    } finally {
+      detectionPatch.restore()
+      writer.close()
+      store.db.close()
+      rmSync(store.fixtureDir, { recursive: true, force: true })
+    }
+  })
 
   for (const broken of ['missing', 'without-hrc-seq', 'corrupt'] as const) {
     test(`T-Q1a rejects before delivery when the HRC store is ${broken}`, async () => {

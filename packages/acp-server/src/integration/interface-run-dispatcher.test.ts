@@ -15,6 +15,59 @@ type ActivityModule = typeof dispatcherModule & {
   lastObservedActivityMs?: (run: StoredRun, hrcDbPath: string) => number
 }
 
+type SqlStatementFactory = (this: Database, sql: string) => object
+
+function patchSchemaDetection(inject: () => void): {
+  injected: () => boolean
+  restore: () => void
+} {
+  const prototype = Database.prototype as unknown as {
+    query: SqlStatementFactory
+    prepare: SqlStatementFactory
+  }
+  const originalQuery = prototype.query
+  const originalPrepare = prototype.prepare
+  let didInject = false
+
+  const wrapStatement = (statement: object, sql: string): object => {
+    if (!/table_info/i.test(sql)) return statement
+    return new Proxy(statement, {
+      get(target, property) {
+        const value = Reflect.get(target, property)
+        if (
+          (property === 'all' || property === 'get' || property === 'values') &&
+          typeof value === 'function'
+        ) {
+          return (...args: unknown[]) => {
+            const result = Reflect.apply(value, target, args)
+            if (!didInject) {
+              inject()
+              didInject = true
+            }
+            return result
+          }
+        }
+        return typeof value === 'function' ? value.bind(target) : value
+      },
+    })
+  }
+
+  prototype.query = function query(sql: string): object {
+    return wrapStatement(originalQuery.call(this, sql), sql)
+  }
+  prototype.prepare = function prepare(sql: string): object {
+    return wrapStatement(originalPrepare.call(this, sql), sql)
+  }
+
+  return {
+    injected: () => didInject,
+    restore: () => {
+      prototype.query = originalQuery
+      prototype.prepare = originalPrepare
+    },
+  }
+}
+
 const fixtureDirs: string[] = []
 
 afterEach(() => {
@@ -1594,6 +1647,103 @@ describe('T-08575 retained-evidence actuation fence', () => {
       })
     }
   }
+
+  test('T-TX3 dispatcher finalize detects and selects from one production read transaction', async () => {
+    const hrc = createHrcDb()
+    hrc.db.exec('PRAGMA journal_mode = WAL')
+    const fx = createTmuxActuationFixture({ hrcDbPath: hrc.hrcDbPath, generation: 7 })
+    insertAssistantMessage(hrc.db, {
+      hrcSeq: 5,
+      hostSessionId: 'hsid-retained',
+      scopeRef: fx.sessionRef.scopeRef,
+      laneRef: fx.sessionRef.laneRef,
+      generation: 7,
+      runId: 'run-live',
+      text: 'LIVE-BASELINE',
+    })
+    const writer = new Database(hrc.hrcDbPath)
+    writer.exec('PRAGMA journal_mode = WAL')
+    const detectionPatch = patchSchemaDetection(() => {
+      writer.exec(
+        "ALTER TABLE hrc_events ADD COLUMN evidence_origin TEXT CHECK (evidence_origin IS NULL OR evidence_origin = 'retained')"
+      )
+      insertCompletedPair(writer, {
+        firstSeq: 11,
+        text: 'OLD-REPLY',
+        runId: 'run-hist',
+        evidenceOrigin: 'retained',
+      })
+    })
+
+    try {
+      await fx.dispatcher.runOnce()
+      expect(detectionPatch.injected()).toBe(true)
+      expect(fx.runStore.getRun(fx.run.runId)?.status).toBe('running')
+      expect(fx.interfaceStore.deliveries.listByRun(fx.run.runId)).toHaveLength(0)
+
+      await fx.dispatcher.runOnce()
+      expect(fx.runStore.getRun(fx.run.runId)?.status).toBe('running')
+      expect(fx.interfaceStore.deliveries.listByRun(fx.run.runId)).toHaveLength(0)
+    } finally {
+      detectionPatch.restore()
+      writer.close()
+      fx.interfaceStore.close()
+      hrc.db.close()
+    }
+  })
+
+  test('T-TX4 activity read detects and selects from one production read transaction', () => {
+    const now = Date.now()
+    const hrc = createHrcDb()
+    hrc.db.exec('PRAGMA journal_mode = WAL')
+    const run = makeRun({
+      updatedAt: isoAgo(now, 20_000),
+      hostSessionId: 'hsid-retained',
+      generation: 7,
+      afterHrcSeq: 10,
+    })
+    insertSessionEvent(hrc.db, {
+      hrcSeq: 10,
+      hostSessionId: 'hsid-retained',
+      scopeRef: run.scopeRef,
+      laneRef: run.laneRef,
+      generation: 7,
+      runId: 'run-live',
+      eventKind: 'turn.tool_call',
+      payload: { tool: 'live' },
+    })
+    const writer = new Database(hrc.hrcDbPath)
+    writer.exec('PRAGMA journal_mode = WAL')
+    const detectionPatch = patchSchemaDetection(() => {
+      writer.exec(
+        "ALTER TABLE hrc_events ADD COLUMN evidence_origin TEXT CHECK (evidence_origin IS NULL OR evidence_origin = 'retained')"
+      )
+      insertEvidenceEvent(writer, {
+        hrcSeq: 11,
+        ts: isoAgo(now, 2 * 60 * 60_000),
+        hostSessionId: 'hsid-retained',
+        scopeRef: run.scopeRef,
+        laneRef: run.laneRef,
+        generation: 7,
+        runId: 'run-hist',
+        eventKind: 'turn.tool_call',
+        payload: { tool: 'retained' },
+        evidenceOrigin: 'retained',
+      })
+    })
+
+    try {
+      const observed = lastObservedActivityMs(run, hrc.hrcDbPath)
+      expect(detectionPatch.injected()).toBe(true)
+      expect(observed).toBeGreaterThanOrEqual(now - 1_000)
+
+      expect(lastObservedActivityMs(run, hrc.hrcDbPath)).toBeGreaterThanOrEqual(now - 1_000)
+    } finally {
+      detectionPatch.restore()
+      writer.close()
+      hrc.db.close()
+    }
+  })
 
   test('K1 own terminal run may finalize from its retained final output', async () => {
     const hrc = createEvidenceHrcDb()

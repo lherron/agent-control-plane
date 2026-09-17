@@ -4,7 +4,25 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { hrcActuatingEvidenceClause } from '../src/hrc-evidence-origin.js'
+type HrcEvidenceOriginModule = {
+  hrcActuatingEvidenceClause: (db: Database) => string
+}
+
+function isMissingThisModule(error: unknown): boolean {
+  const message =
+    typeof error === 'object' && error !== null && 'message' in error ? String(error.message) : ''
+  const missingModule = message.match(
+    /(?:cannot find module|module not found)(?:\s*:)?\s*['"]([^'"]+)['"]/i
+  )?.[1]
+  return (
+    missingModule !== undefined && /(?:^|[/\\])hrc-evidence-origin(?:\.js)?$/.test(missingModule)
+  )
+}
+
+const mod = (await import('../src/hrc-evidence-origin.js').catch((error: unknown) => {
+  if (isMissingThisModule(error)) return undefined
+  throw error
+})) as HrcEvidenceOriginModule | undefined
 
 const fixtureDirs: string[] = []
 
@@ -75,24 +93,32 @@ describe('hrcActuatingEvidenceClause', () => {
   // T-08575 T0: detection is deliberately per connection/read. These tests
   // pin the old/new schema boundary so an upgrade cannot require an ACP restart.
   test('T0a returns the actuating clause for the migrated HRC store', () => {
+    expect(typeof mod?.hrcActuatingEvidenceClause).toBe('function')
+    const hrcActuatingEvidenceClause = mod?.hrcActuatingEvidenceClause as (db: Database) => string
     const db = createNewStore()
     expect(hrcActuatingEvidenceClause(db)).toBe('AND evidence_origin IS NULL')
     db.close()
   })
 
   test('T0b returns no clause only for the positively recognized old store', () => {
+    expect(typeof mod?.hrcActuatingEvidenceClause).toBe('function')
+    const hrcActuatingEvidenceClause = mod?.hrcActuatingEvidenceClause as (db: Database) => string
     const db = createOldStore()
     expect(hrcActuatingEvidenceClause(db)).toBe('')
     db.close()
   })
 
   test('T0c rejects a missing hrc_events table', () => {
+    expect(typeof mod?.hrcActuatingEvidenceClause).toBe('function')
+    const hrcActuatingEvidenceClause = mod?.hrcActuatingEvidenceClause as (db: Database) => string
     const db = new Database(fixturePath('missing'))
     expect(() => hrcActuatingEvidenceClause(db)).toThrow('hrc_events schema unrecognized')
     db.close()
   })
 
   test('T0d rejects an hrc_events table without hrc_seq', () => {
+    expect(typeof mod?.hrcActuatingEvidenceClause).toBe('function')
+    const hrcActuatingEvidenceClause = mod?.hrcActuatingEvidenceClause as (db: Database) => string
     const db = new Database(fixturePath('malformed'))
     db.exec('CREATE TABLE hrc_events (event_kind TEXT NOT NULL)')
     expect(() => hrcActuatingEvidenceClause(db)).toThrow('hrc_events schema unrecognized')
@@ -100,12 +126,16 @@ describe('hrcActuatingEvidenceClause', () => {
   })
 
   test('T0e propagates a closed-database error', () => {
+    expect(typeof mod?.hrcActuatingEvidenceClause).toBe('function')
+    const hrcActuatingEvidenceClause = mod?.hrcActuatingEvidenceClause as (db: Database) => string
     const db = createOldStore()
     db.close()
     expect(() => hrcActuatingEvidenceClause(db)).toThrow()
   })
 
   test('T0f observes an in-place schema upgrade on the next call', () => {
+    expect(typeof mod?.hrcActuatingEvidenceClause).toBe('function')
+    const hrcActuatingEvidenceClause = mod?.hrcActuatingEvidenceClause as (db: Database) => string
     const db = createOldStore()
     expect(hrcActuatingEvidenceClause(db)).toBe('')
     db.exec(
@@ -116,6 +146,10 @@ describe('hrcActuatingEvidenceClause', () => {
   })
 
   test('T0g keeps schema detection and selection on one deferred-transaction snapshot', () => {
+    expect(typeof mod?.hrcActuatingEvidenceClause).toBe('function')
+    const hrcActuatingEvidenceClause = mod?.hrcActuatingEvidenceClause as (db: Database) => string
+    // Limit: this proves SQLite snapshot semantics with a test-supplied deferred
+    // transaction; T-TX1..4 separately prove that production readers use one.
     const path = fixturePath('snapshot')
     const reader = createOldStore(path)
     reader.exec('PRAGMA journal_mode = WAL')
@@ -162,6 +196,8 @@ describe('hrcActuatingEvidenceClause', () => {
 
 describe('T0h rollback readback', () => {
   test('returns zero for old, counts present-origin rows for new, and refuses missing shapes', () => {
+    // Limit: this validates only the SPEC §7 operator readback recipe,
+    // not an implemented rollback command.
     const oldDb = createOldStore()
     expect(retainedEvidenceCountForRollback(oldDb)).toBe(0)
     oldDb.close()
