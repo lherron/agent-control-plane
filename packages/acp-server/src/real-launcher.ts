@@ -1,9 +1,7 @@
 import { Database } from 'bun:sqlite'
-import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
 
 import type { Actor } from 'acp-core'
-import { type SessionRef, parseScopeRef } from 'agent-scope'
+import type { SessionRef } from 'agent-scope'
 import {
   HrcConflictError,
   type HrcDispatchOrigin,
@@ -15,8 +13,8 @@ import {
   resolveDatabasePath,
 } from 'hrc-core'
 import { HrcClient, discoverSocket } from 'hrc-sdk'
-import { parseAgentProfile, resolveHarnessCatalogEntry } from 'spaces-config'
 import type { UnifiedSessionEvent } from 'spaces-runtime'
+import { type FetchPlacementResolution, fetchPlacementResolution } from './placement-resolution.js'
 
 import type { InputAttemptStore, LaunchRoleScopedRun, RunStore } from './deps.js'
 import type { DispatchFence, UpdateRunInput } from './domain/run-store.js'
@@ -69,10 +67,11 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
       inputAttemptId,
       runStore,
     })
-    const normalizedIntent = normalizeRealLauncherIntent({
+    const normalizedIntent = await normalizeRealLauncherIntent({
       sessionRef,
       intent: launchIntent,
       liveTmuxRuntime: liveTmuxRuntime !== undefined,
+      socketPath,
     })
     const acpCorrelationId = acpRunId ?? inputAttemptId
     const shouldWaitForCompletion = onEvent !== undefined && waitForCompletion !== false
@@ -651,12 +650,14 @@ function requiresCollaborationLedgerDelivery(location: ScopeLocation): boolean {
   }
 }
 
-export function normalizeRealLauncherIntent(input: {
+export async function normalizeRealLauncherIntent(input: {
   sessionRef: SessionRef
   intent: HrcRuntimeIntent
   liveTmuxRuntime?: boolean | undefined
-}): HrcRuntimeIntent {
-  const inferredHarness = input.intent.harness ?? inferHarnessIntent(input)
+  socketPath?: string | undefined
+  fetchPlacement?: FetchPlacementResolution | undefined
+}): Promise<HrcRuntimeIntent> {
+  const inferredHarness = input.intent.harness ?? (await inferHarnessIntent(input))
   const preferredMode = input.liveTmuxRuntime
     ? ('interactive' as const)
     : (input.intent.execution?.preferredMode ??
@@ -1492,66 +1493,33 @@ function assistantCompletionPayloadToUnifiedEvent(
   }
 }
 
-function inferHarnessIntent(input: {
+async function inferHarnessIntent(input: {
   sessionRef: SessionRef
   intent: HrcRuntimeIntent
-}): HrcHarnessIntent {
+  socketPath?: string | undefined
+  fetchPlacement?: FetchPlacementResolution | undefined
+}): Promise<HrcHarnessIntent> {
   const placement = input.intent.placement
-  const agentRoot = placement.agentRoot
-  const fromProfile = readHarnessIntentFromAgentProfile(agentRoot)
-  if (fromProfile !== undefined) {
-    return fromProfile
-  }
-
-  const fromAgentRootPath = readHarnessProviderFromPath(agentRoot)
-  if (fromAgentRootPath !== undefined) {
-    return {
-      provider: fromAgentRootPath,
-      interactive: true,
-    }
-  }
-
-  const parsedScope = parseScopeRef(input.sessionRef.scopeRef)
-  const fromProjectModules = readHarnessProviderFromProjectModules({
-    projectRoot: placement.projectRoot,
-    agentId: parsedScope.agentId,
-  })
-  if (fromProjectModules !== undefined) {
-    return {
-      provider: fromProjectModules,
-      interactive: true,
-    }
-  }
-
+  const fetch = input.fetchPlacement ?? fetchPlacementResolution
+  const fetchOpts: { socketPath?: string | undefined } = {}
+  if (input.socketPath !== undefined) fetchOpts.socketPath = input.socketPath
+  const resolved = await fetch(
+    {
+      scopeRef: input.sessionRef.scopeRef,
+      agentRoot: placement.agentRoot,
+      ...(placement.projectRoot !== undefined ? { projectRoot: placement.projectRoot } : {}),
+      ...(placement.cwd !== undefined ? { cwd: placement.cwd } : {}),
+      ...(placement.runMode !== undefined ? { runMode: placement.runMode } : {}),
+    },
+    fetchOpts
+  )
+  // The daemon admits only HRC-known harness ids as an explicit id; anything
+  // else lets HRC pick its default at launch.
+  const frontend = resolved.harness.frontend
   return {
-    provider: 'anthropic',
-    interactive: true,
-  }
-}
-
-function readHarnessIntentFromAgentProfile(agentRoot: string): HrcHarnessIntent | undefined {
-  const profilePath = join(agentRoot, 'agent-profile.toml')
-  if (!existsSync(profilePath)) {
-    return undefined
-  }
-
-  try {
-    const profile = parseAgentProfile(readFileSync(profilePath, 'utf8'), profilePath)
-    const entry = resolveHarnessCatalogEntry(profile.provisioning?.harness)
-    if (entry === undefined) {
-      return undefined
-    }
-    // spaces-config can name frontends HRC has not admitted yet (e.g.
-    // agent-harness-tui, pending T-07568); only HRC-known harness ids are
-    // forwarded as an explicit id, anything else lets HRC pick its default.
-    const frontend = entry.frontend
-    return {
-      provider: entry.provider,
-      interactive: entry.transport !== 'sdk',
-      ...(frontend !== undefined && isHrcHarness(frontend) ? { id: frontend } : {}),
-    }
-  } catch {
-    return undefined
+    provider: resolved.harness.provider,
+    interactive: resolved.harness.interactive,
+    ...(frontend !== undefined && isHrcHarness(frontend) ? { id: frontend } : {}),
   }
 }
 
@@ -1566,37 +1534,6 @@ const HRC_HARNESS_IDS: ReadonlySet<string> = new Set<HrcHarness>([
 
 function isHrcHarness(value: string): value is HrcHarness {
   return HRC_HARNESS_IDS.has(value)
-}
-
-function readHarnessProviderFromProjectModules(input: {
-  projectRoot?: string | undefined
-  agentId: string
-}): 'anthropic' | 'openai' | undefined {
-  if (input.projectRoot === undefined) {
-    return undefined
-  }
-
-  const codexPath = join(input.projectRoot, 'asp_modules', input.agentId, 'codex')
-  if (existsSync(codexPath)) {
-    return 'openai'
-  }
-
-  const claudePath = join(input.projectRoot, 'asp_modules', input.agentId, 'claude')
-  if (existsSync(claudePath)) {
-    return 'anthropic'
-  }
-
-  return undefined
-}
-
-function readHarnessProviderFromPath(path: string): 'anthropic' | 'openai' | undefined {
-  if (path.includes('/claude')) {
-    return 'anthropic'
-  }
-  if (path.includes('/codex')) {
-    return 'openai'
-  }
-  return undefined
 }
 
 function readAssistantMessageEndEvent(

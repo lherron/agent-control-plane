@@ -1,8 +1,6 @@
 import { describe, expect, mock, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 
+import { HrcDomainError, HrcErrorCode } from 'hrc-core'
 import {
   bindAcpHostListeners,
   formatStartupLine,
@@ -14,6 +12,7 @@ import {
   resolveRealLauncherAgentRoot,
   resolveRealLauncherPlacement,
 } from '../src/cli.js'
+import type { FetchPlacementResolution } from '../src/placement-resolution.js'
 
 describe('acp-server cli helpers', () => {
   test('resolves defaults from environment', () => {
@@ -294,146 +293,115 @@ describe('acp-server cli helpers', () => {
     expect(isEnabledEnvFlag(undefined)).toBe(false)
   })
 
-  test('real launcher resolves canonical agents root before asp_modules fallback', () => {
-    const home = mkdtempSync(join(tmpdir(), 'acp-cli-home-'))
-    const cwd = mkdtempSync(join(tmpdir(), 'acp-cli-cwd-'))
-
-    try {
-      mkdirSync(join(home, 'praesidium', 'var', 'agents', 'rex'), { recursive: true })
-      mkdirSync(join(cwd, 'asp_modules', 'rex', 'claude'), { recursive: true })
-
-      expect(
-        resolveRealLauncherAgentRoot('rex', {
-          cwd,
-          env: {
-            HOME: home,
-            ASP_AGENTS_ROOT: join(home, 'praesidium', 'var', 'agents'),
-          },
-        })
-      ).toBe(join(home, 'praesidium', 'var', 'agents', 'rex'))
-    } finally {
-      rmSync(home, { recursive: true, force: true })
-      rmSync(cwd, { recursive: true, force: true })
+  test('real launcher resolves the daemon agent root for an agent id', async () => {
+    const seen: unknown[] = []
+    const fetchPlacement: FetchPlacementResolution = async (input) => {
+      seen.push(input)
+      return {
+        agentRoot: '/agents/rex',
+        cwd: '/agents/rex',
+        bundle: { kind: 'agent-project', agentName: 'rex' },
+        harness: { provider: 'anthropic', interactive: true },
+      }
     }
+
+    const agentRoot = await resolveRealLauncherAgentRoot('rex', {
+      cwd: '/tmp/daemon-cwd',
+      fetchPlacement,
+    })
+
+    expect(agentRoot).toBe('/agents/rex')
+    expect(seen).toEqual([{ agentId: 'rex', cwd: '/tmp/daemon-cwd' }])
   })
 
-  test('real launcher falls back to asp_modules claude root when no agents root exists', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'acp-cli-cwd-'))
-
-    try {
-      mkdirSync(join(cwd, 'asp_modules', 'rex', 'claude'), { recursive: true })
-
-      expect(
-        resolveRealLauncherAgentRoot('rex', {
-          cwd,
-          env: {
-            HOME: join(cwd, 'missing-home'),
-            ASP_AGENTS_ROOT: join(cwd, 'missing-agents-root'),
-          },
-        })
-      ).toBe(join(cwd, 'asp_modules', 'rex', 'claude'))
-    } finally {
-      rmSync(cwd, { recursive: true, force: true })
+  test('real launcher surfaces the daemon refusal for an unknown agent', async () => {
+    const fetchPlacement: FetchPlacementResolution = async () => {
+      throw new HrcDomainError(HrcErrorCode.DECLARATION_INVALID, 'agent "rex" was not found', {
+        source: 'agent-profile',
+      })
     }
+
+    await expect(resolveRealLauncherAgentRoot('rex', { fetchPlacement })).rejects.toThrow(
+      'agent "rex" was not found'
+    )
   })
 
-  test('real launcher placement resolves project root and cwd from scope projectId', () => {
-    const workspace = mkdtempSync(join(tmpdir(), 'acp-cli-placement-'))
-    const agentsRoot = join(workspace, 'agents')
-    const projectsRoot = join(workspace, 'projects')
-    const agentRoot = join(agentsRoot, 'cody')
-    const projectRoot = join(projectsRoot, 'agent-spaces')
-
-    try {
-      mkdirSync(agentRoot, { recursive: true })
-      mkdirSync(projectRoot, { recursive: true })
-      writeFileSync(join(agentRoot, 'agent-profile.toml'), 'schemaVersion = 2\n')
-
-      const placement = resolveRealLauncherPlacement(
-        {
-          scopeRef: 'agent:cody:project:agent-spaces:task:discord',
-          laneRef: 'main',
-        },
-        {
-          env: {
-            ASP_AGENTS_ROOT: agentsRoot,
-            ASP_PROJECT_ROOT_OVERRIDE: projectRoot,
-          },
-        }
-      )
-
-      expect(placement).toEqual({
+  test('real launcher placement maps the daemon resolution to a runtime placement', async () => {
+    const agentRoot = '/agents/cody'
+    const projectRoot = '/projects/agent-spaces'
+    const seen: unknown[] = []
+    const fetchPlacement: FetchPlacementResolution = async (input) => {
+      seen.push(input)
+      return {
         agentRoot,
         projectRoot,
         cwd: projectRoot,
-        runMode: 'task',
         bundle: { kind: 'agent-project', agentName: 'cody', projectRoot },
-      })
-    } finally {
-      rmSync(workspace, { recursive: true, force: true })
+        harness: { provider: 'openai', interactive: true },
+      }
     }
+
+    const placement = await resolveRealLauncherPlacement(
+      {
+        scopeRef: 'agent:cody:project:agent-spaces:task:discord',
+        laneRef: 'main',
+      },
+      { cwd: '/daemon/cwd', fetchPlacement }
+    )
+
+    expect(placement).toEqual({
+      agentRoot,
+      projectRoot,
+      cwd: projectRoot,
+      runMode: 'task',
+      bundle: { kind: 'agent-project', agentName: 'cody', projectRoot },
+    })
+    expect(seen).toEqual([
+      {
+        scopeRef: 'agent:cody:project:agent-spaces:task:discord',
+        cwd: '/daemon/cwd',
+        runMode: 'task',
+      },
+    ])
   })
 
-  test('real launcher placement resolves a sibling checkout instead of falling back to agent home', () => {
-    const workspace = mkdtempSync(join(tmpdir(), 'acp-cli-sibling-placement-'))
-    const agentsRoot = join(workspace, 'var', 'agents')
-    const agentRoot = join(agentsRoot, 'mable')
-    const daemonCwd = join(workspace, 'agent-control-plane')
-    const projectRoot = join(workspace, 'hrc-runtime')
+  test('real launcher refuses a project scope the daemon returns without a project root', async () => {
+    const fetchPlacement: FetchPlacementResolution = async () => ({
+      agentRoot: '/agents/mable',
+      cwd: '/agents/mable',
+      bundle: { kind: 'agent-project', agentName: 'mable' },
+      harness: { provider: 'anthropic', interactive: true },
+    })
 
-    try {
-      mkdirSync(agentRoot, { recursive: true })
-      mkdirSync(join(daemonCwd, '.git'), { recursive: true })
-      mkdirSync(join(projectRoot, '.git'), { recursive: true })
-      writeFileSync(join(agentRoot, 'agent-profile.toml'), 'schemaVersion = 2\n')
-
-      const placement = resolveRealLauncherPlacement(
+    await expect(
+      resolveRealLauncherPlacement(
         {
-          scopeRef: 'agent:mable:project:hrc-runtime:task:primary-nova',
+          scopeRef: 'agent:mable:project:missing-project:task:primary-nova',
           laneRef: 'main',
         },
-        {
-          cwd: daemonCwd,
-          env: { ASP_AGENTS_ROOT: agentsRoot },
-        }
+        { fetchPlacement }
       )
-
-      expect(placement).toMatchObject({
-        agentRoot,
-        projectRoot,
-        cwd: projectRoot,
-      })
-    } finally {
-      rmSync(workspace, { recursive: true, force: true })
-    }
+    ).resolves.toBeUndefined()
   })
 
-  test('real launcher refuses to mint an agent-home placement for an unresolved project scope', () => {
-    const workspace = mkdtempSync(join(tmpdir(), 'acp-cli-unresolved-placement-'))
-    const agentsRoot = join(workspace, 'var', 'agents')
-    const agentRoot = join(agentsRoot, 'mable')
-    const daemonCwd = join(workspace, 'agent-control-plane')
-
-    try {
-      mkdirSync(agentRoot, { recursive: true })
-      mkdirSync(join(daemonCwd, '.git'), { recursive: true })
-      writeFileSync(join(agentRoot, 'agent-profile.toml'), 'schemaVersion = 2\n')
-
-      expect(
-        resolveRealLauncherPlacement(
-          {
-            scopeRef: 'agent:mable:project:missing-project:task:primary-nova',
-            laneRef: 'main',
-          },
-          {
-            cwd: daemonCwd,
-            env: { ASP_AGENTS_ROOT: agentsRoot },
-          }
-        )
-      ).toBeUndefined()
-    } finally {
-      rmSync(workspace, { recursive: true, force: true })
+  test('real launcher surfaces the daemon refusal instead of minting an agent-home placement', async () => {
+    const fetchPlacement: FetchPlacementResolution = async () => {
+      throw new HrcDomainError(
+        HrcErrorCode.DECLARATION_INVALID,
+        'project root unknown for missing-project; register it with: wrkq set missing-project --root <path>',
+        { source: 'project-targets' }
+      )
     }
+
+    await expect(
+      resolveRealLauncherPlacement(
+        {
+          scopeRef: 'agent:mable:project:missing-project:task:primary-nova',
+          laneRef: 'main',
+        },
+        { fetchPlacement }
+      )
+    ).rejects.toThrow('project root unknown for missing-project')
   })
 
   test('real launcher wins over echo launcher and warns on conflicts', () => {

@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite'
 import { describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -8,6 +8,7 @@ import type { HrcDispatchOrigin, HrcRuntimeIntent } from 'hrc-core'
 
 import { InMemoryInputAttemptStore } from '../src/domain/input-attempt-store.js'
 import { InMemoryRunStore } from '../src/domain/run-store.js'
+import type { FetchPlacementResolution } from '../src/placement-resolution.js'
 import {
   createRealLauncher,
   normalizeRealLauncherIntent,
@@ -1206,141 +1207,139 @@ describe('real launcher helpers', () => {
     expect(calls).toEqual(['resolveSession'])
   })
 
-  test('normalizes missing harness to anthropic headless real execution', () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), 'acp-real-launcher-'))
+  test('normalizes missing harness to anthropic headless real execution', async () => {
+    const seen: unknown[] = []
+    const fetchPlacement: FetchPlacementResolution = async (input) => {
+      seen.push(input)
+      return {
+        agentRoot: '/agents/rex',
+        projectRoot: '/projects/agent-spaces',
+        cwd: '/projects/agent-spaces',
+        bundle: { kind: 'agent-project', agentName: 'rex' },
+        harness: { provider: 'anthropic', interactive: true },
+      }
+    }
 
-    try {
-      mkdirSync(join(projectRoot, 'asp_modules', 'rex', 'claude'), {
-        recursive: true,
-      })
+    const intent = {
+      placement: {
+        agentRoot: '/agents/rex',
+        projectRoot: '/projects/agent-spaces',
+        cwd: '/projects/agent-spaces',
+        runMode: 'task',
+        bundle: { kind: 'compose', compose: [] },
+        correlation: {
+          sessionRef: {
+            scopeRef: 'agent:rex:project:agent-spaces',
+            laneRef: 'main',
+          },
+        },
+      },
+    } as HrcRuntimeIntent
 
-      const intent = {
+    const normalized = await normalizeRealLauncherIntent({
+      sessionRef: {
+        scopeRef: 'agent:rex:project:agent-spaces',
+        laneRef: 'main',
+      },
+      intent,
+      fetchPlacement,
+    })
+
+    expect(normalized.harness).toEqual({
+      provider: 'anthropic',
+      interactive: false,
+    })
+    expect(normalized.execution).toEqual({ preferredMode: 'headless' })
+    expect(normalized.placement.dryRun).toBe(false)
+    expect(seen).toEqual([
+      {
+        scopeRef: 'agent:rex:project:agent-spaces',
+        agentRoot: '/agents/rex',
+        projectRoot: '/projects/agent-spaces',
+        cwd: '/projects/agent-spaces',
+        runMode: 'task',
+      },
+    ])
+  })
+
+  test('normalizes agent-sdk daemon harness to SDK execution', async () => {
+    const fetchPlacement: FetchPlacementResolution = async () => ({
+      agentRoot: '/agents/sparky',
+      cwd: '/agents/sparky',
+      bundle: { kind: 'agent-project', agentName: 'sparky' },
+      harness: {
+        provider: 'anthropic',
+        frontend: 'agent-sdk',
+        effectiveHarness: 'agent-sdk',
+        transport: 'sdk',
+        interactive: false,
+      },
+    })
+
+    const normalized = await normalizeRealLauncherIntent({
+      sessionRef: {
+        scopeRef: 'agent:sparky:project:agent-spaces',
+        laneRef: 'main',
+      },
+      intent: {
         placement: {
-          agentRoot: join(projectRoot, 'missing-agent-root'),
-          projectRoot,
-          cwd: projectRoot,
+          agentRoot: '/agents/sparky',
           runMode: 'task',
           bundle: { kind: 'compose', compose: [] },
-          correlation: {
-            sessionRef: {
-              scopeRef: 'agent:rex:project:agent-spaces',
-              laneRef: 'main',
-            },
-          },
         },
-      } as HrcRuntimeIntent
+      } as HrcRuntimeIntent,
+      fetchPlacement,
+    })
 
-      const normalized = normalizeRealLauncherIntent({
-        sessionRef: {
-          scopeRef: 'agent:rex:project:agent-spaces',
-          laneRef: 'main',
-        },
-        intent,
-      })
-
-      expect(normalized.harness).toEqual({
-        provider: 'anthropic',
-        interactive: false,
-      })
-      expect(normalized.execution).toEqual({ preferredMode: 'headless' })
-      expect(normalized.placement.dryRun).toBe(false)
-    } finally {
-      rmSync(projectRoot, { recursive: true, force: true })
-    }
+    expect(normalized.harness).toEqual({
+      provider: 'anthropic',
+      interactive: false,
+      id: 'agent-sdk',
+    })
+    expect(normalized.execution).toBeUndefined()
+    expect(normalized.placement.dryRun).toBe(false)
   })
 
-  test('normalizes agent-sdk profile harness to SDK execution', () => {
-    const agentRoot = mkdtempSync(join(tmpdir(), 'acp-real-launcher-sdk-agent-'))
-
-    try {
-      writeFileSync(
-        join(agentRoot, 'agent-profile.toml'),
-        [
-          'version = 3',
-          '',
-          '[identity]',
-          'display = "Sparky"',
-          'role = "smoke"',
-          '',
-          '[provisioning]',
-          'harness = "agent-sdk"',
-          '',
-        ].join('\n')
-      )
-
-      const normalized = normalizeRealLauncherIntent({
-        sessionRef: {
-          scopeRef: 'agent:sparky:project:agent-spaces',
-          laneRef: 'main',
-        },
-        intent: {
-          placement: {
-            agentRoot,
-            runMode: 'task',
-            bundle: { kind: 'compose', compose: [] },
-          },
-        } as HrcRuntimeIntent,
-      })
-
-      expect(normalized.harness).toEqual({
-        provider: 'anthropic',
-        interactive: false,
-        id: 'agent-sdk',
-      })
-      expect(normalized.execution).toBeUndefined()
-      expect(normalized.placement.dryRun).toBe(false)
-    } finally {
-      rmSync(agentRoot, { recursive: true, force: true })
-    }
-  })
-
-  test('normalizes codex profile harness to non-interactive headless broker intent', () => {
-    const agentRoot = mkdtempSync(join(tmpdir(), 'acp-real-launcher-codex-agent-'))
-
-    try {
-      writeFileSync(
-        join(agentRoot, 'agent-profile.toml'),
-        [
-          'version = 3',
-          '',
-          '[identity]',
-          'display = "Mneme"',
-          'role = "media-memory"',
-          '',
-          '[provisioning]',
-          'harness = "codex"',
-          '',
-        ].join('\n')
-      )
-
-      const normalized = normalizeRealLauncherIntent({
-        sessionRef: {
-          scopeRef: 'agent:mneme:project:media-ingest',
-          laneRef: 'main',
-        },
-        intent: {
-          placement: {
-            agentRoot,
-            runMode: 'task',
-            bundle: { kind: 'compose', compose: [] },
-          },
-        } as HrcRuntimeIntent,
-      })
-
-      expect(normalized.harness).toEqual({
+  test('normalizes codex daemon harness to non-interactive headless broker intent', async () => {
+    const fetchPlacement: FetchPlacementResolution = async () => ({
+      agentRoot: '/agents/mneme',
+      cwd: '/agents/mneme',
+      bundle: { kind: 'agent-project', agentName: 'mneme' },
+      harness: {
         provider: 'openai',
-        interactive: false,
-        id: 'codex-cli',
-      })
-      expect(normalized.execution).toEqual({ preferredMode: 'headless' })
-      expect(normalized.placement.dryRun).toBe(false)
-    } finally {
-      rmSync(agentRoot, { recursive: true, force: true })
-    }
+        frontend: 'codex-cli',
+        effectiveHarness: 'codex',
+        transport: 'cli',
+        interactive: true,
+      },
+    })
+
+    const normalized = await normalizeRealLauncherIntent({
+      sessionRef: {
+        scopeRef: 'agent:mneme:project:media-ingest',
+        laneRef: 'main',
+      },
+      intent: {
+        placement: {
+          agentRoot: '/agents/mneme',
+          runMode: 'task',
+          bundle: { kind: 'compose', compose: [] },
+        },
+      } as HrcRuntimeIntent,
+      fetchPlacement,
+    })
+
+    expect(normalized.harness).toEqual({
+      provider: 'openai',
+      interactive: false,
+      id: 'codex-cli',
+    })
+    expect(normalized.execution).toEqual({ preferredMode: 'headless' })
+    expect(normalized.placement.dryRun).toBe(false)
   })
 
-  test('preserves an explicit harness and defaults openai execution to headless', () => {
-    const normalized = normalizeRealLauncherIntent({
+  test('preserves an explicit harness and defaults openai execution to headless', async () => {
+    const normalized = await normalizeRealLauncherIntent({
       sessionRef: {
         scopeRef: 'agent:cody:project:agent-spaces',
         laneRef: 'main',
@@ -1368,8 +1367,8 @@ describe('real launcher helpers', () => {
     expect(normalized.placement.dryRun).toBe(false)
   })
 
-  test('honors explicit interactive preferredMode when no live tmux runtime exists', () => {
-    const normalized = normalizeRealLauncherIntent({
+  test('honors explicit interactive preferredMode when no live tmux runtime exists', async () => {
+    const normalized = await normalizeRealLauncherIntent({
       sessionRef: {
         scopeRef: 'agent:cody:project:agent-spaces',
         laneRef: 'main',

@@ -1,7 +1,7 @@
 import { type AttachmentRef, computeTaskContext } from 'acp-core'
 import { type SessionRef, parseScopeRef } from 'agent-scope'
 import type { HrcHarnessIntent, HrcRuntimeIntent, HrcTaskContext } from 'hrc-core'
-import { buildRuntimeBundleRef } from 'spaces-config'
+import { fetchPlacementResolution } from './placement-resolution.js'
 
 import type { ResolvedAcpServerDeps } from './deps.js'
 import { parseSessionRefField, requireTask } from './handlers/shared.js'
@@ -87,7 +87,7 @@ function coerceVersion(raw: unknown): number | undefined {
 // must still provide adminStore so admin-project-root lookups apply to cwd.
 export type LaunchIntentDeps = Pick<
   ResolvedAcpServerDeps,
-  'runtimeResolver' | 'agentRootResolver' | 'adminStore'
+  'runtimeResolver' | 'agentRootResolver' | 'adminStore' | 'placementFetch'
 >
 
 export type LaunchRoleScopedTaskRunInput = {
@@ -290,13 +290,17 @@ async function resolveLaunchPlacement(
   }
   const resolvedCwd = readOptionalString(resolvedPlacement, 'cwd')
   const cwd = projectRoot ?? resolvedCwd ?? agentRoot
-  const bundle = shouldRebuildDefaultBundle(resolvedBundle, adminProjectRoot)
-    ? buildRuntimeBundleRef({
-        agentName: parsedScope.agentId,
-        agentRoot,
-        projectRoot: adminProjectRoot,
-      })
-    : (resolvedBundle ?? { kind: 'compose', compose: [] })
+  const fetchPlacement = deps.placementFetch ?? fetchPlacementResolution
+  const daemonBundle = shouldRebuildDefaultBundle(resolvedBundle, adminProjectRoot)
+    ? (
+        await fetchPlacement({
+          scopeRef: sessionRef.scopeRef,
+          ...(adminProjectRoot !== undefined ? { projectRoot: adminProjectRoot } : {}),
+          runMode: 'task',
+        })
+      ).bundle
+    : undefined
+  const bundle = daemonBundle ?? resolvedBundle ?? { kind: 'compose', compose: [] }
 
   return {
     ...(resolvedPlacement ?? {}),

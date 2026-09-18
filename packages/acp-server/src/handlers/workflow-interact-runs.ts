@@ -57,8 +57,9 @@ export const handleCreateWorkflowInteractRun: RouteHandler = async ({ request, d
     workflowEnv['ACP_WORKFLOW_GOAL'] = workflowGoal
   }
 
-  const intent = normalizeRealLauncherIntent({
+  const intent = await normalizeRealLauncherIntent({
     sessionRef,
+    ...(deps.placementFetch !== undefined ? { fetchPlacement: deps.placementFetch } : {}),
     intent: {
       ...baseIntent,
       launch: {

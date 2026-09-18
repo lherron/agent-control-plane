@@ -1,8 +1,6 @@
 #!/usr/bin/env bun
-
-import { existsSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
-import { basename, dirname, join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import { openSqliteAdminStore } from 'acp-admin-store'
 import { startAcpCapabilityHost } from 'acp-capability-host'
@@ -16,8 +14,8 @@ import { openCoordinationStore } from 'coordination-substrate'
 import { resolveControlSocketPath, resolveDatabasePath } from 'hrc-core'
 import { HrcClient } from 'hrc-sdk'
 import { createAspcService } from 'spaces-aspc'
-import { buildRuntimeBundleRef, getAgentsRoot, resolveAgentPlacementPaths } from 'spaces-config'
 import { type WrkqStoreAdapter, createCollaborationLedger } from 'wrkq-lib'
+import { type FetchPlacementResolution, fetchPlacementResolution } from './placement-resolution.js'
 
 import { createAccessLogger } from './access-log.js'
 import { createAcpServer } from './create-acp-server.js'
@@ -137,6 +135,8 @@ function readPositiveIntegerEnv(name: string): number | undefined {
 export interface ResolveLauncherDepsOptions {
   createHrcClient?: ((socketPath: string) => AcpHrcClient) | undefined
   inputAttemptStore?: InputAttemptStore | undefined
+  placementSocketPath?: string | undefined
+  placementFetch?: FetchPlacementResolution | undefined
 }
 
 export interface AcpServerCliOptions {
@@ -450,89 +450,66 @@ function resolveOptionalSiblingDbPath(
   return join(dirname(siblingOfPath), fileName)
 }
 
-export function resolveRealLauncherAgentRoot(
+export async function resolveRealLauncherAgentRoot(
   agentId: string,
-  input: { cwd?: string | undefined; env?: NodeJS.ProcessEnv | undefined } = {}
-): string | undefined {
-  const cwd = input.cwd ?? process.cwd()
-  const env = input.env ?? process.env
-  const agentsRoot = getAgentsRoot({ env })
-  const canonicalAgentRoot = agentsRoot ? join(agentsRoot, agentId) : undefined
-
-  if (canonicalAgentRoot !== undefined && existsSync(canonicalAgentRoot)) {
-    return canonicalAgentRoot
-  }
-
-  const materializedClaudeRoot = join(cwd, 'asp_modules', agentId, 'claude')
-  if (existsSync(materializedClaudeRoot)) {
-    return materializedClaudeRoot
-  }
-
-  return canonicalAgentRoot
+  input: {
+    cwd?: string | undefined
+    scopeRef?: string | undefined
+    socketPath?: string | undefined
+    fetchPlacement?: FetchPlacementResolution | undefined
+  } = {}
+): Promise<string> {
+  const fetch = input.fetchPlacement ?? fetchPlacementResolution
+  const fetchOpts: { socketPath?: string | undefined } = {}
+  if (input.socketPath !== undefined) fetchOpts.socketPath = input.socketPath
+  const resolved = await fetch(
+    {
+      ...(input.scopeRef !== undefined ? { scopeRef: input.scopeRef } : { agentId }),
+      ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
+    },
+    fetchOpts
+  )
+  return resolved.agentRoot
 }
 
-export function resolveRealLauncherPlacement(
+export async function resolveRealLauncherPlacement(
   sessionRef: SessionRef,
-  input: { cwd?: string | undefined; env?: NodeJS.ProcessEnv | undefined } = {}
-): AcpRuntimePlacement | undefined {
-  const env = input.env ?? process.env
+  input: {
+    cwd?: string | undefined
+    socketPath?: string | undefined
+    fetchPlacement?: FetchPlacementResolution | undefined
+  } = {}
+): Promise<AcpRuntimePlacement | undefined> {
+  const fetch = input.fetchPlacement ?? fetchPlacementResolution
+  const fetchOpts: { socketPath?: string | undefined } = {}
+  if (input.socketPath !== undefined) fetchOpts.socketPath = input.socketPath
   const parsedScope = parseScopeRef(sessionRef.scopeRef)
-  const agentRoot = resolveRealLauncherAgentRoot(parsedScope.agentId, {
-    cwd: input.cwd,
-    env,
-  })
-  if (agentRoot === undefined) {
+  const resolved = await fetch(
+    {
+      scopeRef: sessionRef.scopeRef,
+      ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
+      runMode: 'task',
+    },
+    fetchOpts
+  )
+
+  if (parsedScope.projectId !== undefined && resolved.projectRoot === undefined) {
+    // A project-scoped placement without its checkout root is not a usable
+    // placement. The daemon reports unknown projects as declaration_invalid;
+    // this guard fails closed on forward shape drift instead of minting a
+    // harness in the agent home.
     return undefined
   }
 
-  const resolverCwd = input.cwd ?? process.cwd()
-  let paths = resolveAgentPlacementPaths({
-    agentId: parsedScope.agentId,
-    ...(parsedScope.projectId !== undefined ? { projectId: parsedScope.projectId } : {}),
-    agentRoot,
-    cwd: resolverCwd,
-    env,
-  })
-
-  if (parsedScope.projectId !== undefined && paths.projectRoot === undefined) {
-    const siblingCandidates = [join(resolverCwd, parsedScope.projectId)]
-    const agentsRoot = dirname(agentRoot)
-    const runtimeVarRoot = dirname(agentsRoot)
-    if (basename(agentsRoot) === 'agents' && basename(runtimeVarRoot) === 'var') {
-      siblingCandidates.push(join(dirname(runtimeVarRoot), parsedScope.projectId))
-    }
-
-    for (const siblingCandidate of siblingCandidates) {
-      paths = resolveAgentPlacementPaths({
-        agentId: parsedScope.agentId,
-        projectId: parsedScope.projectId,
-        agentRoot,
-        cwd: siblingCandidate,
-        env,
-      })
-      if (paths.projectRoot !== undefined) break
-    }
-
-    // A project-scoped placement without its checkout root is not a usable
-    // placement. Let the owning request boundary surface the typed not-found
-    // instead of minting a harness in the agent home.
-    if (paths.projectRoot === undefined) return undefined
-  }
-
-  const projectRoot = paths.projectRoot
-  const cwd = projectRoot ?? paths.cwd ?? agentRoot
-  const bundle = buildRuntimeBundleRef({
-    agentName: parsedScope.agentId,
-    agentRoot,
-    ...(projectRoot !== undefined ? { projectRoot } : {}),
-  })
+  const projectRoot = resolved.projectRoot
+  const cwd = projectRoot ?? resolved.cwd ?? resolved.agentRoot
 
   return {
-    agentRoot,
+    agentRoot: resolved.agentRoot,
     ...(projectRoot !== undefined ? { projectRoot } : {}),
     cwd,
     runMode: 'task',
-    bundle,
+    bundle: resolved.bundle,
   }
 }
 
@@ -591,6 +568,17 @@ export function resolveLauncherDeps(
       _options.createHrcClient ??
       ((socketPath: string) => new HrcClient(socketPath) as unknown as AcpHrcClient)
     const socketPath = resolveControlSocketPath()
+    const placementSocketOpts =
+      _options.placementSocketPath !== undefined ? { socketPath: _options.placementSocketPath } : {}
+    const placementFetch: FetchPlacementResolution =
+      _options.placementFetch ??
+      ((input, opts = {}) =>
+        fetchPlacementResolution(input, {
+          ...opts,
+          ...(placementSocketOpts.socketPath !== undefined
+            ? { socketPath: placementSocketOpts.socketPath }
+            : {}),
+        }))
     const hrcClient: AcpHrcClient = createHrcClient(socketPath)
     const hrcAgentSources = readHrcAgentSources(env)
     const triageCommandTargetId = readTriageCommandTargetId(env)
@@ -622,8 +610,20 @@ export function resolveLauncherDeps(
               }),
           }
         : {}),
-      runtimeResolver: (sessionRef) => resolveRealLauncherPlacement(sessionRef, { cwd, env }),
-      agentRootResolver: ({ agentId }) => resolveRealLauncherAgentRoot(agentId, { cwd, env }),
+      runtimeResolver: (sessionRef) =>
+        resolveRealLauncherPlacement(sessionRef, {
+          cwd,
+          ...placementSocketOpts,
+          fetchPlacement: placementFetch,
+        }),
+      agentRootResolver: ({ agentId, sessionRef }) =>
+        resolveRealLauncherAgentRoot(agentId, {
+          cwd,
+          scopeRef: sessionRef.scopeRef,
+          ...placementSocketOpts,
+          fetchPlacement: placementFetch,
+        }),
+      placementFetch,
       hrcClient,
       ...(hrcAgentSources !== undefined ? { hrcAgentSources } : {}),
       sessionResolver: async (sessionRef) => {

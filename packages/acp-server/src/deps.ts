@@ -25,6 +25,7 @@ import type { HrcClient } from 'hrc-sdk'
 import type { AspcService } from 'spaces-aspc'
 import type { UnifiedSessionEvent } from 'spaces-runtime'
 import type { CollaborationLedger, WrkqStoreAdapter } from 'wrkq-lib'
+import type { FetchPlacementResolution } from './placement-resolution.js'
 
 import {
   InMemoryInputAdmissionStore,
@@ -242,6 +243,13 @@ export interface AcpServerDeps {
    * undefined. Keys with unset or empty env values are omitted.
    */
   hrcAgentSources?: HrcAgentSources | undefined
+  /**
+   * T-08598: daemon placement fetch (`POST /v1/placements/resolve`) used by
+   * the real launcher resolvers and the bundle-rebuild paths. Attached where
+   * the real launcher is wired; test/dev modes leave it undefined and the
+   * call sites fall back to the default daemon transport.
+   */
+  placementFetch?: FetchPlacementResolution | undefined
   jobNodeIdentityAuthority?: import('./jobs/node-identity.js').JobNodeIdentityAuthority | undefined
   inputAttemptStore?: InputAttemptStore | undefined
   inputAdmissionStore?: InputAdmissionStore | undefined

@@ -1,5 +1,5 @@
 import { parseScopeRef } from 'agent-scope'
-import { buildRuntimeBundleRef } from 'spaces-config'
+import { type FetchPlacementResolution, fetchPlacementResolution } from '../placement-resolution.js'
 
 import { json, notFound } from '../http.js'
 import { parseJsonBody, requireRecord } from '../parsers/body.js'
@@ -54,16 +54,20 @@ export const handleResolveRuntime: RouteHandler = async ({ request, deps }) => {
     })
   }
 
+  const fetchPlacement: FetchPlacementResolution = deps.placementFetch ?? fetchPlacementResolution
+  const daemonPlacement = await fetchPlacement({
+    scopeRef: sessionRef.scopeRef,
+    agentRoot,
+    ...(projectRootDir !== null ? { projectRoot: projectRootDir, cwd: projectRootDir } : {}),
+    runMode: 'task',
+  })
+
   return json({
     placement: {
       agentRoot,
       ...(projectRootDir !== null ? { projectRoot: projectRootDir, cwd: projectRootDir } : {}),
       runMode: 'task',
-      bundle: buildRuntimeBundleRef({
-        agentName: parsedScope.agentId,
-        agentRoot,
-        ...(projectRootDir !== null ? { projectRoot: projectRootDir } : {}),
-      }),
+      bundle: daemonPlacement.bundle,
       correlation: { sessionRef },
       homeDir: agentHomeDir,
       projectRootDir: projectRootDir,

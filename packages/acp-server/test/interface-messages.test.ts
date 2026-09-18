@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -258,19 +258,15 @@ describe('POST /v1/interface/messages', () => {
   })
 
   test('uses the registered project root for project-scoped interface dispatch', async () => {
-    const tmp = mkdtempSync(join(tmpdir(), 'acp-interface-placement-'))
     const adminStore = createInMemoryAdminStore()
-    const agentRoot = join(tmp, 'agents', 'rex')
-    const projectRoot = join(tmp, 'projects', 'dnd-friends')
+    const agentRoot = '/agents/rex'
+    const projectRoot = '/projects/dnd-friends'
     const launches: Array<{
       sessionRef: { scopeRef: string; laneRef: string }
       intent: HrcRuntimeIntent
     }> = []
 
     try {
-      mkdirSync(agentRoot, { recursive: true })
-      mkdirSync(projectRoot, { recursive: true })
-      writeFileSync(join(agentRoot, 'agent-profile.toml'), 'schemaVersion = 2\n')
       adminStore.projects.create({
         projectId: 'dnd-friends',
         displayName: 'DND Friends',
@@ -335,6 +331,13 @@ describe('POST /v1/interface/messages', () => {
             bundle: { kind: 'compose', compose: [] },
             harness: { provider: 'openai', interactive: true },
           }),
+          placementFetch: async () => ({
+            agentRoot,
+            projectRoot,
+            cwd: projectRoot,
+            bundle: { kind: 'agent-project', agentName: 'rex', projectRoot },
+            harness: { provider: 'openai', interactive: true },
+          }),
           launchRoleScopedRun: async (input) => {
             launches.push(input)
             return {
@@ -346,7 +349,6 @@ describe('POST /v1/interface/messages', () => {
       )
     } finally {
       adminStore.close()
-      rmSync(tmp, { recursive: true, force: true })
     }
   })
 

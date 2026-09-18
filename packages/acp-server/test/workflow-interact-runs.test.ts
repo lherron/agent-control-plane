@@ -169,6 +169,19 @@ function placementWithoutHarness() {
     bundle: { kind: 'compose', compose: [] },
   }
 }
+const placementFetchStub = async () => ({
+  agentRoot: '/tmp/acp-test/codex/supervisor',
+  projectRoot: '/tmp/acp-test/project',
+  cwd: '/tmp/acp-test/project',
+  bundle: { kind: 'compose', compose: [] as unknown[] },
+  harness: {
+    provider: 'openai' as const,
+    frontend: 'codex-cli',
+    effectiveHarness: 'codex',
+    transport: 'cli',
+    interactive: true,
+  },
+})
 
 describe('POST /v1/workflow-interact-runs', () => {
   test('starts an open-ended workflow interaction and returns runtime attach details', async () => {
@@ -236,7 +249,11 @@ describe('POST /v1/workflow-interact-runs', () => {
           ACP_WORKFLOW_INTERACT: '1',
         })
       },
-      { hrcClient, runtimeResolver: async () => placementWithoutHarness() }
+      {
+        hrcClient,
+        runtimeResolver: async () => placementWithoutHarness(),
+        placementFetch: placementFetchStub,
+      }
     )
   })
 
@@ -289,7 +306,11 @@ describe('POST /v1/workflow-interact-runs', () => {
           ACP_WORKFLOW_GOAL: 'Implement signed release checks',
         })
       },
-      { hrcClient, runtimeResolver: async () => placementWithoutHarness() }
+      {
+        hrcClient,
+        runtimeResolver: async () => placementWithoutHarness(),
+        placementFetch: placementFetchStub,
+      }
     )
   })
 
@@ -326,7 +347,11 @@ describe('POST /v1/workflow-interact-runs', () => {
         expect(payload.error.code).toBe('malformed_request')
         expect(hrcCalls).toEqual([])
       },
-      { hrcClient, runtimeResolver: async () => placementWithoutHarness() }
+      {
+        hrcClient,
+        runtimeResolver: async () => placementWithoutHarness(),
+        placementFetch: placementFetchStub,
+      }
     )
   })
 
@@ -362,7 +387,11 @@ describe('POST /v1/workflow-interact-runs', () => {
           preferredMode: 'interactive',
         })
       },
-      { hrcClient, runtimeResolver: async () => placementWithoutHarness() }
+      {
+        hrcClient,
+        runtimeResolver: async () => placementWithoutHarness(),
+        placementFetch: placementFetchStub,
+      }
     )
   })
 })

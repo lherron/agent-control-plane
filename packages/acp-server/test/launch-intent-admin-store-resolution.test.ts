@@ -1,7 +1,4 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 
 import { createInMemoryAdminStore } from 'acp-admin-store'
 import type { Actor } from 'acp-core'
@@ -34,43 +31,55 @@ function makeSessionRef(projectId: string): { scopeRef: string; laneRef: string 
 
 describe('resolveLaunchIntent admin-store project-root resolution', () => {
   test('empty-compose bundle is rebuilt with the adminStore project root when runtimeResolver returns a degenerate bundle', async () => {
-    // buildRuntimeBundleRef switches to 'agent-project' only if an agent-profile.toml
-    // exists at agentRoot. Stage a real tempdir so the rebuild path produces a
-    // non-default bundle wired to the adminStore homeDir.
-    const agentRoot = mkdtempSync(join(tmpdir(), 'acp-launch-intent-agent-'))
-    writeFileSync(join(agentRoot, 'agent-profile.toml'), 'name = "tester"\n')
+    const adminStore = createInMemoryAdminStore()
+    adminStore.projects.create({
+      projectId: 'vitals',
+      displayName: 'vitals',
+      homeDir: ADMIN_HOME_DIR,
+      actor: ACTOR,
+      now: '2026-05-15T00:00:00.000Z',
+    })
 
-    try {
-      const adminStore = createInMemoryAdminStore()
-      adminStore.projects.create({
-        projectId: 'vitals',
-        displayName: 'vitals',
-        homeDir: ADMIN_HOME_DIR,
-        actor: ACTOR,
-        now: '2026-05-15T00:00:00.000Z',
-      })
-
-      const deps: LaunchIntentDeps = {
-        adminStore,
-        runtimeResolver: async () => ({
-          agentRoot,
-          projectRoot: WRONG_PROJECT_ROOT,
-          cwd: WRONG_CWD,
-          runMode: 'task',
-          bundle: { kind: 'compose', compose: [] },
+    const seen: unknown[] = []
+    const deps: LaunchIntentDeps = {
+      adminStore,
+      runtimeResolver: async () => ({
+        agentRoot: WRONG_AGENT_ROOT,
+        projectRoot: WRONG_PROJECT_ROOT,
+        cwd: WRONG_CWD,
+        runMode: 'task',
+        bundle: { kind: 'compose', compose: [] },
+        harness: { provider: 'anthropic', interactive: true },
+      }),
+      agentRootResolver: undefined,
+      placementFetch: async (input) => {
+        seen.push(input)
+        return {
+          agentRoot: WRONG_AGENT_ROOT,
+          projectRoot: ADMIN_HOME_DIR,
+          cwd: ADMIN_HOME_DIR,
+          bundle: {
+            kind: 'agent-project',
+            agentName: 'tester',
+            projectRoot: ADMIN_HOME_DIR,
+          },
           harness: { provider: 'anthropic', interactive: true },
-        }),
-        agentRootResolver: undefined,
-      }
-
-      const intent = await resolveLaunchIntent(deps, makeSessionRef('vitals'))
-
-      const bundle = intent.placement.bundle as Record<string, unknown>
-      expect(bundle['kind']).toBe('agent-project')
-      expect(bundle['projectRoot']).toBe(ADMIN_HOME_DIR)
-    } finally {
-      rmSync(agentRoot, { recursive: true, force: true })
+        }
+      },
     }
+
+    const intent = await resolveLaunchIntent(deps, makeSessionRef('vitals'))
+
+    const bundle = intent.placement.bundle as Record<string, unknown>
+    expect(bundle['kind']).toBe('agent-project')
+    expect(bundle['projectRoot']).toBe(ADMIN_HOME_DIR)
+    expect(seen).toEqual([
+      {
+        scopeRef: 'agent:tester:project:vitals:task:T-42:role:tester',
+        projectRoot: ADMIN_HOME_DIR,
+        runMode: 'task',
+      },
+    ])
   })
 
   test('falls back to runtimeResolver projectRoot when adminStore has no entry for the project', async () => {
