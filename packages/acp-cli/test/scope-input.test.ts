@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
-import { normalizeScopeInput } from '../src/scope-input.js'
+import { inferProjectIdFromCwd, normalizeScopeInput } from '../src/scope-input.js'
 
 describe('normalizeScopeInput', () => {
   const savedAspProject = process.env['ASP_PROJECT']
@@ -104,5 +107,87 @@ describe('normalizeScopeInput', () => {
       scopeRef: 'agent:cody:project:agent-spaces:task:T-01140',
       laneRef: 'main',
     })
+  })
+})
+
+describe('inferProjectIdFromCwd (vendored marker walk)', () => {
+  test('returns the nearest asp-targets.toml directory id', () => {
+    const root = mkdtempSync(join(tmpdir(), 'acp-marker-'))
+    try {
+      const inner = join(root, 'myproj', 'sub')
+      mkdirSync(inner, { recursive: true })
+      writeFileSync(join(root, 'myproj', 'asp-targets.toml'), 'targets = []\n')
+      expect(inferProjectIdFromCwd({ cwd: inner, env: {} })).toBe('myproj')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('an inner marker wins over an outer marker', () => {
+    const root = mkdtempSync(join(tmpdir(), 'acp-marker-nested-'))
+    try {
+      const inner = join(root, 'outer', 'inner')
+      mkdirSync(inner, { recursive: true })
+      writeFileSync(join(root, 'outer', 'asp-targets.toml'), 'targets = []\n')
+      writeFileSync(join(inner, 'asp-targets.toml'), 'targets = []\n')
+      expect(inferProjectIdFromCwd({ cwd: inner, env: {} })).toBe('inner')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('falls back to the containing git repo basename', () => {
+    const root = mkdtempSync(join(tmpdir(), 'acp-marker-gitrepo-'))
+    try {
+      const inner = join(root, 'sub', 'deep')
+      mkdirSync(inner, { recursive: true })
+      mkdirSync(join(root, '.git'), { recursive: true })
+      expect(inferProjectIdFromCwd({ cwd: inner, env: {} })).toBe(
+        root.split('/').filter(Boolean).at(-1)
+      )
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('ignores markers inside the agents root', () => {
+    const root = mkdtempSync(join(tmpdir(), 'acp-marker-guard-'))
+    try {
+      const agentsRoot = join(root, 'agents')
+      const agentDir = join(agentsRoot, 'rex')
+      mkdirSync(agentDir, { recursive: true })
+      writeFileSync(join(agentDir, 'asp-targets.toml'), 'targets = []\n')
+      expect(
+        inferProjectIdFromCwd({ cwd: agentDir, env: { ASP_AGENTS_ROOT: agentsRoot } })
+      ).toBeUndefined()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('returns undefined with no marker and no git repo', () => {
+    const root = mkdtempSync(join(tmpdir(), 'acp-marker-bare-'))
+    try {
+      expect(inferProjectIdFromCwd({ cwd: root, env: {} })).toBeUndefined()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('expands ~/ in ASP_AGENTS_ROOT for the guard', () => {
+    const home = mkdtempSync(join(tmpdir(), 'acp-marker-home-'))
+    try {
+      const agentDir = join(home, 'praesidium', 'var', 'agents', 'rex')
+      mkdirSync(agentDir, { recursive: true })
+      expect(inferProjectIdFromCwd({ cwd: agentDir, env: { HOME: home } })).toBeUndefined()
+      expect(
+        inferProjectIdFromCwd({
+          cwd: agentDir,
+          env: { HOME: home, ASP_AGENTS_ROOT: '~/praesidium/var/agents' },
+        })
+      ).toBeUndefined()
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
   })
 })

@@ -6,7 +6,6 @@ import {
   HrcConflictError,
   type HrcDispatchOrigin,
   type HrcEventEnvelope,
-  type HrcHarness,
   type HrcHarnessIntent,
   type HrcRuntimeIntent,
   type ScopeLocation,
@@ -14,7 +13,11 @@ import {
 } from 'hrc-core'
 import { HrcClient, discoverSocket } from 'hrc-sdk'
 import type { UnifiedSessionEvent } from 'spaces-runtime'
-import { type FetchPlacementResolution, fetchPlacementResolution } from './placement-resolution.js'
+import {
+  type FetchPlacementResolution,
+  daemonHarnessToHrcHarness,
+  fetchPlacementResolution,
+} from './placement-resolution.js'
 
 import type { InputAttemptStore, LaunchRoleScopedRun, RunStore } from './deps.js'
 import type { DispatchFence, UpdateRunInput } from './domain/run-store.js'
@@ -1513,27 +1516,7 @@ async function inferHarnessIntent(input: {
     },
     fetchOpts
   )
-  // The daemon admits only HRC-known harness ids as an explicit id; anything
-  // else lets HRC pick its default at launch.
-  const frontend = resolved.harness.frontend
-  return {
-    provider: resolved.harness.provider,
-    interactive: resolved.harness.interactive,
-    ...(frontend !== undefined && isHrcHarness(frontend) ? { id: frontend } : {}),
-  }
-}
-
-const HRC_HARNESS_IDS: ReadonlySet<string> = new Set<HrcHarness>([
-  'agent-sdk',
-  'claude-code',
-  'codex-cli',
-  'pi',
-  'pi-cli',
-  'pi-sdk',
-])
-
-function isHrcHarness(value: string): value is HrcHarness {
-  return HRC_HARNESS_IDS.has(value)
+  return daemonHarnessToHrcHarness(resolved.harness)
 }
 
 function readAssistantMessageEndEvent(

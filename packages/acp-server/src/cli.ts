@@ -15,7 +15,12 @@ import { resolveControlSocketPath, resolveDatabasePath } from 'hrc-core'
 import { HrcClient } from 'hrc-sdk'
 import { createAspcService } from 'spaces-aspc'
 import { type WrkqStoreAdapter, createCollaborationLedger } from 'wrkq-lib'
-import { type FetchPlacementResolution, fetchPlacementResolution } from './placement-resolution.js'
+import {
+  type FetchPlacementResolution,
+  type FetchRunPreview,
+  fetchPlacementResolution,
+  fetchRunPreview,
+} from './placement-resolution.js'
 
 import { createAccessLogger } from './access-log.js'
 import { createAcpServer } from './create-acp-server.js'
@@ -137,6 +142,7 @@ export interface ResolveLauncherDepsOptions {
   inputAttemptStore?: InputAttemptStore | undefined
   placementSocketPath?: string | undefined
   placementFetch?: FetchPlacementResolution | undefined
+  runPreviewFetch?: FetchRunPreview | undefined
 }
 
 export interface AcpServerCliOptions {
@@ -624,6 +630,15 @@ export function resolveLauncherDeps(
           fetchPlacement: placementFetch,
         }),
       placementFetch,
+      runPreviewFetch:
+        _options.runPreviewFetch ??
+        ((input, opts = {}) =>
+          fetchRunPreview(input, {
+            ...opts,
+            ...(placementSocketOpts.socketPath !== undefined
+              ? { socketPath: placementSocketOpts.socketPath }
+              : {}),
+          })),
       hrcClient,
       ...(hrcAgentSources !== undefined ? { hrcAgentSources } : {}),
       sessionResolver: async (sessionRef) => {

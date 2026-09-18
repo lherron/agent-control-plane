@@ -152,7 +152,7 @@ export interface AgentSystemPromptInspection {
   projectRoot?: string | undefined
   projectId?: string | undefined
   template: {
-    kind: 'context' | 'built-in'
+    kind: 'context' | 'built-in' | 'daemon'
     path?: string | undefined
     mode: 'replace' | 'append'
     maxChars?: number | undefined
