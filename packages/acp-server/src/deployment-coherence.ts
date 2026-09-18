@@ -227,6 +227,52 @@ export function producerManifestAgreementFindings(
   return findings
 }
 
+/** One thin ASP contract package served by a post-independence HRC release. */
+export type RunningAspContract = Readonly<{ name: string; version: string }>
+
+function isRunningAspContract(value: unknown): value is RunningAspContract {
+  return (
+    isRecord(value) && typeof value['name'] === 'string' && typeof value['version'] === 'string'
+  )
+}
+
+/**
+ * Post-independence ASP coherence (T-08598 added scope): the running HRC
+ * release carries no aspBuild, only aspContracts. Every contract package ACP
+ * has installed that also appears in aspContracts must agree on version; ASP
+ * members ACP installed that HRC no longer ships (execution packages) are out
+ * of scope by construction. Version findings name the package.
+ */
+export function runningAspContractFindings(
+  raw: unknown,
+  installed: readonly InstalledProducerPackage[]
+): string[] {
+  const findings: string[] = []
+  if (!Array.isArray(raw)) {
+    return ['running HRC aspContracts is malformed']
+  }
+  const running = new Map<string, string>()
+  for (const entry of raw) {
+    if (!isRunningAspContract(entry)) {
+      findings.push('running HRC aspContracts entry is malformed')
+      continue
+    }
+    running.set(entry.name, entry.version)
+  }
+  for (const entry of installed) {
+    const build = entry.praesidiumBuild
+    if (!isPraesidiumBuild(build) || build.setName !== 'asp') continue
+    const runningVersion = running.get(entry.name)
+    if (runningVersion === undefined) continue
+    if (runningVersion !== entry.version) {
+      findings.push(
+        `running ASP contract ${entry.name} version ${runningVersion}; ACP installed ${entry.version}`
+      )
+    }
+  }
+  return findings
+}
+
 export function evaluateConsumerDeployment(
   input: {
     lockText: string
@@ -326,11 +372,22 @@ export function evaluateConsumerDeployment(
       }
       const runningAsp = running['aspBuild']
       const runningHrc = running['hrcBuild']
-      if (
-        installedBuilds.aspBuild !== undefined &&
-        (!isPraesidiumBuild(runningAsp) ||
-          buildIdentity(runningAsp) !== buildIdentity(installedBuilds.aspBuild))
-      ) {
+      if (runningAsp !== undefined) {
+        if (
+          installedBuilds.aspBuild !== undefined &&
+          (!isPraesidiumBuild(runningAsp) ||
+            buildIdentity(runningAsp) !== buildIdentity(installedBuilds.aspBuild))
+        ) {
+          findings.add('running ASP build identity does not match ACP installed ASP')
+        }
+      } else if (running['aspContracts'] !== undefined) {
+        for (const finding of runningAspContractFindings(
+          running['aspContracts'],
+          input.installed
+        )) {
+          findings.add(finding)
+        }
+      } else if (installedBuilds.aspBuild !== undefined) {
         findings.add('running ASP build identity does not match ACP installed ASP')
       }
       if (
@@ -386,6 +443,12 @@ function describeSetVersions(
         `${setName}: installed and running sets were minted separately from source commit ${installed.sourceCommit}`
       )
     }
+  }
+  const rawContracts = running?.['aspContracts']
+  if (Array.isArray(rawContracts)) {
+    lines.push(
+      `asp: running aspContracts with ${rawContracts.length} entries (post-independence shape; no aspBuild)`
+    )
   }
   return lines
 }

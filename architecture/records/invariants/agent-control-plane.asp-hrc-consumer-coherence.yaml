@@ -21,7 +21,8 @@ predicate: >
   authority and independently follows latest. Every selected tarball uses the
   canonical mini registry locator and its lock integrity is cache-empty
   fetchable. The served ACP deployment readback must agree with HRC's atomic
-  running release, including its locked ASP tuple and
+  running release, including its locked contract tuple (execution identity
+  is aspd's, not HRC's) and
   runningEqualsInstalled=true. This consumer invariant imports producer
   predicates agent-spaces.canonical-package-publication and
   hrc-runtime.canonical-package-publication plus
@@ -43,6 +44,7 @@ source:
   - wrkq:T-06958
   - wrkq:T-06960
   - wrkq:T-07626
+  - wrkq:T-08598
 required_tests:
   - bun scripts/check-consumer-deployment-coherence.ts exits 0
   - bun scripts/check-consumer-deployment-coherence.ts --fetch exits 0

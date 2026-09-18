@@ -198,6 +198,83 @@ describe('ASP/HRC consumer deployment coherence', () => {
     expect(report.findings).toEqual(['running HRC build identity does not match ACP installed HRC'])
   })
 
+  function withoutAspBuild(release: Record<string, unknown>): Record<string, unknown> {
+    return Object.fromEntries(Object.entries(release).filter(([key]) => key !== 'aspBuild'))
+  }
+
+  function newShapeFixture(contracts: unknown) {
+    const fixture = coherentFixture()
+    const release = withoutAspBuild(fixture.runningStatus.release as Record<string, unknown>)
+    return { ...fixture, runningStatus: { release: { ...release, aspContracts: contracts } } }
+  }
+
+  test('accepts the post-independence shape: aspContracts present, aspBuild absent', () => {
+    const report = evaluateConsumerDeployment(
+      newShapeFixture([{ name: 'agent-scope', version: aspBuild.setVersion }]),
+      TEST_EXPECTED_CONSUMER_PRODUCERS
+    )
+
+    expect(report.ok).toBe(true)
+    expect(report.findings).toEqual([])
+    expect(report.informational).toEqual(
+      expect.arrayContaining([
+        'asp: running aspContracts with 1 entries (post-independence shape; no aspBuild)',
+      ])
+    )
+  })
+
+  test('ignores installed ASP members the running release no longer ships', () => {
+    // spaces-aspc-facade is installed in ACP but absent from aspContracts:
+    // an execution package HRC no longer ships is out of scope by construction.
+    const report = evaluateConsumerDeployment(
+      newShapeFixture([{ name: 'agent-scope', version: aspBuild.setVersion }]),
+      TEST_EXPECTED_CONSUMER_PRODUCERS
+    )
+
+    expect(report.ok).toBe(true)
+    expect(report.findings).toEqual([])
+  })
+
+  test('names the package when a running contract version drifts', () => {
+    const report = evaluateConsumerDeployment(
+      newShapeFixture([{ name: 'agent-scope', version: '9.9.9-drift' }]),
+      TEST_EXPECTED_CONSUMER_PRODUCERS
+    )
+
+    expect(report.ok).toBe(false)
+    expect(report.findings).toEqual([
+      `running ASP contract agent-scope version 9.9.9-drift; ACP installed ${aspBuild.setVersion}`,
+    ])
+  })
+
+  test('fails closed when the running release carries neither aspBuild nor aspContracts', () => {
+    const fixture = coherentFixture()
+    const release = withoutAspBuild(fixture.runningStatus.release as Record<string, unknown>)
+    const report = evaluateConsumerDeployment(
+      { ...fixture, runningStatus: { release } },
+      TEST_EXPECTED_CONSUMER_PRODUCERS
+    )
+
+    expect(report.ok).toBe(false)
+    expect(report.findings).toEqual(['running ASP build identity does not match ACP installed ASP'])
+  })
+
+  test('fails closed on malformed aspContracts', () => {
+    const malformed = evaluateConsumerDeployment(
+      newShapeFixture('not-a-list'),
+      TEST_EXPECTED_CONSUMER_PRODUCERS
+    )
+    expect(malformed.ok).toBe(false)
+    expect(malformed.findings).toEqual(['running HRC aspContracts is malformed'])
+
+    const malformedEntry = evaluateConsumerDeployment(
+      newShapeFixture([{ name: 'agent-scope' }]),
+      TEST_EXPECTED_CONSUMER_PRODUCERS
+    )
+    expect(malformedEntry.ok).toBe(false)
+    expect(malformedEntry.findings).toEqual(['running HRC aspContracts entry is malformed'])
+  })
+
   test.skipIf(isSourceLinkedCheckout())(
     'serves the lock/install/running readback through ACP',
     async () => {
