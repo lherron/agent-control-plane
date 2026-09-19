@@ -2363,12 +2363,12 @@
     },
     "hrc-mail-injector": {
       "bin": {
-        "hrc-mail-injector": "./src/cli.ts"
+        "hrc-mail-injector": "./dist/cli.js"
       },
       "exportKeys": [
         "."
       ],
-      "rootExportSource": "./src/index.ts",
+      "rootExportSource": null,
       "rootTypes": [
         "MailInjectorOptions",
         "StartedMailInjector"

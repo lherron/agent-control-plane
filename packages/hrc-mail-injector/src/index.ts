@@ -1,7 +1,6 @@
 import { createMailKicker } from 'hrc-mail-kicker'
 import type { HrcInjectionPort as KickerInjectionPort } from 'hrc-mail-kicker'
 import { HrcClient } from 'hrc-sdk'
-import { WrkqStdioLedgerClient } from 'hrc-server'
 
 import {
   type InjectorStateImport,
@@ -10,6 +9,8 @@ import {
   openInjectorStateStore,
   readInjectorImportMarker,
 } from 'hrc-injector-core'
+
+import { createWrkqLedger } from './wrkq-ledger.js'
 
 export type MailInjectorOptions = Readonly<{
   socketPath: string
@@ -59,7 +60,7 @@ export async function startMailInjector(
   }
 
   const log = options.log ?? ((level, event, detail) => console.log(level, event, detail))
-  const ledger = new WrkqStdioLedgerClient()
+  const ledger = createWrkqLedger()
   const kicker = createMailKicker(
     {
       store,
@@ -77,7 +78,6 @@ export async function startMailInjector(
   try {
     await kicker.start()
   } catch (error) {
-    await ledger.close()
     store.close()
     throw error
   }
@@ -86,7 +86,6 @@ export async function startMailInjector(
     importMarker,
     stop: async () => {
       await kicker.stop()
-      await ledger.close()
     },
   }
 }
