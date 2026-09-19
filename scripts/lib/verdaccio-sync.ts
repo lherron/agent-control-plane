@@ -690,7 +690,12 @@ async function bunInstallFromVerdaccio(
   try {
     const bunfig = join(tmp, 'bunfig.toml')
     await writeFile(bunfig, await isolatedBunfigContent())
-    const flag = mode === 'relink' ? '--frozen-lockfile' : '--no-cache'
+    // A producer advance temporarily changes exact tuple declarations. Bun's
+    // ordinary install (even with --no-cache) can retain the old lock selection
+    // when that prior package still satisfies a transitive `latest` edge.
+    // Force the resolve pass to ask Verdaccio again; the confinement step below
+    // retains only the owned package closure before the frozen relink.
+    const flag = mode === 'relink' ? '--frozen-lockfile' : '--force'
     const install = run('bun', ['install', flag, `--config=${bunfig}`])
     if (install.status !== 0) {
       throw new Error(`bun install failed while syncing ${label} packages:\n${install.out}`)
