@@ -2361,6 +2361,23 @@
         "verifyInjectorHrcContract"
       ]
     },
+    "hrc-mail-injector": {
+      "bin": {
+        "hrc-mail-injector": "./src/cli.ts"
+      },
+      "exportKeys": [
+        "."
+      ],
+      "rootExportSource": "./src/index.ts",
+      "rootTypes": [
+        "MailInjectorOptions",
+        "StartedMailInjector"
+      ],
+      "rootValues": [
+        "assertMailInjectorPosture",
+        "startMailInjector"
+      ]
+    },
     "wlearn": {
       "bin": {
         "wlearn": "./bin/wlearn.js"
