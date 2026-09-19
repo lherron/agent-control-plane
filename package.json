@@ -61,11 +61,9 @@
     "hrc-server": "0.1.0-dev.20260919115424",
     "hrc-store-sqlite": "0.1.0-dev.20260919115424",
     "spaces-aspc": "0.1.1-dev.20260918162214",
-    "spaces-aspc-facade": "0.1.1-dev.20260918162214",
     "spaces-aspc-protocol": "0.1.1-dev.20260918162214",
     "spaces-config": "0.1.1-dev.20260918162214",
     "spaces-execution": "0.1.1-dev.20260918162214",
-    "spaces-harness-broker": "0.1.1-dev.20260918162214",
     "spaces-harness-broker-client": "0.1.1-dev.20260918162214",
     "spaces-harness-broker-protocol": "0.1.1-dev.20260918162214",
     "spaces-harness-claude": "0.1.1-dev.20260918162214",
@@ -75,6 +73,7 @@
     "spaces-runtime": "0.1.1-dev.20260918162214",
     "spaces-runtime-contracts": "0.1.1-dev.20260918162214",
     "hrc-mail-kicker": "0.1.0-dev.20260919115424",
-    "hrc-transcript-index": "0.1.0-dev.20260919115424"
+    "hrc-transcript-index": "0.1.0-dev.20260919115424",
+    "spaces-harness-muse": "0.1.1-dev.20260918162214"
   }
 }
