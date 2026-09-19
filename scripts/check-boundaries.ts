@@ -64,6 +64,7 @@ const hrcPackages = [
 
 const acpPackages = [
   'acp-core',
+  'hrc-injector-core',
   'acp-state-store',
   'acp-admin-store',
   'acp-interface-store',

@@ -2331,6 +2331,36 @@
         "resolveConfig"
       ]
     },
+    "hrc-injector-core": {
+      "bin": {},
+      "exportKeys": [
+        "."
+      ],
+      "rootExportSource": "./src/index.ts",
+      "rootTypes": [
+        "ForeignHome",
+        "HrcDeliveryPosture",
+        "HrcInjectionPort",
+        "ImportMarker",
+        "InjectionDispatchOptions",
+        "InjectionDispatchResult",
+        "InjectionRpcResult",
+        "InjectorStateImport",
+        "InjectorStateStore",
+        "TableParity"
+      ],
+      "rootValues": [
+        "assertInjectorAdmissible",
+        "createSocketInjectionPort",
+        "importInjectorStateStore",
+        "INJECTOR_MOVED_TABLES",
+        "injectorTableParity",
+        "MAIL_SUBSCRIBER_NAME",
+        "openInjectorStateStore",
+        "readInjectorImportMarker",
+        "verifyInjectorHrcContract"
+      ]
+    },
     "wlearn": {
       "bin": {
         "wlearn": "./bin/wlearn.js"
