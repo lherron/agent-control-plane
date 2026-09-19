@@ -698,6 +698,7 @@ async function bunInstallFromVerdaccio(
     const flags =
       mode === 'relink' ? ['--frozen-lockfile'] : ['--force', '--no-cache']
     const install = run('bun', ['install', ...flags, `--config=${bunfig}`])
+    if (process.env['ACP_ADVANCE_DEBUG'] === '1') console.log(`ADVANCE_DEBUG bun ${mode}\n${install.out}`)
     if (install.status !== 0) {
       throw new Error(`bun install failed while syncing ${label} packages:\n${install.out}`)
     }
