@@ -7,7 +7,11 @@ import {
   type ExpectedConsumerProducer,
   evaluateConsumerDeployment,
 } from '../packages/acp-server/src/deployment-coherence.js'
-import { lockedPackageVersions, pruneUnselectedRootStoreVersions } from './lib/verdaccio-sync.js'
+import {
+  lockedPackageVersions,
+  pruneUnselectedRootPackageDirs,
+  pruneUnselectedRootStoreVersions,
+} from './lib/verdaccio-sync.js'
 
 const OLD = '0.1.0-dev.20260915135010'
 const NEW = '0.1.0-dev.20260917141337'
@@ -149,6 +153,26 @@ describe('pruning unselected root-store versions on producer advance (T-08572 H3
         lockText: absent,
       })
       expect(removed.sort()).toEqual([`hrc-sdk@${OLD}`, `hrc-sdk@${NEW}`])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  test('removes a direct root producer copy absent from the confined lock', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'root-package-prune-'))
+    try {
+      const stale = join(root, 'node_modules', 'hrc-sdk')
+      await mkdir(stale, { recursive: true })
+      await writeFile(join(stale, 'package.json'), manifest(OLD))
+      const absent = lockText.replace(`${entry('hrc-sdk', `hrc-sdk@${NEW}`)}\n`, '')
+      expect(
+        await pruneUnselectedRootPackageDirs({
+          root,
+          synced: new Set(['hrc-sdk']),
+          lockText: absent,
+        })
+      ).toEqual(['hrc-sdk'])
+      expect(await Bun.file(join(stale, 'package.json')).exists()).toBe(false)
     } finally {
       await rm(root, { recursive: true, force: true })
     }

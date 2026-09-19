@@ -783,6 +783,41 @@ export async function pruneUnselectedRootStoreVersions(options: {
   return removed
 }
 
+/**
+ * Bun can materialize a direct root package directory in addition to its
+ * `.bun` store entry. Remove producer packages no longer selected by the
+ * confined lock from that second location as well.
+ */
+export async function pruneUnselectedRootPackageDirs(options: {
+  root?: string
+  synced: ReadonlySet<string>
+  lockText: string
+}): Promise<string[]> {
+  const root = options.root ?? ROOT
+  const modules = join(root, 'node_modules')
+  const selected = lockedPackageVersions(options.lockText)
+  const removed: string[] = []
+  for (const entry of await readdir(modules, { withFileTypes: true }).catch(() => [])) {
+    if (!entry.isDirectory() || entry.name.startsWith('.') || !options.synced.has(entry.name)) {
+      continue
+    }
+    const dir = join(modules, entry.name)
+    const manifest = await readFile(join(dir, 'package.json'), 'utf8')
+      .then((raw) => JSON.parse(raw) as { name?: unknown; version?: unknown })
+      .catch(() => undefined)
+    if (
+      manifest?.name !== entry.name ||
+      typeof manifest.version !== 'string' ||
+      selected.get(entry.name)?.has(manifest.version)
+    ) {
+      continue
+    }
+    await rm(dir, { recursive: true, force: true })
+    removed.push(entry.name)
+  }
+  return removed.sort()
+}
+
 /** Split a root-store dir into its package name and version remainder. */
 function parseRootStoreDir(dir: string): { name: string; rest: string } | undefined {
   if (dir.startsWith('@')) {
@@ -838,6 +873,13 @@ export async function installConfinedPackages(options: {
   })
   if (pruned.length > 0) {
     console.log(`ROOT_STORE_PRUNE ${pruned.sort().join(', ')}`)
+  }
+  const rootPruned = await pruneUnselectedRootPackageDirs({
+    synced: options.synced,
+    lockText: await readFile(lockPath, 'utf8'),
+  })
+  if (rootPruned.length > 0) {
+    console.log(`ROOT_PACKAGE_PRUNE ${rootPruned.join(', ')}`)
   }
   await bunInstallFromVerdaccio(options.label, 'relink')
 }
