@@ -735,6 +735,37 @@ async function pruneNestedPackageDirs(
 }
 
 /**
+ * An isolated Bun relink can retain an already-present nested producer package
+ * even when the newly confined lock selects its replacement at the root. The
+ * deployment-coherence scan intentionally sees every installed manifest, so
+ * retain only nested producer copies selected by the resulting lock.
+ */
+export async function pruneUnselectedNestedPackageVersions(options: {
+  discover: (root: string) => Promise<string[]>
+  synced: ReadonlySet<string>
+  lockText: string
+}): Promise<string[]> {
+  const selected = lockedPackageVersions(options.lockText)
+  const removed: string[] = []
+  for (const dir of await nestedPackageDirs(options.discover)) {
+    const manifest = await readFile(join(dir, 'package.json'), 'utf8')
+      .then((raw) => JSON.parse(raw) as { name?: unknown; version?: unknown })
+      .catch(() => undefined)
+    if (
+      typeof manifest?.name !== 'string' ||
+      typeof manifest.version !== 'string' ||
+      !options.synced.has(manifest.name) ||
+      selected.get(manifest.name)?.has(manifest.version)
+    ) {
+      continue
+    }
+    await rm(dir, { recursive: true, force: true })
+    removed.push(dir)
+  }
+  return removed
+}
+
+/**
  * Bun's isolated linker is additive in the root store: a resolve install that
  * moves a group member to a new version leaves the replaced
  * `node_modules/.bun/<name>@<old>` dir behind, and a frozen relink never
@@ -810,6 +841,14 @@ export async function installConfinedPackages(options: {
     )
   )
   await pruneNestedPackageDirs(discover, nestedBefore)
+  const nestedPruned = await pruneUnselectedNestedPackageVersions({
+    discover,
+    synced: options.synced,
+    lockText: await readFile(lockPath, 'utf8'),
+  })
+  if (nestedPruned.length > 0) {
+    console.log(`NESTED_STORE_PRUNE ${nestedPruned.length} stale producer package(s)`)
+  }
   const pruned = await pruneUnselectedRootStoreVersions({
     synced: options.synced,
     lockText: await readFile(lockPath, 'utf8'),

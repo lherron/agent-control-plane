@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import { confineLockToSyncedPackages } from './lib/verdaccio-sync'
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { confineLockToSyncedPackages, pruneUnselectedNestedPackageVersions } from './lib/verdaccio-sync'
 
 const entry = (key: string, resolution: string, info = '{}'): string =>
   `    ${JSON.stringify(key)}: [${JSON.stringify(resolution)}, "http://mini:4873/${key}.tgz", ${info}, "sha512-${resolution}"],`
@@ -203,5 +206,35 @@ ${entry('ajv', 'ajv@8.99.0')}
 
     expect(confined).toContain('ajv@8.17.1')
     expect(confined).not.toContain('ajv@8.99.0')
+  })
+})
+
+describe('nested producer package pruning', () => {
+  test('removes a stale nested producer copy not selected by the confined lock', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'verdaccio-nested-prune-'))
+    try {
+      const consumer = join(root, 'packages', 'consumer')
+      const stale = join(consumer, 'node_modules', 'spaces-aspc-facade')
+      await mkdir(stale, { recursive: true })
+      await writeFile(join(root, 'package.json'), '{}')
+      await writeFile(join(consumer, 'package.json'), '{}')
+      await writeFile(
+        join(stale, 'package.json'),
+        JSON.stringify({ name: 'spaces-aspc-facade', version: '1.0.0' })
+      )
+
+      const removed = await pruneUnselectedNestedPackageVersions({
+        discover: async () => [join(root, 'package.json'), join(consumer, 'package.json')],
+        synced: new Set(['spaces-aspc-facade']),
+        lockText: lock('latest', 'latest', [
+          entry('spaces-aspc-facade', 'spaces-aspc-facade@2.0.0'),
+        ]),
+      })
+
+      expect(removed).toEqual([stale])
+      expect(await Bun.file(join(stale, 'package.json')).exists()).toBe(false)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 })
