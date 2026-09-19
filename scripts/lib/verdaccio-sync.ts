@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 
 // scripts/lib/ -> repo root
@@ -727,8 +727,19 @@ export async function pruneUnselectedNestedPackageVersions(options: {
     const manifest = await readFile(join(dir, 'package.json'), 'utf8')
       .then((raw) => JSON.parse(raw) as { name?: unknown; version?: unknown })
       .catch(() => undefined)
+    if (manifest === undefined) {
+      const brokenLink = await lstat(dir)
+        .then((entry) => entry.isSymbolicLink())
+        .catch(() => false)
+      const name = dir.slice(dir.lastIndexOf('/') + 1)
+      if (brokenLink && options.synced.has(name)) {
+        await rm(dir, { recursive: true, force: true })
+        removed.push(dir)
+      }
+      continue
+    }
     if (
-      typeof manifest?.name !== 'string' ||
+      typeof manifest.name !== 'string' ||
       typeof manifest.version !== 'string' ||
       !options.synced.has(manifest.name) ||
       selected.get(manifest.name)?.has(manifest.version)

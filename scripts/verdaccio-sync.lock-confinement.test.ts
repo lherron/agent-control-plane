@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -236,6 +236,31 @@ describe('nested producer package pruning', () => {
 
       expect(removed).toEqual([stale])
       expect(await Bun.file(join(stale, 'package.json')).exists()).toBe(false)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  test('removes a broken producer symlink so a frozen relink can recreate it', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'verdaccio-nested-prune-'))
+    try {
+      const consumer = join(root, 'packages', 'consumer')
+      const stale = join(consumer, 'node_modules', 'spaces-aspc-facade')
+      await mkdir(join(consumer, 'node_modules'), { recursive: true })
+      await writeFile(join(root, 'package.json'), '{}')
+      await writeFile(join(consumer, 'package.json'), '{}')
+      await symlink(join(root, 'missing-target'), stale)
+
+      const removed = await pruneUnselectedNestedPackageVersions({
+        discover: async () => [join(root, 'package.json'), join(consumer, 'package.json')],
+        synced: new Set(['spaces-aspc-facade']),
+        lockText: lock('latest', 'latest', [
+          entry('spaces-aspc-facade', 'spaces-aspc-facade@2.0.0'),
+        ]),
+      })
+
+      expect(removed).toEqual([stale])
+      expect(await Bun.file(stale).exists()).toBe(false)
     } finally {
       await rm(root, { recursive: true, force: true })
     }
