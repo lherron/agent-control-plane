@@ -695,8 +695,9 @@ async function bunInstallFromVerdaccio(
     // when that prior package still satisfies a transitive `latest` edge.
     // Force the resolve pass to ask Verdaccio again; the confinement step below
     // retains only the owned package closure before the frozen relink.
-    const flag = mode === 'relink' ? '--frozen-lockfile' : '--force'
-    const install = run('bun', ['install', flag, `--config=${bunfig}`])
+    const flags =
+      mode === 'relink' ? ['--frozen-lockfile'] : ['--force', '--no-cache']
+    const install = run('bun', ['install', ...flags, `--config=${bunfig}`])
     if (install.status !== 0) {
       throw new Error(`bun install failed while syncing ${label} packages:\n${install.out}`)
     }
