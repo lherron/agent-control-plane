@@ -311,7 +311,7 @@
         "hrc-mail-injector": "./dist/cli.js",
       },
       "dependencies": {
-        "hrc-injector-core": "0.1.0-dev.20260919124143",
+        "hrc-injector-core": "0.1.0-dev.20260919152914",
         "hrc-sdk": "0.1.0-dev.20260919115424",
       },
       "devDependencies": {
@@ -1470,7 +1470,7 @@
 
     "hrc-events/diff": ["diff@7.0.0", "http://mini:4873/diff/-/diff-7.0.0.tgz", {}, "sha512-PJWHUb1RFevKCwaFA9RlG5tCd+FO5iRh9A8HEtkmBH2Li03iJriB6m6JIN4rGz3K3JLawI7/veA1xzRKP6ISBw=="],
 
-    "hrc-mail-injector/hrc-injector-core": ["hrc-injector-core@0.1.0-dev.20260919124143", "http://mini:4873/hrc-injector-core/-/hrc-injector-core-0.1.0-dev.20260919124143.tgz", { "dependencies": { "hrc-core": "0.1.0-dev.20260919115424", "hrc-sdk": "0.1.0-dev.20260919115424", "hrc-store-sqlite": "0.1.0-dev.20260919115424", "spaces-harness-broker-protocol": "0.1.1-dev.20260918162214" } }, "sha512-fgiHa2QoAeKFkBQrI1phLPw3pJSFV4mCLJu3uLuXwBtZKWG+50wNhMNW7jcjvbrvCPSgY96nXuHwGW0Jbdf3/Q=="],
+    "hrc-mail-injector/hrc-injector-core": ["hrc-injector-core@0.1.0-dev.20260919152914", "http://mini:4873/hrc-injector-core/-/hrc-injector-core-0.1.0-dev.20260919152914.tgz", { "dependencies": { "hrc-core": "0.1.0-dev.20260919115424", "hrc-sdk": "0.1.0-dev.20260919115424", "hrc-store-sqlite": "0.1.0-dev.20260919115424", "spaces-harness-broker-protocol": "0.1.1-dev.20260918162214" } }, "sha512-oJmIcpZzh5ZLIsLrmy0fOYvRe9EJXyk31ZXqs0lm0cBl/39RrABcblQbsK82jhWmZUpNBO0+odPi/hPPnJT56A=="],
 
     "node-fetch/data-uri-to-buffer": ["data-uri-to-buffer@4.0.1", "http://mini:4873/data-uri-to-buffer/-/data-uri-to-buffer-4.0.1.tgz", {}, "sha512-0R9ikRb668HB7QDxT1vkpuUBtqc53YyAwMwGeUFKRojY/NWKvdZ+9UYtRfGmhqNbRkTSVpMbmyhXipFFv2cb/A=="],
 

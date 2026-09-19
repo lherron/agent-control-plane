@@ -22,7 +22,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "hrc-injector-core": "0.1.0-dev.20260919124143",
+    "hrc-injector-core": "0.1.0-dev.20260919152914",
     "hrc-sdk": "0.1.0-dev.20260919115424"
   },
   "devDependencies": {
