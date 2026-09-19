@@ -6,11 +6,11 @@ describe('the sync install sequence', () => {
   const source = readFileSync(join(import.meta.dir, 'lib', 'verdaccio-sync.ts'), 'utf8')
   const sync = source.slice(source.indexOf('export async function syncFromVerdaccio'))
 
-  test('confines and relinks frozen', () => {
+  test('confines and force-relinks from the frozen lock', () => {
     expect(sync).toContain('installConfinedPackages({')
     expect(sync).toContain('beforeRelink: async () =>')
     expect(source).toContain(
-      "mode === 'relink' ? ['--frozen-lockfile'] : ['--force', '--no-cache']"
+      "mode === 'relink' ? ['--frozen-lockfile', '--force'] : ['--force', '--no-cache']"
     )
     expect(source).toContain('`--registry=${REGISTRY}`')
   })

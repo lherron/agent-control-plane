@@ -674,7 +674,7 @@ async function bunInstallFromVerdaccio(
   // old producer copy installed despite the temporary exact tuple declarations.
   // The explicit registry retains the local-publish source of truth, and the
   // caller confines this fresh resolution to the producer-owned closure.
-  const flags = mode === 'relink' ? ['--frozen-lockfile'] : ['--force', '--no-cache']
+  const flags = mode === 'relink' ? ['--frozen-lockfile', '--force'] : ['--force', '--no-cache']
   const install = run('bun', ['install', ...flags, `--registry=${REGISTRY}`])
   if (install.status !== 0) {
     throw new Error(`bun install failed while syncing ${label} packages:\n${install.out}`)
