@@ -829,6 +829,12 @@ export async function installConfinedPackages(options: {
   const lockPath = join(ROOT, 'bun.lock')
   const nestedBefore = await nestedPackageDirs(discover)
   await bunInstallFromVerdaccio(options.label, options.tmpPrefix)
+  if (process.env['ACP_ADVANCE_DEBUG'] === '1') {
+    const resolved = lockedPackageVersions(await readFile(lockPath, 'utf8'))
+    for (const name of ['spaces-aspc-facade', 'spaces-harness-broker', 'spaces-hrc-join-client']) {
+      console.log(`ADVANCE_DEBUG resolve ${name}=${[...(resolved.get(name) ?? [])].join(',') || 'missing'}`)
+    }
+  }
   await options.beforeRelink?.()
   await writeFile(
     lockPath,
@@ -840,6 +846,12 @@ export async function installConfinedPackages(options: {
       options.declared ?? new Map()
     )
   )
+  if (process.env['ACP_ADVANCE_DEBUG'] === '1') {
+    const confined = lockedPackageVersions(await readFile(lockPath, 'utf8'))
+    for (const name of ['spaces-aspc-facade', 'spaces-harness-broker', 'spaces-hrc-join-client']) {
+      console.log(`ADVANCE_DEBUG confine ${name}=${[...(confined.get(name) ?? [])].join(',') || 'missing'}`)
+    }
+  }
   await pruneNestedPackageDirs(discover, nestedBefore)
   const nestedPruned = await pruneUnselectedNestedPackageVersions({
     discover,
