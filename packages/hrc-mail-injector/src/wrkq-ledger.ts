@@ -96,6 +96,28 @@ export function createWrkqLedger(): MailKickerLedger {
     present: (params) => call('wrkq.envelope.present', params),
     fail: (params) => call('wrkq.envelope.fail', params),
     envelopeShow: (params) => call('wrkq.envelope.show', params),
-    eventsView: (params) => call('wrkq.monitor.eventsView', params),
+    eventsView: async (params) => {
+      const view = await call<{ items?: unknown; high_water?: unknown }>(
+        'wrkq.monitor.eventsView',
+        params
+      )
+      return {
+        items: Array.isArray(view.items) ? view.items.map(mapMonitorEvent) : [],
+        highWater: typeof view.high_water === 'number' ? view.high_water : params.cursor,
+      }
+    },
+  }
+}
+
+function mapMonitorEvent(raw: unknown) {
+  const row = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
+  return {
+    id: typeof row['id'] === 'number' ? row['id'] : 0,
+    timestamp: typeof row['timestamp'] === 'string' ? row['timestamp'] : '',
+    resourceType: typeof row['resource_type'] === 'string' ? row['resource_type'] : '',
+    ...(typeof row['resource_uuid'] === 'string' ? { resourceUuid: row['resource_uuid'] } : {}),
+    ...(typeof row['resource_id'] === 'string' ? { resourceId: row['resource_id'] } : {}),
+    eventType: typeof row['event_type'] === 'string' ? row['event_type'] : '',
+    ...(typeof row['payload'] === 'string' ? { payload: row['payload'] } : {}),
   }
 }
