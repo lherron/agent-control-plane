@@ -500,19 +500,6 @@ export async function advanceProducers(argv: readonly string[] = Bun.argv.slice(
     const unexpected = changed.filter((path) => !allowed.has(path))
     if (unexpected.length > 0)
       throw new Error(`producer advance touched unexpected files: ${unexpected.join(', ')}`)
-    if (process.env['ACP_ADVANCE_DEBUG'] === '1') {
-      const rootManifest = JSON.parse(await readFile(resolve(ROOT, 'package.json'), 'utf8')) as {
-        overrides?: Record<string, string>
-      }
-      const selected = lockedPackageVersions(await readFile(resolve(ROOT, 'bun.lock'), 'utf8'))
-      for (const name of ['spaces-aspc-facade', 'spaces-harness-broker', 'spaces-hrc-join-client']) {
-        console.log(
-          `ADVANCE_DEBUG ${name} override=${rootManifest.overrides?.[name] ?? 'missing'} lock=${[
-            ...(selected.get(name) ?? []),
-          ].join(',') || 'missing'}`
-        )
-      }
-    }
     assertPostAdvanceConsumerDeployment()
     for (const entry of advancing) {
       console.log(

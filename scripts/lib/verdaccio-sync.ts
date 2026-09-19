@@ -1,6 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 
 // scripts/lib/ -> repo root
@@ -666,44 +665,19 @@ async function verifyInstalled(latest: Map<string, string>, label: string): Prom
   }
 }
 
-/**
- * Isolated bunfig for the sync install. Forces minimumReleaseAge = 0 so a
- * just-published dev version is not age-gated by a global ~/.npmrc, while
- * preserving the repo's install linker: a `--config` bunfig fully replaces the
- * repo's, and dropping a `linker = "hoisted"` makes bun relink file: workspace
- * deps and fail with EEXIST.
- */
-async function isolatedBunfigContent(): Promise<string> {
-  const repoBunfig = await readFile(join(ROOT, 'bunfig.toml'), 'utf8').catch(() => '')
-  const linker = repoBunfig.match(/^\s*linker\s*=\s*("[^"]*"|'[^']*')/m)?.[1]
-  const lines = ['[install]', `registry = ${JSON.stringify(REGISTRY)}`, 'minimumReleaseAge = 0']
-  if (linker) lines.push(`linker = ${linker}`)
-  return `${lines.join('\n')}\n`
-}
-
 async function bunInstallFromVerdaccio(
   label: string,
-  tmpPrefix: string,
   mode: 'resolve' | 'relink' = 'resolve'
 ): Promise<void> {
-  const tmp = await mkdtemp(join(tmpdir(), tmpPrefix))
-  try {
-    const bunfig = join(tmp, 'bunfig.toml')
-    await writeFile(bunfig, await isolatedBunfigContent())
-    // A producer advance temporarily changes exact tuple declarations. Bun's
-    // ordinary install (even with --no-cache) can retain the old lock selection
-    // when that prior package still satisfies a transitive `latest` edge.
-    // Force the resolve pass to ask Verdaccio again; the confinement step below
-    // retains only the owned package closure before the frozen relink.
-    const flags =
-      mode === 'relink' ? ['--frozen-lockfile'] : ['--force', '--no-cache']
-    const install = run('bun', ['install', ...flags, `--config=${bunfig}`])
-    if (process.env['ACP_ADVANCE_DEBUG'] === '1') console.log(`ADVANCE_DEBUG bun ${mode}\n${install.out}`)
-    if (install.status !== 0) {
-      throw new Error(`bun install failed while syncing ${label} packages:\n${install.out}`)
-    }
-  } finally {
-    await rm(tmp, { recursive: true, force: true })
+  // Resolve against the repository's ordinary Bun configuration. A temporary
+  // --config changes Bun's handling of transitive `latest` entries, leaving an
+  // old producer copy installed despite the temporary exact tuple declarations.
+  // The explicit registry retains the local-publish source of truth, and the
+  // caller confines this fresh resolution to the producer-owned closure.
+  const flags = mode === 'relink' ? ['--frozen-lockfile'] : ['--force', '--no-cache']
+  const install = run('bun', ['install', ...flags, `--registry=${REGISTRY}`])
+  if (install.status !== 0) {
+    throw new Error(`bun install failed while syncing ${label} packages:\n${install.out}`)
   }
 }
 
@@ -830,13 +804,7 @@ export async function installConfinedPackages(options: {
   const discover = options.discover ?? packagesManifestPaths
   const lockPath = join(ROOT, 'bun.lock')
   const nestedBefore = await nestedPackageDirs(discover)
-  await bunInstallFromVerdaccio(options.label, options.tmpPrefix)
-  if (process.env['ACP_ADVANCE_DEBUG'] === '1') {
-    const resolved = lockedPackageVersions(await readFile(lockPath, 'utf8'))
-    for (const name of ['spaces-aspc-facade', 'spaces-harness-broker', 'spaces-hrc-join-client']) {
-      console.log(`ADVANCE_DEBUG resolve ${name}=${[...(resolved.get(name) ?? [])].join(',') || 'missing'}`)
-    }
-  }
+  await bunInstallFromVerdaccio(options.label)
   await options.beforeRelink?.()
   await writeFile(
     lockPath,
@@ -848,12 +816,6 @@ export async function installConfinedPackages(options: {
       options.declared ?? new Map()
     )
   )
-  if (process.env['ACP_ADVANCE_DEBUG'] === '1') {
-    const confined = lockedPackageVersions(await readFile(lockPath, 'utf8'))
-    for (const name of ['spaces-aspc-facade', 'spaces-harness-broker', 'spaces-hrc-join-client']) {
-      console.log(`ADVANCE_DEBUG confine ${name}=${[...(confined.get(name) ?? [])].join(',') || 'missing'}`)
-    }
-  }
   await pruneNestedPackageDirs(discover, nestedBefore)
   const nestedPruned = await pruneUnselectedNestedPackageVersions({
     discover,
@@ -870,7 +832,7 @@ export async function installConfinedPackages(options: {
   if (pruned.length > 0) {
     console.log(`ROOT_STORE_PRUNE ${pruned.sort().join(', ')}`)
   }
-  await bunInstallFromVerdaccio(options.label, options.tmpPrefix, 'relink')
+  await bunInstallFromVerdaccio(options.label, 'relink')
 }
 
 /**
