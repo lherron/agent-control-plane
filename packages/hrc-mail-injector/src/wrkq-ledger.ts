@@ -13,6 +13,7 @@ type RpcFrame = {
 const HRC_LEDGER_PRINCIPAL_REF = 'agent:hrc'
 const PRINCIPAL_FREE_METHODS = new Set(['wrkq.monitor.eventsView', 'wrkq.envelope.birthEnvelope'])
 const REQUEST_TIMEOUT_MS = 15_000
+const WRKQ_RPC_PROTOCOL_VERSION = '2026-06-30'
 
 function wrkqAuthorityEnvironment(): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = {}
@@ -47,6 +48,17 @@ export function createWrkqLedger(): MailKickerLedger {
     child.stdin.write(
       `${JSON.stringify({
         jsonrpc: '2.0',
+        id: 0,
+        method: 'rpc.initialize',
+        params: {
+          protocolVersion: WRKQ_RPC_PROTOCOL_VERSION,
+          client: { name: 'hrc-mail-injector', version: '0.1.0' },
+        },
+      })}\n`
+    )
+    child.stdin.write(
+      `${JSON.stringify({
+        jsonrpc: '2.0',
         id: 1,
         method,
         params: PRINCIPAL_FREE_METHODS.has(method)
@@ -75,11 +87,31 @@ export function createWrkqLedger(): MailKickerLedger {
     if (exitCode !== 0) {
       throw new WrkqLedgerUnavailableError(`wrkq ${method} failed: ${stderr.trim()}`, method)
     }
-    let frame: RpcFrame
+    let frames: RpcFrame[]
     try {
-      frame = JSON.parse(stdout.trim()) as RpcFrame
+      frames = stdout
+        .trim()
+        .split('\n')
+        .filter((line) => line.length > 0)
+        .map((line) => JSON.parse(line) as RpcFrame)
     } catch {
       throw new WrkqLedgerUnavailableError(`wrkq ${method} returned invalid JSON`, method)
+    }
+    const initialization = frames.find((frame) => frame.id === 0)
+    if (initialization === undefined) {
+      throw new WrkqLedgerUnavailableError(`wrkq ${method} omitted rpc.initialize`, method)
+    }
+    if (initialization.error !== undefined) {
+      throw new WrkqLedgerRequestError(
+        `wrkq rpc.initialize refused: ${typeof initialization.error.message === 'string' ? initialization.error.message : 'unknown error'}`,
+        'rpc.initialize',
+        typeof initialization.error.code === 'number' ? initialization.error.code : -32_000,
+        initialization.error.data
+      )
+    }
+    const frame = frames.find((candidate) => candidate.id === 1)
+    if (frame === undefined) {
+      throw new WrkqLedgerUnavailableError(`wrkq ${method} omitted its response`, method)
     }
     if (frame.error !== undefined) {
       throw new WrkqLedgerRequestError(
