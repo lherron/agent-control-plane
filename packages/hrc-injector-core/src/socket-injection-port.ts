@@ -18,6 +18,7 @@ import type {
 export const MAIL_SUBSCRIBER_NAME = 'mail'
 const BROKER_FOLLOW_LIMIT = 500
 const EMPTY_FOLLOW_DELAY_MS = 100
+const RECONNECT_DELAY_MS = 250
 
 /**
  * Socket-only implementation of the injector's HRC capability boundary.
@@ -28,8 +29,18 @@ export function createSocketInjectionPort(client: HrcClient): HrcInjectionPort {
   let closed = false
   let subscriber: Promise<void> | undefined
   const declareSubscriber = async (): Promise<void> => {
-    subscriber ??= client.declareSubscriber({ name: MAIL_SUBSCRIBER_NAME }).then(() => undefined)
-    await subscriber
+    const attempt =
+      subscriber ?? client.declareSubscriber({ name: MAIL_SUBSCRIBER_NAME }).then(() => undefined)
+    subscriber = attempt
+    try {
+      await attempt
+    } catch (error) {
+      if (subscriber === attempt) subscriber = undefined
+      throw error
+    }
+  }
+  const invalidateSubscriber = (): void => {
+    subscriber = undefined
   }
 
   const targetSession = async (targetSessionRef: string): Promise<HrcSessionRecord | undefined> => {
@@ -51,7 +62,12 @@ export function createSocketInjectionPort(client: HrcClient): HrcInjectionPort {
     const target = `${session.scopeRef}/lane:${session.laneRef}`
     const origin = options.submissionOrigin
     if (door === 'steer') {
-      return await client.steer({ target, body: prompt, origin, wait: options.waitForCompletion })
+      return await client.steer({
+        target,
+        body: prompt,
+        origin,
+        wait: options.waitForCompletion,
+      })
     }
     if (door === 'enqueue') {
       return await client.enqueue({
@@ -124,7 +140,9 @@ export function createSocketInjectionPort(client: HrcClient): HrcInjectionPort {
       } catch (error) {
         return {
           ok: false,
-          error: { message: error instanceof Error ? error.message : String(error) },
+          error: {
+            message: error instanceof Error ? error.message : String(error),
+          },
         }
       }
     },
@@ -154,8 +172,9 @@ export function createSocketInjectionPort(client: HrcClient): HrcInjectionPort {
       await declareSubscriber()
       const operation = (async () => {
         let cursor = afterSeq
-        try {
-          while (!closed) {
+        while (!closed) {
+          try {
+            await declareSubscriber()
             let observed = false
             for await (const event of client.watch({ fromSeq: cursor + 1 })) {
               if (closed) return
@@ -163,10 +182,17 @@ export function createSocketInjectionPort(client: HrcClient): HrcInjectionPort {
               cursor = event.hrcSeq
               onEvent(event)
             }
-            if (!observed) await delay(EMPTY_FOLLOW_DELAY_MS)
+            // A watch normally ends only when its daemon-side stream closes.
+            // The replacement daemon has no in-memory named subscribers, so
+            // force the next iteration to declare this consumer again.
+            invalidateSubscriber()
+            if (!closed) {
+              await delay(observed ? RECONNECT_DELAY_MS : EMPTY_FOLLOW_DELAY_MS)
+            }
+          } catch {
+            invalidateSubscriber()
+            if (!closed) await delay(RECONNECT_DELAY_MS)
           }
-        } catch {
-          // The injector's durable cursor and periodic reconciliation own retry.
         }
       })()
       return async () => {
@@ -178,21 +204,29 @@ export function createSocketInjectionPort(client: HrcClient): HrcInjectionPort {
       await declareSubscriber()
       const operation = (async () => {
         let cursor = afterCommit
-        try {
-          while (!closed) {
+        while (!closed) {
+          try {
+            await declareSubscriber()
             const page = await client.followBrokerEvents(
               { afterCommit: cursor, limit: BROKER_FOLLOW_LIMIT },
               MAIL_SUBSCRIBER_NAME
             )
             for (const event of page.events) {
               if (closed) return
-              onEvent({ ...event, id: event.commitOrdinal } as HrcBrokerInvocationEventRecord)
+              onEvent({
+                ...event,
+                id: event.commitOrdinal,
+              } as HrcBrokerInvocationEventRecord)
             }
             cursor = page.nextCommit
             if (page.events.length === 0) await delay(EMPTY_FOLLOW_DELAY_MS)
+          } catch {
+            // HRC subscriber declarations are daemon-memory state. A socket
+            // break or an unknown-subscriber response after daemon restart
+            // invalidates the successful declaration from the prior epoch.
+            invalidateSubscriber()
+            if (!closed) await delay(RECONNECT_DELAY_MS)
           }
-        } catch {
-          // The injector's durable cursor and periodic reconciliation own retry.
         }
       })()
       return async () => {
