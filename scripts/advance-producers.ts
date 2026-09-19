@@ -380,6 +380,44 @@ export async function restoreFailedProducerAdvance(
   }
 }
 
+/**
+ * Root overrides constrain package resolution; they do not themselves add a
+ * dependency. Once a producer release stops declaring a package, retain no
+ * override for the now-uninstalled member or deployment-coherence will demand
+ * an impossible installed copy.
+ */
+export function pruneInactiveProducerOverrides(
+  overrides: Record<string, string>,
+  advancedMembers: ReadonlySet<string>,
+  activeMembers: ReadonlySet<string>
+): string[] {
+  const removed: string[] = []
+  for (const name of advancedMembers) {
+    if (activeMembers.has(name) || overrides[name] === undefined) continue
+    delete overrides[name]
+    removed.push(name)
+  }
+  return removed.sort()
+}
+
+async function ensureRootProducerOverrides(
+  members: ReadonlySet<string>,
+  version: string
+): Promise<void> {
+  const rootPath = resolve(ROOT, 'package.json')
+  const root = JSON.parse(await readFile(rootPath, 'utf8')) as {
+    overrides?: Record<string, string>
+  }
+  root.overrides ??= {}
+  let changed = false
+  for (const name of members) {
+    if (root.overrides[name] === version) continue
+    root.overrides[name] = version
+    changed = true
+  }
+  if (changed) await writeFile(rootPath, `${JSON.stringify(root, null, 2)}\n`)
+}
+
 export async function advanceProducers(argv: readonly string[] = Bun.argv.slice(2)): Promise<void> {
   const { requests, dryRun } = parseArguments(argv)
   assertCleanTrackedTree()
@@ -426,7 +464,6 @@ export async function advanceProducers(argv: readonly string[] = Bun.argv.slice(
       `PRODUCER_ADVANCED ${entry.producer.setName} ${entry.producer.setVersion} -> ${entry.version} (${entry.sourceCommit}) — no change`
     )
   }
-  if (advancing.length === 0) return
 
   const manifestPaths = (await packagesManifestPaths(ROOT)).map((path) =>
     path.slice(ROOT.length + 1)
@@ -440,22 +477,26 @@ export async function advanceProducers(argv: readonly string[] = Bun.argv.slice(
     // alongside a second stale set never has to resolve the other's dead pins.
     const members = new Set<string>()
     const versionByMember = new Map<string, string>()
-    for (const entry of advancing) {
+    for (const entry of planned) {
       const setMembers = new Set(membership[entry.producer.setName])
-      await rewriteProducerFiles(
-        entry.producer.setName,
-        entry.producer.setVersion,
-        entry.version,
-        entry.producer.sourceCommit,
-        entry.sourceCommit,
-        setMembers
-      )
+      if (advancing.includes(entry)) {
+        await rewriteProducerFiles(
+          entry.producer.setName,
+          entry.producer.setVersion,
+          entry.version,
+          entry.producer.sourceCommit,
+          entry.sourceCommit,
+          setMembers
+        )
+      } else {
+        await ensureRootProducerOverrides(setMembers, entry.version)
+      }
       for (const name of setMembers) {
         members.add(name)
         versionByMember.set(name, entry.version)
       }
     }
-    const setNames = advancing.map((entry) => entry.producer.setName)
+    const setNames = planned.map((entry) => entry.producer.setName)
     const declared = declaredManifestVersions(snapshots)
     for (let iteration = 1; iteration <= 3; iteration += 1) {
       const lockBeforeIteration = await readFile(resolve(ROOT, 'bun.lock'), 'utf8')
@@ -469,7 +510,7 @@ export async function advanceProducers(argv: readonly string[] = Bun.argv.slice(
       })
       const nextMembership = await producerMembership()
       const added: { name: string; version: string }[] = []
-      for (const entry of advancing) {
+      for (const entry of planned) {
         for (const name of nextMembership[entry.producer.setName]) {
           if (!members.has(name)) added.push({ name, version: entry.version })
         }
@@ -491,6 +532,20 @@ export async function advanceProducers(argv: readonly string[] = Bun.argv.slice(
         root.overrides[item.name] = item.version
       }
       await writeFile(rootPath, `${JSON.stringify(root, null, 2)}\n`)
+    }
+
+    const activeMembership = await producerMembership()
+    const activeMembers = new Set([...activeMembership.asp, ...activeMembership.hrc])
+    const rootPath = resolve(ROOT, 'package.json')
+    const root = JSON.parse(await readFile(rootPath, 'utf8')) as {
+      overrides?: Record<string, string>
+    }
+    if (root.overrides !== undefined) {
+      const removed = pruneInactiveProducerOverrides(root.overrides, members, activeMembers)
+      if (removed.length > 0) {
+        await writeFile(rootPath, `${JSON.stringify(root, null, 2)}\n`)
+        console.log(`PRODUCER_INACTIVE_OVERRIDES ${removed.join(',')}`)
+      }
     }
 
     const lockAfter = await readFile(resolve(ROOT, 'bun.lock'), 'utf8')

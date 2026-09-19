@@ -9,7 +9,9 @@ describe('the sync install sequence', () => {
   test('confines and relinks frozen', () => {
     expect(sync).toContain('installConfinedPackages({')
     expect(sync).toContain('beforeRelink: async () =>')
-    expect(source).toContain("mode === 'relink' ? ['--frozen-lockfile'] : ['--force', '--no-cache']")
+    expect(source).toContain(
+      "mode === 'relink' ? ['--frozen-lockfile'] : ['--force', '--no-cache']"
+    )
     expect(source).toContain('`--registry=${REGISTRY}`')
   })
 })

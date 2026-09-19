@@ -14,6 +14,7 @@ import {
   assertUnrelatedLockSelectionsUnchanged,
   declaredManifestVersions,
   parseArguments,
+  pruneInactiveProducerOverrides,
   restoreFailedProducerAdvance,
 } from './advance-producers.js'
 
@@ -200,6 +201,29 @@ describe('producer advance arguments', () => {
   test('refuses an unknown set and an empty request', () => {
     expect(() => parseArguments(['set=wrkq', 'version=1'])).toThrow(/usage/)
     expect(() => parseArguments([])).toThrow(/usage/)
+  })
+})
+
+describe('inactive producer overrides', () => {
+  test('removes only advanced members that no longer resolve after a tuple advance', () => {
+    const overrides = {
+      '@types/bun': '1.3.14',
+      'spaces-active': '2.0.0',
+      'spaces-orphaned': '2.0.0',
+      'hrc-unrelated': '1.0.0',
+    }
+    expect(
+      pruneInactiveProducerOverrides(
+        overrides,
+        new Set(['spaces-active', 'spaces-orphaned']),
+        new Set(['spaces-active'])
+      )
+    ).toEqual(['spaces-orphaned'])
+    expect(overrides).toEqual({
+      '@types/bun': '1.3.14',
+      'spaces-active': '2.0.0',
+      'hrc-unrelated': '1.0.0',
+    })
   })
 })
 

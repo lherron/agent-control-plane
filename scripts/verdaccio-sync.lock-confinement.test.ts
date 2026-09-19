@@ -2,7 +2,10 @@ import { describe, expect, test } from 'bun:test'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { confineLockToSyncedPackages, pruneUnselectedNestedPackageVersions } from './lib/verdaccio-sync'
+import {
+  confineLockToSyncedPackages,
+  pruneUnselectedNestedPackageVersions,
+} from './lib/verdaccio-sync'
 
 const entry = (key: string, resolution: string, info = '{}'): string =>
   `    ${JSON.stringify(key)}: [${JSON.stringify(resolution)}, "http://mini:4873/${key}.tgz", ${info}, "sha512-${resolution}"],`

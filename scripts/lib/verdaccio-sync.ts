@@ -768,8 +768,15 @@ export async function pruneUnselectedRootStoreVersions(options: {
     if (parsed === undefined) continue
     if (!options.synced.has(parsed.name)) continue
     const versions = selected.get(parsed.name)
-    if (versions === undefined || versions.size === 0) continue
-    if ([...versions].some((v) => parsed.rest === v || parsed.rest.startsWith(`${v}+`))) continue
+    // A producer package absent from the confined lock is just as stale as a
+    // superseded version. Leaving that root-store copy in place makes it look
+    // installed to deployment-coherence after its consuming package stopped
+    // declaring it.
+    if (
+      versions?.size !== undefined &&
+      [...versions].some((v) => parsed.rest === v || parsed.rest.startsWith(`${v}+`))
+    )
+      continue
     await rm(join(store, entry.name), { recursive: true, force: true })
     removed.push(entry.name)
   }

@@ -137,4 +137,20 @@ describe('pruning unselected root-store versions on producer advance (T-08572 H3
       await rm(root, { recursive: true, force: true })
     }
   })
+
+  test('removes a producer store dir absent from the confined lock', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'root-store-prune-'))
+    try {
+      await seedStore(root)
+      const absent = lockText.replace(`${entry('hrc-sdk', `hrc-sdk@${NEW}`)}\n`, '')
+      const removed = await pruneUnselectedRootStoreVersions({
+        root,
+        synced: new Set(['hrc-sdk']),
+        lockText: absent,
+      })
+      expect(removed.sort()).toEqual([`hrc-sdk@${OLD}`, `hrc-sdk@${NEW}`])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
 })
