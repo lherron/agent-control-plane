@@ -676,7 +676,7 @@ async function verifyInstalled(latest: Map<string, string>, label: string): Prom
 async function isolatedBunfigContent(): Promise<string> {
   const repoBunfig = await readFile(join(ROOT, 'bunfig.toml'), 'utf8').catch(() => '')
   const linker = repoBunfig.match(/^\s*linker\s*=\s*("[^"]*"|'[^']*')/m)?.[1]
-  const lines = ['[install]', 'minimumReleaseAge = 0']
+  const lines = ['[install]', `registry = ${JSON.stringify(REGISTRY)}`, 'minimumReleaseAge = 0']
   if (linker) lines.push(`linker = ${linker}`)
   return `${lines.join('\n')}\n`
 }
