@@ -10,6 +10,7 @@ import {
   readInjectorImportMarker,
 } from 'hrc-injector-core'
 
+import { normalizeFailureNoticeDispatchResult } from './failure-notice-dispatch.js'
 import { createWrkqLedger } from './wrkq-ledger.js'
 
 export type MailInjectorOptions = Readonly<{
@@ -41,6 +42,14 @@ export function assertMailInjectorPosture(
 }
 
 /**
+ * `enqueue(wait=false)` may return `completed` when the target accepted and
+ * completed the notification before its dispatch response crossed the socket.
+ * The extracted kicker predates that response shape and treated it as a failed
+ * start, leaving the same durable sender-failure notice due forever. This
+ * adapter has the only safe discriminator: system notice submissions have no
+ * envelope id, unlike normal mail delivery.
+ */
+/**
  * Start the sole external collaboration-mail delivery owner. HRC's status is
  * checked before the state database is opened so an in-process writer can
  * never race this process.
@@ -61,13 +70,26 @@ export async function startMailInjector(
 
   const log = options.log ?? ((level, event, detail) => console.log(level, event, detail))
   const ledger = createWrkqLedger()
+  const socketPort = createSocketInjectionPort(client)
   const kicker = createMailKicker(
     {
       store,
       // injector-core deliberately exposes the public response projection;
       // the inherited policy also reads the complete dispatch response. Both
       // are supplied by the same HRC socket implementation at runtime.
-      port: createSocketInjectionPort(client) as unknown as KickerInjectionPort,
+      port: {
+        ...socketPort,
+        enqueue: async (
+          session: Parameters<typeof socketPort.enqueue>[0],
+          intent: Parameters<typeof socketPort.enqueue>[1],
+          prompt: Parameters<typeof socketPort.enqueue>[2],
+          options: Parameters<typeof socketPort.enqueue>[3]
+        ) =>
+          normalizeFailureNoticeDispatchResult(
+            await socketPort.enqueue(session, intent, prompt, options),
+            options
+          ),
+      } as unknown as KickerInjectionPort,
       ledger,
       nodeId: options.nodeId,
       foreignHomeMemo: new Map(),

@@ -3,6 +3,7 @@ import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { normalizeFailureNoticeDispatchResult } from '../src/failure-notice-dispatch.js'
 import { assertMailInjectorPosture } from '../src/index.js'
 import { createWrkqLedger } from '../src/wrkq-ledger.js'
 
@@ -15,6 +16,27 @@ describe('mail injector HRC ownership admission', () => {
   test('refuses concurrent or malformed HRC delivery ownership', () => {
     expect(() => assertMailInjectorPosture('in-process')).toThrow(/in-process/)
     expect(() => assertMailInjectorPosture(undefined)).toThrow(/recognized/)
+  })
+
+  test('settles a sender-failure notice when HRC reports a completed enqueue', () => {
+    const options = {
+      ttlMs: 1_000,
+      submissionOrigin: {
+        principalRef: 'system:hrc-kicker',
+        scopeRef: 'agent:cody:project:hrc-runtime',
+      },
+    }
+    const settled = normalizeFailureNoticeDispatchResult(
+      { status: 'completed', runId: 'run-1' } as never,
+      options
+    ) as { status?: string; runId?: string }
+    expect(settled).toEqual({ status: 'started', runId: 'run-1' })
+
+    const mail = normalizeFailureNoticeDispatchResult(
+      { status: 'completed', runId: 'run-2' } as never,
+      { ...options, submissionOrigin: { ...options.submissionOrigin, envelopeId: 'EN-15076' } }
+    ) as { status?: string }
+    expect(mail.status).toBe('completed')
   })
 
   test('initializes each short-lived wrkq RPC session before reading events', async () => {
