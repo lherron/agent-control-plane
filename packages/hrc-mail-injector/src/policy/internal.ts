@@ -43,6 +43,8 @@ export const KICKER_SUBMISSION_TTL_MS = 30 * 60_000
 export const LEDGER_TAIL_PAGE_LIMIT = 500
 export const LEDGER_SWEEP_SCOPE_BATCH = 100
 export const LEDGER_SWEEP_TICKS = 30
+/** Keep one periodic pass from turning HRC placement reads into a thundering herd. */
+export const MAIL_KICKER_MAX_CONCURRENT_TARGET_DRIVES = 4
 export const BIRTH_SWEEP_BACKOFF_BASE_MS = 60_000
 export const BIRTH_SWEEP_MAX_REFUSALS = 5
 export const LAPSE_SWEEP_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1_000

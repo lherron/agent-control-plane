@@ -19,6 +19,7 @@ import {
   DISPOSAL_DRAIN_DEADLINE_MS,
   LEDGER_SWEEP_TICKS,
   MAIL_DRIVE_TERMINAL_EVENTS,
+  MAIL_KICKER_MAX_CONCURRENT_TARGET_DRIVES,
   RUNTIME_TERMINAL_EVENTS,
   errorText,
   formatSessionRef,
@@ -54,6 +55,11 @@ export class MailKicker implements MailKickerContext {
   readonly mailKickerLapsedRuntimes = new Set<string>()
   readonly mailKickerDisposalsPending = new Set<Promise<void>>()
   private readonly landingObserverOperations = new Set<Promise<void>>()
+  private activeTargetDrives = 0
+  private readonly targetDriveWaiters: Array<{
+    targetSessionRef: string
+    resolve: (admitted: boolean) => void
+  }> = []
   mailKickerBootReconcilePending = true
   readonly mailKickerStalledDeliveryAnnounced = new Set<string>()
   readonly mailKickerSteerRefused = new Set<string>()
@@ -118,6 +124,7 @@ export class MailKicker implements MailKickerContext {
   async stop(): Promise<void> {
     if (this.stopping) return
     this.stopping = true
+    for (const waiter of this.targetDriveWaiters.splice(0)) waiter.resolve(false)
     await this.lifecycleUnsubscribe?.()
     this.lifecycleUnsubscribe = undefined
     await this.brokerUnsubscribe?.()
@@ -183,14 +190,20 @@ export class MailKicker implements MailKickerContext {
     if (existing !== undefined) return existing
 
     const operation = (async () => {
-      while (!this.stopping && this.enabled) {
-        const reason = this.mailKickerPendingTargets.get(targetSessionRef)
-        if (reason === undefined) return
-        this.mailKickerPendingTargets.delete(targetSessionRef)
-        const result = await driveMailTargetOnce(this, targetSessionRef, reason)
-        if (reason === 'periodic' && result?.outcome === 'birth-refused') {
-          await chargeBirthSweepRefusal(this, targetSessionRef)
+      const admitted = await this.acquireTargetDriveSlot(targetSessionRef)
+      if (!admitted) return
+      try {
+        while (!this.stopping && this.enabled) {
+          const reason = this.mailKickerPendingTargets.get(targetSessionRef)
+          if (reason === undefined) return
+          this.mailKickerPendingTargets.delete(targetSessionRef)
+          const result = await driveMailTargetOnce(this, targetSessionRef, reason)
+          if (reason === 'periodic' && result?.outcome === 'birth-refused') {
+            await chargeBirthSweepRefusal(this, targetSessionRef)
+          }
         }
+      } finally {
+        this.releaseTargetDriveSlot()
       }
     })().finally(() => {
       this.mailKickerTargetOperations.delete(targetSessionRef)
@@ -207,6 +220,35 @@ export class MailKicker implements MailKickerContext {
     })
     this.mailKickerTargetOperations.set(targetSessionRef, operation)
     return operation
+  }
+
+  private acquireTargetDriveSlot(targetSessionRef: string): Promise<boolean> {
+    if (this.stopping || !this.enabled) return Promise.resolve(false)
+    if (this.activeTargetDrives < MAIL_KICKER_MAX_CONCURRENT_TARGET_DRIVES) {
+      this.activeTargetDrives += 1
+      return Promise.resolve(true)
+    }
+    return new Promise<boolean>((resolve) =>
+      this.targetDriveWaiters.push({ targetSessionRef, resolve })
+    )
+  }
+
+  private releaseTargetDriveSlot(): void {
+    this.activeTargetDrives -= 1
+    while (this.targetDriveWaiters.length > 0) {
+      const priorityIndex = this.targetDriveWaiters.findIndex(
+        ({ targetSessionRef }) => this.mailKickerPendingTargets.get(targetSessionRef) !== 'periodic'
+      )
+      const [waiter] = this.targetDriveWaiters.splice(priorityIndex < 0 ? 0 : priorityIndex, 1)
+      if (waiter === undefined) return
+      if (this.stopping || !this.enabled) {
+        waiter.resolve(false)
+        continue
+      }
+      this.activeTargetDrives += 1
+      waiter.resolve(true)
+      return
+    }
   }
 
   runSweepOnce(): Promise<void> {
