@@ -48,6 +48,17 @@ export type InjectionDispatchResult = {
 }
 
 /**
+ * The authoritative, per-runtime read needed by delivery policy.  Keep this
+ * intentionally narrower than the fleet-list projection: the socket adapter
+ * obtains it from HRC's exact `inspectRuntime` route, which does not promise
+ * list-only capability or adoption fields.
+ */
+export type HrcRuntimeLookup = Pick<
+  HrcRuntimeSnapshot,
+  'runtimeId' | 'status' | 'activeInvocationId'
+>
+
+/**
  * The complete public HRC surface that an external delivery owner may use.
  *
  * This structural port deliberately exposes no HRC store, server instance, or
@@ -55,7 +66,7 @@ export type InjectionDispatchResult = {
  * independently without acquiring an in-process HRC writer.
  */
 export type HrcInjectionPort = {
-  runtime(runtimeId: string): Promise<HrcRuntimeSnapshot | undefined>
+  runtime(runtimeId: string): Promise<HrcRuntimeLookup | undefined>
   runtimesByHostSession(hostSessionId: string): Promise<readonly HrcRuntimeSnapshot[]>
   allRuntimes(): Promise<readonly HrcRuntimeSnapshot[]>
   liveSessionRefs(): Promise<readonly string[]>

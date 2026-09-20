@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
+import { HrcDomainError, HrcErrorCode } from 'hrc-core'
 import type { HrcClient } from 'hrc-sdk'
 
 import { createSocketInjectionPort } from '../src/index.js'
@@ -20,6 +21,42 @@ async function eventually(assertion: () => void, timeoutMs = 2_000): Promise<voi
 }
 
 describe('socket injection subscriptions', () => {
+  test('reads one runtime through the exact inspection route, never the paginated fleet list', async () => {
+    let inspected: string | undefined
+    const client = {
+      async inspectRuntime({ runtimeId }: { runtimeId: string }) {
+        inspected = runtimeId
+        return {
+          runtimeId,
+          status: 'ready',
+          activeInvocationId: 'inv-observed-on-inspect-wire',
+        }
+      },
+      async listRuntimes() {
+        throw new Error('runtime() must not start a fleet-wide list')
+      },
+    } as unknown as HrcClient
+
+    const port = createSocketInjectionPort(client)
+    expect(await port.runtime('rt-exact')).toEqual({
+      runtimeId: 'rt-exact',
+      status: 'ready',
+      activeInvocationId: 'inv-observed-on-inspect-wire',
+    })
+    expect(inspected).toBe('rt-exact')
+  })
+
+  test('maps only the authoritative unknown-runtime response to an absent lookup', async () => {
+    const client = {
+      async inspectRuntime() {
+        throw new HrcDomainError(HrcErrorCode.UNKNOWN_RUNTIME, 'unknown runtime', {})
+      },
+    } as unknown as HrcClient
+
+    const port = createSocketInjectionPort(client)
+    expect(await port.runtime('rt-missing')).toBeUndefined()
+  })
+
   test('re-declares mail and resumes broker evidence after HRC restarts', async () => {
     let declarations = 0
     let follows = 0

@@ -4,6 +4,7 @@ import type {
   HrcSessionRecord,
   PreemptSubmissionRequest,
 } from 'hrc-core'
+import { HrcDomainError, HrcErrorCode } from 'hrc-core'
 import type { HrcClient } from 'hrc-sdk'
 import type { SubmissionWithdrawResponse } from 'spaces-harness-broker-protocol'
 
@@ -117,8 +118,27 @@ export function createSocketInjectionPort(client: HrcClient): HrcInjectionPort {
   }
 
   const port: HrcInjectionPort = {
-    runtime: async (runtimeId) =>
-      (await client.listRuntimes({ all: true })).find((runtime) => runtime.runtimeId === runtimeId),
+    runtime: async (runtimeId) => {
+      try {
+        // This is deliberately the exact runtime read.  `listRuntimes({ all:
+        // true })` is paginated and can hold the socket through a fleet-wide
+        // scan, which makes one reconciliation probe head-of-line block broker
+        // disposition reads behind it.
+        const runtime = await client.inspectRuntime({ runtimeId })
+        return {
+          runtimeId: runtime.runtimeId,
+          status: runtime.status,
+          ...(runtime.activeInvocationId === null
+            ? {}
+            : { activeInvocationId: runtime.activeInvocationId }),
+        }
+      } catch (error) {
+        if (error instanceof HrcDomainError && error.code === HrcErrorCode.UNKNOWN_RUNTIME) {
+          return undefined
+        }
+        throw error
+      }
+    },
     runtimesByHostSession: async (hostSessionId) =>
       await client.listRuntimes({ hostSessionId, all: true }),
     allRuntimes: async () => await client.listRuntimes({ all: true }),
