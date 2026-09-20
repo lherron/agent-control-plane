@@ -10,7 +10,7 @@ import { createWrkqLedger } from '../../wrkq-ledger.js'
 import type { MailKickerContext } from '../context.js'
 import type { KickerDispatchOptions } from '../contracts.js'
 import { confirmStranded } from '../diagnostics/stranded.js'
-import { observeBrokerLanding } from '../drive/landing.js'
+import { commitLanding, observeBrokerLanding } from '../drive/landing.js'
 import { readActionableEnvelopes } from '../drive/presentation.js'
 import { reconcileOpenIntents } from '../drive/reconcile.js'
 import { observeBrokerSeat, runtimeAdvertisesSteer } from '../drive/seat.js'
@@ -783,6 +783,33 @@ describe('D3 — disposal is keyed by runtime and ledger sequence', () => {
       armed?.reminderArmedAt as string
     )
     expect(ledger.failRequests).toEqual([])
+  })
+
+  it('does not reset an armed reminder when the same presentation replays later', async () => {
+    const envelope = ledger.say()
+    await deliverOne(seatIn('turn-active'), envelope)
+    const intent = db.mailDelivery.getIntent(envelope.id)
+    if (intent === undefined) throw new Error('landing intent missing')
+    await observeBrokerLanding(
+      context,
+      brokerRecord('submission.absorbed', { submissionId: 'sub-1', turnId: 'turn-1' })
+    )
+    const landing = db.mailDelivery.getPresentation(envelope.id, RUNTIME)?.landingHrcSeq ?? 0
+    await disposeAt(landing + 10)
+    const armed = db.mailDelivery.getPresentation(envelope.id, RUNTIME)
+
+    await commitLanding(context, intent, {
+      runtimeId: RUNTIME,
+      eventType: 'submission.absorbed',
+      landingHrcSeq: landing + 100,
+    })
+
+    expect(db.mailDelivery.getPresentation(envelope.id, RUNTIME)).toMatchObject({
+      landingHrcSeq: landing,
+      reminderArmedAt: armed?.reminderArmedAt,
+      reminderDueAt: armed?.reminderDueAt,
+    })
+    expect(ledger.envelopes.get(envelope.id)?.presentedTo).toHaveLength(1)
   })
 
   it('does not grant a local-only receipt D3 or reminder authority', async () => {

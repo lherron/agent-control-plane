@@ -183,7 +183,16 @@ export async function commitLanding(
       input.runtimeId,
       input.landingHrcSeq
     )
-  } else {
+  } else if (
+    server.store.mailDelivery.getPresentation(intent.envelopeId, input.runtimeId)
+      ?.presentationId !== intent.presentationId
+  ) {
+    // A committed broker event can be observed more than once while the
+    // original landing is still clearing its intent.  `eventsHead()` is an
+    // observation fence, so its later value must not make that same opaque
+    // presentation look like a new delivery and erase D3's armed reminder.
+    // A genuinely later delivery mints a new presentation id and still
+    // replaces the row through recordPresentation below.
     server.store.mailDelivery.recordPresentation({
       envelopeId: intent.envelopeId,
       runtimeId: input.runtimeId,
