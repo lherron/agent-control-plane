@@ -51,17 +51,49 @@ async function deliverOne(seat: ObservedBrokerSeat, envelope: WrkqEnvelope) {
 }
 
 describe('D2 — the redelivery loop is bounded per (envelope, runtime)', () => {
-  it('keeps an intent safe-open when a broad runtime read stalls', async () => {
-    const envelope = ledger.say()
-    await deliverOne(seatIn('turn-active'), envelope)
-    context.port.runtime = async () => await new Promise(() => undefined)
+  it('reuses a stalled broad runtime read while a later matched landing commits', async () => {
+    const stalled = ledger.say()
+    await deliverOne(seatIn('turn-active'), stalled)
+    db.sqlite
+      .query(
+        'UPDATE hrcmail_delivery_intents SET runtime_id = ?, submission_id = ? WHERE envelope_id = ?'
+      )
+      .run('rt-runtime-read-stalled', 'sub-stalled', stalled.id)
+
+    const matched = ledger.say()
+    await deliverOne(seatIn('turn-active'), matched)
+    db.brokerInvocationEvents.appendEvent({
+      invocationId: 'inv-t08094',
+      seq: 1,
+      time: new Date().toISOString(),
+      type: 'submission.executed',
+      runtimeId: RUNTIME,
+      payload: { submissionId: 'sub-1', turnId: 'turn-matched' },
+    })
+
+    let stalledRuntimeReads = 0
+    context.port.runtime = async (runtimeId: string) => {
+      if (runtimeId === 'rt-runtime-read-stalled') {
+        stalledRuntimeReads += 1
+        return await new Promise(() => undefined)
+      }
+      return db.runtimes.getByRuntimeId(runtimeId) ?? undefined
+    }
 
     const startedAt = Date.now()
-    expect(await reconcileOpenIntents(context, { reason: 'periodic' })).toMatchObject({ open: 1 })
+    expect(await reconcileOpenIntents(context, { reason: 'periodic' })).toMatchObject({
+      landed: 1,
+      open: 1,
+    })
     expect(Date.now() - startedAt).toBeLessThan(RECONCILE_RUNTIME_READ_DEADLINE_MS + 1_000)
-    expect(db.mailDelivery.getIntent(envelope.id)?.uncertainCause).toBe(
+    expect(db.mailDelivery.getIntent(stalled.id)?.uncertainCause).toBe(
       'reconcile_runtime_read_timeout'
     )
+    expect(ledger.envelopes.get(matched.id)?.presentedTo).toHaveLength(1)
+    expect(stalledRuntimeReads).toBe(1)
+
+    await reconcileOpenIntents(context, { reason: 'periodic' })
+    expect(stalledRuntimeReads).toBe(1)
     expect(ledger.failRequests).toEqual([])
   })
 

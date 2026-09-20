@@ -45,17 +45,55 @@ export type IntentReconcileVerdict =
   | 'undeliverable'
   | 'open'
 
+type RuntimeRead = ReturnType<MailKickerContext['port']['runtime']>
+type RuntimeValue = Awaited<RuntimeRead>
+type OutstandingRuntimeRead = Readonly<{ runtimeId: string; read: RuntimeRead }>
+
+/**
+ * `runtime()` is a broad read in the active socket port.  A timeout cannot
+ * cancel that public port call, so retain one read until it settles.  A later
+ * reconciliation of the same runtime reuses it; other runtimes remain
+ * safe-open rather than accumulating their own broad socket reads.
+ */
+const outstandingRuntimeReads = new WeakMap<MailKickerContext, OutstandingRuntimeRead>()
+
+function outstandingRuntimeRead(
+  server: MailKickerContext,
+  runtimeId: string
+): Readonly<{ kind: 'read'; read: RuntimeRead }> | Readonly<{ kind: 'busy'; runtimeId: string }> {
+  const existing = outstandingRuntimeReads.get(server)
+  if (existing !== undefined) {
+    return existing.runtimeId === runtimeId
+      ? { kind: 'read', read: existing.read }
+      : { kind: 'busy', runtimeId: existing.runtimeId }
+  }
+
+  const read = Promise.resolve().then(async () => await server.port.runtime(runtimeId))
+  const outstanding = { runtimeId, read }
+  outstandingRuntimeReads.set(server, outstanding)
+  void read.then(
+    () => {
+      if (outstandingRuntimeReads.get(server) === outstanding)
+        outstandingRuntimeReads.delete(server)
+    },
+    () => {
+      if (outstandingRuntimeReads.get(server) === outstanding)
+        outstandingRuntimeReads.delete(server)
+    }
+  )
+  return { kind: 'read', read }
+}
+
 async function readRuntimeWithinDeadline(
   server: MailKickerContext,
   runtimeId: string
-): Promise<
-  | { timedOut: false; runtime: Awaited<ReturnType<MailKickerContext['port']['runtime']>> }
-  | { timedOut: true }
-> {
+): Promise<{ timedOut: false; runtime: RuntimeValue } | { timedOut: true }> {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
+    const outstanding = outstandingRuntimeRead(server, runtimeId)
+    if (outstanding.kind === 'busy') return { timedOut: true }
     return await Promise.race([
-      server.port.runtime(runtimeId).then((runtime) => ({ timedOut: false as const, runtime })),
+      outstanding.read.then((runtime) => ({ timedOut: false as const, runtime })),
       new Promise<{ timedOut: true }>((resolve) => {
         timer = setTimeout(() => resolve({ timedOut: true }), RECONCILE_RUNTIME_READ_DEADLINE_MS)
         timer.unref?.()
