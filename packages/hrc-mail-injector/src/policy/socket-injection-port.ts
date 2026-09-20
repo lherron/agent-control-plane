@@ -204,7 +204,7 @@ export function createSocketInjectionPort(client: HrcClient): HrcInjectionPort {
               if (closed) return
               onEvent({ ...event, id: event.commitOrdinal } as HrcBrokerInvocationEventRecord)
             }
-            cursor = page.nextCommit
+            if (page.events.length > 0) cursor = page.nextCommit + 1
             if (page.events.length === 0) await delay(EMPTY_FOLLOW_DELAY_MS)
           }
         } catch {

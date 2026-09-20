@@ -92,6 +92,34 @@ describe('socket injection subscriptions', () => {
     expect(await port.runtime('rt-missing')).toBeUndefined()
   })
 
+  test('advances past an accepted newer-or-equal broker boundary', async () => {
+    const requested: number[] = []
+    const observed: number[] = []
+    const client = {
+      async declareSubscriber() {
+        return { subscriberId: 'subscriber-mail' }
+      },
+      async followBrokerEvents(request: { afterCommit: number }) {
+        requested.push(request.afterCommit)
+        return request.afterCommit === 40
+          ? {
+              events: [{ commitOrdinal: 41, invocationId: 'inv-1', seq: 1 }],
+              nextCommit: 41,
+            }
+          : { events: [], nextCommit: request.afterCommit }
+      },
+    } as unknown as HrcClient
+
+    const port = createSocketInjectionPort(client)
+    const unsubscribe = await port.subscribeBroker({
+      afterCommit: 40,
+      onEvent: (event) => observed.push(event.commitOrdinal),
+    })
+    await eventually(() => expect(requested.slice(0, 2)).toEqual([40, 42]))
+    expect(observed).toEqual([41])
+    await unsubscribe()
+  })
+
   test('re-declares mail and resumes broker evidence after HRC restarts', async () => {
     let declarations = 0
     let follows = 0

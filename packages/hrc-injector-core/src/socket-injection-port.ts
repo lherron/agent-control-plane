@@ -247,7 +247,10 @@ export function createSocketInjectionPort(client: HrcClient): HrcInjectionPort {
                 id: event.commitOrdinal,
               } as HrcBrokerInvocationEventRecord)
             }
-            cursor = page.nextCommit
+            // Follow is newer-or-equal for reconnect safety. After accepting a
+            // non-empty page, move past its boundary or this live loop will
+            // replay one row forever without ever taking the empty-page delay.
+            if (page.events.length > 0) cursor = page.nextCommit + 1
             if (page.events.length === 0) await delay(EMPTY_FOLLOW_DELAY_MS)
           } catch {
             // HRC subscriber declarations are daemon-memory state. A socket
