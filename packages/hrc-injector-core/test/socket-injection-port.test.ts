@@ -21,6 +21,41 @@ async function eventually(assertion: () => void, timeoutMs = 2_000): Promise<voi
 }
 
 describe('socket injection subscriptions', () => {
+  test('reads one target through the exact route, never the fleet target list', async () => {
+    let requested: string | undefined
+    const client = {
+      async getTarget(sessionRef: string) {
+        requested = sessionRef
+        return { sessionRef, activeHostSessionId: 'hsid-exact' }
+      },
+      async getSession(hostSessionId: string) {
+        return { hostSessionId }
+      },
+      async listTargets() {
+        throw new Error('targetBySessionRef() must not start a fleet-wide list')
+      },
+    } as unknown as HrcClient
+
+    const port = createSocketInjectionPort(client)
+    expect(
+      await port.targetBySessionRef('agent:astra:project:agent-control-plane/lane:main')
+    ).toEqual({ hostSessionId: 'hsid-exact' })
+    expect(requested).toBe('agent:astra:project:agent-control-plane/lane:main')
+  })
+
+  test('maps only the authoritative unknown-session response to an absent target', async () => {
+    const client = {
+      async getTarget() {
+        throw new HrcDomainError(HrcErrorCode.UNKNOWN_SESSION, 'unknown session', {})
+      },
+    } as unknown as HrcClient
+
+    const port = createSocketInjectionPort(client)
+    expect(
+      await port.targetBySessionRef('agent:astra:project:agent-control-plane/lane:main')
+    ).toBeUndefined()
+  })
+
   test('reads one runtime through the exact inspection route, never the paginated fleet list', async () => {
     let inspected: string | undefined
     const client = {

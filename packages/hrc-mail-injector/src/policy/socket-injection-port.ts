@@ -1,8 +1,10 @@
-import type {
-  HrcBrokerInvocationEventRecord,
-  HrcRuntimeIntent,
-  HrcSessionRecord,
-  PreemptSubmissionRequest,
+import {
+  type HrcBrokerInvocationEventRecord,
+  HrcDomainError,
+  HrcErrorCode,
+  type HrcRuntimeIntent,
+  type HrcSessionRecord,
+  type PreemptSubmissionRequest,
 } from 'hrc-core'
 import type { HrcClient } from 'hrc-sdk'
 import type { SubmissionWithdrawResponse } from 'spaces-harness-broker-protocol'
@@ -33,9 +35,15 @@ export function createSocketInjectionPort(client: HrcClient): HrcInjectionPort {
   }
 
   const targetSession = async (targetSessionRef: string): Promise<HrcSessionRecord | undefined> => {
-    const target = (await client.listTargets({ includeDormant: true })).find(
-      (candidate) => candidate.sessionRef === targetSessionRef
-    )
+    let target: Awaited<ReturnType<HrcClient['getTarget']>>
+    try {
+      target = await client.getTarget(targetSessionRef)
+    } catch (error) {
+      if (error instanceof HrcDomainError && error.code === HrcErrorCode.UNKNOWN_SESSION) {
+        return undefined
+      }
+      throw error
+    }
     if (target?.activeHostSessionId === undefined) return undefined
     return await client.getSession(target.activeHostSessionId)
   }
