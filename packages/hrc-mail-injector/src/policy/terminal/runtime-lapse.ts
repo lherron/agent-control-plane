@@ -41,6 +41,16 @@ export async function failLapsedObligations(
     const receipt = newestPresentationReceipt(envelope)
     const runtime = receipt?.runtimeId
     if (runtime === undefined || !runtimeIds.has(runtime)) continue
+    // A second-strike hold intentionally keeps the ledger row `presented` so
+    // the addressee may still reply or defer. It is nevertheless terminal for
+    // injector policy: the local disposition is durable evidence that no
+    // automatic lapse failure may overwrite this ambiguous reply debt.
+    if (
+      server.store.mailDelivery.getPresentation(envelope.id, runtime)?.disposition ===
+      'held:awaiting_operator'
+    ) {
+      continue
+    }
     try {
       await failEnvelopeWithAudit(server, {
         envelope: envelope.id,

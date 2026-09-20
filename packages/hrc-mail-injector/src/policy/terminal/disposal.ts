@@ -16,9 +16,10 @@
  *    60-second reminder. When it fires, `readActionableEnvelopes` picks it up
  *    and D2 delivers the pointer form through whichever door the seat is then
  *    taking, and the reminder's own landing sequence is recorded.
- *  - undisposed, and its REMINDER landed before this terminal → `failed:ignored`.
- *    The reader has now ended two turns holding the obligation, the second
- *    after being pointed straight at it.
+ *  - undisposed, and its REMINDER landed before this terminal → hold the
+ *    presentation for operator review. A terminal turn is not evidence that
+ *    the worker deliberately ignored the envelope: its reply write may have
+ *    failed before it reached wrkq.
  *
  * "Undisposed" is read from wrkq at decision time, because the addressee may
  * have replied or deferred since; a discharged envelope terminates the record.
@@ -28,11 +29,10 @@
 import type { MailKickerContext } from '../context.js'
 import { REMINDER_HOLD_MS, errorText } from '../internal.js'
 import { newestPresentationReceipt } from '../ledger/types.js'
-import { failEnvelopeWithAudit } from './envelope-terminal.js'
 
 export type DisposalOutcome =
   | 'reminded'
-  | 'failed:ignored'
+  | 'held:awaiting_operator'
   | 'skipped:not_presented'
   | 'skipped:superseded'
   | 'skipped:awaiting_turn'
@@ -87,20 +87,28 @@ export function disposeRuntimeObligations(
         }
         const reminderSeq = presentation.reminderLandingHrcSeq
         if (reminderSeq !== undefined && reminderSeq < input.terminalHrcSeq) {
-          await failEnvelopeWithAudit(server, {
-            envelope: presentation.envelopeId,
-            reason: 'ignored',
-            runtime: input.runtimeId,
-            targetSessionRef: input.targetSessionRef,
-            presentationId: presentation.presentationId,
-            callSite: 'dispose_runtime_obligations',
-          })
-          outcomes[presentation.envelopeId] = 'failed:ignored'
-          server.store.mailDelivery.recordDisposition(
+          // Do not infer an ignored reply from a later terminal: a `wrkc say`
+          // may have failed before it committed.  The durable disposition is
+          // the only claim needed here. Its conditional write makes repeated
+          // terminal events idempotent and removes this row from every later
+          // reminder, disposal, reinjection, and lapse candidate set.
+          const held = server.store.mailDelivery.recordDisposition(
             presentation.envelopeId,
             input.runtimeId,
-            'failed:ignored'
+            'held:awaiting_operator'
           )
+          outcomes[presentation.envelopeId] = 'held:awaiting_operator'
+          if (held) {
+            server.log('WARN', 'wrkq.kicker.obligation_held', {
+              envelope: presentation.envelopeId,
+              targetSessionRef: input.targetSessionRef,
+              runtimeId: input.runtimeId,
+              presentationId: presentation.presentationId,
+              terminalEventKind: input.terminalEventKind,
+              terminalHrcSeq: input.terminalHrcSeq,
+              holdReason: 'reminder_landed_before_later_terminal',
+            })
+          }
           continue
         }
         if (reminderSeq !== undefined || presentation.reminderArmedAt !== undefined) {

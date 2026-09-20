@@ -14,6 +14,7 @@ import { driveMailTargetOnce } from '../drive/target-driver.js'
 import { KICKER_SUBMISSION_TTL_MS } from '../internal.js'
 import type { WrkqEnvelope } from '../ledger/types.js'
 import { disposeRuntimeObligations } from '../terminal/disposal.js'
+import { failLapsedObligations } from '../terminal/runtime-lapse.js'
 import type { FakeLedger, Recorded, T08094Harness } from './t08094-harness.js'
 import {
   RUNTIME_ID as RUNTIME,
@@ -808,7 +809,7 @@ describe('D3 — disposal is keyed by runtime and ledger sequence', () => {
     expect(db.mailDelivery.getPresentation(envelope.id, RUNTIME)?.reminderArmedAt).toBeUndefined()
   })
 
-  it('fails as `ignored` once the reminder itself has landed and a turn ends after it', async () => {
+  it('holds ambiguous reply debt once the reminder landed and a later turn ends', async () => {
     const envelope = await landOne()
     const landing = db.mailDelivery.getPresentation(envelope.id, RUNTIME)?.landingHrcSeq ?? 0
     await disposeAt(landing + 10)
@@ -818,10 +819,35 @@ describe('D3 — disposal is keyed by runtime and ledger sequence', () => {
     db.mailDelivery.recordReminderLanding(envelope.id, RUNTIME, landing + 20)
 
     await disposeAt(landing + 30)
-    expect(ledger.failRequests).toEqual([{ envelope: envelope.id, reason: 'ignored' }])
+    expect(ledger.envelopes.get(envelope.id)?.state).toBe('presented')
+    expect(ledger.failRequests).toEqual([])
     expect(db.mailDelivery.getPresentation(envelope.id, RUNTIME)?.disposition).toBe(
-      'failed:ignored'
+      'held:awaiting_operator'
     )
+    expect(logs.filter((entry) => entry.event === 'wrkq.kicker.obligation_held')).toEqual([
+      expect.objectContaining({
+        detail: expect.objectContaining({
+          envelope: envelope.id,
+          runtimeId: RUNTIME,
+          terminalEventKind: 'turn.completed',
+          terminalHrcSeq: landing + 30,
+          holdReason: 'reminder_landed_before_later_terminal',
+        }),
+      }),
+    ])
+
+    // The conditional local disposition makes repeated terminals inert. It
+    // also persists as the fence a restarted injector reads.
+    await disposeAt(landing + 40, 'turn.failed')
+    expect(logs.filter((entry) => entry.event === 'wrkq.kicker.obligation_held')).toHaveLength(1)
+    expect(db.mailDelivery.listUndisposedForRuntime(RUNTIME)).toEqual([])
+    expect(await readActionableEnvelopes(context, TARGET)).toEqual([])
+
+    // Runtime lapse continues to terminalize ordinary presentations, but may
+    // not overwrite a hold whose ledger row deliberately remains presented.
+    await failLapsedObligations(context, TARGET, new Set([RUNTIME]))
+    expect(ledger.envelopes.get(envelope.id)?.state).toBe('presented')
+    expect(ledger.failRequests).toEqual([])
   })
 
   it('disposes nothing for an envelope the reader has already answered', async () => {
