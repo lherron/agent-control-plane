@@ -50,16 +50,16 @@
   },
   "overrides": {
     "@types/bun": "1.3.14",
-    "agent-action-render": "0.1.0-dev.20260919115424",
+    "agent-action-render": "0.1.0-dev.20260919232026",
     "agent-scope": "0.1.1-dev.20260918162214",
     "agent-spaces": "0.1.1-dev.20260918162214",
     "cli-kit": "0.1.1-dev.20260918162214",
-    "hrc-core": "0.1.0-dev.20260919115424",
-    "hrc-events": "0.1.0-dev.20260919115424",
-    "hrc-frame-render": "0.1.0-dev.20260919115424",
-    "hrc-sdk": "0.1.0-dev.20260919115424",
-    "hrc-server": "0.1.0-dev.20260919115424",
-    "hrc-store-sqlite": "0.1.0-dev.20260919115424",
+    "hrc-core": "0.1.0-dev.20260919232026",
+    "hrc-events": "0.1.0-dev.20260919232026",
+    "hrc-frame-render": "0.1.0-dev.20260919232026",
+    "hrc-sdk": "0.1.0-dev.20260919232026",
+    "hrc-server": "0.1.0-dev.20260919232026",
+    "hrc-store-sqlite": "0.1.0-dev.20260919232026",
     "spaces-aspc": "0.1.1-dev.20260918162214",
     "spaces-aspc-protocol": "0.1.1-dev.20260918162214",
     "spaces-config": "0.1.1-dev.20260918162214",
@@ -72,8 +72,7 @@
     "spaces-harness-pi-sdk": "0.1.1-dev.20260918162214",
     "spaces-runtime": "0.1.1-dev.20260918162214",
     "spaces-runtime-contracts": "0.1.1-dev.20260918162214",
-    "hrc-mail-kicker": "0.1.0-dev.20260919115424",
-    "hrc-transcript-index": "0.1.0-dev.20260919115424",
+    "hrc-transcript-index": "0.1.0-dev.20260919232026",
     "spaces-harness-muse": "0.1.1-dev.20260918162214"
   }
 }

@@ -30,6 +30,8 @@ export type InjectionRpcResult<T> =
   | { ok: false; error: { message: string } }
 
 export type InjectionDispatchOptions = {
+  /** Caller-stable identity for replay after an ambiguous dispatch response. */
+  idempotencyKey?: string | undefined
   waitForCompletion?: boolean | undefined
   ttlMs: number
   turnPolicy?: 'guarded' | undefined

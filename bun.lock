@@ -58,7 +58,7 @@
         "acp-interface-store": "*",
         "acp-ops-projection": "*",
         "acp-server": "*",
-        "agent-action-render": "0.1.0-dev.20260919115424",
+        "agent-action-render": "0.1.0-dev.20260919232026",
         "agent-scope": "0.1.1-dev.20260918162214",
         "chalk": "^5.6.2",
         "cli-kit": "0.1.1-dev.20260918162214",
@@ -109,10 +109,10 @@
         "acp-state-store": "*",
         "agent-scope": "0.1.1-dev.20260918162214",
         "coordination-substrate": "*",
-        "hrc-core": "0.1.0-dev.20260919115424",
-        "hrc-sdk": "0.1.0-dev.20260919115424",
-        "hrc-server": "0.1.0-dev.20260919115424",
-        "hrc-store-sqlite": "0.1.0-dev.20260919115424",
+        "hrc-core": "0.1.0-dev.20260919232026",
+        "hrc-sdk": "0.1.0-dev.20260919232026",
+        "hrc-server": "0.1.0-dev.20260919232026",
+        "hrc-store-sqlite": "0.1.0-dev.20260919232026",
         "spaces-runtime": "0.1.1-dev.20260918162214",
       },
       "devDependencies": {
@@ -151,7 +151,7 @@
       "name": "acp-ops-projection",
       "version": "0.1.0",
       "dependencies": {
-        "agent-action-render": "0.1.0-dev.20260919115424",
+        "agent-action-render": "0.1.0-dev.20260919232026",
       },
       "devDependencies": {
         "@types/bun": "1.3.14",
@@ -187,8 +187,8 @@
         "acp-state-store": "*",
         "agent-scope": "0.1.1-dev.20260918162214",
         "coordination-substrate": "*",
-        "hrc-core": "0.1.0-dev.20260919115424",
-        "hrc-sdk": "0.1.0-dev.20260919115424",
+        "hrc-core": "0.1.0-dev.20260919232026",
+        "hrc-sdk": "0.1.0-dev.20260919232026",
         "spaces-aspc": "0.1.1-dev.20260918162214",
         "spaces-aspc-protocol": "0.1.1-dev.20260918162214",
         "spaces-runtime": "0.1.1-dev.20260918162214",
@@ -206,7 +206,7 @@
         "acp-core": "*",
         "agent-scope": "0.1.1-dev.20260918162214",
         "better-sqlite3": "^11.10.0",
-        "hrc-core": "0.1.0-dev.20260919115424",
+        "hrc-core": "0.1.0-dev.20260919232026",
       },
       "devDependencies": {
         "@types/better-sqlite3": "^7.6.12",
@@ -264,10 +264,10 @@
         "acp-core": "*",
         "acp-interface-store": "*",
         "acp-ops-projection": "*",
-        "agent-action-render": "0.1.0-dev.20260919115424",
+        "agent-action-render": "0.1.0-dev.20260919232026",
         "agent-scope": "0.1.1-dev.20260918162214",
         "discord.js": "^14.16.0",
-        "hrc-frame-render": "0.1.0-dev.20260919115424",
+        "hrc-frame-render": "0.1.0-dev.20260919232026",
         "spaces-runtime": "0.1.1-dev.20260918162214",
       },
       "devDependencies": {
@@ -283,8 +283,8 @@
       },
       "dependencies": {
         "agent-scope": "0.1.1-dev.20260918162214",
-        "hrc-core": "0.1.0-dev.20260919115424",
-        "hrc-sdk": "0.1.0-dev.20260919115424",
+        "hrc-core": "0.1.0-dev.20260919232026",
+        "hrc-sdk": "0.1.0-dev.20260919232026",
       },
       "devDependencies": {
         "@types/bun": "1.3.14",
@@ -295,9 +295,9 @@
       "name": "hrc-injector-core",
       "version": "0.1.0",
       "dependencies": {
-        "hrc-core": "0.1.0-dev.20260919115424",
-        "hrc-sdk": "0.1.0-dev.20260919115424",
-        "hrc-store-sqlite": "0.1.0-dev.20260919115424",
+        "hrc-core": "0.1.0-dev.20260919232026",
+        "hrc-sdk": "0.1.0-dev.20260919232026",
+        "hrc-store-sqlite": "0.1.0-dev.20260919232026",
         "spaces-harness-broker-protocol": "0.1.1-dev.20260918162214",
       },
       "devDependencies": {
@@ -313,10 +313,10 @@
       },
       "dependencies": {
         "agent-scope": "0.1.1-dev.20260918162214",
-        "hrc-core": "0.1.0-dev.20260919115424",
+        "hrc-core": "0.1.0-dev.20260919232026",
         "hrc-injector-core": "0.1.0-dev.20260919211726",
-        "hrc-sdk": "0.1.0-dev.20260919115424",
-        "hrc-store-sqlite": "0.1.0-dev.20260919115424",
+        "hrc-sdk": "0.1.0-dev.20260919232026",
+        "hrc-store-sqlite": "0.1.0-dev.20260919232026",
         "spaces-harness-broker-protocol": "0.1.1-dev.20260918162214",
       },
       "devDependencies": {
@@ -353,18 +353,17 @@
   },
   "overrides": {
     "@types/bun": "1.3.14",
-    "agent-action-render": "0.1.0-dev.20260919115424",
+    "agent-action-render": "0.1.0-dev.20260919232026",
     "agent-scope": "0.1.1-dev.20260918162214",
     "agent-spaces": "0.1.1-dev.20260918162214",
     "cli-kit": "0.1.1-dev.20260918162214",
-    "hrc-core": "0.1.0-dev.20260919115424",
-    "hrc-events": "0.1.0-dev.20260919115424",
-    "hrc-frame-render": "0.1.0-dev.20260919115424",
-    "hrc-mail-kicker": "0.1.0-dev.20260919115424",
-    "hrc-sdk": "0.1.0-dev.20260919115424",
-    "hrc-server": "0.1.0-dev.20260919115424",
-    "hrc-store-sqlite": "0.1.0-dev.20260919115424",
-    "hrc-transcript-index": "0.1.0-dev.20260919115424",
+    "hrc-core": "0.1.0-dev.20260919232026",
+    "hrc-events": "0.1.0-dev.20260919232026",
+    "hrc-frame-render": "0.1.0-dev.20260919232026",
+    "hrc-sdk": "0.1.0-dev.20260919232026",
+    "hrc-server": "0.1.0-dev.20260919232026",
+    "hrc-store-sqlite": "0.1.0-dev.20260919232026",
+    "hrc-transcript-index": "0.1.0-dev.20260919232026",
     "spaces-aspc": "0.1.1-dev.20260918162214",
     "spaces-aspc-protocol": "0.1.1-dev.20260918162214",
     "spaces-config": "0.1.1-dev.20260918162214",
@@ -864,7 +863,7 @@
 
     "adapter-jsonrpc-stdio": ["adapter-jsonrpc-stdio@0.0.0-dev.20260915135245", "http://mini:4873/adapter-jsonrpc-stdio/-/adapter-jsonrpc-stdio-0.0.0-dev.20260915135245.tgz", { "dependencies": { "cap-rpc": "0.0.0-dev.20260915135245", "capability-protocol": "0.0.0-dev.20260915135245", "invoke-engine": "0.0.0-dev.20260915135245" } }, "sha512-IzvIviQtwD4V7NVVnxQxJAO8OjOttXLRzzCY3FSIuVVtRLlvliL5sOn2GkDygLWnn8RMYq4jdYSILXnino/Ldw=="],
 
-    "agent-action-render": ["agent-action-render@0.1.0-dev.20260919115424", "http://mini:4873/agent-action-render/-/agent-action-render-0.1.0-dev.20260919115424.tgz", {}, "sha512-aeooJLnpM4a5ub8HWTkh3qEupnhVfgWRcg2yxYmgdmv4i10HYiIQmoUbEx4tzFxXFmlvFHO6oSn4k9WbwpHSnQ=="],
+    "agent-action-render": ["agent-action-render@0.1.0-dev.20260919232026", "http://mini:4873/agent-action-render/-/agent-action-render-0.1.0-dev.20260919232026.tgz", {}, "sha512-pfdTkaKcg6o1KuRRxY8jB+GTZUbkESK6NZ6HlGovuJynRQtSkpqaoubkQykzV7xov1UYyKvl4SkjngjWHRh84Q=="],
 
     "agent-base": ["agent-base@7.1.4", "http://mini:4873/agent-base/-/agent-base-7.1.4.tgz", {}, "sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ=="],
 
@@ -1060,25 +1059,23 @@
 
     "hosted-git-info": ["hosted-git-info@9.0.3", "http://mini:4873/hosted-git-info/-/hosted-git-info-9.0.3.tgz", { "dependencies": { "lru-cache": "^11.1.0" } }, "sha512-Hc+ghLoSt6QaYZUv0WBiIvmMDZuZZ7oaDvdH8MbfOO4lOsxdXLEvuC6ePoGs9H1X9oCLyq6+NVN0MKqD+ydxyg=="],
 
-    "hrc-core": ["hrc-core@0.1.0-dev.20260919115424", "http://mini:4873/hrc-core/-/hrc-core-0.1.0-dev.20260919115424.tgz", { "dependencies": { "agent-scope": "latest" } }, "sha512-spFctct6+zD46S4JU14gKE2VQl9qLIzffRKYhucCe7c+R3uxVc7YBddjHr7y0FaE2zo6ECTWrPLe8y4Nk+fTGw=="],
+    "hrc-core": ["hrc-core@0.1.0-dev.20260919232026", "http://mini:4873/hrc-core/-/hrc-core-0.1.0-dev.20260919232026.tgz", { "dependencies": { "agent-scope": "latest" } }, "sha512-JtNW+MeILP/A4kWB6/fYZ3TcJiCKOMZFgzDPrtA79xmsxskK4oqonAfByx9my0Tlb/UN859RrAzAFFLFMhvcZw=="],
 
-    "hrc-events": ["hrc-events@0.1.0-dev.20260919115424", "http://mini:4873/hrc-events/-/hrc-events-0.1.0-dev.20260919115424.tgz", { "dependencies": { "diff": "^7.0.0", "zod": "^3.24.4" } }, "sha512-bItKU4sqLEfVdyD12KyTY/0VyIpFXl1P/sRK9TpPrhIlz1hOhQwjlfeawYYp2cFrL5cvxuONLQDcGPYGtIa2Kg=="],
+    "hrc-events": ["hrc-events@0.1.0-dev.20260919232026", "http://mini:4873/hrc-events/-/hrc-events-0.1.0-dev.20260919232026.tgz", { "dependencies": { "diff": "^7.0.0", "zod": "^3.24.4" } }, "sha512-OtV6h2Rtyd+wgI+9JXRpheq7fVSLMC7g5VSX7XXz4Ss1ItTJJ0o/qjUocR22JEYq9ki5te4jRQtF3r6BmNoPDQ=="],
 
-    "hrc-frame-render": ["hrc-frame-render@0.1.0-dev.20260919115424", "http://mini:4873/hrc-frame-render/-/hrc-frame-render-0.1.0-dev.20260919115424.tgz", { "dependencies": { "agent-action-render": "0.1.0-dev.20260919115424", "agent-scope": "latest" } }, "sha512-6bIRx/3nRZeRtHyKgqKeIEnbA9rpfMPJonsSCOrx7xxXfRrBPANJQC8fheCCQdBNH/Y/A2dWFKYbWDL2+M6AAw=="],
+    "hrc-frame-render": ["hrc-frame-render@0.1.0-dev.20260919232026", "http://mini:4873/hrc-frame-render/-/hrc-frame-render-0.1.0-dev.20260919232026.tgz", { "dependencies": { "agent-action-render": "0.1.0-dev.20260919232026", "agent-scope": "latest" } }, "sha512-SWTA4snM6yCPB3b0vi5s6++RVXjl0G66CuW2QAAmv3XvT0zOkPIB+Y5RsxKdQQ5Ob76dyPO7wSOP+kZf5GI0tg=="],
 
     "hrc-injector-core": ["hrc-injector-core@workspace:packages/hrc-injector-core"],
 
     "hrc-mail-injector": ["hrc-mail-injector@workspace:packages/hrc-mail-injector"],
 
-    "hrc-mail-kicker": ["hrc-mail-kicker@0.1.0-dev.20260919115424", "http://mini:4873/hrc-mail-kicker/-/hrc-mail-kicker-0.1.0-dev.20260919115424.tgz", { "dependencies": { "agent-scope": "latest", "hrc-core": "0.1.0-dev.20260919115424", "hrc-sdk": "0.1.0-dev.20260919115424", "hrc-store-sqlite": "0.1.0-dev.20260919115424", "spaces-harness-broker-protocol": "latest" } }, "sha512-pRPVpK37RJGvgzwLfPa3NuJKCREKdgYs3x9B7ldktR/I3wAv6ANsWQAKh3uZHo5nbENcfNP4/PS188piuHG7HA=="],
+    "hrc-sdk": ["hrc-sdk@0.1.0-dev.20260919232026", "http://mini:4873/hrc-sdk/-/hrc-sdk-0.1.0-dev.20260919232026.tgz", { "dependencies": { "agent-scope": "latest", "hrc-core": "0.1.0-dev.20260919232026", "spaces-harness-broker-protocol": "latest" } }, "sha512-HLaG3ryadFVm7LISnus/V5GsyHriHTMBqkpW3iD4E4TUHntKhZPRJPldgyMU/wnbQlzfQTaUfOuFkQ/3VGp+MA=="],
 
-    "hrc-sdk": ["hrc-sdk@0.1.0-dev.20260919115424", "http://mini:4873/hrc-sdk/-/hrc-sdk-0.1.0-dev.20260919115424.tgz", { "dependencies": { "agent-scope": "latest", "hrc-core": "0.1.0-dev.20260919115424", "spaces-harness-broker-protocol": "latest" } }, "sha512-oprZ4/NpEVEIL/KAvKAYBV0UkppSvPMCF+5/THRvXaN2/kzVIv+s1K+PzMzSSlr4ObKjT3pNsVrOAdUvezPNIA=="],
+    "hrc-server": ["hrc-server@0.1.0-dev.20260919232026", "http://mini:4873/hrc-server/-/hrc-server-0.1.0-dev.20260919232026.tgz", { "dependencies": { "@iarna/toml": "^2.2.5", "agent-scope": "latest", "hrc-core": "0.1.0-dev.20260919232026", "hrc-events": "0.1.0-dev.20260919232026", "hrc-sdk": "0.1.0-dev.20260919232026", "hrc-store-sqlite": "0.1.0-dev.20260919232026", "hrc-transcript-index": "0.1.0-dev.20260919232026", "spaces-aspc-protocol": "latest", "spaces-harness-broker-client": "latest", "spaces-harness-broker-protocol": "latest", "spaces-runtime-contracts": "latest" } }, "sha512-fRl1U6sZl2r5C8OQxUUbiGmFeYHqluJupxooBpXU3wKVuTe8+n8B94K4IST3ckWL/5KsBpqzijLICyOrDOJRWA=="],
 
-    "hrc-server": ["hrc-server@0.1.0-dev.20260919115424", "http://mini:4873/hrc-server/-/hrc-server-0.1.0-dev.20260919115424.tgz", { "dependencies": { "@iarna/toml": "^2.2.5", "agent-scope": "latest", "hrc-core": "0.1.0-dev.20260919115424", "hrc-events": "0.1.0-dev.20260919115424", "hrc-mail-kicker": "0.1.0-dev.20260919115424", "hrc-sdk": "0.1.0-dev.20260919115424", "hrc-store-sqlite": "0.1.0-dev.20260919115424", "hrc-transcript-index": "0.1.0-dev.20260919115424", "spaces-aspc-protocol": "latest", "spaces-harness-broker-client": "latest", "spaces-harness-broker-protocol": "latest", "spaces-runtime-contracts": "latest" } }, "sha512-TbQ8pqZoHXZTZEPCt9wFnafHBqi4xmY/vtVnWDxqH1/mZ9IASUhNDcUFqe8ztwePPqa18VHVpjjgBHIzRc0bOg=="],
+    "hrc-store-sqlite": ["hrc-store-sqlite@0.1.0-dev.20260919232026", "http://mini:4873/hrc-store-sqlite/-/hrc-store-sqlite-0.1.0-dev.20260919232026.tgz", { "dependencies": { "ajv": "^8.20.0", "hrc-core": "0.1.0-dev.20260919232026" } }, "sha512-kRzXTiPBl4N/FHTFlW6p5hw+u2ftq/6JwX7mUQMXwUee3mtYIsC26dS2lDJRpPAF9wZMzDXgrV/W4Q1ZaLC9OA=="],
 
-    "hrc-store-sqlite": ["hrc-store-sqlite@0.1.0-dev.20260919115424", "http://mini:4873/hrc-store-sqlite/-/hrc-store-sqlite-0.1.0-dev.20260919115424.tgz", { "dependencies": { "ajv": "^8.20.0", "hrc-core": "0.1.0-dev.20260919115424" } }, "sha512-LOmc3PlPGqAFmwq/eV0Gnundwiqt68k85prLEFW6vM4hsa1Vj8Qav4Aj2GdrKQQmRr7wDGg0765kSCH8WQ7ENw=="],
-
-    "hrc-transcript-index": ["hrc-transcript-index@0.1.0-dev.20260919115424", "http://mini:4873/hrc-transcript-index/-/hrc-transcript-index-0.1.0-dev.20260919115424.tgz", { "dependencies": { "hrc-core": "0.1.0-dev.20260919115424", "hrc-store-sqlite": "0.1.0-dev.20260919115424" } }, "sha512-FtPrMMRh/PaTzTX90I3gYmwylVBoE85vcixbYkzkz1+8ksEa/ZVuz/tTEwVi4nLHwWaNiuiXC8kjAtHklalTmQ=="],
+    "hrc-transcript-index": ["hrc-transcript-index@0.1.0-dev.20260919232026", "http://mini:4873/hrc-transcript-index/-/hrc-transcript-index-0.1.0-dev.20260919232026.tgz", { "dependencies": { "hrc-core": "0.1.0-dev.20260919232026", "hrc-store-sqlite": "0.1.0-dev.20260919232026" } }, "sha512-Hj71qruCc0fPS6b6qS2y2jEFDgCTU4EFOxwBRGR3Ms/f/dn8VfL4p1tZHaMt2zvfBbSsWIkLnXJQYxZAxpGpVw=="],
 
     "http-proxy-agent": ["http-proxy-agent@7.0.2", "http://mini:4873/http-proxy-agent/-/http-proxy-agent-7.0.2.tgz", { "dependencies": { "agent-base": "^7.1.0", "debug": "^4.3.4" } }, "sha512-T1gkAiYYDWYx3V5Bmyu7HcfcvL7mUrTWiM6yOfa3PIphViJ/gFPbvidQ+veqSOHci/PxBcDabeUNCzpOODJZig=="],
 
@@ -1468,9 +1465,17 @@
 
     "@tailwindcss/oxide-wasm32-wasi/tslib": ["tslib@2.8.1", "http://mini:4873/tslib/-/tslib-2.8.1.tgz", { "bundled": true }, "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="],
 
+    "acp-cli/@wrkq/client": ["@wrkq/client@0.1.0-dev.20260919150054", "http://mini:4873/@wrkq/client/-/client-0.1.0-dev.20260919150054.tgz", {}, "sha512-1vxfLrfMYX152zvbwRsaAbmJUGDy0vy3a+HsOgnkB+2KChkbL3X0kINyNdRFBlmt0qZa/HSwU4UYA7aqess1fA=="],
+
+    "acp-e2e/@wrkq/client": ["@wrkq/client@0.1.0-dev.20260919150054", "http://mini:4873/@wrkq/client/-/client-0.1.0-dev.20260919150054.tgz", {}, "sha512-1vxfLrfMYX152zvbwRsaAbmJUGDy0vy3a+HsOgnkB+2KChkbL3X0kINyNdRFBlmt0qZa/HSwU4UYA7aqess1fA=="],
+
+    "acp-server/@wrkq/client": ["@wrkq/client@0.1.0-dev.20260919150054", "http://mini:4873/@wrkq/client/-/client-0.1.0-dev.20260919150054.tgz", {}, "sha512-1vxfLrfMYX152zvbwRsaAbmJUGDy0vy3a+HsOgnkB+2KChkbL3X0kINyNdRFBlmt0qZa/HSwU4UYA7aqess1fA=="],
+
     "cli-highlight/chalk": ["chalk@4.1.2", "http://mini:4873/chalk/-/chalk-4.1.2.tgz", { "dependencies": { "ansi-styles": "^4.1.0", "supports-color": "^7.1.0" } }, "sha512-oKnbhFyRIXpUuez8iBMmyEa4nbj4IOQyuhc/wy9kY7/WVPcwIO9VA668Pu8RkO7+0G76SLROeyw9CpQ061i4mA=="],
 
     "cliui/strip-ansi": ["strip-ansi@6.0.1", "http://mini:4873/strip-ansi/-/strip-ansi-6.0.1.tgz", { "dependencies": { "ansi-regex": "^5.0.1" } }, "sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A=="],
+
+    "gateway-discord/@wrkq/client": ["@wrkq/client@0.1.0-dev.20260919150054", "http://mini:4873/@wrkq/client/-/client-0.1.0-dev.20260919150054.tgz", {}, "sha512-1vxfLrfMYX152zvbwRsaAbmJUGDy0vy3a+HsOgnkB+2KChkbL3X0kINyNdRFBlmt0qZa/HSwU4UYA7aqess1fA=="],
 
     "hrc-events/diff": ["diff@7.0.0", "http://mini:4873/diff/-/diff-7.0.0.tgz", {}, "sha512-PJWHUb1RFevKCwaFA9RlG5tCd+FO5iRh9A8HEtkmBH2Li03iJriB6m6JIN4rGz3K3JLawI7/veA1xzRKP6ISBw=="],
 
@@ -1487,6 +1492,8 @@
     "string-width/strip-ansi": ["strip-ansi@6.0.1", "http://mini:4873/strip-ansi/-/strip-ansi-6.0.1.tgz", { "dependencies": { "ansi-regex": "^5.0.1" } }, "sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A=="],
 
     "wrap-ansi/strip-ansi": ["strip-ansi@6.0.1", "http://mini:4873/strip-ansi/-/strip-ansi-6.0.1.tgz", { "dependencies": { "ansi-regex": "^5.0.1" } }, "sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A=="],
+
+    "wrkq-lib/@wrkq/client": ["@wrkq/client@0.1.0-dev.20260919150054", "http://mini:4873/@wrkq/client/-/client-0.1.0-dev.20260919150054.tgz", {}, "sha512-1vxfLrfMYX152zvbwRsaAbmJUGDy0vy3a+HsOgnkB+2KChkbL3X0kINyNdRFBlmt0qZa/HSwU4UYA7aqess1fA=="],
 
     "cliui/strip-ansi/ansi-regex": ["ansi-regex@5.0.1", "http://mini:4873/ansi-regex/-/ansi-regex-5.0.1.tgz", {}, "sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ=="],
 

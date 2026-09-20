@@ -50,6 +50,8 @@ export type KickerBrokerPort = {
 }
 
 export type KickerDispatchOptions = {
+  /** Caller-stable identity for replay after an ambiguous dispatch response. */
+  idempotencyKey?: string | undefined
   waitForCompletion?: boolean | undefined
   /** Internal in-process adapter diagnostic; policy selects a typed port method. */
   submissionDoor?: 'steer' | 'enqueue' | 'invoke' | 'preempt' | undefined

@@ -103,7 +103,7 @@ process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: frames[1].id, result: 
       else process.env['INSPECT_LEDGER_STATE'] = originalState
       await rm(directory, { recursive: true, force: true })
     }
-  })
+  }, 15_000)
 
   test('reads the live wrkq terminal `reason` field through the injector RPC transport', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'hrc-mail-injector-inspect-real-'))

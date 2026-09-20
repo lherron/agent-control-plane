@@ -114,7 +114,6 @@ export async function createScratchHrcDaemon(
       claudeCodeTmuxBrokerEnabled: false,
       codexCliTmuxBrokerEnabled: false,
       piTuiTmuxBrokerEnabled: false,
-      hrcMailKickerEnabled: false,
     })
   } catch (error) {
     await server?.stop().catch(() => undefined)

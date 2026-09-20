@@ -11,10 +11,25 @@ export async function deliverFailureNotices(
     (await server.port.resolveRuntimeIntent(parseSessionRef(targetSessionRef).scopeRef, undefined))
   if (intent === undefined) return
   const prompt = notices.map((notice) => notice.notice).join('\n\n')
+  // The dispatch response can time out after HRC has accepted the prompt. A
+  // stable key turns the next sweep into a read/replay of that admission,
+  // rather than another user message. Include the complete notice set so a
+  // later, newly owed notice gets its own dispatch.
+  const idempotencyKey = `hrc-mail-failure-notice-${createHash('sha256')
+    .update(targetSessionRef)
+    .update('\0')
+    .update(
+      notices
+        .map((notice) => notice.envelopeId)
+        .sort()
+        .join('\0')
+    )
+    .digest('hex')}`
   try {
     const body = await server.port.enqueue(session, intent, prompt, {
       waitForCompletion: false,
       ttlMs: KICKER_SUBMISSION_TTL_MS,
+      idempotencyKey,
       submissionOrigin: { principalRef: 'system:hrc-kicker', scopeRef: session.scopeRef },
     })
     if (body.status !== 'started') {
@@ -118,6 +133,7 @@ function failureReasonFor(raw: string | undefined): WrkqEnvelopeFailureReason | 
 }
 import type { HrcSessionRecord } from 'hrc-core'
 
+import { createHash } from 'node:crypto'
 import type { MailKickerContext } from '../context.js'
 import { kickerScopeRefFor, presentationRuntimeIdFor } from '../drive/authority.js'
 import { KICKER_SUBMISSION_TTL_MS, errorText, isRecord, parseSessionRef } from '../internal.js'
