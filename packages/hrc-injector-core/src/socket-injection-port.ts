@@ -26,7 +26,15 @@ const RECONNECT_DELAY_MS = 250
  * Declaring the durable `mail` subscriber is intentionally lazy and idempotent:
  * both evidence feeds use the same admitted consumer identity.
  */
-export function createSocketInjectionPort(client: HrcClient): HrcInjectionPort {
+export function createSocketInjectionPort(
+  client: HrcClient,
+  options: Readonly<{ runtimeLookupClient?: HrcClient }> = {}
+): HrcInjectionPort {
+  // Reconciliation owns its one bounded runtime lookup through the policy
+  // cache. It must not, however, occupy the client used to establish or keep
+  // the lifecycle and broker observers alive: a stale broker's exact inspect
+  // can wait on its seat probe indefinitely.
+  const runtimeLookupClient = options.runtimeLookupClient ?? client
   let closed = false
   let subscriber: Promise<void> | undefined
   const declareSubscriber = async (): Promise<void> => {
@@ -124,7 +132,7 @@ export function createSocketInjectionPort(client: HrcClient): HrcInjectionPort {
         // true })` is paginated and can hold the socket through a fleet-wide
         // scan, which makes one reconciliation probe head-of-line block broker
         // disposition reads behind it.
-        const runtime = await client.inspectRuntime({ runtimeId })
+        const runtime = await runtimeLookupClient.inspectRuntime({ runtimeId })
         return {
           runtimeId: runtime.runtimeId,
           status: runtime.status,

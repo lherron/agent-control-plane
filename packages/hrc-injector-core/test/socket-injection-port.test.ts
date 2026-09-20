@@ -57,6 +57,33 @@ describe('socket injection subscriptions', () => {
     expect(await port.runtime('rt-missing')).toBeUndefined()
   })
 
+  test('keeps a stalled bounded runtime lookup off the observer client', async () => {
+    let resolveRuntime!: (value: {
+      runtimeId: string
+      status: string
+      activeInvocationId: null
+    }) => void
+    const runtimeLookupClient = {
+      inspectRuntime: async () =>
+        await new Promise<{ runtimeId: string; status: string; activeInvocationId: null }>(
+          (resolve) => {
+            resolveRuntime = resolve
+          }
+        ),
+    } as unknown as HrcClient
+    const observerClient = {
+      async eventsHead() {
+        return { hrcSeq: 42, brokerCommit: 7 }
+      },
+    } as unknown as HrcClient
+
+    const port = createSocketInjectionPort(observerClient, { runtimeLookupClient })
+    const runtime = port.runtime('rt-stalled')
+    expect(await port.eventsHead()).toEqual({ hrcSeq: 42, brokerCommit: 7 })
+    resolveRuntime({ runtimeId: 'rt-stalled', status: 'ready', activeInvocationId: null })
+    expect(await runtime).toEqual({ runtimeId: 'rt-stalled', status: 'ready' })
+  })
+
   test('re-declares mail and resumes broker evidence after HRC restarts', async () => {
     let declarations = 0
     let follows = 0
