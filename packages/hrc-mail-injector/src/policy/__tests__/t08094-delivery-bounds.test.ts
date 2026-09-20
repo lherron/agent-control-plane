@@ -6,7 +6,7 @@ import { observeBrokerLanding } from '../drive/landing.js'
 import { readActionableEnvelopes } from '../drive/presentation.js'
 import { reconcileOpenIntents } from '../drive/reconcile.js'
 import type { ObservedBrokerSeat } from '../drive/seat.js'
-import { KICKER_SUBMISSION_TTL_MS } from '../internal.js'
+import { KICKER_SUBMISSION_TTL_MS, RECONCILE_RUNTIME_READ_DEADLINE_MS } from '../internal.js'
 import type { WrkqEnvelope } from '../ledger/types.js'
 import type { FakeLedger, T08094Harness } from './t08094-harness.js'
 import {
@@ -51,6 +51,20 @@ async function deliverOne(seat: ObservedBrokerSeat, envelope: WrkqEnvelope) {
 }
 
 describe('D2 — the redelivery loop is bounded per (envelope, runtime)', () => {
+  it('keeps an intent safe-open when a broad runtime read stalls', async () => {
+    const envelope = ledger.say()
+    await deliverOne(seatIn('turn-active'), envelope)
+    context.port.runtime = async () => await new Promise(() => undefined)
+
+    const startedAt = Date.now()
+    expect(await reconcileOpenIntents(context, { reason: 'periodic' })).toMatchObject({ open: 1 })
+    expect(Date.now() - startedAt).toBeLessThan(RECONCILE_RUNTIME_READ_DEADLINE_MS + 1_000)
+    expect(db.mailDelivery.getIntent(envelope.id)?.uncertainCause).toBe(
+      'reconcile_runtime_read_timeout'
+    )
+    expect(ledger.failRequests).toEqual([])
+  })
+
   it('holds the envelope after a TTL with no landing proof', async () => {
     const envelope = ledger.say()
     const age = () =>

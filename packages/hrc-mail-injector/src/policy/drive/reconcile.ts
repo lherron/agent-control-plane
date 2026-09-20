@@ -26,7 +26,11 @@
 import type { HrcMailDeliveryIntent } from 'hrc-store-sqlite'
 
 import type { MailKickerContext } from '../context.js'
-import { KICKER_SUBMISSION_TTL_MS, errorText } from '../internal.js'
+import {
+  KICKER_SUBMISSION_TTL_MS,
+  RECONCILE_RUNTIME_READ_DEADLINE_MS,
+  errorText,
+} from '../internal.js'
 import { isRuntimeTerminal } from '../terminal/runtime-status.js'
 import { commitLanding, landLaunchIfStarted, refuseIntent } from './landing.js'
 
@@ -40,6 +44,27 @@ export type IntentReconcileVerdict =
   | 'expired'
   | 'undeliverable'
   | 'open'
+
+async function readRuntimeWithinDeadline(
+  server: MailKickerContext,
+  runtimeId: string
+): Promise<
+  | { timedOut: false; runtime: Awaited<ReturnType<MailKickerContext['port']['runtime']>> }
+  | { timedOut: true }
+> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      server.port.runtime(runtimeId).then((runtime) => ({ timedOut: false as const, runtime })),
+      new Promise<{ timedOut: true }>((resolve) => {
+        timer = setTimeout(() => resolve({ timedOut: true }), RECONCILE_RUNTIME_READ_DEADLINE_MS)
+        timer.unref?.()
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
 
 /**
  * One intent, resolved or left alone.
@@ -143,7 +168,22 @@ export async function reconcileIntent(
       if (commit === 'disposed') return 'disposed'
     }
 
-    const runtime = await server.port.runtime(runtimeId)
+    const runtimeRead = await readRuntimeWithinDeadline(server, runtimeId)
+    if (runtimeRead.timedOut) {
+      server.store.mailDelivery.markUncertain(
+        intent.envelopeId,
+        'reconcile_runtime_read_timeout',
+        'runtime_read_timeout'
+      )
+      server.log('WARN', 'wrkq.kicker.intent_reconcile_runtime_timeout', {
+        targetSessionRef: intent.targetSessionRef,
+        envelope: intent.envelopeId,
+        runtimeId,
+        deadlineMs: RECONCILE_RUNTIME_READ_DEADLINE_MS,
+      })
+      return 'open'
+    }
+    const runtime = runtimeRead.runtime
     if (runtime === undefined || isRuntimeTerminal(runtime.status)) {
       server.store.mailDelivery.markUncertain(
         intent.envelopeId,

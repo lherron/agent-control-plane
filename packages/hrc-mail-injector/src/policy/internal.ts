@@ -60,6 +60,14 @@ export const LAPSE_SWEEP_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1_000
 export const DISPOSAL_DRAIN_DEADLINE_MS = 2_000
 
 /**
+ * A reconciliation pass must not let one unavailable broad runtime read freeze
+ * every newer landing recovery behind it.  This is intentionally a
+ * safe-open bound: a timeout retains the durable intent for a later pass; it
+ * is never evidence that the runtime died or that the body was not written.
+ */
+export const RECONCILE_RUNTIME_READ_DEADLINE_MS = 2_000
+
+/**
  * How long a LIVE attempt may hold a presentation without its turn ever
  * starting before the delivery is called stalled rather than awaited (T-07964,
  * assigned by mable as the interim net for T-07971).
