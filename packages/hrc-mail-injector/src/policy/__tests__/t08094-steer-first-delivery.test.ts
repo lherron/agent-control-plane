@@ -850,6 +850,32 @@ describe('D3 — disposal is keyed by runtime and ledger sequence', () => {
     expect(ledger.failRequests).toEqual([])
   })
 
+  it('leaves held-envelope reply, defer, and operator-ack resolution to wrkq exactly once', async () => {
+    for (const resolution of ['reply', 'defer', 'operator_ack'] as const) {
+      const envelope = await landOne()
+      const landing = db.mailDelivery.getPresentation(envelope.id, RUNTIME)?.landingHrcSeq ?? 0
+      await disposeAt(landing + 10)
+      db.mailDelivery.recordReminderLanding(envelope.id, RUNTIME, landing + 20)
+      await disposeAt(landing + 30)
+
+      const row = ledger.envelopes.get(envelope.id)
+      if (row === undefined) throw new Error(`missing ${envelope.id}`)
+      // The policy never writes these terminal states. They model the existing
+      // ledger-authoritative `wrkc say`, `wrkc defer`, and operator `wrkc ack`
+      // paths arriving after a durable local hold.
+      row.state = resolution === 'defer' ? 'deferred' : 'acked'
+      row.terminal = true
+
+      await disposeAt(landing + 40)
+      await failLapsedObligations(context, TARGET, new Set([RUNTIME]))
+      expect(row.state).toBe(resolution === 'defer' ? 'deferred' : 'acked')
+      expect(db.mailDelivery.getPresentation(envelope.id, RUNTIME)?.disposition).toBe(
+        'held:awaiting_operator'
+      )
+    }
+    expect(ledger.failRequests).toEqual([])
+  })
+
   it('disposes nothing for an envelope the reader has already answered', async () => {
     const envelope = await landOne()
     const row = ledger.envelopes.get(envelope.id)
