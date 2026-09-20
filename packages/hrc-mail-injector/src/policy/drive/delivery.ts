@@ -18,6 +18,7 @@
  */
 import { randomUUID } from 'node:crypto'
 
+import { HrcDomainError } from 'hrc-core'
 import type { HrcSessionRecord, PreemptSubmissionRequest } from 'hrc-core'
 import type { HrcMailDeliveryDoor, HrcMailDriveWakeReason } from 'hrc-store-sqlite'
 
@@ -33,6 +34,16 @@ import { actionableDirectives, senderGenerationFor } from './presentation.js'
 import type { ObservedBrokerSeat } from './seat.js'
 
 export type DeliveryOutcome = 'submitted' | 'refused' | 'skipped'
+
+/** A compile rejection happens before HRC persists or starts a runtime operation. */
+function isDefinitePreLaunchRejection(error: unknown): error is HrcDomainError {
+  return (
+    error instanceof HrcDomainError &&
+    error.code === 'runtime_unavailable' &&
+    error.detail['route'] === 'aspd' &&
+    error.detail['code'] === 'compile-not-ok'
+  )
+}
 
 /**
  * Which door this envelope takes, given what the seat is doing.
@@ -443,6 +454,20 @@ export async function deliverByColdBirth(
       }
     )
   } catch (error) {
+    if (isDefinitePreLaunchRejection(error)) {
+      // HRC's boundary-P compile/admission gate runs before any provider process
+      // or runtime operation exists. This is positive not-written evidence, so
+      // retaining an uncertainty fence would strand the envelope until TTL.
+      server.store.mailDelivery.clearIntent(item.envelope.id)
+      server.log('WARN', 'wrkq.kicker.birth_compile_rejected', {
+        targetSessionRef,
+        wakeReason,
+        envelope: item.envelope.id,
+        error: error.message,
+        detail: error.detail,
+      })
+      throw error
+    }
     // The invoke/launch RPC may have reached the provider before its response
     // was lost. It is an uncertain delivery, never a new birth opportunity.
     server.store.mailDelivery.markUncertain(item.envelope.id, 'dispatch_error', 'dispatch_error')

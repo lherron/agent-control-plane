@@ -19,6 +19,7 @@
  * also what a fixture that delivered nothing looks like.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { HrcDomainError } from 'hrc-core'
 
 import type { KickerDispatchOptions } from '../context.js'
 import { driveMailTargetOnce } from '../drive/target-driver.js'
@@ -109,6 +110,36 @@ describe('T-08394 — the seat decides the door, not the session row', () => {
     // reach it. The stranded specimen had no runtimeId at all, which is why
     // every recovery branch in `reconcileIntent` skipped straight past it.
     expect(h.db.mailDelivery.getIntent(envelope.id)?.runtimeId).toBeDefined()
+  })
+
+  it('releases a launch intent when ASPD rejects before any runtime operation exists', async () => {
+    const envelope = h.ledger.say()
+    h.context.port.invoke = async () => {
+      throw new HrcDomainError('runtime_unavailable', 'aspd preparation rejected', {
+        route: 'aspd',
+        code: 'compile-not-ok',
+        admissionCode: 'compile-not-ok',
+        diagnostics: [{ level: 'error', message: 'transient compiler rejection' }],
+      })
+    }
+
+    expect(await driveMailTargetOnce(h.context, TARGET_REF, 'insert')).toMatchObject({
+      outcome: 'birth-refused',
+    })
+    expect(h.db.mailDelivery.getIntent(envelope.id)).toBeUndefined()
+    expect(h.db.mailDelivery.getBirthRefusal(TARGET_REF)?.lastReason).toContain(
+      'aspd preparation rejected'
+    )
+    expect(
+      h.logs.find((entry) => entry.event === 'wrkq.kicker.birth_compile_rejected')?.detail
+    ).toMatchObject({
+      envelope: envelope.id,
+      detail: {
+        route: 'aspd',
+        code: 'compile-not-ok',
+        diagnostics: [{ message: 'transient compiler rejection' }],
+      },
+    })
   })
 
   it('CONTROL: a seat with a live invocation still takes an ordinary door', async () => {
