@@ -152,7 +152,8 @@ export async function deliverToSeat(
   session: HrcSessionRecord,
   seat: ObservedBrokerSeat,
   item: ActionableEnvelope,
-  wakeReason: HrcMailDriveWakeReason
+  wakeReason: HrcMailDriveWakeReason,
+  driveAttemptId?: string
 ): Promise<DeliveryOutcome> {
   const runtimeId =
     seat.state === 'absent' ? await presentationRuntimeIdFor(server, session) : seat.runtimeId
@@ -255,6 +256,7 @@ export async function deliverToSeat(
   if (intent === undefined) return 'skipped'
 
   server.log('INFO', 'wrkq.kicker.delivery_intent', {
+    ...(driveAttemptId === undefined ? {} : { driveAttemptId }),
     targetSessionRef,
     wakeReason,
     envelope: item.envelope.id,

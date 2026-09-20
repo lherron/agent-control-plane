@@ -9,6 +9,19 @@ import { createWrkqLedger } from './wrkq-ledger.js'
 const ENVELOPE_ID = /^EN-\d+$/i
 
 type LedgerRead = { ok: true; envelope: WrkqEnvelope } | { ok: false; error: string }
+type DriveDiagnosticRead = {
+  driveAttemptId: string
+  targetSessionRef: string
+  wakeReason: string
+  outcome: string
+  observedSeatState: string | null
+  runtimeId: string | null
+  invocationId: string | null
+  diagnostic: unknown
+  priorDriveAttemptId: string | null
+  recoveredAt: string | null
+  createdAt: string
+}
 
 /**
  * Read the injector-owned facts for one envelope together with wrkq's
@@ -26,8 +39,58 @@ export async function inspectMailEnvelope(input: {
 
   const sqlite = new Database(input.statePath, { readonly: true })
   let presentations: HrcMailPresentation[]
+  let driveDiagnostic: DriveDiagnosticRead | undefined
   try {
     presentations = new HrcMailDeliveryRepository(sqlite).presentationsForEnvelope(envelopeId)
+    // Older stores predate the evidence table. Inspection remains read-only and
+    // must still explain the authoritative ledger state in that case.
+    try {
+      const row = sqlite
+        .query<
+          {
+            drive_attempt_id: string
+            target_session_ref: string
+            wake_reason: string
+            outcome: string
+            observed_seat_state: string | null
+            runtime_id: string | null
+            invocation_id: string | null
+            diagnostic_json: string | null
+            prior_drive_attempt_id: string | null
+            recovered_at: string | null
+            created_at: string
+          },
+          [string]
+        >(
+          `SELECT drive_attempt_id, target_session_ref, wake_reason, outcome, observed_seat_state,
+            runtime_id, invocation_id, diagnostic_json, prior_drive_attempt_id, recovered_at, created_at
+           FROM hrcmail_drive_diagnostics WHERE envelope_id = ?`
+        )
+        .get(envelopeId)
+      if (row !== null) {
+        let diagnostic: unknown = null
+        try {
+          diagnostic = row.diagnostic_json === null ? null : JSON.parse(row.diagnostic_json)
+        } catch {
+          diagnostic = { code: 'corrupt_persisted_diagnostic', missing: true }
+        }
+        driveDiagnostic = {
+          driveAttemptId: row.drive_attempt_id,
+          targetSessionRef: row.target_session_ref,
+          wakeReason: row.wake_reason,
+          outcome: row.outcome,
+          observedSeatState: row.observed_seat_state,
+          runtimeId: row.runtime_id,
+          invocationId: row.invocation_id,
+          diagnostic,
+          priorDriveAttemptId: row.prior_drive_attempt_id,
+          recoveredAt: row.recovered_at,
+          createdAt: row.created_at,
+        }
+      }
+    } catch {
+      // Table absence is a normal pre-diagnostic-store compatibility state.
+    }
   } finally {
     sqlite.close()
   }
@@ -70,6 +133,7 @@ export async function inspectMailEnvelope(input: {
         }
       : { ok: false, error: ledger.error },
     presentations: local,
+    ...(driveDiagnostic === undefined ? {} : { latestDriveDiagnostic: driveDiagnostic }),
     verdict:
       envelope?.terminal === true
         ? { code: 'ledger_terminal', line: `ledger terminal: ${terminalReason ?? envelope.state}` }
@@ -78,7 +142,16 @@ export async function inspectMailEnvelope(input: {
               code: 'held:awaiting_operator',
               line: `held:awaiting_operator on ${hold.runtimeId}; reply, defer, or operator ack remains ledger-authoritative`,
             }
-          : { code: 'no_hold', line: 'no held:awaiting_operator local disposition' },
+          : driveDiagnostic !== undefined
+            ? {
+                code: 'pending_drive_diagnostic',
+                line: `pending after ${driveDiagnostic.outcome} in ${driveDiagnostic.driveAttemptId}`,
+                driveAttemptId: driveDiagnostic.driveAttemptId,
+                ...(driveDiagnostic.diagnostic === null
+                  ? {}
+                  : { diagnostic: driveDiagnostic.diagnostic }),
+              }
+            : { code: 'no_hold', line: 'no held:awaiting_operator local disposition' },
   }
 }
 

@@ -37,6 +37,31 @@ describe('kicker state store import', () => {
     const store = openKickerStateStore(path, { source: source.sqlite, sourcePath: 'state.sqlite' })
     expect(store.mailDelivery.getIntent('EN-08615')?.targetSessionRef).toBe(target)
     expect(store.wrkqLedgerCursors.get()).toBe(42)
+    store.driveDiagnostics?.record({
+      envelopeId: 'EN-08652',
+      driveAttemptId: 'drive-probe-failure',
+      targetSessionRef: target,
+      wakeReason: 'periodic',
+      outcome: 'seat_unavailable',
+      observedSeatState: 'unavailable',
+      runtimeId: 'rt-08652',
+      invocationId: 'inv-08652',
+      diagnostic: {
+        boundary: 'broker_probe',
+        code: 'socket_closed',
+        message: 'broker socket closed',
+        phase: 'seat_probe',
+        retryable: null,
+        transport: null,
+        missing: false,
+      },
+      priorDriveAttemptId: null,
+      recoveredAt: null,
+    })
+    expect(store.driveDiagnostics?.latest('EN-08652')).toMatchObject({
+      driveAttemptId: 'drive-probe-failure',
+      diagnostic: { code: 'socket_closed' },
+    })
     store.close?.()
 
     // The marker makes later opens independent from the frozen HRC copy.
@@ -46,6 +71,7 @@ describe('kicker state store import', () => {
       sourcePath: 'state.sqlite',
     })
     expect(reopened.mailDelivery.getIntent('EN-08615')).toBeDefined()
+    expect(reopened.driveDiagnostics?.latest('EN-08652')?.outcome).toBe('seat_unavailable')
     reopened.close?.()
   })
 

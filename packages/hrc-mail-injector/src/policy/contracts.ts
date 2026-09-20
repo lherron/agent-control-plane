@@ -153,7 +153,42 @@ export type HrcInjectionPort = {
 export type KickerStateStore = {
   mailDelivery: HrcMailDeliveryRepository
   wrkqLedgerCursors: WrkqLedgerCursorRepository
+  /**
+   * Latest safe, injector-owned explanation for an envelope.  This is evidence
+   * only: delivery policy remains driven by the ledger and broker seat probe.
+   */
+  driveDiagnostics?: KickerDriveDiagnostics | undefined
   close?(): void
+}
+
+export type KickerProbeDiagnostic = Readonly<{
+  boundary: 'broker_probe'
+  code: string
+  message: string
+  phase: 'seat_probe'
+  retryable: boolean | null
+  transport: string | null
+  missing: boolean
+}>
+
+export type KickerDriveDiagnostic = Readonly<{
+  envelopeId: string
+  driveAttemptId: string
+  targetSessionRef: string
+  wakeReason: string
+  outcome: string
+  observedSeatState: string | null
+  runtimeId: string | null
+  invocationId: string | null
+  diagnostic: KickerProbeDiagnostic | null
+  priorDriveAttemptId: string | null
+  recoveredAt: string | null
+  createdAt: string
+}>
+
+export type KickerDriveDiagnostics = {
+  latest(envelopeId: string): KickerDriveDiagnostic | undefined
+  record(input: Omit<KickerDriveDiagnostic, 'createdAt'>): KickerDriveDiagnostic
 }
 
 export type MailKickerDependencies = {

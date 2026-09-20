@@ -138,6 +138,41 @@ describe('D2 — steer first, and the door is chosen by what the seat is doing',
     })
   })
 
+  it('preserves a bounded broker probe failure while leaving the envelope pending', async () => {
+    const envelope = ledger.say()
+    db.runtimes.update(RUNTIME, {
+      controllerKind: 'harness-broker',
+      activeInvocationId: 'inv-probe-failed',
+      updatedAt: new Date().toISOString(),
+    })
+    context.port.seat = async () => ({
+      runtimeId: RUNTIME,
+      invocationId: 'inv-probe-failed',
+      generation: 1,
+      admissionClasses: null,
+      currentBrokerSeq: 0,
+      probe: null,
+      probeError: { code: 'socket_closed', message: 'x'.repeat(300) },
+    })
+
+    expect(await observeBrokerSeat(context, session)).toMatchObject({
+      state: 'unavailable',
+      runtimeId: RUNTIME,
+      probeDiagnostic: { code: 'socket_closed', boundary: 'broker_probe' },
+    })
+    await driveMailTargetOnce(context, TARGET, 'insert')
+
+    expect(ledger.envelopes.get(envelope.id)?.state).toBe('pending')
+    expect(db.mailDelivery.getIntent(envelope.id)).toBeUndefined()
+    expect(logs.at(-1)).toMatchObject({
+      event: 'wrkq.kicker.seat_not_ready',
+      detail: {
+        observedSeatState: 'unavailable',
+        probeDiagnostic: { code: 'socket_closed', message: expect.stringContaining('[truncated]') },
+      },
+    })
+  })
+
   it('steers into a turn-active seat whose driver advertises the class', async () => {
     const envelope = ledger.say()
     expect(await deliverOne(seatIn('turn-active', true), envelope)).toBe('submitted')
