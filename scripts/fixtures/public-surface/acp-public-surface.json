@@ -2345,6 +2345,9 @@
         "InjectionDispatchOptions",
         "InjectionDispatchResult",
         "InjectionRpcResult",
+        "InjectorDriveDiagnostic",
+        "InjectorDriveDiagnostics",
+        "InjectorProbeDiagnostic",
         "InjectorStateImport",
         "InjectorStateStore",
         "TableParity"

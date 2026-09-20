@@ -141,7 +141,39 @@ export type HrcInjectionPort = {
 export type InjectorStateStore = {
   mailDelivery: HrcMailDeliveryRepository
   wrkqLedgerCursors: WrkqLedgerCursorRepository
+  /** Latest bounded injector evidence; never delivery authority. */
+  driveDiagnostics: InjectorDriveDiagnostics
   close(): void
+}
+
+export type InjectorProbeDiagnostic = Readonly<{
+  boundary: 'broker_probe'
+  code: string
+  message: string
+  phase: 'seat_probe'
+  retryable: boolean | null
+  transport: string | null
+  missing: boolean
+}>
+
+export type InjectorDriveDiagnostic = Readonly<{
+  envelopeId: string
+  driveAttemptId: string
+  targetSessionRef: string
+  wakeReason: string
+  outcome: string
+  observedSeatState: string | null
+  runtimeId: string | null
+  invocationId: string | null
+  diagnostic: InjectorProbeDiagnostic | null
+  priorDriveAttemptId: string | null
+  recoveredAt: string | null
+  createdAt: string
+}>
+
+export type InjectorDriveDiagnostics = {
+  latest(envelopeId: string): InjectorDriveDiagnostic | undefined
+  record(input: Omit<InjectorDriveDiagnostic, 'createdAt'>): InjectorDriveDiagnostic
 }
 
 /** A live private Phase-3 state database to import into injector ownership. */

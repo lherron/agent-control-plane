@@ -4,7 +4,13 @@ import { dirname } from 'node:path'
 
 import { HrcMailDeliveryRepository, WrkqLedgerCursorRepository } from 'hrc-store-sqlite'
 
-import type { InjectorStateImport, InjectorStateStore } from './contracts.js'
+import type {
+  InjectorDriveDiagnostic,
+  InjectorDriveDiagnostics,
+  InjectorProbeDiagnostic,
+  InjectorStateImport,
+  InjectorStateStore,
+} from './contracts.js'
 
 export const INJECTOR_MOVED_TABLES = [
   'hrcmail_delivery_intents',
@@ -43,6 +49,7 @@ export function openInjectorStateStore(
     return {
       mailDelivery: new HrcMailDeliveryRepository(sqlite),
       wrkqLedgerCursors: new WrkqLedgerCursorRepository(sqlite),
+      driveDiagnostics: createDriveDiagnostics(sqlite),
       close: () => sqlite.close(),
     }
   } catch (error) {
@@ -171,7 +178,102 @@ function ensureSchema(db: Database): void {
     CREATE TABLE IF NOT EXISTS wrkq_ledger_cursors (
       stream TEXT PRIMARY KEY, high_water INTEGER NOT NULL CHECK (high_water >= 0), updated_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS hrcmail_drive_diagnostics (
+      envelope_id TEXT PRIMARY KEY, drive_attempt_id TEXT NOT NULL,
+      target_session_ref TEXT NOT NULL, wake_reason TEXT NOT NULL, outcome TEXT NOT NULL,
+      observed_seat_state TEXT, runtime_id TEXT, invocation_id TEXT,
+      diagnostic_json TEXT, prior_drive_attempt_id TEXT, recovered_at TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_injector_drive_diagnostics_target
+      ON hrcmail_drive_diagnostics(target_session_ref);
   `)
+}
+
+function createDriveDiagnostics(sqlite: Database): InjectorDriveDiagnostics {
+  const latest = (envelopeId: string): InjectorDriveDiagnostic | undefined => {
+    const row = sqlite
+      .query<DriveDiagnosticRow, [string]>(
+        'SELECT * FROM hrcmail_drive_diagnostics WHERE envelope_id = ?'
+      )
+      .get(envelopeId)
+    return row === null ? undefined : fromDriveDiagnosticRow(row)
+  }
+  const record = (input: Omit<InjectorDriveDiagnostic, 'createdAt'>): InjectorDriveDiagnostic => {
+    const record = { ...input, createdAt: new Date().toISOString() }
+    sqlite
+      .query(
+        `INSERT INTO hrcmail_drive_diagnostics (
+          envelope_id, drive_attempt_id, target_session_ref, wake_reason, outcome,
+          observed_seat_state, runtime_id, invocation_id, diagnostic_json,
+          prior_drive_attempt_id, recovered_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(envelope_id) DO UPDATE SET
+          drive_attempt_id = excluded.drive_attempt_id, target_session_ref = excluded.target_session_ref,
+          wake_reason = excluded.wake_reason, outcome = excluded.outcome,
+          observed_seat_state = excluded.observed_seat_state, runtime_id = excluded.runtime_id,
+          invocation_id = excluded.invocation_id, diagnostic_json = excluded.diagnostic_json,
+          prior_drive_attempt_id = excluded.prior_drive_attempt_id, recovered_at = excluded.recovered_at,
+          created_at = excluded.created_at`
+      )
+      .run(
+        record.envelopeId,
+        record.driveAttemptId,
+        record.targetSessionRef,
+        record.wakeReason,
+        record.outcome,
+        record.observedSeatState,
+        record.runtimeId,
+        record.invocationId,
+        record.diagnostic === null ? null : JSON.stringify(record.diagnostic),
+        record.priorDriveAttemptId,
+        record.recoveredAt,
+        record.createdAt
+      )
+    return record
+  }
+  return { latest, record }
+}
+
+type DriveDiagnosticRow = {
+  envelope_id: string
+  drive_attempt_id: string
+  target_session_ref: string
+  wake_reason: string
+  outcome: string
+  observed_seat_state: string | null
+  runtime_id: string | null
+  invocation_id: string | null
+  diagnostic_json: string | null
+  prior_drive_attempt_id: string | null
+  recovered_at: string | null
+  created_at: string
+}
+
+function fromDriveDiagnosticRow(row: DriveDiagnosticRow): InjectorDriveDiagnostic {
+  let diagnostic: InjectorProbeDiagnostic | null = null
+  try {
+    diagnostic =
+      row.diagnostic_json === null
+        ? null
+        : (JSON.parse(row.diagnostic_json) as InjectorProbeDiagnostic)
+  } catch {
+    // A legacy/corrupt evidence row is not delivery authority; expose it as absent.
+  }
+  return {
+    envelopeId: row.envelope_id,
+    driveAttemptId: row.drive_attempt_id,
+    targetSessionRef: row.target_session_ref,
+    wakeReason: row.wake_reason,
+    outcome: row.outcome,
+    observedSeatState: row.observed_seat_state,
+    runtimeId: row.runtime_id,
+    invocationId: row.invocation_id,
+    diagnostic,
+    priorDriveAttemptId: row.prior_drive_attempt_id,
+    recoveredAt: row.recovered_at,
+    createdAt: row.created_at,
+  }
 }
 
 function copyTable(source: Database, destination: Database, table: MovedTable): void {

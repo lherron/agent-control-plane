@@ -6,6 +6,9 @@ export type {
   InjectionDispatchOptions,
   InjectionDispatchResult,
   InjectionRpcResult,
+  InjectorDriveDiagnostic,
+  InjectorDriveDiagnostics,
+  InjectorProbeDiagnostic,
   InjectorStateImport,
   InjectorStateStore,
 } from './contracts.js'

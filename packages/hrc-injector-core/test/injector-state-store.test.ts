@@ -77,4 +77,38 @@ describe('injector state import', () => {
     expect(() => assertInjectorAdmissible('absent')).not.toThrow()
     expect(() => assertInjectorAdmissible('in-process')).toThrow('injector admission refused')
   })
+
+  test('persists the latest bounded drive diagnostic for installed inspection', () => {
+    const path = freshPath('injector.sqlite')
+    const store = openInjectorStateStore(path)
+    store.driveDiagnostics.record({
+      envelopeId: 'EN-08652',
+      driveAttemptId: 'drive-broker-probe',
+      targetSessionRef: 'agent:cody:project:agent-control-plane:primary/lane:main',
+      wakeReason: 'periodic',
+      outcome: 'seat_unavailable',
+      observedSeatState: 'unavailable',
+      runtimeId: 'rt-08652',
+      invocationId: 'inv-08652',
+      diagnostic: {
+        boundary: 'broker_probe',
+        code: 'socket_closed',
+        message: 'broker socket closed',
+        phase: 'seat_probe',
+        retryable: null,
+        transport: null,
+        missing: false,
+      },
+      priorDriveAttemptId: null,
+      recoveredAt: null,
+    })
+    store.close()
+
+    const reopened = openInjectorStateStore(path)
+    expect(reopened.driveDiagnostics.latest('EN-08652')).toMatchObject({
+      driveAttemptId: 'drive-broker-probe',
+      diagnostic: { code: 'socket_closed' },
+    })
+    reopened.close()
+  })
 })
