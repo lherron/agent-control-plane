@@ -311,12 +311,15 @@
         "hrc-mail-injector": "./dist/cli.js",
       },
       "dependencies": {
+        "agent-scope": "0.1.1-dev.20260918162214",
+        "hrc-core": "0.1.0-dev.20260919115424",
         "hrc-injector-core": "0.1.0-dev.20260919152914",
         "hrc-sdk": "0.1.0-dev.20260919115424",
+        "hrc-store-sqlite": "0.1.0-dev.20260919115424",
+        "spaces-harness-broker-protocol": "0.1.1-dev.20260918162214",
       },
       "devDependencies": {
         "@types/bun": "1.3.14",
-        "hrc-mail-kicker": "0.1.0-dev.20260919115424",
         "typescript": "^5.8.3",
       },
     },

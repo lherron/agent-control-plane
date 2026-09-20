@@ -1,6 +1,7 @@
-import { createMailKicker } from 'hrc-mail-kicker'
-import type { HrcInjectionPort as KickerInjectionPort } from 'hrc-mail-kicker'
 import { HrcClient } from 'hrc-sdk'
+
+import type { HrcInjectionPort as KickerInjectionPort } from './policy/contracts.js'
+import { createMailKicker } from './policy/controller.js'
 
 import {
   type InjectorStateImport,

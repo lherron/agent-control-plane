@@ -2,7 +2,7 @@ import {
   type MailKickerLedger,
   WrkqLedgerRequestError,
   WrkqLedgerUnavailableError,
-} from 'hrc-mail-kicker'
+} from './policy/ledger/client.js'
 
 type RpcFrame = {
   id?: unknown
