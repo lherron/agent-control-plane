@@ -1,7 +1,12 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 
 import type { HrcSessionRecord } from 'hrc-core'
 import type { HrcDatabase } from 'hrc-store-sqlite'
+import { createWrkqLedger } from '../../wrkq-ledger.js'
 import type { MailKickerContext } from '../context.js'
 import type { KickerDispatchOptions } from '../contracts.js'
 import { confirmStranded } from '../diagnostics/stranded.js'
@@ -51,6 +56,21 @@ let wakes: string[]
 let dispatches: KickerDispatchOptions[]
 let context: MailKickerContext
 let session: HrcSessionRecord
+
+async function runWrkq(command: string, args: string[]): Promise<string> {
+  const child = Bun.spawn([command, ...args], { stdout: 'pipe', stderr: 'pipe' })
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ])
+  if (exitCode !== 0) throw new Error(`${command} failed: ${stderr.trim()}`)
+  return stdout
+}
+
+async function runWrkqJson<T>(command: string, args: string[]): Promise<T> {
+  return JSON.parse(await runWrkq(command, args)) as T
+}
 
 beforeEach(async () => {
   harness = await createT08094Harness()
@@ -874,6 +894,186 @@ describe('D3 — disposal is keyed by runtime and ledger sequence', () => {
       )
     }
     expect(ledger.failRequests).toEqual([])
+  })
+
+  it('holds real wrkq presentations without failure, then leaves each resolution exactly once', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 't08642-real-wrkq-'))
+    const ledgerPath = join(directory, 'wrkq.db')
+    const originalLedgerPath = process.env['HRC_WRKQ_DB']
+    const targetSessionRef = 'cody@inbox:T-00001'
+    const disposeRealAt = async (seq: number) => {
+      disposeRuntimeObligations(context, {
+        runtimeId: RUNTIME,
+        targetSessionRef,
+        terminalHrcSeq: seq,
+        terminalEventKind: 'turn.completed',
+        turnEndedAt: new Date().toISOString(),
+      })
+      await Promise.all([...context.mailKickerDisposalsPending])
+    }
+    try {
+      // This is deliberately a real, migrated wrkq SQLite ledger. A fake
+      // structural response cannot tell us whether the injector's RPC client
+      // agrees with wrkq's creation, presentation, and terminal contracts.
+      await runWrkq('wrkqadm', ['--db', ledgerPath, 'init'])
+      await runWrkq('wrkq', [
+        'touch',
+        'real-ledger-hold',
+        '--db',
+        ledgerPath,
+        '--project',
+        'inbox',
+        '-t',
+        'real ledger hold',
+      ])
+      process.env['HRC_WRKQ_DB'] = ledgerPath
+      const realLedger = createWrkqLedger()
+      context.ledger = realLedger
+
+      for (const resolution of ['reply', 'defer', 'operator_ack'] as const) {
+        const created = await runWrkqJson<{ envelopes: Array<{ id: string }> }>('wrkc', [
+          'say',
+          'T-00001',
+          '--db',
+          ledgerPath,
+          '--project',
+          'inbox',
+          '--as',
+          'agent:astra',
+          '--scope-ref',
+          'astra@agent-control-plane:primary',
+          '--to',
+          targetSessionRef,
+          '-m',
+          `real ${resolution} hold`,
+          '--json',
+        ])
+        const envelopeId = created.envelopes[0]?.id
+        if (envelopeId === undefined) throw new Error('real wrkq did not create an envelope')
+        const presentation = {
+          envelope: envelopeId,
+          memberRef: targetSessionRef,
+          runtimeId: RUNTIME,
+          hostSessionId: 'host-real-ledger',
+          generation: '1',
+          driveAttemptId: `drive-${resolution}`,
+          deliveryOutcome: 'steered',
+        }
+        expect((await realLedger.present(presentation)).recorded).toBe(true)
+        // The real ledger, not the test, supplies exactly-once presentation.
+        expect((await realLedger.present(presentation)).recorded).toBe(false)
+
+        // This is the injector-owned presentation record which drives D3's
+        // hold decision; it does not alter the wrkq envelope state itself.
+        db.mailDelivery.recordPresentation({
+          envelopeId,
+          runtimeId: RUNTIME,
+          targetSessionRef,
+          presentationId: presentation.driveAttemptId,
+          deliveryOutcome: 'steered',
+          landingHrcSeq: 10,
+        })
+        db.mailDelivery.markReceiptCommitted(envelopeId, RUNTIME)
+        db.mailDelivery.armReminder({
+          envelopeId,
+          runtimeId: RUNTIME,
+          turnEndedAt: new Date().toISOString(),
+          remindAt: new Date().toISOString(),
+        })
+        db.mailDelivery.recordReminderLanding(envelopeId, RUNTIME, 20)
+
+        await disposeRealAt(30)
+        expect(await realLedger.envelopeShow({ envelope: envelopeId })).toMatchObject({
+          state: 'presented',
+          terminal: false,
+        })
+        expect(db.mailDelivery.getPresentation(envelopeId, RUNTIME)?.disposition).toBe(
+          'held:awaiting_operator'
+        )
+        // A held local row fences the ordinary runtime-lapse path as well.
+        await failLapsedObligations(context, targetSessionRef, new Set([RUNTIME]))
+
+        if (resolution === 'reply') {
+          await runWrkq('wrkc', [
+            'say',
+            envelopeId,
+            '--db',
+            ledgerPath,
+            '--project',
+            'inbox',
+            '--as',
+            'agent:cody',
+            '--scope-ref',
+            targetSessionRef,
+            '--to',
+            'astra@agent-control-plane:primary',
+            '-m',
+            'real reply',
+          ])
+        } else if (resolution === 'defer') {
+          await runWrkq('wrkc', [
+            'defer',
+            envelopeId,
+            '--db',
+            ledgerPath,
+            '--project',
+            'inbox',
+            '--as',
+            'agent:cody',
+            '--scope-ref',
+            targetSessionRef,
+            '--reason',
+            'real defer',
+          ])
+        } else {
+          await runWrkq('wrkc', [
+            'ack',
+            envelopeId,
+            '--db',
+            ledgerPath,
+            '--project',
+            'inbox',
+            '--as',
+            'agent:lance',
+            '--note',
+            'real operator ack',
+          ])
+        }
+
+        // Later terminals and lapse sweeps neither fail nor re-resolve held
+        // debt; the ledger resolution remains the sole state transition.
+        await disposeRealAt(40)
+        await failLapsedObligations(context, targetSessionRef, new Set([RUNTIME]))
+        const resolved = await realLedger.envelopeShow({ envelope: envelopeId })
+        expect(resolved).toMatchObject(
+          resolution === 'defer'
+            ? { state: 'deferred', terminal: false, deferReason: 'real defer' }
+            : { state: 'acked', terminal: true }
+        )
+        expect(db.mailDelivery.getPresentation(envelopeId, RUNTIME)?.disposition).toBe(
+          'held:awaiting_operator'
+        )
+
+        const events = await realLedger.eventsView({ cursor: 0, limit: 1_000 })
+        expect(
+          events.items.filter(
+            (event) => event.resourceId === envelopeId && event.eventType === 'envelope.presented'
+          )
+        ).toHaveLength(1)
+        expect(events.items.filter((event) => event.eventType === 'envelope.failed')).toEqual([])
+        expect(
+          events.items.filter(
+            (event) =>
+              event.resourceId === envelopeId &&
+              event.eventType === (resolution === 'defer' ? 'envelope.deferred' : 'envelope.acked')
+          )
+        ).toHaveLength(1)
+      }
+    } finally {
+      if (originalLedgerPath === undefined) process.env['HRC_WRKQ_DB'] = undefined
+      else process.env['HRC_WRKQ_DB'] = originalLedgerPath
+      await rm(directory, { recursive: true, force: true })
+    }
   })
 
   it('disposes nothing for an envelope the reader has already answered', async () => {

@@ -121,6 +121,12 @@ export type WrkqEnvelope = {
   /** Present only on a `failed` row. */
   failureReason?: WrkqEnvelopeFailureReason | undefined
   /**
+   * wrkq's terminal/disposition explanation. The live `envelope.show` wire
+   * puts reply and operator-ack reasons here (for example, `reply`), rather
+   * than under an ack-specific nested field.
+   */
+  reason?: string | undefined
+  /**
    * The reader's OWN words when they deferred (rev 5.1 §4). It survives the
    * retry promise firing, which is what lets the defer-retry pointer form quote
    * the reason back rather than re-pushing a body nobody asked for again.

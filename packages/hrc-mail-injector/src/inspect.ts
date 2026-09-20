@@ -84,6 +84,7 @@ export async function inspectMailEnvelope(input: {
 
 function readTerminalReason(envelope: WrkqEnvelope): string | undefined {
   if (envelope.failureReason !== undefined) return envelope.failureReason
+  if (envelope.reason !== undefined) return envelope.reason
   const candidate = envelope as WrkqEnvelope & {
     ackReason?: unknown
     acknowledgementReason?: unknown
