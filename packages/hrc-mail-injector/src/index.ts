@@ -71,19 +71,7 @@ export async function startMailInjector(
 
   const log = options.log ?? ((level, event, detail) => console.log(level, event, detail))
   const ledger = createWrkqLedger()
-  // The package is intentionally externalized. Cast its additive factory
-  // option here so this source also typechecks against the preceding published
-  // core while the install step resolves the paired corrected core release.
-  const createIsolatedSocketPort = createSocketInjectionPort as unknown as (
-    observerClient: HrcClient,
-    options: Readonly<{ runtimeLookupClient: HrcClient }>
-  ) => ReturnType<typeof createSocketInjectionPort>
-  const socketPort = createIsolatedSocketPort(client, {
-    // A bounded reconciliation inspection may be held open by a stale
-    // broker. Keep it off the observer client so lifecycle subscriptions
-    // still establish and consume terminals while that one lookup is reused.
-    runtimeLookupClient: new HrcClient(options.socketPath),
-  })
+  const socketPort = createSocketInjectionPort(client)
   const kicker = createMailKicker(
     {
       store,
