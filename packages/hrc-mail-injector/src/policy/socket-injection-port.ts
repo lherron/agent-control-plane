@@ -157,8 +157,8 @@ export function createSocketInjectionPort(client: HrcClient): HrcInjectionPort {
       await declareSubscriber()
       const operation = (async () => {
         let cursor = afterSeq
-        while (!closed) {
-          try {
+        try {
+          while (!closed) {
             let observed = false
             for await (const event of client.watch({
               fromSeq: cursor + 1,
@@ -169,13 +169,9 @@ export function createSocketInjectionPort(client: HrcClient): HrcInjectionPort {
               onEvent(event)
             }
             if (!observed) await delay(EMPTY_FOLLOW_DELAY_MS)
-          } catch {
-            // A transient socket failure must not permanently blind the
-            // injector. Keep the last observed cursor and reopen the follow;
-            // startup reconciliation covers any delivery intent that crossed
-            // this seam while the connection was unavailable.
-            if (!closed) await delay(EMPTY_FOLLOW_DELAY_MS)
           }
+        } catch {
+          // The kicker's persisted cursor and sweep own retry/reconciliation.
         }
       })()
       return async () => {
@@ -187,8 +183,8 @@ export function createSocketInjectionPort(client: HrcClient): HrcInjectionPort {
       await declareSubscriber()
       const operation = (async () => {
         let cursor = afterCommit
-        while (!closed) {
-          try {
+        try {
+          while (!closed) {
             const page = await client.followBrokerEvents(
               { afterCommit: cursor, limit: BROKER_FOLLOW_LIMIT },
               MAIL_SUBSCRIBER
@@ -199,13 +195,9 @@ export function createSocketInjectionPort(client: HrcClient): HrcInjectionPort {
             }
             cursor = page.nextCommit
             if (page.events.length === 0) await delay(EMPTY_FOLLOW_DELAY_MS)
-          } catch {
-            // Preserve the last committed cursor and retry. An old version
-            // swallowed this error and exited the observer permanently, so a
-            // valid broker landing could remain an open intent until an
-            // unrelated later action happened to trigger reconciliation.
-            if (!closed) await delay(EMPTY_FOLLOW_DELAY_MS)
           }
+        } catch {
+          // The kicker's persisted cursor and sweep own retry/reconciliation.
         }
       })()
       return async () => {
