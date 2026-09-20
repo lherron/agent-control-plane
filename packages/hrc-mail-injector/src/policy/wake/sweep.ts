@@ -95,7 +95,19 @@ export function runMailKickerSweep(this: MailKickerContext): Promise<void> {
     for (const targetSessionRef of targets) {
       this.mailKickerPendingTargets.set(targetSessionRef, 'periodic')
     }
-    await Promise.all([...targets].map((targetSessionRef) => this.drainTarget(targetSessionRef)))
+    // A target drive may legitimately wait on a cold birth or a busy broker.
+    // It owns its own serialization and re-kick handling, so it must not also
+    // hold this whole periodic pass open: doing so suppresses the next intent
+    // reconciliation, including recovery of a landing the live observer saw
+    // before the dispatch response made its submission id durable.
+    for (const targetSessionRef of targets) {
+      void this.drainTarget(targetSessionRef).catch((error: unknown) => {
+        this.log('WARN', 'wrkq.kicker.sweep_target_drive_failed', {
+          targetSessionRef,
+          error: errorText(error),
+        })
+      })
+    }
   })().finally(() => {
     if (this.mailKickerSweepInFlight === sweep) this.mailKickerSweepInFlight = undefined
   })

@@ -69,6 +69,31 @@ function brokerStartFailedEvent(): HrcLifecycleEvent {
 }
 
 describe('T-08139 D2 — broker-start failure returns a seated target to the sweep', () => {
+  it('does not let one blocked target drive suppress the next periodic pass', async () => {
+    const envelope = harness.ledger.say({ body: 'unrelated pending target keeps driving' })
+    let releaseDrive: (() => void) | undefined
+    const driveBlocked = new Promise<void>((resolve) => {
+      releaseDrive = resolve
+    })
+    context.drainTarget = async () => await driveBlocked
+
+    let settled = false
+    const sweep = runMailKickerSweep.call(context).then(() => {
+      settled = true
+    })
+    try {
+      // The candidate set includes TARGET through the pending envelope. A
+      // target drive is allowed to wait, but reconciliation must not inherit
+      // that wait by keeping the periodic pass in flight.
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(settled).toBe(true)
+    } finally {
+      releaseDrive?.()
+      await sweep
+    }
+    expect(envelope.id).toBeDefined()
+  })
+
   it('retains uncertain delivery while driving broker-birth recovery periodically', async () => {
     // This is an already-established scope, not a virgin birth. The old
     // candidate filter treated this binding as proof that no retry was owed,
