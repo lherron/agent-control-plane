@@ -69,13 +69,22 @@ function brokerStartFailedEvent(): HrcLifecycleEvent {
 }
 
 describe('T-08139 D2 — broker-start failure returns a seated target to the sweep', () => {
-  it('does not let one blocked target drive suppress the next periodic pass', async () => {
-    const envelope = harness.ledger.say({ body: 'unrelated pending target keeps driving' })
+  it('reconciles another envelope on a later pass while one target drive stays open', async () => {
+    const envelope = harness.ledger.say({ body: 'landing observed after first periodic pass' })
+    await deliverOneTo(harness, seatIn('turn-active'), envelope)
     let releaseDrive: (() => void) | undefined
     const driveBlocked = new Promise<void>((resolve) => {
       releaseDrive = resolve
     })
-    context.drainTarget = async () => await driveBlocked
+    let drives = 0
+    let targetDrive: Promise<void> | undefined
+    context.drainTarget = async () => {
+      targetDrive ??= (async () => {
+        drives += 1
+        await driveBlocked
+      })()
+      await targetDrive
+    }
 
     let settled = false
     const sweep = runMailKickerSweep.call(context).then(() => {
@@ -87,11 +96,25 @@ describe('T-08139 D2 — broker-start failure returns a seated target to the swe
       // that wait by keeping the periodic pass in flight.
       await new Promise((resolve) => setTimeout(resolve, 10))
       expect(settled).toBe(true)
+
+      // This is the active observer-race shape: the first pass was before the
+      // invoke response made the submission key usable; committed evidence is
+      // available only for the subsequent pass.
+      harness.db.brokerInvocationEvents.appendEvent({
+        invocationId: 'inv-t08094',
+        runtimeId: OLD_RUNTIME,
+        seq: 999,
+        time: new Date().toISOString(),
+        type: 'submission.executed',
+        payload: { submissionId: 'sub-1', turnId: 'turn-after-observer-race' },
+      })
+      await runMailKickerSweep.call(context)
+      expect(harness.ledger.envelopes.get(envelope.id)?.presentedTo).toHaveLength(1)
+      expect(drives).toBe(1)
     } finally {
       releaseDrive?.()
       await sweep
     }
-    expect(envelope.id).toBeDefined()
   })
 
   it('retains uncertain delivery while driving broker-birth recovery periodically', async () => {
