@@ -24,7 +24,7 @@
   "dependencies": {
     "agent-scope": "0.1.1-dev.20260918162214",
     "hrc-core": "0.1.0-dev.20260919232026",
-    "hrc-injector-core": "0.1.0-dev.20260920003346",
+    "hrc-injector-core": "0.1.0-dev.20260920014352",
     "hrc-sdk": "0.1.0-dev.20260919232026",
     "hrc-store-sqlite": "0.1.0-dev.20260919232026",
     "spaces-harness-broker-protocol": "0.1.1-dev.20260918162214"
