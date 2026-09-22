@@ -35,13 +35,19 @@ import type { ObservedBrokerSeat } from './seat.js'
 
 export type DeliveryOutcome = 'submitted' | 'refused' | 'skipped'
 
-/** A compile rejection happens before HRC persists or starts a runtime operation. */
+/**
+ * A compile rejection (ASP `compile-not-ok`) or an HRC admission refusal of a
+ * successful compile (`admission-rejected`, T-08713) happens before HRC
+ * persists or starts a runtime operation.
+ */
+const PRE_LAUNCH_ASPD_CODES = new Set(['compile-not-ok', 'admission-rejected'])
+
 function isDefinitePreLaunchRejection(error: unknown): error is HrcDomainError {
   return (
     error instanceof HrcDomainError &&
     error.code === 'runtime_unavailable' &&
     error.detail['route'] === 'aspd' &&
-    error.detail['code'] === 'compile-not-ok'
+    PRE_LAUNCH_ASPD_CODES.has(String(error.detail['code']))
   )
 }
 

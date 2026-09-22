@@ -142,6 +142,35 @@ describe('T-08394 — the seat decides the door, not the session row', () => {
     })
   })
 
+  // T-08713: HRC refusing a successful ASP compile is also pre-launch: it
+  // happens before any runtime operation exists, under its own detail code.
+  it('releases a launch intent when HRC admission refuses a successful compile', async () => {
+    const envelope = h.ledger.say()
+    h.context.port.invoke = async () => {
+      throw new HrcDomainError(
+        'runtime_unavailable',
+        'aspd preparation refused by HRC admission (ASP compile succeeded)',
+        {
+          route: 'aspd',
+          code: 'admission-rejected',
+          rejectedBy: 'hrc-admission',
+          admissionCode: 'execution-identity-mismatch',
+          diagnostics: [
+            { level: 'error', message: 'plan.identity.traceId: expected "a", got "b"' },
+          ],
+        }
+      )
+    }
+
+    expect(await driveMailTargetOnce(h.context, TARGET_REF, 'insert')).toMatchObject({
+      outcome: 'birth-refused',
+    })
+    expect(h.db.mailDelivery.getIntent(envelope.id)).toBeUndefined()
+    expect(h.db.mailDelivery.getBirthRefusal(TARGET_REF)?.lastReason).toContain(
+      'refused by HRC admission'
+    )
+  })
+
   it('CONTROL: a seat with a live invocation still takes an ordinary door', async () => {
     seatTheRuntime()
     h.ledger.say()
