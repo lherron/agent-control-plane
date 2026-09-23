@@ -5,7 +5,7 @@ import { join } from 'node:path'
 
 import { HrcDomainError, HrcErrorCode } from 'hrc-core'
 
-import { fetchPlacementResolution } from '../src/placement-resolution.js'
+import { daemonHarnessToHrcHarness, fetchPlacementResolution } from '../src/placement-resolution.js'
 
 let socketCounter = 0
 
@@ -79,6 +79,21 @@ describe('daemon placement resolution transport', () => {
         expect(seen).toEqual([
           { scopeRef: 'agent:cody:project:agent-spaces:task:discord', runMode: 'task' },
         ])
+      }
+    )
+  })
+
+  test('accepts a harness-selection v2 resolution that reports only effectiveHarness', async () => {
+    await withPlacementDaemon(
+      () => Response.json({ ...daemonPlacement, harness: { effectiveHarness: 'codex' } }),
+      async (socketPath) => {
+        const resolved = await fetchPlacementResolution(
+          { scopeRef: 'agent:mneme:project:signal-pipeline:task:xdevs-watch' },
+          { socketPath }
+        )
+        expect(resolved.agentRoot).toBe('/agents/cody')
+        expect(resolved.harness).toEqual({ effectiveHarness: 'codex' })
+        expect(daemonHarnessToHrcHarness(resolved.harness)).toEqual({ interactive: true })
       }
     )
   })

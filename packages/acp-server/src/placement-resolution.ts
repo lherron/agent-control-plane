@@ -34,12 +34,17 @@ export type PlacementResolutionRequest = {
   runMode?: string | undefined
 }
 
+/**
+ * Harness facts as the daemon reports them. Under ASP harness selection v2
+ * the daemon may report only `effectiveHarness`: provider, frontend and
+ * transport are ASP's to select at launch, so every field is optional.
+ */
 export type PlacementResolutionHarness = {
-  provider: 'anthropic' | 'openai'
+  provider?: 'anthropic' | 'openai' | undefined
   frontend?: string | undefined
   effectiveHarness?: string | undefined
   transport?: string | undefined
-  interactive: boolean
+  interactive?: boolean | undefined
 }
 
 export type PlacementResolution = {
@@ -99,15 +104,17 @@ function isHrcHarness(value: string): value is HrcHarness {
 /**
  * Map a daemon-resolved harness to the launch intent shape. Only HRC-known
  * harness ids are forwarded as an explicit id; anything else lets HRC pick
- * its default at launch.
+ * its default at launch. A v2 resolution without a provider omits it so HRC
+ * leaves provider selection to ASP; the cast covers ACP's pinned hrc-core,
+ * which still types `provider` as required.
  */
 export function daemonHarnessToHrcHarness(harness: PlacementResolutionHarness): HrcHarnessIntent {
   const frontend = harness.frontend
   return {
-    provider: harness.provider,
-    interactive: harness.interactive,
+    ...(harness.provider !== undefined ? { provider: harness.provider } : {}),
+    interactive: harness.interactive ?? true,
     ...(frontend !== undefined && isHrcHarness(frontend) ? { id: frontend } : {}),
-  }
+  } as HrcHarnessIntent
 }
 
 type BunRequestInit = RequestInit & { unix?: string | undefined }
@@ -203,53 +210,37 @@ function requirePlacementResolution(body: unknown): PlacementResolution {
   const agentRoot = readOptionalString(body, 'agentRoot')
   const cwd = readOptionalString(body, 'cwd')
   const bundle = body['bundle']
-  const harness = body['harness']
-  const provider = isRecord(harness) ? harness['provider'] : undefined
-  const interactive = isRecord(harness) ? harness['interactive'] : undefined
-  if (
-    agentRoot === undefined ||
-    cwd === undefined ||
-    !isRecord(bundle) ||
-    typeof bundle['kind'] !== 'string' ||
-    !isRecord(harness) ||
-    (provider !== 'anthropic' && provider !== 'openai') ||
-    typeof interactive !== 'boolean'
-  ) {
-    throw malformed(route)
-  }
+  const harness = isRecord(body['harness']) ? body['harness'] : {}
+  if (agentRoot === undefined || cwd === undefined || !isRecord(bundle)) throw malformed(route)
+  if (typeof bundle['kind'] !== 'string') throw malformed(route)
+  const provider = harness['provider']
+  const interactive = harness['interactive']
+  const projectRoot = readOptionalString(body, 'projectRoot')
+  const bundleIdentity = readOptionalString(body, 'bundleIdentity')
+  const frontend = readOptionalString(harness, 'frontend')
+  const effectiveHarness = readOptionalString(harness, 'effectiveHarness')
+  const transport = readOptionalString(harness, 'transport')
   const agentSources = isRecord(body['agentSources']) ? body['agentSources'] : undefined
+  const agentsRoot = agentSources && readOptionalString(agentSources, 'agentsRoot')
+  const aspHome = agentSources && readOptionalString(agentSources, 'aspHome')
   return {
     agentRoot,
-    ...(readOptionalString(body, 'projectRoot') !== undefined
-      ? { projectRoot: readOptionalString(body, 'projectRoot') as string }
-      : {}),
+    ...(projectRoot !== undefined ? { projectRoot } : {}),
     cwd,
     bundle: bundle as { kind: string; [key: string]: unknown },
-    ...(readOptionalString(body, 'bundleIdentity') !== undefined
-      ? { bundleIdentity: readOptionalString(body, 'bundleIdentity') as string }
-      : {}),
+    ...(bundleIdentity !== undefined ? { bundleIdentity } : {}),
     harness: {
-      provider,
-      interactive,
-      ...(readOptionalString(harness, 'frontend') !== undefined
-        ? { frontend: readOptionalString(harness, 'frontend') as string }
-        : {}),
-      ...(readOptionalString(harness, 'effectiveHarness') !== undefined
-        ? { effectiveHarness: readOptionalString(harness, 'effectiveHarness') as string }
-        : {}),
-      ...(readOptionalString(harness, 'transport') !== undefined
-        ? { transport: readOptionalString(harness, 'transport') as string }
-        : {}),
+      ...(provider === 'anthropic' || provider === 'openai' ? { provider } : {}),
+      ...(typeof interactive === 'boolean' ? { interactive } : {}),
+      ...(frontend !== undefined ? { frontend } : {}),
+      ...(effectiveHarness !== undefined ? { effectiveHarness } : {}),
+      ...(transport !== undefined ? { transport } : {}),
     },
     ...(agentSources !== undefined
       ? {
           agentSources: {
-            ...(readOptionalString(agentSources, 'agentsRoot') !== undefined
-              ? { agentsRoot: readOptionalString(agentSources, 'agentsRoot') as string }
-              : {}),
-            ...(readOptionalString(agentSources, 'aspHome') !== undefined
-              ? { aspHome: readOptionalString(agentSources, 'aspHome') as string }
-              : {}),
+            ...(agentsRoot !== undefined ? { agentsRoot } : {}),
+            ...(aspHome !== undefined ? { aspHome } : {}),
           },
         }
       : {}),
