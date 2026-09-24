@@ -446,7 +446,15 @@ function projectSession(input: {
   const mode = mobileMode(execution, input.runtime)
   const status = mobileStatus(input.record.status, input.runtime)
   const runtimeActive = input.runtime?.status.toLowerCase() === 'active'
-  const supportsInput = mode === 'interactive' && input.runtime?.supportsInflightInput === true
+  // `preferredMode: headless` can mean "provision the durable interactive
+  // broker without attaching a terminal". It is a presentation preference,
+  // not proof that the resulting tmux runtime cannot accept literal input.
+  // Preserve genuinely non-interactive worker behavior by requiring either an
+  // interactive execution mode or the persisted interactive-harness intent.
+  const supportsInput =
+    input.runtime?.transport === 'tmux' &&
+    input.runtime.supportsInflightInput === true &&
+    (mode === 'interactive' || input.record.lastAppliedIntentJson?.harness.interactive === true)
   const projectedRuntime =
     input.runtime === undefined
       ? undefined

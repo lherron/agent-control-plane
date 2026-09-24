@@ -37,20 +37,25 @@ const LOCAL_RUNTIME: HrcRuntimeSnapshot = {
 function createPaginatedClient(input: {
   pageRequests: SessionPageRequest[]
   facetRequests: SessionFacetsRequest[]
+  localSession?: HrcSessionRecord
+  localRuntime?: HrcRuntimeSnapshot
+  localExecutionMode?: SessionPageRequest['executionMode']
 }): AcpHrcClient {
+  const localSession = input.localSession ?? LOCAL_SESSION
+  const localRuntime = input.localRuntime ?? LOCAL_RUNTIME
   const page: SessionPageResponse = {
     items: [
       {
         nodeId: 'svc',
-        hostSessionId: LOCAL_SESSION.hostSessionId,
-        scopeRef: LOCAL_SESSION.scopeRef,
-        laneRef: LOCAL_SESSION.laneRef,
-        generation: LOCAL_SESSION.generation,
+        hostSessionId: localSession.hostSessionId,
+        scopeRef: localSession.scopeRef,
+        laneRef: localSession.laneRef,
+        generation: localSession.generation,
         agentId: 'cody',
         projectId: 'hrc-ios',
         createdAt: NOW,
         effectiveStatus: 'active',
-        executionMode: 'interactive',
+        executionMode: input.localExecutionMode ?? 'interactive',
         lastActivityAt: NOW,
       },
       {
@@ -107,8 +112,8 @@ function createPaginatedClient(input: {
       }
     },
     getStatus: async () => ({ node: { nodeId: 'svc' } }) as never,
-    getSession: async () => LOCAL_SESSION,
-    listRuntimes: async () => [LOCAL_RUNTIME],
+    getSession: async () => localSession,
+    listRuntimes: async () => [localRuntime],
   } as unknown as AcpHrcClient
 }
 
@@ -198,6 +203,89 @@ describe('GET /v2/mobile/sessions', () => {
         expect(response.status).toBe(400)
         expect(pageRequests).toEqual([])
         expect(facetRequests).toEqual([])
+      },
+      { hrcClient }
+    )
+  })
+
+  test('publishes literal input for a headless-provisioned interactive broker', async () => {
+    const pageRequests: SessionPageRequest[] = []
+    const facetRequests: SessionFacetsRequest[] = []
+    const hrcClient = createPaginatedClient({
+      pageRequests,
+      facetRequests,
+      localSession: {
+        ...LOCAL_SESSION,
+        lastAppliedIntentJson: {
+          harness: { interactive: true },
+          execution: { preferredMode: 'headless' },
+        },
+      },
+      localRuntime: LOCAL_RUNTIME,
+      localExecutionMode: 'headless',
+    })
+
+    await withWiredServer(
+      async ({ request, json }) => {
+        const response = await request({ method: 'GET', path: '/v2/mobile/sessions?limit=50' })
+        expect(response.status).toBe(200)
+        const body = await json<{
+          sessions: Array<{
+            nodeId?: string
+            mode?: string
+            executionMode?: string
+            capabilities?: Record<string, unknown>
+            runtime?: Record<string, unknown>
+          }>
+        }>(response)
+        const local = body.sessions.find((session) => session.nodeId === 'svc')
+
+        expect(local).toMatchObject({
+          mode: 'headless',
+          executionMode: 'headless',
+          capabilities: { input: true, literalInput: true },
+          runtime: {
+            transport: 'tmux',
+            supportsInflightInput: true,
+          },
+        })
+      },
+      { hrcClient }
+    )
+  })
+
+  test('keeps a genuinely non-interactive tmux worker closed to literal input', async () => {
+    const pageRequests: SessionPageRequest[] = []
+    const facetRequests: SessionFacetsRequest[] = []
+    const hrcClient = createPaginatedClient({
+      pageRequests,
+      facetRequests,
+      localSession: {
+        ...LOCAL_SESSION,
+        lastAppliedIntentJson: {
+          harness: { interactive: false },
+          execution: { preferredMode: 'nonInteractive' },
+        },
+      },
+      localRuntime: LOCAL_RUNTIME,
+      localExecutionMode: 'nonInteractive',
+    })
+
+    await withWiredServer(
+      async ({ request, json }) => {
+        const response = await request({ method: 'GET', path: '/v2/mobile/sessions?limit=50' })
+        expect(response.status).toBe(200)
+        const body = await json<{
+          sessions: Array<{
+            nodeId?: string
+            capabilities?: Record<string, unknown>
+          }>
+        }>(response)
+        const local = body.sessions.find((session) => session.nodeId === 'svc')
+
+        expect(local).toMatchObject({
+          capabilities: { input: false, literalInput: false },
+        })
       },
       { hrcClient }
     )
