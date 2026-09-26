@@ -1,6 +1,6 @@
 # Advancing ACP producer tuples
 
-ACP follows Verdaccio `latest` only for `@wrkq/client`. ASP and HRC packages are pinned as operator-managed producer tuples because a producer's `just install` publishes a node-local set and moves `latest`; that side effect is not a release signal for ACP.
+ACP follows Verdaccio `latest` only for `@wrkq/client`. ASP and HRC packages are pinned as operator-managed producer tuples. ASP publication can move `latest` through its own publish lifecycle; HRC `latest` moves only when the canonical max3 release lane runs `just publish` after installing and reading back its selected release. Neither event is a release signal for ACP.
 
 Advance a producer tuple only when ACP needs a producer source commit and a coordinated deployment window is available:
 
@@ -22,4 +22,4 @@ Treat the advance as one deployment operation:
 3. On each ACP node, land the commit, run `just install`, restart ACP, and read `/v1/admin/deployment-coherence` from that node.
 4. Continue only when every node reports `ok: true` and the intended installed/running source identities.
 
-Never use `just pull-deps`, routine `just install`, producer `sync-downstream`, or a moving `latest` tag to advance ASP/HRC. `just check-deps` and `just install` print `PRODUCER_PINNED` advisory lines so registry movement remains visible without changing the deployed tuple.
+Never use `just pull-deps`, routine `just install`, producer `sync-downstream`, or a moving `latest` tag to advance ASP/HRC. An HRC release selected locally but not published cannot be advanced, and HRC deploys to svc or hrcdev do not advance shared latest. `just check-deps` and `just install` print `PRODUCER_PINNED` advisory lines so registry movement remains visible without changing the deployed tuple.
