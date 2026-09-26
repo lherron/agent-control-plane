@@ -235,6 +235,7 @@ install no-sync="" force-sync="" force-link="":
       fi
       ( cd "$repo_root/packages/acp-cli" && bun link )
       ( cd "$repo_root/packages/acp-server" && bun link )
+      ( cd "$repo_root/packages/hrc-viewer" && bun link )
       ( cd "$repo_root/packages/wlearn" && bun link )
     else
       echo "[install] skipping bun link; linked worktree installs must not update local ACP wrappers"
@@ -255,6 +256,44 @@ install-log-rotation:
       launchctl bootout "$service_target"
     fi
     launchctl bootstrap "gui/$(id -u)" "$installed_plist"
+    launchctl print "$service_target" >/dev/null
+    echo "[install] activated $service_target"
+
+# Install and activate the per-user Ghostty presentation sidecar. This recipe
+# deliberately does not run as part of `just install`; viewer rollout is a
+# separate, reversible GUI-user decision.
+install-hrc-viewer-launchd:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source_plist="$(git rev-parse --show-toplevel)/launchd/com.praesidium.hrc-viewer.plist"
+    installed_plist="$HOME/Library/LaunchAgents/com.praesidium.hrc-viewer.plist"
+    service_target="gui/$(id -u)/com.praesidium.hrc-viewer"
+    mkdir -p "$HOME/Library/LaunchAgents" "$HOME/praesidium/var/logs"
+    escaped_home="$(printf '%s' "$HOME" | sed 's/[\/&]/\\&/g')"
+    sed "s/__HOME__/$escaped_home/g" "$source_plist" > "$installed_plist.next"
+    plutil -lint "$installed_plist.next"
+    install -m 0644 "$installed_plist.next" "$installed_plist"
+    rm "$installed_plist.next"
+    if launchctl print "$service_target" >/dev/null 2>&1; then
+      launchctl bootout "$service_target"
+      # bootout returns before the job is actually gone; a bootstrap that races
+      # it fails with "Bootstrap failed: 5: Input/output error" and leaves the
+      # viewer DOWN with this recipe exiting non-zero (T-07711). Wait it out.
+      for _ in $(seq 1 50); do
+        launchctl print "$service_target" >/dev/null 2>&1 || break
+        sleep 0.2
+      done
+    fi
+    bootstrapped=0
+    for attempt in 1 2 3 4 5; do
+      if launchctl bootstrap "gui/$(id -u)" "$installed_plist"; then
+        bootstrapped=1
+        break
+      fi
+      echo "[install] bootstrap attempt $attempt failed; retrying" >&2
+      sleep 1
+    done
+    [[ "$bootstrapped" == 1 ]] || { echo "[install] could not bootstrap $service_target after 5 attempts" >&2; exit 1; }
     launchctl print "$service_target" >/dev/null
     echo "[install] activated $service_target"
 

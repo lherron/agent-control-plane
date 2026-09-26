@@ -7,7 +7,7 @@
   "scripts": {
     "sync:wrkq": "bun scripts/sync-wrkq-from-verdaccio.ts",
     "build": "bun run build:ordered",
-    "build:ordered": "bun run --filter 'acp-core' build && bun run --filter 'hrc-injector-core' build && bun run --filter 'hrc-mail-injector' build && bun run --filter 'coordination-substrate' build && bun run --filter 'wrkq-lib' build && bun run --filter 'acp-admin-store' build && bun run --filter 'acp-conversation' build && bun run --filter 'acp-interface-store' build && bun run --filter 'acp-jobs-store' build && bun run --filter 'acp-state-store' build && bun run --filter 'acp-ops-projection' build && bun run --filter 'acp-ops-reducer' build && bun run --filter 'gateway-discord' build && bun run --filter 'gateway-ios' build && bun run --filter 'acp-capability-host' build && bun run --filter 'acp-server' build && bun run --filter 'acp-cli' build && bun run --filter 'wlearn' build && bun run --filter 'acp-viewer' build && bun run --filter 'acp-e2e' build",
+    "build:ordered": "bun run --filter 'acp-core' build && bun run --filter 'hrc-injector-core' build && bun run --filter 'hrc-mail-injector' build && bun run --filter 'hrc-viewer' build && bun run --filter 'coordination-substrate' build && bun run --filter 'wrkq-lib' build && bun run --filter 'acp-admin-store' build && bun run --filter 'acp-conversation' build && bun run --filter 'acp-interface-store' build && bun run --filter 'acp-jobs-store' build && bun run --filter 'acp-state-store' build && bun run --filter 'acp-ops-projection' build && bun run --filter 'acp-ops-reducer' build && bun run --filter 'gateway-discord' build && bun run --filter 'gateway-ios' build && bun run --filter 'acp-capability-host' build && bun run --filter 'acp-server' build && bun run --filter 'acp-cli' build && bun run --filter 'wlearn' build && bun run --filter 'acp-viewer' build && bun run --filter 'acp-e2e' build",
     "build:parallel": "bun run --filter '*' build",
     "check": "bun run check:suppressions && bun run check:boundaries && bun run check:manifests && bun run check:consumer-deployment && bun run lint && bun run typecheck && bun run test",
     "check:suppressions": "bun scripts/check-suppressions.ts",
@@ -25,7 +25,7 @@
     "typecheck": "bun run --filter '*' typecheck",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "test": "bash -lc 'bun test scripts/*.test.ts tests/conformance/acp-workflow && for pkg in \"acp-core\" \"hrc-injector-core\" \"hrc-mail-injector\" \"coordination-substrate\" \"wrkq-lib\" \"acp-admin-store\" \"acp-conversation\" \"acp-interface-store\" \"acp-jobs-store\" \"acp-state-store\" \"acp-ops-projection\" \"acp-ops-reducer\" \"gateway-discord\" \"gateway-ios\" \"acp-capability-host\" \"acp-server\" \"acp-cli\" \"wlearn\" \"acp-viewer\" \"acp-e2e\"; do bun run --filter \"$pkg\" test || exit $?; done'",
+    "test": "bash -lc 'bun test scripts/*.test.ts tests/conformance/acp-workflow && for pkg in \"acp-core\" \"hrc-injector-core\" \"hrc-mail-injector\" \"hrc-viewer\" \"coordination-substrate\" \"wrkq-lib\" \"acp-admin-store\" \"acp-conversation\" \"acp-interface-store\" \"acp-jobs-store\" \"acp-state-store\" \"acp-ops-projection\" \"acp-ops-reducer\" \"gateway-discord\" \"gateway-ios\" \"acp-capability-host\" \"acp-server\" \"acp-cli\" \"wlearn\" \"acp-viewer\" \"acp-e2e\"; do bun run --filter \"$pkg\" test || exit $?; done'",
     "test:fast": "bun run test",
     "test:acceptance": "bun run --filter 'acp-e2e' test:acceptance",
     "clean": "rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo",

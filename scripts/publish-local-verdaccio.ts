@@ -13,6 +13,7 @@ const PACKAGES = [
   'packages/acp-core',
   'packages/hrc-injector-core',
   'packages/hrc-mail-injector',
+  'packages/hrc-viewer',
   'packages/acp-interface-store',
   'packages/acp-jobs-store',
   'packages/acp-ops-projection',

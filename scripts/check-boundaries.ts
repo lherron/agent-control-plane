@@ -76,6 +76,7 @@ const acpPackages = [
   'acp-ops-projection',
   'acp-ops-reducer',
   'acp-viewer',
+  'hrc-viewer',
   'gateway-discord',
   'gateway-ios',
   'coordination-substrate',
@@ -138,6 +139,13 @@ const ignoredDirectories = new Set([
 
 const importPattern = /\bfrom\s*['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g
 const durableKernelPattern = /\bwithDurableWorkflowKernel\b/g
+const hrcViewerAllowedSdkMethods = new Set([
+  'health',
+  'tailEvents',
+  'watchBoundedEvents',
+  'listLatestEventBySession',
+  'listPresentationRuntimes',
+])
 
 async function collectTsFiles(rootDir: string, sourceRoot: string): Promise<string[]> {
   const files: string[] = []
@@ -224,6 +232,33 @@ async function findViolations(rootDir: string, layer: Layer): Promise<BoundaryVi
   return violations
 }
 
+export async function findHrcViewerSdkViolations(
+  rootDir = process.cwd()
+): Promise<BoundaryViolation[]> {
+  const viewerFiles = (await collectTsFiles(rootDir, 'packages/hrc-viewer/src'))
+    .filter((file) => !file.includes('/__tests__/'))
+    .sort()
+  if (viewerFiles.length === 0) {
+    throw new Error('hrc-viewer SDK guard requires packages/hrc-viewer/src TypeScript sources')
+  }
+
+  const violations: BoundaryViolation[] = []
+  const clientCallPattern = /\b(?:this\.)?(?:client|hrcClient)\s*\.\s*([A-Za-z_$][\w$]*)\s*\(/g
+  for (const file of viewerFiles) {
+    const content = await readFile(file, 'utf8')
+    for (const match of content.matchAll(clientCallPattern)) {
+      const method = match[1]
+      if (method !== undefined && !hrcViewerAllowedSdkMethods.has(method)) {
+        violations.push({
+          file: repoRelative(rootDir, file),
+          specifier: `HrcClient.${method}`,
+        })
+      }
+    }
+  }
+  return violations
+}
+
 export async function runBoundaryCheck(
   options: BoundaryCheckOptions = {}
 ): Promise<BoundaryCheckReport> {
@@ -236,6 +271,11 @@ export async function runBoundaryCheck(
     if (violations.length > 0) {
       violationsByLayer.set(layer.name, violations)
     }
+  }
+
+  const hrcViewerSdkViolations = await findHrcViewerSdkViolations(rootDir)
+  if (hrcViewerSdkViolations.length > 0) {
+    violationsByLayer.set('ACP hrc-viewer SDK scope', hrcViewerSdkViolations)
   }
 
   // Content scan: ACP source must not reference HRC-only feature names.

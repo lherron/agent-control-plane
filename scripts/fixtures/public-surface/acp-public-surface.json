@@ -2381,6 +2381,33 @@
         "startMailInjector"
       ]
     },
+    "hrc-viewer": {
+      "bin": {
+        "hrc-viewer": "./bin/hrc-viewer.js"
+      },
+      "exportKeys": [
+        "."
+      ],
+      "rootExportSource": "./src/index.ts",
+      "rootTypes": [
+        "HeadlessViewerPane",
+        "HrcViewerClient",
+        "HrcViewerOptions",
+        "TmuxClientProbe",
+        "ViewerGhostmux",
+        "ViewerLog"
+      ],
+      "rootValues": [
+        "createGhostmuxManager",
+        "createTmuxClientProbe",
+        "deriveHeadlessSessionIdentity",
+        "deriveHeadlessTabIdentity",
+        "GhostmuxManager",
+        "HrcViewer",
+        "parseTmuxClientList",
+        "parseViewerLingerSeconds"
+      ]
+    },
     "wlearn": {
       "bin": {
         "wlearn": "./bin/wlearn.js"
