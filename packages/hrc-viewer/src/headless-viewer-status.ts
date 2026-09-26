@@ -146,6 +146,8 @@ function safeParseScopeRef(scopeRef: string): ReturnType<typeof parseScopeRef> |
 export type HeadlessViewerStatusProjectorDeps = {
   /** Resolve the viewer surface bound to a runtime (DB first, metadata fallback). */
   resolveSurfaceId: (runtimeId: string) => Promise<string | null> | string | null
+  /** Optional exact target set for the pane plus qualified operator surfaces. */
+  resolveSurfaceIds?: (runtimeId: string) => Promise<readonly string[]> | readonly string[]
   /** Apply a full status-bar triplet. Best-effort — must never throw. */
   applyStatusBar: (surfaceId: string, spec: GhostmuxStatusBarSpec) => Promise<void>
   /**
@@ -237,10 +239,17 @@ export class HeadlessViewerStatusProjector {
     entry.timer = undefined
     const { pending: state, scopeRef, laneRef, exited } = entry
     try {
-      const surfaceId = await this.deps.resolveSurfaceId(runtimeId)
-      if (surfaceId) {
+      const surfaceIds = this.deps.resolveSurfaceIds
+        ? await this.deps.resolveSurfaceIds(runtimeId)
+        : [await this.deps.resolveSurfaceId(runtimeId)].filter(
+            (surfaceId): surfaceId is string => surfaceId !== null
+          )
+      if (surfaceIds.length > 0) {
         const slug = await this.resolveSlugBestEffort(scopeRef)
-        await this.deps.applyStatusBar(surfaceId, renderStatusBar(scopeRef, state, slug, laneRef))
+        const spec = renderStatusBar(scopeRef, state, slug, laneRef)
+        for (const surfaceId of new Set(surfaceIds)) {
+          await this.deps.applyStatusBar(surfaceId, spec)
+        }
       }
     } catch (error) {
       this.deps.onError?.(error)

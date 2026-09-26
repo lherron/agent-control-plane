@@ -1080,6 +1080,11 @@ export class GhostmuxManager {
     await this.setTitle(surfaceId, title)
   }
 
+  /** Presentation-only title write for an operator-owned terminal. */
+  async setTerminalTitle(surfaceId: string, title: string): Promise<void> {
+    await this.setTitle(surfaceId, title)
+  }
+
   /**
    * Apply a full status-bar triplet. Public primitive — all status-bar writes
    * go through here. Single attempt (NO multi-second backoff), swallows every
