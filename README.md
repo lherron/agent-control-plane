@@ -1,7 +1,8 @@
 # Agent Control Plane
 
-Agent Control Plane (ACP) is the local control-plane layer for Praesidium agents,
-sessions, jobs, gateway surfaces, and wrkf-backed task lifecycle facades.
+Agent Control Plane (ACP) is where events become turns for Praesidium. It owns
+gateway surfaces and HRC injectors, alongside agents, sessions, jobs, and
+wrkf-backed task lifecycle facades.
 
 The current implementation source of truth is
 [docs/agent-control-plane-current-spec.md](docs/agent-control-plane-current-spec.md).

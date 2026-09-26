@@ -2,7 +2,7 @@
 # ACP consumes ASP/HRC/@wrkq/client packages from the local Verdaccio registry
 # configured by .npmrc and refreshed by the build pre-scripts. Full operator
 # `just install` also publishes ACP packages to Verdaccio and bun-links acp,
-# acp-server, and wlearn globally; batch worktree install stays worktree-local
+# acp-server, wlearn, and hrc-viewer globally; batch worktree install stays worktree-local
 # and deliberately does not publish or relink global binaries.
 #
 # commands.test is the verifier runner family consumed by agent-loop. The full

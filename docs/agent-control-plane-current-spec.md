@@ -8,15 +8,16 @@ Canonical Workflow Refactor drafts.
 
 ## Purpose
 
-ACP is the control-plane layer between operator/gateway surfaces, HRC runtime
-execution, wrkf workflow authority, and local SQLite-backed projections.
+ACP is where events become turns: the control-plane layer between
+operator/gateway surfaces and HRC runtime execution, with wrkf workflow
+authority and local SQLite-backed projections.
 
 ACP owns:
 
 - HTTP and CLI facades for agents, projects, sessions, jobs, gateways, mobile,
   deliveries, and workflow execution helpers.
 - HRC launch, session resolution, input admission, run records, dispatch
-  fencing, delivery targets, and dashboard projections.
+  fencing, delivery targets, HRC injector policy, and dashboard projections.
 - Local admin/interface/conversation/jobs/coordination/state stores needed for
   ACP operation and projections.
 
@@ -47,6 +48,8 @@ ACP-authoritative.
 - `gateway-discord`: Discord gateway embedded through `acp server restart` in
   the dev stack.
 - `gateway-ios`: mobile gateway surface.
+- `hrc-mail-injector`, `hrc-viewer`: HRC-facing injector and presentation
+  sidecars owned and published by ACP.
 - `acp-ops-projection`, `acp-ops-reducer`, `acp-viewer`: dashboard/viewer
   contracts and apps. Older docs mention `acp-ops-web`, but no tracked
   `packages/acp-ops-web/package.json` is present in this checkout.

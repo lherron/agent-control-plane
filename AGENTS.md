@@ -1,8 +1,9 @@
 ## agent-control-plane
 
 The ACP (Agent Control Plane) layer of the three-repo split (ASP / HRC / ACP).
-It owns the workflow kernel, task/control-plane state, the ACP HTTP server,
-interface gateways (Discord, iOS), and operator dashboards/viewers.
+It is where events become turns: ACP owns interface gateways (Discord, iOS),
+HRC injectors, the workflow kernel, task/control-plane state, the ACP HTTP
+server, and operator dashboards/viewers.
 
 Current implementation spec: [`docs/agent-control-plane-current-spec.md`](docs/agent-control-plane-current-spec.md) —
 it supersedes older top-level planning notes for current behavior.
