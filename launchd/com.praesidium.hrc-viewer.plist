@@ -12,6 +12,10 @@
 		<string>en_US.UTF-8</string>
 		<key>PATH</key>
 		<string>__HOME__/.local/bin:__HOME__/.bun/bin:__HOME__/.tooling/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+		<key>WRKQ_DB</key>
+		<string>__WRKQ_DB__</string>
+		<key>WRKQD_TOKEN_FILE</key>
+		<string>__WRKQD_TOKEN_FILE__</string>
 	</dict>
 	<key>KeepAlive</key>
 	<true/>

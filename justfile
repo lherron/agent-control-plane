@@ -268,10 +268,30 @@ install-hrc-viewer-launchd:
     source_plist="$(git rev-parse --show-toplevel)/launchd/com.praesidium.hrc-viewer.plist"
     installed_plist="$HOME/Library/LaunchAgents/com.praesidium.hrc-viewer.plist"
     service_target="gui/$(id -u)/com.praesidium.hrc-viewer"
+    hrc_plist="$HOME/Library/LaunchAgents/com.praesidium.hrc-server.plist"
     mkdir -p "$HOME/Library/LaunchAgents" "$HOME/praesidium/var/logs"
-    escaped_home="$(printf '%s' "$HOME" | sed 's/[\/&]/\\&/g')"
-    sed "s/__HOME__/$escaped_home/g" "$source_plist" > "$installed_plist.next"
+    hrc_env="$(plutil -extract EnvironmentVariables json -o - "$hrc_plist")" || {
+      echo "[install] cannot read EnvironmentVariables from $hrc_plist" >&2
+      exit 1
+    }
+    wrkq_db="$(jq -er '.HRC_WRKQ_DB' <<<"$hrc_env")" || {
+      echo "[install] $hrc_plist declares no HRC_WRKQ_DB" >&2
+      exit 1
+    }
+    wrkqd_token_file="$(jq -er '.HRC_WRKQD_TOKEN_FILE' <<<"$hrc_env")" || {
+      echo "[install] $hrc_plist declares no HRC_WRKQD_TOKEN_FILE" >&2
+      exit 1
+    }
+    esc() { printf '%s' "$1" | sed 's/[\/&|]/\\&/g'; }
+    sed -e "s|__HOME__|$(esc "$HOME")|g" \
+        -e "s|__WRKQ_DB__|$(esc "$wrkq_db")|g" \
+        -e "s|__WRKQD_TOKEN_FILE__|$(esc "$wrkqd_token_file")|g" \
+        "$source_plist" > "$installed_plist.next"
     plutil -lint "$installed_plist.next"
+    ! grep -q '__[A-Z_]*__' "$installed_plist.next" || {
+      echo "[install] hrc-viewer plist has an unrendered placeholder" >&2
+      exit 1
+    }
     install -m 0644 "$installed_plist.next" "$installed_plist"
     rm "$installed_plist.next"
     if launchctl print "$service_target" >/dev/null 2>&1; then
