@@ -41,3 +41,7 @@ ACP exclusively owns opaque plugin-event cursors binding HRC ledger incarnation 
 ## agent-control-plane.verify-gate
 
 just verify is agent-control-plane's local handoff gate and must include the architecture-records structure and projection-freshness check.
+
+## agent-control-plane.viewer-operator-surface-actuation
+
+ACP's hrc-viewer may actuate an HRC-reported operator Ghostty surface only when the same presentation-row runtime reports that surface with a nonempty clientTty and the viewer independently observes that exact TTY as a live tmux client on the row's attach target. A negative or indeterminate observation, a missing terminal identity, or a TTY belonging only to another surface withholds actuation. HRC permits one active Ghostty surface binding per client TTY and retires an older conflicting binding before reporting the new one. The viewer may apply only status bars, terminal background, and title to an operator surface; it never mints, adopts, rebinds, reaps, or writes hrc_* metadata there. A runtime may concurrently have its keyed metadata-owned pane and multiple operator surfaces. Each permitted presentation write reaches the complete deduplicated set of the keyed pane and exact-TTY-qualified operator surfaces; pane topology and reap range only over the keyed pane. The HRC presentation read remains a store-only projection, and viewer absence, failure, or polling does not mutate runtime lifecycle state. The viewer obtains bindings through the existing listPresentationRuntimes read and does not call per-runtime listSurfaces.

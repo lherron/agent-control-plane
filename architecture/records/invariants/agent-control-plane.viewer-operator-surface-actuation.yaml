@@ -1,0 +1,43 @@
+id: agent-control-plane.viewer-operator-surface-actuation
+kind: invariant
+status: active
+owner_project: agent-control-plane
+scope: hrc-viewer actuation of operator-owned Ghostty surfaces
+predicate: >
+  ACP's hrc-viewer may actuate an HRC-reported operator Ghostty surface only
+  when the same presentation-row runtime reports that surface with a nonempty
+  clientTty and the viewer independently observes that exact TTY as a live
+  tmux client on the row's attach target. A negative or indeterminate
+  observation, a missing terminal identity, or a TTY belonging only to another
+  surface withholds actuation. HRC permits one active Ghostty surface binding
+  per client TTY and retires an older conflicting binding before reporting the
+  new one. The viewer may apply only status bars, terminal background, and
+  title to an operator surface; it never mints, adopts, rebinds, reaps, or
+  writes hrc_* metadata there. A runtime may concurrently have its keyed
+  metadata-owned pane and multiple operator surfaces. Each permitted
+  presentation write reaches the complete deduplicated set of the keyed pane
+  and exact-TTY-qualified operator surfaces; pane topology and reap range only
+  over the keyed pane. The HRC presentation read remains a store-only
+  projection, and viewer absence, failure, or polling does not mutate runtime
+  lifecycle state. The viewer obtains bindings through the existing
+  listPresentationRuntimes read and does not call per-runtime listSurfaces.
+authority:
+  repo: agent-control-plane
+  surface: hrc-viewer Ghostty actuation
+source:
+  - wrkq:T-09270
+  - wrkq:T-09269
+  - packages/hrc-viewer/src/viewer.ts
+  - packages/hrc-viewer/src/tmux-clients.ts
+required_tests:
+  - just architecture-records
+  - exact-TTY operator-surface paint denial for stale, mismatched, missing and indeterminate client evidence
+  - pane and multiple operator-surface paint with deduplicated writes and no operator metadata, rebind, adoption or reap
+  - installed Ghostty attach, detach, reuse and stale-binding paint matrix
+last_verified: not verified; preimplementation architecture ruling 2026-09-26
+reopen_when:
+  - HRC operator-surface binding identity, uniqueness or presentation-row contract changes
+  - tmux client TTY semantics or the viewer's per-surface actuation gate changes
+  - Ghostty pane ownership, metadata, adoption, rebind or reap boundary changes
+supersedes: []
+superseded_by: null
