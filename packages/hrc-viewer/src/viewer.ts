@@ -14,6 +14,7 @@ import {
   renderSecondaryStatusBar,
   renderStatusBar,
   viewerStateForEventKind,
+  viewerStateForRuntimeStatus,
   viewerTerminalBg,
 } from './headless-viewer-status.js'
 import { type TmuxClientProbe, createTmuxClientProbe } from './tmux-clients.js'
@@ -711,7 +712,9 @@ export class HrcViewer {
     for (const surfaceId of surfaceIds) {
       await this.ghostmux.setTerminalBackground?.(surfaceId, viewerTerminalBg(row.scopeRef))
     }
-    const state = event ? viewerStateForEventKind(event.eventKind) : null
+    const state =
+      (event ? viewerStateForEventKind(event.eventKind) : null) ??
+      viewerStateForRuntimeStatus(row.status)
     if (state !== null) {
       const slug = await defaultTaskSlugResolver()(row.scopeRef)
       const spec = renderStatusBar(

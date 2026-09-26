@@ -21,6 +21,9 @@ function makeHarness(options: {
   operatorSurfaces: readonly OperatorSurface[]
   clients: readonly string[]
   probeFails?: boolean
+  viewerRequested?: boolean
+  includeMintedPane?: boolean
+  latestEventKind?: string
 }): Harness {
   const operations: string[] = []
   const row = {
@@ -30,7 +33,7 @@ function makeHarness(options: {
     laneRef: 'main',
     generation: 1,
     status: 'ready',
-    presentation: { operatorAttachable: true, viewerRequested: true },
+    presentation: { operatorAttachable: true, viewerRequested: options.viewerRequested ?? true },
     tmux: { socketPath: SOCKET, attachTarget: TARGET },
     title: 'Operator paint proof',
     operatorSurfaces: options.operatorSurfaces,
@@ -45,7 +48,7 @@ function makeHarness(options: {
     generation: 1,
     runtimeId: RUNTIME_ID,
     category: 'turn',
-    eventKind: 'turn.started',
+    eventKind: options.latestEventKind ?? 'turn.started',
     replayed: false,
     payload: {},
   }
@@ -72,6 +75,7 @@ function makeHarness(options: {
       return MINTED_PANE
     },
     async listHeadlessViewerPanes() {
+      if (options.includeMintedPane === false) return []
       return [
         {
           surfaceId: MINTED_PANE,
@@ -216,5 +220,29 @@ describe('T-09270 exact-TTY operator presentation', () => {
       expect.arrayContaining([`status:${MINTED_PANE}`, 'status:operator-live'])
     )
     expect(harness.operations).not.toContain('status:operator-stale')
+  })
+
+  it('paints a newly bound operator from a ready row when surface.bound is the latest event', async () => {
+    const harness = makeHarness({
+      operatorSurfaces: [{ surfaceId: 'operator-live', clientTty: '/dev/ttys014' }],
+      clients: ['/dev/ttys014'],
+      viewerRequested: false,
+      includeMintedPane: false,
+      latestEventKind: 'surface.bound',
+    })
+
+    await harness.reconcile()
+
+    expect(harness.operations).toEqual(
+      expect.arrayContaining([
+        'operator-title:operator-live',
+        'background:operator-live',
+        'status:operator-live',
+        'secondary:operator-live',
+      ])
+    )
+    expect(harness.operations).not.toEqual(
+      expect.arrayContaining(['rebind:operator-live', 'reap:operator-live'])
+    )
   })
 })

@@ -55,6 +55,25 @@ export function viewerStateForEventKind(eventKind: string): ViewerState | null {
 }
 
 /**
+ * Reconciliation can discover an already-settled presentation row after a
+ * surface-only event such as `surface.bound`.  Those events deliberately have
+ * no lifecycle meaning, so use the durable row status for the initial paint.
+ * Unknown and terminal statuses fail closed: lifecycle events remain the only
+ * source for an exited bar.
+ */
+export function viewerStateForRuntimeStatus(status: string | undefined): ViewerState | null {
+  switch (status) {
+    case 'starting':
+    case 'busy':
+      return 'running'
+    case 'ready':
+      return 'idle'
+    default:
+      return null
+  }
+}
+
+/**
  * Build the full status-bar triplet for a scope + state. Pure.
  *
  * `slug` is the optional best-effort wrkq task slug (T-04977). When present (and
