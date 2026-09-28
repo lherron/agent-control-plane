@@ -43,7 +43,7 @@ import { observeBrokerSeat } from './seat.js'
 
 export type DriveMailTargetOutcome =
   | { outcome: 'birth-refused' }
-  | { outcome: 'undeliverable' }
+  | { outcome: 'undeliverable'; failed: number }
   | undefined
 
 /**
@@ -118,13 +118,13 @@ async function birthForTarget(
           callSite: 'birth_refused_deterministic',
           detail: `HRC refused the birth (${deterministic.code}): ${deterministic.message}`,
         })
-        if (terminal) {
+        if (terminal !== undefined) {
           server.store.mailDelivery.resolveBirthRefusal(
             targetSessionRef,
             `deterministic birth refusal; pending mail failed undeliverable: ${deterministic.message}`
           )
           server.mailKickerBirthSweepBackoff.delete(targetSessionRef)
-          return { outcome: 'undeliverable' }
+          return { outcome: 'undeliverable', failed: terminal.failed }
         }
       } catch (failError) {
         server.log('WARN', 'wrkq.kicker.undeliverable_failed', {
@@ -184,6 +184,15 @@ export async function driveMailTargetOnce(
       ),
       ...extra,
     })
+  const completeBirth = (outcome: DriveMailTargetOutcome) => {
+    if (outcome?.outcome === 'undeliverable') {
+      // Failed and noticed; nothing is left for a later wake to recover.
+      summary.terminalized = outcome.failed
+      complete('undeliverable', { recovery: 'sender_notice' })
+      return
+    }
+    complete(outcome?.outcome ?? 'birth_deferred', { recovery: 'periodic_wake' })
+  }
   // Placement first, before the ledger read or any door. A scope homed on
   // another node cannot be driven from here by any wake reason, so submitting
   // for it only manufactures the failure (T-07650). A ref this daemon cannot
@@ -260,7 +269,7 @@ export async function driveMailTargetOnce(
   if (session === undefined) {
     phase('runtime_selection', 'skipped', { reason: 'no_target_session' })
     const outcome = await birthForTarget(server, targetSessionRef, scopeRef, actionable, wakeReason)
-    complete(outcome?.outcome ?? 'birth_deferred', { recovery: 'periodic_wake' })
+    completeBirth(outcome)
     return outcome
   }
 
@@ -309,7 +318,9 @@ export async function driveMailTargetOnce(
   // existing session and an absent broker (regression in 70e683c7, caught by
   // the T-07615 suite).
   if (seat.state === 'absent' && actionable.some((item) => summonsATurn(item.envelope))) {
-    return await birthForTarget(server, targetSessionRef, scopeRef, actionable, wakeReason)
+    const outcome = await birthForTarget(server, targetSessionRef, scopeRef, actionable, wakeReason)
+    completeBirth(outcome)
+    return outcome
   }
   if (
     seat.state === 'unavailable' ||

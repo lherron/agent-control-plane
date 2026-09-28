@@ -64,7 +64,13 @@ describe('T-09657 — deterministic birth refusal', () => {
 
     const outcome = await driveMailTargetOnce(h.context, TARGET_REF, 'insert')
 
-    expect(outcome).toMatchObject({ outcome: 'undeliverable' })
+    expect(outcome).toEqual({ outcome: 'undeliverable', failed: 1 })
+    expect(events('wrkq.kicker.drive_completed')[0]?.detail).toMatchObject({
+      outcome: 'undeliverable',
+      terminalized: 1,
+      stillPending: 0,
+      recovery: 'sender_notice',
+    })
     expect(h.ledger.failRequests).toEqual([
       { envelope: envelope.id, reason: 'undeliverable', detail: expect.stringContaining(REFUSAL) },
     ])

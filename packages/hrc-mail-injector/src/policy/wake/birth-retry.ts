@@ -149,7 +149,7 @@ export async function chargeBirthSweepRefusal(
             ? `HRC refused the birth ${attempts} times`
             : `HRC refused the birth ${attempts} times; last: ${lastReason}`,
       })
-      if (terminal) {
+      if (terminal !== undefined) {
         server.mailKickerBirthSweepBackoff.delete(targetSessionRef)
       } else {
         server.mailKickerBirthSweepBackoff.set(targetSessionRef, {
@@ -192,7 +192,9 @@ export async function chargeBirthSweepRefusal(
  * presented belongs to D3/D5 and is not this bound's to end.
  *
  * Two callers: the fifth transient refusal, and a deterministic refusal on its
- * first sight (T-09657). Both hand wrkq the sender-facing `detail`.
+ * first sight (T-09657). Both hand wrkq the sender-facing `detail`. Returns how
+ * many envelopes it failed once the bound is settled, or undefined when it could
+ * not settle it and the refusal must stay open.
  */
 export async function failUndeliverableMail(
   server: MailKickerContext,
@@ -202,7 +204,7 @@ export async function failUndeliverableMail(
     callSite: 'birth_refusals_exhausted' | 'birth_refused_deterministic'
     detail: string
   }
-): Promise<boolean> {
+): Promise<{ failed: number } | undefined> {
   const { refusals } = failure
   const scopeRef = kickerScopeRefFor(targetSessionRef)
   if (scopeRef === undefined) {
@@ -210,7 +212,7 @@ export async function failUndeliverableMail(
       targetSessionRef,
       reason: 'target session ref has no parseable scope',
     })
-    return false
+    return undefined
   }
   try {
     const home = await server.port.locate(scopeRef)
@@ -228,7 +230,7 @@ export async function failUndeliverableMail(
         refusals,
         resolvedBirthRefusal: resolvedBirth,
       })
-      return true
+      return { failed: 0 }
     }
   } catch (error) {
     server.log('WARN', 'wrkq.kicker.undeliverable_home_consult_failed', {
@@ -236,9 +238,10 @@ export async function failUndeliverableMail(
       scopeRef,
       error: errorText(error),
     })
-    return false
+    return undefined
   }
 
+  let failed = 0
   const view = await server.ledger.pendingView({ scopes: [targetSessionRef] })
   for (const envelope of view.items) {
     if (envelope.state !== 'pending') continue
@@ -248,13 +251,14 @@ export async function failUndeliverableMail(
       envelope: envelope.id,
       refusals,
     })
-    await failEnvelopeWithAudit(server, {
+    const result = await failEnvelopeWithAudit(server, {
       envelope: envelope.id,
       reason: 'undeliverable',
       detail: failure.detail,
       targetSessionRef,
       callSite: failure.callSite,
     })
+    if (result.outcome === 'failed') failed++
   }
-  return true
+  return { failed }
 }
