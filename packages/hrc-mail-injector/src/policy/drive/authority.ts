@@ -189,6 +189,7 @@ export function deterministicBirthRefusalFor(
 ): DeterministicBirthRefusal | undefined {
   if (!(error instanceof HrcDomainError)) return undefined
   if (error.code !== HrcErrorCode.DECLARATION_INVALID) return undefined
+  if (localPlacementRefusalFor(error) !== undefined) return undefined
   const source = error.detail['source']
   return {
     code: error.code,
@@ -197,6 +198,8 @@ export function deterministicBirthRefusalFor(
   }
 }
 
+import { homedir } from 'node:os'
+
 import { HrcDomainError, HrcErrorCode } from 'hrc-core'
 import type { HrcSessionRecord } from 'hrc-core'
 import type { HrcMailDriveWakeReason } from 'hrc-store-sqlite'
@@ -204,3 +207,43 @@ import type { HrcMailDriveWakeReason } from 'hrc-store-sqlite'
 import type { MailKickerContext } from '../context.js'
 import type { ForeignHome } from '../contracts.js'
 import { isRecord, isRuntimeUnavailableStatus, parseSessionRef } from '../internal.js'
+
+/**
+ * A birth refusal that is a fact about THIS node, not about the declaration
+ * (T-09822).
+ *
+ * HRC types a project root this node cannot resolve to a canonical checkout —
+ * the registered root is missing here, is a linked worktree, or no marker scan
+ * found one — as `declaration_invalid` with `source: project-targets`. Every
+ * node's injector drives the same ledger, so for a scope nobody has bound yet
+ * the node WITHOUT the checkout often reaches the envelope first; failing it
+ * there let the race decide the mail's fate. Such a node leaves the envelope to
+ * a node that can host the project. If none can, the ordinary D7 bound fails it
+ * with this reason: the refusal row and the backoff are this node's own, so it
+ * never delays another node's birth, and `failUndeliverableMail` re-locates
+ * first, so a scope another node has bound is never failed from here.
+ */
+export type LocalPlacementRefusal = {
+  source: string
+  message: string
+  home: string
+  projectId?: string | undefined
+  projectRoot?: string | undefined
+}
+
+export function localPlacementRefusalFor(error: unknown): LocalPlacementRefusal | undefined {
+  if (!(error instanceof HrcDomainError)) return undefined
+  if (error.code !== HrcErrorCode.DECLARATION_INVALID) return undefined
+  const source = error.detail['source']
+  if (source !== 'project-targets') return undefined
+  const home = error.detail['home']
+  const projectId = error.detail['projectId']
+  const projectRoot = error.detail['projectRoot']
+  return {
+    source,
+    message: error.message,
+    home: typeof home === 'string' ? home : (process.env['HOME'] ?? homedir()),
+    ...(typeof projectId === 'string' ? { projectId } : {}),
+    ...(typeof projectRoot === 'string' ? { projectRoot } : {}),
+  }
+}

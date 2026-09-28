@@ -34,6 +34,7 @@ import {
   deferBirthForTarget,
   deterministicBirthRefusalFor,
   kickerScopeRefFor,
+  localPlacementRefusalFor,
   skipForeignHomedTarget,
 } from './authority.js'
 import { deliverByColdBirth, deliverToSeat } from './delivery.js'
@@ -42,7 +43,7 @@ import { readActionableEnvelopes, summonsATurn } from './presentation.js'
 import { observeBrokerSeat } from './seat.js'
 
 export type DriveMailTargetOutcome =
-  | { outcome: 'birth-refused' }
+  | { outcome: 'birth-refused'; notPlaceableHere?: true }
   | { outcome: 'undeliverable'; failed: number }
   | undefined
 
@@ -88,6 +89,31 @@ async function birthForTarget(
     if (deferral !== undefined && scopeRef !== undefined) {
       deferBirthForTarget(server, targetSessionRef, scopeRef, deferral, wakeReason)
       return
+    }
+    // This node cannot host the project (T-09822). Not a failed delivery and
+    // not the sender's fault: leave the envelope to a node that can. The row
+    // recorded below is the no-host backstop's only record.
+    const local = localPlacementRefusalFor(error)
+    if (local !== undefined) {
+      server.log('INFO', 'wrkq.kicker.birth_not_placeable_here', {
+        targetSessionRef,
+        wakeReason,
+        envelope: summons.envelope.id,
+        nodeId: server.nodeId,
+        home: local.home,
+        ...(local.projectId === undefined ? {} : { projectId: local.projectId }),
+        ...(local.projectRoot === undefined ? {} : { projectRoot: local.projectRoot }),
+        source: local.source,
+        message: local.message,
+      })
+      if (scopeRef !== undefined) {
+        server.store.mailDelivery.recordBirthRefusal({
+          targetSessionRef,
+          scopeRef,
+          reason: `no node seated ${scopeRef}; node ${server.nodeId} (HOME=${local.home}) cannot host it: ${local.message}`,
+        })
+      }
+      return { outcome: 'birth-refused', notPlaceableHere: true }
     }
     server.log('WARN', 'wrkq.kicker.birth_failed', {
       targetSessionRef,
@@ -193,6 +219,10 @@ export async function driveMailTargetOnce(
       // Failed and noticed; nothing is left for a later wake to recover.
       summary.terminalized = outcome.failed
       complete('undeliverable', { recovery: 'sender_notice' })
+      return
+    }
+    if (outcome?.outcome === 'birth-refused' && outcome.notPlaceableHere === true) {
+      complete('not_placeable_here', { recovery: 'periodic_wake' })
       return
     }
     complete(outcome?.outcome ?? 'birth_deferred', { recovery: 'periodic_wake' })
