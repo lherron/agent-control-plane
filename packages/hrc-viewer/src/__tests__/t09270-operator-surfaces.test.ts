@@ -168,7 +168,9 @@ describe('T-09270 exact-TTY operator presentation', () => {
     expect(harness.operations).not.toEqual(
       expect.arrayContaining(['rebind:operator-live', 'reap:operator-live'])
     )
-    expect(harness.operations.filter((operation) => operation === 'status:operator-live')).toHaveLength(1)
+    expect(
+      harness.operations.filter((operation) => operation === 'status:operator-live')
+    ).toHaveLength(1)
   })
 
   it('withholds a stale cached binding whose TTY is no longer a client', async () => {
