@@ -62,9 +62,13 @@ async function birthForTarget(
   actionable: readonly ActionableEnvelope[],
   wakeReason: HrcMailDriveWakeReason
 ): Promise<DriveMailTargetOutcome> {
-  // A non-summoning envelope (a legacy `fyi`) is presented into a live
-  // generation if there is one, and otherwise waits. It is never the reason a
-  // session is born, so a wake set holding nothing else stops here.
+  // A non-summoning envelope (a legacy `fyi`) never MINTS a session: a target
+  // with no session row is not born for it, so a wake set holding nothing else
+  // stops here. A seat-absent fyi whose session row already exists does not
+  // reach this branch; when its target is driven (a fyi is never itself a wake
+  // for a seatless target: see ledger-tail and the periodic sweep),
+  // `driveMailTargetOnce` sends it through `deliverToSeat`, and that delivery MAY
+  // birth a fresh runtime for the session (T-09643 ruling).
   const summons = actionable.find((item) => summonsATurn(item.envelope))
   if (summons === undefined) return
   try {
@@ -312,11 +316,11 @@ export async function driveMailTargetOnce(
   //
   // A wake set holding ONLY non-summoning mail keeps the pre-existing path: it
   // falls through to `deliverToSeat`, which provisions a runtime for the session
-  // row that already exists. That is not the birth §5 forbids — the session was
-  // already minted, and the rule is that a fyi never mints one — and routing it
-  // here instead silently stopped delivering fyi mail to driven targets with an
-  // existing session and an absent broker (regression in 70e683c7, caught by
-  // the T-07615 suite).
+  // row that already exists. That is the contract (T-09643 ruling): a
+  // seat-absent fyi MAY birth a runtime for an existing session once its target
+  // is driven; it is never itself the wake, and it never mints a session. Routing it here instead silently stopped
+  // delivering fyi mail to driven targets with an existing session and an
+  // absent broker (regression in 70e683c7, caught by the T-07615 suite).
   if (seat.state === 'absent' && actionable.some((item) => summonsATurn(item.envelope))) {
     const outcome = await birthForTarget(server, targetSessionRef, scopeRef, actionable, wakeReason)
     completeBirth(outcome)

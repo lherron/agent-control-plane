@@ -99,7 +99,7 @@ export async function readActionableEnvelopes(
 }
 
 /**
- * May this envelope birth a previously unseated target?
+ * May this envelope birth a target that has no session at all?
  *
  * T-07746 separated summoning from reply debt. Both `reply_required` and the
  * default `notify` birth and wake; only `reply_required` goes on to owe a
@@ -108,7 +108,10 @@ export async function readActionableEnvelopes(
  * birth. Waking a seat to read something it owes nothing on is a different act.
  *
  * A legacy `fyi` still does NOT summon: those rows were written under the old
- * rule and never could, so honoring them here keeps history truthful.
+ * rule and never could, so honoring them here keeps history truthful. Summoning
+ * is only about minting a session; a seat-absent fyi on an existing session is
+ * delivered through the seat door when its target is next driven, and MAY
+ * birth a runtime there (T-09643). It is never itself the wake.
  */
 export function summonsATurn(envelope: WrkqEnvelope): boolean {
   return obligationSummons(envelope.obligation)
