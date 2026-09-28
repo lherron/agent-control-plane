@@ -34,6 +34,8 @@ describe('boundary and manifest diagnostics', () => {
       join(root, 'packages/acp-server/src/bad.ts'),
       "import type { InternalRuntime } from 'hrc-server/src/runtime'\nexport type Bad = InternalRuntime\n"
     )
+    // The hrc-viewer SDK guard fails closed on a root with no viewer sources.
+    writeText(join(root, 'packages/hrc-viewer/src/index.ts'), 'export {}\n')
 
     const rendered = renderBoundaryDiagnostics(await runBoundaryCheck({ rootDir: root }))
 
