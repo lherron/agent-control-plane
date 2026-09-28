@@ -59,7 +59,8 @@ The `acp` daemon is managed via launchd:
 
 `just install` rebuilds, publishes the ACP set, and updates the main-checkout
 links; it does not reload launchd. After runtime changes: `just install`,
-`acp server restart`, `acp server status`.
+`acp server restart` (Mable primary only; anyone else asks
+`mable@<project>:primary`), `acp server status`.
 
 `ACP_REAL_HRC_LAUNCHER=1` and the embedded `HRC_RUNTIME_DIR`/`HRC_STATE_DIR`
 env in the ACP plist tell `acp-server` to spawn real HRC client paths against
