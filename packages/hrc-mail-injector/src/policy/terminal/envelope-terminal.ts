@@ -8,6 +8,7 @@ import type { WrkqEnvelope, WrkqEnvelopeFailureReason } from '../ledger/types.js
 
 export type EnvelopeFailCallSite =
   | 'birth_refusals_exhausted'
+  | 'birth_refused_deterministic'
   | 'dispose_runtime_obligations'
   | 'non_landing_strikes_exhausted'
   | 'lapsed_obligations'
@@ -16,6 +17,8 @@ type EnvelopeFailInput = {
   envelope: string
   reason: Exclude<WrkqEnvelopeFailureReason, 'legacy'>
   runtime?: string | undefined
+  /** Why, for the sender's notice; wrkq bounds and stores it on the failed event. */
+  detail?: string | undefined
   targetSessionRef: string
   /** The opaque HRC presentation id this failure is about, when there is one. */
   presentationId?: string | undefined
@@ -133,6 +136,7 @@ export async function failEnvelopeWithAudit(
   const failed = await server.ledger.fail({
     envelope: input.envelope,
     reason: input.reason,
+    ...(input.detail === undefined ? {} : { detail: input.detail }),
     ...(input.runtime === undefined ? {} : { runtime: input.runtime }),
   })
   server.log('INFO', 'wrkq.kicker.envelope_failed', {

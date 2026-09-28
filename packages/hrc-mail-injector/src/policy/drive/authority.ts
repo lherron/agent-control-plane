@@ -169,7 +169,35 @@ export function deferBirthForTarget(
   })
 }
 
-import { HrcDomainError } from 'hrc-core'
+/**
+ * A birth refusal that no retry can change (T-09657).
+ *
+ * HRC types a caller-fixable placement fact — a task-named worktree whose
+ * branch names another task, an invalid project target or agent profile — as
+ * 422 `declaration_invalid`. Nothing about the target changes between sweeps,
+ * so charging it as one more transient strike only delays the sender's notice
+ * by the whole D7 backoff. Keyed on the typed code, never on message text.
+ */
+export type DeterministicBirthRefusal = {
+  code: string
+  message: string
+  source?: string | undefined
+}
+
+export function deterministicBirthRefusalFor(
+  error: unknown
+): DeterministicBirthRefusal | undefined {
+  if (!(error instanceof HrcDomainError)) return undefined
+  if (error.code !== HrcErrorCode.DECLARATION_INVALID) return undefined
+  const source = error.detail['source']
+  return {
+    code: error.code,
+    message: error.message,
+    ...(typeof source === 'string' ? { source } : {}),
+  }
+}
+
+import { HrcDomainError, HrcErrorCode } from 'hrc-core'
 import type { HrcSessionRecord } from 'hrc-core'
 import type { HrcMailDriveWakeReason } from 'hrc-store-sqlite'
 

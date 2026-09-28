@@ -38,7 +38,7 @@ type Recorded = { level: string; event: string; detail: Record<string, unknown> 
 class FakeLedger {
   readonly envelopes = new Map<string, WrkqEnvelope>()
   readonly presentRequests: WrkqEnvelopePresentParams[] = []
-  readonly failRequests: Array<{ envelope: string; reason: string }> = []
+  readonly failRequests: Array<{ envelope: string; reason: string; detail?: string }> = []
   private seq = 0
 
   say(overrides: Partial<WrkqEnvelope> = {}): WrkqEnvelope {
@@ -114,10 +114,14 @@ class FakeLedger {
     })
   }
 
-  fail(params: { envelope: string; reason: string }): Promise<WrkqEnvelope> {
+  fail(params: { envelope: string; reason: string; detail?: string }): Promise<WrkqEnvelope> {
     const envelope = this.envelopes.get(params.envelope)
     if (envelope === undefined) throw new Error(`unknown envelope ${params.envelope}`)
-    this.failRequests.push({ envelope: params.envelope, reason: params.reason })
+    this.failRequests.push({
+      envelope: params.envelope,
+      reason: params.reason,
+      ...(params.detail === undefined ? {} : { detail: params.detail }),
+    })
     envelope.state = 'failed'
     envelope.terminal = true
     envelope.failureReason = params.reason as WrkqEnvelope['failureReason']

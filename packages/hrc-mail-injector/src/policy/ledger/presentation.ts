@@ -142,12 +142,20 @@ export function formatEnvelopePresentations(
 export function formatEnvelopeFailureNotice(
   envelope: WrkqEnvelope,
   reason: WrkqEnvelopeFailureReason,
-  options: { runtimeId?: string | undefined; now?: Date | undefined } = {}
+  options: {
+    runtimeId?: string | undefined
+    /** The failer's own why (e.g. HRC's birth-refusal message), when it gave one. */
+    detail?: string | undefined
+    now?: Date | undefined
+  } = {}
 ): string {
   const now = options.now ?? new Date()
   const addressee = addresseeToken(envelope)
   const header = `[${envelope.roomKey} · your ${envelope.id} → ${addressee} · failed: ${reason}]`
-  return [header, failureDetail(envelope, reason, addressee, options.runtimeId, now)].join('\n')
+  const lines = [header, failureDetail(envelope, reason, addressee, options.runtimeId, now)]
+  const detail = options.detail?.trim()
+  if (detail) lines.push(`Why: ${detail}`)
+  return lines.join('\n')
 }
 
 function failureDetail(

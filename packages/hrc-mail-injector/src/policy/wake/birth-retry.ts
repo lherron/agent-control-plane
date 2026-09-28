@@ -140,7 +140,15 @@ export async function chargeBirthSweepRefusal(
   const attempts = (server.mailKickerBirthSweepBackoff.get(targetSessionRef)?.attempts ?? 0) + 1
   if (attempts >= BIRTH_SWEEP_MAX_REFUSALS) {
     try {
-      const terminal = await failUndeliverableMail(server, targetSessionRef, attempts)
+      const lastReason = server.store.mailDelivery.getBirthRefusal(targetSessionRef)?.lastReason
+      const terminal = await failUndeliverableMail(server, targetSessionRef, {
+        refusals: attempts,
+        callSite: 'birth_refusals_exhausted',
+        detail:
+          lastReason === undefined
+            ? `HRC refused the birth ${attempts} times`
+            : `HRC refused the birth ${attempts} times; last: ${lastReason}`,
+      })
       if (terminal) {
         server.mailKickerBirthSweepBackoff.delete(targetSessionRef)
       } else {
@@ -182,12 +190,20 @@ export async function chargeBirthSweepRefusal(
  * Only a `pending` envelope is failed: `undeliverable` means the body was never
  * pushed at all, and wrkqd enforces that on its side too. Anything already
  * presented belongs to D3/D5 and is not this bound's to end.
+ *
+ * Two callers: the fifth transient refusal, and a deterministic refusal on its
+ * first sight (T-09657). Both hand wrkq the sender-facing `detail`.
  */
-async function failUndeliverableMail(
+export async function failUndeliverableMail(
   server: MailKickerContext,
   targetSessionRef: string,
-  refusals: number
+  failure: {
+    refusals: number
+    callSite: 'birth_refusals_exhausted' | 'birth_refused_deterministic'
+    detail: string
+  }
 ): Promise<boolean> {
+  const { refusals } = failure
   const scopeRef = kickerScopeRefFor(targetSessionRef)
   if (scopeRef === undefined) {
     server.log('WARN', 'wrkq.kicker.undeliverable_home_unresolved', {
@@ -227,7 +243,7 @@ async function failUndeliverableMail(
   for (const envelope of view.items) {
     if (envelope.state !== 'pending') continue
     if (envelope.presentedTo.length > 0) continue
-    server.log('WARN', 'wrkq.kicker.birth_refusals_exhausted', {
+    server.log('WARN', `wrkq.kicker.${failure.callSite}`, {
       targetSessionRef,
       envelope: envelope.id,
       refusals,
@@ -235,8 +251,9 @@ async function failUndeliverableMail(
     await failEnvelopeWithAudit(server, {
       envelope: envelope.id,
       reason: 'undeliverable',
+      detail: failure.detail,
       targetSessionRef,
-      callSite: 'birth_refusals_exhausted',
+      callSite: failure.callSite,
     })
   }
   return true

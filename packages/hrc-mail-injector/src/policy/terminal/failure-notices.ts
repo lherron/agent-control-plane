@@ -59,9 +59,9 @@ export async function deliverFailureNotices(
  * §5 — queue the sender-side notice for one `envelope.failed` off the tail.
  *
  * Rendered by reading the ROW back, not from the event payload: the real
- * payload carries `{state, reason, room_uuid, runtime_id}` and neither party
- * nor the room key (paired against wrkqd at wrkq 88b133a). The envelope id is
- * on the event row itself.
+ * payload carries `{state, reason, room_uuid, runtime_id, detail?}` and neither
+ * party nor the room key (paired against wrkqd at wrkq 88b133a; `detail` since
+ * wrkq b067eb8, T-09657). The envelope id is on the event row itself.
  *
  * Only a sender this node homes or seats is served. A notice is delivered by
  * exactly one daemon — the sender's own — and a human sender is served by the
@@ -92,9 +92,12 @@ export async function queueFailureNotice(
       binding.homeNodeId === server.nodeId
   )
   if (!homed && (await server.port.targetBySessionRef(targetSessionRef)) === undefined) return
-  const runtimeId = failedPayload(event.payload)?.runtime_id
+  const payload = failedPayload(event.payload)
+  const runtimeId = payload?.runtime_id
+  const detail = typeof payload?.detail === 'string' ? payload.detail : undefined
   const notice = formatEnvelopeFailureNotice(envelope, reason, {
     ...(runtimeId === undefined ? {} : { runtimeId }),
+    ...(detail === undefined ? {} : { detail }),
   })
   if (!server.store.mailDelivery.recordFailureNotice({ envelopeId, targetSessionRef, notice }))
     return

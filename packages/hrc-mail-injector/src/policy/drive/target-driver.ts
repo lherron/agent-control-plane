@@ -28,9 +28,11 @@ import type { MailKickerContext } from '../context.js'
 import { errorText } from '../internal.js'
 import { WrkqLedgerUnavailableError } from '../ledger/client.js'
 import { deliverFailureNotices } from '../terminal/failure-notices.js'
+import { failUndeliverableMail } from '../wake/birth-retry.js'
 import {
   birthDeferralFor,
   deferBirthForTarget,
+  deterministicBirthRefusalFor,
   kickerScopeRefFor,
   skipForeignHomedTarget,
 } from './authority.js'
@@ -39,7 +41,10 @@ import type { ActionableEnvelope } from './presentation.js'
 import { readActionableEnvelopes, summonsATurn } from './presentation.js'
 import { observeBrokerSeat } from './seat.js'
 
-export type DriveMailTargetOutcome = { outcome: 'birth-refused' } | undefined
+export type DriveMailTargetOutcome =
+  | { outcome: 'birth-refused' }
+  | { outcome: 'undeliverable' }
+  | undefined
 
 /**
  * Take the launch-carried door for a target with no live runtime.
@@ -92,6 +97,41 @@ async function birthForTarget(
         scopeRef,
         reason: errorText(error),
       })
+    }
+    // A caller-fixable refusal (T-09657) fails the summons NOW and tells the
+    // sender why; retrying it only delays that by the whole D7 backoff. If the
+    // fail cannot complete, the refusal row stays open and the ordinary backoff
+    // still bounds it.
+    const deterministic = deterministicBirthRefusalFor(error)
+    if (deterministic !== undefined) {
+      server.log('WARN', 'wrkq.kicker.birth_refusal_deterministic', {
+        targetSessionRef,
+        wakeReason,
+        envelope: summons.envelope.id,
+        code: deterministic.code,
+        ...(deterministic.source === undefined ? {} : { source: deterministic.source }),
+        message: deterministic.message,
+      })
+      try {
+        const terminal = await failUndeliverableMail(server, targetSessionRef, {
+          refusals: 1,
+          callSite: 'birth_refused_deterministic',
+          detail: `HRC refused the birth (${deterministic.code}): ${deterministic.message}`,
+        })
+        if (terminal) {
+          server.store.mailDelivery.resolveBirthRefusal(
+            targetSessionRef,
+            `deterministic birth refusal; pending mail failed undeliverable: ${deterministic.message}`
+          )
+          server.mailKickerBirthSweepBackoff.delete(targetSessionRef)
+          return { outcome: 'undeliverable' }
+        }
+      } catch (failError) {
+        server.log('WARN', 'wrkq.kicker.undeliverable_failed', {
+          targetSessionRef,
+          error: errorText(failError),
+        })
+      }
     }
     return { outcome: 'birth-refused' }
   }

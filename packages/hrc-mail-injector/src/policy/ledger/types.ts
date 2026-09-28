@@ -303,6 +303,8 @@ export type WrkqEnvelopePresentResult = {
 export type WrkqEnvelopeFailParams = {
   envelope: string
   reason: Exclude<WrkqEnvelopeFailureReason, 'legacy'>
+  /** Sender-facing why, carried on the `envelope.failed` event (wrkq b067eb8, T-09657). */
+  detail?: string | undefined
   runtime?: string | undefined
   principalRef?: string | undefined
 }
@@ -410,6 +412,7 @@ export type WrkqEnvelopeFailedPayload = {
   reason?: string
   room_uuid?: string
   runtime_id?: string
+  detail?: string
 }
 
 /** The fields of an `envelope.created` payload that decide where a wake goes. */
