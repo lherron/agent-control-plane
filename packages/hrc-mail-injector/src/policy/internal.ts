@@ -84,6 +84,14 @@ export const RECONCILE_RUNTIME_READ_DEADLINE_MS = 2_000
  */
 export const STALLED_DELIVERY_THRESHOLD_MS = 5 * 60_000
 
+/**
+ * How long reconcile leaves an accepted, undisposed steer to the live observer
+ * before landing it from the mirrored stream (T-09875). The query that finds it
+ * cannot tell `attempted_steer` from a `started` input whose execution is still
+ * a hook away, so the wait is what keeps an idle-seat delivery `executed`.
+ */
+export const STEER_WRITE_RECONCILE_GRACE_MS = 60_000
+
 export function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }

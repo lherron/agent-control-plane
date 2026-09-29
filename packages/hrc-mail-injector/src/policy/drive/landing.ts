@@ -7,6 +7,12 @@
  *
  *  - `submission.absorbed` (the body joined a live turn) or `submission.executed`
  *    (it originated one) for a submission;
+ *  - `input.accepted` with disposition `attempted_steer`: the driver wrote the
+ *    body into the turn the reader is already in (T-09875). The broker emits it
+ *    only after `applySteerNow` resolved. `submission.absorbed` for the same
+ *    body is a later, best-effort correlation of the echoed user row that Codex
+ *    never makes and Claude makes only when its hook row carries the input id,
+ *    so waiting for it alone left a read message with no receipt;
  *  - the first `turn.started` of the runtime a launch produced, for a body that
  *    rode `spec.launch.initialPrompt` and therefore has no submission at all.
  *
@@ -58,6 +64,11 @@ import { failEnvelopeWithAudit } from '../terminal/envelope-terminal.js'
 
 const LANDED_TYPES = new Set(['submission.absorbed', 'submission.executed'])
 
+/** Did the broker write this input into a turn that was already running? */
+function isMidTurnWrite(type: string, payload: Record<string, unknown> | undefined): boolean {
+  return type === 'input.accepted' && payload?.['disposition'] === 'attempted_steer'
+}
+
 /**
  * Appended to a terminal intent's cause when the body executed anyway.
  *
@@ -97,7 +108,9 @@ function deliveryOutcomeFor(intent: HrcMailDeliveryIntent, eventType: string): s
   if (intent.deliveryOutcome !== undefined) return intent.deliveryOutcome
   if (intent.door === 'preempt') return 'preempted_live_harness'
   if (intent.door === 'launch') return 'launch_carried'
-  return eventType === 'submission.absorbed' ? 'steered' : 'executed'
+  return eventType === 'submission.absorbed' || eventType === 'input.accepted'
+    ? 'steered'
+    : 'executed'
 }
 
 /**
@@ -617,14 +630,25 @@ export async function observeBrokerLanding(
     }
     return
   }
-  if (!LANDED_TYPES.has(record.type) && !REFUSED_TYPES.has(record.type)) return
+  if (record.type === 'admission.requested') {
+    bindAdmittedSubmission(server, record)
+    return
+  }
+  if (
+    record.type !== 'input.accepted' &&
+    !LANDED_TYPES.has(record.type) &&
+    !REFUSED_TYPES.has(record.type)
+  )
+    return
   const payload = parsePayload(record)
+  const midTurnWrite = isMidTurnWrite(record.type, payload)
+  if (record.type === 'input.accepted' && !midTurnWrite) return
   const submissionId = payload?.['submissionId'] ?? payload?.['inputId']
   if (typeof submissionId !== 'string') return
   const intent = server.store.mailDelivery.getIntentBySubmissionId(submissionId)
   if (intent === undefined) return
 
-  if (LANDED_TYPES.has(record.type)) {
+  if (midTurnWrite || LANDED_TYPES.has(record.type)) {
     await commitLanding(server, intent, {
       runtimeId: intent.runtimeId ?? record.runtimeId,
       eventType: record.type,
@@ -645,4 +669,38 @@ export async function observeBrokerLanding(
     return
   }
   await refuseIntent(server, intent, reason)
+}
+
+/**
+ * Bind a submission to its intent from the broker's own admission record.
+ *
+ * A busy steer is applied asynchronously after admission, so its
+ * `attempted_steer` can commit, and reach this observer, before `deliverToSeat`
+ * has attached the submission id the door returned. Without the binding that
+ * landing matched no intent and was dropped (T-09875). The fence is the one
+ * reconcile's `unique-submission-after` uses: the same invocation, and a broker
+ * sequence after the cursor the intent was opened at, so an older submission of
+ * the same envelope can never be mistaken for this one.
+ */
+function bindAdmittedSubmission(
+  server: MailKickerContext,
+  record: HrcBrokerInvocationEventRecord
+): void {
+  const payload = parsePayload(record)
+  const origin = payload?.['origin']
+  const envelopeId = isRecord(origin) ? origin['envelopeId'] : undefined
+  const submissionId = payload?.['submissionId']
+  if (typeof envelopeId !== 'string' || typeof submissionId !== 'string') return
+  const intent = server.store.mailDelivery.getIntent(envelopeId)
+  if (
+    intent === undefined ||
+    intent.submissionId !== undefined ||
+    intent.terminalEnvelopeAt !== undefined ||
+    intent.runtimeId !== record.runtimeId ||
+    intent.invocationId !== record.invocationId ||
+    intent.brokerAfterSeq === undefined ||
+    record.seq <= intent.brokerAfterSeq
+  )
+    return
+  server.store.mailDelivery.attachAdmission(envelopeId, { submissionId })
 }

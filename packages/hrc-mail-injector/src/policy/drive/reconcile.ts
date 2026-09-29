@@ -13,6 +13,9 @@
  *
  *  - LANDED — write the receipt with the intent's own presentation id, which
  *    wrkq's unique index dedupes, so this is idempotent with the live path.
+ *    A steer the broker ACCEPTED and never disposed is landed too, once
+ *    `STEER_WRITE_RECONCILE_GRACE_MS` has passed: that is a body written into a
+ *    live turn whose echo the driver never correlated (T-09875).
  *  - DISPOSED — the reader discharged the envelope before the landing committed.
  *    Nothing to record, nothing to retry; not a landing and not a fault.
  *  - REFUSED — clear, re-wake, deliver again under the same policy next pass.
@@ -29,6 +32,7 @@ import type { MailKickerContext } from '../context.js'
 import {
   KICKER_SUBMISSION_TTL_MS,
   RECONCILE_RUNTIME_READ_DEADLINE_MS,
+  STEER_WRITE_RECONCILE_GRACE_MS,
   errorText,
 } from '../internal.js'
 import { isRuntimeTerminal } from '../terminal/runtime-status.js'
@@ -151,14 +155,7 @@ export async function reconcileIntent(
       const disposition =
         dispositionResult.result?.op === 'disposition' ? dispositionResult.result : undefined
       if (disposition !== undefined && LANDED_EVENT_TYPES.has(disposition.type)) {
-        const current = server.store.mailDelivery.getIntent(intent.envelopeId) ?? intent
-        const commit = await commitLanding(server, current, {
-          runtimeId,
-          eventType: disposition.type,
-          landingHrcSeq: (await server.port.eventsHead()).hrcSeq,
-        })
-        // A commit that hit an already-discharged envelope is NOT a landing.
-        return commit === 'committed' ? 'landed' : commit === 'disposed' ? 'disposed' : 'open'
+        return await landFromStream(server, intent, runtimeId, disposition.type)
       }
       if (disposition !== undefined) {
         const evidenceResult = await server.port.brokerEventsQuery({
@@ -190,6 +187,12 @@ export async function reconcileIntent(
           ? evidenceResult.result.deliveryEvidence
           : undefined
       if (evidence === 'not_written') return await refuseIntent(server, intent, 'input.rejected')
+      if (
+        evidence === undefined &&
+        (await wasWrittenMidTurn(server, intent, runtimeId, submissionId, now))
+      ) {
+        return await landFromStream(server, intent, runtimeId, 'input.accepted')
+      }
       if (evidence === 'possibly_written') {
         server.store.mailDelivery.markUncertain(
           intent.envelopeId,
@@ -237,6 +240,45 @@ export async function reconcileIntent(
     server.store.mailDelivery.markUncertain(intent.envelopeId, 'ttl_without_landing', 'ttl')
   }
   return 'open'
+}
+
+/** Commit a landing the mirrored stream proves. */
+async function landFromStream(
+  server: MailKickerContext,
+  intent: HrcMailDeliveryIntent,
+  runtimeId: string,
+  eventType: string
+): Promise<IntentReconcileVerdict> {
+  const current = server.store.mailDelivery.getIntent(intent.envelopeId) ?? intent
+  const commit = await commitLanding(server, current, {
+    runtimeId,
+    eventType,
+    landingHrcSeq: (await server.port.eventsHead()).hrcSeq,
+  })
+  // A commit that hit an already-discharged envelope is NOT a landing.
+  return commit === 'committed' ? 'landed' : commit === 'disposed' ? 'disposed' : 'open'
+}
+
+/**
+ * A steer the broker accepted, with no disposition and no rejection evidence,
+ * past the grace the live observer gets: a body written into a running turn
+ * whose echo the driver never correlated (T-09875).
+ */
+async function wasWrittenMidTurn(
+  server: MailKickerContext,
+  intent: HrcMailDeliveryIntent,
+  runtimeId: string,
+  submissionId: string,
+  now: number
+): Promise<boolean> {
+  if (intent.door !== 'steer') return false
+  if (now - Date.parse(intent.submittedAt) < STEER_WRITE_RECONCILE_GRACE_MS) return false
+  const { result } = await server.port.brokerEventsQuery({
+    op: 'input-accepted',
+    runtimeId,
+    inputId: submissionId,
+  })
+  return result?.op === 'input-accepted' && result.accepted
 }
 
 /**
