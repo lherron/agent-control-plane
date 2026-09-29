@@ -66,6 +66,10 @@ export async function deliverFailureNotices(
  * Only a sender this node homes or seats is served. A notice is delivered by
  * exactly one daemon — the sender's own — and a human sender is served by the
  * ACP surfaces instead (§11), never by a summon here.
+ *
+ * Only a failed `reply_required` earns a notice (T-09880). A fyi or notify
+ * carries no obligation; undeliverable-to-an-ended-seat is its designed
+ * outcome, so there is nothing to resend or escalate.
  */
 export async function queueFailureNotice(
   server: MailKickerContext,
@@ -76,6 +80,7 @@ export async function queueFailureNotice(
   const reason = failureReasonFor(event.payload)
   if (reason === undefined) return
   const envelope = await server.ledger.envelopeShow({ envelope: envelopeId })
+  if (envelope.obligation !== 'reply_required') return
   const senderScope = envelope.from.scopeRef
   if (senderScope === undefined) return
   const targetSessionRef = targetSessionRefForLedgerScope(senderScope)
