@@ -165,6 +165,25 @@ describe('T-09875 — mid-turn steer receipt', () => {
     expect(h.ledger.envelopes.get(fyi.id)?.presentedTo).toHaveLength(1)
   })
 
+  it('leaves a deferred envelope deferred rather than re-presenting it', async () => {
+    const request = h.ledger.say()
+    await deliverOneTo(h, seatIn('turn-active'), request)
+    append(7, 'input.accepted', { inputId: 'sub-1', disposition: 'attempted_steer' })
+    const row = h.ledger.envelopes.get(request.id)
+    if (row === undefined) throw new Error('missing row')
+    row.state = 'deferred'
+    h.db.sqlite
+      .query('UPDATE hrcmail_delivery_intents SET submitted_at = ? WHERE envelope_id = ?')
+      .run(new Date(Date.now() - STEER_WRITE_RECONCILE_GRACE_MS - 1_000).toISOString(), request.id)
+
+    expect(await reconcileOpenIntents(h.context, { reason: 'periodic' })).toMatchObject({
+      landed: 0,
+      open: 1,
+    })
+    expect(row.state).toBe('deferred')
+    expect(row.presentedTo).toHaveLength(0)
+  })
+
   it('never lands a write that the producer proved was not written', async () => {
     const fyi = h.ledger.say({ obligation: 'fyi' })
     await deliverOneTo(h, seatIn('turn-active'), fyi)

@@ -263,6 +263,12 @@ async function landFromStream(
  * A steer the broker accepted, with no disposition and no rejection evidence,
  * past the grace the live observer gets: a body written into a running turn
  * whose echo the driver never correlated (T-09875).
+ *
+ * A `deferred` envelope is left alone. wrkq does not treat `deferred` as
+ * terminal, so a late receipt would move it back to `presented` and undo the
+ * reader's deferral, and D3 would then remind them about mail they parked. The
+ * live observer lands within milliseconds, so it never meets this case. Only a
+ * late reconcile can.
  */
 async function wasWrittenMidTurn(
   server: MailKickerContext,
@@ -278,7 +284,9 @@ async function wasWrittenMidTurn(
     runtimeId,
     inputId: submissionId,
   })
-  return result?.op === 'input-accepted' && result.accepted
+  if (result?.op !== 'input-accepted' || !result.accepted) return false
+  const row = await server.ledger.envelopeShow({ envelope: intent.envelopeId })
+  return row.state !== 'deferred'
 }
 
 /**
