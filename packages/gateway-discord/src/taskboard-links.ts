@@ -1,3 +1,5 @@
+import { isTaskId } from 'acp-core'
+
 const DEFAULT_TASKBOARD_BASE_URL = 'http://max3.tail53cc3b.ts.net:18450'
 
 function taskboardBaseUrl(): string {
@@ -17,5 +19,5 @@ export function taskboardTerminalFocusUrl(taskId: string): string {
 }
 
 export function isTaskboardTaskId(value: string): boolean {
-  return /^T-\d+/.test(value)
+  return isTaskId(value)
 }

@@ -6,6 +6,7 @@ import type {
   WrkqTaskListParams,
   WrkqTaskState,
 } from '@wrkq/client'
+import { isTaskId } from 'acp-core'
 
 import { badRequest, json } from '../http.js'
 
@@ -16,7 +17,6 @@ const MAX_LIMIT = 200
 const DEFAULT_COMMENT_LIMIT = 5
 const MAX_COMMENT_LIMIT = 25
 const COMMENT_PAGE_SIZE = 500
-const WRKQ_TASK_ID = /^T-[0-9]+$/
 
 const TASK_STATES = new Set<WrkqTaskState>([
   'idea',
@@ -264,8 +264,8 @@ export const handleListWrkqTasks: RouteHandler = async ({ url, deps }) => {
 
 export const handleGetWrkqTask: RouteHandler = async ({ url, params, deps }) => {
   const taskId = params['taskId']?.trim()
-  if (taskId === undefined || !WRKQ_TASK_ID.test(taskId)) {
-    badRequest('taskId must be a wrkq id such as T-00001', {
+  if (taskId === undefined || !isTaskId(taskId)) {
+    badRequest('taskId must be a wrkq id such as T-00001 or T-00001.subtask-slug', {
       field: 'taskId',
       value: taskId ?? null,
     })

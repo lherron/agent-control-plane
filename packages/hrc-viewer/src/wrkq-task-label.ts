@@ -12,6 +12,7 @@
  * fail viewer creation, dispatch, or lifecycle status-bar updates.
  */
 
+import { isTaskId } from 'acp-core'
 import { parseScopeRef } from 'agent-scope'
 
 /** Result of running `wrkq cat <id> --json`. */
@@ -22,9 +23,6 @@ export type WrkqRunner = (taskId: string) => Promise<WrkqRunResult>
 
 /** Resolve a scope ref to a task slug (or null when unavailable). Never throws. */
 export type TaskSlugResolver = (scopeRef: string) => Promise<string | null>
-
-/** Only real task scopes carry a slug — `primary` and lanes never do. */
-const TASK_ID_PATTERN = /^T-\d+$/
 
 /** Bound the wrkq read so a slow/hung CLI never stalls the status-bar path. */
 const WRKQ_TIMEOUT_MS = 2000
@@ -48,7 +46,7 @@ export function isPlaceholderTaskSlug(slug: string): boolean {
 
 /**
  * Extract a wrkq task id from a scope ref, but only when the task segment looks
- * like a canonical `T-<digits>` id. Returns null for `primary`, lane-only, or
+ * like a task or subtask id (`T-04977`, `T-04977.render-preview`). Returns null for `primary`, lane-only, or
  * unparseable refs — those have no slug to resolve.
  */
 export function extractTaskIdFromScope(scopeRef: string): string | null {
@@ -59,7 +57,7 @@ export function extractTaskIdFromScope(scopeRef: string): string | null {
     return null
   }
   const taskId = parsed?.taskId
-  if (typeof taskId === 'string' && TASK_ID_PATTERN.test(taskId)) return taskId
+  if (typeof taskId === 'string' && isTaskId(taskId)) return taskId
   return null
 }
 
@@ -178,7 +176,7 @@ export function parseTaskTitles(stdout: string): Map<string, string> {
     const fields = record as Record<string, unknown>
     const id = fields['id']
     const title = fields['title']
-    if (typeof id !== 'string' || !TASK_ID_PATTERN.test(id)) continue
+    if (typeof id !== 'string' || !isTaskId(id)) continue
     if (typeof title !== 'string' || title.trim().length === 0) continue
     titles.set(id, title.trim())
   }
@@ -222,7 +220,7 @@ export function createTaskTitleReader(options: { runner?: WrkqBatchRunner } = {}
     }
   }
   return async (taskIds: readonly string[]): Promise<Map<string, string>> => {
-    const ids = [...new Set(taskIds.filter((id) => TASK_ID_PATTERN.test(id)))]
+    const ids = [...new Set(taskIds.filter((id) => isTaskId(id)))]
     if (ids.length === 0) return new Map()
     const batched = await readBatch(ids)
     if (batched !== null) return batched

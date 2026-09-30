@@ -1,3 +1,4 @@
+import { isTaskId } from 'acp-core'
 import { buildScopeRef, normalizeLaneRef, parseScopeRef } from 'agent-scope'
 
 import { shortenProjectId } from './project-prefix.js'
@@ -199,9 +200,9 @@ function safeParseScopeRef(scopeRef: string): ParsedScope | null {
   }
 }
 
-/** A real wrkq task scope is `T-` followed by digits (e.g. `T-05237`). */
+/** A real wrkq task scope is a task or subtask id (`T-05237`, `T-05237.render-preview`). */
 function isRealTaskId(taskId: string | undefined): taskId is string {
-  return typeof taskId === 'string' && /^T-\d+/.test(taskId)
+  return typeof taskId === 'string' && isTaskId(taskId)
 }
 
 /** Keep a scope fragment safe inside a `:`-delimited metadata key. */

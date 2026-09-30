@@ -331,6 +331,7 @@
         "hrc-viewer": "./bin/hrc-viewer.js",
       },
       "dependencies": {
+        "acp-core": "*",
         "agent-scope": "0.1.1-dev.20260918162214",
         "hrc-sdk": "0.1.0-dev.20260919232026",
       },
@@ -1084,8 +1085,6 @@
 
     "hrc-mail-injector": ["hrc-mail-injector@workspace:packages/hrc-mail-injector"],
 
-    "hrc-viewer": ["hrc-viewer@workspace:packages/hrc-viewer"],
-
     "hrc-sdk": ["hrc-sdk@0.1.0-dev.20260919232026", "http://mini:4873/hrc-sdk/-/hrc-sdk-0.1.0-dev.20260919232026.tgz", { "dependencies": { "agent-scope": "latest", "hrc-core": "0.1.0-dev.20260919232026", "spaces-harness-broker-protocol": "latest" } }, "sha512-HLaG3ryadFVm7LISnus/V5GsyHriHTMBqkpW3iD4E4TUHntKhZPRJPldgyMU/wnbQlzfQTaUfOuFkQ/3VGp+MA=="],
 
     "hrc-server": ["hrc-server@0.1.0-dev.20260919232026", "http://mini:4873/hrc-server/-/hrc-server-0.1.0-dev.20260919232026.tgz", { "dependencies": { "@iarna/toml": "^2.2.5", "agent-scope": "latest", "hrc-core": "0.1.0-dev.20260919232026", "hrc-events": "0.1.0-dev.20260919232026", "hrc-sdk": "0.1.0-dev.20260919232026", "hrc-store-sqlite": "0.1.0-dev.20260919232026", "hrc-transcript-index": "0.1.0-dev.20260919232026", "spaces-aspc-protocol": "latest", "spaces-harness-broker-client": "latest", "spaces-harness-broker-protocol": "latest", "spaces-runtime-contracts": "latest" } }, "sha512-fRl1U6sZl2r5C8OQxUUbiGmFeYHqluJupxooBpXU3wKVuTe8+n8B94K4IST3ckWL/5KsBpqzijLICyOrDOJRWA=="],
@@ -1093,6 +1092,8 @@
     "hrc-store-sqlite": ["hrc-store-sqlite@0.1.0-dev.20260919232026", "http://mini:4873/hrc-store-sqlite/-/hrc-store-sqlite-0.1.0-dev.20260919232026.tgz", { "dependencies": { "ajv": "^8.20.0", "hrc-core": "0.1.0-dev.20260919232026" } }, "sha512-kRzXTiPBl4N/FHTFlW6p5hw+u2ftq/6JwX7mUQMXwUee3mtYIsC26dS2lDJRpPAF9wZMzDXgrV/W4Q1ZaLC9OA=="],
 
     "hrc-transcript-index": ["hrc-transcript-index@0.1.0-dev.20260919232026", "http://mini:4873/hrc-transcript-index/-/hrc-transcript-index-0.1.0-dev.20260919232026.tgz", { "dependencies": { "hrc-core": "0.1.0-dev.20260919232026", "hrc-store-sqlite": "0.1.0-dev.20260919232026" } }, "sha512-Hj71qruCc0fPS6b6qS2y2jEFDgCTU4EFOxwBRGR3Ms/f/dn8VfL4p1tZHaMt2zvfBbSsWIkLnXJQYxZAxpGpVw=="],
+
+    "hrc-viewer": ["hrc-viewer@workspace:packages/hrc-viewer"],
 
     "http-proxy-agent": ["http-proxy-agent@7.0.2", "http://mini:4873/http-proxy-agent/-/http-proxy-agent-7.0.2.tgz", { "dependencies": { "agent-base": "^7.1.0", "debug": "^4.3.4" } }, "sha512-T1gkAiYYDWYx3V5Bmyu7HcfcvL7mUrTWiM6yOfa3PIphViJ/gFPbvidQ+veqSOHci/PxBcDabeUNCzpOODJZig=="],
 

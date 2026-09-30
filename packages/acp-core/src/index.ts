@@ -265,3 +265,13 @@ export type {
   WrkqWebhookOrigin,
   WrkqWebhookTransition,
 } from './webhook/index.js'
+
+export {
+  findTaskIds,
+  isTaskId,
+  parseTaskId,
+  TASK_ID_MAX_LENGTH,
+  TASK_ID_PROSE_PATTERN_SOURCE,
+  taskOwnerId,
+} from './task-id.js'
+export type { ParsedTaskId } from './task-id.js'

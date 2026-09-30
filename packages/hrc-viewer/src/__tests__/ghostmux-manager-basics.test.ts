@@ -143,6 +143,25 @@ describe('deriveHeadlessTabIdentity', () => {
     })
   })
 
+  it('keys a subtask scope by its full subtask id, not its owner (T-09895)', () => {
+    const id = deriveHeadlessTabIdentity(
+      'agent:clod:project:hrc-runtime:task:T-05237.render-preview'
+    )
+    expect(id).toEqual({
+      tabKey: 'task:T-05237.render-preview',
+      agentId: 'clod',
+      taskId: 'T-05237.render-preview',
+      projectId: 'hrc-runtime',
+      label: 'hrc · T-05237.render-preview',
+    })
+  })
+
+  it('does not treat a task-shaped token outside the grammar as a task (T-09895)', () => {
+    const id = deriveHeadlessTabIdentity('agent:clod:project:hrc-runtime:task:T-05237-extra')
+    expect(id.tabKey).toBe('project:hrc-runtime:T-05237-extra')
+    expect(id.taskId).toBeUndefined()
+  })
+
   it('maps a primary scope to a project-qualified key (never bare primary)', () => {
     const id = deriveHeadlessTabIdentity('agent:clod:project:hrc-runtime:task:primary')
     expect(id.tabKey).toBe('project:hrc-runtime:primary')

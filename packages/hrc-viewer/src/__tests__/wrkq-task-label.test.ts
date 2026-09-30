@@ -29,6 +29,13 @@ describe('extractTaskIdFromScope', () => {
     expect(extractTaskIdFromScope('agent:clod:project:hrc-runtime:task:T-04977')).toBe('T-04977')
   })
 
+  it('returns the full subtask id for a subtask scope, not its owner (T-09895)', () => {
+    expect(
+      extractTaskIdFromScope('agent:clod:project:hrc-runtime:task:T-04977.render-preview')
+    ).toBe('T-04977.render-preview')
+    expect(extractTaskIdFromScope('agent:clod:project:hrc-runtime:task:T-04977.2')).toBeNull()
+  })
+
   it('returns null for primary, lane-only, or non-task scopes', () => {
     expect(extractTaskIdFromScope('agent:daedalus:project:agent-spaces:task:primary')).toBeNull()
     expect(extractTaskIdFromScope('agent:clod:project:hrc-runtime')).toBeNull()

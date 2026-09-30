@@ -203,6 +203,8 @@ describe('GET /v1/wrkq/tasks/:taskId', () => {
       async ({ request }) => {
         for (const path of [
           '/v1/wrkq/tasks/primary',
+          '/v1/wrkq/tasks/T-07475.2',
+          '/v1/wrkq/tasks/T-07475.Slug',
           '/v1/wrkq/tasks/T-07475?comments=-1',
           '/v1/wrkq/tasks/T-07475?comments=26',
         ]) {
@@ -210,6 +212,22 @@ describe('GET /v1/wrkq/tasks/:taskId', () => {
           expect(response.status).toBe(400)
         }
         expect(calls).toEqual([])
+      },
+      { workClient: client }
+    )
+  })
+
+  test('accepts a named subtask id and reads it by its full id (T-09895)', async () => {
+    const { client, calls } = fakeWorkClient({ notFound: true })
+
+    await withWiredServer(
+      async ({ request }) => {
+        const response = await request({
+          method: 'GET',
+          path: '/v1/wrkq/tasks/T-07475.render-preview',
+        })
+        expect(response.status).toBe(404)
+        expect(calls).toEqual([{ method: 'task.show', params: { task: 'T-07475.render-preview' } }])
       },
       { workClient: client }
     )
