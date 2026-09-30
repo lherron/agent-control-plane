@@ -86,6 +86,12 @@ export type WrkqWebhookEvent = {
 
   ticket_id?: string | undefined
   ticket_uuid?: string | undefined
+  /**
+   * Present only on a named subtask's events: the owner task. ticket_id/ticket_uuid
+   * stay the subtask itself (named-subtasks spec, *Events → Webhook payload*).
+   */
+  subtask_owner_id?: string | undefined
+  subtask_owner_uuid?: string | undefined
   project_id?: string | undefined
   project_uuid?: string | undefined
   project_scope_id?: string | undefined
@@ -364,6 +370,8 @@ export function parseWrkqWebhookEvent(body: unknown): ParseWrkqWebhookEventResul
   }
 
   const enrichmentError =
+    validateStringField(body, 'subtask_owner_id', { nonEmpty: true }) ??
+    validateStringField(body, 'subtask_owner_uuid', { nonEmpty: true }) ??
     validateComment(body['comment']) ??
     validateMove(body['move']) ??
     validateArchive(body['archive']) ??

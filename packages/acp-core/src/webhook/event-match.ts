@@ -171,15 +171,46 @@ function matchesPayloadPredicate(
   return true
 }
 
-function matchesPayload(
-  predicates: EventMatch['payload'],
-  payload: Readonly<Record<string, unknown>>
+/**
+ * wrkq task selectors and the owner field each one also answers to. A subtask
+ * event's ticket_id/ticket_uuid is the subtask; its subtask_owner_* is the owner.
+ */
+const WRKQ_SUBTASK_OWNER_PATH: Readonly<Record<string, string>> = {
+  ticket_id: 'subtask_owner_id',
+  ticket_uuid: 'subtask_owner_uuid',
+}
+
+/**
+ * A value predicate selecting a wrkq task by ID or UUID also matches that task's
+ * subtask events (named-subtasks spec, *Events → Webhook payload*). Exists-only
+ * predicates and every other path keep their literal meaning.
+ */
+function matchesSubtaskOwner(
+  path: string,
+  predicate: PayloadPathPredicate,
+  event: AcpWebhookEvent
 ): boolean {
+  const ownerPath = WRKQ_SUBTASK_OWNER_PATH[path]
+  if (event.source !== 'wrkq' || ownerPath === undefined) {
+    return false
+  }
+  if (predicate.eq === undefined && predicate.anyOf === undefined) {
+    return false
+  }
+  const owner = payloadValueAtPath(payloadRecord(event), ownerPath)
+  return owner.exists && matchesPayloadPredicate(predicate, owner)
+}
+
+function matchesPayload(predicates: EventMatch['payload'], event: AcpWebhookEvent): boolean {
   if (predicates === undefined) {
     return true
   }
+  const payload = payloadRecord(event)
   for (const [path, predicate] of Object.entries(predicates)) {
-    if (!matchesPayloadPredicate(predicate, payloadValueAtPath(payload, path))) {
+    if (
+      !matchesPayloadPredicate(predicate, payloadValueAtPath(payload, path)) &&
+      !matchesSubtaskOwner(path, predicate, event)
+    ) {
       return false
     }
   }
@@ -228,7 +259,7 @@ export function evaluateEventMatch(match: EventMatch, event: AcpWebhookEvent): b
   if (!matchesOrigin(match.origin, event)) {
     return false
   }
-  if (!matchesPayload(match.payload, payload)) {
+  if (!matchesPayload(match.payload, event)) {
     return false
   }
   return true

@@ -80,6 +80,29 @@ describe('wrkq event emitter (T-05270)', () => {
   })
 
   // Required test #2
+  test('subtask events carry the owner id/uuid alongside the subtask identity (T-09903)', () => {
+    const admin = createInMemoryAdminStore()
+    const emitter = createWrkqEventEmitter({ systemEvents: admin.systemEvents, now: NOW })
+
+    emitter.emit(
+      adapt(
+        taskEvent({
+          ticket_id: 'T-05270.diagram',
+          ticket_uuid: 'uuid-subtask',
+          subtask_owner_id: 'T-05270',
+          subtask_owner_uuid: 'uuid-owner',
+        })
+      )
+    )
+
+    expect(admin.systemEvents.list({ kind: 'wrkq.updated' })[0]?.payload).toMatchObject({
+      ticket_id: 'T-05270.diagram',
+      ticket_uuid: 'uuid-subtask',
+      subtask_owner_id: 'T-05270',
+      subtask_owner_uuid: 'uuid-owner',
+    })
+  })
+
   test('valid wrkf workflow event appends exactly one wrkf.* system event with workflow payload', () => {
     const admin = createInMemoryAdminStore()
     const emitter = createWrkqEventEmitter({ systemEvents: admin.systemEvents, now: NOW })

@@ -43,6 +43,8 @@ export const CANONICAL_EVENT_ID_FIELD = 'canonicalEventId'
 const CARRIED_FIELDS: readonly string[] = [
   'ticket_id',
   'ticket_uuid',
+  'subtask_owner_id',
+  'subtask_owner_uuid',
   'slug',
   'title',
   'state',
