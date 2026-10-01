@@ -49,7 +49,14 @@ lifecycle. All logic lives here. Configuration:
 Unknown or malformed `ACP_RECONCILER_*` values refuse startup. The log records
 decision changes only: a request that is newly startable, reserved,
 dispatched, stalled, or has an invalid marker or assignee. Steady waiting
-states are not logged on every scan.
+states are not logged on every scan. The baseline lives in memory, so after
+a restart each standing start, stall or invalid decision is logged once again.
+That line is a log line only: facts and notices stay exactly once per episode.
+A scan that fails, for example on a wrkq timeout, is retried on the next tick.
+Its failure is logged once until the message changes, followed by one
+`scans recovered` line.
+A human assignee is an `agent:<id>` with no agent home; HRC resolution finds
+none, so explain shows it as not startable, and it is never started.
 
 ## Explain
 
