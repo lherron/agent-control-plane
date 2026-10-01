@@ -44,13 +44,17 @@ subtask family. HRC session facts provide observed liveness; no fact means
 unknown, not dead. A live session with a
 claim means the worker holds the work and is alive, not necessarily computing.
 
-Run one deterministic reconciler in `acp-server`, under its service principal.
-It scans current wrkq state on startup and every 30–60 seconds, with no controller
+The reconciler is a new package, `packages/acp-reconciler`. It owns the scan,
+readiness, start, stall and notification logic and its wrkq, wrkp and HRC client
+seams. `acp-server` only constructs it and owns its lifecycle (startup, interval,
+shutdown), as it hosts `acp-capability-host`; no reconciler logic lives in
+`acp-server` or any other existing package. Run one deterministic instance under
+its service principal on one designated node. It scans current wrkq state on startup and every 30–60 seconds, with no controller
 database or event cursor:
 
 ```text
 for each task or subtask carrying meta.acp.request:
-    observe admitted starts, completion and stalls
+    observe reserved starts, completion and stalls
     start only open, unclaimed requests
     skip archived/deleted requests and archived/deleted subtask owners
     wait unless its assignee is a valid configured agent and capacity is free
@@ -61,26 +65,32 @@ The roster lives only in the request skill as guidance; the reconciler resolves
 valid agents through existing HRC/ASP authority. A human assignee stays visibly
 assigned and is never started. Use configured global and per-agent capacity
 limits (defaults: four total, two per agent). Active claims and durable
-admitted starts count after restart too. A repeat scan or accidental second copy
+reserved starts count after restart too. A repeat scan or accidental second copy
 must not admit new work for `recon:<requestId>:<rev>:<workerScope>`. Completed
 owners do not cancel their subtasks. Dependency-gated requests are a follow-on;
 neither example needs a separate dependency scheduler.
 
-**Chosen start path:** supported keyed HRC work admission places the session and
-delivers its initial assignment without a collaboration envelope or reply
-obligation. HRC retains placement authority.
-Reuse its existing admission/idempotency machinery rather than a new queue.
+**Chosen start path:** a native HRC start places the session and delivers its
+initial assignment without a collaboration envelope or reply obligation. The
+reconciler calls the HRC client directly: `summon` the task or subtask scope,
+then a queued `turn` carrying the assignment for `<requestId>@<rev>`. HRC retains
+placement authority. Whether HRC accepts a cold-scope start from the reconciler's
+service principal is the first implementation check; if it does not, addressed
+`wrkc say` is the approved fallback transport, with the same reservation below.
 Today's scribe `/v1/inputs` route is not that path: human actors are converted
 into addressed ledger messages; service actors enter a launcher that refuses
 cold/nonlocal ledger-owned scopes. The reconciler must not impersonate a human
 or bypass that refusal.
 
-After an accepted admission, the reconciler posts `delegation.started` on the
-request through `wrkp post --task <requestId> --key <startKey>`. Its flat attributes
-are `requester`, `assignee_seat`, `rev` and `admission_ref` (the HRC admission
-reference). Re-reading an admitted start repairs a missing post with that same
-key; rescans and a second controller copy create no new fact. This marks the
-admitted assignment; HRC supplies the actual session/turn lifecycle evidence.
+The keyed `delegation.started` fact is the start reservation and is written
+**before** dispatch: `wrkp post --task <requestId> --key <startKey>` with flat
+attributes `requester`, `assignee_seat` and `rev`. A new fact means this copy
+owns the start and dispatches; a replay returning `(existing)` means the start
+was already reserved, so it skips dispatch. Rescans and a second controller copy
+therefore never dispatch twice. A crash between reservation and dispatch leaves a
+reserved start with no turn or claim; it is reported as never started after two
+minutes and recovered manually, never retried automatically. The fact records the
+reservation; HRC supplies the actual session and turn lifecycle evidence.
 HRC adds `assignment` as the `session.born` cause for a session born by this path,
 alongside the existing `summon` cause. A start into an existing session does not
 invent another birth.
@@ -90,7 +100,7 @@ interleave; the birth appears only when a new session is created.
 
 ```text
 T-owner.diagram  task.created        requester=agent:mable
-T-owner.diagram  delegation.started assignee_seat=arris@project:T-owner.diagram rev=1 admission_ref=<HRC ref>
+T-owner.diagram  delegation.started assignee_seat=arris@project:T-owner.diagram rev=1
 T-owner.diagram  session.born        cause=assignment
 T-owner.diagram  task.claimed        worker=agent:arris
 T-owner.diagram  comment             result: editable document + preview
@@ -192,7 +202,7 @@ requester and sibling-worker visibility; real subtask session facts in the
 owner's `wrkp` view; duplicate-start suppression across restart/two loop copies;
 completion and DM revisions; ended-worker and never-started reporting; and
 notification delivery when an ended requester next runs. Verify default-visible
-creations with requester fields, one `delegation.started` per keyed admission,
+creations with requester fields, one `delegation.started` per reserved start,
 `session.born cause=assignment` for new sessions, one `delegation.stalled` per
 episode, and a DM revision with state/claim activity but no new delegation start.
 Exercise both named subtasks and top-level requests. Scribe migration proof adds
