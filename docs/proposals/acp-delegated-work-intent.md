@@ -40,19 +40,19 @@ named subtask with its brief, who is asking, and which specialist should do it,
 then returns to its own work. It sends no message to start the work, births no
 seat, and owes no follow-up.
 
-The reconciler is the one thing that starts delegated work. It notices recorded
-requests and starts them when they are ready: inputs available, nobody already
-working on them, capacity free. Dependencies are one reason to wait, but not the
-reason the reconciler exists. Its purpose is to take scheduling, starting and
+The reconciler starts recorded delegated work. It notices requests and starts
+them when they are ready: inputs available, nobody already working on them,
+capacity free. Dependencies are one reason to wait, but not the reason the
+reconciler exists. Its purpose is to take scheduling, starting and
 stall-noticing off the requesting agent. Results come back asynchronously when
 the work completes, rather than through a requester waiting on a reply.
 
-Conversation stays first-class and separate from starting work. Requester,
-worker and sibling workers share the owner's task room. Questions, clarifications,
-progress notes and peer coordination are ordinary cross-agent messages there,
-and are encouraged. The distinction is that **talking never starts work; only the
-reconciler does.** A message can inform, ask or coordinate. Recorded intent plus
-the reconciler is what makes work begin.
+Cross-agent conversation remains first-class and is encouraged. Requester, worker
+and sibling workers share the owner's task room, and questions, clarifications,
+progress notes and peer coordination are ordinary messages there. Messaging
+keeps its existing behavior, including waking or starting the addressed seat;
+the asynchronous flow removes the need for the requester to drive delegated work
+by message, without restricting conversation.
 
 ## Who is asking and who is working
 
