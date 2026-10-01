@@ -1,0 +1,4115 @@
+{
+  "cardo_doms": 1,
+  "format": "arris",
+  "format_version": 1,
+  "document_id": "protocol",
+  "revision": 2,
+  "nodes": [
+    {
+      "id": "accepted",
+      "type": "flowchart.process",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "accepted.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Commit acceptance",
+        "order": 38,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "Record acceptor and accepted candidate, then complete. A task state alone is insufficient evidence.",
+        "name": "Commit acceptance",
+        "presentation": {
+          "caption": "accepted.caption",
+          "group": "accepted.group",
+          "shape": "accepted.shape"
+        }
+      }
+    },
+    {
+      "id": "accepted.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "accepted.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "accepted.shape"
+          }
+        ],
+        "display_name": "accepted.caption",
+        "order": 37,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "center",
+        "face": "sans.regular",
+        "fill": "#374151",
+        "line_height": 1.3,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 10.0,
+        "runs": [
+          {
+            "end": 17,
+            "face": "sans.bold",
+            "fill": "#1f2937",
+            "size": 13.0,
+            "start": 0
+          }
+        ],
+        "size": 11.5,
+        "text": "Commit acceptance\nRecord acceptor and accepted candidate, then complete. A task state alone is insufficient evidence.",
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "accepted.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "finish.group"
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Commit acceptance",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "accepted.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "accepted.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "Commit acceptance",
+        "order": 36,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              1028.0,
+              325.9
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 4.0,
+        "fill": "#ffffff",
+        "height": 96.7,
+        "opacity": 1.0,
+        "stroke": "#64748b",
+        "stroke_width": 1.5,
+        "width": 200.0
+      }
+    },
+    {
+      "id": "accepted__unlock",
+      "type": "flowchart.main",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "accepted__unlock",
+        "order": 64,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "accepted",
+        "presentation": {
+          "edge": "accepted__unlock.edge"
+        },
+        "to": "unlock"
+      }
+    },
+    {
+      "id": "accepted__unlock.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "accepted__unlock",
+        "edge_order": 63,
+        "end": {
+          "parameters": {
+            "length": 8.0,
+            "width": 7.0
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [],
+        "order": 63,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 0.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": []
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": "#1f2937",
+          "width": 2.6
+        },
+        "source": {
+          "ref": "accepted.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "bottom"
+          }
+        },
+        "target": {
+          "ref": "unlock.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "top"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "admit",
+      "type": "flowchart.process",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "admit.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Admit one attempt",
+        "order": 23,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "Canonical attempt key + existing task claim. Repeated requests return the same attempt.",
+        "name": "Admit one attempt",
+        "presentation": {
+          "caption": "admit.caption",
+          "group": "admit.group",
+          "shape": "admit.shape"
+        }
+      }
+    },
+    {
+      "id": "admit.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "admit.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "admit.shape"
+          }
+        ],
+        "display_name": "admit.caption",
+        "order": 22,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "center",
+        "face": "sans.regular",
+        "fill": "#374151",
+        "line_height": 1.3,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 10.0,
+        "runs": [
+          {
+            "end": 17,
+            "face": "sans.bold",
+            "fill": "#1f2937",
+            "size": 13.0,
+            "start": 0
+          }
+        ],
+        "size": 11.5,
+        "text": "Admit one attempt\nCanonical attempt key + existing task claim. Repeated requests return the same attempt.",
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "admit.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "run.group"
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Admit one attempt",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "admit.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "admit.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "Admit one attempt",
+        "order": 21,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              564.0,
+              163.45
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 4.0,
+        "fill": "#ffffff",
+        "height": 96.7,
+        "opacity": 1.0,
+        "stroke": "#64748b",
+        "stroke_width": 1.5,
+        "width": 200.0
+      }
+    },
+    {
+      "id": "admit__execute",
+      "type": "flowchart.main",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "admit__execute",
+        "order": 54,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "admit",
+        "presentation": {
+          "edge": "admit__execute.edge"
+        },
+        "to": "execute"
+      }
+    },
+    {
+      "id": "admit__execute.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "admit__execute",
+        "edge_order": 53,
+        "end": {
+          "parameters": {
+            "length": 8.0,
+            "width": 7.0
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [],
+        "order": 53,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 0.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": []
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": "#1f2937",
+          "width": 2.6
+        },
+        "source": {
+          "ref": "admit.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "bottom"
+          }
+        },
+        "target": {
+          "ref": "execute.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "top"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "candidate",
+      "type": "flowchart.datastore",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "candidate.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Await acceptance",
+        "order": 32,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "Execution ended; task remains in progress. Review hold suppresses admission during fenced claim handoff.",
+        "name": "Await acceptance",
+        "presentation": {
+          "caption": "candidate.caption",
+          "group": "candidate.group",
+          "shape": "candidate.shape"
+        }
+      }
+    },
+    {
+      "id": "candidate.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "candidate.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "candidate.shape"
+          }
+        ],
+        "display_name": "candidate.caption",
+        "order": 31,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "center",
+        "face": "sans.regular",
+        "fill": "#374151",
+        "line_height": 1.3,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 10.0,
+        "runs": [
+          {
+            "end": 16,
+            "face": "sans.bold",
+            "fill": "#1f2937",
+            "size": 13.0,
+            "start": 0
+          }
+        ],
+        "size": 11.5,
+        "text": "Await acceptance\nExecution ended; task remains in progress. Review hold suppresses admission during fenced claim handoff.",
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "candidate.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "run.group"
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Await acceptance",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "candidate.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "candidate.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "Await acceptance",
+        "order": 30,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              564.0,
+              626.6
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 12.0,
+        "fill": "#f1f5f9",
+        "height": 96.7,
+        "opacity": 1.0,
+        "stroke": "#8595a8",
+        "stroke_width": 1.5,
+        "width": 200.0
+      }
+    },
+    {
+      "id": "candidate__review",
+      "type": "flowchart.main",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "candidate__review",
+        "order": 60,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "candidate",
+        "presentation": {
+          "edge": "candidate__review.edge"
+        },
+        "to": "review"
+      }
+    },
+    {
+      "id": "candidate__review.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "candidate__review",
+        "edge_order": 59,
+        "end": {
+          "parameters": {
+            "length": 8.0,
+            "width": 7.0
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [],
+        "order": 59,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 0.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": [
+            {
+              "point": [
+                896.0,
+                674.95
+              ],
+              "space": "page"
+            },
+            {
+              "point": [
+                896.0,
+                211.8
+              ],
+              "space": "page"
+            }
+          ]
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": "#1f2937",
+          "width": 2.6
+        },
+        "source": {
+          "ref": "candidate.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "right"
+          }
+        },
+        "target": {
+          "ref": "review.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "left"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "defs",
+      "type": "arris.defs",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 0,
+      "updated_revision": 0,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "diagram",
+      "type": "flowchart.diagram",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Request → attempt → accepted result",
+        "order": 0,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "direction": "TB",
+        "hints": {
+          "stack_columns": 3
+        },
+        "presentation": {
+          "subtitle": "diagram.subtitle",
+          "title": "diagram.title"
+        },
+        "subtitle": "Proposed contract · semantic acceptance is explicit · uncertain execution never triggers a blind retry",
+        "title": "Request → attempt → accepted result"
+      }
+    },
+    {
+      "id": "diagram.subtitle",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "subtitle",
+        "order": 2,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              40.0,
+              78.7919921875
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.regular",
+        "fill": "#6b7280",
+        "line_height": 1.25,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "size": 14.0,
+        "text": "Proposed contract · semantic acceptance is explicit · uncertain execution never triggers a blind retry"
+      }
+    },
+    {
+      "id": "diagram.title",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "title",
+        "order": 1,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              40.0,
+              40.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.bold",
+        "fill": "#1f2937",
+        "line_height": 1.25,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "size": 26.0,
+        "text": "Request → attempt → accepted result"
+      }
+    },
+    {
+      "id": "execute",
+      "type": "flowchart.subprocess",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "execute.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Dispatch + execute",
+        "order": 26,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "Agent via wrkc / HRC, or deterministic handler. Cancel stops admission; unknown execution is held for recovery.",
+        "name": "Dispatch + execute",
+        "presentation": {
+          "caption": "execute.caption",
+          "group": "execute.group",
+          "shape": "execute.shape"
+        }
+      }
+    },
+    {
+      "id": "execute.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "execute.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "execute.shape"
+          }
+        ],
+        "display_name": "execute.caption",
+        "order": 25,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "center",
+        "face": "sans.regular",
+        "fill": "#374151",
+        "line_height": 1.3,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 10.0,
+        "runs": [
+          {
+            "end": 18,
+            "face": "sans.bold",
+            "fill": "#1f2937",
+            "size": 13.0,
+            "start": 0
+          }
+        ],
+        "size": 11.5,
+        "text": "Dispatch + execute\nAgent via wrkc / HRC, or deterministic handler. Cancel stops admission; unknown execution is held for recovery.",
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "execute.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "run.group"
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Dispatch + execute",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "execute.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "execute.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "Dispatch + execute",
+        "order": 24,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              564.0,
+              336.15
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 0.0,
+        "fill": "#ffffff",
+        "height": 96.7,
+        "opacity": 1.0,
+        "stroke": "#475569",
+        "stroke_width": 2.6,
+        "width": 200.0
+      }
+    },
+    {
+      "id": "execute__publish",
+      "type": "flowchart.main",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "execute__publish",
+        "order": 56,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "execute",
+        "presentation": {
+          "edge": "execute__publish.edge"
+        },
+        "to": "publish"
+      }
+    },
+    {
+      "id": "execute__publish.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "execute__publish",
+        "edge_order": 55,
+        "end": {
+          "parameters": {
+            "length": 8.0,
+            "width": 7.0
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [],
+        "order": 55,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 0.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": []
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": "#1f2937",
+          "width": 2.6
+        },
+        "source": {
+          "ref": "execute.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "bottom"
+          }
+        },
+        "target": {
+          "ref": "publish.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "top"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "finish",
+      "type": "flowchart.lane",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "finish.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "03 · ACCEPT + RELEASE DEPENDENTS",
+        "order": 8,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "name": "03 · ACCEPT + RELEASE DEPENDENTS",
+        "presentation": {
+          "caption": "finish.caption",
+          "group": "finish.group",
+          "shape": "finish.shape"
+        }
+      }
+    },
+    {
+      "id": "finish.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "finish.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "finish.shape"
+          }
+        ],
+        "display_name": "finish.caption",
+        "order": 7,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.regular",
+        "fill": "#1f2937",
+        "line_height": 1.25,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 12.0,
+        "runs": [
+          {
+            "end": 32,
+            "face": "sans.bold",
+            "fill": "#475569",
+            "size": 12.0,
+            "start": 0
+          }
+        ],
+        "size": 12.0,
+        "text": "03 · ACCEPT + RELEASE DEPENDENTS",
+        "vertical_align": "top"
+      }
+    },
+    {
+      "id": "finish.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "03 · ACCEPT + RELEASE DEPENDENTS",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "finish.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "finish.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "03 · ACCEPT + RELEASE DEPENDENTS",
+        "order": -30,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              1008.0,
+              124.45
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 10.0,
+        "fill": "#f8fafc",
+        "height": 623.55,
+        "opacity": 1.0,
+        "stroke": "#cbd5e1",
+        "stroke_width": 1.2,
+        "width": 278.0
+      }
+    },
+    {
+      "id": "notify",
+      "type": "flowchart.terminal",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "notify.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Notify requester",
+        "order": 44,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "Results already durable. Retry notification independently; deduplicate clarification questions.",
+        "name": "Notify requester",
+        "presentation": {
+          "caption": "notify.caption",
+          "group": "notify.group",
+          "shape": "notify.shape"
+        }
+      }
+    },
+    {
+      "id": "notify.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "notify.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "notify.shape"
+          }
+        ],
+        "display_name": "notify.caption",
+        "order": 43,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "center",
+        "face": "sans.regular",
+        "fill": "#374151",
+        "line_height": 1.3,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 10.0,
+        "runs": [
+          {
+            "end": 16,
+            "face": "sans.bold",
+            "fill": "#1f2937",
+            "size": 13.0,
+            "start": 0
+          }
+        ],
+        "size": 11.5,
+        "text": "Notify requester\nResults already durable. Retry notification independently; deduplicate clarification questions.",
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "notify.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "finish.group"
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Notify requester",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "notify.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "notify.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "Notify requester",
+        "order": 42,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              1028.0,
+              631.3
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 28.0,
+        "fill": "#dcfce7",
+        "height": 96.7,
+        "opacity": 1.0,
+        "stroke": "#4d9f6c",
+        "stroke_width": 1.5,
+        "width": 200.0
+      }
+    },
+    {
+      "id": "page-1",
+      "type": "arris.page",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 0,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "fill": "#ffffff",
+        "height": 939.0,
+        "order": 0,
+        "plane_index": 0,
+        "width": 1326.0
+      },
+      "payload": {}
+    },
+    {
+      "id": "prepare",
+      "type": "flowchart.lane",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "prepare.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "01 · PREPARE + ADMIT",
+        "order": 4,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "name": "01 · PREPARE + ADMIT",
+        "presentation": {
+          "caption": "prepare.caption",
+          "group": "prepare.group",
+          "shape": "prepare.shape"
+        }
+      }
+    },
+    {
+      "id": "prepare.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "prepare.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "prepare.shape"
+          }
+        ],
+        "display_name": "prepare.caption",
+        "order": 3,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.regular",
+        "fill": "#1f2937",
+        "line_height": 1.25,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 12.0,
+        "runs": [
+          {
+            "end": 20,
+            "face": "sans.bold",
+            "fill": "#475569",
+            "size": 12.0,
+            "start": 0
+          }
+        ],
+        "size": 12.0,
+        "text": "01 · PREPARE + ADMIT",
+        "vertical_align": "top"
+      }
+    },
+    {
+      "id": "prepare.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "01 · PREPARE + ADMIT",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "prepare.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "prepare.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "01 · PREPARE + ADMIT",
+        "order": -10,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              40.0,
+              124.45
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 10.0,
+        "fill": "#f8fafc",
+        "height": 775.0,
+        "opacity": 1.0,
+        "stroke": "#cbd5e1",
+        "stroke_width": 1.2,
+        "width": 280.0
+      }
+    },
+    {
+      "id": "publish",
+      "type": "flowchart.document",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "publish.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Persist delivery",
+        "order": 29,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "Immutable artifact + content hash + evidence + input and attempt references.",
+        "name": "Persist delivery",
+        "presentation": {
+          "caption": "publish.caption",
+          "group": "publish.group",
+          "shape": "publish.shape"
+        }
+      }
+    },
+    {
+      "id": "publish.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "publish.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "publish.shape"
+          }
+        ],
+        "display_name": "publish.caption",
+        "order": 28,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "center",
+        "face": "sans.regular",
+        "fill": "#374151",
+        "line_height": 1.3,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 10.0,
+        "runs": [
+          {
+            "end": 16,
+            "face": "sans.bold",
+            "fill": "#1f2937",
+            "size": 13.0,
+            "start": 0
+          }
+        ],
+        "size": 11.5,
+        "text": "Persist delivery\nImmutable artifact + content hash + evidence + input and attempt references.",
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "publish.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "run.group"
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Persist delivery",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "publish.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "publish.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "Persist delivery",
+        "order": 27,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              564.0,
+              488.85
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 0.0,
+        "fill": "#ffffff",
+        "height": 81.75,
+        "opacity": 1.0,
+        "stroke": "#8595a8",
+        "stroke_dash": [
+          6.0,
+          3.0
+        ],
+        "stroke_width": 1.5,
+        "width": 200.0
+      }
+    },
+    {
+      "id": "publish__candidate",
+      "type": "flowchart.main",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "publish__candidate",
+        "order": 58,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "publish",
+        "presentation": {
+          "edge": "publish__candidate.edge"
+        },
+        "to": "candidate"
+      }
+    },
+    {
+      "id": "publish__candidate.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "publish__candidate",
+        "edge_order": 57,
+        "end": {
+          "parameters": {
+            "length": 8.0,
+            "width": 7.0
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [],
+        "order": 57,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 0.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": []
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": "#1f2937",
+          "width": 2.6
+        },
+        "source": {
+          "ref": "publish.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "bottom"
+          }
+        },
+        "target": {
+          "ref": "candidate.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "top"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "ready",
+      "type": "flowchart.decision",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "ready.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Ready and wanted?",
+        "order": 17,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "Accepted prerequisite version; authority; capacity; no competing attempt.",
+        "name": "Ready and wanted?",
+        "presentation": {
+          "caption": "ready.caption",
+          "group": "ready.group",
+          "shape": "ready.shape"
+        }
+      }
+    },
+    {
+      "id": "ready.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "ready.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "ready.shape"
+          }
+        ],
+        "display_name": "ready.caption",
+        "order": 16,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "center",
+        "face": "sans.regular",
+        "fill": "#374151",
+        "line_height": 1.3,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 2.0,
+        "runs": [
+          {
+            "end": 17,
+            "face": "sans.bold",
+            "fill": "#1f2937",
+            "size": 13.0,
+            "start": 0
+          }
+        ],
+        "size": 11.5,
+        "text": "Ready and wanted?\nAccepted prerequisite version; authority; capacity; no competing attempt.",
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "ready.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "prepare.group"
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Ready and wanted?",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "ready.shape",
+      "type": "arris.diamond",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "ready.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "Ready and wanted?",
+        "order": 15,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              60.0,
+              440.9
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "fill": "#fef3c7",
+        "height": 225.10000000000002,
+        "opacity": 1.0,
+        "stroke": "#c89b3c",
+        "stroke_width": 1.5,
+        "width": 240.0
+      }
+    },
+    {
+      "id": "ready__admit",
+      "type": "flowchart.main",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "ready__admit",
+        "order": 50,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "ready",
+        "hints": {
+          "route": {
+            "along": "prepare",
+            "enter": "left",
+            "leave": "right",
+            "side": "right"
+          }
+        },
+        "label": "yes",
+        "presentation": {
+          "edge": "ready__admit.edge",
+          "label": "label"
+        },
+        "to": "admit"
+      }
+    },
+    {
+      "id": "ready__admit.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "yes",
+        "edge_order": 49,
+        "end": {
+          "parameters": {
+            "length": 8.0,
+            "width": 7.0
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [
+          {
+            "clearance": 4.0,
+            "label_id": "label",
+            "parameters": {
+              "align": "left",
+              "face": "sans.regular",
+              "fill": "#1f2937",
+              "line_height": 1.25,
+              "size": 11.0,
+              "text": "yes"
+            },
+            "placement": {
+              "anchor": "left",
+              "fraction": 0.3305,
+              "kind": "route-fraction",
+              "offset": [
+                0.0,
+                0.0
+              ]
+            },
+            "schema_version": 1,
+            "type": "arris.label"
+          }
+        ],
+        "order": 49,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 0.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": [
+            {
+              "point": [
+                330.0,
+                553.45
+              ],
+              "space": "page"
+            },
+            {
+              "point": [
+                330.0,
+                211.8
+              ],
+              "space": "page"
+            }
+          ]
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": "#1f2937",
+          "width": 2.6
+        },
+        "source": {
+          "ref": "ready.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "right"
+          }
+        },
+        "target": {
+          "ref": "admit.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "left"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "ready__wait",
+      "type": "flowchart.flow",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "ready__wait",
+        "order": 52,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "ready",
+        "label": "no",
+        "presentation": {
+          "edge": "ready__wait.edge",
+          "label": "label"
+        },
+        "to": "wait"
+      }
+    },
+    {
+      "id": "ready__wait.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "no",
+        "edge_order": 51,
+        "end": {
+          "parameters": {
+            "length": 8.0,
+            "width": 7.0
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [
+          {
+            "clearance": 4.0,
+            "label_id": "label",
+            "parameters": {
+              "align": "left",
+              "face": "sans.regular",
+              "fill": "#1f2937",
+              "line_height": 1.25,
+              "size": 11.0,
+              "text": "no"
+            },
+            "placement": {
+              "anchor": "left",
+              "fraction": 0.5,
+              "kind": "route-fraction",
+              "offset": [
+                0.0,
+                0.0
+              ]
+            },
+            "schema_version": 1,
+            "type": "arris.label"
+          }
+        ],
+        "order": 51,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 0.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": []
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": "#475569",
+          "width": 1.5
+        },
+        "source": {
+          "ref": "ready.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "bottom"
+          }
+        },
+        "target": {
+          "ref": "wait.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.6,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "top"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "request",
+      "type": "flowchart.terminal",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "request.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Explicit request",
+        "order": 11,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "Skill activation or addressed push for declared work.",
+        "name": "Explicit request",
+        "presentation": {
+          "caption": "request.caption",
+          "group": "request.group",
+          "shape": "request.shape"
+        }
+      }
+    },
+    {
+      "id": "request.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "request.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "request.shape"
+          }
+        ],
+        "display_name": "request.caption",
+        "order": 10,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "center",
+        "face": "sans.regular",
+        "fill": "#374151",
+        "line_height": 1.3,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 10.0,
+        "runs": [
+          {
+            "end": 16,
+            "face": "sans.bold",
+            "fill": "#1f2937",
+            "size": 13.0,
+            "start": 0
+          }
+        ],
+        "size": 11.5,
+        "text": "Explicit request\nSkill activation or addressed push for declared work.",
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "request.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "prepare.group"
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Explicit request",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "request.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "request.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "Explicit request",
+        "order": 9,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              60.0,
+              163.45
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 28.0,
+        "fill": "#dcfce7",
+        "height": 66.80000000000001,
+        "opacity": 1.0,
+        "stroke": "#4d9f6c",
+        "stroke_width": 1.5,
+        "width": 200.0
+      }
+    },
+    {
+      "id": "request__snapshot",
+      "type": "flowchart.main",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "request__snapshot",
+        "order": 46,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "request",
+        "presentation": {
+          "edge": "request__snapshot.edge"
+        },
+        "to": "snapshot"
+      }
+    },
+    {
+      "id": "request__snapshot.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "request__snapshot",
+        "edge_order": 45,
+        "end": {
+          "parameters": {
+            "length": 8.0,
+            "width": 7.0
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [],
+        "order": 45,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 0.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": []
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": "#1f2937",
+          "width": 2.6
+        },
+        "source": {
+          "ref": "request.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "bottom"
+          }
+        },
+        "target": {
+          "ref": "snapshot.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "top"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "review",
+      "type": "flowchart.manual",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "review.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Authorized review",
+        "order": 35,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "Check exact version and admitted inputs. Stale inputs or rejection require an explicit revision decision.",
+        "name": "Authorized review",
+        "presentation": {
+          "caption": "review.caption",
+          "group": "review.group",
+          "shape": "review.shape"
+        }
+      }
+    },
+    {
+      "id": "review.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "review.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "review.shape"
+          }
+        ],
+        "display_name": "review.caption",
+        "order": 34,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "center",
+        "face": "sans.regular",
+        "fill": "#374151",
+        "line_height": 1.3,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 10.0,
+        "runs": [
+          {
+            "end": 17,
+            "face": "sans.bold",
+            "fill": "#1f2937",
+            "size": 13.0,
+            "start": 0
+          }
+        ],
+        "size": 11.5,
+        "text": "Authorized review\nCheck exact version and admitted inputs. Stale inputs or rejection require an explicit revision decision.",
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "review.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "finish.group"
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Authorized review",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "review.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "review.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "Authorized review",
+        "order": 33,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              1028.0,
+              163.45
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 0.0,
+        "fill": "#ffedd5",
+        "height": 96.7,
+        "opacity": 1.0,
+        "stroke": "#d08a4c",
+        "stroke_width": 1.5,
+        "width": 200.0
+      }
+    },
+    {
+      "id": "review__accepted",
+      "type": "flowchart.main",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "review__accepted",
+        "order": 62,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "review",
+        "label": "accept",
+        "presentation": {
+          "edge": "review__accepted.edge",
+          "label": "label"
+        },
+        "to": "accepted"
+      }
+    },
+    {
+      "id": "review__accepted.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "accept",
+        "edge_order": 61,
+        "end": {
+          "parameters": {
+            "length": 8.0,
+            "width": 7.0
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [
+          {
+            "clearance": 4.0,
+            "label_id": "label",
+            "parameters": {
+              "align": "left",
+              "face": "sans.regular",
+              "fill": "#1f2937",
+              "line_height": 1.25,
+              "size": 11.0,
+              "text": "accept"
+            },
+            "placement": {
+              "anchor": "left",
+              "fraction": 0.5,
+              "kind": "route-fraction",
+              "offset": [
+                0.0,
+                0.0
+              ]
+            },
+            "schema_version": 1,
+            "type": "arris.label"
+          }
+        ],
+        "order": 61,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 0.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": []
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": "#1f2937",
+          "width": 2.6
+        },
+        "source": {
+          "ref": "review.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "bottom"
+          }
+        },
+        "target": {
+          "ref": "accepted.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "top"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "run",
+      "type": "flowchart.lane",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "run.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "02 · EXECUTE + DELIVER",
+        "order": 6,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "name": "02 · EXECUTE + DELIVER",
+        "presentation": {
+          "caption": "run.caption",
+          "group": "run.group",
+          "shape": "run.shape"
+        }
+      }
+    },
+    {
+      "id": "run.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "run.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "run.shape"
+          }
+        ],
+        "display_name": "run.caption",
+        "order": 5,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.regular",
+        "fill": "#1f2937",
+        "line_height": 1.25,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 12.0,
+        "runs": [
+          {
+            "end": 22,
+            "face": "sans.bold",
+            "fill": "#475569",
+            "size": 12.0,
+            "start": 0
+          }
+        ],
+        "size": 12.0,
+        "text": "02 · EXECUTE + DELIVER",
+        "vertical_align": "top"
+      }
+    },
+    {
+      "id": "run.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "02 · EXECUTE + DELIVER",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "run.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "run.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "02 · EXECUTE + DELIVER",
+        "order": -20,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              544.0,
+              124.45
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 10.0,
+        "fill": "#f8fafc",
+        "height": 618.85,
+        "opacity": 1.0,
+        "stroke": "#cbd5e1",
+        "stroke_width": 1.2,
+        "width": 240.0
+      }
+    },
+    {
+      "id": "snapshot",
+      "type": "flowchart.process",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "snapshot.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Freeze authorized inputs",
+        "order": 14,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "Validate complete declaration, output contract and capability version.",
+        "name": "Freeze authorized inputs",
+        "presentation": {
+          "caption": "snapshot.caption",
+          "group": "snapshot.group",
+          "shape": "snapshot.shape"
+        }
+      }
+    },
+    {
+      "id": "snapshot.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "snapshot.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "snapshot.shape"
+          }
+        ],
+        "display_name": "snapshot.caption",
+        "order": 13,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "center",
+        "face": "sans.regular",
+        "fill": "#374151",
+        "line_height": 1.3,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 10.0,
+        "runs": [
+          {
+            "end": 24,
+            "face": "sans.bold",
+            "fill": "#1f2937",
+            "size": 13.0,
+            "start": 0
+          }
+        ],
+        "size": 11.5,
+        "text": "Freeze authorized inputs\nValidate complete declaration, output contract and capability version.",
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "snapshot.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "prepare.group"
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Freeze authorized inputs",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "snapshot.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "snapshot.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "Freeze authorized inputs",
+        "order": 12,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              60.0,
+              286.25
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 4.0,
+        "fill": "#ffffff",
+        "height": 98.65,
+        "opacity": 1.0,
+        "stroke": "#64748b",
+        "stroke_width": 1.5,
+        "width": 200.0
+      }
+    },
+    {
+      "id": "snapshot__ready",
+      "type": "flowchart.main",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "snapshot__ready",
+        "order": 48,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "snapshot",
+        "presentation": {
+          "edge": "snapshot__ready.edge"
+        },
+        "to": "ready"
+      }
+    },
+    {
+      "id": "snapshot__ready.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "snapshot__ready",
+        "edge_order": 47,
+        "end": {
+          "parameters": {
+            "length": 8.0,
+            "width": 7.0
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [],
+        "order": 47,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 0.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": []
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": "#1f2937",
+          "width": 2.6
+        },
+        "source": {
+          "ref": "snapshot.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.6,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "bottom"
+          }
+        },
+        "target": {
+          "ref": "ready.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "top"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "unlock",
+      "type": "flowchart.process",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "unlock.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Wake dependents",
+        "order": 41,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "Render the accepted diagram bytes. Cancelled / deleted prerequisites do not satisfy inputs.",
+        "name": "Wake dependents",
+        "presentation": {
+          "caption": "unlock.caption",
+          "group": "unlock.group",
+          "shape": "unlock.shape"
+        }
+      }
+    },
+    {
+      "id": "unlock.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "unlock.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "unlock.shape"
+          }
+        ],
+        "display_name": "unlock.caption",
+        "order": 40,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "center",
+        "face": "sans.regular",
+        "fill": "#374151",
+        "line_height": 1.3,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 10.0,
+        "runs": [
+          {
+            "end": 15,
+            "face": "sans.bold",
+            "fill": "#1f2937",
+            "size": 13.0,
+            "start": 0
+          }
+        ],
+        "size": 11.5,
+        "text": "Wake dependents\nRender the accepted diagram bytes. Cancelled / deleted prerequisites do not satisfy inputs.",
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "unlock.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "finish.group"
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Wake dependents",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "unlock.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "unlock.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "Wake dependents",
+        "order": 39,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              1028.0,
+              478.6
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 4.0,
+        "fill": "#ffffff",
+        "height": 96.7,
+        "opacity": 1.0,
+        "stroke": "#64748b",
+        "stroke_width": 1.5,
+        "width": 200.0
+      }
+    },
+    {
+      "id": "unlock__notify",
+      "type": "flowchart.main",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "unlock__notify",
+        "order": 66,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "unlock",
+        "presentation": {
+          "edge": "unlock__notify.edge"
+        },
+        "to": "notify"
+      }
+    },
+    {
+      "id": "unlock__notify.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "unlock__notify",
+        "edge_order": 65,
+        "end": {
+          "parameters": {
+            "length": 8.0,
+            "width": 7.0
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [],
+        "order": 65,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 0.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": []
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": "#1f2937",
+          "width": 2.6
+        },
+        "source": {
+          "ref": "unlock.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "bottom"
+          }
+        },
+        "target": {
+          "ref": "notify.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "top"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "wait",
+      "type": "flowchart.datastore",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "wait.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Wait without a model",
+        "order": 20,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "Durable reason + next check. Dependency, approval and capacity events wake the request.",
+        "name": "Wait without a model",
+        "presentation": {
+          "caption": "wait.caption",
+          "group": "wait.group",
+          "shape": "wait.shape"
+        }
+      }
+    },
+    {
+      "id": "wait.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "wait.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "wait.shape"
+          }
+        ],
+        "display_name": "wait.caption",
+        "order": 19,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "center",
+        "face": "sans.regular",
+        "fill": "#374151",
+        "line_height": 1.3,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 10.0,
+        "runs": [
+          {
+            "end": 20,
+            "face": "sans.bold",
+            "fill": "#1f2937",
+            "size": 13.0,
+            "start": 0
+          }
+        ],
+        "size": 11.5,
+        "text": "Wait without a model\nDurable reason + next check. Dependency, approval and capacity events wake the request.",
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "wait.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "prepare.group"
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Wait without a model",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "wait.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "wait.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "Wait without a model",
+        "order": 18,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              60.0,
+              782.75
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 12.0,
+        "fill": "#f1f5f9",
+        "height": 96.7,
+        "opacity": 1.0,
+        "stroke": "#8595a8",
+        "stroke_width": 1.5,
+        "width": 200.0
+      }
+    }
+  ]
+}

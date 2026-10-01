@@ -7,6 +7,15 @@ from the proposal in EN-21218, Mable's review in EN-21220 (room R-00241), and
 Lance's subsequent discussion. Writing and publishing this document authorizes
 no implementation, tasks, service changes, or architecture-review dispatch.
 
+Design-review diagrams by Cody (October 1, 2026) propose a canonical attempt and
+acceptance contract in wrkq, reusing task claims, with ACP owning readiness and
+recovery. These are review drafts, not approved architecture or installed behavior:
+
+- System boundaries: [PNG](acp-reconciler-design/architecture.png) ·
+  [editable Arris document](acp-reconciler-design/architecture.arris.json).
+- Execution protocol: [PNG](acp-reconciler-design/protocol.png) ·
+  [editable Arris document](acp-reconciler-design/protocol.arris.json).
+
 ## Purpose and current foundation
 
 Make explicitly requested work progress when its inputs, authorization and

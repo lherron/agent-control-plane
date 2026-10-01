@@ -1,0 +1,4578 @@
+{
+  "cardo_doms": 1,
+  "format": "arris",
+  "format_version": 1,
+  "document_id": "architecture",
+  "revision": 3,
+  "nodes": [
+    {
+      "id": "accept",
+      "type": "architecture.control",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "accept.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Authorized acceptance",
+        "order": 42,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "Proposed wrkq contract: candidate version + acceptor + input revision; claim handoff; complete.",
+        "name": "Authorized acceptance",
+        "presentation": {
+          "caption": "accept.caption",
+          "group": "accept.group",
+          "shape": "accept.shape"
+        }
+      }
+    },
+    {
+      "id": "accept.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "accept.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "accept.shape"
+          }
+        ],
+        "display_name": "accept.caption",
+        "order": 41,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.regular",
+        "fill": "#334155",
+        "line_height": 1.3,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 12.0,
+        "runs": [
+          {
+            "end": 21,
+            "face": "sans.bold",
+            "fill": "#b85c38",
+            "size": 15.0,
+            "start": 0
+          }
+        ],
+        "size": 12.0,
+        "text": "Authorized acceptance\nProposed wrkq contract: candidate version + acceptor + input revision; claim handoff; complete.",
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "accept.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "settle.group"
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Authorized acceptance",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "accept.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "accept.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "Authorized acceptance",
+        "order": 40,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              1942.0,
+              360.29
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 8.0,
+        "fill": "#fbece6",
+        "height": 90.30000000000001,
+        "opacity": 1.0,
+        "stroke": "#d9a08a",
+        "stroke_width": 1.5,
+        "width": 250.0
+      }
+    },
+    {
+      "id": "accept__return",
+      "type": "architecture.flow",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "accept__return",
+        "order": 67,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "accept",
+        "label": "accepted completion",
+        "presentation": {
+          "edge": "accept__return.edge",
+          "label": "label"
+        },
+        "to": "return"
+      }
+    },
+    {
+      "id": "accept__return.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "accepted completion",
+        "edge_order": 66,
+        "end": {
+          "parameters": {
+            "length": 8.0,
+            "width": 7.0
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [
+          {
+            "clearance": 4.0,
+            "label_id": "label",
+            "parameters": {
+              "align": "left",
+              "face": "sans.regular",
+              "fill": "#2f5f9e",
+              "line_height": 1.25,
+              "size": 11.0,
+              "text": "accepted completion"
+            },
+            "placement": {
+              "anchor": "left",
+              "fraction": 0.5,
+              "kind": "route-fraction",
+              "offset": [
+                0.0,
+                0.0
+              ]
+            },
+            "schema_version": 1,
+            "type": "arris.label"
+          }
+        ],
+        "order": 66,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 0.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": []
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": "#2f5f9e",
+          "width": 1.6
+        },
+        "source": {
+          "ref": "accept.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "bottom"
+          }
+        },
+        "target": {
+          "ref": "return.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "top"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "agent",
+      "type": "architecture.agent",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "agent.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Agent worker",
+        "order": 33,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "wrkc delivers; HRC places the seat. Correlate envelope, claim generation and execution.",
+        "name": "Agent worker",
+        "presentation": {
+          "caption": "agent.caption",
+          "group": "agent.group",
+          "shape": "agent.shape"
+        }
+      }
+    },
+    {
+      "id": "agent.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "agent.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "agent.shape"
+          }
+        ],
+        "display_name": "agent.caption",
+        "order": 32,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.regular",
+        "fill": "#334155",
+        "line_height": 1.3,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 12.0,
+        "runs": [
+          {
+            "end": 12,
+            "face": "sans.bold",
+            "fill": "#2f5f9e",
+            "size": 15.0,
+            "start": 0
+          }
+        ],
+        "size": 12.0,
+        "text": "Agent worker\nwrkc delivers; HRC places the seat. Correlate envelope, claim generation and execution.",
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "agent.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "execute.group"
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Agent worker",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "agent.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "agent.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "Agent worker",
+        "order": 31,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              1002.0,
+              427.29
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 8.0,
+        "fill": "#e8eef8",
+        "height": 90.30000000000001,
+        "opacity": 1.0,
+        "stroke": "#a9bde0",
+        "stroke_width": 1.5,
+        "width": 250.0
+      }
+    },
+    {
+      "id": "agent__artifact",
+      "type": "architecture.result",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "agent__artifact",
+        "order": 61,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "agent",
+        "hints": {
+          "route": {
+            "along": "execute",
+            "enter": "left",
+            "leave": "bottom",
+            "side": "bottom"
+          }
+        },
+        "label": "publish candidate",
+        "presentation": {
+          "edge": "agent__artifact.edge",
+          "label": "label"
+        },
+        "to": "artifact"
+      }
+    },
+    {
+      "id": "agent__artifact.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 3,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "publish candidate",
+        "edge_order": 60,
+        "end": {
+          "parameters": {
+            "length": 8.0,
+            "width": 7.0
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [
+          {
+            "clearance": 4.0,
+            "label_id": "label",
+            "parameters": {
+              "align": "left",
+              "face": "sans.regular",
+              "fill": "#1d7a5f",
+              "line_height": 1.25,
+              "size": 11.0,
+              "text": "publish candidate"
+            },
+            "placement": {
+              "anchor": "left",
+              "fraction": 0.3721,
+              "kind": "route-fraction",
+              "offset": [
+                0.0,
+                0.0
+              ]
+            },
+            "schema_version": 1,
+            "type": "arris.label"
+          }
+        ],
+        "order": 60,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 0.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": [
+            {
+              "point": [
+                1127.0,
+                550.59
+              ],
+              "space": "page"
+            },
+            {
+              "point": [
+                1924.0,
+                550.59
+              ],
+              "space": "page"
+            },
+            {
+              "point": [
+                1924.0,
+                240.19
+              ],
+              "space": "page"
+            }
+          ]
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": "#1d7a5f",
+          "width": 1.6
+        },
+        "source": {
+          "ref": "agent.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "bottom"
+          }
+        },
+        "target": {
+          "ref": "artifact.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.6666666666666666,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "left"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "artifact",
+      "type": "architecture.datastore",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "artifact.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Immutable artifacts",
+        "order": 39,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "Publish output + evidence first. Content hash; attempt/input provenance; cross-node retrieval.",
+        "name": "Immutable artifacts",
+        "presentation": {
+          "caption": "artifact.caption",
+          "group": "artifact.group",
+          "shape": "artifact.shape"
+        }
+      }
+    },
+    {
+      "id": "artifact.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "artifact.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "artifact.shape"
+          }
+        ],
+        "display_name": "artifact.caption",
+        "order": 38,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.regular",
+        "fill": "#334155",
+        "line_height": 1.3,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 12.0,
+        "runs": [
+          {
+            "end": 19,
+            "face": "sans.bold",
+            "fill": "#1c2b36",
+            "size": 15.0,
+            "start": 0
+          }
+        ],
+        "size": 12.0,
+        "text": "Immutable artifacts\nPublish output + evidence first. Content hash; attempt/input provenance; cross-node retrieval.",
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "artifact.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "settle.group"
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Immutable artifacts",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "artifact.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "artifact.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "Immutable artifacts",
+        "order": 37,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              1942.0,
+              179.99
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 3.0,
+        "fill": "#ffffff",
+        "height": 90.30000000000001,
+        "opacity": 1.0,
+        "stroke": "#94a3b8",
+        "stroke_width": 1.5,
+        "width": 250.0
+      }
+    },
+    {
+      "id": "artifact__accept",
+      "type": "architecture.flow",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "artifact__accept",
+        "order": 65,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "artifact",
+        "label": "validate exact version",
+        "presentation": {
+          "edge": "artifact__accept.edge",
+          "label": "label"
+        },
+        "to": "accept"
+      }
+    },
+    {
+      "id": "artifact__accept.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "validate exact version",
+        "edge_order": 64,
+        "end": {
+          "parameters": {
+            "length": 8.0,
+            "width": 7.0
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [
+          {
+            "clearance": 4.0,
+            "label_id": "label",
+            "parameters": {
+              "align": "left",
+              "face": "sans.regular",
+              "fill": "#2f5f9e",
+              "line_height": 1.25,
+              "size": 11.0,
+              "text": "validate exact version"
+            },
+            "placement": {
+              "anchor": "left",
+              "fraction": 0.5,
+              "kind": "route-fraction",
+              "offset": [
+                0.0,
+                0.0
+              ]
+            },
+            "schema_version": 1,
+            "type": "arris.label"
+          }
+        ],
+        "order": 64,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 0.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": []
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": "#2f5f9e",
+          "width": 1.6
+        },
+        "source": {
+          "ref": "artifact.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "bottom"
+          }
+        },
+        "target": {
+          "ref": "accept.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "top"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "authority",
+      "type": "architecture.boundary",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "authority.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "03 · WRKQ / CANONICAL AUTHORITY",
+        "order": 8,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "name": "03 · WRKQ / CANONICAL AUTHORITY",
+        "presentation": {
+          "caption": "authority.caption",
+          "group": "authority.group",
+          "shape": "authority.shape"
+        }
+      }
+    },
+    {
+      "id": "authority.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "authority.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "authority.shape"
+          }
+        ],
+        "display_name": "authority.caption",
+        "order": 7,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.regular",
+        "fill": "#1c2b36",
+        "line_height": 1.25,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 14.0,
+        "runs": [
+          {
+            "end": 31,
+            "face": "sans.bold",
+            "fill": "#1c2b36",
+            "size": 13.0,
+            "start": 0
+          }
+        ],
+        "size": 12.0,
+        "text": "03 · WRKQ / CANONICAL AUTHORITY",
+        "vertical_align": "top"
+      }
+    },
+    {
+      "id": "authority.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "03 · WRKQ / CANONICAL AUTHORITY",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "authority.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "authority.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "03 · WRKQ / CANONICAL AUTHORITY",
+        "order": -30,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              980.0,
+              134.99
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 12.0,
+        "fill": "#eef3f4",
+        "height": 157.3,
+        "opacity": 1.0,
+        "stroke": "#c3cfd4",
+        "stroke_width": 1.2,
+        "width": 294.0
+      }
+    },
+    {
+      "id": "control",
+      "type": "architecture.boundary",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "control.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "02 · ACP / DESIGNATED NODE",
+        "order": 6,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "name": "02 · ACP / DESIGNATED NODE",
+        "presentation": {
+          "caption": "control.caption",
+          "group": "control.group",
+          "shape": "control.shape"
+        }
+      }
+    },
+    {
+      "id": "control.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "control.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "control.shape"
+          }
+        ],
+        "display_name": "control.caption",
+        "order": 5,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.regular",
+        "fill": "#1c2b36",
+        "line_height": 1.25,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 14.0,
+        "runs": [
+          {
+            "end": 26,
+            "face": "sans.bold",
+            "fill": "#1c2b36",
+            "size": 13.0,
+            "start": 0
+          }
+        ],
+        "size": 12.0,
+        "text": "02 · ACP / DESIGNATED NODE",
+        "vertical_align": "top"
+      }
+    },
+    {
+      "id": "control.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "02 · ACP / DESIGNATED NODE",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "control.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "control.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "02 · ACP / DESIGNATED NODE",
+        "order": -20,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              40.0,
+              562.59
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 12.0,
+        "fill": "#eef3f4",
+        "height": 322.0,
+        "opacity": 1.0,
+        "stroke": "#c3cfd4",
+        "stroke_width": 1.2,
+        "width": 294.0
+      }
+    },
+    {
+      "id": "defs",
+      "type": "arris.defs",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 0,
+      "updated_revision": 0,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "diagram",
+      "type": "architecture.diagram",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "ACP reconciler · proposed design",
+        "order": 0,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "direction": "TB",
+        "hints": {
+          "order": [
+            [
+              "request",
+              "control",
+              "authority",
+              "execute",
+              "settle"
+            ]
+          ],
+          "stack_columns": 3
+        },
+        "presentation": {
+          "subtitle": "diagram.subtitle",
+          "title": "diagram.title"
+        },
+        "subtitle": "Review draft · opted-in named subtasks · single controller node · ordinary push preserved",
+        "title": "ACP reconciler · proposed design"
+      }
+    },
+    {
+      "id": "diagram.subtitle",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 3,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "subtitle",
+        "order": 2,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              40.0,
+              84.0712890625
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.regular",
+        "fill": "#5b6b77",
+        "line_height": 1.25,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "size": 15.0,
+        "text": "Review draft · opted-in named subtasks · single controller node · ordinary push preserved"
+      }
+    },
+    {
+      "id": "diagram.title",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 3,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "title",
+        "order": 1,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              40.0,
+              40.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.bold",
+        "fill": "#1c2b36",
+        "line_height": 1.25,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "size": 30.0,
+        "text": "ACP reconciler · proposed design"
+      }
+    },
+    {
+      "id": "execute",
+      "type": "architecture.boundary",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "execute.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "04 · EXECUTION / HRC PLACEMENT",
+        "order": 10,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "name": "04 · EXECUTION / HRC PLACEMENT",
+        "presentation": {
+          "caption": "execute.caption",
+          "group": "execute.group",
+          "shape": "execute.shape"
+        }
+      }
+    },
+    {
+      "id": "execute.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "execute.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "execute.shape"
+          }
+        ],
+        "display_name": "execute.caption",
+        "order": 9,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.regular",
+        "fill": "#1c2b36",
+        "line_height": 1.25,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 14.0,
+        "runs": [
+          {
+            "end": 30,
+            "face": "sans.bold",
+            "fill": "#1c2b36",
+            "size": 13.0,
+            "start": 0
+          }
+        ],
+        "size": 12.0,
+        "text": "04 · EXECUTION / HRC PLACEMENT",
+        "vertical_align": "top"
+      }
+    },
+    {
+      "id": "execute.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "04 · EXECUTION / HRC PLACEMENT",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "execute.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "execute.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "04 · EXECUTION / HRC PLACEMENT",
+        "order": -40,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              980.0,
+              382.29
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 12.0,
+        "fill": "#eef3f4",
+        "height": 157.3,
+        "opacity": 1.0,
+        "stroke": "#c3cfd4",
+        "stroke_width": 1.2,
+        "width": 580.0
+      }
+    },
+    {
+      "id": "gate",
+      "type": "architecture.extension",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "gate.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Attempt admission",
+        "order": 30,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "Proposed atomic contract reuses claims. One admitted revision + retry ordinal; fenced writes.",
+        "name": "Attempt admission",
+        "presentation": {
+          "caption": "gate.caption",
+          "group": "gate.group",
+          "shape": "gate.shape"
+        }
+      }
+    },
+    {
+      "id": "gate.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "gate.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "gate.shape"
+          }
+        ],
+        "display_name": "gate.caption",
+        "order": 29,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.regular",
+        "fill": "#334155",
+        "line_height": 1.3,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 12.0,
+        "runs": [
+          {
+            "end": 17,
+            "face": "sans.bold",
+            "fill": "#7a4a93",
+            "size": 15.0,
+            "start": 0
+          }
+        ],
+        "size": 12.0,
+        "text": "Attempt admission\nProposed atomic contract reuses claims. One admitted revision + retry ordinal; fenced writes.",
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "gate.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "authority.group"
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Attempt admission",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "gate.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "gate.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "Attempt admission",
+        "order": 28,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              1002.0,
+              179.99
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 8.0,
+        "fill": "#f1e8f5",
+        "height": 90.30000000000001,
+        "opacity": 1.0,
+        "stroke": "#b9a0cc",
+        "stroke_width": 1.5,
+        "width": 250.0
+      }
+    },
+    {
+      "id": "gate__agent",
+      "type": "architecture.flow",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "gate__agent",
+        "order": 57,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "gate",
+        "hints": {
+          "route": {
+            "along": "authority",
+            "enter": "left",
+            "leave": "left",
+            "side": "left"
+          }
+        },
+        "label": "agent attempt",
+        "presentation": {
+          "edge": "gate__agent.edge",
+          "label": "label"
+        },
+        "to": "agent"
+      }
+    },
+    {
+      "id": "gate__agent.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 3,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "agent attempt",
+        "edge_order": 56,
+        "end": {
+          "parameters": {
+            "length": 8.0,
+            "width": 7.0
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [
+          {
+            "clearance": 4.0,
+            "label_id": "label",
+            "parameters": {
+              "align": "left",
+              "face": "sans.regular",
+              "fill": "#2f5f9e",
+              "line_height": 1.25,
+              "size": 11.0,
+              "text": "agent attempt"
+            },
+            "placement": {
+              "anchor": "left",
+              "fraction": 0.5,
+              "kind": "route-fraction",
+              "offset": [
+                0.0,
+                0.0
+              ]
+            },
+            "schema_version": 1,
+            "type": "arris.label"
+          }
+        ],
+        "order": 56,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 0.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": [
+            {
+              "point": [
+                969.0,
+                210.09
+              ],
+              "space": "page"
+            },
+            {
+              "point": [
+                969.0,
+                472.44
+              ],
+              "space": "page"
+            }
+          ]
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": "#2f5f9e",
+          "width": 1.6
+        },
+        "source": {
+          "ref": "gate.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.3333333333333333,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "left"
+          }
+        },
+        "target": {
+          "ref": "agent.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "left"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "gate__handler",
+      "type": "architecture.flow",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "gate__handler",
+        "order": 59,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "gate",
+        "label": "job attempt",
+        "presentation": {
+          "edge": "gate__handler.edge",
+          "label": "label"
+        },
+        "to": "handler"
+      }
+    },
+    {
+      "id": "gate__handler.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "job attempt",
+        "edge_order": 58,
+        "end": {
+          "parameters": {
+            "length": 8.0,
+            "width": 7.0
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [
+          {
+            "clearance": 4.0,
+            "label_id": "label",
+            "parameters": {
+              "align": "left",
+              "face": "sans.regular",
+              "fill": "#2f5f9e",
+              "line_height": 1.25,
+              "size": 11.0,
+              "text": "job attempt"
+            },
+            "placement": {
+              "anchor": "left",
+              "fraction": 0.3088,
+              "kind": "route-fraction",
+              "offset": [
+                0.0,
+                0.0
+              ]
+            },
+            "schema_version": 1,
+            "type": "arris.label"
+          }
+        ],
+        "order": 58,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 0.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": [
+            {
+              "point": [
+                1168.67,
+                348.79
+              ],
+              "space": "page"
+            },
+            {
+              "point": [
+                1413.0,
+                348.79
+              ],
+              "space": "page"
+            }
+          ]
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": "#2f5f9e",
+          "width": 1.6
+        },
+        "source": {
+          "ref": "gate.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.6666666666666666,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "bottom"
+          }
+        },
+        "target": {
+          "ref": "handler.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "top"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "handler",
+      "type": "architecture.provider",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "handler.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Deterministic handler",
+        "order": 36,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "No model seat. Bounded job with durable execution ID and effect recovery policy.",
+        "name": "Deterministic handler",
+        "presentation": {
+          "caption": "handler.caption",
+          "group": "handler.group",
+          "shape": "handler.shape"
+        }
+      }
+    },
+    {
+      "id": "handler.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "handler.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "handler.shape"
+          }
+        ],
+        "display_name": "handler.caption",
+        "order": 35,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.regular",
+        "fill": "#334155",
+        "line_height": 1.3,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 12.0,
+        "runs": [
+          {
+            "end": 21,
+            "face": "sans.bold",
+            "fill": "#1c2b36",
+            "size": 15.0,
+            "start": 0
+          }
+        ],
+        "size": 12.0,
+        "text": "Deterministic handler\nNo model seat. Bounded job with durable execution ID and effect recovery policy.",
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "handler.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "execute.group"
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Deterministic handler",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "handler.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "handler.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "Deterministic handler",
+        "order": 34,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              1288.0,
+              427.29
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 8.0,
+        "fill": "#e7eef1",
+        "height": 90.30000000000001,
+        "opacity": 1.0,
+        "stroke": "#a3b5bf",
+        "stroke_width": 1.5,
+        "width": 250.0
+      }
+    },
+    {
+      "id": "handler__artifact",
+      "type": "architecture.result",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "handler__artifact",
+        "order": 63,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "handler",
+        "label": "publish candidate",
+        "presentation": {
+          "edge": "handler__artifact.edge",
+          "label": "label"
+        },
+        "to": "artifact"
+      }
+    },
+    {
+      "id": "handler__artifact.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "publish candidate",
+        "edge_order": 62,
+        "end": {
+          "parameters": {
+            "length": 8.0,
+            "width": 7.0
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [
+          {
+            "clearance": 4.0,
+            "label_id": "label",
+            "parameters": {
+              "align": "left",
+              "face": "sans.regular",
+              "fill": "#1d7a5f",
+              "line_height": 1.25,
+              "size": 11.0,
+              "text": "publish candidate"
+            },
+            "placement": {
+              "anchor": "left",
+              "fraction": 0.5,
+              "kind": "route-fraction",
+              "offset": [
+                0.0,
+                0.0
+              ]
+            },
+            "schema_version": 1,
+            "type": "arris.label"
+          }
+        ],
+        "order": 62,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 0.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": [
+            {
+              "point": [
+                1740.0,
+                472.44
+              ],
+              "space": "page"
+            },
+            {
+              "point": [
+                1740.0,
+                225.14
+              ],
+              "space": "page"
+            }
+          ]
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": "#1d7a5f",
+          "width": 1.6
+        },
+        "source": {
+          "ref": "handler.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "right"
+          }
+        },
+        "target": {
+          "ref": "artifact.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "left"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "intent",
+      "type": "architecture.datastore",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "intent.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Work declaration / wrkq",
+        "order": 27,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "Task UUID; approved input snapshot; pinned capability binding and output contract.",
+        "name": "Work declaration / wrkq",
+        "presentation": {
+          "caption": "intent.caption",
+          "group": "intent.group",
+          "shape": "intent.shape"
+        }
+      }
+    },
+    {
+      "id": "intent.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "intent.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "intent.shape"
+          }
+        ],
+        "display_name": "intent.caption",
+        "order": 26,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.regular",
+        "fill": "#334155",
+        "line_height": 1.3,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 12.0,
+        "runs": [
+          {
+            "end": 23,
+            "face": "sans.bold",
+            "fill": "#1c2b36",
+            "size": 15.0,
+            "start": 0
+          }
+        ],
+        "size": 12.0,
+        "text": "Work declaration / wrkq\nTask UUID; approved input snapshot; pinned capability binding and output contract.",
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "intent.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "request.group"
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Work declaration / wrkq",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "intent.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "intent.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "Work declaration / wrkq",
+        "order": 25,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              62.0,
+              360.29
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 3.0,
+        "fill": "#ffffff",
+        "height": 90.30000000000001,
+        "opacity": 1.0,
+        "stroke": "#94a3b8",
+        "stroke_width": 1.5,
+        "width": 250.0
+      }
+    },
+    {
+      "id": "intent__queue",
+      "type": "architecture.flow",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 3,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "intent__queue",
+        "order": 49,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "intent",
+        "hints": {
+          "route": {
+            "along": "control",
+            "enter": "left",
+            "leave": "left",
+            "side": "left"
+          }
+        },
+        "label": "durable ledger events",
+        "presentation": {
+          "edge": "intent__queue.edge",
+          "label": "label"
+        },
+        "to": "queue"
+      }
+    },
+    {
+      "id": "intent__queue.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 3,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "durable ledger events",
+        "edge_order": 48,
+        "end": {
+          "parameters": {
+            "length": 8.0,
+            "width": 7.0
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [
+          {
+            "clearance": 4.0,
+            "label_id": "label",
+            "parameters": {
+              "align": "left",
+              "face": "sans.regular",
+              "fill": "#2f5f9e",
+              "line_height": 1.25,
+              "size": 11.0,
+              "text": "durable ledger events"
+            },
+            "placement": {
+              "anchor": "left",
+              "fraction": 0.5,
+              "kind": "route-fraction",
+              "offset": [
+                0.0,
+                0.0
+              ]
+            },
+            "schema_version": 1,
+            "type": "arris.label"
+          }
+        ],
+        "order": 48,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 0.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": [
+            {
+              "point": [
+                29.0,
+                405.44
+              ],
+              "space": "page"
+            },
+            {
+              "point": [
+                29.0,
+                644.94
+              ],
+              "space": "page"
+            }
+          ]
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": "#2f5f9e",
+          "width": 1.6
+        },
+        "source": {
+          "ref": "intent.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "left"
+          }
+        },
+        "target": {
+          "ref": "queue.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "left"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "page-1",
+      "type": "arris.page",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 0,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "fill": "#ffffff",
+        "height": 925.0,
+        "order": 0,
+        "plane_index": 0,
+        "width": 2254.0
+      },
+      "payload": {}
+    },
+    {
+      "id": "push",
+      "type": "architecture.actor",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "push.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Addressed push",
+        "order": 18,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "Existing wrkc traffic. Workers enter the same attempt gate before effects.",
+        "name": "Addressed push",
+        "presentation": {
+          "caption": "push.caption",
+          "group": "push.group",
+          "shape": "push.shape"
+        }
+      }
+    },
+    {
+      "id": "push.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "push.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "push.shape"
+          }
+        ],
+        "display_name": "push.caption",
+        "order": 17,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.regular",
+        "fill": "#334155",
+        "line_height": 1.3,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 12.0,
+        "runs": [
+          {
+            "end": 14,
+            "face": "sans.bold",
+            "fill": "#b85c38",
+            "size": 15.0,
+            "start": 0
+          }
+        ],
+        "size": 12.0,
+        "text": "Addressed push\nExisting wrkc traffic. Workers enter the same attempt gate before effects.",
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "push.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "request.group"
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Addressed push",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "push.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "push.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "Addressed push",
+        "order": 16,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              348.0,
+              360.29
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 8.0,
+        "fill": "#fbece6",
+        "height": 90.30000000000001,
+        "opacity": 1.0,
+        "stroke": "#d9a08a",
+        "stroke_width": 1.5,
+        "width": 250.0
+      }
+    },
+    {
+      "id": "push__gate",
+      "type": "architecture.flow",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "push__gate",
+        "order": 55,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "push",
+        "label": "same admission contract",
+        "presentation": {
+          "edge": "push__gate.edge",
+          "label": "label"
+        },
+        "to": "gate"
+      }
+    },
+    {
+      "id": "push__gate.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "same admission contract",
+        "edge_order": 54,
+        "end": {
+          "parameters": {
+            "length": 8.0,
+            "width": 7.0
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [
+          {
+            "clearance": 4.0,
+            "label_id": "label",
+            "parameters": {
+              "align": "left",
+              "face": "sans.regular",
+              "fill": "#2f5f9e",
+              "line_height": 1.25,
+              "size": 11.0,
+              "text": "same admission contract"
+            },
+            "placement": {
+              "anchor": "left",
+              "fraction": 0.8277,
+              "kind": "route-fraction",
+              "offset": [
+                0.0,
+                0.0
+              ]
+            },
+            "schema_version": 1,
+            "type": "arris.label"
+          }
+        ],
+        "order": 54,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 0.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": [
+            {
+              "point": [
+                800.0,
+                405.44
+              ],
+              "space": "page"
+            },
+            {
+              "point": [
+                800.0,
+                225.14
+              ],
+              "space": "page"
+            }
+          ]
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": "#2f5f9e",
+          "width": 1.6
+        },
+        "source": {
+          "ref": "push.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "right"
+          }
+        },
+        "target": {
+          "ref": "gate.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "left"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "queue",
+      "type": "architecture.datastore",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "queue.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Durable check queue",
+        "order": 21,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "Ledger cursor + dirty revisions; timers and bootstrap repair gaps.",
+        "name": "Durable check queue",
+        "presentation": {
+          "caption": "queue.caption",
+          "group": "queue.group",
+          "shape": "queue.shape"
+        }
+      }
+    },
+    {
+      "id": "queue.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "queue.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "queue.shape"
+          }
+        ],
+        "display_name": "queue.caption",
+        "order": 20,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.regular",
+        "fill": "#334155",
+        "line_height": 1.3,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 12.0,
+        "runs": [
+          {
+            "end": 19,
+            "face": "sans.bold",
+            "fill": "#1c2b36",
+            "size": 15.0,
+            "start": 0
+          }
+        ],
+        "size": 12.0,
+        "text": "Durable check queue\nLedger cursor + dirty revisions; timers and bootstrap repair gaps.",
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "queue.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "control.group"
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Durable check queue",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "queue.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "queue.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "Durable check queue",
+        "order": 19,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              62.0,
+              607.59
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 3.0,
+        "fill": "#ffffff",
+        "height": 74.7,
+        "opacity": 1.0,
+        "stroke": "#94a3b8",
+        "stroke_width": 1.5,
+        "width": 250.0
+      }
+    },
+    {
+      "id": "queue__reconcile",
+      "type": "architecture.flow",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "queue__reconcile",
+        "order": 51,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "queue",
+        "label": "coalesced checks",
+        "presentation": {
+          "edge": "queue__reconcile.edge",
+          "label": "label"
+        },
+        "to": "reconcile"
+      }
+    },
+    {
+      "id": "queue__reconcile.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "coalesced checks",
+        "edge_order": 50,
+        "end": {
+          "parameters": {
+            "length": 8.0,
+            "width": 7.0
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [
+          {
+            "clearance": 4.0,
+            "label_id": "label",
+            "parameters": {
+              "align": "left",
+              "face": "sans.regular",
+              "fill": "#2f5f9e",
+              "line_height": 1.25,
+              "size": 11.0,
+              "text": "coalesced checks"
+            },
+            "placement": {
+              "anchor": "left",
+              "fraction": 0.5,
+              "kind": "route-fraction",
+              "offset": [
+                0.0,
+                0.0
+              ]
+            },
+            "schema_version": 1,
+            "type": "arris.label"
+          }
+        ],
+        "order": 50,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 0.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": []
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": "#2f5f9e",
+          "width": 1.6
+        },
+        "source": {
+          "ref": "queue.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "bottom"
+          }
+        },
+        "target": {
+          "ref": "reconcile.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "top"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "reconcile",
+      "type": "architecture.control",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "reconcile.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Readiness + recovery",
+        "order": 24,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "Read canonical truth. Check permission, inputs, accepted dependencies and capacity.",
+        "name": "Readiness + recovery",
+        "presentation": {
+          "caption": "reconcile.caption",
+          "group": "reconcile.group",
+          "shape": "reconcile.shape"
+        }
+      }
+    },
+    {
+      "id": "reconcile.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "reconcile.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "reconcile.shape"
+          }
+        ],
+        "display_name": "reconcile.caption",
+        "order": 23,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.regular",
+        "fill": "#334155",
+        "line_height": 1.3,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 12.0,
+        "runs": [
+          {
+            "end": 20,
+            "face": "sans.bold",
+            "fill": "#b85c38",
+            "size": 15.0,
+            "start": 0
+          }
+        ],
+        "size": 12.0,
+        "text": "Readiness + recovery\nRead canonical truth. Check permission, inputs, accepted dependencies and capacity.",
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "reconcile.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "control.group"
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Readiness + recovery",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "reconcile.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "reconcile.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "Readiness + recovery",
+        "order": 22,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              62.0,
+              772.29
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 8.0,
+        "fill": "#fbece6",
+        "height": 90.30000000000001,
+        "opacity": 1.0,
+        "stroke": "#d9a08a",
+        "stroke_width": 1.5,
+        "width": 250.0
+      }
+    },
+    {
+      "id": "reconcile__gate",
+      "type": "architecture.flow",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "reconcile__gate",
+        "order": 53,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "reconcile",
+        "label": "ready + authorized",
+        "presentation": {
+          "edge": "reconcile__gate.edge",
+          "label": "label"
+        },
+        "to": "gate"
+      }
+    },
+    {
+      "id": "reconcile__gate.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "ready + authorized",
+        "edge_order": 52,
+        "end": {
+          "parameters": {
+            "length": 8.0,
+            "width": 7.0
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [
+          {
+            "clearance": 4.0,
+            "label_id": "label",
+            "parameters": {
+              "align": "left",
+              "face": "sans.regular",
+              "fill": "#2f5f9e",
+              "line_height": 1.25,
+              "size": 11.0,
+              "text": "ready + authorized"
+            },
+            "placement": {
+              "anchor": "left",
+              "fraction": 0.5,
+              "kind": "route-fraction",
+              "offset": [
+                0.0,
+                0.0
+              ]
+            },
+            "schema_version": 1,
+            "type": "arris.label"
+          }
+        ],
+        "order": 52,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 0.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": [
+            {
+              "point": [
+                657.0,
+                817.44
+              ],
+              "space": "page"
+            },
+            {
+              "point": [
+                657.0,
+                240.19
+              ],
+              "space": "page"
+            }
+          ]
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": "#2f5f9e",
+          "width": 1.6
+        },
+        "source": {
+          "ref": "reconcile.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "right"
+          }
+        },
+        "target": {
+          "ref": "gate.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.6666666666666666,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "left"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "request",
+      "type": "architecture.boundary",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "request.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "01 · REQUEST",
+        "order": 4,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "name": "01 · REQUEST",
+        "presentation": {
+          "caption": "request.caption",
+          "group": "request.group",
+          "shape": "request.shape"
+        }
+      }
+    },
+    {
+      "id": "request.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "request.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "request.shape"
+          }
+        ],
+        "display_name": "request.caption",
+        "order": 3,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.regular",
+        "fill": "#1c2b36",
+        "line_height": 1.25,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 14.0,
+        "runs": [
+          {
+            "end": 12,
+            "face": "sans.bold",
+            "fill": "#1c2b36",
+            "size": 13.0,
+            "start": 0
+          }
+        ],
+        "size": 12.0,
+        "text": "01 · REQUEST",
+        "vertical_align": "top"
+      }
+    },
+    {
+      "id": "request.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "01 · REQUEST",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "request.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "request.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "01 · REQUEST",
+        "order": -10,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              40.0,
+              134.99
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 12.0,
+        "fill": "#eef3f4",
+        "height": 337.6,
+        "opacity": 1.0,
+        "stroke": "#c3cfd4",
+        "stroke_width": 1.2,
+        "width": 580.0
+      }
+    },
+    {
+      "id": "return",
+      "type": "architecture.client",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "return.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Unlock + notify",
+        "order": 45,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "Dependents consume accepted bytes. Durable notification retries; results survive failure.",
+        "name": "Unlock + notify",
+        "presentation": {
+          "caption": "return.caption",
+          "group": "return.group",
+          "shape": "return.shape"
+        }
+      }
+    },
+    {
+      "id": "return.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "return.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "return.shape"
+          }
+        ],
+        "display_name": "return.caption",
+        "order": 44,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.regular",
+        "fill": "#334155",
+        "line_height": 1.3,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 12.0,
+        "runs": [
+          {
+            "end": 15,
+            "face": "sans.bold",
+            "fill": "#2f5f9e",
+            "size": 15.0,
+            "start": 0
+          }
+        ],
+        "size": 12.0,
+        "text": "Unlock + notify\nDependents consume accepted bytes. Durable notification retries; results survive failure.",
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "return.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "settle.group"
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Unlock + notify",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "return.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "return.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "Unlock + notify",
+        "order": 43,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              1942.0,
+              540.59
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 8.0,
+        "fill": "#edf2fa",
+        "height": 90.30000000000001,
+        "opacity": 1.0,
+        "stroke": "#a9bde0",
+        "stroke_width": 1.5,
+        "width": 250.0
+      }
+    },
+    {
+      "id": "settle",
+      "type": "architecture.boundary",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "settle.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "05 · RESULTS + ACCEPTANCE",
+        "order": 12,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "name": "05 · RESULTS + ACCEPTANCE",
+        "presentation": {
+          "caption": "settle.caption",
+          "group": "settle.group",
+          "shape": "settle.shape"
+        }
+      }
+    },
+    {
+      "id": "settle.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "settle.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "settle.shape"
+          }
+        ],
+        "display_name": "settle.caption",
+        "order": 11,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.regular",
+        "fill": "#1c2b36",
+        "line_height": 1.25,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 14.0,
+        "runs": [
+          {
+            "end": 25,
+            "face": "sans.bold",
+            "fill": "#1c2b36",
+            "size": 13.0,
+            "start": 0
+          }
+        ],
+        "size": 12.0,
+        "text": "05 · RESULTS + ACCEPTANCE",
+        "vertical_align": "top"
+      }
+    },
+    {
+      "id": "settle.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "05 · RESULTS + ACCEPTANCE",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "settle.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "settle.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "05 · RESULTS + ACCEPTANCE",
+        "order": -50,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              1920.0,
+              134.99
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 12.0,
+        "fill": "#eef3f4",
+        "height": 517.9,
+        "opacity": 1.0,
+        "stroke": "#c3cfd4",
+        "stroke_width": 1.2,
+        "width": 294.0
+      }
+    },
+    {
+      "id": "skill",
+      "type": "architecture.client",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "skill.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Capability skill",
+        "order": 15,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "Versioned contract; create inputs and relations, then explicitly activate.",
+        "name": "Capability skill",
+        "presentation": {
+          "caption": "skill.caption",
+          "group": "skill.group",
+          "shape": "skill.shape"
+        }
+      }
+    },
+    {
+      "id": "skill.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "skill.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "skill.shape"
+          }
+        ],
+        "display_name": "skill.caption",
+        "order": 14,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.regular",
+        "fill": "#334155",
+        "line_height": 1.3,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 12.0,
+        "runs": [
+          {
+            "end": 16,
+            "face": "sans.bold",
+            "fill": "#2f5f9e",
+            "size": 15.0,
+            "start": 0
+          }
+        ],
+        "size": 12.0,
+        "text": "Capability skill\nVersioned contract; create inputs and relations, then explicitly activate.",
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "skill.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "request.group"
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Capability skill",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "skill.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "skill.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "Capability skill",
+        "order": 13,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              62.0,
+              179.99
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0"
+      },
+      "payload": {
+        "corner_radius": 8.0,
+        "fill": "#edf2fa",
+        "height": 90.30000000000001,
+        "opacity": 1.0,
+        "stroke": "#a9bde0",
+        "stroke_width": 1.5,
+        "width": 250.0
+      }
+    },
+    {
+      "id": "skill__intent",
+      "type": "architecture.flow",
+      "schema_version": 1,
+      "provider": "arris.architecture",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "skill__intent",
+        "order": 47,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "skill",
+        "label": "activate request",
+        "presentation": {
+          "edge": "skill__intent.edge",
+          "label": "label"
+        },
+        "to": "intent"
+      }
+    },
+    {
+      "id": "skill__intent.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "activate request",
+        "edge_order": 46,
+        "end": {
+          "parameters": {
+            "length": 8.0,
+            "width": 7.0
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [
+          {
+            "clearance": 4.0,
+            "label_id": "label",
+            "parameters": {
+              "align": "left",
+              "face": "sans.regular",
+              "fill": "#2f5f9e",
+              "line_height": 1.25,
+              "size": 11.0,
+              "text": "activate request"
+            },
+            "placement": {
+              "anchor": "left",
+              "fraction": 0.5,
+              "kind": "route-fraction",
+              "offset": [
+                0.0,
+                0.0
+              ]
+            },
+            "schema_version": 1,
+            "type": "arris.label"
+          }
+        ],
+        "order": 46,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 0.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": []
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": "#2f5f9e",
+          "width": 1.6
+        },
+        "source": {
+          "ref": "skill.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "bottom"
+          }
+        },
+        "target": {
+          "ref": "intent.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 2.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "top"
+          }
+        }
+      },
+      "payload": {}
+    }
+  ]
+}
