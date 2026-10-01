@@ -1,7 +1,7 @@
 # ACP reconciler: delegated sessions
 
 **Product decisions settled with Lance; implementation design revised after
-Daedalus's reviews (REJECT, EN-21829, EN-21832 and EN-21835) and resubmitted.** Cody and Mable's peer revision, October 1, 2026. The goal is recorded in
+Daedalus's reviews (REJECT, EN-21829, EN-21832, EN-21835 and EN-21839) and resubmitted.** Cody and Mable's peer revision, October 1, 2026. The goal is recorded in
 [Delegated work and session context isolation](acp-delegated-work-intent.md).
 
 The requester records a concern as a task or subtask and goes back to its work.
@@ -123,23 +123,27 @@ scope; ordinary conversation can request revisions. **Assignment fencing:** afte
 claiming, the worker re-reads the request and proceeds only if its current
 assignee is the worker's own principal and its `rev` equals the delivered one.
 Otherwise it rejects without touching outputs, in this order. **Guarded reopen,
-while still holding the claim:** it sets the request back to `open` with
-`--if-match <etag>` from that post-claim re-read (claiming had moved it to
-`in_progress`, and release does not restore state). **Then release.** Holding the
+while still holding the claim:** only if that post-claim re-read shows the state
+the claim set, `in_progress`, it sets the request back to `open` with
+`--if-match <etag>` from the same read (claiming had moved it to `in_progress`,
+and release does not restore state). Any other state in the snapshot, such as
+`cancelled`, means someone else has decided the request's fate: the worker skips
+the reopen. **Then release.** Holding the
 claim means no successor can claim or complete the request before the reopen, and
 the etag precondition means any intervening change, such as a cancellation,
-fails the reopen instead of being overwritten. On a failed precondition the
-worker skips the reopen and only releases. After release the worker writes no
+fails the reopen instead of being overwritten. On a skipped reopen or a failed
+precondition the worker only releases. After release the worker writes no
 further task state. The reopened request is ordinary open, unclaimed work, so the
 next scan reserves a start for its current assignee. A request reassigned before
 any claim can be started for both assignees, but only the current assignee keeps
 the claim. If the current assignee's start arrives while the old assignee
 briefly holds the claim, it no-ops; the request then surfaces through a stall
-rule below rather than running twice. A rejecting worker that dies after
-reopening but before releasing leaves an open request held by an ended worker,
-which the ended-holder rule reports. One whose guarded reopen fails, or that dies
-before it, leaves the request `in_progress` and unclaimed, which the orphan rule
-reports.
+rule below rather than running twice. A rejecting worker that dies before
+releasing, whether before or after its reopen, leaves a claim held by an ended
+worker, which the ended-holder rule reports. One whose guarded reopen fails on an
+unrelated edit and then releases leaves the request `in_progress` and unclaimed,
+which the orphan rule reports. One that skipped the reopen because the request
+was already cancelled or completed leaves that finished state untouched.
 Reassigning work that is already claimed is deliberate recovery, as for any held
 claim.
 
@@ -221,7 +225,7 @@ worker's first act.
   no current reservation, for longer than the claim window since its last update.
   Only `open` requests are started, so without this rule such a request would
   neither start nor stall. It covers a rejecting worker whose guarded reopen
-  failed or that died before reopening, and a DM-revision worker that set `in_progress` but never claimed.
+  failed on an unrelated edit before it released, and a DM-revision worker that set `in_progress` but never claimed.
 
 Every unfinished, unclaimed request is therefore either startable (`open`, no
 current reservation), awaiting a claim inside the window, or reported. Recovery is deliberate: inspect the seat, then bump `rev` and reopen,
@@ -257,7 +261,8 @@ claim; worker completion notices for both the initial completion and a DM
 revision, including a revision immediately after completion; ended-holder and
 reserved-but-unclaimed and orphaned-in-progress reporting, including a turn that
 fails before claiming, a rejecting worker whose guarded reopen loses to a
-concurrent cancellation (cancellation preserved, nothing restarted) or to an
+concurrent cancellation, including a cancellation already present in the
+post-claim snapshot (cancellation preserved, nothing restarted), or to an
 unrelated edit (request left `in_progress`, orphan reported), and a
 rejecting worker that dies between reopen and release;
 assignment rejection followed by a reserved start for the new assignee; a second
