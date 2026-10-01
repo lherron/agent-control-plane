@@ -3,15 +3,15 @@
   "format": "arris",
   "format_version": 1,
   "document_id": "lifecycle",
-  "revision": 6,
+  "revision": 3,
   "nodes": [
     {
       "id": "cancelled",
-      "type": "flowchart.terminal",
+      "type": "flowchart.process",
       "schema_version": 1,
       "provider": "arris.flowchart",
       "created_revision": 1,
-      "updated_revision": 1,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": "cancelled.group"
@@ -28,7 +28,7 @@
           "transform": {
             "translate": [
               0.0,
-              0.0
+              -544.0
             ]
           }
         },
@@ -36,21 +36,27 @@
         "provider_version": "0.1.0"
       },
       "payload": {
-        "body": "no new starts; running work stopped via HRC",
+        "body": "no new starts; HRC stops running work",
         "bullets": [],
         "emphasis": false,
         "icon": "",
         "kicker": "",
         "meta": "",
         "name": "cancelled",
+        "pinned": true,
         "presentation": {
           "caption": "cancelled.caption",
           "group": "cancelled.group",
           "shadow": "cancelled.shadow",
           "shape": "cancelled.shape"
         },
-        "source_hint": "stadium",
-        "source_id": "cancelled"
+        "source_hint": "round",
+        "source_id": "cancelled",
+        "style": {
+          "corner_radius": 14.0,
+          "fill": "#E8F5F0",
+          "stroke": "#2E9C7E"
+        }
       }
     },
     {
@@ -104,7 +110,7 @@
         "line_height": 1.391,
         "max_height": 0.0,
         "max_width": 0.0,
-        "padding": 8.0,
+        "padding": 10.0,
         "runs": [
           {
             "end": 9,
@@ -121,7 +127,7 @@
             "start": 9
           },
           {
-            "end": 53,
+            "end": 47,
             "face": "sans.regular",
             "fill": {
               "token": "lead"
@@ -132,7 +138,7 @@
           }
         ],
         "size": 11.5,
-        "text": "cancelled\nno new starts; running work stopped via HRC",
+        "text": "cancelled\nno new starts; HRC stops running work",
         "tracking": 0.0,
         "vertical_align": "center"
       }
@@ -217,11 +223,11 @@
     },
     {
       "id": "cancelled.shape",
-      "type": "arris.stadium",
+      "type": "arris.box",
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 1,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": "cancelled.group"
@@ -245,33 +251,22 @@
         "placement": {
           "transform": {
             "translate": [
-              1394.69,
-              520.0
+              1258.69,
+              320.0
             ]
           }
         },
         "plane_index": 0,
-        "provider_version": "0.6.0",
-        "style_bindings": [
-          {
-            "property": "fill",
-            "slot": "colour",
-            "style": "hue.viridian.tint"
-          },
-          {
-            "property": "stroke",
-            "slot": "colour",
-            "style": "hue.viridian.line"
-          }
-        ]
+        "provider_version": "0.6.0"
       },
       "payload": {
-        "fill": "#ffffff",
-        "height": 96.0,
+        "corner_radius": 14.0,
+        "fill": "#E8F5F0",
+        "height": 72.0,
         "opacity": 1.0,
-        "stroke": "#171717",
+        "stroke": "#2E9C7E",
         "stroke_width": 1.25,
-        "width": 232.0
+        "width": 200.0
       }
     },
     {
@@ -302,11 +297,11 @@
     },
     {
       "id": "claimed",
-      "type": "flowchart.terminal",
+      "type": "flowchart.process",
       "schema_version": 1,
       "provider": "arris.flowchart",
       "created_revision": 1,
-      "updated_revision": 2,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": "claimed.group"
@@ -331,7 +326,7 @@
         "provider_version": "0.1.0"
       },
       "payload": {
-        "body": "worker claimed, then fenced on assignee and rev",
+        "body": "claimed, fenced on assignee + rev",
         "bullets": [],
         "emphasis": false,
         "hints": {
@@ -341,14 +336,20 @@
         "kicker": "",
         "meta": "",
         "name": "in_progress",
+        "pinned": true,
         "presentation": {
           "caption": "claimed.caption",
           "group": "claimed.group",
           "shadow": "claimed.shadow",
           "shape": "claimed.shape"
         },
-        "source_hint": "stadium",
-        "source_id": "claimed"
+        "source_hint": "round",
+        "source_id": "claimed",
+        "style": {
+          "corner_radius": 14.0,
+          "fill": "#E8F5F0",
+          "stroke": "#2E9C7E"
+        }
       }
     },
     {
@@ -402,7 +403,7 @@
         "line_height": 1.391,
         "max_height": 0.0,
         "max_width": 0.0,
-        "padding": 8.0,
+        "padding": 10.0,
         "runs": [
           {
             "end": 11,
@@ -419,7 +420,7 @@
             "start": 11
           },
           {
-            "end": 59,
+            "end": 45,
             "face": "sans.regular",
             "fill": {
               "token": "lead"
@@ -430,7 +431,7 @@
           }
         ],
         "size": 11.5,
-        "text": "in_progress\nworker claimed, then fenced on assignee and rev",
+        "text": "in_progress\nclaimed, fenced on assignee + rev",
         "tracking": 0.0,
         "vertical_align": "center"
       }
@@ -515,11 +516,11 @@
     },
     {
       "id": "claimed.shape",
-      "type": "arris.stadium",
+      "type": "arris.box",
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 1,
+      "updated_revision": 2,
       "hierarchies": {
         "group": {
           "parent": "claimed.group"
@@ -543,33 +544,22 @@
         "placement": {
           "transform": {
             "translate": [
-              904.81,
-              160.0
+              800.81,
+              168.0
             ]
           }
         },
         "plane_index": 0,
-        "provider_version": "0.6.0",
-        "style_bindings": [
-          {
-            "property": "fill",
-            "slot": "colour",
-            "style": "hue.viridian.tint"
-          },
-          {
-            "property": "stroke",
-            "slot": "colour",
-            "style": "hue.viridian.line"
-          }
-        ]
+        "provider_version": "0.6.0"
       },
       "payload": {
-        "fill": "#ffffff",
-        "height": 96.0,
+        "corner_radius": 14.0,
+        "fill": "#E8F5F0",
+        "height": 56.0,
         "opacity": 1.0,
-        "stroke": "#171717",
+        "stroke": "#2E9C7E",
         "stroke_width": 1.25,
-        "width": 232.0
+        "width": 200.0
       }
     },
     {
@@ -578,7 +568,7 @@
       "schema_version": 1,
       "provider": "arris.flowchart",
       "created_revision": 1,
-      "updated_revision": 6,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": null
@@ -622,7 +612,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 1,
-      "updated_revision": 6,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": null
@@ -667,7 +657,7 @@
             },
             "placement": {
               "anchor": "center",
-              "distance": 496.54,
+              "distance": 252.29,
               "kind": "route-distance",
               "offset": [
                 0.0,
@@ -695,15 +685,8 @@
           "waypoints": [
             {
               "point": [
-                1165.0,
-                208.0
-              ],
-              "space": "page"
-            },
-            {
-              "point": [
-                1165.0,
-                568.0
+                980.0,
+                340.0
               ],
               "space": "page"
             }
@@ -730,10 +713,10 @@
               "mode": "normal"
             },
             "clearance": 0.0,
-            "fraction": 0.5,
+            "fraction": 0.8959500000000002,
             "kind": "side",
             "offset": 0.0,
-            "side": "right"
+            "side": "bottom"
           }
         },
         "target": {
@@ -746,7 +729,7 @@
               "mode": "normal"
             },
             "clearance": 0.0,
-            "fraction": 0.5,
+            "fraction": 0.2777777777777778,
             "kind": "side",
             "offset": 0.0,
             "side": "left"
@@ -761,7 +744,7 @@
       "schema_version": 1,
       "provider": "arris.flowchart",
       "created_revision": 1,
-      "updated_revision": 3,
+      "updated_revision": 2,
       "hierarchies": {
         "group": {
           "parent": null
@@ -809,7 +792,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 1,
-      "updated_revision": 6,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": null
@@ -854,7 +837,7 @@
             },
             "placement": {
               "anchor": "center",
-              "distance": 112.94,
+              "distance": 123.02,
               "kind": "route-distance",
               "offset": [
                 0.0,
@@ -929,7 +912,7 @@
       "schema_version": 1,
       "provider": "arris.flowchart",
       "created_revision": 1,
-      "updated_revision": 2,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": null
@@ -955,13 +938,9 @@
       },
       "payload": {
         "from": "claimed",
-        "hints": {
-          "route": {
-            "enter": "top",
-            "leave": "top"
-          }
-        },
+        "hints": {},
         "label": "fence fails: reopen",
+        "pinned": true,
         "presentation": {
           "edge": "claimed__open.edge",
           "label": "label"
@@ -977,7 +956,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 1,
-      "updated_revision": 6,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": null
@@ -1022,7 +1001,7 @@
             },
             "placement": {
               "anchor": "center",
-              "distance": 807.07,
+              "distance": 409.17,
               "kind": "route-distance",
               "offset": [
                 0.0,
@@ -1050,15 +1029,15 @@
           "waypoints": [
             {
               "point": [
-                1020.81,
-                144.0
+                880.0,
+                146.0
               ],
               "space": "page"
             },
             {
               "point": [
-                156.0,
-                144.0
+                100.0,
+                146.0
               ],
               "space": "page"
             }
@@ -1081,7 +1060,7 @@
               "mode": "normal"
             },
             "clearance": 0.0,
-            "fraction": 0.5,
+            "fraction": 0.39595000000000025,
             "kind": "side",
             "offset": 0.0,
             "side": "top"
@@ -1097,7 +1076,7 @@
               "mode": "normal"
             },
             "clearance": 0.0,
-            "fraction": 0.5,
+            "fraction": 0.375,
             "kind": "side",
             "offset": 0.0,
             "side": "top"
@@ -1112,7 +1091,7 @@
       "schema_version": 1,
       "provider": "arris.flowchart",
       "created_revision": 1,
-      "updated_revision": 6,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": null
@@ -1156,7 +1135,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 1,
-      "updated_revision": 6,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": null
@@ -1201,7 +1180,7 @@
             },
             "placement": {
               "anchor": "center",
-              "distance": 676.04,
+              "distance": 500.29,
               "kind": "route-distance",
               "offset": [
                 0.0,
@@ -1229,15 +1208,8 @@
           "waypoints": [
             {
               "point": [
-                1180.0,
-                208.0
-              ],
-              "space": "page"
-            },
-            {
-              "point": [
-                1180.0,
-                732.0
+                900.0,
+                548.0
               ],
               "space": "page"
             }
@@ -1264,10 +1236,10 @@
               "mode": "normal"
             },
             "clearance": 0.0,
-            "fraction": 0.5,
+            "fraction": 0.4959500000000003,
             "kind": "side",
             "offset": 0.0,
-            "side": "right"
+            "side": "bottom"
           }
         },
         "target": {
@@ -1295,7 +1267,7 @@
       "schema_version": 1,
       "provider": "arris.flowchart",
       "created_revision": 1,
-      "updated_revision": 6,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": null
@@ -1339,7 +1311,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 1,
-      "updated_revision": 6,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": null
@@ -1384,7 +1356,7 @@
             },
             "placement": {
               "anchor": "center",
-              "distance": 596.76,
+              "distance": 206.0,
               "kind": "route-distance",
               "offset": [
                 0.0,
@@ -1412,15 +1384,8 @@
           "waypoints": [
             {
               "point": [
-                1195.0,
-                208.0
-              ],
-              "space": "page"
-            },
-            {
-              "point": [
-                1195.0,
-                828.0
+                860.0,
+                644.0
               ],
               "space": "page"
             }
@@ -1447,10 +1412,10 @@
               "mode": "normal"
             },
             "clearance": 0.0,
-            "fraction": 0.5,
+            "fraction": 0.29595000000000027,
             "kind": "side",
             "offset": 0.0,
-            "side": "right"
+            "side": "bottom"
           }
         },
         "target": {
@@ -1474,11 +1439,11 @@
     },
     {
       "id": "completed",
-      "type": "flowchart.terminal",
+      "type": "flowchart.process",
       "schema_version": 1,
       "provider": "arris.flowchart",
       "created_revision": 1,
-      "updated_revision": 2,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": "completed.group"
@@ -1503,7 +1468,7 @@
         "provider_version": "0.1.0"
       },
       "payload": {
-        "body": "result comment, claim released, one fyi notice",
+        "body": "result comment, released, one fyi",
         "bullets": [],
         "emphasis": false,
         "hints": {
@@ -1513,14 +1478,20 @@
         "kicker": "",
         "meta": "",
         "name": "completed",
+        "pinned": true,
         "presentation": {
           "caption": "completed.caption",
           "group": "completed.group",
           "shadow": "completed.shadow",
           "shape": "completed.shape"
         },
-        "source_hint": "stadium",
-        "source_id": "completed"
+        "source_hint": "round",
+        "source_id": "completed",
+        "style": {
+          "corner_radius": 14.0,
+          "fill": "#E8F5F0",
+          "stroke": "#2E9C7E"
+        }
       }
     },
     {
@@ -1574,7 +1545,7 @@
         "line_height": 1.391,
         "max_height": 0.0,
         "max_width": 0.0,
-        "padding": 8.0,
+        "padding": 10.0,
         "runs": [
           {
             "end": 9,
@@ -1591,7 +1562,7 @@
             "start": 9
           },
           {
-            "end": 56,
+            "end": 43,
             "face": "sans.regular",
             "fill": {
               "token": "lead"
@@ -1602,7 +1573,7 @@
           }
         ],
         "size": 11.5,
-        "text": "completed\nresult comment, claim released, one fyi notice",
+        "text": "completed\nresult comment, released, one fyi",
         "tracking": 0.0,
         "vertical_align": "center"
       }
@@ -1687,11 +1658,11 @@
     },
     {
       "id": "completed.shape",
-      "type": "arris.stadium",
+      "type": "arris.box",
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 1,
+      "updated_revision": 2,
       "hierarchies": {
         "group": {
           "parent": "completed.group"
@@ -1715,33 +1686,22 @@
         "placement": {
           "transform": {
             "translate": [
-              1394.69,
-              160.0
+              1258.69,
+              168.0
             ]
           }
         },
         "plane_index": 0,
-        "provider_version": "0.6.0",
-        "style_bindings": [
-          {
-            "property": "fill",
-            "slot": "colour",
-            "style": "hue.viridian.tint"
-          },
-          {
-            "property": "stroke",
-            "slot": "colour",
-            "style": "hue.viridian.line"
-          }
-        ]
+        "provider_version": "0.6.0"
       },
       "payload": {
-        "fill": "#ffffff",
-        "height": 96.0,
+        "corner_radius": 14.0,
+        "fill": "#E8F5F0",
+        "height": 56.0,
         "opacity": 1.0,
-        "stroke": "#171717",
+        "stroke": "#2E9C7E",
         "stroke_width": 1.25,
-        "width": 232.0
+        "width": 200.0
       }
     },
     {
@@ -1750,7 +1710,7 @@
       "schema_version": 1,
       "provider": "arris.flowchart",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": null
@@ -1794,7 +1754,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 1,
-      "updated_revision": 6,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": null
@@ -1839,7 +1799,7 @@
             },
             "placement": {
               "anchor": "center",
-              "distance": 285.51,
+              "distance": 234.57,
               "kind": "route-distance",
               "offset": [
                 0.0,
@@ -1867,15 +1827,15 @@
           "waypoints": [
             {
               "point": [
-                1510.69,
-                300.0
+                1340.0,
+                262.0
               ],
               "space": "page"
             },
             {
               "point": [
-                1020.81,
-                300.0
+                940.0,
+                262.0
               ],
               "space": "page"
             }
@@ -1898,7 +1858,7 @@
               "mode": "normal"
             },
             "clearance": 0.0,
-            "fraction": 0.5,
+            "fraction": 0.40654999999999974,
             "kind": "side",
             "offset": 0.0,
             "side": "bottom"
@@ -1914,7 +1874,7 @@
               "mode": "normal"
             },
             "clearance": 0.0,
-            "fraction": 0.5,
+            "fraction": 0.6959500000000003,
             "kind": "side",
             "offset": 0.0,
             "side": "bottom"
@@ -1929,7 +1889,7 @@
       "schema_version": 1,
       "provider": "arris.flowchart",
       "created_revision": 1,
-      "updated_revision": 2,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": null
@@ -1955,13 +1915,9 @@
       },
       "payload": {
         "from": "completed",
-        "hints": {
-          "route": {
-            "enter": "top",
-            "leave": "top"
-          }
-        },
+        "hints": {},
         "label": "rerun: rev bump",
+        "pinned": true,
         "presentation": {
           "edge": "completed__open.edge",
           "label": "label"
@@ -1977,7 +1933,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 1,
-      "updated_revision": 6,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": null
@@ -2022,7 +1978,7 @@
             },
             "placement": {
               "anchor": "center",
-              "distance": 378.48,
+              "distance": 803.44,
               "kind": "route-distance",
               "offset": [
                 0.0,
@@ -2050,29 +2006,22 @@
           "waypoints": [
             {
               "point": [
-                1378.69,
-                208.0
+                1490.0,
+                196.0
               ],
               "space": "page"
             },
             {
               "point": [
-                1378.69,
-                144.0
+                1490.0,
+                292.0
               ],
               "space": "page"
             },
             {
               "point": [
-                288.0,
-                144.0
-              ],
-              "space": "page"
-            },
-            {
-              "point": [
-                288.0,
-                208.0
+                140.0,
+                292.0
               ],
               "space": "page"
             }
@@ -2102,7 +2051,7 @@
             "fraction": 0.5,
             "kind": "side",
             "offset": 0.0,
-            "side": "left"
+            "side": "right"
           }
         },
         "target": {
@@ -2115,10 +2064,10 @@
               "mode": "normal"
             },
             "clearance": 0.0,
-            "fraction": 0.5,
+            "fraction": 0.625,
             "kind": "side",
             "offset": 0.0,
-            "side": "right"
+            "side": "bottom"
           }
         }
       },
@@ -2218,7 +2167,7 @@
         "placement": {
           "transform": {
             "translate": [
-              1731.009,
+              1595.009,
               43.2375
             ]
           }
@@ -2267,7 +2216,7 @@
         "placement": {
           "transform": {
             "translate": [
-              1697.009,
+              1561.009,
               51.0
             ]
           }
@@ -2311,7 +2260,7 @@
         "placement": {
           "transform": {
             "translate": [
-              1731.009,
+              1595.009,
               65.8125
             ]
           }
@@ -2360,7 +2309,7 @@
         "placement": {
           "transform": {
             "translate": [
-              1697.009,
+              1561.009,
               73.0
             ]
           }
@@ -2404,7 +2353,7 @@
         "placement": {
           "transform": {
             "translate": [
-              1731.009,
+              1595.009,
               87.2375
             ]
           }
@@ -2453,7 +2402,7 @@
         "placement": {
           "transform": {
             "translate": [
-              1697.009,
+              1561.009,
               95.0
             ]
           }
@@ -2518,7 +2467,7 @@
       },
       "payload": {
         "head": false,
-        "length": 1742.69,
+        "length": 1606.69,
         "stroke": "#D8DEE5",
         "width": 1.0
       }
@@ -2529,7 +2478,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 6,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": null
@@ -2578,7 +2527,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 6,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": null
@@ -3221,11 +3170,11 @@
     },
     {
       "id": "open",
-      "type": "flowchart.terminal",
+      "type": "flowchart.process",
       "schema_version": 1,
       "provider": "arris.flowchart",
       "created_revision": 1,
-      "updated_revision": 2,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": "open.group"
@@ -3250,7 +3199,7 @@
         "provider_version": "0.1.0"
       },
       "payload": {
-        "body": "requested; assignee agent:id, meta.acp.request.rev N, unclaimed",
+        "body": "assigned, rev N, unclaimed",
         "bullets": [],
         "emphasis": false,
         "hints": {
@@ -3260,14 +3209,20 @@
         "kicker": "",
         "meta": "",
         "name": "open",
+        "pinned": true,
         "presentation": {
           "caption": "open.caption",
           "group": "open.group",
           "shadow": "open.shadow",
           "shape": "open.shape"
         },
-        "source_hint": "stadium",
-        "source_id": "open"
+        "source_hint": "round",
+        "source_id": "open",
+        "style": {
+          "corner_radius": 14.0,
+          "fill": "#E8F5F0",
+          "stroke": "#2E9C7E"
+        }
       }
     },
     {
@@ -3321,7 +3276,7 @@
         "line_height": 1.391,
         "max_height": 0.0,
         "max_width": 0.0,
-        "padding": 8.0,
+        "padding": 10.0,
         "runs": [
           {
             "end": 4,
@@ -3338,7 +3293,7 @@
             "start": 4
           },
           {
-            "end": 68,
+            "end": 31,
             "face": "sans.regular",
             "fill": {
               "token": "lead"
@@ -3349,7 +3304,7 @@
           }
         ],
         "size": 11.5,
-        "text": "open\nrequested; assignee agent:id, meta.acp.request.rev N, unclaimed",
+        "text": "open\nassigned, rev N, unclaimed",
         "tracking": 0.0,
         "vertical_align": "center"
       }
@@ -3434,11 +3389,11 @@
     },
     {
       "id": "open.shape",
-      "type": "arris.stadium",
+      "type": "arris.box",
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 1,
+      "updated_revision": 2,
       "hierarchies": {
         "group": {
           "parent": "open.group"
@@ -3463,32 +3418,21 @@
           "transform": {
             "translate": [
               40.0,
-              160.0
+              168.0
             ]
           }
         },
         "plane_index": 0,
-        "provider_version": "0.6.0",
-        "style_bindings": [
-          {
-            "property": "fill",
-            "slot": "colour",
-            "style": "hue.viridian.tint"
-          },
-          {
-            "property": "stroke",
-            "slot": "colour",
-            "style": "hue.viridian.line"
-          }
-        ]
+        "provider_version": "0.6.0"
       },
       "payload": {
-        "fill": "#ffffff",
-        "height": 96.0,
+        "corner_radius": 14.0,
+        "fill": "#E8F5F0",
+        "height": 56.0,
         "opacity": 1.0,
-        "stroke": "#171717",
+        "stroke": "#2E9C7E",
         "stroke_width": 1.25,
-        "width": 232.0
+        "width": 160.0
       }
     },
     {
@@ -3497,7 +3441,7 @@
       "schema_version": 1,
       "provider": "arris.flowchart",
       "created_revision": 1,
-      "updated_revision": 2,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": null
@@ -3523,12 +3467,9 @@
       },
       "payload": {
         "from": "open",
-        "hints": {
-          "route": {
-            "leave": "bottom"
-          }
-        },
+        "hints": {},
         "label": "cancel",
+        "pinned": true,
         "presentation": {
           "edge": "open__cancelled.edge",
           "label": "label"
@@ -3544,7 +3485,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 1,
-      "updated_revision": 6,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": null
@@ -3589,7 +3530,7 @@
             },
             "placement": {
               "anchor": "center",
-              "distance": 1051.72,
+              "distance": 737.29,
               "kind": "route-distance",
               "offset": [
                 0.0,
@@ -3617,15 +3558,8 @@
           "waypoints": [
             {
               "point": [
-                156.0,
-                632.0
-              ],
-              "space": "page"
-            },
-            {
-              "point": [
-                1510.69,
-                632.0
+                80.0,
+                375.0
               ],
               "space": "page"
             }
@@ -3652,7 +3586,7 @@
               "mode": "normal"
             },
             "clearance": 0.0,
-            "fraction": 0.5,
+            "fraction": 0.25,
             "kind": "side",
             "offset": 0.0,
             "side": "bottom"
@@ -3668,10 +3602,10 @@
               "mode": "normal"
             },
             "clearance": 0.0,
-            "fraction": 0.5,
+            "fraction": 0.7638888888888888,
             "kind": "side",
             "offset": 0.0,
-            "side": "bottom"
+            "side": "left"
           }
         }
       },
@@ -3683,7 +3617,7 @@
       "schema_version": 1,
       "provider": "arris.flowchart",
       "created_revision": 1,
-      "updated_revision": 3,
+      "updated_revision": 2,
       "hierarchies": {
         "group": {
           "parent": null
@@ -3731,7 +3665,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 1,
-      "updated_revision": 6,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": null
@@ -3776,7 +3710,7 @@
             },
             "placement": {
               "anchor": "center",
-              "distance": 77.92,
+              "distance": 91.99,
               "kind": "route-distance",
               "offset": [
                 0.0,
@@ -3877,7 +3811,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 0,
-      "updated_revision": 1,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": null
@@ -3890,10 +3824,10 @@
         "fill": {
           "token": "page"
         },
-        "height": 1032.0,
+        "height": 848.0,
         "order": 0,
         "plane_index": 0,
-        "width": 1831.0
+        "width": 1695.0
       },
       "payload": {}
     },
@@ -3925,11 +3859,11 @@
     },
     {
       "id": "reserved",
-      "type": "flowchart.terminal",
+      "type": "flowchart.process",
       "schema_version": 1,
       "provider": "arris.flowchart",
       "created_revision": 1,
-      "updated_revision": 2,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": "reserved.group"
@@ -3939,7 +3873,7 @@
         }
       },
       "domain_attributes": {
-        "display_name": "reserved",
+        "display_name": "open + reserved",
         "order": 12,
         "order_authored": true,
         "placement": {
@@ -3954,7 +3888,7 @@
         "provider_version": "0.1.0"
       },
       "payload": {
-        "body": "still open; keyed delegation.started fact, HRC assignment turn queued",
+        "body": "sub-phase, not a state: delegation.started, turn queued",
         "bullets": [],
         "emphasis": false,
         "hints": {
@@ -3963,15 +3897,25 @@
         "icon": "",
         "kicker": "",
         "meta": "",
-        "name": "reserved",
+        "name": "open + reserved",
+        "pinned": true,
         "presentation": {
           "caption": "reserved.caption",
           "group": "reserved.group",
           "shadow": "reserved.shadow",
           "shape": "reserved.shape"
         },
-        "source_hint": "stadium",
-        "source_id": "reserved"
+        "source_hint": "round",
+        "source_id": "reserved",
+        "style": {
+          "corner_radius": 14.0,
+          "fill": "#FFFFFF",
+          "stroke": "#2E9C7E",
+          "stroke_dash": [
+            6.0,
+            4.0
+          ]
+        }
       }
     },
     {
@@ -4025,10 +3969,10 @@
         "line_height": 1.391,
         "max_height": 0.0,
         "max_width": 0.0,
-        "padding": 8.0,
+        "padding": 10.0,
         "runs": [
           {
-            "end": 8,
+            "end": 15,
             "face": "sans.semibold",
             "fill": {
               "token": "graphite"
@@ -4038,22 +3982,22 @@
             "tracking": 0.0
           },
           {
-            "end": 9,
-            "start": 8
+            "end": 16,
+            "start": 15
           },
           {
-            "end": 78,
+            "end": 71,
             "face": "sans.regular",
             "fill": {
               "token": "lead"
             },
             "size": 11.5,
-            "start": 9,
+            "start": 16,
             "tracking": 0.0
           }
         ],
         "size": 11.5,
-        "text": "reserved\nstill open; keyed delegation.started fact, HRC assignment turn queued",
+        "text": "open + reserved\nsub-phase, not a state: delegation.started, turn queued",
         "tracking": 0.0,
         "vertical_align": "center"
       }
@@ -4074,7 +4018,7 @@
         }
       },
       "domain_attributes": {
-        "display_name": "reserved",
+        "display_name": "open + reserved",
         "order": 0,
         "plane_index": 0
       },
@@ -4138,11 +4082,11 @@
     },
     {
       "id": "reserved.shape",
-      "type": "arris.stadium",
+      "type": "arris.box",
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 1,
+      "updated_revision": 2,
       "hierarchies": {
         "group": {
           "parent": "reserved.group"
@@ -4160,39 +4104,32 @@
           },
           "ports": []
         },
-        "display_name": "reserved",
+        "display_name": "open + reserved",
         "order": 10,
         "order_authored": true,
         "placement": {
           "transform": {
             "translate": [
-              467.84,
+              395.84,
               160.0
             ]
           }
         },
         "plane_index": 0,
-        "provider_version": "0.6.0",
-        "style_bindings": [
-          {
-            "property": "fill",
-            "slot": "colour",
-            "style": "hue.viridian.tint"
-          },
-          {
-            "property": "stroke",
-            "slot": "colour",
-            "style": "hue.viridian.line"
-          }
-        ]
+        "provider_version": "0.6.0"
       },
       "payload": {
-        "fill": "#ffffff",
-        "height": 96.0,
+        "corner_radius": 14.0,
+        "fill": "#FFFFFF",
+        "height": 72.0,
         "opacity": 1.0,
-        "stroke": "#171717",
+        "stroke": "#2E9C7E",
+        "stroke_dash": [
+          6.0,
+          4.0
+        ],
         "stroke_width": 1.25,
-        "width": 232.0
+        "width": 200.0
       }
     },
     {
@@ -4201,7 +4138,7 @@
       "schema_version": 1,
       "provider": "arris.flowchart",
       "created_revision": 1,
-      "updated_revision": 3,
+      "updated_revision": 2,
       "hierarchies": {
         "group": {
           "parent": null
@@ -4249,7 +4186,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 1,
-      "updated_revision": 6,
+      "updated_revision": 2,
       "hierarchies": {
         "group": {
           "parent": null
@@ -4294,7 +4231,7 @@
             },
             "placement": {
               "anchor": "center",
-              "distance": 49.73,
+              "distance": 96.56,
               "kind": "route-distance",
               "offset": [
                 0.0,
@@ -4369,7 +4306,7 @@
       "schema_version": 1,
       "provider": "arris.flowchart",
       "created_revision": 1,
-      "updated_revision": 2,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": null
@@ -4395,12 +4332,9 @@
       },
       "payload": {
         "from": "reserved",
-        "hints": {
-          "route": {
-            "leave": "bottom"
-          }
-        },
+        "hints": {},
         "label": "reported",
+        "pinned": true,
         "presentation": {
           "edge": "reserved__s2.edge",
           "label": "label"
@@ -4416,7 +4350,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 1,
-      "updated_revision": 6,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": null
@@ -4461,7 +4395,7 @@
             },
             "placement": {
               "anchor": "center",
-              "distance": 1078.37,
+              "distance": 886.29,
               "kind": "route-distance",
               "offset": [
                 0.0,
@@ -4489,8 +4423,8 @@
           "waypoints": [
             {
               "point": [
-                583.84,
-                924.0
+                496.0,
+                740.0
               ],
               "space": "page"
             }
@@ -4517,7 +4451,7 @@
               "mode": "normal"
             },
             "clearance": 0.0,
-            "fraction": 0.5,
+            "fraction": 0.5008000000000001,
             "kind": "side",
             "offset": 0.0,
             "side": "bottom"
@@ -4574,7 +4508,7 @@
       "schema_version": 1,
       "provider": "arris.flowchart",
       "created_revision": 1,
-      "updated_revision": 1,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": "s1.group"
@@ -4591,7 +4525,7 @@
           "transform": {
             "translate": [
               0.0,
-              0.0
+              -40.0
             ]
           }
         },
@@ -4784,7 +4718,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 1,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": "s1.group"
@@ -4808,8 +4742,8 @@
         "placement": {
           "transform": {
             "translate": [
-              1410.69,
-              696.0
+              1258.69,
+              512.0
             ]
           }
         },
@@ -4844,7 +4778,7 @@
       "schema_version": 1,
       "provider": "arris.flowchart",
       "created_revision": 1,
-      "updated_revision": 1,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": "s2.group"
@@ -4861,7 +4795,7 @@
           "transform": {
             "translate": [
               0.0,
-              0.0
+              -40.0
             ]
           }
         },
@@ -5054,7 +4988,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 1,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": "s2.group"
@@ -5078,8 +5012,8 @@
         "placement": {
           "transform": {
             "translate": [
-              1410.69,
-              888.0
+              1258.69,
+              704.0
             ]
           }
         },
@@ -5114,7 +5048,7 @@
       "schema_version": 1,
       "provider": "arris.flowchart",
       "created_revision": 1,
-      "updated_revision": 1,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": "s3.group"
@@ -5131,7 +5065,7 @@
           "transform": {
             "translate": [
               0.0,
-              0.0
+              -40.0
             ]
           }
         },
@@ -5324,7 +5258,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 1,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": "s3.group"
@@ -5348,8 +5282,8 @@
         "placement": {
           "transform": {
             "translate": [
-              1410.69,
-              792.0
+              1258.69,
+              608.0
             ]
           }
         },
@@ -5410,7 +5344,7 @@
       "schema_version": 1,
       "provider": "arris.flowchart",
       "created_revision": 1,
-      "updated_revision": 1,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": "stalls.group"
@@ -5427,7 +5361,7 @@
           "transform": {
             "translate": [
               0.0,
-              0.0
+              -40.0
             ]
           }
         },
@@ -5436,6 +5370,7 @@
       },
       "payload": {
         "name": "Stall reports: delegation.stalled + fyi, once per episode",
+        "pinned": true,
         "presentation": {
           "caption": "stalls.caption",
           "group": "stalls.group",
@@ -5543,7 +5478,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 1,
+      "updated_revision": 3,
       "hierarchies": {
         "group": {
           "parent": "stalls.group"
@@ -5559,8 +5494,8 @@
         "placement": {
           "transform": {
             "translate": [
-              1370.69,
-              640.0
+              1234.69,
+              456.0
             ]
           }
         },
