@@ -1,12 +1,12 @@
 # ACP reconciler: delegated sessions
 
-**Product decisions settled with Lance; implementation design pending Daedalus
-review.** Cody and Mable's peer revision, October 1, 2026. The goal is recorded in
+**Product decisions settled with Lance; implementation design revised after
+Daedalus's first review (REJECT, EN-21829) and resubmitted.** Cody and Mable's peer revision, October 1, 2026. The goal is recorded in
 [Delegated work and session context isolation](acp-delegated-work-intent.md).
 
 The requester records a concern as a task or subtask and goes back to its work.
-The reconciler starts the assigned specialist in a separate session, notices
-completion or stalls, and reports back. The specialist loads its own skills,
+The reconciler starts the assigned specialist in a separate session and reports
+stalls; the specialist records its result and tells the requester. The specialist loads its own skills,
 tools and working context. Cross-agent conversation stays available throughout.
 
 **Record request → wait until ready → start specialist → record result.**
@@ -45,7 +45,7 @@ unknown, not dead. A live session with a
 claim means the worker holds the work and is alive, not necessarily computing.
 
 The reconciler is a new package, `packages/acp-reconciler`. It owns the scan,
-readiness, start, stall and notification logic and its wrkq, wrkp and HRC client
+readiness, start, stall and stall-notice logic and its wrkq, wrkp and HRC client
 seams. `acp-server` only constructs it and owns its lifecycle (startup, interval,
 shutdown), as it hosts `acp-capability-host`; no reconciler logic lives in
 `acp-server` or any other existing package. Run one deterministic instance under
@@ -54,7 +54,7 @@ database or event cursor:
 
 ```text
 for each task or subtask carrying meta.acp.request:
-    observe reserved starts, completion and stalls
+    observe reserved starts, claims and stalls
     start only open, unclaimed requests
     skip archived/deleted requests and archived/deleted subtask owners
     wait unless its assignee is a valid configured agent and capacity is free
@@ -64,9 +64,12 @@ for each task or subtask carrying meta.acp.request:
 The roster lives only in the request skill as guidance; the reconciler resolves
 valid agents through existing HRC/ASP authority. A human assignee stays visibly
 assigned and is never started. Use configured global and per-agent capacity
-limits (defaults: four total, two per agent). Active claims and durable
-reserved starts count after restart too. A repeat scan or accidental second copy
-must not admit new work for `recon:<requestId>:<rev>:<workerScope>`. Completed
+limits (defaults: four total, two per agent). Active claims and current reserved
+starts count after restart too. Capacity is a soft cost limit, exact only for the
+single designated instance: an accidental second copy evaluates capacity
+independently and can admit past the limit, by at most its own limit. Start
+uniqueness, not capacity, is the correctness guarantee: no copy, scan or restart
+dispatches twice for `recon:<requestId>:<rev>:<workerScope>`. Completed
 owners do not cancel their subtasks. Dependency-gated requests are a follow-on;
 neither example needs a separate dependency scheduler.
 
@@ -75,8 +78,10 @@ initial assignment without a collaboration envelope or reply obligation. The
 reconciler calls the HRC client directly: `summon` the task or subtask scope,
 then a queued `turn` carrying the assignment for `<requestId>@<rev>`. HRC retains
 placement authority. Whether HRC accepts a cold-scope start from the reconciler's
-service principal is the first implementation check; if it does not, addressed
-`wrkc say` is the approved fallback transport, with the same reservation below.
+service principal is the first implementation check. Lance has also approved an
+addressed `wrkc say` transport, but it is not part of this design: if the check
+fails, this proposal is revised to that transport, including its reply-obligation
+protocol, and resubmitted before building it.
 Today's scribe `/v1/inputs` route is not that path: human actors are converted
 into addressed ledger messages; service actors enter a launcher that refuses
 cold/nonlocal ledger-owned scopes. The reconciler must not impersonate a human
@@ -87,10 +92,11 @@ The keyed `delegation.started` fact is the start reservation and is written
 attributes `requester`, `assignee_seat` and `rev`. A new fact means this copy
 owns the start and dispatches; a replay returning `(existing)` means the start
 was already reserved, so it skips dispatch. Rescans and a second controller copy
-therefore never dispatch twice. A crash between reservation and dispatch leaves a
-reserved start with no turn or claim; it is reported as never started after two
-minutes and recovered manually, never retried automatically. The fact records the
-reservation; HRC supplies the actual session and turn lifecycle evidence.
+therefore never dispatch twice. The fact records the reservation; HRC supplies
+the actual session and turn lifecycle evidence. A reservation counts as current
+only while the request is unfinished and its `rev` and assignee still match the
+reserved ones. The worker's claim is the only confirmation the assignment
+landed; see the stall rule below.
 HRC adds `assignment` as the `session.born` cause for a session born by this path,
 alongside the existing `summon` cause. A start into an existing session does not
 invent another birth.
@@ -110,19 +116,31 @@ T-owner.diagram  task.claim_released
 
 A shared `delegated-work` skill tells the worker to read its request, its owner's
 shared context when present, and the activity timeline, then claim before touching
-outputs. The initial start identifies the assignment as `<requestId>@<rev>`; the
-worker checks that it matches the current request before acting. Only that
-initial-assignment path treats completed or already claimed work as a no-op,
-including a claim under the same scope; ordinary conversation can request
-revisions. The worker records useful outputs and integration decisions on its
-request task or subtask, completes it, and releases its own claim while it still
-has the token. It never messages the reconciler; the loop reads task state.
-Results and stalls produce keyed notifications to the requester, using existing
-room messaging and deduplication. Notice keys include request ID, revision, claim generation
-and notice kind, so a DM revision gets its own completion notice. Address
-`requesterScopeRef` when set, otherwise the scope-less
-`requesterPrincipalRef`. Notifications create no reply obligation and never
-birth an unborn requester seat; delivery on its next run must be proved.
+outputs. The initial start identifies the assignment as `<requestId>@<rev>`
+for the worker's own principal. Only that initial-assignment path treats
+completed or already claimed work as a no-op, including a claim under the same
+scope; ordinary conversation can request revisions. **Assignment fencing:** after
+claiming, the worker re-reads the request and proceeds only if its current
+assignee is the worker's own principal and its `rev` equals the delivered one.
+Otherwise it releases the claim and stops without touching outputs. A request
+reassigned before any claim can be started for both assignees, but only the
+current assignee keeps the claim. If the current assignee's start arrives while
+the old assignee briefly holds the claim, it no-ops; the request then surfaces
+through the reserved-but-unclaimed stall rule rather than running twice.
+Reassigning work that is already claimed is deliberate recovery, as for any held
+claim.
+
+The worker records useful outputs and integration decisions on its request task
+or subtask, completes it, and releases its own claim while it still has the
+token. It never messages the reconciler. **The worker returns the result:** after
+completing, it sends one `--fyi` notice to the requester, addressed to
+`requesterScopeRef` when set, otherwise the scope-less `requesterPrincipalRef`.
+A DM revision ends the same way, so each completion produces its own notice from
+the session that made it; nothing depends on a scan observing a transient state.
+The durable result is the request's state and result comment. A notice lost
+after completion leaves that result intact and visible in `wrkp`. Notices create
+no reply obligation and never birth an unborn requester seat; delivery when the
+requester next runs must be proved. The reconciler sends only stall notices.
 
 Questions, clarifications and revisions use ordinary messages in the owner's
 room, or the request task's own room when it has no owner. Messaging keeps its
@@ -176,15 +194,20 @@ in-flight requests before removing the old request store and sweeper.
 
 ## Stalls, recovery and proof
 
-The reconciler reports a held unfinished claim whose observed worker ended. It
-also reports admitted work that never starts within the configured start
-confirmation window of two minutes. Idle detection is deferred; HRC's existing
+The reconciler reports two stalls, both read from current state, so polling
+cannot miss them: a held unfinished claim whose observed worker ended; and a
+current reservation whose request is still unclaimed and unfinished after the
+claim window (default ten minutes, since claiming is the worker's first act).
+The second covers a dispatch that never ran, a turn that failed before claiming,
+and an assignment lost in an existing seat, without correlating a dispatch
+identity. Recovery is deliberate: inspect the seat, then bump `rev` and reopen,
+or reassign. Idle detection is deferred; HRC's existing
 reap process covers it for now. The reconciler does not read HRC last-activity
 timestamps. A failed HRC read means unknown, not a timeout. Stalls are observations,
 not new task states: post `delegation.stalled` on the request and notify once per
-episode, using an episode key for both deduplication paths. Do not release,
-retry or mark work failed automatically. Explain reads show readiness, admission
-and stall evidence.
+episode, keyed by request, `rev` and stall kind. Do not release, retry or mark
+work failed automatically. Explain reads show readiness, reservation and stall
+evidence.
 
 A deliberate fresh reconciler run bumps `rev` and reopens the request, after
 checking and releasing any stranded claim. Ordinary metadata edits do not rerun
@@ -199,9 +222,12 @@ scope.
 
 MVP proof on installed surfaces: separate owner/specialist skill contexts;
 requester and sibling-worker visibility; real subtask session facts in the
-owner's `wrkp` view; duplicate-start suppression across restart/two loop copies;
-completion and DM revisions; ended-worker and never-started reporting; and
-notification delivery when an ended requester next runs. Verify default-visible
+owner's `wrkp` view; duplicate-start suppression across restart and two loop
+copies; reassignment before claim, where only the current assignee keeps the
+claim; worker completion notices for both the initial completion and a DM
+revision, including a revision immediately after completion; ended-holder and
+reserved-but-unclaimed reporting, including a turn that fails before claiming;
+and notice delivery when an ended requester next runs. Verify default-visible
 creations with requester fields, one `delegation.started` per reserved start,
 `session.born cause=assignment` for new sessions, one `delegation.stalled` per
 episode, and a DM revision with state/claim activity but no new delegation start.
