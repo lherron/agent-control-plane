@@ -77,15 +77,29 @@ export function createWrkqReader(
         cursor = page.nextCursor
       } while (cursor !== undefined)
 
-      const projectPaths = new Map<string, string>()
+      // A task's projectUuid names its immediate container (often a directory
+      // such as `inbox`); the HRC project and the timeline need the enclosing
+      // `kind: project` container.
+      const projects = new Map<string, { id: string; path: string }>()
+      const owningProject = async (containerUuid: string) => {
+        const visited: string[] = []
+        let uuid: string | undefined = containerUuid
+        let found = projects.get(containerUuid)
+        while (found === undefined && uuid !== undefined) {
+          visited.push(uuid)
+          const container = await client.wrkq.container.show({ project: uuid })
+          if (container.kind === 'project') found = { id: container.id, path: container.path }
+          else uuid = container.parentUuid
+        }
+        if (found === undefined)
+          throw new Error(`container ${containerUuid} has no enclosing project`)
+        for (const each of visited) projects.set(each, found)
+        return found
+      }
       const owners = new Map<string, boolean>()
       const records: RequestRecord[] = []
       for (const task of marked) {
-        let projectId = projectPaths.get(task.projectUuid)
-        if (projectId === undefined) {
-          projectId = (await client.wrkq.container.show({ project: task.projectUuid })).path
-          projectPaths.set(task.projectUuid, projectId)
-        }
+        const project = await owningProject(task.projectUuid)
         let ownerGone: boolean | undefined
         if (task.subtaskOwner !== undefined) {
           ownerGone = owners.get(task.subtaskOwner)
@@ -109,7 +123,8 @@ export function createWrkqReader(
             : undefined
         records.push({
           id: task.id,
-          projectId,
+          projectId: project.path,
+          projectContainerId: project.id,
           state: task.archivedAt !== undefined ? 'archived' : task.state,
           priority: task.priority,
           createdAt: task.createdAt,
@@ -133,7 +148,8 @@ export function createWrkqReader(
       let cursor: string | undefined
       do {
         const view = await client.wrkq.container.timelineView({
-          container: request.projectId,
+          // Paths resolve against the connection's project root; the id does not.
+          container: request.projectContainerId ?? request.projectId,
           task: request.id,
           scope: 'subtree',
           types: [START_FACT_TYPE, STALL_FACT_TYPE],

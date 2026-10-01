@@ -25,6 +25,8 @@ export type RequestRecord = Readonly<{
   id: string
   /** wrkq project path, used as the HRC project id. */
   projectId: string
+  /** wrkq project container id (`P-NNNNN`); unscoped, unlike the path. */
+  projectContainerId?: string | undefined
   state: string
   priority: number
   createdAt: string
