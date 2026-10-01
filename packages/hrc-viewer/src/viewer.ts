@@ -40,7 +40,7 @@ type HrcPresentationRuntimeRow = Awaited<
 >['runtimes'][number]
 type OperatorSurface = { surfaceId: string; clientTty: string }
 /** New HRC rows add this field; ACP stays compatible with its pinned SDK tuple. */
-type PresentationRuntimeRow = HrcPresentationRuntimeRow & {
+type PresentationRuntimeRow = Omit<HrcPresentationRuntimeRow, 'operatorSurfaces'> & {
   operatorSurfaces?: readonly OperatorSurface[] | undefined
 }
 

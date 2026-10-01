@@ -274,9 +274,15 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
       throw error
     }
 
+    const dispatchedRunId = dispatched.runId
+    if (dispatchedRunId === undefined) {
+      throw new Error(
+        `HRC dispatch for ${dispatched.hostSessionId} returned no runId (stage ${dispatched.stage})`
+      )
+    }
     const dispatchedAcpStatus = dispatched.status === 'completed' ? 'completed' : 'running'
     updateAcpRun(runStore, acpRunId, {
-      hrcRunId: dispatched.runId,
+      hrcRunId: dispatchedRunId,
       status: dispatchedAcpStatus,
       hostSessionId: dispatched.hostSessionId,
       generation: dispatched.generation,
@@ -288,12 +294,12 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
     if (shouldWaitForCompletion) {
       const completedRun =
         dispatched.status === 'completed'
-          ? (readRunStatus(hrcDbPath, dispatched.runId) ?? {
+          ? (readRunStatus(hrcDbPath, dispatchedRunId) ?? {
               status: 'completed',
             })
           : await waitForRunCompletion({
               hrcDbPath,
-              runId: dispatched.runId,
+              runId: dispatchedRunId,
               timeoutMs: waitTimeoutMs,
               pollIntervalMs,
             })
@@ -301,42 +307,42 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
       const terminalOutcome = mapHrcRunTerminalStatus(completedRun)
       if (terminalOutcome === undefined) {
         throw new Error(
-          `HRC run ${dispatched.runId} returned non-terminal status ${completedRun.status} after completion`
+          `HRC run ${dispatchedRunId} returned non-terminal status ${completedRun.status} after completion`
         )
       }
       updateAcpRun(runStore, acpRunId, {
-        hrcRunId: dispatched.runId,
+        hrcRunId: dispatchedRunId,
         status: terminalOutcome.status,
         errorCode: terminalOutcome.status === 'completed' ? null : completedRun.errorCode,
         errorMessage: terminalOutcome.status === 'completed' ? null : completedRun.errorMessage,
       })
 
       if (completedRun.status !== 'completed') {
-        throw createHrcRunTerminalError(dispatched.runId, completedRun)
+        throw createHrcRunTerminalError(dispatchedRunId, completedRun)
       }
     }
 
     if (shouldWaitForCompletion && onEvent !== undefined) {
       const completedAssistantMessage = await pollCompletedAssistantMessage({
         hrcDbPath,
-        runId: dispatched.runId,
+        runId: dispatchedRunId,
         timeoutMs: RAW_EVENT_POLL_GRACE_MS,
       })
       if (completedAssistantMessage === undefined) {
         throw new Error(
-          `HRC run ${dispatched.runId} completed without an assistant reply event${acpCorrelationId !== undefined ? ` for ${acpCorrelationId}` : ''}`
+          `HRC run ${dispatchedRunId} completed without an assistant reply event${acpCorrelationId !== undefined ? ` for ${acpCorrelationId}` : ''}`
         )
       }
       await onEvent(completedAssistantMessage)
     }
 
     return {
-      runId: dispatched.runId,
+      runId: dispatchedRunId,
       sessionId: targetSession.hostSessionId,
       hostSessionId: dispatched.hostSessionId,
       runtimeId: dispatched.runtimeId,
       launchId:
-        findLaunchIdForRun(hrcDbPath, dispatched.runId) ??
+        findLaunchIdForRun(hrcDbPath, dispatchedRunId) ??
         findLatestLaunchId(hrcDbPath, {
           hostSessionId: dispatched.hostSessionId,
           runtimeId: dispatched.runtimeId,

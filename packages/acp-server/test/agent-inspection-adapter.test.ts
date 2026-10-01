@@ -18,12 +18,11 @@ const identity = {
   scope: 'agent:disk-agent:project:agent-control-plane',
   lane: 'main',
   harness: 'codex',
-  frontend: 'codex-cli',
-  interaction: 'interactive',
+  presentation: false,
 }
 
 const request = agentInspectionRequestSchema.parse({
-  schemaVersion: 'agent-inspection-request/v1',
+  schemaVersion: 'agent-inspection-request/v2',
   identifiers: identity,
   declaredOverrides: {},
 })
@@ -54,8 +53,7 @@ const contextualCatalog = agentCatalogResponseSchema.parse({
         mode: 'task',
         lane: 'main',
         harness: 'codex',
-        frontend: 'codex-cli',
-        interaction: 'interactive',
+        presentation: false,
       },
     },
   ],
@@ -67,7 +65,7 @@ const contextualCatalog = agentCatalogResponseSchema.parse({
 const successfulOutcome = agentInspectionOutcomeSchema.parse({
   ok: true,
   inspection: {
-    schemaVersion: 'agent-inspection/v1',
+    schemaVersion: 'agent-inspection/v2',
     identity,
     parts: [],
     completeness: { kind: 'complete' },
