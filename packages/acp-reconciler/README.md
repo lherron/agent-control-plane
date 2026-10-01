@@ -57,6 +57,13 @@ Its failure is logged once until the message changes, followed by one
 `scans recovered` line.
 A human assignee is an `agent:<id>` with no agent home; HRC resolution finds
 none, so explain shows it as not startable, and it is never started.
+An agent whose profile declares `[placement] launch = "participant-only"` is
+also not startable. It is read from the same HRC placement resolution, so it is
+never reserved. When a dispatch fails after its reservation, explain shows
+`reserved; dispatch failed: <reason>` from this instance's record. A separate
+process, such as the explain CLI, derives `reserved; no HRC session for the
+seat` from HRC instead. Both are explain-only; the unclaimed-reservation stall
+remains the durable report.
 
 ## Explain
 

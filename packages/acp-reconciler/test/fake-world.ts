@@ -19,6 +19,10 @@ export class FakeWorld {
   notices: Array<{ task: string; to: string; body: string; key: string }> = []
   liveness = new Map<string, HolderLiveness>()
   invalidAgents = new Set<string>()
+  participantOnly = new Set<string>()
+  /** HRC seat scopeRefs that have a session (a successful dispatch adds one). */
+  sessions = new Set<string>()
+  dispatchError = 'hrc unavailable'
   failDispatch = false
   /** Simulates the other copy winning the unique-index race. */
   raceOnKey: string | undefined
@@ -68,10 +72,14 @@ export class FakeWorld {
       }),
       holderLiveness: async (claim, localNodeId) =>
         claim.node !== localNodeId ? 'unknown' : (this.liveness.get(claim.scope) ?? 'unknown'),
-      workerValidity: async (seat): Promise<WorkerValidity> =>
-        this.invalidAgents.has(seat.split('@')[0] ?? '')
-          ? { ok: false, reason: 'agent not found' }
-          : { ok: true },
+      workerValidity: async (worker): Promise<WorkerValidity> => {
+        if (this.invalidAgents.has(worker.agentId)) return { ok: false, reason: 'agent not found' }
+        if (this.participantOnly.has(worker.agentId)) {
+          return { ok: false, reason: `participant-only (${worker.agentId})` }
+        }
+        return { ok: true }
+      },
+      seatSession: async (scopeRef) => (this.sessions.has(scopeRef) ? 'session' : 'none'),
     }
   }
 
@@ -90,8 +98,11 @@ export class FakeWorld {
       },
       startWorker: async (input) => {
         this.writes += 1
-        if (this.failDispatch) throw new Error('hrc unavailable')
+        if (this.failDispatch) throw new Error(this.dispatchError)
         this.dispatched.push(input)
+        const [agentId, rest] = input.seat.split('@') as [string, string]
+        const [projectId, taskId] = rest.split(':') as [string, string]
+        this.sessions.add(`agent:${agentId}:project:${projectId}:task:${taskId}`)
       },
       notify: async (input) => {
         this.writes += 1

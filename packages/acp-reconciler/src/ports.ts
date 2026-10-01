@@ -5,6 +5,8 @@ import {
   HrcClient,
   buildHrcRuntimeIntent,
   discoverSocket,
+  isAgentNotFoundError,
+  resolvePlacementObservation,
   resolveProfileAwareScopeInput,
 } from 'hrc-sdk'
 
@@ -15,8 +17,10 @@ import {
   type RequestRecord,
   STALL_FACT_TYPE,
   START_FACT_TYPE,
+  type SeatObservation,
   type StallFact,
   type StartFact,
+  type WorkerRef,
   type WorkerValidity,
   parseRequestMarker,
   scopeRefOfSession,
@@ -28,7 +32,8 @@ export interface ReconcilerReader {
   listRequests(): Promise<RequestRecord[]>
   readFacts(request: RequestRecord): Promise<RequestFacts>
   holderLiveness(claim: RequestClaim, localNodeId: string): Promise<HolderLiveness>
-  workerValidity(seat: string): Promise<WorkerValidity>
+  workerValidity(worker: WorkerRef): Promise<WorkerValidity>
+  seatSession(scopeRef: string): Promise<SeatObservation>
 }
 
 export type FactPost = Readonly<{
@@ -238,7 +243,7 @@ async function resolveSeat(seat: string, socketPath: string | undefined) {
 
 export function createHrcPort(
   options: HrcPortOptions
-): Pick<ReconcilerReader, 'localNodeId' | 'holderLiveness' | 'workerValidity'> &
+): Pick<ReconcilerReader, 'localNodeId' | 'holderLiveness' | 'workerValidity' | 'seatSession'> &
   Pick<ReconcilerWriter, 'startWorker'> {
   const socketPath = options.socketPath
   const client = options.client ?? new HrcClient(socketPath ?? discoverSocket())
@@ -268,14 +273,34 @@ export function createHrcPort(
       }
     },
 
-    async workerValidity(seat) {
+    async workerValidity(worker) {
+      // The same daemon placement resolution resolveProfileAwareScopeInput uses,
+      // read whole: it also carries the launch policy HRC's summon gate enforces.
       try {
-        const resolved = await resolveSeat(seat, socketPath)
-        if (resolved.placement.agentRoot === undefined)
-          return { ok: false, reason: 'agent not found' }
+        const observation = await resolvePlacementObservation({
+          agentId: worker.agentId,
+          projectId: worker.projectId,
+          taskId: worker.taskId,
+          projectOrigin: 'explicit',
+          taskWorktreeAssociation: 'strict',
+          ...(socketPath !== undefined ? { socketPath } : {}),
+        })
+        if (observation.agentRoot === undefined) return { ok: false, reason: 'agent not found' }
+        if (observation.policy.placement.launch === 'participant-only') {
+          return { ok: false, reason: `participant-only (${worker.agentId})` }
+        }
         return { ok: true }
       } catch (error) {
+        if (isAgentNotFoundError(error)) return { ok: false, reason: 'agent not found' }
         return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
+    async seatSession(scopeRef) {
+      try {
+        return (await client.listSessions({ scopeRef })).length > 0 ? 'session' : 'none'
+      } catch {
+        return 'unknown'
       }
     },
 

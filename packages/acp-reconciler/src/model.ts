@@ -57,6 +57,17 @@ export type RequestFacts = Readonly<{ starts: readonly StartFact[]; stalls: read
 /** Observed liveness of a claim holder's seat. `unknown` is never a stall. */
 export type HolderLiveness = 'live' | 'ended' | 'unknown'
 
+/** The worker a request would start: its seat handle and the parts HRC resolves. */
+export type WorkerRef = Readonly<{
+  seat: string
+  agentId: string
+  projectId: string
+  taskId: string
+}>
+
+/** Whether HRC holds a session for a reserved seat. `unknown` on a failed read. */
+export type SeatObservation = 'session' | 'none' | 'unknown'
+
 export type WorkerValidity = Readonly<{ ok: true }> | Readonly<{ ok: false; reason: string }>
 
 const UNFINISHED_STATES = new Set(['idea', 'draft', 'open', 'in_progress', 'blocked'])
@@ -97,6 +108,10 @@ export function assigneeAgentId(assignee: string | undefined): string | undefine
 
 export function workerSeat(agentId: string, projectId: string, requestId: string): string {
   return `${agentId}@${projectId}:${requestId}`
+}
+
+export function seatScopeRef(agentId: string, projectId: string, taskId: string): string {
+  return `agent:${agentId}:project:${projectId}:task:${taskId}`
 }
 
 export function startKey(requestId: string, rev: number, seat: string): string {

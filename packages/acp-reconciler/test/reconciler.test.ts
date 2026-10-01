@@ -395,3 +395,64 @@ describe('explain and logging', () => {
     expect(log).toContain('acp-reconciler: scans recovered')
   })
 })
+
+describe('placement policy and dispatch failures', () => {
+  test('a participant-only agent is not startable: no reservation, explained', async () => {
+    const world = new FakeWorld()
+    world.participantOnly.add('arris')
+    world.put({ id: 'T-80' })
+    const reconciler = core(world)
+    const result = await reconciler.scanOnce()
+    expect(decisionOf(result, 'T-80')).toMatchObject({
+      kind: 'invalid',
+      reason: 'assignee agent:arris not startable: participant-only (arris)',
+    })
+    expect(world.writes).toBe(0)
+    expect((await reconciler.explain('T-80')).decisions[0]?.reason).toContain(
+      'participant-only (arris)'
+    )
+  })
+
+  test('a dispatch failure after reservation shows in explain, without a re-dispatch', async () => {
+    const world = new FakeWorld()
+    world.failDispatch = true
+    world.dispatchError =
+      'agent:clod:project:proj:task:T-81 is participant-only, no seat registered'
+    world.put({ id: 'T-81', assigneePrincipalRef: 'agent:clod' })
+    const reconciler = core(world)
+    await reconciler.scanOnce()
+    const explained = (await reconciler.explain('T-81')).decisions[0]
+    expect(explained).toMatchObject({
+      kind: 'active',
+      reason:
+        'reserved; dispatch failed: agent:clod:project:proj:task:T-81 is participant-only, no seat registered',
+    })
+    await reconciler.scanOnce()
+    expect(world.facts.filter((fact) => fact.type === 'delegation.started')).toHaveLength(1)
+    expect(world.writes).toBe(2) // one reservation, one failed dispatch, nothing after
+    // The unclaimed-reservation stall stays the durable report.
+    world.advance(WINDOW + 1)
+    expect((await reconciler.scanOnce()).actions.map((action) => action.kind)).toEqual([
+      'stall_reported',
+    ])
+  })
+
+  test('another process derives a missing HRC seat for a reservation from the next scan', async () => {
+    const world = new FakeWorld()
+    world.failDispatch = true
+    world.put({ id: 'T-82' })
+    await core(world).scanOnce()
+    // A fresh process (e.g. the explain CLI) has no in-process failure record.
+    const fresh = (await core(world).explain('T-82')).decisions[0]
+    expect(fresh).toMatchObject({
+      kind: 'active',
+      reason: 'reserved; no HRC session for the seat (dispatch failed or not yet run)',
+    })
+    world.failDispatch = false
+    world.put({ id: 'T-83' })
+    await core(world).scanOnce()
+    expect((await core(world).explain('T-83')).decisions[0]?.reason).toBe(
+      'reserved; awaiting the worker claim'
+    )
+  })
+})

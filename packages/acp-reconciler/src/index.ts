@@ -55,6 +55,7 @@ export function createProductionPorts(options: AcpReconcilerOptions): {
       readFacts: wrkqReader.readFacts,
       holderLiveness: hrc.holderLiveness,
       workerValidity: hrc.workerValidity,
+      seatSession: hrc.seatSession,
     },
     writer: {
       postFact: wrkqWriter.postFact,

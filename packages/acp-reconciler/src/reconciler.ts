@@ -1,15 +1,24 @@
 import { assignmentBody, stallNoticeBody } from './assignment.js'
 import type { ReconcilerConfig } from './config.js'
-import { type Decision, evaluate, needsLiveness, needsWorkerValidity } from './evaluate.js'
+import {
+  type Decision,
+  currentStartKey,
+  evaluate,
+  needsLiveness,
+  needsWorkerValidity,
+} from './evaluate.js'
 import {
   type HolderLiveness,
   type RequestFacts,
   type RequestRecord,
   STALL_FACT_TYPE,
   START_FACT_TYPE,
+  type SeatObservation,
+  type WorkerRef,
   type WorkerValidity,
   assigneeAgentId,
   isUnfinished,
+  seatScopeRef,
   workerSeat,
 } from './model.js'
 import type { ReconcilerReader, ReconcilerWriter } from './ports.js'
@@ -22,6 +31,7 @@ export type Snapshot = Readonly<{
   facts: ReadonlyMap<string, RequestFacts>
   liveness: ReadonlyMap<string, HolderLiveness>
   validity: ReadonlyMap<string, WorkerValidity>
+  seats: ReadonlyMap<string, SeatObservation>
 }>
 
 export type ExplainResult = Readonly<{
@@ -81,6 +91,7 @@ export async function readSnapshot(reader: ReconcilerReader): Promise<Snapshot> 
   const facts = new Map<string, RequestFacts>()
   const liveness = new Map<string, HolderLiveness>()
   const validity = new Map<string, WorkerValidity>()
+  const seats = new Map<string, SeatObservation>()
   for (const request of requests) {
     if (!isUnfinished(request.state) || request.ownerGone || !request.marker.ok) continue
     const requestFacts = await reader.readFacts(request)
@@ -89,16 +100,34 @@ export async function readSnapshot(reader: ReconcilerReader): Promise<Snapshot> 
       liveness.set(request.id, await reader.holderLiveness(request.claim, localNodeId))
     }
     if (needsWorkerValidity(request, requestFacts)) {
-      const seat = seatFor(request)
-      if (seat !== undefined) validity.set(request.id, await reader.workerValidity(seat))
+      const worker = workerFor(request)
+      if (worker !== undefined) validity.set(request.id, await reader.workerValidity(worker))
+    }
+    const key = currentStartKey(request)
+    const worker = workerFor(request)
+    if (
+      request.claim === undefined &&
+      worker !== undefined &&
+      requestFacts.starts.some((fact) => fact.startKey === key)
+    ) {
+      seats.set(
+        request.id,
+        await reader.seatSession(seatScopeRef(worker.agentId, worker.projectId, worker.taskId))
+      )
     }
   }
-  return { localNodeId, requests, facts, liveness, validity }
+  return { localNodeId, requests, facts, liveness, validity, seats }
 }
 
-function seatFor(request: RequestRecord): string | undefined {
+function workerFor(request: RequestRecord): WorkerRef | undefined {
   const agentId = assigneeAgentId(request.assigneePrincipalRef)
-  return agentId === undefined ? undefined : workerSeat(agentId, request.projectId, request.id)
+  if (agentId === undefined) return undefined
+  return {
+    seat: workerSeat(agentId, request.projectId, request.id),
+    agentId,
+    projectId: request.projectId,
+    taskId: request.id,
+  }
 }
 
 /** Log keys for decisions worth a line: changes, never steady waiting state. */
@@ -120,6 +149,8 @@ export function createReconcilerCore(options: ReconcilerCoreOptions): AcpReconci
   const log = options.log ?? ((line: string) => console.log(line))
   const now = options.now ?? (() => new Date())
   const lastLogged = new Map<string, string>()
+  /** Dispatch errors by start key, for explain; the durable report is the stall. */
+  const dispatchFailures = new Map<string, string>()
   let timer: ReturnType<typeof setInterval> | undefined
   let inFlight: Promise<unknown> | undefined
   let lastScanFailure: string | undefined
@@ -134,6 +165,8 @@ export function createReconcilerCore(options: ReconcilerCoreOptions): AcpReconci
       facts: snapshot.facts,
       liveness: snapshot.liveness,
       validity: snapshot.validity,
+      seats: snapshot.seats,
+      dispatchFailures,
     })
 
   function logTransitions(decisions: readonly Decision[]) {
@@ -197,6 +230,7 @@ export function createReconcilerCore(options: ReconcilerCoreOptions): AcpReconci
       log(`acp-reconciler: ${request.id} dispatched to ${decision.seat}`)
     } catch (error) {
       // The reservation stands; the unclaimed-reservation rule reports it.
+      dispatchFailures.set(decision.startKey, message(error))
       actions.push({ kind: 'dispatch_failed', id: request.id, error: message(error) })
       log(`acp-reconciler: ${request.id} dispatch to ${decision.seat} failed: ${message(error)}`)
     }
@@ -243,6 +277,11 @@ export function createReconcilerCore(options: ReconcilerCoreOptions): AcpReconci
     const snapshot = await readSnapshot(reader)
     const decisions = evaluateSnapshot(snapshot)
     logTransitions(decisions)
+    const reserved = new Set<string>()
+    for (const facts of snapshot.facts.values()) {
+      for (const fact of facts.starts) reserved.add(fact.startKey)
+    }
+    for (const key of dispatchFailures.keys()) if (!reserved.has(key)) dispatchFailures.delete(key)
     const byId = new Map(snapshot.requests.map((request) => [request.id, request]))
     const actions: ScanAction[] = []
     for (const decision of decisions) {
@@ -305,7 +344,7 @@ export function createReconcilerCore(options: ReconcilerCoreOptions): AcpReconci
     },
     scanOnce,
     tick,
-    explain: (taskId) => explainWith(reader, config, now, taskId),
+    explain: (taskId) => explainWith(reader, config, now, taskId, dispatchFailures),
   }
 }
 
@@ -314,7 +353,8 @@ export async function explainWith(
   reader: ReconcilerReader,
   config: Pick<ReconcilerConfig, 'globalCapacity' | 'agentCapacity' | 'claimWindowMs'>,
   now: () => Date,
-  taskId?: string
+  taskId?: string,
+  dispatchFailures?: ReadonlyMap<string, string>
 ): Promise<ExplainResult> {
   const snapshot = await readSnapshot(reader)
   const at = now()
@@ -327,6 +367,8 @@ export async function explainWith(
     facts: snapshot.facts,
     liveness: snapshot.liveness,
     validity: snapshot.validity,
+    seats: snapshot.seats,
+    dispatchFailures,
   })
   return {
     at: at.toISOString(),

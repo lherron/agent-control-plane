@@ -2,6 +2,7 @@ import {
   type HolderLiveness,
   type RequestFacts,
   type RequestRecord,
+  type SeatObservation,
   type StallKind,
   type WorkerValidity,
   agentIdOfRef,
@@ -23,6 +24,10 @@ export type EvaluationInput = Readonly<{
   liveness: ReadonlyMap<string, HolderLiveness>
   /** Resolved for every request {@link needsWorkerValidity} selects. */
   validity: ReadonlyMap<string, WorkerValidity>
+  /** HRC session presence for each current, unclaimed reservation's seat. */
+  seats?: ReadonlyMap<string, SeatObservation> | undefined
+  /** In-process dispatch failures by start key (this instance's own attempts). */
+  dispatchFailures?: ReadonlyMap<string, string> | undefined
 }>
 
 type DecisionBase = Readonly<{ id: string; reason: string; evidence?: Record<string, string> }>
@@ -170,12 +175,15 @@ export function evaluate(input: EvaluationInput): Decision[] {
           evidence
         )
       } else {
-        decisions.set(id, {
-          id,
-          kind: 'active',
-          reason: 'reserved; awaiting the worker claim',
-          evidence,
-        })
+        const failure = input.dispatchFailures?.get(reservation.startKey)
+        const seat = input.seats?.get(id)
+        const reason =
+          failure !== undefined
+            ? `reserved; dispatch failed: ${failure}`
+            : seat === 'none'
+              ? 'reserved; no HRC session for the seat (dispatch failed or not yet run)'
+              : 'reserved; awaiting the worker claim'
+        decisions.set(id, { id, kind: 'active', reason, evidence })
       }
       continue
     }
@@ -226,7 +234,7 @@ export function evaluate(input: EvaluationInput): Decision[] {
       decisions.set(id, {
         id,
         kind: 'invalid',
-        reason: `assignee ${request.assigneePrincipalRef} is not a startable agent: ${
+        reason: `assignee ${request.assigneePrincipalRef} not startable: ${
           validity?.ok === false ? validity.reason : 'not resolved'
         }`,
       })

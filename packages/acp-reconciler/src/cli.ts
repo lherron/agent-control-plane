@@ -67,6 +67,7 @@ export async function main(argv: readonly string[]): Promise<number> {
       readFacts: wrkq.readFacts,
       holderLiveness: hrc.holderLiveness,
       workerValidity: hrc.workerValidity,
+      seatSession: hrc.seatSession,
     }
     const result = await explainWith(reader, config, () => new Date(), taskId)
     console.log(json ? JSON.stringify(result, null, 2) : renderExplain(result))
