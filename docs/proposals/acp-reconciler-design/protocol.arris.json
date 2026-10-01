@@ -3,7 +3,7 @@
   "format": "arris",
   "format_version": 1,
   "document_id": "protocol",
-  "revision": 13,
+  "revision": 14,
   "nodes": [
     {
       "id": "card.neutral",
@@ -1433,7 +1433,7 @@
       "schema_version": 1,
       "provider": "arris.flowchart",
       "created_revision": 1,
-      "updated_revision": 7,
+      "updated_revision": 14,
       "hierarchies": {
         "group": {
           "parent": "notify.group"
@@ -1458,7 +1458,7 @@
         "provider_version": "0.1.0"
       },
       "payload": {
-        "body": "Result recorded; requester notified; wrkp updated.",
+        "body": "Worker records result, completes and notifies requester.",
         "bullets": [],
         "hints": {
           "spine": true
@@ -1478,7 +1478,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 7,
+      "updated_revision": 14,
       "hierarchies": {
         "group": {
           "parent": "notify.group"
@@ -1540,7 +1540,7 @@
             "start": 17
           },
           {
-            "end": 68,
+            "end": 74,
             "face": "sans.regular",
             "fill": {
               "token": "lead"
@@ -1551,7 +1551,7 @@
           }
         ],
         "size": 11.5,
-        "text": "Result + complete\nResult recorded; requester notified; wrkp updated.",
+        "text": "Result + complete\nWorker records result, completes and notifies requester.",
         "tracking": 0.0,
         "vertical_align": "center"
       }
@@ -1562,7 +1562,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 1,
-      "updated_revision": 6,
+      "updated_revision": 14,
       "hierarchies": {
         "group": {
           "parent": null
@@ -1640,7 +1640,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 7,
-      "updated_revision": 11,
+      "updated_revision": 14,
       "hierarchies": {
         "group": {
           "parent": "notify.group"
