@@ -89,7 +89,10 @@ or bypass that refusal.
 
 The keyed `delegation.started` fact is the start reservation and is written
 **before** dispatch: `wrkp post --task <requestId> --key <startKey>` with flat
-attributes `requester`, `assignee_seat` and `rev`. A new fact means this copy
+attributes `requester`, `assignee_seat` and `rev`. The fact also carries
+`start_key`, equal to its idempotency key, because timeline entries do not expose
+idempotency keys and the unclaimed-reservation stall rule reads the reservation's
+key and time from the fact itself. A new fact means this copy
 owns the start and dispatches; a replay returning `(existing)` means the start
 was already reserved, so it skips dispatch. Rescans and a second controller copy
 therefore never dispatch twice. The fact records the reservation; HRC supplies
