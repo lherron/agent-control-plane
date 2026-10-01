@@ -66,6 +66,8 @@ export type AcpReconciler = Readonly<{
   start(): Promise<void>
   stop(): Promise<void>
   scanOnce(): Promise<ScanResult>
+  /** One loop iteration: a non-reentrant scan whose failure is logged, not thrown. */
+  tick(): Promise<void>
   explain(taskId?: string): Promise<ExplainResult>
 }>
 
@@ -120,6 +122,7 @@ export function createReconcilerCore(options: ReconcilerCoreOptions): AcpReconci
   const lastLogged = new Map<string, string>()
   let timer: ReturnType<typeof setInterval> | undefined
   let inFlight: Promise<unknown> | undefined
+  let lastScanFailure: string | undefined
 
   const evaluateSnapshot = (snapshot: Snapshot) =>
     evaluate({
@@ -260,7 +263,19 @@ export function createReconcilerCore(options: ReconcilerCoreOptions): AcpReconci
 
   async function tick() {
     if (inFlight !== undefined) return
-    const run = scanOnce().catch((error) => log(`acp-reconciler: scan failed: ${message(error)}`))
+    // A failed scan is retried on the next tick; repeat the line only when the
+    // failure changes, so a long wrkq outage does not flood the host log.
+    const run = scanOnce().then(
+      () => {
+        if (lastScanFailure !== undefined) log('acp-reconciler: scans recovered')
+        lastScanFailure = undefined
+      },
+      (error) => {
+        const failure = message(error)
+        if (failure !== lastScanFailure) log(`acp-reconciler: scan failed: ${failure}`)
+        lastScanFailure = failure
+      }
+    )
     inFlight = run
     try {
       await run
@@ -289,6 +304,7 @@ export function createReconcilerCore(options: ReconcilerCoreOptions): AcpReconci
       await inFlight
     },
     scanOnce,
+    tick,
     explain: (taskId) => explainWith(reader, config, now, taskId),
   }
 }

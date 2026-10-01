@@ -359,4 +359,39 @@ describe('explain and logging', () => {
     expect(world.writes).toBe(0)
     expect(log).toEqual(['acp-reconciler: idle; designated node max3, this node is svc'])
   })
+
+  test('a wrkq failure mid-scan is logged once, retried next tick, and never double-dispatches', async () => {
+    const world = new FakeWorld()
+    world.put({ id: 'T-70' })
+    const log: string[] = []
+    const reader = world.reader()
+    let failReads = 2
+    const flaky = {
+      ...reader,
+      readFacts: async (request: Parameters<typeof reader.readFacts>[0]) => {
+        if (failReads > 0) {
+          failReads -= 1
+          throw new Error('remote workrpc transport failure')
+        }
+        return reader.readFacts(request)
+      },
+    }
+    const reconciler = createReconcilerCore({
+      config: testConfig,
+      reader: flaky,
+      writer: world.writer(),
+      log: (line) => log.push(line),
+      now: () => world.now,
+    })
+    await reconciler.tick()
+    await reconciler.tick()
+    expect(world.writes).toBe(0)
+    await reconciler.tick()
+    await reconciler.tick()
+    expect(world.dispatched).toHaveLength(1)
+    expect(log.filter((line) => line.includes('scan failed'))).toEqual([
+      'acp-reconciler: scan failed: remote workrpc transport failure',
+    ])
+    expect(log).toContain('acp-reconciler: scans recovered')
+  })
 })
