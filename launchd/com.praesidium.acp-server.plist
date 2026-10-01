@@ -32,6 +32,8 @@
 		<string>18470</string>
 		<key>ACP_REAL_HRC_LAUNCHER</key>
 		<string>1</string>
+		<key>ACP_RECONCILER_NODE</key>
+		<string>max3</string>
 		<key>ACP_RUNTIME_DIR</key>
 		<string>/Users/lherron/praesidium/var/run/acp</string>
 		<key>ACP_SCHEDULER_ENABLED</key>

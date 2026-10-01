@@ -2068,6 +2068,35 @@
         "setWindow"
       ]
     },
+    "acp-reconciler": {
+      "bin": {
+        "acp-reconciler": "./src/cli.ts"
+      },
+      "exportKeys": [
+        "."
+      ],
+      "rootExportSource": "./src/index.ts",
+      "rootTypes": [
+        "AcpReconciler",
+        "AcpReconcilerOptions",
+        "Decision",
+        "ExplainResult",
+        "ReconcilerConfig",
+        "ReconcilerLog",
+        "ReconcilerReader",
+        "ReconcilerWriter",
+        "ScanAction",
+        "ScanResult"
+      ],
+      "rootValues": [
+        "createAcpReconciler",
+        "createProductionPorts",
+        "readReconcilerConfig",
+        "RECONCILER_DEFAULTS",
+        "RECONCILER_ENV",
+        "ReconcilerConfigError"
+      ]
+    },
     "acp-server": {
       "bin": {
         "acp-server": "./src/cli.ts"

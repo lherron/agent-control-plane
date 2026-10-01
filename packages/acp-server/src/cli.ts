@@ -8,6 +8,7 @@ import { openSqliteConversationStore } from 'acp-conversation'
 import type { Actor } from 'acp-core'
 import { openInterfaceStore } from 'acp-interface-store'
 import { createJobsScheduler, openSqliteJobsStore } from 'acp-jobs-store'
+import { createAcpReconciler, readReconcilerConfig } from 'acp-reconciler'
 import { type PbcContinuationJob, openAcpStateStore } from 'acp-state-store'
 import { type SessionRef, normalizeSessionRef, parseScopeRef } from 'agent-scope'
 import { openCoordinationStore } from 'coordination-substrate'
@@ -421,6 +422,12 @@ export function renderHelp(): string {
     `  ACP_ACTOR         Defaults to WRKQ_ACTOR or ${DEFAULT_ACTOR}`,
     '  WRKF_BIN          Defaults to wrkf',
     '  ACP_WRKF_DISABLED Set to 1 or true to bypass wrkf startup in local dev/test',
+    '  ACP_RECONCILER_NODE Designated HRC node for the delegated-session reconciler; unset = not run',
+    '  ACP_RECONCILER_INTERVAL_MS Scan interval, 30000-60000; defaults to 45000',
+    '  ACP_RECONCILER_GLOBAL_CAPACITY Defaults to 4',
+    '  ACP_RECONCILER_AGENT_CAPACITY Defaults to 2',
+    '  ACP_RECONCILER_CLAIM_WINDOW_MS Defaults to 600000',
+    '  ACP_RECONCILER_PRINCIPAL Defaults to agent:acp-reconciler',
   ].join('\n')
 }
 
@@ -1119,6 +1126,23 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     acpBaseUrl,
     logger: (message) => console.log(message),
   })
+  // The reconciler runs only where ACP_RECONCILER_NODE designates; acp-server
+  // owns its lifecycle and nothing else (logic lives in acp-reconciler).
+  const reconcilerConfig = readReconcilerConfig(process.env)
+  const reconciler =
+    reconcilerConfig === undefined
+      ? undefined
+      : createAcpReconciler({
+          config: reconcilerConfig,
+          workClient: await wrkfLifecycle.clientForPrincipal(reconcilerConfig.principalRef),
+          log: (line) => console.log(line),
+        })
+  void reconciler?.start().catch((error) => {
+    console.error(
+      'acp-server reconciler failed to start:',
+      error instanceof Error ? error.message : String(error)
+    )
+  })
   // One store instance for the whole daemon: `serverDeps` is resolved twice (HTTP
   // router + WS upgrade path), and two stores over one flat file would mean two
   // writers and a gate that could disagree with itself between HTTP and WS.
@@ -1484,6 +1508,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
       if (schedulerTimer !== undefined) {
         clearInterval(schedulerTimer)
       }
+      await reconciler?.stop()
       for (const bunServer of bunServers) {
         bunServer.stop(true)
       }

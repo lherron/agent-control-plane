@@ -235,6 +235,7 @@ install no-sync="" force-sync="" force-link="":
       fi
       ( cd "$repo_root/packages/acp-cli" && bun link )
       ( cd "$repo_root/packages/acp-server" && bun link )
+      ( cd "$repo_root/packages/acp-reconciler" && bun link )
       ( cd "$repo_root/packages/hrc-viewer" && bun link )
       ( cd "$repo_root/packages/wlearn" && bun link )
     else
