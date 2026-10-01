@@ -3,7 +3,7 @@
   "format": "arris",
   "format_version": 1,
   "document_id": "protocol",
-  "revision": 12,
+  "revision": 13,
   "nodes": [
     {
       "id": "card.neutral",
@@ -446,7 +446,7 @@
       "schema_version": 1,
       "provider": "arris.flowchart",
       "created_revision": 1,
-      "updated_revision": 7,
+      "updated_revision": 13,
       "hierarchies": {
         "group": {
           "parent": "execute.group"
@@ -471,7 +471,7 @@
         "provider_version": "0.1.0"
       },
       "payload": {
-        "body": "Keyed HRC start. Claim and load own skills/tools.",
+        "body": "Reserved start. Claim and load own skills/tools.",
         "bullets": [],
         "hints": {
           "spine": true
@@ -491,7 +491,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 7,
+      "updated_revision": 13,
       "hierarchies": {
         "group": {
           "parent": "execute.group"
@@ -553,7 +553,7 @@
             "start": 16
           },
           {
-            "end": 66,
+            "end": 65,
             "face": "sans.regular",
             "fill": {
               "token": "lead"
@@ -564,7 +564,7 @@
           }
         ],
         "size": 11.5,
-        "text": "Start specialist\nKeyed HRC start. Claim and load own skills/tools.",
+        "text": "Start specialist\nReserved start. Claim and load own skills/tools.",
         "tracking": 0.0,
         "vertical_align": "center"
       }
@@ -575,7 +575,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 13,
       "hierarchies": {
         "group": {
           "parent": null
@@ -653,7 +653,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 7,
-      "updated_revision": 11,
+      "updated_revision": 13,
       "hierarchies": {
         "group": {
           "parent": "execute.group"

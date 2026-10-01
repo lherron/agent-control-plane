@@ -3,7 +3,7 @@
   "format": "arris",
   "format_version": 1,
   "document_id": "architecture",
-  "revision": 10,
+  "revision": 12,
   "nodes": [
     {
       "id": "agent",
@@ -1205,7 +1205,7 @@
       "schema_version": 1,
       "provider": "arris.architecture",
       "created_revision": 1,
-      "updated_revision": 10,
+      "updated_revision": 12,
       "hierarchies": {
         "group": {
           "parent": "handler.group"
@@ -1215,7 +1215,7 @@
         }
       },
       "domain_attributes": {
-        "display_name": "HRC work admission",
+        "display_name": "HRC native start",
         "order": 36,
         "order_authored": true,
         "placement": {
@@ -1230,9 +1230,9 @@
         "provider_version": "0.1.0"
       },
       "payload": {
-        "body": "Keyed start; HRC owns placement. New session.born cause: assignment.",
+        "body": "Summon + queued turn; HRC owns placement. New session.born cause: assignment.",
         "bullets": [],
-        "name": "HRC work admission",
+        "name": "HRC native start",
         "pinned": true,
         "presentation": {
           "caption": "handler.caption",
@@ -1248,7 +1248,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 8,
+      "updated_revision": 12,
       "hierarchies": {
         "group": {
           "parent": "handler.group"
@@ -1296,7 +1296,7 @@
         "padding": 14.0,
         "runs": [
           {
-            "end": 18,
+            "end": 16,
             "face": "sans.semibold",
             "fill": {
               "token": "graphite"
@@ -1306,22 +1306,22 @@
             "tracking": 0.0
           },
           {
-            "end": 19,
-            "start": 18
+            "end": 17,
+            "start": 16
           },
           {
-            "end": 87,
+            "end": 94,
             "face": "sans.regular",
             "fill": {
               "token": "lead"
             },
             "size": 11.5,
-            "start": 19,
+            "start": 17,
             "tracking": 0.0
           }
         ],
         "size": 11.5,
-        "text": "HRC work admission\nKeyed start; HRC owns placement. New session.born cause: assignment.",
+        "text": "HRC native start\nSummon + queued turn; HRC owns placement. New session.born cause: assignment.",
         "tracking": 0.0,
         "vertical_align": "center"
       }
@@ -1332,7 +1332,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 1,
-      "updated_revision": 7,
+      "updated_revision": 12,
       "hierarchies": {
         "group": {
           "parent": null
@@ -1342,7 +1342,7 @@
         }
       },
       "domain_attributes": {
-        "display_name": "HRC work admission",
+        "display_name": "HRC native start",
         "order": 0,
         "plane_index": 0
       },
@@ -1410,7 +1410,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 9,
+      "updated_revision": 12,
       "hierarchies": {
         "group": {
           "parent": "handler.group"
@@ -1428,14 +1428,14 @@
           },
           "ports": []
         },
-        "display_name": "HRC work admission",
+        "display_name": "HRC native start",
         "order": 34,
         "order_authored": true,
         "placement": {
           "transform": {
             "translate": [
               50.0,
-              325.0
+              323.0
             ]
           }
         },
@@ -1457,7 +1457,7 @@
       "payload": {
         "corner_radius": 6.0,
         "fill": "#e7eef1",
-        "height": 92.0,
+        "height": 96.0,
         "opacity": 1.0,
         "stroke": "#a3b5bf",
         "stroke_width": 1.25,
@@ -1510,7 +1510,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 5,
-      "updated_revision": 9,
+      "updated_revision": 12,
       "hierarchies": {
         "group": {
           "parent": null
@@ -1555,7 +1555,7 @@
             },
             "placement": {
               "anchor": "center",
-              "distance": 37.3,
+              "distance": 36.3,
               "kind": "route-distance",
               "offset": [
                 0.0,
@@ -2670,7 +2670,7 @@
       "schema_version": 1,
       "provider": "arris.architecture",
       "created_revision": 1,
-      "updated_revision": 10,
+      "updated_revision": 11,
       "hierarchies": {
         "group": {
           "parent": "reconcile.group"
@@ -2680,7 +2680,7 @@
         }
       },
       "domain_attributes": {
-        "display_name": "ACP reconciler",
+        "display_name": "ACP reconciler package",
         "order": 24,
         "order_authored": true,
         "placement": {
@@ -2695,9 +2695,9 @@
         "provider_version": "0.1.0"
       },
       "payload": {
-        "body": "Scan every 30–60s. Start open requests; record admitted starts and stalls.",
+        "body": "New acp-reconciler package, hosted by acp-server. Owns scan, starts, stalls and notifications.",
         "bullets": [],
-        "name": "ACP reconciler",
+        "name": "ACP reconciler package",
         "pinned": true,
         "presentation": {
           "caption": "reconcile.caption",
@@ -2713,7 +2713,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 8,
+      "updated_revision": 11,
       "hierarchies": {
         "group": {
           "parent": "reconcile.group"
@@ -2761,7 +2761,7 @@
         "padding": 8.0,
         "runs": [
           {
-            "end": 14,
+            "end": 22,
             "face": "sans.semibold",
             "fill": {
               "token": "graphite"
@@ -2771,22 +2771,22 @@
             "tracking": 0.0
           },
           {
-            "end": 15,
-            "start": 14
+            "end": 23,
+            "start": 22
           },
           {
-            "end": 89,
+            "end": 117,
             "face": "sans.regular",
             "fill": {
               "token": "lead"
             },
             "size": 11.5,
-            "start": 15,
+            "start": 23,
             "tracking": 0.0
           }
         ],
         "size": 11.5,
-        "text": "ACP reconciler\nScan every 30–60s. Start open requests; record admitted starts and stalls.",
+        "text": "ACP reconciler package\nNew acp-reconciler package, hosted by acp-server. Owns scan, starts, stalls and notifications.",
         "tracking": 0.0,
         "vertical_align": "center"
       }
@@ -2797,7 +2797,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 1,
-      "updated_revision": 7,
+      "updated_revision": 11,
       "hierarchies": {
         "group": {
           "parent": null
@@ -2807,7 +2807,7 @@
         }
       },
       "domain_attributes": {
-        "display_name": "ACP reconciler",
+        "display_name": "ACP reconciler package",
         "order": 0,
         "plane_index": 0
       },
@@ -2875,7 +2875,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 8,
-      "updated_revision": 10,
+      "updated_revision": 11,
       "hierarchies": {
         "group": {
           "parent": "reconcile.group"
@@ -2893,7 +2893,7 @@
           },
           "ports": []
         },
-        "display_name": "ACP reconciler",
+        "display_name": "ACP reconciler package",
         "order": 22,
         "order_authored": true,
         "placement": {
@@ -2935,7 +2935,7 @@
       "schema_version": 1,
       "provider": "arris.architecture",
       "created_revision": 4,
-      "updated_revision": 5,
+      "updated_revision": 12,
       "hierarchies": {
         "group": {
           "parent": null
@@ -2961,7 +2961,7 @@
       },
       "payload": {
         "from": "reconcile",
-        "label": "stable start key",
+        "label": "summon + turn",
         "presentation": {
           "edge": "reconcile__handler.edge",
           "label": "label"
@@ -2975,7 +2975,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 4,
-      "updated_revision": 10,
+      "updated_revision": 12,
       "hierarchies": {
         "group": {
           "parent": null
@@ -2985,7 +2985,7 @@
         }
       },
       "domain_attributes": {
-        "display_name": "stable start key",
+        "display_name": "summon + turn",
         "edge_order": 68,
         "end": {
           "parameters": {
@@ -3016,7 +3016,7 @@
                 "token": "hue.cobalt.line"
               },
               "tag_stroke_width": 1.0,
-              "text": "stable start key"
+              "text": "summon + turn"
             },
             "placement": {
               "anchor": "center",
