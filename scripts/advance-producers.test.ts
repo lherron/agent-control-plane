@@ -13,6 +13,7 @@ import {
   assertPublishedProducerIdentity,
   assertUnrelatedLockSelectionsUnchanged,
   declaredManifestVersions,
+  memberTransitiveSelections,
   parseArguments,
   pruneInactiveProducerOverrides,
   restoreFailedProducerAdvance,
@@ -318,5 +319,106 @@ describe('unrelated lock selections during an advance', () => {
         )
       )
     ).toThrow(/moved unrelated lock selections: cap-service/)
+  })
+})
+
+describe('member-owned transitive selections during an advance', () => {
+  type Entry = { version: string; dependencies?: Record<string, string> }
+  function lock(workspaces: Record<string, string[]>, entries: Record<string, Entry>): string {
+    const head = Object.entries(workspaces)
+      .map(
+        ([path, deps]) =>
+          `    ${JSON.stringify(path)}: { "name": ${JSON.stringify(path === '' ? 'root' : path.split('/').pop())}, "dependencies": { ${deps.map((dep) => `${JSON.stringify(dep)}: "*",`).join(' ')} }, },`
+      )
+      .join('\n')
+    const lines = Object.entries(entries).map(([key, entry]) => {
+      const name = key
+        .split('/')
+        .slice(key.startsWith('@') ? -2 : -1)
+        .join('/')
+      const info = entry.dependencies === undefined ? {} : { dependencies: entry.dependencies }
+      return `    ${JSON.stringify(key)}: [${JSON.stringify(`${name}@${entry.version}`)}, "http://mini:4873/x.tgz", ${JSON.stringify(info)}, "sha512-x"],`
+    })
+    return `{\n  "workspaces": {\n${head}\n  },\n  "packages": {\n${lines.join('\n')}\n  }\n}\n`
+  }
+
+  const members = new Set(['spaces-harness-pi-sdk', 'hrc-server'])
+  const advancing = new Set(['spaces-harness-pi-sdk'])
+
+  test('allows a transitive moved only through advancing members and names its path', () => {
+    const before = lock(
+      { '': ['spaces-harness-pi-sdk', 'chalk'] },
+      {
+        'spaces-harness-pi-sdk': {
+          version: '1.0.0',
+          dependencies: { 'pi-coding-agent': '0.85.0' },
+        },
+        'pi-coding-agent': { version: '0.85.0', dependencies: { chalk: '5.6.2' } },
+        chalk: { version: '4.0.0' },
+        'pi-coding-agent/chalk': { version: '5.6.2' },
+      }
+    )
+    const after = lock(
+      { '': ['spaces-harness-pi-sdk', 'chalk'] },
+      {
+        'spaces-harness-pi-sdk': {
+          version: '2.0.0',
+          dependencies: { 'pi-coding-agent': '0.87.1' },
+        },
+        'pi-coding-agent': { version: '0.87.1', dependencies: { chalk: '5.7.0' } },
+        chalk: { version: '4.0.0' },
+        'pi-coding-agent/chalk': { version: '5.7.0' },
+      }
+    )
+    const exempted = assertUnrelatedLockSelectionsUnchanged(
+      before,
+      after,
+      members,
+      new Map(),
+      advancing
+    )
+    expect(
+      exempted.map((item) => `${item.name}@${item.version} ${item.path.join('>')}`).sort()
+    ).toEqual([
+      'chalk@5.7.0 spaces-harness-pi-sdk>pi-coding-agent>chalk',
+      'pi-coding-agent@0.87.1 spaces-harness-pi-sdk>pi-coding-agent',
+    ])
+  })
+
+  test('refuses a shared transitive that a non-member also reaches', () => {
+    const entries = (version: string, sdk: string): Record<string, Entry> => ({
+      'spaces-harness-pi-sdk': { version: sdk, dependencies: { semver: version } },
+      'acp-thing': { version: '1.0.0', dependencies: { semver: '*' } },
+      semver: { version },
+    })
+    const workspaces = { '': ['spaces-harness-pi-sdk', 'acp-thing'] }
+    expect(() =>
+      assertUnrelatedLockSelectionsUnchanged(
+        lock(workspaces, entries('7.6.0', '1.0.0')),
+        lock(workspaces, entries('7.8.0', '2.0.0')),
+        members,
+        new Map(),
+        advancing
+      )
+    ).toThrow(/moved unrelated lock selections: semver/)
+  })
+
+  test("refuses a transitive moved only through a NON-advancing member's dependencies", () => {
+    const entries = (version: string): Record<string, Entry> => ({
+      'spaces-harness-pi-sdk': { version: '2.0.0' },
+      'hrc-server': { version: '1.0.0', dependencies: { undici: version } },
+      undici: { version },
+    })
+    const workspaces = { '': ['spaces-harness-pi-sdk', 'hrc-server'] }
+    expect(memberTransitiveSelections(lock(workspaces, entries('9.0.0')), advancing).size).toBe(0)
+    expect(() =>
+      assertUnrelatedLockSelectionsUnchanged(
+        lock(workspaces, entries('8.0.0')),
+        lock(workspaces, entries('9.0.0')),
+        members,
+        new Map(),
+        advancing
+      )
+    ).toThrow(/moved unrelated lock selections: undici/)
   })
 })

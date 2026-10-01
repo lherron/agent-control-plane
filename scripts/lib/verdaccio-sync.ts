@@ -237,14 +237,14 @@ export function lockedPackageVersions(lock: string): Map<string, Set<string>> {
 const PACKAGES_BLOCK_OPEN = '\n  "packages": {\n'
 const PACKAGES_BLOCK_CLOSE = '\n  }'
 
-type PackagesBlock = { head: string; entries: Map<string, string>; tail: string }
+export type PackagesBlock = { head: string; entries: Map<string, string>; tail: string }
 
 function lockEntryKey(line: string): string | undefined {
   const match = line.match(/^ {4}("(?:\\.|[^"\\])*"):\s*\[/)
   return match?.[1] === undefined ? undefined : (JSON.parse(match[1]) as string)
 }
 
-function packagesBlock(lock: string): PackagesBlock {
+export function packagesBlock(lock: string): PackagesBlock {
   const open = lock.indexOf(PACKAGES_BLOCK_OPEN)
   if (open === -1) throw new Error('bun.lock has no "packages" block')
   const bodyStart = open + PACKAGES_BLOCK_OPEN.length
@@ -282,7 +282,7 @@ type LockEntryInfo = {
 }
 
 /** Dependency NAME plus the requirement the entry records for it. */
-function entryDependencySpecs(line: string): Array<[string, string]> {
+export function entryDependencySpecs(line: string): Array<[string, string]> {
   const match = line.match(/^ {4}"(?:\\.|[^"\\])*":\s*(\[.*\]),?$/)
   if (!match?.[1]) return []
   const info = (JSON.parse(match[1]) as [string, string?, LockEntryInfo?])[2]
@@ -302,7 +302,7 @@ function entryDependencySpecs(line: string): Array<[string, string]> {
 }
 
 /** The version a lock entry resolves, e.g. `["cap-rpc@1.2.3", …]` -> `1.2.3`. */
-function entryResolvedVersion(line: string): string | undefined {
+export function entryResolvedVersion(line: string): string | undefined {
   const match = line.match(/\[\s*("(?:\\.|[^"\\])*")/)
   if (!match?.[1]) return undefined
   const resolution = JSON.parse(match[1]) as string
@@ -321,7 +321,7 @@ function entryContradictsRequirement(line: string, requirement: string): boolean
   return resolved !== undefined && resolved !== requirement
 }
 
-function resolveDependencyKey(
+export function resolveDependencyKey(
   from: string,
   dependency: string,
   keys: { has(key: string): boolean }
@@ -375,7 +375,7 @@ function rewriteWorkspaceSpecifiers(
  * a lock that disagrees with its own manifests, which a frozen relink rejects.
  */
 /** The package a lock entry resolves, e.g. `["@wrkq/client@1.2.3", …]` -> `@wrkq/client`. */
-function entryPackageName(line: string): string | undefined {
+export function entryPackageName(line: string): string | undefined {
   const match = line.match(/\[\s*("(?:\\.|[^"\\])*")/)
   if (!match?.[1]) return undefined
   const resolution = JSON.parse(match[1]) as string

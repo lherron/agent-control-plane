@@ -12,9 +12,14 @@ import {
   readConsumerDeploymentInputs,
 } from '../packages/acp-server/src/deployment-coherence.js'
 import {
+  entryDependencySpecs,
+  entryPackageName,
+  entryResolvedVersion,
   installConfinedPackages,
   lockedPackageVersions,
+  packagesBlock,
   packagesManifestPaths,
+  resolveDependencyKey,
 } from './lib/verdaccio-sync.js'
 
 const ROOT = resolve(import.meta.dir, '..')
@@ -315,19 +320,149 @@ export function declaredManifestVersions(
   return declared
 }
 
+/** One selection reachable only through advancing members, with the path that proves it. */
+export type MemberTransitiveSelection = Readonly<{ name: string; version: string; path: string[] }>
+
+/**
+ * Every `name@version` selection in `lock` that the advancing members' dependency
+ * closure reaches and that NO path from a workspace manifest reaches without
+ * passing through an advancing member. Non-advancing members count as the
+ * non-member side: their dependencies are not this advance's to move.
+ */
+export function memberTransitiveSelections(
+  lock: string,
+  advancing: ReadonlySet<string>
+): Map<string, MemberTransitiveSelection> {
+  const entries = packagesBlock(lock).entries
+  const nameOf = (key: string) => entryPackageName(entries.get(key) as string)
+  const selectionOf = (key: string) =>
+    `${nameOf(key)}@${entryResolvedVersion(entries.get(key) as string) ?? ''}`
+  const edges = (key: string): string[] => {
+    const targets: string[] = []
+    for (const [dependency] of entryDependencySpecs(entries.get(key) as string)) {
+      const target = resolveDependencyKey(key, dependency, entries)
+      if (target !== undefined) targets.push(target)
+    }
+    return targets
+  }
+
+  const outside = new Set<string>()
+  const outsideSeen = new Set<string>()
+  const queue: string[] = []
+  for (const [from, workspace] of Object.entries(lockWorkspaces(lock))) {
+    for (const group of [
+      workspace.dependencies,
+      workspace.devDependencies,
+      workspace.optionalDependencies,
+      workspace.peerDependencies,
+    ]) {
+      for (const dependency of Object.keys(group ?? {})) {
+        const key = resolveDependencyKey(
+          from === '' ? '' : (workspace.name ?? from),
+          dependency,
+          entries
+        )
+        if (key !== undefined) queue.push(key)
+      }
+    }
+  }
+  while (queue.length > 0) {
+    const key = queue.pop() as string
+    if (outsideSeen.has(key)) continue
+    outsideSeen.add(key)
+    const name = nameOf(key)
+    if (name !== undefined && advancing.has(name)) continue
+    outside.add(selectionOf(key))
+    queue.push(...edges(key))
+  }
+
+  const owned = new Map<string, MemberTransitiveSelection>()
+  const parent = new Map<string, string | undefined>()
+  for (const key of entries.keys()) {
+    const name = nameOf(key)
+    if (name !== undefined && advancing.has(name)) {
+      parent.set(key, undefined)
+      queue.push(key)
+    }
+  }
+  while (queue.length > 0) {
+    const key = queue.shift() as string
+    const name = nameOf(key)
+    const selection = selectionOf(key)
+    if (
+      name !== undefined &&
+      !advancing.has(name) &&
+      !outside.has(selection) &&
+      !owned.has(selection)
+    ) {
+      const path: string[] = []
+      for (let step: string | undefined = key; step !== undefined; step = parent.get(step)) {
+        path.unshift(nameOf(step) ?? step)
+      }
+      owned.set(selection, { name, version: selection.slice(name.length + 1), path })
+    }
+    for (const target of edges(key)) {
+      if (parent.has(target)) continue
+      parent.set(target, key)
+      queue.push(target)
+    }
+  }
+  return owned
+}
+
+type LockWorkspace = {
+  name?: string
+  dependencies?: Record<string, string>
+  devDependencies?: Record<string, string>
+  optionalDependencies?: Record<string, string>
+  peerDependencies?: Record<string, string>
+}
+
+function lockWorkspaces(lock: string): Record<string, LockWorkspace> {
+  const parsed = JSON.parse(lock.replace(/,(\s*[}\]])/g, '$1')) as {
+    workspaces?: Record<string, LockWorkspace>
+  }
+  return parsed.workspaces ?? {}
+}
+
+/**
+ * Refuses a lock move outside the producer set. Exempt: a declared catch-up, a
+ * dropped undeclared selection, and (given `advancing`) a package whose every
+ * added and removed selection is member-owned per
+ * {@link memberTransitiveSelections}. Returns the member-owned exemptions so the
+ * operator sees each one.
+ */
 export function assertUnrelatedLockSelectionsUnchanged(
   before: string,
   after: string,
   members: ReadonlySet<string>,
-  declared: ReadonlyMap<string, ReadonlySet<string>> = new Map()
-): void {
+  declared: ReadonlyMap<string, ReadonlySet<string>> = new Map(),
+  advancing?: ReadonlySet<string>
+): MemberTransitiveSelection[] {
   const beforeVersions = lockedPackageVersions(before)
   const afterVersions = lockedPackageVersions(after)
+  const ownedBefore =
+    advancing === undefined ? undefined : memberTransitiveSelections(before, advancing)
+  const ownedAfter =
+    advancing === undefined ? undefined : memberTransitiveSelections(after, advancing)
   const moved: string[] = []
+  const exempted: MemberTransitiveSelection[] = []
   for (const [name, versions] of beforeVersions) {
     if (members.has(name)) continue
     const selected = afterVersions.get(name)
     if (equalVersionSets(versions, selected)) continue
+    if (ownedBefore !== undefined && ownedAfter !== undefined) {
+      const added = [...(selected ?? [])].filter((version) => !versions.has(version))
+      const removed = [...versions].filter((version) => !selected?.has(version))
+      const addedOwned = added.map((version) => ownedAfter.get(`${name}@${version}`))
+      const removedOwned = removed.map((version) => ownedBefore.get(`${name}@${version}`))
+      if (addedOwned.every(Boolean) && removedOwned.every(Boolean)) {
+        exempted.push(
+          ...((addedOwned.length > 0 ? addedOwned : removedOwned) as MemberTransitiveSelection[])
+        )
+        continue
+      }
+    }
     // A lock catching up to a version the tracked manifests ALREADY declare is
     // the lock doing its job, not this advance dragging something along. The
     // guard exists for packages nobody declared, and those still fail here.
@@ -350,6 +485,7 @@ export function assertUnrelatedLockSelectionsUnchanged(
   if (moved.length > 0) {
     throw new Error(`producer advance moved unrelated lock selections: ${moved.sort().join(', ')}`)
   }
+  return exempted
 }
 
 async function restoreSnapshots(
@@ -549,7 +685,22 @@ export async function advanceProducers(argv: readonly string[] = Bun.argv.slice(
     }
 
     const lockAfter = await readFile(resolve(ROOT, 'bun.lock'), 'utf8')
-    assertUnrelatedLockSelectionsUnchanged(lockBeforeAdvance, lockAfter, members, declared)
+    const advancingMembers = new Set<string>()
+    for (const entry of advancing) {
+      for (const name of activeMembership[entry.producer.setName]) advancingMembers.add(name)
+    }
+    const exempted = assertUnrelatedLockSelectionsUnchanged(
+      lockBeforeAdvance,
+      lockAfter,
+      members,
+      declared,
+      advancingMembers
+    )
+    for (const selection of exempted) {
+      console.log(
+        `PRODUCER_MEMBER_TRANSITIVE ${selection.name}@${selection.version} via ${selection.path.join(' > ')}`
+      )
+    }
     const changed = run('git', ['diff', '--name-only']).output.trim().split('\n').filter(Boolean)
     const allowed = new Set(['bun.lock', 'package.json', TABLE_PATH, ...manifestPaths])
     const unexpected = changed.filter((path) => !allowed.has(path))
