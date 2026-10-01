@@ -19,6 +19,7 @@ import {
 } from './headless-viewer-status.js'
 import { type TmuxClientProbe, createTmuxClientProbe } from './tmux-clients.js'
 import {
+  type TaskSlugResolver,
   type TaskTitleReader,
   defaultTaskSlugResolver,
   defaultTaskTitleReader,
@@ -106,6 +107,8 @@ export type HrcViewerOptions = {
   probeTmuxClients?: TmuxClientProbe | undefined
   /** Batched wrkq task-title reader for the secondary bar (T-08331). Injected for tests. */
   readTaskTitles?: TaskTitleReader | undefined
+  /** wrkq task-slug resolver for the primary status bar. Injected for tests. */
+  resolveTaskSlug?: TaskSlugResolver | undefined
 }
 
 const DEFAULT_LINGER_SECONDS = 300
@@ -222,6 +225,7 @@ export class HrcViewer {
   private readonly statusProjector: HeadlessViewerStatusProjector
   private readonly probeTmuxClients: TmuxClientProbe
   private readonly readTaskTitles: TaskTitleReader
+  private readonly resolveTaskSlug: TaskSlugResolver
   /**
    * Last-known wrkq title per task id (T-08331). Refreshed in one batched read
    * per reconcile and NEVER evicted on a read failure — a deleted task, a wrkq
@@ -244,12 +248,13 @@ export class HrcViewer {
     this.clearScheduled = options.clearScheduled ?? ((handle) => clearTimeout(handle))
     this.probeTmuxClients = options.probeTmuxClients ?? createTmuxClientProbe()
     this.readTaskTitles = options.readTaskTitles ?? defaultTaskTitleReader()
+    this.resolveTaskSlug = options.resolveTaskSlug ?? defaultTaskSlugResolver()
     this.statusProjector = new HeadlessViewerStatusProjector({
       resolveSurfaceId: (runtimeId) =>
         this.ghostmux.findHeadlessViewerSurfaceByRuntimeId(runtimeId),
       resolveSurfaceIds: (runtimeId) => this.resolveStatusSurfaceIds(runtimeId),
       applyStatusBar: (surfaceId, spec) => this.ghostmux.setStatusBar(surfaceId, spec),
-      resolveSlug: defaultTaskSlugResolver(),
+      resolveSlug: this.resolveTaskSlug,
       onError: (error) => this.warn('broker_headless_viewer.status_failed', error),
     })
   }
@@ -716,7 +721,7 @@ export class HrcViewer {
       (event ? viewerStateForEventKind(event.eventKind) : null) ??
       viewerStateForRuntimeStatus(row.status)
     if (state !== null) {
-      const slug = await defaultTaskSlugResolver()(row.scopeRef)
+      const slug = await this.resolveTaskSlug(row.scopeRef)
       const spec = renderStatusBar(
         row.scopeRef,
         state,

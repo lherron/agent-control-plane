@@ -121,6 +121,9 @@ function makeHarness(options: {
     async readTaskTitles() {
       return new Map([['T-09270', 'Operator surface paint']])
     },
+    async resolveTaskSlug() {
+      return 'operator-surface-paint'
+    },
   })
   return {
     operations,
