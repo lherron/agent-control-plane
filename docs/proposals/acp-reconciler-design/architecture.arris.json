@@ -3,7 +3,7 @@
   "format": "arris",
   "format_version": 1,
   "document_id": "architecture",
-  "revision": 4,
+  "revision": 6,
   "nodes": [
     {
       "id": "agent",
@@ -11,7 +11,7 @@
       "schema_version": 1,
       "provider": "arris.architecture",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": "agent.group"
@@ -21,7 +21,7 @@
         }
       },
       "domain_attributes": {
-        "display_name": "Arris specialist",
+        "display_name": "Specialist session",
         "order": 33,
         "order_authored": true,
         "placement": {
@@ -36,8 +36,9 @@
         "provider_version": "0.1.0"
       },
       "payload": {
-        "body": "wrkc delivers; HRC places the seat. Claim, write the diagram and complete.",
-        "name": "Arris specialist",
+        "body": "Arris or scribe. Claim; load own skills and tools; work. One concern per session.",
+        "bullets": [],
+        "name": "Specialist session",
         "presentation": {
           "caption": "agent.caption",
           "group": "agent.group",
@@ -51,7 +52,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": "agent.group"
@@ -92,15 +93,27 @@
         "padding": 12.0,
         "runs": [
           {
-            "end": 16,
+            "end": 18,
             "face": "sans.bold",
             "fill": "#2f5f9e",
             "size": 15.0,
             "start": 0
+          },
+          {
+            "end": 19,
+            "start": 18
+          },
+          {
+            "end": 100,
+            "face": "sans.regular",
+            "fill": "#4A5565",
+            "size": 11.5,
+            "start": 19,
+            "tracking": 0.0
           }
         ],
         "size": 12.0,
-        "text": "Arris specialist\nwrkc delivers; HRC places the seat. Claim, write the diagram and complete.",
+        "text": "Specialist session\nArris or scribe. Claim; load own skills and tools; work. One concern per session.",
         "vertical_align": "center"
       }
     },
@@ -110,7 +123,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": null
@@ -120,7 +133,7 @@
         }
       },
       "domain_attributes": {
-        "display_name": "Arris specialist",
+        "display_name": "Specialist session",
         "order": 0,
         "plane_index": 0
       },
@@ -132,7 +145,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 6,
       "hierarchies": {
         "group": {
           "parent": "agent.group"
@@ -150,14 +163,14 @@
           },
           "ports": []
         },
-        "display_name": "Arris specialist",
+        "display_name": "Specialist session",
         "order": 31,
         "order_authored": true,
         "placement": {
           "transform": {
             "translate": [
               40.0,
-              675.32
+              769.49
             ]
           }
         },
@@ -167,11 +180,11 @@
       "payload": {
         "corner_radius": 8.0,
         "fill": "#e8eef8",
-        "height": 90.30000000000001,
+        "height": 92.0,
         "opacity": 1.0,
         "stroke": "#a9bde0",
         "stroke_width": 1.5,
-        "width": 250.0
+        "width": 264.0
       }
     },
     {
@@ -180,7 +193,7 @@
       "schema_version": 1,
       "provider": "arris.architecture",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": null
@@ -207,7 +220,7 @@
       "payload": {
         "from": "agent",
         "hints": {},
-        "label": "diagram",
+        "label": "record result",
         "presentation": {
           "edge": "agent__artifact.edge",
           "label": "label"
@@ -221,7 +234,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": null
@@ -231,7 +244,7 @@
         }
       },
       "domain_attributes": {
-        "display_name": "diagram",
+        "display_name": "record result",
         "edge_order": 60,
         "end": {
           "parameters": {
@@ -251,11 +264,11 @@
               "fill": "#1d7a5f",
               "line_height": 1.25,
               "size": 11.0,
-              "text": "diagram"
+              "text": "record result"
             },
             "placement": {
               "anchor": "left",
-              "fraction": 0.6005,
+              "fraction": 0.5,
               "kind": "route-fraction",
               "offset": [
                 0.0,
@@ -278,22 +291,7 @@
             "schema_version": 1,
             "type": "arris.polyline"
           },
-          "waypoints": [
-            {
-              "point": [
-                165.0,
-                839.62
-              ],
-              "space": "page"
-            },
-            {
-              "point": [
-                367.62,
-                839.62
-              ],
-              "space": "page"
-            }
-          ]
+          "waypoints": []
         },
         "shaft": {
           "dash_offset": 0.0,
@@ -309,7 +307,7 @@
               "min_straight": 0.0,
               "mode": "normal"
             },
-            "clearance": 2.0,
+            "clearance": 0.0,
             "fraction": 0.5,
             "kind": "side",
             "offset": 0.0,
@@ -325,8 +323,8 @@
               "min_straight": 0.0,
               "mode": "normal"
             },
-            "clearance": 2.0,
-            "fraction": 0.33331999999999995,
+            "clearance": 0.0,
+            "fraction": 0.5,
             "kind": "side",
             "offset": 0.0,
             "side": "top"
@@ -341,7 +339,7 @@
       "schema_version": 1,
       "provider": "arris.architecture",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": "artifact.group"
@@ -351,7 +349,7 @@
         }
       },
       "domain_attributes": {
-        "display_name": "Output + notification",
+        "display_name": "Result on subtask",
         "order": 39,
         "order_authored": true,
         "placement": {
@@ -366,8 +364,9 @@
         "provider_version": "0.1.0"
       },
       "payload": {
-        "body": "Worker checks output, records the path, completes its subtask and sends FYI.",
-        "name": "Output + notification",
+        "body": "Worker records output and completes. Reconciler notifies requester; team can inspect.",
+        "bullets": [],
+        "name": "Result on subtask",
         "presentation": {
           "caption": "artifact.caption",
           "group": "artifact.group",
@@ -381,7 +380,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": "artifact.group"
@@ -422,15 +421,27 @@
         "padding": 12.0,
         "runs": [
           {
-            "end": 21,
+            "end": 17,
             "face": "sans.bold",
             "fill": "#1c2b36",
             "size": 15.0,
             "start": 0
+          },
+          {
+            "end": 18,
+            "start": 17
+          },
+          {
+            "end": 103,
+            "face": "sans.regular",
+            "fill": "#4A5565",
+            "size": 11.5,
+            "start": 18,
+            "tracking": 0.0
           }
         ],
         "size": 12.0,
-        "text": "Output + notification\nWorker checks output, records the path, completes its subtask and sends FYI.",
+        "text": "Result on subtask\nWorker records output and completes. Reconciler notifies requester; team can inspect.",
         "vertical_align": "center"
       }
     },
@@ -440,7 +451,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": null
@@ -450,7 +461,7 @@
         }
       },
       "domain_attributes": {
-        "display_name": "Output + notification",
+        "display_name": "Result on subtask",
         "order": 0,
         "plane_index": 0
       },
@@ -462,7 +473,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 6,
       "hierarchies": {
         "group": {
           "parent": "artifact.group"
@@ -480,14 +491,14 @@
           },
           "ports": []
         },
-        "display_name": "Output + notification",
+        "display_name": "Result on subtask",
         "order": 37,
         "order_authored": true,
         "placement": {
           "transform": {
             "translate": [
-              284.29,
-              855.62
+              40.0,
+              927.24
             ]
           }
         },
@@ -497,11 +508,11 @@
       "payload": {
         "corner_radius": 3.0,
         "fill": "#ffffff",
-        "height": 90.30000000000001,
+        "height": 92.0,
         "opacity": 1.0,
         "stroke": "#94a3b8",
         "stroke_width": 1.5,
-        "width": 250.0
+        "width": 264.0
       }
     },
     {
@@ -531,7 +542,7 @@
       "schema_version": 1,
       "provider": "arris.architecture",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 6,
       "hierarchies": {
         "group": {
           "parent": null
@@ -562,8 +573,8 @@
           "subtitle": "diagram.subtitle",
           "title": "diagram.title"
         },
-        "subtitle": "Proposed by Cody + Mable · existing tasks, messages and placement",
-        "title": "ACP reconciler · small MVP"
+        "subtitle": "Proposed · Arris and scribe · separate specialist context",
+        "title": "Delegated work"
       }
     },
     {
@@ -572,7 +583,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 6,
       "hierarchies": {
         "group": {
           "parent": null
@@ -589,7 +600,7 @@
           "transform": {
             "translate": [
               40.0,
-              83.5
+              86.86
             ]
           }
         },
@@ -604,7 +615,7 @@
         "max_height": 0.0,
         "max_width": 0.0,
         "size": 15.0,
-        "text": "Proposed by Cody + Mable · existing tasks, messages and placement"
+        "text": "Proposed · Arris and scribe · separate specialist context"
       }
     },
     {
@@ -613,7 +624,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 6,
       "hierarchies": {
         "group": {
           "parent": null
@@ -645,7 +656,7 @@
         "max_height": 0.0,
         "max_width": 0.0,
         "size": 30.0,
-        "text": "ACP reconciler · small MVP"
+        "text": "Delegated work"
       }
     },
     {
@@ -654,7 +665,7 @@
       "schema_version": 1,
       "provider": "arris.architecture",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": "handler.group"
@@ -664,7 +675,7 @@
         }
       },
       "domain_attributes": {
-        "display_name": "PNG renderer",
+        "display_name": "HRC work admission",
         "order": 36,
         "order_authored": true,
         "placement": {
@@ -679,8 +690,9 @@
         "provider_version": "0.1.0"
       },
       "payload": {
-        "body": "Controller claims and renders directly, with a timeout. No model seat.",
-        "name": "PNG renderer",
+        "body": "Recommended: keyed start without reply debt. HRC owns session placement.",
+        "bullets": [],
+        "name": "HRC work admission",
         "presentation": {
           "caption": "handler.caption",
           "group": "handler.group",
@@ -694,7 +706,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": "handler.group"
@@ -735,15 +747,27 @@
         "padding": 12.0,
         "runs": [
           {
-            "end": 12,
+            "end": 18,
             "face": "sans.bold",
             "fill": "#1c2b36",
             "size": 15.0,
             "start": 0
+          },
+          {
+            "end": 19,
+            "start": 18
+          },
+          {
+            "end": 91,
+            "face": "sans.regular",
+            "fill": "#4A5565",
+            "size": 11.5,
+            "start": 19,
+            "tracking": 0.0
           }
         ],
         "size": 12.0,
-        "text": "PNG renderer\nController claims and renders directly, with a timeout. No model seat.",
+        "text": "HRC work admission\nRecommended: keyed start without reply debt. HRC owns session placement.",
         "vertical_align": "center"
       }
     },
@@ -753,7 +777,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": null
@@ -763,7 +787,7 @@
         }
       },
       "domain_attributes": {
-        "display_name": "PNG renderer",
+        "display_name": "HRC work admission",
         "order": 0,
         "plane_index": 0
       },
@@ -775,7 +799,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 6,
       "hierarchies": {
         "group": {
           "parent": "handler.group"
@@ -793,14 +817,14 @@
           },
           "ports": []
         },
-        "display_name": "PNG renderer",
+        "display_name": "HRC work admission",
         "order": 34,
         "order_authored": true,
         "placement": {
           "transform": {
             "translate": [
-              326.0,
-              675.32
+              40.0,
+              612.36
             ]
           }
         },
@@ -810,20 +834,20 @@
       "payload": {
         "corner_radius": 8.0,
         "fill": "#e7eef1",
-        "height": 90.30000000000001,
+        "height": 92.0,
         "opacity": 1.0,
         "stroke": "#a3b5bf",
         "stroke_width": 1.5,
-        "width": 250.0
+        "width": 264.0
       }
     },
     {
-      "id": "handler__artifact",
-      "type": "architecture.result",
+      "id": "handler__agent",
+      "type": "architecture.flow",
       "schema_version": 1,
       "provider": "arris.architecture",
-      "created_revision": 1,
-      "updated_revision": 4,
+      "created_revision": 5,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": null
@@ -833,8 +857,8 @@
         }
       },
       "domain_attributes": {
-        "display_name": "handler__artifact",
-        "order": 63,
+        "display_name": "handler__agent",
+        "order": 71,
         "order_authored": true,
         "placement": {
           "transform": {
@@ -849,21 +873,21 @@
       },
       "payload": {
         "from": "handler",
-        "label": "preview",
+        "label": "isolated session",
         "presentation": {
-          "edge": "handler__artifact.edge",
+          "edge": "handler__agent.edge",
           "label": "label"
         },
-        "to": "artifact"
+        "to": "agent"
       }
     },
     {
-      "id": "handler__artifact.edge",
+      "id": "handler__agent.edge",
       "type": "arris.edge",
       "schema_version": 1,
       "provider": "arris",
-      "created_revision": 1,
-      "updated_revision": 4,
+      "created_revision": 5,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": null
@@ -873,12 +897,12 @@
         }
       },
       "domain_attributes": {
-        "display_name": "preview",
-        "edge_order": 62,
+        "display_name": "isolated session",
+        "edge_order": 70,
         "end": {
           "parameters": {
-            "length": 8.0,
-            "width": 7.0
+            "length": 8.4,
+            "width": 7.05
           },
           "schema_version": 1,
           "type": "arris.filled"
@@ -889,11 +913,11 @@
             "label_id": "label",
             "parameters": {
               "align": "left",
-              "face": "sans.regular",
-              "fill": "#1d7a5f",
+              "face": "sans.medium",
+              "fill": "#2449B8",
               "line_height": 1.25,
-              "size": 11.0,
-              "text": "preview"
+              "size": 10.5,
+              "text": "isolated session"
             },
             "placement": {
               "anchor": "left",
@@ -908,7 +932,7 @@
             "type": "arris.label"
           }
         ],
-        "order": 62,
+        "order": 70,
         "plane_index": 0,
         "route": {
           "corner_radius": 0.0,
@@ -924,8 +948,8 @@
         },
         "shaft": {
           "dash_offset": 0.0,
-          "stroke": "#1d7a5f",
-          "width": 1.6
+          "stroke": "#5C7BD9",
+          "width": 1.5
         },
         "source": {
           "ref": "handler.shape"
@@ -936,7 +960,7 @@
               "min_straight": 0.0,
               "mode": "normal"
             },
-            "clearance": 2.0,
+            "clearance": 0.0,
             "fraction": 0.5,
             "kind": "side",
             "offset": 0.0,
@@ -944,7 +968,7 @@
           }
         },
         "target": {
-          "ref": "artifact.shape"
+          "ref": "agent.shape"
         },
         "target_detail": {
           "attachment": {
@@ -952,8 +976,8 @@
               "min_straight": 0.0,
               "mode": "normal"
             },
-            "clearance": 2.0,
-            "fraction": 0.6666799999999998,
+            "clearance": 0.0,
+            "fraction": 0.5,
             "kind": "side",
             "offset": 0.0,
             "side": "top"
@@ -968,7 +992,7 @@
       "schema_version": 1,
       "provider": "arris.architecture",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": "intent.group"
@@ -978,7 +1002,7 @@
         }
       },
       "domain_attributes": {
-        "display_name": "wrkq subtasks",
+        "display_name": "wrkq task + subtasks",
         "order": 27,
         "order_authored": true,
         "placement": {
@@ -993,8 +1017,9 @@
         "provider_version": "0.1.0"
       },
       "payload": {
-        "body": "Requested work, task state, claims and output references remain in the ledger.",
-        "name": "wrkq subtasks",
+        "body": "Requester, assignee, claims and results. Shared activity through the owner’s wrkp timeline.",
+        "bullets": [],
+        "name": "wrkq task + subtasks",
         "presentation": {
           "caption": "intent.caption",
           "group": "intent.group",
@@ -1008,7 +1033,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": "intent.group"
@@ -1049,15 +1074,27 @@
         "padding": 12.0,
         "runs": [
           {
-            "end": 13,
+            "end": 20,
             "face": "sans.bold",
             "fill": "#1c2b36",
             "size": 15.0,
             "start": 0
+          },
+          {
+            "end": 21,
+            "start": 20
+          },
+          {
+            "end": 112,
+            "face": "sans.regular",
+            "fill": "#4A5565",
+            "size": 11.5,
+            "start": 21,
+            "tracking": 0.0
           }
         ],
         "size": 12.0,
-        "text": "wrkq subtasks\nRequested work, task state, claims and output references remain in the ledger.",
+        "text": "wrkq task + subtasks\nRequester, assignee, claims and results. Shared activity through the owner’s wrkp timeline.",
         "vertical_align": "center"
       }
     },
@@ -1067,7 +1104,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": null
@@ -1077,7 +1114,7 @@
         }
       },
       "domain_attributes": {
-        "display_name": "wrkq subtasks",
+        "display_name": "wrkq task + subtasks",
         "order": 0,
         "plane_index": 0
       },
@@ -1089,7 +1126,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 6,
       "hierarchies": {
         "group": {
           "parent": "intent.group"
@@ -1107,14 +1144,14 @@
           },
           "ports": []
         },
-        "display_name": "wrkq subtasks",
+        "display_name": "wrkq task + subtasks",
         "order": 25,
         "order_authored": true,
         "placement": {
           "transform": {
             "translate": [
-              183.0,
-              314.72
+              40.0,
+              296.86
             ]
           }
         },
@@ -1124,11 +1161,11 @@
       "payload": {
         "corner_radius": 3.0,
         "fill": "#ffffff",
-        "height": 90.30000000000001,
+        "height": 92.0,
         "opacity": 1.0,
         "stroke": "#94a3b8",
         "stroke_width": 1.5,
-        "width": 250.0
+        "width": 264.0
       }
     },
     {
@@ -1137,7 +1174,7 @@
       "schema_version": 1,
       "provider": "arris.architecture",
       "created_revision": 4,
-      "updated_revision": 4,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": null
@@ -1163,7 +1200,7 @@
       },
       "payload": {
         "from": "intent",
-        "label": "scan current state",
+        "label": "read current state",
         "presentation": {
           "edge": "intent__reconcile.edge",
           "label": "label"
@@ -1177,7 +1214,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 4,
-      "updated_revision": 4,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": null
@@ -1187,7 +1224,7 @@
         }
       },
       "domain_attributes": {
-        "display_name": "scan current state",
+        "display_name": "read current state",
         "edge_order": 64,
         "end": {
           "parameters": {
@@ -1207,7 +1244,7 @@
               "fill": "#2f5f9e",
               "line_height": 1.25,
               "size": 11.0,
-              "text": "scan current state"
+              "text": "read current state"
             },
             "placement": {
               "anchor": "left",
@@ -1250,8 +1287,8 @@
               "min_straight": 0.0,
               "mode": "normal"
             },
-            "clearance": 2.0,
-            "fraction": 0.6906400000000001,
+            "clearance": 0.0,
+            "fraction": 0.5,
             "kind": "side",
             "offset": 0.0,
             "side": "bottom"
@@ -1266,8 +1303,8 @@
               "min_straight": 0.0,
               "mode": "normal"
             },
-            "clearance": 2.0,
-            "fraction": 0.30932000000000015,
+            "clearance": 0.0,
+            "fraction": 0.5,
             "kind": "side",
             "offset": 0.0,
             "side": "top"
@@ -1282,7 +1319,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 0,
-      "updated_revision": 4,
+      "updated_revision": 6,
       "hierarchies": {
         "group": {
           "parent": null
@@ -1293,10 +1330,10 @@
       },
       "domain_attributes": {
         "fill": "#ffffff",
-        "height": 986.0,
+        "height": 1067.0,
         "order": 0,
         "plane_index": 0,
-        "width": 616.0
+        "width": 462.0
       },
       "payload": {}
     },
@@ -1306,7 +1343,7 @@
       "schema_version": 1,
       "provider": "arris.architecture",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": "reconcile.group"
@@ -1331,7 +1368,8 @@
         "provider_version": "0.1.0"
       },
       "payload": {
-        "body": "One designated node. Scan every 30–60s and dispatch ready, unclaimed requests.",
+        "body": "Stateless 30–60s scan. Start ready work; observe completion and stalls.",
+        "bullets": [],
         "name": "ACP reconciler",
         "presentation": {
           "caption": "reconcile.caption",
@@ -1346,7 +1384,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": "reconcile.group"
@@ -1392,10 +1430,22 @@
             "fill": "#b85c38",
             "size": 15.0,
             "start": 0
+          },
+          {
+            "end": 15,
+            "start": 14
+          },
+          {
+            "end": 86,
+            "face": "sans.regular",
+            "fill": "#4A5565",
+            "size": 11.5,
+            "start": 15,
+            "tracking": 0.0
           }
         ],
         "size": 12.0,
-        "text": "ACP reconciler\nOne designated node. Scan every 30–60s and dispatch ready, unclaimed requests.",
+        "text": "ACP reconciler\nStateless 30–60s scan. Start ready work; observe completion and stalls.",
         "vertical_align": "center"
       }
     },
@@ -1405,7 +1455,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": null
@@ -1427,7 +1477,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 6,
       "hierarchies": {
         "group": {
           "parent": "reconcile.group"
@@ -1451,8 +1501,8 @@
         "placement": {
           "transform": {
             "translate": [
-              278.33,
-              495.02
+              40.0,
+              454.61
             ]
           }
         },
@@ -1462,172 +1512,12 @@
       "payload": {
         "corner_radius": 8.0,
         "fill": "#fbece6",
-        "height": 90.30000000000001,
+        "height": 92.0,
         "opacity": 1.0,
         "stroke": "#d9a08a",
         "stroke_width": 1.5,
-        "width": 250.0
+        "width": 264.0
       }
-    },
-    {
-      "id": "reconcile__agent",
-      "type": "architecture.flow",
-      "schema_version": 1,
-      "provider": "arris.architecture",
-      "created_revision": 4,
-      "updated_revision": 4,
-      "hierarchies": {
-        "group": {
-          "parent": null
-        },
-        "owner": {
-          "parent": "page-1"
-        }
-      },
-      "domain_attributes": {
-        "display_name": "reconcile__agent",
-        "order": 67,
-        "order_authored": true,
-        "placement": {
-          "transform": {
-            "translate": [
-              0.0,
-              0.0
-            ]
-          }
-        },
-        "plane_index": 0,
-        "provider_version": "0.1.0"
-      },
-      "payload": {
-        "from": "reconcile",
-        "label": "keyed wrkc send",
-        "presentation": {
-          "edge": "reconcile__agent.edge",
-          "label": "label"
-        },
-        "to": "agent"
-      }
-    },
-    {
-      "id": "reconcile__agent.edge",
-      "type": "arris.edge",
-      "schema_version": 1,
-      "provider": "arris",
-      "created_revision": 4,
-      "updated_revision": 4,
-      "hierarchies": {
-        "group": {
-          "parent": null
-        },
-        "owner": {
-          "parent": "page-1"
-        }
-      },
-      "domain_attributes": {
-        "display_name": "keyed wrkc send",
-        "edge_order": 66,
-        "end": {
-          "parameters": {
-            "length": 8.0,
-            "width": 7.0
-          },
-          "schema_version": 1,
-          "type": "arris.filled"
-        },
-        "labels": [
-          {
-            "clearance": 4.0,
-            "label_id": "label",
-            "parameters": {
-              "align": "left",
-              "face": "sans.regular",
-              "fill": "#2f5f9e",
-              "line_height": 1.25,
-              "size": 11.0,
-              "text": "keyed wrkc send"
-            },
-            "placement": {
-              "anchor": "left",
-              "fraction": 0.5601,
-              "kind": "route-fraction",
-              "offset": [
-                0.0,
-                0.0
-              ]
-            },
-            "schema_version": 1,
-            "type": "arris.label"
-          }
-        ],
-        "order": 66,
-        "plane_index": 0,
-        "route": {
-          "corner_radius": 0.0,
-          "obstacles": {
-            "mode": "none"
-          },
-          "strategy": {
-            "parameters": {},
-            "schema_version": 1,
-            "type": "arris.polyline"
-          },
-          "waypoints": [
-            {
-              "point": [
-                361.66,
-                647.32
-              ],
-              "space": "page"
-            },
-            {
-              "point": [
-                165.0,
-                647.32
-              ],
-              "space": "page"
-            }
-          ]
-        },
-        "shaft": {
-          "dash_offset": 0.0,
-          "stroke": "#2f5f9e",
-          "width": 1.6
-        },
-        "source": {
-          "ref": "reconcile.shape"
-        },
-        "source_detail": {
-          "attachment": {
-            "approach": {
-              "min_straight": 0.0,
-              "mode": "normal"
-            },
-            "clearance": 2.0,
-            "fraction": 0.33332000000000017,
-            "kind": "side",
-            "offset": 0.0,
-            "side": "bottom"
-          }
-        },
-        "target": {
-          "ref": "agent.shape"
-        },
-        "target_detail": {
-          "attachment": {
-            "approach": {
-              "min_straight": 0.0,
-              "mode": "normal"
-            },
-            "clearance": 2.0,
-            "fraction": 0.5,
-            "kind": "side",
-            "offset": 0.0,
-            "side": "top"
-          }
-        }
-      },
-      "payload": {}
     },
     {
       "id": "reconcile__handler",
@@ -1635,7 +1525,7 @@
       "schema_version": 1,
       "provider": "arris.architecture",
       "created_revision": 4,
-      "updated_revision": 4,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": null
@@ -1661,7 +1551,7 @@
       },
       "payload": {
         "from": "reconcile",
-        "label": "direct handler",
+        "label": "stable start key",
         "presentation": {
           "edge": "reconcile__handler.edge",
           "label": "label"
@@ -1675,7 +1565,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 4,
-      "updated_revision": 4,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": null
@@ -1685,7 +1575,7 @@
         }
       },
       "domain_attributes": {
-        "display_name": "direct handler",
+        "display_name": "stable start key",
         "edge_order": 68,
         "end": {
           "parameters": {
@@ -1705,11 +1595,11 @@
               "fill": "#2f5f9e",
               "line_height": 1.25,
               "size": 11.0,
-              "text": "direct handler"
+              "text": "stable start key"
             },
             "placement": {
               "anchor": "left",
-              "fraction": 0.3913,
+              "fraction": 0.5,
               "kind": "route-fraction",
               "offset": [
                 0.0,
@@ -1732,22 +1622,7 @@
             "schema_version": 1,
             "type": "arris.polyline"
           },
-          "waypoints": [
-            {
-              "point": [
-                445.0,
-                659.32
-              ],
-              "space": "page"
-            },
-            {
-              "point": [
-                451.0,
-                659.32
-              ],
-              "space": "page"
-            }
-          ]
+          "waypoints": []
         },
         "shaft": {
           "dash_offset": 0.0,
@@ -1763,8 +1638,8 @@
               "min_straight": 0.0,
               "mode": "normal"
             },
-            "clearance": 2.0,
-            "fraction": 0.66668,
+            "clearance": 0.0,
+            "fraction": 0.5,
             "kind": "side",
             "offset": 0.0,
             "side": "bottom"
@@ -1779,7 +1654,7 @@
               "min_straight": 0.0,
               "mode": "normal"
             },
-            "clearance": 2.0,
+            "clearance": 0.0,
             "fraction": 0.5,
             "kind": "side",
             "offset": 0.0,
@@ -1795,7 +1670,7 @@
       "schema_version": 1,
       "provider": "arris.architecture",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": "skill.group"
@@ -1805,7 +1680,7 @@
         }
       },
       "domain_attributes": {
-        "display_name": "Request skill",
+        "display_name": "Requester",
         "order": 15,
         "order_authored": true,
         "placement": {
@@ -1820,8 +1695,9 @@
         "provider_version": "0.1.0"
       },
       "payload": {
-        "body": "Creates diagram and preview subtasks with a brief, inputs and output paths.",
-        "name": "Request skill",
+        "body": "Writes one named subtask with a brief and assignee, then continues its own work.",
+        "bullets": [],
+        "name": "Requester",
         "presentation": {
           "caption": "skill.caption",
           "group": "skill.group",
@@ -1835,7 +1711,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": "skill.group"
@@ -1876,15 +1752,27 @@
         "padding": 12.0,
         "runs": [
           {
-            "end": 13,
+            "end": 9,
             "face": "sans.bold",
             "fill": "#2f5f9e",
             "size": 15.0,
             "start": 0
+          },
+          {
+            "end": 10,
+            "start": 9
+          },
+          {
+            "end": 90,
+            "face": "sans.regular",
+            "fill": "#4A5565",
+            "size": 11.5,
+            "start": 10,
+            "tracking": 0.0
           }
         ],
         "size": 12.0,
-        "text": "Request skill\nCreates diagram and preview subtasks with a brief, inputs and output paths.",
+        "text": "Requester\nWrites one named subtask with a brief and assignee, then continues its own work.",
         "vertical_align": "center"
       }
     },
@@ -1894,7 +1782,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": null
@@ -1904,7 +1792,7 @@
         }
       },
       "domain_attributes": {
-        "display_name": "Request skill",
+        "display_name": "Requester",
         "order": 0,
         "plane_index": 0
       },
@@ -1916,7 +1804,7 @@
       "schema_version": 1,
       "provider": "arris.reference-core",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 6,
       "hierarchies": {
         "group": {
           "parent": "skill.group"
@@ -1934,14 +1822,14 @@
           },
           "ports": []
         },
-        "display_name": "Request skill",
+        "display_name": "Requester",
         "order": 13,
         "order_authored": true,
         "placement": {
           "transform": {
             "translate": [
-              266.42,
-              134.42
+              40.0,
+              139.11
             ]
           }
         },
@@ -1951,11 +1839,11 @@
       "payload": {
         "corner_radius": 8.0,
         "fill": "#edf2fa",
-        "height": 90.30000000000001,
+        "height": 92.0,
         "opacity": 1.0,
         "stroke": "#a9bde0",
         "stroke_width": 1.5,
-        "width": 250.0
+        "width": 264.0
       }
     },
     {
@@ -1964,7 +1852,7 @@
       "schema_version": 1,
       "provider": "arris.architecture",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": null
@@ -1990,7 +1878,7 @@
       },
       "payload": {
         "from": "skill",
-        "label": "request",
+        "label": "record intent",
         "presentation": {
           "edge": "skill__intent.edge",
           "label": "label"
@@ -2004,7 +1892,7 @@
       "schema_version": 1,
       "provider": "arris",
       "created_revision": 1,
-      "updated_revision": 4,
+      "updated_revision": 5,
       "hierarchies": {
         "group": {
           "parent": null
@@ -2014,7 +1902,7 @@
         }
       },
       "domain_attributes": {
-        "display_name": "request",
+        "display_name": "record intent",
         "edge_order": 46,
         "end": {
           "parameters": {
@@ -2034,7 +1922,7 @@
               "fill": "#2f5f9e",
               "line_height": 1.25,
               "size": 11.0,
-              "text": "request"
+              "text": "record intent"
             },
             "placement": {
               "anchor": "left",
@@ -2077,8 +1965,8 @@
               "min_straight": 0.0,
               "mode": "normal"
             },
-            "clearance": 2.0,
-            "fraction": 0.33315999999999985,
+            "clearance": 0.0,
+            "fraction": 0.5,
             "kind": "side",
             "offset": 0.0,
             "side": "bottom"
@@ -2093,8 +1981,8 @@
               "min_straight": 0.0,
               "mode": "normal"
             },
-            "clearance": 2.0,
-            "fraction": 0.6668399999999999,
+            "clearance": 0.0,
+            "fraction": 0.5,
             "kind": "side",
             "offset": 0.0,
             "side": "top"
