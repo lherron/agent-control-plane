@@ -1,0 +1,5593 @@
+{
+  "cardo_doms": 1,
+  "format": "arris",
+  "format_version": 1,
+  "document_id": "lifecycle",
+  "revision": 6,
+  "nodes": [
+    {
+      "id": "cancelled",
+      "type": "flowchart.terminal",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "cancelled.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "cancelled",
+        "order": 24,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "no new starts; running work stopped via HRC",
+        "bullets": [],
+        "emphasis": false,
+        "icon": "",
+        "kicker": "",
+        "meta": "",
+        "name": "cancelled",
+        "presentation": {
+          "caption": "cancelled.caption",
+          "group": "cancelled.group",
+          "shadow": "cancelled.shadow",
+          "shape": "cancelled.shape"
+        },
+        "source_hint": "stadium",
+        "source_id": "cancelled"
+      }
+    },
+    {
+      "id": "cancelled.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "cancelled.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "cancelled.shape"
+          }
+        ],
+        "display_name": "cancelled.caption",
+        "order": 23,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "fill",
+            "slot": "colour",
+            "style": "lead"
+          }
+        ]
+      },
+      "payload": {
+        "align": "center",
+        "face": "sans.regular",
+        "fill": "#171717",
+        "line_height": 1.391,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 8.0,
+        "runs": [
+          {
+            "end": 9,
+            "face": "sans.semibold",
+            "fill": {
+              "token": "graphite"
+            },
+            "size": 14.0,
+            "start": 0,
+            "tracking": 0.0
+          },
+          {
+            "end": 10,
+            "start": 9
+          },
+          {
+            "end": 53,
+            "face": "sans.regular",
+            "fill": {
+              "token": "lead"
+            },
+            "size": 11.5,
+            "start": 10,
+            "tracking": 0.0
+          }
+        ],
+        "size": 11.5,
+        "text": "cancelled\nno new starts; running work stopped via HRC",
+        "tracking": 0.0,
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "cancelled.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "cancelled",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "cancelled.shadow",
+      "type": "arris.exterior_shadow",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "cancelled.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "subject",
+            "output_port": "body",
+            "producer": "cancelled.shape"
+          }
+        ],
+        "display_name": "shadow",
+        "order": 21,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "colour",
+            "slot": "colour",
+            "style": "graphite"
+          }
+        ]
+      },
+      "payload": {
+        "bands": 8,
+        "colour": "#1A2330",
+        "falloff": 2.0,
+        "offset": [
+          0.0,
+          1.5
+        ],
+        "opacity": 0.1,
+        "spread": 4.4
+      }
+    },
+    {
+      "id": "cancelled.shape",
+      "type": "arris.stadium",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "cancelled.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "cancelled",
+        "order": 22,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              1394.69,
+              520.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "fill",
+            "slot": "colour",
+            "style": "hue.viridian.tint"
+          },
+          {
+            "property": "stroke",
+            "slot": "colour",
+            "style": "hue.viridian.line"
+          }
+        ]
+      },
+      "payload": {
+        "fill": "#ffffff",
+        "height": 96.0,
+        "opacity": 1.0,
+        "stroke": "#171717",
+        "stroke_width": 1.25,
+        "width": 232.0
+      }
+    },
+    {
+      "id": "card.neutral",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "card.neutral",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#7D8898"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "claimed",
+      "type": "flowchart.terminal",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "claimed.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "in_progress",
+        "order": 16,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "worker claimed, then fenced on assignee and rev",
+        "bullets": [],
+        "emphasis": false,
+        "hints": {
+          "spine": true
+        },
+        "icon": "",
+        "kicker": "",
+        "meta": "",
+        "name": "in_progress",
+        "presentation": {
+          "caption": "claimed.caption",
+          "group": "claimed.group",
+          "shadow": "claimed.shadow",
+          "shape": "claimed.shape"
+        },
+        "source_hint": "stadium",
+        "source_id": "claimed"
+      }
+    },
+    {
+      "id": "claimed.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "claimed.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "claimed.shape"
+          }
+        ],
+        "display_name": "claimed.caption",
+        "order": 15,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "fill",
+            "slot": "colour",
+            "style": "lead"
+          }
+        ]
+      },
+      "payload": {
+        "align": "center",
+        "face": "sans.regular",
+        "fill": "#171717",
+        "line_height": 1.391,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 8.0,
+        "runs": [
+          {
+            "end": 11,
+            "face": "sans.semibold",
+            "fill": {
+              "token": "graphite"
+            },
+            "size": 14.0,
+            "start": 0,
+            "tracking": 0.0
+          },
+          {
+            "end": 12,
+            "start": 11
+          },
+          {
+            "end": 59,
+            "face": "sans.regular",
+            "fill": {
+              "token": "lead"
+            },
+            "size": 11.5,
+            "start": 12,
+            "tracking": 0.0
+          }
+        ],
+        "size": 11.5,
+        "text": "in_progress\nworker claimed, then fenced on assignee and rev",
+        "tracking": 0.0,
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "claimed.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "in_progress",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "claimed.shadow",
+      "type": "arris.exterior_shadow",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "claimed.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "subject",
+            "output_port": "body",
+            "producer": "claimed.shape"
+          }
+        ],
+        "display_name": "shadow",
+        "order": 13,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "colour",
+            "slot": "colour",
+            "style": "graphite"
+          }
+        ]
+      },
+      "payload": {
+        "bands": 8,
+        "colour": "#1A2330",
+        "falloff": 2.0,
+        "offset": [
+          0.0,
+          1.5
+        ],
+        "opacity": 0.1,
+        "spread": 4.4
+      }
+    },
+    {
+      "id": "claimed.shape",
+      "type": "arris.stadium",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "claimed.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "in_progress",
+        "order": 14,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              904.81,
+              160.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "fill",
+            "slot": "colour",
+            "style": "hue.viridian.tint"
+          },
+          {
+            "property": "stroke",
+            "slot": "colour",
+            "style": "hue.viridian.line"
+          }
+        ]
+      },
+      "payload": {
+        "fill": "#ffffff",
+        "height": 96.0,
+        "opacity": 1.0,
+        "stroke": "#171717",
+        "stroke_width": 1.25,
+        "width": 232.0
+      }
+    },
+    {
+      "id": "claimed__cancelled",
+      "type": "flowchart.optional",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 6,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "claimed__cancelled",
+        "order": 52,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "claimed",
+        "hints": {},
+        "label": "cancel",
+        "pinned": true,
+        "presentation": {
+          "edge": "claimed__cancelled.edge",
+          "label": "label"
+        },
+        "source_hint": "-.->",
+        "source_id": "claimed__cancelled",
+        "to": "cancelled"
+      }
+    },
+    {
+      "id": "claimed__cancelled.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 6,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "cancel",
+        "edge_order": 51,
+        "end": {
+          "parameters": {
+            "length": 7.25,
+            "width": 6.075
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [
+          {
+            "clearance": 0.0,
+            "label_id": "label",
+            "parameters": {
+              "face": "sans.medium",
+              "fill": {
+                "token": "lead"
+              },
+              "height": 18.0,
+              "padding": 8.0,
+              "paint": true,
+              "radius": 9.0,
+              "size": 10.5,
+              "tag_fill": {
+                "token": "paper"
+              },
+              "tag_stroke": {
+                "token": "hue.graphite.line"
+              },
+              "tag_stroke_width": 1.0,
+              "text": "cancel"
+            },
+            "placement": {
+              "anchor": "center",
+              "distance": 496.54,
+              "kind": "route-distance",
+              "offset": [
+                0.0,
+                0.0
+              ],
+              "orientation": "route",
+              "rotation": 0.0
+            },
+            "schema_version": 1,
+            "type": "arris.tag"
+          }
+        ],
+        "order": 51,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 8.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": [
+            {
+              "point": [
+                1165.0,
+                208.0
+              ],
+              "space": "page"
+            },
+            {
+              "point": [
+                1165.0,
+                568.0
+              ],
+              "space": "page"
+            }
+          ]
+        },
+        "shaft": {
+          "dash": [
+            5.0,
+            4.0
+          ],
+          "dash_offset": 0.0,
+          "stroke": {
+            "token": "hue.graphite.line"
+          },
+          "width": 1.25
+        },
+        "source": {
+          "ref": "claimed.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 0.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "right"
+          }
+        },
+        "target": {
+          "ref": "cancelled.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 0.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "left"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "claimed__completed",
+      "type": "flowchart.main",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 3,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "claimed__completed",
+        "order": 42,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "claimed",
+        "hints": {
+          "route": {
+            "enter": "left",
+            "leave": "right"
+          }
+        },
+        "label": "record, complete",
+        "presentation": {
+          "edge": "claimed__completed.edge",
+          "label": "label"
+        },
+        "source_hint": "==>",
+        "source_id": "claimed__completed",
+        "to": "completed"
+      }
+    },
+    {
+      "id": "claimed__completed.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 6,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "record, complete",
+        "edge_order": 41,
+        "end": {
+          "parameters": {
+            "length": 11.85,
+            "width": 9.975
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [
+          {
+            "clearance": 0.0,
+            "label_id": "label",
+            "parameters": {
+              "face": "sans.medium",
+              "fill": {
+                "token": "graphite"
+              },
+              "height": 18.0,
+              "padding": 8.0,
+              "paint": true,
+              "radius": 9.0,
+              "size": 10.5,
+              "tag_fill": {
+                "token": "paper"
+              },
+              "tag_stroke": {
+                "token": "line.main"
+              },
+              "tag_stroke_width": 1.0,
+              "text": "record, complete"
+            },
+            "placement": {
+              "anchor": "center",
+              "distance": 112.94,
+              "kind": "route-distance",
+              "offset": [
+                0.0,
+                0.0
+              ],
+              "orientation": "route",
+              "rotation": 0.0
+            },
+            "schema_version": 1,
+            "type": "arris.tag"
+          }
+        ],
+        "order": 41,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 8.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": []
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": {
+            "token": "line.main"
+          },
+          "width": 2.25
+        },
+        "source": {
+          "ref": "claimed.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 0.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "right"
+          }
+        },
+        "target": {
+          "ref": "completed.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 0.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "left"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "claimed__open",
+      "type": "flowchart.flow",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "claimed__open",
+        "order": 44,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "claimed",
+        "hints": {
+          "route": {
+            "enter": "top",
+            "leave": "top"
+          }
+        },
+        "label": "fence fails: reopen",
+        "presentation": {
+          "edge": "claimed__open.edge",
+          "label": "label"
+        },
+        "source_hint": "-->",
+        "source_id": "claimed__open",
+        "to": "open"
+      }
+    },
+    {
+      "id": "claimed__open.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 6,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "fence fails: reopen",
+        "edge_order": 43,
+        "end": {
+          "parameters": {
+            "length": 8.4,
+            "width": 7.05
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [
+          {
+            "clearance": 0.0,
+            "label_id": "label",
+            "parameters": {
+              "face": "sans.medium",
+              "fill": {
+                "token": "lead"
+              },
+              "height": 18.0,
+              "padding": 8.0,
+              "paint": true,
+              "radius": 9.0,
+              "size": 10.5,
+              "tag_fill": {
+                "token": "paper"
+              },
+              "tag_stroke": {
+                "token": "hue.graphite.line"
+              },
+              "tag_stroke_width": 1.0,
+              "text": "fence fails: reopen"
+            },
+            "placement": {
+              "anchor": "center",
+              "distance": 807.07,
+              "kind": "route-distance",
+              "offset": [
+                0.0,
+                0.0
+              ],
+              "orientation": "route",
+              "rotation": 0.0
+            },
+            "schema_version": 1,
+            "type": "arris.tag"
+          }
+        ],
+        "order": 43,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 8.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": [
+            {
+              "point": [
+                1020.81,
+                144.0
+              ],
+              "space": "page"
+            },
+            {
+              "point": [
+                156.0,
+                144.0
+              ],
+              "space": "page"
+            }
+          ]
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": {
+            "token": "hue.graphite.line"
+          },
+          "width": 1.5
+        },
+        "source": {
+          "ref": "claimed.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 0.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "top"
+          }
+        },
+        "target": {
+          "ref": "open.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 0.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "top"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "claimed__s1",
+      "type": "flowchart.optional",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 6,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "claimed__s1",
+        "order": 54,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "claimed",
+        "hints": {},
+        "label": "reported",
+        "pinned": true,
+        "presentation": {
+          "edge": "claimed__s1.edge",
+          "label": "label"
+        },
+        "source_hint": "-.->",
+        "source_id": "claimed__s1",
+        "to": "s1"
+      }
+    },
+    {
+      "id": "claimed__s1.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 6,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "reported",
+        "edge_order": 53,
+        "end": {
+          "parameters": {
+            "length": 7.25,
+            "width": 6.075
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [
+          {
+            "clearance": 0.0,
+            "label_id": "label",
+            "parameters": {
+              "face": "sans.medium",
+              "fill": {
+                "token": "lead"
+              },
+              "height": 18.0,
+              "padding": 8.0,
+              "paint": true,
+              "radius": 9.0,
+              "size": 10.5,
+              "tag_fill": {
+                "token": "paper"
+              },
+              "tag_stroke": {
+                "token": "hue.graphite.line"
+              },
+              "tag_stroke_width": 1.0,
+              "text": "reported"
+            },
+            "placement": {
+              "anchor": "center",
+              "distance": 676.04,
+              "kind": "route-distance",
+              "offset": [
+                0.0,
+                0.0
+              ],
+              "orientation": "route",
+              "rotation": 0.0
+            },
+            "schema_version": 1,
+            "type": "arris.tag"
+          }
+        ],
+        "order": 53,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 8.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": [
+            {
+              "point": [
+                1180.0,
+                208.0
+              ],
+              "space": "page"
+            },
+            {
+              "point": [
+                1180.0,
+                732.0
+              ],
+              "space": "page"
+            }
+          ]
+        },
+        "shaft": {
+          "dash": [
+            5.0,
+            4.0
+          ],
+          "dash_offset": 0.0,
+          "stroke": {
+            "token": "hue.graphite.line"
+          },
+          "width": 1.25
+        },
+        "source": {
+          "ref": "claimed.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 0.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "right"
+          }
+        },
+        "target": {
+          "ref": "s1.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 0.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "left"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "claimed__s3",
+      "type": "flowchart.optional",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 6,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "claimed__s3",
+        "order": 58,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "claimed",
+        "hints": {},
+        "label": "reported",
+        "pinned": true,
+        "presentation": {
+          "edge": "claimed__s3.edge",
+          "label": "label"
+        },
+        "source_hint": "-.->",
+        "source_id": "claimed__s3",
+        "to": "s3"
+      }
+    },
+    {
+      "id": "claimed__s3.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 6,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "reported",
+        "edge_order": 57,
+        "end": {
+          "parameters": {
+            "length": 7.25,
+            "width": 6.075
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [
+          {
+            "clearance": 0.0,
+            "label_id": "label",
+            "parameters": {
+              "face": "sans.medium",
+              "fill": {
+                "token": "lead"
+              },
+              "height": 18.0,
+              "padding": 8.0,
+              "paint": true,
+              "radius": 9.0,
+              "size": 10.5,
+              "tag_fill": {
+                "token": "paper"
+              },
+              "tag_stroke": {
+                "token": "hue.graphite.line"
+              },
+              "tag_stroke_width": 1.0,
+              "text": "reported"
+            },
+            "placement": {
+              "anchor": "center",
+              "distance": 596.76,
+              "kind": "route-distance",
+              "offset": [
+                0.0,
+                0.0
+              ],
+              "orientation": "route",
+              "rotation": 0.0
+            },
+            "schema_version": 1,
+            "type": "arris.tag"
+          }
+        ],
+        "order": 57,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 8.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": [
+            {
+              "point": [
+                1195.0,
+                208.0
+              ],
+              "space": "page"
+            },
+            {
+              "point": [
+                1195.0,
+                828.0
+              ],
+              "space": "page"
+            }
+          ]
+        },
+        "shaft": {
+          "dash": [
+            5.0,
+            4.0
+          ],
+          "dash_offset": 0.0,
+          "stroke": {
+            "token": "hue.graphite.line"
+          },
+          "width": 1.25
+        },
+        "source": {
+          "ref": "claimed.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 0.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "right"
+          }
+        },
+        "target": {
+          "ref": "s3.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 0.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "left"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "completed",
+      "type": "flowchart.terminal",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "completed.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "completed",
+        "order": 20,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "result comment, claim released, one fyi notice",
+        "bullets": [],
+        "emphasis": false,
+        "hints": {
+          "spine": true
+        },
+        "icon": "",
+        "kicker": "",
+        "meta": "",
+        "name": "completed",
+        "presentation": {
+          "caption": "completed.caption",
+          "group": "completed.group",
+          "shadow": "completed.shadow",
+          "shape": "completed.shape"
+        },
+        "source_hint": "stadium",
+        "source_id": "completed"
+      }
+    },
+    {
+      "id": "completed.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "completed.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "completed.shape"
+          }
+        ],
+        "display_name": "completed.caption",
+        "order": 19,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "fill",
+            "slot": "colour",
+            "style": "lead"
+          }
+        ]
+      },
+      "payload": {
+        "align": "center",
+        "face": "sans.regular",
+        "fill": "#171717",
+        "line_height": 1.391,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 8.0,
+        "runs": [
+          {
+            "end": 9,
+            "face": "sans.semibold",
+            "fill": {
+              "token": "graphite"
+            },
+            "size": 14.0,
+            "start": 0,
+            "tracking": 0.0
+          },
+          {
+            "end": 10,
+            "start": 9
+          },
+          {
+            "end": 56,
+            "face": "sans.regular",
+            "fill": {
+              "token": "lead"
+            },
+            "size": 11.5,
+            "start": 10,
+            "tracking": 0.0
+          }
+        ],
+        "size": 11.5,
+        "text": "completed\nresult comment, claim released, one fyi notice",
+        "tracking": 0.0,
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "completed.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "completed",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "completed.shadow",
+      "type": "arris.exterior_shadow",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "completed.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "subject",
+            "output_port": "body",
+            "producer": "completed.shape"
+          }
+        ],
+        "display_name": "shadow",
+        "order": 17,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "colour",
+            "slot": "colour",
+            "style": "graphite"
+          }
+        ]
+      },
+      "payload": {
+        "bands": 8,
+        "colour": "#1A2330",
+        "falloff": 2.0,
+        "offset": [
+          0.0,
+          1.5
+        ],
+        "opacity": 0.1,
+        "spread": 4.4
+      }
+    },
+    {
+      "id": "completed.shape",
+      "type": "arris.stadium",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "completed.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "completed",
+        "order": 18,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              1394.69,
+              160.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "fill",
+            "slot": "colour",
+            "style": "hue.viridian.tint"
+          },
+          {
+            "property": "stroke",
+            "slot": "colour",
+            "style": "hue.viridian.line"
+          }
+        ]
+      },
+      "payload": {
+        "fill": "#ffffff",
+        "height": 96.0,
+        "opacity": 1.0,
+        "stroke": "#171717",
+        "stroke_width": 1.25,
+        "width": 232.0
+      }
+    },
+    {
+      "id": "completed__claimed",
+      "type": "flowchart.flow",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 4,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "completed__claimed",
+        "order": 46,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "completed",
+        "hints": {},
+        "label": "dm revision",
+        "pinned": true,
+        "presentation": {
+          "edge": "completed__claimed.edge",
+          "label": "label"
+        },
+        "source_hint": "-->",
+        "source_id": "completed__claimed",
+        "to": "claimed"
+      }
+    },
+    {
+      "id": "completed__claimed.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 6,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "dm revision",
+        "edge_order": 45,
+        "end": {
+          "parameters": {
+            "length": 8.4,
+            "width": 7.05
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [
+          {
+            "clearance": 0.0,
+            "label_id": "label",
+            "parameters": {
+              "face": "sans.medium",
+              "fill": {
+                "token": "lead"
+              },
+              "height": 18.0,
+              "padding": 8.0,
+              "paint": true,
+              "radius": 9.0,
+              "size": 10.5,
+              "tag_fill": {
+                "token": "paper"
+              },
+              "tag_stroke": {
+                "token": "hue.graphite.line"
+              },
+              "tag_stroke_width": 1.0,
+              "text": "dm revision"
+            },
+            "placement": {
+              "anchor": "center",
+              "distance": 285.51,
+              "kind": "route-distance",
+              "offset": [
+                0.0,
+                0.0
+              ],
+              "orientation": "route",
+              "rotation": 0.0
+            },
+            "schema_version": 1,
+            "type": "arris.tag"
+          }
+        ],
+        "order": 45,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 8.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": [
+            {
+              "point": [
+                1510.69,
+                300.0
+              ],
+              "space": "page"
+            },
+            {
+              "point": [
+                1020.81,
+                300.0
+              ],
+              "space": "page"
+            }
+          ]
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": {
+            "token": "hue.graphite.line"
+          },
+          "width": 1.5
+        },
+        "source": {
+          "ref": "completed.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 0.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "bottom"
+          }
+        },
+        "target": {
+          "ref": "claimed.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 0.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "bottom"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "completed__open",
+      "type": "flowchart.optional",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "completed__open",
+        "order": 48,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "completed",
+        "hints": {
+          "route": {
+            "enter": "top",
+            "leave": "top"
+          }
+        },
+        "label": "rerun: rev bump",
+        "presentation": {
+          "edge": "completed__open.edge",
+          "label": "label"
+        },
+        "source_hint": "-.->",
+        "source_id": "completed__open",
+        "to": "open"
+      }
+    },
+    {
+      "id": "completed__open.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 6,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "rerun: rev bump",
+        "edge_order": 47,
+        "end": {
+          "parameters": {
+            "length": 7.25,
+            "width": 6.075
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [
+          {
+            "clearance": 0.0,
+            "label_id": "label",
+            "parameters": {
+              "face": "sans.medium",
+              "fill": {
+                "token": "lead"
+              },
+              "height": 18.0,
+              "padding": 8.0,
+              "paint": true,
+              "radius": 9.0,
+              "size": 10.5,
+              "tag_fill": {
+                "token": "paper"
+              },
+              "tag_stroke": {
+                "token": "hue.graphite.line"
+              },
+              "tag_stroke_width": 1.0,
+              "text": "rerun: rev bump"
+            },
+            "placement": {
+              "anchor": "center",
+              "distance": 378.48,
+              "kind": "route-distance",
+              "offset": [
+                0.0,
+                0.0
+              ],
+              "orientation": "route",
+              "rotation": 0.0
+            },
+            "schema_version": 1,
+            "type": "arris.tag"
+          }
+        ],
+        "order": 47,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 8.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": [
+            {
+              "point": [
+                1378.69,
+                208.0
+              ],
+              "space": "page"
+            },
+            {
+              "point": [
+                1378.69,
+                144.0
+              ],
+              "space": "page"
+            },
+            {
+              "point": [
+                288.0,
+                144.0
+              ],
+              "space": "page"
+            },
+            {
+              "point": [
+                288.0,
+                208.0
+              ],
+              "space": "page"
+            }
+          ]
+        },
+        "shaft": {
+          "dash": [
+            5.0,
+            4.0
+          ],
+          "dash_offset": 0.0,
+          "stroke": {
+            "token": "hue.graphite.line"
+          },
+          "width": 1.25
+        },
+        "source": {
+          "ref": "completed.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 0.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "left"
+          }
+        },
+        "target": {
+          "ref": "open.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 0.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "right"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "defs",
+      "type": "arris.defs",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 0,
+      "updated_revision": 0,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "diagram",
+      "type": "flowchart.diagram",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "A delegated request has four states; stalls are reports, not states",
+        "order": 0,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "direction": "LR",
+        "presentation": {
+          "legend": [
+            "diagram.legend.0.sample",
+            "diagram.legend.0",
+            "diagram.legend.1.sample",
+            "diagram.legend.1",
+            "diagram.legend.2.sample",
+            "diagram.legend.2"
+          ],
+          "rule": "diagram.rule",
+          "subtitle": "diagram.subtitle",
+          "title": "diagram.title"
+        },
+        "source_id": "mermaid",
+        "subtitle": "acp-reconciler @dbb3ab6 + delegated-work skill · as implemented",
+        "theme": "transit",
+        "title": "A delegated request has four states; stalls are reports, not states"
+      }
+    },
+    {
+      "id": "diagram.legend.0",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "diagram.legend.0",
+        "order": 61,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              1731.009,
+              43.2375
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "fill",
+            "slot": "colour",
+            "style": "lead"
+          }
+        ]
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.regular",
+        "fill": "#171717",
+        "line_height": 1.25,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "size": 11.5,
+        "text": "main path",
+        "tracking": 0.0
+      }
+    },
+    {
+      "id": "diagram.legend.0.sample",
+      "type": "arris.scenario.line_sample",
+      "schema_version": 1,
+      "provider": "arris.scenario",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "diagram.legend.0.sample",
+        "order": 60,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              1697.009,
+              51.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0",
+        "style_bindings": [
+          {
+            "property": "stroke",
+            "slot": "colour",
+            "style": "line.main"
+          }
+        ]
+      },
+      "payload": {
+        "head": true,
+        "length": 24.0,
+        "stroke": "#2A3442",
+        "width": 2.25
+      }
+    },
+    {
+      "id": "diagram.legend.1",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "diagram.legend.1",
+        "order": 63,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              1731.009,
+              65.8125
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "fill",
+            "slot": "colour",
+            "style": "lead"
+          }
+        ]
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.regular",
+        "fill": "#171717",
+        "line_height": 1.25,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "size": 11.5,
+        "text": "flow",
+        "tracking": 0.0
+      }
+    },
+    {
+      "id": "diagram.legend.1.sample",
+      "type": "arris.scenario.line_sample",
+      "schema_version": 1,
+      "provider": "arris.scenario",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "diagram.legend.1.sample",
+        "order": 62,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              1697.009,
+              73.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0",
+        "style_bindings": [
+          {
+            "property": "stroke",
+            "slot": "colour",
+            "style": "hue.graphite.line"
+          }
+        ]
+      },
+      "payload": {
+        "head": true,
+        "length": 24.0,
+        "stroke": "#7D8898",
+        "width": 1.5
+      }
+    },
+    {
+      "id": "diagram.legend.2",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "diagram.legend.2",
+        "order": 65,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              1731.009,
+              87.2375
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "fill",
+            "slot": "colour",
+            "style": "lead"
+          }
+        ]
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.regular",
+        "fill": "#171717",
+        "line_height": 1.25,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "size": 11.5,
+        "text": "optional",
+        "tracking": 0.0
+      }
+    },
+    {
+      "id": "diagram.legend.2.sample",
+      "type": "arris.scenario.line_sample",
+      "schema_version": 1,
+      "provider": "arris.scenario",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "diagram.legend.2.sample",
+        "order": 64,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              1697.009,
+              95.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0",
+        "style_bindings": [
+          {
+            "property": "stroke",
+            "slot": "colour",
+            "style": "hue.graphite.line"
+          }
+        ]
+      },
+      "payload": {
+        "dash": [
+          5.0,
+          4.0
+        ],
+        "head": true,
+        "length": 24.0,
+        "stroke": "#7D8898",
+        "width": 1.25
+      }
+    },
+    {
+      "id": "diagram.rule",
+      "type": "arris.scenario.line_sample",
+      "schema_version": 1,
+      "provider": "arris.scenario",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "diagram.rule",
+        "order": 59,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              40.0,
+              128.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0",
+        "style_bindings": [
+          {
+            "property": "stroke",
+            "slot": "colour",
+            "style": "rule"
+          }
+        ]
+      },
+      "payload": {
+        "head": false,
+        "length": 1742.69,
+        "stroke": "#D8DEE5",
+        "width": 1.0
+      }
+    },
+    {
+      "id": "diagram.subtitle",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 6,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "subtitle",
+        "order": 2,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              40.0,
+              84.136
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "fill",
+            "slot": "colour",
+            "style": "lead"
+          }
+        ]
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.regular",
+        "fill": "#171717",
+        "line_height": 1.25,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "size": 14.0,
+        "text": "acp-reconciler @dbb3ab6 + delegated-work skill · as implemented",
+        "tracking": 0.0
+      }
+    },
+    {
+      "id": "diagram.title",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 6,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "title",
+        "order": 1,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              40.0,
+              40.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "fill",
+            "slot": "colour",
+            "style": "graphite"
+          }
+        ]
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.semibold",
+        "fill": "#171717",
+        "line_height": 1.25,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "size": 28.0,
+        "text": "A delegated request has four states; stalls are reports, not states",
+        "tracking": -0.4
+      }
+    },
+    {
+      "id": "graphite",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "graphite",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#1A2330"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "ground",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "ground",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#F3F5F8"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "ground.waiting",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "ground.waiting",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#F6F7F9"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "hue.cobalt.ink",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "hue.cobalt.ink",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#2449B8"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "hue.cobalt.line",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "hue.cobalt.line",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#5C7BD9"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "hue.cobalt.tint",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "hue.cobalt.tint",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#EEF2FD"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "hue.graphite.ink",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "hue.graphite.ink",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#1A2330"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "hue.graphite.line",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "hue.graphite.line",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#7D8898"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "hue.graphite.tint",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "hue.graphite.tint",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#F6F7F9"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "hue.ochre.ink",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "hue.ochre.ink",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#8F5F00"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "hue.ochre.line",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "hue.ochre.line",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#CF9A2E"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "hue.ochre.tint",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "hue.ochre.tint",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#FBF3E1"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "hue.plum.ink",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "hue.plum.ink",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#6A3C9E"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "hue.plum.line",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "hue.plum.line",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#9877C9"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "hue.plum.tint",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "hue.plum.tint",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#F3EEFA"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "hue.vermilion.ink",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "hue.vermilion.ink",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#B4401A"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "hue.vermilion.line",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "hue.vermilion.line",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#E0754C"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "hue.vermilion.tint",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "hue.vermilion.tint",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#FCEFE9"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "hue.viridian.ink",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "hue.viridian.ink",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#0B6E5B"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "hue.viridian.line",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "hue.viridian.line",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#2E9C84"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "hue.viridian.tint",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "hue.viridian.tint",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#E8F5F1"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "lead",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "lead",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#4A5565"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "line.main",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "line.main",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#2A3442"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "open",
+      "type": "flowchart.terminal",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "open.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "open",
+        "order": 8,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "requested; assignee agent:id, meta.acp.request.rev N, unclaimed",
+        "bullets": [],
+        "emphasis": false,
+        "hints": {
+          "spine": true
+        },
+        "icon": "",
+        "kicker": "",
+        "meta": "",
+        "name": "open",
+        "presentation": {
+          "caption": "open.caption",
+          "group": "open.group",
+          "shadow": "open.shadow",
+          "shape": "open.shape"
+        },
+        "source_hint": "stadium",
+        "source_id": "open"
+      }
+    },
+    {
+      "id": "open.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "open.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "open.shape"
+          }
+        ],
+        "display_name": "open.caption",
+        "order": 7,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "fill",
+            "slot": "colour",
+            "style": "lead"
+          }
+        ]
+      },
+      "payload": {
+        "align": "center",
+        "face": "sans.regular",
+        "fill": "#171717",
+        "line_height": 1.391,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 8.0,
+        "runs": [
+          {
+            "end": 4,
+            "face": "sans.semibold",
+            "fill": {
+              "token": "graphite"
+            },
+            "size": 14.0,
+            "start": 0,
+            "tracking": 0.0
+          },
+          {
+            "end": 5,
+            "start": 4
+          },
+          {
+            "end": 68,
+            "face": "sans.regular",
+            "fill": {
+              "token": "lead"
+            },
+            "size": 11.5,
+            "start": 5,
+            "tracking": 0.0
+          }
+        ],
+        "size": 11.5,
+        "text": "open\nrequested; assignee agent:id, meta.acp.request.rev N, unclaimed",
+        "tracking": 0.0,
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "open.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "open",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "open.shadow",
+      "type": "arris.exterior_shadow",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "open.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "subject",
+            "output_port": "body",
+            "producer": "open.shape"
+          }
+        ],
+        "display_name": "shadow",
+        "order": 5,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "colour",
+            "slot": "colour",
+            "style": "graphite"
+          }
+        ]
+      },
+      "payload": {
+        "bands": 8,
+        "colour": "#1A2330",
+        "falloff": 2.0,
+        "offset": [
+          0.0,
+          1.5
+        ],
+        "opacity": 0.1,
+        "spread": 4.4
+      }
+    },
+    {
+      "id": "open.shape",
+      "type": "arris.stadium",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "open.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "open",
+        "order": 6,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              40.0,
+              160.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "fill",
+            "slot": "colour",
+            "style": "hue.viridian.tint"
+          },
+          {
+            "property": "stroke",
+            "slot": "colour",
+            "style": "hue.viridian.line"
+          }
+        ]
+      },
+      "payload": {
+        "fill": "#ffffff",
+        "height": 96.0,
+        "opacity": 1.0,
+        "stroke": "#171717",
+        "stroke_width": 1.25,
+        "width": 232.0
+      }
+    },
+    {
+      "id": "open__cancelled",
+      "type": "flowchart.optional",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "open__cancelled",
+        "order": 50,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "open",
+        "hints": {
+          "route": {
+            "leave": "bottom"
+          }
+        },
+        "label": "cancel",
+        "presentation": {
+          "edge": "open__cancelled.edge",
+          "label": "label"
+        },
+        "source_hint": "-.->",
+        "source_id": "open__cancelled",
+        "to": "cancelled"
+      }
+    },
+    {
+      "id": "open__cancelled.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 6,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "cancel",
+        "edge_order": 49,
+        "end": {
+          "parameters": {
+            "length": 7.25,
+            "width": 6.075
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [
+          {
+            "clearance": 0.0,
+            "label_id": "label",
+            "parameters": {
+              "face": "sans.medium",
+              "fill": {
+                "token": "lead"
+              },
+              "height": 18.0,
+              "padding": 8.0,
+              "paint": true,
+              "radius": 9.0,
+              "size": 10.5,
+              "tag_fill": {
+                "token": "paper"
+              },
+              "tag_stroke": {
+                "token": "hue.graphite.line"
+              },
+              "tag_stroke_width": 1.0,
+              "text": "cancel"
+            },
+            "placement": {
+              "anchor": "center",
+              "distance": 1051.72,
+              "kind": "route-distance",
+              "offset": [
+                0.0,
+                0.0
+              ],
+              "orientation": "route",
+              "rotation": 0.0
+            },
+            "schema_version": 1,
+            "type": "arris.tag"
+          }
+        ],
+        "order": 49,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 8.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": [
+            {
+              "point": [
+                156.0,
+                632.0
+              ],
+              "space": "page"
+            },
+            {
+              "point": [
+                1510.69,
+                632.0
+              ],
+              "space": "page"
+            }
+          ]
+        },
+        "shaft": {
+          "dash": [
+            5.0,
+            4.0
+          ],
+          "dash_offset": 0.0,
+          "stroke": {
+            "token": "hue.graphite.line"
+          },
+          "width": 1.25
+        },
+        "source": {
+          "ref": "open.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 0.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "bottom"
+          }
+        },
+        "target": {
+          "ref": "cancelled.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 0.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "bottom"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "open__reserved",
+      "type": "flowchart.main",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 3,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "open__reserved",
+        "order": 38,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "open",
+        "hints": {
+          "route": {
+            "enter": "left",
+            "leave": "right"
+          }
+        },
+        "label": "reconciler reserves",
+        "presentation": {
+          "edge": "open__reserved.edge",
+          "label": "label"
+        },
+        "source_hint": "==>",
+        "source_id": "open__reserved",
+        "to": "reserved"
+      }
+    },
+    {
+      "id": "open__reserved.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 6,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "reconciler reserves",
+        "edge_order": 37,
+        "end": {
+          "parameters": {
+            "length": 11.85,
+            "width": 9.975
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [
+          {
+            "clearance": 0.0,
+            "label_id": "label",
+            "parameters": {
+              "face": "sans.medium",
+              "fill": {
+                "token": "graphite"
+              },
+              "height": 18.0,
+              "padding": 8.0,
+              "paint": true,
+              "radius": 9.0,
+              "size": 10.5,
+              "tag_fill": {
+                "token": "paper"
+              },
+              "tag_stroke": {
+                "token": "line.main"
+              },
+              "tag_stroke_width": 1.0,
+              "text": "reconciler reserves"
+            },
+            "placement": {
+              "anchor": "center",
+              "distance": 77.92,
+              "kind": "route-distance",
+              "offset": [
+                0.0,
+                0.0
+              ],
+              "orientation": "route",
+              "rotation": 0.0
+            },
+            "schema_version": 1,
+            "type": "arris.tag"
+          }
+        ],
+        "order": 37,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 8.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": []
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": {
+            "token": "line.main"
+          },
+          "width": 2.25
+        },
+        "source": {
+          "ref": "open.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 0.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "right"
+          }
+        },
+        "target": {
+          "ref": "reserved.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 0.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "left"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "page",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "page",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#FFFFFF"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "page-1",
+      "type": "arris.page",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 0,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "fill": {
+          "token": "page"
+        },
+        "height": 1032.0,
+        "order": 0,
+        "plane_index": 0,
+        "width": 1831.0
+      },
+      "payload": {}
+    },
+    {
+      "id": "paper",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "paper",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#FFFFFF"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "reserved",
+      "type": "flowchart.terminal",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": "reserved.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "reserved",
+        "order": 12,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "still open; keyed delegation.started fact, HRC assignment turn queued",
+        "bullets": [],
+        "emphasis": false,
+        "hints": {
+          "spine": true
+        },
+        "icon": "",
+        "kicker": "",
+        "meta": "",
+        "name": "reserved",
+        "presentation": {
+          "caption": "reserved.caption",
+          "group": "reserved.group",
+          "shadow": "reserved.shadow",
+          "shape": "reserved.shape"
+        },
+        "source_hint": "stadium",
+        "source_id": "reserved"
+      }
+    },
+    {
+      "id": "reserved.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "reserved.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "reserved.shape"
+          }
+        ],
+        "display_name": "reserved.caption",
+        "order": 11,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "fill",
+            "slot": "colour",
+            "style": "lead"
+          }
+        ]
+      },
+      "payload": {
+        "align": "center",
+        "face": "sans.regular",
+        "fill": "#171717",
+        "line_height": 1.391,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 8.0,
+        "runs": [
+          {
+            "end": 8,
+            "face": "sans.semibold",
+            "fill": {
+              "token": "graphite"
+            },
+            "size": 14.0,
+            "start": 0,
+            "tracking": 0.0
+          },
+          {
+            "end": 9,
+            "start": 8
+          },
+          {
+            "end": 78,
+            "face": "sans.regular",
+            "fill": {
+              "token": "lead"
+            },
+            "size": 11.5,
+            "start": 9,
+            "tracking": 0.0
+          }
+        ],
+        "size": 11.5,
+        "text": "reserved\nstill open; keyed delegation.started fact, HRC assignment turn queued",
+        "tracking": 0.0,
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "reserved.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "reserved",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "reserved.shadow",
+      "type": "arris.exterior_shadow",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "reserved.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "subject",
+            "output_port": "body",
+            "producer": "reserved.shape"
+          }
+        ],
+        "display_name": "shadow",
+        "order": 9,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "colour",
+            "slot": "colour",
+            "style": "graphite"
+          }
+        ]
+      },
+      "payload": {
+        "bands": 8,
+        "colour": "#1A2330",
+        "falloff": 2.0,
+        "offset": [
+          0.0,
+          1.5
+        ],
+        "opacity": 0.1,
+        "spread": 4.4
+      }
+    },
+    {
+      "id": "reserved.shape",
+      "type": "arris.stadium",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "reserved.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "reserved",
+        "order": 10,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              467.84,
+              160.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "fill",
+            "slot": "colour",
+            "style": "hue.viridian.tint"
+          },
+          {
+            "property": "stroke",
+            "slot": "colour",
+            "style": "hue.viridian.line"
+          }
+        ]
+      },
+      "payload": {
+        "fill": "#ffffff",
+        "height": 96.0,
+        "opacity": 1.0,
+        "stroke": "#171717",
+        "stroke_width": 1.25,
+        "width": 232.0
+      }
+    },
+    {
+      "id": "reserved__claimed",
+      "type": "flowchart.main",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 3,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "reserved__claimed",
+        "order": 40,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "reserved",
+        "hints": {
+          "route": {
+            "enter": "left",
+            "leave": "right"
+          }
+        },
+        "label": "worker claims",
+        "presentation": {
+          "edge": "reserved__claimed.edge",
+          "label": "label"
+        },
+        "source_hint": "==>",
+        "source_id": "reserved__claimed",
+        "to": "claimed"
+      }
+    },
+    {
+      "id": "reserved__claimed.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 6,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "worker claims",
+        "edge_order": 39,
+        "end": {
+          "parameters": {
+            "length": 11.85,
+            "width": 9.975
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [
+          {
+            "clearance": 0.0,
+            "label_id": "label",
+            "parameters": {
+              "face": "sans.medium",
+              "fill": {
+                "token": "graphite"
+              },
+              "height": 18.0,
+              "padding": 8.0,
+              "paint": true,
+              "radius": 9.0,
+              "size": 10.5,
+              "tag_fill": {
+                "token": "paper"
+              },
+              "tag_stroke": {
+                "token": "line.main"
+              },
+              "tag_stroke_width": 1.0,
+              "text": "worker claims"
+            },
+            "placement": {
+              "anchor": "center",
+              "distance": 49.73,
+              "kind": "route-distance",
+              "offset": [
+                0.0,
+                0.0
+              ],
+              "orientation": "route",
+              "rotation": 0.0
+            },
+            "schema_version": 1,
+            "type": "arris.tag"
+          }
+        ],
+        "order": 39,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 8.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": []
+        },
+        "shaft": {
+          "dash_offset": 0.0,
+          "stroke": {
+            "token": "line.main"
+          },
+          "width": 2.25
+        },
+        "source": {
+          "ref": "reserved.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 0.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "right"
+          }
+        },
+        "target": {
+          "ref": "claimed.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 0.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "left"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "reserved__s2",
+      "type": "flowchart.optional",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 2,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "reserved__s2",
+        "order": 56,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "from": "reserved",
+        "hints": {
+          "route": {
+            "leave": "bottom"
+          }
+        },
+        "label": "reported",
+        "presentation": {
+          "edge": "reserved__s2.edge",
+          "label": "label"
+        },
+        "source_hint": "-.->",
+        "source_id": "reserved__s2",
+        "to": "s2"
+      }
+    },
+    {
+      "id": "reserved__s2.edge",
+      "type": "arris.edge",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 6,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "reported",
+        "edge_order": 55,
+        "end": {
+          "parameters": {
+            "length": 7.25,
+            "width": 6.075
+          },
+          "schema_version": 1,
+          "type": "arris.filled"
+        },
+        "labels": [
+          {
+            "clearance": 0.0,
+            "label_id": "label",
+            "parameters": {
+              "face": "sans.medium",
+              "fill": {
+                "token": "lead"
+              },
+              "height": 18.0,
+              "padding": 8.0,
+              "paint": true,
+              "radius": 9.0,
+              "size": 10.5,
+              "tag_fill": {
+                "token": "paper"
+              },
+              "tag_stroke": {
+                "token": "hue.graphite.line"
+              },
+              "tag_stroke_width": 1.0,
+              "text": "reported"
+            },
+            "placement": {
+              "anchor": "center",
+              "distance": 1078.37,
+              "kind": "route-distance",
+              "offset": [
+                0.0,
+                0.0
+              ],
+              "orientation": "route",
+              "rotation": 0.0
+            },
+            "schema_version": 1,
+            "type": "arris.tag"
+          }
+        ],
+        "order": 55,
+        "plane_index": 0,
+        "route": {
+          "corner_radius": 8.0,
+          "obstacles": {
+            "mode": "none"
+          },
+          "strategy": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.polyline"
+          },
+          "waypoints": [
+            {
+              "point": [
+                583.84,
+                924.0
+              ],
+              "space": "page"
+            }
+          ]
+        },
+        "shaft": {
+          "dash": [
+            5.0,
+            4.0
+          ],
+          "dash_offset": 0.0,
+          "stroke": {
+            "token": "hue.graphite.line"
+          },
+          "width": 1.25
+        },
+        "source": {
+          "ref": "reserved.shape"
+        },
+        "source_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 0.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "bottom"
+          }
+        },
+        "target": {
+          "ref": "s2.shape"
+        },
+        "target_detail": {
+          "attachment": {
+            "approach": {
+              "min_straight": 0.0,
+              "mode": "normal"
+            },
+            "clearance": 0.0,
+            "fraction": 0.5,
+            "kind": "side",
+            "offset": 0.0,
+            "side": "left"
+          }
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "rule",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "rule",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#D8DEE5"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "s1",
+      "type": "flowchart.process",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "s1.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "ended holder",
+        "order": 28,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "claim held, seat's HRC runtimes all ended",
+        "bullets": [],
+        "emphasis": false,
+        "icon": "",
+        "kicker": "",
+        "meta": "",
+        "name": "ended holder",
+        "presentation": {
+          "caption": "s1.caption",
+          "group": "s1.group",
+          "shadow": "s1.shadow",
+          "shape": "s1.shape"
+        },
+        "source_hint": "rect",
+        "source_id": "s1"
+      }
+    },
+    {
+      "id": "s1.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "s1.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "s1.shape"
+          }
+        ],
+        "display_name": "s1.caption",
+        "order": 27,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "fill",
+            "slot": "colour",
+            "style": "lead"
+          }
+        ]
+      },
+      "payload": {
+        "align": "center",
+        "face": "sans.regular",
+        "fill": "#171717",
+        "line_height": 1.391,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 10.0,
+        "runs": [
+          {
+            "end": 12,
+            "face": "sans.semibold",
+            "fill": {
+              "token": "graphite"
+            },
+            "size": 14.0,
+            "start": 0,
+            "tracking": 0.0
+          },
+          {
+            "end": 13,
+            "start": 12
+          },
+          {
+            "end": 54,
+            "face": "sans.regular",
+            "fill": {
+              "token": "lead"
+            },
+            "size": 11.5,
+            "start": 13,
+            "tracking": 0.0
+          }
+        ],
+        "size": 11.5,
+        "text": "ended holder\nclaim held, seat's HRC runtimes all ended",
+        "tracking": 0.0,
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "s1.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "stalls.group"
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "ended holder",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "s1.shadow",
+      "type": "arris.exterior_shadow",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "s1.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "subject",
+            "output_port": "body",
+            "producer": "s1.shape"
+          }
+        ],
+        "display_name": "shadow",
+        "order": 25,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "colour",
+            "slot": "colour",
+            "style": "graphite"
+          }
+        ]
+      },
+      "payload": {
+        "bands": 8,
+        "colour": "#1A2330",
+        "falloff": 2.0,
+        "offset": [
+          0.0,
+          1.5
+        ],
+        "opacity": 0.1,
+        "spread": 4.4
+      }
+    },
+    {
+      "id": "s1.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "s1.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "ended holder",
+        "order": 26,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              1410.69,
+              696.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "fill",
+            "slot": "colour",
+            "style": "paper"
+          },
+          {
+            "property": "stroke",
+            "slot": "colour",
+            "style": "card.neutral"
+          }
+        ]
+      },
+      "payload": {
+        "corner_radius": 6.0,
+        "fill": "#ffffff",
+        "height": 72.0,
+        "opacity": 1.0,
+        "stroke": "#171717",
+        "stroke_width": 1.25,
+        "width": 200.0
+      }
+    },
+    {
+      "id": "s2",
+      "type": "flowchart.process",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "s2.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "unclaimed reservation",
+        "order": 32,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "current reservation unclaimed past claim window",
+        "bullets": [],
+        "emphasis": false,
+        "icon": "",
+        "kicker": "",
+        "meta": "",
+        "name": "unclaimed reservation",
+        "presentation": {
+          "caption": "s2.caption",
+          "group": "s2.group",
+          "shadow": "s2.shadow",
+          "shape": "s2.shape"
+        },
+        "source_hint": "rect",
+        "source_id": "s2"
+      }
+    },
+    {
+      "id": "s2.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "s2.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "s2.shape"
+          }
+        ],
+        "display_name": "s2.caption",
+        "order": 31,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "fill",
+            "slot": "colour",
+            "style": "lead"
+          }
+        ]
+      },
+      "payload": {
+        "align": "center",
+        "face": "sans.regular",
+        "fill": "#171717",
+        "line_height": 1.391,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 10.0,
+        "runs": [
+          {
+            "end": 21,
+            "face": "sans.semibold",
+            "fill": {
+              "token": "graphite"
+            },
+            "size": 14.0,
+            "start": 0,
+            "tracking": 0.0
+          },
+          {
+            "end": 22,
+            "start": 21
+          },
+          {
+            "end": 69,
+            "face": "sans.regular",
+            "fill": {
+              "token": "lead"
+            },
+            "size": 11.5,
+            "start": 22,
+            "tracking": 0.0
+          }
+        ],
+        "size": 11.5,
+        "text": "unclaimed reservation\ncurrent reservation unclaimed past claim window",
+        "tracking": 0.0,
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "s2.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "stalls.group"
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "unclaimed reservation",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "s2.shadow",
+      "type": "arris.exterior_shadow",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "s2.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "subject",
+            "output_port": "body",
+            "producer": "s2.shape"
+          }
+        ],
+        "display_name": "shadow",
+        "order": 29,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "colour",
+            "slot": "colour",
+            "style": "graphite"
+          }
+        ]
+      },
+      "payload": {
+        "bands": 8,
+        "colour": "#1A2330",
+        "falloff": 2.0,
+        "offset": [
+          0.0,
+          1.5
+        ],
+        "opacity": 0.1,
+        "spread": 4.4
+      }
+    },
+    {
+      "id": "s2.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "s2.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "unclaimed reservation",
+        "order": 30,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              1410.69,
+              888.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "fill",
+            "slot": "colour",
+            "style": "paper"
+          },
+          {
+            "property": "stroke",
+            "slot": "colour",
+            "style": "card.neutral"
+          }
+        ]
+      },
+      "payload": {
+        "corner_radius": 6.0,
+        "fill": "#ffffff",
+        "height": 72.0,
+        "opacity": 1.0,
+        "stroke": "#171717",
+        "stroke_width": 1.25,
+        "width": 200.0
+      }
+    },
+    {
+      "id": "s3",
+      "type": "flowchart.process",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "s3.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "orphaned in_progress",
+        "order": 36,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "body": "unclaimed, no current reservation, past claim window",
+        "bullets": [],
+        "emphasis": false,
+        "icon": "",
+        "kicker": "",
+        "meta": "",
+        "name": "orphaned in_progress",
+        "presentation": {
+          "caption": "s3.caption",
+          "group": "s3.group",
+          "shadow": "s3.shadow",
+          "shape": "s3.shape"
+        },
+        "source_hint": "rect",
+        "source_id": "s3"
+      }
+    },
+    {
+      "id": "s3.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "s3.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "s3.shape"
+          }
+        ],
+        "display_name": "s3.caption",
+        "order": 35,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "fill",
+            "slot": "colour",
+            "style": "lead"
+          }
+        ]
+      },
+      "payload": {
+        "align": "center",
+        "face": "sans.regular",
+        "fill": "#171717",
+        "line_height": 1.391,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 10.0,
+        "runs": [
+          {
+            "end": 20,
+            "face": "sans.semibold",
+            "fill": {
+              "token": "graphite"
+            },
+            "size": 14.0,
+            "start": 0,
+            "tracking": 0.0
+          },
+          {
+            "end": 21,
+            "start": 20
+          },
+          {
+            "end": 73,
+            "face": "sans.regular",
+            "fill": {
+              "token": "lead"
+            },
+            "size": 11.5,
+            "start": 21,
+            "tracking": 0.0
+          }
+        ],
+        "size": 11.5,
+        "text": "orphaned in_progress\nunclaimed, no current reservation, past claim window",
+        "tracking": 0.0,
+        "vertical_align": "center"
+      }
+    },
+    {
+      "id": "s3.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "stalls.group"
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "orphaned in_progress",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "s3.shadow",
+      "type": "arris.exterior_shadow",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "s3.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "subject",
+            "output_port": "body",
+            "producer": "s3.shape"
+          }
+        ],
+        "display_name": "shadow",
+        "order": 33,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "colour",
+            "slot": "colour",
+            "style": "graphite"
+          }
+        ]
+      },
+      "payload": {
+        "bands": 8,
+        "colour": "#1A2330",
+        "falloff": 2.0,
+        "offset": [
+          0.0,
+          1.5
+        ],
+        "opacity": 0.1,
+        "spread": 4.4
+      }
+    },
+    {
+      "id": "s3.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "s3.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "attachments": {
+          "geometry": {
+            "parameters": {},
+            "schema_version": 1,
+            "type": "arris.attachment.box"
+          },
+          "ports": []
+        },
+        "display_name": "orphaned in_progress",
+        "order": 34,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              1410.69,
+              792.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "fill",
+            "slot": "colour",
+            "style": "paper"
+          },
+          {
+            "property": "stroke",
+            "slot": "colour",
+            "style": "card.neutral"
+          }
+        ]
+      },
+      "payload": {
+        "corner_radius": 6.0,
+        "fill": "#ffffff",
+        "height": 72.0,
+        "opacity": 1.0,
+        "stroke": "#171717",
+        "stroke_width": 1.25,
+        "width": 200.0
+      }
+    },
+    {
+      "id": "silver",
+      "type": "arris.style",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": "defs"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "silver",
+        "kind": "colour",
+        "order": 0,
+        "plane_index": 0,
+        "value": {
+          "colour": "#8792A2"
+        }
+      },
+      "payload": {}
+    },
+    {
+      "id": "stalls",
+      "type": "flowchart.lane",
+      "schema_version": 1,
+      "provider": "arris.flowchart",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "stalls.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Stall reports: delegation.stalled + fyi, once per episode",
+        "order": 4,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.1.0"
+      },
+      "payload": {
+        "name": "Stall reports: delegation.stalled + fyi, once per episode",
+        "presentation": {
+          "caption": "stalls.caption",
+          "group": "stalls.group",
+          "shape": "stalls.shape"
+        },
+        "source_hint": "subgraph",
+        "source_id": "stalls"
+      }
+    },
+    {
+      "id": "stalls.caption",
+      "type": "arris.styled_text",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "stalls.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "bindings": [
+          {
+            "input": "caption_region",
+            "output_port": "caption",
+            "producer": "stalls.shape"
+          }
+        ],
+        "display_name": "stalls.caption",
+        "order": 3,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "fill",
+            "slot": "colour",
+            "style": "lead"
+          }
+        ]
+      },
+      "payload": {
+        "align": "left",
+        "face": "sans.regular",
+        "fill": "#171717",
+        "line_height": 1.391,
+        "max_height": 0.0,
+        "max_width": 0.0,
+        "padding": 20.0,
+        "runs": [
+          {
+            "end": 57,
+            "face": "cond.semibold",
+            "fill": {
+              "token": "lead"
+            },
+            "size": 11.0,
+            "start": 0,
+            "tracking": 1.1
+          }
+        ],
+        "size": 11.5,
+        "text": "STALL REPORTS: DELEGATION.STALLED + FYI, ONCE PER EPISODE",
+        "tracking": 0.0,
+        "vertical_align": "top"
+      }
+    },
+    {
+      "id": "stalls.group",
+      "type": "arris.group",
+      "schema_version": 1,
+      "provider": "arris",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": null
+        },
+        "owner": {
+          "parent": null
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Stall reports: delegation.stalled + fyi, once per episode",
+        "order": 0,
+        "plane_index": 0
+      },
+      "payload": {}
+    },
+    {
+      "id": "stalls.shape",
+      "type": "arris.box",
+      "schema_version": 1,
+      "provider": "arris.reference-core",
+      "created_revision": 1,
+      "updated_revision": 1,
+      "hierarchies": {
+        "group": {
+          "parent": "stalls.group"
+        },
+        "owner": {
+          "parent": "page-1"
+        }
+      },
+      "domain_attributes": {
+        "display_name": "Stall reports: delegation.stalled + fyi, once per episode",
+        "order": -10,
+        "order_authored": true,
+        "placement": {
+          "transform": {
+            "translate": [
+              1370.69,
+              640.0
+            ]
+          }
+        },
+        "plane_index": 0,
+        "provider_version": "0.6.0",
+        "style_bindings": [
+          {
+            "property": "fill",
+            "slot": "colour",
+            "style": "ground"
+          },
+          {
+            "property": "stroke",
+            "slot": "colour",
+            "style": "ground"
+          }
+        ]
+      },
+      "payload": {
+        "corner_radius": 10.0,
+        "fill": "#ffffff",
+        "height": 344.0,
+        "opacity": 1.0,
+        "stroke": "#171717",
+        "stroke_width": 0.0,
+        "width": 412.0
+      }
+    }
+  ]
+}
