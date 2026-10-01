@@ -1,7 +1,7 @@
 # ACP reconciler: delegated sessions
 
 **Product decisions settled with Lance; implementation design revised after
-Daedalus's reviews (REJECT, EN-21829 and EN-21832) and resubmitted.** Cody and Mable's peer revision, October 1, 2026. The goal is recorded in
+Daedalus's reviews (REJECT, EN-21829, EN-21832 and EN-21835) and resubmitted.** Cody and Mable's peer revision, October 1, 2026. The goal is recorded in
 [Delegated work and session context isolation](acp-delegated-work-intent.md).
 
 The requester records a concern as a task or subtask and goes back to its work.
@@ -122,16 +122,24 @@ completed or already claimed work as a no-op, including a claim under the same
 scope; ordinary conversation can request revisions. **Assignment fencing:** after
 claiming, the worker re-reads the request and proceeds only if its current
 assignee is the worker's own principal and its `rev` equals the delivered one.
-Otherwise it releases the claim, sets the request back to `open` (claiming had
-moved it to `in_progress`, and release does not restore state), and stops without
-touching outputs. The reopened request is ordinary open, unclaimed work, so the
+Otherwise it rejects without touching outputs, in this order. **Guarded reopen,
+while still holding the claim:** it sets the request back to `open` with
+`--if-match <etag>` from that post-claim re-read (claiming had moved it to
+`in_progress`, and release does not restore state). **Then release.** Holding the
+claim means no successor can claim or complete the request before the reopen, and
+the etag precondition means any intervening change, such as a cancellation,
+fails the reopen instead of being overwritten. On a failed precondition the
+worker skips the reopen and only releases. After release the worker writes no
+further task state. The reopened request is ordinary open, unclaimed work, so the
 next scan reserves a start for its current assignee. A request reassigned before
 any claim can be started for both assignees, but only the current assignee keeps
 the claim. If the current assignee's start arrives while the old assignee
 briefly holds the claim, it no-ops; the request then surfaces through a stall
-rule below rather than running twice. A rejecting worker that dies between
-release and reopening leaves the request `in_progress` and unclaimed, which the
-orphan stall rule reports.
+rule below rather than running twice. A rejecting worker that dies after
+reopening but before releasing leaves an open request held by an ended worker,
+which the ended-holder rule reports. One whose guarded reopen fails, or that dies
+before it, leaves the request `in_progress` and unclaimed, which the orphan rule
+reports.
 Reassigning work that is already claimed is deliberate recovery, as for any held
 claim.
 
@@ -150,8 +158,9 @@ requester next runs must be proved. The reconciler sends only stall notices.
 Questions, clarifications and revisions use ordinary messages in the owner's
 room, or the request task's own room when it has no owner. Messaging keeps its
 existing ability to wake or start a seat. For an explicit revision to completed
-work, the worker marks the same task or subtask `in_progress`, claims it, updates
-its result, then completes and releases it.
+work, the worker marks the same task or subtask `in_progress` with `--if-match`
+on the completed state it read, so a concurrent cancellation or edit is not
+overwritten, then claims it, updates its result, and completes and releases it.
 This avoids reopening it as an unclaimed `open` reconciler request. Pure
 questions leave completed state alone. The revision shows as
 `completed → in_progress` and a claim, with no `delegation.started` fact. A missing
@@ -211,8 +220,8 @@ worker's first act.
 - **Orphaned in progress:** a request that is `in_progress` and unclaimed, with
   no current reservation, for longer than the claim window since its last update.
   Only `open` requests are started, so without this rule such a request would
-  neither start nor stall. It covers a rejecting worker that died before
-  reopening, and a DM-revision worker that set `in_progress` but never claimed.
+  neither start nor stall. It covers a rejecting worker whose guarded reopen
+  failed or that died before reopening, and a DM-revision worker that set `in_progress` but never claimed.
 
 Every unfinished, unclaimed request is therefore either startable (`open`, no
 current reservation), awaiting a claim inside the window, or reported. Recovery is deliberate: inspect the seat, then bump `rev` and reopen,
@@ -247,7 +256,10 @@ copies; reassignment before claim, where only the current assignee keeps the
 claim; worker completion notices for both the initial completion and a DM
 revision, including a revision immediately after completion; ended-holder and
 reserved-but-unclaimed and orphaned-in-progress reporting, including a turn that
-fails before claiming and a rejecting worker that releases without reopening;
+fails before claiming, a rejecting worker whose guarded reopen loses to a
+concurrent cancellation (cancellation preserved, nothing restarted) or to an
+unrelated edit (request left `in_progress`, orphan reported), and a
+rejecting worker that dies between reopen and release;
 assignment rejection followed by a reserved start for the new assignee; a second
 stall episode after reassignment at the same `rev`, reported separately;
 and notice delivery when an ended requester next runs. Verify default-visible
