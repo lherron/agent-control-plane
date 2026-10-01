@@ -7,7 +7,7 @@ import { startAcpCapabilityHost } from 'acp-capability-host'
 import { openSqliteConversationStore } from 'acp-conversation'
 import type { Actor } from 'acp-core'
 import { openInterfaceStore } from 'acp-interface-store'
-import { createJobsScheduler, openSqliteJobsStore } from 'acp-jobs-store'
+import { type JobsStore, createJobsScheduler, openSqliteJobsStore } from 'acp-jobs-store'
 import { createAcpReconciler, readReconcilerConfig } from 'acp-reconciler'
 import { type PbcContinuationJob, openAcpStateStore } from 'acp-state-store'
 import { type SessionRef, normalizeSessionRef, parseScopeRef } from 'agent-scope'
@@ -70,6 +70,7 @@ import {
   DEFAULT_CAUSATION_DEPTH_LIMIT,
   createEventJobEvaluator,
 } from './jobs/event-job-evaluator.js'
+import { createJobFirstBirthAuthority } from './jobs/first-birth-authority.js'
 import { advanceJobFlow } from './jobs/flow-engine.js'
 import { ensureDispatchTimeoutHealthJob } from './jobs/health-dispatch-timeout.js'
 import { ensureHrcFirstTurnMissingJob } from './jobs/hrc-first-turn-missing.js'
@@ -141,6 +142,8 @@ function readPositiveIntegerEnv(name: string): number | undefined {
 export interface ResolveLauncherDepsOptions {
   createHrcClient?: ((socketPath: string) => AcpHrcClient) | undefined
   inputAttemptStore?: InputAttemptStore | undefined
+  /** Vouches for job runs that may first-birth their unbound target (T-09993). */
+  jobsStore?: JobsStore | undefined
   placementSocketPath?: string | undefined
   placementFetch?: FetchPlacementResolution | undefined
   runPreviewFetch?: FetchRunPreview | undefined
@@ -605,6 +608,9 @@ export function resolveLauncherDeps(
     return {
       launchRoleScopedRun: createRealLauncher({
         inputAttemptStore: _options.inputAttemptStore,
+        ...(_options.jobsStore !== undefined
+          ? { jobFirstBirthAuthority: createJobFirstBirthAuthority(_options.jobsStore) }
+          : {}),
       }),
       runLivenessResolver: (run) =>
         new Date(lastObservedActivityMs(run, resolveDatabasePath())).toISOString(),
@@ -1034,6 +1040,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
       : undefined
   const launcherDeps = resolveLauncherDeps(process.env, process.cwd(), {
     inputAttemptStore: stateStore.inputAttempts,
+    ...(jobsStore !== undefined ? { jobsStore } : {}),
   })
   const jobNodeIdentityAuthority =
     jobsStore !== undefined ? createJobNodeIdentityAuthority(launcherDeps.hrcClient) : undefined

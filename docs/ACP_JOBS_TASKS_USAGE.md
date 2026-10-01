@@ -207,6 +207,17 @@ acp job create   --in job.json
   (dispatches to the schedule's `[target]`).
 - **Email:** run `gog send ...` from inside an `exec` step or an agent turn.
 
+**Cold targets.** A job's agent turn may target a scope that has no session yet,
+such as an event hook's `task = "{{ ticket_id }}"`. ACP's launcher otherwise
+refuses to first-birth an unbound scope, because the collaboration ledger owns
+that. A job run is the exception: when the jobs store confirms the run is live
+and its own target is exactly this session, ACP births the scope through HRC's
+native `ensureTarget` door (`session.born cause=summon`) and then dispatches the
+turn as for any bound-local scope. HRC's summon authority still decides
+placement, so a target placed on another node fails `dispatch_failed`. A scope
+bound to another node is always refused, and caller-supplied `/v1/inputs`
+`meta.source` never qualifies on its own.
+
 ---
 
 ## 4. Operate & validate

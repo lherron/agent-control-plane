@@ -22,6 +22,7 @@ import {
 import type { InputAttemptStore, LaunchRoleScopedRun, RunStore } from './deps.js'
 import type { DispatchFence, UpdateRunInput } from './domain/run-store.js'
 import { readHrcEvidence } from './hrc-evidence-origin.js'
+import type { JobFirstBirthAuthority } from './jobs/first-birth-authority.js'
 import { readOptionalString as readString } from './wrkf/value.js'
 
 const DEFAULT_WAIT_TIMEOUT_MS = 180_000
@@ -44,6 +45,8 @@ type RealLauncherOptions = {
   pollIntervalMs?: number | undefined
   createClient?: ((socketPath: string) => HrcClient) | undefined
   inputAttemptStore?: InputAttemptStore | undefined
+  /** Without it, no launch may first-birth an unbound scope. */
+  jobFirstBirthAuthority?: JobFirstBirthAuthority | undefined
 }
 
 export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRoleScopedRun {
@@ -82,12 +85,29 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
     // Human prompt delivery moved to the collaboration ledger in rooms wave 4.
     // Admission returns before this launcher for those envelopes, while this
     // placement gate prevents stale callers from locally first-birthing an
-    // unbound scope or launching against a remote authority.
-    await assertPromptLaunchOwnedLocally({
+    // unbound scope or launching against a remote authority. The one exception
+    // is a verified ACP job run (T-09993): it births its own unbound target
+    // through HRC's native ensure-target door, where HRC's summon authority
+    // still decides placement, then dispatches like any bound-local launch.
+    const placement = await assertPromptLaunchOwnedLocally({
       client,
       sessionRef,
       prompt,
+      jobRunId: readVerifiedJobRunId({
+        inputAttemptStore,
+        inputAttemptId,
+        acpRunId,
+        runStore,
+        sessionRef,
+        authority: options.jobFirstBirthAuthority,
+      }),
     })
+    if (placement === 'job-first-birth') {
+      await client.ensureTarget({
+        sessionRef: toHrcSessionRef(sessionRef),
+        runtimeIntent: normalizedIntent,
+      })
+    }
 
     if (!prompt) {
       // Broker cutover (T-01691): HRC retired the headless cold-start path.
@@ -469,6 +489,40 @@ function resolveHrcDispatchOrigin(input: {
   return hrcDispatchOriginFromActor(run.actor, asRecord(runMetadata['meta']))
 }
 
+/**
+ * The job run this launch belongs to, only when the jobs store confirms it is
+ * live and targets this session. Caller meta alone never qualifies: /v1/inputs
+ * passes meta through, so a claimed `source.kind: 'job'` is just a claim.
+ */
+function readVerifiedJobRunId(input: {
+  inputAttemptStore: InputAttemptStore | undefined
+  inputAttemptId: string | undefined
+  acpRunId: string | undefined
+  runStore: RunStore | undefined
+  sessionRef: SessionRef
+  authority: JobFirstBirthAuthority | undefined
+}): string | undefined {
+  if (input.authority === undefined) {
+    return undefined
+  }
+  const attempt =
+    input.inputAttemptStore !== undefined && input.inputAttemptId !== undefined
+      ? input.inputAttemptStore.getById(input.inputAttemptId)?.inputAttempt
+      : undefined
+  const run =
+    input.runStore !== undefined && input.acpRunId !== undefined
+      ? input.runStore.getRun(input.acpRunId)
+      : undefined
+  const meta =
+    attempt !== undefined ? asRecord(attempt.metadata) : asRecord(asRecord(run?.metadata)['meta'])
+  const source = asRecord(meta['source'])
+  const jobRunId = source['kind'] === 'job' ? readString(source, 'jobRunId') : undefined
+  if (jobRunId === undefined) {
+    return undefined
+  }
+  return input.authority({ jobRunId, sessionRef: input.sessionRef }) ? jobRunId : undefined
+}
+
 function hrcDispatchOriginFromActor(
   actor: Actor,
   metadata: Readonly<Record<string, unknown>> | undefined
@@ -626,19 +680,24 @@ async function assertPromptLaunchOwnedLocally(input: {
   client: HrcClient
   sessionRef: SessionRef
   prompt: string | undefined
-}): Promise<void> {
+  /** Set only when the jobs store vouches for this launch's job run. */
+  jobRunId: string | undefined
+}): Promise<'local' | 'job-first-birth'> {
   if (!input.prompt) {
-    return
+    return 'local'
   }
   // Embedders may inject a partial legacy client. The installed HrcClient has
   // locateScope; preserve the legacy local path only for those partial doubles.
   if (typeof input.client.locateScope !== 'function') {
-    return
+    return 'local'
   }
 
   const location = await input.client.locateScope(input.sessionRef.scopeRef)
   if (!requiresCollaborationLedgerDelivery(location)) {
-    return
+    return 'local'
+  }
+  if (location.authority.state === 'unbound' && input.jobRunId !== undefined) {
+    return 'job-first-birth'
   }
 
   throw new Error(

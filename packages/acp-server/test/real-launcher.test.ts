@@ -295,7 +295,7 @@ describe('real launcher helpers', () => {
     expect(runStore.getRun(acpRun.runId)).toMatchObject({ status: 'pending' })
   })
 
-  test('refuses to first-birth an unbound prompt scope from the local launcher', async () => {
+  test('refuses to first-birth an unbound prompt scope for a non-job launch', async () => {
     const calls: string[] = []
     const runStore = new InMemoryRunStore()
     const sessionRef = {
