@@ -1,7 +1,7 @@
 # ACP reconciler: delegated sessions
 
 **Product decisions settled with Lance; implementation design revised after
-Daedalus's first review (REJECT, EN-21829) and resubmitted.** Cody and Mable's peer revision, October 1, 2026. The goal is recorded in
+Daedalus's reviews (REJECT, EN-21829 and EN-21832) and resubmitted.** Cody and Mable's peer revision, October 1, 2026. The goal is recorded in
 [Delegated work and session context isolation](acp-delegated-work-intent.md).
 
 The requester records a concern as a task or subtask and goes back to its work.
@@ -122,11 +122,16 @@ completed or already claimed work as a no-op, including a claim under the same
 scope; ordinary conversation can request revisions. **Assignment fencing:** after
 claiming, the worker re-reads the request and proceeds only if its current
 assignee is the worker's own principal and its `rev` equals the delivered one.
-Otherwise it releases the claim and stops without touching outputs. A request
-reassigned before any claim can be started for both assignees, but only the
-current assignee keeps the claim. If the current assignee's start arrives while
-the old assignee briefly holds the claim, it no-ops; the request then surfaces
-through the reserved-but-unclaimed stall rule rather than running twice.
+Otherwise it releases the claim, sets the request back to `open` (claiming had
+moved it to `in_progress`, and release does not restore state), and stops without
+touching outputs. The reopened request is ordinary open, unclaimed work, so the
+next scan reserves a start for its current assignee. A request reassigned before
+any claim can be started for both assignees, but only the current assignee keeps
+the claim. If the current assignee's start arrives while the old assignee
+briefly holds the claim, it no-ops; the request then surfaces through a stall
+rule below rather than running twice. A rejecting worker that dies between
+release and reopening leaves the request `in_progress` and unclaimed, which the
+orphan stall rule reports.
 Reassigning work that is already claimed is deliberate recovery, as for any held
 claim.
 
@@ -194,18 +199,33 @@ in-flight requests before removing the old request store and sweeper.
 
 ## Stalls, recovery and proof
 
-The reconciler reports two stalls, both read from current state, so polling
-cannot miss them: a held unfinished claim whose observed worker ended; and a
-current reservation whose request is still unclaimed and unfinished after the
-claim window (default ten minutes, since claiming is the worker's first act).
-The second covers a dispatch that never ran, a turn that failed before claiming,
-and an assignment lost in an existing seat, without correlating a dispatch
-identity. Recovery is deliberate: inspect the seat, then bump `rev` and reopen,
+The reconciler reports three stalls, all read from current state, so polling
+cannot miss them. The claim window defaults to ten minutes, since claiming is the
+worker's first act.
+
+- **Ended holder:** a held claim on unfinished work whose observed worker ended.
+- **Unclaimed reservation:** a current reservation whose request is still
+  unclaimed and unfinished after the claim window. It covers a dispatch that
+  never ran, a turn that failed before claiming, and an assignment lost in an
+  existing seat, without correlating a dispatch identity.
+- **Orphaned in progress:** a request that is `in_progress` and unclaimed, with
+  no current reservation, for longer than the claim window since its last update.
+  Only `open` requests are started, so without this rule such a request would
+  neither start nor stall. It covers a rejecting worker that died before
+  reopening, and a DM-revision worker that set `in_progress` but never claimed.
+
+Every unfinished, unclaimed request is therefore either startable (`open`, no
+current reservation), awaiting a claim inside the window, or reported. Recovery is deliberate: inspect the seat, then bump `rev` and reopen,
 or reassign. Idle detection is deferred; HRC's existing
 reap process covers it for now. The reconciler does not read HRC last-activity
 timestamps. A failed HRC read means unknown, not a timeout. Stalls are observations,
 not new task states: post `delegation.stalled` on the request and notify once per
-episode, keyed by request, `rev` and stall kind. Do not release, retry or mark
+episode. The key names the episode, not just the request:
+`stall:<requestId>:<kind>:<episode>`, where the episode is the reservation's start
+key (which carries `rev` and worker scope) for an unclaimed reservation, and the
+claim generation for an ended holder and for an orphan (release keeps the
+generation). A later worker's failure, after reassignment at the same `rev` or
+after a new claim, is therefore a new episode with its own fact and notice. Do not release, retry or mark
 work failed automatically. Explain reads show readiness, reservation and stall
 evidence.
 
@@ -226,7 +246,10 @@ owner's `wrkp` view; duplicate-start suppression across restart and two loop
 copies; reassignment before claim, where only the current assignee keeps the
 claim; worker completion notices for both the initial completion and a DM
 revision, including a revision immediately after completion; ended-holder and
-reserved-but-unclaimed reporting, including a turn that fails before claiming;
+reserved-but-unclaimed and orphaned-in-progress reporting, including a turn that
+fails before claiming and a rejecting worker that releases without reopening;
+assignment rejection followed by a reserved start for the new assignee; a second
+stall episode after reassignment at the same `rev`, reported separately;
 and notice delivery when an ended requester next runs. Verify default-visible
 creations with requester fields, one `delegation.started` per reserved start,
 `session.born cause=assignment` for new sessions, one `delegation.stalled` per
