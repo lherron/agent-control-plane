@@ -452,6 +452,8 @@ export type MintEventJobRunInput = {
   triggeredAt?: string | undefined
   actor?: Actor | undefined
   actorStamp?: string | undefined
+  /** Fresh verified HRC identity of the admitting node; stamped as the run's execution node. */
+  executionIdentity?: JobExecutionIdentity | undefined
 }
 
 export type ListEventJobMatchesInput = {
@@ -1018,6 +1020,7 @@ export interface JobsStore {
   listDispatchedNonFlowJobRuns(input?: {
     limit?: number | undefined
     executionNodeId?: string | undefined
+    now?: string | undefined
   }): ClaimedDueJob[]
   getJobOutputSinkAttempt(input: {
     jobRunId: string
@@ -2615,9 +2618,14 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
     input: {
       limit?: number | undefined
       executionNodeId?: string | undefined
+      now?: string | undefined
     } = {}
   ): ClaimedDueJob[] => {
     const limit = input.limit ?? DEFAULT_CLAIM_LIMIT
+    const now = input.now ?? new Date().toISOString()
+    // A run with an output sink still in retry backoff has nothing to do this
+    // pass; leaving it out keeps a pile of undeliverable runs from filling the
+    // window and starving newer runs (T-09996).
     const rows = sqlite
       .prepare(
         `
@@ -2628,12 +2636,20 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
             AND j.archived_at IS NULL
             AND j.flow_json IS NULL
             ${input.executionNodeId !== undefined ? 'AND jr.execution_node_id = ?' : ''}
+            AND NOT EXISTS (
+              SELECT 1
+              FROM job_output_sink_attempts a
+              WHERE a.job_run_id = jr.job_run_id
+                AND a.status <> 'succeeded'
+                AND a.next_attempt_at > ?
+            )
           ORDER BY jr.dispatched_at ASC, jr.job_run_id ASC
           LIMIT ?
         `
       )
       .all(
         ...(input.executionNodeId !== undefined ? [input.executionNodeId] : []),
+        now,
         limit
       ) as JobRunRow[]
 
@@ -3011,6 +3027,9 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
         source: input.source,
         ...(input.actor !== undefined ? { actor: input.actor } : {}),
         ...(input.actorStamp !== undefined ? { actorStamp: input.actorStamp } : {}),
+        ...(input.executionIdentity !== undefined
+          ? { executionNodeId: input.executionIdentity.nodeId }
+          : {}),
       }).jobRun
 
       sqlite

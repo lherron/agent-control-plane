@@ -201,6 +201,7 @@ function drainEventInbox(input: {
   leaseOwner: string
   leaseMs: number
   limit: number
+  executionIdentity?: JobExecutionIdentity | undefined
 }): ClaimedDueJob[] {
   const { store, now } = input
   const leaseExpiresAt = new Date(Date.parse(now) + input.leaseMs).toISOString()
@@ -264,6 +265,9 @@ function drainEventInbox(input: {
               ? { targetTaskId: evaluation.targetTaskId }
               : {}),
             triggeredAt: now,
+            ...(input.executionIdentity !== undefined
+              ? { executionIdentity: input.executionIdentity }
+              : {}),
           })
           if (mint.minted) {
             minted.push({ job, jobRun: mint.jobRun })
@@ -316,6 +320,9 @@ export async function tickJobsScheduler(input: TickJobsSchedulerInput): Promise<
           leaseOwner: input.leaseOwner ?? 'acp-scheduler',
           leaseMs: input.eventLeaseMs ?? DEFAULT_EVENT_LEASE_MS,
           limit: input.claimLimit ?? DEFAULT_EVENT_CLAIM_LIMIT,
+          ...(input.executionIdentity !== undefined
+            ? { executionIdentity: input.executionIdentity }
+            : {}),
         })
       : []
 

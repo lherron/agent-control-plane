@@ -49,6 +49,7 @@ export function createJobOutputReconciler(input: JobOutputReconcilerInput): JobO
     const entries = input.jobsStore.listDispatchedNonFlowJobRuns({
       ...(input.limit !== undefined ? { limit: input.limit } : {}),
       ...(executionIdentity !== undefined ? { executionNodeId: executionIdentity.nodeId } : {}),
+      now: now().toISOString(),
     })
 
     for (const entry of entries) {
