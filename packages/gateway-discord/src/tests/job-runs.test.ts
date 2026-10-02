@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import { GatewayDiscordApp } from '../app.js'
-import { buildJobRunCard } from '../job-runs.js'
+import { JobRunFailureCardLimiter, buildJobRunCard } from '../job-runs.js'
 import { createWebhookManager, webhookPayloadHasContent } from '../webhooks.js'
 
 function dispatchedEvent(overrides: Record<string, unknown> = {}) {
@@ -262,5 +262,100 @@ describe('GatewayDiscordApp.pollSystemEventsOnce (T-05245)', () => {
     const second = await app.pollSystemEventsOnce()
     expect(second).toBe(3) // fake returns same list, but URL now uses the advanced cursor
     expect(requestedUrls[1]).toContain('afterEventId=12')
+  })
+})
+
+describe('job-runs failure card rate limit (T-10005)', () => {
+  function failedEvent(
+    id: number,
+    slug = 'transcript-summary-discord',
+    errorCode = 'output_delivery_exhausted'
+  ) {
+    return {
+      eventId: String(id),
+      kind: 'job.completed',
+      projectId: 'media-ingest',
+      occurredAt: '2026-10-01T22:00:00.000Z',
+      payload: {
+        ...dispatchedEvent().payload,
+        jobSlug: slug,
+        jobRunId: `jr-${id}`,
+        agentId: 'mneme',
+        projectId: 'media-ingest',
+        status: 'failed',
+        errorCode,
+        errorMessage: 'sink[0] down',
+      },
+    }
+  }
+
+  test('posts 3 failure cards per job per window, then one plain summary when the window rolls', () => {
+    let clock = 0
+    const limiter = new JobRunFailureCardLimiter({ now: () => clock })
+    const admitted = Array.from({ length: 145 }, (_, i) => limiter.admit(failedEvent(i + 1)))
+    expect(admitted.filter(Boolean)).toHaveLength(3)
+    expect(limiter.takeSummaries()).toEqual([])
+
+    clock += 10 * 60_000
+    const summaries = limiter.takeSummaries()
+    expect(summaries).toHaveLength(1)
+    const embed = (summaries[0]?.embeds as Array<Record<string, unknown>>)[0]
+    expect(embed?.['title']).toBe('✗ 142 more failed runs · transcript-summary-discord')
+    expect(JSON.stringify(embed?.['fields'])).toContain('output_delivery_exhausted × 142')
+    expect(JSON.stringify(embed?.['fields'])).toContain('jr-4')
+    expect(JSON.stringify(embed?.['fields'])).toContain('jr-145')
+    expect(limiter.takeSummaries()).toEqual([])
+    // A new window admits individual cards again.
+    expect(limiter.admit(failedEvent(200))).toBe(true)
+  })
+
+  test('limits each job separately and never limits started or succeeded cards', () => {
+    const limiter = new JobRunFailureCardLimiter({ now: () => 0 })
+    for (let i = 0; i < 3; i += 1) {
+      expect(limiter.admit(failedEvent(i, 'job-a'))).toBe(true)
+    }
+    expect(limiter.admit(failedEvent(10, 'job-a'))).toBe(false)
+    expect(limiter.admit(failedEvent(11, 'job-b'))).toBe(true)
+    expect(limiter.admit(dispatchedEvent())).toBe(true)
+    expect(
+      limiter.admit({
+        ...failedEvent(12, 'job-a'),
+        payload: { ...failedEvent(12, 'job-a').payload, status: 'succeeded' },
+      })
+    ).toBe(true)
+  })
+
+  test('pollSystemEventsOnce posts capped failure cards and flushes the summary on a later poll', async () => {
+    const channel = new FakeChannel('chan-job-runs')
+    const client = new FakeClient()
+    client.add(channel)
+    let batch: unknown[] = Array.from({ length: 20 }, (_, i) => failedEvent(i + 1))
+    const fetchImpl = async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({ events: batch }),
+        text: async () => '',
+      }) as unknown as Response
+    let clock = 0
+    const app = new GatewayDiscordApp({
+      acpBaseUrl: 'http://acp.local',
+      gatewayId: 'g',
+      client: client as never,
+      fetchImpl: fetchImpl as never,
+      jobRunsChannelId: 'chan-job-runs',
+      jobRunFailureCardLimiter: new JobRunFailureCardLimiter({ now: () => clock }),
+    })
+
+    await app.pollSystemEventsOnce()
+    const webhook = [...channel.webhooks.values()][0]
+    expect(webhook?.sends).toHaveLength(3)
+
+    batch = []
+    clock += 10 * 60_000
+    await app.pollSystemEventsOnce()
+    expect(webhook?.sends).toHaveLength(4)
+    const embed = (webhook?.sends[3]?.['embeds'] as Array<Record<string, unknown>>)[0]
+    expect(embed?.['title']).toBe('✗ 17 more failed runs · transcript-summary-discord')
   })
 })

@@ -46,7 +46,11 @@ import {
   formatSessionSubtext,
   identityFromSessionRef,
 } from './identity.js'
-import { type JobLifecycleSystemEvent, buildJobRunCard } from './job-runs.js'
+import {
+  type JobLifecycleSystemEvent,
+  JobRunFailureCardLimiter,
+  buildJobRunCard,
+} from './job-runs.js'
 import {
   type KeywordRoute,
   buildDiscordThreadLaneRef,
@@ -558,6 +562,8 @@ export type GatewayDiscordAppOptions = {
    * Discord channel (the #job-runs egress). Unset disables job-runs cards. */
   jobRunsChannelId?: string | undefined
   jobRunsPollMs?: number | undefined
+  /** Bounds failed job.completed cards per job (T-10005); injectable for tests. */
+  jobRunFailureCardLimiter?: JobRunFailureCardLimiter | undefined
   /** When set, post wrkq.* / wrkf.* lifecycle cards to this fixed Discord channel
    * (the #work-activity egress, T-05270). Unset disables only those cards; the
    * shared system-events poll loop still runs if jobRunsChannelId is set. */
@@ -629,6 +635,7 @@ export class GatewayDiscordApp {
   private deliveryCursor: string | undefined
   private readonly jobRunsChannelId?: string | undefined
   private readonly jobRunsPollMs: number
+  private readonly jobRunFailureCardLimiter: JobRunFailureCardLimiter
   private readonly workActivityChannelId?: string | undefined
   private systemEventsLoopPromise: Promise<void> | undefined
   private systemEventsLoopStopped = false
@@ -677,6 +684,8 @@ export class GatewayDiscordApp {
         ? options.jobRunsChannelId.trim()
         : undefined
     this.jobRunsPollMs = options.jobRunsPollMs ?? this.deliveryPollMs
+    this.jobRunFailureCardLimiter =
+      options.jobRunFailureCardLimiter ?? new JobRunFailureCardLimiter()
     this.workActivityChannelId =
       options.workActivityChannelId !== undefined && options.workActivityChannelId.trim().length > 0
         ? options.workActivityChannelId.trim()
@@ -1595,7 +1604,10 @@ export class GatewayDiscordApp {
         return undefined
       }
       const card = buildJobRunCard(event)
-      return card === undefined ? undefined : { channelId: this.jobRunsChannelId, card }
+      if (card === undefined || !this.jobRunFailureCardLimiter.admit(event)) {
+        return undefined
+      }
+      return { channelId: this.jobRunsChannelId, card }
     }
     if (isWorkActivityKind(event.kind)) {
       if (this.workActivityChannelId === undefined) {
@@ -1620,6 +1632,14 @@ export class GatewayDiscordApp {
       `/v1/admin/system-events?afterEventId=${encodeURIComponent(cursor)}&limit=200`
     )
 
+    // Failure summaries for job windows that ended before this batch (flushed every poll, so a
+    // summary never waits for the job's next failure).
+    if (this.jobRunsChannelId !== undefined) {
+      for (const card of this.jobRunFailureCardLimiter.takeSummaries()) {
+        await this.postLifecycleCard(this.jobRunsChannelId, card, { kind: 'job.failure_summary' })
+      }
+    }
+
     for (const event of payload.events) {
       // Advance the cursor first so a card that fails to render/send is not
       // retried forever (best-effort egress; the stores remain the record).
@@ -1631,25 +1651,32 @@ export class GatewayDiscordApp {
       if (target === undefined) {
         continue
       }
-      try {
-        await this.webhooks.send(target.channelId, target.card)
-      } catch (error) {
-        log.warn('gw.system_events.post_failed', {
-          message: 'Failed to post lifecycle card',
-          trace: { gatewayId: this.gatewayId },
-          data: {
-            eventId: event.eventId,
-            kind: event.kind,
-            channelId: target.channelId,
-          },
-          err: {
-            message: error instanceof Error ? error.message : String(error),
-          },
-        })
-      }
+      await this.postLifecycleCard(target.channelId, target.card, {
+        eventId: event.eventId,
+        kind: event.kind,
+      })
     }
 
     return payload.events.length
+  }
+
+  private async postLifecycleCard(
+    channelId: string,
+    card: WebhookPayload,
+    data: { eventId?: string; kind: string }
+  ): Promise<void> {
+    try {
+      await this.webhooks.send(channelId, card)
+    } catch (error) {
+      log.warn('gw.system_events.post_failed', {
+        message: 'Failed to post lifecycle card',
+        trace: { gatewayId: this.gatewayId },
+        data: { ...data, channelId },
+        err: {
+          message: error instanceof Error ? error.message : String(error),
+        },
+      })
+    }
   }
 
   private async runSystemEventsLoop(): Promise<void> {

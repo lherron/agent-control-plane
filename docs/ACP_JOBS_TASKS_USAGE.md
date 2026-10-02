@@ -218,6 +218,26 @@ placement, so a target placed on another node fails `dispatch_failed`. A scope
 bound to another node is always refused, and caller-supplied `/v1/inputs`
 `meta.source` never qualifies on its own.
 
+**Output sinks (non-flow jobs, e.g. event hooks).** `[[output.sinks]]` POSTs the
+run's final markdown to a loopback webhook. A failed POST retries with backoff
+(60s doubling, capped at 15 min), but delivery is bounded. After
+`output.delivery.maxAttempts` failed attempts (default 24, about 5 hours of
+retrying) or `output.delivery.maxAgeSeconds` since the first attempt (default
+86400), the job run settles `failed` with `output_delivery_exhausted`. The error
+names the sink, the attempt count and the last error. A non-loopback sink
+(`output_sink_invalid`) or an oversized payload (`output_payload_too_large`)
+fails at once. Any other key under `output` or `output.delivery` is refused.
+
+```toml
+[output.delivery]
+maxAttempts = 6        # 1..1000
+maxAgeSeconds = 3600   # 60..604800
+```
+
+A failed run posts its normal `#job-runs` card. Each job gets at most 3 failure
+cards per 10 minutes. Further failures in that window are summarised in one
+card when the window ends.
+
 ---
 
 ## 4. Operate & validate

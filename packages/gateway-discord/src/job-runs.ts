@@ -201,3 +201,141 @@ export function buildJobRunCard(event: JobLifecycleSystemEvent): WebhookPayload 
     embeds: [embed],
   }
 }
+
+const FAILURE_CARDS_PER_WINDOW = 3
+const FAILURE_CARD_WINDOW_MS = 10 * 60_000
+const SUMMARY_CODES_MAX = 10
+
+type FailureWindow = {
+  startedAt: number
+  posted: number
+  suppressed: number
+  agentId: string
+  projectId: string
+  errorCodes: Map<string, number>
+  firstJobRunId?: string | undefined
+  lastJobRunId?: string | undefined
+}
+
+/**
+ * Bounds #job-runs failure cards (T-10005): per job slug, at most 3 individual
+ * failed `job.completed` cards per 10-minute window. Further failures in the
+ * window are counted, and one summary card reports them once the window ends,
+ * so a mass failure (e.g. a dead sink settling a backlog) cannot flood the
+ * channel. Started and succeeded cards are never limited. In-memory: a restart
+ * starts fresh windows.
+ */
+export class JobRunFailureCardLimiter {
+  private readonly windows = new Map<string, FailureWindow>()
+  private readonly now: () => number
+  private readonly perWindow: number
+  private readonly windowMs: number
+
+  constructor(
+    options: {
+      now?: (() => number) | undefined
+      perWindow?: number | undefined
+      windowMs?: number | undefined
+    } = {}
+  ) {
+    this.now = options.now ?? Date.now
+    this.perWindow = options.perWindow ?? FAILURE_CARDS_PER_WINDOW
+    this.windowMs = options.windowMs ?? FAILURE_CARD_WINDOW_MS
+  }
+
+  /** True when the event's card should be posted; false when it is counted
+   * toward its job's summary instead. */
+  admit(event: JobLifecycleSystemEvent): boolean {
+    if (event.kind !== JOB_COMPLETED_EVENT || event.payload['status'] !== 'failed') {
+      return true
+    }
+    const payload = event.payload
+    const slug = asString(payload['jobSlug']) ?? asString(payload['jobId']) ?? 'job'
+    const now = this.now()
+    let window = this.windows.get(slug)
+    if (
+      window !== undefined &&
+      now - window.startedAt >= this.windowMs &&
+      window.suppressed === 0
+    ) {
+      this.windows.delete(slug)
+      window = undefined
+    }
+    if (window === undefined) {
+      window = {
+        startedAt: now,
+        posted: 0,
+        suppressed: 0,
+        agentId: asString(payload['agentId']) ?? 'unknown',
+        projectId: asString(payload['projectId']) ?? event.projectId,
+        errorCodes: new Map(),
+      }
+      this.windows.set(slug, window)
+    }
+    if (window.posted < this.perWindow) {
+      window.posted += 1
+      return true
+    }
+    window.suppressed += 1
+    const errorCode = asString(payload['errorCode']) ?? 'unknown'
+    window.errorCodes.set(errorCode, (window.errorCodes.get(errorCode) ?? 0) + 1)
+    const jobRunId = asString(payload['jobRunId'])
+    window.firstJobRunId ??= jobRunId
+    window.lastJobRunId = jobRunId ?? window.lastJobRunId
+    return false
+  }
+
+  /** Summary cards for windows that have ended with suppressed failures. Each
+   * window is reported once and then cleared. */
+  takeSummaries(): WebhookPayload[] {
+    const now = this.now()
+    const cards: WebhookPayload[] = []
+    for (const [slug, window] of this.windows) {
+      if (now - window.startedAt < this.windowMs) {
+        continue
+      }
+      this.windows.delete(slug)
+      if (window.suppressed > 0) {
+        cards.push(buildFailureSummaryCard(slug, window, this.perWindow, this.windowMs))
+      }
+    }
+    return cards
+  }
+}
+
+function buildFailureSummaryCard(
+  slug: string,
+  window: FailureWindow,
+  perWindow: number,
+  windowMs: number
+): WebhookPayload {
+  const codes = [...window.errorCodes.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, SUMMARY_CODES_MAX)
+    .map(([code, count]) => `${code} × ${count}`)
+    .join('\n')
+  const runs =
+    window.firstJobRunId === window.lastJobRunId
+      ? (window.firstJobRunId ?? EM_DASH)
+      : `${window.firstJobRunId ?? EM_DASH} … ${window.lastJobRunId ?? EM_DASH}`
+  const noun = window.suppressed === 1 ? 'run' : 'runs'
+  return {
+    username: `${window.agentId} · jobs`,
+    avatar_url: avatarFor(window.agentId),
+    embeds: [
+      {
+        title: `✗ ${window.suppressed} more failed ${noun} · ${slug}`.slice(0, 256),
+        description: `This job failed more than ${perWindow} times in ${Math.round(windowMs / 60_000)} minutes. The extra failures are summarised here rather than posted one by one.`,
+        color: COLOR_FAILED,
+        thumbnail: { url: avatarFor(window.agentId) },
+        fields: [
+          inlineField('Agent', window.agentId),
+          inlineField('Project', window.projectId),
+          { name: 'Errors', value: truncate(codes || EM_DASH, FIELD_VALUE_MAX), inline: false },
+          { name: 'Runs', value: truncate(runs, FIELD_VALUE_MAX), inline: false },
+        ],
+        timestamp: new Date(window.startedAt).toISOString(),
+      },
+    ],
+  }
+}
