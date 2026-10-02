@@ -28,7 +28,7 @@ source:
   - packages/gateway-discord/src/app.ts
   - packages/gateway-discord/src/webhooks.ts
   - packages/acp-interface-store/src/open-store.ts
-  - packages/gateway-discord/src/tests/ledger-human-egress.test.ts
+  - packages/gateway-discord/src/tests/app.e2e.test.ts
   - wrkq:R-00032
 required_tests:
   - routed human envelopes produce both sinks while scoped seat envelopes produce only the root mirror
