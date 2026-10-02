@@ -291,3 +291,7 @@ Diagrams: [system view](acp-reconciler-design/architecture.png)
 ([editable](acp-reconciler-design/architecture.arris.json)) and
 [flow](acp-reconciler-design/protocol.png)
 ([editable](acp-reconciler-design/protocol.arris.json)).
+
+As built (2026-10-01): [delegated request lifecycle](acp-reconciler-design/delegated-request-lifecycle.png)
+([editable](acp-reconciler-design/delegated-request-lifecycle.arris.json)),
+drawn by the reconciler's own first documentation request (T-10011.diagram).
