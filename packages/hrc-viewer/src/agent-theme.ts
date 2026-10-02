@@ -46,6 +46,9 @@ export const CURATED_AGENT_COLORS: Readonly<Record<string, string>> = {
   smokey: '#B5562E', // Ember
   ariadne: '#9C3F77', // Plum
   curly: '#A8792B', // Ochre
+  // Saffron — between curly's ochre and the yellow-green fallbacks; avoids
+  // mable's former exact collision with looper and near-match with astra.
+  mable: '#A69D2F',
   // Garnet — the cast's only red, centered in the empty arc between ariadne's
   // plum (324°) and smokey's ember (18°): 27° clear of each (T-07980).
   chief: '#A72F41',
