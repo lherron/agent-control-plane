@@ -24,12 +24,12 @@
     "test": "bun test"
   },
   "dependencies": {
-    "agent-scope": "0.1.1-dev.20261003114510",
+    "agent-scope": "0.1.1-dev.20261003143947",
     "hrc-core": "0.5.13-dev.20261003130456",
     "hrc-injector-core": "0.1.0-dev.20260920014352",
     "hrc-sdk": "0.5.13-dev.20261003130456",
     "hrc-store-sqlite": "0.5.13-dev.20261003130456",
-    "spaces-harness-broker-protocol": "0.1.1-dev.20261003114510"
+    "spaces-harness-broker-protocol": "0.1.1-dev.20261003143947"
   },
   "devDependencies": {
     "@types/bun": "1.3.14",

@@ -1,4 +1,5 @@
 import { badRequest, json, notFound } from '../http.js'
+import { withProfileAvatars } from './agent-inspection.js'
 
 import type { RouteHandler } from '../routing/route-context.js'
 import type { AdminAgentDetailResponse } from './admin-detail-response-types.js'
@@ -75,7 +76,7 @@ export const handleGetAdminAgentDetail: RouteHandler = async ({ params, deps }) 
   }
 
   const body: AdminAgentDetailResponse = {
-    agent,
+    agent: (await withProfileAvatars(deps, [agent]))[0] ?? { ...agent, profile: undefined },
     memberships,
     jobs,
     ...(heartbeat !== undefined ? { heartbeat } : {}),

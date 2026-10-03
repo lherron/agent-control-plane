@@ -8,7 +8,6 @@ export const AGENT_PROFILE_SEED: Record<AgentProfileSeedAgentId, AgentProfileSee
   clod: {
     displayColor: '#d97a4a',
     monogram: 'C',
-    avatarUrl: '/v1/assets/agents/clod/pfp.png',
     tagline: 'clod code rules the world',
     vibe: ['terse', 'executable', 'deadpan'],
     role: 'principal engineer · claude code',
@@ -18,7 +17,6 @@ export const AGENT_PROFILE_SEED: Record<AgentProfileSeedAgentId, AgentProfileSee
   cody: {
     displayColor: '#7fbfb1',
     monogram: 'Co',
-    avatarUrl: '/v1/assets/agents/cody/pfp.png',
     tagline: 'codex of operations',
     vibe: ['procedural', 'patient', 'deliberate'],
     role: 'principal engineer · openai codex',
@@ -28,7 +26,6 @@ export const AGENT_PROFILE_SEED: Record<AgentProfileSeedAgentId, AgentProfileSee
   larry: {
     displayColor: '#d68aa0',
     monogram: 'L',
-    avatarUrl: '/v1/assets/agents/larry/pfp.png',
     tagline: 'a poet in a pinstripe suit',
     vibe: ['narrative', 'wry', 'considered'],
     role: 'narrator · conversational ops',

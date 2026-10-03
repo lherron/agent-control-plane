@@ -1814,17 +1814,22 @@ describe('GatewayDiscordApp local e2e', () => {
       client: client as never,
       fetchImpl: createFetch(async (request) => {
         const url = new URL(request.url)
-        if (url.pathname === '/v1/admin/agents/cody') {
+        if (url.pathname === '/admin/agents') {
           return Response.json({
-            agent: {
-              agentId: 'cody',
-              profile: { avatarUrl: '/v1/assets/agents/cody/pfp.png' },
-            },
-          })
-        }
-        if (url.pathname === '/v1/assets/agents/cody/pfp.png') {
-          return new Response(Buffer.from('fake-png-bytes'), {
-            headers: { 'content-type': 'image/png' },
+            projectId: null,
+            contexts: {},
+            agents: [
+              {
+                agentId: 'cody',
+                displayName: 'Cody',
+                role: null,
+                avatarUrl: 'https://example.com/cody.png',
+                sourceAvailability: { profile: true, soul: true, contextTemplate: false },
+                diagnostics: [],
+                warningCount: 0,
+                errorCount: 0,
+              },
+            ],
           })
         }
 
@@ -1846,6 +1851,7 @@ describe('GatewayDiscordApp local e2e', () => {
       createdAt: '2026-06-10T15:00:00.000Z',
     }
 
+    await app.refreshBindings()
     await (
       app as unknown as {
         deliverToDiscord(delivery: DeliveryRequest): Promise<void>
@@ -1856,9 +1862,10 @@ describe('GatewayDiscordApp local e2e', () => {
     expect(webhook).toBeDefined()
     expect(webhook?.sent).toHaveLength(1)
     expect(webhook?.sent[0]?.username).toBe('cody')
-    expect(webhook?.sent[0]?.avatar_url ?? webhook?.sent[0]?.avatarURL).toBeUndefined()
-    expect(webhook?.avatarEdits).toHaveLength(1)
-    expect(webhook?.avatarEdits[0]?.avatar).toEqual(Buffer.from('fake-png-bytes'))
+    expect(webhook?.sent[0]?.avatar_url ?? webhook?.sent[0]?.avatarURL).toBe(
+      'https://example.com/cody.png'
+    )
+    expect(webhook?.avatarEdits).toHaveLength(0)
   })
 
   test('sends delivery body attachments through the agent webhook without reply references', async () => {
@@ -1948,17 +1955,22 @@ describe('GatewayDiscordApp local e2e', () => {
       client: client as never,
       fetchImpl: createFetch(async (request) => {
         const url = new URL(request.url)
-        if (url.pathname === '/v1/admin/agents/cody') {
+        if (url.pathname === '/admin/agents') {
           return Response.json({
-            agent: {
-              agentId: 'cody',
-              profile: { avatarUrl: '/v1/assets/agents/cody/pfp.png' },
-            },
-          })
-        }
-        if (url.pathname === '/v1/assets/agents/cody/pfp.png') {
-          return new Response(Buffer.from('fake-png-bytes'), {
-            headers: { 'content-type': 'image/png' },
+            projectId: null,
+            contexts: {},
+            agents: [
+              {
+                agentId: 'cody',
+                displayName: 'Cody',
+                role: null,
+                avatarUrl: 'https://example.com/cody.png',
+                sourceAvailability: { profile: true, soul: true, contextTemplate: false },
+                diagnostics: [],
+                warningCount: 0,
+                errorCount: 0,
+              },
+            ],
           })
         }
 
@@ -1966,6 +1978,7 @@ describe('GatewayDiscordApp local e2e', () => {
       }),
     })
 
+    await app.refreshBindings()
     const placeholder = await (
       app as unknown as {
         createPlaceholder(input: {
@@ -2005,9 +2018,10 @@ describe('GatewayDiscordApp local e2e', () => {
     expect(webhook).toBeDefined()
     expect(webhook?.sent).toHaveLength(1)
     expect(webhook?.sent[0]?.username).toBe('cody')
-    expect(webhook?.sent[0]?.avatar_url ?? webhook?.sent[0]?.avatarURL).toBeUndefined()
-    expect(webhook?.avatarEdits).toHaveLength(1)
-    expect(webhook?.avatarEdits[0]?.avatar).toEqual(Buffer.from('fake-png-bytes'))
+    expect(webhook?.sent[0]?.avatar_url ?? webhook?.sent[0]?.avatarURL).toBe(
+      'https://example.com/cody.png'
+    )
+    expect(webhook?.avatarEdits).toHaveLength(0)
     expect(webhook?.sent[0]?.content).toBe(
       '-# cody@agent-spaces:T-04321~main\n⏳ **Processing:** Please do the work'
     )
@@ -2019,10 +2033,7 @@ describe('GatewayDiscordApp local e2e', () => {
       identity: {
         agentId: 'cody',
         subtext: 'cody@agent-spaces:T-04321~main',
-        webhookAvatar: {
-          key: 'cody:/v1/assets/agents/cody/pfp.png',
-          data: Buffer.from('fake-png-bytes'),
-        },
+        avatarUrl: 'https://example.com/cody.png',
       },
     })
   })

@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { openSqliteAdminStore } from 'acp-admin-store'
@@ -9,9 +8,7 @@ import type { AdminAgent, AdminAgentProfile } from 'acp-core'
 import { AGENT_PROFILE_SEED } from '../src/seed/agent-profile-seed.js'
 
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)))
-const repoRoot = dirname(dirname(packageRoot))
 const seedScriptPath = join(packageRoot, 'src/seed/seed-agent-profiles.ts')
-const pfpSourceDir = join(repoRoot, 'packages/acp-viewer/public/pfp')
 const seededPfpAgentIds = ['clod', 'cody', 'larry'] as const
 const missingAgentId = 'virtu'
 const actor = { kind: 'agent', id: 'smokey', displayName: 'Smokey' } as const
@@ -25,7 +22,7 @@ afterEach(() => {
 })
 
 describe('agent profile seed script', () => {
-  test('patches existing agents, skips missing agents, and is idempotent for DB rows and PFP assets', async () => {
+  test('patches metadata idempotently without copying or seeding avatars', async () => {
     const fixture = createFixture()
     const existingAgentIds = Object.keys(AGENT_PROFILE_SEED).filter(
       (agentId) => agentId !== missingAgentId
@@ -36,7 +33,6 @@ describe('agent profile seed script', () => {
     expectSeedRunSucceeded(firstRun)
 
     const firstAgents = readAgents(fixture.dbPath)
-    const firstAssets = readPfpAssetState(fixture.assetsDir)
 
     for (const agentId of existingAgentIds) {
       expect(firstAgents.find((agent) => agent.agentId === agentId)?.profile).toEqual(
@@ -46,21 +42,16 @@ describe('agent profile seed script', () => {
     expect(firstAgents.some((agent) => agent.agentId === missingAgentId)).toBe(false)
 
     for (const agentId of seededPfpAgentIds) {
-      const targetPath = join(fixture.assetsDir, 'agents', agentId, 'pfp.png')
-      expect(existsSync(targetPath)).toBe(true)
-      expect(firstAssets[agentId]).toEqual({
-        path: targetPath,
-        hash: sha256(targetPath),
-        sourceHash: sha256(join(pfpSourceDir, `${agentId}.png`)),
-        mtimeMs: statSync(targetPath).mtimeMs,
-      })
+      expect(existsSync(join(fixture.assetsDir, 'agents', agentId, 'pfp.png'))).toBe(false)
+      expect(
+        firstAgents.find((agent) => agent.agentId === agentId)?.profile?.avatarUrl
+      ).toBeUndefined()
     }
 
     const secondRun = await runSeedScript(fixture)
     expectSeedRunSucceeded(secondRun)
 
     expect(readAgents(fixture.dbPath)).toEqual(firstAgents)
-    expect(readPfpAssetState(fixture.assetsDir)).toEqual(firstAssets)
   })
 
   test('can seed through an already-open admin store without competing for the sqlite writer', async () => {
@@ -162,35 +153,6 @@ function normalizeProfile(profile: AdminAgentProfile): AdminAgentProfile {
     ...(profile.vibe !== undefined ? { vibe: profile.vibe } : {}),
     ...(profile.specialties !== undefined ? { specialties: profile.specialties } : {}),
   }
-}
-
-function readPfpAssetState(
-  assetsDir: string
-): Record<
-  (typeof seededPfpAgentIds)[number],
-  { path: string; hash: string; sourceHash: string; mtimeMs: number }
-> {
-  return Object.fromEntries(
-    seededPfpAgentIds.map((agentId) => {
-      const targetPath = join(assetsDir, 'agents', agentId, 'pfp.png')
-      return [
-        agentId,
-        {
-          path: targetPath,
-          hash: sha256(targetPath),
-          sourceHash: sha256(join(pfpSourceDir, `${agentId}.png`)),
-          mtimeMs: statSync(targetPath).mtimeMs,
-        },
-      ]
-    })
-  ) as Record<
-    (typeof seededPfpAgentIds)[number],
-    { path: string; hash: string; sourceHash: string; mtimeMs: number }
-  >
-}
-
-function sha256(path: string): string {
-  return createHash('sha256').update(readFileSync(path)).digest('hex')
 }
 
 async function runSeedScript(fixture: { dbPath: string; assetsDir: string }): Promise<{

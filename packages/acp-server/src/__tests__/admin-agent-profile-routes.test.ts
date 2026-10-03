@@ -26,6 +26,8 @@ const PROFILE = {
   specialties: ['smoke tests', 'red green handoffs'],
 } satisfies AdminAgentProfile
 
+const { avatarUrl: _legacyAvatar, ...EXPECTED_PROFILE } = PROFILE
+
 type CreateAgentWithProfileInput = Parameters<
   ReturnType<typeof createInMemoryAdminStore>['agents']['create']
 >[0] & {
@@ -96,7 +98,7 @@ describe('admin agent profile routes', () => {
 
         expect(response.status).toBe(200)
         const body = (await fixture.json<{ agents: AdminAgent[] }>(response)).agents
-        expect(body.find((agent) => agent.agentId === 'smokey')?.profile).toEqual(PROFILE)
+        expect(body.find((agent) => agent.agentId === 'smokey')?.profile).toEqual(EXPECTED_PROFILE)
         expect(body.find((agent) => agent.agentId === 'unset')).not.toHaveProperty('profile')
       },
       { adminStore: seedAdminStore() }
@@ -114,7 +116,7 @@ describe('admin agent profile routes', () => {
 
         expect(withProfile.status).toBe(200)
         expect((await fixture.json<{ agent: AdminAgent }>(withProfile)).agent.profile).toEqual(
-          PROFILE
+          EXPECTED_PROFILE
         )
         expect(unset.status).toBe(200)
         expect((await fixture.json<{ agent: AdminAgent }>(unset)).agent).not.toHaveProperty(
@@ -141,7 +143,7 @@ describe('admin agent profile routes', () => {
         expect(response.status).toBe(200)
         const body = await fixture.json<{ agent: AdminAgent }>(response)
         expect(body.agent.profile).toEqual({
-          ...PROFILE,
+          ...EXPECTED_PROFILE,
           tagline: 'Red/green validator',
           vibe: ['precise'],
         })
@@ -167,7 +169,6 @@ describe('admin agent profile routes', () => {
         expect(response.status).toBe(200)
         const body = await fixture.json<{ agent: AdminAgent }>(response)
         expect(body.agent.profile).toEqual({
-          avatarUrl: PROFILE.avatarUrl,
           tagline: PROFILE.tagline,
           role: PROFILE.role,
           defaultModel: PROFILE.defaultModel,

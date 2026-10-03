@@ -1,4 +1,5 @@
 import type { JobRunRecord, JobsStore } from 'acp-jobs-store'
+import { withProfileAvatars } from './agent-inspection.js'
 
 import { badRequest, json, notFound } from '../http.js'
 import { toApiInterfaceBinding } from './interface-shared.js'
@@ -73,7 +74,9 @@ export const handleGetAdminJobDetail: RouteHandler = async ({ params, deps }) =>
     }))
   )
   const project = deps.adminStore.projects.get(job.projectId)
-  const agent = deps.adminStore.agents.get(job.agentId)
+  const storedAgent = deps.adminStore.agents.get(job.agentId)
+  const agent =
+    storedAgent === undefined ? undefined : (await withProfileAvatars(deps, [storedAgent]))[0]
   const memberships = deps.adminStore.memberships.listByProject(job.projectId)
   const interfaceBindings = deps.interfaceStore.bindings
     .list({ projectId: job.projectId })

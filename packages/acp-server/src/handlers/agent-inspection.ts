@@ -9,6 +9,8 @@ import {
 } from 'spaces-aspc-protocol/agent-inspection'
 
 import type { AdminStore } from 'acp-admin-store'
+import type { AdminAgent } from 'acp-core'
+import type { AcpServerDeps } from '../deps.js'
 
 import { AcpHttpError, json } from '../http.js'
 
@@ -153,6 +155,25 @@ function parseInspectionOutcome(
       errorDetails(error)
     )
   }
+}
+
+/** Legacy admin profile output derives avatars from the same ASP roster. */
+export async function withProfileAvatars(
+  deps: AcpServerDeps,
+  agents: AdminAgent[]
+): Promise<AdminAgent[]> {
+  const catalog =
+    deps.agentInspectionAuthority === undefined
+      ? undefined
+      : parseCatalogOutcome(await deps.agentInspectionAuthority.catalogAgentInspection({}), null)
+  const avatars = new Map(catalog?.agents.map((agent) => [agent.agentId, agent.avatarUrl]))
+  return agents.map((agent) => {
+    const { profile: storedProfile, ...rest } = agent
+    const { avatarUrl: _legacyAvatar, ...profile } = storedProfile ?? {}
+    const avatarUrl = avatars.get(agent.agentId)
+    const derived = { ...profile, ...(avatarUrl === undefined ? {} : { avatarUrl }) }
+    return { ...rest, ...(Object.keys(derived).length === 0 ? {} : { profile: derived }) }
+  })
 }
 
 export const handleCatalogAgentInspection: RouteHandler = async (context) => {

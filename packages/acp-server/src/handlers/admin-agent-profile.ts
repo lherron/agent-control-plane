@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { withProfileAvatars } from './agent-inspection.js'
 
 import type { AdminAgentProfile } from 'acp-core'
 
@@ -18,7 +19,6 @@ const SAFE_AGENT_ID_RE = /^[a-zA-Z0-9_-]+$/
 type ProfilePatchBody = {
   displayColor?: string | null | undefined
   monogram?: string | null | undefined
-  avatarUrl?: string | null | undefined
   tagline?: string | null | undefined
   role?: string | null | undefined
   defaultModel?: string | null | undefined
@@ -91,7 +91,6 @@ function parseProfilePatch(body: Record<string, unknown>): ProfilePatchBody {
   return {
     displayColor: validateOptionalHexColor(body['displayColor'], 'displayColor' in body),
     monogram: validateOptionalMonogram(body['monogram'], 'monogram' in body),
-    avatarUrl: validateOptionalProfileString(body['avatarUrl'], 'avatarUrl' in body, 'avatarUrl'),
     tagline: validateOptionalProfileString(body['tagline'], 'tagline' in body, 'tagline'),
     role: validateOptionalProfileString(body['role'], 'role' in body, 'role'),
     defaultModel: validateOptionalProfileString(
@@ -122,7 +121,6 @@ function mergeProfilePatch(
 ): {
   displayColor?: string | null | undefined
   monogram?: string | null | undefined
-  avatarUrl?: string | null | undefined
   tagline?: string | null | undefined
   role?: string | null | undefined
   defaultModel?: string | null | undefined
@@ -132,7 +130,6 @@ function mergeProfilePatch(
   const fields = [
     'displayColor',
     'monogram',
-    'avatarUrl',
     'tagline',
     'role',
     'defaultModel',
@@ -186,6 +183,8 @@ export const handlePatchAdminAgentProfile: RouteHandler = async (context) => {
   }
 
   const body = requireRecord(await parseJsonBody(request))
+  if ('avatarUrl' in body)
+    badRequest('avatarUrl is declared in agent-profile.toml', { field: 'avatarUrl' })
   const patch = parseProfilePatch(body)
   const merged = mergeProfilePatch(existing.profile, patch)
   const actor = requireActor(context)
@@ -197,7 +196,7 @@ export const handlePatchAdminAgentProfile: RouteHandler = async (context) => {
     now: new Date().toISOString(),
   })
 
-  return json({ agent: agent ?? existing })
+  return json({ agent: (await withProfileAvatars(deps, [agent ?? existing]))[0] })
 }
 
 export const handleGetAgentPfp: RouteHandler = async ({ params, deps }) => {

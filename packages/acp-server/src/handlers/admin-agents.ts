@@ -5,6 +5,7 @@ import {
   requireRecord,
   requireTrimmedStringField,
 } from '../parsers/body.js'
+import { withProfileAvatars } from './agent-inspection.js'
 
 import type { RouteContext, RouteHandler } from '../routing/route-context.js'
 
@@ -46,7 +47,7 @@ export const handleCreateAdminAgent: RouteHandler = async (context) => {
 
   if (existing !== undefined) {
     if ((existing.displayName ?? undefined) === displayName && existing.status === status) {
-      return json({ agent: existing }, 200)
+      return json({ agent: (await withProfileAvatars(deps, [existing]))[0] }, 200)
     }
 
     conflict('agent already exists', { agentId })
@@ -60,11 +61,11 @@ export const handleCreateAdminAgent: RouteHandler = async (context) => {
     actor,
     now: new Date().toISOString(),
   })
-  return json({ agent }, 201)
+  return json({ agent: (await withProfileAvatars(deps, [agent]))[0] }, 201)
 }
 
 export const handleListAdminAgents: RouteHandler = async ({ deps }) => {
-  return json({ agents: deps.adminStore.agents.list() })
+  return json({ agents: await withProfileAvatars(deps, deps.adminStore.agents.list()) })
 }
 
 export const handleGetAdminAgent: RouteHandler = async ({ params, deps }) => {
@@ -73,7 +74,7 @@ export const handleGetAdminAgent: RouteHandler = async ({ params, deps }) => {
     notFound('agent not found', { agentId: params['agentId'] })
   }
 
-  return json({ agent })
+  return json({ agent: (await withProfileAvatars(deps, [agent]))[0] })
 }
 
 export const handlePatchAdminAgent: RouteHandler = async (context) => {
@@ -100,5 +101,5 @@ export const handlePatchAdminAgent: RouteHandler = async (context) => {
     now: new Date().toISOString(),
   })
 
-  return json({ agent: agent ?? existing })
+  return json({ agent: (await withProfileAvatars(deps, [agent ?? existing]))[0] })
 }

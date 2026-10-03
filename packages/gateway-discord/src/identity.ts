@@ -68,5 +68,5 @@ export function actorSlug(actor: string): string {
   return separator === -1 ? actor : actor.slice(separator + 1)
 }
 
-export const avatarFor = (agentId: string): string =>
-  `https://api.dicebear.com/7.x/bottts/png?seed=${encodeURIComponent(agentId)}`
+export const avatarFor = (agentId: string, profileAvatarUrl?: string): string =>
+  profileAvatarUrl ?? `https://api.dicebear.com/7.x/bottts/png?seed=${encodeURIComponent(agentId)}`

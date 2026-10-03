@@ -124,7 +124,10 @@ function appendRunContextFields(fields: EmbedField[], payload: Record<string, un
  * skip them. We iterate on the exact visual post-impl; the field set is the
  * spec-locked Agent · Project · Task · Trigger · Run plus completion status.
  */
-export function buildJobRunCard(event: JobLifecycleSystemEvent): WebhookPayload | undefined {
+export function buildJobRunCard(
+  event: JobLifecycleSystemEvent,
+  resolveAvatar = avatarFor
+): WebhookPayload | undefined {
   if (event.kind !== JOB_DISPATCHED_EVENT && event.kind !== JOB_COMPLETED_EVENT) {
     return undefined
   }
@@ -189,7 +192,7 @@ export function buildJobRunCard(event: JobLifecycleSystemEvent): WebhookPayload 
     title: title.slice(0, 256),
     description,
     color,
-    thumbnail: { url: avatarFor(agentId) },
+    thumbnail: { url: resolveAvatar(agentId) },
     fields,
     footer: { text: `jobRun ${jobRunId}` },
     timestamp: event.occurredAt,
@@ -197,7 +200,7 @@ export function buildJobRunCard(event: JobLifecycleSystemEvent): WebhookPayload 
 
   return {
     username: `${agentId} · jobs`,
-    avatar_url: avatarFor(agentId),
+    avatar_url: resolveAvatar(agentId),
     embeds: [embed],
   }
 }
@@ -287,7 +290,7 @@ export class JobRunFailureCardLimiter {
 
   /** Summary cards for windows that have ended with suppressed failures. Each
    * window is reported once and then cleared. */
-  takeSummaries(): WebhookPayload[] {
+  takeSummaries(resolveAvatar = avatarFor): WebhookPayload[] {
     const now = this.now()
     const cards: WebhookPayload[] = []
     for (const [slug, window] of this.windows) {
@@ -296,7 +299,9 @@ export class JobRunFailureCardLimiter {
       }
       this.windows.delete(slug)
       if (window.suppressed > 0) {
-        cards.push(buildFailureSummaryCard(slug, window, this.perWindow, this.windowMs))
+        cards.push(
+          buildFailureSummaryCard(slug, window, this.perWindow, this.windowMs, resolveAvatar)
+        )
       }
     }
     return cards
@@ -307,7 +312,8 @@ function buildFailureSummaryCard(
   slug: string,
   window: FailureWindow,
   perWindow: number,
-  windowMs: number
+  windowMs: number,
+  resolveAvatar: (agentId: string) => string
 ): WebhookPayload {
   const codes = [...window.errorCodes.entries()]
     .sort((left, right) => right[1] - left[1])
@@ -321,13 +327,13 @@ function buildFailureSummaryCard(
   const noun = window.suppressed === 1 ? 'run' : 'runs'
   return {
     username: `${window.agentId} · jobs`,
-    avatar_url: avatarFor(window.agentId),
+    avatar_url: resolveAvatar(window.agentId),
     embeds: [
       {
         title: `✗ ${window.suppressed} more failed ${noun} · ${slug}`.slice(0, 256),
         description: `This job failed more than ${perWindow} times in ${Math.round(windowMs / 60_000)} minutes. The extra failures are summarised here rather than posted one by one.`,
         color: COLOR_FAILED,
-        thumbnail: { url: avatarFor(window.agentId) },
+        thumbnail: { url: resolveAvatar(window.agentId) },
         fields: [
           inlineField('Agent', window.agentId),
           inlineField('Project', window.projectId),

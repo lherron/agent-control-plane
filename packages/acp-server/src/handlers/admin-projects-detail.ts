@@ -1,4 +1,5 @@
 import { badRequest, json, notFound } from '../http.js'
+import { withProfileAvatars } from './agent-inspection.js'
 import { toApiInterfaceBinding } from './interface-shared.js'
 
 import type { RouteHandler } from '../routing/route-context.js'
@@ -21,8 +22,14 @@ export const handleGetAdminProjectDetail: RouteHandler = async ({ params, deps }
     notFound('project not found', { projectId })
   }
 
+  const agents = new Map(
+    (await withProfileAvatars(deps, deps.adminStore.agents.list())).map((agent) => [
+      agent.agentId,
+      agent,
+    ])
+  )
   const memberships = deps.adminStore.memberships.listByProject(projectId).map((membership) => {
-    const agent = deps.adminStore.agents.get(membership.agentId)
+    const agent = agents.get(membership.agentId)
     return {
       ...membership,
       ...(agent !== undefined ? { agent } : {}),
@@ -37,9 +44,7 @@ export const handleGetAdminProjectDetail: RouteHandler = async ({ params, deps }
     .map(toApiInterfaceBinding)
   const recentSystemEvents = deps.adminStore.systemEvents.list({ projectId }).slice(-25).reverse()
   const defaultAgent =
-    project.defaultAgentId === undefined
-      ? undefined
-      : deps.adminStore.agents.get(project.defaultAgentId)
+    project.defaultAgentId === undefined ? undefined : agents.get(project.defaultAgentId)
 
   const body: AdminProjectDetailResponse = {
     project,
