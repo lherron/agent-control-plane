@@ -14,13 +14,20 @@
  *  - T-09657's fast-fail is lost for a refusal that is invalid everywhere
  *    (task-worktree, EN-19323);
  *  - with no node able to host, the mail sits pending forever;
- *  - the no-host backstop fails mail a hosting node has since bound.
+ *  - the no-host backstop fails mail a hosting node has since bound;
+ *  - the no-host backstop is short enough that a hosting node that is slow or
+ *    briefly not birthing loses its mail to the non-hosting node (EN-23153:
+ *    max3's kicker stalled ~15m, hrcdev's five local refusals failed it).
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { HrcDomainError, HrcErrorCode } from 'hrc-core'
 
 import { driveMailTargetOnce } from '../drive/target-driver.js'
-import { BIRTH_SWEEP_MAX_REFUSALS } from '../internal.js'
+import {
+  BIRTH_SWEEP_BACKOFF_BASE_MS,
+  BIRTH_SWEEP_MAX_REFUSALS,
+  BIRTH_SWEEP_NOT_HOSTED_BASE_MS,
+} from '../internal.js'
 import { chargeBirthSweepRefusal } from '../wake/birth-retry.js'
 import {
   type T08094Harness,
@@ -134,12 +141,36 @@ describe('T-09822 — non-hosting node vs hosting node, same envelope', () => {
     expect(svc.ledger.failRequests).toHaveLength(0)
   })
 
+  it('a not-hosted refusal backs off on the long horizon, not the 15-minute one', async () => {
+    svc.ledger.say()
+    const before = Date.now()
+    await chargeBirthSweepRefusal(svc.context, TARGET_REF, { notPlaceableHere: true })
+
+    const entry = svc.context.mailKickerBirthSweepBackoff.get(TARGET_REF)
+    expect(entry?.attempts).toBe(1)
+    expect(entry?.nextAtMs).toBeGreaterThanOrEqual(before + BIRTH_SWEEP_NOT_HOSTED_BASE_MS)
+    // The whole not-hosted window outlasts a stalled hosting node by hours: the
+    // fifth strike lands after base * (1+2+4+8).
+    expect(BIRTH_SWEEP_NOT_HOSTED_BASE_MS * 15).toBeGreaterThanOrEqual(3 * 60 * 60_000)
+    expect(svc.ledger.failRequests).toHaveLength(0)
+  })
+
+  it('CONTROL: a refusal from a node that could host keeps the short horizon', async () => {
+    svc.ledger.say()
+    const before = Date.now()
+    await chargeBirthSweepRefusal(svc.context, TARGET_REF)
+
+    const entry = svc.context.mailKickerBirthSweepBackoff.get(TARGET_REF)
+    expect(entry?.nextAtMs).toBeLessThan(before + BIRTH_SWEEP_NOT_HOSTED_BASE_MS)
+    expect(entry?.nextAtMs).toBeGreaterThanOrEqual(before + BIRTH_SWEEP_BACKOFF_BASE_MS)
+  })
+
   it('no node can host: the fifth local refusal fails it with the reason', async () => {
     const envelope = svc.ledger.say()
     for (let strike = 1; strike <= BIRTH_SWEEP_MAX_REFUSALS; strike += 1) {
       const outcome = await driveMailTargetOnce(svc.context, TARGET_REF, 'periodic')
-      expect(outcome).toMatchObject({ outcome: 'birth-refused' })
-      await chargeBirthSweepRefusal(svc.context, TARGET_REF)
+      expect(outcome).toMatchObject({ outcome: 'birth-refused', notPlaceableHere: true })
+      await chargeBirthSweepRefusal(svc.context, TARGET_REF, { notPlaceableHere: true })
     }
 
     expect(svc.ledger.failRequests).toEqual([

@@ -40,7 +40,12 @@
  */
 import type { MailKickerContext } from '../context.js'
 import { kickerScopeRefFor } from '../drive/authority.js'
-import { BIRTH_SWEEP_BACKOFF_BASE_MS, BIRTH_SWEEP_MAX_REFUSALS, errorText } from '../internal.js'
+import {
+  BIRTH_SWEEP_BACKOFF_BASE_MS,
+  BIRTH_SWEEP_MAX_REFUSALS,
+  BIRTH_SWEEP_NOT_HOSTED_BASE_MS,
+  errorText,
+} from '../internal.js'
 import { targetSessionRefForLedgerScope } from '../ledger/scope.js'
 import { failEnvelopeWithAudit } from '../terminal/envelope-terminal.js'
 
@@ -127,6 +132,10 @@ function refusedBirthTargets(server: MailKickerContext): string[] {
  * budget. The drive returns this outcome only when `ensureTargetSession` was
  * entered, did not establish a session, and left a failed/null-host attempt.
  *
+ * A `notPlaceableHere` refusal (this node lacks the checkout, T-09822) backs off
+ * on the long not-hosted horizon so the backstop only fires when no node has
+ * birthed it for hours, not whenever the hosting node is briefly slow.
+ *
  * Under rev 4 the bound FLATTENED at five and retried forever at sixteen-minute
  * intervals. rev 5.1 ends it instead: the fifth refusal fails every pending
  * envelope for that target `undeliverable` and tells the sender, which is a
@@ -134,9 +143,12 @@ function refusedBirthTargets(server: MailKickerContext): string[] {
  */
 export async function chargeBirthSweepRefusal(
   server: MailKickerContext,
-  targetSessionRef: string
+  targetSessionRef: string,
+  refusal: { notPlaceableHere?: boolean } = {}
 ): Promise<void> {
   const now = Date.now()
+  const baseMs =
+    refusal.notPlaceableHere === true ? BIRTH_SWEEP_NOT_HOSTED_BASE_MS : BIRTH_SWEEP_BACKOFF_BASE_MS
   const attempts = (server.mailKickerBirthSweepBackoff.get(targetSessionRef)?.attempts ?? 0) + 1
   if (attempts >= BIRTH_SWEEP_MAX_REFUSALS) {
     try {
@@ -154,13 +166,13 @@ export async function chargeBirthSweepRefusal(
       } else {
         server.mailKickerBirthSweepBackoff.set(targetSessionRef, {
           attempts: BIRTH_SWEEP_MAX_REFUSALS - 1,
-          nextAtMs: now + BIRTH_SWEEP_BACKOFF_BASE_MS * 2 ** (attempts - 1),
+          nextAtMs: now + baseMs * 2 ** (attempts - 1),
         })
       }
     } catch (error) {
       server.mailKickerBirthSweepBackoff.set(targetSessionRef, {
         attempts: BIRTH_SWEEP_MAX_REFUSALS - 1,
-        nextAtMs: now + BIRTH_SWEEP_BACKOFF_BASE_MS * 2 ** (attempts - 1),
+        nextAtMs: now + baseMs * 2 ** (attempts - 1),
       })
       server.log('WARN', 'wrkq.kicker.undeliverable_failed', {
         targetSessionRef,
@@ -171,12 +183,12 @@ export async function chargeBirthSweepRefusal(
   }
   server.mailKickerBirthSweepBackoff.set(targetSessionRef, {
     attempts,
-    nextAtMs: now + BIRTH_SWEEP_BACKOFF_BASE_MS * 2 ** (attempts - 1),
+    nextAtMs: now + baseMs * 2 ** (attempts - 1),
   })
   server.log('INFO', 'wrkq.kicker.unborn_birth_retry', {
     targetSessionRef,
     attempt: attempts,
-    nextAttemptInMs: BIRTH_SWEEP_BACKOFF_BASE_MS * 2 ** (attempts - 1),
+    nextAttemptInMs: baseMs * 2 ** (attempts - 1),
   })
 }
 

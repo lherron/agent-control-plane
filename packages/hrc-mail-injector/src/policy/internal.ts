@@ -46,6 +46,13 @@ export const LEDGER_SWEEP_TICKS = 30
 /** Keep one periodic pass from turning HRC placement reads into a thundering herd. */
 export const MAIL_KICKER_MAX_CONCURRENT_TARGET_DRIVES = 4
 export const BIRTH_SWEEP_BACKOFF_BASE_MS = 60_000
+/**
+ * Backoff base for a refusal that only says THIS node lacks the project's
+ * checkout. The hosting node normally births within a sweep, so the no-host
+ * backstop must outlast a hosting node that is slow or stalled: fifth strike
+ * after base * (1+2+4+8) = 3h45m, not 15m (EN-23153).
+ */
+export const BIRTH_SWEEP_NOT_HOSTED_BASE_MS = 15 * 60_000
 export const BIRTH_SWEEP_MAX_REFUSALS = 5
 export const LAPSE_SWEEP_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1_000
 /**

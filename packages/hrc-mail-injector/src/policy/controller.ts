@@ -199,7 +199,9 @@ export class MailKicker implements MailKickerContext {
           this.mailKickerPendingTargets.delete(targetSessionRef)
           const result = await driveMailTargetOnce(this, targetSessionRef, reason)
           if (reason === 'periodic' && result?.outcome === 'birth-refused') {
-            await chargeBirthSweepRefusal(this, targetSessionRef)
+            await chargeBirthSweepRefusal(this, targetSessionRef, {
+              notPlaceableHere: result.notPlaceableHere === true,
+            })
           }
         }
       } finally {
