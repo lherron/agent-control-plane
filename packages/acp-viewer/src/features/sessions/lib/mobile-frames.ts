@@ -50,7 +50,6 @@ export type MobileSessionSummary = {
         status: string
         transport?: string | undefined
         runtimeId?: string | undefined
-        launchId?: string | undefined
         activeRunId?: string | undefined
         lastActivityAt?: string | undefined
         supportsInflightInput?: boolean | undefined

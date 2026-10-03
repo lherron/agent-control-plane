@@ -2,12 +2,8 @@ import { HrcDomainError, HrcErrorCode, httpStatusForErrorCode, validateFence } f
 import type {
   DeliverLiteralBySelectorRequest,
   DeliverLiteralBySelectorResponse,
-  HrcAppSessionRef,
   HrcRuntimeSnapshot,
-  HrcSessionRecord,
-  InterruptAppSessionRequest,
   ResolveSessionResponse,
-  RuntimeActionResponse,
 } from 'hrc-core'
 import type { HrcClient } from 'hrc-sdk'
 
@@ -19,10 +15,7 @@ type ResolvedSession = Extract<ResolveSessionResponse, { found: true }>
 export type GatewayIosHrcClient = Pick<
   HrcClient,
   'deliverLiteralBySelector' | 'interrupt' | 'listRuntimes' | 'resolveSession'
-> & {
-  interruptAppSession?: (request: InterruptAppSessionRequest) => Promise<RuntimeActionResponse>
-  postJson?: <T>(path: string, body: unknown) => Promise<T>
-}
+>
 
 export type InputHandlerDeps = {
   hrcClient: GatewayIosHrcClient
@@ -188,22 +181,6 @@ function validateSessionFence(resolved: ResolvedSession, fences: MobileFence): R
   return errorJson(result.errorCode, httpStatusForErrorCode(result.errorCode), result.message)
 }
 
-function appSessionSelectorFor(session: HrcSessionRecord): HrcAppSessionRef | null {
-  const explicit = session as unknown as {
-    appSession?: HrcAppSessionRef | undefined
-    appId?: string | undefined
-    appSessionKey?: string | undefined
-  }
-  if (explicit.appSession) return explicit.appSession
-  if (explicit.appId && explicit.appSessionKey) {
-    return { appId: explicit.appId, appSessionKey: explicit.appSessionKey }
-  }
-  if (session.scopeRef.startsWith('app:')) {
-    return { appId: session.scopeRef.slice('app:'.length), appSessionKey: session.laneRef }
-  }
-  return null
-}
-
 function latestRuntimeForSession(runtimes: HrcRuntimeSnapshot[]): HrcRuntimeSnapshot | undefined {
   const alive = runtimes.filter((runtime) => runtime.status !== 'terminated')
   const candidates = alive.length > 0 ? alive : runtimes
@@ -212,23 +189,6 @@ function latestRuntimeForSession(runtimes: HrcRuntimeSnapshot[]): HrcRuntimeSnap
     const bUpdated = Date.parse((b as unknown as { updatedAt?: string }).updatedAt ?? '')
     return (Number.isNaN(bUpdated) ? 0 : bUpdated) - (Number.isNaN(aUpdated) ? 0 : aUpdated)
   })[0]
-}
-
-async function interruptAppSession(
-  hrcClient: GatewayIosHrcClient,
-  selector: HrcAppSessionRef
-): Promise<RuntimeActionResponse> {
-  const request: InterruptAppSessionRequest = { selector }
-  if (hrcClient.interruptAppSession) {
-    return await hrcClient.interruptAppSession(request)
-  }
-  if (hrcClient.postJson) {
-    return await hrcClient.postJson<RuntimeActionResponse>('/v1/app-sessions/interrupt', request)
-  }
-  throw new HrcDomainError(
-    HrcErrorCode.INTERNAL_ERROR,
-    'HrcClient cannot call /v1/app-sessions/interrupt'
-  )
 }
 
 function hrcErrorResponse(error: unknown): Response {
@@ -281,19 +241,14 @@ export async function handleInterrupt(request: Request, deps: InputHandlerDeps):
     const fenceError = validateSessionFence(activeSession, body.fences)
     if (fenceError) return fenceError
 
-    const appSelector = appSessionSelectorFor(activeSession.session)
-    if (appSelector) {
-      await interruptAppSession(deps.hrcClient, appSelector)
-    } else {
-      const runtimes = await deps.hrcClient.listRuntimes({
-        hostSessionId: activeSession.hostSessionId,
-      })
-      const runtime = latestRuntimeForSession(runtimes)
-      if (!runtime) {
-        return errorJson(HrcErrorCode.RUNTIME_UNAVAILABLE, 503, 'no runtime available')
-      }
-      await deps.hrcClient.interrupt(runtime.runtimeId)
+    const runtimes = await deps.hrcClient.listRuntimes({
+      hostSessionId: activeSession.hostSessionId,
+    })
+    const runtime = latestRuntimeForSession(runtimes)
+    if (!runtime) {
+      return errorJson(HrcErrorCode.RUNTIME_UNAVAILABLE, 503, 'no runtime available')
     }
+    await deps.hrcClient.interrupt(runtime.runtimeId)
 
     return json({ ok: true, clientInputId: body.clientInputId })
   } catch (error) {

@@ -138,13 +138,10 @@ type MobileSessionSummary = {
     | {
         status: string
         transport: string
-        runtimeKind?: HrcRuntimeSnapshot['runtimeKind'] | undefined
         runtimeId: string
-        launchId?: string | undefined
         activeRunId?: string | undefined
         lastActivityAt?: string | undefined
         supportsInflightInput: boolean
-        adopted: boolean
         createdAt: string
         updatedAt: string
       }
@@ -429,9 +426,12 @@ function mobileStatus(status: string, runtime?: HrcRuntimeSnapshot): MobileSessi
   return 'active'
 }
 
-function titleForSession(record: HrcSessionRecord): string {
-  const parts = record.scopeRef.split('/')
-  return parts[parts.length - 1] || record.scopeRef
+function titleForScopeRef(scopeRef: string): string {
+  try {
+    return parseScopeRef(scopeRef).agentId
+  } catch {
+    return scopeRef
+  }
 }
 
 function projectSession(input: {
@@ -461,11 +461,7 @@ function projectSession(input: {
       : {
           status: input.runtime.status,
           transport: input.runtime.transport,
-          ...(input.runtime.runtimeKind !== undefined
-            ? { runtimeKind: input.runtime.runtimeKind }
-            : {}),
           runtimeId: input.runtime.runtimeId,
-          ...(input.runtime.launchId !== undefined ? { launchId: input.runtime.launchId } : {}),
           ...(input.runtime.activeRunId !== undefined
             ? { activeRunId: input.runtime.activeRunId }
             : {}),
@@ -473,7 +469,6 @@ function projectSession(input: {
             ? { lastActivityAt: input.runtime.lastActivityAt }
             : {}),
           supportsInflightInput: input.runtime.supportsInflightInput,
-          adopted: input.runtime.adopted,
           createdAt: input.runtime.createdAt,
           updatedAt: input.runtime.updatedAt,
         }
@@ -499,7 +494,7 @@ function projectSession(input: {
     sourceKind: 'local_session',
     sessionRef: sessionRef(input.record.scopeRef, input.record.laneRef),
     displayRef: sessionRef(input.record.scopeRef, input.record.laneRef),
-    title: titleForSession(input.record),
+    title: titleForScopeRef(input.record.scopeRef),
     mode,
     executionMode: execution,
     summaryStatus: status,
@@ -1592,7 +1587,7 @@ function projectRemoteRuntime(
     ...(node.answeredAt !== undefined ? { projectionAnsweredAt: node.answeredAt } : {}),
     sessionRef: sessionRef(runtime.scopeRef, runtime.laneRef),
     displayRef: sessionRef(runtime.scopeRef, runtime.laneRef),
-    title: runtime.scopeRef.split('/').at(-1) || runtime.scopeRef,
+    title: titleForScopeRef(runtime.scopeRef),
     mode,
     executionMode: execution,
     summaryStatus: status,
@@ -1625,13 +1620,10 @@ function projectRemoteRuntime(
     runtime: {
       status: runtime.status,
       transport: runtime.transport,
-      ...(runtime.runtimeKind !== undefined ? { runtimeKind: runtime.runtimeKind } : {}),
       runtimeId: runtime.runtimeId,
-      ...(runtime.launchId !== undefined ? { launchId: runtime.launchId } : {}),
       ...(runtime.activeRunId !== undefined ? { activeRunId: runtime.activeRunId } : {}),
       ...(runtime.lastActivityAt !== undefined ? { lastActivityAt: runtime.lastActivityAt } : {}),
       supportsInflightInput: runtime.supportsInflightInput,
-      adopted: runtime.adopted,
       createdAt: runtime.createdAt,
       updatedAt: runtime.updatedAt,
     },

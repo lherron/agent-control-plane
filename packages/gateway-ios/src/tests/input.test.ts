@@ -4,7 +4,6 @@ import type {
   DeliverLiteralBySelectorRequest,
   HrcRuntimeSnapshot,
   HrcSessionRecord,
-  InterruptAppSessionRequest,
   ResolveSessionResponse,
   RuntimeActionResponse,
 } from 'hrc-core'
@@ -249,49 +248,6 @@ describe('gateway-ios input routes', () => {
     expect(response.status).toBe(200)
     expect(await body(response)).toEqual({ ok: true, clientInputId: 'input-004' })
     expect(calls).toEqual([{ method: 'interrupt', runtimeId: 'rt-interrupt' }])
-  })
-
-  it('POST /v1/interrupt routes app-managed sessions to /v1/app-sessions/interrupt', async () => {
-    const calls: Array<{ path: string; body: InterruptAppSessionRequest }> = []
-    const client = {
-      resolveSession: async () =>
-        resolved({
-          session: session({
-            scopeRef: 'app:ios-client',
-            laneRef: 'command-001',
-          }),
-        }),
-      deliverLiteralBySelector: async () => {
-        throw new Error('unused')
-      },
-      listRuntimes: async () => {
-        throw new Error('runtime-bound path should not be used')
-      },
-      interrupt: async () => {
-        throw new Error('runtime-bound path should not be used')
-      },
-      postJson: async <T>(path: string, payload: unknown): Promise<T> => {
-        calls.push({ path, body: payload as InterruptAppSessionRequest })
-        return { interrupted: true } as T
-      },
-    } satisfies GatewayIosHrcClient
-
-    const response = await createGatewayIosFetchHandler({ hrcClient: client })(
-      request('/v1/interrupt', {
-        sessionRef: 'app:ios-client/lane:command-001',
-        clientInputId: 'input-005',
-        fences: { expectedHostSessionId: 'host-001', expectedGeneration: 3 },
-      })
-    )
-
-    expect(response.status).toBe(200)
-    expect(await body(response)).toEqual({ ok: true, clientInputId: 'input-005' })
-    expect(calls).toEqual([
-      {
-        path: '/v1/app-sessions/interrupt',
-        body: { selector: { appId: 'ios-client', appSessionKey: 'command-001' } },
-      },
-    ])
   })
 
   it('maps HRC errors to gateway error bodies', async () => {

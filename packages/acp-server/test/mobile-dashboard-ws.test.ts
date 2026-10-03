@@ -49,8 +49,6 @@ const RUNTIME: HrcRuntimeSnapshot = {
   provider: 'openai',
   status: 'active',
   tmuxJson: { paneId: 'pane-1' },
-  wrapperPid: 111,
-  childPid: 222,
   supportsInflightInput: true,
   adopted: false,
   activeRunId: 'run-mobile-dashboard',
@@ -515,8 +513,6 @@ describe('WS /v1/mobile/dashboard', () => {
       supportsInflightInput: true,
     })
     expect(sessions[0]!.run).toMatchObject({ runId: RUN.runId, status: 'running' })
-    expect(JSON.stringify(sessions[0])).not.toContain('wrapperPid')
-    expect(JSON.stringify(sessions[0])).not.toContain('childPid')
     expect(JSON.stringify(sessions[0])).not.toContain(LARGE_INITIAL_PROMPT)
 
     const recent = snapshot.recentEventsBySession as Record<string, SentEnvelope[]>

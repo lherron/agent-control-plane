@@ -42,8 +42,6 @@ const RUNTIME: HrcRuntimeSnapshot = {
   provider: 'openai',
   status: 'active',
   tmuxJson: { paneId: 'pane-1' },
-  wrapperPid: 111,
-  childPid: 222,
   supportsInflightInput: true,
   adopted: false,
   activeRunId: 'run-mobile-scoped',

@@ -546,7 +546,7 @@ describe('GET /v1/ops/session-dashboard/events', () => {
           yield createHrcEvent({ hrcSeq: 1, eventKind: 'session.created' })
           // Malformed: missing required fields
           yield { hrcSeq: 2 } as unknown as HrcCoreLifecycleEvent
-          yield createHrcEvent({ hrcSeq: 3, eventKind: 'session.resolved' })
+          yield createHrcEvent({ hrcSeq: 3, eventKind: 'runtime.created' })
         })(),
     })
 

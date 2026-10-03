@@ -208,27 +208,6 @@ describe('HrcViewer event reactions (§4.3)', () => {
     expect(harness.ensureCalls).toHaveLength(0)
   })
 
-  test('session.retitled targets by host session and null restores the default title', async () => {
-    const harness = makeHarness({
-      panes: [{ surfaceId: 'surface-1', windowKey: 'default', hostSessionId: 'hs-1' }],
-    })
-    await harness.viewer.handleEvent(
-      event('session.retitled', {
-        category: 'session',
-        runtimeId: undefined,
-        payload: { title: 'Nova' },
-      })
-    )
-    await harness.viewer.handleEvent(
-      event('session.retitled', {
-        category: 'session',
-        runtimeId: undefined,
-        payload: { title: null },
-      })
-    )
-    expect(harness.titleCalls.map((call) => call.title)).toEqual(['Nova', 'hrc · primary · cody'])
-  })
-
   test('terminal event schedules a runtime-fenced reap', async () => {
     const harness = makeHarness({
       panes: [{ surfaceId: 'surface-1', windowKey: 'default', runtimeId: 'rt-1' }],
@@ -350,11 +329,11 @@ describe('HrcViewer secondary status bar (T-08331)', () => {
   })
 
   test('stamps a pane whose latest event has no viewer state — the state gate must not cover it', async () => {
-    // `session.retitled` is not one of the eight kinds viewerStateForEventKind
+    // `session.created` is not one of the eight kinds viewerStateForEventKind
     // maps, so paintFromLatest returns early and writes no primary bar. A title
     // bar behind that gate would hold a stale title until the next turn boundary.
     const harness = taskHarness({
-      latest: [event('session.retitled', { scopeRef: TASK_SCOPE })],
+      latest: [event('session.created', { scopeRef: TASK_SCOPE })],
     })
     await harness.viewer.reconcile('timer')
     expect(harness.statusCalls).toHaveLength(0)

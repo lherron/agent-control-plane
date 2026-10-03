@@ -141,14 +141,6 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
         sessionId: resolved.hostSessionId,
         hostSessionId: resolved.hostSessionId,
         ...(liveTmuxRuntime !== undefined ? { runtimeId: liveTmuxRuntime.runtimeId } : {}),
-        ...(liveTmuxRuntime !== undefined
-          ? {
-              launchId: findLatestLaunchId(hrcDbPath, {
-                hostSessionId: resolved.hostSessionId,
-                runtimeId: liveTmuxRuntime.runtimeId,
-              }),
-            }
-          : {}),
         generation: resolved.generation,
       }
     }
@@ -361,12 +353,7 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
       sessionId: targetSession.hostSessionId,
       hostSessionId: dispatched.hostSessionId,
       runtimeId: dispatched.runtimeId,
-      launchId:
-        findLaunchIdForRun(hrcDbPath, dispatchedRunId) ??
-        findLatestLaunchId(hrcDbPath, {
-          hostSessionId: dispatched.hostSessionId,
-          runtimeId: dispatched.runtimeId,
-        }),
+      launchId: findLaunchIdForRun(hrcDbPath, dispatchedRunId),
       generation: dispatched.generation,
     }
   }
@@ -397,19 +384,15 @@ function buildTmuxLaunchResult(input: {
   launchId: string | undefined
   generation: number
 } {
-  const launchIdFromRun =
-    input.hrcRunId === undefined ? undefined : findLaunchIdForRun(input.hrcDbPath, input.hrcRunId)
   return {
     runId: input.hrcRunId ?? input.hostSessionId,
     sessionId: input.hostSessionId,
     hostSessionId: input.hostSessionId,
     runtimeId: input.runtimeId,
     launchId:
-      launchIdFromRun ??
-      findLatestLaunchId(input.hrcDbPath, {
-        hostSessionId: input.hostSessionId,
-        runtimeId: input.runtimeId,
-      }),
+      input.hrcRunId === undefined
+        ? undefined
+        : findLaunchIdForRun(input.hrcDbPath, input.hrcRunId),
     generation: input.generation,
   }
 }
@@ -581,41 +564,6 @@ function findLaunchIdForRun(hrcDbPath: string, runId: string): string | undefine
           LIMIT 1`
       )
       .get(runId)
-    return row?.launchId
-  } catch {
-    return undefined
-  } finally {
-    db?.close()
-  }
-}
-
-function findLatestLaunchId(
-  hrcDbPath: string,
-  input: { hostSessionId: string; runtimeId?: string | undefined }
-): string | undefined {
-  let db: Database | undefined
-  try {
-    db = new Database(hrcDbPath, { readonly: true })
-    const row =
-      input.runtimeId !== undefined
-        ? db
-            .query<{ launchId: string }, [string, string]>(
-              `SELECT launch_id AS launchId
-                 FROM launches
-                WHERE host_session_id = ? AND runtime_id = ?
-                ORDER BY created_at DESC, launch_id DESC
-                LIMIT 1`
-            )
-            .get(input.hostSessionId, input.runtimeId)
-        : db
-            .query<{ launchId: string }, [string]>(
-              `SELECT launch_id AS launchId
-                 FROM launches
-                WHERE host_session_id = ?
-                ORDER BY created_at DESC, launch_id DESC
-                LIMIT 1`
-            )
-            .get(input.hostSessionId)
     return row?.launchId
   } catch {
     return undefined

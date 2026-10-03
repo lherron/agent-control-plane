@@ -335,10 +335,6 @@ export class HrcViewer {
       await this.handlePresentationEvent(event)
       return
     }
-    if (event.eventKind === 'session.retitled') {
-      await this.handleRetitleEvent(event)
-      return
-    }
     if (TERMINAL_EVENT_KINDS.has(event.eventKind) && event.runtimeId !== undefined) {
       const surfaceId = await this.ghostmux.findHeadlessViewerSurfaceByRuntimeId(event.runtimeId)
       if (surfaceId !== null) {
@@ -444,33 +440,6 @@ export class HrcViewer {
       tmux: { socketPath, attachTarget },
       ...(typeof payload['title'] === 'string' ? { title: payload['title'] } : {}),
     })
-  }
-
-  private async handleRetitleEvent(event: LifecycleEvent): Promise<void> {
-    const payload = asRecord(event.payload)
-    const requestedTitle = typeof payload['title'] === 'string' ? payload['title'] : undefined
-    const laneRef = normalizePresentationLaneRef(event.laneRef)
-    const title = requestedTitle ?? defaultHeadlessPaneTitle(event.scopeRef, laneRef)
-    const row =
-      event.runtimeId === undefined
-        ? undefined
-        : await this.currentPresentationRuntime(event.runtimeId)
-    if (row !== undefined) {
-      const paneSurfaceId = await this.ghostmux.findHeadlessViewerSurfaceByRuntimeId(row.runtimeId)
-      await this.applyTitles(
-        await this.presentationSurfaceIds(paneSurfaceId, row),
-        paneSurfaceId,
-        title
-      )
-      return
-    }
-    const paneKey = deriveHeadlessSessionIdentity(event.scopeRef, laneRef).paneKey
-    const panes = await this.ghostmux.listHeadlessViewerPanes()
-    const pane = panes.find(
-      (candidate) =>
-        candidate.hostSessionId === event.hostSessionId || candidate.paneKey === paneKey
-    )
-    if (pane !== undefined) await this.ghostmux.setHeadlessViewerTitle(pane.surfaceId, title)
   }
 
   private async reconcileOnce(reason: string): Promise<void> {

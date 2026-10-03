@@ -83,7 +83,6 @@ export function mobileSessionToRow(s: MobileSessionSummary): SessionTimelineRow 
     ? {
         status,
         ...(s.runtime.runtimeId !== undefined ? { runtimeId: s.runtime.runtimeId } : {}),
-        ...(s.runtime.launchId !== undefined ? { launchId: s.runtime.launchId } : {}),
         ...(transport !== undefined ? { transport } : {}),
         ...(s.runtime.activeRunId !== undefined ? { activeRunId: s.runtime.activeRunId } : {}),
         ...(s.runtime.lastActivityAt !== undefined
