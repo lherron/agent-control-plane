@@ -394,6 +394,7 @@ export function hrcEvent(seq: number, payload: Record<string, unknown>): Record<
     ts: new Date(Date.now() + seq * 1000).toISOString(),
     hostSessionId: 'hsid_live_progress',
     scopeRef: 'agent:smokey:project:agent-spaces',
+    identity: { kind: 'project', agentId: 'smokey', projectId: 'agent-spaces' },
     laneRef: 'main',
     generation: 7,
     runtimeId: 'rt_live_progress',

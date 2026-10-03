@@ -600,6 +600,7 @@ describe('GatewayDiscordApp local e2e', () => {
             ts: new Date(Date.now() + 1_000).toISOString(),
             hostSessionId: 'hsid_ledger',
             scopeRef: 'agent:cody:project:agent-spaces',
+            identity: { kind: 'project', agentId: 'cody', projectId: 'agent-spaces' },
             laneRef: 'main',
             generation: 7,
             runtimeId: 'rt_ledger',

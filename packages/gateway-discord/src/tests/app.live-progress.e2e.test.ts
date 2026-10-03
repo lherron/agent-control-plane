@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { parseScopeRef } from 'agent-scope'
 
 import { GatewayDiscordApp } from '../app.js'
 import {
@@ -226,12 +227,19 @@ describe('GatewayDiscordApp live tool progress e2e', () => {
         toolInput: Record<string, unknown>
       }
     ) => {
+      const parsed = parseScopeRef(input.scopeRef)
       const line = `${JSON.stringify({
         hrcSeq: input.seq,
         streamSeq: input.seq,
         ts: new Date(Date.now() + input.seq * 1000).toISOString(),
         hostSessionId: `hsid_${sessionRef}`,
         scopeRef: input.scopeRef,
+        identity: {
+          kind: parsed.kind,
+          agentId: parsed.agentId,
+          projectId: parsed.projectId,
+          taskId: parsed.taskId,
+        },
         laneRef: 'main',
         generation: 7,
         runtimeId: `rt_${sessionRef}`,
@@ -469,6 +477,7 @@ function hrcTurnEvent(
     ts: new Date(Date.now() + seq * 1000).toISOString(),
     hostSessionId: 'hsid_live_progress',
     scopeRef: 'agent:smokey:project:agent-spaces',
+    identity: { kind: 'project', agentId: 'smokey', projectId: 'agent-spaces' },
     laneRef: 'main',
     generation: 7,
     runtimeId: 'rt_live_progress',
