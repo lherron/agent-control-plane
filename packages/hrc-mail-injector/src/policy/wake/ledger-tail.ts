@@ -8,6 +8,7 @@
  * an already-pending envelope unreachable (T-07643).
  */
 import type { MailKickerContext } from '../context.js'
+import { digestMembers } from '../drive/digest-group.js'
 import { LEDGER_TAIL_PAGE_LIMIT, errorText, isRecord } from '../internal.js'
 import { WrkqLedgerUnavailableError } from '../ledger/client.js'
 import { targetSessionRefForLedgerScope } from '../ledger/scope.js'
@@ -57,6 +58,26 @@ export async function withdrawAckedQueuedInjection(
       reason: QUEUED_INJECTION_WITHDRAW_REASON,
       outcome: 'not_applicable',
       selector: 'envelope_fallback_diagnostic',
+    })
+    return
+  }
+
+  // A backlog digest (T-10159) is one submission carrying several envelopes.
+  // This member is terminal now — its late landing will be audit-only — but the
+  // submission still owes its live siblings their delivery, so it is withdrawn
+  // only once the LAST member goes terminal.
+  const liveSiblings = digestMembers(server, terminal).filter(
+    (member) => member.envelopeId !== envelopeId && member.terminalEnvelopeAt === undefined
+  )
+  if (liveSiblings.length > 0) {
+    server.store.mailDelivery.recordTerminalCleanup(envelopeId, 'digest_sibling_live')
+    server.log('INFO', 'wrkq.kicker.queued_injection_withdraw_skipped', {
+      envelopeId,
+      runtimeId: terminal.runtimeId,
+      door: terminal.door,
+      reason: QUEUED_INJECTION_WITHDRAW_REASON,
+      outcome: 'digest_sibling_live',
+      liveSiblings: liveSiblings.map((member) => member.envelopeId),
     })
     return
   }

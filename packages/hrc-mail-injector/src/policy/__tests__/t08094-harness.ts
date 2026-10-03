@@ -39,6 +39,12 @@ class FakeLedger {
   readonly envelopes = new Map<string, WrkqEnvelope>()
   readonly presentRequests: WrkqEnvelopePresentParams[] = []
   readonly failRequests: Array<{ envelope: string; reason: string; detail?: string }> = []
+  /**
+   * wrkq terminalizes a legacy fyi/notify by its own presentation receipt
+   * (`acked`, reason `fyi_presented`). Opt-in so the fixtures that assert the
+   * pre-ack `presented` state keep their shape.
+   */
+  autoAckFyi = false
   private seq = 0
 
   say(overrides: Partial<WrkqEnvelope> = {}): WrkqEnvelope {
@@ -105,6 +111,11 @@ class FakeLedger {
         presentedAt: new Date().toISOString(),
       })
       envelope.state = 'presented'
+      if (this.autoAckFyi && (envelope.obligation === 'fyi' || envelope.obligation === 'notify')) {
+        envelope.state = 'acked'
+        envelope.terminal = true
+        envelope.reason = 'fyi_presented'
+      }
     }
     return Promise.resolve({
       envelope,

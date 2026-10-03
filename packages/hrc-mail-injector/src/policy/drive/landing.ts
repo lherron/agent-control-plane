@@ -61,6 +61,7 @@ import {
   isRecord,
 } from '../internal.js'
 import { failEnvelopeWithAudit } from '../terminal/envelope-terminal.js'
+import { digestMembers } from './digest-group.js'
 
 const LANDED_TYPES = new Set(['submission.absorbed', 'submission.executed'])
 
@@ -297,6 +298,30 @@ export async function commitLanding(
 }
 
 /**
+ * Commit one landing for every member of the submission this intent rode.
+ *
+ * A backlog digest (T-10159) is one submission carrying N envelopes, so one
+ * landing fact receipts all of them, under ONE landing sequence. Each member is
+ * still its own commit: a member acked while the digest was queued is recorded
+ * audit-only by `commitLanding`'s terminal guard, never resurrected. Returns
+ * the commit of the intent the caller named.
+ */
+export async function commitLandingForSubmission(
+  server: MailKickerContext,
+  intent: HrcMailDeliveryIntent,
+  input: { runtimeId?: string | undefined; eventType: string; landingHrcSeq: number }
+): Promise<LandingCommit> {
+  let own: LandingCommit = 'failed'
+  for (const member of digestMembers(server, intent)) {
+    const runtimeId = member.runtimeId ?? input.runtimeId
+    if (runtimeId === undefined) continue
+    const commit = await commitLanding(server, member, { ...input, runtimeId })
+    if (member.envelopeId === intent.envelopeId) own = commit
+  }
+  return own
+}
+
+/**
  * Did wrkq refuse this receipt because the envelope is already disposed?
  *
  * The ledger answers `wrong_state` for a presentation onto a terminal row. That
@@ -433,29 +458,51 @@ export function nextDeliveryBackoffMs(server: MailKickerContext, runtimeId: stri
   return next
 }
 
+type RefusalOptions = {
+  retryInMs?: number | undefined
+  refusalClass?: string | undefined
+  fallbackDoor?: 'enqueue' | undefined
+}
+
 /** A refused or lost submission: clear, say so, and let the next pass decide. */
 export function clearRefusedIntent(
   server: MailKickerContext,
   intent: HrcMailDeliveryIntent,
   reason: string,
-  options: {
-    retryInMs?: number | undefined
-    refusalClass?: string | undefined
-    fallbackDoor?: 'enqueue' | undefined
-  } = {}
+  options: RefusalOptions = {}
 ): void {
-  server.store.mailDelivery.clearIntent(intent.envelopeId)
-  server.log('INFO', 'wrkq.kicker.landing_refused', {
-    targetSessionRef: intent.targetSessionRef,
-    envelope: intent.envelopeId,
-    door: intent.door,
-    ...(intent.submissionId === undefined ? {} : { submissionId: intent.submissionId }),
-    ...(intent.runtimeId === undefined ? {} : { runtimeId: intent.runtimeId }),
-    reason,
-    ...(options.refusalClass === undefined ? {} : { refusalClass: options.refusalClass }),
-    ...(options.fallbackDoor === undefined ? {} : { fallbackDoor: options.fallbackDoor }),
-    ...(options.retryInMs === undefined ? {} : { retryInMs: options.retryInMs }),
-  })
+  clearRefusedIntents(server, [intent], reason, options)
+}
+
+/**
+ * Clear every intent ONE refused submission carried, with one re-wake.
+ *
+ * A digest's members are refused together because they were submitted
+ * together: none of them is receipted, all are pending again, and the next pass
+ * rebuilds the digest.
+ */
+function clearRefusedIntents(
+  server: MailKickerContext,
+  intents: readonly HrcMailDeliveryIntent[],
+  reason: string,
+  options: RefusalOptions = {}
+): void {
+  const intent = intents[0]
+  if (intent === undefined) return
+  for (const member of intents) {
+    server.store.mailDelivery.clearIntent(member.envelopeId)
+    server.log('INFO', 'wrkq.kicker.landing_refused', {
+      targetSessionRef: member.targetSessionRef,
+      envelope: member.envelopeId,
+      door: member.door,
+      ...(member.submissionId === undefined ? {} : { submissionId: member.submissionId }),
+      ...(member.runtimeId === undefined ? {} : { runtimeId: member.runtimeId }),
+      reason,
+      ...(options.refusalClass === undefined ? {} : { refusalClass: options.refusalClass }),
+      ...(options.fallbackDoor === undefined ? {} : { fallbackDoor: options.fallbackDoor }),
+      ...(options.retryInMs === undefined ? {} : { retryInMs: options.retryInMs }),
+    })
+  }
   if (options.retryInMs === undefined) {
     server.wake(intent.targetSessionRef, 'insert')
     return
@@ -578,30 +625,36 @@ export async function refuseIntent(
   reason: string,
   _now = Date.now()
 ): Promise<'refused' | 'undeliverable'> {
+  // One submission, one verdict: a digest's members share it (T-10159).
+  const members = digestMembers(server, intent)
   const runtimeId = intent.runtimeId
   if (runtimeId === undefined) {
     // No runtime is no (envelope, runtime) pair to charge. Nothing to bound.
-    clearRefusedIntent(server, intent, reason)
+    clearRefusedIntents(server, members, reason)
     return 'refused'
   }
 
   if (await refusalFollowedAWrite(server, runtimeId, intent.submissionId)) {
-    server.store.mailDelivery.markUncertain(intent.envelopeId, reason, 'post_write_refusal')
+    for (const member of members) {
+      server.store.mailDelivery.markUncertain(member.envelopeId, reason, 'post_write_refusal')
+    }
     return 'refused'
   }
 
   if (intent.door === 'steer') {
     const fallback = await steerRefusalFallback(server, runtimeId, intent.submissionId, reason)
     if (fallback !== undefined) {
-      recordSteerFallback(server, intent.envelopeId, runtimeId, fallback)
-      clearRefusedIntent(server, intent, reason, {
+      for (const member of members) {
+        recordSteerFallback(server, member.envelopeId, runtimeId, fallback)
+      }
+      clearRefusedIntents(server, members, reason, {
         refusalClass: fallback === 'capability' ? 'permanent' : 'not_written',
         fallbackDoor: 'enqueue',
       })
       return 'refused'
     }
   }
-  clearRefusedIntent(server, intent, reason, {
+  clearRefusedIntents(server, members, reason, {
     refusalClass: 'not_written',
     retryInMs: nextDeliveryBackoffMs(server, runtimeId),
   })
@@ -649,8 +702,8 @@ export async function observeBrokerLanding(
   if (intent === undefined) return
 
   if (midTurnWrite || LANDED_TYPES.has(record.type)) {
-    await commitLanding(server, intent, {
-      runtimeId: intent.runtimeId ?? record.runtimeId,
+    await commitLandingForSubmission(server, intent, {
+      runtimeId: record.runtimeId,
       eventType: record.type,
       landingHrcSeq: (await server.port.eventsHead()).hrcSeq,
     })
@@ -661,11 +714,13 @@ export async function observeBrokerLanding(
   // rev2 emits this explicit correlation on `input.rejected`; older/partial
   // streams remain safely uncertain rather than reopening the envelope.
   if (payload?.['deliveryEvidence'] !== 'not_written') {
-    server.store.mailDelivery.markUncertain(
-      intent.envelopeId,
-      reason,
-      'refusal_without_no_write_proof'
-    )
+    for (const member of digestMembers(server, intent)) {
+      server.store.mailDelivery.markUncertain(
+        member.envelopeId,
+        reason,
+        'refusal_without_no_write_proof'
+      )
+    }
     return
   }
   await refuseIntent(server, intent, reason)
@@ -702,5 +757,9 @@ function bindAdmittedSubmission(
     record.seq <= intent.brokerAfterSeq
   )
     return
-  server.store.mailDelivery.attachAdmission(envelopeId, { submissionId })
+  // A digest's admission names its oldest member; every member rode it.
+  for (const member of digestMembers(server, intent)) {
+    if (member.submissionId !== undefined) continue
+    server.store.mailDelivery.attachAdmission(member.envelopeId, { submissionId })
+  }
 }

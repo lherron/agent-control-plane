@@ -20,14 +20,21 @@ import { randomUUID } from 'node:crypto'
 
 import { HrcDomainError } from 'hrc-core'
 import type { HrcSessionRecord, PreemptSubmissionRequest } from 'hrc-core'
-import type { HrcMailDeliveryDoor, HrcMailDriveWakeReason } from 'hrc-store-sqlite'
+import type {
+  HrcMailDeliveryDoor,
+  HrcMailDeliveryForm,
+  HrcMailDeliveryIntent,
+  HrcMailDriveWakeReason,
+} from 'hrc-store-sqlite'
 
 import type { MailKickerContext } from '../context.js'
 import type { KickerDispatchOptions, KickerDispatchResult } from '../contracts.js'
 import { KICKER_SUBMISSION_TTL_MS, errorText, parseSessionRef } from '../internal.js'
-import { formatEnvelopePresentations } from '../ledger/presentation.js'
-import type { PresentableEnvelope } from '../ledger/presentation.js'
+import { formatBacklogDigest, formatEnvelopePresentations } from '../ledger/presentation.js'
+import type { EnvelopePresentationForm, PresentableEnvelope } from '../ledger/presentation.js'
+import type { WrkqEnvelope } from '../ledger/types.js'
 import { presentationRuntimeIdFor } from './authority.js'
+import { digestPresentationId } from './digest-group.js'
 import { landLaunchIfStarted, recordSteerFallback, steerRefusalFallback } from './landing.js'
 import type { ActionableEnvelope } from './presentation.js'
 import { actionableDirectives, senderGenerationFor } from './presentation.js'
@@ -86,7 +93,7 @@ export function submitInjected(
 function doorFor(
   server: MailKickerContext,
   seat: ObservedBrokerSeat,
-  envelopeId: string,
+  envelopeIds: readonly string[],
   isHold: boolean,
   preemptAuthorized: boolean
 ): { door: SeatDoor; deliveryOutcome?: string | undefined } {
@@ -95,7 +102,7 @@ function doorFor(
     (seat.state === 'turn-active' || seat.state === 'idle') &&
     seat.steerCapable &&
     !server.mailKickerSteerRefused.has(seat.runtimeId) &&
-    !server.mailKickerSteerFallback.has(envelopeId)
+    !envelopeIds.some((envelopeId) => server.mailKickerSteerFallback.has(envelopeId))
   ) {
     return isHold ? { door: 'steer', deliveryOutcome: 'hold_refused_authority' } : { door: 'steer' }
   }
@@ -136,12 +143,21 @@ async function previewPresentation(
   }
 }
 
-function originFor(item: ActionableEnvelope) {
+function originFor(item: { envelope: WrkqEnvelope }) {
   return {
     principalRef: item.envelope.from.principalRef,
     ...(item.envelope.from.scopeRef === undefined ? {} : { scopeRef: item.envelope.from.scopeRef }),
     envelopeId: item.envelope.id,
   }
+}
+
+/**
+ * The intent row's form. HRC's column is closed to the per-envelope forms, and a
+ * digest member is a FIRST presentation, so it is stored as `full`; what makes
+ * it a digest member is its presentation id (see `digest-group.ts`).
+ */
+function storeFormOf(form: EnvelopePresentationForm): HrcMailDeliveryForm {
+  return form === 'digest' ? 'full' : form
 }
 
 /**
@@ -165,7 +181,7 @@ export async function deliverToSeat(
     seat.state === 'absent' ? await presentationRuntimeIdFor(server, session) : seat.runtimeId
   const isHold = item.envelope.delivery === 'hold'
 
-  const intentDoorAndOutcome = doorFor(server, seat, item.envelope.id, isHold, false)
+  const intentDoorAndOutcome = doorFor(server, seat, [item.envelope.id], isHold, false)
   let door: SeatDoor = intentDoorAndOutcome.door
   let deliveryOutcome = intentDoorAndOutcome.deliveryOutcome
   // The fallback is spent by the pass that takes it: a later refusal of the
@@ -245,7 +261,7 @@ export async function deliverToSeat(
     envelopeId: item.envelope.id,
     targetSessionRef,
     door,
-    form: item.form,
+    form: storeFormOf(item.form),
     presentationId,
     ...(runtimeId === undefined ? {} : { runtimeId }),
     hostSessionId: session.hostSessionId,
@@ -352,6 +368,220 @@ export async function deliverToSeat(
 }
 
 /**
+ * Deliver every BACKLOG fyi of one drive as ONE digest submission (T-10159).
+ *
+ * The body is `formatBacklogDigest`: one line per envelope, no bodies. The fence
+ * is unchanged and still per envelope — each member gets its own intent, opened
+ * before the door is called, carrying a presentation id that names the group.
+ * So a member another wake already holds drops out of this digest rather than
+ * being delivered twice, and the rest go on without it.
+ *
+ * The digest is all-or-nothing at the door: a refused admission clears every
+ * member's intent and none is receipted or acked, so the whole set is still
+ * pending, still backlog, and is retried as a digest on the next drive; a door
+ * that threw, or admitted without a submission id, fences every member as
+ * uncertain. A landing (see `landing.ts`) receipts every member under one
+ * landing sequence, and wrkq's own `fyi_presented` ack follows each receipt.
+ *
+ * A digest never preempts: stale news is not an interruption, whatever the
+ * sender asked for. A held member keeps the `hold_refused_authority` outcome
+ * the ordinary path gives a hold that did not interrupt anything.
+ */
+export async function deliverDigestToSeat(
+  server: MailKickerContext,
+  targetSessionRef: string,
+  session: HrcSessionRecord,
+  seat: ObservedBrokerSeat,
+  items: readonly ActionableEnvelope[],
+  wakeReason: HrcMailDriveWakeReason,
+  driveAttemptId?: string
+): Promise<{ outcome: DeliveryOutcome; members: number }> {
+  const runtimeId =
+    seat.state === 'absent' ? await presentationRuntimeIdFor(server, session) : seat.runtimeId
+  const { door } = doorFor(
+    server,
+    seat,
+    items.map((item) => item.envelope.id),
+    false,
+    false
+  )
+  if (door === 'enqueue') {
+    for (const item of items) server.mailKickerSteerFallback.delete(item.envelope.id)
+  }
+
+  const runtimeIntent =
+    session.lastAppliedIntentJson ??
+    (await server.port.resolveRuntimeIntent(
+      parseSessionRef(targetSessionRef).scopeRef,
+      actionableDirectives(items)
+    ))
+  if (runtimeIntent === undefined) {
+    server.log('WARN', 'wrkq.kicker.delivery_unavailable', {
+      targetSessionRef,
+      wakeReason,
+      envelopes: items.map((item) => item.envelope.id),
+      form: 'digest',
+      reason: 'no_runtime_intent_available',
+    })
+    return { outcome: 'refused', members: 0 }
+  }
+
+  // Re-read every member: one acked, failed or withdrawn since the pending view
+  // drops out here rather than being resurrected by a digest line.
+  const current: WrkqEnvelope[] = []
+  for (const item of items) {
+    try {
+      const row = await server.ledger.envelopeShow({ envelope: item.envelope.id })
+      if (row.state === 'pending' && !row.terminal) current.push(row)
+      else {
+        server.log('INFO', 'wrkq.kicker.digest_member_dropped', {
+          targetSessionRef,
+          envelope: item.envelope.id,
+          state: row.state,
+        })
+      }
+    } catch (error) {
+      server.log('WARN', 'wrkq.kicker.presentation_preview_failed', {
+        targetSessionRef,
+        wakeReason,
+        envelope: item.envelope.id,
+        form: 'digest',
+        error: errorText(error),
+      })
+    }
+  }
+  current.sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
+  if (current.length === 0) return { outcome: 'skipped', members: 0 }
+
+  const groupId = randomUUID()
+  const runtime = runtimeId === undefined ? undefined : await server.port.runtime(runtimeId)
+  const invocationId = runtime?.activeInvocationId
+  const eventsHead = await server.port.eventsHead()
+  const seatSnapshot = runtimeId === undefined ? undefined : await server.port.seat(runtimeId)
+  const opened: Array<{ envelope: WrkqEnvelope; intent: HrcMailDeliveryIntent }> = []
+  for (const envelope of current) {
+    const intent = server.store.mailDelivery.openIntent({
+      envelopeId: envelope.id,
+      targetSessionRef,
+      door,
+      form: storeFormOf('digest'),
+      presentationId: digestPresentationId(groupId, envelope.id),
+      ...(runtimeId === undefined ? {} : { runtimeId }),
+      hostSessionId: session.hostSessionId,
+      generation: session.generation,
+      ...(envelope.delivery === 'hold' ? { deliveryOutcome: 'hold_refused_authority' } : {}),
+      submittedHrcSeq: eventsHead.hrcSeq,
+      ...(invocationId === undefined
+        ? {}
+        : { invocationId, brokerAfterSeq: seatSnapshot?.currentBrokerSeq ?? 0 }),
+    })
+    // Another wake holds this one: it is that wake's to deliver, not ours.
+    if (intent !== undefined) opened.push({ envelope, intent })
+  }
+  const leader = opened[0]?.envelope
+  if (leader === undefined) return { outcome: 'skipped', members: 0 }
+  const members = opened.map(({ envelope }) => envelope.id)
+
+  for (const { envelope, intent } of opened) {
+    server.log('INFO', 'wrkq.kicker.delivery_intent', {
+      ...(driveAttemptId === undefined ? {} : { driveAttemptId }),
+      targetSessionRef,
+      wakeReason,
+      envelope: envelope.id,
+      door,
+      form: 'digest',
+      digestGroup: groupId,
+      digestMembers: members,
+      presentationId: intent.presentationId,
+      ...(runtimeId === undefined ? {} : { runtimeId }),
+      observedSeatState: seat.state,
+    })
+  }
+
+  const prompt = formatBacklogDigest(
+    opened.map(({ envelope }) => envelope),
+    new Date()
+  )
+  const clearAll = () => {
+    for (const id of members) server.store.mailDelivery.clearIntent(id)
+  }
+  const uncertainAll = (cause: string, kind: string) => {
+    for (const id of members) server.store.mailDelivery.markUncertain(id, cause, kind)
+  }
+
+  let body: KickerDispatchResult
+  try {
+    body = await submitInjected(server, door, session, runtimeIntent, prompt, {
+      waitForCompletion: false,
+      ttlMs: KICKER_SUBMISSION_TTL_MS,
+      // The broker's admission record names ONE envelope; the oldest member
+      // stands for the digest and `digest-group.ts` finds the rest.
+      submissionOrigin: originFor({ envelope: leader }),
+    })
+  } catch (error) {
+    uncertainAll('dispatch_error', 'dispatch_error')
+    server.log('WARN', 'wrkq.kicker.delivery_failed', {
+      targetSessionRef,
+      wakeReason,
+      envelopes: members,
+      form: 'digest',
+      door,
+      error: errorText(error),
+    })
+    return { outcome: 'refused', members: members.length }
+  }
+
+  const submissionId = body.submissionId ?? body.inputId
+  if (body.admission === 'rejected') {
+    clearAll()
+    const reason = body.reason ?? 'no_submission_identity'
+    const fallback =
+      door === 'steer' && runtimeId !== undefined
+        ? await steerRefusalFallback(server, runtimeId, body.submissionId, reason)
+        : undefined
+    if (fallback !== undefined && runtimeId !== undefined) {
+      for (const id of members) recordSteerFallback(server, id, runtimeId, fallback)
+    }
+    server.log('WARN', 'wrkq.kicker.landing_refused', {
+      targetSessionRef,
+      wakeReason,
+      envelopes: members,
+      form: 'digest',
+      door,
+      reason,
+      phase: 'admission',
+      ...(fallback === undefined ? {} : { fallbackDoor: 'enqueue' }),
+    })
+    if (fallback !== undefined) server.wake(targetSessionRef, 'insert')
+    return { outcome: 'refused', members: members.length }
+  }
+  if (submissionId === undefined) {
+    uncertainAll('missing_submission_identity', 'admission_response')
+    return { outcome: 'submitted', members: members.length }
+  }
+
+  for (const id of members) {
+    server.store.mailDelivery.attachAdmission(id, {
+      submissionId,
+      ...(body.runtimeId === undefined ? {} : { runtimeId: body.runtimeId }),
+      hostSessionId: body.hostSessionId,
+      generation: body.generation,
+    })
+  }
+  server.log('INFO', 'wrkq.kicker.delivery_admitted', {
+    targetSessionRef,
+    wakeReason,
+    envelopes: members,
+    form: 'digest',
+    digestGroup: groupId,
+    door,
+    submissionId,
+    ...(body.runtimeId === undefined ? {} : { runtimeId: body.runtimeId }),
+  })
+  return { outcome: 'submitted', members: members.length }
+}
+
+/**
  * Deliver ONE envelope by BIRTHING the seat (the launch-carried path).
  *
  * This is the one path where the body is not a submission: HRC places it in
@@ -391,7 +621,7 @@ export async function deliverByColdBirth(
     envelopeId: item.envelope.id,
     targetSessionRef,
     door: 'launch',
-    form: item.form,
+    form: storeFormOf(item.form),
     presentationId,
     submittedHrcSeq: (await server.port.eventsHead()).hrcSeq,
   })

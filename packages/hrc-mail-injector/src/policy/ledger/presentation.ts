@@ -68,7 +68,7 @@ const MAX_DEFER_REASON_CHARS = 120
  * the discriminator explicitly because the two pointer variants differ in their
  * `why` clause, and only the kicker knows which one it is delivering.
  */
-export type EnvelopePresentationForm = 'full' | 'reminder' | 'defer-retry'
+export type EnvelopePresentationForm = 'full' | 'reminder' | 'defer-retry' | 'digest'
 
 export type PresentableEnvelope = {
   envelope: WrkqEnvelope
@@ -117,6 +117,62 @@ export function formatEnvelopePresentation(
   const reply = formatReplyLine(presentable)
   if (reply !== undefined) lines.push(reply)
   return lines.join('\n')
+}
+
+/** The first body line a digest entry quotes, clipped here. */
+const MAX_DIGEST_LINE_CHARS = 120
+
+/**
+ * The BACKLOG DIGEST (T-10159): every backlog fyi one drive can act on, as ONE
+ * input.
+ *
+ *   [while you were away — 2 fyi, oldest 13h ago]
+ *   EN-22849 · foundry@wrkq:primary · 13h ago · <first body line, clipped>
+ *   EN-22852 · foundry@wrkq:primary · 13h ago · <first body line, clipped>
+ *   full text: wrkc show <EN-id>
+ *
+ * A fyi that waited for its seat is no longer live news, so it is not pushed as
+ * a fresh full-form turn: the age is the signal, and the bodies are a pull. One
+ * backlog envelope still takes this form for the same reason. Oldest first.
+ */
+export function formatBacklogDigest(
+  envelopes: readonly WrkqEnvelope[],
+  now: Date = new Date()
+): string {
+  const ordered = [...envelopes].sort((a, b) => createdMs(a) - createdMs(b))
+  const oldest = ordered[0]
+  const oldestAge = oldest === undefined ? undefined : ageClause(oldest, now)
+  const header = `[while you were away — ${ordered.length} fyi${
+    oldestAge === undefined ? '' : `, oldest ${oldestAge} ago`
+  }]`
+  const lines = ordered.map((envelope) => {
+    const age = ageClause(envelope, now)
+    const firstLine = envelope.body.split('\n', 1)[0]?.trim() ?? ''
+    return [
+      envelope.id,
+      formatPartyHandle(envelope.from),
+      ...(age === undefined ? [] : [`${age} ago`]),
+      clip(firstLine, MAX_DIGEST_LINE_CHARS),
+    ].join(' · ')
+  })
+  return [header, ...lines, 'full text: wrkc show <EN-id>'].join('\n')
+}
+
+function createdMs(envelope: WrkqEnvelope): number {
+  const at = Date.parse(envelope.createdAt)
+  return Number.isNaN(at) ? 0 : at
+}
+
+function ageClause(envelope: WrkqEnvelope, now: Date): string | undefined {
+  return elapsedClause(envelope.createdAt, now)
+}
+
+function formatPartyHandle(party: WrkqEnvelope['from']): string {
+  const scope = party.scopeRef
+  if (scope === undefined || scope.trim().length === 0) {
+    return formatPrincipalName(party.principalRef)
+  }
+  return formatScopeHandle(scope)
 }
 
 /** Compose the whole injection for one drive attempt. */
@@ -234,7 +290,7 @@ function formatHeader(presentable: PresentableEnvelope, now: Date): string {
  */
 function formatWhy(presentable: PresentableEnvelope, now: Date): string | undefined {
   const form = formOf(presentable)
-  if (form === 'full') return undefined
+  if (form === 'full' || form === 'digest') return undefined
   if (form === 'reminder') {
     const ago = elapsedClause(presentable.turnEndedAt, now)
     return ago === undefined

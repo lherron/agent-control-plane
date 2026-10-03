@@ -99,6 +99,49 @@ export async function readActionableEnvelopes(
 }
 
 /**
+ * How old a fyi may be at drive time and still be news (T-10159).
+ *
+ * A seated idle reader is shown a fyi within seconds of its insert wake, so 15
+ * minutes only catches a seat that was busy or unseated for a long time — and
+ * a fyi that old is backlog however its seat came to be.
+ */
+export const BACKLOG_FYI_AGE_MS = 15 * 60_000
+
+/**
+ * Is this envelope a BACKLOG fyi: one that waited for its reader?
+ *
+ * Only a legacy `fyi` qualifies — never `notify`, never `reply_required` — and
+ * only on its first presentation. It is backlog when it predates the receiving
+ * runtime's birth, or when it is older than `BACKLOG_FYI_AGE_MS`. An unknown
+ * birth falls back to the age rule alone; it never makes everything backlog.
+ */
+export function isBacklogFyi(
+  item: ActionableEnvelope,
+  options: { runtimeBornAt?: string | undefined; now?: Date | undefined } = {}
+): boolean {
+  const { envelope } = item
+  if (item.form !== 'full' || envelope.obligation !== 'fyi' || envelope.state !== 'pending') {
+    return false
+  }
+  const created = Date.parse(envelope.createdAt)
+  if (Number.isNaN(created)) return false
+  const now = (options.now ?? new Date()).getTime()
+  if (now - created > BACKLOG_FYI_AGE_MS) return true
+  const born = options.runtimeBornAt === undefined ? Number.NaN : Date.parse(options.runtimeBornAt)
+  return !Number.isNaN(born) && created < born
+}
+
+/** Re-form every backlog fyi in this drive's actionable set as a digest member. */
+export function classifyBacklogFyi(
+  actionable: readonly ActionableEnvelope[],
+  options: { runtimeBornAt?: string | undefined; now?: Date | undefined } = {}
+): ActionableEnvelope[] {
+  return actionable.map((item) =>
+    isBacklogFyi(item, options) ? { ...item, form: 'digest' as const } : item
+  )
+}
+
+/**
  * May this envelope birth a target that has no session at all?
  *
  * T-07746 separated summoning from reply debt. Both `reply_required` and the

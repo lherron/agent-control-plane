@@ -37,9 +37,10 @@ import {
   localPlacementRefusalFor,
   skipForeignHomedTarget,
 } from './authority.js'
-import { deliverByColdBirth, deliverToSeat } from './delivery.js'
+import { deliverByColdBirth, deliverDigestToSeat, deliverToSeat } from './delivery.js'
 import type { ActionableEnvelope } from './presentation.js'
-import { readActionableEnvelopes, summonsATurn } from './presentation.js'
+import { classifyBacklogFyi, readActionableEnvelopes, summonsATurn } from './presentation.js'
+import type { ObservedBrokerSeat } from './seat.js'
 import { observeBrokerSeat } from './seat.js'
 
 export type DriveMailTargetOutcome =
@@ -408,7 +409,17 @@ export async function driveMailTargetOnce(
     return
   }
 
-  for (const item of actionable) {
+  // T-10159: a fyi that waited for this reader is backlog, and every backlog
+  // fyi in this pass goes as ONE digest input after the per-envelope mail, so
+  // stale news neither costs a turn per envelope nor gets ahead of an
+  // obligation.
+  const classified = classifyBacklogFyi(actionable, {
+    runtimeBornAt: await runtimeBornAt(server, seat),
+  })
+  const digest = classified.filter((item) => item.form === 'digest')
+  const perEnvelope = classified.filter((item) => item.form !== 'digest')
+
+  for (const item of perEnvelope) {
     summary.attempted++
     const outcome = await deliverToSeat(
       server,
@@ -449,7 +460,53 @@ export async function driveMailTargetOnce(
       diagnostic: null,
     })
   }
+  if (digest.length > 0) {
+    summary.attempted += digest.length
+    const { outcome, members } = await deliverDigestToSeat(
+      server,
+      targetSessionRef,
+      session,
+      seat,
+      digest,
+      wakeReason,
+      driveAttemptId
+    ).catch((error: unknown) => {
+      server.log('WARN', 'wrkq.kicker.delivery_failed', {
+        targetSessionRef,
+        wakeReason,
+        envelopes: digest.map((item) => item.envelope.id),
+        form: 'digest',
+        error: errorText(error),
+      })
+      return { outcome: 'refused' as const, members: digest.length }
+    })
+    if (outcome === 'submitted') summary.admitted += members
+    else if (outcome === 'refused') summary.refused += digest.length
+    else summary.skipped += digest.length
+  }
   complete('completed')
+}
+
+/**
+ * When the runtime this pass delivers into was born, if it can be known.
+ *
+ * Unknown — an absent seat, a failed read — is not an error: the backlog rule
+ * falls back to envelope age alone, and never to "everything is backlog".
+ */
+async function runtimeBornAt(
+  server: MailKickerContext,
+  seat: ObservedBrokerSeat
+): Promise<string | undefined> {
+  if (!('runtimeId' in seat)) return undefined
+  try {
+    return (await server.port.runtime(seat.runtimeId))?.createdAt
+  } catch (error) {
+    server.log('INFO', 'wrkq.kicker.runtime_birth_unknown', {
+      runtimeId: seat.runtimeId,
+      error: errorText(error),
+    })
+    return undefined
+  }
 }
 
 const MAX_ENVELOPE_IDS = 32

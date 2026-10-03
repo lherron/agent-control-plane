@@ -36,7 +36,8 @@ import {
   errorText,
 } from '../internal.js'
 import { isRuntimeTerminal } from '../terminal/runtime-status.js'
-import { commitLanding, landLaunchIfStarted, refuseIntent } from './landing.js'
+import { digestMembers } from './digest-group.js'
+import { commitLandingForSubmission, landLaunchIfStarted, refuseIntent } from './landing.js'
 
 const LANDED_EVENT_TYPES = new Set(['submission.absorbed', 'submission.executed'])
 
@@ -126,26 +127,35 @@ export async function reconcileIntent(
   if (intent.terminalEnvelopeAt !== undefined) return 'open'
   const runtimeId = intent.runtimeId
   if (runtimeId !== undefined) {
-    let submissionId = intent.submissionId
+    // A digest member (T-10159) shares its submission with its siblings, and
+    // the broker's admission record names only the oldest of them.
+    const members = digestMembers(server, intent)
+    let submissionId =
+      intent.submissionId ?? members.find((member) => member.submissionId)?.submissionId
     if (
       submissionId === undefined &&
       intent.invocationId !== undefined &&
       intent.brokerAfterSeq !== undefined
     ) {
-      const discovered = await server.port.brokerEventsQuery({
-        op: 'unique-submission-after',
-        runtimeId,
-        invocationId: intent.invocationId,
-        envelopeId: intent.envelopeId,
-        afterSeq: intent.brokerAfterSeq,
-      })
-      if (discovered.result?.op === 'unique-submission-after') {
-        submissionId = discovered.result.submissionId
+      for (const member of members) {
+        const discovered = await server.port.brokerEventsQuery({
+          op: 'unique-submission-after',
+          runtimeId,
+          invocationId: intent.invocationId,
+          envelopeId: member.envelopeId,
+          afterSeq: intent.brokerAfterSeq,
+        })
+        if (discovered.result?.op === 'unique-submission-after') {
+          submissionId = discovered.result.submissionId
+          break
+        }
       }
     }
     if (submissionId !== undefined) {
-      if (intent.submissionId === undefined) {
-        server.store.mailDelivery.attachAdmission(intent.envelopeId, { submissionId })
+      for (const member of members) {
+        if (member.submissionId === undefined) {
+          server.store.mailDelivery.attachAdmission(member.envelopeId, { submissionId })
+        }
       }
       const dispositionResult = await server.port.brokerEventsQuery({
         op: 'disposition',
@@ -250,7 +260,7 @@ async function landFromStream(
   eventType: string
 ): Promise<IntentReconcileVerdict> {
   const current = server.store.mailDelivery.getIntent(intent.envelopeId) ?? intent
-  const commit = await commitLanding(server, current, {
+  const commit = await commitLandingForSubmission(server, current, {
     runtimeId,
     eventType,
     landingHrcSeq: (await server.port.eventsHead()).hrcSeq,
@@ -318,7 +328,10 @@ export async function reconcileOpenIntents(
         (intent.runtimeId !== undefined && options.runtimeIds.has(intent.runtimeId))
     )
   if (intents.length === 0) return counts
-  for (const intent of intents) {
+  for (const listed of intents) {
+    // A digest sibling resolved earlier in this loop is already closed.
+    const intent = server.store.mailDelivery.getIntent(listed.envelopeId)
+    if (intent === undefined) continue
     try {
       counts[await reconcileIntent(server, intent)] += 1
     } catch (error) {
