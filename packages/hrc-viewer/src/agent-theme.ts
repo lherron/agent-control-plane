@@ -1,15 +1,6 @@
 /**
- * Per-agent color identity for HRC-owned terminal surfaces (T-04439).
- *
- * A curated palette gives the standing collective deliberate, nameable colors;
- * any unlisted agent falls back to a deterministic hash so it still gets a
- * stable, distinct, on-band color with zero maintenance. The foreground is
- * never hard-coded — it is chosen for AA contrast against the resolved bg.
- *
- * This is local presentation policy, intentionally NOT an hrc-core wire
- * contract. If ACP/Discord/iOS later want the same palette, extract a tiny
- * presentation package then — that is an extraction trigger, not a reason to
- * burden hrc-core now (daedalus, T-04439 review).
+ * Session appearance comes from HRC metadata. Rows without appearance use a
+ * deterministic agent-id hash and a dark derived terminal tint.
  */
 
 export type AgentTheme = {
@@ -34,50 +25,15 @@ const TERMINAL_TINT_MAX_SATURATION = 0.5
 const FG_LIGHT = '#F2EEE6'
 const FG_DARK = '#15110C'
 
-/**
- * The standing cast. Roughly equal luminance so a wall of windows reads as a
- * family, not a clown set. Keys are lowercased agent ids.
- */
-export const CURATED_AGENT_COLORS: Readonly<Record<string, string>> = {
-  daedalus: '#2F5FA6', // Lapis
-  clod: '#6B4FB0', // Iris
-  cody: '#1F7A78', // Teal
-  larry: '#4A7A3C', // Moss
-  smokey: '#B5562E', // Ember
-  ariadne: '#9C3F77', // Plum
-  curly: '#A8792B', // Ochre
-  // Saffron — between curly's ochre and the yellow-green fallbacks; avoids
-  // mable's former exact collision with looper and near-match with astra.
-  mable: '#A69D2F',
-  // Garnet — the cast's only red, centered in the empty arc between ariadne's
-  // plum (324°) and smokey's ember (18°): 27° clear of each (T-07980).
-  chief: '#A72F41',
-}
-
-/**
- * Per-agent TERMINAL-tint overrides, consulted before the derived tint.
- *
- * `terminalTint()` derives every agent's tint from the two shared constants above,
- * so nudging one agent by moving them would repaint the whole cast. This map is the
- * narrow escape hatch: it changes exactly one agent and leaves the band alone.
- * An override is still graded by the cast-wide luminance ceiling in the tests.
- */
-export const CURATED_TERMINAL_TINTS: Readonly<Record<string, string>> = {
-  chief: '#41161c', // redder than the derived #361217, at Lance's pick (T-07995)
-}
-
-/** Saturation/lightness band the hash fallback lives in (matches the cast). */
+/** Saturation/lightness band the hash fallback lives in (keeps identity colors readable). */
 const FALLBACK_SATURATION = 0.5
 const FALLBACK_LIGHTNESS = 0.42
 
-/**
- * Resolve an agent's identity theme. Curated agents get their fixed color;
- * everyone else gets a deterministic hash-derived color in the same band.
- */
+/** Resolve the generic deterministic theme for an agent id. */
 export function agentTheme(agentId: string): AgentTheme {
   const key = agentId.trim().toLowerCase()
-  const bg = CURATED_AGENT_COLORS[key] ?? hashColor(key)
-  const terminalBg = CURATED_TERMINAL_TINTS[key] ?? terminalTint(bg)
+  const bg = hashColor(key)
+  const terminalBg = terminalTint(bg)
   return { bg, fg: contrastForeground(bg), terminalBg }
 }
 
@@ -178,7 +134,7 @@ function rgbToHex(r: number, g: number, b: number): string {
   return `#${channel(r)}${channel(g)}${channel(b)}`
 }
 
-/** Per-session cosmetic overrides, independently falling back to the agent palette. */
+/** Per-session cosmetic overrides, independently falling back to the agent hash theme. */
 export function sessionTheme(
   identity: { agentId: string } | undefined,
   metadata?: Record<string, unknown> | undefined

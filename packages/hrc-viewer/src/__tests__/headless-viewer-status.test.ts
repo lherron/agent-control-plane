@@ -44,8 +44,8 @@ describe('renderStatusBar', () => {
     expect(spec.left).toBe('◆ CLOD')
     expect(spec.center).toBe('hrc · T-04297/main')
     expect(spec.right).toBe('▶ running')
-    expect(spec.bg).toBe('#6B4FB0')
-    expect(spec.fg).toBe('#F2EEE6')
+    expect(spec.bg).toBe(agentTheme('clod').bg)
+    expect(spec.fg).toBe(agentTheme('clod').fg)
   })
 
   it('surfaces a fork lane in the center field as <task>/<lane> (T-06321)', () => {
