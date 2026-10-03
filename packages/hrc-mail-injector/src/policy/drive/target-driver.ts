@@ -22,6 +22,7 @@ import { randomUUID } from 'node:crypto'
  *  - seat absent → cold birth, and the launch carries the body.
  *
  */
+import type { HrcSessionRecord } from 'hrc-core'
 import type { HrcMailDriveWakeReason } from 'hrc-store-sqlite'
 
 import type { MailKickerContext } from '../context.js'
@@ -414,7 +415,7 @@ export async function driveMailTargetOnce(
   // stale news neither costs a turn per envelope nor gets ahead of an
   // obligation.
   const classified = classifyBacklogFyi(actionable, {
-    runtimeBornAt: await runtimeBornAt(server, seat),
+    runtimeBornAt: await runtimeBornAt(server, session, seat),
   })
   const digest = classified.filter((item) => item.form === 'digest')
   const perEnvelope = classified.filter((item) => item.form !== 'digest')
@@ -490,16 +491,31 @@ export async function driveMailTargetOnce(
 /**
  * When the runtime this pass delivers into was born, if it can be known.
  *
+ * Read from the seat's OWN host-session listing — the read `observeBrokerSeat`
+ * just found this runtime in — and not from the all-runtimes scan behind
+ * `port.runtime`, which did not yield a runtime born two seconds earlier on the
+ * live acceptance run and so silently demoted its backlog to `full`.
+ *
  * Unknown — an absent seat, a failed read — is not an error: the backlog rule
  * falls back to envelope age alone, and never to "everything is backlog".
  */
 async function runtimeBornAt(
   server: MailKickerContext,
+  session: HrcSessionRecord,
   seat: ObservedBrokerSeat
 ): Promise<string | undefined> {
   if (!('runtimeId' in seat)) return undefined
   try {
-    return (await server.port.runtime(seat.runtimeId))?.createdAt
+    const runtime = (await server.port.runtimesByHostSession(session.hostSessionId)).find(
+      (candidate) => candidate.runtimeId === seat.runtimeId
+    )
+    if (runtime === undefined) {
+      server.log('INFO', 'wrkq.kicker.runtime_birth_unknown', {
+        runtimeId: seat.runtimeId,
+        reason: 'runtime_not_listed',
+      })
+    }
+    return runtime?.createdAt
   } catch (error) {
     server.log('INFO', 'wrkq.kicker.runtime_birth_unknown', {
       runtimeId: seat.runtimeId,

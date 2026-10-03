@@ -180,6 +180,22 @@ describe('T-10159 — backlog fyi digest', () => {
     expect(h.ledger.envelopes.get(live.id)?.state).toBe('acked')
   })
 
+  it('reads the birth from the seat host session, not the all-runtimes scan', async () => {
+    // Live specimen (T-10159 acceptance, EN-23151/EN-23152): the drive ran ~2s
+    // after the runtime was born, the fyis were 30s old, and the all-runtimes
+    // scan did not yield the newborn runtime, so both landed `full`.
+    h.context.port.runtime = async () => undefined
+    const first = staleFyi(1, 'a')
+    const second = staleFyi(1, 'b')
+
+    await driveMailTargetOnce(h.context, TARGET, 'periodic')
+
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]?.prompt).toContain('while you were away — 2 fyi')
+    expect(prompts[0]?.prompt).toContain(first.id)
+    expect(prompts[0]?.prompt).toContain(second.id)
+  })
+
   it('a single backlog fyi still takes the digest form', async () => {
     const only = staleFyi(1, 'one stale line')
     await driveMailTargetOnce(h.context, TARGET, 'turn_completion')
@@ -190,13 +206,14 @@ describe('T-10159 — backlog fyi digest', () => {
   })
 
   it('falls back to the 15-minute age rule only when the runtime birth is unknown', async () => {
-    // Only the birth lookup fails: it is the first runtime read of the pass.
-    const runtime = h.context.port.runtime.bind(h.context.port)
+    // Only the birth lookup fails: the seat probe's host-session read is the
+    // first of the pass, the birth read is the second.
+    const byHost = h.context.port.runtimesByHostSession.bind(h.context.port)
     let reads = 0
-    h.context.port.runtime = async (runtimeId) => {
+    h.context.port.runtimesByHostSession = async (hostSessionId) => {
       reads += 1
-      if (reads === 1) throw new Error('runtime read failed')
-      return runtime(runtimeId)
+      if (reads === 2) throw new Error('runtime read failed')
+      return byHost(hostSessionId)
     }
     const old = h.ledger.say({ obligation: 'fyi', createdAt: minutesBefore(Date.now(), 20) })
     const fresh = h.ledger.say({ obligation: 'fyi', createdAt: minutesBefore(Date.now(), 2) })
