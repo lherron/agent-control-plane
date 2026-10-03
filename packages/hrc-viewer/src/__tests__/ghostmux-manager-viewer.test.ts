@@ -202,6 +202,42 @@ describe('GhostmuxManager.ensureHeadlessViewer (consolidated window/tab/pane)', 
     expect(fake.surfaceMeta(paneId ?? '')?.['hrc_runtime_id']).toBe('rt-2')
   })
 
+  it('reattaches a changed target once, preserving the surface across reconcile and restart', async () => {
+    const fake = makeFakeGhostmux()
+    const interrupts: string[] = []
+    const interrupt = async (surfaceId: string) => {
+      interrupts.push(surfaceId)
+    }
+    const manager = new GhostmuxManager('ghostmux', fake.runner, undefined, interrupt)
+    const options = {
+      scopeRef: cloRef,
+      runtimeId: 'rt-1',
+      attachCommand: 'attach-1',
+      attachTarget: { socketPath: '/tmp/one.sock', attachTarget: 'one:tui' },
+    }
+    const first = await manager.ensureHeadlessViewer(options)
+    await manager.ensureHeadlessViewer(options)
+    expect(fake.calls.filter((c) => c[0] === 'send-keys')).toHaveLength(1)
+    expect(interrupts).toHaveLength(0)
+    const successor = {
+      ...options,
+      runtimeId: 'rt-2',
+      attachCommand: 'attach-2',
+      attachTarget: { socketPath: '/tmp/two.sock', attachTarget: 'two:tui' },
+    }
+    const reused = await manager.ensureHeadlessViewer(successor)
+    expect(reused).toEqual({ ...first, status: 'reused' })
+    expect(interrupts).toEqual([first.status === 'created' ? first.surfaceId : 'missing'])
+    expect(fake.calls.filter((c) => c[0] === 'send-keys')).toHaveLength(2)
+    await new GhostmuxManager('ghostmux', fake.runner, undefined, interrupt).ensureHeadlessViewer(
+      successor
+    )
+    // A runtime metadata change with the SAME target must also leave the client alone.
+    await manager.ensureHeadlessViewer({ ...successor, runtimeId: 'rt-3' })
+    expect(fake.calls.filter((c) => c[0] === 'send-keys')).toHaveLength(2)
+    expect(interrupts).toHaveLength(1)
+  })
+
   it('serializes concurrent same-task creates into ONE tab (mutex + post-lock recheck)', async () => {
     const fake = makeFakeGhostmux()
     const manager = new GhostmuxManager('ghostmux', fake.runner)

@@ -659,6 +659,50 @@ function selectSplitDirection(surface: GhostmuxSurfaceState): GhostmuxSplitDirec
   return columns >= 100 || columns >= rows * 2 ? 'right' : 'down'
 }
 
+/**
+ * Interrupt the old session-report foreground group, rather than typing a key:
+ * its raw wait-key handler treats even Ctrl-C as "close" and exits the surface.
+ * Ghostty's inherited UUID fences the signal to this viewer's own process.
+ * A still-attached tmux client is left alone; reconciliation retries after it
+ * reaches session-report, so no command can be injected into an old harness.
+ */
+async function interruptViewerAttachment(surfaceId: string): Promise<void> {
+  const ps = Bun.spawn(['ps', '-axo', 'pid=,pgid=,command='], { stdout: 'pipe', stderr: 'pipe' })
+  const listing = await new Response(ps.stdout).text()
+  if ((await ps.exited) !== 0) throw new Error('Unable to inspect viewer attachment processes')
+  for (const line of listing.split('\n')) {
+    const match = /^\s*(\d+)\s+(\d+)\s+(.+)$/.exec(line)
+    if (!match) continue
+    const command = match[3] ?? ''
+    const report = command.includes('hrc monitor session-report --runtime ')
+    const attach = /(?:^|\s|\/)tmux .* attach-session /.test(command)
+    if (!report && !attach) continue
+    const pid = Number(match[1])
+    const env = Bun.spawn(['ps', 'eww', '-p', String(pid), '-o', 'command='], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    // Never log this output: ps includes the process environment.
+    const details = await new Response(env.stdout).text()
+    await env.exited
+    if (!details.split(/\s+/).includes(`GHOSTTY_SURFACE_UUID=${surfaceId}`)) continue
+    if (attach) throw new Error('Previous viewer attachment is still live; retry after detach')
+    const group = Number(match[2])
+    if (group <= 1 || group !== pid) throw new Error('Unexpected viewer foreground process group')
+    process.kill(-group, 'SIGINT')
+    // Wait until zsh has reclaimed the foreground before sending shell text.
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      await Bun.sleep(20)
+      try {
+        process.kill(pid, 0)
+      } catch {
+        return
+      }
+    }
+    throw new Error('Previous viewer session report did not exit')
+  }
+}
+
 export class GhostmuxManager {
   /** Set once a recognizable "statusbar unsupported" error is seen (T-04439). */
   private statusBarUnsupported = false
@@ -692,7 +736,8 @@ export class GhostmuxManager {
   constructor(
     private readonly ghostmuxBinary = 'ghostmux',
     private readonly runner?: GhostmuxRunner | undefined,
-    commandTimeoutMs = DEFAULT_GHOSTMUX_COMMAND_TIMEOUT_MS
+    commandTimeoutMs = DEFAULT_GHOSTMUX_COMMAND_TIMEOUT_MS,
+    private readonly interruptAttachment = interruptViewerAttachment
   ) {
     this.commandTimeoutMs = Math.max(1, Math.trunc(commandTimeoutMs))
   }
@@ -760,6 +805,7 @@ export class GhostmuxManager {
     hostSessionId?: string | undefined
     generation?: number | undefined
     attachCommand: string
+    attachTarget?: { socketPath: string; attachTarget: string } | undefined
     /**
      * Optional explicit pane-title override; default is `<label> · <agent>`, plus
      * ` · <role>` for a role-qualified scope.
@@ -810,13 +856,31 @@ export class GhostmuxManager {
           // terminal event for a prior runtime cannot reap this pane, then repaint.
           // Pane lookup is deliberately GLOBAL: reuse wins over placement, so a
           // newly-hinted respawn adopts the live pane wherever it already lives.
+          const metadata = await this.getMetadata(existing.surfaceId)
+          const target =
+            options.attachTarget === undefined
+              ? undefined
+              : JSON.stringify({
+                  socketPath: options.attachTarget.socketPath,
+                  attachTarget: options.attachTarget.attachTarget,
+                })
+          const previousTarget = isRecord(metadata) ? metadata['hrc_attach_target'] : undefined
+          const changed =
+            previousTarget !== undefined && target !== undefined
+              ? previousTarget !== target
+              : isRecord(metadata) && metadata['hrc_runtime_id'] !== options.runtimeId
+          if (changed) {
+            await this.interruptAttachment(existing.surfaceId)
+            await this.exec(['send-keys', '-t', existing.surfaceId, options.attachCommand])
+          }
           await this.stampAgentPaneMetadata(existing.surfaceId, identity, {
             scopeRef: options.scopeRef,
             runtimeId: options.runtimeId,
             windowKey,
             hostSessionId: options.hostSessionId,
             generation: options.generation,
-          }).catch(() => undefined)
+            attachTarget: target,
+          })
           // Refresh the title on reuse too, so a reused pane always reflects the
           // current label (e.g. after a label-format change). Safe: the pane is
           // blocked in `tmux attach`, so this set-title is not clobbered.
@@ -886,6 +950,18 @@ export class GhostmuxManager {
         await this.withGhostmuxBackoff(() =>
           this.exec(['send-keys', '-t', created.surfaceId, options.attachCommand])
         )
+        if (options.attachTarget !== undefined) {
+          await this.setMetadata(
+            created.surfaceId,
+            {
+              hrc_attach_target: JSON.stringify({
+                socketPath: options.attachTarget.socketPath,
+                attachTarget: options.attachTarget.attachTarget,
+              }),
+            },
+            false
+          )
+        }
         await this.exec(['set-title', '-t', created.surfaceId, paneTitle]).catch(() => undefined)
         await this.equalizePanes(created.surfaceId)
         this.applyStatusBarBestEffort(created.surfaceId, options.statusBar)
@@ -1496,6 +1572,7 @@ export class GhostmuxManager {
       windowKey: string
       hostSessionId?: string | undefined
       generation?: number | undefined
+      attachTarget?: string | undefined
     }
   ): Promise<void> {
     const tab = identity.tab
@@ -1513,6 +1590,7 @@ export class GhostmuxManager {
         ...(tab.taskId ? { hrc_task_id: tab.taskId } : {}),
         hrc_scope_ref: binding.scopeRef,
         hrc_runtime_id: binding.runtimeId,
+        ...(binding.attachTarget !== undefined ? { hrc_attach_target: binding.attachTarget } : {}),
         ...(binding.hostSessionId ? { hrc_host_session_id: binding.hostSessionId } : {}),
         ...(binding.generation !== undefined ? { hrc_generation: binding.generation } : {}),
       },

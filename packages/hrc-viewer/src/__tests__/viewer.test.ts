@@ -250,9 +250,9 @@ describe('HrcViewer reconcile (§4.5 / §5.5)', () => {
       latest: [event('turn.awaiting_input')],
     })
     await harness.viewer.reconcile('start')
-    expect(harness.ensureCalls).toHaveLength(0)
-    expect(harness.rebindCalls[0]).toMatchObject({
-      surfaceId: 'surface-old',
+    expect(harness.ensureCalls).toHaveLength(1)
+    expect(harness.rebindCalls).toHaveLength(0)
+    expect(harness.ensureCalls[0]).toMatchObject({
       runtimeId: 'rt-1',
       hostSessionId: 'hs-1',
       generation: 1,

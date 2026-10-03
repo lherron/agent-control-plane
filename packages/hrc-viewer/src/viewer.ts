@@ -53,6 +53,7 @@ export type ViewerGhostmux = {
     hostSessionId?: string | undefined
     generation?: number | undefined
     attachCommand: string
+    attachTarget?: { socketPath: string; attachTarget: string } | undefined
     title?: string | undefined
     statusBar?: GhostmuxStatusBarSpec | undefined
     terminalBg?: string | undefined
@@ -470,14 +471,8 @@ export class HrcViewer {
             pane.hostSessionId !== row.hostSessionId ||
             pane.generation !== row.generation
           ) {
-            await this.ghostmux.rebindHeadlessViewerPane(pane.surfaceId, {
-              scopeRef: row.scopeRef,
-              laneRef: normalizePresentationLaneRef(row.laneRef),
-              runtimeId: row.runtimeId,
-              hostSessionId: row.hostSessionId,
-              generation: row.generation,
-              windowKey: row.presentation?.viewerWindow,
-            })
+            // Adoption must replace the attach process as well as runtime metadata.
+            await this.ensurePane(row, eventsByRuntime.get(row.runtimeId), false)
           }
           await this.paintPresentationSurfaces(
             pane.surfaceId,
@@ -535,7 +530,8 @@ export class HrcViewer {
 
   private async ensurePane(
     row: PresentationRuntimeRow,
-    latestEvent?: LifecycleEvent | undefined
+    latestEvent?: LifecycleEvent | undefined,
+    paint = true
   ): Promise<void> {
     const tmux = row.tmux
     const attachCommand = attachCommandFor(row, this.lingerSeconds)
@@ -551,6 +547,7 @@ export class HrcViewer {
       hostSessionId: row.hostSessionId,
       generation: row.generation,
       attachCommand,
+      attachTarget: tmux,
       windowKey: row.presentation?.viewerWindow,
       // Only reached when no pane of ours exists for this identity, so every
       // attached client is somebody ELSE's terminal — an operator watching this
@@ -572,7 +569,7 @@ export class HrcViewer {
       await this.paintPresentationSurfaces(undefined, current ?? row, latestEvent)
       return
     }
-    if (result.status === 'created' || result.status === 'reused') {
+    if (paint && (result.status === 'created' || result.status === 'reused')) {
       const current = await this.currentPresentationRuntime(row.runtimeId)
       await this.paintPresentationSurfaces(result.surfaceId, current ?? row, latestEvent)
     }
