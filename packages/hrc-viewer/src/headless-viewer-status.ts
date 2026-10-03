@@ -12,9 +12,9 @@
  * left/center and changing only the right (state) field.
  */
 
-import { laneIdFromRef, normalizeLaneRef, parseScopeRef } from 'agent-scope'
+import { laneIdFromRef, normalizeLaneRef } from 'agent-scope'
 
-import { agentTheme } from './agent-theme.js'
+import { sessionTheme } from './agent-theme.js'
 import type { GhostmuxSecondaryStatusBarSpec, GhostmuxStatusBarSpec } from './ghostmux.js'
 import { shortenProjectId } from './project-prefix.js'
 import type { TaskSlugResolver } from './wrkq-task-label.js'
@@ -85,14 +85,15 @@ export function viewerStateForRuntimeStatus(status: string | undefined): ViewerS
  * lane and a fork lane is visibly distinct from `main`.
  */
 export function renderStatusBar(
-  scopeRef: string,
+  identity: ViewerIdentity | undefined,
   state: ViewerState,
   slug?: string | null,
-  laneRef?: string | null
+  laneRef?: string | null,
+  metadata?: Record<string, unknown> | undefined
 ): GhostmuxStatusBarSpec {
-  const parsed = safeParseScopeRef(scopeRef)
-  const agentId = parsed?.agentId ?? 'unknown'
-  const theme = agentTheme(agentId)
+  const parsed = identity
+  const agentId = identity?.agentId ?? 'unknown'
+  const theme = sessionTheme(identity, metadata)
   return {
     left: `◆ ${agentId.toUpperCase()}`,
     center: renderCenter(parsed, slug, laneRef),
@@ -128,13 +129,15 @@ export function renderSecondaryStatusBar(title: string): GhostmuxSecondaryStatus
 }
 
 /** The agent-color terminal tint (`set-bg`) for a scope's viewer window. */
-export function viewerTerminalBg(scopeRef: string): string {
-  const parsed = safeParseScopeRef(scopeRef)
-  return agentTheme(parsed?.agentId ?? 'unknown').terminalBg
+export function viewerTerminalBg(
+  identity: ViewerIdentity | undefined,
+  metadata?: Record<string, unknown> | undefined
+): string {
+  return sessionTheme(identity, metadata).terminalBg
 }
 
 function renderCenter(
-  parsed: ReturnType<typeof safeParseScopeRef>,
+  parsed: ViewerIdentity | undefined,
   slug?: string | null,
   laneRef?: string | null
 ): string {
@@ -154,13 +157,11 @@ function renderCenter(
   return project || taskLane || ''
 }
 
-function safeParseScopeRef(scopeRef: string): ReturnType<typeof parseScopeRef> | null {
-  try {
-    return parseScopeRef(scopeRef)
-  } catch {
-    return null
-  }
-}
+export type ViewerIdentity = NonNullable<
+  Awaited<
+    ReturnType<import('hrc-sdk').HrcClient['listPresentationRuntimes']>
+  >['runtimes'][number]['identity']
+>
 
 export type HeadlessViewerStatusProjectorDeps = {
   /** Resolve the viewer surface bound to a runtime (DB first, metadata fallback). */
@@ -176,6 +177,14 @@ export type HeadlessViewerStatusProjectorDeps = {
    * null result, or a throw all fall back to the `project · T-id` rendering.
    */
   resolveSlug?: TaskSlugResolver | undefined
+  resolveSession?:
+    | ((
+        runtimeId: string
+      ) => Promise<
+        | { identity?: ViewerIdentity | undefined; metadata?: Record<string, unknown> | undefined }
+        | undefined
+      >)
+    | undefined
   /** Coalescing window per runtime. Defaults to 150ms. */
   debounceMs?: number
   /** Injectable timer for tests. Defaults to setTimeout/clearTimeout. */
@@ -186,6 +195,7 @@ export type HeadlessViewerStatusProjectorDeps = {
 }
 
 type ProjectorEntry = {
+  identity: ViewerIdentity | undefined
   scopeRef: string
   laneRef: string | undefined
   pending: ViewerState
@@ -195,6 +205,7 @@ type ProjectorEntry = {
 }
 
 type LifecycleLike = {
+  identity?: ViewerIdentity | undefined
   eventKind: string
   runtimeId?: string | undefined
   scopeRef?: string | undefined
@@ -228,6 +239,7 @@ export class HeadlessViewerStatusProjector {
 
       const entry = this.entries.get(runtimeId) ?? {
         scopeRef,
+        identity: event.identity,
         laneRef: event.laneRef,
         pending: state,
         exited: false,
@@ -236,6 +248,7 @@ export class HeadlessViewerStatusProjector {
       // Once a terminal event is seen, the bar is exited forever — ignore any
       // later running/awaiting/idle, even if it arrives out of order.
       if (entry.exited) return
+      entry.identity = event.identity ?? entry.identity
       entry.scopeRef = scopeRef
       entry.laneRef = event.laneRef
       if (state === 'exited') entry.exited = true
@@ -256,7 +269,7 @@ export class HeadlessViewerStatusProjector {
     const entry = this.entries.get(runtimeId)
     if (!entry) return
     entry.timer = undefined
-    const { pending: state, scopeRef, laneRef, exited } = entry
+    const { pending: state, laneRef, exited } = entry
     try {
       const surfaceIds = this.deps.resolveSurfaceIds
         ? await this.deps.resolveSurfaceIds(runtimeId)
@@ -264,8 +277,12 @@ export class HeadlessViewerStatusProjector {
             (surfaceId): surfaceId is string => surfaceId !== null
           )
       if (surfaceIds.length > 0) {
-        const slug = await this.resolveSlugBestEffort(scopeRef)
-        const spec = renderStatusBar(scopeRef, state, slug, laneRef)
+        const session = this.deps.resolveSession
+          ? await this.deps.resolveSession(runtimeId)
+          : undefined
+        const identity = session?.identity ?? entry.identity
+        const slug = await this.resolveSlugBestEffort(identity?.taskId)
+        const spec = renderStatusBar(identity, state, slug, laneRef, session?.metadata)
         for (const surfaceId of new Set(surfaceIds)) {
           await this.deps.applyStatusBar(surfaceId, spec)
         }
@@ -284,10 +301,10 @@ export class HeadlessViewerStatusProjector {
    * write. The resolver is already best-effort, but we defensively swallow any
    * throw here too so a misbehaving resolver can never skip the repaint.
    */
-  private async resolveSlugBestEffort(scopeRef: string): Promise<string | null> {
+  private async resolveSlugBestEffort(taskId: string | undefined): Promise<string | null> {
     if (!this.deps.resolveSlug) return null
     try {
-      return await this.deps.resolveSlug(scopeRef)
+      return await this.deps.resolveSlug(taskId)
     } catch (error) {
       this.deps.onError?.(error)
       return null

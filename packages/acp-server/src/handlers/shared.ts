@@ -1,5 +1,6 @@
 import type { Task } from 'acp-core'
-import { type SessionRef, normalizeSessionRef, parseScopeRef } from 'agent-scope'
+import { type SessionRef, formatScopeHandle, normalizeSessionRef, parseScopeRef } from 'agent-scope'
+import type { SessionIdentity } from 'hrc-core'
 
 import { badRequest, notFound } from '../http.js'
 import {
@@ -54,4 +55,20 @@ export function readOptionalMeta(
   input: Record<string, unknown>
 ): Readonly<Record<string, unknown>> | undefined {
   return readOptionalRecordField(input, 'meta')
+}
+
+/** Format stored identity; historical rows keep their opaque scope. */
+export function formatSessionIdentityHandle(
+  scopeRef: string,
+  identity: SessionIdentity | undefined
+): string {
+  if (identity === undefined || identity.kind === 'unparsed') return scopeRef
+  return formatScopeHandle({
+    kind: identity.kind,
+    agentId: identity.agentId,
+    scopeRef,
+    ...(identity.projectId === undefined ? {} : { projectId: identity.projectId }),
+    ...(identity.taskId === undefined ? {} : { taskId: identity.taskId }),
+    ...(identity.roleName === undefined ? {} : { roleName: identity.roleName }),
+  })
 }

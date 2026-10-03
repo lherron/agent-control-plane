@@ -25,7 +25,6 @@ const session: HrcSessionRecord = {
   status: 'active',
   createdAt: NOW,
   updatedAt: NOW,
-  ancestorScopeRefs: [],
 }
 
 const runtime: HrcRuntimeSnapshot = {
@@ -39,7 +38,6 @@ const runtime: HrcRuntimeSnapshot = {
   provider: 'openai',
   status: 'active',
   supportsInflightInput: true,
-  adopted: false,
   activeRunId: 'run-live',
   createdAt: NOW,
   updatedAt: NOW,

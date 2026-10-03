@@ -8,7 +8,6 @@ import {
   FAMILY_ACCENT,
   FAMILY_BORDER,
   FAMILY_TEXT,
-  agentIdFromSessionRef,
   clockLabel,
   compactRef,
   payloadPreview,
@@ -66,7 +65,7 @@ export function EventList({
         ) : (
           <ol className="divide-y divide-border/60">
             {visibleEvents.map((event) => {
-              const agentId = agentIdFromSessionRef(event.sessionRef)
+              const agentId = event.identity?.agentId
               const selected = event.id === selectedEventId
               return (
                 <li key={event.id}>

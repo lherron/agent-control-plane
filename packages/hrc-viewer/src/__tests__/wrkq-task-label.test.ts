@@ -1,3 +1,4 @@
+import { fixtureIdentity } from './session-identity-fixture.js'
 /**
  * T-04977 — best-effort wrkq task-slug resolution for the status bar.
  *
@@ -13,7 +14,7 @@ import {
   type WrkqRunResult,
   createTaskSlugResolver,
   createTaskTitleReader,
-  extractTaskIdFromScope,
+  extractTaskIdFromIdentity,
   isPlaceholderTaskSlug,
   parseTaskSlug,
   parseTaskTitles,
@@ -24,29 +25,39 @@ const slugJson = (slug: unknown) => JSON.stringify([{ id: 'T-04977', slug }])
 /** A real hcs placeholder observed on a chief pane (T-08028). */
 const PLACEHOLDER = 'context-1788523795324905000'
 
-describe('extractTaskIdFromScope', () => {
+describe('extractTaskIdFromIdentity', () => {
   it('returns the task id for a canonical T-<digits> scope', () => {
-    expect(extractTaskIdFromScope('agent:clod:project:hrc-runtime:task:T-04977')).toBe('T-04977')
+    expect(
+      extractTaskIdFromIdentity(fixtureIdentity('agent:clod:project:hrc-runtime:task:T-04977'))
+    ).toBe('T-04977')
   })
 
   it('returns the full subtask id for a subtask scope, not its owner (T-09895)', () => {
     expect(
-      extractTaskIdFromScope('agent:clod:project:hrc-runtime:task:T-04977.render-preview')
+      extractTaskIdFromIdentity(
+        fixtureIdentity('agent:clod:project:hrc-runtime:task:T-04977.render-preview')
+      )
     ).toBe('T-04977.render-preview')
-    expect(extractTaskIdFromScope('agent:clod:project:hrc-runtime:task:T-04977.2')).toBeNull()
+    expect(
+      extractTaskIdFromIdentity(fixtureIdentity('agent:clod:project:hrc-runtime:task:T-04977.2'))
+    ).toBeNull()
   })
 
   it('returns null for primary, lane-only, or non-task scopes', () => {
-    expect(extractTaskIdFromScope('agent:daedalus:project:agent-spaces:task:primary')).toBeNull()
-    expect(extractTaskIdFromScope('agent:clod:project:hrc-runtime')).toBeNull()
+    expect(
+      extractTaskIdFromIdentity(fixtureIdentity('agent:daedalus:project:agent-spaces:task:primary'))
+    ).toBeNull()
+    expect(extractTaskIdFromIdentity(fixtureIdentity('agent:clod:project:hrc-runtime'))).toBeNull()
   })
 
   it('returns null for a non-T task segment', () => {
-    expect(extractTaskIdFromScope('agent:clod:project:hrc-runtime:task:repair')).toBeNull()
+    expect(
+      extractTaskIdFromIdentity(fixtureIdentity('agent:clod:project:hrc-runtime:task:repair'))
+    ).toBeNull()
   })
 
   it('returns null for an unparseable scope ref', () => {
-    expect(extractTaskIdFromScope('not-a-scope')).toBeNull()
+    expect(extractTaskIdFromIdentity(fixtureIdentity('not-a-scope'))).toBeNull()
   })
 })
 
@@ -85,7 +96,9 @@ describe('parseTaskSlug', () => {
 describe('createTaskSlugResolver', () => {
   it('resolves the slug for a task scope', async () => {
     const resolve = createTaskSlugResolver({ runner: async () => ok(slugJson('my-slug')) })
-    expect(await resolve('agent:clod:project:hrc-runtime:task:T-04977')).toBe('my-slug')
+    expect(
+      await resolve(fixtureIdentity('agent:clod:project:hrc-runtime:task:T-04977')?.taskId)
+    ).toBe('my-slug')
   })
 
   it('never spawns the runner for a non-task scope', async () => {
@@ -96,7 +109,9 @@ describe('createTaskSlugResolver', () => {
         return ok(slugJson('x'))
       },
     })
-    expect(await resolve('agent:daedalus:project:agent-spaces:task:primary')).toBeNull()
+    expect(
+      await resolve(fixtureIdentity('agent:daedalus:project:agent-spaces:task:primary')?.taskId)
+    ).toBeNull()
     expect(calls).toBe(0)
   })
 
@@ -104,7 +119,9 @@ describe('createTaskSlugResolver', () => {
     const resolve = createTaskSlugResolver({
       runner: async () => ({ stdout: '', stderr: 'boom', exitCode: 1 }),
     })
-    expect(await resolve('agent:clod:project:hrc-runtime:task:T-1')).toBeNull()
+    expect(
+      await resolve(fixtureIdentity('agent:clod:project:hrc-runtime:task:T-1')?.taskId)
+    ).toBeNull()
   })
 
   it('returns null on malformed JSON and on a missing slug', async () => {
@@ -120,7 +137,9 @@ describe('createTaskSlugResolver', () => {
         throw new Error('wrkq missing')
       },
     })
-    expect(await resolve('agent:clod:project:hrc-runtime:task:T-1')).toBeNull()
+    expect(
+      await resolve(fixtureIdentity('agent:clod:project:hrc-runtime:task:T-1')?.taskId)
+    ).toBeNull()
   })
 
   it('memoizes a successful slug per task id (one spawn for repeated repaints)', async () => {
@@ -132,9 +151,9 @@ describe('createTaskSlugResolver', () => {
       },
     })
     const scope = 'agent:clod:project:hrc-runtime:task:T-04977'
-    expect(await resolve(scope)).toBe('cached-slug')
-    expect(await resolve(scope)).toBe('cached-slug')
-    expect(await resolve(scope)).toBe('cached-slug')
+    expect(await resolve(fixtureIdentity(scope)?.taskId)).toBe('cached-slug')
+    expect(await resolve(fixtureIdentity(scope)?.taskId)).toBe('cached-slug')
+    expect(await resolve(fixtureIdentity(scope)?.taskId)).toBe('cached-slug')
     expect(calls).toBe(1)
   })
 
@@ -147,8 +166,8 @@ describe('createTaskSlugResolver', () => {
       },
     })
     const scope = 'agent:clod:project:hrc-runtime:task:T-04977'
-    expect(await resolve(scope)).toBeNull()
-    expect(await resolve(scope)).toBe('later')
+    expect(await resolve(fixtureIdentity(scope)?.taskId)).toBeNull()
+    expect(await resolve(fixtureIdentity(scope)?.taskId)).toBe('later')
     expect(calls).toBe(2)
   })
 })
@@ -176,8 +195,8 @@ describe('createTaskSlugResolver placeholder staleness (T-08028)', () => {
       },
     })
     const scope = 'agent:chief:project:hcs:task:T-07987'
-    expect(await resolve(scope)).toBe(PLACEHOLDER)
-    expect(await resolve(scope)).toBe('wrkc-steer-default')
+    expect(await resolve(fixtureIdentity(scope)?.taskId)).toBe(PLACEHOLDER)
+    expect(await resolve(fixtureIdentity(scope)?.taskId)).toBe('wrkc-steer-default')
     expect(calls).toBe(2)
   })
 
@@ -190,10 +209,10 @@ describe('createTaskSlugResolver placeholder staleness (T-08028)', () => {
       },
     })
     const scope = 'agent:chief:project:hcs:task:T-07987'
-    await resolve(scope)
-    expect(await resolve(scope)).toBe('wrkc-steer-default')
-    expect(await resolve(scope)).toBe('wrkc-steer-default')
-    expect(await resolve(scope)).toBe('wrkc-steer-default')
+    await resolve(fixtureIdentity(scope)?.taskId)
+    expect(await resolve(fixtureIdentity(scope)?.taskId)).toBe('wrkc-steer-default')
+    expect(await resolve(fixtureIdentity(scope)?.taskId)).toBe('wrkc-steer-default')
+    expect(await resolve(fixtureIdentity(scope)?.taskId)).toBe('wrkc-steer-default')
     expect(calls).toBe(2)
   })
 
@@ -206,7 +225,8 @@ describe('createTaskSlugResolver placeholder staleness (T-08028)', () => {
       },
     })
     const scope = 'agent:chief:project:hcs:task:T-08007'
-    for (let i = 0; i < 5; i++) expect(await resolve(scope)).toBe('already-settled')
+    for (let i = 0; i < 5; i++)
+      expect(await resolve(fixtureIdentity(scope)?.taskId)).toBe('already-settled')
     expect(calls).toBe(1)
   })
 })

@@ -1,5 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { parseScopeRef } from 'agent-scope'
 
 import { DeliveryTargetResolver } from './delivery-target-resolver.js'
 import { BindingRepo } from './repos/binding-repo.js'
@@ -440,75 +441,28 @@ function migrateStructuredScopeColumns(sqlite: SqliteDatabase): void {
 }
 
 function backfillStructuredScopeColumns(sqlite: SqliteDatabase): void {
-  // Backfill agent_id, task_id, role_name from scope_ref for every row.
-  // scope_ref format: agent:<id>[:project:<id>[:task:<id>][:role:<name>]]
-  // SQLite has no regex; we use a series of substring extractions.
-  sqlite.exec(`
-    UPDATE interface_bindings
-       SET agent_id = CASE
-             WHEN scope_ref LIKE 'agent:%'
-               THEN
-                 CASE
-                   WHEN instr(substr(scope_ref, 7), ':') > 0
-                     THEN substr(scope_ref, 7, instr(substr(scope_ref, 7), ':') - 1)
-                   ELSE substr(scope_ref, 7)
-                 END
-             ELSE agent_id
-           END
-     WHERE agent_id IS NULL;
-  `)
-
-  // task_id: only present after ":task:" segment.
-  sqlite.exec(`
-    UPDATE interface_bindings
-       SET task_id = (
-             SELECT CASE
-               WHEN instr(scope_ref, ':task:') > 0 THEN
-                 CASE
-                   WHEN instr(substr(scope_ref, instr(scope_ref, ':task:') + 6), ':') > 0 THEN
-                     substr(
-                       scope_ref,
-                       instr(scope_ref, ':task:') + 6,
-                       instr(substr(scope_ref, instr(scope_ref, ':task:') + 6), ':') - 1
-                     )
-                   ELSE substr(scope_ref, instr(scope_ref, ':task:') + 6)
-                 END
-               ELSE NULL
-             END
-           )
-     WHERE task_id IS NULL
-       AND instr(scope_ref, ':task:') > 0;
-  `)
-
-  // role_name: only present after ":role:" segment (always trailing in the grammar).
-  sqlite.exec(`
-    UPDATE interface_bindings
-       SET role_name = substr(scope_ref, instr(scope_ref, ':role:') + 6)
-     WHERE role_name IS NULL
-       AND instr(scope_ref, ':role:') > 0;
-  `)
-
-  // project_id: backfill from scope_ref when null and scope has a project segment.
-  sqlite.exec(`
-    UPDATE interface_bindings
-       SET project_id = (
-             SELECT CASE
-               WHEN instr(scope_ref, ':project:') > 0 THEN
-                 CASE
-                   WHEN instr(substr(scope_ref, instr(scope_ref, ':project:') + 9), ':') > 0 THEN
-                     substr(
-                       scope_ref,
-                       instr(scope_ref, ':project:') + 9,
-                       instr(substr(scope_ref, instr(scope_ref, ':project:') + 9), ':') - 1
-                     )
-                   ELSE substr(scope_ref, instr(scope_ref, ':project:') + 9)
-                 END
-               ELSE NULL
-             END
-           )
-     WHERE project_id IS NULL
-       AND instr(scope_ref, ':project:') > 0;
-  `)
+  const rows = sqlite.prepare('SELECT binding_id, scope_ref FROM interface_bindings').all() as {
+    binding_id: string
+    scope_ref: string
+  }[]
+  const update = sqlite.prepare(`UPDATE interface_bindings SET
+    agent_id = COALESCE(agent_id, ?), task_id = COALESCE(task_id, ?),
+    role_name = COALESCE(role_name, ?), project_id = COALESCE(project_id, ?)
+    WHERE binding_id = ?`)
+  for (const row of rows) {
+    try {
+      const identity = parseScopeRef(row.scope_ref)
+      update.run(
+        identity.agentId,
+        identity.taskId ?? null,
+        identity.roleName ?? null,
+        identity.projectId ?? null,
+        row.binding_id
+      )
+    } catch {
+      // Preserve invalid legacy addresses; lint reports them without inventing identity.
+    }
+  }
 }
 
 function createSqliteDatabase(dbPath: string): SqliteDatabase {

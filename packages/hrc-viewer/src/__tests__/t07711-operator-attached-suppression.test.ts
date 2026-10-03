@@ -9,6 +9,7 @@
  * viewer owns no pane for the runtime, so any attached client is an operator.
  */
 import { describe, expect, it } from 'bun:test'
+import { fixtureIdentity } from './session-identity-fixture.js'
 
 import { GhostmuxManager } from '../ghostmux'
 import type { HeadlessViewerPane } from '../ghostmux.js'
@@ -83,6 +84,7 @@ describe('T-07711 ghostmux create veto', () => {
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
     const result = await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(SCOPE),
       scopeRef: SCOPE,
       runtimeId: 'rt-1',
       attachCommand: 'tmux attach',
@@ -100,6 +102,7 @@ describe('T-07711 ghostmux create veto', () => {
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
     const result = await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(SCOPE),
       scopeRef: SCOPE,
       runtimeId: 'rt-1',
       attachCommand: 'tmux attach',
@@ -114,6 +117,7 @@ describe('T-07711 ghostmux create veto', () => {
     const fake = makeFakeGhostmux()
     const manager = new GhostmuxManager('ghostmux', fake.runner)
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(SCOPE),
       scopeRef: SCOPE,
       runtimeId: 'rt-1',
       attachCommand: 'tmux attach',
@@ -121,6 +125,7 @@ describe('T-07711 ghostmux create veto', () => {
 
     let consulted = 0
     const result = await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(SCOPE),
       scopeRef: SCOPE,
       runtimeId: 'rt-2',
       attachCommand: 'tmux attach',

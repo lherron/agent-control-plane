@@ -124,3 +124,22 @@ describe('agentTheme', () => {
     expect(r).toBeGreaterThan(b)
   })
 })
+
+describe('per-session appearance', () => {
+  it('resolves each key independently and computes contrast from the resolved color', async () => {
+    const { sessionTheme, contrastForeground } = await import('../agent-theme.js')
+    const identity = { agentId: 'cody' }
+    const metadata = { appearance: { color: '#FFFFFF' } }
+    expect(sessionTheme(identity, metadata)).toEqual({
+      bg: '#FFFFFF',
+      fg: contrastForeground('#FFFFFF'),
+      terminalBg: agentTheme('cody').terminalBg,
+    })
+    expect(sessionTheme(identity, { appearance: { terminalBg: '#112233' } })).toEqual({
+      ...agentTheme('cody'),
+      terminalBg: '#112233',
+    })
+    expect(sessionTheme(identity, { appearance: { terminalFg: '#ABCDEF' } }).fg).toBe('#ABCDEF')
+    expect(sessionTheme(undefined)).toEqual(agentTheme('unknown'))
+  })
+})

@@ -1,3 +1,4 @@
+import { fixtureIdentity } from './session-identity-fixture.js'
 /**
  * T-04439 — headless-viewer status-bar projection.
  *
@@ -36,7 +37,10 @@ describe('viewerStateForEventKind', () => {
 
 describe('renderStatusBar', () => {
   it('renders the full triplet from a scope ref (lane in the center)', () => {
-    const spec = renderStatusBar('agent:clod:project:hrc-runtime:task:T-04297', 'running')
+    const spec = renderStatusBar(
+      fixtureIdentity('agent:clod:project:hrc-runtime:task:T-04297'),
+      'running'
+    )
     expect(spec.left).toBe('◆ CLOD')
     expect(spec.center).toBe('hrc · T-04297/main')
     expect(spec.right).toBe('▶ running')
@@ -46,7 +50,7 @@ describe('renderStatusBar', () => {
 
   it('surfaces a fork lane in the center field as <task>/<lane> (T-06321)', () => {
     const spec = renderStatusBar(
-      'agent:clod:project:hrc-runtime:task:T-02341',
+      fixtureIdentity('agent:clod:project:hrc-runtime:task:T-02341'),
       'running',
       null,
       'lane:forked'
@@ -56,33 +60,40 @@ describe('renderStatusBar', () => {
 
   it('an omitted lane normalizes to main in the center field', () => {
     expect(
-      renderStatusBar('agent:clod:project:hrc-runtime:task:T-02341', 'running', null, undefined)
-        .center
+      renderStatusBar(
+        fixtureIdentity('agent:clod:project:hrc-runtime:task:T-02341'),
+        'running',
+        null,
+        undefined
+      ).center
     ).toBe('hrc · T-02341/main')
   })
 
   it('drops the primary task from the center field', () => {
-    const spec = renderStatusBar('agent:daedalus:project:agent-spaces:task:primary', 'idle')
+    const spec = renderStatusBar(
+      fixtureIdentity('agent:daedalus:project:agent-spaces:task:primary'),
+      'idle'
+    )
     expect(spec.center).toBe('asp')
     expect(spec.right).toBe('✓ idle')
   })
 
   it('always emits all three fields (never blanks left/center)', () => {
-    const spec = renderStatusBar('agent:smokey:project:wrkq:task:T-1', 'exited')
+    const spec = renderStatusBar(fixtureIdentity('agent:smokey:project:wrkq:task:T-1'), 'exited')
     expect(spec.left).toBe('◆ SMOKEY')
     expect(spec.center).toBe('wrkq · T-1/main')
     expect(spec.right).toBe('■ exited')
   })
 
   it('degrades gracefully on an unparseable scope ref', () => {
-    const spec = renderStatusBar('not-a-scope', 'running')
+    const spec = renderStatusBar(fixtureIdentity('not-a-scope'), 'running')
     expect(spec.left).toBe('◆ UNKNOWN')
     expect(spec.right).toBe('▶ running')
   })
 
   it('appends the wrkq slug to the center field when provided (T-04977)', () => {
     const spec = renderStatusBar(
-      'agent:clod:project:hrc-runtime:task:T-04977',
+      fixtureIdentity('agent:clod:project:hrc-runtime:task:T-04977'),
       'running',
       'add-task-slug-to-ghostmux-status-bar'
     )
@@ -90,20 +101,29 @@ describe('renderStatusBar', () => {
   })
 
   it('falls back to project · T-id/lane when no slug is provided', () => {
-    expect(renderStatusBar('agent:clod:project:hrc-runtime:task:T-04977', 'running').center).toBe(
-      'hrc · T-04977/main'
-    )
     expect(
-      renderStatusBar('agent:clod:project:hrc-runtime:task:T-04977', 'running', null).center
+      renderStatusBar(fixtureIdentity('agent:clod:project:hrc-runtime:task:T-04977'), 'running')
+        .center
     ).toBe('hrc · T-04977/main')
     expect(
-      renderStatusBar('agent:clod:project:hrc-runtime:task:T-04977', 'running', '   ').center
+      renderStatusBar(
+        fixtureIdentity('agent:clod:project:hrc-runtime:task:T-04977'),
+        'running',
+        null
+      ).center
+    ).toBe('hrc · T-04977/main')
+    expect(
+      renderStatusBar(
+        fixtureIdentity('agent:clod:project:hrc-runtime:task:T-04977'),
+        'running',
+        '   '
+      ).center
     ).toBe('hrc · T-04977/main')
   })
 
   it('never appends a slug to a primary (taskless) scope', () => {
     const spec = renderStatusBar(
-      'agent:daedalus:project:agent-spaces:task:primary',
+      fixtureIdentity('agent:daedalus:project:agent-spaces:task:primary'),
       'idle',
       'should-not-appear'
     )
@@ -113,13 +133,13 @@ describe('renderStatusBar', () => {
 
 describe('viewerTerminalBg', () => {
   it('resolves the agent dark tint from a scope ref', () => {
-    expect(viewerTerminalBg('agent:clod:project:hrc-runtime:task:T-1')).toBe(
+    expect(viewerTerminalBg(fixtureIdentity('agent:clod:project:hrc-runtime:task:T-1'))).toBe(
       agentTheme('clod').terminalBg
     )
   })
 
   it('falls back to the unknown-agent tint on a bad scope ref', () => {
-    expect(viewerTerminalBg('garbage')).toBe(agentTheme('unknown').terminalBg)
+    expect(viewerTerminalBg(fixtureIdentity('garbage'))).toBe(agentTheme('unknown').terminalBg)
   })
 })
 
@@ -163,6 +183,7 @@ const ev = (
   eventKind,
   runtimeId,
   scopeRef,
+  identity: fixtureIdentity(scopeRef),
 })
 
 describe('HeadlessViewerStatusProjector', () => {
@@ -247,6 +268,7 @@ describe('HeadlessViewerStatusProjector', () => {
       eventKind: 'turn.started',
       runtimeId: 'rt-1',
       scopeRef: 'agent:clod:project:hrc-runtime:task:T-04977',
+      identity: fixtureIdentity('agent:clod:project:hrc-runtime:task:T-04977'),
       laneRef: 'lane:forked',
     })
     await flushAll()

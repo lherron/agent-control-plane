@@ -19,7 +19,6 @@ function createSessionRecord(overrides: Partial<HrcSessionRecord> = {}): HrcSess
     status: 'active',
     createdAt: '2026-04-23T00:00:00.000Z',
     updatedAt: '2026-04-23T00:00:00.000Z',
-    ancestorScopeRefs: [],
     ...overrides,
   }
 }
@@ -36,7 +35,6 @@ function createRuntimeRecord(overrides: Partial<HrcRuntimeSnapshot> = {}): HrcRu
     provider: 'openai',
     status: 'busy',
     supportsInflightInput: true,
-    adopted: false,
     createdAt: '2026-04-23T00:00:00.000Z',
     updatedAt: '2026-04-23T00:00:00.000Z',
     ...overrides,

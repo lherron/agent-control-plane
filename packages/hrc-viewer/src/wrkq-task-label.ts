@@ -13,7 +13,6 @@
  */
 
 import { isTaskId } from 'acp-core'
-import { parseScopeRef } from 'agent-scope'
 
 /** Result of running `wrkq cat <id> --json`. */
 export type WrkqRunResult = { stdout: string; stderr: string; exitCode: number }
@@ -22,7 +21,7 @@ export type WrkqRunResult = { stdout: string; stderr: string; exitCode: number }
 export type WrkqRunner = (taskId: string) => Promise<WrkqRunResult>
 
 /** Resolve a scope ref to a task slug (or null when unavailable). Never throws. */
-export type TaskSlugResolver = (scopeRef: string) => Promise<string | null>
+export type TaskSlugResolver = (taskId: string | undefined) => Promise<string | null>
 
 /** Bound the wrkq read so a slow/hung CLI never stalls the status-bar path. */
 const WRKQ_TIMEOUT_MS = 2000
@@ -49,16 +48,11 @@ export function isPlaceholderTaskSlug(slug: string): boolean {
  * like a task or subtask id (`T-04977`, `T-04977.render-preview`). Returns null for `primary`, lane-only, or
  * unparseable refs — those have no slug to resolve.
  */
-export function extractTaskIdFromScope(scopeRef: string): string | null {
-  let parsed: ReturnType<typeof parseScopeRef> | null = null
-  try {
-    parsed = parseScopeRef(scopeRef)
-  } catch {
-    return null
-  }
-  const taskId = parsed?.taskId
-  if (typeof taskId === 'string' && isTaskId(taskId)) return taskId
-  return null
+export function extractTaskIdFromIdentity(
+  identity: { taskId?: string | undefined } | undefined
+): string | null {
+  const taskId = identity?.taskId
+  return typeof taskId === 'string' && isTaskId(taskId) ? taskId : null
 }
 
 /**
@@ -109,9 +103,8 @@ async function defaultWrkqRunner(taskId: string): Promise<WrkqRunResult> {
 export function createTaskSlugResolver(options: { runner?: WrkqRunner } = {}): TaskSlugResolver {
   const runner = options.runner ?? defaultWrkqRunner
   const cache = new Map<string, string>()
-  return async (scopeRef: string): Promise<string | null> => {
-    const taskId = extractTaskIdFromScope(scopeRef)
-    if (!taskId) return null
+  return async (taskId: string | undefined): Promise<string | null> => {
+    if (!taskId || !isTaskId(taskId)) return null
     const cached = cache.get(taskId)
     if (cached !== undefined) return cached
     try {

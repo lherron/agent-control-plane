@@ -1,3 +1,4 @@
+import { fixtureIdentity } from './session-identity-fixture.js'
 /**
  * T-07118 Part A — viewer window placement hint.
  *
@@ -160,11 +161,13 @@ describe('T-07118 composite (windowKey, tabKey) tab identity', () => {
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CLOD_TASK),
       scopeRef: CLOD_TASK,
       runtimeId: 'rt-1',
       attachCommand: 'a1',
     })
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CURLY_TASK),
       scopeRef: CURLY_TASK,
       runtimeId: 'rt-2',
       attachCommand: 'a2',
@@ -186,11 +189,13 @@ describe('T-07118 composite (windowKey, tabKey) tab identity', () => {
 
     // Same tabKey (`task:T-01234`), different window keys.
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CLOD_TASK),
       scopeRef: CLOD_TASK,
       runtimeId: 'rt-1',
       attachCommand: 'a1',
     })
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CURLY_TASK),
       scopeRef: CURLY_TASK,
       runtimeId: 'rt-2',
       attachCommand: 'a2',
@@ -217,12 +222,14 @@ describe('T-07118 composite (windowKey, tabKey) tab identity', () => {
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CLOD),
       scopeRef: CLOD,
       runtimeId: 'rt-1',
       attachCommand: 'a1',
       windowKey: 'console',
     })
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CURLY),
       scopeRef: CURLY,
       runtimeId: 'rt-2',
       attachCommand: 'a2',
@@ -240,6 +247,7 @@ describe('T-07118 composite (windowKey, tabKey) tab identity', () => {
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CLOD),
       scopeRef: CLOD,
       runtimeId: 'rt-1',
       attachCommand: 'a1',
@@ -271,6 +279,7 @@ describe('T-07118 composite (windowKey, tabKey) tab identity', () => {
     surf.windowMeta = { hrc_role: 'headless-sessions-window', hrc_window_key: 'console' }
 
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CLOD),
       scopeRef: CLOD,
       runtimeId: 'rt-1',
       attachCommand: 'a1',
@@ -305,6 +314,7 @@ describe('T-07118 composite (windowKey, tabKey) tab identity', () => {
 
     // An unhinted new agent joins that legacy tab — no new window, no new tab.
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CURLY_TASK),
       scopeRef: CURLY_TASK,
       runtimeId: 'rt-2',
       attachCommand: 'a2',
@@ -320,10 +330,16 @@ describe('T-07118 composite (windowKey, tabKey) tab identity', () => {
     const fake = makeFakeGhostmux()
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
-    await manager.ensureHeadlessViewer({ scopeRef: CLOD, runtimeId: 'rt-1', attachCommand: 'a1' })
+    await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CLOD),
+      scopeRef: CLOD,
+      runtimeId: 'rt-1',
+      attachCommand: 'a1',
+    })
     const before = [...fake.surfaces.keys()].length
 
     const result = await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CLOD),
       scopeRef: CLOD,
       runtimeId: 'rt-2',
       attachCommand: 'a2',
@@ -346,16 +362,19 @@ describe('T-07118 composite (windowKey, tabKey) tab identity', () => {
 
     await Promise.all([
       manager.ensureHeadlessViewer({
+        identity: fixtureIdentity(CLOD_TASK),
         scopeRef: CLOD_TASK,
         runtimeId: 'rt-1',
         attachCommand: 'a1',
       }),
       manager.ensureHeadlessViewer({
+        identity: fixtureIdentity(CURLY_TASK),
         scopeRef: CURLY_TASK,
         runtimeId: 'rt-2',
         attachCommand: 'a2',
       }),
       manager.ensureHeadlessViewer({
+        identity: fixtureIdentity('agent:moe:project:hrc-runtime:task:T-01234'),
         scopeRef: 'agent:moe:project:hrc-runtime:task:T-01234',
         runtimeId: 'rt-3',
         attachCommand: 'a3',
@@ -376,11 +395,13 @@ describe('T-07118 composite (windowKey, tabKey) tab identity', () => {
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CLOD_TASK),
       scopeRef: CLOD_TASK,
       runtimeId: 'rt-1',
       attachCommand: 'a1',
     })
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CURLY_TASK),
       scopeRef: CURLY_TASK,
       runtimeId: 'rt-2',
       attachCommand: 'a2',

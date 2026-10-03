@@ -29,7 +29,6 @@ const SESSION: HrcSessionRecord = {
   status: 'active',
   createdAt: NOW,
   updatedAt: NOW,
-  ancestorScopeRefs: [],
   continuation: { provider: 'openai', kind: 'session', key: 'resume-mobile-dashboard' },
   lastAppliedIntentJson: {
     placement: { nodeId: 'local' },
@@ -50,7 +49,6 @@ const RUNTIME: HrcRuntimeSnapshot = {
   status: 'active',
   tmuxJson: { paneId: 'pane-1' },
   supportsInflightInput: true,
-  adopted: false,
   activeRunId: 'run-mobile-dashboard',
   createdAt: NOW,
   updatedAt: NOW,

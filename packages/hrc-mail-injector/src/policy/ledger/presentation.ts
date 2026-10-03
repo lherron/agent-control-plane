@@ -1,3 +1,4 @@
+import { formatScopeHandle as formatCanonicalScopeHandle, parseScopeRef } from 'agent-scope'
 import { newestPresentationReceipt, obligationOwesReply } from './types.js'
 import type { WrkqEnvelope, WrkqEnvelopeDelivery, WrkqEnvelopeFailureReason } from './types.js'
 
@@ -408,16 +409,11 @@ function addresseeToken(envelope: WrkqEnvelope): string {
  */
 function formatScopeHandle(scopeRef: string): string {
   if (scopeRef.includes('@')) return scopeRef.split('/lane:')[0] ?? scopeRef
-  const agent = agentNameFromScope(scopeRef)
-  const project = /:project:([^:/]+)/.exec(scopeRef)?.[1]
-  const task = /:task:([^:/]+)/.exec(scopeRef)?.[1]
-  if (project === undefined) return scopeRef
-  return `${agent}@${project}:${task ?? 'primary'}`
-}
-
-function agentNameFromScope(scopeRef: string): string {
-  if (scopeRef.includes('@')) return scopeRef.split('@')[0] ?? scopeRef
-  return /^agent:([^:/]+)/.exec(scopeRef)?.[1] ?? scopeRef
+  try {
+    return formatCanonicalScopeHandle(parseScopeRef(scopeRef))
+  } catch {
+    return scopeRef
+  }
 }
 
 /** `agent:lance` → `lance`. Humans are ordinary principals with no HRC scope. */

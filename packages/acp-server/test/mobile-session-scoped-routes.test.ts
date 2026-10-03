@@ -17,7 +17,6 @@ const SESSION: HrcSessionRecord = {
   status: 'active',
   createdAt: NOW,
   updatedAt: NOW,
-  ancestorScopeRefs: [],
 }
 
 const OTHER_SESSION: HrcSessionRecord = {
@@ -28,7 +27,6 @@ const OTHER_SESSION: HrcSessionRecord = {
   status: 'active',
   createdAt: NOW,
   updatedAt: NOW,
-  ancestorScopeRefs: [],
 }
 
 const RUNTIME: HrcRuntimeSnapshot = {
@@ -43,7 +41,6 @@ const RUNTIME: HrcRuntimeSnapshot = {
   status: 'active',
   tmuxJson: { paneId: 'pane-1' },
   supportsInflightInput: true,
-  adopted: false,
   activeRunId: 'run-mobile-scoped',
   createdAt: NOW,
   updatedAt: NOW,

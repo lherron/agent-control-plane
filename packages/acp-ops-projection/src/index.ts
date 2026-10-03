@@ -1,3 +1,5 @@
+import type { SessionIdentity } from 'hrc-core'
+export type { SessionIdentity } from 'hrc-core'
 export {
   admissionLabel,
   admissionLabelFromResponse,
@@ -35,6 +37,7 @@ export type DashboardEvent = {
   streamSeq?: number | undefined
   ts: string
   sessionRef: SessionRef
+  identity?: SessionIdentity | undefined
   hostSessionId: string
   generation: number
   runtimeId?: string | undefined
@@ -76,6 +79,7 @@ export function asSessionRuntimeTransport(
 export type SessionTimelineRow = {
   rowId: string
   sessionRef: SessionRef
+  identity?: SessionIdentity | undefined
   hostSessionId: string
   generation: number
   runtime?:
@@ -166,6 +170,7 @@ export type HrcLifecycleEvent = {
   streamSeq?: number | undefined
   ts: string
   sessionRef: SessionRef
+  identity?: SessionIdentity | undefined
   hostSessionId: string
   generation: number
   runtimeId?: string | undefined
@@ -817,6 +822,7 @@ export function projectHrcToDashboardEvent(
     hrcSeq: event.hrcSeq,
     ts: event.ts,
     sessionRef: event.sessionRef,
+    identity: event.identity,
     hostSessionId: event.hostSessionId,
     generation: event.generation,
     eventKind: event.eventKind,
@@ -910,6 +916,7 @@ export function deriveSessionRow(events: DashboardEvent[], windowMs: number): Se
   const row: SessionTimelineRow = {
     rowId: `${latest.hostSessionId}:${latest.generation}`,
     sessionRef: latest.sessionRef,
+    identity: latest.identity,
     hostSessionId: latest.hostSessionId,
     generation: latest.generation,
     visualState: {

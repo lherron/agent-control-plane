@@ -7,6 +7,12 @@ function hrcEvent(overrides: Partial<HrcLifecycleEventPayload> = {}): HrcLifecyc
     hrcSeq: 41,
     eventKind: 'turn.message',
     scopeRef: 'agent:larry:project:agent-spaces:task:T-01372',
+    identity: {
+      kind: 'task',
+      agentId: 'larry',
+      projectId: 'agent-spaces',
+      taskId: 'T-01372',
+    },
     laneRef: 'main',
     runId: 'hrc-run-ignored',
     payload: {

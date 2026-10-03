@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import { parseScopeRef } from 'agent-scope'
 import type { HrcRuntimeSnapshot, HrcSessionRecord, HrcTargetView } from 'hrc-core'
 import type { HrcClient } from 'hrc-sdk'
 import { createSessionIndex } from '../session-index.js'
@@ -17,12 +18,12 @@ function makeSession(overrides: Partial<HrcSessionRecord> = {}): HrcSessionRecor
   return {
     hostSessionId,
     scopeRef: 'agent:cody:project:agent-spaces',
+    identity: parseScopeRef(overrides.scopeRef ?? 'agent:cody:project:agent-spaces'),
     laneRef: 'main',
     generation: 1,
     status: 'active',
     createdAt: '2026-04-29T00:00:00Z',
     updatedAt: '2026-04-29T00:00:00Z',
-    ancestorScopeRefs: ['agent:cody', 'agent:cody:project:agent-spaces'],
     ...overrides,
   }
 }
@@ -32,6 +33,7 @@ function makeRuntime(overrides: Partial<HrcRuntimeSnapshot> = {}): HrcRuntimeSna
     runtimeId: nextId(),
     hostSessionId: nextId(),
     scopeRef: 'agent:cody:project:agent-spaces',
+    identity: parseScopeRef(overrides.scopeRef ?? 'agent:cody:project:agent-spaces'),
     laneRef: 'main',
     generation: 1,
     transport: 'tmux',
@@ -39,7 +41,6 @@ function makeRuntime(overrides: Partial<HrcRuntimeSnapshot> = {}): HrcRuntimeSna
     provider: 'anthropic',
     status: 'running',
     supportsInflightInput: true,
-    adopted: false,
     createdAt: '2026-04-29T00:00:00Z',
     updatedAt: '2026-04-29T00:01:00Z',
     lastActivityAt: '2026-04-29T00:01:00Z',
@@ -51,6 +52,7 @@ function _makeTarget(overrides: Partial<HrcTargetView> = {}): HrcTargetView {
   return {
     sessionRef: 'agent:cody:project:agent-spaces/lane:main',
     scopeRef: 'agent:cody:project:agent-spaces',
+    identity: parseScopeRef(overrides.scopeRef ?? 'agent:cody:project:agent-spaces'),
     laneRef: 'main',
     state: 'bound',
     capabilities: {

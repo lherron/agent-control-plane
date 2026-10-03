@@ -1,3 +1,4 @@
+import { fixtureIdentity } from './session-identity-fixture.js'
 /**
  * T-07121 — first-class windows API cutover.
  *
@@ -291,16 +292,19 @@ describe('T-07121 windows-API capability probe', () => {
     fake.allocSurface(console, 'a real tab Lance uses')
 
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CLOD_TASK),
       scopeRef: CLOD_TASK,
       runtimeId: 'rt-1',
       attachCommand: 'a1',
     })
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CURLY_TASK),
       scopeRef: CURLY_TASK,
       runtimeId: 'rt-2',
       attachCommand: 'a2',
     })
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(MOE),
       scopeRef: MOE,
       runtimeId: 'rt-3',
       attachCommand: 'a3',
@@ -322,12 +326,14 @@ describe('T-07121 windows-API capability probe', () => {
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CLOD),
       scopeRef: CLOD,
       runtimeId: 'rt-1',
       attachCommand: 'a1',
       windowKey: 'console',
     })
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CURLY),
       scopeRef: CURLY,
       runtimeId: 'rt-2',
       attachCommand: 'a2',
@@ -360,11 +366,13 @@ describe('T-07121 windows-API capability probe', () => {
     })
 
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CLOD_TASK),
       scopeRef: CLOD_TASK,
       runtimeId: 'rt-1',
       attachCommand: 'a1',
     })
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CURLY_TASK),
       scopeRef: CURLY_TASK,
       runtimeId: 'rt-2',
       attachCommand: 'a2',
@@ -381,6 +389,7 @@ describe('T-07121 keyed window find-or-create', () => {
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CLOD),
       scopeRef: CLOD,
       runtimeId: 'rt-1',
       attachCommand: 'a1',
@@ -409,12 +418,14 @@ describe('T-07121 keyed window find-or-create', () => {
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CLOD),
       scopeRef: CLOD,
       runtimeId: 'rt-1',
       attachCommand: 'a1',
       windowKey: 'console',
     })
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CURLY),
       scopeRef: CURLY,
       runtimeId: 'rt-2',
       attachCommand: 'a2',
@@ -438,12 +449,14 @@ describe('T-07121 keyed window find-or-create', () => {
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity('agent:clod:project:hrc-runtime:task:T-07121'),
       scopeRef: 'agent:clod:project:hrc-runtime:task:T-07121',
       runtimeId: 'rt-1',
       attachCommand: 'a1',
       windowKey: 'console',
     })
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity('agent:clod:project:hrc-runtime:task:T-07118'),
       scopeRef: 'agent:clod:project:hrc-runtime:task:T-07118',
       runtimeId: 'rt-2',
       attachCommand: 'a2',
@@ -464,11 +477,13 @@ describe('T-07121 keyed window find-or-create', () => {
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CLOD_TASK),
       scopeRef: CLOD_TASK,
       runtimeId: 'rt-1',
       attachCommand: 'a1',
     })
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CURLY_TASK),
       scopeRef: CURLY_TASK,
       runtimeId: 'rt-2',
       attachCommand: 'a2',
@@ -494,6 +509,7 @@ describe('T-07121 keyed window find-or-create', () => {
     fake.allocSurface(adopted, 'a real tab Lance uses')
 
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CLOD),
       scopeRef: CLOD,
       runtimeId: 'rt-1',
       attachCommand: 'a1',
@@ -514,12 +530,14 @@ describe('T-07121 residency-fenced split target (daedalus #17988)', () => {
 
     // Two managed keyed windows, each with one pane for the SAME tabKey.
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CLOD),
       scopeRef: CLOD,
       runtimeId: 'rt-1',
       attachCommand: 'a1',
       windowKey: 'console',
     })
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CURLY_TASK),
       scopeRef: CURLY_TASK,
       runtimeId: 'rt-2',
       attachCommand: 'a2',
@@ -541,6 +559,7 @@ describe('T-07121 residency-fenced split target (daedalus #17988)', () => {
 
     const before = fake.calls.length
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(MOE),
       scopeRef: MOE,
       runtimeId: 'rt-3',
       attachCommand: 'a3',
@@ -567,6 +586,7 @@ describe('T-07121 residency-fenced split target (daedalus #17988)', () => {
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CLOD),
       scopeRef: CLOD,
       runtimeId: 'rt-1',
       attachCommand: 'a1',
@@ -574,6 +594,7 @@ describe('T-07121 residency-fenced split target (daedalus #17988)', () => {
     })
     const before = fake.calls.length
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CURLY),
       scopeRef: CURLY,
       runtimeId: 'rt-2',
       attachCommand: 'a2',
@@ -600,6 +621,7 @@ describe('T-07121 residency-fenced split target (daedalus #17988)', () => {
     })
 
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CLOD),
       scopeRef: CLOD,
       runtimeId: 'rt-1',
       attachCommand: 'a1',
@@ -607,6 +629,7 @@ describe('T-07121 residency-fenced split target (daedalus #17988)', () => {
     })
     const before = fake.calls.length
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CURLY),
       scopeRef: CURLY,
       runtimeId: 'rt-2',
       attachCommand: 'a2',
@@ -622,6 +645,7 @@ describe('T-07121 residency-fenced split target (daedalus #17988)', () => {
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CLOD),
       scopeRef: CLOD,
       runtimeId: 'rt-1',
       attachCommand: 'a1',
@@ -654,8 +678,14 @@ describe('T-07121 untouched paths', () => {
     const fake = makeFakeGhostmux()
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
-    await manager.ensureHeadlessViewer({ scopeRef: CLOD, runtimeId: 'rt-1', attachCommand: 'a1' })
+    await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CLOD),
+      scopeRef: CLOD,
+      runtimeId: 'rt-1',
+      attachCommand: 'a1',
+    })
     const result = await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CLOD),
       scopeRef: CLOD,
       runtimeId: 'rt-2',
       attachCommand: 'a2',
@@ -674,12 +704,14 @@ describe('T-07121 untouched paths', () => {
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CLOD),
       scopeRef: CLOD,
       runtimeId: 'rt-1',
       attachCommand: 'a1',
       windowKey: 'console',
     })
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(CURLY_TASK),
       scopeRef: CURLY_TASK,
       runtimeId: 'rt-2',
       attachCommand: 'a2',
@@ -703,6 +735,7 @@ describe('T-07121 untouched paths', () => {
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity('agent:clod:project:hrc-runtime:task:T-07121'),
       scopeRef: 'agent:clod:project:hrc-runtime:task:T-07121',
       runtimeId: 'rt-1',
       attachCommand: 'a1',

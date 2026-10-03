@@ -177,3 +177,23 @@ function rgbToHex(r: number, g: number, b: number): string {
       .padStart(2, '0')
   return `#${channel(r)}${channel(g)}${channel(b)}`
 }
+
+/** Per-session cosmetic overrides, independently falling back to the agent palette. */
+export function sessionTheme(
+  identity: { agentId: string } | undefined,
+  metadata?: Record<string, unknown> | undefined
+): AgentTheme {
+  const fallback = agentTheme(identity?.agentId ?? 'unknown')
+  const appearance = metadata?.['appearance']
+  const values =
+    appearance !== null && typeof appearance === 'object' && !Array.isArray(appearance)
+      ? (appearance as Record<string, unknown>)
+      : {}
+  const color = typeof values['color'] === 'string' ? values['color'] : fallback.bg
+  return {
+    bg: color,
+    fg: typeof values['terminalFg'] === 'string' ? values['terminalFg'] : contrastForeground(color),
+    terminalBg:
+      typeof values['terminalBg'] === 'string' ? values['terminalBg'] : fallback.terminalBg,
+  }
+}

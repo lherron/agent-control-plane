@@ -20,7 +20,6 @@ function session(overrides: Partial<HrcSessionRecord> = {}): HrcSessionRecord {
     status: 'active',
     createdAt: '2026-04-29T12:00:00.000Z',
     updatedAt: '2026-04-29T12:00:00.000Z',
-    ancestorScopeRefs: [],
     lastAppliedIntentJson: {
       placement: { kind: 'test' },
       harness: { provider: 'anthropic', interactive: true },
@@ -62,7 +61,6 @@ function runtime(overrides: Partial<HrcRuntimeSnapshot> = {}): HrcRuntimeSnapsho
     provider: 'anthropic',
     status: 'running',
     supportsInflightInput: false,
-    adopted: false,
     ...overrides,
   }
 }

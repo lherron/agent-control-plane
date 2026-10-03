@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import { fixtureIdentity } from './session-identity-fixture.js'
 
 import type { HrcViewerClient, ViewerGhostmux } from '../viewer.js'
 import { HrcViewer } from '../viewer.js'
@@ -30,6 +31,7 @@ function makeHarness(options: {
     runtimeId: RUNTIME_ID,
     hostSessionId: 'hsid-operator-surface',
     scopeRef: SCOPE_REF,
+    identity: fixtureIdentity(SCOPE_REF),
     laneRef: 'main',
     generation: 1,
     status: 'ready',
@@ -44,6 +46,7 @@ function makeHarness(options: {
     ts: '2026-09-26T05:00:00.000Z',
     hostSessionId: row.hostSessionId,
     scopeRef: SCOPE_REF,
+    identity: fixtureIdentity(SCOPE_REF),
     laneRef: 'main',
     generation: 1,
     runtimeId: RUNTIME_ID,

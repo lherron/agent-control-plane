@@ -2,7 +2,6 @@ import type {
   DashboardEvent,
   DashboardEventFamily,
   DashboardEventSeverity,
-  SessionRef,
   SessionTimelineRow,
   StreamConnectionState,
 } from '@/features/sessions/types'
@@ -68,39 +67,6 @@ export function connectionTone(state: StreamConnectionState): string {
   if (state === 'reconnecting' || state === 'replaying') return 'bg-accent text-background'
   if (state === 'degraded') return 'bg-destructive text-foreground'
   return 'bg-secondary text-muted border border-border'
-}
-
-export type ScopeParts = {
-  agentId?: string | undefined
-  projectId?: string | undefined
-  taskId?: string | undefined
-  role?: string | undefined
-  fallback?: string | undefined
-}
-
-export function parseScopeRef(scopeRef: string): ScopeParts {
-  const segments = scopeRef.split(':').filter(Boolean)
-  const parts: ScopeParts = {}
-
-  for (let index = 0; index < segments.length - 1; index += 2) {
-    const key = segments[index]
-    const value = segments[index + 1]
-    if (!value) continue
-    if (key === 'agent') parts.agentId = value
-    if (key === 'project') parts.projectId = value
-    if (key === 'task') parts.taskId = value
-    if (key === 'role') parts.role = value
-  }
-
-  if (!parts.agentId && !parts.projectId && !parts.taskId && !parts.role) {
-    parts.fallback = scopeRef
-  }
-
-  return parts
-}
-
-export function agentIdFromSessionRef(ref: SessionRef): string | undefined {
-  return parseScopeRef(ref.scopeRef).agentId
 }
 
 export function rowSelected(row: SessionTimelineRow, selectedRowId: string | undefined): boolean {

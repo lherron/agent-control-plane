@@ -240,7 +240,6 @@ describe('mobile collaboration ledger', () => {
       status: 'ready',
       createdAt: '2026-08-27T16:00:00.000Z',
       updatedAt: '2026-08-27T17:00:00.000Z',
-      ancestorScopeRefs: [],
     }
     let historyRead = true
     const collaboration = ledger({ messages: [message] })
@@ -530,7 +529,6 @@ describe('mobile collaboration with an unknown future envelope state', () => {
       status: 'ready',
       createdAt: '2026-10-03T12:00:00.000Z',
       updatedAt: '2026-10-03T13:00:00.000Z',
-      ancestorScopeRefs: [],
     }
     const liveEvent = hrcPrompt(42, 'a live healthy prompt', '2026-10-03T13:01:00.000Z')
     const hrcClient = {

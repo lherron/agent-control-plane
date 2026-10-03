@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fixtureIdentity } from './session-identity-fixture.js'
 
 import { GhostmuxCommandTimeoutError, GhostmuxManager } from '../ghostmux'
 
@@ -104,6 +105,7 @@ describe('GhostmuxManager.ensureHeadlessViewer (consolidated window/tab/pane)', 
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
     const result = await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(cloRef),
       scopeRef: cloRef,
       runtimeId: 'rt-1',
       attachCommand: 'tmux attach; hrc monitor session-report --wait-key --wait-timeout 30; exit',
@@ -134,11 +136,13 @@ describe('GhostmuxManager.ensureHeadlessViewer (consolidated window/tab/pane)', 
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(cloRef),
       scopeRef: cloRef,
       runtimeId: 'rt-1',
       attachCommand: 'attach-1',
     })
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(curlyRef),
       scopeRef: curlyRef,
       runtimeId: 'rt-2',
       attachCommand: 'attach-2',
@@ -166,11 +170,13 @@ describe('GhostmuxManager.ensureHeadlessViewer (consolidated window/tab/pane)', 
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity('agent:clod:project:hrc-runtime:task:primary'),
       scopeRef: 'agent:clod:project:hrc-runtime:task:primary',
       runtimeId: 'rt-a',
       attachCommand: 'a',
     })
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity('agent:smokey:project:agent-control-plane:task:primary'),
       scopeRef: 'agent:smokey:project:agent-control-plane:task:primary',
       runtimeId: 'rt-b',
       attachCommand: 'b',
@@ -187,9 +193,15 @@ describe('GhostmuxManager.ensureHeadlessViewer (consolidated window/tab/pane)', 
     const fake = makeFakeGhostmux()
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
-    await manager.ensureHeadlessViewer({ scopeRef: cloRef, runtimeId: 'rt-1', attachCommand: 'a1' })
+    await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(cloRef),
+      scopeRef: cloRef,
+      runtimeId: 'rt-1',
+      attachCommand: 'a1',
+    })
     const before = fake.liveIds().length
     const result = await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(cloRef),
       scopeRef: cloRef,
       runtimeId: 'rt-2',
       attachCommand: 'a2',
@@ -243,8 +255,18 @@ describe('GhostmuxManager.ensureHeadlessViewer (consolidated window/tab/pane)', 
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
     await Promise.all([
-      manager.ensureHeadlessViewer({ scopeRef: cloRef, runtimeId: 'rt-1', attachCommand: 'a1' }),
-      manager.ensureHeadlessViewer({ scopeRef: curlyRef, runtimeId: 'rt-2', attachCommand: 'a2' }),
+      manager.ensureHeadlessViewer({
+        identity: fixtureIdentity(cloRef),
+        scopeRef: cloRef,
+        runtimeId: 'rt-1',
+        attachCommand: 'a1',
+      }),
+      manager.ensureHeadlessViewer({
+        identity: fixtureIdentity(curlyRef),
+        scopeRef: curlyRef,
+        runtimeId: 'rt-2',
+        attachCommand: 'a2',
+      }),
     ])
 
     // No duplicate window, no duplicate tab for the shared key.
@@ -257,11 +279,17 @@ describe('GhostmuxManager.ensureHeadlessViewer (consolidated window/tab/pane)', 
   it('after a restart (fresh manager, surfaces persist) finds the window/pane from metadata', async () => {
     const fake = makeFakeGhostmux()
     const m1 = new GhostmuxManager('ghostmux', fake.runner)
-    await m1.ensureHeadlessViewer({ scopeRef: cloRef, runtimeId: 'rt-1', attachCommand: 'a1' })
+    await m1.ensureHeadlessViewer({
+      identity: fixtureIdentity(cloRef),
+      scopeRef: cloRef,
+      runtimeId: 'rt-1',
+      attachCommand: 'a1',
+    })
 
     // New manager instance = daemon restart; surfaces (metadata) persist in `fake`.
     const m2 = new GhostmuxManager('ghostmux', fake.runner)
     const result = await m2.ensureHeadlessViewer({
+      identity: fixtureIdentity(cloRef),
       scopeRef: cloRef,
       runtimeId: 'rt-2',
       attachCommand: 'a2',
@@ -277,6 +305,7 @@ describe('GhostmuxManager.ensureHeadlessViewer (consolidated window/tab/pane)', 
       throw new Error('libghostty API call failed [error code: surface_not_realized]')
     })
     const result = await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(cloRef),
       scopeRef: cloRef,
       runtimeId: 'rt-11',
       attachCommand: 'a',
@@ -299,11 +328,13 @@ describe('GhostmuxManager.ensureHeadlessViewer (consolidated window/tab/pane)', 
     )
 
     const first = await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(cloRef),
       scopeRef: cloRef,
       runtimeId: 'rt-timeout-1',
       attachCommand: 'a1',
     })
     const second = await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(cloRef),
       scopeRef: cloRef,
       runtimeId: 'rt-timeout-2',
       attachCommand: 'a2',
@@ -373,6 +404,7 @@ describe('GhostmuxManager.ensureHeadlessViewer (consolidated window/tab/pane)', 
     const fake = makeFakeGhostmux()
     const manager = new GhostmuxManager('ghostmux', fake.runner)
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(cloRef),
       scopeRef: cloRef,
       runtimeId: 'rt-12',
       attachCommand: 'a',
@@ -397,16 +429,19 @@ describe('GhostmuxManager.ensureHeadlessViewer (consolidated window/tab/pane)', 
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(`${codyBase}:role:tester`),
       scopeRef: `${codyBase}:role:tester`,
       runtimeId: 'rt-tester',
       attachCommand: 'attach-tester',
     })
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(`${codyBase}:role:implementer`),
       scopeRef: `${codyBase}:role:implementer`,
       runtimeId: 'rt-impl',
       attachCommand: 'attach-impl',
     })
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(`${codyBase}:role:observer`),
       scopeRef: `${codyBase}:role:observer`,
       runtimeId: 'rt-obs',
       attachCommand: 'attach-obs',
@@ -448,12 +483,14 @@ describe('GhostmuxManager.ensureHeadlessViewer (consolidated window/tab/pane)', 
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(codyBase),
       scopeRef: codyBase,
       laneRef: 'main',
       runtimeId: 'rt-main',
       attachCommand: 'attach-main',
     })
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(codyBase),
       scopeRef: codyBase,
       laneRef: 'lane:forked',
       runtimeId: 'rt-forked',
@@ -478,12 +515,14 @@ describe('GhostmuxManager.ensureHeadlessViewer (consolidated window/tab/pane)', 
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(`${codyBase}:role:tester`),
       scopeRef: `${codyBase}:role:tester`,
       runtimeId: 'rt-1',
       attachCommand: 'a1',
     })
     const before = fake.liveIds().length
     const result = await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(`${codyBase}:role:tester`),
       scopeRef: `${codyBase}:role:tester`,
       runtimeId: 'rt-2',
       attachCommand: 'a2',

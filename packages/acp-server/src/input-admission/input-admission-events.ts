@@ -1,5 +1,6 @@
 import type { AdminStore } from 'acp-admin-store'
 import type { InputAdmissionRecord, InputApplication, InputQueueItem, Run } from 'acp-core'
+import { parseScopeRef } from 'agent-scope'
 
 type AdmissionEventDeps = {
   adminStore?: AdminStore | undefined
@@ -25,10 +26,7 @@ export type AdmissionEventInput = {
 }
 
 function projectIdFromScope(scopeRef: string): string {
-  const parts = scopeRef.split(':')
-  const projectIndex = parts.findIndex((part) => part === 'project')
-  const projectId = projectIndex >= 0 ? parts[projectIndex + 1] : undefined
-  return projectId && projectId.length > 0 ? projectId : 'acp'
+  return parseScopeRef(scopeRef).projectId ?? 'acp'
 }
 
 export function recordInputAdmissionEvent(

@@ -128,7 +128,7 @@ export function scopeRefOfSession(sessionRef: string): string {
   return lane === -1 ? sessionRef : sessionRef.slice(0, lane)
 }
 
-/** The agent id in an `agent:<id>` or `agent:<id>:project:…` ref. */
+/** Agent principal refs contain one opaque id, independent of session scopes. */
 export function agentIdOfRef(ref: string): string | undefined {
-  return ref.match(/^agent:([^:/]+)/)?.[1]
+  return /^agent:[^:/]+$/.test(ref) ? ref.slice('agent:'.length) : undefined
 }

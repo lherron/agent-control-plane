@@ -11,6 +11,7 @@ import {
 } from './ghostmux.js'
 import {
   HeadlessViewerStatusProjector,
+  type ViewerIdentity,
   renderSecondaryStatusBar,
   renderStatusBar,
   viewerStateForEventKind,
@@ -23,7 +24,7 @@ import {
   type TaskTitleReader,
   defaultTaskSlugResolver,
   defaultTaskTitleReader,
-  extractTaskIdFromScope,
+  extractTaskIdFromIdentity,
 } from './wrkq-task-label.js'
 
 export type HrcViewerClient = Pick<
@@ -40,14 +41,12 @@ type HrcPresentationRuntimeRow = Awaited<
   ReturnType<HrcViewerClient['listPresentationRuntimes']>
 >['runtimes'][number]
 type OperatorSurface = { surfaceId: string; clientTty: string }
-/** New HRC rows add this field; ACP stays compatible with its pinned SDK tuple. */
-type PresentationRuntimeRow = Omit<HrcPresentationRuntimeRow, 'operatorSurfaces'> & {
-  operatorSurfaces?: readonly OperatorSurface[] | undefined
-}
+type PresentationRuntimeRow = HrcPresentationRuntimeRow
 
 export type ViewerGhostmux = {
   ensureHeadlessViewer(options: {
     scopeRef: string
+    identity?: ViewerIdentity | undefined
     laneRef?: string | undefined
     runtimeId: string
     hostSessionId?: string | undefined
@@ -66,6 +65,7 @@ export type ViewerGhostmux = {
     surfaceId: string,
     options: {
       scopeRef: string
+      identity?: ViewerIdentity | undefined
       laneRef?: string | undefined
       runtimeId: string
       hostSessionId: string
@@ -168,10 +168,7 @@ function shellQuote(value: string): string {
 }
 
 function normalizePresentationLaneRef(laneRef: string | undefined): string {
-  if (laneRef === undefined || laneRef === '' || laneRef === 'main' || laneRef === 'lane:main') {
-    return 'main'
-  }
-  return laneRef.startsWith('lane:') ? laneRef : `lane:${laneRef}`
+  return laneRef ?? 'main'
 }
 
 function attachCommandFor(row: PresentationRuntimeRow, lingerSeconds: number): string | null {
@@ -183,9 +180,12 @@ function attachCommandFor(row: PresentationRuntimeRow, lingerSeconds: number): s
   ].join('; ')
 }
 
-function titleFor(row: Pick<PresentationRuntimeRow, 'scopeRef' | 'laneRef' | 'title'>): string {
+function titleFor(
+  row: Pick<PresentationRuntimeRow, 'scopeRef' | 'laneRef' | 'title' | 'identity'>
+): string {
   return (
-    row.title ?? defaultHeadlessPaneTitle(row.scopeRef, normalizePresentationLaneRef(row.laneRef))
+    row.title ??
+    defaultHeadlessPaneTitle(row.scopeRef, normalizePresentationLaneRef(row.laneRef), row.identity)
   )
 }
 
@@ -194,9 +194,14 @@ function eventTimeMs(event: LifecycleEvent): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined
 }
 
-function paneKeyFor(row: Pick<PresentationRuntimeRow, 'scopeRef' | 'laneRef'>): string {
-  return deriveHeadlessSessionIdentity(row.scopeRef, normalizePresentationLaneRef(row.laneRef))
-    .paneKey
+function paneKeyFor(
+  row: Pick<PresentationRuntimeRow, 'scopeRef' | 'laneRef' | 'identity'>
+): string {
+  return deriveHeadlessSessionIdentity(
+    row.scopeRef,
+    normalizePresentationLaneRef(row.laneRef),
+    row.identity
+  ).paneKey
 }
 
 function latestByRuntime(events: LifecycleEvent[]): Map<string, LifecycleEvent> {
@@ -256,6 +261,7 @@ export class HrcViewer {
       resolveSurfaceIds: (runtimeId) => this.resolveStatusSurfaceIds(runtimeId),
       applyStatusBar: (surfaceId, spec) => this.ghostmux.setStatusBar(surfaceId, spec),
       resolveSlug: this.resolveTaskSlug,
+      resolveSession: (runtimeId) => this.currentPresentationRuntime(runtimeId),
       onError: (error) => this.warn('broker_headless_viewer.status_failed', error),
     })
   }
@@ -331,6 +337,10 @@ export class HrcViewer {
 
   async handleEvent(event: LifecycleEvent): Promise<void> {
     this.statusProjector.observe(event)
+    if (event.eventKind === 'session.metadata.changed') {
+      await this.reconcile('stream_reset')
+      return
+    }
 
     if (event.eventKind === 'runtime.presentation') {
       await this.handlePresentationEvent(event)
@@ -424,7 +434,11 @@ export class HrcViewer {
       })
       return
     }
+    const current = await this.currentPresentationRuntime(event.runtimeId)
     await this.ensurePane({
+      ...current,
+      identity: current?.identity ?? event.identity,
+      operatorSurfaces: current?.operatorSurfaces ?? [],
       runtimeId: event.runtimeId,
       hostSessionId: event.hostSessionId,
       scopeRef: event.scopeRef,
@@ -457,7 +471,7 @@ export class HrcViewer {
       const adoptedSurfaceIds = new Set<string>()
       // One batched read for the whole fleet, BEFORE any pane is stamped, so
       // every pane in this pass is titled from the same fresh answer.
-      await this.refreshTaskTitles(rows.map((row) => row.scopeRef))
+      await this.refreshTaskTitles(rows.map((row) => row.identity))
 
       for (const pane of panes) {
         const direct = pane.runtimeId === undefined ? undefined : rowsByRuntime.get(pane.runtimeId)
@@ -542,6 +556,7 @@ export class HrcViewer {
     let operatorClients: readonly string[] = []
     const result = await this.ghostmux.ensureHeadlessViewer({
       scopeRef: row.scopeRef,
+      identity: row.identity,
       laneRef: normalizePresentationLaneRef(row.laneRef),
       runtimeId: row.runtimeId,
       hostSessionId: row.hostSessionId,
@@ -681,25 +696,29 @@ export class HrcViewer {
     if (surfaceIds.length === 0) return
     await this.applyTitles(surfaceIds, paneSurfaceId, titleFor(row))
     for (const surfaceId of surfaceIds) {
-      await this.ghostmux.setTerminalBackground?.(surfaceId, viewerTerminalBg(row.scopeRef))
+      await this.ghostmux.setTerminalBackground?.(
+        surfaceId,
+        viewerTerminalBg(row.identity, row.metadata)
+      )
     }
     const state =
       (event ? viewerStateForEventKind(event.eventKind) : null) ??
       viewerStateForRuntimeStatus(row.status)
     if (state !== null) {
-      const slug = await this.resolveTaskSlug(row.scopeRef)
+      const slug = await this.resolveTaskSlug(row.identity?.taskId)
       const spec = renderStatusBar(
-        row.scopeRef,
+        row.identity,
         state,
         slug,
-        normalizePresentationLaneRef(row.laneRef)
+        normalizePresentationLaneRef(row.laneRef),
+        row.metadata
       )
       for (const surfaceId of surfaceIds) await this.ghostmux.setStatusBar(surfaceId, spec)
     }
-    const taskId = extractTaskIdFromScope(row.scopeRef)
+    const taskId = extractTaskIdFromIdentity(row.identity)
     if (taskId !== null && !this.taskTitles.has(taskId))
-      await this.refreshTaskTitles([row.scopeRef])
-    for (const surfaceId of surfaceIds) await this.applySecondaryBar(surfaceId, row.scopeRef)
+      await this.refreshTaskTitles([row.identity])
+    for (const surfaceId of surfaceIds) await this.applySecondaryBar(surfaceId, row.identity)
   }
 
   /**
@@ -708,10 +727,12 @@ export class HrcViewer {
    * resolve keeps whatever title it already had, so a single deleted task can
    * not blank the fleet.
    */
-  private async refreshTaskTitles(scopeRefs: readonly string[]): Promise<void> {
+  private async refreshTaskTitles(
+    identities: readonly (ViewerIdentity | undefined)[]
+  ): Promise<void> {
     const taskIds = new Set<string>()
-    for (const scopeRef of scopeRefs) {
-      const taskId = extractTaskIdFromScope(scopeRef)
+    for (const identity of identities) {
+      const taskId = extractTaskIdFromIdentity(identity)
       if (taskId !== null) taskIds.add(taskId)
     }
     if (taskIds.size === 0) return
@@ -732,9 +753,12 @@ export class HrcViewer {
    * they are HIDDEN rather than skipped: a recycled pane would otherwise keep
    * its previous occupant's title.
    */
-  private async applySecondaryBar(surfaceId: string, scopeRef: string): Promise<void> {
+  private async applySecondaryBar(
+    surfaceId: string,
+    identity: ViewerIdentity | undefined
+  ): Promise<void> {
     try {
-      const taskId = extractTaskIdFromScope(scopeRef)
+      const taskId = extractTaskIdFromIdentity(identity)
       if (taskId === null) {
         await this.ghostmux.hideSecondaryStatusBar(surfaceId)
         return
@@ -745,7 +769,7 @@ export class HrcViewer {
       if (spec === null) return
       await this.ghostmux.setSecondaryStatusBar(surfaceId, spec)
     } catch (error) {
-      this.warn('broker_headless_viewer.secondary_status_failed', error, { surfaceId, scopeRef })
+      this.warn('broker_headless_viewer.secondary_status_failed', error, { surfaceId, identity })
     }
   }
 

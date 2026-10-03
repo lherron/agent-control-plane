@@ -2025,6 +2025,7 @@
         "RedactionOptions",
         "SessionDashboardSnapshot",
         "SessionDashboardSummary",
+        "SessionIdentity",
         "SessionRef",
         "SessionRuntimeTransport",
         "SessionTimelineRow"

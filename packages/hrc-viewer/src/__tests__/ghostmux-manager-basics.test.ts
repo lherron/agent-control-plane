@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import { fixtureIdentity } from './session-identity-fixture.js'
 
 import {
   deriveHeadlessSessionIdentity,
@@ -133,7 +134,10 @@ describe('parseGhostmuxSurfaceState', () => {
 // ---------------------------------------------------------------------------
 describe('deriveHeadlessTabIdentity', () => {
   it('maps a real task scope to task:<T-XXXXX>', () => {
-    const id = deriveHeadlessTabIdentity('agent:clod:project:hrc-runtime:task:T-05237')
+    const id = deriveHeadlessTabIdentity(
+      'agent:clod:project:hrc-runtime:task:T-05237',
+      fixtureIdentity('agent:clod:project:hrc-runtime:task:T-05237')
+    )
     expect(id).toEqual({
       tabKey: 'task:T-05237',
       agentId: 'clod',
@@ -145,7 +149,8 @@ describe('deriveHeadlessTabIdentity', () => {
 
   it('keys a subtask scope by its full subtask id, not its owner (T-09895)', () => {
     const id = deriveHeadlessTabIdentity(
-      'agent:clod:project:hrc-runtime:task:T-05237.render-preview'
+      'agent:clod:project:hrc-runtime:task:T-05237.render-preview',
+      fixtureIdentity('agent:clod:project:hrc-runtime:task:T-05237.render-preview')
     )
     expect(id).toEqual({
       tabKey: 'task:T-05237.render-preview',
@@ -157,43 +162,64 @@ describe('deriveHeadlessTabIdentity', () => {
   })
 
   it('does not treat a task-shaped token outside the grammar as a task (T-09895)', () => {
-    const id = deriveHeadlessTabIdentity('agent:clod:project:hrc-runtime:task:T-05237-extra')
+    const id = deriveHeadlessTabIdentity(
+      'agent:clod:project:hrc-runtime:task:T-05237-extra',
+      fixtureIdentity('agent:clod:project:hrc-runtime:task:T-05237-extra')
+    )
     expect(id.tabKey).toBe('project:hrc-runtime:T-05237-extra')
     expect(id.taskId).toBeUndefined()
   })
 
   it('maps a primary scope to a project-qualified key (never bare primary)', () => {
-    const id = deriveHeadlessTabIdentity('agent:clod:project:hrc-runtime:task:primary')
+    const id = deriveHeadlessTabIdentity(
+      'agent:clod:project:hrc-runtime:task:primary',
+      fixtureIdentity('agent:clod:project:hrc-runtime:task:primary')
+    )
     expect(id.tabKey).toBe('project:hrc-runtime:primary')
     expect(id.agentId).toBe('clod')
     expect(id.label).toBe('hrc · primary')
   })
 
   it('gives a named non-task scope (roster slot) its OWN tab key (T-07142)', () => {
-    const nova = deriveHeadlessTabIdentity('agent:mable:project:hrc-runtime:task:primary-nova')
+    const nova = deriveHeadlessTabIdentity(
+      'agent:mable:project:hrc-runtime:task:primary-nova',
+      fixtureIdentity('agent:mable:project:hrc-runtime:task:primary-nova')
+    )
     expect(nova.tabKey).toBe('project:hrc-runtime:primary-nova')
     expect(nova.label).toBe('hrc · primary-nova')
-    const comet = deriveHeadlessTabIdentity('agent:mable:project:hrc-runtime:task:primary-comet')
+    const comet = deriveHeadlessTabIdentity(
+      'agent:mable:project:hrc-runtime:task:primary-comet',
+      fixtureIdentity('agent:mable:project:hrc-runtime:task:primary-comet')
+    )
     expect(comet.tabKey).toBe('project:hrc-runtime:primary-comet')
-    const primary = deriveHeadlessTabIdentity('agent:mable:project:hrc-runtime:task:primary')
+    const primary = deriveHeadlessTabIdentity(
+      'agent:mable:project:hrc-runtime:task:primary',
+      fixtureIdentity('agent:mable:project:hrc-runtime:task:primary')
+    )
     expect(nova.tabKey).not.toBe(comet.tabKey)
     expect(nova.tabKey).not.toBe(primary.tabKey)
   })
 
   it('does NOT collide two primary scopes from different projects', () => {
-    const a = deriveHeadlessTabIdentity('agent:clod:project:hrc-runtime:task:primary')
-    const b = deriveHeadlessTabIdentity('agent:smokey:project:agent-control-plane:task:primary')
+    const a = deriveHeadlessTabIdentity(
+      'agent:clod:project:hrc-runtime:task:primary',
+      fixtureIdentity('agent:clod:project:hrc-runtime:task:primary')
+    )
+    const b = deriveHeadlessTabIdentity(
+      'agent:smokey:project:agent-control-plane:task:primary',
+      fixtureIdentity('agent:smokey:project:agent-control-plane:task:primary')
+    )
     expect(a.tabKey).not.toBe(b.tabKey)
   })
 
   it('qualifies an agent-only ref by agent root when no project is present', () => {
-    const id = deriveHeadlessTabIdentity('agent:daedalus')
+    const id = deriveHeadlessTabIdentity('agent:daedalus', fixtureIdentity('agent:daedalus'))
     expect(id.tabKey).toBe('project:agent-root-daedalus:primary')
     expect(id.agentId).toBe('daedalus')
   })
 
   it('falls back to an unparsed key for a malformed ref (never throws)', () => {
-    const id = deriveHeadlessTabIdentity('::::garbage::::')
+    const id = deriveHeadlessTabIdentity('::::garbage::::', fixtureIdentity('::::garbage::::'))
     expect(id.tabKey.startsWith('unparsed:')).toBe(true)
     expect(id.agentId).toBe('unknown')
   })
@@ -205,10 +231,14 @@ describe('deriveHeadlessTabIdentity', () => {
 describe('deriveHeadlessSessionIdentity', () => {
   it('keeps the shared tab but distinguishes the pane key by role', () => {
     const tester = deriveHeadlessSessionIdentity(
-      'agent:cody:project:agent-loop:task:T-06319:role:tester'
+      'agent:cody:project:agent-loop:task:T-06319:role:tester',
+      undefined,
+      fixtureIdentity('agent:cody:project:agent-loop:task:T-06319:role:tester')
     )
     const impl = deriveHeadlessSessionIdentity(
-      'agent:cody:project:agent-loop:task:T-06319:role:implementer'
+      'agent:cody:project:agent-loop:task:T-06319:role:implementer',
+      undefined,
+      fixtureIdentity('agent:cody:project:agent-loop:task:T-06319:role:implementer')
     )
     // Same task tab...
     expect(tester.tab.tabKey).toBe('task:T-06319')
@@ -222,8 +252,8 @@ describe('deriveHeadlessSessionIdentity', () => {
 
   it('distinguishes the pane key by lane for one scope', () => {
     const scope = 'agent:cody:project:agent-loop:task:T-06319'
-    const main = deriveHeadlessSessionIdentity(scope)
-    const forked = deriveHeadlessSessionIdentity(scope, 'lane:forked')
+    const main = deriveHeadlessSessionIdentity(scope, undefined, fixtureIdentity(scope))
+    const forked = deriveHeadlessSessionIdentity(scope, 'lane:forked', fixtureIdentity(scope))
     expect(main.tab.tabKey).toBe(forked.tab.tabKey)
     expect(main.paneKey).not.toBe(forked.paneKey)
     expect(main.laneRef).toBe('main')
@@ -232,16 +262,36 @@ describe('deriveHeadlessSessionIdentity', () => {
 
   it('an omitted lane normalizes to main; explicit main is identical', () => {
     const scope = 'agent:clod:project:hrc-runtime:task:T-06321'
-    expect(deriveHeadlessSessionIdentity(scope).paneKey).toBe(
-      deriveHeadlessSessionIdentity(scope, 'main').paneKey
+    expect(deriveHeadlessSessionIdentity(scope, undefined, fixtureIdentity(scope)).paneKey).toBe(
+      deriveHeadlessSessionIdentity(scope, 'main', fixtureIdentity(scope)).paneKey
     )
-    expect(deriveHeadlessSessionIdentity(scope).roleName).toBeUndefined()
+    expect(
+      deriveHeadlessSessionIdentity(scope, undefined, fixtureIdentity(scope)).roleName
+    ).toBeUndefined()
   })
 
-  it('falls back to an unparsed pane key for a malformed ref (never throws)', () => {
-    const id = deriveHeadlessSessionIdentity('::::garbage::::', 'lane:x')
-    expect(id.paneKey.startsWith('unparsed:')).toBe(true)
+  it('keeps the opaque scope in the pane key when identity is absent', () => {
+    const id = deriveHeadlessSessionIdentity(
+      '::::garbage::::',
+      'lane:x',
+      fixtureIdentity('::::garbage::::')
+    )
+    expect(id.paneKey).toBe('::::garbage::::#lane:x')
     expect(id.paneKey.endsWith('#lane:x')).toBe(true)
     expect(id.tab.tabKey.startsWith('unparsed:')).toBe(true)
   })
+})
+
+it('groups by the supplied HRC identity and keeps the scope opaque', () => {
+  const scopeRef = 'opaque-session-scope'
+  const stored = {
+    kind: 'project-task' as const,
+    agentId: 'cody',
+    projectId: 'hrc-runtime',
+    taskId: 'T-10148',
+  }
+  const result = deriveHeadlessSessionIdentity(scopeRef, 'main', stored)
+  expect(result.tab.agentId).toBe('cody')
+  expect(result.tab.tabKey).toBe('task:T-10148')
+  expect(result.paneKey).toBe(`${scopeRef}#main`)
 })

@@ -21,6 +21,7 @@ export const handleGetSession: RouteHandler = async ({ params, deps }) => {
       session: {
         sessionId: record.hostSessionId,
         scopeRef: record.scopeRef,
+        ...(record.identity === undefined ? {} : { identity: record.identity }),
         laneRef: record.laneRef,
         generation: record.generation,
         status: record.status,

@@ -17,6 +17,7 @@
  * - Does NOT touch handlers/sessions-events.ts (existing per-session proxy).
  */
 import { describe, expect, test } from 'bun:test'
+import { parseScopeRef } from 'agent-scope'
 
 import type { DashboardEvent } from 'acp-ops-projection'
 import type { HrcLifecycleEvent as HrcCoreLifecycleEvent } from 'hrc-core'
@@ -46,6 +47,9 @@ function createHrcEvent(overrides: Partial<HrcCoreLifecycleEvent> = {}): HrcCore
     ts: '2026-04-23T12:00:00.000Z',
     hostSessionId: 'hsid-dash-001',
     scopeRef: 'agent:curly:project:agent-spaces:task:T-01200:role:tester',
+    identity: parseScopeRef(
+      overrides.scopeRef ?? 'agent:curly:project:agent-spaces:task:T-01200:role:tester'
+    ),
     laneRef: 'main',
     generation: 1,
     category: 'session',
@@ -337,7 +341,7 @@ describe('GET /v1/ops/session-dashboard/events', () => {
         const text = await response.text()
         const events = parseNdjson(text).filter((e): e is DashboardEvent => e !== null)
 
-        // Only the event whose scopeRef contains project:agent-spaces should match
+        // Only the event with stored identity.projectId agent-spaces should match
         expect(events.length).toBe(1)
         expect(events[0]!.sessionRef.scopeRef).toContain('project:agent-spaces')
       },

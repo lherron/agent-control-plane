@@ -3,13 +3,7 @@ import type { SessionTimelineRow } from '@/features/sessions/types'
 import { cn } from '@/lib/cn'
 import { ArrowUpRight, GitBranch } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import {
-  FAMILY_ACCENT,
-  compactRef,
-  durationLabel,
-  parseScopeRef,
-  rowSelected,
-} from './event-family'
+import { FAMILY_ACCENT, compactRef, durationLabel, rowSelected } from './event-family'
 
 export function SessionCard({
   row,
@@ -20,9 +14,9 @@ export function SessionCard({
   selectedRowId?: string | undefined
   onSelectRow: (rowId: string) => void
 }) {
-  const scope = parseScopeRef(row.sessionRef.scopeRef)
-  const agentId = scope.agentId ?? 'unknown'
-  const workLabel = scope.taskId ?? scope.role ?? 'primary'
+  const scope = row.identity
+  const agentId = scope?.agentId ?? 'unknown'
+  const workLabel = scope?.taskId ?? scope?.roleName ?? 'primary'
   const selected = rowSelected(row, selectedRowId)
   const status = row.runtime?.status ?? 'unknown'
   const familyColor =
@@ -53,7 +47,7 @@ export function SessionCard({
             className="mt-1 block truncate text-[12px] text-muted"
             title={row.sessionRef.scopeRef}
           >
-            {scope.projectId ?? compactRef(row.sessionRef.scopeRef, 34)}
+            {scope?.projectId ?? compactRef(row.sessionRef.scopeRef, 34)}
           </span>
           <span className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-quiet">
             <span className="inline-flex items-center gap-1">
@@ -72,10 +66,10 @@ export function SessionCard({
         </span>
       </button>
 
-      {scope.agentId && (
+      {scope?.agentId && (
         <Link
-          to={`/agents/${encodeURIComponent(scope.agentId)}`}
-          aria-label={`Open ${scope.agentId} agent detail`}
+          to={`/agents/${encodeURIComponent(scope?.agentId)}`}
+          aria-label={`Open ${scope?.agentId} agent detail`}
           className="absolute bottom-2 right-2 inline-flex h-7 w-7 items-center justify-center rounded-[4px] text-quiet opacity-0 transition hover:bg-secondary hover:text-accent group-hover:opacity-100 focus:opacity-100"
         >
           <ArrowUpRight className="h-3.5 w-3.5" />

@@ -1,3 +1,4 @@
+import { fixtureIdentity } from './session-identity-fixture.js'
 /**
  * T-07603 — route viewer tabs by scope shape, adopt the interactive window.
  *
@@ -27,7 +28,7 @@ import {
 } from '../ghostmux'
 
 const windowKeyFor = (scopeRef: string, hint?: string | undefined) =>
-  resolveWindowKey(hint, deriveHeadlessTabIdentity(scopeRef))
+  resolveWindowKey(hint, deriveHeadlessTabIdentity(scopeRef, fixtureIdentity(scopeRef)))
 
 describe('T-07603 scope-shape routing', () => {
   it('sends hcs-project task scopes to the chief window', () => {
@@ -69,7 +70,10 @@ describe('T-07603 scope-shape routing', () => {
     // `deriveHeadlessTabIdentity` returns before `isRealTaskId` for a scope it
     // cannot parse, so keying off a bare taskId would land junk in the operator's
     // window. Malformed input belongs in the background pile.
-    const tab = deriveHeadlessTabIdentity('this is not a scope ref')
+    const tab = deriveHeadlessTabIdentity(
+      'this is not a scope ref',
+      fixtureIdentity('this is not a scope ref')
+    )
     expect(tab.tabKey.startsWith('unparsed:')).toBe(true)
     expect(defaultWindowKeyForTab(tab)).toBe(DEFAULT_HEADLESS_WINDOW_KEY)
   })
@@ -203,7 +207,12 @@ describe('T-07603 interactive-window adoption', () => {
     fake.allocWindow()
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
-    await manager.ensureHeadlessViewer({ scopeRef: PRIMARY, runtimeId: 'rt-1', attachCommand: 'a' })
+    await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(PRIMARY),
+      scopeRef: PRIMARY,
+      runtimeId: 'rt-1',
+      attachCommand: 'a',
+    })
 
     expect(fake.windows.get(oldest)?.metadata).toMatchObject({
       hrc_role: 'headless-sessions-window',
@@ -221,7 +230,12 @@ describe('T-07603 interactive-window adoption', () => {
     })
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
-    await manager.ensureHeadlessViewer({ scopeRef: PRIMARY, runtimeId: 'rt-1', attachCommand: 'a' })
+    await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(PRIMARY),
+      scopeRef: PRIMARY,
+      runtimeId: 'rt-1',
+      attachCommand: 'a',
+    })
 
     expect(fake.windows.get(headless)?.metadata['hrc_window_key']).toBe(DEFAULT_HEADLESS_WINDOW_KEY)
     // No untagged candidate ⇒ a fresh interactive window was created instead.
@@ -232,7 +246,12 @@ describe('T-07603 interactive-window adoption', () => {
     const fake = makeFake()
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
-    await manager.ensureHeadlessViewer({ scopeRef: PRIMARY, runtimeId: 'rt-1', attachCommand: 'a' })
+    await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(PRIMARY),
+      scopeRef: PRIMARY,
+      runtimeId: 'rt-1',
+      attachCommand: 'a',
+    })
 
     expect(fake.windows.size).toBe(1)
     expect([...fake.windows.values()][0]?.metadata['hrc_window_key']).toBe(INTERACTIVE_WINDOW_KEY)
@@ -243,12 +262,18 @@ describe('T-07603 interactive-window adoption', () => {
     fake.allocWindow()
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
-    await manager.ensureHeadlessViewer({ scopeRef: PRIMARY, runtimeId: 'rt-1', attachCommand: 'a' })
+    await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(PRIMARY),
+      scopeRef: PRIMARY,
+      runtimeId: 'rt-1',
+      attachCommand: 'a',
+    })
     const scansAfterFirst = fake.calls.filter(
       (c) => c[0] === 'list-windows' && !c.includes('--meta')
     ).length
 
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity('agent:mable:project:hrc-runtime:task:primary'),
       scopeRef: 'agent:mable:project:hrc-runtime:task:primary',
       runtimeId: 'rt-2',
       attachCommand: 'b',
@@ -269,6 +294,7 @@ describe('T-07930 non-interactive keyed-window isolation', () => {
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
     const result = await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity('agent:chief:project:hcs:task:T-07930'),
       scopeRef: 'agent:chief:project:hcs:task:T-07930',
       runtimeId: 'rt-chief',
       attachCommand: 'a',
@@ -295,6 +321,7 @@ describe('T-07930 non-interactive keyed-window isolation', () => {
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
     const result = await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity('agent:cody:project:hrc-runtime:task:T-07930'),
       scopeRef: 'agent:cody:project:hrc-runtime:task:T-07930',
       runtimeId: 'rt-custom',
       attachCommand: 'a',
@@ -321,7 +348,12 @@ describe('T-07603 reap safety inside an adopted operator window', () => {
     const operatorTab = fake.allocSurface(operatorWindow, {})
     const manager = new GhostmuxManager('ghostmux', fake.runner)
 
-    await manager.ensureHeadlessViewer({ scopeRef: PRIMARY, runtimeId: 'rt-1', attachCommand: 'a' })
+    await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(PRIMARY),
+      scopeRef: PRIMARY,
+      runtimeId: 'rt-1',
+      attachCommand: 'a',
+    })
     expect(fake.windows.get(operatorWindow)?.metadata['hrc_window_key']).toBe(
       INTERACTIVE_WINDOW_KEY
     )

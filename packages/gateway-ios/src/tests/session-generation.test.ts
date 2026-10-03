@@ -15,7 +15,6 @@ function session(overrides: Partial<HrcSessionRecord> = {}): HrcSessionRecord {
     status: 'active',
     createdAt: '2026-04-30T10:00:00.000Z',
     updatedAt: '2026-04-30T10:00:00.000Z',
-    ancestorScopeRefs: [],
     ...overrides,
   }
 }

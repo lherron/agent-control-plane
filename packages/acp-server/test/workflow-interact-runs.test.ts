@@ -33,7 +33,6 @@ type RuntimeResponse = {
   provider: string
   status: string
   supportsInflightInput: boolean
-  adopted: boolean
   createdAt: string
   updatedAt: string
 }
@@ -66,7 +65,6 @@ function createRuntime(overrides: Partial<RuntimeResponse> = {}): RuntimeRespons
     provider: 'openai',
     status: 'ready',
     supportsInflightInput: true,
-    adopted: false,
     createdAt: '2026-05-10T22:00:00.000Z',
     updatedAt: '2026-05-10T22:00:00.000Z',
     ...overrides,

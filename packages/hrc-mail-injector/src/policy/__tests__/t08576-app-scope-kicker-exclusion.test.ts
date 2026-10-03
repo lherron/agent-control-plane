@@ -75,7 +75,6 @@ function insertAppRuntime(): HrcSessionRecord {
     status: 'active',
     createdAt: now,
     updatedAt: now,
-    ancestorScopeRefs: [],
   })
   harness.db.runtimes.insert({
     runtimeId: APP_RUNTIME,
@@ -88,7 +87,6 @@ function insertAppRuntime(): HrcSessionRecord {
     provider: 'anthropic',
     status: 'busy',
     supportsInflightInput: true,
-    adopted: false,
     createdAt: now,
     updatedAt: now,
   })

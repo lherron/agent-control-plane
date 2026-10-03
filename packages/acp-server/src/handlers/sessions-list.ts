@@ -7,6 +7,7 @@ function projectSession(record: Awaited<ReturnType<AcpHrcClient['listSessions']>
   return {
     sessionId: record.hostSessionId,
     scopeRef: record.scopeRef,
+    ...(record.identity === undefined ? {} : { identity: record.identity }),
     laneRef: record.laneRef,
     generation: record.generation,
     status: record.status,

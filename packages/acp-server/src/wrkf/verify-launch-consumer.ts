@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parseScopeRef } from 'agent-scope'
 
 import type { SessionRef } from 'agent-scope'
 
@@ -286,8 +287,7 @@ function readSessionRef(value: unknown): SessionRef | undefined {
 }
 
 function readVerifyAgentId(sessionRef: SessionRef): string {
-  const match = /^agent:([^:]+)/.exec(sessionRef.scopeRef)
-  return match?.[1] ?? 'cody'
+  return parseScopeRef(sessionRef.scopeRef).agentId
 }
 
 function requirePayloadString(payload: Record<string, unknown>, field: string): string {

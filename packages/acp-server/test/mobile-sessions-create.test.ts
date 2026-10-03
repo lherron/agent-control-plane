@@ -2,6 +2,7 @@ import { describe, expect, spyOn, test } from 'bun:test'
 import { mkdtempSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { parseScopeRef } from 'agent-scope'
 
 import { HrcDomainError, HrcErrorCode } from 'hrc-core'
 import type { StartRuntimeRequest, StartRuntimeResponse } from 'hrc-sdk'
@@ -40,6 +41,7 @@ function startedResponse(request: StartRuntimeRequest, replayed = false): StartR
     status: 'ready',
     supportsInFlightInput: false,
     claim: {
+      identity: parseScopeRef(claimedScopeRef),
       slot: claimedScopeRef.slice(claimedScopeRef.lastIndexOf(':task:') + ':task:'.length),
       scopeRef: claimedScopeRef,
       sessionRef: claimedSessionRef,

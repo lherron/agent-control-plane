@@ -351,7 +351,6 @@ describe('T-07724 production-wire mobile timeline ordering', () => {
         status: 'active',
         createdAt: now,
         updatedAt: now,
-        ancestorScopeRefs: [],
       })
       insertHrcSession(current, {
         hostSessionId: DECOY_HOST_SESSION_ID,
@@ -361,7 +360,6 @@ describe('T-07724 production-wire mobile timeline ordering', () => {
         status: 'active',
         createdAt: now,
         updatedAt: now,
-        ancestorScopeRefs: [],
       })
 
       // ── 2. Collaboration history (> one producer page) ──────────────────

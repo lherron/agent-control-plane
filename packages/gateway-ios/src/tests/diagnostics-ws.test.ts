@@ -121,7 +121,6 @@ function createFakeHrcClient(
               status: 'active',
               createdAt: '2026-04-30T10:00:00.000Z',
               updatedAt: '2026-04-30T10:00:00.000Z',
-              ancestorScopeRefs: [],
             },
           ]
     },
@@ -344,7 +343,6 @@ describe('WS /v1/diagnostics/events', () => {
         status: 'inactive',
         createdAt: '2026-04-30T10:00:00.000Z',
         updatedAt: '2026-04-30T10:00:00.000Z',
-        ancestorScopeRefs: [],
       },
       {
         hostSessionId: 'host-latest',
@@ -354,7 +352,6 @@ describe('WS /v1/diagnostics/events', () => {
         status: 'active',
         createdAt: '2026-04-30T10:00:00.000Z',
         updatedAt: '2026-04-30T10:05:00.000Z',
-        ancestorScopeRefs: [],
       },
     ]
 

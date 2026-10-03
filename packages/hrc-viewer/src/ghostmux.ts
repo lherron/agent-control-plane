@@ -1,5 +1,6 @@
 import { isTaskId } from 'acp-core'
-import { buildScopeRef, normalizeLaneRef, parseScopeRef } from 'agent-scope'
+import { normalizeLaneRef } from 'agent-scope'
+import type { ViewerIdentity } from './headless-viewer-status.js'
 
 import { shortenProjectId } from './project-prefix.js'
 
@@ -185,21 +186,6 @@ export type HeadlessSessionIdentity = {
   roleName?: string | undefined
 }
 
-type ParsedScope = {
-  agentId?: string
-  projectId?: string
-  taskId?: string
-  roleName?: string
-}
-
-function safeParseScopeRef(scopeRef: string): ParsedScope | null {
-  try {
-    return parseScopeRef(scopeRef) as ParsedScope
-  } catch {
-    return null
-  }
-}
-
 /** A real wrkq task scope is a task or subtask id (`T-05237`, `T-05237.render-preview`). */
 function isRealTaskId(taskId: string | undefined): taskId is string {
   return typeof taskId === 'string' && isTaskId(taskId)
@@ -225,11 +211,17 @@ function sanitizeKeyFragment(value: string): string {
  *
  * Matching MUST use `tabKey`, never a bare `primary` or a human label.
  */
-export function deriveHeadlessTabIdentity(scopeRef: string): HeadlessTabIdentity {
-  const parsed = safeParseScopeRef(scopeRef)
-  if (!parsed?.agentId) {
+export function deriveHeadlessTabIdentity(
+  scopeRef: string,
+  parsed?: ViewerIdentity | undefined
+): HeadlessTabIdentity {
+  if (parsed === undefined || parsed.kind === 'unparsed') {
     const safe = sanitizeKeyFragment(scopeRef)
-    return { tabKey: `unparsed:${safe}`, agentId: 'unknown', label: scopeRef || safe }
+    return {
+      tabKey: `unparsed:${safe}`,
+      agentId: parsed?.agentId ?? 'unknown',
+      label: scopeRef || safe,
+    }
   }
   const agentId = parsed.agentId
   // Label uses the SHORT project prefix (presentation only); the tabKey keeps the
@@ -306,21 +298,8 @@ export function resolveWindowKey(hint: string | undefined, tab: HeadlessTabIdent
  * to one pane. Falls back to the sanitized raw ref for an unparseable scope so it
  * never throws.
  */
-function deriveHeadlessPaneKey(
-  parsed: ParsedScope | null,
-  laneRef: string,
-  rawScopeRef: string
-): string {
-  if (!parsed?.agentId) {
-    return `unparsed:${sanitizeKeyFragment(rawScopeRef)}#${laneRef}`
-  }
-  const canonicalScope = buildScopeRef({
-    agentId: parsed.agentId,
-    ...(parsed.projectId ? { projectId: parsed.projectId } : {}),
-    ...(parsed.taskId ? { taskId: parsed.taskId } : {}),
-    ...(parsed.roleName ? { roleName: parsed.roleName } : {}),
-  })
-  return `${canonicalScope}#${laneRef}`
+function deriveHeadlessPaneKey(laneRef: string, scopeRef: string): string {
+  return `${scopeRef}#${laneRef}`
 }
 
 /**
@@ -331,22 +310,26 @@ function deriveHeadlessPaneKey(
  */
 export function deriveHeadlessSessionIdentity(
   scopeRef: string,
-  laneRef?: string | undefined
+  laneRef?: string | undefined,
+  parsed?: ViewerIdentity | undefined
 ): HeadlessSessionIdentity {
-  const parsed = safeParseScopeRef(scopeRef)
-  const tab = deriveHeadlessTabIdentity(scopeRef)
+  const tab = deriveHeadlessTabIdentity(scopeRef, parsed)
   const lane = normalizeLaneRef(laneRef)
   return {
     tab,
-    paneKey: deriveHeadlessPaneKey(parsed, lane, scopeRef),
+    paneKey: deriveHeadlessPaneKey(lane, scopeRef),
     laneRef: lane,
     ...(parsed?.roleName ? { roleName: parsed.roleName } : {}),
   }
 }
 
 /** Shipped default pane title; a durable manual/session title may override it. */
-export function defaultHeadlessPaneTitle(scopeRef: string, laneRef?: string | undefined): string {
-  const identity = deriveHeadlessSessionIdentity(scopeRef, laneRef)
+export function defaultHeadlessPaneTitle(
+  scopeRef: string,
+  laneRef?: string | undefined,
+  parsed?: ViewerIdentity | undefined
+): string {
+  const identity = deriveHeadlessSessionIdentity(scopeRef, laneRef, parsed)
   const base = `${identity.tab.label} · ${identity.tab.agentId}`
   return identity.roleName ? `${base} · ${identity.roleName}` : base
 }
@@ -795,6 +778,7 @@ export class GhostmuxManager {
    */
   async ensureHeadlessViewer(options: {
     scopeRef: string
+    identity?: ViewerIdentity | undefined
     /**
      * HRC lane ref for this session (`main` or `lane:<id>`). Threaded from the
      * runtime rather than defaulted here so distinct lanes get distinct panes
@@ -838,10 +822,15 @@ export class GhostmuxManager {
      */
     skipCreateWhen?: (() => Promise<boolean>) | undefined
   }): Promise<HeadlessViewerResult> {
-    const identity = deriveHeadlessSessionIdentity(options.scopeRef, options.laneRef)
+    const identity = deriveHeadlessSessionIdentity(
+      options.scopeRef,
+      options.laneRef,
+      options.identity
+    )
     const tab = identity.tab
     const windowKey = resolveWindowKey(options.windowKey, tab)
-    const paneTitle = options.title ?? defaultHeadlessPaneTitle(options.scopeRef, options.laneRef)
+    const paneTitle =
+      options.title ?? defaultHeadlessPaneTitle(options.scopeRef, options.laneRef, options.identity)
     // Serialize per COMPOSITE tab key `(windowKey, tabKey)` (T-07118): concurrent
     // same-task dispatches must not both miss-then-create a duplicate tab, and two
     // differently-keyed windows must not serialize against each other. The critical
@@ -1135,6 +1124,7 @@ export class GhostmuxManager {
     surfaceId: string,
     options: {
       scopeRef: string
+      identity?: ViewerIdentity | undefined
       laneRef?: string | undefined
       runtimeId: string
       hostSessionId: string
@@ -1142,7 +1132,11 @@ export class GhostmuxManager {
       windowKey?: string | undefined
     }
   ): Promise<void> {
-    const identity = deriveHeadlessSessionIdentity(options.scopeRef, options.laneRef)
+    const identity = deriveHeadlessSessionIdentity(
+      options.scopeRef,
+      options.laneRef,
+      options.identity
+    )
     await this.stampAgentPaneMetadata(surfaceId, identity, {
       scopeRef: options.scopeRef,
       runtimeId: options.runtimeId,

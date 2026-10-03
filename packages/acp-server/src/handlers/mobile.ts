@@ -20,6 +20,7 @@ import type {
   SessionPeerStatus,
 } from 'hrc-sdk'
 import { type CollaborationMessage, formatCollaborationMessage } from 'wrkq-lib'
+import { formatSessionIdentityHandle } from './shared.js'
 
 import { hasHrcEvidenceOrigin } from '../hrc-evidence-origin.js'
 import { badRequest, json } from '../http.js'
@@ -426,14 +427,6 @@ function mobileStatus(status: string, runtime?: HrcRuntimeSnapshot): MobileSessi
   return 'active'
 }
 
-function titleForScopeRef(scopeRef: string): string {
-  try {
-    return parseScopeRef(scopeRef).agentId
-  } catch {
-    return scopeRef
-  }
-}
-
 function projectSession(input: {
   record: HrcSessionRecord
   runtime?: HrcRuntimeSnapshot | undefined
@@ -494,7 +487,7 @@ function projectSession(input: {
     sourceKind: 'local_session',
     sessionRef: sessionRef(input.record.scopeRef, input.record.laneRef),
     displayRef: sessionRef(input.record.scopeRef, input.record.laneRef),
-    title: titleForScopeRef(input.record.scopeRef),
+    title: input.record.identity?.agentId ?? input.record.scopeRef,
     mode,
     executionMode: execution,
     summaryStatus: status,
@@ -1587,7 +1580,7 @@ function projectRemoteRuntime(
     ...(node.answeredAt !== undefined ? { projectionAnsweredAt: node.answeredAt } : {}),
     sessionRef: sessionRef(runtime.scopeRef, runtime.laneRef),
     displayRef: sessionRef(runtime.scopeRef, runtime.laneRef),
-    title: titleForScopeRef(runtime.scopeRef),
+    title: runtime.identity?.agentId ?? runtime.scopeRef,
     mode,
     executionMode: execution,
     summaryStatus: status,
@@ -2633,7 +2626,7 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
       ws.close(1011, 'timeline unavailable')
       return
     }
-    const memberRef = formatScopeHandle(parseScopeRef(record.scopeRef))
+    const memberRef = formatSessionIdentityHandle(record.scopeRef, record.identity)
     timelineIdentity = {
       sessionRef: sessionRefValue,
       hostSessionId: record.hostSessionId,
@@ -2715,10 +2708,7 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
       }
     }
 
-    const memberRef =
-      sessionRefValue === undefined
-        ? undefined
-        : formatScopeHandle(parseScopeRef(splitSessionRef(sessionRefValue).scopeRef))
+    const memberRef = timelineIdentity?.memberRef
     const liveMessageFloor = Number.isFinite(fromMessageSeq) ? fromMessageSeq : 0
     const handledMessageIds = new Set<string>()
     const pendingCollaborations = new Map<

@@ -95,6 +95,9 @@ export function projectCoreHrcEvent(
     hrcSeq,
     ts,
     sessionRef: { scopeRef, laneRef },
+    ...(isRecord(raw['identity'])
+      ? { identity: raw['identity'] as ProjectionInputEvent['identity'] }
+      : {}),
     hostSessionId,
     generation,
     eventKind,
@@ -187,6 +190,9 @@ export function projectInputAdmissionSystemEvent(event: SystemEvent): DashboardE
     hrcSeq: syntheticSeq,
     ts: event.occurredAt,
     sessionRef: { scopeRef, laneRef },
+    ...(isRecord(payload['identity'])
+      ? { identity: payload['identity'] as DashboardEvent['identity'] }
+      : {}),
     hostSessionId,
     generation,
     ...(readString(payload, 'runtimeId') !== undefined
@@ -223,18 +229,10 @@ export function compareDashboardEvents(left: DashboardEvent, right: DashboardEve
   return left.hrcSeq - right.hrcSeq
 }
 
-export function scopeMatchesProject(scopeRef: string, projectId: string): boolean {
-  const parts = scopeRef.split(':')
-  return parts.some((part, index) => part === 'project' && parts[index + 1] === projectId)
-}
-
 export function eventMatchesFilters(event: DashboardEvent, filters: DashboardFilters): boolean {
   if (filters.scopeRef !== undefined && event.sessionRef.scopeRef !== filters.scopeRef) return false
   if (filters.laneRef !== undefined && event.sessionRef.laneRef !== filters.laneRef) return false
-  if (
-    filters.projectId !== undefined &&
-    !scopeMatchesProject(event.sessionRef.scopeRef, filters.projectId)
-  ) {
+  if (filters.projectId !== undefined && event.identity?.projectId !== filters.projectId) {
     return false
   }
   if (filters.hostSessionId !== undefined && event.hostSessionId !== filters.hostSessionId)
@@ -248,10 +246,7 @@ export function eventMatchesFilters(event: DashboardEvent, filters: DashboardFil
 export function rowMatchesFilters(row: SessionTimelineRow, filters: DashboardFilters): boolean {
   if (filters.scopeRef !== undefined && row.sessionRef.scopeRef !== filters.scopeRef) return false
   if (filters.laneRef !== undefined && row.sessionRef.laneRef !== filters.laneRef) return false
-  if (
-    filters.projectId !== undefined &&
-    !scopeMatchesProject(row.sessionRef.scopeRef, filters.projectId)
-  ) {
+  if (filters.projectId !== undefined && row.identity?.projectId !== filters.projectId) {
     return false
   }
   if (filters.hostSessionId !== undefined && row.hostSessionId !== filters.hostSessionId)
@@ -288,6 +283,7 @@ export function sessionRecordToRow(record: HrcSessionRecord): SessionTimelineRow
 
   return {
     rowId: `${record.hostSessionId}:${record.generation}`,
+    identity: record.identity,
     sessionRef: {
       scopeRef: record.scopeRef,
       laneRef: record.laneRef,

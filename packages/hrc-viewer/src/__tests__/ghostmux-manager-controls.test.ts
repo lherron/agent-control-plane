@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import { fixtureIdentity } from './session-identity-fixture.js'
 
 import { GhostmuxManager } from '../ghostmux'
 
@@ -103,7 +104,12 @@ describe('GhostmuxManager.reapHeadlessAgentPane (runtime-fenced, daedalus C4)', 
   it('reaps the pane bound to the terminating runtime and reports tab collapse', async () => {
     const fake = makeFakeGhostmux()
     const manager = new GhostmuxManager('ghostmux', fake.runner)
-    await manager.ensureHeadlessViewer({ scopeRef: cloRef, runtimeId: 'rt-1', attachCommand: 'a' })
+    await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(cloRef),
+      scopeRef: cloRef,
+      runtimeId: 'rt-1',
+      attachCommand: 'a',
+    })
     const paneId = fake.agentPanes()[0]?.[0] ?? ''
 
     const result = await manager.reapHeadlessAgentPane(paneId, 'rt-1')
@@ -114,8 +120,14 @@ describe('GhostmuxManager.reapHeadlessAgentPane (runtime-fenced, daedalus C4)', 
   it('does NOT collapse the tab while a sibling agent pane survives', async () => {
     const fake = makeFakeGhostmux()
     const manager = new GhostmuxManager('ghostmux', fake.runner)
-    await manager.ensureHeadlessViewer({ scopeRef: cloRef, runtimeId: 'rt-1', attachCommand: 'a' })
     await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(cloRef),
+      scopeRef: cloRef,
+      runtimeId: 'rt-1',
+      attachCommand: 'a',
+    })
+    await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(curlyRef),
       scopeRef: curlyRef,
       runtimeId: 'rt-2',
       attachCommand: 'b',
@@ -131,10 +143,20 @@ describe('GhostmuxManager.reapHeadlessAgentPane (runtime-fenced, daedalus C4)', 
   it('FENCE: refuses to reap a pane already rebound to a newer runtime', async () => {
     const fake = makeFakeGhostmux()
     const manager = new GhostmuxManager('ghostmux', fake.runner)
-    await manager.ensureHeadlessViewer({ scopeRef: cloRef, runtimeId: 'rt-1', attachCommand: 'a' })
+    await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(cloRef),
+      scopeRef: cloRef,
+      runtimeId: 'rt-1',
+      attachCommand: 'a',
+    })
     const paneId = fake.agentPanes()[0]?.[0] ?? ''
     // Reuse rebinds to rt-2.
-    await manager.ensureHeadlessViewer({ scopeRef: cloRef, runtimeId: 'rt-2', attachCommand: 'a2' })
+    await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(cloRef),
+      scopeRef: cloRef,
+      runtimeId: 'rt-2',
+      attachCommand: 'a2',
+    })
 
     // A stale terminal event for rt-1 must NOT kill the pane.
     const result = await manager.reapHeadlessAgentPane(paneId, 'rt-1')
@@ -150,7 +172,12 @@ describe('GhostmuxManager.reapHeadlessAgentPane (runtime-fenced, daedalus C4)', 
   it('never kills the window anchor', async () => {
     const fake = makeFakeGhostmux()
     const manager = new GhostmuxManager('ghostmux', fake.runner)
-    await manager.ensureHeadlessViewer({ scopeRef: cloRef, runtimeId: 'rt-1', attachCommand: 'a' })
+    await manager.ensureHeadlessViewer({
+      identity: fixtureIdentity(cloRef),
+      scopeRef: cloRef,
+      runtimeId: 'rt-1',
+      attachCommand: 'a',
+    })
     const anchorId = fake.anchors()[0]?.[0] ?? ''
 
     const result = await manager.reapHeadlessAgentPane(anchorId, 'rt-1')

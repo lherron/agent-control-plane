@@ -1,4 +1,4 @@
-import type { LaneRef } from 'agent-scope'
+import { type LaneRef, parseScopeRef } from 'agent-scope'
 
 import { badRequest, json, notFound } from '../http.js'
 import { parseJsonBody, readOptionalTrimmedStringField, requireRecord } from '../parsers/body.js'
@@ -55,12 +55,11 @@ export const handlePutHeartbeat: RouteHandler = async ({ request, params, deps }
  * Expected format: `agent:<agentId>:project:<projectId>[:...]`
  */
 function extractProjectIdFromScopeRef(scopeRef: string): string | undefined {
-  const parts = scopeRef.split(':')
-  const projectIndex = parts.indexOf('project')
-  if (projectIndex !== -1 && projectIndex + 1 < parts.length) {
-    return parts[projectIndex + 1]
+  try {
+    return parseScopeRef(scopeRef).projectId
+  } catch {
+    return undefined
   }
-  return undefined
 }
 
 /**

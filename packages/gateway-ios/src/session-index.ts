@@ -236,12 +236,7 @@ function deriveCapabilities(
 // ---------------------------------------------------------------------------
 
 function extractTitle(session: HrcSessionRecord): string {
-  // Extract agentId from scopeRef "agent:<agentId>[:project:<projectId>[:task:<taskId>]]"
-  const parts = session.scopeRef.split(':')
-  if (parts.length >= 2 && parts[0] === 'agent') {
-    return parts[1] as string
-  }
-  return session.scopeRef
+  return session.identity?.agentId ?? session.scopeRef
 }
 
 // ---------------------------------------------------------------------------

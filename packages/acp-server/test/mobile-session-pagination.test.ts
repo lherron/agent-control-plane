@@ -15,7 +15,6 @@ const LOCAL_SESSION: HrcSessionRecord = {
   status: 'active',
   createdAt: NOW,
   updatedAt: NOW,
-  ancestorScopeRefs: [],
   lastAppliedIntentJson: { execution: { preferredMode: 'interactive' } },
 }
 const LOCAL_RUNTIME: HrcRuntimeSnapshot = {
@@ -29,7 +28,6 @@ const LOCAL_RUNTIME: HrcRuntimeSnapshot = {
   provider: 'openai',
   status: 'active',
   supportsInflightInput: true,
-  adopted: false,
   createdAt: NOW,
   updatedAt: NOW,
 }

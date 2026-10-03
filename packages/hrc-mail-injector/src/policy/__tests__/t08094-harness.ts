@@ -216,7 +216,6 @@ export async function createT08094Harness(): Promise<T08094Harness> {
     status: 'active',
     createdAt: now,
     updatedAt: now,
-    ancestorScopeRefs: [],
   })
   db.runtimes.insert({
     runtimeId: RUNTIME,
@@ -229,7 +228,6 @@ export async function createT08094Harness(): Promise<T08094Harness> {
     provider: 'anthropic',
     status: 'busy',
     supportsInflightInput: true,
-    adopted: false,
     createdAt: now,
     updatedAt: now,
   })

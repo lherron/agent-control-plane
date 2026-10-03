@@ -152,7 +152,6 @@ describe('T-08139 D2 — broker-start failure returns a seated target to the swe
             provider: 'openai',
             status: 'failed',
             supportsInflightInput: true,
-            adopted: false,
             createdAt: now,
             updatedAt: now,
           })

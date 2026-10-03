@@ -61,7 +61,6 @@ describe('POST /v1/sessions/resolve production wiring', () => {
             status: 'active',
             createdAt: '2026-04-23T00:00:00.000Z',
             updatedAt: '2026-04-23T00:00:00.000Z',
-            ancestorScopeRefs: [],
           },
         }
       },

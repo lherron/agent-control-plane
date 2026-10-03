@@ -379,6 +379,12 @@ export function insertHrcSession(stack: TimelineStack, record: HrcSessionRecord)
   const db = openHrcDatabase(join(stack.hrc.stateRoot, 'state.sqlite'))
   try {
     db.sessions.insert(record)
+    db.continuities.upsert({
+      scopeRef: record.scopeRef,
+      laneRef: record.laneRef,
+      activeHostSessionId: record.hostSessionId,
+      updatedAt: record.updatedAt,
+    })
   } finally {
     db.close()
   }

@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto'
 import { realpathSync } from 'node:fs'
+import { formatSessionIdentityHandle } from './shared.js'
 
 import {
   buildScopeRef,
-  formatScopeHandle,
   formatSessionRef,
   normalizeSessionRef,
   parseScopeRef,
@@ -311,7 +311,7 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
     }
 
     return json({
-      claimedScope: formatScopeHandle(parseScopeRef(started.claim.scopeRef)),
+      claimedScope: formatSessionIdentityHandle(started.claim.scopeRef, started.claim.identity),
       sessionRef: started.claim.sessionRef,
       hostSessionId: started.hostSessionId,
       runtimeId: started.runtimeId,

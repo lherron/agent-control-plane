@@ -24,7 +24,6 @@ const SESSION: HrcSessionRecord = {
   status: 'active',
   createdAt: NOW,
   updatedAt: NOW,
-  ancestorScopeRefs: [],
 }
 
 const RUNTIME: HrcRuntimeSnapshot = {
@@ -39,7 +38,6 @@ const RUNTIME: HrcRuntimeSnapshot = {
   status: 'active',
   tmuxJson: { windowId: '@7', paneId: '%12', windowName: 'tui' },
   supportsInflightInput: true,
-  adopted: false,
   createdAt: NOW,
   updatedAt: NOW,
 }

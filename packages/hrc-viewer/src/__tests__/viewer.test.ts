@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { fixtureIdentity } from './session-identity-fixture.js'
 
 import type { HeadlessViewerPane } from '../ghostmux.js'
 import { HrcViewer, type HrcViewerClient, type ViewerGhostmux, type ViewerLog } from '../viewer.js'
@@ -13,6 +14,9 @@ function event(eventKind: string, overrides: Partial<Event> = {}): Event {
     ts: '2026-08-26T12:00:00.000Z',
     hostSessionId: 'hs-1',
     scopeRef: SCOPE,
+    identity: fixtureIdentity(
+      typeof overrides['scopeRef'] === 'string' ? overrides['scopeRef'] : SCOPE
+    ),
     laneRef: 'main',
     generation: 1,
     runtimeId: 'rt-1',
@@ -26,6 +30,9 @@ function event(eventKind: string, overrides: Partial<Event> = {}): Event {
 
 function presentationRow(overrides: Record<string, unknown> = {}) {
   return {
+    identity: fixtureIdentity(
+      typeof overrides['scopeRef'] === 'string' ? overrides['scopeRef'] : SCOPE
+    ),
     runtimeId: 'rt-1',
     hostSessionId: 'hs-1',
     scopeRef: SCOPE,
@@ -275,9 +282,9 @@ describe('HrcViewer reconcile (§4.5 / §5.5)', () => {
     })
   })
 
-  test('normalizes an unprefixed legacy lane without aborting reconcile', async () => {
+  test('uses the canonical lane carried by HRC', async () => {
     const harness = makeHarness({
-      rows: [presentationRow({ laneRef: 'viewer-smoke' })],
+      rows: [presentationRow({ laneRef: 'lane:viewer-smoke' })],
     })
     await harness.viewer.reconcile('start')
     expect(harness.ensureCalls).toHaveLength(1)
