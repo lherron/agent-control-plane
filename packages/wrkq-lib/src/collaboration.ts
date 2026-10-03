@@ -4,7 +4,6 @@ import type {
   WrkqEnvelopeMemberPage,
   WrkqEnvelopeMemberPageParams,
   WrkqEnvelopeObligation,
-  WrkqEnvelopeState,
 } from '@wrkq/client'
 
 /**
@@ -30,7 +29,12 @@ export type CollaborationMessage = {
   sender: CollaborationAddress
   recipient?: CollaborationAddress | undefined
   obligation: WrkqEnvelopeObligation
-  state: WrkqEnvelopeState
+  /**
+   * wrkq's envelope state, verbatim. Display metadata only: wrkq can add states
+   * before ACP is rebuilt (T-10137, T-10138), so this is an open string rather
+   * than a closed union, and an unknown value is shown as-is, never remapped.
+   */
+  state: string
   body: string
   taskId?: string | undefined
   /** Historical HRC message id retained on pre-flag-day envelopes, when present. */
@@ -107,21 +111,12 @@ function normalizedLimit(limit: number | undefined): number {
   return limit
 }
 
-// Keyed by wrkq's own unions so a new producer value fails typecheck here
-// instead of aborting every mobile history read at runtime (c9212611, T-10137).
+// Obligation drives presentation and reply semantics, so it stays a closed set
+// keyed by wrkq's own union: a new value fails typecheck here.
 const COLLABORATION_OBLIGATIONS: Record<WrkqEnvelopeObligation, true> = {
   reply_required: true,
   fyi: true,
   none: true,
-}
-const COLLABORATION_STATES: Record<WrkqEnvelopeState, true> = {
-  pending: true,
-  presented: true,
-  acked: true,
-  deferred: true,
-  failed: true,
-  expired: true,
-  withdrawn: true,
 }
 
 function projectEnvelope(envelope: WrkqEnvelope): CollaborationMessage {
@@ -129,8 +124,8 @@ function projectEnvelope(envelope: WrkqEnvelope): CollaborationMessage {
   if (!Object.hasOwn(COLLABORATION_OBLIGATIONS, obligation)) {
     throw new Error(`invalid collaboration obligation on ${envelope.id}: ${obligation}`)
   }
-  const state = envelope.state
-  if (!Object.hasOwn(COLLABORATION_STATES, state)) {
+  const state: unknown = envelope.state
+  if (typeof state !== 'string' || state.trim().length === 0) {
     throw new Error(`invalid collaboration state on ${envelope.id}: ${state}`)
   }
   const legacyMessageId = envelope.idempotencyKey?.startsWith(LEGACY_MESSAGE_IDEMPOTENCY_PREFIX)

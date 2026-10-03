@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test'
+import type { WorkClient, WrkqEnvelopeMemberPageParams } from '@wrkq/client'
 import { openAcpStateStore } from 'acp-state-store'
 import type { HrcLifecycleEvent, HrcMessageRecord, HrcSessionRecord } from 'hrc-core'
 import type { CollaborationLedger, CollaborationMessage, CollaborationSayInput } from 'wrkq-lib'
+import { createCollaborationLedger } from 'wrkq-lib'
 
 import type { AcpHrcClient, ResolvedAcpServerDeps } from '../src/deps.js'
 import type { MobileWebSocketLike } from '../src/handlers/mobile-ws.js'
@@ -409,5 +411,193 @@ describe('mobile collaboration ledger', () => {
         },
       }
     )
+  })
+})
+
+// T-10138: wrkq may add envelope states before ACP is rebuilt. These drive the
+// real wrkq-lib adapter over raw wrkq envelopes, not a pre-projected ledger.
+function rawEnvelope(seq: number, state: string, body: string): Record<string, unknown> {
+  return {
+    id: `EN-000${seq}`,
+    messageSeq: seq,
+    roomKey: 'T-07614',
+    groupId: `EN-000${seq}`,
+    from: { principalRef: 'agent:lance' },
+    to: { principalRef: 'agent:cody', scopeRef: MEMBER_REF },
+    obligation: 'fyi',
+    state,
+    body,
+    taskId: 'T-07614',
+    presentedTo: [],
+    meta: {},
+    terminal: state === 'acked' || state === 'withdrawn',
+    createdAt: `2026-10-03T13:00:0${seq - 10}.000Z`,
+    updatedAt: `2026-10-03T13:00:0${seq - 10}.000Z`,
+  }
+}
+
+const FUTURE_STATE_ENVELOPES = [
+  rawEnvelope(11, 'acked', 'known neighbour before'),
+  rawEnvelope(12, 'quarantined', 'future state body'),
+  rawEnvelope(13, 'withdrawn', 'known neighbour after'),
+]
+
+function realAdapterLedger(): CollaborationLedger {
+  const client = {
+    wrkq: {
+      envelope: {
+        async memberPage(input: WrkqEnvelopeMemberPageParams) {
+          const items =
+            'afterMessageSeq' in input && input.afterMessageSeq !== undefined
+              ? FUTURE_STATE_ENVELOPES.filter(
+                  (item) => (item.messageSeq as number) > input.afterMessageSeq!
+                )
+              : FUTURE_STATE_ENVELOPES
+          return {
+            ledgerIncarnation: 'wrkq-future-ledger',
+            headMessageSeq: 13,
+            hasMoreBefore: false,
+            hasMoreAfter: false,
+            items,
+          }
+        },
+      },
+    },
+  } as unknown as WorkClient
+  return createCollaborationLedger(client, 'agent:acp-server')
+}
+
+// Mobile timeline payloads deliberately omit envelope state (see the history
+// test above asserting no state leaks into atoms); verbatim state is covered at
+// the wrkq-lib adapter seam. Here the proof is that no message is dropped.
+function messageFrames(
+  frames: Array<{
+    frameId: string
+    blocks: Array<{ text?: string | undefined; payload?: Record<string, unknown> | undefined }>
+  }>
+) {
+  return frames
+    .filter((frame) => frame.frameId.startsWith('msg-'))
+    .map((frame) => ({
+      frameId: frame.frameId,
+      envelopeId: frame.blocks[0]?.payload?.['envelopeId'],
+      text: frame.blocks[0]?.text,
+    }))
+}
+
+const EXPECTED_MESSAGE_FRAMES = [
+  { frameId: 'msg-EN-00011', envelopeId: 'EN-00011', text: 'known neighbour before' },
+  { frameId: 'msg-EN-00012', envelopeId: 'EN-00012', text: 'future state body' },
+  { frameId: 'msg-EN-00013', envelopeId: 'EN-00013', text: 'known neighbour after' },
+]
+
+describe('mobile collaboration with an unknown future envelope state', () => {
+  test('history keeps the future-state message verbatim beside known neighbours and HRC events', async () => {
+    const history = await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'GET',
+          path: `/v1/mobile/history?sessionRef=${encodeURIComponent(SESSION_REF)}&hostSessionId=${HOST_SESSION_ID}&generation=1&limit=80`,
+        })
+        expect(response.status).toBe(200)
+        return fixture.json(response) as Promise<{
+          frames: Array<{
+            frameId: string
+            blocks: Array<{ text?: string; payload?: Record<string, unknown> }>
+          }>
+          newestCursor: { hrcSeq: number; messageSeq: number }
+        }>
+      },
+      {
+        hrcClient: historyClient([
+          hrcPrompt(41, 'an unrelated healthy prompt', '2026-10-03T13:00:00.000Z'),
+        ]),
+        collaborationLedger: realAdapterLedger(),
+      }
+    )
+
+    expect(history.frames.map((frame) => frame.frameId)).toContain('hrc-41')
+    expect(messageFrames(history.frames)).toEqual(EXPECTED_MESSAGE_FRAMES)
+    expect(history.newestCursor).toEqual({ hrcSeq: 41, messageSeq: 13 })
+  })
+
+  test('timeline websocket snapshots the future-state message and keeps streaming HRC events', async () => {
+    const session: HrcSessionRecord = {
+      hostSessionId: HOST_SESSION_ID,
+      scopeRef: 'agent:cody:project:agent-control-plane:task:T-07614',
+      laneRef: 'main',
+      generation: 1,
+      status: 'ready',
+      createdAt: '2026-10-03T12:00:00.000Z',
+      updatedAt: '2026-10-03T13:00:00.000Z',
+      ancestorScopeRefs: [],
+    }
+    const liveEvent = hrcPrompt(42, 'a live healthy prompt', '2026-10-03T13:01:00.000Z')
+    const hrcClient = {
+      listSessions: async () => [session],
+      listRuntimes: async () => [],
+      listLatestEventBySession: async () => [],
+      getLatestRunForSession: async () => undefined,
+      tailEvents: async () => ({
+        events: [],
+        ledgerIncarnationId: 'hrc-test-ledger',
+        headHrcSeq: 0,
+        truncated: false,
+      }),
+      watchBoundedEvents: () =>
+        (async function* () {
+          yield {
+            type: 'ready' as const,
+            ledgerIncarnationId: 'hrc-test-ledger',
+            acceptedAfterHrcSeq: 0,
+            replayHeadHrcSeq: 0,
+          }
+          yield { type: 'event' as const, ledgerIncarnationId: 'hrc-test-ledger', event: liveEvent }
+        })(),
+    } as unknown as AcpHrcClient
+    const sent: Array<Record<string, unknown>> = []
+    const stateStore = openAcpStateStore({ dbPath: ':memory:' })
+    const deps = {
+      hrcClient,
+      collaborationLedger: realAdapterLedger(),
+      stateStore,
+    } as ResolvedAcpServerDeps
+    const ws: MobileWebSocketLike = {
+      data: {
+        deps,
+        url: `http://acp.test/v1/mobile/sessions/${HOST_SESSION_ID}/timeline`,
+        kind: 'timeline',
+        version: 1,
+        hostSessionId: HOST_SESSION_ID,
+        abortController: new AbortController(),
+      },
+      send(raw) {
+        const envelope = JSON.parse(raw) as Record<string, unknown>
+        sent.push(envelope)
+        if (envelope['type'] === 'frame' || envelope['type'] === 'error') {
+          this.data.abortController.abort()
+        }
+        return raw.length
+      },
+      close() {},
+    }
+
+    try {
+      await openMobileWebSocket(ws)
+    } finally {
+      stateStore.close()
+    }
+
+    expect(sent.filter((envelope) => envelope['type'] === 'error')).toEqual([])
+    const snapshot = sent.find((envelope) => envelope['type'] === 'snapshot') as
+      | {
+          history: {
+            frames: Array<{ frameId: string; blocks: Array<{ payload?: Record<string, unknown> }> }>
+          }
+        }
+      | undefined
+    expect(messageFrames(snapshot?.history.frames ?? [])).toEqual(EXPECTED_MESSAGE_FRAMES)
+    const frames = sent.filter((envelope) => envelope['type'] === 'frame')
+    expect(frames[0]?.['frame']).toMatchObject({ frameId: 'hrc-42', lastHrcSeq: 42 })
   })
 })
