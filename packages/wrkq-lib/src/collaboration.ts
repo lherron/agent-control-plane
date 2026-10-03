@@ -3,6 +3,8 @@ import type {
   WrkqEnvelope,
   WrkqEnvelopeMemberPage,
   WrkqEnvelopeMemberPageParams,
+  WrkqEnvelopeObligation,
+  WrkqEnvelopeState,
 } from '@wrkq/client'
 
 /**
@@ -27,8 +29,8 @@ export type CollaborationMessage = {
   groupId: string
   sender: CollaborationAddress
   recipient?: CollaborationAddress | undefined
-  obligation: 'reply_required' | 'fyi' | 'none'
-  state: 'pending' | 'presented' | 'acked' | 'deferred' | 'failed'
+  obligation: WrkqEnvelopeObligation
+  state: WrkqEnvelopeState
   body: string
   taskId?: string | undefined
   /** Historical HRC message id retained on pre-flag-day envelopes, when present. */
@@ -105,19 +107,30 @@ function normalizedLimit(limit: number | undefined): number {
   return limit
 }
 
+// Keyed by wrkq's own unions so a new producer value fails typecheck here
+// instead of aborting every mobile history read at runtime (c9212611, T-10137).
+const COLLABORATION_OBLIGATIONS: Record<WrkqEnvelopeObligation, true> = {
+  reply_required: true,
+  fyi: true,
+  none: true,
+}
+const COLLABORATION_STATES: Record<WrkqEnvelopeState, true> = {
+  pending: true,
+  presented: true,
+  acked: true,
+  deferred: true,
+  failed: true,
+  expired: true,
+  withdrawn: true,
+}
+
 function projectEnvelope(envelope: WrkqEnvelope): CollaborationMessage {
   const obligation = envelope.obligation
-  if (obligation !== 'reply_required' && obligation !== 'fyi' && obligation !== 'none') {
+  if (!Object.hasOwn(COLLABORATION_OBLIGATIONS, obligation)) {
     throw new Error(`invalid collaboration obligation on ${envelope.id}: ${obligation}`)
   }
   const state = envelope.state
-  if (
-    state !== 'pending' &&
-    state !== 'presented' &&
-    state !== 'acked' &&
-    state !== 'deferred' &&
-    state !== 'failed'
-  ) {
+  if (!Object.hasOwn(COLLABORATION_STATES, state)) {
     throw new Error(`invalid collaboration state on ${envelope.id}: ${state}`)
   }
   const legacyMessageId = envelope.idempotencyKey?.startsWith(LEGACY_MESSAGE_IDEMPOTENCY_PREFIX)
