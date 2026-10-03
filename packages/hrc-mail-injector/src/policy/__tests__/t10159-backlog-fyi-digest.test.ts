@@ -158,6 +158,10 @@ describe('T-10159 — backlog fyi digest', () => {
     expect(rows.map((row) => row?.inputId)).toEqual(['sub-1', 'sub-1'])
     expect(rows[0]?.landingHrcSeq).toBe(rows[1]?.landingHrcSeq ?? -1)
     expect(rows[0]?.presentationId).not.toBe(rows[1]?.presentationId)
+    // The landing log names the presentation form, not the intent row's store form.
+    expect(
+      h.logs.filter((log) => log.event === 'wrkq.kicker.presented').map((log) => log.detail['form'])
+    ).toEqual(['digest', 'digest'])
   })
 
   it('negative control: a live fyi to an idle seated reader still lands full', async () => {

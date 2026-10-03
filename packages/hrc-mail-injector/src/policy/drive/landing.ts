@@ -61,7 +61,7 @@ import {
   isRecord,
 } from '../internal.js'
 import { failEnvelopeWithAudit } from '../terminal/envelope-terminal.js'
-import { digestMembers } from './digest-group.js'
+import { digestGroupOf, digestMembers } from './digest-group.js'
 
 const LANDED_TYPES = new Set(['submission.absorbed', 'submission.executed'])
 
@@ -289,7 +289,9 @@ export async function commitLanding(
     presentationId: intent.presentationId,
     ...(intent.submissionId === undefined ? {} : { inputId: intent.submissionId }),
     door: intent.door,
-    form: intent.form,
+    // A digest member's row stores `full` (HRC's closed form column); the
+    // presentation it took is the digest.
+    form: digestGroupOf(intent.presentationId) === undefined ? intent.form : 'digest',
     deliveryOutcome: outcome,
     landingHrcSeq: input.landingHrcSeq,
     landedOn: input.eventType,
