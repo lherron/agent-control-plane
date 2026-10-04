@@ -69,6 +69,60 @@ describe('T-10183 — definitive pre-admission delivery refusal', () => {
     expect(h.ledger.envelopes.get(envelope.id)?.state).toBe('pending')
   })
 
+  for (const door of ['enqueue', 'preempt'] as const) {
+    it(`does not turn a stored birth operator into an explicit ${door} choice on a live seat`, async () => {
+      const inherited = {
+        ...h.session.lastAppliedIntentJson!,
+        presentation: { operator: 'none' as const, viewerWindow: 'kept' },
+      }
+      h.session.lastAppliedIntentJson = inherited
+      let received: unknown
+      h.context.port[door] = async (_session, intent) => {
+        received = intent
+        return h.dispatchResult()
+      }
+      if (door === 'preempt') h.context.port.preemptAdmission = async () => 'authorized'
+      const envelope = h.ledger.say(door === 'preempt' ? { delivery: 'hold' } : {})
+      await deliverOneTo(h, seatIn('booting'), envelope)
+      expect(received).toEqual({ ...inherited, presentation: { viewerWindow: 'kept' } })
+      expect(inherited.presentation.operator).toBe('none')
+    })
+  }
+
+  it('omits inherited operator for digest submission but retains it on cold invoke', async () => {
+    const inherited = {
+      ...h.session.lastAppliedIntentJson!,
+      presentation: { operator: 'none' as const },
+    }
+    h.session.lastAppliedIntentJson = inherited
+    let received: unknown
+    h.context.port.enqueue = async (_session, intent) => {
+      received = intent
+      return h.dispatchResult()
+    }
+    const digest = h.ledger.say({ obligation: 'fyi' })
+    await deliverDigestToSeat(
+      h.context,
+      TARGET,
+      h.session,
+      seatIn('booting'),
+      [{ envelope: digest, form: 'full' }],
+      'insert'
+    )
+    expect(received).toEqual({ ...inherited, presentation: {} })
+    const cold = h.ledger.say()
+    const item = (await readActionableEnvelopes(h.context, TARGET)).find(
+      (row) => row.envelope.id === cold.id
+    )
+    if (item === undefined) throw new Error('cold envelope must be actionable')
+    h.context.port.invoke = async (_session, intent) => {
+      received = intent
+      return h.dispatchResult()
+    }
+    await deliverByColdBirth(h.context, TARGET, item, 'insert')
+    expect(received).toEqual(inherited)
+  })
+
   it('releases every digest member on the same definitive refusal', async () => {
     const envelopes = [h.ledger.say({ obligation: 'fyi' }), h.ledger.say({ obligation: 'fyi' })]
     refuse(

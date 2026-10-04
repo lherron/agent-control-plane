@@ -19,7 +19,7 @@
 import { randomUUID } from 'node:crypto'
 
 import { HrcDomainError, HrcErrorCode } from 'hrc-core'
-import type { HrcSessionRecord, PreemptSubmissionRequest } from 'hrc-core'
+import type { HrcRuntimeIntent, HrcSessionRecord, PreemptSubmissionRequest } from 'hrc-core'
 import type {
   HrcMailDeliveryDoor,
   HrcMailDeliveryForm,
@@ -123,6 +123,13 @@ function doorFor(
   return isHold
     ? { door: 'enqueue', deliveryOutcome: 'hold_refused_authority' }
     : { door: 'enqueue' }
+}
+
+/** Mail supplies no per-request viewer choice when reusing an observed seat. */
+function intentForSeat(intent: HrcRuntimeIntent, seat: ObservedBrokerSeat): HrcRuntimeIntent {
+  if (seat.state === 'absent' || intent.presentation?.operator === undefined) return intent
+  const { operator: _operator, ...presentation } = intent.presentation
+  return { ...intent, presentation }
 }
 
 /** Compose the body wrkq would show for one envelope, writing no receipt. */
@@ -308,7 +315,7 @@ export async function deliverToSeat(
 
   let body: KickerDispatchResult
   try {
-    body = await submitInjected(server, door, session, runtimeIntent, prompt, {
+    body = await submitInjected(server, door, session, intentForSeat(runtimeIntent, seat), prompt, {
       waitForCompletion: false,
       ttlMs: KICKER_SUBMISSION_TTL_MS,
       ...(door === 'preempt' ? { turnPolicy: 'guarded' as const } : {}),
@@ -530,7 +537,7 @@ export async function deliverDigestToSeat(
 
   let body: KickerDispatchResult
   try {
-    body = await submitInjected(server, door, session, runtimeIntent, prompt, {
+    body = await submitInjected(server, door, session, intentForSeat(runtimeIntent, seat), prompt, {
       waitForCompletion: false,
       ttlMs: KICKER_SUBMISSION_TTL_MS,
       // The broker's admission record names ONE envelope; the oldest member
