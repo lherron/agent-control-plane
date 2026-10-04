@@ -18,7 +18,7 @@
  */
 import { randomUUID } from 'node:crypto'
 
-import { HrcDomainError } from 'hrc-core'
+import { HrcDomainError, HrcErrorCode } from 'hrc-core'
 import type { HrcSessionRecord, PreemptSubmissionRequest } from 'hrc-core'
 import type {
   HrcMailDeliveryDoor,
@@ -55,6 +55,20 @@ function isDefinitePreLaunchRejection(error: unknown): error is HrcDomainError {
     error.code === 'runtime_unavailable' &&
     error.detail['route'] === 'aspd' &&
     PRE_LAUNCH_ASPD_CODES.has(String(error.detail['code']))
+  )
+}
+
+/**
+ * Positive proof that HRC refused before admitting a body (T-10183).
+ * Presentation conflicts are checked before broker submission on every door;
+ * the aspd compile/admission gates likewise precede runtime operations. Other
+ * domain errors may follow a write, so neither their type nor their text is
+ * enough to release the no-second-body fence.
+ */
+function isDefiniteDispatchRejection(error: unknown): error is HrcDomainError {
+  return (
+    error instanceof HrcDomainError &&
+    (error.code === HrcErrorCode.PRESENTATION_CONFLICT || isDefinitePreLaunchRejection(error))
   )
 }
 
@@ -301,16 +315,21 @@ export async function deliverToSeat(
       submissionOrigin: originFor(item),
     })
   } catch (error) {
-    // A thrown RPC is not positive proof that the broker did not write.  Keep
-    // the pre-minted intent as the no-second-body fence; a later receipt may
-    // still arrive for this exact presentation.
-    server.store.mailDelivery.markUncertain(item.envelope.id, 'dispatch_error', 'dispatch_error')
+    // D2: a positively unwritten refusal leaves the envelope pending for the
+    // next ordinary drive. Do not self-wake a persistent conflict into a loop.
+    // A lost RPC response remains uncertain: the broker may have written.
+    if (isDefiniteDispatchRejection(error)) {
+      server.store.mailDelivery.clearIntent(item.envelope.id)
+    } else {
+      server.store.mailDelivery.markUncertain(item.envelope.id, 'dispatch_error', 'dispatch_error')
+    }
     server.log('WARN', 'wrkq.kicker.delivery_failed', {
       targetSessionRef,
       wakeReason,
       envelope: item.envelope.id,
       door,
       error: errorText(error),
+      deliveryEvidence: isDefiniteDispatchRejection(error) ? 'not_written' : 'uncertain',
     })
     return 'refused'
   }
@@ -519,7 +538,8 @@ export async function deliverDigestToSeat(
       submissionOrigin: originFor({ envelope: leader }),
     })
   } catch (error) {
-    uncertainAll('dispatch_error', 'dispatch_error')
+    if (isDefiniteDispatchRejection(error)) clearAll()
+    else uncertainAll('dispatch_error', 'dispatch_error')
     server.log('WARN', 'wrkq.kicker.delivery_failed', {
       targetSessionRef,
       wakeReason,
@@ -527,6 +547,7 @@ export async function deliverDigestToSeat(
       form: 'digest',
       door,
       error: errorText(error),
+      deliveryEvidence: isDefiniteDispatchRejection(error) ? 'not_written' : 'uncertain',
     })
     return { outcome: 'refused', members: members.length }
   }
@@ -692,18 +713,24 @@ export async function deliverByColdBirth(
       }
     )
   } catch (error) {
-    if (isDefinitePreLaunchRejection(error)) {
-      // HRC's boundary-P compile/admission gate runs before any provider process
-      // or runtime operation exists. This is positive not-written evidence, so
-      // retaining an uncertainty fence would strand the envelope until TTL.
+    if (isDefiniteDispatchRejection(error)) {
+      // A cold-birth race can find a live seat and refuse presentation before
+      // admission, just as the aspd compile/admission gate can refuse before
+      // launch. Both prove not-written; neither needs an uncertainty fence.
       server.store.mailDelivery.clearIntent(item.envelope.id)
-      server.log('WARN', 'wrkq.kicker.birth_compile_rejected', {
-        targetSessionRef,
-        wakeReason,
-        envelope: item.envelope.id,
-        error: error.message,
-        detail: error.detail,
-      })
+      server.log(
+        'WARN',
+        isDefinitePreLaunchRejection(error)
+          ? 'wrkq.kicker.birth_compile_rejected'
+          : 'wrkq.kicker.delivery_failed',
+        {
+          targetSessionRef,
+          wakeReason,
+          envelope: item.envelope.id,
+          error: error.message,
+          detail: error.detail,
+        }
+      )
       throw error
     }
     // The invoke/launch RPC may have reached the provider before its response
