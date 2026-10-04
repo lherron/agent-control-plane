@@ -112,6 +112,33 @@ describe('job execution owner-set admission', () => {
     }
   })
 
+  test('reports every admission refusal so an unassigned federated schedule cannot go quiet', async () => {
+    const store = createInMemoryJobsStore()
+    try {
+      const unassigned = createScheduleJob(store)
+      const foreign = createScheduleJob(store, ['max3'])
+      const refusals: Array<{ jobId: string; code: string }> = []
+      expect(
+        await tickJobsScheduler({
+          store,
+          now: NOW,
+          executionIdentity: SVC,
+          onAdmissionRefused: (refusal) =>
+            refusals.push({ jobId: refusal.job.jobId, code: refusal.code }),
+        })
+      ).toHaveLength(0)
+      expect(refusals).toEqual(
+        expect.arrayContaining([
+          { jobId: unassigned.jobId, code: 'job_execution_unassigned_federated' },
+          { jobId: foreign.jobId, code: 'job_execution_wrong_node' },
+        ])
+      )
+      expect(refusals).toHaveLength(2)
+    } finally {
+      store.close()
+    }
+  })
+
   test('manual mint re-reads disabled and owner-set state transactionally with zero side effects', () => {
     const store = createInMemoryJobsStore()
     try {

@@ -24,6 +24,7 @@ export {
   JobExecutionAdmissionError,
   type JobExecutionAdmissionFailureCode,
   type JobExecutionIdentity,
+  type JobAdmissionRefusal,
   type JobOutputConfig,
   type JobOutputSink,
   type JobOutputSinkAttemptRecord,

@@ -1936,6 +1936,7 @@
         "InboxEventStatus",
         "InsertInboxEventInput",
         "InsertJobStepRunInput",
+        "JobAdmissionRefusal",
         "JobExecutionAdmissionFailureCode",
         "JobExecutionIdentity",
         "JobFlowValidationError",

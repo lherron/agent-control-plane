@@ -535,7 +535,18 @@ export type ClaimDueJobsInput = {
   actor?: Actor | undefined
   actorStamp?: string | undefined
   executionIdentity?: JobExecutionIdentity | undefined
+  /**
+   * Called for every due schedule this node refuses to claim. Refused jobs keep
+   * their next_fire_at, so an unowned job stays due (and silent) forever unless
+   * the caller surfaces it.
+   */
+  onAdmissionRefused?: ((refusal: JobAdmissionRefusal) => void) | undefined
 }
+
+export type JobAdmissionRefusal = Readonly<{
+  job: JobRecord
+  code: JobExecutionAdmissionFailureCode
+}>
 
 export type JobExecutionIdentity = Readonly<{
   nodeId: string
@@ -2725,6 +2736,7 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
             assertJobExecutionAdmission(scheduledJob, input.executionIdentity)
           } catch (error) {
             if (error instanceof JobExecutionAdmissionError) {
+              input.onAdmissionRefused?.({ job: scheduledJob, code: error.code })
               continue
             }
             throw error

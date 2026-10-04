@@ -1,6 +1,6 @@
 import { badRequest, json } from '../http.js'
 import { resolveJobExecPolicy } from '../jobs/exec-policy.js'
-import { getJobExecutionStatus } from '../jobs/execution-status.js'
+import { currentExecutionMode, getJobExecutionStatus } from '../jobs/execution-status.js'
 import { isRecord, parseJsonBody } from '../parsers/body.js'
 import {
   type ManagedResourcesPlan,
@@ -130,6 +130,7 @@ export const handleApplyManagedResources: RouteHandler = async ({ request, deps 
     jobsStore: requireJobsStore(deps),
     interfaceStore: deps.interfaceStore,
     now: new Date().toISOString(),
+    executionMode: currentExecutionMode(deps.jobNodeIdentityAuthority?.getDiagnostics()),
   })
   return json(result)
 }

@@ -739,7 +739,9 @@ describe('admin jobs routes', () => {
     try {
       await withWiredServer(
         async (fixture) => {
-          const created = await createJob(fixture)
+          // Disabled: federated create refuses an enabled unowned schedule, and
+          // the fresh identity read fails before admission looks at the job.
+          const created = await createJob(fixture, { disabled: true })
           const response = await fixture.request({
             method: 'POST',
             path: `/v1/admin/jobs/${created.job.jobId}/run`,

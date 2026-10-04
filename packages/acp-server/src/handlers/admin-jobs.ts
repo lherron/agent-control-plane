@@ -28,6 +28,10 @@ import { validateJobTrigger } from 'acp-core'
 
 import type { Actor, JobFlow, JobTrigger } from 'acp-core'
 import type { ResolvedAcpServerDeps } from '../deps.js'
+import {
+  currentExecutionMode,
+  unassignedFederatedScheduleMessage,
+} from '../jobs/execution-status.js'
 import { advanceJobFlow } from '../jobs/flow-engine.js'
 import { validateJobOutputConfig } from '../jobs/job-output-config.js'
 import { createJobLifecycleEmitter } from '../jobs/lifecycle-events.js'
@@ -240,6 +244,21 @@ export async function dispatchJobRunThroughInputs(
   }
 }
 
+function refuseUnassignedFederatedSchedule(
+  deps: ResolvedAcpServerDeps,
+  job: Parameters<typeof unassignedFederatedScheduleMessage>[0]
+): void {
+  const message = unassignedFederatedScheduleMessage({
+    ...job,
+    mode: currentExecutionMode(deps.jobNodeIdentityAuthority?.getDiagnostics()),
+  })
+  if (message !== undefined) {
+    throw new AcpHttpError(409, 'job_execution_unassigned_federated', message, {
+      field: 'executionNodes',
+    })
+  }
+}
+
 export const handleCreateAdminJob: RouteHandler = async ({ request, deps, actor }) => {
   const body = requireRecord(await parseJsonBody(request))
   const flow = parseOptionalFlow(body)
@@ -272,6 +291,15 @@ export const handleCreateAdminJob: RouteHandler = async ({ request, deps, actor 
       return json(validation, 400)
     }
   }
+  // Admin create cannot set executionNodes, so an enabled schedule here is
+  // always unowned; managed-resource projection is the owned path.
+  refuseUnassignedFederatedSchedule(deps, {
+    triggerKind: trigger?.kind ?? 'schedule',
+    disabled: disabled ?? false,
+    executionNodes: undefined,
+    mode: undefined,
+    label: slug ?? '(new)',
+  })
   const jobsStore = requireJobsStore(deps)
   const created = jobsStore.createJob({
     agentId: requireTrimmedStringField(body, 'agentId'),
@@ -363,6 +391,13 @@ export const handlePatchAdminJob: RouteHandler = async ({ request, params, deps,
       return json(validation, 400)
     }
   }
+  refuseUnassignedFederatedSchedule(deps, {
+    triggerKind: trigger?.kind ?? (schedule !== undefined ? 'schedule' : existing.trigger.kind),
+    disabled: disabled ?? existing.disabled,
+    executionNodes: existing.executionNodes,
+    mode: undefined,
+    label: `${existing.slug} (${existing.jobId})`,
+  })
   const updated = requireJobsStore(deps).updateJob(jobId, {
     ...(slug !== undefined ? { slug } : {}),
     ...descriptionPatch,

@@ -58,6 +58,7 @@ export type TickJobsSchedulerInput = {
   maxJobRunDurationMs?: number | undefined
   flowAdvanceConcurrency?: number | undefined
   executionIdentity?: JobExecutionIdentity | undefined
+  onAdmissionRefused?: ClaimDueJobsInput['onAdmissionRefused']
 }
 
 export type ScheduledRun = JobRunRecord
@@ -307,6 +308,9 @@ export async function tickJobsScheduler(input: TickJobsSchedulerInput): Promise<
     leaseExpiresAt: flowLeaseExpiresAt,
     ...(input.executionIdentity !== undefined
       ? { executionIdentity: input.executionIdentity }
+      : {}),
+    ...(input.onAdmissionRefused !== undefined
+      ? { onAdmissionRefused: input.onAdmissionRefused }
       : {}),
   } satisfies ClaimDueJobsInput)
 
@@ -629,6 +633,7 @@ export function createJobsScheduler(input: {
   dispatchThroughInputs?: DispatchThroughInputs | undefined
   advanceFlowJobRun?: AdvanceFlowJobRun | undefined
   evaluateEventJob?: EvaluateEventJob | undefined
+  onAdmissionRefused?: TickJobsSchedulerInput['onAdmissionRefused']
 }) {
   return {
     tick(
@@ -647,6 +652,9 @@ export function createJobsScheduler(input: {
           : {}),
         ...(input.evaluateEventJob !== undefined
           ? { evaluateEventJob: input.evaluateEventJob }
+          : {}),
+        ...(input.onAdmissionRefused !== undefined
+          ? { onAdmissionRefused: input.onAdmissionRefused }
           : {}),
       })
     },

@@ -17,6 +17,7 @@ import {
   openSqliteJobsStore,
 } from 'acp-jobs-store'
 
+import { unassignedFederatedScheduleMessage } from '../jobs/execution-status.js'
 import { validateJobOutputConfig } from '../jobs/job-output-config.js'
 
 // ---------------------------------------------------------------------------
@@ -156,6 +157,7 @@ export type ApplyManagedResourcesWithStoresInput = {
   jobsStore: JobsStore
   interfaceStore: InterfaceStore
   now: string
+  executionMode?: 'single-node' | 'federated' | undefined
 }
 
 export type GetManagedResourcesStatusWithStoresInput =
@@ -669,6 +671,26 @@ export async function applyPlanWithStores(
       projectionId: resource.projectionId,
       resourceKind: resource.resourceKind,
       projectionPk: resource.projectionPk,
+    }
+    const unassigned =
+      resource.resourceKind === 'scheduled-job'
+        ? unassignedFederatedScheduleMessage({
+            triggerKind: 'schedule',
+            disabled: resource.desiredJson['disabled'] === true,
+            executionNodes: isRecord(resource.desiredJson['execution'])
+              ? (resource.desiredJson['execution']['nodes'] as readonly string[] | undefined)
+              : undefined,
+            mode: input.executionMode,
+            label: resource.projectionPk,
+          })
+        : undefined
+    if (unassigned !== undefined) {
+      outcomes.push({
+        ...base,
+        outcome: 'failed',
+        error: { code: 'UNASSIGNED_FEDERATED_SCHEDULE', message: unassigned },
+      })
+      continue
     }
     try {
       const applyInput = {

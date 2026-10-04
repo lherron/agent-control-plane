@@ -70,6 +70,7 @@ import {
   DEFAULT_CAUSATION_DEPTH_LIMIT,
   createEventJobEvaluator,
 } from './jobs/event-job-evaluator.js'
+import { createUnassignedScheduleReporter } from './jobs/execution-status.js'
 import { createJobFirstBirthAuthority } from './jobs/first-birth-authority.js'
 import { advanceJobFlow } from './jobs/flow-engine.js'
 import { ensureDispatchTimeoutHealthJob } from './jobs/health-dispatch-timeout.js'
@@ -1390,6 +1391,9 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
             }),
           evaluateEventJob: createEventJobEvaluator({
             causationDepthLimit: eventCausationDepthLimit,
+          }),
+          onAdmissionRefused: createUnassignedScheduleReporter({
+            log: (line) => console.error(line),
           }),
         })
       : undefined
