@@ -60,6 +60,13 @@ export const BIRTH_SWEEP_BACKOFF_BASE_MS = 60_000
  * after base * (1+2+4+8) = 3h45m, not 15m (EN-23153).
  */
 export const BIRTH_SWEEP_NOT_HOSTED_BASE_MS = 15 * 60_000
+/**
+ * Backoff for a sender-failure notice the sender's seat refused. The first
+ * retry is immediate (a lost dispatch response replays its stable key); later
+ * refusals double from the base up to the cap.
+ */
+export const FAILURE_NOTICE_BACKOFF_BASE_MS = 30_000
+export const FAILURE_NOTICE_BACKOFF_MAX_MS = 60 * 60_000
 export const BIRTH_SWEEP_MAX_REFUSALS = 5
 export const LAPSE_SWEEP_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1_000
 /**

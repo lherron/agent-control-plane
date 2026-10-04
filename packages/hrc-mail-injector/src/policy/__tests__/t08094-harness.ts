@@ -316,6 +316,7 @@ export async function createT08094Harness(): Promise<T08094Harness> {
     mailKickerForeignHomeAnnounced: new Map(),
     mailKickerBirthDeferredAnnounced: new Map(),
     mailKickerBirthSweepBackoff: new Map(),
+    mailKickerFailureNoticeBackoff: new Map(),
     mailKickerLapsedRuntimes: new Set(),
     mailKickerDisposalsPending: new Set(),
     mailKickerBootReconcilePending: false,

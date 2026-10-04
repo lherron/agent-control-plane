@@ -9,6 +9,16 @@ import type {
 } from './contracts.js'
 import type { MailKickerLedger } from './ledger/client.js'
 
+/** See `terminal/failure-notices.ts`. */
+export type FailureNoticeBackoff = {
+  /** The idempotency key that was refused. */
+  key: string
+  /** HRC answered the stable dispatch with a non-start; the same key only replays it. */
+  parked: boolean
+  attempts: number
+  nextAtMs: number
+}
+
 /** One runtime's steer hold; see `drive/steer-hold.ts`. */
 export type SteerHold = {
   reason: 'awaiting_input' | 'pane_not_quiescent'
@@ -43,6 +53,11 @@ export type MailKickerContext = {
   readonly mailKickerForeignHomeAnnounced: Map<string, string>
   readonly mailKickerBirthDeferredAnnounced: Map<string, string>
   readonly mailKickerBirthSweepBackoff: Map<string, { attempts: number; nextAtMs: number }>
+  /**
+   * Sender-failure notices this process could not show, per target, for one
+   * dispatch key (runtime + notice set): a different key starts clean.
+   */
+  readonly mailKickerFailureNoticeBackoff: Map<string, FailureNoticeBackoff>
   readonly mailKickerLapsedRuntimes: Set<string>
   /**
    * In-flight obligation disposals (T-07963, carried into D3). `stop()` drains

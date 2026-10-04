@@ -4,8 +4,12 @@ export async function deliverFailureNotices(
   session: HrcSessionRecord
 ): Promise<void> {
   const notices = server.store.mailDelivery.listUndeliveredFailureNotices(targetSessionRef)
-  if (notices.length === 0) return
-  if ((await presentationRuntimeIdFor(server, session)) === undefined) return
+  if (notices.length === 0) {
+    server.mailKickerFailureNoticeBackoff.delete(targetSessionRef)
+    return
+  }
+  const runtimeId = await presentationRuntimeIdFor(server, session)
+  if (runtimeId === undefined) return
   const intent =
     session.lastAppliedIntentJson ??
     (await server.port.resolveRuntimeIntent(parseSessionRef(targetSessionRef).scopeRef, undefined))
@@ -14,9 +18,13 @@ export async function deliverFailureNotices(
   // The dispatch response can time out after HRC has accepted the prompt. A
   // stable key turns the next sweep into a read/replay of that admission,
   // rather than another user message. Include the complete notice set so a
-  // later, newly owed notice gets its own dispatch.
+  // later, newly owed notice gets its own dispatch. Include the runtime so a
+  // reseated sender is offered the notice again rather than a replay of the
+  // old seat's terminal answer.
   const idempotencyKey = `hrc-mail-failure-notice-${createHash('sha256')
     .update(targetSessionRef)
+    .update('\0')
+    .update(runtimeId)
     .update('\0')
     .update(
       notices
@@ -25,6 +33,16 @@ export async function deliverFailureNotices(
         .join('\0')
     )
     .digest('hex')}`
+  // A notice stays owed while the sender's seat cannot take it, but owing it
+  // is not a reason to spend a submission every sweep (foundry-acceptance,
+  // 2026-10-04). Back off per dispatch key: a reseated sender or a newly owed
+  // notice is a different key and starts clean.
+  let backoff = server.mailKickerFailureNoticeBackoff.get(targetSessionRef)
+  if (backoff !== undefined && backoff.key !== idempotencyKey) {
+    server.mailKickerFailureNoticeBackoff.delete(targetSessionRef)
+    backoff = undefined
+  }
+  if (backoff !== undefined && (backoff.parked || backoff.nextAtMs > Date.now())) return
   try {
     const body = await server.port.enqueue(session, intent, prompt, {
       waitForCompletion: false,
@@ -33,8 +51,23 @@ export async function deliverFailureNotices(
       submissionOrigin: { principalRef: 'system:hrc-kicker', scopeRef: session.scopeRef },
     })
     if (body.status !== 'started') {
-      throw new Error(`failure notice did not start (status=${body.status})`)
+      // This key now replays the same answer on every call, so asking again
+      // on this runtime cannot deliver anything.
+      server.mailKickerFailureNoticeBackoff.set(targetSessionRef, {
+        key: idempotencyKey,
+        parked: true,
+        attempts: (backoff?.attempts ?? 0) + 1,
+        nextAtMs: Number.POSITIVE_INFINITY,
+      })
+      server.log('WARN', 'wrkq.kicker.failure_notice_parked', {
+        targetSessionRef,
+        runtimeId,
+        envelopes: notices.map((notice) => notice.envelopeId),
+        status: body.status,
+      })
+      return
     }
+    server.mailKickerFailureNoticeBackoff.delete(targetSessionRef)
     server.store.mailDelivery.markFailureNoticesDelivered(
       targetSessionRef,
       notices.map((notice) => notice.envelopeId)
@@ -45,11 +78,29 @@ export async function deliverFailureNotices(
       envelopes: notices.map((notice) => notice.envelopeId),
     })
   } catch (error) {
-    // Nothing is marked delivered, so the next attend tries again. A notice
-    // that could not be shown is not a notice that stops being owed.
+    // Nothing is marked delivered: a notice that could not be shown is not a
+    // notice that stops being owed. The first retry is immediate, because a
+    // lost response replays its stable key; later refusals back off.
+    const attempts = (backoff?.attempts ?? 0) + 1
+    const delayMs =
+      attempts === 1
+        ? 0
+        : Math.min(
+            FAILURE_NOTICE_BACKOFF_BASE_MS * 2 ** (attempts - 2),
+            FAILURE_NOTICE_BACKOFF_MAX_MS
+          )
+    server.mailKickerFailureNoticeBackoff.set(targetSessionRef, {
+      key: idempotencyKey,
+      parked: false,
+      attempts,
+      nextAtMs: Date.now() + delayMs,
+    })
     server.log('WARN', 'wrkq.kicker.failure_notice_failed', {
       targetSessionRef,
+      runtimeId,
       envelopes: notices.map((notice) => notice.envelopeId),
+      attempt: attempts,
+      nextAttemptInMs: delayMs,
       error: errorText(error),
     })
   }
@@ -144,7 +195,14 @@ import type { HrcSessionRecord } from 'hrc-core'
 import { createHash } from 'node:crypto'
 import type { MailKickerContext } from '../context.js'
 import { kickerScopeRefFor, presentationRuntimeIdFor } from '../drive/authority.js'
-import { KICKER_SUBMISSION_TTL_MS, errorText, isRecord, parseSessionRef } from '../internal.js'
+import {
+  FAILURE_NOTICE_BACKOFF_BASE_MS,
+  FAILURE_NOTICE_BACKOFF_MAX_MS,
+  KICKER_SUBMISSION_TTL_MS,
+  errorText,
+  isRecord,
+  parseSessionRef,
+} from '../internal.js'
 import { formatEnvelopeFailureNotice } from '../ledger/presentation.js'
 import { targetSessionRefForLedgerScope } from '../ledger/scope.js'
 import type {
