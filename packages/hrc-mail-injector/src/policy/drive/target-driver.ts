@@ -414,7 +414,7 @@ export async function driveMailTargetOnce(
   // T-10233: a seat parked on human input refuses every steer unwritten, and
   // each attempt costs an HRC submission and run. Submit nothing; the periodic
   // sweep re-drives this target and the first pass after the hold delivers.
-  const hold = await steerHoldFor(server, seat)
+  const hold = steerHoldFor(server, seat)
   if (hold !== undefined) {
     summary.skipped = actionable.length
     complete('steer_held', { hold, recovery: 'periodic_wake' })

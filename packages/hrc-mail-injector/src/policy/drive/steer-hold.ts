@@ -13,8 +13,11 @@
  *  - the runtime's own status is `awaiting_input` (HRC's ask bracket). The hold
  *    lasts exactly as long as that status;
  *  - the seat's last steer was refused `pane_not_quiescent`, proven unwritten,
- *    and its broker stream has not moved since. Any later broker event — the
- *    answer, a tool call, a new turn, a new invocation — ends it, and so does
+ *    and the reader has not moved since. The kicker's own broker observer
+ *    decides "moved": any committed event on the runtime except the refusal
+ *    bookkeeping a steer leaves behind (the broker commits `input.rejected`
+ *    AND `submission.rejected` per refusal) and driver notices — so the
+ *    answer, a tool call, a new turn or a new invocation ends it. So does
  *    `STEER_HOLD_MAX_MS`, which buys ONE re-probe for the change the broker
  *    cannot see (a person who typed into the prompt and cleared it).
  *
@@ -24,6 +27,8 @@
  * steer memos: a restart that forgets a hold costs one refused steer, which
  * re-arms it.
  */
+import type { HrcBrokerInvocationEventRecord } from 'hrc-core'
+
 import type { MailKickerContext, SteerHold } from '../context.js'
 import { STEER_HOLD_MAX_MS, errorText } from '../internal.js'
 import type { ObservedBrokerSeat } from './seat.js'
@@ -91,10 +96,10 @@ export function clearSteerHold(server: MailKickerContext, runtimeId: string): vo
  * Only a steer-capable live seat is ever held: an enqueue is admitted once and
  * waits in the broker for the turn boundary, so it has no retry loop to stop.
  */
-export async function steerHoldFor(
+export function steerHoldFor(
   server: MailKickerContext,
   seat: ObservedBrokerSeat
-): Promise<SteerHoldReason | undefined> {
+): SteerHoldReason | undefined {
   if ((seat.state !== 'idle' && seat.state !== 'turn-active') || !seat.steerCapable) return
   const runtimeId = seat.runtimeId
   const hold = server.mailKickerSteerHold.get(runtimeId)
@@ -114,14 +119,13 @@ export async function steerHoldFor(
   }
   if (hold === undefined) return
 
-  const release = (cause: string, detail: Record<string, unknown> = {}) => {
+  const release = (cause: string) => {
     server.mailKickerSteerHold.delete(runtimeId)
     server.log('INFO', 'wrkq.kicker.steer_hold_released', {
       runtimeId,
       hold: hold.reason,
       cause,
       heldMs: Date.now() - hold.since,
-      ...detail,
     })
   }
   if (hold.reason === 'awaiting_input') {
@@ -130,23 +134,6 @@ export async function steerHoldFor(
   }
   if (Date.now() - hold.since >= STEER_HOLD_MAX_MS) {
     release('ceiling')
-    return
-  }
-  let head: { invocationId: string | null; currentBrokerSeq: number | null }
-  try {
-    head = await server.port.seat(runtimeId)
-  } catch (error) {
-    // Cannot tell whether the seat moved. Release rather than hold blind: the
-    // cost is one steer, and a refused one re-arms the hold.
-    release('head_unavailable', { error: errorText(error) })
-    return
-  }
-  if (head.invocationId !== hold.invocationId) {
-    release('invocation_changed')
-    return
-  }
-  if ((head.currentBrokerSeq ?? 0) > hold.brokerSeq) {
-    release('seat_moved', { brokerSeq: head.currentBrokerSeq, heldAtSeq: hold.brokerSeq })
     return
   }
   if (!hold.announced) {
@@ -159,4 +146,47 @@ export async function steerHoldFor(
     })
   }
   return 'pane_not_quiescent'
+}
+
+/**
+ * Events a steer attempt and its refusal leave on the stream, and harness
+ * notices. None of them is the reader doing anything.
+ */
+const NOT_SEAT_MOVEMENT = new Set([
+  'admission.requested',
+  'admission.admitted',
+  'admission.rejected',
+  'input.rejected',
+  'submission.rejected',
+  'driver.notice',
+])
+
+/**
+ * Release a quiet-pane hold when the seat moves (called for every committed
+ * broker event the kicker observes).
+ *
+ * Driven by the observer rather than by comparing broker heads, because the
+ * head also moves on the refusal's own `submission.rejected`, which commits
+ * right after the `input.rejected` that armed the hold: a head comparison read
+ * that as movement and re-steered on the next pass (live, rt-ea5f117a).
+ */
+export function observeSeatActivity(
+  server: MailKickerContext,
+  record: Pick<HrcBrokerInvocationEventRecord, 'runtimeId' | 'invocationId' | 'seq' | 'type'>
+): void {
+  const hold = server.mailKickerSteerHold.get(record.runtimeId)
+  if (hold?.reason !== 'pane_not_quiescent') return
+  if (record.invocationId === hold.invocationId) {
+    if (record.seq <= hold.brokerSeq || NOT_SEAT_MOVEMENT.has(record.type)) return
+  }
+  server.mailKickerSteerHold.delete(record.runtimeId)
+  server.log('INFO', 'wrkq.kicker.steer_hold_released', {
+    runtimeId: record.runtimeId,
+    hold: hold.reason,
+    cause: record.invocationId === hold.invocationId ? 'seat_moved' : 'invocation_changed',
+    brokerEventType: record.type,
+    brokerSeq: record.seq,
+    heldAtSeq: hold.brokerSeq,
+    heldMs: Date.now() - hold.since,
+  })
 }

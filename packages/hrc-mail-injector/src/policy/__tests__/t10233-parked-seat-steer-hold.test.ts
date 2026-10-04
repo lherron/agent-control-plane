@@ -96,24 +96,34 @@ function append(type: string, payload: Record<string, unknown>): number {
   return seq
 }
 
-/** The broker refuses the open steer unwritten because the pane is not quiet. */
-async function refusePaneNotQuiescent(submissionId: string): Promise<void> {
-  const payload = {
-    inputId: submissionId,
-    reason: 'pane_not_quiescent',
-    deliveryEvidence: 'not_written',
-  }
-  const seq = append('input.rejected', payload)
+/** Commit one broker event and feed it to the kicker's observer, as the subscription does. */
+async function observe(type: string, payload: Record<string, unknown>): Promise<void> {
+  const seq = append(type, payload)
   await observeBrokerLanding(h.context, {
     invocationId: INVOCATION,
     seq,
     time: new Date().toISOString(),
-    type: 'input.rejected',
+    type,
     runtimeId: RUNTIME,
     brokerEventJson: JSON.stringify(payload),
     projectionStatus: 'projected',
     createdAt: new Date().toISOString(),
   })
+}
+
+/**
+ * The broker refuses the open steer unwritten because the pane is not quiet.
+ * It commits the refusal as a PAIR, `input.rejected` then `submission.rejected`
+ * (live: seq 35/36 on rt-ea5f117a), and the second one is bookkeeping, not the
+ * seat moving.
+ */
+async function refusePaneNotQuiescent(submissionId: string): Promise<void> {
+  await observe('input.rejected', {
+    inputId: submissionId,
+    reason: 'pane_not_quiescent',
+    deliveryEvidence: 'not_written',
+  })
+  await observe('submission.rejected', { submissionId, reason: 'pane_not_quiescent' })
 }
 
 function setRuntimeStatus(status: 'awaiting_input' | 'busy'): void {
@@ -159,8 +169,13 @@ describe('T-10233 — steer hold on a seat parked on human input', () => {
       hold: 'pane_not_quiescent',
     })
 
-    // Something happened on the seat (the reader answered; the turn moved on).
-    append('tool.completed', { turnId: 'turn-1' })
+    // A driver notice ("Claude is waiting for your input") is not the reader.
+    await observe('driver.notice', { message: 'Claude is waiting for your input' })
+    await driveMailTargetOnce(h.context, TARGET, 'periodic')
+    expect(steers).toBe(1)
+
+    // The reader answered: the turn moved on, and the mail goes in.
+    await observe('tool.call.completed', { toolCallId: 'toolu-ask', turnId: 'turn-1' })
     await driveMailTargetOnce(h.context, TARGET, 'periodic')
     expect(steers).toBe(2)
   })
@@ -195,18 +210,7 @@ describe('T-10233 — steer hold on a seat parked on human input', () => {
     expect(h.context.mailKickerSteerHold.get(RUNTIME)?.reason).toBe('pane_not_quiescent')
 
     // sub-2 was written into the turn after all: the seat takes bodies again.
-    const payload = { inputId: 'sub-2', disposition: 'attempted_steer' }
-    const seq = append('input.accepted', payload)
-    await observeBrokerLanding(h.context, {
-      invocationId: INVOCATION,
-      seq,
-      time: new Date().toISOString(),
-      type: 'input.accepted',
-      runtimeId: RUNTIME,
-      brokerEventJson: JSON.stringify(payload),
-      projectionStatus: 'projected',
-      createdAt: new Date().toISOString(),
-    })
+    await observe('input.accepted', { inputId: 'sub-2', disposition: 'attempted_steer' })
     expect(h.context.mailKickerSteerHold.has(RUNTIME)).toBe(false)
   })
 })

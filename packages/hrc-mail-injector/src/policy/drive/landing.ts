@@ -62,7 +62,7 @@ import {
 } from '../internal.js'
 import { failEnvelopeWithAudit } from '../terminal/envelope-terminal.js'
 import { digestGroupOf, digestMembers } from './digest-group.js'
-import { armQuietPaneHold, clearSteerHold } from './steer-hold.js'
+import { armQuietPaneHold, clearSteerHold, observeSeatActivity } from './steer-hold.js'
 
 const LANDED_TYPES = new Set(['submission.absorbed', 'submission.executed'])
 
@@ -683,6 +683,7 @@ export async function observeBrokerLanding(
   server: MailKickerContext,
   record: HrcBrokerInvocationEventRecord
 ): Promise<void> {
+  observeSeatActivity(server, record)
   if (record.type === 'turn.started') {
     const intents = server.store.mailDelivery.listLaunchIntentsForRuntime(record.runtimeId)
     for (const intent of intents) {
