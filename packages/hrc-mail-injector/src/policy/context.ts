@@ -9,6 +9,18 @@ import type {
 } from './contracts.js'
 import type { MailKickerLedger } from './ledger/client.js'
 
+/** One runtime's steer hold; see `drive/steer-hold.ts`. */
+export type SteerHold = {
+  reason: 'awaiting_input' | 'pane_not_quiescent'
+  /** The invocation and broker head the refusal was observed at. */
+  invocationId: string | null
+  brokerSeq: number
+  /** When this hold began, for `STEER_HOLD_MAX_MS`. */
+  since: number
+  /** Whether `wrkq.kicker.steer_held` has been logged for this hold. */
+  announced: boolean
+}
+
 /** Internal capability surface shared by the decomposed kicker state machines. */
 export type MailKickerContext = {
   /** Kicker-owned state; in its own sqlite file after the Phase 3 store split. */
@@ -81,6 +93,14 @@ export type MailKickerContext = {
    * the drain window that spun five times in a second is what it is for.
    */
   readonly mailKickerDeliveryBackoff: Map<string, number>
+  /**
+   * Per-runtime steer holds (T-10233): a seat parked on human input, by its
+   * `awaiting_input` status or by a `pane_not_quiescent` refusal with nothing
+   * observed on the seat since. While one stands a drive pass submits nothing
+   * into that seat, because every steer is a new HRC submission and run and
+   * the pane refuses it unwritten. See `drive/steer-hold.ts`.
+   */
+  readonly mailKickerSteerHold: Map<string, SteerHold>
 
   log(level: KickerLogLevel, event: string, detail: Record<string, unknown>): void
 

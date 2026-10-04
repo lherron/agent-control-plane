@@ -27,8 +27,15 @@ export type ObservedBrokerSeat =
       generation: number
       probeDiagnostic: KickerProbeDiagnostic
     }
-  | { state: 'idle'; runtimeId: string; steerCapable: boolean }
-  | { state: 'turn-active'; runtimeId: string; turnId: string; steerCapable: boolean }
+  | { state: 'idle'; runtimeId: string; steerCapable: boolean; awaitingInput?: boolean }
+  | {
+      state: 'turn-active'
+      runtimeId: string
+      turnId: string
+      steerCapable: boolean
+      /** The runtime's own status is `awaiting_input`: parked on a human (T-10233). */
+      awaitingInput?: boolean
+    }
   | { state: 'turn-observed'; runtimeId: string; turnId: string }
   | { state: 'starting' | 'stopping' | 'terminal'; runtimeId: string }
 
@@ -75,6 +82,7 @@ export async function observeBrokerSeat(
         runtimeId: runtime.runtimeId,
         turnId: String(seat.turnId),
         steerCapable: await runtimeAdvertisesSteer(server, runtime.runtimeId),
+        ...(runtime.status === 'awaiting_input' ? { awaitingInput: true } : {}),
       }
     : seat.state === 'turn-observed'
       ? {
@@ -87,6 +95,7 @@ export async function observeBrokerSeat(
             state: 'idle',
             runtimeId: runtime.runtimeId,
             steerCapable: await runtimeAdvertisesSteer(server, runtime.runtimeId),
+            ...(runtime.status === 'awaiting_input' ? { awaitingInput: true } : {}),
           }
         : { state: seat.state, runtimeId: runtime.runtimeId }
 }

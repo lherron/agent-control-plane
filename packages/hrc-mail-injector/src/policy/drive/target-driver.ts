@@ -43,6 +43,7 @@ import type { ActionableEnvelope } from './presentation.js'
 import { classifyBacklogFyi, readActionableEnvelopes, summonsATurn } from './presentation.js'
 import type { ObservedBrokerSeat } from './seat.js'
 import { observeBrokerSeat } from './seat.js'
+import { steerHoldFor } from './steer-hold.js'
 
 export type DriveMailTargetOutcome =
   | { outcome: 'birth-refused'; notPlaceableHere?: true }
@@ -407,6 +408,16 @@ export async function driveMailTargetOnce(
     })
     summary.skipped = actionable.length
     complete('terminal_runtime', { recovery: 'runtime_lapse_reconciliation' })
+    return
+  }
+
+  // T-10233: a seat parked on human input refuses every steer unwritten, and
+  // each attempt costs an HRC submission and run. Submit nothing; the periodic
+  // sweep re-drives this target and the first pass after the hold delivers.
+  const hold = await steerHoldFor(server, seat)
+  if (hold !== undefined) {
+    summary.skipped = actionable.length
+    complete('steer_held', { hold, recovery: 'periodic_wake' })
     return
   }
 

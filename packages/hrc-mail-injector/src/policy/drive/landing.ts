@@ -62,6 +62,7 @@ import {
 } from '../internal.js'
 import { failEnvelopeWithAudit } from '../terminal/envelope-terminal.js'
 import { digestGroupOf, digestMembers } from './digest-group.js'
+import { armQuietPaneHold, clearSteerHold } from './steer-hold.js'
 
 const LANDED_TYPES = new Set(['submission.absorbed', 'submission.executed'])
 
@@ -279,6 +280,7 @@ export async function commitLanding(
   server.store.mailDelivery.markReceiptCommitted(intent.envelopeId, input.runtimeId)
   server.store.mailDelivery.clearIntent(intent.envelopeId)
   server.mailKickerDeliveryBackoff.delete(input.runtimeId)
+  clearSteerHold(server, input.runtimeId)
   // The seat took a body, so it is not the seat that cannot land: the TTL bound
   // starts over rather than carrying a stale near-miss into the next delivery.
   server.store.mailDelivery.clearNonLandingStrikes(intent.envelopeId)
@@ -625,7 +627,7 @@ export async function refuseIntent(
   server: MailKickerContext,
   intent: HrcMailDeliveryIntent,
   reason: string,
-  _now = Date.now()
+  observed?: { invocationId: string; brokerSeq: number }
 ): Promise<'refused' | 'undeliverable'> {
   // One submission, one verdict: a digest's members share it (T-10159).
   const members = digestMembers(server, intent)
@@ -656,12 +658,19 @@ export async function refuseIntent(
       return 'refused'
     }
   }
+  // A quiet pane that refused unwritten is a reader parked on something only a
+  // human clears: hold further steers into it until the seat moves (T-10233).
+  if (intent.door === 'steer' && reason === QUIET_PANE_REFUSAL) {
+    await armQuietPaneHold(server, runtimeId, observed)
+  }
   clearRefusedIntents(server, members, reason, {
     refusalClass: 'not_written',
     retryInMs: nextDeliveryBackoffMs(server, runtimeId),
   })
   return 'refused'
 }
+
+const QUIET_PANE_REFUSAL = 'pane_not_quiescent'
 
 /**
  * Observe one committed broker event for a delivery this node is waiting on.
@@ -725,7 +734,10 @@ export async function observeBrokerLanding(
     }
     return
   }
-  await refuseIntent(server, intent, reason)
+  await refuseIntent(server, intent, reason, {
+    invocationId: record.invocationId,
+    brokerSeq: record.seq,
+  })
 }
 
 /**

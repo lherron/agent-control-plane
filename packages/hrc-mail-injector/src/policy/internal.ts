@@ -31,6 +31,13 @@ export const REMINDER_HOLD_MS = 60_000
 export const STEER_RETRY_BASE_MS = 2_000
 export const STEER_RETRY_MAX_MS = 30_000
 /**
+ * The longest a steer hold on a quiet, refusing pane lasts before ONE re-probe
+ * steer is allowed (T-10233). The hold ends as soon as the seat's broker stream
+ * moves; the ceiling covers the one change the broker cannot see — a person
+ * who typed into the prompt and then cleared it without submitting.
+ */
+export const STEER_HOLD_MAX_MS = 10 * 60_000
+/**
  * Bound for a sequence of positively proven pre-write refusals on one runtime.
  *
  * T-08205 rev2 supersedes the earlier September 6 TTL-redelivery addendum:

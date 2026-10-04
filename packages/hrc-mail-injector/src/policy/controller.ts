@@ -2,7 +2,7 @@ import type { HrcBrokerInvocationEventRecord, HrcLifecycleEvent } from 'hrc-core
 import { parseAppSessionScopeRef } from 'hrc-core'
 import type { HrcMailDriveWakeReason } from 'hrc-store-sqlite'
 
-import type { MailKickerContext } from './context.js'
+import type { MailKickerContext, SteerHold } from './context.js'
 import type {
   ForeignHome,
   HrcInjectionPort,
@@ -65,6 +65,7 @@ export class MailKicker implements MailKickerContext {
   readonly mailKickerSteerRefused = new Set<string>()
   readonly mailKickerSteerFallback = new Set<string>()
   readonly mailKickerDeliveryBackoff = new Map<string, number>()
+  readonly mailKickerSteerHold = new Map<string, SteerHold>()
   private lifecycleUnsubscribe: (() => void | Promise<void>) | undefined
   private brokerUnsubscribe: (() => void | Promise<void>) | undefined
 
