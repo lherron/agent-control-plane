@@ -4,7 +4,7 @@ import type {
   HrcSessionRecord,
   PreemptSubmissionRequest,
 } from 'hrc-core'
-import { HrcDomainError, HrcErrorCode } from 'hrc-core'
+import { HrcDomainError, HrcErrorCode, parseHrcRuntimeStatus } from 'hrc-core'
 import type { HrcClient } from 'hrc-sdk'
 import type { SubmissionWithdrawResponse } from 'spaces-harness-broker-protocol'
 
@@ -136,7 +136,7 @@ export function createSocketInjectionPort(client: HrcClient): HrcInjectionPort {
         const runtime = await client.inspectRuntime({ runtimeId })
         return {
           runtimeId: runtime.runtimeId,
-          status: runtime.status,
+          status: parseHrcRuntimeStatus(runtime.status),
           ...(runtime.activeInvocationId === null
             ? {}
             : { activeInvocationId: runtime.activeInvocationId }),

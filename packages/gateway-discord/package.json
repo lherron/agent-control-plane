@@ -29,10 +29,10 @@
     "acp-interface-store": "*",
     "acp-core": "*",
     "acp-ops-projection": "*",
-    "agent-action-render": "0.5.13-dev.20261003130456",
+    "agent-action-render": "0.5.13-dev.20261004092853",
     "agent-scope": "0.1.1-dev.20261003143947",
     "discord.js": "^14.16.0",
-    "hrc-frame-render": "0.5.13-dev.20261003130456",
+    "hrc-frame-render": "0.5.13-dev.20261004092853",
     "spaces-aspc-protocol": "0.1.1-dev.20261003143947",
     "spaces-runtime": "0.1.1-dev.20261003143947"
   },

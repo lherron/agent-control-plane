@@ -46,7 +46,7 @@ const RUNTIME: HrcRuntimeSnapshot = {
   transport: 'tmux',
   harness: 'codex',
   provider: 'openai',
-  status: 'active',
+  status: 'busy',
   tmuxJson: { paneId: 'pane-1' },
   supportsInflightInput: true,
   activeRunId: 'run-mobile-dashboard',

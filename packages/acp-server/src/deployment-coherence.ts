@@ -49,10 +49,10 @@ export const EXPECTED_CONSUMER_PRODUCERS = [
   },
   {
     setName: 'hrc',
-    setVersion: '0.5.13-dev.20261003130456',
+    setVersion: '0.5.13-dev.20261004092853',
     repository: 'hrc-runtime',
     canonicalRemote: 'git@github.com:lherron/hrc-runtime.git',
-    sourceCommit: 'cbf4bc7e5eeb8921e6e4566282c1e1d5130e1513',
+    sourceCommit: '43fcc9ee53adac6964bb0d9ad4d38e89ed250c98',
   },
 ] as const satisfies readonly ExpectedConsumerProducer[]
 

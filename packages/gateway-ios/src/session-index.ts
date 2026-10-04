@@ -8,6 +8,7 @@
 
 import { formatSessionHandle } from 'agent-scope'
 import type { LaneRef } from 'agent-scope'
+import { isTerminalRuntimeStatus } from 'hrc-core'
 import type { HrcExecutionMode, HrcRuntimeSnapshot, HrcSessionRecord } from 'hrc-core'
 import type { HrcTargetView } from 'hrc-core'
 import type { HrcClient } from 'hrc-sdk'
@@ -192,23 +193,23 @@ function deriveStatus(
     return 'inactive'
   }
 
-  const runtimeAlive = runtime.status === 'running' || runtime.status === 'starting'
-
-  if (!runtimeAlive) {
+  if (runtime.generation !== session.generation || runtime.status === 'stale') {
+    return 'stale'
+  }
+  if (session.status === 'archived' || isTerminalRuntimeStatus(runtime.status)) {
     return 'inactive'
   }
-
-  // Generation mismatch → stale
-  if (runtime.generation !== session.generation) {
-    return 'stale'
+  switch (runtime.status) {
+    case 'idle':
+    case 'ready':
+    case 'starting':
+    case 'running':
+    case 'busy':
+    case 'awaiting_input':
+      return 'active'
+    default:
+      return 'inactive'
   }
-
-  // Check for stale runtime based on transport status
-  if (runtime.status === 'stale') {
-    return 'stale'
-  }
-
-  return 'active'
 }
 
 // ---------------------------------------------------------------------------

@@ -106,6 +106,24 @@ describe('GET /v1/sessions', () => {
     expect(result.sessions).toEqual([])
   })
 
+  it('renders ready and busy broker runtimes as active, and stale runtimes as stale', async () => {
+    for (const status of ['ready', 'busy', 'stale', 'unknown_after_restart', 'adopted'] as const) {
+      const session = makeSession({ hostSessionId: 'host-status' })
+      const runtime = makeRuntime({ hostSessionId: session.hostSessionId, status })
+      const index = createSessionIndex({
+        client: createFakeClient({ sessions: [session], runtimes: [runtime] }),
+      })
+      const result = await index.handleListSessions({})
+      expect(result.sessions[0]?.status).toBe(
+        status === 'stale'
+          ? 'stale'
+          : status === 'unknown_after_restart' || status === 'adopted'
+            ? 'inactive'
+            : 'active'
+      )
+    }
+  })
+
   it('merges session + runtime into MobileSessionSummary', async () => {
     const session = makeSession({ hostSessionId: 'host-1' })
     const runtime = makeRuntime({

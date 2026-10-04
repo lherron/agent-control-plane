@@ -25,10 +25,10 @@
   },
   "dependencies": {
     "agent-scope": "0.1.1-dev.20261003143947",
-    "hrc-core": "0.5.13-dev.20261003130456",
+    "hrc-core": "0.5.13-dev.20261004092853",
     "hrc-injector-core": "0.1.0-dev.20261003170619",
-    "hrc-sdk": "0.5.13-dev.20261003130456",
-    "hrc-store-sqlite": "0.5.13-dev.20261003130456",
+    "hrc-sdk": "0.5.13-dev.20261004092853",
+    "hrc-store-sqlite": "0.5.13-dev.20261004092853",
     "spaces-harness-broker-protocol": "0.1.1-dev.20261003143947"
   },
   "devDependencies": {

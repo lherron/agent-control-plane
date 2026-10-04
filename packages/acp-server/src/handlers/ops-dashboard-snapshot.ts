@@ -141,7 +141,7 @@ export const handleOpsDashboardSnapshot: RouteHandler = async ({ url, deps }) =>
     })
 
     for (const session of sessions) {
-      if (!includePrior && session.status === 'prior') {
+      if (!includePrior && session.status !== 'active') {
         continue
       }
 

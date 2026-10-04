@@ -278,7 +278,7 @@ export function deriveRowsFromEvents(
 
 export function sessionRecordToRow(record: HrcSessionRecord): SessionTimelineRow {
   const status = record.status
-  const continuity = status === 'removed' || status === 'dead' ? 'broken' : 'healthy'
+  const continuity = status === 'inactive' || status === 'terminated' ? 'broken' : 'healthy'
   const colorRole = continuity === 'broken' ? 'warning' : 'runtime'
 
   return {

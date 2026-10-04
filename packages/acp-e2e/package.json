@@ -20,10 +20,10 @@
     "acp-state-store": "*",
     "agent-scope": "0.1.1-dev.20261003143947",
     "coordination-substrate": "*",
-    "hrc-core": "0.5.13-dev.20261003130456",
-    "hrc-sdk": "0.5.13-dev.20261003130456",
-    "hrc-server": "0.5.13-dev.20261003130456",
-    "hrc-store-sqlite": "0.5.13-dev.20261003130456",
+    "hrc-core": "0.5.13-dev.20261004092853",
+    "hrc-sdk": "0.5.13-dev.20261004092853",
+    "hrc-server": "0.5.13-dev.20261004092853",
+    "hrc-store-sqlite": "0.5.13-dev.20261004092853",
     "spaces-runtime": "0.1.1-dev.20261003143947"
   },
   "devDependencies": {

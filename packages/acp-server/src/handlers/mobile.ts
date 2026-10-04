@@ -11,7 +11,7 @@ import type {
   HrcSessionRecord,
   HrcTargetView,
 } from 'hrc-core'
-import { splitSessionRef } from 'hrc-core'
+import { isTerminalRuntimeStatus, splitSessionRef } from 'hrc-core'
 import type {
   SessionFacetsRequest,
   SessionFacetsResponse,
@@ -402,8 +402,6 @@ function mobileMode(
   return modeForExecution(execution, runtime)
 }
 
-const DEAD_RUNTIME_STATUSES = new Set(['dead', 'stopped', 'crashed', 'exited', 'terminated'])
-
 function mobileStatus(status: string, runtime?: HrcRuntimeSnapshot): MobileSessionStatus {
   const normalized = status.toLowerCase()
   if (normalized.includes('stale')) return 'stale'
@@ -415,16 +413,26 @@ function mobileStatus(status: string, runtime?: HrcRuntimeSnapshot): MobileSessi
   ) {
     return 'inactive'
   }
-  const runtimeStatus = runtime?.status.toLowerCase()
+  const runtimeStatus = runtime?.status
   if (runtimeStatus === 'detached') return 'detached'
-  if (runtimeStatus?.includes('stale')) return 'stale'
+  if (runtimeStatus === 'stale') return 'stale'
   if (
     runtime === undefined ||
-    (runtimeStatus !== undefined && DEAD_RUNTIME_STATUSES.has(runtimeStatus))
+    (runtimeStatus !== undefined && isTerminalRuntimeStatus(runtimeStatus))
   ) {
     return 'inactive'
   }
-  return 'active'
+  switch (runtimeStatus) {
+    case 'idle':
+    case 'ready':
+    case 'starting':
+    case 'running':
+    case 'busy':
+    case 'awaiting_input':
+      return 'active'
+    default:
+      return 'inactive'
+  }
 }
 
 function projectSession(input: {
@@ -438,7 +446,8 @@ function projectSession(input: {
   const execution = executionMode(input.record, input.runtime)
   const mode = mobileMode(execution, input.runtime)
   const status = mobileStatus(input.record.status, input.runtime)
-  const runtimeActive = input.runtime?.status.toLowerCase() === 'active'
+  const runtimeActive =
+    input.runtime?.status === 'busy' || input.runtime?.status === 'awaiting_input'
   // `preferredMode: headless` can mean "provision the durable interactive
   // broker without attaching a terminal". It is a presentation preference,
   // not proof that the resulting tmux runtime cannot accept literal input.
