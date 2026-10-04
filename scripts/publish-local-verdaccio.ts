@@ -32,6 +32,7 @@ type Manifest = {
   version?: string
   private?: boolean
   exports?: unknown
+  dependencies?: Record<string, string>
 }
 
 type Options = {
@@ -199,6 +200,40 @@ async function versionExists(name: string, version: string): Promise<boolean> {
   return Boolean(metadata?.versions?.[version])
 }
 
+/**
+ * Pin each dependency on a package published in this same run to the version
+ * being published. Every package is built from one tree, so its siblings must
+ * come from that tree too. A stale exact pin or a floating "*" lets bunx pull
+ * a sibling that nests a different hrc-core, and two hrc-core copies break
+ * cold births (179e722, T-10233).
+ */
+export function pinSiblingDependencies(
+  dependencies: Record<string, string> | undefined,
+  siblings: ReadonlySet<string>,
+  version: string
+): Record<string, string> | undefined {
+  if (dependencies === undefined) return undefined
+  return Object.fromEntries(
+    Object.entries(dependencies).map(([name, range]) => [
+      name,
+      siblings.has(name) ? version : range,
+    ])
+  )
+}
+
+let coPublishedNames: Promise<ReadonlySet<string>> | undefined
+function readCoPublishedNames(): Promise<ReadonlySet<string>> {
+  coPublishedNames ??= Promise.all(
+    PACKAGES.map(async (rel) => {
+      const manifest = JSON.parse(
+        await readFile(join(ROOT, rel, 'package.json'), 'utf8')
+      ) as Manifest
+      return manifest.name
+    })
+  ).then((names) => new Set(names.filter((name): name is string => name !== undefined)))
+  return coPublishedNames
+}
+
 async function packForPublish(rel: string): Promise<{
   name: string
   version: string
@@ -227,10 +262,19 @@ async function packForPublish(
     }
     const publishVersion = versionOverride ?? manifest.version
 
+    const dependencies =
+      versionOverride === undefined
+        ? manifest.dependencies
+        : pinSiblingDependencies(
+            manifest.dependencies,
+            await readCoPublishedNames(),
+            publishVersion
+          )
     const publishManifest = {
       ...manifest,
       version: publishVersion,
       exports: stripBunConditions(manifest.exports),
+      ...(dependencies !== undefined ? { dependencies } : {}),
     }
     publishManifest.private = undefined
 
