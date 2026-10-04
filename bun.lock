@@ -866,7 +866,7 @@
 
     "@vladfrangu/async_event_emitter": ["@vladfrangu/async_event_emitter@2.4.7", "http://mini:4873/@vladfrangu/async_event_emitter/-/async_event_emitter-2.4.7.tgz", {}, "sha512-Xfe6rpCTxSxfbswi/W/Pz7zp1WWSNn4A0eW4mLkQUewCrXXtMj31lCg+iQyTkh/CkusZSq9eDflu7tjEDXUY6g=="],
 
-    "@wrkq/client": ["@wrkq/client@0.1.0-dev.20261001124227", "http://mini:4873/@wrkq/client/-/client-0.1.0-dev.20261001124227.tgz", {}, "sha512-WoD6IAGQQWzqo7GCDO7H81DixcZOrIRODlSwOmur7w3/KyO2kaYfaQ2gFccnt31TkZtJ9Pl0cse4K3atOaoI8A=="],
+    "@wrkq/client": ["@wrkq/client@0.1.0-dev.20261004093923", "http://mini:4873/@wrkq/client/-/client-0.1.0-dev.20261004093923.tgz", {}, "sha512-Vjy+tGpLb6JWAawBiy/mlX5wjW0Hh/BFPikaz5NfK7nhpH6+w0bDSW2xHfwN8SBMseujyKEsZfzvoEQzHHy6Xg=="],
 
     "acp-admin-store": ["acp-admin-store@workspace:packages/acp-admin-store"],
 
@@ -1507,8 +1507,6 @@
     "cli-highlight/chalk": ["chalk@4.1.2", "http://mini:4873/chalk/-/chalk-4.1.2.tgz", { "dependencies": { "ansi-styles": "^4.1.0", "supports-color": "^7.1.0" } }, "sha512-oKnbhFyRIXpUuez8iBMmyEa4nbj4IOQyuhc/wy9kY7/WVPcwIO9VA668Pu8RkO7+0G76SLROeyw9CpQ061i4mA=="],
 
     "cliui/strip-ansi": ["strip-ansi@6.0.1", "http://mini:4873/strip-ansi/-/strip-ansi-6.0.1.tgz", { "dependencies": { "ansi-regex": "^5.0.1" } }, "sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A=="],
-
-    "gateway-discord/@wrkq/client": ["@wrkq/client@0.1.0-dev.20261002203100", "http://mini:4873/@wrkq/client/-/client-0.1.0-dev.20261002203100.tgz", {}, "sha512-CnJNfEG4BECBzMAatL7NxP65wiwhE2Q5Wb3OAA9VvgRxgh4mmJ4hvYqMILHLYqnoVV+nQIolm27WVSw9Z1CzPw=="],
 
     "hrc-events/diff": ["diff@7.0.0", "http://mini:4873/diff/-/diff-7.0.0.tgz", {}, "sha512-PJWHUb1RFevKCwaFA9RlG5tCd+FO5iRh9A8HEtkmBH2Li03iJriB6m6JIN4rGz3K3JLawI7/veA1xzRKP6ISBw=="],
 
