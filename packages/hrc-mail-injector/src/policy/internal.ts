@@ -1,4 +1,4 @@
-import { normalizeSessionRef } from 'hrc-core'
+import { isTerminalRuntimeStatus, normalizeSessionRef } from 'hrc-core'
 import type { HrcRunRecord } from 'hrc-core'
 
 export const RUNTIME_TERMINAL_EVENTS = new Set([
@@ -149,12 +149,16 @@ export function isRunActive(run: HrcRunRecord): boolean {
   return run.status === 'accepted' || run.status === 'started' || run.status === 'running'
 }
 
+/**
+ * A runtime that cannot be a seat: every status HRC classifies `runtime-dead`
+ * (hrc-core owns that list), plus `detached`, which is not dead but hosts no
+ * turn here. A hand-rolled list here once missed `failed`, and a failed
+ * broker start parked its seat's mail for 8h (T-10286).
+ *
+ * Not HRC's server-side `isRuntimeUnavailableStatus`, which is narrower on
+ * purpose: it means "already retired", so its cleanup paths still terminate
+ * and release a `failed` or `disposed` row. The kicker only selects seats.
+ */
 export function isRuntimeUnavailableStatus(status: string): boolean {
-  return (
-    status === 'terminated' ||
-    status === 'dead' ||
-    status === 'stale' ||
-    status === 'crashed' ||
-    status === 'detached'
-  )
+  return isTerminalRuntimeStatus(status) || status === 'detached'
 }

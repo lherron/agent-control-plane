@@ -28,7 +28,7 @@ export async function presentationRuntimeIdFor(
     const runtime = runtimes[index]
     if (runtime === undefined) continue
     if (runtime.generation !== session.generation) continue
-    if (runtime.status === 'exited' || isRuntimeUnavailableStatus(runtime.status)) continue
+    if (isRuntimeUnavailableStatus(runtime.status)) continue
     return runtime.runtimeId
   }
   return undefined
