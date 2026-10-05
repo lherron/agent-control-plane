@@ -509,6 +509,7 @@ describe('WS /v1/mobile/dashboard', () => {
       runtimeId: RUNTIME.runtimeId,
       activeRunId: RUN.runId,
       supportsInflightInput: true,
+      adopted: false,
     })
     expect(sessions[0]!.run).toMatchObject({ runId: RUN.runId, status: 'running' })
     expect(JSON.stringify(sessions[0])).not.toContain(LARGE_INITIAL_PROMPT)

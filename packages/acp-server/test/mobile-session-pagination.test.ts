@@ -245,6 +245,8 @@ describe('GET /v2/mobile/sessions', () => {
           runtime: {
             transport: 'tmux',
             supportsInflightInput: true,
+            // HRC Mobile <= 0.1.42 requires this key; without it the page fails to decode.
+            adopted: false,
           },
         })
       },

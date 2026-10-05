@@ -143,6 +143,12 @@ type MobileSessionSummary = {
         activeRunId?: string | undefined
         lastActivityAt?: string | undefined
         supportsInflightInput: boolean
+        /**
+         * Always false: HRC retired runtime adoption (T-10146), but HRC Mobile
+         * builds through 0.1.42 decode this as a required Bool and drop the whole
+         * session page without it. Remove once no installed build requires it.
+         */
+        adopted: false
         createdAt: string
         updatedAt: string
       }
@@ -471,6 +477,7 @@ function projectSession(input: {
             ? { lastActivityAt: input.runtime.lastActivityAt }
             : {}),
           supportsInflightInput: input.runtime.supportsInflightInput,
+          adopted: false as const,
           createdAt: input.runtime.createdAt,
           updatedAt: input.runtime.updatedAt,
         }
@@ -1626,6 +1633,7 @@ function projectRemoteRuntime(
       ...(runtime.activeRunId !== undefined ? { activeRunId: runtime.activeRunId } : {}),
       ...(runtime.lastActivityAt !== undefined ? { lastActivityAt: runtime.lastActivityAt } : {}),
       supportsInflightInput: runtime.supportsInflightInput,
+      adopted: false as const,
       createdAt: runtime.createdAt,
       updatedAt: runtime.updatedAt,
     },
