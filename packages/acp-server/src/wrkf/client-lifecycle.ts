@@ -40,6 +40,8 @@ export interface WrkfLifecycle {
   store: WrkqStoreAdapter | undefined
   /** Shared @wrkq/client instance backing wrkf + wrkq store ports. */
   client: WorkClient | undefined
+  /** The `agent:<id>` principal `client` was launched as; undefined when disabled. */
+  principalRef: string | undefined
   /**
    * Return a wrkq client authenticated as the exact caller principal.
    *
@@ -62,6 +64,7 @@ export async function createWrkfClientLifecycle(
       wrkf: undefined,
       store: undefined,
       client: undefined,
+      principalRef: undefined,
       async clientForPrincipal(): Promise<WorkClient> {
         throw new Error('wrkq client lifecycle is disabled')
       },
@@ -101,6 +104,7 @@ export async function createWrkfClientLifecycle(
     // this one client — the Phase-1 lifecycle owns the single shared WorkClient.
     store: createWrkqStoreAdapter(client),
     client,
+    principalRef: primaryPrincipalRef,
     clientForPrincipal(principalRef: string): Promise<WorkClient> {
       if (closed) {
         return Promise.reject(new Error('wrkq client lifecycle is closed'))

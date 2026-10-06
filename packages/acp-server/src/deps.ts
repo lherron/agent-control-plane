@@ -269,6 +269,12 @@ export interface AcpServerDeps {
   inputQueuePolicy?: InputQueuePolicy | undefined
   agentAssetsDir?: string | undefined
   workClient?: WorkClient | undefined
+  /**
+   * The `agent:<id>` principal `workClient` was launched as. Writes stamp it
+   * per frame so attribution never depends on the transport forwarding the
+   * launch principal (T-10378).
+   */
+  workClientPrincipalRef?: string | undefined
   /** Exact-principal wrkq connection for collaboration mutations. */
   workClientForPrincipal?: ((principalRef: string) => Promise<WorkClient>) | undefined
   /** Ledger-first collaboration read port. */
@@ -304,6 +310,7 @@ export interface ResolvedAcpServerDeps extends AcpServerDeps {
   inputQueuePolicy: InputQueuePolicy
   nativeStepExecutor?: Omit<NativeStepExecutorDeps, 'store'> | undefined
   workClient?: WorkClient | undefined
+  workClientPrincipalRef?: string | undefined
   workClientForPrincipal?: ((principalRef: string) => Promise<WorkClient>) | undefined
   collaborationLedger?: CollaborationLedger | undefined
   collaborationLedgerForPrincipal?:
@@ -369,6 +376,9 @@ export function resolveAcpServerDeps(deps: AcpServerDeps): ResolvedAcpServerDeps
       ? { nativeStepExecutor: deps.nativeStepExecutor }
       : {}),
     ...(deps.workClient !== undefined ? { workClient: deps.workClient } : {}),
+    ...(deps.workClientPrincipalRef !== undefined
+      ? { workClientPrincipalRef: deps.workClientPrincipalRef }
+      : {}),
     ...(deps.workClientForPrincipal !== undefined
       ? { workClientForPrincipal: deps.workClientForPrincipal }
       : {}),

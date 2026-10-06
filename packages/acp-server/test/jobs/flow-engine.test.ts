@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { WorkClient } from '@wrkq/client'
+import { type WorkClient, createClient } from '@wrkq/client'
 
 import { createInMemoryAdminStore } from 'acp-admin-store'
 import type { ExecStepResult, JobFlow, JobFlowStep, Run } from 'acp-core'
@@ -879,6 +879,108 @@ describe('advanceJobFlow wrkq refactor eligibility probe', () => {
       [{ status: 'completed', text: 'RESULT\n{}' }]
     )
   })
+})
+
+// T-10378: over rpc:// the wrkq stdio proxy did not forward the client's launch
+// principal, so every flow `wrkq-task` create failed "principalRef is required"
+// and the dispatch_timeout health flow dropped every incident. Reproduce that
+// shape against the REAL wrkq principal check: a real `wrkq rpc --stdio` child
+// launched with no principal, over a throwaway DB, never the live ledger.
+describe('advanceJobFlow wrkq-task attribution against real wrkq (T-10378)', () => {
+  const WRKQ_BIN = process.env['WRKQ_BIN'] ?? 'wrkq'
+  const WRKQADM_BIN = process.env['WRKQADM_BIN'] ?? 'wrkqadm'
+
+  const KEPT_ENV = new Set(['PATH', 'TMPDIR'])
+
+  // Allowlist env with HOME at the temp dir: no ambient WRKQ_DB locator (the
+  // live ledger), no WRKQ_PRINCIPAL_REF, and no runtime scope (AGENT_SCOPE_REF,
+  // HRC_SESSION_REF, ...) wrkq could derive a principal from. Keys are set to
+  // undefined rather than omitted because the client merges over process.env.
+  function isolatedWrkqEnv(home: string): Record<string, string | undefined> {
+    const env: Record<string, string | undefined> = { HOME: home }
+    for (const key of Object.keys(process.env)) {
+      if (key !== 'HOME') env[key] = KEPT_ENV.has(key) ? process.env[key] : undefined
+    }
+    return env
+  }
+
+  test('creates the incident task attributed to the ACP principal when the transport carries none', async () => {
+    const tmpDir = realpathSync(mkdtempSync(join(tmpdir(), 'acp-flow-wrkq-principal-')))
+    const dbPath = join(tmpDir, 'wrkq.db')
+    const env = isolatedWrkqEnv(tmpDir)
+    const wrkq = (args: string[]) => {
+      const result = Bun.spawnSync([WRKQ_BIN, '--db', dbPath, ...args], { cwd: tmpDir, env })
+      if (result.exitCode !== 0) {
+        throw new Error(`wrkq ${args.join(' ')} failed: ${result.stderr.toString()}`)
+      }
+      return result.stdout.toString()
+    }
+    let client: WorkClient | undefined
+    try {
+      const init = Bun.spawnSync([WRKQADM_BIN, '--db', dbPath, 'init'], { cwd: tmpDir, env })
+      expect(init.exitCode).toBe(0)
+      wrkq(['--as', 'agent:fixture', 'mkdir', '/agent-control-plane', '--kind', 'project'])
+      wrkq(['--as', 'agent:fixture', 'mkdir', '/agent-control-plane/inbox'])
+
+      // The child sees only the allowlist: nothing can reach ~/praesidium/var.
+      const childEnv = Bun.spawnSync(['env'], { env }).stdout.toString()
+      expect(
+        childEnv
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => line.split('=')[0])
+          .sort()
+      ).toEqual(['HOME', ...KEPT_ENV].filter((key) => key === 'HOME' || process.env[key]).sort())
+
+      // No launch principal: the same caller identity the rpc:// proxy delivered.
+      client = await createClient({
+        command: WRKQ_BIN,
+        dbPath,
+        env,
+        cwd: tmpDir,
+        clientInfo: { name: 'flow-engine-t10378', version: '0' },
+      })
+
+      // Control: the real check refuses an unattributed create.
+      await expect(
+        client.wrkq.task.create({ project: 'agent-control-plane', title: 'unattributed' })
+      ).rejects.toThrow('principalRef is required')
+
+      const workClient = client
+      await withFlowHarness(async ({ deps, jobsStore }) => {
+        const { jobRun, advanced } = await advanceCreatedFlow({
+          deps: { ...deps, workClient, workClientPrincipalRef: 'agent:acp-server' } as never,
+          jobsStore,
+          flow: {
+            sequence: [
+              {
+                id: 'create_task',
+                kind: 'wrkq-task',
+                title: 'ACP health: dispatch timeout',
+                container: 'agent-control-plane/inbox',
+              },
+            ],
+          },
+        })
+
+        const [step] = jobsStore.jobStepRuns.listByJobRun(jobRun.jobRunId).jobStepRuns
+        expect(step?.error).toBeUndefined()
+        expect(advanced.status).toBe('succeeded')
+        const taskId = (step?.result as { taskId?: string } | undefined)?.taskId
+        expect(taskId).toMatch(/^T-\d+$/)
+
+        const shown = JSON.parse(wrkq(['cat', taskId as string, '--json', '--one'])) as Record<
+          string,
+          unknown
+        >
+        expect(shown['title']).toBe('ACP health: dispatch timeout')
+        expect(shown['created_by_principal_ref']).toBe('agent:acp-server')
+      })
+    } finally {
+      await client?.close().catch(() => undefined)
+      rmSync(tmpDir, { recursive: true, force: true })
+    }
+  }, 30_000)
 })
 
 describe('advanceJobFlow exec steps', () => {

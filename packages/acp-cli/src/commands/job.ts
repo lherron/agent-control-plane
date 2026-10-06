@@ -22,6 +22,12 @@ import {
 type JobRecord = Record<string, unknown>
 type JobListResponse = { jobs: JobRecord[] }
 type JobShowResponse = { job: JobRecord }
+type JobRunHealth = {
+  lastRun?: Record<string, unknown> | undefined
+  consecutiveFailures?: number | undefined
+  lastSucceededAt?: string | undefined
+}
+type JobGetResponse = JobShowResponse & { runHealth?: JobRunHealth | undefined }
 type JobRunResponse = { jobRun: Record<string, unknown> }
 type ValidateResponse = { valid: boolean; errors?: unknown[] }
 
@@ -63,6 +69,24 @@ function renderJobsTable(response: JobListResponse): string {
     ],
     response.jobs
   )
+}
+
+/** Job fields, then the last run's outcome so a job failing on every run is visible. */
+function renderJobShow(response: JobGetResponse): string {
+  const table = renderKeyValueTable(response.job)
+  const health = response.runHealth
+  if (health === undefined) return table
+  const last = health.lastRun
+  return `${table}\n${renderKeyValueTable({
+    lastRunStatus: last?.['status'] ?? '(never run)',
+    ...(last !== undefined ? { lastRunAt: last['triggeredAt'], lastRunId: last['jobRunId'] } : {}),
+    ...(last?.['failedStepId'] !== undefined ? { lastFailedStep: last['failedStepId'] } : {}),
+    ...(last?.['errorMessage'] !== undefined
+      ? { lastError: `${last['errorCode'] ?? 'error'}: ${last['errorMessage']}` }
+      : {}),
+    consecutiveFailures: health.consecutiveFailures ?? 0,
+    lastSucceededAt: health.lastSucceededAt ?? '(never)',
+  })}`
 }
 
 export async function runJobCommand(
@@ -164,11 +188,11 @@ export async function runJobCommand(
   }
 
   if (subcommand === 'show') {
-    const response = await requester.requestJson<JobShowResponse>({
+    const response = await requester.requestJson<JobGetResponse>({
       method: 'GET',
       path: `/v1/admin/jobs/${encodeURIComponent(requireStringFlag(parsed, '--job'))}`,
     })
-    return renderJsonOrTable(parsed, response, () => renderKeyValueTable(response.job))
+    return renderJsonOrTable(parsed, response, () => renderJobShow(response))
   }
 
   if (subcommand === 'patch') {

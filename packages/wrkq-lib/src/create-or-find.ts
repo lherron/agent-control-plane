@@ -31,6 +31,13 @@ export type WrkqTaskCreateOrFindInput = {
   projectId: string
   title: string
   description?: string | undefined
+  /**
+   * Caller principal (`agent:<id>`) stamped on the create frame. Sent per frame
+   * rather than relying on the client's launch principal: over `rpc://` older
+   * wrkq proxies dropped the launch principal and wrkq refused the create with
+   * "principalRef is required" (T-10378).
+   */
+  principalRef: string
 }
 
 export type WrkqTaskCreateOrFindResult = {
@@ -110,6 +117,7 @@ async function doCreateOrFind(
     title: input.title,
     ...(input.description !== undefined ? { description: input.description } : {}),
     idempotencyKey: input.key,
+    principalRef: input.principalRef,
   })
   return {
     taskId: created.id,

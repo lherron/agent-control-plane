@@ -38,6 +38,7 @@ import { createJobLifecycleEmitter } from '../jobs/lifecycle-events.js'
 import { resolveInterfaceSourceForScope } from '../jobs/resolve-interface-source.js'
 import { getRunFinalAssistantText } from '../jobs/run-final-output.js'
 import type { RouteHandler } from '../routing/route-context.js'
+import { summarizeJobRunHealth } from './admin-detail-shared.js'
 
 const MANUAL_FLOW_JOB_RUN_LEASE_MS = 30 * 60_000
 
@@ -340,7 +341,8 @@ export const handleListAdminJobs: RouteHandler = ({ url, deps }) => {
 }
 
 export const handleGetAdminJob: RouteHandler = ({ params, deps }) => {
-  return json({ job: requireJob(deps, requireJobId(params)) })
+  const job = requireJob(deps, requireJobId(params))
+  return json({ job, runHealth: summarizeJobRunHealth(requireJobsStore(deps), job.jobId) })
 }
 
 export const handlePatchAdminJob: RouteHandler = async ({ request, params, deps, actor }) => {

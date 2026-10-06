@@ -206,3 +206,93 @@ describe('admin job detail endpoint', () => {
     }
   })
 })
+
+describe('admin job show runHealth (T-10378)', () => {
+  test('surfaces the last failure, its step and the failure streak', async () => {
+    const jobsStore = createInMemoryJobsStore()
+
+    try {
+      await withWiredServer(
+        async (fixture) => {
+          const job = jobsStore.createJob(createBaseJobInput()).job
+          const append = (
+            jobRunId: string,
+            minute: number,
+            status: 'succeeded' | 'failed' | 'skipped'
+          ) =>
+            jobsStore.appendJobRun({
+              jobId: job.jobId,
+              jobRunId,
+              triggeredAt: `2026-08-01T00:${String(minute).padStart(2, '0')}:00.000Z`,
+              triggeredBy: 'event',
+              status,
+              ...(status === 'failed'
+                ? { errorCode: 'native_step_failed', errorMessage: 'principalRef is required' }
+                : {}),
+              completedAt: `2026-08-01T00:${String(minute).padStart(2, '0')}:01.000Z`,
+            })
+          append('jrun_ok', 0, 'succeeded')
+          append('jrun_f1', 1, 'failed')
+          append('jrun_skip', 2, 'skipped')
+          append('jrun_f2', 3, 'failed')
+          jobsStore.jobStepRuns.insertMany('jrun_f2', 'sequence', [
+            {
+              stepId: 'create_task',
+              status: 'failed',
+              error: { code: 'native_step_failed', message: 'principalRef is required' },
+            },
+            { stepId: 'notify_fettle', status: 'skipped' },
+          ])
+
+          const response = await fixture.request({
+            method: 'GET',
+            path: `/v1/admin/jobs/${job.jobId}`,
+          })
+          expect(response.status).toBe(200)
+          const payload = await fixture.json<{ job: { jobId: string }; runHealth: unknown }>(
+            response
+          )
+
+          expect(payload.job.jobId).toBe(job.jobId)
+          expect(payload.runHealth).toEqual({
+            lastRun: {
+              jobRunId: 'jrun_f2',
+              status: 'failed',
+              triggeredAt: '2026-08-01T00:03:00.000Z',
+              completedAt: '2026-08-01T00:03:01.000Z',
+              errorCode: 'native_step_failed',
+              errorMessage: 'principalRef is required',
+              failedStepId: 'create_task',
+            },
+            consecutiveFailures: 2,
+            lastSucceededAt: '2026-08-01T00:00:01.000Z',
+          })
+        },
+        { jobsStore }
+      )
+    } finally {
+      jobsStore.close()
+    }
+  })
+
+  test('reports a never-run job with no streak', async () => {
+    const jobsStore = createInMemoryJobsStore()
+
+    try {
+      await withWiredServer(
+        async (fixture) => {
+          const job = jobsStore.createJob(createBaseJobInput()).job
+          const response = await fixture.request({
+            method: 'GET',
+            path: `/v1/admin/jobs/${job.jobId}`,
+          })
+          const payload = await fixture.json<{ runHealth: unknown }>(response)
+          expect(payload.runHealth).toEqual({ consecutiveFailures: 0 })
+        },
+        { jobsStore }
+      )
+    } finally {
+      jobsStore.close()
+    }
+  })
+})

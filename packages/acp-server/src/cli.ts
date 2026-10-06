@@ -1111,6 +1111,9 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
       : {}),
     agentAssetsDir: options.agentAssetsDir,
     ...(wrkfLifecycle.client !== undefined ? { workClient: wrkfLifecycle.client } : {}),
+    ...(wrkfLifecycle.principalRef !== undefined
+      ? { workClientPrincipalRef: wrkfLifecycle.principalRef }
+      : {}),
     workClientForPrincipal: (principalRef: string) =>
       wrkfLifecycle.clientForPrincipal(principalRef),
     ...(collaborationLedger !== undefined ? { collaborationLedger } : {}),

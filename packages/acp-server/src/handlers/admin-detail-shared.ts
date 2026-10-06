@@ -1,4 +1,4 @@
-import { type JobRecord, type JobRunRecord, nextFireAfter } from 'acp-jobs-store'
+import { type JobRecord, type JobRunRecord, type JobsStore, nextFireAfter } from 'acp-jobs-store'
 
 import type { JobFlow, JobFlowStep } from 'acp-core'
 
@@ -128,6 +128,65 @@ export function buildScheduleSummary(job: JobRecord):
     ...(schedule.windowEnd !== undefined ? { windowEnd: schedule.windowEnd } : {}),
     ...(typeof schedule.windowMinutes === 'number'
       ? { windowMinutes: schedule.windowMinutes }
+      : {}),
+  }
+}
+
+export type JobRunHealth = {
+  lastRun?:
+    | {
+        jobRunId: string
+        status: JobRunRecord['status']
+        triggeredAt: string
+        completedAt?: string | undefined
+        errorCode?: string | undefined
+        errorMessage?: string | undefined
+        failedStepId?: string | undefined
+      }
+    | undefined
+  /** Failed runs since the last non-failed run, newest first; skipped runs do not break the streak. */
+  consecutiveFailures: number
+  lastSucceededAt?: string | undefined
+}
+
+/**
+ * Summarize recent run outcomes so a job that fails on every run is visible
+ * from `acp job show` instead of only in job_runs rows (T-10378).
+ */
+export function summarizeJobRunHealth(jobsStore: JobsStore, jobId: string): JobRunHealth {
+  const runs = latestJobRuns(jobsStore.listJobRuns(jobId).jobRuns, Number.POSITIVE_INFINITY)
+  const lastRun = runs[0]
+  let consecutiveFailures = 0
+  for (const run of runs) {
+    if (run.status === 'skipped') continue
+    if (run.status !== 'failed') break
+    consecutiveFailures += 1
+  }
+  const lastSucceeded = runs.find((run) => run.status === 'succeeded')
+  const failedStep =
+    lastRun?.status === 'failed'
+      ? jobsStore.jobStepRuns
+          .listByJobRun(lastRun.jobRunId)
+          .jobStepRuns.find((step) => step.status === 'failed')
+      : undefined
+
+  return {
+    ...(lastRun !== undefined
+      ? {
+          lastRun: {
+            jobRunId: lastRun.jobRunId,
+            status: lastRun.status,
+            triggeredAt: lastRun.triggeredAt,
+            ...(lastRun.completedAt !== undefined ? { completedAt: lastRun.completedAt } : {}),
+            ...(lastRun.errorCode !== undefined ? { errorCode: lastRun.errorCode } : {}),
+            ...(lastRun.errorMessage !== undefined ? { errorMessage: lastRun.errorMessage } : {}),
+            ...(failedStep !== undefined ? { failedStepId: failedStep.stepId } : {}),
+          },
+        }
+      : {}),
+    consecutiveFailures,
+    ...(lastSucceeded !== undefined
+      ? { lastSucceededAt: lastSucceeded.completedAt ?? lastSucceeded.triggeredAt }
       : {}),
   }
 }

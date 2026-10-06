@@ -254,6 +254,7 @@ function makeInput(canonicalEventId: string): WrkqTaskCreateOrFindInput {
     path: `agent-control-plane/inbox/${key}`,
     projectId: 'agent-control-plane',
     title: `ACP health incident: dispatch timeout (${canonicalEventId})`,
+    principalRef: 'agent:acp-server',
   }
 }
 

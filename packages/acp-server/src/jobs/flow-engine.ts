@@ -1622,11 +1622,18 @@ function resolveNativeStepExecutorDeps(
   }
 
   const workClient = deps.workClient
+  // Attribute flow-created tasks to the principal ACP's shared client runs as.
+  // Stamped per frame: over rpc:// the wrkq proxy did not forward the launch
+  // principal, and every create failed "principalRef is required" (T-10378).
+  const principalRef = deps.workClientPrincipalRef
+  if (principalRef === undefined) {
+    throw new Error('native step executor requires the work client principal')
+  }
 
   return {
     store: jobsStore,
     wrkqTaskPort: {
-      createOrFind: (input) => createOrFindWrkqTask(workClient, input),
+      createOrFind: (input) => createOrFindWrkqTask(workClient, { ...input, principalRef }),
     },
     sendPulpitMessage: async (input) => {
       const response = await handleCreateAgentPulpitMessage({
