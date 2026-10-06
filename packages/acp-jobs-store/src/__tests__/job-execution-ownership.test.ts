@@ -306,6 +306,41 @@ describe('event-hook runs (T-09996)', () => {
     }
   })
 
+  // T-10378: event runs mint on the receiving node with no owner-set check, so
+  // a manual run of the same event job must follow that placement rule rather
+  // than the schedule-owner refusal (which made it unrunnable in federated mode).
+  test('a manual run of an unowned event job is admitted and stamped in federated mode', () => {
+    const store = createInMemoryJobsStore()
+    try {
+      const job = createEventJob(store)
+      const { jobRun } = store.createJobRun(
+        job.jobId,
+        { triggeredAt: NOW, triggeredBy: 'manual', status: 'claimed', claimedAt: NOW },
+        MAX3
+      )
+      expect(jobRun.executionNodeId).toBe('max3')
+    } finally {
+      store.close()
+    }
+  })
+
+  test('a manual run of a disabled event job is still refused', () => {
+    const store = createInMemoryJobsStore()
+    try {
+      const job = createEventJob(store)
+      store.updateJob(job.jobId, { disabled: true })
+      expect(() =>
+        store.createJobRun(
+          job.jobId,
+          { triggeredAt: NOW, triggeredBy: 'manual', status: 'claimed', claimedAt: NOW },
+          MAX3
+        )
+      ).toThrow(JobExecutionAdmissionError)
+    } finally {
+      store.close()
+    }
+  })
+
   test('a tick without a verified identity leaves event runs unstamped', async () => {
     const store = createInMemoryJobsStore()
     try {

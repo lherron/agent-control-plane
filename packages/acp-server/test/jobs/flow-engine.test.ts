@@ -968,6 +968,10 @@ describe('advanceJobFlow wrkq-task attribution against real wrkq (T-10378)', () 
         expect(advanced.status).toBe('succeeded')
         const taskId = (step?.result as { taskId?: string } | undefined)?.taskId
         expect(taskId).toMatch(/^T-\d+$/)
+        // No source event (manual-run shape): the task keys on the job run.
+        expect((step?.result as { taskPath?: string } | undefined)?.taskPath).toContain(
+          `job-run-${jobRun.jobRunId}`.replaceAll('_', '-')
+        )
 
         const shown = JSON.parse(wrkq(['cat', taskId as string, '--json', '--one'])) as Record<
           string,

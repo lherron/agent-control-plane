@@ -598,6 +598,13 @@ export function assertJobExecutionAdmission(job: JobRecord, identity: JobExecuti
       message: `job ${job.jobId} is disabled`,
     })
   }
+  // Event-hook placement is node-local: event runs mint on whichever node
+  // receives the event, with no owner-set check (execution-status reports
+  // event_hook_placement_not_supported). A manual run of an event job follows
+  // the same rule and runs on the node that received the request (T-10378).
+  if (job.trigger.kind === 'event') {
+    return
+  }
   const ownerSet = job.executionNodes
   if (ownerSet === undefined) {
     if (identity.mode === 'single-node') {

@@ -163,8 +163,10 @@ export async function executeNativeSideEffectStep(
 
   switch (stepKind) {
     case 'wrkq-task': {
-      const canonicalEventId = resolvedFields?.['_canonicalEventId']
-      const key = `acp-health:dispatch-timeout:${canonicalEventId}:task`
+      // A manual run has no source event; key its task on the run itself
+      // instead of the literal "undefined" every manual run would share.
+      const incidentId = resolvedFields?.['_canonicalEventId'] ?? `job-run:${jobRunId}`
+      const key = `acp-health:dispatch-timeout:${incidentId}:task`
       const container = asString(stepDef['container']) ?? ''
       const projectId = container.split('/')[0] ?? ''
       const path = `${container}/${slugifyTaskPathSegment(key)}`
