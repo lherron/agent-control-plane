@@ -307,10 +307,11 @@ describe('T-10418 remote history, health and control isolation', () => {
         const interrupt = await request({
           method: 'POST',
           path: `/v1/mobile/sessions/${HOST_SESSION_ID}/interrupt`,
-          body: { sessionRef: SESSION_REF },
+          body: { clientInputId: 'cli-t10418-int', sessionRef: SESSION_REF },
         })
         // Today's refusal for a hostSessionId this node does not hold.
-        expect(interrupt.status).toBe(400)
+        expect(interrupt.status).toBe(422)
+        expect(await json<{ code: string }>(interrupt)).toMatchObject({ code: 'interrupt_failed' })
       },
       { hrcClient: client }
     )
