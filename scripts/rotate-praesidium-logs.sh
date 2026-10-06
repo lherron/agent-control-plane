@@ -19,7 +19,8 @@ Options:
   --lock-file P   Kernel-backed lock file (default: var/run path)
   -h, --help      Show this help
 
-With no log arguments, rotates ACP/HRC server stdout and stderr logs.
+With no log arguments, rotates the ACP/HRC server, mail-injector and viewer
+launchd stdout/stderr logs.
 EOF
 }
 
@@ -91,6 +92,9 @@ if ((${#logs[@]} == 0)); then
     "$DEFAULT_LOG_DIR/hrc-server.err.log"
     "$DEFAULT_LOG_DIR/acp-server.log"
     "$DEFAULT_LOG_DIR/acp-server.err.log"
+    "$DEFAULT_LOG_DIR/hrc-mail-injector.log"
+    "$DEFAULT_LOG_DIR/hrc-mail-injector.err.log"
+    "$DEFAULT_LOG_DIR/hrc-viewer.log"
   )
 fi
 
