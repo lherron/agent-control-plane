@@ -11,7 +11,7 @@ import type {
   HrcSessionRecord,
   HrcTargetView,
 } from 'hrc-core'
-import { isTerminalRuntimeStatus, splitSessionRef } from 'hrc-core'
+import { HrcDomainError, isTerminalRuntimeStatus, splitSessionRef } from 'hrc-core'
 import type {
   SessionFacetsRequest,
   SessionFacetsResponse,
@@ -23,6 +23,7 @@ import { type CollaborationMessage, formatCollaborationMessage } from 'wrkq-lib'
 import { formatSessionIdentityHandle } from './shared.js'
 
 import { hasHrcEvidenceOrigin } from '../hrc-evidence-origin.js'
+import type { RelayedBoundedEventRecord } from '../hrc-relay-record.js'
 import { badRequest, json } from '../http.js'
 import { mobileUnauthorizedResponse } from '../mobile-auth/gate.js'
 import {
@@ -286,6 +287,46 @@ type MobileFederationSnapshot = {
 
 function isRemoteProjectionSource(value: unknown): boolean {
   return value === 'remote_runtime_projection'
+}
+
+/**
+ * T-10418: HRC declares that scope-keyed session, event and run reads route to
+ * the scope's home. Read structurally so ACP keeps building against an HRC
+ * tuple that predates the field; absence means remote reads stay refused.
+ */
+function federatedSessionReadFromStatus(status: { capabilities?: unknown }): boolean {
+  const capabilities = status.capabilities
+  return (
+    isRecord(capabilities) &&
+    (capabilities as Record<string, unknown>)['federatedSessionRead'] === true
+  )
+}
+
+const FEDERATED_READ_CACHE_MS = 30_000
+const federatedReadCache = new WeakMap<object, { value: boolean; at: number }>()
+
+async function federatedSessionReadDeclared(hrcClient: AcpHrcClient): Promise<boolean> {
+  const cached = federatedReadCache.get(hrcClient)
+  if (cached !== undefined && Date.now() - cached.at < FEDERATED_READ_CACHE_MS) return cached.value
+  if (typeof hrcClient.getStatus !== 'function') return false
+  try {
+    const value = federatedSessionReadFromStatus(
+      await hrcClient.getStatus({ includeSessions: false })
+    )
+    federatedReadCache.set(hrcClient, { value, at: Date.now() })
+    return value
+  } catch {
+    // An unanswerable status is not a declaration; do not remember it.
+    return false
+  }
+}
+
+/** HRC refusals that say "the home could not answer now", which a client retries. */
+function sessionHomeRefusal(error: unknown): { code: string; message: string } | undefined {
+  if (error instanceof HrcDomainError && error.code.startsWith('session_home_')) {
+    return { code: error.code, message: error.message }
+  }
+  return undefined
 }
 
 function remoteControlUnavailable(clientInputId?: string): Response {
@@ -821,9 +862,11 @@ function projectThinIndexedSession(input: {
   item: SessionPageItem
   localNodeId: string
   peerStatus: Record<string, SessionPeerStatus>
+  federatedRead: boolean
 }): MobileSessionSummary {
   const { item } = input
   const isLocal = item.nodeId === input.localNodeId
+  const readable = isLocal || input.federatedRead
   const peer = input.peerStatus[item.nodeId]
   const mode: MobileSessionMode = modeForExecution(item.executionMode)
   return {
@@ -854,10 +897,10 @@ function projectThinIndexedSession(input: {
       input: false,
       interrupt: false,
       launchHeadlessTurn: false,
-      history: isLocal,
+      history: readable,
       summary: true,
       semanticDm: true,
-      timeline: isLocal,
+      timeline: readable,
       literalInput: false,
       answerPrompt: isLocal,
     },
@@ -875,6 +918,7 @@ async function projectIndexedSession(input: {
   item: SessionPageItem
   localNodeId: string
   peerStatus: Record<string, SessionPeerStatus>
+  federatedRead: boolean
 }): Promise<MobileSessionSummary> {
   const thin = projectThinIndexedSession(input)
   if (input.item.nodeId !== input.localNodeId) return thin
@@ -918,6 +962,7 @@ async function loadMobileSessionPage(
     hrcClient.getStatus({ includeSessions: false }),
   ])
   const localNodeId = status.node.nodeId
+  const federatedRead = federatedSessionReadFromStatus(status)
   const seen = new Set<string>()
   const items = page.items.filter((item) => {
     const key = `${item.nodeId}\u0000${item.hostSessionId}`
@@ -927,7 +972,13 @@ async function loadMobileSessionPage(
   })
   const sessions = await Promise.all(
     items.map((item) =>
-      projectIndexedSession({ hrcClient, item, localNodeId, peerStatus: page.peerStatus })
+      projectIndexedSession({
+        hrcClient,
+        item,
+        localNodeId,
+        peerStatus: page.peerStatus,
+        federatedRead,
+      })
     )
   )
   return {
@@ -1576,7 +1627,8 @@ function projectMobileNodeState(
 
 function projectRemoteRuntime(
   runtime: HrcRuntimeSnapshot,
-  node: FederationNodeRuntimeProjection
+  node: FederationNodeRuntimeProjection,
+  federatedRead: boolean
 ): MobileSessionSummary {
   const execution: MobileExecutionMode =
     runtime.transport === 'headless'
@@ -1613,10 +1665,10 @@ function projectRemoteRuntime(
       input: false,
       interrupt: false,
       launchHeadlessTurn: false,
-      history: false,
+      history: federatedRead,
       summary: true,
       semanticDm: true,
-      timeline: false,
+      timeline: federatedRead,
       literalInput: false,
       answerPrompt: false,
     },
@@ -1662,6 +1714,7 @@ async function buildMobileFederationSnapshot(
     hrcClient.listFederationPeerHealth(),
     hrcClient.listFederatedRuntimes({}),
   ])
+  const federatedRead = await federatedSessionReadDeclared(hrcClient)
   const observations = healthResult.status === 'fulfilled' ? healthResult.value : []
   const report: FederationRuntimeProjectionReport | undefined =
     runtimeResult.status === 'fulfilled' ? runtimeResult.value : undefined
@@ -1744,8 +1797,9 @@ async function buildMobileFederationSnapshot(
     sessions:
       report?.nodes
         .filter((node) => node.nodeId !== localNodeId)
-        .flatMap((node) => node.runtimes.map((runtime) => projectRemoteRuntime(runtime, node))) ??
-      [],
+        .flatMap((node) =>
+          node.runtimes.map((runtime) => projectRemoteRuntime(runtime, node, federatedRead))
+        ) ?? [],
     ...(details.length > 0 ? { detail: details.join(' ') } : {}),
   }
 }
@@ -2002,6 +2056,70 @@ async function resolveMobileSessionByHostSessionId(
   return resolved
 }
 
+type MobileReadSession = {
+  record: HrcSessionRecord
+  runtime?: HrcRuntimeSnapshot | undefined
+  /** Answered by the scope's home through HRC's federated read, not this node. */
+  remote: boolean
+}
+
+/**
+ * T-10418 §5.2 — the read-only lookup behind timeline open and history ONLY.
+ *
+ * The local lookup runs first, unchanged. On a local miss with a client
+ * `sessionRef` and the declared capability, the canonical continuity is read
+ * by scope and lane through HRC's home-routed `sessions/get`, so a local
+ * shadow is never selected. The home's active host session must be the one
+ * requested (otherwise the generation rolled). Runtime inventory is never
+ * consulted, so a runtime-less continuity still resolves. Input and interrupt
+ * keep `resolveMobileSessionByHostSessionId` and can never reach this.
+ */
+async function resolveMobileSessionForRead(
+  hrcClient: AcpHrcClient,
+  input: { hostSessionId: string; sessionRef: string | undefined }
+): Promise<MobileReadSession> {
+  const local = await findLocalMobileSessionByHostSessionId(hrcClient, input.hostSessionId)
+  if (local !== undefined) return { ...local, remote: false }
+  if (
+    input.sessionRef === undefined ||
+    hrcClient.getSessionByContinuity === undefined ||
+    !(await federatedSessionReadDeclared(hrcClient))
+  ) {
+    badRequest(`session not found: ${input.hostSessionId}`, {
+      hostSessionId: input.hostSessionId,
+    })
+  }
+  const { scopeRef, laneRef } = splitSessionRef(input.sessionRef)
+  let canonical: Awaited<ReturnType<NonNullable<AcpHrcClient['getSessionByContinuity']>>>
+  try {
+    canonical = await hrcClient.getSessionByContinuity({ scopeRef, laneRef })
+  } catch (error) {
+    if (sessionHomeRefusal(error) !== undefined) throw error
+    badRequest(`session not found: ${input.hostSessionId}`, {
+      hostSessionId: input.hostSessionId,
+    })
+  }
+  if (canonical.generation.hostSessionId !== input.hostSessionId) {
+    badRequest(`session not found: ${input.hostSessionId} (generation rolled)`, {
+      hostSessionId: input.hostSessionId,
+      currentHostSessionId: canonical.generation.hostSessionId,
+    })
+  }
+  return {
+    record: {
+      hostSessionId: canonical.generation.hostSessionId,
+      scopeRef,
+      laneRef,
+      generation: canonical.generation.generation,
+      status: canonical.generation.status,
+      createdAt: canonical.generation.createdAt,
+      updatedAt: canonical.facts.lastActivityAt ?? canonical.generation.createdAt,
+      ...(canonical.identity !== undefined ? { identity: canonical.identity } : {}),
+    } as HrcSessionRecord,
+    remote: true,
+  }
+}
+
 export const handleMobileHealth: RouteHandler = async ({ deps }) => {
   const hrcClient = deps.hrcClient
   let hrcOk = false
@@ -2020,6 +2138,8 @@ export const handleMobileHealth: RouteHandler = async ({ deps }) => {
     }
   }
 
+  const federatedRead =
+    hrcClient !== undefined && hrcOk ? await federatedSessionReadDeclared(hrcClient) : false
   const capabilities = {
     sessions: hrcClient !== undefined,
     timeline: hrcClient !== undefined,
@@ -2038,8 +2158,8 @@ export const handleMobileHealth: RouteHandler = async ({ deps }) => {
       hrcClient.listFederatedRuntimes !== undefined,
     nodeRuntimeProjection: hrcClient?.listFederatedRuntimes !== undefined,
     semanticDm: hrcClient !== undefined,
-    remoteTimeline: false,
-    remoteHistory: false,
+    remoteTimeline: federatedRead,
+    remoteHistory: federatedRead,
     remoteLiteralInput: false,
     remoteInterrupt: false,
   }
@@ -2388,7 +2508,8 @@ function mobileTimelineProjector(deps: ResolvedAcpServerDeps, hrcClient: AcpHrcC
 
 export const handleMobileHistory: RouteHandler = async ({ deps, url }) => {
   const hrcClient = requireHrcClient(deps)
-  if (isRemoteProjectionSource(url.searchParams.get('sourceKind'))) {
+  const remoteSource = isRemoteProjectionSource(url.searchParams.get('sourceKind'))
+  if (remoteSource && !(await federatedSessionReadDeclared(hrcClient))) {
     return remoteControlUnavailable()
   }
   const sessionRefValue = url.searchParams.get('sessionRef')?.trim()
@@ -2415,6 +2536,16 @@ export const handleMobileHistory: RouteHandler = async ({ deps, url }) => {
       { ok: false, code: 'timeline_unavailable', message: 'timeline projection is not configured' },
       503
     )
+  }
+  if (remoteSource) {
+    // T-10418 §5.4: the home must still hold this host session for that scope.
+    try {
+      await resolveMobileSessionForRead(hrcClient, { hostSessionId, sessionRef: sessionRefValue })
+    } catch (error) {
+      const refusal = sessionHomeRefusal(error)
+      if (refusal !== undefined) return json({ ok: false, retryable: true, ...refusal }, 503)
+      throw error
+    }
   }
   const memberRef = formatScopeHandle(parseScopeRef(splitSessionRef(sessionRefValue).scopeRef))
   const identity = { sessionRef: sessionRefValue, hostSessionId, generation, memberRef }
@@ -2540,12 +2671,21 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
   const hrcClient = requireHrcClient(deps)
   const parsedURL = new URL(url)
 
+  const remoteSource = isRemoteProjectionSource(parsedURL.searchParams.get('sourceKind'))
+  const requestedSessionRef = parsedURL.searchParams.get('sessionRef')?.trim() || undefined
   if (
-    (kind === 'timeline' || kind === 'diagnostics') &&
-    isRemoteProjectionSource(parsedURL.searchParams.get('sourceKind'))
+    remoteSource &&
+    (kind === 'diagnostics' ||
+      (kind === 'timeline' && !(await federatedSessionReadDeclared(hrcClient))))
   ) {
     sendMobileErrorEnvelope(ws, 'remote_control_unavailable', REMOTE_CONTROL_UNAVAILABLE_MESSAGE)
     ws.close(1008, 'remote control unavailable')
+    return
+  }
+  if (remoteSource && kind === 'timeline' && requestedSessionRef === undefined) {
+    // T-10418 §5.3: a remote timeline names its scope; the home is found by it.
+    sendMobileErrorEnvelope(ws, 'session_ref_required', 'remote timeline requires sessionRef')
+    ws.close(1008, 'sessionRef required')
     return
   }
 
@@ -2606,10 +2746,19 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
     | undefined
 
   if (kind === 'timeline') {
-    let resolved: { record: HrcSessionRecord; runtime?: HrcRuntimeSnapshot | undefined }
+    let resolved: MobileReadSession
     try {
-      resolved = await resolveMobileSessionByHostSessionId(hrcClient, pathHostSessionId)
+      resolved = await resolveMobileSessionForRead(hrcClient, {
+        hostSessionId: pathHostSessionId,
+        sessionRef: requestedSessionRef,
+      })
     } catch (error) {
+      const refusal = sessionHomeRefusal(error)
+      if (refusal !== undefined) {
+        sendMobileJsonEnvelope(ws, { type: 'error', ...refusal, retryable: true })
+        ws.close(1013, 'session home unavailable')
+        return
+      }
       sendMobileErrorEnvelope(
         ws,
         'session_not_found',
@@ -2620,21 +2769,36 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
     }
     const { record, runtime } = resolved
     sessionRefValue = sessionRef(record.scopeRef, record.laneRef)
-    const [latestEvents, latestRun] = await Promise.all([
-      hrcClient.listLatestEventBySession({
-        hostSessionId: record.hostSessionId,
-        generation: record.generation,
-      }),
-      hrcClient.getLatestRunForSession({
-        hostSessionId: record.hostSessionId,
-        generation: record.generation,
-      }),
-    ])
+    // T-10418 §5.5: a remote record's snapshot reads the home by its exact
+    // scope, lane, host and generation; never local by hostSessionId alone.
+    const exact = {
+      scopeRef: record.scopeRef,
+      laneRef: record.laneRef,
+      hostSessionId: record.hostSessionId,
+      generation: record.generation,
+    }
+    const [lastEvent, latestRun] = resolved.remote
+      ? await Promise.all([
+          hrcClient.tailEvents({ ...exact, limit: 1 }).then((tail) => tail.events.at(-1)),
+          hrcClient.listRuns({ ...exact, limit: 1 }).then((runs) => runs[0]),
+        ])
+      : await Promise.all([
+          hrcClient
+            .listLatestEventBySession({
+              hostSessionId: record.hostSessionId,
+              generation: record.generation,
+            })
+            .then((events) => events[0]),
+          hrcClient.getLatestRunForSession({
+            hostSessionId: record.hostSessionId,
+            generation: record.generation,
+          }),
+        ])
     const session = projectSession({
       record,
       runtime,
       run: latestRun ?? undefined,
-      lastEvent: latestEvents[0],
+      lastEvent,
       raw,
       includeSessionDetails,
     })
@@ -2866,14 +3030,29 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
 
     const pumpEvents = async (): Promise<void> => {
       if (timelineIdentity === undefined || timelineHrcLedgerIncarnationId === undefined) return
-      for await (const record of hrcClient.watchBoundedEvents({
+      const lane = splitSessionRef(timelineIdentity.sessionRef)
+      for await (const streamed of hrcClient.watchBoundedEvents({
         ledgerIncarnationId: timelineHrcLedgerIncarnationId,
         afterSeq: options.fromSeq ?? 0,
+        scopeRef: lane.scopeRef,
+        laneRef: lane.laneRef,
         hostSessionId: timelineIdentity.hostSessionId,
         generation: timelineIdentity.generation,
         signal: abortController.signal,
       })) {
         if (abortController.signal.aborted) break
+        const record = streamed as RelayedBoundedEventRecord
+        if (record.type === 'home_unreachable') {
+          // T-10418 §5.6: the home relay ended; the client reconnects from its cursor.
+          sendMobileJsonEnvelope(ws, {
+            type: 'error',
+            code: 'session_home_unreachable',
+            message: `session home ${record.homeNodeId} is unreachable (${record.reason}); reconnect`,
+            retryable: true,
+          })
+          ws.close(1013, 'session home unreachable')
+          return
+        }
         if (record.type === 'ready') continue
         if (record.type === 'ledger_replaced') {
           sendMobileErrorEnvelope(

@@ -1,4 +1,5 @@
 import { type HrcBoundedEventStreamRecord, HrcDomainError } from 'hrc-core'
+import type { RelayedBoundedEventRecord } from '../hrc-relay-record.js'
 
 import type { ResolvedAcpServerDeps } from '../deps.js'
 import { encodePluginEventCursor } from './plugin-event-cursor.js'
@@ -209,9 +210,19 @@ export async function openPluginEventsWebSocket(ws: PluginEventsWebSocketLike): 
         }
         return
       }
-      const record = next.value
+      const record = next.value as RelayedBoundedEventRecord
       if (record.type === 'ledger_replaced') {
         sendErrorAndClose(ws, 'cursor_invalid', 'event ledger incarnation is no longer current')
+        return
+      }
+      if (record.type === 'home_unreachable') {
+        // T-10418: a scope-filtered stream relayed from the scope's home ended.
+        sendErrorAndClose(
+          ws,
+          'session_home_unreachable',
+          `session home ${record.homeNodeId} is unreachable (${record.reason}); reconnect`,
+          1013
+        )
         return
       }
       const wireRecord = mapRecord(record, filters, resolved.ledgerIncarnationId, resolved.hrcSeq)

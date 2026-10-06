@@ -8,6 +8,7 @@ import type {
   MobileTimelineProjectionRepo,
 } from 'acp-state-store'
 import { MobileTimelineProjectionCorruptError } from 'acp-state-store'
+import { splitSessionRef } from 'hrc-core'
 import type { HrcLifecycleEvent } from 'hrc-core'
 import type { HrcEventTail } from 'hrc-sdk'
 import type { CollaborationLedger, CollaborationMessage, CollaborationMessagePage } from 'wrkq-lib'
@@ -142,6 +143,15 @@ type Selection = {
   hrcLowestConsumedSeq: number | undefined
   wrkqLowestConsumedSeq: number | undefined
   ceilingReached: boolean
+}
+
+/**
+ * T-10418 §5.6: every HRC timeline read names the scope and lane, so HRC routes
+ * it to the scope's home; host session and generation stay exact filters there.
+ */
+function scopeFilter(identity: { sessionRef: string }): { scopeRef: string; laneRef: string } {
+  const { scopeRef, laneRef } = splitSessionRef(identity.sessionRef)
+  return { scopeRef, laneRef }
 }
 
 function options(input: Partial<ProjectorOptions> = {}): ProjectorOptions {
@@ -447,6 +457,7 @@ export function createMobileTimelineProjector(deps: ProjectorDeps) {
     const [hrc, wrkq] = await Promise.all([
       deps.hrcClient.tailEvents({
         limit: readLimit,
+        ...scopeFilter(identity),
         hostSessionId: identity.hostSessionId,
         generation: identity.generation,
       }),
@@ -554,6 +565,7 @@ export function createMobileTimelineProjector(deps: ProjectorDeps) {
         limit: Math.min(PRODUCER_PAGE_LIMIT, max + 1 - events.length),
         beforeHrcSeq: before,
         ledgerIncarnationId: incarnation,
+        ...scopeFilter(identity),
         hostSessionId: identity.hostSessionId,
         generation: identity.generation,
       })
@@ -689,6 +701,7 @@ export function createMobileTimelineProjector(deps: ProjectorDeps) {
             limit,
             beforeHrcSeq: projection.hrcBeforeSeq,
             ledgerIncarnationId: projection.hrcLedgerIncarnationId,
+            ...scopeFilter(identity),
             hostSessionId: identity.hostSessionId,
             generation: identity.generation,
           }),

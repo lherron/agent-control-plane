@@ -196,6 +196,8 @@ export type AcpHrcClient = Pick<
   | 'watchMessages'
 > & {
   listSessionsPage?: HrcClient['listSessionsPage']
+  /** T-10418: home-routed continuity read behind remote timeline/history lookup. */
+  getSessionByContinuity?: HrcClient['getSessionByContinuity']
   getSessionFacets?: HrcClient['getSessionFacets']
   listFederationPeerHealth?: HrcClient['listFederationPeerHealth']
   listFederatedRuntimes?: HrcClient['listFederatedRuntimes']
