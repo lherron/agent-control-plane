@@ -130,8 +130,10 @@ function makeDispatchAgentInput(): {
   const port: DispatchAgentInput = async (input) => {
     calls.push(input)
     return {
-      inputAttemptId: `iat_${calls.length.toString().padStart(6, '0')}`,
-      runId: `run_${calls.length.toString().padStart(6, '0')}`,
+      to: 'fettle@agent-control-plane:T-09001',
+      roomKey: 'T-09001',
+      groupId: `EN-${calls.length.toString().padStart(5, '0')}`,
+      envelopeId: `EN-${calls.length.toString().padStart(5, '0')}`,
     }
   }
   return { port, calls }
@@ -431,8 +433,8 @@ describe('executeNativeSideEffectStep — agent-dispatch step (Phase B RED)', ()
       // Assertion 1: result shape
       expect(result.kind).toBe('agent-dispatch')
       if (result.kind === 'agent-dispatch') {
-        expect(typeof result.result.inputAttemptId).toBe('string')
-        expect(typeof result.result.runId).toBe('string')
+        expect(typeof result.result.to).toBe('string')
+        expect(typeof result.result.envelopeId).toBe('string')
         expect(typeof result.result.scopeRef).toBe('string')
         expect(typeof result.result.laneRef).toBe('string')
         expect(typeof result.result.idempotencyKey).toBe('string')
@@ -449,7 +451,7 @@ describe('executeNativeSideEffectStep — agent-dispatch step (Phase B RED)', ()
         1
       )
       expect(jobStepRun?.status).toBe('succeeded')
-      expect(jobStepRun?.result?.['inputAttemptId']).toBeDefined()
+      expect(jobStepRun?.result?.['envelopeId']).toBeDefined()
       expect(jobStepRun?.result?.['idempotencyKey']).toBeDefined()
     } finally {
       store.close()
@@ -480,7 +482,7 @@ describe('executeNativeSideEffectStep — agent-dispatch step (Phase B RED)', ()
       const capturedKeys: string[] = []
       const dispatchAgentInput: DispatchAgentInput = async (input) => {
         capturedKeys.push(input.idempotencyKey)
-        return { inputAttemptId: 'iat_001', runId: 'run_001' }
+        return { to: 'fettle@agent-control-plane:T-09001', envelopeId: 'EN-00001' }
       }
 
       const deps: NativeStepExecutorDeps = {
@@ -538,7 +540,7 @@ describe('executeNativeSideEffectStep — agent-dispatch step (Phase B RED)', ()
       const capturedMeta: Array<Readonly<Record<string, unknown>> | undefined> = []
       const dispatchAgentInput: DispatchAgentInput = async (input) => {
         capturedMeta.push(input.meta)
-        return { inputAttemptId: 'iat_001', runId: 'run_001' }
+        return { to: 'fettle@agent-control-plane:T-09001', envelopeId: 'EN-00001' }
       }
 
       const deps: NativeStepExecutorDeps = {
@@ -607,7 +609,7 @@ describe('executeNativeSideEffectStep — agent-dispatch step (Phase B RED)', ()
       const dispatchAgentInput: DispatchAgentInput = async (input) => {
         capturedScopeRefs.push(input.scopeRef)
         capturedLaneRefs.push(input.laneRef)
-        return { inputAttemptId: 'iat_001', runId: 'run_001' }
+        return { to: 'fettle@agent-control-plane:T-09001', envelopeId: 'EN-00001' }
       }
 
       const deps: NativeStepExecutorDeps = {

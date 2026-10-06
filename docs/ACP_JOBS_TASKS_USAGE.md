@@ -27,7 +27,7 @@ step's result to `job_step_runs`.
 | `probe` | run a **built-in named** probe (idle/work decision) | `branches.outcome` |
 | `wrkq-task` | idempotent create-or-find a wrkq task | continue/fail |
 | `pulpit-message` | deliver a message to an interface binding (Discord, etc.) | continue/fail |
-| `agent-dispatch` | dispatch a turn to an agent session via `/v1/inputs` | continue/fail |
+| `agent-dispatch` | prompt an agent seat through the collaboration ledger: a reply-required `wrkc say` from the ACP principal to the seat handle (lane `main` only) | continue/fail |
 | *(omitted)* / `agent` | legacy agent step — dispatch the step `input` as an agent turn | continue/fail |
 
 `probe.name` must be in the built-in registry (`knownProbeNames`:

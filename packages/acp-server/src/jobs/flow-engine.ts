@@ -29,11 +29,11 @@ import { createOrFindWrkqTask } from 'wrkq-lib'
 
 import type { ResolvedAcpServerDeps } from '../deps.js'
 import { handleCreateAgentPulpitMessage } from '../handlers/agent-pulpit-messages.js'
-import { handleCreateInput } from '../handlers/inputs.js'
 import { dispatchStepThroughInputs } from './dispatch-step.js'
 import { resolveJobExecPolicy } from './exec-policy.js'
 import { ExecStepError, runExecStep } from './exec-step.js'
 import { HRC_EVENT_LOCAL_NODE_PROBE } from './hrc-first-turn-missing.js'
+import { createLedgerAgentDispatch } from './ledger-agent-dispatch.js'
 import {
   type RunOutcome,
   evaluateExpectation,
@@ -1622,9 +1622,10 @@ function resolveNativeStepExecutorDeps(
   }
 
   const workClient = deps.workClient
-  // Attribute flow-created tasks to the principal ACP's shared client runs as.
-  // Stamped per frame: over rpc:// the wrkq proxy did not forward the launch
-  // principal, and every create failed "principalRef is required" (T-10378).
+  // Attribute flow-created tasks and ledger prompts to the principal ACP's
+  // shared client runs as. Stamped per frame: over rpc:// the wrkq proxy did not
+  // forward the launch principal, and every create failed "principalRef is
+  // required" (T-10378).
   const principalRef = deps.workClientPrincipalRef
   if (principalRef === undefined) {
     throw new Error('native step executor requires the work client principal')
@@ -1662,40 +1663,7 @@ function resolveNativeStepExecutorDeps(
         bindingId: payload.delivery.bindingId,
       }
     },
-    dispatchAgentInput: async (input) => {
-      const response = await handleCreateInput({
-        request: new Request('http://acp.local/v1/inputs', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            sessionRef: { scopeRef: input.scopeRef, laneRef: input.laneRef },
-            idempotencyKey: input.idempotencyKey,
-            content: input.content,
-            ...(input.meta !== undefined ? { meta: input.meta } : {}),
-          }),
-        }),
-        url: new URL('http://acp.local/v1/inputs'),
-        params: {},
-        deps,
-        actor: deps.defaultActor,
-      })
-      if (!response.ok) {
-        throw new Error(`agent dispatch failed with ${response.status}`)
-      }
-      const payload = (await response.json()) as {
-        inputAttempt: { inputAttemptId: string }
-        run?: { runId: string } | undefined
-        targetRun?: { runId: string } | undefined
-      }
-      const runId = payload.run?.runId ?? payload.targetRun?.runId
-      if (runId === undefined) {
-        throw new Error('agent dispatch did not return a run id')
-      }
-      return {
-        inputAttemptId: payload.inputAttempt.inputAttemptId,
-        runId,
-      }
-    },
+    dispatchAgentInput: createLedgerAgentDispatch(workClient, principalRef),
   }
 }
 

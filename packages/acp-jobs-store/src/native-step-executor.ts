@@ -30,9 +30,18 @@ export type PulpitMessageStepResult = {
   idempotencyKey: string
 }
 
-export type AgentDispatchStepResult = {
-  inputAttemptId: string
-  runId: string
+/** Receipt for a prompt addressed to an agent seat on the collaboration ledger. */
+export type AgentDispatchDelivery = {
+  /** Addressee seat handle, e.g. `fettle@agent-control-plane:T-10391`. */
+  to: string
+  roomKey?: string | undefined
+  groupId?: string | undefined
+  envelopeId?: string | undefined
+  /** The ledger already held this step's say (crash replay); ids are not re-read. */
+  replayed?: boolean | undefined
+}
+
+export type AgentDispatchStepResult = AgentDispatchDelivery & {
   scopeRef: string
   laneRef: string
   idempotencyKey: string
@@ -66,15 +75,19 @@ export type SendPulpitMessage = (input: {
   bindingId?: string | undefined
 }) => Promise<{ deliveryRequestId: string; bindingId: string }>
 
-/** Port for dispatching an agent via /v1/inputs. */
+/**
+ * Port for prompting an agent seat. Delivery goes through the collaboration
+ * ledger (an addressed say the HRC kicker presents), never an ACP local launch,
+ * which refuses ledger-owned seats (T-10378).
+ */
 export type DispatchAgentInput = (input: {
   scopeRef: string
   laneRef: string
   idempotencyKey: string
   content: string
-  /** Health-incident metadata stamped on the dispatch run. */
+  /** Health-incident metadata carried on the envelope. */
   meta?: Readonly<Record<string, unknown>> | undefined
-}) => Promise<{ inputAttemptId: string; runId: string }>
+}) => Promise<AgentDispatchDelivery>
 
 /** All ports required by the native step executor. */
 export type NativeStepExecutorDeps = {
@@ -220,13 +233,7 @@ export async function executeNativeSideEffectStep(
       })
       result = {
         kind: 'agent-dispatch',
-        result: {
-          inputAttemptId: dispatched.inputAttemptId,
-          runId: dispatched.runId,
-          scopeRef,
-          laneRef,
-          idempotencyKey,
-        },
+        result: { ...dispatched, scopeRef, laneRef, idempotencyKey },
       }
       break
     }

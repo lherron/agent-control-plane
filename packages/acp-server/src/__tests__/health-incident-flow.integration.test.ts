@@ -65,8 +65,8 @@ function makePortsWithCounts(): {
   const dispatchAgentInput: DispatchAgentInput = async (_input) => {
     counts.dispatchAgentInput += 1
     return {
-      inputAttemptId: `iat_00${counts.dispatchAgentInput}`,
-      runId: `run_00${counts.dispatchAgentInput}`,
+      to: 'fettle@agent-control-plane:T-09001',
+      envelopeId: `EN-0000${counts.dispatchAgentInput}`,
     }
   }
   return { deps: { wrkqTaskPort, sendPulpitMessage, dispatchAgentInput }, counts }
