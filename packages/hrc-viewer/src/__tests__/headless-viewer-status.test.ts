@@ -41,7 +41,7 @@ describe('renderStatusBar', () => {
       fixtureIdentity('agent:clod:project:hrc-runtime:task:T-04297'),
       'running'
     )
-    expect(spec.left).toBe('◆ CLOD')
+    expect(spec.left).toBe('◆ CLOD · T-04297')
     expect(spec.center).toBe('hrc · T-04297/main')
     expect(spec.right).toBe('▶ running')
     expect(spec.bg).toBe(agentTheme('clod').bg)
@@ -69,6 +69,16 @@ describe('renderStatusBar', () => {
     ).toBe('hrc · T-02341/main')
   })
 
+  it('appends the task scope, uncapitalized, after the agent name in the left field', () => {
+    expect(
+      renderStatusBar(fixtureIdentity('agent:mable:project:seraxis:task:primary'), 'running').left
+    ).toBe('◆ MABLE · primary')
+    expect(
+      renderStatusBar(fixtureIdentity('agent:mable:project:hrc-runtime:task:minisvc'), 'idle').left
+    ).toBe('◆ MABLE · minisvc')
+    expect(renderStatusBar(fixtureIdentity('agent:clod:project:wrkq'), 'idle').left).toBe('◆ CLOD')
+  })
+
   it('drops the primary task from the center field', () => {
     const spec = renderStatusBar(
       fixtureIdentity('agent:daedalus:project:agent-spaces:task:primary'),
@@ -80,7 +90,7 @@ describe('renderStatusBar', () => {
 
   it('always emits all three fields (never blanks left/center)', () => {
     const spec = renderStatusBar(fixtureIdentity('agent:smokey:project:wrkq:task:T-1'), 'exited')
-    expect(spec.left).toBe('◆ SMOKEY')
+    expect(spec.left).toBe('◆ SMOKEY · T-1')
     expect(spec.center).toBe('wrkq · T-1/main')
     expect(spec.right).toBe('■ exited')
   })
@@ -193,7 +203,7 @@ describe('HeadlessViewerStatusProjector', () => {
     await flushAll()
     expect(applied).toHaveLength(1)
     expect(applied[0]?.spec.right).toBe('▶ running')
-    expect(applied[0]?.spec.left).toBe('◆ CLOD')
+    expect(applied[0]?.spec.left).toBe('◆ CLOD · T-1')
   })
 
   it('coalesces rapid transitions within the debounce window (last-state-wins)', async () => {

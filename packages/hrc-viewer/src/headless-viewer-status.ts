@@ -94,8 +94,10 @@ export function renderStatusBar(
   const parsed = identity
   const agentId = identity?.agentId ?? 'unknown'
   const theme = sessionTheme(identity, metadata)
+  // Task scope (`primary`, `minisvc`, `T-…`) follows the agent name, kept in its own case.
+  const taskScope = identity?.taskId ? ` · ${identity.taskId}` : ''
   return {
-    left: `◆ ${agentId.toUpperCase()}`,
+    left: `◆ ${agentId.toUpperCase()}${taskScope}`,
     center: renderCenter(parsed, slug, laneRef),
     right: STATE_RIGHT[state],
     fg: theme.fg,
