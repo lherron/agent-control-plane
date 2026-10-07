@@ -19,6 +19,22 @@ export type GhostmuxRunner = (args: string[]) => Promise<GhostmuxExecResult>
 
 export const DEFAULT_GHOSTMUX_COMMAND_TIMEOUT_MS = 5_000
 
+/**
+ * How long an applied title/bg/status-bar value suppresses an identical rewrite
+ * (T-10484). Every ghostmux exec costs a full terminal list inside Ghostty, and
+ * reconcile repaints every pane; the TTL keeps periodic drift repair (a program
+ * can overwrite a title or background with its own OSC) without repainting the
+ * fleet on every stream reset.
+ */
+export const DEFAULT_PAINT_MEMO_TTL_MS = 10 * 60 * 1_000
+
+export type PaintMemoOptions = {
+  ttlMs?: number | undefined
+  now?: (() => number) | undefined
+}
+
+type PaintSlot = 'title' | 'bg' | 'statusbar' | 'secondary'
+
 export class GhostmuxCommandTimeoutError extends Error {
   override readonly name = 'GhostmuxCommandTimeoutError'
   readonly code = 'ghostmux_command_timeout'
@@ -715,14 +731,21 @@ export class GhostmuxManager {
    * lock is needed because metadata is reconciled on restart.
    */
   private readonly headlessLocks = new Map<string, Promise<void>>()
+  /** Last successfully applied presentation value per surface and slot (T-10484). */
+  private readonly paintMemo = new Map<string, Map<PaintSlot, { value: string; at: number }>>()
+  private readonly paintMemoTtlMs: number
+  private readonly now: () => number
 
   constructor(
     private readonly ghostmuxBinary = 'ghostmux',
     private readonly runner?: GhostmuxRunner | undefined,
     commandTimeoutMs = DEFAULT_GHOSTMUX_COMMAND_TIMEOUT_MS,
-    private readonly interruptAttachment = interruptViewerAttachment
+    private readonly interruptAttachment = interruptViewerAttachment,
+    paintMemo: PaintMemoOptions = {}
   ) {
     this.commandTimeoutMs = Math.max(1, Math.trunc(commandTimeoutMs))
+    this.paintMemoTtlMs = paintMemo.ttlMs ?? DEFAULT_PAINT_MEMO_TTL_MS
+    this.now = paintMemo.now ?? Date.now
   }
 
   private readonly commandTimeoutMs: number
@@ -744,6 +767,7 @@ export class GhostmuxManager {
   }
 
   async terminate(surfaceId: string): Promise<void> {
+    this.paintMemo.delete(surfaceId)
     try {
       await this.exec(['kill-surface', '-t', surfaceId, '--force'])
     } catch (error) {
@@ -873,7 +897,7 @@ export class GhostmuxManager {
           // Refresh the title on reuse too, so a reused pane always reflects the
           // current label (e.g. after a label-format change). Safe: the pane is
           // blocked in `tmux attach`, so this set-title is not clobbered.
-          await this.exec(['set-title', '-t', existing.surfaceId, paneTitle]).catch(() => undefined)
+          await this.stampPaneTitle(existing.surfaceId, paneTitle).catch(() => undefined)
           this.applyStatusBarBestEffort(existing.surfaceId, options.statusBar)
           this.applyTerminalBackgroundBestEffort(existing.surfaceId, options.terminalBg)
           return {
@@ -951,7 +975,7 @@ export class GhostmuxManager {
             false
           )
         }
-        await this.exec(['set-title', '-t', created.surfaceId, paneTitle]).catch(() => undefined)
+        await this.stampPaneTitle(created.surfaceId, paneTitle).catch(() => undefined)
         await this.equalizePanes(created.surfaceId)
         this.applyStatusBarBestEffort(created.surfaceId, options.statusBar)
         this.applyTerminalBackgroundBestEffort(created.surfaceId, options.terminalBg)
@@ -1169,7 +1193,9 @@ export class GhostmuxManager {
     if (spec.fg) args.push('--fg', spec.fg)
     if (spec.bg) args.push('--bg', spec.bg)
     try {
-      await this.exec(args)
+      await this.paintOnce(surfaceId, 'statusbar', args.slice(4).join('\0'), async () => {
+        await this.exec(args)
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (isUnsupportedCommandError(message)) this.statusBarUnsupported = true
@@ -1193,8 +1219,10 @@ export class GhostmuxManager {
     if (this.secondaryStatusBarUnsupported) return
     const text = [spec.left, spec.center, spec.right].map(sanitizeSecondaryStatusField).join('|')
     try {
-      await this.exec(['statusbar', 'set', '-t', surfaceId, '--bar', 'secondary', text])
-      await this.exec(['statusbar', 'show', '-t', surfaceId, '--bar', 'secondary'])
+      await this.paintOnce(surfaceId, 'secondary', `set:${text}`, async () => {
+        await this.exec(['statusbar', 'set', '-t', surfaceId, '--bar', 'secondary', text])
+        await this.exec(['statusbar', 'show', '-t', surfaceId, '--bar', 'secondary'])
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (isUnsupportedCommandError(message)) this.secondaryStatusBarUnsupported = true
@@ -1209,7 +1237,9 @@ export class GhostmuxManager {
   async hideSecondaryStatusBar(surfaceId: string): Promise<void> {
     if (this.secondaryStatusBarUnsupported) return
     try {
-      await this.exec(['statusbar', 'hide', '-t', surfaceId, '--bar', 'secondary'])
+      await this.paintOnce(surfaceId, 'secondary', 'hidden', async () => {
+        await this.exec(['statusbar', 'hide', '-t', surfaceId, '--bar', 'secondary'])
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (isUnsupportedCommandError(message)) this.secondaryStatusBarUnsupported = true
@@ -1227,7 +1257,9 @@ export class GhostmuxManager {
   async setTerminalBackground(surfaceId: string, hex: string): Promise<void> {
     if (this.setBgUnsupported) return
     try {
-      await this.exec(['set-bg', '-t', surfaceId, hex, '--json'])
+      await this.paintOnce(surfaceId, 'bg', hex, async () => {
+        await this.exec(['set-bg', '-t', surfaceId, hex, '--json'])
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (isUnsupportedCommandError(message)) this.setBgUnsupported = true
@@ -1642,7 +1674,49 @@ export class GhostmuxManager {
   }
 
   private async setTitle(surfaceId: string, title: string): Promise<void> {
-    await this.exec(['set-title', '-t', surfaceId, title])
+    await this.paintOnce(surfaceId, 'title', title, async () => {
+      await this.exec(['set-title', '-t', surfaceId, title])
+    })
+  }
+
+  /**
+   * Unconditional pane title write for create/rebind, recorded in the paint memo
+   * so a later presentation title is compared against what the pane really shows.
+   */
+  async stampPaneTitle(surfaceId: string, title: string): Promise<void> {
+    this.forgetPaint(surfaceId, 'title')
+    await this.setTitle(surfaceId, title)
+  }
+
+  /**
+   * Run a presentation write unless the same value was applied to this slot
+   * within the TTL (T-10484). The slot is forgotten before the write and only
+   * recorded after it succeeds, so a failed or interrupted write is retried.
+   */
+  private async paintOnce(
+    surfaceId: string,
+    slot: PaintSlot,
+    value: string,
+    write: () => Promise<void>
+  ): Promise<void> {
+    const prior = this.paintMemo.get(surfaceId)?.get(slot)
+    if (prior !== undefined && prior.value === value && this.now() - prior.at < this.paintMemoTtlMs)
+      return
+    this.forgetPaint(surfaceId, slot)
+    await write()
+    let slots = this.paintMemo.get(surfaceId)
+    if (slots === undefined) {
+      slots = new Map()
+      this.paintMemo.set(surfaceId, slots)
+    }
+    slots.set(slot, { value, at: this.now() })
+  }
+
+  private forgetPaint(surfaceId: string, slot: PaintSlot): void {
+    const slots = this.paintMemo.get(surfaceId)
+    if (slots === undefined) return
+    slots.delete(slot)
+    if (slots.size === 0) this.paintMemo.delete(surfaceId)
   }
 
   private async exec(args: string[]): Promise<GhostmuxExecResult> {
