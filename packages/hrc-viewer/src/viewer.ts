@@ -130,6 +130,12 @@ const DEFAULT_LINGER_SECONDS = 300
  */
 const REAP_HANDOFF_MARGIN_SECONDS = 15
 const DEFAULT_RECONCILE_INTERVAL_MS = 5 * 60 * 1_000
+/**
+ * A seat idle longer than this is dormant: reconcile mints no pane for it, so a
+ * viewer restart does not reopen every seat that ran in the last few days. Its
+ * next turn re-attaches it (see `handleEvent`).
+ */
+const DORMANT_AFTER_MS = 12 * 60 * 60 * 1_000
 const DEFAULT_RECONNECT_DELAYS_MS = [0, 500, 1_000, 2_000, 4_000] as const
 /**
  * How long `consumeStream` must survive before its end counts as a healthy
@@ -226,6 +232,8 @@ export class HrcViewer {
   private readonly clearScheduled: (handle: ReturnType<typeof setTimeout>) => void
   private readonly reapTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly absentSince = new Map<string, number>()
+  /** Runtimes reconcile declined to attach because they were dormant. */
+  private readonly dormantRuntimeIds = new Set<string>()
   private reconcileInFlight: Promise<void> | undefined
   private stopped = false
   private readonly statusProjector: HeadlessViewerStatusProjector
@@ -326,7 +334,9 @@ export class HrcViewer {
     }
   }
 
-  async reconcile(reason: 'start' | 'reconnect' | 'timer' | 'stream_reset'): Promise<void> {
+  async reconcile(
+    reason: 'start' | 'reconnect' | 'timer' | 'stream_reset' | 'dormant_woke'
+  ): Promise<void> {
     if (this.reconcileInFlight !== undefined) return this.reconcileInFlight
     const operation = this.reconcileOnce(reason).finally(() => {
       if (this.reconcileInFlight === operation) this.reconcileInFlight = undefined
@@ -337,6 +347,15 @@ export class HrcViewer {
 
   async handleEvent(event: LifecycleEvent): Promise<void> {
     this.statusProjector.observe(event)
+    if (
+      event.runtimeId !== undefined &&
+      this.dormantRuntimeIds.has(event.runtimeId) &&
+      viewerStateForEventKind(event.eventKind) === 'running'
+    ) {
+      this.dormantRuntimeIds.delete(event.runtimeId)
+      await this.reconcile('dormant_woke')
+      return
+    }
     if (event.eventKind === 'session.metadata.changed') {
       await this.reconcile('stream_reset')
       return
@@ -530,7 +549,23 @@ export class HrcViewer {
           await this.paintPresentationSurfaces(undefined, row, eventsByRuntime.get(row.runtimeId))
           continue
         }
-        await this.ensurePane(row, eventsByRuntime.get(row.runtimeId))
+        const latestEvent = eventsByRuntime.get(row.runtimeId)
+        if (this.isDormant(row, latestEvent)) {
+          if (!this.dormantRuntimeIds.has(row.runtimeId)) {
+            this.dormantRuntimeIds.add(row.runtimeId)
+            this.log('INFO', 'broker_headless_viewer.skipped_dormant', {
+              runtimeId: row.runtimeId,
+              scopeRef: row.scopeRef,
+              lastEventAt: latestEvent?.ts,
+            })
+          }
+          continue
+        }
+        this.dormantRuntimeIds.delete(row.runtimeId)
+        await this.ensurePane(row, latestEvent)
+      }
+      for (const runtimeId of this.dormantRuntimeIds) {
+        if (!rowsByRuntime.has(runtimeId)) this.dormantRuntimeIds.delete(runtimeId)
       }
       this.log('INFO', 'broker_headless_viewer.reconciled', {
         reason,
@@ -540,6 +575,16 @@ export class HrcViewer {
     } catch (error) {
       this.warn('broker_headless_viewer.reconcile_failed', error, { reason })
     }
+  }
+
+  /**
+   * Idle past DORMANT_AFTER_MS by its latest lifecycle event. A starting/busy row
+   * is active whatever that event says, and an unknown age fails open (mints).
+   */
+  private isDormant(row: PresentationRuntimeRow, latestEvent: LifecycleEvent | undefined): boolean {
+    if (viewerStateForRuntimeStatus(row.status) === 'running') return false
+    const lastAt = latestEvent === undefined ? undefined : eventTimeMs(latestEvent)
+    return lastAt !== undefined && this.now() - lastAt > DORMANT_AFTER_MS
   }
 
   private async ensurePane(

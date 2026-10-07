@@ -298,6 +298,88 @@ describe('HrcViewer reconcile (§4.5 / §5.5)', () => {
 })
 
 /**
+ * A seat idle for more than 12 hours is not re-attached: reconcile (start,
+ * reconnect, timer, stream reset) mints no pane for it. "Idle since" is the
+ * runtime's latest lifecycle event; a busy/starting row is active whatever its
+ * last event says, and a row with no known event keeps the old mint behavior.
+ * The seat's next turn brings the pane back without waiting for the timer.
+ */
+describe('HrcViewer dormant seats (idle > 12h)', () => {
+  // Harness clock is 2026-08-26T12:00:00Z.
+  const OVER_12H = '2026-08-25T23:59:00.000Z'
+  const UNDER_12H = '2026-08-26T00:01:00.000Z'
+
+  test('does not mint a pane for a ready seat whose last event is over 12h old', async () => {
+    const harness = makeHarness({
+      rows: [presentationRow({ status: 'ready' })],
+      latest: [event('turn.completed', { ts: OVER_12H })],
+    })
+    await harness.viewer.reconcile('start')
+    expect(harness.ensureCalls).toHaveLength(0)
+    expect(harness.logs).toContainEqual({
+      event: 'broker_headless_viewer.skipped_dormant',
+      fields: { runtimeId: 'rt-1', scopeRef: SCOPE, lastEventAt: OVER_12H },
+    })
+  })
+
+  test('mints a pane for a ready seat idle for less than 12h', async () => {
+    const harness = makeHarness({
+      rows: [presentationRow({ status: 'ready' })],
+      latest: [event('turn.completed', { ts: UNDER_12H })],
+    })
+    await harness.viewer.reconcile('timer')
+    expect(harness.ensureCalls).toHaveLength(1)
+  })
+
+  test('a busy seat is active regardless of its last event age', async () => {
+    const harness = makeHarness({
+      rows: [presentationRow({ status: 'busy' })],
+      latest: [event('turn.completed', { ts: OVER_12H })],
+    })
+    await harness.viewer.reconcile('start')
+    expect(harness.ensureCalls).toHaveLength(1)
+  })
+
+  test("the dormant seat's next turn re-attaches it immediately", async () => {
+    const rows = [presentationRow({ status: 'ready' })]
+    const latest = [event('turn.completed', { ts: OVER_12H })]
+    const harness = makeHarness({ rows, latest })
+    await harness.viewer.reconcile('start')
+    expect(harness.ensureCalls).toHaveLength(0)
+
+    // Unrelated non-turn activity does not wake it.
+    await harness.viewer.handleEvent(event('broker.seat.transition'))
+    expect(harness.ensureCalls).toHaveLength(0)
+
+    rows[0] = presentationRow({ status: 'busy' })
+    latest[0] = event('turn.started')
+    await harness.viewer.handleEvent(event('turn.started'))
+    expect(harness.ensureCalls).toHaveLength(1)
+    expect(harness.ensureCalls[0]).toMatchObject({ runtimeId: 'rt-1' })
+  })
+
+  test('an existing pane for a dormant seat is still adopted, not reaped', async () => {
+    const harness = makeHarness({
+      rows: [presentationRow({ status: 'ready' })],
+      panes: [
+        {
+          surfaceId: 'surface-1',
+          windowKey: 'default',
+          runtimeId: 'rt-1',
+          hostSessionId: 'hs-1',
+          generation: 1,
+        },
+      ],
+      latest: [event('turn.completed', { ts: OVER_12H })],
+    })
+    await harness.viewer.reconcile('start')
+    expect(harness.ensureCalls).toHaveLength(0)
+    expect(harness.scheduled).toHaveLength(0)
+    expect(harness.statusCalls).toContainEqual({ surfaceId: 'surface-1', right: '✓ idle' })
+  })
+})
+
+/**
  * T-08331: the secondary status bar is a TITLE bar. It answers "what task is
  * this pane?" — a fact — so it is stamped on every reconcile pass regardless of
  * what the runtime's latest event was, and it must render byte-identically to
