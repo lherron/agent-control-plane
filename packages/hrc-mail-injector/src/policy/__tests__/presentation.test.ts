@@ -54,7 +54,7 @@ describe('T-07612 rev 5.1 §4 presentation', () => {
     const rendered = formatEnvelopePresentation(presentable({ senderGeneration: 3 }), NOW)
     expect(rendered).toBe(
       [
-        '[T-07604 · cody@hrc-runtime:T-07604 (gen 3) → you · reply required]',
+        '[T-07604 · 05:00A · cody@hrc-runtime:T-07604 (gen 3) → you · reply required]',
         'the body',
         "reply: wrkc say EN-00042 --to cody@hrc-runtime:T-07604 --as agent:clod - <<'EOF'",
         '…',
@@ -80,7 +80,7 @@ describe('T-07612 rev 5.1 §4 presentation', () => {
 
   it('omits the generation when this node cannot see the sender', () => {
     expect(formatEnvelopePresentation(presentable(), NOW)).toContain(
-      '[T-07604 · cody@hrc-runtime:T-07604 → you · reply required]'
+      '[T-07604 · 05:00A · cody@hrc-runtime:T-07604 → you · reply required]'
     )
   })
 
@@ -155,7 +155,7 @@ describe('T-07612 rev 5.1 §4 presentation', () => {
     const held = envelope({ delivery: 'hold' })
     expect(
       formatEnvelopePresentation(presentable({ envelope: held, delivery: held.delivery }), NOW)
-    ).toContain('[T-07604 · cody@hrc-runtime:T-07604 → you · reply required · preempt]')
+    ).toContain('[T-07604 · 05:00A · cody@hrc-runtime:T-07604 → you · reply required · preempt]')
   })
 
   // T-07698: an R- room is a pair channel, not a topic. Its key renders bare,
@@ -174,7 +174,7 @@ describe('T-07612 rev 5.1 §4 presentation', () => {
       NOW
     )
     expect(rendered).toContain(
-      '[R-00012 · mable@hrc-runtime:primary (gen 7) → you · reply required · still owed'
+      '[R-00012 · 05:00A · mable@hrc-runtime:primary (gen 7) → you · reply required · still owed'
     )
     expect(rendered).not.toContain('"')
     expect(rendered).toContain(
@@ -275,7 +275,7 @@ describe('T-07612 rev 5.1 §4 pointer forms', () => {
     )
     expect(rendered).toBe(
       [
-        '[T-07604 · cody@hrc-runtime:T-07604 → you · reply required · still owed — your turn ended 4m ago without a reply]',
+        '[T-07604 · 05:00A · cody@hrc-runtime:T-07604 → you · reply required · still owed — your turn ended 4m ago without a reply]',
         'read: wrkc show EN-00042   ·   thread: wrkc log T-07604',
         "reply: wrkc say EN-00042 --to cody@hrc-runtime:T-07604 --as agent:clod - <<'EOF'",
         '…',
@@ -368,7 +368,7 @@ describe('T-07612 rev 5.1 §5 sender failure notice', () => {
     })
     expect(formatEnvelopeFailureNotice(failed, 'runtime_terminated', { now: NOW })).toBe(
       [
-        '[T-07604 · your EN-00042 → clod@hrc-runtime:T-07604 · failed: runtime_terminated]',
+        '[T-07604 · 05:00A · your EN-00042 → clod@hrc-runtime:T-07604 · failed: runtime_terminated]',
         'presented 61s, undisposed; runtime rt-0e428a10 ended. Resend: wrkc say T-07604 --to clod@hrc-runtime:T-07604 -',
       ].join('\n')
     )
@@ -380,7 +380,7 @@ describe('T-07612 rev 5.1 §5 sender failure notice', () => {
       formatEnvelopeFailureNotice(failed, 'ignored', { runtimeId: 'rt-1fa86350', now: NOW })
     ).toBe(
       [
-        '[T-07604 · your EN-00042 → clod@hrc-runtime:T-07604 · failed: ignored]',
+        '[T-07604 · 05:00A · your EN-00042 → clod@hrc-runtime:T-07604 · failed: ignored]',
         'presented, reminded, 2 turns ended undisposed on rt-1fa86350. Resend or escalate.',
       ].join('\n')
     )
@@ -422,5 +422,25 @@ describe('reply principal (headless broker births carry no caller principal)', (
     expect(replyPrincipal(env)).toBeUndefined()
     const rendered = formatEnvelopePresentation(presentable({ envelope: env }), NOW)
     expect(rendered).toContain("reply: wrkc say EN-00042 --to cody@hrc-runtime:T-07604 - <<'EOF'")
+  })
+})
+
+describe('T-10690 send-time clause', () => {
+  // America/Chicago is fixed in code: the clause must not move with the host TZ.
+  const at = (createdAt: string) =>
+    formatEnvelopePresentation(presentable({ envelope: envelope({ createdAt }) }), NOW).split(
+      '\n'
+    )[0]
+
+  it('renders zero-padded 12-hour HH:MM with an A/P suffix in Chicago time', () => {
+    // CDT (UTC-5) afternoon, CST (UTC-6) evening, and both noon/midnight edges.
+    expect(at('2026-08-27T19:41:00Z')).toStartWith('[T-07604 · 02:41P · ')
+    expect(at('2026-12-15T03:05:00Z')).toStartWith('[T-07604 · 09:05P · ')
+    expect(at('2026-12-15T18:00:00Z')).toStartWith('[T-07604 · 12:00P · ')
+    expect(at('2026-12-15T06:30:00Z')).toStartWith('[T-07604 · 12:30A · ')
+  })
+
+  it('omits the clause when createdAt is unparseable', () => {
+    expect(at('not-a-time')).toStartWith('[T-07604 · cody@hrc-runtime:T-07604 → you')
   })
 })

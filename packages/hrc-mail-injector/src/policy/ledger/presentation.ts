@@ -148,8 +148,10 @@ export function formatBacklogDigest(
   const lines = ordered.map((envelope) => {
     const age = ageClause(envelope, now)
     const firstLine = envelope.body.split('\n', 1)[0]?.trim() ?? ''
+    const sentAt = formatSentAt(envelope)
     return [
       envelope.id,
+      ...(sentAt === undefined ? [] : [sentAt]),
       formatPartyHandle(envelope.from),
       ...(age === undefined ? [] : [`${age} ago`]),
       clip(firstLine, MAX_DIGEST_LINE_CHARS),
@@ -208,7 +210,13 @@ export function formatEnvelopeFailureNotice(
 ): string {
   const now = options.now ?? new Date()
   const addressee = addresseeToken(envelope)
-  const header = `[${envelope.roomKey} · your ${envelope.id} → ${addressee} · failed: ${reason}]`
+  const sentAt = formatSentAt(envelope)
+  const header = `[${[
+    envelope.roomKey,
+    ...(sentAt === undefined ? [] : [sentAt]),
+    `your ${envelope.id} → ${addressee}`,
+    `failed: ${reason}`,
+  ].join(' · ')}]`
   const lines = [header, failureDetail(envelope, reason, addressee, options.runtimeId, now)]
   const detail = options.detail?.trim()
   if (detail) lines.push(`Why: ${detail}`)
@@ -269,8 +277,10 @@ function formatHeader(presentable: PresentableEnvelope, now: Date): string {
   const { envelope } = presentable
   const obligation = obligationOwesReply(envelope.obligation) ? 'reply required' : undefined
   const why = formatWhy(presentable, now)
+  const sentAt = formatSentAt(envelope)
   const clauses = [
     formatRoomToken(presentable),
+    ...(sentAt === undefined ? [] : [sentAt]),
     `${formatSender(presentable)} → you`,
     ...(obligation === undefined ? [] : [obligation]),
     // The ledger stores the intent as delivery `hold`; the verb the reader
@@ -302,6 +312,29 @@ function formatWhy(presentable: PresentableEnvelope, now: Date): string | undefi
   const when = ago === undefined ? 'you deferred this' : `you deferred this ${ago} ago`
   if (reason === undefined || reason.length === 0) return when
   return `${when}: "${clip(reason, MAX_DEFER_REASON_CHARS)}"`
+}
+
+/**
+ * The envelope's send time, `HH:MMA`/`HH:MMP` (T-10690). Lance reads mail in
+ * Chicago time, so the zone is fixed here rather than taken from the host,
+ * which may be a VM or satellite node in another zone. Every form carries it,
+ * pointer forms included, because "when was this sent" is the question a
+ * reminder or retry most often raises. Omitted when createdAt does not parse.
+ */
+const SENT_AT_FORMAT = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/Chicago',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: true,
+})
+
+function formatSentAt(envelope: WrkqEnvelope): string | undefined {
+  const at = Date.parse(envelope.createdAt)
+  if (Number.isNaN(at)) return undefined
+  const parts = SENT_AT_FORMAT.formatToParts(at)
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? ''
+  return `${part('hour')}:${part('minute')}${part('dayPeriod').charAt(0).toUpperCase()}`
 }
 
 function elapsedClause(at: string | undefined, now: Date): string | undefined {

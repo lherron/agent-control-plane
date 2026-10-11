@@ -121,11 +121,15 @@ describe('T-10159 — backlog fyi digest', () => {
     expect(prompts).toHaveLength(1)
     const [digest] = prompts
     expect(digest?.prompt).toContain('while you were away — 2 fyi, oldest 3m ago')
-    expect(digest?.prompt).toContain(
-      `${first.id} · foundry@wrkq:primary · 3m ago · foundry: build 412 green`
+    expect(digest?.prompt).toMatch(
+      new RegExp(
+        `${first.id} · \\d\\d:\\d\\d[AP] · foundry@wrkq:primary · 3m ago · foundry: build 412 green`
+      )
     )
-    expect(digest?.prompt).toContain(
-      `${second.id} · foundry@wrkq:primary · 2m ago · foundry: build 413 green`
+    expect(digest?.prompt).toMatch(
+      new RegExp(
+        `${second.id} · \\d\\d:\\d\\d[AP] · foundry@wrkq:primary · 2m ago · foundry: build 413 green`
+      )
     )
     expect(digest?.prompt).not.toContain('second line is never shown')
     expect(digest?.prompt).toContain('full text: wrkc show <EN-id>')
@@ -413,8 +417,8 @@ describe('T-10159 — digest text', () => {
     expect(text).toBe(
       [
         '[while you were away — 2 fyi, oldest 13h ago]',
-        `EN-22849 · foundry@wrkq · 13h ago · ${'x'.repeat(120)}…`,
-        'EN-22852 · foundry@wrkq · 13h ago · short',
+        `EN-22849 · 03:20A · foundry@wrkq · 13h ago · ${'x'.repeat(120)}…`,
+        'EN-22852 · 03:27A · foundry@wrkq · 13h ago · short',
         'full text: wrkc show <EN-id>',
       ].join('\n')
     )
