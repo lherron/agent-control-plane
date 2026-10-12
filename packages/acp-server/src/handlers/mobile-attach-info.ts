@@ -127,6 +127,17 @@ export const handleMobileAttachInfo: RouteHandler = async ({ deps, params, peer 
     })
   }
 
+  // A resolved-but-empty descriptor (hrc-server once served coalesced attach
+  // callers an empty body, which the SDK reads as null) is not-attachable, never
+  // a 500 (T-10760).
+  if (descriptor === null || descriptor === undefined) {
+    return notAttachable({
+      hostSessionId,
+      runtimeId: runtime.runtimeId,
+      message: `hrc returned no attach descriptor for runtime ${runtime.runtimeId}`,
+    })
+  }
+
   const parsed = parseTmuxAttachArgv(descriptor.argv)
   if (descriptor.transport !== 'tmux' || parsed === undefined) {
     return notAttachable({

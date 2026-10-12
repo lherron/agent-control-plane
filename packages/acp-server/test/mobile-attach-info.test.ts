@@ -72,7 +72,7 @@ function makeHrcClient(input: {
       if (input.descriptorThrows !== undefined) {
         throw input.descriptorThrows
       }
-      return input.descriptor ?? DESCRIPTOR
+      return 'descriptor' in input ? input.descriptor : DESCRIPTOR
     },
   } as unknown as AcpHrcClient
 }
@@ -189,6 +189,28 @@ describe('GET /v1/mobile/sessions/:hostSessionId/attach-info', () => {
         expect(body.reason).toBe('not_attachable')
         expect(body.code).toBe('runtime_unavailable')
         expect(body.message).toContain('missing tmux socket state')
+      },
+      { hrcClient }
+    )
+  })
+
+  test('409 not_attachable, never 500, when hrc resolves a null descriptor', async () => {
+    // hrc-server served an empty 200 to coalesced attach callers, which the SDK
+    // read as `null`; the handler then threw on `descriptor.argv` (T-10760).
+    const hrcClient = makeHrcClient({
+      sessions: [SESSION],
+      runtimes: [RUNTIME],
+      descriptor: null,
+    })
+
+    await withWiredServer(
+      async ({ request, json }) => {
+        const response = await request({ method: 'GET', path: PATH, peer: LOOPBACK })
+        expect(response.status).toBe(409)
+        const body = await json<{ reason: string; runtimeId: string; message: string }>(response)
+        expect(body.reason).toBe('not_attachable')
+        expect(body.runtimeId).toBe(RUNTIME.runtimeId)
+        expect(body.message).toContain(RUNTIME.runtimeId)
       },
       { hrcClient }
     )
