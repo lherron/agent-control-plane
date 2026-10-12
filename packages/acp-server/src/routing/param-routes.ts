@@ -53,6 +53,7 @@ import { handleWrkfPbcApproveTransition } from '../handlers/wrkf-pbc-approve-tra
 import { handleWrkfPbcInspect } from '../handlers/wrkf-pbc-inspect.js'
 import { handleWrkfPbcRunStep } from '../handlers/wrkf-pbc-run-step.js'
 import { handleWrkfPbcRunUntilBlocked } from '../handlers/wrkf-pbc-run-until-blocked.js'
+import { handleGetWrkqProjectTimeline } from '../handlers/wrkq-project-timeline.js'
 import { handleGetWrkqTask } from '../handlers/wrkq-tasks.js'
 import { withActorAndAuthz } from '../middleware/actor-and-authz.js'
 import {
@@ -205,6 +206,7 @@ export function buildParamRoutes(): ParamRoute[] {
     ),
     createParamRoute('GET', '/v1/tasks/:taskId', handleGetWorkflowTask),
     createParamRoute('GET', '/v1/wrkq/tasks/:taskId', handleGetWrkqTask),
+    createParamRoute('GET', '/v1/wrkq/projects/:project/timeline', handleGetWrkqProjectTimeline),
     createParamRoute('POST', '/v1/tasks/:taskId/evidence', handleAttachWorkflowEvidence),
     createParamRoute('POST', '/v1/tasks/:taskId/transitions', handleApplyWorkflowTransition),
     createParamRoute(

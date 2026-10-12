@@ -57,6 +57,7 @@
       "GET /v1/tasks/:taskId",
       "GET /v1/wrkf/pbc/tasks/:task/inspect",
       "GET /v1/wrkf/ping",
+      "GET /v1/wrkq/projects/:project/timeline",
       "GET /v1/wrkq/tasks",
       "GET /v1/wrkq/tasks/:taskId",
       "GET /v2/mobile/dashboard",
@@ -1353,6 +1354,7 @@
     "docs/agent-control-plane-current-spec.md": {
       "apiReferences": [
         "GET /v1/tasks/:taskId",
+        "GET /v1/wrkq/projects/:project/timeline",
         "GET /v1/wrkq/tasks",
         "GET /v1/wrkq/tasks/:taskId",
         "POST /v1/tasks/:taskId/evidence",

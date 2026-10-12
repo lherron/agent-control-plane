@@ -124,6 +124,21 @@ Current route behavior:
   facade does not depend on the CLI compatibility projection. The task body,
   ownership, claim, schedule, workflow metadata, outcome, comments and
   relations are read projections only; this route exposes no mutation surface.
+- `GET /v1/wrkq/projects/:project/timeline` is the read-only project timeline
+  feed, the `wrkp log` read through the facade. It makes one
+  `wrkq.container.timelineView` call with `container = :project` (a project
+  slug or container id, resolved by wrkq), `scope = "subtree"` and
+  `entriesOnly = true`, and returns the result unchanged (`container`,
+  `campaign`, `entries`, `nextCursor`, `snapshotEventId`, ...). Optional query
+  parameters map 1:1 onto the call: `cursor`, `limit` (default `100`, `1...500`),
+  `order` (`asc`/`desc`; default `desc` on a fresh non-tail read, omitted when a
+  cursor or `tail` is given), comma-separated `types` (`wrkp log --type`
+  grammar), `allTypes` (`true`/`false`; `turn.*` stays hidden by default),
+  `since`, `before`, `task`, and `tail` (`true`/`false`). `tail=true` with no
+  cursor returns the forward cursor at the head and no entries (what
+  `wrkp cursor` prints); a forward read of new appends sends `tail=true` with
+  that cursor (what `wrkp log --after` sends). Bad query values are `400` with
+  `field`; an unknown container is `404 WRKQ_NOT_FOUND`.
 - `GET /v1/tasks/:taskId` calls wrkf `task.inspect`, `task.timeline`, `next`,
   `evidence.list`, `obligation.list`, `effect.list`, and `run.list`, then
   returns `{ source: "wrkf", task, instance, next, timeline, evidence,
