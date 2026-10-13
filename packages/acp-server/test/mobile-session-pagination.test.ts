@@ -190,6 +190,39 @@ describe('GET /v2/mobile/sessions', () => {
     )
   })
 
+  test('cursor pages reuse the first page facets instead of asking HRC again', async () => {
+    const pageRequests: SessionPageRequest[] = []
+    const facetRequests: SessionFacetsRequest[] = []
+    const hrcClient = createPaginatedClient({ pageRequests, facetRequests })
+
+    await withWiredServer(
+      async ({ request, json }) => {
+        const facetsOf = async (path: string) => {
+          const response = await request({ method: 'GET', path })
+          expect(response.status).toBe(200)
+          return (await json<{ facets: Record<string, unknown> }>(response)).facets
+        }
+        const first = await facetsOf('/v2/mobile/sessions?limit=50&agentId=clod&nodeId=local')
+        const next = await facetsOf(
+          '/v2/mobile/sessions?limit=50&agentId=clod&nodeId=local&cursor=opaque-next'
+        )
+        expect(next).toEqual(first)
+        expect(facetRequests).toHaveLength(1)
+        expect(pageRequests).toHaveLength(2)
+
+        // A fresh first page re-reads; a cursor page of another query never borrows.
+        await facetsOf('/v2/mobile/sessions?limit=50&agentId=clod&nodeId=local')
+        await facetsOf('/v2/mobile/sessions?limit=50&agentId=mable&cursor=opaque-next')
+        expect(facetRequests).toEqual([
+          { agentId: 'clod', nodes: 'local' },
+          { agentId: 'clod', nodes: 'local' },
+          { agentId: 'mable' },
+        ])
+      },
+      { hrcClient }
+    )
+  })
+
   test('rejects requests larger than the iOS page contract before calling HRC', async () => {
     const pageRequests: SessionPageRequest[] = []
     const facetRequests: SessionFacetsRequest[] = []

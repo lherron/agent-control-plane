@@ -952,6 +952,46 @@ async function projectIndexedSession(input: {
   }
 }
 
+// Facets count the whole filtered set, so they do not change between pages of
+// one listing. HRC facets fan out to every federation peer; re-reading them on
+// each cursor page made a paged scan pay that fan-out once per page.
+const FACETS_REUSE_TTL_MS = 30_000
+const facetsByClient = new WeakMap<
+  object,
+  Map<string, { atMs: number; facets: SessionFacetsResponse }>
+>()
+
+async function sessionFacetsForPage(
+  hrcClient: AcpHrcClient,
+  getSessionFacets: NonNullable<AcpHrcClient['getSessionFacets']>,
+  request: SessionPageRequest
+): Promise<SessionFacetsResponse> {
+  const facetRequest = sessionFacetRequest(request)
+  const key = JSON.stringify(facetRequest)
+  let cache = facetsByClient.get(hrcClient)
+  if (cache === undefined) {
+    cache = new Map()
+    facetsByClient.set(hrcClient, cache)
+  }
+  const cached = cache.get(key)
+  if (
+    request.cursor !== undefined &&
+    cached !== undefined &&
+    Date.now() - cached.atMs < FACETS_REUSE_TTL_MS
+  ) {
+    return cached.facets
+  }
+  const facets = await getSessionFacets(facetRequest)
+  cache.delete(key)
+  cache.set(key, { atMs: Date.now(), facets })
+  while (cache.size > 64) {
+    const oldest = cache.keys().next().value
+    if (oldest === undefined) break
+    cache.delete(oldest)
+  }
+  return facets
+}
+
 async function loadMobileSessionPage(
   deps: ResolvedAcpServerDeps,
   url: URL,
@@ -964,7 +1004,7 @@ async function loadMobileSessionPage(
   const request = parseMobileSessionPageRequest(url, options)
   const [page, facets, status] = await Promise.all([
     hrcClient.listSessionsPage(request),
-    hrcClient.getSessionFacets(sessionFacetRequest(request)),
+    sessionFacetsForPage(hrcClient, hrcClient.getSessionFacets.bind(hrcClient), request),
     hrcClient.getStatus({ includeSessions: false }),
   ])
   const localNodeId = status.node.nodeId
