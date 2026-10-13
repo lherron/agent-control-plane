@@ -407,6 +407,14 @@ export class HrcViewer {
         await this.reconcile('stream_reset')
         return
       }
+      if (record.type === 'home_unreachable') {
+        this.log('WARN', 'broker_headless_viewer.home_unreachable', {
+          homeNodeId: record.homeNodeId,
+          reason: record.reason,
+        })
+        await this.reconcile('stream_reset')
+        return
+      }
       if (record.ledgerIncarnationId !== expectedIncarnation) {
         throw new Error('bounded stream incarnation changed without ledger_replaced')
       }

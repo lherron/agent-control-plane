@@ -32,10 +32,10 @@
     "acp-ops-projection": "*",
     "acp-server": "*",
     "@wrkq/client": "latest",
-    "agent-action-render": "0.5.13-dev.20261004092853",
-    "agent-scope": "0.1.1-dev.20261003143947",
+    "agent-action-render": "0.5.13-dev.20261013132650",
+    "agent-scope": "0.1.1-dev.20261013091757",
     "chalk": "^5.6.2",
-    "cli-kit": "0.1.1-dev.20261003143947",
+    "cli-kit": "0.1.1-dev.20261013091757",
     "commander": "^14.0.0",
     "gateway-discord": "*"
   },

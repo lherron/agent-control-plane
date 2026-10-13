@@ -101,7 +101,7 @@ function sendErrorAndClose(
 }
 
 function assertRecordIncarnation(
-  record: Exclude<HrcBoundedEventStreamRecord, { type: 'ledger_replaced' }>,
+  record: Exclude<HrcBoundedEventStreamRecord, { type: 'ledger_replaced' | 'home_unreachable' }>,
   expectedLedgerIncarnationId: string
 ): void {
   if (record.ledgerIncarnationId !== expectedLedgerIncarnationId) {
@@ -114,7 +114,7 @@ function assertRecordIncarnation(
 }
 
 function mapRecord(
-  record: Exclude<HrcBoundedEventStreamRecord, { type: 'ledger_replaced' }>,
+  record: Exclude<HrcBoundedEventStreamRecord, { type: 'ledger_replaced' | 'home_unreachable' }>,
   filters: AcpPluginEventFilters,
   expectedLedgerIncarnationId: string,
   expectedAfterHrcSeq: number

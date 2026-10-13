@@ -714,11 +714,13 @@ async function listMobileSessions(
 
   const [records, runtimes, latestEvents] = await Promise.all([
     // T-10833 (Lance ruling): the dashboard shows seats with a live runtime OR
-    // activity in the last 24h. HRC's `updatedSince` means exactly that.
+    // activity in the last 24h, latest generation per seat (HRC `updatedSince` +
+    // `latestGeneration`).
     hrcClient.listSessions({
       ...(scopeRef !== undefined ? { scopeRef } : {}),
       ...(laneRef !== undefined ? { laneRef } : {}),
       updatedSince: new Date(Date.now() - MOBILE_DASHBOARD_RECENCY_MS).toISOString(),
+      latestGeneration: true,
     }),
     hrcClient.listRuntimes({}),
     // This HRC query groups over the event store. Coalesce concurrent dashboard
