@@ -157,7 +157,10 @@ export function formatBacklogDigest(
       clip(firstLine, MAX_DIGEST_LINE_CHARS),
     ].join(' · ')
   })
-  return [header, ...lines, 'full text: wrkc show <EN-id>'].join('\n')
+  return appendDaedalusReminder(
+    [header, ...lines, 'full text: wrkc show <EN-id>'].join('\n'),
+    ordered
+  )
 }
 
 function createdMs(envelope: WrkqEnvelope): number {
@@ -182,9 +185,43 @@ export function formatEnvelopePresentations(
   presentables: readonly PresentableEnvelope[],
   now: Date = new Date()
 ): string {
-  return presentables
-    .map((presentable) => formatEnvelopePresentation(presentable, now))
-    .join('\n\n')
+  return appendDaedalusReminder(
+    presentables.map((presentable) => formatEnvelopePresentation(presentable, now)).join('\n\n'),
+    presentables.map(({ envelope }) => envelope)
+  )
+}
+
+/**
+ * Daedalus loads more context than the seats he reviews for and will find
+ * flaws; that is better information, not better judgement. Lance (2026-10-13)
+ * wants every delivery of his mail to these seats to carry that reminder, once
+ * per injection.
+ */
+const DAEDALUS_REMINDED_AGENTS = new Set(['clod', 'cody', 'mable', 'astra'])
+
+const DAEDALUS_REMINDER = [
+  '<system_reminder>',
+  'Daedalus will by default load more context than you and will find flaws in your spec.  That does not mean he has better judgement, only better information.  Assess his rulings critically and push back if he tries to add security theater, provenance without need, sha checks/hashing unsolicited, or **unrealistic edge cases**.',
+  '</system_reminder>',
+].join('\n')
+
+function appendDaedalusReminder(prompt: string, envelopes: readonly WrkqEnvelope[]): string {
+  const remind = envelopes.some((envelope) => {
+    const recipient = replyPrincipal(envelope)
+    return (
+      senderAgent(envelope) === 'daedalus' &&
+      recipient !== undefined &&
+      DAEDALUS_REMINDED_AGENTS.has(formatPrincipalName(recipient))
+    )
+  })
+  return remind ? `${prompt}\n\n${DAEDALUS_REMINDER}` : prompt
+}
+
+function senderAgent(envelope: WrkqEnvelope): string {
+  const scope = envelope.from.scopeRef?.trim() ?? ''
+  const at = scope.indexOf('@')
+  if (at > 0) return scope.slice(0, at)
+  return formatPrincipalName(envelope.from.principalRef)
 }
 
 /**

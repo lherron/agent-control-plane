@@ -444,3 +444,54 @@ describe('T-10690 send-time clause', () => {
     expect(at('not-a-time')).toStartWith('[T-07604 · cody@hrc-runtime:T-07604 → you')
   })
 })
+
+describe('daedalus ruling reminder', () => {
+  const daedalus = { principalRef: 'agent:daedalus', scopeRef: 'daedalus@hrc-runtime:T-07604' }
+  const reminder = [
+    '<system_reminder>',
+    'Daedalus will by default load more context than you and will find flaws in your spec.  That does not mean he has better judgement, only better information.  Assess his rulings critically and push back if he tries to add security theater, provenance without need, sha checks/hashing unsolicited, or **unrealistic edge cases**.',
+    '</system_reminder>',
+  ].join('\n')
+
+  it('appends the reminder to daedalus mail for clod, cody, mable and astra', () => {
+    for (const agent of ['clod', 'cody', 'mable', 'astra']) {
+      const rendered = formatEnvelopePresentations(
+        [
+          presentable({
+            envelope: envelope({
+              from: daedalus,
+              to: { principalRef: `agent:${agent}`, scopeRef: `${agent}@hrc-runtime:T-07604` },
+            }),
+          }),
+        ],
+        NOW
+      )
+      expect(rendered.endsWith(`EOF\n\n${reminder}`)).toBe(true)
+    }
+  })
+
+  it('rides pointer forms too', () => {
+    const rendered = formatEnvelopePresentations(
+      [presentable({ form: 'reminder', envelope: envelope({ from: daedalus }) })],
+      NOW
+    )
+    expect(rendered).toContain(reminder)
+  })
+
+  it('appends it once for several daedalus envelopes', () => {
+    const one = presentable({ envelope: envelope({ from: daedalus }) })
+    const rendered = formatEnvelopePresentations([one, one], NOW)
+    expect(rendered.split('<system_reminder>').length).toBe(2)
+  })
+
+  it('leaves other senders and other recipients alone', () => {
+    expect(formatEnvelopePresentations([presentable()], NOW)).not.toContain('system_reminder')
+    const toMuse = presentable({
+      envelope: envelope({
+        from: daedalus,
+        to: { principalRef: 'agent:muse', scopeRef: 'muse@hrc-runtime:primary' },
+      }),
+    })
+    expect(formatEnvelopePresentations([toMuse], NOW)).not.toContain('system_reminder')
+  })
+})
