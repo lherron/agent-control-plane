@@ -1246,6 +1246,9 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
                     message: error instanceof Error ? error.message : String(error),
                   })
                 )
+                // T-10837: close, or the client sits on an open, silent socket
+                // (the dashboard's ping timer is already cleared).
+                ws.close(1011, 'mobile stream failed')
               } catch {
                 // Socket may already be closed.
               }

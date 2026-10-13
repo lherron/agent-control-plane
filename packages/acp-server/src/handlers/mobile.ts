@@ -3112,6 +3112,8 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
         'mobile_stream_failed',
         error instanceof Error ? error.message : String(error)
       )
+      // T-10837: a failed stream must not stay open and silent.
+      ws.close(1011, 'mobile stream failed')
     }
   }
 }
