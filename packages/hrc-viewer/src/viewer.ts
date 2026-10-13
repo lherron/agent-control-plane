@@ -110,7 +110,18 @@ export type HrcViewerOptions = {
   readTaskTitles?: TaskTitleReader | undefined
   /** wrkq task-slug resolver for the primary status bar. Injected for tests. */
   resolveTaskSlug?: TaskSlugResolver | undefined
+  /** Overrides `MANAGE_NON_TASK_SESSIONS`. Injected for tests. */
+  manageNonTaskSessions?: boolean | undefined
 }
+
+/**
+ * Feature flag (T-10826): when false, the viewer mints no pane for a new session
+ * whose scope is not a wrkq task (`primary`, roster slots, named lanes such as
+ * `minisvc`). Only the create is gated: a pane that already exists for such a
+ * scope is still reused, painted and reaped, so nothing is orphaned when the
+ * flag flips. Set true to restore pane management for every session.
+ */
+export const MANAGE_NON_TASK_SESSIONS = false
 
 const DEFAULT_LINGER_SECONDS = 300
 /**
@@ -240,6 +251,7 @@ export class HrcViewer {
   private readonly probeTmuxClients: TmuxClientProbe
   private readonly readTaskTitles: TaskTitleReader
   private readonly resolveTaskSlug: TaskSlugResolver
+  private readonly manageNonTaskSessions: boolean
   /**
    * Last-known wrkq title per task id (T-08331). Refreshed in one batched read
    * per reconcile and NEVER evicted on a read failure — a deleted task, a wrkq
@@ -263,6 +275,7 @@ export class HrcViewer {
     this.probeTmuxClients = options.probeTmuxClients ?? createTmuxClientProbe()
     this.readTaskTitles = options.readTaskTitles ?? defaultTaskTitleReader()
     this.resolveTaskSlug = options.resolveTaskSlug ?? defaultTaskSlugResolver()
+    this.manageNonTaskSessions = options.manageNonTaskSessions ?? MANAGE_NON_TASK_SESSIONS
     this.statusProjector = new HeadlessViewerStatusProjector({
       resolveSurfaceId: (runtimeId) =>
         this.ghostmux.findHeadlessViewerSurfaceByRuntimeId(runtimeId),
@@ -599,6 +612,15 @@ export class HrcViewer {
     // deferred to. A reclassified case has to leave a positive line — proving
     // the fix by the absence of a `created` line proves nothing.
     let operatorClients: readonly string[] = []
+    // T-10826: classified the way ghostmux groups the pane, so the gate and the
+    // tab it would have landed in can never disagree about what a task is.
+    const nonTaskVetoed =
+      !this.manageNonTaskSessions &&
+      !deriveHeadlessSessionIdentity(
+        row.scopeRef,
+        normalizePresentationLaneRef(row.laneRef),
+        row.identity
+      ).tab.tabKey.startsWith('task:')
     const result = await this.ghostmux.ensureHeadlessViewer({
       scopeRef: row.scopeRef,
       identity: row.identity,
@@ -614,17 +636,25 @@ export class HrcViewer {
       // runtime via `hrc run`/`hrc attach`. Fails open: the probe answers `[]`
       // for every error, dead socket and timeout, and the create proceeds.
       skipCreateWhen: async () => {
+        if (nonTaskVetoed) return true
         operatorClients = await this.probeTmuxClients(tmux.socketPath, tmux.attachTarget)
         return operatorClients.length > 0
       },
     })
     if (result.status === 'skipped') {
-      this.log('INFO', 'broker_headless_viewer.skipped_operator_attached', {
-        runtimeId: row.runtimeId,
-        scopeRef: row.scopeRef,
-        attachTarget: tmux.attachTarget,
-        clients: operatorClients,
-      })
+      if (nonTaskVetoed) {
+        this.log('INFO', 'broker_headless_viewer.skipped_non_task', {
+          runtimeId: row.runtimeId,
+          scopeRef: row.scopeRef,
+        })
+      } else {
+        this.log('INFO', 'broker_headless_viewer.skipped_operator_attached', {
+          runtimeId: row.runtimeId,
+          scopeRef: row.scopeRef,
+          attachTarget: tmux.attachTarget,
+          clients: operatorClients,
+        })
+      }
       const current = await this.currentPresentationRuntime(row.runtimeId)
       await this.paintPresentationSurfaces(undefined, current ?? row, latestEvent)
       return

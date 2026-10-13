@@ -266,6 +266,8 @@ function makeHarness(clients: readonly string[]) {
     async readTaskTitles() {
       return new Map<string, string>()
     },
+    // The primary scope exercises the operator veto, not the T-10826 task gate.
+    manageNonTaskSessions: true,
   })
   return { viewer, createdCalls, probeCalls, logs }
 }
