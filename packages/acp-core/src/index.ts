@@ -237,6 +237,7 @@ export {
   evaluateEventMatch,
   isAgentOriginEvent,
   parseAcpWebhookEvent,
+  isValidTimeZone,
   parseDurationToMs,
   parseWrkqWebhookEvent,
   resolveEventAction,

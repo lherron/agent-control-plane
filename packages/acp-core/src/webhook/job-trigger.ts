@@ -58,6 +58,19 @@ export type ScheduleTrigger = {
   windowEnd?: string | undefined
   windowMinutes?: number | undefined
   catchUp?: 'none' | 'one' | undefined
+  /** IANA zone the cron fields are matched in. Absent = UTC. */
+  timezone?: string | undefined
+}
+
+/** True when `Intl.DateTimeFormat` accepts `value` as a time zone. */
+export function isValidTimeZone(value: string): boolean {
+  if (value.trim().length === 0) return false
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value })
+    return true
+  } catch {
+    return false
+  }
 }
 
 export type OriginPolicy = {
@@ -372,6 +385,13 @@ export function validateJobTrigger(value: unknown): ValidateJobTriggerResult {
       ...(value['catchUp'] === 'none' || value['catchUp'] === 'one'
         ? { catchUp: value['catchUp'] }
         : {}),
+      ...(typeof value['timezone'] === 'string' ? { timezone: value['timezone'] } : {}),
+    }
+    if (
+      value['timezone'] !== undefined &&
+      (typeof value['timezone'] !== 'string' || !isValidTimeZone(value['timezone']))
+    ) {
+      errors.push('trigger.timezone must be an IANA time zone (e.g. "America/Chicago")')
     }
     if (
       value['catchUp'] !== undefined &&

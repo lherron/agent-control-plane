@@ -25,6 +25,7 @@ export function JobScheduleTab({ data }: JobScheduleTabProps) {
           <FieldRow label="Expression">
             <span className="mono text-[16px] tabular">{schedule.cron}</span>
           </FieldRow>
+          <FieldRow label="Time zone">{schedule.timezone ?? 'UTC'}</FieldRow>
           <FieldRow label="State">
             <Pill tone={job.disabled ? 'destructive' : 'success'}>
               {job.disabled ? 'disabled' : 'enabled'}

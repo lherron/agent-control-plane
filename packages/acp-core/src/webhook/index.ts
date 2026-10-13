@@ -16,6 +16,7 @@ export {
   type ParseAcpWebhookEventResult,
 } from './acp-event.js'
 export {
+  isValidTimeZone,
   parseDurationToMs,
   validateJobTrigger,
   type EventMatch,

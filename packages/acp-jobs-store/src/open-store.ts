@@ -10,7 +10,7 @@ import type {
   JobStepRunStatus,
   JobTrigger,
 } from 'acp-core'
-import { validateJobTrigger } from 'acp-core'
+import { isValidTimeZone, validateJobTrigger } from 'acp-core'
 
 import { isValidCron, isWithinTickInterval, nextFireAfter } from './cron.js'
 import Database, { type SqliteDatabase } from './sqlite.js'
@@ -187,6 +187,7 @@ export type JobSchedule = Readonly<{
   windowEnd?: string | undefined
   windowMinutes?: number | undefined
   catchUp?: 'none' | 'one' | undefined
+  timezone?: string | undefined
   [key: string]: unknown
 }>
 
@@ -1588,6 +1589,14 @@ function requireSchedule(schedule: JobSchedule): JobSchedule {
   if (!isValidCron(schedule.cron)) {
     throw new Error(`invalid cron schedule: ${schedule.cron}`)
   }
+  if (
+    schedule.timezone !== undefined &&
+    (typeof schedule.timezone !== 'string' || !isValidTimeZone(schedule.timezone))
+  ) {
+    throw new Error(
+      `invalid trigger: trigger.timezone must be an IANA time zone, got ${JSON.stringify(schedule.timezone)}`
+    )
+  }
 
   return schedule
 }
@@ -1601,7 +1610,7 @@ function createNextFireAt(input: {
     return null
   }
 
-  return nextFireAfter(input.schedule.cron, input.anchor)
+  return nextFireAfter(input.schedule.cron, input.anchor, input.schedule.timezone)
 }
 
 function parseUtcTimeOfDay(value: string | undefined): number | null {
@@ -1699,6 +1708,7 @@ function scheduleFromTrigger(trigger: Extract<JobTrigger, { kind: 'schedule' }>)
     ...(trigger.windowEnd !== undefined ? { windowEnd: trigger.windowEnd } : {}),
     ...(trigger.windowMinutes !== undefined ? { windowMinutes: trigger.windowMinutes } : {}),
     ...(trigger.catchUp !== undefined ? { catchUp: trigger.catchUp } : {}),
+    ...(trigger.timezone !== undefined ? { timezone: trigger.timezone } : {}),
   }
 }
 
@@ -1730,6 +1740,7 @@ function resolveTrigger(input: {
       ...(input.schedule.catchUp === 'none' || input.schedule.catchUp === 'one'
         ? { catchUp: input.schedule.catchUp }
         : {}),
+      ...(input.schedule.timezone !== undefined ? { timezone: input.schedule.timezone } : {}),
     }
   }
   throw new Error('job requires a trigger or schedule')
@@ -2730,14 +2741,16 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
         if (row.schedule_cron === null) {
           continue
         }
+        const scheduledJob = toJobRecord(row)
+        const timezone = scheduledJob.schedule?.timezone
         const dueAt =
-          row.next_fire_at ?? nextFireAfter(row.schedule_cron, row.last_fire_at ?? row.created_at)
+          row.next_fire_at ??
+          nextFireAfter(row.schedule_cron, row.last_fire_at ?? row.created_at, timezone)
         if (dueAt === null || dueAt > now) {
           continue
         }
 
-        const nextAfterNow = nextFireAfter(row.schedule_cron, now)
-        const scheduledJob = toJobRecord(row)
+        const nextAfterNow = nextFireAfter(row.schedule_cron, now, timezone)
         if (input.executionIdentity !== undefined) {
           try {
             assertJobExecutionAdmission(scheduledJob, input.executionIdentity)

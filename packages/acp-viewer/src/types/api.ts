@@ -221,6 +221,7 @@ export interface JobSchedule {
   windowStart?: string | undefined
   windowEnd?: string | undefined
   windowMinutes?: number | undefined
+  timezone?: string | undefined
   [key: string]: unknown
 }
 
@@ -289,6 +290,7 @@ export interface ScheduleSummary {
   windowStart?: string | undefined
   windowEnd?: string | undefined
   windowMinutes?: number | undefined
+  timezone?: string | undefined
 }
 
 export interface StartupSummary {

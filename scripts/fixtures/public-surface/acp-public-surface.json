@@ -1805,6 +1805,7 @@
         "isPresetDrivenTask",
         "isTaskId",
         "isTerminal",
+        "isValidTimeZone",
         "isWaiverEvidence",
         "learningAuditWorkflowV1",
         "learningCurationWorkflowV1",

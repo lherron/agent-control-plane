@@ -60,6 +60,45 @@ describe('admin job detail endpoint', () => {
     }
   })
 
+  test('echoes the schedule timezone and previews fires in that zone', async () => {
+    const jobsStore = createInMemoryJobsStore()
+
+    try {
+      await withWiredServer(
+        async (fixture) => {
+          const job = jobsStore.createJob(
+            createBaseJobInput({
+              schedule: { cron: '0 2 * * *', timezone: 'America/Chicago' },
+              createdAt: '2026-03-06T12:00:00.000Z',
+            })
+          ).job
+
+          const response = await fixture.request({
+            method: 'GET',
+            path: `/v1/admin/jobs/${job.jobId}/detail`,
+          })
+          expect(response.status).toBe(200)
+          const payload = await fixture.json<{
+            schedule: { timezone?: string; nextFireAt?: string; nextFirePreview?: string[] }
+          }>(response)
+
+          expect(payload.schedule.timezone).toBe('America/Chicago')
+          expect(payload.schedule.nextFireAt).toBe('2026-03-07T08:00:00.000Z')
+          expect(payload.schedule.nextFirePreview).toEqual([
+            '2026-03-07T08:00:00.000Z',
+            '2026-03-08T08:00:00.000Z',
+            '2026-03-09T07:00:00.000Z',
+            '2026-03-10T07:00:00.000Z',
+            '2026-03-11T07:00:00.000Z',
+          ])
+        },
+        { jobsStore }
+      )
+    } finally {
+      jobsStore.close()
+    }
+  })
+
   test('normalizes flow nodes and edges', async () => {
     const jobsStore = createInMemoryJobsStore()
 

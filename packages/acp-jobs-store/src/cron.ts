@@ -13,6 +13,11 @@ type ParsedCron = {
   dayOfMonth: CronField
   month: CronField
   dayOfWeek: CronField
+  /**
+   * Cronie's "fixed-time" entry: neither the minute nor the hour field starts
+   * with `*`. Only these get DST gap catch-up and overlap de-duplication.
+   */
+  fixedTime: boolean
 }
 
 type FieldBounds = {
@@ -124,7 +129,8 @@ function parseCron(cron: string): ParsedCron | null {
     return null
   }
 
-  return { minute, hour, dayOfMonth, month, dayOfWeek }
+  const fixedTime = !(parts[0] ?? '').startsWith('*') && !(parts[1] ?? '').startsWith('*')
+  return { minute, hour, dayOfMonth, month, dayOfWeek, fixedTime }
 }
 
 function floorToUtcMinute(input: Date): Date {
@@ -147,7 +153,19 @@ export function isValidCron(cron: string): boolean {
   return parseCron(cron) !== null
 }
 
-export function nextFireAfter(cron: string, afterIso: string): string | null {
+/**
+ * Next fire instant strictly after `afterIso`. Without `timezone` the cron
+ * fields match UTC (the original behavior). With an IANA `timezone` they match
+ * wall-clock time in that zone, with cronie's DST rules for fixed-time entries:
+ * a time inside a spring-forward gap fires once at the first instant after the
+ * gap, and a time inside a fall-back overlap fires only on its first
+ * occurrence. Wildcard/step entries simply match real wall-clock minutes.
+ */
+export function nextFireAfter(
+  cron: string,
+  afterIso: string,
+  timezone?: string | undefined
+): string | null {
   const parsed = parseCron(cron)
   if (parsed === null) {
     return null
@@ -161,6 +179,10 @@ export function nextFireAfter(cron: string, afterIso: string): string | null {
   let cursor = floorToUtcMinute(after)
   cursor = new Date(cursor.getTime() + 60_000)
 
+  if (timezone !== undefined) {
+    return nextZonedFire(parsed, cursor.getTime(), timezone)
+  }
+
   for (let index = 0; index < MAX_FIRE_SCAN_MINUTES; index += 1) {
     if (matchesCron(parsed, cursor)) {
       return cursor.toISOString()
@@ -169,6 +191,91 @@ export function nextFireAfter(cron: string, afterIso: string): string | null {
     cursor = new Date(cursor.getTime() + 60_000)
   }
 
+  return null
+}
+
+const MINUTE_MS = 60_000
+// Real DST shifts are at most 2h and months apart, so an offset read 3h
+// earlier is the pre-transition offset whenever `ms` sits in an overlap.
+const OVERLAP_LOOKBACK_MS = 3 * 60 * MINUTE_MS
+
+const zoneFormatters = new Map<string, Intl.DateTimeFormat>()
+
+function zoneFormatter(timezone: string): Intl.DateTimeFormat {
+  let formatter = zoneFormatters.get(timezone)
+  if (formatter === undefined) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+    })
+    zoneFormatters.set(timezone, formatter)
+  }
+  return formatter
+}
+
+/** UTC offset (ms, local minus UTC) of `timezone` at the minute-aligned instant `ms`. */
+function zoneOffsetMs(timezone: string, ms: number): number {
+  const fields: Record<string, number> = {}
+  for (const part of zoneFormatter(timezone).formatToParts(ms)) {
+    if (part.type !== 'literal') fields[part.type] = Number.parseInt(part.value, 10)
+  }
+  const localAsUtc = Date.UTC(
+    fields['year'] ?? 1970,
+    (fields['month'] ?? 1) - 1,
+    fields['day'] ?? 1,
+    fields['hour'] ?? 0,
+    fields['minute'] ?? 0
+  )
+  return localAsUtc - ms
+}
+
+/** True when the wall-clock time at `ms` already occurred earlier (fall-back overlap). */
+function isRepeatedWallTime(timezone: string, ms: number, offset: number): boolean {
+  const earlierOffset = zoneOffsetMs(timezone, ms - OVERLAP_LOOKBACK_MS)
+  if (earlierOffset <= offset) return false
+  return zoneOffsetMs(timezone, ms - (earlierOffset - offset)) === earlierOffset
+}
+
+// IANA transitions land on 15-minute UTC boundaries, so the walk reads the
+// zone offset once per block instead of once per minute.
+const OFFSET_BLOCK_MS = 15 * MINUTE_MS
+
+function nextZonedFire(parsed: ParsedCron, startMs: number, timezone: string): string | null {
+  let previousOffset = zoneOffsetMs(timezone, startMs - MINUTE_MS)
+  let blockStartMs = Number.NaN
+  let blockOffset = 0
+  let cursorMs = startMs
+  for (let index = 0; index < MAX_FIRE_SCAN_MINUTES; index += 1) {
+    const cursorBlockMs = cursorMs - (cursorMs % OFFSET_BLOCK_MS)
+    if (cursorBlockMs !== blockStartMs) {
+      blockStartMs = cursorBlockMs
+      blockOffset = zoneOffsetMs(timezone, cursorBlockMs)
+    }
+    const offset = blockOffset
+    const localMs = cursorMs + offset
+    if (parsed.fixedTime) {
+      // Spring-forward: the wall-clock minutes [previous local + 1m, local) were
+      // skipped. A fixed-time entry due in that gap fires now, once.
+      for (let skipped = cursorMs + previousOffset; skipped < localMs; skipped += MINUTE_MS) {
+        if (matchesCron(parsed, new Date(skipped))) return new Date(cursorMs).toISOString()
+      }
+      if (
+        matchesCron(parsed, new Date(localMs)) &&
+        !isRepeatedWallTime(timezone, cursorMs, offset)
+      ) {
+        return new Date(cursorMs).toISOString()
+      }
+    } else if (matchesCron(parsed, new Date(localMs))) {
+      return new Date(cursorMs).toISOString()
+    }
+    previousOffset = offset
+    cursorMs += MINUTE_MS
+  }
   return null
 }
 

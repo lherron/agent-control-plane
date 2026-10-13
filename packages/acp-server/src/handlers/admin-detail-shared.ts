@@ -105,6 +105,7 @@ export function buildScheduleSummary(job: JobRecord):
       windowStart?: string | undefined
       windowEnd?: string | undefined
       windowMinutes?: number | undefined
+      timezone?: string | undefined
     }
   | undefined {
   // Event-triggered jobs carry no schedule; the detail surface omits this block.
@@ -113,10 +114,11 @@ export function buildScheduleSummary(job: JobRecord):
     return undefined
   }
   const preview: string[] = []
-  let cursor = job.nextFireAt ?? nextFireAfter(schedule.cron, new Date().toISOString())
+  let cursor =
+    job.nextFireAt ?? nextFireAfter(schedule.cron, new Date().toISOString(), schedule.timezone)
   for (let index = 0; index < 5 && cursor !== null; index += 1) {
     preview.push(cursor)
-    cursor = nextFireAfter(schedule.cron, cursor)
+    cursor = nextFireAfter(schedule.cron, cursor, schedule.timezone)
   }
 
   return {
@@ -129,6 +131,7 @@ export function buildScheduleSummary(job: JobRecord):
     ...(typeof schedule.windowMinutes === 'number'
       ? { windowMinutes: schedule.windowMinutes }
       : {}),
+    ...(schedule.timezone !== undefined ? { timezone: schedule.timezone } : {}),
   }
 }
 
