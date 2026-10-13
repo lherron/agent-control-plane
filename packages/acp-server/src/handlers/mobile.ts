@@ -63,6 +63,7 @@ const MOBILE_SESSION_PAGE_SIZE = 50
 const MAX_DASHBOARD_RECENT_EVENTS_PER_SESSION = 10
 const MAX_DASHBOARD_SNAPSHOT_EVENTS = 200
 const MAX_MOBILE_SESSION_RUNS = 10_000
+const MOBILE_DASHBOARD_RECENCY_MS = 24 * 60 * 60 * 1000
 const DEFAULT_DASHBOARD_MAX_REPLAY_EVENTS = 10_000
 const DEFAULT_DASHBOARD_MAX_REPLAY_AGE_MS = 3_600_000
 const MOBILE_WS_PING_INTERVAL_MS = 30_000
@@ -712,9 +713,12 @@ async function listMobileSessions(
   const includeSessionDetails = parseMobileSessionDetailsFlag(url)
 
   const [records, runtimes, latestEvents] = await Promise.all([
+    // T-10833 (Lance ruling): the dashboard shows seats with a live runtime OR
+    // activity in the last 24h. HRC's `updatedSince` means exactly that.
     hrcClient.listSessions({
       ...(scopeRef !== undefined ? { scopeRef } : {}),
       ...(laneRef !== undefined ? { laneRef } : {}),
+      updatedSince: new Date(Date.now() - MOBILE_DASHBOARD_RECENCY_MS).toISOString(),
     }),
     hrcClient.listRuntimes({}),
     // This HRC query groups over the event store. Coalesce concurrent dashboard
