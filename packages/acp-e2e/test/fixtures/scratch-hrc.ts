@@ -1,10 +1,12 @@
 import { existsSync, realpathSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
-import { homedir, tmpdir } from 'node:os'
+import { homedir } from 'node:os'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 
 import { HrcClient } from 'hrc-sdk'
 import { type HrcServer, createHrcServer } from 'hrc-server'
+
+const SCRATCH_PARENT = '/tmp'
 
 export type HrcSupportPaths = {
   runtimeRoot: string
@@ -90,7 +92,9 @@ export function assertScratchHrcPaths(
 export async function createScratchHrcDaemon(
   prefix = 'acp-e2e-real-hrc-'
 ): Promise<ScratchHrcDaemon> {
-  const scratchRoot = await mkdtemp(join(tmpdir(), prefix))
+  // HRC refuses a runtime root whose worst-case btmux socket path exceeds the
+  // 103-byte sockaddr_un limit; macOS $TMPDIR (/var/folders/...) is too long.
+  const scratchRoot = await mkdtemp(join(SCRATCH_PARENT, prefix))
   const runtimeRoot = join(scratchRoot, 'runtime')
   const stateRoot = join(scratchRoot, 'state')
   const socketPath = join(runtimeRoot, 'hrc.sock')
