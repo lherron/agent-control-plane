@@ -11,6 +11,7 @@ import { join } from 'node:path'
 
 import { createAccessLogger } from '../src/access-log.js'
 import { createMobileAuthStore } from '../src/mobile-auth/store.js'
+import { finishRequestLog, startRequestLog } from '../src/request-log.js'
 
 import { withWiredServer } from './fixtures/wired-server.js'
 
@@ -87,6 +88,57 @@ describe('access log redaction', () => {
 
     const contents = readFileSync(logPath, 'utf8')
     expect(contents.length).toBeGreaterThan(0)
+    expect(contents).not.toContain(token)
+    expect(contents).not.toContain(code)
+    expect(contents.toLowerCase()).not.toContain('bearer')
+  })
+
+  test('a bearer token and a pairing code never reach the structured request log', async () => {
+    const store = createMobileAuthStore()
+    const { code } = store.mintPairingCode()
+    const redeemed = store.redeemPairingCode(store.mintPairingCode().code)
+    const token = redeemed?.token ?? ''
+    store.setEnforce(true)
+
+    const lines: string[] = []
+    const originalLog = console.log
+    const originalError = console.error
+    console.log = (...args: unknown[]) => lines.push(args.join(' '))
+    console.error = (...args: unknown[]) => lines.push(args.join(' '))
+    try {
+      await withWiredServer(
+        async ({ request }) => {
+          const calls = [
+            {
+              method: 'GET',
+              path: `/v1/mobile/dashboard?token=${token}`,
+              headers: { authorization: `Bearer ${token}` },
+            },
+            { method: 'POST', path: '/v1/mobile/pair', body: { pairingCode: code } },
+            { method: 'POST', path: '/v1/mobile/pair', body: { pairingCode: `${code}x` } },
+          ]
+          for (const call of calls) {
+            const url = new URL(`http://acp.test${call.path}`)
+            const context = startRequestLog(
+              new Request(url, { method: call.method }),
+              url,
+              '100.73.60.81'
+            )
+            const response = await request({ ...call, peer: { address: '100.73.60.81' } })
+            finishRequestLog(context, response)
+          }
+        },
+        { mobileAuthStore: store }
+      )
+      await Bun.sleep(20)
+    } finally {
+      console.log = originalLog
+      console.error = originalError
+    }
+
+    const contents = lines.join('\n')
+    expect(lines.filter((line) => line.includes('"event":"http.request"')).length).toBe(3)
+    expect(contents).toContain('"remote":"100.73.60.81"')
     expect(contents).not.toContain(token)
     expect(contents).not.toContain(code)
     expect(contents.toLowerCase()).not.toContain('bearer')

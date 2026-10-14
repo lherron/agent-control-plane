@@ -3,6 +3,8 @@ import { ActorValidationError } from 'acp-core'
 import { InputAttemptConflictError } from 'acp-state-store'
 import { HrcDomainError } from 'hrc-core'
 
+import { logErrorStack } from './request-log.js'
+
 export type AcpErrorBody = {
   error: {
     code: string
@@ -89,6 +91,32 @@ export function forbidden(code: string, message: string, details?: Record<string
 }
 
 export function errorResponse(error: unknown): Response {
+  const { response, untyped } = mapErrorResponse(error)
+  logErrorStack(response.status, error, untyped)
+  return response
+}
+
+function mapErrorResponse(error: unknown): { response: Response; untyped: boolean } {
+  const typed = mapTypedErrorResponse(error)
+  if (typed !== undefined) return { response: typed, untyped: false }
+  return {
+    response: json(
+      {
+        error: {
+          code: 'internal_error',
+          message: 'internal server error',
+          details: {
+            cause: error instanceof Error ? error.message : String(error),
+          },
+        },
+      } satisfies AcpErrorBody,
+      500
+    ),
+    untyped: true,
+  }
+}
+
+function mapTypedErrorResponse(error: unknown): Response | undefined {
   if (error instanceof AcpHttpError) {
     return json(error.toResponseBody(), error.status)
   }
@@ -190,16 +218,5 @@ export function errorResponse(error: unknown): Response {
     )
   }
 
-  return json(
-    {
-      error: {
-        code: 'internal_error',
-        message: 'internal server error',
-        details: {
-          cause: error instanceof Error ? error.message : String(error),
-        },
-      },
-    } satisfies AcpErrorBody,
-    500
-  )
+  return undefined
 }

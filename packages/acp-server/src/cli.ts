@@ -89,7 +89,24 @@ import { resolveMobileAuthStore } from './mobile-auth/store.js'
 import { createPbcWorkerScheduler } from './pbc/worker-scheduler.js'
 import { type PbcContinuationWorkerPort, runPbcContinuationWorker } from './pbc/worker.js'
 import { createRealLauncher, readRunStatus } from './real-launcher.js'
+import {
+  type RequestLogContext,
+  finishRequestLog,
+  logWebSocketClose,
+  logWebSocketOpen,
+  readMobileSessionRequestId,
+  startRequestLog,
+} from './request-log.js'
 import { createWrkfClientLifecycle } from './wrkf/client-lifecycle.js'
+
+// Upgrade data object -> its request log, so a socket's close logs its lifetime.
+const openWebSockets = new WeakMap<object, RequestLogContext>()
+
+function trackWebSocket(data: object, requestLog: RequestLogContext): undefined {
+  openWebSockets.set(data, requestLog)
+  logWebSocketOpen(requestLog)
+  return undefined
+}
 
 const DEFAULT_COORD_DB_PATH = '/Users/lherron/praesidium/var/db/acp-coordination.db'
 const DEFAULT_PORT = 18470
@@ -1180,16 +1197,21 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
           // branch: Bun exposes it only here, and peer-gated routes (mobile bearer
           // auth, attach-info) cannot observe it from the Request alone.
           const peer = server.requestIP(request) ?? undefined
+          const requestLog = startRequestLog(request, url, peer?.address)
           const isWebSocketUpgrade = request.headers.get('upgrade')?.toLowerCase() === 'websocket'
           if (isWebSocketUpgrade && isPluginEventsWebSocketPath(url.pathname)) {
+            const data = buildPluginEventsUpgradeData(resolvedDeps, request.url)
             const upgraded = (
               server as never as {
                 upgrade(request: Request, options: unknown): boolean
               }
-            ).upgrade(request, {
-              data: buildPluginEventsUpgradeData(resolvedDeps, request.url),
-            })
-            return upgraded ? undefined : new Response('WebSocket upgrade failed', { status: 400 })
+            ).upgrade(request, { data })
+            return upgraded
+              ? trackWebSocket(data, requestLog)
+              : finishRequestLog(
+                  requestLog,
+                  new Response('WebSocket upgrade failed', { status: 400 })
+                )
           }
           const mobileWsMatch = isWebSocketUpgrade ? parseMobileRouteKind(url.pathname) : undefined
           if (mobileWsMatch !== undefined) {
@@ -1204,19 +1226,24 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
                 store: mobileAuthStore,
               }) === 'unauthorized'
             ) {
-              return mobileUnauthorizedResponse()
+              return finishRequestLog(requestLog, mobileUnauthorizedResponse())
             }
+            const data = buildMobileUpgradeData(resolvedDeps, request.url, mobileWsMatch)
             const upgraded = (
               server as never as {
                 upgrade(request: Request, options: unknown): boolean
               }
-            ).upgrade(request, {
-              data: buildMobileUpgradeData(resolvedDeps, request.url, mobileWsMatch),
-            })
-            return upgraded ? undefined : new Response('WebSocket upgrade failed', { status: 400 })
+            ).upgrade(request, { data })
+            return upgraded
+              ? trackWebSocket(data, requestLog)
+              : finishRequestLog(
+                  requestLog,
+                  new Response('WebSocket upgrade failed', { status: 400 })
+                )
           }
 
           const start = performance.now()
+          requestLog.requestId = await readMobileSessionRequestId(request, url)
           const response =
             url.pathname === '/v1/cap/rpc'
               ? await capabilityHost.handleHttpJsonRpc(request)
@@ -1229,7 +1256,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
               clientIp: peer?.address,
             })
           }
-          return response
+          return finishRequestLog(requestLog, response)
         },
         websocket: {
           open(ws) {
@@ -1261,7 +1288,9 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
             }
             handleMobileWebSocketMessage(ws as never, message as never)
           },
-          close(ws) {
+          close(ws, code) {
+            const tracked = openWebSockets.get(ws.data as unknown as object)
+            if (tracked !== undefined) logWebSocketClose(tracked, code)
             if (isPluginEventsWebSocketData(ws.data)) {
               closePluginEventsWebSocket(ws as never)
               return
