@@ -114,7 +114,10 @@ function emptyLedger(): CollaborationLedger {
   }
 }
 
-async function openTimeline(events: HrcLifecycleEvent[]) {
+async function openTimeline(
+  events: HrcLifecycleEvent[],
+  options: { keepOpen?: boolean; closes?: Array<{ code?: number; reason?: string }> } = {}
+) {
   const stateStore = openAcpStateStore({ dbPath: ':memory:' })
   const hrcClient = {
     listSessions: async () => [session],
@@ -153,14 +156,21 @@ async function openTimeline(events: HrcLifecycleEvent[]) {
     send(raw) {
       const envelope = JSON.parse(raw) as Record<string, unknown>
       sent.push(envelope)
-      if (envelope['type'] === 'snapshot') this.data.abortController.abort()
+      if (envelope['type'] === 'snapshot' && options.keepOpen !== true) {
+        this.data.abortController.abort()
+      }
       return raw.length
     },
-    close() {},
+    close(code?: number, reason?: string) {
+      options.closes?.push({ code, reason })
+      // Bun's server close handler aborts the socket's controller.
+      this.data.abortController.abort()
+    },
   }
 
   try {
     await openMobileWebSocket(ws)
+    if (options.keepOpen === true) return { sent } as never
     return sent[0] as {
       type: string
       history: {
@@ -245,4 +255,24 @@ describe('T-08575 mobile timeline retained-origin projection', () => {
       expect(atoms.some((atom) => atom.sourceSeq === 6)).toBe(true)
     })
   }
+})
+
+// HRC restart ends the bounded event stream cleanly. The socket must close
+// reconnectably instead of staying open and silent behind the message poll.
+describe('mobile timeline HRC stream end', () => {
+  test('a cleanly ended HRC event stream closes the socket with a retryable 1012', async () => {
+    const closes: Array<{ code?: number; reason?: string }> = []
+    const result = (await Promise.race([
+      openTimeline(baseEvents(), { keepOpen: true, closes }),
+      new Promise((resolve) => setTimeout(() => resolve('hung'), 2_000)),
+    ])) as { sent: Array<Record<string, unknown>> } | 'hung'
+    expect(result).not.toBe('hung')
+    if (result === 'hung') return
+    expect(closes).toEqual([{ code: 1012, reason: 'timeline stream ended' }])
+    expect(result.sent.at(-1)).toMatchObject({
+      type: 'error',
+      code: 'timeline_stream_ended',
+      retryable: true,
+    })
+  })
 })

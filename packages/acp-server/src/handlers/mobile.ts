@@ -3164,6 +3164,18 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
         }
         await processLiveEvent(record.event)
       }
+      if (abortController.signal.aborted) return
+      // The HRC stream ended without our abort (e.g. HRC restarted). The message
+      // poll would keep the socket open and silent; close it so the client
+      // reconnects from its cursor.
+      sendMobileJsonEnvelope(ws, {
+        type: 'error',
+        code: 'timeline_stream_ended',
+        message: 'HRC event stream ended; reconnect',
+        retryable: true,
+      })
+      ws.close(1012, 'timeline stream ended')
+      abortController.abort()
     }
 
     const pumpMessages = async (): Promise<void> => {
