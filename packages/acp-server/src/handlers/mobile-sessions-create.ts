@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { realpathSync } from 'node:fs'
+import { writeLogLine } from 'acp-core'
 import { formatSessionIdentityHandle } from './shared.js'
 
 import {
@@ -215,16 +216,18 @@ function mobileSessionErrorResponse(input: {
   if (!isMobileSessionErrorCode(input.error.code)) return undefined
 
   if (input.error.code === HrcErrorCode.IDEMPOTENCY_KEY_CONFLICT) {
-    console.error(
-      `[acp-server] ${JSON.stringify({
-        event: 'mobile.session.idempotency_key_conflict',
+    writeLogLine({
+      level: 'error',
+      component: 'mobile',
+      event: 'mobile.session.idempotency_key_conflict',
+      data: {
         requestId: input.requestId,
         agentId: input.agentId,
         projectId: input.projectId,
         taskId: input.taskId,
         details: input.error.detail,
-      })}`
-    )
+      },
+    })
   }
 
   return json(
@@ -279,7 +282,14 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
   } catch (error) {
     throw declarationFailure(error, requestId)
   }
-  for (const line of resolved.declaration.warnings) console.error(line)
+  for (const warning of resolved.declaration.warnings) {
+    writeLogLine({
+      level: 'warn',
+      component: 'mobile',
+      event: 'mobile.session.declaration_warning',
+      data: { requestId, warning },
+    })
+  }
   assertDeclarationProvenance({
     sentAgentSources: deps.hrcAgentSources,
     agentSources: resolved.declaration.agentSources,

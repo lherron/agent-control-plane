@@ -1,6 +1,6 @@
 export { createAcpServer, type AcpServer } from './create-acp-server.js'
 export {
-  formatStartupLine,
+  formatStartupConfig,
   parseCliArgs,
   renderHelp as renderAcpServerHelp,
   resolveCliOptions,

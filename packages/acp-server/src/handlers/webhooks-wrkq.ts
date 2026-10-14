@@ -1,3 +1,4 @@
+import { writeLogLine } from 'acp-core'
 import { adaptWrkqWebhookEvent, parseWrkqWebhookEvent } from 'acp-core'
 
 import { badRequest } from '../http.js'
@@ -36,15 +37,13 @@ export const handleWrkqWebhook: RouteHandler = async ({ request, deps }) => {
   createWrkqEventEmitter({
     systemEvents: deps.adminStore.systemEvents,
     onError: (err) => {
-      process.stderr.write(
-        `${new Date().toISOString()} [acp-server] WARN wrkq.systemevent.emit_failed ${JSON.stringify(
-          {
-            canonicalEventId: event.canonical_event_id,
-            event: event.event,
-            err: err instanceof Error ? err.message : String(err),
-          }
-        )}\n`
-      )
+      writeLogLine({
+        level: 'warn',
+        component: 'webhooks-wrkq',
+        event: 'wrkq.systemevent.emit_failed',
+        data: { canonicalEventId: event.canonical_event_id, wrkqEvent: event.event },
+        err,
+      })
     },
   }).emit(event)
 

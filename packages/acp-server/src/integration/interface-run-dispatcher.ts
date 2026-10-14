@@ -1,4 +1,5 @@
 import { Database } from 'bun:sqlite'
+import { writeLogLine } from 'acp-core'
 import type { InterfaceStore } from 'acp-interface-store'
 import type { JobsStore } from 'acp-jobs-store'
 import { normalizeSessionRef } from 'agent-scope'
@@ -115,10 +116,13 @@ export function createInterfaceRunDispatcher(
       try {
         await reconcileRun(run)
       } catch (error) {
-        console.error(
-          `[interface-run-dispatcher] error reconciling run ${run.runId}:`,
-          error instanceof Error ? error.message : String(error)
-        )
+        writeLogLine({
+          level: 'error',
+          component: 'interface-run-dispatcher',
+          event: 'interface_run.reconcile_failed',
+          data: { runId: run.runId },
+          err: error,
+        })
       }
     }
   }
@@ -390,10 +394,13 @@ export function createInterfaceRunDispatcher(
 
             conversationStore.attachLinks(turnId, { deliveryRequestId })
           } catch (error) {
-            console.error(
-              `[interface-run-dispatcher] conversation turn creation failed for run ${run.runId}:`,
-              error instanceof Error ? error.message : String(error)
-            )
+            writeLogLine({
+              level: 'error',
+              component: 'interface-run-dispatcher',
+              event: 'interface_run.conversation_turn_failed',
+              data: { runId: run.runId },
+              err: error,
+            })
           }
         }
       }
@@ -475,10 +482,13 @@ export function createInterfaceRunDispatcher(
         })
       } catch (error) {
         if (!isUniqueConstraintError(error)) {
-          console.error(
-            `[interface-run-dispatcher] failed to enqueue error delivery for run ${run.runId}:`,
-            error instanceof Error ? error.message : String(error)
-          )
+          writeLogLine({
+            level: 'error',
+            component: 'interface-run-dispatcher',
+            event: 'interface_run.error_delivery_enqueue_failed',
+            data: { runId: run.runId },
+            err: error,
+          })
         }
       }
     }
@@ -498,10 +508,12 @@ export function createInterfaceRunDispatcher(
       inflight = pass
       void pass
         .catch((error) => {
-          console.error(
-            '[interface-run-dispatcher] loop error:',
-            error instanceof Error ? error.message : String(error)
-          )
+          writeLogLine({
+            level: 'error',
+            component: 'interface-run-dispatcher',
+            event: 'interface_run.loop_failed',
+            err: error,
+          })
         })
         .then(() => {
           inflight = undefined
@@ -518,10 +530,12 @@ export function createInterfaceRunDispatcher(
     inflight = pass
     void pass
       .catch((error) => {
-        console.error(
-          '[interface-run-dispatcher] startup sweep error:',
-          error instanceof Error ? error.message : String(error)
-        )
+        writeLogLine({
+          level: 'error',
+          component: 'interface-run-dispatcher',
+          event: 'interface_run.startup_sweep_failed',
+          err: error,
+        })
       })
       .then(() => {
         inflight = undefined
@@ -644,9 +658,12 @@ function logFederatedInterfaceEvent(
   phase: 'response' | 'delivery_failed',
   fields: Readonly<Record<string, unknown>>
 ): void {
-  console.info(
-    `[interface-run-dispatcher] ${JSON.stringify({ event: `interface.federation.${phase}`, ...fields })}`
-  )
+  writeLogLine({
+    level: 'info',
+    component: 'interface-run-dispatcher',
+    event: `interface.federation.${phase}`,
+    data: { ...fields },
+  })
 }
 
 function isStale(run: StoredRun, staleTimeoutMs: number, hrcDbPath?: string): boolean {

@@ -9,6 +9,7 @@
  * This module owns transport/lifecycle only. Event/message projection lives in
  * `./mobile.ts` (and projection rewrites belong to later subtasks).
  */
+import { writeLogLine } from 'acp-core'
 import type { AcpHrcClient, ResolvedAcpServerDeps } from '../deps.js'
 
 export type MobileRouteKind = 'timeline' | 'diagnostics' | 'dashboard' | 'messages'
@@ -155,7 +156,7 @@ export function sendMobileJsonEnvelope(
     ws.send(JSON.stringify(message))
     return true
   } catch (error) {
-    console.warn('mobile ws send failed:', error instanceof Error ? error.message : String(error))
+    writeLogLine({ level: 'warn', component: 'mobile', event: 'mobile.ws.send_failed', err: error })
     return false
   }
 }

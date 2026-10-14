@@ -1,6 +1,7 @@
 import { access, mkdir, stat, writeFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { writeLogLine } from 'acp-core'
 
 import type { AttachmentRef } from 'acp-core'
 
@@ -266,16 +267,12 @@ async function downloadUrlAttachment(
   const filePath = await uniqueAttachmentPath(attachmentsDir, filename)
   await writeFile(filePath, Buffer.concat(chunks, sizeBytes))
 
-  console.info(
-    JSON.stringify({
-      event: 'attachments.downloaded',
-      message: 'Attachment downloaded',
-      runId: options.runId,
-      url,
-      path: filePath,
-      sizeBytes,
-    })
-  )
+  writeLogLine({
+    level: 'info',
+    component: 'attachments',
+    event: 'attachments.downloaded',
+    data: { runId: options.runId, url, path: filePath, sizeBytes },
+  })
 
   return {
     path: filePath,
@@ -477,5 +474,5 @@ function logAttachmentWarning(
   message: string,
   data: Readonly<Record<string, unknown>>
 ): void {
-  console.warn(JSON.stringify({ event, message, ...data }))
+  writeLogLine({ level: 'warn', component: 'attachments', event, data: { message, ...data } })
 }

@@ -1,3 +1,4 @@
+import { writeLogLine } from 'acp-core'
 import { AcpHttpError, json, unprocessable } from '../http.js'
 import { reconcileWrkfEffects } from '../integration/wrkf-effect-reconciler.js'
 import { extractActor } from '../parsers/actor.js'
@@ -45,7 +46,13 @@ function enqueueWrkfEffectDeliveryTick(
     coordStore: deps.coordStore,
     taskId,
   }).catch((error) => {
-    console.error('wrkf effect delivery tick failed', error)
+    writeLogLine({
+      level: 'error',
+      component: 'wrkf',
+      event: 'wrkf.effect_delivery_failed',
+      data: { taskId },
+      err: error,
+    })
   })
   if (
     deps.launchRoleScopedRun === undefined ||
@@ -78,7 +85,13 @@ function enqueueWrkfEffectDeliveryTick(
     },
     { taskId }
   ).catch((error) => {
-    console.error('wrkf verify-launch effect tick failed', error)
+    writeLogLine({
+      level: 'error',
+      component: 'wrkf',
+      event: 'wrkf.verify_launch_failed',
+      data: { taskId },
+      err: error,
+    })
   })
 }
 
@@ -274,9 +287,12 @@ export const handleAttachWorkflowEvidence: RouteHandler = async ({ request, para
   // expectedTaskVersion is a phantom precondition here — never translate it to a wrkf param.
   // Explicitly ignore it with a compatibility warning rather than honoring it silently.
   if (body['expectedTaskVersion'] !== undefined) {
-    console.warn(
-      `[acp-server] evidence.add: ignoring legacy expectedTaskVersion (no such wrkf precondition) for task ${taskId}`
-    )
+    writeLogLine({
+      level: 'warn',
+      component: 'wrkf',
+      event: 'wrkf.evidence_add.legacy_precondition_ignored',
+      data: { taskId, field: 'expectedTaskVersion' },
+    })
   }
 
   const kind = requireTrimmedStringField(body, 'kind')

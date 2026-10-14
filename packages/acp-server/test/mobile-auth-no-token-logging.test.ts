@@ -138,6 +138,9 @@ describe('access log redaction', () => {
 
     const contents = lines.join('\n')
     expect(lines.filter((line) => line.includes('"event":"http.request"')).length).toBe(3)
+    for (const line of lines.filter((entry) => entry.includes('"event":"http.request"'))) {
+      expect(JSON.parse(line)).toMatchObject({ component: 'http', event: 'http.request' })
+    }
     expect(contents).toContain('"remote":"100.73.60.81"')
     expect(contents).not.toContain(token)
     expect(contents).not.toContain(code)

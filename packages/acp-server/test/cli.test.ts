@@ -3,7 +3,7 @@ import { describe, expect, mock, test } from 'bun:test'
 import { HrcDomainError, HrcErrorCode } from 'hrc-core'
 import {
   bindAcpHostListeners,
-  formatStartupLine,
+  formatStartupConfig,
   isEnabledEnvFlag,
   renderHelp,
   resolveBindHosts,
@@ -246,31 +246,28 @@ describe('acp-server cli helpers', () => {
     expect(stoppedAfterFailure).toEqual(['127.0.0.1'])
   })
 
-  test('formats startup output and help text', () => {
+  test('formats startup config as log data and help text', () => {
     expect(
-      formatStartupLine({
+      formatStartupConfig({
         wrkqDbLocator: 'rpc://mini:7171',
         coordDbPath: '/tmp/coord.db',
         interfaceDbPath: '/tmp/interface.db',
         stateDbPath: '/tmp/state.db',
+        jobsDbPath: '/tmp/jobs.db',
         agentAssetsDir: '/tmp/assets/agents',
         host: '127.0.0.1,100.73.60.81',
         port: 18470,
         actor: 'acp-server',
       })
-    ).toContain('wrkq.locator = rpc://mini:7171')
-    expect(
-      formatStartupLine({
-        wrkqDbLocator: '/tmp/wrkq.db',
-        coordDbPath: '/tmp/coord.db',
-        interfaceDbPath: '/tmp/interface.db',
-        stateDbPath: '/tmp/state.db',
-        agentAssetsDir: '/tmp/assets/agents',
-        host: '127.0.0.1,100.73.60.81',
-        port: 18470,
-        actor: 'acp-server',
-      })
-    ).toContain('acp-server listening on http://127.0.0.1:18470, http://100.73.60.81:18470')
+    ).toEqual({
+      endpoints: ['http://127.0.0.1:18470', 'http://100.73.60.81:18470'],
+      wrkqLocator: 'rpc://mini:7171',
+      coordDb: '/tmp/coord.db',
+      interfaceDb: '/tmp/interface.db',
+      stateDb: '/tmp/state.db',
+      jobsDb: '/tmp/jobs.db',
+      agentAssets: '/tmp/assets/agents',
+    })
     expect(renderHelp()).toContain('acp-server')
     expect(renderHelp()).toContain('--wrkq-db <locator>')
     expect(renderHelp()).toContain('--wrkq-db-path <path>')

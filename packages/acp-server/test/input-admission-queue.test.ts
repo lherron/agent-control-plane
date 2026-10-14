@@ -1034,7 +1034,7 @@ describe('input admission queue', () => {
 
           // The thrown error was surfaced via the new runOnce try/catch.
           const dispatcherErrors = consoleErrors.filter((line) =>
-            line.includes('[input-queue-dispatcher] error dispatching queue item')
+            line.includes('"event":"input_queue.dispatch_failed"')
           )
           expect(dispatcherErrors.length).toBeGreaterThan(0)
           expect(dispatcherErrors[0]).toContain(a2Payload.admission.queueItemId)

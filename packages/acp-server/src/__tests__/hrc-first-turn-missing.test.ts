@@ -202,9 +202,14 @@ describe('HRC first-turn-missing built-in job', () => {
       })
 
       expect(calls).toHaveLength(0)
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('WARN nodeId tripwire'))
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('remote-node'))
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('max3'))
+      const lines = warn.mock.calls.map((call) => JSON.parse(String(call[0])))
+      expect(lines).toContainEqual(
+        expect.objectContaining({
+          level: 'warn',
+          event: 'job_flow.node_tripwire_blocked',
+          data: expect.objectContaining({ payloadNode: 'remote-node', hrcNode: 'max3' }),
+        })
+      )
       expect(store.listJobRuns(job.jobId).jobRuns[0]?.status).toBe('succeeded')
     } finally {
       warn.mockRestore()

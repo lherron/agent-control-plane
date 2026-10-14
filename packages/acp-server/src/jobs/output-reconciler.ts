@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { writeLogLine } from 'acp-core'
 
 import { parseAcpWebhookEvent } from 'acp-core'
 import type { DeliveryRequest, InterfaceStore } from 'acp-interface-store'
@@ -82,16 +83,22 @@ export function createJobOutputReconciler(input: JobOutputReconcilerInput): JobO
           exhausted += 1
         }
       } catch (error) {
-        console.error(
-          `[job-output-reconciler] failed to reconcile ${entry.jobRun.jobRunId}:`,
-          error instanceof Error ? error.message : String(error)
-        )
+        writeLogLine({
+          level: 'error',
+          component: 'job-output-reconciler',
+          event: 'job_output.reconcile_failed',
+          data: { jobRunId: entry.jobRun.jobRunId },
+          err: error,
+        })
       }
     }
     if (exhausted > 0) {
-      console.warn(
-        `[job-output-reconciler] settled ${exhausted} job run(s) failed ${OUTPUT_DELIVERY_EXHAUSTED}`
-      )
+      writeLogLine({
+        level: 'warn',
+        component: 'job-output-reconciler',
+        event: 'job_output.exhausted',
+        data: { settled: exhausted, errorCode: OUTPUT_DELIVERY_EXHAUSTED },
+      })
     }
   }
 
@@ -110,10 +117,13 @@ export function createJobOutputReconciler(input: JobOutputReconcilerInput): JobO
       try {
         input.onJobRunSettled?.(settled, job)
       } catch (error) {
-        console.error(
-          `[job-output-reconciler] lifecycle emit failed for ${settled.jobRunId}:`,
-          error instanceof Error ? error.message : String(error)
-        )
+        writeLogLine({
+          level: 'error',
+          component: 'job-output-reconciler',
+          event: 'job_output.lifecycle_emit_failed',
+          data: { jobRunId: settled.jobRunId },
+          err: error,
+        })
       }
     }
 

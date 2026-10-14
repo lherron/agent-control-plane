@@ -778,7 +778,7 @@ describe('POST /v1/mobile/sessions declaration resolution (T-08572)', () => {
   })
 
   test('U-6: re-emits declaration warnings verbatim before the start', async () => {
-    const errorLog = spyOn(console, 'error').mockImplementation(() => {})
+    const errorLog = spyOn(console, 'warn').mockImplementation(() => {})
     try {
       const order: string[] = []
       const { client, starts } = createDeclarationHrcClient({
@@ -803,8 +803,11 @@ describe('POST /v1/mobile/sessions declaration resolution (T-08572)', () => {
           })
           expect(response.status).toBe(200)
           expect(starts).toHaveLength(1)
-          const lines = loggedErrors.mock.calls.map((call) => String(call[0]))
-          expect(lines).toContain(
+          const warnings = loggedErrors.mock.calls
+            .map((call) => JSON.parse(String(call[0])))
+            .filter((line) => line.event === 'mobile.session.declaration_warning')
+            .map((line) => line.data.warning)
+          expect(warnings).toContain(
             '[hrc-core] WARN agent.provisioning.stripped — agent "mable" (target harness only)'
           )
           order.push('warn-observed')

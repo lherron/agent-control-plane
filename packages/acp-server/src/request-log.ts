@@ -9,6 +9,8 @@
  * once at close, never per frame.
  */
 
+import { writeLogLine } from 'acp-core'
+
 type LogLevel = 'info' | 'warn' | 'error'
 
 export interface RequestLogContext {
@@ -100,18 +102,20 @@ export function finishRequestLog(context: RequestLogContext, response: Response)
 }
 
 export function logWebSocketOpen(context: RequestLogContext): void {
-  emit('info', 'http.ws.open', {
+  emit('info', 'http.stream.open', {
     method: context.method,
     path: context.path,
+    transport: 'websocket',
     status: 101,
     remote: context.remote ?? null,
   })
 }
 
 export function logWebSocketClose(context: RequestLogContext, code: number | undefined): void {
-  emit('info', 'http.ws.close', {
+  emit('info', 'http.stream.close', {
     method: context.method,
     path: context.path,
+    transport: 'websocket',
     durationMs: elapsed(context),
     remote: context.remote ?? null,
     ...(code !== undefined ? { closeCode: code } : {}),
@@ -121,20 +125,13 @@ export function logWebSocketClose(context: RequestLogContext, code: number | und
 /** Stack to stderr for every 5xx and every untyped error reaching errorResponse. */
 export function logErrorStack(status: number, error: unknown, untyped: boolean): void {
   if (status < 500 && !untyped) return
-  const err =
-    error instanceof Error
-      ? { name: error.name, message: error.message, stack: error.stack }
-      : { message: String(error) }
-  console.error(
-    JSON.stringify({
-      level: 'error',
-      component: 'acp-http',
-      event: untyped ? 'http.error.untyped' : 'http.error.5xx',
-      data: { status },
-      err,
-      ts: new Date().toISOString(),
-    })
-  )
+  writeLogLine({
+    level: 'error',
+    component: 'http',
+    event: untyped ? 'http.error.untyped' : 'http.error.5xx',
+    data: { status },
+    err: error,
+  })
 }
 
 function wrapStreamClose(context: RequestLogContext, response: Response): Response {
@@ -232,7 +229,5 @@ function elapsed(context: RequestLogContext): number {
 function emit(level: LogLevel, event: string, data: Record<string, unknown>): void {
   // All request lines go to stdout so acp-server.log is one complete request
   // log; stacks (logErrorStack) are the stderr half.
-  console.log(
-    JSON.stringify({ level, component: 'acp-http', event, data, ts: new Date().toISOString() })
-  )
+  writeLogLine({ level, component: 'http', event, data }, 'stdout')
 }

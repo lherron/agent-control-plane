@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
+import { writeLogLine } from 'acp-core'
 
 import { normalizeSessionRef } from 'agent-scope'
 
@@ -534,10 +535,13 @@ export const handlePostRunOutboundMessage: RouteHandler = async ({
       })
       deps.conversationStore.attachLinks(turnId, { deliveryRequestId })
     } catch (error) {
-      console.error(
-        `[acp-server] conversation turn creation failed for outbound message ${deliveryRequestId}:`,
-        error instanceof Error ? error.message : String(error)
-      )
+      writeLogLine({
+        level: 'error',
+        component: 'outbound-attachments',
+        event: 'conversation.turn_create_failed',
+        data: { deliveryRequestId },
+        err: error,
+      })
     }
   }
 

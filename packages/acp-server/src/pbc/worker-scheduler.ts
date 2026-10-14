@@ -1,3 +1,4 @@
+import { writeLogLine } from 'acp-core'
 import type { AcpStateStore, PbcContinuationJob } from 'acp-state-store'
 
 const DEFAULT_LEASE_MS = 5 * 60 * 1000
@@ -39,10 +40,12 @@ export function createPbcWorkerScheduler(options: PbcWorkerSchedulerOptions): Pb
         try {
           await options.runWorker(lease.job)
         } catch (error) {
-          console.error(
-            'pbc continuation worker failed:',
-            error instanceof Error ? error.message : String(error)
-          )
+          writeLogLine({
+            level: 'error',
+            component: 'pbc',
+            event: 'pbc.continuation_worker_failed',
+            err: error,
+          })
         }
       }
     },

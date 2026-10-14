@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path'
 import { openSqliteAdminStore } from 'acp-admin-store'
 import { startAcpCapabilityHost } from 'acp-capability-host'
 import { openSqliteConversationStore } from 'acp-conversation'
+import { writeLogLine } from 'acp-core'
 import type { Actor } from 'acp-core'
 import { openInterfaceStore } from 'acp-interface-store'
 import { type JobsStore, createJobsScheduler, openSqliteJobsStore } from 'acp-jobs-store'
@@ -391,24 +392,21 @@ function formatBindUrls(options: AcpServerCliOptions): string[] {
   )
 }
 
-export function formatStartupLine(options: AcpServerCliOptions): string {
-  const optionalDbSegments = [
-    options.adminDbPath !== undefined ? `admin.db = ${options.adminDbPath}` : undefined,
-    options.jobsDbPath !== undefined ? `jobs.db = ${options.jobsDbPath}` : undefined,
-    options.conversationDbPath !== undefined
-      ? `conversation.db = ${options.conversationDbPath}`
-      : undefined,
-  ].filter((segment) => segment !== undefined)
-
-  return [
-    `acp-server listening on ${formatBindUrls(options).join(', ')}`,
-    `wrkq.locator = ${options.wrkqDbLocator}`,
-    `coord.db = ${options.coordDbPath}`,
-    `interface.db = ${options.interfaceDbPath}`,
-    `state.db = ${options.stateDbPath}`,
-    ...optionalDbSegments,
-    `agentAssets = ${options.agentAssetsDir}`,
-  ].join(' ')
+/** Startup configuration as `server.listening` log data. */
+export function formatStartupConfig(options: AcpServerCliOptions): Record<string, unknown> {
+  return {
+    endpoints: formatBindUrls(options),
+    wrkqLocator: options.wrkqDbLocator,
+    coordDb: options.coordDbPath,
+    interfaceDb: options.interfaceDbPath,
+    stateDb: options.stateDbPath,
+    ...(options.adminDbPath !== undefined ? { adminDb: options.adminDbPath } : {}),
+    ...(options.jobsDbPath !== undefined ? { jobsDb: options.jobsDbPath } : {}),
+    ...(options.conversationDbPath !== undefined
+      ? { conversationDb: options.conversationDbPath }
+      : {}),
+    agentAssets: options.agentAssetsDir,
+  }
 }
 
 export function renderHelp(): string {
@@ -592,10 +590,20 @@ export function resolveLauncherDeps(
 
   if (useRealLauncher) {
     if (useEchoLauncher) {
-      console.warn('ACP_REAL_HRC_LAUNCHER=1 set; ignoring ACP_DEV_ECHO_LAUNCHER=1')
+      writeLogLine({
+        level: 'warn',
+        component: 'acp-server',
+        event: 'server.config.ignored',
+        data: { variable: 'ACP_DEV_ECHO_LAUNCHER', reason: 'ACP_REAL_HRC_LAUNCHER=1' },
+      })
     }
     if (useDevFlowLauncher) {
-      console.warn('ACP_REAL_HRC_LAUNCHER=1 set; ignoring ACP_DEV_FLOW_LAUNCHER=1')
+      writeLogLine({
+        level: 'warn',
+        component: 'acp-server',
+        event: 'server.config.ignored',
+        data: { variable: 'ACP_DEV_FLOW_LAUNCHER', reason: 'ACP_REAL_HRC_LAUNCHER=1' },
+      })
     }
 
     const createHrcClient =
@@ -1021,7 +1029,7 @@ function mergeMetadata(
 
 export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
   shutdown(): Promise<void>
-  startupLine: string
+  startupConfig: Record<string, unknown>
 }> {
   const acpBaseUrl = resolveAcpBaseUrl(options)
   process.env['ACP_BASE_URL'] = acpBaseUrl
@@ -1065,16 +1073,25 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
   const jobIdentityStartup =
     jobNodeIdentityAuthority !== undefined ? await jobNodeIdentityAuthority.initialize() : undefined
   if (jobIdentityStartup !== undefined && !jobIdentityStartup.ok) {
-    console.error(
-      `acp-server job execution identity baseline unavailable: ${jobIdentityStartup.code}: ${jobIdentityStartup.message}`
-    )
+    writeLogLine({
+      level: 'error',
+      component: 'jobs',
+      event: 'jobs.identity_baseline_unavailable',
+      data: { code: jobIdentityStartup.code, message: jobIdentityStartup.message },
+    })
   }
   if (jobsStore !== undefined && jobIdentityStartup !== undefined) {
     const migration = stampLegacyJobRunsAfterIdentity(jobsStore, jobIdentityStartup)
     if (migration.stamped > 0) {
-      console.log(
-        `acp-server stamped ${migration.stamped} legacy nonterminal job run(s) with execution node ${jobIdentityStartup.ok ? jobIdentityStartup.identity.nodeId : 'unavailable'}`
-      )
+      writeLogLine({
+        level: 'info',
+        component: 'jobs',
+        event: 'jobs.legacy_runs_stamped',
+        data: {
+          stamped: migration.stamped,
+          nodeId: jobIdentityStartup.ok ? jobIdentityStartup.identity.nodeId : 'unavailable',
+        },
+      })
     }
   }
   const wrkfLifecycle = await createWrkfClientLifecycle({
@@ -1152,7 +1169,13 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     catalogStateDir:
       process.env['ACP_CAP_CATALOG_STATE_DIR']?.trim() || DEFAULT_CAP_CATALOG_STATE_DIR,
     acpBaseUrl,
-    logger: (message) => console.log(message),
+    logger: (message) =>
+      writeLogLine({
+        level: 'info',
+        component: 'acp-capability-host',
+        event: 'capability_host.log',
+        data: { message },
+      }),
   })
   // The reconciler runs only where ACP_RECONCILER_NODE designates; acp-server
   // owns its lifecycle and nothing else (logic lives in acp-reconciler).
@@ -1163,13 +1186,21 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
       : createAcpReconciler({
           config: reconcilerConfig,
           workClient: await wrkfLifecycle.clientForPrincipal(reconcilerConfig.principalRef),
-          log: (line) => console.log(line),
+          log: (line) =>
+            writeLogLine({
+              level: 'info',
+              component: 'acp-reconciler',
+              event: 'reconciler.log',
+              data: { message: line.replace(/^acp-reconciler: /, '') },
+            }),
         })
   void reconciler?.start().catch((error) => {
-    console.error(
-      'acp-server reconciler failed to start:',
-      error instanceof Error ? error.message : String(error)
-    )
+    writeLogLine({
+      level: 'error',
+      component: 'acp-reconciler',
+      event: 'reconciler.start_failed',
+      err: error,
+    })
   })
   // One store instance for the whole daemon: `serverDeps` is resolved twice (HTTP
   // router + WS upgrade path), and two stores over one flat file would mean two
@@ -1428,7 +1459,13 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
             causationDepthLimit: eventCausationDepthLimit,
           }),
           onAdmissionRefused: createUnassignedScheduleReporter({
-            log: (line) => console.error(line),
+            log: (line) =>
+              writeLogLine({
+                level: 'warn',
+                component: 'jobs',
+                event: 'jobs.schedule.admission_refused',
+                data: { message: line },
+              }),
           }),
         })
       : undefined
@@ -1489,9 +1526,18 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
                   ? await jobNodeIdentityAuthority?.verifyFresh('scheduler_tick')
                   : undefined
               if (verification !== undefined && !verification.ok) {
-                console.error(
-                  formatJobIdentityMissedTickDiagnostic(jobsStore, verification, new Date())
-                )
+                writeLogLine({
+                  level: 'error',
+                  component: 'jobs',
+                  event: 'jobs.identity_missed_tick',
+                  data: {
+                    message: formatJobIdentityMissedTickDiagnostic(
+                      jobsStore,
+                      verification,
+                      new Date()
+                    ),
+                  },
+                })
                 return
               }
               if (jobsScheduler !== undefined && verification?.ok === true) {
@@ -1511,10 +1557,12 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
               }
             })
             .catch((error) => {
-              console.error(
-                'acp-server jobs scheduler tick failed:',
-                error instanceof Error ? error.message : String(error)
-              )
+              writeLogLine({
+                level: 'error',
+                component: 'jobs',
+                event: 'jobs.scheduler_tick_failed',
+                err: error,
+              })
             })
             .then(async () => {
               if (pbcWorkerScheduler !== undefined) {
@@ -1522,10 +1570,12 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
               }
             })
             .catch((error) => {
-              console.error(
-                'acp-server PBC worker scheduler tick failed:',
-                error instanceof Error ? error.message : String(error)
-              )
+              writeLogLine({
+                level: 'error',
+                component: 'pbc',
+                event: 'pbc.worker_scheduler_tick_failed',
+                err: error,
+              })
             })
             .finally(() => {
               schedulerTickInProgress = false
@@ -1535,7 +1585,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
 
   let closed = false
   return {
-    startupLine: formatStartupLine(options),
+    startupConfig: formatStartupConfig(options),
     async shutdown(): Promise<void> {
       if (closed) {
         return
@@ -1583,7 +1633,12 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
     }
 
     runtime = await startAcpServeBin(resolved.options)
-    console.log(runtime.startupLine)
+    writeLogLine({
+      level: 'info',
+      component: 'acp-server',
+      event: 'server.listening',
+      data: { pid: process.pid, ...runtime.startupConfig },
+    })
 
     let shuttingDown = false
     const shutdown = async () => {
@@ -1606,7 +1661,12 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
       await runtime.shutdown()
     }
 
-    console.error(error instanceof Error ? error.message : String(error))
+    writeLogLine({
+      level: 'error',
+      component: 'acp-server',
+      event: 'server.start_failed',
+      err: error,
+    })
     return 1
   }
 }

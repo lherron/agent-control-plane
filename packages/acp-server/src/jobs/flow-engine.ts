@@ -1,3 +1,4 @@
+import { writeLogLine } from 'acp-core'
 import type {
   Actor,
   BranchTaken,
@@ -460,9 +461,16 @@ async function runHrcEventLocalNodeProbe(input: {
 
   const observed =
     typeof payloadNodeId === 'string' && payloadNodeId.length > 0 ? payloadNodeId : '<missing>'
-  console.warn(
-    `[hrc-first-turn-missing] WARN nodeId tripwire blocked dispatch for job run ${input.jobRun.jobRunId}: payload node ${observed} does not match co-resident HRC node ${expectedNodeId ?? '<unavailable>'}`
-  )
+  writeLogLine({
+    level: 'warn',
+    component: 'job-flow',
+    event: 'job_flow.node_tripwire_blocked',
+    data: {
+      jobRunId: input.jobRun.jobRunId,
+      payloadNode: observed,
+      hrcNode: expectedNodeId ?? '<unavailable>',
+    },
+  })
   return { outcome: 'idle' }
 }
 

@@ -5,6 +5,7 @@ import { dirname } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 
 import { createClient } from '@wrkq/client'
+import { writeLogLine } from 'acp-core'
 import { openInterfaceStore } from 'acp-interface-store'
 import { type AcpServerCliOptions, resolveCliOptions, startAcpServeBin } from 'acp-server'
 import {
@@ -461,11 +462,6 @@ async function resolveControlPlaneChannelId(
   return consulKvGet('cfg/dev/_global/discord/control_plane_channel_id')
 }
 
-function writeServerProcessLog(event: string, details?: Record<string, unknown>): void {
-  const suffix = details === undefined ? '' : ` ${JSON.stringify(details)}`
-  process.stderr.write(`${new Date().toISOString()} [acp-server] INFO ${event}${suffix}\n`)
-}
-
 async function startGatewayInProcess(
   options: AcpServerCliOptions,
   env: NodeJS.ProcessEnv = process.env
@@ -540,12 +536,21 @@ async function serverForeground(args: readonly string[]): Promise<void> {
       gateway = await startGatewayInProcess(resolved.options)
     }
 
-    writeServerProcessLog('server.listening', {
-      endpoint: resolvePrimaryServerBaseUrl(resolved.options),
-      pid: process.pid,
-      discordGateway: discordEnabled ? resolveGatewayId() : null,
-    })
-    process.stderr.write(`${server.startupLine}\n`)
+    // Startup stays on stderr (acp-server.err.log), where it has always gone.
+    writeLogLine(
+      {
+        level: 'info',
+        component: 'acp-server',
+        event: 'server.listening',
+        data: {
+          endpoint: resolvePrimaryServerBaseUrl(resolved.options),
+          pid: process.pid,
+          discordGateway: discordEnabled ? resolveGatewayId() : null,
+          ...server.startupConfig,
+        },
+      },
+      'stderr'
+    )
 
     let shuttingDown = false
     const shutdown = async () => {

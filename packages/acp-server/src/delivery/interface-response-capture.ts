@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { writeLogLine } from 'acp-core'
 
 import type { AttachmentRef, Run } from 'acp-core'
 import type { InterfaceStore, OutboundAttachment } from 'acp-interface-store'
@@ -117,10 +118,13 @@ export function createInterfaceResponseCapture(
         replyAnchorConsumed = true
         result.lastDeliveryRequestId = deliveryRequestId
       } catch (error) {
-        console.error(
-          `[acp-server] interface response capture skipped for run ${deps.runId}:`,
-          error
-        )
+        writeLogLine({
+          level: 'error',
+          component: 'interface-response-capture',
+          event: 'interface_response.capture_skipped',
+          data: { runId: deps.runId },
+          err: error,
+        })
       }
     },
   }
@@ -147,9 +151,12 @@ function failPendingOutboundAttachments(deps: InterfaceResponseCaptureDeps): voi
 
   const updatedAt = new Date().toISOString()
   deps.interfaceStore.outboundAttachments.markPendingFailedForRun(deps.runId, updatedAt)
-  console.warn(
-    `[acp-server] marked ${pendingAttachments.length} pending outbound attachment(s) failed for completed run ${deps.runId}`
-  )
+  writeLogLine({
+    level: 'warn',
+    component: 'interface-response-capture',
+    event: 'outbound_attachments.failed_pending',
+    data: { runId: deps.runId, count: pendingAttachments.length },
+  })
 }
 
 function createDeliveryRequestId(runId: string, ordinal: number): string {

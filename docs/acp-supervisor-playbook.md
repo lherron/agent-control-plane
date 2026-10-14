@@ -549,7 +549,7 @@ Start a fresh source ACP server for the real-runtime walk.
 
 ```bash
 ACP_PORT=18484 ACP_STATE_DB_PATH=/tmp/acp-playbook-T01403-real-state.db ACP_COORD_DB_PATH=/tmp/acp-playbook-T01403-real-coord.db ACP_ADMIN_DB_PATH=/tmp/acp-playbook-T01403-real-admin.db ACP_JOBS_DB_PATH=/tmp/acp-playbook-T01403-real-jobs.db ACP_INTERFACE_DB_PATH=/tmp/acp-playbook-T01403-real-interface.db ACP_CONVERSATION_DB_PATH=/tmp/acp-playbook-T01403-real-conversation.db bun packages/acp-server/src/cli.ts --host 127.0.0.1 --port 18484 --state-db-path /tmp/acp-playbook-T01403-real-state.db --coord-db-path /tmp/acp-playbook-T01403-real-coord.db --admin-db-path /tmp/acp-playbook-T01403-real-admin.db --jobs-db-path /tmp/acp-playbook-T01403-real-jobs.db --interface-db-path /tmp/acp-playbook-T01403-real-interface.db --conversation-db-path /tmp/acp-playbook-T01403-real-conversation.db
-# acp-server listening on http://127.0.0.1:18484 ... state.db = /tmp/acp-playbook-T01403-real-state.db ...
+# {"level":"info","component":"acp-server","event":"server.listening","data":{"pid":...,"endpoints":["http://127.0.0.1:18484"],...,"stateDb":"/tmp/acp-playbook-T01403-real-state.db",...},"ts":"..."}
 ```
 
 Publish the workflow.
@@ -694,7 +694,7 @@ The command below started that server:
 
 ```bash
 ACP_PORT=18483 ACP_STATE_DB_PATH=/tmp/acp-playbook-T01403-state.db ACP_COORD_DB_PATH=/tmp/acp-playbook-T01403-coord.db ACP_ADMIN_DB_PATH=/tmp/acp-playbook-T01403-admin.db ACP_JOBS_DB_PATH=/tmp/acp-playbook-T01403-jobs.db ACP_INTERFACE_DB_PATH=/tmp/acp-playbook-T01403-interface.db ACP_CONVERSATION_DB_PATH=/tmp/acp-playbook-T01403-conversation.db bun packages/acp-server/src/cli.ts --host 127.0.0.1 --port 18483 --state-db-path /tmp/acp-playbook-T01403-state.db --coord-db-path /tmp/acp-playbook-T01403-coord.db --admin-db-path /tmp/acp-playbook-T01403-admin.db --jobs-db-path /tmp/acp-playbook-T01403-jobs.db --interface-db-path /tmp/acp-playbook-T01403-interface.db --conversation-db-path /tmp/acp-playbook-T01403-conversation.db
-# acp-server listening on http://127.0.0.1:18483 ... state.db = /tmp/acp-playbook-T01403-state.db ...
+# {"level":"info","component":"acp-server","event":"server.listening","data":{"pid":...,"endpoints":["http://127.0.0.1:18483"],...,"stateDb":"/tmp/acp-playbook-T01403-state.db",...},"ts":"..."}
 ```
 
 Publish the workflow.

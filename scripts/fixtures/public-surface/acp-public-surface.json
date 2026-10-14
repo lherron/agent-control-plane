@@ -1691,6 +1691,8 @@
         "JsonScalar",
         "LearningArtifactBase",
         "LoggedTransitionRecord",
+        "LogLevel",
+        "LogLineInput",
         "MembershipRole",
         "MessageParticipant",
         "MessageParticipantAgent",
@@ -1789,6 +1791,7 @@
         "createInMemoryWorkflowKernel",
         "deepFreeze",
         "deriveLifecycleStateAfterTransition",
+        "errorFields",
         "evaluateEventMatch",
         "findMissingEvidenceKinds",
         "findTaskIds",
@@ -1845,7 +1848,8 @@
         "transitionLearningArtifactLifecycle",
         "validateJobTrigger",
         "validatePromotionReadiness",
-        "validateTransition"
+        "validateTransition",
+        "writeLogLine"
       ]
     },
     "acp-e2e": {
@@ -2153,7 +2157,7 @@
         "DurableWrkfParticipantCaptureStore",
         "DurableWrkfRouteIdempotencyStore",
         "exactRouteKey",
-        "formatStartupLine",
+        "formatStartupConfig",
         "handleLaunchSession",
         "InMemoryInputAdmissionStore",
         "InMemoryInputApplicationStore",

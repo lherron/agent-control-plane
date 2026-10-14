@@ -1,3 +1,4 @@
+import { writeLogLine } from 'acp-core'
 import type {
   AttachmentRef,
   InputAdmissionRecord,
@@ -669,10 +670,13 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
       try {
         await dispatchItem(item)
       } catch (error) {
-        console.error(
-          `[input-queue-dispatcher] error dispatching queue item ${item.queueItemId} for run ${item.runId}:`,
-          error instanceof Error ? error.message : String(error)
-        )
+        writeLogLine({
+          level: 'error',
+          component: 'input-queue-dispatcher',
+          event: 'input_queue.dispatch_failed',
+          data: { queueItemId: item.queueItemId, runId: item.runId },
+          err: error,
+        })
       }
     }
   }
@@ -686,10 +690,12 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
       inflight = pass
       void pass
         .catch((error) => {
-          console.error(
-            '[input-queue-dispatcher] loop error:',
-            error instanceof Error ? error.message : String(error)
-          )
+          writeLogLine({
+            level: 'error',
+            component: 'input-queue-dispatcher',
+            event: 'input_queue.loop_failed',
+            err: error,
+          })
         })
         .then(() => {
           inflight = undefined
@@ -705,10 +711,12 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
       inflight = pass
       void pass
         .catch((error) => {
-          console.error(
-            '[input-queue-dispatcher] startup sweep error:',
-            error instanceof Error ? error.message : String(error)
-          )
+          writeLogLine({
+            level: 'error',
+            component: 'input-queue-dispatcher',
+            event: 'input_queue.startup_sweep_failed',
+            err: error,
+          })
         })
         .then(() => {
           inflight = undefined

@@ -1930,16 +1930,8 @@ async function sendDashboardProjectedEvent(input: {
   includeSessionDetails: boolean
   seenHrcSeqs: Set<number>
 }): Promise<void> {
-  if (input.seenHrcSeqs.has(input.event.hrcSeq)) {
-    console.debug(
-      `mobile dashboard duplicate hrcSeq=${input.event.hrcSeq} streamSeq=${input.event.streamSeq} eventKind=${input.event.eventKind}`
-    )
-    return
-  }
+  if (input.seenHrcSeqs.has(input.event.hrcSeq)) return
   input.seenHrcSeqs.add(input.event.hrcSeq)
-  console.debug(
-    `mobile dashboard event hrcSeq=${input.event.hrcSeq} streamSeq=${input.event.streamSeq} eventKind=${input.event.eventKind}`
-  )
   sendMobileJsonEnvelope(input.ws, projectEvent(input.event))
   const session = await projectSessionForDashboardEvent({
     hrcClient: input.hrcClient,

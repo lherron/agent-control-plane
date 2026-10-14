@@ -1,5 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { writeLogLine } from 'acp-core'
 
 import { DeliveryTargetResolver } from './delivery-target-resolver.js'
 import { BindingRepo } from './repos/binding-repo.js'
@@ -342,9 +343,17 @@ function tightenInterfaceBindingsConstraints(sqlite: SqliteDatabase): void {
     .all() as Array<{ binding_id: string }>
 
   if (offenders.length > 0) {
-    process.stderr.write(
-      `[acp-interface-store] Skipping interface_bindings constraint tightening: ${offenders.length} active binding(s) lack agent_id/project_id (first: ${offenders[0]?.binding_id}). Run 'acp admin interface binding lint' and repair them, then reopen the store.\n`
-    )
+    writeLogLine({
+      level: 'warn',
+      component: 'acp-interface-store',
+      event: 'interface_bindings.tightening_skipped',
+      data: {
+        offenders: offenders.length,
+        firstBindingId: offenders[0]?.binding_id,
+        remedy:
+          "run 'acp admin interface binding lint', repair the bindings, then reopen the store",
+      },
+    })
     return
   }
 
