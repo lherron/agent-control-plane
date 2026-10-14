@@ -25,8 +25,21 @@ directory, root-level <root>/*.log files are rotated too.
 EOF
 }
 
+json_string() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  printf '"%s"' "$value"
+}
+
+# One Praesidium L2 log line: log_line LEVEL EVENT DATA_JSON
+log_line() {
+  printf '{"ts":"%s","level":"%s","component":"log-rotation","event":"%s","data":%s}\n' \
+    "$(/bin/date -u '+%Y-%m-%dT%H:%M:%S.000Z')" "$1" "$2" "$3"
+}
+
 die() {
-  printf 'rotate-praesidium-logs: %s\n' "$*" >&2
+  log_line error rotation.failed "{\"message\":$(json_string "$*")}" >&2
   exit 2
 }
 
@@ -98,8 +111,12 @@ if ((${#logs[@]} == 0)); then
     logs+=("$candidate")
   done
   shopt -u nullglob
-  printf 'scan root=%s count=%s%s\n' "$log_root" "${#logs[@]}" \
-    "$( ((${#logs[@]} > 0)) && printf ' logs=%s' "$(IFS=,; printf '%s' "${logs[*]}")")"
+  logs_json=''
+  for candidate in ${logs[@]+"${logs[@]}"}; do
+    logs_json+="${logs_json:+,}$(json_string "$candidate")"
+  done
+  log_line info rotation.scan \
+    "{\"root\":$(json_string "$log_root"),\"count\":${#logs[@]},\"logs\":[$logs_json]}"
   ((${#logs[@]} > 0)) || exit 0
 fi
 
@@ -183,8 +200,8 @@ rotate_log() {
   /bin/mv "$staging.gz" "$archive"
   prune_archives "$path"
 
-  printf 'rotated path=%s bytes=%s inode=%s archive=%s\n' \
-    "$path" "$size" "$after_inode" "$archive"
+  log_line info rotation.rotated \
+    "{\"path\":$(json_string "$path"),\"bytes\":$size,\"inode\":$after_inode,\"archive\":$(json_string "$archive")}"
 }
 
 for log in "${logs[@]}"; do

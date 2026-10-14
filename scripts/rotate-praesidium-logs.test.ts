@@ -34,6 +34,25 @@ function archivesFor(path: string): string[] {
     .sort()
 }
 
+function logLines(output: Uint8Array | Buffer) {
+  return output
+    .toString()
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const record = JSON.parse(line) as {
+        ts: string
+        level: string
+        component: string
+        event: string
+        data: Record<string, unknown>
+      }
+      expect(record.ts).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+      expect(record.component).toBe('log-rotation')
+      return record
+    })
+}
+
 function rotate(path: string, lock: string, extraArgs: string[] = []) {
   return Bun.spawnSync([
     '/bin/bash',
@@ -82,7 +101,13 @@ describe('rotate-praesidium-logs', () => {
     expect(readFileSync(log, 'utf8')).toBe('')
     const archives = archivesFor(log)
     expect(archives).toHaveLength(1)
-    expect(result.stdout.toString()).toContain(`archive=${join(dir, archives[0]!)}`)
+    expect(logLines(result.stdout)).toEqual([
+      expect.objectContaining({
+        level: 'info',
+        event: 'rotation.rotated',
+        data: expect.objectContaining({ path: log, archive: join(dir, archives[0]!), inode }),
+      }),
+    ])
     const expanded = Bun.spawnSync(['/usr/bin/gzip', '-dc', join(dir, archives[0]!)])
     expect(expanded.exitCode).toBe(0)
     expect(expanded.stdout.toString()).toBe(content)
@@ -183,10 +208,15 @@ describe('rotate-praesidium-logs', () => {
         expect(readFileSync(path, 'utf8')).not.toBe('')
         expect(archivesFor(path)).toEqual([])
       }
-      const stdout = result.stdout.toString()
-      expect(stdout).toContain(`scan root=${root} count=${rotated.length}`)
-      for (const path of rotated) expect(stdout).toContain(path)
-      expect(stdout).not.toContain('_archive')
+      const [scan, ...rotations] = logLines(result.stdout)
+      expect(scan).toMatchObject({
+        level: 'info',
+        event: 'rotation.scan',
+        data: { root, count: rotated.length },
+      })
+      expect([...(scan!.data['logs'] as string[])].sort()).toEqual([...rotated].sort())
+      expect(rotations.map((r) => r.event)).toEqual(rotated.map(() => 'rotation.rotated'))
+      expect(result.stdout.toString()).not.toContain('_archive')
     })
 
     test('defaults the log root and lock file under $HOME', () => {
@@ -213,7 +243,13 @@ describe('rotate-praesidium-logs', () => {
       })
 
       expect(result.exitCode).toBe(0)
-      expect(result.stdout.toString()).toBe(`scan root=${root} count=0\n`)
+      expect(logLines(result.stdout)).toEqual([
+        expect.objectContaining({
+          level: 'info',
+          event: 'rotation.scan',
+          data: { root, count: 0, logs: [] },
+        }),
+      ])
     })
   })
 })

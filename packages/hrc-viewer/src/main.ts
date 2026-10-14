@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 
+import { writeLogLine } from 'acp-core'
 import { HrcClient, discoverSocket } from 'hrc-sdk'
 
 import { createGhostmuxManager } from './ghostmux.js'
@@ -7,14 +8,13 @@ import { HrcViewer, type ViewerLog } from './viewer.js'
 
 const STARTUP_RETRY_MS = 4_000
 
-function writeLog(level: 'INFO' | 'WARN', event: string, fields: Record<string, unknown>): void {
-  const record = { ts: new Date().toISOString(), level, event, ...fields }
-  const line = JSON.stringify(record)
-  if (level === 'WARN') console.error(line)
-  else console.log(line)
-}
-
-const log: ViewerLog = (level, event, fields = {}) => writeLog(level, event, fields)
+const log: ViewerLog = (level, event, fields = {}) =>
+  writeLogLine({
+    level: level === 'WARN' ? 'warn' : 'info',
+    component: 'hrc-viewer',
+    event,
+    data: fields,
+  })
 
 async function waitForClient(signal: AbortSignal): Promise<HrcClient> {
   while (!signal.aborted) {
