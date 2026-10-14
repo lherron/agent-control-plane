@@ -144,3 +144,32 @@ describe('access log redaction', () => {
     expect(contents.toLowerCase()).not.toContain('bearer')
   })
 })
+
+describe('request log volume', () => {
+  test('successful gateway polls are quiet; a failing poll still logs', () => {
+    const lines: string[] = []
+    const originalLog = console.log
+    console.log = (...args: unknown[]) => lines.push(args.join(' '))
+    try {
+      for (const [path, status] of [
+        ['/v1/admin/system-events', 200],
+        ['/v1/gateway/acp-discord-smoke/deliveries/stream', 200],
+        ['/v1/gateway/acp-discord-smoke/deliveries/stream', 503],
+        ['/v1/admin/agents', 200],
+      ] as const) {
+        const url = new URL(`http://acp.test${path}?after=1`)
+        const context = startRequestLog(new Request(url), url, '127.0.0.1')
+        finishRequestLog(context, new Response(null, { status }))
+      }
+    } finally {
+      console.log = originalLog
+    }
+    expect(lines.map((line) => JSON.parse(line).data)).toEqual([
+      expect.objectContaining({
+        path: '/v1/gateway/acp-discord-smoke/deliveries/stream',
+        status: 503,
+      }),
+      expect.objectContaining({ path: '/v1/admin/agents', status: 200 }),
+    ])
+  })
+})

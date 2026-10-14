@@ -21,6 +21,17 @@ export interface RequestLogContext {
 
 const MOBILE_SESSIONS_CREATE_PATH = '/v1/mobile/sessions'
 
+// The in-process Discord gateway polls these every few seconds over loopback.
+// Successful polls are not logged; a failing poll still is.
+const QUIET_POLL_PATHS = [
+  /^\/v1\/admin\/system-events$/,
+  /^\/v1\/gateway\/[^/]+\/deliveries\/stream$/,
+]
+
+function isQuietPoll(context: RequestLogContext): boolean {
+  return context.method === 'GET' && QUIET_POLL_PATHS.some((pattern) => pattern.test(context.path))
+}
+
 export function startRequestLog(
   request: Request,
   url: URL,
@@ -69,7 +80,7 @@ export function finishRequestLog(context: RequestLogContext, response: Response)
       emit('info', 'http.stream.open', base)
       return wrapStreamClose(context, response)
     }
-    emit('info', 'http.request', base)
+    if (!isQuietPoll(context)) emit('info', 'http.request', base)
     return response
   }
 
