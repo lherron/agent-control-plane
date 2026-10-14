@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { startMailInjector } from './index.js'
 import { inspectMailEnvelope } from './inspect.js'
+import { createJsonLineLog } from './log-line.js'
 
 const statePath = process.env['HRC_MAIL_INJECTOR_STATE_PATH']
 if (statePath === undefined || statePath === '') {
@@ -28,14 +29,14 @@ const injector = await startMailInjector({
   nodeId: process.env['HRC_NODE_ID'] ?? 'max3',
 })
 
-console.log(
-  JSON.stringify({
-    status: 'running',
-    subscriber: 'mail',
-    statePath: injector.statePath,
-    importMarker: injector.importMarker,
-  })
-)
+// hrc-runtime's install-mail-injector-launchd proves startup by matching
+// `"status":"running"` in the new log bytes.
+createJsonLineLog()('INFO', 'mail_injector.started', {
+  status: 'running',
+  subscriber: 'mail',
+  statePath: injector.statePath,
+  importMarker: injector.importMarker,
+})
 const stop = async () => {
   await injector.stop()
   process.exit(0)

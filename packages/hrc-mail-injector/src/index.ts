@@ -12,6 +12,7 @@ import {
 } from 'hrc-injector-core'
 
 import { normalizeFailureNoticeDispatchResult } from './failure-notice-dispatch.js'
+import { createJsonLineLog } from './log-line.js'
 import { createWrkqLedger } from './wrkq-ledger.js'
 
 export type MailInjectorOptions = Readonly<{
@@ -69,7 +70,7 @@ export async function startMailInjector(
     throw new Error('mail injector requires a verified private kicker-store import marker')
   }
 
-  const log = options.log ?? ((level, event, detail) => console.log(level, event, detail))
+  const log = options.log ?? createJsonLineLog()
   const ledger = createWrkqLedger()
   const socketPort = createSocketInjectionPort(client)
   const kicker = createMailKicker(
