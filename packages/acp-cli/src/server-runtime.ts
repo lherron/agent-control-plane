@@ -21,7 +21,7 @@ import { CliServerError, CliUsageError, printText } from './cli-runtime.js'
 import { printJson } from './print.js'
 
 const DEFAULT_RUNTIME_ROOT = '/Users/lherron/praesidium/var/run/acp'
-const DEFAULT_LOG_PATH = '/Users/lherron/praesidium/var/logs/acp-server.log'
+const DEFAULT_LOG_PATH = '/Users/lherron/praesidium/var/logs/agent-control-plane/acp-server.log'
 const DEFAULT_HOST = '127.0.0.1'
 const DEFAULT_PORT = 18470
 const DEFAULT_LAUNCHD_LABEL = 'com.praesidium.acp-server'
@@ -73,7 +73,7 @@ export function renderServerHelp(): string {
     '  ACP_WRKQ_DB / WRKQ_DB    Canonical wrkq local path or rpc:// locator',
     '  ACP_WRKQ_DB_PATH / WRKQ_DB_PATH Legacy path-only compatibility inputs',
     '  ACP_RUNTIME_DIR           Runtime files (default: /Users/lherron/praesidium/var/run/acp)',
-    '  ACP_LOG_PATH              Daemon fallback log (default: /Users/lherron/praesidium/var/logs/acp-server.log)',
+    '  ACP_LOG_PATH              Daemon fallback log (default: /Users/lherron/praesidium/var/logs/agent-control-plane/acp-server.log)',
     '  ACP_ACCESS_LOG_PATH       Apache combined access log (unset = disabled)',
     '  ACP_REAL_HRC_LAUNCHER     Defaults to 1 for acp server',
     '  ACP_DISABLE_DISCORD_GATEWAY=1 disables the in-process Discord gateway',

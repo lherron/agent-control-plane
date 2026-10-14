@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -135,5 +136,84 @@ describe('rotate-praesidium-logs', () => {
     expect(recovered.exitCode).toBe(0)
     expect(readFileSync(log, 'utf8')).toBe('')
     expect(archivesFor(log)).toHaveLength(1)
+  })
+
+  describe('default set', () => {
+    function seed(path: string): void {
+      mkdirSync(resolve(path, '..'), { recursive: true })
+      writeFileSync(path, 'line\n'.repeat(16))
+    }
+
+    function rotateDefault(env: Record<string, string>) {
+      return Bun.spawnSync(['/bin/bash', script, '--max-bytes', '1', '--keep', '7'], {
+        env: { PATH: '/usr/bin:/bin', ...env },
+      })
+    }
+
+    test('rotates every project directory one level deep plus root, never _archive', () => {
+      const root = makeTempDir()
+      const lock = join(root, 'rotation.lock')
+      const rotated = [
+        join(root, 'agent-control-plane', 'acp-server.log'),
+        join(root, 'agent-control-plane', 'acp-server.err.log'),
+        join(root, 'hrc-runtime', 'hrc-server.log'),
+        join(root, 'hrc-server.log'),
+      ]
+      const untouched = [
+        join(root, '_archive', 'deploy-old.log'),
+        join(root, '_archive', 'control-plane', 'old.log'),
+        join(root, 'agent-control-plane', 'nested', 'deep.log'),
+        join(root, 'agent-control-plane', 'notes.txt'),
+      ]
+      for (const path of [...rotated, ...untouched]) seed(path)
+
+      const result = rotateDefault({
+        PRAESIDIUM_LOG_ROTATION_ROOT: root,
+        PRAESIDIUM_LOG_ROTATION_LOCK_FILE: lock,
+      })
+
+      expect(result.stderr.toString()).toBe('')
+      expect(result.exitCode).toBe(0)
+      for (const path of rotated) {
+        expect(readFileSync(path, 'utf8')).toBe('')
+        // *.err.log also matches *.log; each file must rotate exactly once.
+        expect(archivesFor(path)).toHaveLength(1)
+      }
+      for (const path of untouched) {
+        expect(readFileSync(path, 'utf8')).not.toBe('')
+        expect(archivesFor(path)).toEqual([])
+      }
+      const stdout = result.stdout.toString()
+      expect(stdout).toContain(`scan root=${root} count=${rotated.length}`)
+      for (const path of rotated) expect(stdout).toContain(path)
+      expect(stdout).not.toContain('_archive')
+    })
+
+    test('defaults the log root and lock file under $HOME', () => {
+      const home = makeTempDir()
+      const log = join(home, 'praesidium', 'var', 'logs', 'taskboard', 'taskboard-server.log')
+      seed(log)
+
+      const result = rotateDefault({ HOME: home })
+
+      expect(result.stderr.toString()).toBe('')
+      expect(result.exitCode).toBe(0)
+      expect(readFileSync(log, 'utf8')).toBe('')
+      expect(archivesFor(log)).toHaveLength(1)
+      expect(
+        existsSync(join(home, 'praesidium', 'var', 'run', 'praesidium-log-rotation.lock'))
+      ).toBe(true)
+    })
+
+    test('an empty log root is a no-op', () => {
+      const root = makeTempDir()
+      const result = rotateDefault({
+        PRAESIDIUM_LOG_ROTATION_ROOT: root,
+        PRAESIDIUM_LOG_ROTATION_LOCK_FILE: join(root, 'rotation.lock'),
+      })
+
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout.toString()).toBe(`scan root=${root} count=0\n`)
+    })
   })
 })

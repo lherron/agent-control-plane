@@ -1,6 +1,6 @@
 /**
  * T-10846: always-on structured request log. One JSON line per HTTP request on
- * stdout (launchd routes it to var/logs/acp-server.log), in the same
+ * stdout (launchd routes it to var/logs/agent-control-plane/acp-server.log), in the same
  * `{level, component, event, data, ts}` shape the in-process gateway logs use.
  *
  * Never logged: request or response bodies, query strings, headers. For non-2xx

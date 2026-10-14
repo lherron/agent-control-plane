@@ -23,9 +23,9 @@
 	<key>RunAtLoad</key>
 	<true/>
 	<key>StandardErrorPath</key>
-	<string>/Users/lherron/praesidium/var/logs/praesidium-log-rotation.err.log</string>
+	<string>/Users/lherron/praesidium/var/logs/agent-control-plane/log-rotation.err.log</string>
 	<key>StandardOutPath</key>
-	<string>/Users/lherron/praesidium/var/logs/praesidium-log-rotation.log</string>
+	<string>/Users/lherron/praesidium/var/logs/agent-control-plane/log-rotation.log</string>
 	<key>StartInterval</key>
 	<integer>900</integer>
 	<key>WorkingDirectory</key>

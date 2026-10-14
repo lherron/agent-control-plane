@@ -90,7 +90,7 @@ The `acp` daemon is managed via launchd:
 - Plist: `launchd/com.praesidium.acp-server.plist` (canonical source); installed to `~/Library/LaunchAgents/`.
 - HTTP: `http://127.0.0.1:18470`
 - State DBs: `/Users/lherron/praesidium/var/db/acp-{state,interface,coordination,admin,...}.db`
-- Logs: `/Users/lherron/praesidium/var/logs/acp-server.{log,err.log}`
+- Logs: `/Users/lherron/praesidium/var/logs/agent-control-plane/acp-server.{log,err.log}`
 
 `just install` rebuilds, publishes the ACP set, and updates the main-checkout
 links; it does not reload launchd. After runtime changes: `just install`,

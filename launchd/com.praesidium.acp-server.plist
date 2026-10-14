@@ -27,7 +27,7 @@
 		<key>ACP_JOBS_DB_PATH</key>
 		<string></string>
 		<key>ACP_LOG_PATH</key>
-		<string>/Users/lherron/praesidium/var/logs/acp-server.log</string>
+		<string>/Users/lherron/praesidium/var/logs/agent-control-plane/acp-server.log</string>
 		<key>ACP_PORT</key>
 		<string>18470</string>
 		<key>ACP_REAL_HRC_LAUNCHER</key>
@@ -78,9 +78,9 @@
 	<key>RunAtLoad</key>
 	<true/>
 	<key>StandardErrorPath</key>
-	<string>/Users/lherron/praesidium/var/logs/acp-server.err.log</string>
+	<string>/Users/lherron/praesidium/var/logs/agent-control-plane/acp-server.err.log</string>
 	<key>StandardOutPath</key>
-	<string>/Users/lherron/praesidium/var/logs/acp-server.log</string>
+	<string>/Users/lherron/praesidium/var/logs/agent-control-plane/acp-server.log</string>
 	<key>ThrottleInterval</key>
 	<integer>10</integer>
 	<key>WorkingDirectory</key>

@@ -217,6 +217,8 @@ install no-sync="" force-sync="" force-link="":
     repo_root="$(git rev-parse --show-toplevel)"
     eval "$(bun scripts/install-policy.ts shell --no-sync="{{ no-sync }}" --force-sync="{{ force-sync }}" --force-link="{{ force-link }}")"
     echo "[install] context=${PRAESIDIUM_INSTALL_CONTEXT} sync=${PRAESIDIUM_INSTALL_SYNC_MODE} link=${PRAESIDIUM_INSTALL_LINK_MODE} publish=${PRAESIDIUM_INSTALL_PUBLISH_CHANNEL} tag=${PRAESIDIUM_INSTALL_PUBLISH_TAG}"
+    # launchd does not create parent directories for StandardOutPath/StandardErrorPath.
+    mkdir -p "$HOME/praesidium/var/logs/agent-control-plane"
     bun run clean
     bun install --frozen-lockfile
     bun scripts/workspace-doctor.ts
@@ -251,6 +253,7 @@ install-log-rotation:
     source_plist="$(git rev-parse --show-toplevel)/launchd/com.praesidium.log-rotation.plist"
     installed_plist="$HOME/Library/LaunchAgents/com.praesidium.log-rotation.plist"
     service_target="gui/$(id -u)/com.praesidium.log-rotation"
+    mkdir -p "$HOME/praesidium/var/logs/agent-control-plane"
     plutil -lint "$source_plist"
     install -m 0644 "$source_plist" "$installed_plist"
     if launchctl print "$service_target" >/dev/null 2>&1; then
@@ -270,7 +273,7 @@ install-hrc-viewer-launchd:
     installed_plist="$HOME/Library/LaunchAgents/com.praesidium.hrc-viewer.plist"
     service_target="gui/$(id -u)/com.praesidium.hrc-viewer"
     hrc_plist="$HOME/Library/LaunchAgents/com.praesidium.hrc-server.plist"
-    mkdir -p "$HOME/Library/LaunchAgents" "$HOME/praesidium/var/logs"
+    mkdir -p "$HOME/Library/LaunchAgents" "$HOME/praesidium/var/logs/agent-control-plane"
     hrc_env="$(plutil -extract EnvironmentVariables json -o - "$hrc_plist")" || {
       echo "[install] cannot read EnvironmentVariables from $hrc_plist" >&2
       exit 1

@@ -4,8 +4,6 @@ set -euo pipefail
 
 readonly DEFAULT_MAX_BYTES=67108864
 readonly DEFAULT_KEEP=7
-readonly DEFAULT_LOG_DIR=/Users/lherron/praesidium/var/logs
-readonly DEFAULT_LOCK_FILE=/Users/lherron/praesidium/var/run/praesidium-log-rotation.lock
 
 usage() {
   cat <<'EOF'
@@ -19,8 +17,11 @@ Options:
   --lock-file P   Kernel-backed lock file (default: var/run path)
   -h, --help      Show this help
 
-With no log arguments, rotates the ACP/HRC server, mail-injector and viewer
-launchd stdout/stderr logs.
+With no log arguments, rotates every project's logs one level below the log
+root (default: $HOME/praesidium/var/logs, override with
+PRAESIDIUM_LOG_ROTATION_ROOT): <root>/*/*.log, which includes *.err.log.
+<root>/_archive/ is never rotated. Until every project has migrated to its own
+directory, root-level <root>/*.log files are rotated too.
 EOF
 }
 
@@ -43,7 +44,8 @@ file_inode() {
 
 max_bytes="${PRAESIDIUM_LOG_ROTATION_MAX_BYTES:-$DEFAULT_MAX_BYTES}"
 keep="${PRAESIDIUM_LOG_ROTATION_KEEP:-$DEFAULT_KEEP}"
-lock_file="${PRAESIDIUM_LOG_ROTATION_LOCK_FILE:-$DEFAULT_LOCK_FILE}"
+lock_file="${PRAESIDIUM_LOG_ROTATION_LOCK_FILE:-${HOME:?HOME must be set}/praesidium/var/run/praesidium-log-rotation.lock}"
+log_root="${PRAESIDIUM_LOG_ROTATION_ROOT:-${HOME:?HOME must be set}/praesidium/var/logs}"
 logs=()
 
 while (($# > 0)); do
@@ -87,15 +89,18 @@ is_positive_integer "$keep" || die '--keep must be a positive integer'
 [[ -n "$lock_file" ]] || die '--lock-file must not be empty'
 
 if ((${#logs[@]} == 0)); then
-  logs=(
-    "$DEFAULT_LOG_DIR/hrc-server.log"
-    "$DEFAULT_LOG_DIR/hrc-server.err.log"
-    "$DEFAULT_LOG_DIR/acp-server.log"
-    "$DEFAULT_LOG_DIR/acp-server.err.log"
-    "$DEFAULT_LOG_DIR/hrc-mail-injector.log"
-    "$DEFAULT_LOG_DIR/hrc-mail-injector.err.log"
-    "$DEFAULT_LOG_DIR/hrc-viewer.log"
-  )
+  # <root>/*/*.log already matches *.err.log, so each file appears once.
+  # Root-level *.log is transitional: it keeps unmigrated projects rotating and
+  # matches nothing once var/logs root is empty.
+  shopt -s nullglob
+  for candidate in "$log_root"/*/*.log "$log_root"/*.log; do
+    [[ "$candidate" == "$log_root/_archive/"* ]] && continue
+    logs+=("$candidate")
+  done
+  shopt -u nullglob
+  printf 'scan root=%s count=%s%s\n' "$log_root" "${#logs[@]}" \
+    "$( ((${#logs[@]} > 0)) && printf ' logs=%s' "$(IFS=,; printf '%s' "${logs[*]}")")"
+  ((${#logs[@]} > 0)) || exit 0
 fi
 
 # lockf owns a BSD advisory lock, not a presence-based lock. Keeping the inode

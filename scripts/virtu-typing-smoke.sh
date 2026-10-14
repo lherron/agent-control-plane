@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Smoke test for the Discord typing indicator on long-running agent turns.
 #
-# Sends a slow prompt via virtu, then tails ~/praesidium/var/logs/acp-server.log
+# Sends a slow prompt via virtu, then tails ~/praesidium/var/logs/agent-control-plane/acp-server.log
 # for `gw.discord.typing.refresh` entries that match the target channel.
 # Asserts at least 2 pings spaced roughly TYPING_REFRESH_MS (8s) apart, and
 # that pings stop after the final delivery is rendered.
@@ -23,7 +23,7 @@
 set -euo pipefail
 
 CP_CHANNEL_ID="${CP_CHANNEL_ID:?Error: CP_CHANNEL_ID must be set}"
-ACP_LOG="${ACP_LOG:-$HOME/praesidium/var/logs/acp-server.log}"
+ACP_LOG="${ACP_LOG:-$HOME/praesidium/var/logs/agent-control-plane/acp-server.log}"
 WAIT_S="${WAIT_S:-90}"
 MIN_PINGS="${MIN_PINGS:-2}"
 PROMPT="${1:?Usage: virtu-typing-smoke.sh \"<prompt>\"}"

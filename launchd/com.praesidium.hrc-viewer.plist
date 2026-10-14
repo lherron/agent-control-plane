@@ -31,9 +31,9 @@
 	<key>RunAtLoad</key>
 	<true/>
 	<key>StandardErrorPath</key>
-	<string>__HOME__/praesidium/var/logs/hrc-viewer.log</string>
+	<string>__HOME__/praesidium/var/logs/agent-control-plane/hrc-viewer.err.log</string>
 	<key>StandardOutPath</key>
-	<string>__HOME__/praesidium/var/logs/hrc-viewer.log</string>
+	<string>__HOME__/praesidium/var/logs/agent-control-plane/hrc-viewer.log</string>
 	<key>ThrottleInterval</key>
 	<integer>10</integer>
 	<key>WorkingDirectory</key>

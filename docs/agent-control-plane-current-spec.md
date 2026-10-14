@@ -65,7 +65,7 @@ The launchd-managed ACP server uses:
 
 - plist source: `launchd/com.praesidium.acp-server.plist`
 - HTTP endpoint: `http://127.0.0.1:18470`
-- logs: `/Users/lherron/praesidium/var/logs/acp-server.{log,err.log}`
+- logs: `/Users/lherron/praesidium/var/logs/agent-control-plane/acp-server.{log,err.log}`
 - state DBs: `/Users/lherron/praesidium/var/db/acp-*.db`
 
 Server CLI/environment options include:

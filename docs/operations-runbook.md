@@ -90,16 +90,21 @@ Read any Consul value manually with `consul kv get <key>`.
 
 ## Logs
 
-- Launchd-managed stdout/stderr: `/Users/lherron/praesidium/var/logs/acp-server.{log,err.log}`.
-- `ACP_LOG_PATH` (plist default `/Users/lherron/praesidium/var/logs/acp-server.log`)
+- Launchd-managed stdout/stderr: `/Users/lherron/praesidium/var/logs/agent-control-plane/acp-server.{log,err.log}`.
+- `ACP_LOG_PATH` (plist default `/Users/lherron/praesidium/var/logs/agent-control-plane/acp-server.log`)
   is the daemon's own fallback log when not launchd-supervised.
 - `ACP_ACCESS_LOG_PATH` — optional Apache-combined access log; unset disables
   it.
 
 The `com.praesidium.log-rotation` LaunchAgent runs every 15 minutes and rotates
-ACP and HRC server stdout/stderr at 64 MiB, retaining seven gzip archives per
-file. It uses copytruncate semantics because launchd owns open descriptors for
-the configured paths: the active inode is truncated in place and is never
+every project's logs (`var/logs/*/*.log`, which includes `*.err.log`; never
+`var/logs/_archive/`) at 64 MiB, retaining seven gzip archives per file. Until
+the remaining projects move to their own directories it also rotates root-level
+`var/logs/*.log`. Each run logs one `scan` line listing the set to
+`var/logs/agent-control-plane/log-rotation.log`.
+
+It uses copytruncate semantics because launchd owns open descriptors for the
+configured paths: the active inode is truncated in place and is never
 renamed or recreated. A kernel-backed `lockf` lock prevents overlapping runs
 without leaving a stale-lock wedge after process or host failure.
 
