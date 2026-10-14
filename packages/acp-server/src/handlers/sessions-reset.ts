@@ -1,6 +1,5 @@
 import { badRequest, json } from '../http.js'
-import { admissionStatusForQueueStatus } from '../input-admission/admission-status.js'
-import { recordInputAdmissionEvent } from '../input-admission/input-admission-events.js'
+import { expireQueuedInput, isPendingQueueItem } from '../input-admission/expire-queued-input.js'
 import { parseJsonBody, requireRecord } from '../parsers/body.js'
 import { parseSessionRefField } from './shared.js'
 
@@ -23,27 +22,8 @@ export const handleResetSession: RouteHandler = async ({ request, deps }) => {
     if (item.resetPolicy === 'follow_latest') {
       continue
     }
-    if (item.status === 'queued' || item.status === 'leased' || item.status === 'dispatching') {
-      const expiredItem = deps.inputQueueStore.update(item.queueItemId, { status: 'expired' })
-      const expiredRun = deps.runStore.updateRun(item.runId, {
-        status: 'cancelled',
-        errorCode: 'reset_expired',
-        errorMessage: 'queued input expired because session context was reset',
-      })
-      const expiredAdmission = deps.inputAdmissionStore.update(item.inputAttemptId, {
-        status: admissionStatusForQueueStatus('expired'),
-        currentState: { queueStatus: 'expired', reason: 'reset_policy', seq: item.seq },
-      })
-      recordInputAdmissionEvent(deps, {
-        eventKind: 'input.queue.expired',
-        scopeRef: item.scopeRef,
-        laneRef: item.laneRef,
-        inputAttemptId: item.inputAttemptId,
-        admission: expiredAdmission,
-        run: expiredRun,
-        queueItem: expiredItem,
-        reason: 'reset_policy',
-      })
+    if (isPendingQueueItem(item)) {
+      expireQueuedInput(deps, item, 'queued input expired because session context was reset')
     }
   }
 

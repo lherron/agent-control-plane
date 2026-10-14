@@ -100,6 +100,7 @@
       "POST /v1/mobile/sessions",
       "POST /v1/mobile/sessions/:hostSessionId/input",
       "POST /v1/mobile/sessions/:hostSessionId/interrupt",
+      "POST /v1/mobile/sessions/:hostSessionId/restart",
       "POST /v1/pbc/tasks/:taskId/continue",
       "POST /v1/pbc/tasks/:taskId/dispose",
       "POST /v1/pbc/tasks/:taskId/effects/reconcile",

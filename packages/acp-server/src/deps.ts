@@ -206,6 +206,18 @@ export type AcpHrcClient = Pick<
     request: HrcActiveRunContributionRequest
   ): Promise<HrcActiveRunContributionResponse>
   getActiveRunContribution(inputApplicationId: string): Promise<HrcActiveRunContributionResponse>
+  /**
+   * T-10850 operator restart (`POST /v1/sessions/restart`). Optional until the
+   * hrc-sdk pin carries it; absent, the mobile restart route answers 501.
+   */
+  restartSession?(request: { hostSessionId: string; expectedGeneration: number }): Promise<{
+    priorHostSessionId: string
+    hostSessionId: string
+    generation: number
+    launch:
+      | { status: 'started'; runtimeId: string }
+      | { status: 'failed'; code?: string | undefined; message: string }
+  }>
 }
 
 export type HrcAgentSources = {
