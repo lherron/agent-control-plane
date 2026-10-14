@@ -28,6 +28,14 @@ export type MobileSessionMode = 'interactive' | 'headless'
 /** Session status as presented to the mobile client. */
 export type MobileSessionStatus = 'active' | 'stale' | 'inactive'
 
+export type MobileContextReading = {
+  turnId: string
+  usedTokens: number
+  windowTokens?: number | undefined
+  model?: { id: string; source: 'provider-response' | 'harness-config' } | undefined
+  observedAt: string
+}
+
 /** Summary of a single session in the mobile session index. */
 export type MobileSessionSummary = {
   sessionRef: string
@@ -44,6 +52,7 @@ export type MobileSessionSummary = {
   lastMessageSeq: number
   lastActivityAt: string | null
   capabilities: MobileSessionCapabilities
+  context?: MobileContextReading | undefined
 }
 
 /** Capabilities available for a session in its current state. */

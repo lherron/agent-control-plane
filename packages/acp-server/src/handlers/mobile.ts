@@ -96,7 +96,57 @@ type MobileNodeSummary = {
   detail?: string | undefined
 }
 
+type MobileContextReading = {
+  turnId: string
+  usedTokens: number
+  windowTokens?: number | undefined
+  model?: { id: string; source: 'provider-response' | 'harness-config' } | undefined
+  observedAt: string
+}
+
+function projectContextReading(
+  runtime: HrcRuntimeSnapshot | null | undefined
+): MobileContextReading | undefined {
+  const value = runtime?.runtimeStateJson?.['contextReading']
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const reading = value as Record<string, unknown>
+  if (
+    typeof reading['turnId'] !== 'string' ||
+    typeof reading['observedAt'] !== 'string' ||
+    !Number.isFinite(Date.parse(reading['observedAt'])) ||
+    typeof reading['usedTokens'] !== 'number' ||
+    !Number.isSafeInteger(reading['usedTokens']) ||
+    reading['usedTokens'] < 0
+  )
+    return undefined
+  const window = reading['windowTokens']
+  if (
+    window !== undefined &&
+    (typeof window !== 'number' || !Number.isSafeInteger(window) || window <= 0)
+  )
+    return undefined
+  const rawModel = reading['model']
+  const model =
+    typeof rawModel === 'object' && rawModel !== null && !Array.isArray(rawModel)
+      ? (rawModel as Record<string, unknown>)
+      : undefined
+  const projectedModel =
+    model &&
+    typeof model['id'] === 'string' &&
+    (model['source'] === 'provider-response' || model['source'] === 'harness-config')
+      ? ({ id: model['id'], source: model['source'] } as NonNullable<MobileContextReading['model']>)
+      : undefined
+  return {
+    turnId: reading['turnId'],
+    usedTokens: reading['usedTokens'],
+    ...(window !== undefined ? { windowTokens: window as number } : {}),
+    ...(projectedModel !== undefined ? { model: projectedModel } : {}),
+    observedAt: reading['observedAt'],
+  }
+}
+
 type MobileSessionSummary = {
+  context?: MobileContextReading | undefined
   nodeId?: string | undefined
   sourceKind?: MobileSessionSourceKind | undefined
   projectionState?: 'answered' | 'unreachable' | 'refused' | 'invalid_response' | undefined
@@ -180,6 +230,7 @@ type MobileSessionSummary = {
 
 function thinLocalSessionForFederation(session: MobileSessionSummary): MobileSessionSummary {
   return {
+    context: session.context,
     sessionRef: session.sessionRef,
     displayRef: session.displayRef,
     title: session.title,
@@ -543,6 +594,7 @@ function projectSession(input: {
 
   return {
     sourceKind: 'local_session',
+    context: projectContextReading(input.runtime),
     sessionRef: sessionRef(input.record.scopeRef, input.record.laneRef),
     displayRef: sessionRef(input.record.scopeRef, input.record.laneRef),
     title: input.record.identity?.agentId ?? input.record.scopeRef,

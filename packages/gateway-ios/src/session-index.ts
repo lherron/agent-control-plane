@@ -13,6 +13,7 @@ import type { HrcExecutionMode, HrcRuntimeSnapshot, HrcSessionRecord } from 'hrc
 import type { HrcTargetView } from 'hrc-core'
 import type { HrcClient } from 'hrc-sdk'
 import type {
+  MobileContextReading,
   MobileSessionCapabilities,
   MobileSessionIndex,
   MobileSessionMode,
@@ -104,6 +105,47 @@ export function createSessionIndex(deps: SessionIndexDeps) {
 // Merge HRC data into MobileSessionSummary
 // ---------------------------------------------------------------------------
 
+function projectContextReading(
+  runtime: HrcRuntimeSnapshot | null | undefined
+): MobileContextReading | undefined {
+  const value = runtime?.runtimeStateJson?.['contextReading']
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const reading = value as Record<string, unknown>
+  if (
+    typeof reading['turnId'] !== 'string' ||
+    typeof reading['observedAt'] !== 'string' ||
+    !Number.isFinite(Date.parse(reading['observedAt'])) ||
+    typeof reading['usedTokens'] !== 'number' ||
+    !Number.isSafeInteger(reading['usedTokens']) ||
+    reading['usedTokens'] < 0
+  )
+    return undefined
+  const window = reading['windowTokens']
+  if (
+    window !== undefined &&
+    (typeof window !== 'number' || !Number.isSafeInteger(window) || window <= 0)
+  )
+    return undefined
+  const rawModel = reading['model']
+  const model =
+    typeof rawModel === 'object' && rawModel !== null && !Array.isArray(rawModel)
+      ? (rawModel as Record<string, unknown>)
+      : undefined
+  const projectedModel =
+    model &&
+    typeof model['id'] === 'string' &&
+    (model['source'] === 'provider-response' || model['source'] === 'harness-config')
+      ? ({ id: model['id'], source: model['source'] } as NonNullable<MobileContextReading['model']>)
+      : undefined
+  return {
+    turnId: reading['turnId'],
+    usedTokens: reading['usedTokens'],
+    ...(window !== undefined ? { windowTokens: window as number } : {}),
+    ...(projectedModel !== undefined ? { model: projectedModel } : {}),
+    observedAt: reading['observedAt'],
+  }
+}
+
 function mergeIntoSummaries(
   sessions: HrcSessionRecord[],
   runtimes: HrcRuntimeSnapshot[],
@@ -167,6 +209,7 @@ function mergeIntoSummaries(
       lastMessageSeq: 0,
       lastActivityAt: runtime?.lastActivityAt ?? null,
       capabilities,
+      context: projectContextReading(runtime),
     })
   }
 

@@ -90,6 +90,27 @@ function createFakeClient(data: FakeHrcData = {}): HrcClient {
 // ---------------------------------------------------------------------------
 
 describe('GET /v1/sessions', () => {
+  it('seeds persisted context with structured model and tolerates an unknown window', async () => {
+    const session = makeSession({ hostSessionId: 'context-host' })
+    const context = {
+      turnId: 'turn-1',
+      usedTokens: 48656,
+      windowTokens: 258400,
+      model: { id: 'gpt-5.6-terra', source: 'provider-response' },
+      observedAt: '2026-10-14T13:13:51.546Z',
+    }
+    for (const reading of [context, { ...context, windowTokens: undefined }]) {
+      const runtime = makeRuntime({
+        hostSessionId: session.hostSessionId,
+        runtimeStateJson: { contextReading: reading },
+      })
+      const index = createSessionIndex({
+        client: createFakeClient({ sessions: [session], runtimes: [runtime] }),
+      })
+      expect((await index.handleListSessions({})).sessions[0]?.context).toEqual(reading)
+    }
+  })
+
   it('returns empty index when no sessions', async () => {
     const index = createSessionIndex({ client: createFakeClient() })
     const result = await index.handleListSessions({})
