@@ -210,7 +210,12 @@ export type AcpHrcClient = Pick<
    * T-10850 operator restart (`POST /v1/sessions/restart`). Optional until the
    * hrc-sdk pin carries it; absent, the mobile restart route answers 501.
    */
-  restartSession?(request: { hostSessionId: string; expectedGeneration: number }): Promise<{
+  restartSession?(request: {
+    hostSessionId: string
+    expectedGeneration: number
+    /** T-10942: only the mobile "Force new session" sends it. */
+    force?: boolean
+  }): Promise<{
     priorHostSessionId: string
     hostSessionId: string
     generation: number

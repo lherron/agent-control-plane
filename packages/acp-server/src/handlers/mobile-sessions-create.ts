@@ -30,10 +30,18 @@ import {
   requireTrimmedStringField,
 } from '../parsers/body.js'
 import type { RouteHandler } from '../routing/route-context.js'
+import { handleForcePrimary, parseMobileForce } from './mobile-force-primary.js'
 
 const IDEMPOTENCY_KEY_PREFIX = 'acp-mobile-session:v1:'
 const DEFAULT_MOBILE_TASK_ID = 'primary'
-const ALLOWED_FIELDS = new Set(['agentId', 'projectId', 'taskId', 'viewerWindow', 'requestId'])
+const ALLOWED_FIELDS = new Set([
+  'agentId',
+  'projectId',
+  'taskId',
+  'viewerWindow',
+  'requestId',
+  'force',
+])
 const MOBILE_RESTART_STYLE: RestartStyle = 'reuse_pty'
 
 /**
@@ -246,12 +254,14 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
     throw new Error('acp-server hrcClient: no HRC client wired')
   }
 
+  const receivedAt = new Date().toISOString()
   const body = requireRecord(await parseJsonBody(request))
   assertAllowedFields(body)
   const agentId = requireTrimmedStringField(body, 'agentId')
   const projectId = requireTrimmedStringField(body, 'projectId')
   const requestId = requireTrimmedStringField(body, 'requestId')
   const taskId = resolveMobileTaskId(body)
+  const force = parseMobileForce(body, taskId)
   // T-07603: no service default. HRC derives placement from scope shape, so a
   // mobile session lands in the operator's interactive window without ACP naming
   // a window at all. An explicit client-supplied key is still forwarded and still
@@ -301,6 +311,20 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
     harness: resolved.intent.harness,
     execution: resolved.intent.execution,
     ...(viewerWindow !== undefined ? { presentation: { viewerWindow } } : {}),
+  }
+
+  if (force !== undefined) {
+    return await handleForcePrimary({
+      deps,
+      force,
+      agentId,
+      projectId,
+      requestId,
+      receivedAt,
+      sessionRef: formatSessionRef(baseSession),
+      runtimeIntent,
+      idempotencyKey: deriveMobileSessionIdempotencyKey(requestId),
+    })
   }
 
   const conflictPolicy = resolveMobileConflictPolicy(taskId)

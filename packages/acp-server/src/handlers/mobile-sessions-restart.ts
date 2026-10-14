@@ -3,7 +3,7 @@ import { expireQueuedInput, isPendingQueueItem } from '../input-admission/expire
 import { parseJsonBody, requireRecord } from '../parsers/body.js'
 
 import type { AcpHrcClient } from '../deps.js'
-import type { RouteHandler } from '../routing/route-context.js'
+import type { RouteContext, RouteHandler } from '../routing/route-context.js'
 
 /**
  * T-10850 — `POST /v1/mobile/sessions/:hostSessionId/restart` (ADR hrc-ios
@@ -14,8 +14,9 @@ import type { RouteHandler } from '../routing/route-context.js'
  * mutates nothing. Only after HRC commits does ACP expire the input composed
  * for the dropped context: items fenced to the prior host session, plus
  * unfenced items queued before this request arrived. Input fenced to the
- * successor, or arriving after the request, is never touched. There is no
- * force from the mobile surface (Lance, 2026-10-14).
+ * successor, or arriving after the request, is never touched. This route
+ * never forces (Lance, 2026-10-14); the only mobile force is the explicit
+ * "Force new session" on create (T-10942, mobile-force-primary.ts).
  */
 
 const MOBILE_CODES: Record<string, { code: string; status: number }> = {
@@ -36,23 +37,53 @@ function isHrcErrorLike(error: unknown): error is HrcErrorLike {
   )
 }
 
-function refusal(error: unknown): Response {
+/** Map an HRC restart refusal to the mobile code the leaf and the phone act on. */
+export function restartRefusal(error: unknown): { status: number; body: Record<string, unknown> } {
   if (!isHrcErrorLike(error)) {
-    return json(
-      {
+    return {
+      status: 502,
+      body: {
         ok: false,
         code: 'restart_failed',
         message: error instanceof Error ? error.message : String(error),
       },
-      502
-    )
+    }
   }
   const detail = error.detail ?? {}
   const mapped =
     detail['reason'] === 'participant_rotation_unsupported'
       ? { code: 'not_restartable', status: 422 }
       : (MOBILE_CODES[error.code] ?? { code: error.code, status: 502 })
-  return json({ ok: false, code: mapped.code, message: error.message, detail }, mapped.status)
+  return {
+    status: mapped.status,
+    body: { ok: false, code: mapped.code, message: error.message, detail },
+  }
+}
+
+function refusal(error: unknown): Response {
+  const refused = restartRefusal(error)
+  return json(refused.body, refused.status)
+}
+
+/**
+ * After HRC commits a restart, expire the input composed for the dropped
+ * context: items fenced to the prior host, plus unfenced items queued before
+ * the request arrived. `follow_latest`, successor-fenced and later input survive.
+ */
+export function expireInputComposedForDroppedContext(
+  deps: RouteContext['deps'],
+  input: { scopeRef: string; laneRef: string; priorHostSessionId: string; receivedAt: string }
+): void {
+  for (const item of deps.inputQueueStore.listForSession(input.scopeRef, input.laneRef)) {
+    if (item.resetPolicy === 'follow_latest' || !isPendingQueueItem(item)) continue
+    const composedForDropped =
+      item.expectedHostSessionId === undefined
+        ? item.createdAt < input.receivedAt
+        : item.expectedHostSessionId === input.priorHostSessionId
+    if (composedForDropped) {
+      expireQueuedInput(deps, item, 'queued input expired because the session was restarted')
+    }
+  }
 }
 
 function parseFences(body: Record<string, unknown>, hostSessionId: string): number {
@@ -102,16 +133,12 @@ export const handleMobileRestart: RouteHandler = async ({ deps, request, params 
     return refusal(error)
   }
 
-  for (const item of deps.inputQueueStore.listForSession(session.scopeRef, session.laneRef)) {
-    if (item.resetPolicy === 'follow_latest' || !isPendingQueueItem(item)) continue
-    const composedForDropped =
-      item.expectedHostSessionId === undefined
-        ? item.createdAt < receivedAt
-        : item.expectedHostSessionId === restarted.priorHostSessionId
-    if (composedForDropped) {
-      expireQueuedInput(deps, item, 'queued input expired because the session was restarted')
-    }
-  }
+  expireInputComposedForDroppedContext(deps, {
+    scopeRef: session.scopeRef,
+    laneRef: session.laneRef,
+    priorHostSessionId: restarted.priorHostSessionId,
+    receivedAt,
+  })
 
   return json({ ok: true, ...restarted })
 }
