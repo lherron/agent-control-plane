@@ -27,8 +27,13 @@
  * read the `fyi` rows still in the ledger AND the `notify` rows that arrive
  * once wrkq migrates. Dropping `fyi` is a trailing cleanup, not part of the
  * cutover.
+ *
+ * `note` (T-11305) is addressed mail that wrkq writes already terminal (`acked`,
+ * reason `note_recorded`): it never enters pendingView, so the kicker never
+ * presents it, and `obligationSummons` is false for it. It is listed so a note
+ * in a log or event read parses cleanly.
  */
-export type WrkqEnvelopeObligation = 'reply_required' | 'notify' | 'fyi' | 'none'
+export type WrkqEnvelopeObligation = 'reply_required' | 'notify' | 'fyi' | 'note' | 'none'
 
 /**
  * Does this obligation birth an unseated target and wake a seated one?
