@@ -67,6 +67,7 @@ import {
   readObjectRecord as readRecord,
   readOptionalNonEmptyString as readString,
 } from './internal/read-helpers.js'
+import { islandCorsOrigin, islandPreflight, withIslandCors } from './island-cors.js'
 import {
   DEFAULT_CAUSATION_DEPTH_LIMIT,
   createEventJobEvaluator,
@@ -1273,12 +1274,18 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
                 )
           }
 
+          const islandOrigin = islandCorsOrigin(request, peer)
+          if (islandOrigin !== undefined && request.method === 'OPTIONS') {
+            return finishRequestLog(requestLog, islandPreflight(islandOrigin, request))
+          }
           const start = performance.now()
           requestLog.requestId = await readMobileSessionRequestId(request, url)
-          const response =
+          const handled =
             url.pathname === '/v1/cap/rpc'
               ? await capabilityHost.handleHttpJsonRpc(request)
               : await acpServer.handler(request, { peer })
+          const response =
+            islandOrigin === undefined ? handled : withIslandCors(handled, islandOrigin)
           if (accessLogger !== null) {
             accessLogger.log({
               request,
