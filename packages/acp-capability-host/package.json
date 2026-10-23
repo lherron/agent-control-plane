@@ -23,8 +23,8 @@
   },
   "dependencies": {
     "acp-core": "*",
-    "cap-service": "0.0.0-dev.20260915135245",
-    "catalog-store": "0.0.0-dev.20260915135245"
+    "cap-service": "0.0.0-dev.20261023124042",
+    "catalog-store": "0.0.0-dev.20261023124042"
   },
   "devDependencies": {
     "@types/bun": "1.3.14",

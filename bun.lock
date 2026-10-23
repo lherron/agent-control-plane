@@ -38,8 +38,8 @@
       "version": "0.1.0",
       "dependencies": {
         "acp-core": "*",
-        "cap-service": "0.0.0-dev.20260915135245",
-        "catalog-store": "0.0.0-dev.20260915135245",
+        "cap-service": "0.0.0-dev.20261023124042",
+        "catalog-store": "0.0.0-dev.20261023124042",
       },
       "devDependencies": {
         "@types/bun": "1.3.14",
@@ -897,11 +897,11 @@
 
     "acp-viewer": ["acp-viewer@workspace:packages/acp-viewer"],
 
-    "adapter-capability-runner": ["adapter-capability-runner@0.0.0-dev.20260915135245", "http://mini:4873/adapter-capability-runner/-/adapter-capability-runner-0.0.0-dev.20260915135245.tgz", { "dependencies": { "capability-protocol": "0.0.0-dev.20260915135245", "invoke-engine": "0.0.0-dev.20260915135245" } }, "sha512-uxmrMoMP8V8jWboigGUDHlmJ079mNGrVV8ZMMt+yGum+pbI3Vcm1jNn6NoDwtzmdwZZ4+jSwiePV6jdfCAebhQ=="],
+    "adapter-capability-runner": ["adapter-capability-runner@0.0.0-dev.20261023124042", "http://mini:4873/adapter-capability-runner/-/adapter-capability-runner-0.0.0-dev.20261023124042.tgz", { "dependencies": { "capability-protocol": "0.0.0-dev.20261023124042", "invoke-engine": "0.0.0-dev.20261023124042" } }, "sha512-TETzMhLn/LAuKrqzDfLnApDysqpnjO3hdJJQyDFIRTbmrlAx6aOlW4woo5wGWk0pB5m+DcYPmETQmnAv+RxGBg=="],
 
-    "adapter-http-json": ["adapter-http-json@0.0.0-dev.20260915135245", "http://mini:4873/adapter-http-json/-/adapter-http-json-0.0.0-dev.20260915135245.tgz", { "dependencies": { "capability-protocol": "0.0.0-dev.20260915135245", "invoke-engine": "0.0.0-dev.20260915135245" } }, "sha512-XOKPNTbNDTfQ8hNAfo3M+aFptO2W7pBou+Ck+9ivINm0RZv9UhI5WPzqsFdjlV8IMSM+zlRV+EBBBqfk3uU6qw=="],
+    "adapter-http-json": ["adapter-http-json@0.0.0-dev.20261023124042", "http://mini:4873/adapter-http-json/-/adapter-http-json-0.0.0-dev.20261023124042.tgz", { "dependencies": { "capability-protocol": "0.0.0-dev.20261023124042", "invoke-engine": "0.0.0-dev.20261023124042" } }, "sha512-7U46Zcwi+7eKpq+jtSkxVVaKtIbn2hPakqaTExNDewh6UjzX1gplCn+gdx5gBvs7cUIBq2sNtN8lc5Hjq1RH6Q=="],
 
-    "adapter-jsonrpc-stdio": ["adapter-jsonrpc-stdio@0.0.0-dev.20260915135245", "http://mini:4873/adapter-jsonrpc-stdio/-/adapter-jsonrpc-stdio-0.0.0-dev.20260915135245.tgz", { "dependencies": { "cap-rpc": "0.0.0-dev.20260915135245", "capability-protocol": "0.0.0-dev.20260915135245", "invoke-engine": "0.0.0-dev.20260915135245" } }, "sha512-IzvIviQtwD4V7NVVnxQxJAO8OjOttXLRzzCY3FSIuVVtRLlvliL5sOn2GkDygLWnn8RMYq4jdYSILXnino/Ldw=="],
+    "adapter-jsonrpc-stdio": ["adapter-jsonrpc-stdio@0.0.0-dev.20261023124042", "http://mini:4873/adapter-jsonrpc-stdio/-/adapter-jsonrpc-stdio-0.0.0-dev.20261023124042.tgz", { "dependencies": { "cap-rpc": "0.0.0-dev.20261023124042", "capability-protocol": "0.0.0-dev.20261023124042", "invoke-engine": "0.0.0-dev.20261023124042" } }, "sha512-iOrLIG8azV8lkpVZkZ8Q0YqLlNWIUaBHuoRQUUV8KBGUNJXtSuKEO6JTg5Nt6j7VAuHeN09FhWRJ6Rsy3bbFZQ=="],
 
     "agent-action-render": ["agent-action-render@0.5.13-dev.20261014014730", "http://mini:4873/agent-action-render/-/agent-action-render-0.5.13-dev.20261014014730.tgz", {}, "sha512-jGYakPayiXgxOKwz6ypr1qm7s4zClHnDeRvBbkam3zmbok2Dgcgki8qOh2/+NBXvy5edadB71Ve2ziWFBCeOYw=="],
 
@@ -955,15 +955,15 @@
 
     "caniuse-lite": ["caniuse-lite@1.0.30001810", "http://mini:4873/caniuse-lite/-/caniuse-lite-1.0.30001810.tgz", {}, "sha512-TITQPUkaz+aVk5GL6NhOdwk1aEaNTSDPsGFWrTuhKGtjTF70jL/Oht2W4c6rXUe5fu7Ie19VIahAXHIIiWWNeg=="],
 
-    "cap-rpc": ["cap-rpc@0.0.0-dev.20260915135245", "http://mini:4873/cap-rpc/-/cap-rpc-0.0.0-dev.20260915135245.tgz", {}, "sha512-U15RPnA6C9+lg5xpJ9RreivvLdqmRSnFzPM+eJC0PD+kTkWSBZvCWnnNxdmu47qREWhxgj3/DCtc5YLWwmWkbA=="],
+    "cap-rpc": ["cap-rpc@0.0.0-dev.20261023124042", "http://mini:4873/cap-rpc/-/cap-rpc-0.0.0-dev.20261023124042.tgz", {}, "sha512-LdN61IbGapIFmYjgEjmkuudXhv7jSt0njPvhsq0z4YTYF8VfV9Mwo3WYMuupvFmeuDA0FDpTST17AcN6YFRSrg=="],
 
-    "cap-service": ["cap-service@0.0.0-dev.20260915135245", "http://mini:4873/cap-service/-/cap-service-0.0.0-dev.20260915135245.tgz", { "dependencies": { "adapter-capability-runner": "0.0.0-dev.20260915135245", "adapter-http-json": "0.0.0-dev.20260915135245", "adapter-jsonrpc-stdio": "0.0.0-dev.20260915135245", "cap-rpc": "0.0.0-dev.20260915135245", "capability-protocol": "0.0.0-dev.20260915135245", "catalog-core": "0.0.0-dev.20260915135245", "catalog-store": "0.0.0-dev.20260915135245", "invoke-engine": "0.0.0-dev.20260915135245" } }, "sha512-FQgzM+wTumE5C0VusZFDWnM5oju8nwCV2Y18GmMH4RpYhqm2UUGUZriv69jJJ5nJ2ouf6X+wETRu9krwf47EyQ=="],
+    "cap-service": ["cap-service@0.0.0-dev.20261023124042", "http://mini:4873/cap-service/-/cap-service-0.0.0-dev.20261023124042.tgz", { "dependencies": { "adapter-capability-runner": "0.0.0-dev.20261023124042", "adapter-http-json": "0.0.0-dev.20261023124042", "adapter-jsonrpc-stdio": "0.0.0-dev.20261023124042", "cap-rpc": "0.0.0-dev.20261023124042", "capability-protocol": "0.0.0-dev.20261023124042", "catalog-core": "0.0.0-dev.20261023124042", "catalog-store": "0.0.0-dev.20261023124042", "invoke-engine": "0.0.0-dev.20261023124042" } }, "sha512-y1xgxuFUsvQJPj9MRvT/gHw/49xnZ/hUd61m7uz2KlCYNWwu1s6SqKzn7lvawxc77SmxGdAa1eX5T1S4XAyyGQ=="],
 
-    "capability-protocol": ["capability-protocol@0.0.0-dev.20260915135245", "http://mini:4873/capability-protocol/-/capability-protocol-0.0.0-dev.20260915135245.tgz", { "dependencies": { "ajv": "^8.17.1" } }, "sha512-ceai0ZtujX18hJa6mpsUUFymMylzqXQG0Wbj+GLrPtXoBvEz+JnieiM0iWPuEAcV8/10YxOfp2PwLIZKkj/B3g=="],
+    "capability-protocol": ["capability-protocol@0.0.0-dev.20261023124042", "http://mini:4873/capability-protocol/-/capability-protocol-0.0.0-dev.20261023124042.tgz", { "dependencies": { "ajv": "^8.17.1" } }, "sha512-xJ3FG+eO18YiIt/u5jPx9exZ6UqKUFCpdlK1BpJmGcYUIQVplo73VdJFa7BMCdx81Utoy/UK8bDHc6mPj7YYgg=="],
 
-    "catalog-core": ["catalog-core@0.0.0-dev.20260915135245", "http://mini:4873/catalog-core/-/catalog-core-0.0.0-dev.20260915135245.tgz", { "dependencies": { "capability-protocol": "0.0.0-dev.20260915135245", "catalog-store": "0.0.0-dev.20260915135245" } }, "sha512-nBvet8GGz/fliErx5VwYm4Cm/slsRJCfCyaGsMSuQhxTKxqntzlXquuY1++UdIs1HTgXmjLYgaeY/exdb7lZ/A=="],
+    "catalog-core": ["catalog-core@0.0.0-dev.20261023124042", "http://mini:4873/catalog-core/-/catalog-core-0.0.0-dev.20261023124042.tgz", { "dependencies": { "capability-protocol": "0.0.0-dev.20261023124042", "catalog-store": "0.0.0-dev.20261023124042" } }, "sha512-y1/sfDtJokFrd/biLa1HO3IDMIEOg8a5UXsjgrQHgCHvavhG66A93d1/viHsxopoqMDKDwTuA1nifVZsH1cP+g=="],
 
-    "catalog-store": ["catalog-store@0.0.0-dev.20260915135245", "http://mini:4873/catalog-store/-/catalog-store-0.0.0-dev.20260915135245.tgz", { "dependencies": { "capability-protocol": "0.0.0-dev.20260915135245" } }, "sha512-n5+wz+eNhyArBOkrxMtUwnkLulqNKxjxT3KMoGl37/Kecdxe/Pcz9Hp/CI5akNlHv/c0DawGTcR+bJb7qzzXTA=="],
+    "catalog-store": ["catalog-store@0.0.0-dev.20261023124042", "http://mini:4873/catalog-store/-/catalog-store-0.0.0-dev.20261023124042.tgz", { "dependencies": { "capability-protocol": "0.0.0-dev.20261023124042" } }, "sha512-fFXOuybHOCsn/uC7YoExDagvL3V3oNpKZYsUdAeyONdRD4dTQmhb5iRaWBp4OXcBjopcKglANn4d+UBtnQQ5gg=="],
 
     "chalk": ["chalk@5.6.2", "http://mini:4873/chalk/-/chalk-5.6.2.tgz", {}, "sha512-7NzBL0rN6fMUW+f7A6Io4h40qQlG+xGmtMxfbnH/K7TAtt8JQWVQK+6g0UXKMeVJoyV5EkkNsErQ8pVD3bLHbA=="],
 
@@ -1131,7 +1131,7 @@
 
     "ini": ["ini@1.3.8", "http://mini:4873/ini/-/ini-1.3.8.tgz", {}, "sha512-JV/yugV2uzW5iMRSiZAyDtQd+nxtUnjeLt0acNdw98kKLrvuRVyB80tsREOE7yvGVgalhZ6RNXCmEHkUKBKxew=="],
 
-    "invoke-engine": ["invoke-engine@0.0.0-dev.20260915135245", "http://mini:4873/invoke-engine/-/invoke-engine-0.0.0-dev.20260915135245.tgz", { "dependencies": { "capability-protocol": "0.0.0-dev.20260915135245", "catalog-core": "0.0.0-dev.20260915135245", "catalog-store": "0.0.0-dev.20260915135245" } }, "sha512-O824oeG9CO4HlPW2U5hGHYoWmXN+G0sPiLJL/j31FK3ZdZL3fn6amYyPuXHSePgizWL7wozOIp+QrMiVC74Lxw=="],
+    "invoke-engine": ["invoke-engine@0.0.0-dev.20261023124042", "http://mini:4873/invoke-engine/-/invoke-engine-0.0.0-dev.20261023124042.tgz", { "dependencies": { "capability-protocol": "0.0.0-dev.20261023124042", "catalog-core": "0.0.0-dev.20261023124042", "catalog-store": "0.0.0-dev.20261023124042" } }, "sha512-aUsUXAc9foUdZZ6AetqWq0e5i+Pjw7UtIvD3V7KjYtnQxownEz/z9rWHuBqsSyRL0Q7WS2D/vm9ZaBN5GimZJQ=="],
 
     "ip-address": ["ip-address@10.7.2", "http://mini:4873/ip-address/-/ip-address-10.7.2.tgz", {}, "sha512-7H/2gFSIitxc0hG3nOI1glS8QLo/EHBFFLk8vEUjXY/xu0AdL8jZ9U1IzO2PUm0d2D/ofQcAifb0g6OBkt8U7w=="],
 
