@@ -69,6 +69,7 @@ export class MailKicker implements MailKickerContext {
   readonly mailKickerDeliveryBackoff = new Map<string, number>()
   readonly mailKickerSteerHold = new Map<string, SteerHold>()
   readonly mailKickerQuietTargets = new Map<string, QuietTarget>()
+  readonly mailKickerReconcileExaminedAt = new Map<string, number>()
   private lifecycleUnsubscribe: (() => void | Promise<void>) | undefined
   private brokerUnsubscribe: (() => void | Promise<void>) | undefined
 

@@ -131,6 +131,12 @@ export type MailKickerContext = {
    * (T-11680). The sweep skips one until that state changes.
    */
   readonly mailKickerQuietTargets: Map<string, QuietTarget>
+  /**
+   * When the periodic reconcile last examined each settled uncertain intent
+   * (T-11680). Such an intent is re-read at the quiet backstop, not every
+   * sweep; see `reconcileOpenIntents`.
+   */
+  readonly mailKickerReconcileExaminedAt: Map<string, number>
 
   log(level: KickerLogLevel, event: string, detail: Record<string, unknown>): void
 

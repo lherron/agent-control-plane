@@ -31,6 +31,7 @@ import type { HrcMailDeliveryIntent } from 'hrc-store-sqlite'
 import type { MailKickerContext } from '../context.js'
 import {
   KICKER_SUBMISSION_TTL_MS,
+  PERIODIC_QUIET_BACKSTOP_MS,
   RECONCILE_RUNTIME_READ_DEADLINE_MS,
   STEER_WRITE_RECONCILE_GRACE_MS,
   errorText,
@@ -320,18 +321,22 @@ export async function reconcileOpenIntents(
     undeliverable: 0,
     open: 0,
   }
-  const intents = server.store.mailDelivery
-    .listActiveOpenIntents()
-    .filter(
-      (intent) =>
-        options.runtimeIds === undefined ||
-        (intent.runtimeId !== undefined && options.runtimeIds.has(intent.runtimeId))
-    )
+  const open = server.store.mailDelivery.listActiveOpenIntents()
+  const periodic = options.reason === 'periodic' && options.runtimeIds === undefined
+  const nowMs = Date.now()
+  if (periodic) pruneReconcileMemo(server, open)
+  const intents = open.filter(
+    (intent) =>
+      (options.runtimeIds === undefined ||
+        (intent.runtimeId !== undefined && options.runtimeIds.has(intent.runtimeId))) &&
+      (!periodic || periodicReconcileDue(server, intent, nowMs))
+  )
   if (intents.length === 0) return counts
   for (const listed of intents) {
     // A digest sibling resolved earlier in this loop is already closed.
     const intent = server.store.mailDelivery.getIntent(listed.envelopeId)
     if (intent === undefined) continue
+    if (periodic) server.mailKickerReconcileExaminedAt.set(intent.envelopeId, nowMs)
     try {
       counts[await reconcileIntent(server, intent)] += 1
     } catch (error) {
@@ -362,4 +367,36 @@ export async function reconcileOpenIntents(
     })
   }
   return counts
+}
+
+/**
+ * T-11680: whether the PERIODIC pass should read this intent's evidence again.
+ *
+ * An intent with no uncertainty yet is a delivery in flight and is read every
+ * pass. One already settled as uncertain — runtime gone, TTL without landing,
+ * a refusal without no-write proof — has had its verdict; it stays a fence,
+ * and a live landing still reaches it through the broker observer. Re-reading
+ * it every sweep was most of the injector's idle HRC traffic, so it is re-read
+ * at the quiet backstop instead. A runtime-read timeout is transient and is
+ * retried every pass. Start-up and runtime-termination reconciles read all.
+ */
+function periodicReconcileDue(
+  server: MailKickerContext,
+  intent: HrcMailDeliveryIntent,
+  nowMs: number
+): boolean {
+  if (intent.uncertainCause === undefined) return true
+  if (intent.uncertainCause === 'reconcile_runtime_read_timeout') return true
+  const examinedAt = server.mailKickerReconcileExaminedAt.get(intent.envelopeId)
+  return examinedAt === undefined || nowMs - examinedAt >= PERIODIC_QUIET_BACKSTOP_MS
+}
+
+function pruneReconcileMemo(
+  server: MailKickerContext,
+  open: readonly HrcMailDeliveryIntent[]
+): void {
+  const live = new Set(open.map((intent) => intent.envelopeId))
+  for (const envelopeId of server.mailKickerReconcileExaminedAt.keys()) {
+    if (!live.has(envelopeId)) server.mailKickerReconcileExaminedAt.delete(envelopeId)
+  }
 }

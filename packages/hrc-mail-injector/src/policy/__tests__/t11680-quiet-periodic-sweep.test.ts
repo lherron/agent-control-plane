@@ -1,11 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 
+import { reconcileOpenIntents } from '../drive/reconcile.js'
 import { driveMailTargetOnce } from '../drive/target-driver.js'
 import { PERIODIC_QUIET_BACKSTOP_MS } from '../internal.js'
 import { periodicTargetFingerprint, recordPeriodicDrive } from '../wake/quiet-targets.js'
 import { runMailKickerSweep } from '../wake/sweep.js'
 import type { T08094Harness } from './t08094-harness.js'
-import { TARGET_REF, createT08094Harness, destroyT08094Harness } from './t08094-harness.js'
+import {
+  RUNTIME_ID,
+  TARGET_REF,
+  createT08094Harness,
+  destroyT08094Harness,
+} from './t08094-harness.js'
 
 /**
  * T-11680: the periodic sweep drives a target only for outstanding mail or a
@@ -124,5 +130,90 @@ describe('T-11680 periodic sweep drives outstanding mail or changed state only',
     expect(await driveMailTargetOnce(h.context, TARGET_REF, 'periodic')).toEqual({
       outcome: 'empty',
     })
+  })
+})
+
+describe('T-11680 periodic reconcile re-reads only intents that can still move', () => {
+  function countRuntimeReads(): () => number {
+    let reads = 0
+    const port = h.context.port as unknown as { runtime: (id: string) => Promise<unknown> }
+    const runtime = port.runtime.bind(port)
+    port.runtime = async (runtimeId: string) => {
+      reads += 1
+      return await runtime(runtimeId)
+    }
+    return () => reads
+  }
+
+  function openOnGoneRuntime(envelopeId: string): void {
+    h.store.mailDelivery.openIntent({
+      envelopeId,
+      targetSessionRef: STALE,
+      door: 'enqueue',
+      form: 'full',
+      presentationId: `present-${envelopeId}`,
+      runtimeId: 'rt-long-gone',
+      submittedHrcSeq: 1,
+    })
+  }
+
+  it('leaves a settled uncertain intent to the backstop on periodic passes', async () => {
+    const reads = countRuntimeReads()
+    openOnGoneRuntime('EN-90010')
+
+    await reconcileOpenIntents(h.context, { reason: 'periodic' })
+    expect(reads()).toBe(1)
+    expect(h.store.mailDelivery.getIntent('EN-90010')?.uncertainCause).toBe(
+      'runtime_terminated_before_landing'
+    )
+
+    await reconcileOpenIntents(h.context, { reason: 'periodic' })
+    await reconcileOpenIntents(h.context, { reason: 'periodic' })
+    expect(reads()).toBe(1)
+
+    const examinedAt = h.context.mailKickerReconcileExaminedAt.get('EN-90010')
+    if (examinedAt === undefined) throw new Error('reconcile memo missing')
+    h.context.mailKickerReconcileExaminedAt.set('EN-90010', examinedAt - PERIODIC_QUIET_BACKSTOP_MS)
+    await reconcileOpenIntents(h.context, { reason: 'periodic' })
+    expect(reads()).toBe(2)
+  })
+
+  it('still examines every intent at daemon start and on runtime termination', async () => {
+    const reads = countRuntimeReads()
+    openOnGoneRuntime('EN-90011')
+    await reconcileOpenIntents(h.context, { reason: 'periodic' })
+    expect(reads()).toBe(1)
+
+    await reconcileOpenIntents(h.context, { reason: 'daemon_start' })
+    expect(reads()).toBe(2)
+    await reconcileOpenIntents(h.context, {
+      reason: 'runtime_terminated',
+      runtimeIds: new Set(['rt-long-gone']),
+    })
+    expect(reads()).toBe(3)
+  })
+
+  it('keeps examining an in-flight intent and a runtime-read timeout every pass', async () => {
+    const reads = countRuntimeReads()
+    h.store.mailDelivery.openIntent({
+      envelopeId: 'EN-90012',
+      targetSessionRef: TARGET_REF,
+      door: 'enqueue',
+      form: 'full',
+      presentationId: 'present-EN-90012',
+      runtimeId: RUNTIME_ID,
+      submittedHrcSeq: 1,
+    })
+    await reconcileOpenIntents(h.context, { reason: 'periodic' })
+    await reconcileOpenIntents(h.context, { reason: 'periodic' })
+    expect(reads()).toBe(2)
+
+    h.store.mailDelivery.markUncertain(
+      'EN-90012',
+      'reconcile_runtime_read_timeout',
+      'runtime_read_timeout'
+    )
+    await reconcileOpenIntents(h.context, { reason: 'periodic' })
+    expect(reads()).toBe(3)
   })
 })
