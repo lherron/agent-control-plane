@@ -21,25 +21,34 @@ function makeUrl(query: string): URL {
 
 describe('parseMobileRouteKind', () => {
   test('recognises the dashboard system-wide WS path', () => {
-    expect(parseMobileRouteKind(MOBILE_WS_PATHS.dashboard)).toEqual({ kind: 'dashboard' })
+    expect(parseMobileRouteKind(MOBILE_WS_PATHS.dashboard)).toEqual({
+      kind: 'dashboard',
+      route: '/v1/mobile/dashboard',
+    })
     expect(parseMobileRouteKind(MOBILE_WS_PATHS.federationDashboard)).toEqual({
       kind: 'dashboard',
       version: 2,
+      route: '/v2/mobile/dashboard',
     })
   })
 
   test('recognises the hrcchat messages WS path', () => {
-    expect(parseMobileRouteKind(MOBILE_WS_PATHS.messages)).toEqual({ kind: 'messages' })
+    expect(parseMobileRouteKind(MOBILE_WS_PATHS.messages)).toEqual({
+      kind: 'messages',
+      route: '/v1/mobile/messages/watch',
+    })
   })
 
   test('parses session-scoped timeline and diagnostics paths', () => {
     expect(parseMobileRouteKind('/v1/mobile/sessions/hsid-abc/timeline')).toEqual({
       kind: 'timeline',
       hostSessionId: 'hsid-abc',
+      route: '/v1/mobile/sessions/:hostSessionId/timeline',
     })
     expect(parseMobileRouteKind('/v1/mobile/sessions/hsid-xyz/diagnostics')).toEqual({
       kind: 'diagnostics',
       hostSessionId: 'hsid-xyz',
+      route: '/v1/mobile/sessions/:hostSessionId/diagnostics',
     })
   })
 
@@ -47,6 +56,7 @@ describe('parseMobileRouteKind', () => {
     expect(parseMobileRouteKind('/v1/mobile/sessions/hsid%20one/timeline')).toEqual({
       kind: 'timeline',
       hostSessionId: 'hsid one',
+      route: '/v1/mobile/sessions/:hostSessionId/timeline',
     })
   })
 

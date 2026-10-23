@@ -10,6 +10,7 @@ import {
   requireNoPositionals,
 } from './options.js'
 
+import { acpCliFetch } from '../user-agent.js'
 import { resolveConcreteSessionId } from './session-shared.js'
 import {
   type CommandDependencies,
@@ -66,7 +67,7 @@ export async function runTailCommand(
   const env = resolveEnv(deps)
   const serverUrl = resolveServerUrl(readStringFlag(parsed, '--server'), env).replace(/\/+$/, '')
   const actorAgentId = resolveOptionalActorAgentId(readStringFlag(parsed, '--actor'), env)
-  const fetchImpl = deps.fetchImpl ?? fetch
+  const fetchImpl = deps.fetchImpl ?? acpCliFetch
 
   const suffix = query.size > 0 ? `?${query.toString()}` : ''
   const url = `${serverUrl}/v1/sessions/${encodeURIComponent(sessionId)}/events${suffix}`

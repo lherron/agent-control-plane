@@ -12,6 +12,7 @@ import {
   createInMemoryWrkqStoreAdapter,
 } from '../../../acp-core/test/fixtures/wrkq-store-adapter.js'
 import {
+  type AcpServer,
   type AcpServerDeps,
   InMemoryInputAttemptStore,
   InMemoryRunStore,
@@ -28,6 +29,9 @@ type RequestOptions = {
 }
 
 export type WiredServerFixture = {
+  /** The router itself, for tests that mount it on a real listener. */
+  server: AcpServer
+  deps: AcpServerDeps
   handler(request: Request): Promise<Response>
   request(options: RequestOptions): Promise<Response>
   json<T>(response: Response): Promise<T>
@@ -54,7 +58,7 @@ export async function withWiredServer<T>(
   const wrkqStore = createInMemoryWrkqStoreAdapter()
   const runStore = new InMemoryRunStore()
   const inputAttemptStore = new InMemoryInputAttemptStore()
-  const server = createAcpServer({
+  const deps: AcpServerDeps = {
     wrkqStore,
     coordStore,
     interfaceStore,
@@ -62,9 +66,12 @@ export async function withWiredServer<T>(
     runStore,
     inputAttemptStore,
     ...overrides,
-  })
+  }
+  const server = createAcpServer(deps)
 
   const fixture: WiredServerFixture = {
+    server,
+    deps,
     handler: server.handler,
     async request(options: RequestOptions): Promise<Response> {
       const headers = new Headers(options.headers)

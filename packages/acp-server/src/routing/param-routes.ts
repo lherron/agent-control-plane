@@ -72,6 +72,8 @@ import type { RouteHandler, RouteParams } from './route-context.js'
 
 export type ParamRoute = {
   method: string
+  /** The registered template (`/v1/runs/:runId`), logged as the request's `route`. */
+  template: string
   pattern: RegExp
   extract(pathname: string): RouteParams | undefined
   handler: RouteHandler
@@ -103,6 +105,7 @@ export function createParamRoute(
 
   return {
     method,
+    template,
     pattern,
     handler,
     extract(pathname: string): RouteParams | undefined {
@@ -328,7 +331,7 @@ export function matchParamRoute(
   routes: readonly ParamRoute[],
   method: string,
   pathname: string
-): { handler: RouteHandler; params: RouteParams } | undefined {
+): { handler: RouteHandler; params: RouteParams; template: string } | undefined {
   for (const route of routes) {
     if (route.method !== method) {
       continue
@@ -339,6 +342,7 @@ export function matchParamRoute(
       return {
         handler: route.handler,
         params,
+        template: route.template,
       }
     }
   }

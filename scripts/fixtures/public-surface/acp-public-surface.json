@@ -1782,6 +1782,7 @@
         "canAck",
         "canFail",
         "canonicalAcpEventId",
+        "clientFromUserAgent",
         "codeDefectFastlaneV1",
         "codeDefectFastlaneWorkflowV1",
         "codeFeatureTddV1",
@@ -1796,6 +1797,8 @@
         "findMissingEvidenceKinds",
         "findTaskIds",
         "findTransitionPolicyRule",
+        "firstPartyFetch",
+        "firstPartyUserAgent",
         "formatHrcExternalRef",
         "getPreset",
         "getRoleAgentId",
@@ -1849,6 +1852,7 @@
         "validateJobTrigger",
         "validatePromotionReadiness",
         "validateTransition",
+        "withUserAgent",
         "writeLogLine"
       ]
     },

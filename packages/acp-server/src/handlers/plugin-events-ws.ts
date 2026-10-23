@@ -13,7 +13,7 @@ import {
   toHrcEventFilters,
 } from './plugin-events.js'
 
-const PLUGIN_EVENTS_WS_PATH = '/v1/plugins/events'
+export const PLUGIN_EVENTS_WS_PATH = '/v1/plugins/events'
 const PLUGIN_EVENTS_WS_MAX_BUFFERED_BYTES = 16 * 1024 * 1024
 const PLUGIN_EVENTS_WS_ALLOWED_QUERY = new Set([
   'after',

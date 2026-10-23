@@ -6,16 +6,26 @@
  * Never logged: request or response bodies, query strings, headers. For non-2xx
  * JSON responses only the error `code`, `message` and `requestId` are lifted
  * from the body. Streams (ndjson event feeds, WebSockets) log once at open and
- * once at close, never per frame.
+ * once at close, never per frame. Every line carries `listener`, the matched
+ * `route` template and the caller's `client` token (logging.md L3).
  */
 
-import { writeLogLine } from 'acp-core'
+import { clientFromUserAgent, writeLogLine } from 'acp-core'
 
 type LogLevel = 'info' | 'warn' | 'error'
+
+/** The TCP listener(s) bound by `bindAcpHostListeners`, every bind host alike. */
+export const MAIN_LISTENER = 'main'
+export const UNMATCHED_ROUTE = 'unmatched'
 
 export interface RequestLogContext {
   method: string
   path: string
+  /** Registered template of the route that matched, reported by the router. */
+  route: string
+  listener: string
+  /** `<name>/<version>` from User-Agent, else `unknown`. */
+  client: string
   remote: string | undefined
   startedAt: number
   requestId?: string | undefined
@@ -25,21 +35,31 @@ const MOBILE_SESSIONS_CREATE_PATH = '/v1/mobile/sessions'
 
 // The in-process Discord gateway polls these every few seconds over loopback.
 // Successful polls are not logged; a failing poll still is.
-const QUIET_POLL_PATHS = [
-  /^\/v1\/admin\/system-events$/,
-  /^\/v1\/gateway\/[^/]+\/deliveries\/stream$/,
-]
+const QUIET_POLL_ROUTES = new Set([
+  '/v1/admin/system-events',
+  '/v1/gateway/:gatewayId/deliveries/stream',
+])
 
 function isQuietPoll(context: RequestLogContext): boolean {
-  return context.method === 'GET' && QUIET_POLL_PATHS.some((pattern) => pattern.test(context.path))
+  return context.method === 'GET' && QUIET_POLL_ROUTES.has(context.route)
 }
 
+/** `route` starts `unmatched`; whichever router matches sets it. */
 export function startRequestLog(
   request: Request,
   url: URL,
-  remote: string | undefined
+  remote: string | undefined,
+  listener: string = MAIN_LISTENER
 ): RequestLogContext {
-  return { method: request.method, path: url.pathname, remote, startedAt: performance.now() }
+  return {
+    method: request.method,
+    path: url.pathname,
+    route: UNMATCHED_ROUTE,
+    listener,
+    client: clientFromUserAgent(request.headers.get('user-agent')),
+    remote,
+    startedAt: performance.now(),
+  }
 }
 
 /**
@@ -69,8 +89,7 @@ export async function readMobileSessionRequestId(
  */
 export function finishRequestLog(context: RequestLogContext, response: Response): Response {
   const base = {
-    method: context.method,
-    path: context.path,
+    ...identity(context),
     status: response.status,
     durationMs: elapsed(context),
     remote: context.remote ?? null,
@@ -103,8 +122,7 @@ export function finishRequestLog(context: RequestLogContext, response: Response)
 
 export function logWebSocketOpen(context: RequestLogContext): void {
   emit('info', 'http.stream.open', {
-    method: context.method,
-    path: context.path,
+    ...identity(context),
     transport: 'websocket',
     status: 101,
     remote: context.remote ?? null,
@@ -113,8 +131,7 @@ export function logWebSocketOpen(context: RequestLogContext): void {
 
 export function logWebSocketClose(context: RequestLogContext, code: number | undefined): void {
   emit('info', 'http.stream.close', {
-    method: context.method,
-    path: context.path,
+    ...identity(context),
     transport: 'websocket',
     durationMs: elapsed(context),
     remote: context.remote ?? null,
@@ -143,8 +160,7 @@ function wrapStreamClose(context: RequestLogContext, response: Response): Respon
     if (closed) return
     closed = true
     emit('info', 'http.stream.close', {
-      method: context.method,
-      path: context.path,
+      ...identity(context),
       status: response.status,
       durationMs: elapsed(context),
       remote: context.remote ?? null,
@@ -220,6 +236,16 @@ function isJson(response: Response): boolean {
 
 function levelFor(status: number): LogLevel {
   return status >= 500 ? 'error' : 'warn'
+}
+
+function identity(context: RequestLogContext): Record<string, unknown> {
+  return {
+    method: context.method,
+    path: context.path,
+    route: context.route,
+    listener: context.listener,
+    client: context.client,
+  }
 }
 
 function elapsed(context: RequestLogContext): number {

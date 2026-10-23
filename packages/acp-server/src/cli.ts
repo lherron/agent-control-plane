@@ -25,6 +25,7 @@ import {
 } from './placement-resolution.js'
 
 import { createAccessLogger } from './access-log.js'
+import { createAcpListenerHandlers } from './acp-listener.js'
 import { createAcpServer } from './create-acp-server.js'
 import {
   type AcpHrcClient,
@@ -41,20 +42,6 @@ import { createDevFlowLauncher } from './dev-flow-launcher.js'
 import { createEchoLauncher } from './echo-launcher.js'
 import { dispatchJobRunThroughInputs } from './handlers/admin-jobs.js'
 import { resolveAgentInspectionProjectRoot } from './handlers/agent-inspection.js'
-import { buildMobileUpgradeData, parseMobileRouteKind } from './handlers/mobile-ws.js'
-import {
-  closeMobileWebSocket,
-  handleMobileWebSocketMessage,
-  openMobileWebSocket,
-} from './handlers/mobile.js'
-import {
-  buildPluginEventsUpgradeData,
-  closePluginEventsWebSocket,
-  handlePluginEventsWebSocketMessage,
-  isPluginEventsWebSocketData,
-  isPluginEventsWebSocketPath,
-  openPluginEventsWebSocket,
-} from './handlers/plugin-events-ws.js'
 import { InputAdmissionService } from './input-admission/input-admission-service.js'
 import { createInputQueueDispatcher } from './integration/input-queue-dispatcher.js'
 import {
@@ -67,7 +54,6 @@ import {
   readObjectRecord as readRecord,
   readOptionalNonEmptyString as readString,
 } from './internal/read-helpers.js'
-import { islandCorsOrigin, islandPreflight, withIslandCors } from './island-cors.js'
 import {
   DEFAULT_CAUSATION_DEPTH_LIMIT,
   createEventJobEvaluator,
@@ -86,29 +72,11 @@ import {
 import { createJobOutputReconciler } from './jobs/output-reconciler.js'
 import { getRunFinalAssistantText } from './jobs/run-final-output.js'
 import { resolveLaunchIntent } from './launch-role-scoped.js'
-import { authorizeMobileRequest, mobileUnauthorizedResponse } from './mobile-auth/gate.js'
 import { resolveMobileAuthStore } from './mobile-auth/store.js'
 import { createPbcWorkerScheduler } from './pbc/worker-scheduler.js'
 import { type PbcContinuationWorkerPort, runPbcContinuationWorker } from './pbc/worker.js'
 import { createRealLauncher, readRunStatus } from './real-launcher.js'
-import {
-  type RequestLogContext,
-  finishRequestLog,
-  logWebSocketClose,
-  logWebSocketOpen,
-  readMobileSessionRequestId,
-  startRequestLog,
-} from './request-log.js'
 import { createWrkfClientLifecycle } from './wrkf/client-lifecycle.js'
-
-// Upgrade data object -> its request log, so a socket's close logs its lifetime.
-const openWebSockets = new WeakMap<object, RequestLogContext>()
-
-function trackWebSocket(data: object, requestLog: RequestLogContext): undefined {
-  openWebSockets.set(data, requestLog)
-  logWebSocketOpen(requestLog)
-  return undefined
-}
 
 const DEFAULT_COORD_DB_PATH = '/Users/lherron/praesidium/var/db/acp-coordination.db'
 const DEFAULT_PORT = 18470
@@ -1207,7 +1175,6 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
   // router + WS upgrade path), and two stores over one flat file would mean two
   // writers and a gate that could disagree with itself between HTTP and WS.
   serverDeps.mobileAuthStore = resolveMobileAuthStore()
-  const mobileAuthStore = serverDeps.mobileAuthStore
   const acpServer = createAcpServer(serverDeps)
   const resolvedDeps = resolveAcpServerDeps(serverDeps)
   if (jobsStore !== undefined) {
@@ -1215,6 +1182,13 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     ensureHrcFirstTurnMissingJob(jobsStore)
   }
   const accessLogger = await createAccessLogger(process.env['ACP_ACCESS_LOG_PATH'])
+  // Every bind host is the one `main` listener for the request log.
+  const listenerHandlers = createAcpListenerHandlers({
+    acpServer,
+    deps: resolvedDeps,
+    handleCapRpc: (request) => capabilityHost.handleHttpJsonRpc(request),
+    accessLogger,
+  })
   const bindHosts = resolveBindHosts(options.host)
   const bunServers = bindAcpHostListeners(
     bindHosts,
@@ -1223,119 +1197,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
         hostname: host,
         port: options.port,
         idleTimeout: 255,
-        async fetch(request, server) {
-          const url = new URL(request.url)
-          // Socket peer, captured before the body is consumed and before the WS
-          // branch: Bun exposes it only here, and peer-gated routes (mobile bearer
-          // auth, attach-info) cannot observe it from the Request alone.
-          const peer = server.requestIP(request) ?? undefined
-          const requestLog = startRequestLog(request, url, peer?.address)
-          const isWebSocketUpgrade = request.headers.get('upgrade')?.toLowerCase() === 'websocket'
-          if (isWebSocketUpgrade && isPluginEventsWebSocketPath(url.pathname)) {
-            const data = buildPluginEventsUpgradeData(resolvedDeps, request.url)
-            const upgraded = (
-              server as never as {
-                upgrade(request: Request, options: unknown): boolean
-              }
-            ).upgrade(request, { data })
-            return upgraded
-              ? trackWebSocket(data, requestLog)
-              : finishRequestLog(
-                  requestLog,
-                  new Response('WebSocket upgrade failed', { status: 400 })
-                )
-          }
-          const mobileWsMatch = isWebSocketUpgrade ? parseMobileRouteKind(url.pathname) : undefined
-          if (mobileWsMatch !== undefined) {
-            // Same decision function as the HTTP router (spec §3) — checked before
-            // `server.upgrade()`, since a socket that completes the handshake is
-            // already inside.
-            if (
-              authorizeMobileRequest({
-                pathname: url.pathname,
-                peer,
-                authorization: request.headers.get('authorization'),
-                store: mobileAuthStore,
-              }) === 'unauthorized'
-            ) {
-              return finishRequestLog(requestLog, mobileUnauthorizedResponse())
-            }
-            const data = buildMobileUpgradeData(resolvedDeps, request.url, mobileWsMatch)
-            const upgraded = (
-              server as never as {
-                upgrade(request: Request, options: unknown): boolean
-              }
-            ).upgrade(request, { data })
-            return upgraded
-              ? trackWebSocket(data, requestLog)
-              : finishRequestLog(
-                  requestLog,
-                  new Response('WebSocket upgrade failed', { status: 400 })
-                )
-          }
-
-          const islandOrigin = islandCorsOrigin(request, peer)
-          if (islandOrigin !== undefined && request.method === 'OPTIONS') {
-            return finishRequestLog(requestLog, islandPreflight(islandOrigin, request))
-          }
-          const start = performance.now()
-          requestLog.requestId = await readMobileSessionRequestId(request, url)
-          const handled =
-            url.pathname === '/v1/cap/rpc'
-              ? await capabilityHost.handleHttpJsonRpc(request)
-              : await acpServer.handler(request, { peer })
-          const response =
-            islandOrigin === undefined ? handled : withIslandCors(handled, islandOrigin)
-          if (accessLogger !== null) {
-            accessLogger.log({
-              request,
-              response,
-              durationMs: Math.round(performance.now() - start),
-              clientIp: peer?.address,
-            })
-          }
-          return finishRequestLog(requestLog, response)
-        },
-        websocket: {
-          open(ws) {
-            if (isPluginEventsWebSocketData(ws.data)) {
-              void openPluginEventsWebSocket(ws as never)
-              return
-            }
-            void openMobileWebSocket(ws as never).catch((error) => {
-              try {
-                ws.send(
-                  JSON.stringify({
-                    type: 'error',
-                    code: 'mobile_stream_failed',
-                    message: error instanceof Error ? error.message : String(error),
-                  })
-                )
-                // T-10837: close, or the client sits on an open, silent socket
-                // (the dashboard's ping timer is already cleared).
-                ws.close(1011, 'mobile stream failed')
-              } catch {
-                // Socket may already be closed.
-              }
-            })
-          },
-          message(ws, message) {
-            if (isPluginEventsWebSocketData(ws.data)) {
-              handlePluginEventsWebSocketMessage(ws as never, message as never)
-              return
-            }
-            handleMobileWebSocketMessage(ws as never, message as never)
-          },
-          close(ws, code) {
-            const tracked = openWebSockets.get(ws.data as unknown as object)
-            if (tracked !== undefined) logWebSocketClose(tracked, code)
-            if (isPluginEventsWebSocketData(ws.data)) {
-              closePluginEventsWebSocket(ws as never)
-              return
-            }
-            closeMobileWebSocket(ws as never)
-          },
-        },
+        ...listenerHandlers,
       }),
     options.port
   )

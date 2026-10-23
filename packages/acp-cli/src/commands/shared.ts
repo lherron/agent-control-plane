@@ -9,6 +9,7 @@ import {
   requestAcpText,
   trimTrailingSlashes,
 } from '../http-client.js'
+import { acpCliFetch } from '../user-agent.js'
 import { type ParsedArgs, hasFlag, parseJsonObject, readStringFlag } from './options.js'
 
 export type AttachDescriptor = {
@@ -124,7 +125,7 @@ export function createRawAcpRequester(options: {
   fetchImpl?: FetchLike | undefined
 }): RawAcpRequester {
   const baseUrl = trimTrailingSlashes(options.serverUrl)
-  const fetchImpl = options.fetchImpl ?? fetch
+  const fetchImpl = options.fetchImpl ?? acpCliFetch
 
   return {
     async requestJson<T>(input: RawAcpRequestInput) {

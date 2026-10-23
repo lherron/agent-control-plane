@@ -34,6 +34,8 @@ export type MobileRouteMatch = {
   version?: 1 | 2 | undefined
   /** Only present for session-scoped routes (timeline, diagnostics). */
   hostSessionId?: string | undefined
+  /** The registered path or template that matched, for the request log. */
+  route: string
 }
 
 export type MobileWebSocketData = {
@@ -64,20 +66,22 @@ const SESSION_SCOPED_PATTERN = /^\/v1\/mobile\/sessions\/([^/]+)\/(timeline|diag
  */
 export function parseMobileRouteKind(pathname: string): MobileRouteMatch | undefined {
   if (pathname === MOBILE_WS_PATHS.dashboard) {
-    return { kind: 'dashboard' }
+    return { kind: 'dashboard', route: MOBILE_WS_PATHS.dashboard }
   }
   if (pathname === MOBILE_WS_PATHS.federationDashboard) {
-    return { kind: 'dashboard', version: 2 }
+    return { kind: 'dashboard', version: 2, route: MOBILE_WS_PATHS.federationDashboard }
   }
   if (pathname === MOBILE_WS_PATHS.messages) {
-    return { kind: 'messages' }
+    return { kind: 'messages', route: MOBILE_WS_PATHS.messages }
   }
   const match = SESSION_SCOPED_PATTERN.exec(pathname)
   if (match !== null) {
     const hostSessionId = decodeURIComponent(match[1] as string)
     if (hostSessionId.length === 0) return undefined
     const kind = match[2] as MobileRouteKind
-    return { kind, hostSessionId }
+    const route =
+      kind === 'timeline' ? MOBILE_WS_PATHS.timelineTemplate : MOBILE_WS_PATHS.diagnosticsTemplate
+    return { kind, hostSessionId, route }
   }
   return undefined
 }

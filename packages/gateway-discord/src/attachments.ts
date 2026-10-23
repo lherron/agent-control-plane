@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { AttachmentBuilder } from 'discord.js'
 import { DEFAULT_MEDIA_MAX_BYTES, MEDIA_MIME_EXT } from './config.js'
 import type { ImageAttachment, MediaRefAttachment } from './render.js'
+import { gatewayDiscordFetch } from './user-agent.js'
 
 function guessFilename(ref: MediaRefAttachment, index: number): string {
   if (ref.filename) return ref.filename
@@ -59,7 +60,7 @@ async function loadMediaRefBuffer(
   maxBytes: number
 ): Promise<Buffer> {
   if (isHttpUrl(ref.url)) {
-    const res = await fetch(ref.url, {
+    const res = await gatewayDiscordFetch(ref.url, {
       headers: authToken ? { 'x-cp-token': authToken } : undefined,
     })
     if (!res.ok) throw new Error(`media fetch failed with ${res.status}`)

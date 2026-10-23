@@ -12,6 +12,7 @@ import {
   requireStringFlag,
 } from './options.js'
 
+import { acpCliFetch } from '../user-agent.js'
 import {
   type CommandDependencies,
   type CommandOutput,
@@ -217,7 +218,7 @@ export async function runRunCommand(
           : contentTypeFromFilename(filename)
       const response = await postAttachment({
         serverUrl,
-        fetchImpl: deps.fetchImpl ?? fetch,
+        fetchImpl: deps.fetchImpl ?? acpCliFetch,
         runId,
         path: attachmentPath,
         filename,

@@ -78,6 +78,7 @@ import type {
   RenderFrame,
   UiHandle,
 } from './types.js'
+import { GATEWAY_DISCORD_USER_AGENT, gatewayDiscordFetch } from './user-agent.js'
 import { type WebhookPayload, createWebhookManager } from './webhooks.js'
 import { buildWorkActivityCard, isWorkActivityKind } from './work-activity.js'
 import {
@@ -410,7 +411,7 @@ export async function fetchDashboardSnapshotViaWebSocket(
   const timeoutMs = options?.timeoutMs ?? 5_000
 
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(wsUrl)
+    const ws = new WebSocket(wsUrl, { headers: { 'user-agent': GATEWAY_DISCORD_USER_AGENT } })
     let settled = false
     const timer = setTimeout(() => {
       if (settled) return
@@ -599,7 +600,7 @@ export class GatewayDiscordApp {
         ],
         partials: [Partials.Message, Partials.Channel, Partials.Reaction, Partials.User],
       })
-    this.fetchImpl = options.fetchImpl ?? fetch
+    this.fetchImpl = options.fetchImpl ?? gatewayDiscordFetch
     this.dashboardSnapshotImpl = options.dashboardSnapshotImpl ?? fetchDashboardSnapshotViaWebSocket
     this.maxChars = options.maxChars ?? DEFAULT_MAX_CHARS
     this.retainTurnProgress = options.retainTurnProgress ?? true

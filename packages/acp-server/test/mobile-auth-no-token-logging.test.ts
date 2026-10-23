@@ -154,14 +154,17 @@ describe('request log volume', () => {
     const originalLog = console.log
     console.log = (...args: unknown[]) => lines.push(args.join(' '))
     try {
-      for (const [path, status] of [
-        ['/v1/admin/system-events', 200],
-        ['/v1/gateway/acp-discord-smoke/deliveries/stream', 200],
-        ['/v1/gateway/acp-discord-smoke/deliveries/stream', 503],
-        ['/v1/admin/agents', 200],
+      // Quietness keys on the route template the router reported.
+      const deliveries = '/v1/gateway/:gatewayId/deliveries/stream'
+      for (const [path, route, status] of [
+        ['/v1/admin/system-events', '/v1/admin/system-events', 200],
+        ['/v1/gateway/acp-discord-smoke/deliveries/stream', deliveries, 200],
+        ['/v1/gateway/acp-discord-smoke/deliveries/stream', deliveries, 503],
+        ['/v1/admin/agents', '/v1/admin/agents', 200],
       ] as const) {
         const url = new URL(`http://acp.test${path}?after=1`)
         const context = startRequestLog(new Request(url), url, '127.0.0.1')
+        context.route = route
         finishRequestLog(context, new Response(null, { status }))
       }
     } finally {

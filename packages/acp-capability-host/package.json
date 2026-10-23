@@ -22,6 +22,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "acp-core": "*",
     "cap-service": "0.0.0-dev.20260915135245",
     "catalog-store": "0.0.0-dev.20260915135245"
   },

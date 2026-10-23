@@ -13,6 +13,7 @@ import type {
   WorkflowEvent,
   WorkflowTask,
 } from 'acp-core'
+import { acpCliFetch } from './user-agent.js'
 
 export const DEFAULT_ACP_SERVER_URL = 'http://127.0.0.1:18470'
 
@@ -434,7 +435,7 @@ export function createHttpClient(
   } = {}
 ): AcpClient {
   const baseUrl = trimTrailingSlashes(options.serverUrl ?? DEFAULT_ACP_SERVER_URL)
-  const fetchImpl = options.fetchImpl ?? fetch
+  const fetchImpl = options.fetchImpl ?? acpCliFetch
 
   async function request<T>(input: {
     method: string

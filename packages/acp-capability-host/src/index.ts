@@ -3,6 +3,7 @@ import { chmod, mkdir, readFile, unlink } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import { Database } from 'bun:sqlite'
+import { clientFromUserAgent, writeLogLine } from 'acp-core'
 import { createDefaultDeps, newServer } from 'cap-service'
 import type { CatalogStore } from 'catalog-store'
 
@@ -466,7 +467,9 @@ async function serveCapSocket(
           state.buffer = state.buffer.slice(newlineIndex + 1)
           if (line.length > 0) {
             state.tail = state.tail.then(async () => {
+              const startedAt = performance.now()
               const response = await server.handleRaw(line)
+              logRpcRequest(line, response, startedAt)
               try {
                 socket.write(`${JSON.stringify(response)}\n`)
               } catch {
@@ -507,6 +510,46 @@ async function serveCapSocket(
       }
     },
   }
+}
+
+/**
+ * One `rpc.request` line per cap.sock frame at completion (logging.md L3): the
+ * method as received, `ok` or the refusal code, and the frame's `client` token.
+ * Frames and bodies never reach the log.
+ */
+function logRpcRequest(line: string, response: JsonRpcResponse, startedAt: number): void {
+  let frame: Record<string, unknown> = {}
+  try {
+    const parsed = JSON.parse(line) as unknown
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      frame = parsed as Record<string, unknown>
+    }
+  } catch {
+    // An unparseable frame still gets its line; handleRaw already refused it.
+  }
+  const op = typeof frame['method'] === 'string' ? frame['method'].slice(0, 128) : 'unknown'
+  const client = clientFromUserAgent(typeof frame['client'] === 'string' ? frame['client'] : null)
+  const outcome =
+    response.error === undefined
+      ? 'ok'
+      : typeof response.error.data?.['code'] === 'string'
+        ? response.error.data['code']
+        : String(response.error.code)
+  writeLogLine(
+    {
+      level: outcome === 'ok' ? 'info' : 'warn',
+      component: 'rpc',
+      event: 'rpc.request',
+      data: {
+        listener: 'cap',
+        op,
+        outcome,
+        durationMs: Math.round(performance.now() - startedAt),
+        client,
+      },
+    },
+    'stdout'
+  )
 }
 
 async function ensureSocketAvailable(socketPath: string): Promise<void> {

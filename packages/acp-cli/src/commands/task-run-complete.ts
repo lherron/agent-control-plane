@@ -1,4 +1,5 @@
 import { AcpClientHttpError } from '../http-client.js'
+import { acpCliFetch } from '../user-agent.js'
 import {
   hasFlag,
   parseArgs,
@@ -72,7 +73,7 @@ export async function runTaskRunCompleteCommand(
     body['idempotencyKey'] = idempotencyKey
   }
 
-  const fetchImpl = deps.fetchImpl ?? fetch
+  const fetchImpl = deps.fetchImpl ?? acpCliFetch
   const headers: Record<string, string> = {
     'content-type': 'application/json',
   }
