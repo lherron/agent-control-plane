@@ -98,8 +98,8 @@ describe('T-09822 — non-hosting node vs hosting node, same envelope', () => {
       recovery: 'periodic_wake',
     })
     // The refusal row stays open: it is the no-host backstop's only record.
-    expect(svc.db.mailDelivery.listRefusedBirthTargets()).toContain(TARGET_REF)
-    expect(svc.db.mailDelivery.getBirthRefusal(TARGET_REF)?.lastReason).toContain('svc')
+    expect(svc.store.mailDelivery.listRefusedBirthTargets()).toContain(TARGET_REF)
+    expect(svc.store.mailDelivery.getBirthRefusal(TARGET_REF)?.lastReason).toContain('svc')
 
     // max3: hosts the project and births on its FIRST drive. svc's refusal
     // row and backoff are svc's own store and memory; nothing of them reaches
@@ -110,7 +110,7 @@ describe('T-09822 — non-hosting node vs hosting node, same envelope', () => {
       envelope: envelope.id,
       door: 'launch',
     })
-    expect(max3.db.mailDelivery.listRefusedBirthTargets()).not.toContain(TARGET_REF)
+    expect(max3.store.mailDelivery.listRefusedBirthTargets()).not.toContain(TARGET_REF)
     expect(max3.context.mailKickerBirthSweepBackoff.has(TARGET_REF)).toBe(false)
   })
 

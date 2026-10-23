@@ -163,7 +163,7 @@ describe('T-08139 D2 — broker-start failure returns a seated target to the swe
     harness.context = context
 
     expect(await deliverOneTo(harness, seatIn('idle'), envelope)).toBe('refused')
-    expect(harness.db.mailDelivery.getIntent(envelope.id)).toMatchObject({
+    expect(harness.store.mailDelivery.getIntent(envelope.id)).toMatchObject({
       uncertainCause: 'dispatch_error',
       lastEvidenceKind: 'dispatch_error',
     })
@@ -176,7 +176,7 @@ describe('T-08139 D2 — broker-start failure returns a seated target to the swe
     expect(dispatches).toBe(1)
     expect(harness.db.runtimes.listLiveSessionRefs()).not.toContain(TARGET)
 
-    const refusal = harness.db.mailDelivery.getBirthRefusal(TARGET)
+    const refusal = harness.store.mailDelivery.getBirthRefusal(TARGET)
     expect(refusal?.lastReason).toContain(envelope.id)
     expect(refusal?.lastReason).toContain('broker-invocation-start')
     expect(

@@ -27,8 +27,8 @@
   },
   "dependencies": {
     "@wrkq/client": "latest",
-    "hrc-core": "0.5.13-dev.20261014014730",
-    "hrc-sdk": "0.5.13-dev.20261014014730"
+    "hrc-core": "0.5.13-dev.20261023142048",
+    "hrc-sdk": "0.5.13-dev.20261023142048"
   },
   "devDependencies": {
     "@types/bun": "1.3.14",

@@ -44,13 +44,13 @@ describe('sender failure notice by obligation', () => {
   it('queues no notice for a failed fyi or notify', async () => {
     await failAs('fyi')
     await failAs('notify')
-    expect(h.db.mailDelivery.listUndeliveredFailureNotices(TARGET_REF)).toHaveLength(0)
+    expect(h.store.mailDelivery.listUndeliveredFailureNotices(TARGET_REF)).toHaveLength(0)
     expect(h.wakes).toHaveLength(0)
   })
 
   it('still queues the notice for a failed reply_required', async () => {
     const envelope = await failAs('reply_required')
-    const queued = h.db.mailDelivery.listUndeliveredFailureNotices(TARGET_REF)
+    const queued = h.store.mailDelivery.listUndeliveredFailureNotices(TARGET_REF)
     expect(queued).toHaveLength(1)
     expect(queued[0]?.envelopeId).toBe(envelope.id)
     expect(queued[0]?.notice).toContain('Resend or escalate')

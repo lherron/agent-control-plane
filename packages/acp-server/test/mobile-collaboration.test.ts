@@ -368,14 +368,7 @@ describe('mobile collaboration ledger', () => {
     const principals: string[] = []
     const sayCalls: CollaborationSayInput[] = []
     const humanLedger = ledger({ sayCalls })
-    const semanticCalls: unknown[] = []
-    const requestMessage = hrcMessage('msg-delivered')
-    const hrcClient = {
-      async semanticDm(input: unknown) {
-        semanticCalls.push(input)
-        return { request: requestMessage }
-      },
-    } as unknown as AcpHrcClient
+    const hrcClient = {} as unknown as AcpHrcClient
 
     await withWiredServer(
       async (fixture) => {
@@ -391,7 +384,6 @@ describe('mobile collaboration ledger', () => {
         })
 
         expect(response.status).toBe(200)
-        expect(semanticCalls).toHaveLength(0)
         expect(principals).toEqual(['agent:lance'])
         expect(sayCalls).toEqual([
           {

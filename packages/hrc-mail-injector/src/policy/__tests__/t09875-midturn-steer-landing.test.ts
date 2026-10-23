@@ -89,7 +89,7 @@ describe('T-09875 — mid-turn steer receipt', () => {
     const receipts = h.ledger.envelopes.get(fyi.id)?.presentedTo ?? []
     expect(receipts).toHaveLength(1)
     expect(receipts[0]).toMatchObject({ runtimeId: RUNTIME, deliveryOutcome: 'steered' })
-    expect(h.db.mailDelivery.getIntent(fyi.id)).toBeUndefined()
+    expect(h.store.mailDelivery.getIntent(fyi.id)).toBeUndefined()
 
     // The later correlation, when the driver manages one, is not a second receipt.
     await observeBrokerLanding(
@@ -121,7 +121,7 @@ describe('T-09875 — mid-turn steer receipt', () => {
 
     expect(h.ledger.envelopes.get(fyi.id)?.presentedTo).toHaveLength(1)
     expect(h.ledger.envelopes.get(fyi.id)?.presentedTo[0]?.deliveryOutcome).toBe('steered')
-    expect(h.db.mailDelivery.getIntent(fyi.id)).toBeUndefined()
+    expect(h.store.mailDelivery.getIntent(fyi.id)).toBeUndefined()
   })
 
   it('does not bind an admission from before the intent was opened', async () => {
@@ -139,7 +139,7 @@ describe('T-09875 — mid-turn steer receipt', () => {
       return h.dispatchResult()
     }
     await deliverOneTo(h, seatIn('turn-active'), fyi)
-    expect(h.db.mailDelivery.getIntent(fyi.id)?.submissionId).toBe('sub-1')
+    expect(h.store.mailDelivery.getIntent(fyi.id)?.submissionId).toBe('sub-1')
   })
 
   it('reconciles a stranded mid-turn write into exactly one steered receipt', async () => {
@@ -152,7 +152,7 @@ describe('T-09875 — mid-turn steer receipt', () => {
     expect(await reconcileOpenIntents(h.context, { reason: 'periodic' })).toMatchObject({
       open: 1,
     })
-    h.db.sqlite
+    h.storeSql
       .query('UPDATE hrcmail_delivery_intents SET submitted_at = ? WHERE envelope_id = ?')
       .run(new Date(Date.now() - STEER_WRITE_RECONCILE_GRACE_MS - 1_000).toISOString(), fyi.id)
 
@@ -172,7 +172,7 @@ describe('T-09875 — mid-turn steer receipt', () => {
     const row = h.ledger.envelopes.get(request.id)
     if (row === undefined) throw new Error('missing row')
     row.state = 'deferred'
-    h.db.sqlite
+    h.storeSql
       .query('UPDATE hrcmail_delivery_intents SET submitted_at = ? WHERE envelope_id = ?')
       .run(new Date(Date.now() - STEER_WRITE_RECONCILE_GRACE_MS - 1_000).toISOString(), request.id)
 
@@ -193,7 +193,7 @@ describe('T-09875 — mid-turn steer receipt', () => {
       reason: 'pane_not_quiescent',
       deliveryEvidence: 'not_written',
     })
-    h.db.sqlite
+    h.storeSql
       .query('UPDATE hrcmail_delivery_intents SET submitted_at = ? WHERE envelope_id = ?')
       .run(new Date(Date.now() - STEER_WRITE_RECONCILE_GRACE_MS - 1_000).toISOString(), fyi.id)
 

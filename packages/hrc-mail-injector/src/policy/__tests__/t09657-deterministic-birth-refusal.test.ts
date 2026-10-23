@@ -75,7 +75,7 @@ describe('T-09657 — deterministic birth refusal', () => {
       { envelope: envelope.id, reason: 'undeliverable', detail: expect.stringContaining(REFUSAL) },
     ])
     // The row is resolved, so the periodic sweep does not re-drive it.
-    expect(h.db.mailDelivery.listRefusedBirthTargets()).not.toContain(TARGET_REF)
+    expect(h.store.mailDelivery.listRefusedBirthTargets()).not.toContain(TARGET_REF)
     expect(h.context.mailKickerBirthSweepBackoff.has(TARGET_REF)).toBe(false)
     expect(events('wrkq.kicker.unborn_birth_retry')).toHaveLength(0)
     expect(events('wrkq.kicker.birth_refusal_deterministic')[0]?.detail).toMatchObject({
@@ -107,7 +107,7 @@ describe('T-09657 — deterministic birth refusal', () => {
     await chargeBirthSweepRefusal(h.context, TARGET_REF)
 
     expect(h.ledger.failRequests).toHaveLength(0)
-    expect(h.db.mailDelivery.listRefusedBirthTargets()).toContain(TARGET_REF)
+    expect(h.store.mailDelivery.listRefusedBirthTargets()).toContain(TARGET_REF)
     expect(events('wrkq.kicker.unborn_birth_retry')[0]?.detail).toMatchObject({
       targetSessionRef: TARGET_REF,
       attempt: 1,
@@ -116,7 +116,7 @@ describe('T-09657 — deterministic birth refusal', () => {
 
   it('the 5-strike path tells the sender the last refusal reason', async () => {
     const envelope = h.ledger.say()
-    h.db.mailDelivery.recordBirthRefusal({
+    h.store.mailDelivery.recordBirthRefusal({
       targetSessionRef: TARGET_REF,
       scopeRef: SCOPE_REF,
       reason: 'broker start timed out',
@@ -157,7 +157,7 @@ describe('T-09657 — sender notice carries the failure detail', () => {
       payload: JSON.stringify({ state: 'failed', reason: 'undeliverable', detail: REFUSAL }),
     } as never)
 
-    const [queued] = h.db.mailDelivery.listUndeliveredFailureNotices(TARGET_REF)
+    const [queued] = h.store.mailDelivery.listUndeliveredFailureNotices(TARGET_REF)
     expect(queued?.notice).toContain(REFUSAL)
   })
 })

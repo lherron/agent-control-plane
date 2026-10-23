@@ -186,7 +186,6 @@ export type AcpHrcClient = Pick<
   | 'resolveSession'
   | 'resolveRuntimeIntent'
   | 'sendInFlightInput'
-  | 'semanticDm'
   | 'startRuntime'
   | 'tailEvents'
   | 'terminate'

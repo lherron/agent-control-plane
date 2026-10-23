@@ -129,7 +129,7 @@ async function waitFor(label: string, predicate: () => boolean): Promise<void> {
 
 function seedOpenIntent(targetSessionRef: string, runtimeId: string, suffix: string): string {
   const envelope = harness.ledger.say()
-  const opened = harness.db.mailDelivery.openIntent({
+  const opened = harness.store.mailDelivery.openIntent({
     envelopeId: envelope.id,
     targetSessionRef,
     door: 'steer',
@@ -157,7 +157,7 @@ function seedLandedPresentation(
       presentedAt: new Date().toISOString(),
     },
   ]
-  harness.db.mailDelivery.recordPresentation({
+  harness.store.mailDelivery.recordPresentation({
     envelopeId: envelope.id,
     runtimeId,
     targetSessionRef,
@@ -166,7 +166,7 @@ function seedLandedPresentation(
     deliveryOutcome: 'steered',
     landingHrcSeq: 10,
   })
-  if (!harness.db.mailDelivery.markReceiptCommitted(envelope.id, runtimeId)) {
+  if (!harness.store.mailDelivery.markReceiptCommitted(envelope.id, runtimeId)) {
     throw new Error('failed to commit kicker presentation receipt')
   }
   return envelope.id
@@ -202,7 +202,7 @@ async function observeRuntimeTerminal(input: {
   await waitFor(
     `${input.suffix} intent reconciliation`,
     () =>
-      harness.db.mailDelivery.getIntent(envelopeId)?.uncertainCause ===
+      harness.store.mailDelivery.getIntent(envelopeId)?.uncertainCause ===
       'runtime_terminated_before_landing'
   )
   await Promise.resolve()
@@ -252,7 +252,7 @@ describe('T-08576 app-scope kicker exclusion', () => {
 
     expect({
       pendingViewScopes: pendingViewScopes(calls),
-      localIntentCause: harness.db.mailDelivery.getIntent(envelopeId)?.uncertainCause,
+      localIntentCause: harness.store.mailDelivery.getIntent(envelopeId)?.uncertainCause,
     }).toEqual({
       pendingViewScopes: [],
       localIntentCause: 'runtime_terminated_before_landing',
@@ -279,7 +279,7 @@ describe('T-08576 app-scope kicker exclusion', () => {
       pendingViewScopes: pendingViewScopes(calls),
       wakeCount: wakeOperations.length,
       reminderArmed:
-        harness.db.mailDelivery.getPresentation(envelopeId, APP_RUNTIME)?.reminderArmedAt !==
+        harness.store.mailDelivery.getPresentation(envelopeId, APP_RUNTIME)?.reminderArmedAt !==
         undefined,
       ledgerMethods: calls.map((call) => call.method),
     }).toEqual({
@@ -304,7 +304,7 @@ describe('T-08576 app-scope kicker exclusion', () => {
 
     expect({
       pendingViewScopes: pendingViewScopes(calls),
-      localIntentCause: harness.db.mailDelivery.getIntent(envelopeId)?.uncertainCause,
+      localIntentCause: harness.store.mailDelivery.getIntent(envelopeId)?.uncertainCause,
     }).toEqual({
       pendingViewScopes: [[TARGET_REF]],
       localIntentCause: 'runtime_terminated_before_landing',
@@ -327,7 +327,7 @@ describe('T-08576 app-scope kicker exclusion', () => {
       pendingViewScopes: pendingViewScopes(calls),
       wakeCount: wakeOperations.length,
       reminderArmed:
-        harness.db.mailDelivery.getPresentation(envelopeId, RUNTIME_ID)?.reminderArmedAt !==
+        harness.store.mailDelivery.getPresentation(envelopeId, RUNTIME_ID)?.reminderArmedAt !==
         undefined,
     }).toEqual({
       pendingViewScopes: [[TARGET_REF]],

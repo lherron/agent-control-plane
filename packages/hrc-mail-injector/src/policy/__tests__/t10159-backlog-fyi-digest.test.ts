@@ -138,8 +138,8 @@ describe('T-10159 — backlog fyi digest', () => {
     // Zero full presentations: every intent this drive opened is a digest member.
     expect(intentLogs().map((log) => log.detail['form'])).toEqual(['digest', 'digest'])
 
-    const firstIntent = h.db.mailDelivery.getIntent(first.id)
-    const secondIntent = h.db.mailDelivery.getIntent(second.id)
+    const firstIntent = h.store.mailDelivery.getIntent(first.id)
+    const secondIntent = h.store.mailDelivery.getIntent(second.id)
     expect(firstIntent?.submissionId).toBe('sub-1')
     expect(secondIntent?.submissionId).toBe('sub-1')
 
@@ -154,10 +154,10 @@ describe('T-10159 — backlog fyi digest', () => {
       expect(row?.reason).toBe('fyi_presented')
       expect(row?.presentedTo).toHaveLength(1)
       expect(row?.presentedTo[0]).toMatchObject({ runtimeId: RUNTIME, inputId: 'sub-1' })
-      expect(h.db.mailDelivery.getIntent(envelope.id)).toBeUndefined()
+      expect(h.store.mailDelivery.getIntent(envelope.id)).toBeUndefined()
     }
     const rows = [first, second].map((envelope) =>
-      h.db.mailDelivery.getPresentation(envelope.id, RUNTIME)
+      h.store.mailDelivery.getPresentation(envelope.id, RUNTIME)
     )
     expect(rows.map((row) => row?.inputId)).toEqual(['sub-1', 'sub-1'])
     expect(rows[0]?.landingHrcSeq).toBe(rows[1]?.landingHrcSeq ?? -1)
@@ -275,7 +275,7 @@ describe('T-10159 — backlog fyi digest', () => {
     for (const envelope of [first, second]) {
       expect(h.ledger.envelopes.get(envelope.id)?.state).toBe('pending')
       expect(h.ledger.envelopes.get(envelope.id)?.presentedTo).toEqual([])
-      expect(h.db.mailDelivery.getIntent(envelope.id)).toBeUndefined()
+      expect(h.store.mailDelivery.getIntent(envelope.id)).toBeUndefined()
     }
     // The next drive retries them together, as a digest again.
     h.context.port.steer = async (_s, _i, prompt, options) => {
@@ -298,7 +298,7 @@ describe('T-10159 — backlog fyi digest', () => {
 
     for (const envelope of [first, second]) {
       expect(h.ledger.envelopes.get(envelope.id)?.state).toBe('pending')
-      expect(h.db.mailDelivery.getIntent(envelope.id)?.uncertainCause).toBe('dispatch_error')
+      expect(h.store.mailDelivery.getIntent(envelope.id)?.uncertainCause).toBe('dispatch_error')
     }
     // An open intent is the fence: a second drive presents nothing.
     await driveMailTargetOnce(h.context, TARGET, 'periodic')
@@ -324,7 +324,7 @@ describe('T-10159 — backlog fyi digest', () => {
     expect(prompts[0]?.prompt).toContain('while you were away — 1 fyi')
     expect(prompts[0]?.prompt).toContain(kept.id)
     expect(prompts[0]?.prompt).not.toContain(acked.id)
-    expect(h.db.mailDelivery.getIntent(acked.id)).toBeUndefined()
+    expect(h.store.mailDelivery.getIntent(acked.id)).toBeUndefined()
   })
 
   it('an ack of one queued member does not withdraw the shared digest submission', async () => {
@@ -346,7 +346,7 @@ describe('T-10159 — backlog fyi digest', () => {
       payload: JSON.stringify({ reason: 'operator' }),
     })
     expect(withdrawals).toEqual([])
-    expect(h.db.mailDelivery.getIntent(first.id)?.terminalEnvelopeAt).toBeDefined()
+    expect(h.store.mailDelivery.getIntent(first.id)?.terminalEnvelopeAt).toBeDefined()
 
     // The digest lands: the live sibling is receipted; the acked member is
     // audit-only and is not resurrected.
@@ -379,10 +379,10 @@ describe('T-10159 — backlog fyi digest', () => {
     expect(counts.landed).toBe(1)
     for (const envelope of [first, second]) {
       expect(h.ledger.envelopes.get(envelope.id)?.state).toBe('acked')
-      expect(h.db.mailDelivery.getIntent(envelope.id)).toBeUndefined()
+      expect(h.store.mailDelivery.getIntent(envelope.id)).toBeUndefined()
     }
-    expect(h.db.mailDelivery.getPresentation(first.id, RUNTIME)?.landingHrcSeq).toBe(
-      h.db.mailDelivery.getPresentation(second.id, RUNTIME)?.landingHrcSeq ?? -1
+    expect(h.store.mailDelivery.getPresentation(first.id, RUNTIME)?.landingHrcSeq).toBe(
+      h.store.mailDelivery.getPresentation(second.id, RUNTIME)?.landingHrcSeq ?? -1
     )
   })
 })

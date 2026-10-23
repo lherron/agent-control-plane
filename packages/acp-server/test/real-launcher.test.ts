@@ -259,9 +259,6 @@ describe('real launcher helpers', () => {
               },
             }
           },
-          semanticDm: async () => {
-            throw new Error('remote interface run must not write an HRC message')
-          },
           resolveSession: async () => {
             throw new Error('remote interface run must not resolve a local HRC session')
           },
@@ -326,9 +323,6 @@ describe('real launcher helpers', () => {
                 },
               },
             }
-          },
-          semanticDm: async () => {
-            throw new Error('unbound prompt must not write an HRC message')
           },
           resolveSession: async () => {
             throw new Error('unbound prompt must not resolve a local HRC session')
@@ -424,9 +418,6 @@ describe('real launcher helpers', () => {
                 record: { homeNodeId: 'svc', placementEpoch: 2 },
               },
             }
-          },
-          semanticDm: async () => {
-            throw new Error('local interface run must not use semantic federation')
           },
           resolveSession: async () => {
             calls.push('resolveSession')

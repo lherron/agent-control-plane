@@ -3,20 +3,33 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { openHrcDatabase } from 'hrc-store-sqlite'
+import { Database } from 'bun:sqlite'
 
+import type { KickerStateStore } from '../contracts.js'
 import { openKickerStateStore } from '../kicker-state-store.js'
 
 let directory = ''
-let source: ReturnType<typeof openHrcDatabase>
+// HRC's main store no longer carries the delivery tables (migration 0124), so
+// the frozen import source is a store with the moved schema.
+let source: KickerStateStore & { sqlite: Database }
 
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), 'hrc-kicker-store-'))
-  source = openHrcDatabase(join(directory, 'state.sqlite'))
+  const sourcePath = join(directory, 'state.sqlite')
+  const store = openKickerStateStore(sourcePath)
+  const sqlite = new Database(sourcePath)
+  source = {
+    ...store,
+    sqlite,
+    close: () => {
+      sqlite.close()
+      store.close?.()
+    },
+  }
 })
 
 afterEach(async () => {
-  source.close()
+  source.close?.()
   await rm(directory, { recursive: true, force: true })
 })
 

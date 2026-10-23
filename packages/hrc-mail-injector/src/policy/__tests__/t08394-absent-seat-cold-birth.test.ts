@@ -109,7 +109,7 @@ describe('T-08394 — the seat decides the door, not the session row', () => {
     // The intent binds to the runtime the launch produced, so the reconcile can
     // reach it. The stranded specimen had no runtimeId at all, which is why
     // every recovery branch in `reconcileIntent` skipped straight past it.
-    expect(h.db.mailDelivery.getIntent(envelope.id)?.runtimeId).toBeDefined()
+    expect(h.store.mailDelivery.getIntent(envelope.id)?.runtimeId).toBeDefined()
   })
 
   it('releases a launch intent when ASPD rejects before any runtime operation exists', async () => {
@@ -126,8 +126,8 @@ describe('T-08394 — the seat decides the door, not the session row', () => {
     expect(await driveMailTargetOnce(h.context, TARGET_REF, 'insert')).toMatchObject({
       outcome: 'birth-refused',
     })
-    expect(h.db.mailDelivery.getIntent(envelope.id)).toBeUndefined()
-    expect(h.db.mailDelivery.getBirthRefusal(TARGET_REF)?.lastReason).toContain(
+    expect(h.store.mailDelivery.getIntent(envelope.id)).toBeUndefined()
+    expect(h.store.mailDelivery.getBirthRefusal(TARGET_REF)?.lastReason).toContain(
       'aspd preparation rejected'
     )
     expect(
@@ -165,8 +165,8 @@ describe('T-08394 — the seat decides the door, not the session row', () => {
     expect(await driveMailTargetOnce(h.context, TARGET_REF, 'insert')).toMatchObject({
       outcome: 'birth-refused',
     })
-    expect(h.db.mailDelivery.getIntent(envelope.id)).toBeUndefined()
-    expect(h.db.mailDelivery.getBirthRefusal(TARGET_REF)?.lastReason).toContain(
+    expect(h.store.mailDelivery.getIntent(envelope.id)).toBeUndefined()
+    expect(h.store.mailDelivery.getBirthRefusal(TARGET_REF)?.lastReason).toContain(
       'refused by HRC admission'
     )
   })

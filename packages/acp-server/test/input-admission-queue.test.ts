@@ -1654,7 +1654,6 @@ describe('input admission queue', () => {
 
   test('legacy federated transport no longer writes an HRC semantic message', async () => {
     const stores = createAdmissionStores()
-    const semanticCalls: unknown[] = []
     const contributionCalls: unknown[] = []
 
     await withWiredServer(
@@ -1717,33 +1716,11 @@ describe('input admission queue', () => {
           targetRunId: active.runId,
         })
         expect(replayPayload.admission).toEqual(payload.admission)
-        expect(semanticCalls).toEqual([])
         expect(contributionCalls).toHaveLength(1)
       },
       {
         ...stores,
         hrcClient: {
-          semanticDm: async (request: unknown) => {
-            semanticCalls.push(request)
-            return {
-              request: {
-                messageSeq: 91,
-                messageId: 'msg-contribution-apple',
-                createdAt: '2026-07-21T00:00:00.000Z',
-                kind: 'dm',
-                phase: 'request',
-                from: { kind: 'entity', entity: 'human' },
-                to: {
-                  kind: 'session',
-                  sessionRef: 'agent:clod:project:test:task:T-federated-ask/lane:main',
-                },
-                rootMessageId: 'msg-contribution-apple',
-                body: 'Apple',
-                bodyFormat: 'text/plain',
-                execution: { state: 'not_applicable' },
-              },
-            }
-          },
           submitActiveRunContribution: async (request: unknown) => {
             contributionCalls.push(request)
             return {

@@ -1,7 +1,9 @@
+import type { Database } from 'bun:sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 
 import type { HrcDatabase } from 'hrc-store-sqlite'
 import type { MailKickerContext } from '../context.js'
+import type { KickerStateStore } from '../contracts.js'
 import { observeBrokerLanding } from '../drive/landing.js'
 import { readActionableEnvelopes } from '../drive/presentation.js'
 import { reconcileOpenIntents } from '../drive/reconcile.js'
@@ -34,12 +36,14 @@ import {
 
 let harness: T08094Harness
 let db: HrcDatabase
+let store: KickerStateStore
+let storeSql: Database
 let ledger: FakeLedger
 let context: MailKickerContext
 
 beforeEach(async () => {
   harness = await createT08094Harness()
-  ;({ db, ledger, context } = harness)
+  ;({ db, store, storeSql, ledger, context } = harness)
 })
 
 afterEach(async () => {
@@ -54,7 +58,7 @@ describe('D2 — the redelivery loop is bounded per (envelope, runtime)', () => 
   it('reuses a stalled broad runtime read while a later matched landing commits', async () => {
     const stalled = ledger.say()
     await deliverOne(seatIn('turn-active'), stalled)
-    db.sqlite
+    storeSql
       .query(
         'UPDATE hrcmail_delivery_intents SET runtime_id = ?, submission_id = ? WHERE envelope_id = ?'
       )
@@ -86,7 +90,7 @@ describe('D2 — the redelivery loop is bounded per (envelope, runtime)', () => 
       open: 1,
     })
     expect(Date.now() - startedAt).toBeLessThan(RECONCILE_RUNTIME_READ_DEADLINE_MS + 1_000)
-    expect(db.mailDelivery.getIntent(stalled.id)?.uncertainCause).toBe(
+    expect(store.mailDelivery.getIntent(stalled.id)?.uncertainCause).toBe(
       'reconcile_runtime_read_timeout'
     )
     expect(ledger.envelopes.get(matched.id)?.presentedTo).toHaveLength(1)
@@ -100,14 +104,14 @@ describe('D2 — the redelivery loop is bounded per (envelope, runtime)', () => 
   it('holds the envelope after a TTL with no landing proof', async () => {
     const envelope = ledger.say()
     const age = () =>
-      db.sqlite
+      storeSql
         .query('UPDATE hrcmail_delivery_intents SET submitted_at = ? WHERE envelope_id = ?')
         .run(new Date(Date.now() - KICKER_SUBMISSION_TTL_MS - 1_000).toISOString(), envelope.id)
 
     await deliverOne(seatIn('turn-active'), envelope)
     age()
     expect(await reconcileOpenIntents(context, { reason: 'periodic' })).toMatchObject({ open: 1 })
-    expect(db.mailDelivery.getIntent(envelope.id)?.uncertainCause).toBe('ttl_without_landing')
+    expect(store.mailDelivery.getIntent(envelope.id)?.uncertainCause).toBe('ttl_without_landing')
     expect(ledger.failRequests).toEqual([])
     expect(
       (await readActionableEnvelopes(context, TARGET)).map((item) => item.envelope.id)
@@ -144,7 +148,9 @@ describe('D2 — the redelivery loop is bounded per (envelope, runtime)', () => 
     const envelope = ledger.say()
     await deliverOne(seatIn('turn-active'), envelope)
     await refuseAfterTheWriteLanded('merged-into-foreign-turn')
-    expect(db.mailDelivery.getIntent(envelope.id)?.uncertainCause).toBe('merged-into-foreign-turn')
+    expect(store.mailDelivery.getIntent(envelope.id)?.uncertainCause).toBe(
+      'merged-into-foreign-turn'
+    )
     expect(ledger.failRequests).toEqual([])
     const actionable = await readActionableEnvelopes(context, TARGET)
     expect(actionable.map((item) => item.envelope.id)).not.toContain(envelope.id)
@@ -171,7 +177,7 @@ describe('D2 — the redelivery loop is bounded per (envelope, runtime)', () => 
           deliveryEvidence: 'not_written',
         })
       )
-      expect(db.mailDelivery.nonLandingStrikes(envelope.id, RUNTIME)).toBe(0)
+      expect(store.mailDelivery.nonLandingStrikes(envelope.id, RUNTIME)).toBe(0)
     }
     expect(ledger.failRequests).toEqual([])
     expect(ledger.envelopes.get(envelope.id)?.state).toBe('pending')
@@ -197,8 +203,8 @@ describe('D2 — the redelivery loop is bounded per (envelope, runtime)', () => 
         deliveryEvidence: 'not_written',
       })
     )
-    expect(db.mailDelivery.nonLandingStrikes(envelope.id, RUNTIME)).toBe(0)
-    expect(db.mailDelivery.getIntent(envelope.id)).toBeUndefined()
+    expect(store.mailDelivery.nonLandingStrikes(envelope.id, RUNTIME)).toBe(0)
+    expect(store.mailDelivery.getIntent(envelope.id)).toBeUndefined()
     expect(
       (await readActionableEnvelopes(context, TARGET)).map((item) => item.envelope.id)
     ).toContain(envelope.id)
@@ -212,7 +218,7 @@ describe('D2 — the redelivery loop is bounded per (envelope, runtime)', () => 
       context,
       brokerRecord('input.rejected', { inputId: 'sub-1', reason: 'transport_lost' })
     )
-    expect(db.mailDelivery.getIntent(envelope.id)?.uncertainCause).toBe('transport_lost')
+    expect(store.mailDelivery.getIntent(envelope.id)?.uncertainCause).toBe('transport_lost')
     expect(
       (await readActionableEnvelopes(context, TARGET)).map((item) => item.envelope.id)
     ).not.toContain(envelope.id)
@@ -249,31 +255,31 @@ describe('D2 — the redelivery loop is bounded per (envelope, runtime)', () => 
     // Age the durable attempt after the possible-write evidence. This is the
     // discriminator 70e683c7 missed: an immediate reconcile held it, but the
     // same fence was cleared and reinjected after the 30-minute TTL.
-    db.sqlite
+    storeSql
       .query('UPDATE hrcmail_delivery_intents SET submitted_at = ? WHERE envelope_id = ?')
       .run(new Date(Date.now() - KICKER_SUBMISSION_TTL_MS - 1_000).toISOString(), envelope.id)
     expect(await reconcileOpenIntents(context, { reason: 'periodic' })).toMatchObject({ open: 1 })
-    expect(db.mailDelivery.getIntent(envelope.id)?.uncertainCause).toBe('input.rejected')
+    expect(store.mailDelivery.getIntent(envelope.id)?.uncertainCause).toBe('input.rejected')
     expect(
       (await readActionableEnvelopes(context, TARGET)).map((item) => item.envelope.id)
     ).not.toContain(envelope.id)
     expect(harness.dispatches).toHaveLength(1)
     expect(harness.wakes).toEqual([])
-    expect(db.mailDelivery.nonLandingStrikes(envelope.id, RUNTIME)).toBe(0)
+    expect(store.mailDelivery.nonLandingStrikes(envelope.id, RUNTIME)).toBe(0)
   })
 
   it('keeps uncertainty scoped to the original envelope and runtime', async () => {
     const envelope = ledger.say()
     await deliverOne(seatIn('turn-active'), envelope)
-    db.sqlite
+    storeSql
       .query('UPDATE hrcmail_delivery_intents SET submitted_at = ? WHERE envelope_id = ?')
       .run(new Date(Date.now() - KICKER_SUBMISSION_TTL_MS - 1_000).toISOString(), envelope.id)
     await reconcileOpenIntents(context, { reason: 'periodic' })
-    expect(db.mailDelivery.getIntent(envelope.id)?.uncertainCause).toBe('ttl_without_landing')
+    expect(store.mailDelivery.getIntent(envelope.id)?.uncertainCause).toBe('ttl_without_landing')
 
     // A different runtime is a different row: rotation and restart give the next
     // seat its full allowance without anyone having to remember a reset rule.
-    expect(db.mailDelivery.nonLandingStrikes(envelope.id, 'rt-rotated')).toBe(0)
-    expect(db.mailDelivery.nonLandingStrikes(envelope.id, RUNTIME)).toBe(0)
+    expect(store.mailDelivery.nonLandingStrikes(envelope.id, 'rt-rotated')).toBe(0)
+    expect(store.mailDelivery.nonLandingStrikes(envelope.id, RUNTIME)).toBe(0)
   })
 })

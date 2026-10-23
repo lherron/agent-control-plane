@@ -2,13 +2,14 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import type { Database } from 'bun:sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 
 import type { HrcSessionRecord } from 'hrc-core'
 import type { HrcDatabase } from 'hrc-store-sqlite'
 import { createWrkqLedger } from '../../wrkq-ledger.js'
 import type { MailKickerContext } from '../context.js'
-import type { KickerDispatchOptions } from '../contracts.js'
+import type { KickerDispatchOptions, KickerStateStore } from '../contracts.js'
 import { confirmStranded } from '../diagnostics/stranded.js'
 import { commitLanding, observeBrokerLanding } from '../drive/landing.js'
 import { readActionableEnvelopes } from '../drive/presentation.js'
@@ -50,6 +51,8 @@ import {
 
 let harness: T08094Harness
 let db: HrcDatabase
+let store: KickerStateStore
+let storeSql: Database
 let ledger: FakeLedger
 let logs: Recorded[]
 let wakes: string[]
@@ -74,7 +77,7 @@ async function runWrkqJson<T>(command: string, args: string[]): Promise<T> {
 
 beforeEach(async () => {
   harness = await createT08094Harness()
-  ;({ db, ledger, logs, wakes, dispatches, context, session } = harness)
+  ;({ db, store, storeSql, ledger, logs, wakes, dispatches, context, session } = harness)
 })
 
 afterEach(async () => {
@@ -131,7 +134,7 @@ describe('D2 — steer first, and the door is chosen by what the seat is doing',
 
     expect(dispatches).toEqual([])
     expect(ledger.envelopes.get(envelope.id)?.state).toBe('pending')
-    expect(db.mailDelivery.getIntent(envelope.id)).toBeUndefined()
+    expect(store.mailDelivery.getIntent(envelope.id)).toBeUndefined()
     expect(logs.at(-1)).toMatchObject({
       event: 'wrkq.kicker.seat_not_ready',
       detail: { observedSeatState: 'turn-observed' },
@@ -163,7 +166,7 @@ describe('D2 — steer first, and the door is chosen by what the seat is doing',
     await driveMailTargetOnce(context, TARGET, 'insert')
 
     expect(ledger.envelopes.get(envelope.id)?.state).toBe('pending')
-    expect(db.mailDelivery.getIntent(envelope.id)).toBeUndefined()
+    expect(store.mailDelivery.getIntent(envelope.id)).toBeUndefined()
     expect(logs.at(-1)).toMatchObject({
       event: 'wrkq.kicker.seat_not_ready',
       detail: {
@@ -275,7 +278,7 @@ describe('D2 — write-ahead, and presentation only on a landing fact', () => {
   it('recovers only one admission after the intent cursor for its invocation', () => {
     const envelope = ledger.say()
     const now = new Date().toISOString()
-    db.mailDelivery.openIntent({
+    store.mailDelivery.openIntent({
       envelopeId: envelope.id,
       targetSessionRef: TARGET,
       door: 'steer',
@@ -333,7 +336,7 @@ describe('D2 — write-ahead, and presentation only on a landing fact', () => {
     const envelope = ledger.say()
     await deliverOne(seatIn('turn-active'), envelope)
 
-    const intent = db.mailDelivery.getIntent(envelope.id)
+    const intent = store.mailDelivery.getIntent(envelope.id)
     expect(intent).toMatchObject({ door: 'steer', submissionId: 'sub-1', runtimeId: RUNTIME })
     // The ORDER is the property: the intent line is written before the door is
     // called, so a crash from that moment on leaves durable intent.
@@ -354,7 +357,7 @@ describe('D2 — write-ahead, and presentation only on a landing fact', () => {
     expect(actionable.map((item) => item.envelope.id)).not.toContain(envelope.id)
     // And a second delivery attempt for the same envelope is refused by the
     // primary key rather than by anything this process remembers.
-    const second = db.mailDelivery.openIntent({
+    const second = store.mailDelivery.openIntent({
       envelopeId: envelope.id,
       targetSessionRef: TARGET,
       door: 'enqueue',
@@ -379,8 +382,10 @@ describe('D2 — write-ahead, and presentation only on a landing fact', () => {
     expect(row?.presentedTo[0]).toMatchObject({ deliveryOutcome: 'steered', runtimeId: RUNTIME })
     // No run identity anywhere on the receipt.
     expect(row?.presentedTo[0]?.runId).toBeUndefined()
-    expect(db.mailDelivery.getIntent(envelope.id)).toBeUndefined()
-    expect(db.mailDelivery.getPresentation(envelope.id, RUNTIME)?.deliveryOutcome).toBe('steered')
+    expect(store.mailDelivery.getIntent(envelope.id)).toBeUndefined()
+    expect(store.mailDelivery.getPresentation(envelope.id, RUNTIME)?.deliveryOutcome).toBe(
+      'steered'
+    )
   })
 
   it('presents on submission.executed as `executed`', async () => {
@@ -409,7 +414,7 @@ describe('D2 — a refused submission is not a failed envelope', () => {
       })
     )
 
-    expect(db.mailDelivery.getIntent(envelope.id)).toBeUndefined()
+    expect(store.mailDelivery.getIntent(envelope.id)).toBeUndefined()
     expect(ledger.envelopes.get(envelope.id)?.state).toBe('pending')
     expect(ledger.failRequests).toEqual([])
     // A capability refusal re-wakes immediately; the next pass takes enqueue.
@@ -494,7 +499,7 @@ describe('D2 — a refused submission is not a failed envelope', () => {
     }
     expect(await deliverOne(seatIn('turn-active'), envelope)).toBe('refused')
     expect(context.mailKickerDeliveryBackoff.has(RUNTIME)).toBe(false)
-    expect(db.mailDelivery.getIntent(envelope.id)?.uncertainCause).toBe('dispatch_error')
+    expect(store.mailDelivery.getIntent(envelope.id)?.uncertainCause).toBe('dispatch_error')
     const failed = logs.find((entry) => entry.event === 'wrkq.kicker.delivery_failed')
     expect(failed?.detail).toMatchObject({ envelope: envelope.id })
     harness.context = context
@@ -600,14 +605,14 @@ describe('D2 — a refused submission is not a failed envelope', () => {
         },
       }
       expect(await deliverOne(seatIn('turn-active', true), envelope)).toBe('refused')
-      expect(db.mailDelivery.getIntent(envelope.id)).toBeUndefined()
+      expect(store.mailDelivery.getIntent(envelope.id)).toBeUndefined()
       expect(ledger.envelopes.get(envelope.id)?.state).toBe('pending')
       expect(wakes).toEqual([TARGET])
       expect(context.mailKickerSteerRefused.has(RUNTIME)).toBe(false)
 
       expect(await deliverOne(seatIn('turn-active', true), envelope)).toBe('submitted')
       expect(dispatches.map((dispatch) => dispatch.submissionDoor)).toEqual(['steer', 'enqueue'])
-      expect(db.mailDelivery.getIntent(envelope.id)).toMatchObject({
+      expect(store.mailDelivery.getIntent(envelope.id)).toMatchObject({
         door: 'enqueue',
         submissionId: `sub-queued-${reason}`,
       })
@@ -653,14 +658,14 @@ describe('D2 — a refused submission is not a failed envelope', () => {
       brokerRecord('submission.absorbed', { submissionId: 'sub-1', turnId: 'turn-1' })
     )
 
-    expect(db.mailDelivery.getIntent(envelope.id)?.terminalEnvelopeCause).toBe(
+    expect(store.mailDelivery.getIntent(envelope.id)?.terminalEnvelopeCause).toBe(
       'receipt_wrong_state'
     )
     expect(ledger.envelopes.get(envelope.id)?.presentedTo).toEqual([])
-    expect(db.mailDelivery.getPresentation(envelope.id, RUNTIME)?.disposition).toBe(
+    expect(store.mailDelivery.getPresentation(envelope.id, RUNTIME)?.disposition).toBe(
       'terminal_before_receipt'
     )
-    expect(db.mailDelivery.listUndisposedForRuntime(RUNTIME)).toEqual([])
+    expect(store.mailDelivery.listUndisposedForRuntime(RUNTIME)).toEqual([])
     const line = logs.find((entry) => entry.event === 'wrkq.kicker.disposed_before_landing')
     expect(line?.level).toBe('INFO')
     expect(logs.some((e) => e.event === 'wrkq.kicker.presentation_commit_failed')).toBe(false)
@@ -676,7 +681,7 @@ describe('D2 — a refused submission is not a failed envelope', () => {
   it('treats live submission and launch landing after a terminal hold as audit-only', async () => {
     const envelope = ledger.say()
     await deliverOne(seatIn('turn-active'), envelope)
-    db.mailDelivery.markTerminalEnvelope(envelope.id, 'envelope.acked')
+    store.mailDelivery.markTerminalEnvelope(envelope.id, 'envelope.acked')
     const before = ledger.presentRequests.length
 
     await observeBrokerLanding(
@@ -684,10 +689,10 @@ describe('D2 — a refused submission is not a failed envelope', () => {
       brokerRecord('submission.absorbed', { submissionId: 'sub-1', turnId: 'turn-1' })
     )
     expect(ledger.presentRequests).toHaveLength(before)
-    expect(db.mailDelivery.getPresentation(envelope.id, RUNTIME)).toBeUndefined()
+    expect(store.mailDelivery.getPresentation(envelope.id, RUNTIME)).toBeUndefined()
 
     const launch = ledger.say()
-    db.mailDelivery.openIntent({
+    store.mailDelivery.openIntent({
       envelopeId: launch.id,
       targetSessionRef: TARGET,
       door: 'launch',
@@ -696,10 +701,10 @@ describe('D2 — a refused submission is not a failed envelope', () => {
       runtimeId: RUNTIME,
       submittedHrcSeq: 0,
     })
-    db.mailDelivery.markTerminalEnvelope(launch.id, 'envelope.failed')
+    store.mailDelivery.markTerminalEnvelope(launch.id, 'envelope.failed')
     await observeBrokerLanding(context, brokerRecord('turn.started', { turnId: 'turn-2' }))
     expect(ledger.presentRequests).toHaveLength(before)
-    expect(db.mailDelivery.getPresentation(launch.id, RUNTIME)).toBeUndefined()
+    expect(store.mailDelivery.getPresentation(launch.id, RUNTIME)).toBeUndefined()
   })
 
   it('counts a disposed-before-landing commit as disposed, never as landed', async () => {
@@ -756,13 +761,13 @@ describe('D2 — a refused submission is not a failed envelope', () => {
 
     expect(await reconcileOpenIntents(context, { reason: 'periodic' })).toMatchObject({ open: 1 })
 
-    db.sqlite
+    storeSql
       .query('UPDATE hrcmail_delivery_intents SET submitted_at = ? WHERE envelope_id = ?')
       .run(new Date(Date.now() - KICKER_SUBMISSION_TTL_MS - 1_000).toISOString(), envelope.id)
     expect(await reconcileOpenIntents(context, { reason: 'periodic' })).toMatchObject({
       open: 1,
     })
-    expect(db.mailDelivery.getIntent(envelope.id)?.uncertainCause).toBe('ttl_without_landing')
+    expect(store.mailDelivery.getIntent(envelope.id)?.uncertainCause).toBe('ttl_without_landing')
     expect(ledger.envelopes.get(envelope.id)?.state).toBe('pending')
   })
   it('holds an intent bound to a runtime that terminated before landing', async () => {
@@ -773,7 +778,7 @@ describe('D2 — a refused submission is not a failed envelope', () => {
     expect(await reconcileOpenIntents(context, { reason: 'runtime_terminated' })).toMatchObject({
       open: 1,
     })
-    expect(db.mailDelivery.getIntent(envelope.id)?.uncertainCause).toBe(
+    expect(store.mailDelivery.getIntent(envelope.id)?.uncertainCause).toBe(
       'runtime_terminated_before_landing'
     )
     expect(ledger.envelopes.get(envelope.id)?.state).toBe('pending')
@@ -805,16 +810,16 @@ describe('D3 — disposal is keyed by runtime and ledger sequence', () => {
 
   it('arms ONE reminder when a turn on that runtime ends undisposed', async () => {
     const envelope = await landOne()
-    const landing = db.mailDelivery.getPresentation(envelope.id, RUNTIME)?.landingHrcSeq ?? 0
+    const landing = store.mailDelivery.getPresentation(envelope.id, RUNTIME)?.landingHrcSeq ?? 0
 
     await disposeAt(landing + 10)
-    const armed = db.mailDelivery.getPresentation(envelope.id, RUNTIME)
+    const armed = store.mailDelivery.getPresentation(envelope.id, RUNTIME)
     expect(armed?.reminderArmedAt).toBeDefined()
     expect(ledger.failRequests).toEqual([])
 
     // A second terminal re-offers the same pair and must be a no-op.
     await disposeAt(landing + 20)
-    expect(db.mailDelivery.getPresentation(envelope.id, RUNTIME)?.reminderArmedAt).toBe(
+    expect(store.mailDelivery.getPresentation(envelope.id, RUNTIME)?.reminderArmedAt).toBe(
       armed?.reminderArmedAt as string
     )
     expect(ledger.failRequests).toEqual([])
@@ -823,15 +828,15 @@ describe('D3 — disposal is keyed by runtime and ledger sequence', () => {
   it('does not reset an armed reminder when the same presentation replays later', async () => {
     const envelope = ledger.say()
     await deliverOne(seatIn('turn-active'), envelope)
-    const intent = db.mailDelivery.getIntent(envelope.id)
+    const intent = store.mailDelivery.getIntent(envelope.id)
     if (intent === undefined) throw new Error('landing intent missing')
     await observeBrokerLanding(
       context,
       brokerRecord('submission.absorbed', { submissionId: 'sub-1', turnId: 'turn-1' })
     )
-    const landing = db.mailDelivery.getPresentation(envelope.id, RUNTIME)?.landingHrcSeq ?? 0
+    const landing = store.mailDelivery.getPresentation(envelope.id, RUNTIME)?.landingHrcSeq ?? 0
     await disposeAt(landing + 10)
-    const armed = db.mailDelivery.getPresentation(envelope.id, RUNTIME)
+    const armed = store.mailDelivery.getPresentation(envelope.id, RUNTIME)
 
     await commitLanding(context, intent, {
       runtimeId: RUNTIME,
@@ -839,7 +844,7 @@ describe('D3 — disposal is keyed by runtime and ledger sequence', () => {
       landingHrcSeq: landing + 100,
     })
 
-    expect(db.mailDelivery.getPresentation(envelope.id, RUNTIME)).toMatchObject({
+    expect(store.mailDelivery.getPresentation(envelope.id, RUNTIME)).toMatchObject({
       landingHrcSeq: landing,
       reminderArmedAt: armed?.reminderArmedAt,
       reminderDueAt: armed?.reminderDueAt,
@@ -862,12 +867,14 @@ describe('D3 — disposal is keyed by runtime and ledger sequence', () => {
       lostResponse,
       brokerRecord('submission.absorbed', { submissionId: 'sub-1', turnId: 'turn-1' })
     )
-    const local = db.mailDelivery.getPresentation(envelope.id, RUNTIME)
+    const local = store.mailDelivery.getPresentation(envelope.id, RUNTIME)
     expect(local?.receiptCommittedAt).toBeUndefined()
-    expect(db.mailDelivery.listUndisposedForRuntime(RUNTIME)).toEqual([])
+    expect(store.mailDelivery.listUndisposedForRuntime(RUNTIME)).toEqual([])
 
     await disposeAt((local?.landingHrcSeq ?? 0) + 10)
-    expect(db.mailDelivery.getPresentation(envelope.id, RUNTIME)?.reminderArmedAt).toBeUndefined()
+    expect(
+      store.mailDelivery.getPresentation(envelope.id, RUNTIME)?.reminderArmedAt
+    ).toBeUndefined()
 
     // Replaying the exact presentation ID after the lost response is what
     // grants disposal authority; no second body is sent.
@@ -875,35 +882,37 @@ describe('D3 — disposal is keyed by runtime and ledger sequence', () => {
       context,
       brokerRecord('submission.absorbed', { submissionId: 'sub-1', turnId: 'turn-1' })
     )
-    const committed = db.mailDelivery.getPresentation(envelope.id, RUNTIME)
+    const committed = store.mailDelivery.getPresentation(envelope.id, RUNTIME)
     expect(committed?.receiptCommittedAt).toBeDefined()
     await disposeAt((committed?.landingHrcSeq ?? 0) + 10)
-    expect(db.mailDelivery.getPresentation(envelope.id, RUNTIME)?.reminderArmedAt).toBeDefined()
+    expect(store.mailDelivery.getPresentation(envelope.id, RUNTIME)?.reminderArmedAt).toBeDefined()
     expect(ledger.presentRequests.filter((request) => request.preview !== true)).toHaveLength(1)
     expect(ledger.presentRequests.at(-1)?.driveAttemptId).toBe(local?.presentationId)
   })
 
   it('does not arm for a body that landed at or after the terminal', async () => {
     const envelope = await landOne()
-    const landing = db.mailDelivery.getPresentation(envelope.id, RUNTIME)?.landingHrcSeq ?? 0
+    const landing = store.mailDelivery.getPresentation(envelope.id, RUNTIME)?.landingHrcSeq ?? 0
 
     await disposeAt(landing)
-    expect(db.mailDelivery.getPresentation(envelope.id, RUNTIME)?.reminderArmedAt).toBeUndefined()
+    expect(
+      store.mailDelivery.getPresentation(envelope.id, RUNTIME)?.reminderArmedAt
+    ).toBeUndefined()
   })
 
   it('holds ambiguous reply debt once the reminder landed and a later turn ends', async () => {
     const envelope = await landOne()
-    const landing = db.mailDelivery.getPresentation(envelope.id, RUNTIME)?.landingHrcSeq ?? 0
+    const landing = store.mailDelivery.getPresentation(envelope.id, RUNTIME)?.landingHrcSeq ?? 0
     await disposeAt(landing + 10)
 
     // The reminder is delivered through D2 like anything else, and ITS landing
     // sequence is what the next terminal is compared against.
-    db.mailDelivery.recordReminderLanding(envelope.id, RUNTIME, landing + 20)
+    store.mailDelivery.recordReminderLanding(envelope.id, RUNTIME, landing + 20)
 
     await disposeAt(landing + 30)
     expect(ledger.envelopes.get(envelope.id)?.state).toBe('presented')
     expect(ledger.failRequests).toEqual([])
-    expect(db.mailDelivery.getPresentation(envelope.id, RUNTIME)?.disposition).toBe(
+    expect(store.mailDelivery.getPresentation(envelope.id, RUNTIME)?.disposition).toBe(
       'held:awaiting_operator'
     )
     expect(logs.filter((entry) => entry.event === 'wrkq.kicker.obligation_held')).toEqual([
@@ -922,7 +931,7 @@ describe('D3 — disposal is keyed by runtime and ledger sequence', () => {
     // also persists as the fence a restarted injector reads.
     await disposeAt(landing + 40, 'turn.failed')
     expect(logs.filter((entry) => entry.event === 'wrkq.kicker.obligation_held')).toHaveLength(1)
-    expect(db.mailDelivery.listUndisposedForRuntime(RUNTIME)).toEqual([])
+    expect(store.mailDelivery.listUndisposedForRuntime(RUNTIME)).toEqual([])
     expect(await readActionableEnvelopes(context, TARGET)).toEqual([])
 
     // Runtime lapse continues to terminalize ordinary presentations, but may
@@ -935,9 +944,9 @@ describe('D3 — disposal is keyed by runtime and ledger sequence', () => {
   it('leaves held-envelope reply, defer, and operator-ack resolution to wrkq exactly once', async () => {
     for (const resolution of ['reply', 'defer', 'operator_ack'] as const) {
       const envelope = await landOne()
-      const landing = db.mailDelivery.getPresentation(envelope.id, RUNTIME)?.landingHrcSeq ?? 0
+      const landing = store.mailDelivery.getPresentation(envelope.id, RUNTIME)?.landingHrcSeq ?? 0
       await disposeAt(landing + 10)
-      db.mailDelivery.recordReminderLanding(envelope.id, RUNTIME, landing + 20)
+      store.mailDelivery.recordReminderLanding(envelope.id, RUNTIME, landing + 20)
       await disposeAt(landing + 30)
 
       const row = ledger.envelopes.get(envelope.id)
@@ -951,7 +960,7 @@ describe('D3 — disposal is keyed by runtime and ledger sequence', () => {
       await disposeAt(landing + 40)
       await failLapsedObligations(context, TARGET, new Set([RUNTIME]))
       expect(row.state).toBe(resolution === 'defer' ? 'deferred' : 'acked')
-      expect(db.mailDelivery.getPresentation(envelope.id, RUNTIME)?.disposition).toBe(
+      expect(store.mailDelivery.getPresentation(envelope.id, RUNTIME)?.disposition).toBe(
         'held:awaiting_operator'
       )
     }
@@ -1027,7 +1036,7 @@ describe('D3 — disposal is keyed by runtime and ledger sequence', () => {
 
         // This is the injector-owned presentation record which drives D3's
         // hold decision; it does not alter the wrkq envelope state itself.
-        db.mailDelivery.recordPresentation({
+        store.mailDelivery.recordPresentation({
           envelopeId,
           runtimeId: RUNTIME,
           targetSessionRef,
@@ -1035,21 +1044,21 @@ describe('D3 — disposal is keyed by runtime and ledger sequence', () => {
           deliveryOutcome: 'steered',
           landingHrcSeq: 10,
         })
-        db.mailDelivery.markReceiptCommitted(envelopeId, RUNTIME)
-        db.mailDelivery.armReminder({
+        store.mailDelivery.markReceiptCommitted(envelopeId, RUNTIME)
+        store.mailDelivery.armReminder({
           envelopeId,
           runtimeId: RUNTIME,
           turnEndedAt: new Date().toISOString(),
           remindAt: new Date().toISOString(),
         })
-        db.mailDelivery.recordReminderLanding(envelopeId, RUNTIME, 20)
+        store.mailDelivery.recordReminderLanding(envelopeId, RUNTIME, 20)
 
         await disposeRealAt(30)
         expect(await realLedger.envelopeShow({ envelope: envelopeId })).toMatchObject({
           state: 'presented',
           terminal: false,
         })
-        expect(db.mailDelivery.getPresentation(envelopeId, RUNTIME)?.disposition).toBe(
+        expect(store.mailDelivery.getPresentation(envelopeId, RUNTIME)?.disposition).toBe(
           'held:awaiting_operator'
         )
         // A held local row fences the ordinary runtime-lapse path as well.
@@ -1112,7 +1121,7 @@ describe('D3 — disposal is keyed by runtime and ledger sequence', () => {
             ? { state: 'deferred', terminal: false, deferReason: 'real defer' }
             : { state: 'acked', terminal: true }
         )
-        expect(db.mailDelivery.getPresentation(envelopeId, RUNTIME)?.disposition).toBe(
+        expect(store.mailDelivery.getPresentation(envelopeId, RUNTIME)?.disposition).toBe(
           'held:awaiting_operator'
         )
 
@@ -1147,14 +1156,14 @@ describe('D3 — disposal is keyed by runtime and ledger sequence', () => {
 
     await disposeAt(9_999)
     expect(ledger.failRequests).toEqual([])
-    expect(db.mailDelivery.getPresentation(envelope.id, RUNTIME)?.disposition).toContain(
+    expect(store.mailDelivery.getPresentation(envelope.id, RUNTIME)?.disposition).toContain(
       'skipped:not_presented'
     )
   })
 
   it('registers its disposal so a stop can drain it (T-07963, carried forward)', async () => {
     const envelope = await landOne()
-    const landing = db.mailDelivery.getPresentation(envelope.id, RUNTIME)?.landingHrcSeq ?? 0
+    const landing = store.mailDelivery.getPresentation(envelope.id, RUNTIME)?.landingHrcSeq ?? 0
 
     // The registration is what `MailKicker.stop()` waits on. Before T-07963 the
     // disposal was fire-and-forget and a stop 28 ms later took the whole loop
@@ -1171,7 +1180,7 @@ describe('D3 — disposal is keyed by runtime and ledger sequence', () => {
     expect(context.mailKickerDisposalsPending.size).toBe(0)
     // And the decision it reached is DURABLE, so a stop that still beat the
     // drain would leave the reconcile a candidate rather than silence.
-    expect(db.mailDelivery.getPresentation(envelope.id, RUNTIME)?.reminderArmedAt).toBeDefined()
+    expect(store.mailDelivery.getPresentation(envelope.id, RUNTIME)?.reminderArmedAt).toBeDefined()
   })
 
   /**
@@ -1185,7 +1194,7 @@ describe('D3 — disposal is keyed by runtime and ledger sequence', () => {
   it('reports a presented obligation on a LIVE runtime as awaiting disposal, not stranded', async () => {
     const envelope = await landOne()
 
-    const live = await confirmStranded(context, db.mailDelivery.listUndisposedPresentations())
+    const live = await confirmStranded(context, store.mailDelivery.listUndisposedPresentations())
     expect(live.stranded).toEqual([])
     expect(live.awaitingDisposal.map((item) => item.envelope)).toEqual([envelope.id])
     expect(live.awaitingDisposal[0]?.runtimeStatus).toBe('busy')
@@ -1193,16 +1202,16 @@ describe('D3 — disposal is keyed by runtime and ledger sequence', () => {
     // The same record on a runtime that has GONE is the real strand: nothing is
     // going to reach a turn terminal on it, so nothing will dispose it.
     db.runtimes.updateStatus(RUNTIME, 'terminated', new Date().toISOString())
-    const gone = await confirmStranded(context, db.mailDelivery.listUndisposedPresentations())
+    const gone = await confirmStranded(context, store.mailDelivery.listUndisposedPresentations())
     expect(gone.awaitingDisposal).toEqual([])
     expect(gone.stranded.map((item) => item.envelope)).toEqual([envelope.id])
   })
 
   it('surfaces a due reminder in POINTER form, bound to the runtime that holds it', async () => {
     const envelope = await landOne()
-    const landing = db.mailDelivery.getPresentation(envelope.id, RUNTIME)?.landingHrcSeq ?? 0
+    const landing = store.mailDelivery.getPresentation(envelope.id, RUNTIME)?.landingHrcSeq ?? 0
     await disposeAt(landing + 10)
-    db.sqlite
+    storeSql
       .query('UPDATE hrcmail_presentations SET reminder_due_at = ? WHERE envelope_id = ?')
       .run(new Date(Date.now() - 1_000).toISOString(), envelope.id)
 

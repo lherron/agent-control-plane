@@ -1,3 +1,4 @@
+import { Database } from 'bun:sqlite'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,10 +8,11 @@ import { createPlacementLedgerRepository, openHrcDatabase } from 'hrc-store-sqli
 import type { HrcDatabase } from 'hrc-store-sqlite'
 
 import type { MailKickerContext } from '../context.js'
-import type { KickerDispatchOptions, KickerDispatchResult } from '../contracts.js'
+import type { KickerDispatchOptions, KickerDispatchResult, KickerStateStore } from '../contracts.js'
 import { deliverToSeat } from '../drive/delivery.js'
 import { readActionableEnvelopes } from '../drive/presentation.js'
 import type { ObservedBrokerSeat } from '../drive/seat.js'
+import { openKickerStateStore } from '../kicker-state-store.js'
 import type {
   WrkqEnvelope,
   WrkqEnvelopePendingView,
@@ -153,6 +155,9 @@ class FakeLedger {
 export type T08094Harness = {
   dir: string
   db: HrcDatabase
+  store: KickerStateStore
+  /** Raw handle on the injector store, for tests that age delivery rows. */
+  storeSql: Database
   ledger: FakeLedger
   logs: Recorded[]
   wakes: string[]
@@ -196,6 +201,9 @@ export function brokerRecord(type: string, payload: Record<string, unknown>) {
 export async function createT08094Harness(): Promise<T08094Harness> {
   const dir = await mkdtemp(join(tmpdir(), 't08094-kicker-'))
   const db = openHrcDatabase(join(dir, 'state.sqlite'))
+  const storePath = join(dir, 'hrc-mail-injector.sqlite')
+  const store = openKickerStateStore(storePath)
+  const storeSql = new Database(storePath)
   const ledger = new FakeLedger()
   const logs: Recorded[] = []
   const wakes: string[] = []
@@ -247,7 +255,7 @@ export async function createT08094Harness(): Promise<T08094Harness> {
   const session = stored
 
   const context: MailKickerContext = {
-    store: db,
+    store,
     ledger: ledger as unknown as MailKickerContext['ledger'],
     nodeId: 'max3',
     foreignHomeMemo: new Map(),
@@ -411,10 +419,24 @@ export async function createT08094Harness(): Promise<T08094Harness> {
     withdraw: async () => ({ ok: false, error: { message: 'not used' } }),
   })
 
-  return { dir, db, ledger, logs, wakes, dispatches, dispatchResult, context, session }
+  return {
+    dir,
+    db,
+    store,
+    storeSql,
+    ledger,
+    logs,
+    wakes,
+    dispatches,
+    dispatchResult,
+    context,
+    session,
+  }
 }
 
 export async function destroyT08094Harness(h: T08094Harness): Promise<void> {
+  h.storeSql.close()
+  h.store.close?.()
   h.db.close()
   await rm(h.dir, { recursive: true, force: true })
 }

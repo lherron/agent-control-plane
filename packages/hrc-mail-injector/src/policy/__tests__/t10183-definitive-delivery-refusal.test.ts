@@ -37,7 +37,7 @@ describe('T-10183 — definitive pre-admission delivery refusal', () => {
         new HrcDomainError(HrcErrorCode.PRESENTATION_CONFLICT, 'explicit operator conflicts', {})
       )
       expect(await deliverOneTo(h, seatIn(state), envelope)).toBe('refused')
-      expect(h.db.mailDelivery.getIntent(envelope.id)).toBeUndefined()
+      expect(h.store.mailDelivery.getIntent(envelope.id)).toBeUndefined()
       expect(h.ledger.envelopes.get(envelope.id)?.state).toBe('pending')
       expect(h.ledger.envelopes.get(envelope.id)?.presentedTo).toEqual([])
       expect(h.ledger.failRequests).toEqual([])
@@ -65,7 +65,7 @@ describe('T-10183 — definitive pre-admission delivery refusal', () => {
     await expect(deliverByColdBirth(h.context, TARGET, item, 'insert')).rejects.toThrow(
       'live runtime appeared'
     )
-    expect(h.db.mailDelivery.getIntent(envelope.id)).toBeUndefined()
+    expect(h.store.mailDelivery.getIntent(envelope.id)).toBeUndefined()
     expect(h.ledger.envelopes.get(envelope.id)?.state).toBe('pending')
   })
 
@@ -140,7 +140,7 @@ describe('T-10183 — definitive pre-admission delivery refusal', () => {
       )
     ).toEqual({ outcome: 'refused', members: 2 })
     for (const envelope of envelopes) {
-      expect(h.db.mailDelivery.getIntent(envelope.id)).toBeUndefined()
+      expect(h.store.mailDelivery.getIntent(envelope.id)).toBeUndefined()
       expect(h.ledger.envelopes.get(envelope.id)?.state).toBe('pending')
       expect(h.ledger.envelopes.get(envelope.id)?.presentedTo).toEqual([])
     }
@@ -167,7 +167,7 @@ describe('T-10183 — definitive pre-admission delivery refusal', () => {
         'insert'
       )
       for (const envelope of [single, digest]) {
-        expect(h.db.mailDelivery.getIntent(envelope.id)?.uncertainCause).toBe('dispatch_error')
+        expect(h.store.mailDelivery.getIntent(envelope.id)?.uncertainCause).toBe('dispatch_error')
       }
       expect(await readActionableEnvelopes(h.context, TARGET)).toEqual([])
     })

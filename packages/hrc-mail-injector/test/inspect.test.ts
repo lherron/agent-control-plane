@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { describe, expect, test } from 'bun:test'
-import { openHrcDatabase } from 'hrc-store-sqlite'
+import { openInjectorStateStore } from 'hrc-injector-core'
 
 import { inspectMailEnvelope } from '../src/inspect.js'
 import { createWrkqLedger } from '../src/wrkq-ledger.js'
@@ -30,7 +30,7 @@ describe('hrc-mail-injector inspect', () => {
     const fakeWrkq = join(directory, 'wrkq')
     const originalPath = process.env['PATH']
     const originalState = process.env['INSPECT_LEDGER_STATE']
-    const db = openHrcDatabase(statePath)
+    const db = openInjectorStateStore(statePath)
     try {
       db.mailDelivery.recordPresentation({
         envelopeId: 'EN-08642',
@@ -111,7 +111,7 @@ process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: frames[1].id, result: 
     const ledgerPath = join(directory, 'wrkq.db')
     const originalLedgerPath = process.env['HRC_WRKQ_DB']
     const targetSessionRef = 'cody@inbox:T-00001'
-    const db = openHrcDatabase(statePath)
+    const db = openInjectorStateStore(statePath)
     try {
       db.mailDelivery.recordPresentation({
         envelopeId: 'EN-00001',

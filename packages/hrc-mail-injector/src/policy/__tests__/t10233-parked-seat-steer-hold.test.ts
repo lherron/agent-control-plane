@@ -139,7 +139,7 @@ describe('T-10233 — steer hold on a seat parked on human input', () => {
       await driveMailTargetOnce(h.context, TARGET, 'periodic')
     }
     expect(steers).toBe(0)
-    expect(h.db.mailDelivery.getIntent(request.id)).toBeUndefined()
+    expect(h.store.mailDelivery.getIntent(request.id)).toBeUndefined()
     expect(h.logs.filter((log) => log.event === 'wrkq.kicker.steer_held')).toHaveLength(1)
     expect(h.logs.find((log) => log.event === 'wrkq.kicker.steer_held')?.detail).toMatchObject({
       runtimeId: RUNTIME,
@@ -150,7 +150,7 @@ describe('T-10233 — steer hold on a seat parked on human input', () => {
     setRuntimeStatus('busy')
     await driveMailTargetOnce(h.context, TARGET, 'periodic')
     expect(steers).toBe(1)
-    expect(h.db.mailDelivery.getIntent(request.id)?.door).toBe('steer')
+    expect(h.store.mailDelivery.getIntent(request.id)?.door).toBe('steer')
   })
 
   it('does not re-steer a pane_not_quiescent refusal while nothing happens on the seat', async () => {
@@ -158,7 +158,7 @@ describe('T-10233 — steer hold on a seat parked on human input', () => {
     await driveMailTargetOnce(h.context, TARGET, 'insert')
     expect(steers).toBe(1)
     await refusePaneNotQuiescent('sub-1')
-    expect(h.db.mailDelivery.getIntent(request.id)).toBeUndefined()
+    expect(h.store.mailDelivery.getIntent(request.id)).toBeUndefined()
 
     for (let tick = 0; tick < 10; tick++) {
       await driveMailTargetOnce(h.context, TARGET, 'periodic')

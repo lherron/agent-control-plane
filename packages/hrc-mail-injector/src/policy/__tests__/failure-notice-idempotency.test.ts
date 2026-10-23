@@ -21,12 +21,12 @@ describe('sender failure notice dispatch uncertainty', () => {
   })
 
   it('replays one stable HRC dispatch after a lost response instead of writing the notice again', async () => {
-    h.db.mailDelivery.recordFailureNotice({
+    h.store.mailDelivery.recordFailureNotice({
       envelopeId: 'EN-15268',
       targetSessionRef: TARGET_REF,
       notice: 'retired sender failure',
     })
-    h.db.mailDelivery.recordFailureNotice({
+    h.store.mailDelivery.recordFailureNotice({
       envelopeId: 'EN-15281',
       targetSessionRef: TARGET_REF,
       notice: 'retired recovery failure',
@@ -40,13 +40,13 @@ describe('sender failure notice dispatch uncertainty', () => {
     }
 
     await deliverFailureNotices(h.context, TARGET_REF, h.session)
-    expect(h.db.mailDelivery.listUndeliveredFailureNotices(TARGET_REF)).toHaveLength(2)
+    expect(h.store.mailDelivery.listUndeliveredFailureNotices(TARGET_REF)).toHaveLength(2)
 
     await deliverFailureNotices(h.context, TARGET_REF, h.session)
     expect(attempts).toHaveLength(2)
     expect(attempts[0]?.idempotencyKey).toMatch(/^hrc-mail-failure-notice-[0-9a-f]{64}$/)
     expect(attempts[1]?.idempotencyKey).toBe(attempts[0]?.idempotencyKey)
-    expect(h.db.mailDelivery.listUndeliveredFailureNotices(TARGET_REF)).toHaveLength(0)
+    expect(h.store.mailDelivery.listUndeliveredFailureNotices(TARGET_REF)).toHaveLength(0)
 
     await deliverFailureNotices(h.context, TARGET_REF, h.session)
     expect(attempts).toHaveLength(2)
@@ -61,7 +61,7 @@ describe('sender failure notice dispatch uncertainty', () => {
   }
 
   it('parks a notice whose stable dispatch replays a failed start until the sender reseats', async () => {
-    h.db.mailDelivery.recordFailureNotice({
+    h.store.mailDelivery.recordFailureNotice({
       envelopeId: 'EN-19187',
       targetSessionRef: TARGET_REF,
       notice: 'assessment to lance failed',
@@ -77,10 +77,10 @@ describe('sender failure notice dispatch uncertainty', () => {
       await deliverFailureNotices(h.context, TARGET_REF, h.session)
     }
     expect(attempts).toHaveLength(1)
-    expect(h.db.mailDelivery.listUndeliveredFailureNotices(TARGET_REF)).toHaveLength(1)
+    expect(h.store.mailDelivery.listUndeliveredFailureNotices(TARGET_REF)).toHaveLength(1)
 
     // A newly owed notice is a different dispatch, so it gets one try of its own.
-    h.db.mailDelivery.recordFailureNotice({
+    h.store.mailDelivery.recordFailureNotice({
       envelopeId: 'EN-19372',
       targetSessionRef: TARGET_REF,
       notice: 'second assessment to lance failed',
@@ -97,11 +97,11 @@ describe('sender failure notice dispatch uncertainty', () => {
     await deliverFailureNotices(h.context, TARGET_REF, h.session)
     expect(attempts).toHaveLength(3)
     expect(attempts[2]?.idempotencyKey).not.toBe(attempts[1]?.idempotencyKey)
-    expect(h.db.mailDelivery.listUndeliveredFailureNotices(TARGET_REF)).toHaveLength(0)
+    expect(h.store.mailDelivery.listUndeliveredFailureNotices(TARGET_REF)).toHaveLength(0)
   })
 
   it('backs off a sender whose seat keeps refusing the notice', async () => {
-    h.db.mailDelivery.recordFailureNotice({
+    h.store.mailDelivery.recordFailureNotice({
       envelopeId: 'EN-19188',
       targetSessionRef: TARGET_REF,
       notice: 'assessment to lance failed',
@@ -121,7 +121,7 @@ describe('sender failure notice dispatch uncertainty', () => {
     // One immediate replay covers a lost dispatch response; after that the
     // refusal waits out a backoff instead of costing a submission per sweep.
     expect(attempts).toBe(2)
-    expect(h.db.mailDelivery.listUndeliveredFailureNotices(TARGET_REF)).toHaveLength(1)
+    expect(h.store.mailDelivery.listUndeliveredFailureNotices(TARGET_REF)).toHaveLength(1)
 
     presentOn('rt-reattached')
     h.context.port.enqueue = async () => {
@@ -130,6 +130,6 @@ describe('sender failure notice dispatch uncertainty', () => {
     }
     await deliverFailureNotices(h.context, TARGET_REF, h.session)
     expect(attempts).toBe(3)
-    expect(h.db.mailDelivery.listUndeliveredFailureNotices(TARGET_REF)).toHaveLength(0)
+    expect(h.store.mailDelivery.listUndeliveredFailureNotices(TARGET_REF)).toHaveLength(0)
   })
 })
