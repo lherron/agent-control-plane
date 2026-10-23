@@ -256,6 +256,13 @@ install-log-rotation:
     mkdir -p "$HOME/praesidium/var/logs/agent-control-plane"
     plutil -lint "$source_plist"
     install -m 0644 "$source_plist" "$installed_plist"
+    # The repo plist runs through max3's praesidium-launch shim. A node without
+    # the shim (svc) runs the script directly.
+    shim="$(plutil -extract ProgramArguments.0 raw "$installed_plist")"
+    if [ ! -x "$shim" ]; then
+      plutil -remove ProgramArguments.0 "$installed_plist"
+      echo "[install] $shim not present; running the script without it"
+    fi
     if launchctl print "$service_target" >/dev/null 2>&1; then
       launchctl bootout "$service_target"
     fi
