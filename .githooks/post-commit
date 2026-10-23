@@ -1,0 +1,6 @@
+#!/bin/sh
+# Refresh ACP's code.head after each commit. Best-effort: never blocks a commit.
+if command -v wrkp >/dev/null 2>&1; then
+  wrkp git commit >/dev/null 2>&1 || true
+fi
+exit 0

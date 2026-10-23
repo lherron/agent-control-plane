@@ -30,4 +30,17 @@ if [ -z "$lefthook_bin" ]; then
   exit 127
 fi
 
-exec "$lefthook_bin" run pre-push --no-auto-install "$@"
+# Both lefthook and the git reporter consume the ref transitions on stdin.
+refs_file="$(mktemp "${TMPDIR:-/tmp}/acp-pre-push.XXXXXX")"
+trap 'rm -f "$refs_file"' EXIT
+trap 'exit 1' HUP INT TERM
+cat > "$refs_file"
+
+# Keep the existing gate authoritative; report only after it passes.
+"$lefthook_bin" run pre-push --no-auto-install "$@" < "$refs_file" || exit "$?"
+
+# Best-effort: a timeline outage must never block a push.
+if command -v wrkp >/dev/null 2>&1; then
+  wrkp git push "$1" "$2" < "$refs_file" >/dev/null 2>&1 || true
+fi
+exit 0
