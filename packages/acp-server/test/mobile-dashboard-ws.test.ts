@@ -607,8 +607,55 @@ describe('WS /v1/mobile/dashboard', () => {
       .filter((envelope) => envelope.type === 'hrc_event')
       .map((envelope) => envelope.hrcSeq)
     expect(hrcSeqs).toEqual([2, 3])
+    // T-11794: one session's replayed events coalesce into one refresh at the
+    // last hrcSeq; the hrc_event frames are not coalesced.
     const sessionUpdates = sent.filter((envelope) => envelope.type === 'session_updated')
-    expect(sessionUpdates).toHaveLength(2)
+    expect(sessionUpdates.map((envelope) => envelope.hrcSeq)).toEqual([3])
+  })
+
+  test('T-11794: a live burst reads HRC once and sends every frame, then one session_updated', async () => {
+    const hrcEvents = [event(1), event(2), event(3), event(4), event(5)]
+    const baseClient = createDashboardClient(hrcEvents)
+    let runReads = 0
+    const client = {
+      ...baseClient,
+      // Snapshot the high water at 1 so seqs 2..5 arrive on the live follow.
+      listLatestEventBySession: async () => [hrcEvents[0]!],
+      getLatestRunForSession: async (
+        ...args: Parameters<AcpHrcClient['getLatestRunForSession']>
+      ) => {
+        runReads += 1
+        return baseClient.getLatestRunForSession(...args)
+      },
+    } as AcpHrcClient
+    const { ws, sent } = createDashboardSocket({ hrcClient: client })
+
+    await openMobileWebSocket(ws)
+
+    expect(
+      sent.filter((envelope) => envelope.type === 'hrc_event').map((envelope) => envelope.hrcSeq)
+    ).toEqual([2, 3, 4, 5])
+    const updates = sent.filter((envelope) => envelope.type === 'session_updated')
+    expect(updates.map((envelope) => envelope.hrcSeq)).toEqual([5])
+    expect((updates[0]!.session as Record<string, unknown>).hostSessionId).toBe(
+      SESSION.hostSessionId
+    )
+    expect(runReads).toBe(1)
+  })
+
+  test('T-11794: a failed session refresh still fails the stream', async () => {
+    const hrcEvents = [event(1), event(2)]
+    const baseClient = createDashboardClient(hrcEvents)
+    const client = {
+      ...baseClient,
+      listLatestEventBySession: async () => [hrcEvents[0]!],
+      getLatestRunForSession: async () => {
+        throw new Error('hrc went away')
+      },
+    } as AcpHrcClient
+    const { ws } = createDashboardSocket({ hrcClient: client })
+
+    await expect(openMobileWebSocket(ws)).rejects.toThrow('hrc went away')
   })
 
   test('emits replay_gap_too_large and closes when replay count exceeds policy', async () => {

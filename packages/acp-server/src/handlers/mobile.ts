@@ -44,6 +44,11 @@ import { isLoopbackPeer } from '../routing/peer.js'
 
 import type { AcpHrcClient, ResolvedAcpServerDeps } from '../deps.js'
 import type { RouteHandler } from '../routing/route-context.js'
+import {
+  type DashboardSessionRefresher,
+  createDashboardSessionRefresher,
+  sharedDashboardSessionReads,
+} from './dashboard-session-refresh.js'
 import { latestHrcSeq, listCachedLatestEventBySession } from './hrc-event-read-window.js'
 import {
   type MobileWebSocketLike,
@@ -1935,70 +1940,16 @@ async function validateMobileDashboardReplayCursor(input: {
   return undefined
 }
 
-async function projectSessionForDashboardEvent(input: {
-  hrcClient: AcpHrcClient
-  event: HrcLifecycleEvent
-  raw: boolean
-  includeSessionDetails: boolean
-}): Promise<MobileSessionSummary | undefined> {
-  const records = await input.hrcClient.listSessions({
-    scopeRef: input.event.scopeRef,
-    laneRef: input.event.laneRef,
-  })
-  const record = records.find(
-    (candidate) =>
-      candidate.hostSessionId === input.event.hostSessionId &&
-      candidate.generation === input.event.generation
-  )
-  if (record === undefined) return undefined
-
-  const [runtimes, [lastEvent], run] = await Promise.all([
-    input.hrcClient.listRuntimes({ hostSessionId: record.hostSessionId }),
-    input.hrcClient.listLatestEventBySession({
-      hostSessionId: record.hostSessionId,
-      generation: record.generation,
-    }),
-    input.hrcClient.getLatestRunForSession({
-      hostSessionId: record.hostSessionId,
-      generation: record.generation,
-    }),
-  ])
-
-  return projectSession({
-    record,
-    runtime: latestRuntimeForSession(record, runtimes),
-    run: run ?? undefined,
-    lastEvent: lastEvent ?? input.event,
-    raw: input.raw,
-    includeSessionDetails: input.includeSessionDetails,
-  })
-}
-
-async function sendDashboardProjectedEvent(input: {
+function sendDashboardProjectedEvent(input: {
   ws: MobileWebSocket
-  hrcClient: AcpHrcClient
   event: HrcLifecycleEvent
-  raw: boolean
-  includeSessionDetails: boolean
   seenHrcSeqs: Set<number>
-}): Promise<void> {
+  refresher: DashboardSessionRefresher
+}): void {
   if (input.seenHrcSeqs.has(input.event.hrcSeq)) return
   input.seenHrcSeqs.add(input.event.hrcSeq)
   sendMobileJsonEnvelope(input.ws, projectEvent(input.event))
-  const session = await projectSessionForDashboardEvent({
-    hrcClient: input.hrcClient,
-    event: input.event,
-    raw: input.raw,
-    includeSessionDetails: input.includeSessionDetails,
-  })
-  if (session !== undefined) {
-    sendMobileJsonEnvelope(input.ws, {
-      type: 'session_updated',
-      generatedAt: new Date().toISOString(),
-      hrcSeq: input.event.hrcSeq,
-      session,
-    })
-  }
+  input.refresher.note(input.event)
 }
 
 async function openMobileDashboardWebSocket(
@@ -2061,6 +2012,34 @@ async function openMobileDashboardWebSocket(
   }, MOBILE_WS_PING_INTERVAL_MS)
   abortController.signal.addEventListener('abort', () => clearInterval(pingTimer), { once: true })
 
+  // A failed refresh read ends the socket the way a failed per-event read did:
+  // abort the watch, then rethrow so the listener closes with 1011.
+  let refreshError: unknown
+  const refresher = createDashboardSessionRefresher({
+    reads: sharedDashboardSessionReads(hrcClient),
+    signal: abortController.signal,
+    onRefresh: (latest, inputs) => {
+      if (inputs === undefined) return
+      sendMobileJsonEnvelope(ws, {
+        type: 'session_updated',
+        generatedAt: new Date().toISOString(),
+        hrcSeq: latest.hrcSeq,
+        session: projectSession({
+          record: inputs.record,
+          runtime: latestRuntimeForSession(inputs.record, inputs.runtimes),
+          run: inputs.run ?? undefined,
+          lastEvent: inputs.lastEvent ?? latest,
+          raw,
+          includeSessionDetails,
+        }),
+      })
+    },
+    onError: (error) => {
+      refreshError = error
+      abortController.abort()
+    },
+  })
+
   try {
     if (fromHrcSeq !== undefined && fromHrcSeq <= snapshot.cursors.lastHrcSeq) {
       for await (const event of hrcClient.watch({
@@ -2069,14 +2048,7 @@ async function openMobileDashboardWebSocket(
         signal: abortController.signal,
       })) {
         if (abortController.signal.aborted || event.hrcSeq > snapshot.cursors.lastHrcSeq) break
-        await sendDashboardProjectedEvent({
-          ws,
-          hrcClient,
-          event,
-          raw,
-          includeSessionDetails,
-          seenHrcSeqs,
-        })
+        sendDashboardProjectedEvent({ ws, event, seenHrcSeqs, refresher })
       }
     }
 
@@ -2086,18 +2058,15 @@ async function openMobileDashboardWebSocket(
       signal: abortController.signal,
     })) {
       if (abortController.signal.aborted) break
-      await sendDashboardProjectedEvent({
-        ws,
-        hrcClient,
-        event,
-        raw,
-        includeSessionDetails,
-        seenHrcSeqs,
-      })
+      sendDashboardProjectedEvent({ ws, event, seenHrcSeqs, refresher })
     }
+    await refresher.drain()
+  } catch (error) {
+    throw refreshError ?? error
   } finally {
     clearInterval(pingTimer)
   }
+  if (refreshError !== undefined) throw refreshError
 }
 
 /**
