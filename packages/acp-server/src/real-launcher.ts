@@ -23,6 +23,7 @@ import type { InputAttemptStore, LaunchRoleScopedRun, RunStore } from './deps.js
 import type { DispatchFence, UpdateRunInput } from './domain/run-store.js'
 import { readHrcEvidence } from './hrc-evidence-origin.js'
 import type { JobFirstBirthAuthority } from './jobs/first-birth-authority.js'
+import { ACP_SERVER_USER_AGENT } from './user-agent.js'
 import { readOptionalString as readString } from './wrkf/value.js'
 
 const DEFAULT_WAIT_TIMEOUT_MS = 180_000
@@ -52,7 +53,9 @@ type RealLauncherOptions = {
 export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRoleScopedRun {
   const socketPath = options.socketPath ?? discoverSocket()
   const hrcDbPath = options.hrcDbPath ?? resolveDatabasePath()
-  const createClient = options.createClient ?? ((path: string) => new HrcClient(path))
+  const createClient =
+    options.createClient ??
+    ((path: string) => new HrcClient({ socketPath: path, userAgent: ACP_SERVER_USER_AGENT }))
   const inputAttemptStore = options.inputAttemptStore
   const waitTimeoutMs = options.watchTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS

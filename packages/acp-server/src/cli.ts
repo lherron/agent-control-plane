@@ -76,6 +76,7 @@ import { resolveMobileAuthStore } from './mobile-auth/store.js'
 import { createPbcWorkerScheduler } from './pbc/worker-scheduler.js'
 import { type PbcContinuationWorkerPort, runPbcContinuationWorker } from './pbc/worker.js'
 import { createRealLauncher, readRunStatus } from './real-launcher.js'
+import { ACP_SERVER_USER_AGENT } from './user-agent.js'
 import { createWrkfClientLifecycle } from './wrkf/client-lifecycle.js'
 
 const DEFAULT_COORD_DB_PATH = '/Users/lherron/praesidium/var/db/acp-coordination.db'
@@ -577,7 +578,8 @@ export function resolveLauncherDeps(
 
     const createHrcClient =
       _options.createHrcClient ??
-      ((socketPath: string) => new HrcClient(socketPath) as unknown as AcpHrcClient)
+      ((socketPath: string) =>
+        new HrcClient({ socketPath, userAgent: ACP_SERVER_USER_AGENT }) as unknown as AcpHrcClient)
     const socketPath = resolveControlSocketPath()
     const placementSocketOpts =
       _options.placementSocketPath !== undefined ? { socketPath: _options.placementSocketPath } : {}
