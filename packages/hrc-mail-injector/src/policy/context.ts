@@ -137,6 +137,12 @@ export type MailKickerContext = {
    * sweep; see `reconcileOpenIntents`.
    */
   readonly mailKickerReconcileExaminedAt: Map<string, number>
+  /**
+   * When the lapse sweep last saw each presentation runtime alive (T-11680).
+   * A live runtime is re-read at the quiet backstop, not every sweep; its
+   * death normally arrives as a lifecycle event long before that.
+   */
+  readonly mailKickerLiveRuntimeSeenAt: Map<string, number>
 
   log(level: KickerLogLevel, event: string, detail: Record<string, unknown>): void
 

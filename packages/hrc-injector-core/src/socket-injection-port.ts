@@ -25,6 +25,8 @@ const RECONNECT_DELAY_MS = 250
  * broker row with no lifecycle neighbour can wait.
  */
 const BROKER_IDLE_POLL_MS = 5_000
+/** One tool call rings a dozen lifecycle events; read the broker once for the burst. */
+const BROKER_RING_COALESCE_MS = 250
 
 export type SocketInjectionPortOptions = {
   brokerIdlePollMs?: number | undefined
@@ -300,6 +302,8 @@ export function createSocketInjectionPort(
             if (page.events.length > 0) cursor = page.nextCommit + 1
             // A full page may have more behind it; anything short is caught up.
             if (page.events.length >= BROKER_FOLLOW_LIMIT) continue
+            // Rings that arrive meanwhile stay set and are served by one read.
+            await waitForStop(BROKER_RING_COALESCE_MS, stopping.signal)
             if (!brokerRung && !closed) await waitForBrokerRing(brokerIdlePollMs)
           } catch {
             // HRC subscriber declarations are daemon-memory state. A socket

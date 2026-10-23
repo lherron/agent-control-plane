@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { reconcileOpenIntents } from '../drive/reconcile.js'
 import { driveMailTargetOnce } from '../drive/target-driver.js'
 import { PERIODIC_QUIET_BACKSTOP_MS } from '../internal.js'
+import { sweepLapsedObligations } from '../terminal/runtime-lapse.js'
 import { periodicTargetFingerprint, recordPeriodicDrive } from '../wake/quiet-targets.js'
 import { runMailKickerSweep } from '../wake/sweep.js'
 import type { T08094Harness } from './t08094-harness.js'
@@ -215,5 +216,37 @@ describe('T-11680 periodic reconcile re-reads only intents that can still move',
     )
     await reconcileOpenIntents(h.context, { reason: 'periodic' })
     expect(reads()).toBe(3)
+  })
+})
+
+describe('T-11680 lapse sweep re-reads a live runtime at the backstop', () => {
+  it('inspects a live presentation runtime once, then again only at the backstop', async () => {
+    let reads = 0
+    const port = h.context.port as unknown as { runtime: (id: string) => Promise<unknown> }
+    const runtime = port.runtime.bind(port)
+    port.runtime = async (runtimeId: string) => {
+      reads += 1
+      return await runtime(runtimeId)
+    }
+    h.store.mailDelivery.recordPresentation({
+      envelopeId: 'EN-90020',
+      runtimeId: RUNTIME_ID,
+      targetSessionRef: TARGET_REF,
+      generation: 1,
+      presentationId: 'present-EN-90020',
+      deliveryOutcome: 'steered',
+      landingHrcSeq: 10,
+    })
+
+    await sweepLapsedObligations(h.context)
+    await sweepLapsedObligations(h.context)
+    await sweepLapsedObligations(h.context)
+    expect(reads).toBe(1)
+
+    const seenLiveAt = h.context.mailKickerLiveRuntimeSeenAt.get(RUNTIME_ID)
+    if (seenLiveAt === undefined) throw new Error('live-runtime memo missing')
+    h.context.mailKickerLiveRuntimeSeenAt.set(RUNTIME_ID, seenLiveAt - PERIODIC_QUIET_BACKSTOP_MS)
+    await sweepLapsedObligations(h.context)
+    expect(reads).toBe(2)
   })
 })

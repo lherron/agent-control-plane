@@ -364,4 +364,34 @@ describe('socket injection subscriptions', () => {
     await unsubscribe()
     expect(Date.now() - stopped).toBeLessThan(1_000)
   })
+
+  test('coalesces a burst of lifecycle rings into one broker read', async () => {
+    let follows = 0
+    const client = {
+      async declareSubscriber() {
+        return { subscriberId: 'subscriber-mail' }
+      },
+      async followBrokerEvents(request: { afterCommit: number }) {
+        follows += 1
+        return { events: [], nextCommit: request.afterCommit }
+      },
+      async *watch(options: { signal?: AbortSignal }) {
+        await Bun.sleep(100)
+        // One tool call's worth of lifecycle events, back to back.
+        for (let seq = 11; seq <= 30; seq += 1) yield { hrcSeq: seq }
+        await new Promise<void>((resolve) =>
+          options.signal?.addEventListener('abort', () => resolve())
+        )
+      },
+    } as unknown as HrcClient
+
+    const port = createSocketInjectionPort(client)
+    const unsubscribeBroker = await port.subscribeBroker({ afterCommit: 0, onEvent: () => {} })
+    const unsubscribeLifecycle = await port.subscribeLifecycle({ afterSeq: 10, onEvent: () => {} })
+    await Bun.sleep(700)
+    expect(follows).toBeGreaterThanOrEqual(2)
+    expect(follows).toBeLessThanOrEqual(3)
+    await unsubscribeLifecycle()
+    await unsubscribeBroker()
+  })
 })

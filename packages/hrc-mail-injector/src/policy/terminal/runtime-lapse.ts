@@ -12,7 +12,7 @@
  * as swept without memoizing a ledger outage as an answer.
  */
 import type { MailKickerContext } from '../context.js'
-import { LAPSE_SWEEP_LOOKBACK_MS, errorText } from '../internal.js'
+import { LAPSE_SWEEP_LOOKBACK_MS, PERIODIC_QUIET_BACKSTOP_MS, errorText } from '../internal.js'
 import { WrkqLedgerUnavailableError } from '../ledger/client.js'
 import { newestPresentationReceipt } from '../ledger/types.js'
 import type { WrkqEnvelopePendingView } from '../ledger/types.js'
@@ -94,17 +94,33 @@ export async function failLapsedObligations(
  * Memoized per runtime per process. Nothing can be presented TO a dead runtime,
  * so one complete observation per runtime is the whole job; a restart re-scans
  * the lookback window, and the ledger's own idempotence absorbs the overlap.
+ *
+ * A runtime seen ALIVE is re-read at the quiet backstop rather than every sweep
+ * (T-11680): it was one exact HRC read per live runtime per sweep, idle or not,
+ * for a death the lifecycle observer normally reports within a second.
  */
 export async function sweepLapsedObligations(server: MailKickerContext): Promise<void> {
-  const since = new Date(Date.now() - LAPSE_SWEEP_LOOKBACK_MS).toISOString()
+  const nowMs = Date.now()
+  const since = new Date(nowMs - LAPSE_SWEEP_LOOKBACK_MS).toISOString()
   const byTarget = new Map<string, Set<string>>()
-  for (const bound of server.store.mailDelivery.listRuntimeBoundTargets(since)) {
-    if (server.mailKickerLapsedRuntimes.has(bound.runtimeId)) continue
-    const runtime = await server.port.runtime(bound.runtimeId)
-    if (runtime === undefined || !isRuntimeTerminal(runtime.status)) continue
-    const runtimes = byTarget.get(bound.targetSessionRef) ?? new Set<string>()
-    runtimes.add(bound.runtimeId)
-    byTarget.set(bound.targetSessionRef, runtimes)
+  const bound = server.store.mailDelivery.listRuntimeBoundTargets(since)
+  const boundRuntimes = new Set(bound.map((row) => row.runtimeId))
+  for (const runtimeId of server.mailKickerLiveRuntimeSeenAt.keys()) {
+    if (!boundRuntimes.has(runtimeId)) server.mailKickerLiveRuntimeSeenAt.delete(runtimeId)
+  }
+  for (const row of bound) {
+    if (server.mailKickerLapsedRuntimes.has(row.runtimeId)) continue
+    const seenLiveAt = server.mailKickerLiveRuntimeSeenAt.get(row.runtimeId)
+    if (seenLiveAt !== undefined && nowMs - seenLiveAt < PERIODIC_QUIET_BACKSTOP_MS) continue
+    const runtime = await server.port.runtime(row.runtimeId)
+    if (runtime !== undefined && !isRuntimeTerminal(runtime.status)) {
+      server.mailKickerLiveRuntimeSeenAt.set(row.runtimeId, nowMs)
+      continue
+    }
+    server.mailKickerLiveRuntimeSeenAt.delete(row.runtimeId)
+    const runtimes = byTarget.get(row.targetSessionRef) ?? new Set<string>()
+    runtimes.add(row.runtimeId)
+    byTarget.set(row.targetSessionRef, runtimes)
   }
   for (const [targetSessionRef, runtimeIds] of byTarget) {
     if (await failLapsedObligations(server, targetSessionRef, runtimeIds)) {
