@@ -2,7 +2,7 @@ import type { HrcBrokerInvocationEventRecord, HrcLifecycleEvent } from 'hrc-core
 import { parseAppSessionScopeRef } from 'hrc-core'
 import type { HrcMailDriveWakeReason } from 'hrc-store-sqlite'
 
-import type { FailureNoticeBackoff, MailKickerContext, SteerHold } from './context.js'
+import type { FailureNoticeBackoff, MailKickerContext, QuietTarget, SteerHold } from './context.js'
 import type {
   ForeignHome,
   HrcInjectionPort,
@@ -30,6 +30,7 @@ import { failLapsedObligations } from './terminal/runtime-lapse.js'
 import { isRuntimeTerminal } from './terminal/runtime-status.js'
 import { chargeBirthSweepRefusal } from './wake/birth-retry.js'
 import { runWrkqLedgerTail } from './wake/ledger-tail.js'
+import { recordPeriodicDrive } from './wake/quiet-targets.js'
 import { runMailKickerSweep } from './wake/sweep.js'
 
 /** Owns the kicker's scheduler, process-local state, and target-drive serialization. */
@@ -67,6 +68,7 @@ export class MailKicker implements MailKickerContext {
   readonly mailKickerSteerFallback = new Set<string>()
   readonly mailKickerDeliveryBackoff = new Map<string, number>()
   readonly mailKickerSteerHold = new Map<string, SteerHold>()
+  readonly mailKickerQuietTargets = new Map<string, QuietTarget>()
   private lifecycleUnsubscribe: (() => void | Promise<void>) | undefined
   private brokerUnsubscribe: (() => void | Promise<void>) | undefined
 
@@ -136,6 +138,7 @@ export class MailKicker implements MailKickerContext {
       this.mailKickerSweepTimer = undefined
     }
     this.mailKickerPendingTargets.clear()
+    this.mailKickerQuietTargets.clear()
     // T-07963: a FIXED POINT, not one snapshot. A target operation inside the
     // first snapshot can still start a disposal after the disposal set was
     // read, and that disposal would never be waited for. `stopping` is already
@@ -200,6 +203,7 @@ export class MailKicker implements MailKickerContext {
           if (reason === undefined) return
           this.mailKickerPendingTargets.delete(targetSessionRef)
           const result = await driveMailTargetOnce(this, targetSessionRef, reason)
+          if (reason === 'periodic') recordPeriodicDrive(this, targetSessionRef, result)
           if (reason === 'periodic' && result?.outcome === 'birth-refused') {
             await chargeBirthSweepRefusal(this, targetSessionRef, {
               notPlaceableHere: result.notPlaceableHere === true,

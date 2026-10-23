@@ -30,6 +30,7 @@ import { WrkqLedgerUnavailableError } from '../ledger/client.js'
 import { sweepLapsedObligations } from '../terminal/runtime-lapse.js'
 import { unbornBirthWakeCandidates } from './birth-retry.js'
 import { chunk, collectPendingTargets } from './cold-start.js'
+import { selectChangedPeriodicTargets } from './quiet-targets.js'
 
 export function runMailKickerSweep(this: MailKickerContext): Promise<void> {
   if (!this.enabled || this.stopping) return Promise.resolve()
@@ -65,13 +66,11 @@ export function runMailKickerSweep(this: MailKickerContext): Promise<void> {
     // presentation cannot cross.
     await sweepLapsedObligations(this)
     const now = new Date().toISOString()
-    const targets = new Set<string>(this.store.mailDelivery.listIntentTargets())
-    // Two rev 5.1 candidate sources that key on nothing in the ledger: a due
-    // D4 reminder, and a §5 notice waiting for its sender's next attend.
-    // Neither shows up as pending mail, so without these a scope whose only
-    // outstanding business is one of them is never woken at all.
-    for (const target of this.store.mailDelivery.listDueReminderTargets(now)) targets.add(target)
-    for (const target of this.store.mailDelivery.listFailureNoticeTargets()) targets.add(target)
+    // Outstanding business, driven every sweep: a due D4 reminder, and pending
+    // mail for a seated or owed-birth scope. Neither a reminder nor a §5 notice
+    // shows up as pending mail, so without the local sources below a scope
+    // whose only outstanding business is one of them is never woken at all.
+    const outstanding = new Set<string>(this.store.mailDelivery.listDueReminderTargets(now))
     const seated = await this.port.liveSessionRefs()
     const unborn = await unbornBirthWakeCandidates(this, seated)
     for (const batch of chunk([...seated, ...unborn], LEDGER_SWEEP_SCOPE_BATCH)) {
@@ -82,7 +81,7 @@ export function runMailKickerSweep(this: MailKickerContext): Promise<void> {
         if (view.repended > 0) {
           this.log('INFO', 'wrkq.kicker.deferrals_repended', { repended: view.repended })
         }
-        collectPendingTargets(view.items, targets)
+        collectPendingTargets(view.items, outstanding)
       } catch (error) {
         this.log(
           error instanceof WrkqLedgerUnavailableError ? 'WARN' : 'ERROR',
@@ -91,6 +90,17 @@ export function runMailKickerSweep(this: MailKickerContext): Promise<void> {
         )
         break
       }
+    }
+    // Local state only — an open intent, a §5 notice waiting for its sender's
+    // next attend. These are driven when that state changed since their last
+    // drive found nothing (T-11680), not on every sweep.
+    const local = new Set<string>()
+    for (const target of this.store.mailDelivery.listIntentTargets()) local.add(target)
+    for (const target of this.store.mailDelivery.listFailureNoticeTargets()) local.add(target)
+    for (const target of outstanding) local.delete(target)
+    const targets = new Set<string>(outstanding)
+    for (const target of selectChangedPeriodicTargets(this, local, new Set(seated))) {
+      targets.add(target)
     }
     for (const targetSessionRef of targets) {
       this.mailKickerPendingTargets.set(targetSessionRef, 'periodic')

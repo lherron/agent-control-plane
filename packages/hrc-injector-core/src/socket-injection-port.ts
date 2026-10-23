@@ -18,16 +18,55 @@ import type {
 
 export const MAIL_SUBSCRIBER_NAME = 'mail'
 const BROKER_FOLLOW_LIMIT = 500
-const EMPTY_FOLLOW_DELAY_MS = 100
 const RECONNECT_DELAY_MS = 250
+/**
+ * The broker follow route answers at once and has no long-poll, so it is read
+ * when a lifecycle event rings the doorbell. This timer only bounds how long a
+ * broker row with no lifecycle neighbour can wait.
+ */
+const BROKER_IDLE_POLL_MS = 5_000
+
+export type SocketInjectionPortOptions = {
+  brokerIdlePollMs?: number | undefined
+}
 
 /**
  * Socket-only implementation of the injector's HRC capability boundary.
  * Declaring the durable `mail` subscriber is intentionally lazy and idempotent:
  * both evidence feeds use the same admitted consumer identity.
  */
-export function createSocketInjectionPort(client: HrcClient): HrcInjectionPort {
+export function createSocketInjectionPort(
+  client: HrcClient,
+  options: SocketInjectionPortOptions = {}
+): HrcInjectionPort {
+  const brokerIdlePollMs = options.brokerIdlePollMs ?? BROKER_IDLE_POLL_MS
   let closed = false
+  // Aborts the long-lived lifecycle stream and every pending wait on stop.
+  const stopping = new AbortController()
+  const stop = (): void => {
+    closed = true
+    stopping.abort()
+  }
+  // The broker drain's doorbell. A ring during a page read is kept, so the
+  // drain reads again instead of sleeping past it.
+  let brokerRung = false
+  let wakeBroker: (() => void) | undefined
+  const ringBroker = (): void => {
+    brokerRung = true
+    wakeBroker?.()
+  }
+  const waitForBrokerRing = (ms: number): Promise<void> =>
+    new Promise((resolve) => {
+      const done = (): void => {
+        clearTimeout(timer)
+        stopping.signal.removeEventListener('abort', done)
+        if (wakeBroker === done) wakeBroker = undefined
+        resolve()
+      }
+      const timer = setTimeout(done, ms)
+      stopping.signal.addEventListener('abort', done, { once: true })
+      wakeBroker = done
+    })
   let subscriber: Promise<void> | undefined
   const declareSubscriber = async (): Promise<void> => {
     const attempt =
@@ -203,29 +242,36 @@ export function createSocketInjectionPort(client: HrcClient): HrcInjectionPort {
         let cursor = afterSeq
         while (!closed) {
           try {
+            // Once per connection: a new stream is the only point where the
+            // daemon may have restarted and forgotten the `mail` admission.
             await declareSubscriber()
-            let observed = false
-            for await (const event of client.watch({ fromSeq: cursor + 1 })) {
+            // One long-lived follow stream. HRC replays `fromSeq` onward from
+            // its ledger before going live, so a reconnect resumes at the
+            // cursor with nothing missed.
+            for await (const event of client.watch({
+              fromSeq: cursor + 1,
+              follow: true,
+              signal: stopping.signal,
+            })) {
               if (closed) return
-              observed = true
+              // A replay overlapping what this process already observed.
+              if (event.hrcSeq <= cursor) continue
               cursor = event.hrcSeq
               onEvent(event)
-            }
-            // A watch normally ends only when its daemon-side stream closes.
-            // The replacement daemon has no in-memory named subscribers, so
-            // force the next iteration to declare this consumer again.
-            invalidateSubscriber()
-            if (!closed) {
-              await delay(observed ? RECONNECT_DELAY_MS : EMPTY_FOLLOW_DELAY_MS)
+              ringBroker()
             }
           } catch {
-            invalidateSubscriber()
-            if (!closed) await delay(RECONNECT_DELAY_MS)
+            // Handled below like a clean end of stream.
           }
+          // The stream ends only when its daemon-side stream closes. The
+          // replacement daemon has no in-memory named subscribers, so force
+          // the next connection to declare this consumer again.
+          invalidateSubscriber()
+          if (!closed) await waitForStop(RECONNECT_DELAY_MS, stopping.signal)
         }
       })()
       return async () => {
-        closed = true
+        stop()
         await operation
       }
     },
@@ -236,6 +282,7 @@ export function createSocketInjectionPort(client: HrcClient): HrcInjectionPort {
         while (!closed) {
           try {
             await declareSubscriber()
+            brokerRung = false
             const page = await client.followBrokerEvents(
               { afterCommit: cursor, limit: BROKER_FOLLOW_LIMIT },
               MAIL_SUBSCRIBER_NAME
@@ -249,20 +296,22 @@ export function createSocketInjectionPort(client: HrcClient): HrcInjectionPort {
             }
             // Follow is newer-or-equal for reconnect safety. After accepting a
             // non-empty page, move past its boundary or this live loop will
-            // replay one row forever without ever taking the empty-page delay.
+            // replay one row forever.
             if (page.events.length > 0) cursor = page.nextCommit + 1
-            if (page.events.length === 0) await delay(EMPTY_FOLLOW_DELAY_MS)
+            // A full page may have more behind it; anything short is caught up.
+            if (page.events.length >= BROKER_FOLLOW_LIMIT) continue
+            if (!brokerRung && !closed) await waitForBrokerRing(brokerIdlePollMs)
           } catch {
             // HRC subscriber declarations are daemon-memory state. A socket
             // break or an unknown-subscriber response after daemon restart
             // invalidates the successful declaration from the prior epoch.
             invalidateSubscriber()
-            if (!closed) await delay(RECONNECT_DELAY_MS)
+            if (!closed) await waitForStop(RECONNECT_DELAY_MS, stopping.signal)
           }
         }
       })()
       return async () => {
-        closed = true
+        stop()
         await operation
       }
     },
@@ -289,6 +338,14 @@ export function createSocketInjectionPort(client: HrcClient): HrcInjectionPort {
   })
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+function waitForStop(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const done = (): void => {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', done)
+      resolve()
+    }
+    const timer = setTimeout(done, ms)
+    signal.addEventListener('abort', done, { once: true })
+  })
 }

@@ -333,6 +333,7 @@ export async function createT08094Harness(): Promise<T08094Harness> {
     mailKickerSteerFallback: new Set(),
     mailKickerDeliveryBackoff: new Map(),
     mailKickerSteerHold: new Map(),
+    mailKickerQuietTargets: new Map(),
     log: (level, event, detail) => logs.push({ level, event, detail }),
     wake: (target) => wakes.push(target),
     drainTarget: async () => undefined,

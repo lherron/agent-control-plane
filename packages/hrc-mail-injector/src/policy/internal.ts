@@ -50,6 +50,12 @@ export const KICKER_SUBMISSION_TTL_MS = 30 * 60_000
 export const LEDGER_TAIL_PAGE_LIMIT = 500
 export const LEDGER_SWEEP_SCOPE_BATCH = 100
 export const LEDGER_SWEEP_TICKS = 30
+/**
+ * How long the periodic sweep may leave a quiet target undriven (T-11680). A
+ * target whose last periodic drive found nothing, and whose local state has not
+ * changed since, is re-driven at this backstop rather than on every sweep.
+ */
+export const PERIODIC_QUIET_BACKSTOP_MS = 10 * 60_000
 /** Keep one periodic pass from turning HRC placement reads into a thundering herd. */
 export const MAIL_KICKER_MAX_CONCURRENT_TARGET_DRIVES = 4
 export const BIRTH_SWEEP_BACKOFF_BASE_MS = 60_000

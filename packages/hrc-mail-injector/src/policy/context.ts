@@ -19,6 +19,15 @@ export type FailureNoticeBackoff = {
   nextAtMs: number
 }
 
+/** A periodic sweep target whose last drive found nothing; see `wake/quiet-targets.ts`. */
+export type QuietTarget = {
+  /** The local state the drive saw; a different fingerprint is a changed target. */
+  fingerprint: string
+  quietSinceMs: number
+  /** Set once the periodic drive for this fingerprint ended empty. */
+  confirmed: boolean
+}
+
 /** One runtime's steer hold; see `drive/steer-hold.ts`. */
 export type SteerHold = {
   reason: 'awaiting_input' | 'pane_not_quiescent'
@@ -116,6 +125,12 @@ export type MailKickerContext = {
    * the pane refuses it unwritten. See `drive/steer-hold.ts`.
    */
   readonly mailKickerSteerHold: Map<string, SteerHold>
+  /**
+   * Targets the periodic sweep holds only for local state (an open intent or
+   * an undelivered notice) and whose last periodic drive found nothing
+   * (T-11680). The sweep skips one until that state changes.
+   */
+  readonly mailKickerQuietTargets: Map<string, QuietTarget>
 
   log(level: KickerLogLevel, event: string, detail: Record<string, unknown>): void
 

@@ -110,7 +110,7 @@ describe('socket injection subscriptions', () => {
       },
     } as unknown as HrcClient
 
-    const port = createSocketInjectionPort(client)
+    const port = createSocketInjectionPort(client, { brokerIdlePollMs: 20 })
     const unsubscribe = await port.subscribeBroker({
       afterCommit: 40,
       onEvent: (event) => observed.push(event.commitOrdinal),
@@ -205,5 +205,163 @@ describe('socket injection subscriptions', () => {
 
     holdRecoveredWatch()
     await unsubscribe()
+  })
+
+  test('lifecycle holds one follow stream and declares mail once for it', async () => {
+    let declarations = 0
+    const watched: Array<{ fromSeq?: number; follow?: boolean }> = []
+    const observed: number[] = []
+    let aborted = false
+    const client = {
+      async declareSubscriber() {
+        declarations += 1
+        return { subscriberId: 'subscriber-mail' }
+      },
+      async *watch(options: { fromSeq?: number; follow?: boolean; signal?: AbortSignal }) {
+        watched.push({ fromSeq: options.fromSeq, follow: options.follow })
+        yield { hrcSeq: 11 }
+        yield { hrcSeq: 12 }
+        // A live follow stays open until the daemon or the caller ends it.
+        await new Promise<void>((resolve) => {
+          options.signal?.addEventListener('abort', () => {
+            aborted = true
+            resolve()
+          })
+        })
+      },
+    } as unknown as HrcClient
+
+    const port = createSocketInjectionPort(client)
+    const unsubscribe = await port.subscribeLifecycle({
+      afterSeq: 10,
+      onEvent: (event) => observed.push(event.hrcSeq),
+    })
+    await eventually(() => expect(observed).toEqual([11, 12]))
+    await Bun.sleep(300)
+    expect(watched).toEqual([{ fromSeq: 11, follow: true }])
+    expect(declarations).toBe(1)
+
+    const stopped = Date.now()
+    await unsubscribe()
+    expect(aborted).toBe(true)
+    expect(Date.now() - stopped).toBeLessThan(1_000)
+  })
+
+  test('lifecycle resumes after a drop at the cursor and drops replayed duplicates', async () => {
+    let declarations = 0
+    const fromSeqs: Array<number | undefined> = []
+    const observed: number[] = []
+    const client = {
+      async declareSubscriber() {
+        declarations += 1
+        return { subscriberId: `subscriber-${declarations}` }
+      },
+      async *watch(options: { fromSeq?: number; signal?: AbortSignal }) {
+        fromSeqs.push(options.fromSeq)
+        if (fromSeqs.length === 1) {
+          yield { hrcSeq: 11 }
+          yield { hrcSeq: 12 }
+          throw new Error('HRC socket closed during restart')
+        }
+        // A replay that overlaps what was already delivered.
+        yield { hrcSeq: 12 }
+        yield { hrcSeq: 13 }
+        await new Promise<void>((resolve) =>
+          options.signal?.addEventListener('abort', () => resolve())
+        )
+      },
+    } as unknown as HrcClient
+
+    const port = createSocketInjectionPort(client)
+    const unsubscribe = await port.subscribeLifecycle({
+      afterSeq: 10,
+      onEvent: (event) => observed.push(event.hrcSeq),
+    })
+    await eventually(() => expect(observed).toEqual([11, 12, 13]))
+    expect(fromSeqs).toEqual([11, 13])
+    expect(declarations).toBe(2)
+    await unsubscribe()
+  })
+
+  test('broker follow idles until a lifecycle event rings it', async () => {
+    let follows = 0
+    let emitLifecycle!: () => void
+    const lifecycleArrived = new Promise<void>((resolve) => {
+      emitLifecycle = resolve
+    })
+    const client = {
+      async declareSubscriber() {
+        return { subscriberId: 'subscriber-mail' }
+      },
+      async followBrokerEvents(request: { afterCommit: number }) {
+        follows += 1
+        return { events: [], nextCommit: request.afterCommit }
+      },
+      async *watch(options: { signal?: AbortSignal }) {
+        await lifecycleArrived
+        yield { hrcSeq: 11 }
+        await new Promise<void>((resolve) =>
+          options.signal?.addEventListener('abort', () => resolve())
+        )
+      },
+    } as unknown as HrcClient
+
+    const port = createSocketInjectionPort(client)
+    const unsubscribeBroker = await port.subscribeBroker({ afterCommit: 0, onEvent: () => {} })
+    const unsubscribeLifecycle = await port.subscribeLifecycle({ afterSeq: 10, onEvent: () => {} })
+    await eventually(() => expect(follows).toBe(1))
+    await Bun.sleep(400)
+    expect(follows).toBe(1)
+
+    emitLifecycle()
+    await eventually(() => expect(follows).toBe(2))
+    await unsubscribeLifecycle()
+    await unsubscribeBroker()
+  })
+
+  test('broker drains back-to-back only while pages come back full', async () => {
+    const requested: number[] = []
+    const client = {
+      async declareSubscriber() {
+        return { subscriberId: 'subscriber-mail' }
+      },
+      async followBrokerEvents(request: { afterCommit: number; limit: number }) {
+        requested.push(request.afterCommit)
+        if (request.afterCommit !== 1) return { events: [], nextCommit: request.afterCommit }
+        const events = Array.from({ length: request.limit }, (_, index) => ({
+          commitOrdinal: index + 1,
+          invocationId: 'inv-1',
+          seq: index + 1,
+        }))
+        return { events, nextCommit: request.limit }
+      },
+    } as unknown as HrcClient
+
+    const port = createSocketInjectionPort(client)
+    const unsubscribe = await port.subscribeBroker({ afterCommit: 1, onEvent: () => {} })
+    await eventually(() => expect(requested).toEqual([1, 501]))
+    await Bun.sleep(300)
+    expect(requested).toEqual([1, 501])
+    await unsubscribe()
+  })
+
+  test('broker follow still polls on the idle backstop with no lifecycle traffic', async () => {
+    let follows = 0
+    const client = {
+      async declareSubscriber() {
+        return { subscriberId: 'subscriber-mail' }
+      },
+      async followBrokerEvents(request: { afterCommit: number }) {
+        follows += 1
+        return { events: [], nextCommit: request.afterCommit }
+      },
+    } as unknown as HrcClient
+
+    const port = createSocketInjectionPort(client, { brokerIdlePollMs: 30 })
+    const unsubscribe = await port.subscribeBroker({ afterCommit: 0, onEvent: () => {} })
+    await eventually(() => expect(follows).toBeGreaterThanOrEqual(3))
+    const stopped = Date.now()
+    await unsubscribe()
+    expect(Date.now() - stopped).toBeLessThan(1_000)
   })
 })

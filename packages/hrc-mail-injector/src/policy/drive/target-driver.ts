@@ -46,6 +46,7 @@ import { observeBrokerSeat } from './seat.js'
 import { steerHoldFor } from './steer-hold.js'
 
 export type DriveMailTargetOutcome =
+  | { outcome: 'empty' }
   | { outcome: 'birth-refused'; notPlaceableHere?: true }
   | { outcome: 'undeliverable'; failed: number }
   | undefined
@@ -300,7 +301,7 @@ export async function driveMailTargetOnce(
   })
   if (actionable.length === 0) {
     complete('empty')
-    return
+    return { outcome: 'empty' }
   }
 
   if (session === undefined) {
