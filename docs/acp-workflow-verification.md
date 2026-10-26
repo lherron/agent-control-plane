@@ -279,7 +279,7 @@ curl -s -X POST http://127.0.0.1:18470/v1/tasks/T-001/evidence \
 
 ### Scenario runbook
 
-See `scenarios/flow-presets/evidence-provenance-attach/runbook.md` for the
+See `docs/runbooks/flow-presets/evidence-provenance-attach.md` for the
 full end-to-end walkthrough covering role-bound, supervisor, and participant
 run evidence attach with idempotency replay and conflict checks.
 
@@ -335,7 +335,7 @@ curl -s -X POST http://127.0.0.1:18470/v1/tasks/T-001/obligations/obl_audit/waiv
 
 ### Scenario runbook
 
-See `scenarios/flow-presets/obligation-waive-cancel-lifecycle/runbook.md`.
+See `docs/runbooks/flow-presets/obligation-waive-cancel-lifecycle.md`.
 
 ## G — Participant runtime create/resume (T-01394)
 
@@ -392,7 +392,7 @@ curl -s -X POST http://127.0.0.1:18470/v1/workflow-participant-runs \
 
 ### Scenario runbook
 
-See `scenarios/flow-presets/participant-supervisor-evidence-authority/runbook.md`.
+See `docs/runbooks/flow-presets/participant-supervisor-evidence-authority.md`.
 
 ## H — Supervisor actions + auth hardening (T-01396)
 
@@ -453,7 +453,7 @@ The control action flow now requires:
 
 ### Scenario runbook
 
-See `scenarios/flow-presets/participant-supervisor-evidence-authority/runbook.md`
+See `docs/runbooks/flow-presets/participant-supervisor-evidence-authority.md`
 for the combined G + H + E1 end-to-end scenario.
 
 ## I — Patch proposal read API (T-01395)
@@ -498,12 +498,13 @@ Three manual-execution scenarios were added in commit `61d01fb`:
 
 | Scenario folder | Checkpoints exercised | Runbook |
 | --- | --- | --- |
-| `evidence-provenance-attach/` | E1 | `scenarios/flow-presets/evidence-provenance-attach/runbook.md` |
-| `obligation-waive-cancel-lifecycle/` | E2 | `scenarios/flow-presets/obligation-waive-cancel-lifecycle/runbook.md` |
-| `participant-supervisor-evidence-authority/` | G + H + E1 | `scenarios/flow-presets/participant-supervisor-evidence-authority/runbook.md` |
+| `evidence-provenance-attach/` | E1 | `docs/runbooks/flow-presets/evidence-provenance-attach.md` |
+| `obligation-waive-cancel-lifecycle/` | E2 | `docs/runbooks/flow-presets/obligation-waive-cancel-lifecycle.md` |
+| `participant-supervisor-evidence-authority/` | G + H + E1 | `docs/runbooks/flow-presets/participant-supervisor-evidence-authority.md` |
 
-Each scenario folder contains `workflow.json`, `scenario.json`, and
-`runbook.md`. The scenarios are validated by the conformance harness:
+Each scenario folder contains `workflow.json` and `scenario.json`; its
+walkthrough lives in `docs/runbooks/flow-presets/`. The scenarios are validated
+by the conformance harness:
 
 ```bash
 bun test tests/conformance/acp-workflow/flow-presets-scenarios.test.ts

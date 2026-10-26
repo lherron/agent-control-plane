@@ -6,9 +6,9 @@ human <-> agent communication through Discord.
 It is intentionally smaller than the full coordination + conversation
 architecture described in:
 
-- [`API.md`](./API.md)
-- [`COORDINATION_SUBSTRATE.md`](./COORDINATION_SUBSTRATE.md)
-- [`CONVERSATION_SURFACE.md`](./CONVERSATION_SURFACE.md)
+- `API.md` (historical dependency; absent from this checkout)
+- `COORDINATION_SUBSTRATE.md` (historical dependency; absent from this checkout)
+- `CONVERSATION_SURFACE.md` (historical dependency; absent from this checkout)
 
 The goal here is not to standardize the full long-term human conversation
 surface. The goal is to define the smallest surface that can:
@@ -584,7 +584,7 @@ But ACP should preserve the proven Discord-side behavior wherever practical.
 ### 12.3 Event compatibility direction
 
 The lifecycle/session event messages from HRC plus the canonical session-event
-contract in [`../contracts/SESSION_EVENTS.md`](../contracts/SESSION_EVENTS.md)
+contract in `SESSION_EVENTS.md` (historical dependency; absent from this checkout)
 should be treated as drop-in replacements for the legacy control-plane
 event-hub feed consumed by `gateway-discord`.
 

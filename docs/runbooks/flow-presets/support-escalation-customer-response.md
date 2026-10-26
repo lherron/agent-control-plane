@@ -13,8 +13,11 @@
 > | 1, 6–7 | **Supervisor agent (rex)** | Publishes workflow, creates task + supervisor run, applies `wait_for_customer`, satisfies customer obligation |
 > | 2–5, 8–9 | **Participant agent (larry)** | Support agent — attaches triage summary, applies `start_triage`, records customer outreach, applies `reach_out`, applies `resume_resolution`, resolves |
 >
-> See [`scenarios/flow-presets/README.md`](../README.md) for the cross-cutting
+> See [`scenarios/flow-presets/README.md`](../../../scenarios/flow-presets/README.md) for the cross-cutting
 > real-agent execution policy.
+
+Scenario inputs: [workflow.json](../../../scenarios/flow-presets/support-escalation-customer-response/workflow.json)
+and [scenario.json](../../../scenarios/flow-presets/support-escalation-customer-response/scenario.json).
 
 End-to-end walkthrough for `support_escalation@1` (see `workflow.json`). This is a non-code workflow that exercises the kernel's blocking-obligation pattern: the task sits in `status=waiting` until the customer's reply lands and the obligation is satisfied.
 

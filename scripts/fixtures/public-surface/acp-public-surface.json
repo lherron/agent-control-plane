@@ -1335,7 +1335,7 @@
     "docs/agent-control-plane-current-spec.md",
     "packages/acp-cli/README.md",
     "packages/acp-server/README.md",
-    "packages/gateway-ios/SMOKE.md"
+    "tests/fixtures/mobile/gateway-ios-smoke.md"
   ],
   "docs": {
     "docs/ACP_JOBS_TASKS_USAGE.md": {
@@ -1490,7 +1490,14 @@
       "capabilityReferences": [],
       "cliReferences": []
     },
-    "packages/gateway-ios/SMOKE.md": {
+    "README.md": {
+      "apiReferences": [],
+      "capabilityReferences": [],
+      "cliReferences": [
+        "acp server status"
+      ]
+    },
+    "tests/fixtures/mobile/gateway-ios-smoke.md": {
       "apiReferences": [
         "GET /v1/health",
         "GET /v1/history",
@@ -1500,13 +1507,6 @@
       ],
       "capabilityReferences": [],
       "cliReferences": []
-    },
-    "README.md": {
-      "apiReferences": [],
-      "capabilityReferences": [],
-      "cliReferences": [
-        "acp server status"
-      ]
     }
   },
   "packages": {

@@ -6,8 +6,14 @@ const repoRoot = join(import.meta.dir, '../../..')
 
 describe('heuristic learning implementation spec markers', () => {
   test('spec and implementation log mark every requested phase complete', () => {
-    const spec = readFileSync(join(repoRoot, 'heuristic-learning-acp-hrc-spec.md'), 'utf8')
-    const log = readFileSync(join(repoRoot, 'HEURISTIC_LEARNING_IMPLEMENTATION.md'), 'utf8')
+    const spec = readFileSync(
+      join(repoRoot, 'architecture/contracts/heuristic-learning-acp-hrc-spec.md'),
+      'utf8'
+    )
+    const log = readFileSync(
+      join(repoRoot, 'tests/fixtures/heuristic-learning/implementation.md'),
+      'utf8'
+    )
 
     for (const phase of [
       'Phase 1: ACP/HRC capture foundation',

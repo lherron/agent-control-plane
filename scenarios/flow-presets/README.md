@@ -24,7 +24,7 @@
 >    with run/evidence IDs.
 > 5. The supervisor confirms via `acp task show` and proceeds.
 >
-> See also: [`docs/acp-supervisor-playbook.md`](../docs/acp-supervisor-playbook.md)
+> See also: [`docs/acp-supervisor-playbook.md`](../../docs/acp-supervisor-playbook.md)
 > for the canonical supervisor dispatch protocol.
 
 Three end-to-end scenarios for the new ACP workflow kernel
@@ -37,7 +37,7 @@ self-contained:
 - `scenario.json` — machine-readable plan: actors, role bindings, task seed,
   ordered steps (with `kernel.op`/`controlAction`/`evidence`/`transitionId`),
   expected state-after, expected effect intents, and negative checks.
-- `runbook.md` — human-readable walkthrough showing the canonical kernel
+- `docs/runbooks/flow-presets/<folder>.md` — human-readable walkthrough showing the canonical kernel
   calls. The checked command for all scenarios is the scenario conformance
   test listed below.
 

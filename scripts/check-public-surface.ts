@@ -41,7 +41,7 @@ const docRels = [
   'docs/agent-control-plane-current-spec.md',
   'packages/acp-cli/README.md',
   'packages/acp-server/README.md',
-  'packages/gateway-ios/SMOKE.md',
+  'tests/fixtures/mobile/gateway-ios-smoke.md',
 ]
 const capSmokeRel = 'scripts/e2e/cap-acp/smoke.sh'
 

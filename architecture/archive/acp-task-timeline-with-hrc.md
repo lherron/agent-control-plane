@@ -3,7 +3,7 @@
 **Status:** Proposal · awaiting cody implementation
 **Author:** clod
 **Date:** 2026-05-11
-**Extends:** `specs/acp-task-timeline-cli.md`
+**Extends:** `architecture/archive/acp-task-timeline-cli.md`
 **Constraint:** No new top-level CLI command. Extend existing `acp task timeline`.
 
 ---

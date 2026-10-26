@@ -212,7 +212,7 @@ Route surface (`packages/gateway-ios/src/routes.ts`):
 Optional bearer-token enforcement in front of all routes via
 `ACP_IOS_GATEWAY_TOKEN`.
 
-### Known state (per `packages/gateway-ios/SMOKE.md`, 2026-04-30)
+### Known state (per `tests/fixtures/mobile/gateway-ios-smoke.md`, 2026-04-30)
 
 A full end-to-end smoke against a live HRC server found the module's
 `start()` was still a stub that never bound a listener; that was fixed in

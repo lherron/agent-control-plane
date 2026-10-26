@@ -366,21 +366,21 @@ Keep as current operator/package docs:
 - `AGENTS.md` and `CLAUDE.md`: agent-facing operational instructions.
 - `packages/*/README.md` and package-local smoke docs.
 - `tests/conformance/acp-workflow/README.md`: conformance suite guide.
-- `scenarios/flow-presets/**/runbook.md`: scenario runbooks.
+- `docs/runbooks/flow-presets/*.md`: scenario runbooks.
 - `docs/acp-supervisor-playbook.md` and
   `docs/acp-workflow-verification.md`: historical/current workflow-kernel
   verification material tied to conformance tests.
 
 Treat as historical or migration material unless current source says otherwise:
 
-- `heuristic-learning-acp-hrc-spec.md`
-- `HEURISTIC_LEARNING_IMPLEMENTATION.md`
+- `architecture/contracts/heuristic-learning-acp-hrc-spec.md`
+- `tests/fixtures/heuristic-learning/implementation.md`
 - `HEURISTIC_LEARNING_E2E_RUNBOOK.md`
 - `HRC_SPLIT_IMPL.md`
-- `specs/archived/**`
-- `specs/acp-task-timeline-cli.md`
-- `specs/acp-task-timeline-with-hrc.md`
-- `specs/spec_agent_spaces.md` (external ASP contract material)
+- `architecture/archive/**`
+- `architecture/archive/acp-task-timeline-cli.md`
+- `architecture/archive/acp-task-timeline-with-hrc.md`
+- `architecture/archive/spec_agent_spaces.md` (external ASP contract material)
 
 Untracked drafts observed during this cleanup:
 

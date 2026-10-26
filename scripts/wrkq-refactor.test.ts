@@ -32,7 +32,7 @@ function refactorTask(overrides: Partial<ClassifyTaskInput> = {}): ClassifyTaskI
 
 **Recommended action:** Internal-only, behavior-preserving — implement directly, run scoped typecheck+test.
 
-Source: refactor-workflow auto-deferred item. Full audit detail: \`refactor-analysis/acp-core-report.md\`.
+Source: refactor-workflow auto-deferred item. Full audit detail: \`/tmp/wrkq-artifacts/T-02029/refactor-analysis/acp-core-report.md\`.
 `,
     comments: [],
     ...overrides,
@@ -126,7 +126,9 @@ describe('wrkq-refactor automation helpers', () => {
     expect(fields.location).toBe('packages/acp-core/src/example.ts')
     expect(fields.risk).toBe('Low')
     expect(fields.apiImpact).toBe('internal-only')
-    expect(fields.reportPath).toBe('refactor-analysis/acp-core-report.md')
+    expect(fields.reportPath).toBe(
+      '/tmp/wrkq-artifacts/T-02029/refactor-analysis/acp-core-report.md'
+    )
     expect(fields.recommendedAction).toContain('implement directly')
   })
 

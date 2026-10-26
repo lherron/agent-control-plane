@@ -14,8 +14,11 @@
 > | 2–6, 14 | **Participant agent (larry)** | Implementer — attaches plan, starts, launches run, attaches evidence, completes run, closes task |
 > | 8–9, 13 | **Participant agent (curly)** | Tester — launches run, attaches verification report, applies verify transition |
 >
-> See [`scenarios/flow-presets/README.md`](../README.md) for the cross-cutting
+> See [`scenarios/flow-presets/README.md`](../../../scenarios/flow-presets/README.md) for the cross-cutting
 > real-agent execution policy.
+
+Scenario inputs: [workflow.json](../../../scenarios/flow-presets/participant-supervisor-evidence-authority/workflow.json)
+and [scenario.json](../../../scenarios/flow-presets/participant-supervisor-evidence-authority/scenario.json).
 
 End-to-end walkthrough for `participant_supervisor_demo@1` (see `workflow.json`
 and `scenario.json`). Exercises ACP Checkpoints G (participant runtime

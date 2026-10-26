@@ -4,7 +4,7 @@ A self-contained briefing for a fresh Claude Opus instance picking up this work.
 Everything needed to execute should be in this document or linked from it.
 
 For the Discord human-interface implementation track, also read
-[`ACP_MINIMAL_INTERFACE.md`](./ACP_MINIMAL_INTERFACE.md). That document covers
+[`ACP_MINIMAL_INTERFACE.md`](ACP_MINIMAL_INTERFACE.md). That document covers
 the minimal binding, ingress, response-capture, and Discord egress surface, and
 it treats `../control-plane/packages/gateway-discord` as the research and
 reuse baseline for Discord mechanics.

@@ -15,8 +15,11 @@
 > | 7–8 | **Participant agent (curly)** | Legal reviewer — applies `resume_legal_review`, attaches `legal_review`, satisfies legal obligation |
 > | 9–11 | **Participant agent (cody)** | Procurement lead — applies `complete_legal_review`, attaches `approval_record`, applies `approve` |
 >
-> See [`scenarios/flow-presets/README.md`](../README.md) for the cross-cutting
+> See [`scenarios/flow-presets/README.md`](../../../scenarios/flow-presets/README.md) for the cross-cutting
 > real-agent execution policy.
+
+Scenario inputs: [workflow.json](../../../scenarios/flow-presets/procurement-legal-approval/workflow.json)
+and [scenario.json](../../../scenarios/flow-presets/procurement-legal-approval/scenario.json).
 
 End-to-end walkthrough for `procurement_legal_approval@1` (see `workflow.json`). Non-code workflow with two cascading blocking obligations:
 

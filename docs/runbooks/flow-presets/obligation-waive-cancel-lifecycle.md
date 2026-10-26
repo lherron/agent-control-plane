@@ -14,8 +14,11 @@
 > | 3–4, 10 | **Participant agent (larry)** | Author — attaches draft, submits, approves |
 > | 6–8 | **Participant agent (curly)** | Reviewer — attaches review notes, advances to audit |
 >
-> See [`scenarios/flow-presets/README.md`](../README.md) for the cross-cutting
+> See [`scenarios/flow-presets/README.md`](../../../scenarios/flow-presets/README.md) for the cross-cutting
 > real-agent execution policy.
+
+Scenario inputs: [workflow.json](../../../scenarios/flow-presets/obligation-waive-cancel-lifecycle/workflow.json)
+and [scenario.json](../../../scenarios/flow-presets/obligation-waive-cancel-lifecycle/scenario.json).
 
 End-to-end walkthrough for `obligation_waive_cancel_demo@1` (see `workflow.json`
 and `scenario.json`). Exercises ACP Checkpoint E2: the widened

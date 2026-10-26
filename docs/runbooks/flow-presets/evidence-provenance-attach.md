@@ -13,8 +13,11 @@
 > | 1–2, 4–5 | **Supervisor agent (rex)** | Publishes workflow, starts supervisor run, attaches supervisor evidence, launches participant run |
 > | 3, 6–8 | **Participant agent (larry)** | Collector — attaches role-bound evidence, attaches run-scoped evidence, closes task |
 >
-> See [`scenarios/flow-presets/README.md`](../README.md) for the cross-cutting
+> See [`scenarios/flow-presets/README.md`](../../../scenarios/flow-presets/README.md) for the cross-cutting
 > real-agent execution policy.
+
+Scenario inputs: [workflow.json](../../../scenarios/flow-presets/evidence-provenance-attach/workflow.json)
+and [scenario.json](../../../scenarios/flow-presets/evidence-provenance-attach/scenario.json).
 
 End-to-end walkthrough for `evidence_provenance_demo@1` (see `workflow.json` and
 `scenario.json`). Exercises ACP Checkpoint E1: EvidenceRecord provenance fields
