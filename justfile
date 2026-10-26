@@ -1,4 +1,5 @@
 # Agent Spaces v2 justfile
+# wrkp: run.settled
 
 # Default recipe
 default:
@@ -77,6 +78,8 @@ check-enablement-changelog:
 # resolve only to the unpublished sibling repo ~/praesidium/semantic-capabilities
 # and are in no ACP dependency, so this cannot run from a fresh clone. See
 # T-06914 finding E for the open ruling.
+
+# Run the installed ACP capability smoke against live services (requires sibling tools)
 e2e-cap-acp:
     scripts/e2e/cap-acp/smoke.sh
 
@@ -92,6 +95,8 @@ e2e-cap-pbc:
 # (Scheduling is handled by the ACP-native schedule at
 #  var/agents/cody/schedules/wrkq-refactor.toml — the old LaunchAgent wrapper
 #  was removed.)
+
+# Prepare or update one wrkq refactor-deferred task work packet
 wrkq-refactor *args:
     bun scripts/wrkq-refactor.ts {{args}}
 
@@ -120,6 +125,8 @@ architecture-records *args:
 
 # Run all verification in one owned environment. The dev-env wrapper tears its
 # daemons down on success, failure, SIGINT, and SIGTERM.
+
+# Run all verification in one owned environment with automatic teardown
 verify: architecture-records
     #!/usr/bin/env bash
     set -euo pipefail
@@ -211,6 +218,8 @@ advance-producers *args:
 # Linked Git worktrees auto-disable wrapper linking and publish to an isolated worktree
 # artifact channel. Pass force-link=1 only when intentionally repointing local wrappers
 # from a linked worktree.
+
+# Install dependencies, hooks, and builds; publish packages and link local binaries
 install no-sync="" force-sync="" force-link="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -247,6 +256,8 @@ install no-sync="" force-sync="" force-link="":
 # Install and activate the periodic copytruncate job. RunAtLoad means this may
 # rotate eligible production logs immediately; coordinate active log readers
 # before invoking it for the first time.
+
+# Install and activate periodic log rotation (Mable primary only)
 install-log-rotation:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -273,6 +284,8 @@ install-log-rotation:
 # Install and activate the per-user Ghostty presentation sidecar. This recipe
 # deliberately does not run as part of `just install`; viewer rollout is a
 # separate, reversible GUI-user decision.
+
+# Install and activate the Ghostty presentation sidecar (Mable primary only)
 install-hrc-viewer-launchd:
     #!/usr/bin/env bash
     set -euo pipefail
