@@ -534,7 +534,7 @@ obligation, or bypass a missing waiver.
 ## Related docs
 
 - [ACP workflow verification](./acp-workflow-verification.md)
-- [ACP workflow checkpoints validation](../acp-workflow-checkpoints-validation.md)
+- [ACP workflow checkpoints validation](./acp-workflow-verification.md#checkpoints)
 - [Flow presets README](../scenarios/flow-presets/README.md)
 
 ## Validation walk
