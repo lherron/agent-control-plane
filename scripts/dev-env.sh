@@ -38,12 +38,19 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # One root per checkout, so two worktrees do not fight over one daemon. Kept
-# under TMPDIR rather than in-tree because the unix socket paths underneath it
-# are subject to the ~104-byte sockaddr limit, which a deep repo path can blow.
+# out of the tree because the unix socket paths underneath it are subject to the
+# ~104-byte sockaddr limit, which a deep repo path can blow.
+#
+# The base is /tmp, NOT ${TMPDIR}. macOS's per-user TMPDIR (/var/folders/…/T/)
+# already puts HRC's worst-case broker tmux socket at 140 bytes, and HRC refuses
+# to start on such a root (T-11909). hrc-runtime's dev-env uses /tmp for the
+# same reason, and because TMPDIR differs between a login shell, a launchd job
+# and a harness (T-10329).
+ROOT_BASE="/tmp"
 default_root() {
   local slug
   slug="$(printf '%s' "${REPO_ROOT}" | cksum | cut -d' ' -f1)"
-  printf '%s/acp-dev-env-%s-%s' "${TMPDIR:-/tmp}" "$(id -u)" "${slug}"
+  printf '%s/acp-dev-env-%s-%s' "${ROOT_BASE}" "$(id -u)" "${slug}"
 }
 
 ROOT="${ACP_DEV_ENV_ROOT:-$(default_root)}"
@@ -246,8 +253,7 @@ root_has_dead_recorded_pid() {
 
 sweep_stale_roots() {
   local base candidate now modified age
-  base="${TMPDIR:-/tmp}"
-  base="${base%/}"
+  base="${ROOT_BASE}"
   now="$(date +%s)"
   for candidate in "${base}"/acp-dev-env-"$(id -u)"-*; do
     [[ -d "${candidate}" ]] || continue
