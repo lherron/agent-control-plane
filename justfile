@@ -253,93 +253,32 @@ install no-sync="" force-sync="" force-link="":
       echo "[install] skipping bun link; linked worktree installs must not update local ACP wrappers"
     fi
 
-# Install and activate the periodic copytruncate job. RunAtLoad means this may
-# rotate eligible production logs immediately; coordinate active log readers
-# before invoking it for the first time.
+# Existing installed plists retain their host settings; only missing copies are
+# rendered from repo templates. Adoption is host-local and optional on svc.
+# Owner-operated only: Mable primary or Lance; never part of `just install`.
 
-# Install and activate periodic log rotation (Mable primary only)
+# Install/adopt and activate the shipped LaunchAgents
+launchd-install:
+    # praesidium-adopt runs on each installed copy before bootstrap when available.
+    python3 scripts/launchd-jobs.py install
+
+# Unload and remove only the shipped LaunchAgents
+launchd-uninstall:
+    python3 scripts/launchd-jobs.py uninstall
+
+# RunAtLoad may rotate eligible production logs immediately. Owner-operated
+# only; coordinate active log readers before first activation.
+
+# Install/adopt and activate periodic log rotation
 install-log-rotation:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    source_plist="$(git rev-parse --show-toplevel)/launchd/com.praesidium.log-rotation.plist"
-    installed_plist="$HOME/Library/LaunchAgents/com.praesidium.log-rotation.plist"
-    service_target="gui/$(id -u)/com.praesidium.log-rotation"
-    mkdir -p "$HOME/praesidium/var/logs/agent-control-plane"
-    plutil -lint "$source_plist"
-    install -m 0644 "$source_plist" "$installed_plist"
-    # The repo plist runs through max3's praesidium-launch shim. A node without
-    # the shim (svc) runs the script directly.
-    shim="$(plutil -extract ProgramArguments.0 raw "$installed_plist")"
-    if [ ! -x "$shim" ]; then
-      plutil -remove ProgramArguments.0 "$installed_plist"
-      echo "[install] $shim not present; running the script without it"
-    fi
-    if launchctl print "$service_target" >/dev/null 2>&1; then
-      launchctl bootout "$service_target"
-    fi
-    launchctl bootstrap "gui/$(id -u)" "$installed_plist"
-    launchctl print "$service_target" >/dev/null
-    echo "[install] activated $service_target"
+    python3 scripts/launchd-jobs.py install log-rotation
 
-# Install and activate the per-user Ghostty presentation sidecar. This recipe
-# deliberately does not run as part of `just install`; viewer rollout is a
-# separate, reversible GUI-user decision.
+# Separate GUI-user rollout; preserves HRC wrkq credentials and retries after
+# asynchronous bootout. Owner-operated only; never part of `just install`.
 
-# Install and activate the Ghostty presentation sidecar (Mable primary only)
+# Install/adopt and activate the Ghostty presentation sidecar
 install-hrc-viewer-launchd:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    source_plist="$(git rev-parse --show-toplevel)/launchd/com.praesidium.hrc-viewer.plist"
-    installed_plist="$HOME/Library/LaunchAgents/com.praesidium.hrc-viewer.plist"
-    service_target="gui/$(id -u)/com.praesidium.hrc-viewer"
-    hrc_plist="$HOME/Library/LaunchAgents/com.praesidium.hrc-server.plist"
-    mkdir -p "$HOME/Library/LaunchAgents" "$HOME/praesidium/var/logs/agent-control-plane"
-    hrc_env="$(plutil -extract EnvironmentVariables json -o - "$hrc_plist")" || {
-      echo "[install] cannot read EnvironmentVariables from $hrc_plist" >&2
-      exit 1
-    }
-    wrkq_db="$(jq -er '.HRC_WRKQ_DB' <<<"$hrc_env")" || {
-      echo "[install] $hrc_plist declares no HRC_WRKQ_DB" >&2
-      exit 1
-    }
-    wrkqd_token_file="$(jq -er '.HRC_WRKQD_TOKEN_FILE' <<<"$hrc_env")" || {
-      echo "[install] $hrc_plist declares no HRC_WRKQD_TOKEN_FILE" >&2
-      exit 1
-    }
-    esc() { printf '%s' "$1" | sed 's/[\/&|]/\\&/g'; }
-    sed -e "s|__HOME__|$(esc "$HOME")|g" \
-        -e "s|__WRKQ_DB__|$(esc "$wrkq_db")|g" \
-        -e "s|__WRKQD_TOKEN_FILE__|$(esc "$wrkqd_token_file")|g" \
-        "$source_plist" > "$installed_plist.next"
-    plutil -lint "$installed_plist.next"
-    ! grep -q '__[A-Z_]*__' "$installed_plist.next" || {
-      echo "[install] hrc-viewer plist has an unrendered placeholder" >&2
-      exit 1
-    }
-    install -m 0644 "$installed_plist.next" "$installed_plist"
-    rm "$installed_plist.next"
-    if launchctl print "$service_target" >/dev/null 2>&1; then
-      launchctl bootout "$service_target"
-      # bootout returns before the job is actually gone; a bootstrap that races
-      # it fails with "Bootstrap failed: 5: Input/output error" and leaves the
-      # viewer DOWN with this recipe exiting non-zero (T-07711). Wait it out.
-      for _ in $(seq 1 50); do
-        launchctl print "$service_target" >/dev/null 2>&1 || break
-        sleep 0.2
-      done
-    fi
-    bootstrapped=0
-    for attempt in 1 2 3 4 5; do
-      if launchctl bootstrap "gui/$(id -u)" "$installed_plist"; then
-        bootstrapped=1
-        break
-      fi
-      echo "[install] bootstrap attempt $attempt failed; retrying" >&2
-      sleep 1
-    done
-    [[ "$bootstrapped" == 1 ]] || { echo "[install] could not bootstrap $service_target after 5 attempts" >&2; exit 1; }
-    launchctl print "$service_target" >/dev/null
-    echo "[install] activated $service_target"
+    python3 scripts/launchd-jobs.py install hrc-viewer
 
 # Publish ordinary ACP package versions to local Verdaccio
 publish-dev:
