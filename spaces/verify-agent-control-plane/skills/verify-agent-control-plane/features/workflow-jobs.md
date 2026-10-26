@@ -79,7 +79,7 @@ Run `bun test tests/conformance/acp-workflow` for source conformance. The full o
 
 ## Gotchas
 
-Source conformance includes state-machine failure cases but is not installed job dispatch proof. Never load production schedules, managed resources, hooks, or job recipients into scratch. No live scheduler substitution.
+Source conformance includes state-machine failure cases but is not installed job dispatch proof. Never load production schedules, managed resources, hooks, or job recipients into scratch. No live scheduler substitution. `job create --job <id>` does not set the id: the server mints `job_<hex>`, so read it from the create response. `job validate` exits 0 when the body reports `valid: false`; assert on the body. A fresh scratch jobs DB contains the built-in `acp-health-dispatch-timeout-fettle` event job.
 
 ## Proven when
 
