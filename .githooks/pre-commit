@@ -6,6 +6,9 @@ repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || {
   exit 2
 }
 
+hook_name=pre-commit
+. "$repo_root/.githooks/hook-duration.sh"
+
 # Walk up for the binary instead of assuming this repo's node_modules. A
 # standalone install resolves at the first step, exactly as before. Under the
 # praesidium dev workspace agent-control-plane installs as one workspace with
@@ -30,4 +33,4 @@ if [ -z "$lefthook_bin" ]; then
   exit 127
 fi
 
-exec "$lefthook_bin" run pre-commit --no-auto-install "$@"
+"$lefthook_bin" run pre-commit --no-auto-install "$@"

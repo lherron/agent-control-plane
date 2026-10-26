@@ -6,6 +6,9 @@ repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || {
   exit 2
 }
 
+hook_name=pre-push
+. "$repo_root/.githooks/hook-duration.sh"
+
 # Walk up for the binary instead of assuming this repo's node_modules. A
 # standalone install resolves at the first step, exactly as before. Under the
 # praesidium dev workspace agent-control-plane installs as one workspace with
@@ -32,7 +35,6 @@ fi
 
 # Both lefthook and the git reporter consume the ref transitions on stdin.
 refs_file="$(mktemp "${TMPDIR:-/tmp}/acp-pre-push.XXXXXX")"
-trap 'rm -f "$refs_file"' EXIT
 trap 'exit 1' HUP INT TERM
 cat > "$refs_file"
 
