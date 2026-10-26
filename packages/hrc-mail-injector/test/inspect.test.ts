@@ -134,6 +134,8 @@ process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: frames[1].id, result: 
         'inbox',
         '-t',
         'inspect real wire',
+        '--as',
+        'agent:astra',
       ])
       const created = await runWrkqJson<{ envelopes: Array<{ id: string }> }>('wrkc', [
         'say',

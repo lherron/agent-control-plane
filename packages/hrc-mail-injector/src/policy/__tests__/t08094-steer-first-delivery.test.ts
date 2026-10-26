@@ -996,6 +996,8 @@ describe('D3 — disposal is keyed by runtime and ledger sequence', () => {
         'inbox',
         '-t',
         'real ledger hold',
+        '--as',
+        'agent:astra',
       ])
       process.env['HRC_WRKQ_DB'] = ledgerPath
       const realLedger = createWrkqLedger()
