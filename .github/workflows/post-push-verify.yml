@@ -43,10 +43,14 @@ jobs:
 
       # On a developer host the praesidium workspace root provides the deps.
       # The runner's worktree stands alone, so it installs them from the
-      # frozen lockfile.
+      # frozen lockfile. node_modules is ignored, so it survives `git clean`,
+      # and bun never prunes a nested copy an older lock left behind; each run
+      # starts from an empty tree (Bun's global cache keeps this to seconds).
       - name: Install dependencies
         working-directory: ${{ env.WORKTREE }}
-        run: LEFTHOOK=0 bun install --frozen-lockfile
+        run: |
+          rm -rf node_modules packages/*/node_modules
+          LEFTHOOK=0 bun install --frozen-lockfile
 
       # dev-env reuses a running ephemeral acp-server, which would serve an
       # earlier push's code if a cancelled run left it behind. Each post-push
