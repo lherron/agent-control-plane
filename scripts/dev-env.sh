@@ -70,6 +70,21 @@ PORT_FILE="${ROOT}/acp.port"
 HRC_SOCKET="${HRC_RUN_DIR}/hrc.sock"
 WRKQ_DB_FILE="${DB_DIR}/wrkq.db"
 WRKF_HOOK_CATALOG_FILE="${ROOT}/empty-hook-catalog.json"
+MOBILE_AUTH_FILE="${ROOT}/mobile-auth.json"
+
+# Pin every wrkq locator and credential the daemons and suites could otherwise
+# inherit: the caller's shell (a seat, or the mini runner's .env) and Bun's
+# auto-loaded checkout .env.local both point at the live mini wrkqd. Bun never
+# overrides a variable that is already set, even to empty, so empty values
+# keep dotenv from restoring a live token (T-11918).
+SCRATCH_WRKQ_ENV=(
+  "WRKQ_DB=${WRKQ_DB_FILE}"
+  "HRC_WRKQ_DB=${WRKQ_DB_FILE}"
+  "WRKQ_DB_PATH="
+  "WRKQD_TOKEN="
+  "WRKQD_TOKEN_FILE="
+  "HRC_WRKQD_TOKEN_FILE="
+)
 PROCESS_REGISTRY="${ROOT}/processes"
 
 # A deliberately finite ceiling for manually provisioned roots. A successful
@@ -393,6 +408,7 @@ start_hrc() {
   log "starting ephemeral HRC daemon (hrc server serve) → ${HRC_LOG}"
   (
     cd "${REPO_ROOT}"
+    env "${SCRATCH_WRKQ_ENV[@]}" \
     ACP_DEV_ENV_ROOT="${ROOT}" HRC_RUNTIME_DIR="${HRC_RUN_DIR}" HRC_STATE_DIR="${HRC_STATE}" ASP_AGENTS_ROOT="${AGENTS_DIR}" \
       nohup perl -MPOSIX -e 'POSIX::setsid() >= 0 or die "setsid: $!"; exec @ARGV or die "exec: $!"' \
         hrc server serve >"${HRC_LOG}" 2>&1 &
@@ -472,9 +488,11 @@ start_acp() {
   log "starting ephemeral acp-server on 127.0.0.1:${port} → ${ACP_LOG}"
   (
     cd "${REPO_ROOT}"
+    env "${SCRATCH_WRKQ_ENV[@]}" \
     ACP_HOST=127.0.0.1 \
     ACP_PORT="${port}" \
     ACP_WRKQ_DB="${WRKQ_DB_FILE}" \
+    ACP_MOBILE_AUTH_PATH="${MOBILE_AUTH_FILE}" \
     ACP_COORD_DB_PATH="${DB_DIR}/acp-coordination.db" \
     ACP_INTERFACE_DB_PATH="${DB_DIR}/acp-interface.db" \
     ACP_STATE_DB_PATH="${DB_DIR}/acp-state.db" \
@@ -490,7 +508,7 @@ start_acp() {
     ASP_AGENTS_ROOT="${AGENTS_DIR}" \
     ACP_DEV_ENV_ROOT="${ROOT}" \
       nohup perl -MPOSIX -e 'POSIX::setsid() >= 0 or die "setsid: $!"; exec @ARGV or die "exec: $!"' \
-        bun "${REPO_ROOT}/packages/acp-server/src/cli.ts" >"${ACP_LOG}" 2>&1 &
+        bun --no-env-file "${REPO_ROOT}/packages/acp-server/src/cli.ts" >"${ACP_LOG}" 2>&1 &
     printf '%s\n' "$!" > "${ACP_PID_FILE}"
   )
   register_process acp "$(cat "${ACP_PID_FILE}")"
@@ -544,7 +562,13 @@ export HRC_STATE_DIR='${HRC_STATE}'
 export ASP_AGENTS_ROOT='${AGENTS_DIR}'
 export ASP_PROJECT='agent-control-plane'
 export WRKQ_DB='${WRKQ_DB_FILE}'
+export HRC_WRKQ_DB='${WRKQ_DB_FILE}'
+export WRKQ_DB_PATH=''
+export WRKQD_TOKEN=''
+export WRKQD_TOKEN_FILE=''
+export HRC_WRKQD_TOKEN_FILE=''
 export ACP_WRKQ_DB='${WRKQ_DB_FILE}'
+export ACP_MOBILE_AUTH_PATH='${MOBILE_AUTH_FILE}'
 export WRKF_HOOK_CATALOG='${WRKF_HOOK_CATALOG_FILE}'
 export ACP_BASE_URL='http://127.0.0.1:${port}'
 export ACP_PORT='${port}'
