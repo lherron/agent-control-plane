@@ -126,6 +126,10 @@ architecture-records *args:
 # Run all verification in one owned environment. The dev-env wrapper tears its
 # daemons down on success, failure, SIGINT, and SIGTERM.
 
+# Validate feature map structure, reachability and tracked source surfaces
+verify-feature-map:
+    bun scripts/verify-feature-map.ts
+
 # Run all verification in one owned environment with automatic teardown
 verify: architecture-records
     #!/usr/bin/env bash
@@ -136,6 +140,7 @@ verify: architecture-records
       just lint
       just typecheck
       just test
+      just verify-feature-map
     '
 
 # -- Ephemeral development environment (T-06914) -----------------------------

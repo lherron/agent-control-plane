@@ -17,6 +17,8 @@ references, operating procedures, and historical context.
 - [Local Git hooks](local-git-hooks.md) — Bootstrapping and understanding the repository's commit and push gates.
 - [Suppression guard](SUPPRESSION_GUARD.md) — Reviewed suppression markers, inventory, and validation policy.
 
+- [ACP verification skill](../spaces/verify-agent-control-plane/skills/verify-agent-control-plane/SKILL.md) — Scratch drives, feature maps, evidence limits and structural coverage gate.
+
 ## Workflow and scenario verification
 
 Workflow and scenario guides retain older command examples. Check the current
