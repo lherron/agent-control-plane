@@ -131,7 +131,10 @@ export async function runJobCommand(
       path: '/v1/admin/jobs/validate',
       body,
     })
-    return renderJsonOrTable(parsed, response, () => renderKeyValueTable(response as JobRecord))
+    const output = renderJsonOrTable(parsed, response, () =>
+      renderKeyValueTable(response as JobRecord)
+    )
+    return response.valid ? output : { ...output, exitCode: 1 }
   }
 
   if (subcommand === 'create') {
@@ -139,11 +142,6 @@ export async function runJobCommand(
     if (inFile !== undefined) {
       assertMutuallyExclusive(parsed)
       const { body } = loadJobFile(inFile)
-      // Allow --job to override jobId from file
-      const jobIdOverride = readStringFlag(parsed, '--job')
-      if (jobIdOverride !== undefined) {
-        body['jobId'] = jobIdOverride
-      }
       const response = await requester.requestJson<JobShowResponse>({
         method: 'POST',
         path: '/v1/admin/jobs',
@@ -153,9 +151,6 @@ export async function runJobCommand(
     }
 
     const body = {
-      ...(parsed.stringFlags['--job'] !== undefined
-        ? { jobId: requireStringFlag(parsed, '--job') }
-        : {}),
       projectId: requireStringFlag(parsed, '--project'),
       agentId: requireStringFlag(parsed, '--agent'),
       scopeRef: requireStringFlag(parsed, '--scope-ref'),

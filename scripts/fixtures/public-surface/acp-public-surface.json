@@ -1102,7 +1102,6 @@
           "--disabled",
           "--in",
           "--input",
-          "--job",
           "--json",
           "--lane-ref",
           "--project",

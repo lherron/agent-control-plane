@@ -267,12 +267,11 @@ describe('acp job --in flag', () => {
       expect(fetchQueue.calls).toHaveLength(1)
     })
 
-    test('--job overrides jobId from file', async () => {
+    test('--job is rejected because the server mints job ids', async () => {
       const jobFile = join(tempDir, 'job.json')
       writeFileSync(
         jobFile,
         JSON.stringify({
-          jobId: 'file-id',
           projectId: 'proj-1',
           agentId: 'agent-1',
           scopeRef: 'agent:agent-1:project:proj-1',
@@ -281,23 +280,15 @@ describe('acp job --in flag', () => {
         })
       )
 
-      const fetchQueue = createFetchQueue([
-        {
-          body: {
-            job: { jobId: 'override-id', projectId: 'proj-1' },
-          },
-          assert(request) {
-            expect((request.body as Record<string, unknown>)['jobId']).toBe('override-id')
-          },
-        },
-      ])
-
+      const fetchQueue = createFetchQueue([])
       const result = await runCli(
         ['job', 'create', '--in', jobFile, '--job', 'override-id', '--json'],
         { fetchImpl: fetchQueue.fetchImpl }
       )
 
-      expect(result.exitCode).toBe(0)
+      expect(result.exitCode).toBe(2)
+      expect(result.stderr).toContain('--job')
+      expect(fetchQueue.calls).toHaveLength(0)
     })
 
     test('mutual exclusion: --in with --input errors', async () => {

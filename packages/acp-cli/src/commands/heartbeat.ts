@@ -12,7 +12,16 @@ export async function runHeartbeatCommand(
   const rest = args.slice(1)
   const parsed = parseArgs(rest, {
     booleanFlags: ['--json'],
-    stringFlags: ['--agent', '--source', '--note', '--scope', '--lane', '--reason', '--server'],
+    stringFlags: [
+      '--agent',
+      '--source',
+      '--note',
+      '--scope',
+      '--lane',
+      '--reason',
+      '--actor',
+      '--server',
+    ],
   })
 
   requireNoPositionals(parsed)

@@ -96,7 +96,7 @@ Scratch helper fetches mobile health and verifies an unknown HTTP route is rejec
 
 ## Gotchas
 
-Health is not history/timeline or bearer-auth proof. Source fake-client tests are not Discord smoke. Never reuse live bindings, bot tokens, pairing state, delivery requests or production jobs. The dev-env scratch acp-server does not set `ACP_MOBILE_AUTH_PATH`, so it resolves the live `var/state/acp-server/mobile-auth.json`; never run `acp mobile auth|devices|pairing-code` or bearer requests against it. Only the acceptance fixture isolates mobile auth. `binding disable` rewrites the stored `gatewayType` to `unknown` (observed T-11918); do not read gateway type from a disabled binding. The acceptance gate was documented with an open campaign defect but exited 0 (13/13) on T-11918; report the actual exit.
+Health is not history/timeline or bearer-auth proof. Source fake-client tests are not Discord smoke. Never reuse live bindings, bot tokens, pairing state, delivery requests or production jobs. The dev-env scratch acp-server does not set `ACP_MOBILE_AUTH_PATH`, so it resolves the live `var/state/acp-server/mobile-auth.json`; never run `acp mobile auth|devices|pairing-code` or bearer requests against it. Only the acceptance fixture isolates mobile auth. `binding disable` changes only `status`; a binding upsert that omits `gatewayType` or `status` keeps the stored value (T-11922). The acceptance gate was documented with an open campaign defect but exited 0 (13/13) on T-11918; report the actual exit.
 
 ## Proven when
 

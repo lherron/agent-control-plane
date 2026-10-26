@@ -30,6 +30,7 @@ describe('admin interface binding disable command', () => {
             {
               bindingId: 'ifb_123',
               gatewayId: 'acp-discord-smoke',
+              gatewayType: 'discord',
               conversationRef: 'channel:123',
               sessionRef: {
                 scopeRef: 'agent:rex:project:agent-spaces',
@@ -46,6 +47,7 @@ describe('admin interface binding disable command', () => {
       async upsertInterfaceBinding(input) {
         expect(input).toEqual({
           gatewayId: 'acp-discord-smoke',
+          gatewayType: 'discord',
           conversationRef: 'channel:123',
           projectId: 'agent-spaces',
           sessionRef: {
@@ -59,6 +61,7 @@ describe('admin interface binding disable command', () => {
           binding: {
             bindingId: 'ifb_123',
             gatewayId: 'acp-discord-smoke',
+            gatewayType: 'discord',
             conversationRef: 'channel:123',
             sessionRef: {
               scopeRef: 'agent:rex:project:agent-spaces',

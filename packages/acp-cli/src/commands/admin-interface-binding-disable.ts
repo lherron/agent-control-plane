@@ -39,6 +39,7 @@ export async function runAdminInterfaceBindingDisableCommand(
 
   const response = await client.upsertInterfaceBinding({
     gatewayId: existing.gatewayId,
+    gatewayType: existing.gatewayType,
     conversationRef: existing.conversationRef,
     ...(existing.threadRef !== undefined ? { threadRef: existing.threadRef } : {}),
     ...(existing.projectId !== undefined ? { projectId: existing.projectId } : {}),

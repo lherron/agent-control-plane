@@ -48,7 +48,7 @@ export async function runAgentCommand(
   if (subcommand === 'list') {
     const parsed = parseArgs(rest, {
       booleanFlags: ['--json'],
-      stringFlags: ['--server'],
+      stringFlags: ['--actor', '--server'],
     })
     requireNoPositionals(parsed)
     return renderGovernanceResponse(parsed, await createGovernanceClient(parsed, deps).listAgents())
@@ -57,7 +57,7 @@ export async function runAgentCommand(
   if (subcommand === 'show') {
     const parsed = parseArgs(rest, {
       booleanFlags: ['--json'],
-      stringFlags: ['--agent', '--server'],
+      stringFlags: ['--agent', '--actor', '--server'],
     })
     requireNoPositionals(parsed)
     return renderGovernanceResponse(

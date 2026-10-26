@@ -608,8 +608,8 @@ function addCoordinationCommands(program: Command, deps: CommandDependencies): v
   tabular(job.command('validate').description('validate a job file'))
     .requiredOption('--in <file>', 'JSON job file to validate')
     .action(runLeaf(deps, ['validate'], runJobCommand))
+  // No --job: the server mints job ids (T-11922).
   tabular(job.command('create').description('create one job'))
-    .option('--job <jobId>')
     .option('--in <file>', 'JSON job file to import')
     .option('--project <projectId>')
     .option('--agent <agentId>')

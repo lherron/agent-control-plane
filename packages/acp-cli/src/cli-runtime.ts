@@ -2,7 +2,8 @@ import { AcpClientHttpError, AcpClientTransportError, isAcpErrorBody } from './h
 import { renderError } from './output/error-render.js'
 import { printJson } from './print.js'
 
-export type CommandOutput =
+/** `exitCode` exits non-zero after the output is written (e.g. a negative verdict). */
+export type CommandOutput = (
   | {
       format: 'json'
       body: unknown
@@ -11,6 +12,7 @@ export type CommandOutput =
       format: 'text'
       text: string
     }
+) & { exitCode?: number | undefined }
 
 export class CliUsageError extends Error {
   readonly exitCode = 2
@@ -41,10 +43,13 @@ export function printError(text: string): void {
 export function writeCommandOutput(output: CommandOutput): void {
   if (output.format === 'json') {
     printJson(output.body)
-    return
+  } else {
+    printText(output.text)
   }
 
-  printText(output.text)
+  if (output.exitCode !== undefined && output.exitCode !== 0) {
+    process.exit(output.exitCode)
+  }
 }
 
 export function exitWithError(error: unknown, options: { json: boolean }): never {

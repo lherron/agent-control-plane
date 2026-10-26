@@ -33,11 +33,11 @@ export const handleCreateInterfaceBinding: RouteHandler = async ({ request, deps
   const body = requireRecord(await parseJsonBody(request))
   const sessionRef = parseSessionRefField(body, 'sessionRef')
   const gatewayId = requireTrimmedStringField(body, 'gatewayId')
-  const gatewayType = readOptionalTrimmedStringField(body, 'gatewayType') ?? 'unknown'
+  const bodyGatewayType = readOptionalTrimmedStringField(body, 'gatewayType')
   const conversationRef = requireTrimmedStringField(body, 'conversationRef')
   const threadRef = readOptionalTrimmedStringField(body, 'threadRef')
   const bodyProjectId = readOptionalTrimmedStringField(body, 'projectId')
-  const status = parseInterfaceBindingStatus(body['status'])
+  const bodyStatus = parseInterfaceBindingStatus(body['status'])
 
   const parsedScope = parseScopeRef(sessionRef.scopeRef)
   if (parsedScope.projectId === undefined) {
@@ -64,6 +64,9 @@ export const handleCreateInterfaceBinding: RouteHandler = async ({ request, deps
     conversationRef,
     ...(threadRef !== undefined ? { threadRef } : {}),
   })
+  // A partial upsert keeps what it omits; defaults apply only to a new binding.
+  const gatewayType = bodyGatewayType ?? existing?.gatewayType ?? 'unknown'
+  const status = bodyStatus ?? existing?.status ?? 'active'
   const timestamp = new Date().toISOString()
   const saved = deps.interfaceStore.bindings.upsertByLookup({
     bindingId: existing?.bindingId ?? `ifb_${randomUUID().replace(/-/g, '').slice(0, 12)}`,

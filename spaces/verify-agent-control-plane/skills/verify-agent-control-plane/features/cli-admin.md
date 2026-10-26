@@ -116,7 +116,7 @@ Run `bun scripts/verify-acp-scratch.ts` inside the owned environment (see SKILL.
 
 ## Gotchas
 
-Global CLI actor flags are not accepted by every command: `heartbeat set`, `heartbeat wake`, `interface identity register` and `system-event push` reject `--actor` with `unknown flag: --actor` (observed T-11918), as do several reads. Pass actor on the other mutations and server on each call. `membership add --role` accepts only coordinator, implementer, tester or observer; `system-event push` requires `--occurred-at`. Managed-resource apply, heartbeat wake, pulpit/message and send can start real work; they remain undriven unless isolated authority is demonstrated.
+Every governance command, reads included, accepts `--actor` (fixed T-11922); pass it and `--server` on each call. `membership add --role` accepts only coordinator, implementer, tester or observer; `system-event push` requires `--occurred-at`. Managed-resource apply, heartbeat wake, pulpit/message and send can start real work; they remain undriven unless isolated authority is demonstrated.
 
 ## Proven when
 

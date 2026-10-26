@@ -17,7 +17,14 @@ export async function runInterfaceIdentityCommand(
 
   const parsed = parseArgs(rest, {
     booleanFlags: ['--json'],
-    stringFlags: ['--gateway', '--external-id', '--display-name', '--linked-agent', '--server'],
+    stringFlags: [
+      '--gateway',
+      '--external-id',
+      '--display-name',
+      '--linked-agent',
+      '--actor',
+      '--server',
+    ],
   })
   requireNoPositionals(parsed)
   const response = await createGovernanceClient(parsed, deps).registerInterfaceIdentity({

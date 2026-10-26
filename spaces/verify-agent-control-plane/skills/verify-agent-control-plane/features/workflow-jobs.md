@@ -9,7 +9,7 @@ Source anchors (repo-relative): packages/acp-core/src/index.ts; packages/acp-ser
 - Surface: `cli:acp action []`
 - Surface: `cli:acp action triage [--actor --force --json --server]`
 - Surface: `cli:acp job []`
-- Surface: `cli:acp job create [--actor --agent --cron --disabled --in --input --job --json --lane-ref --project --scope-ref --server --table]`
+- Surface: `cli:acp job create [--actor --agent --cron --disabled --in --input --json --lane-ref --project --scope-ref --server --table]`
 - Surface: `cli:acp job list [--actor --json --project --server --table]`
 - Surface: `cli:acp job patch [--actor --cron --disabled --enabled --in --input --job --json --server --table]`
 - Surface: `cli:acp job run [--actor --job --json --poll-interval --server --table --timeout --wait]`
@@ -79,7 +79,7 @@ Run `bun test tests/conformance/acp-workflow` for source conformance. The full o
 
 ## Gotchas
 
-Source conformance includes state-machine failure cases but is not installed job dispatch proof. Never load production schedules, managed resources, hooks, or job recipients into scratch. No live scheduler substitution. `job create --job <id>` does not set the id: the server mints `job_<hex>`, so read it from the create response. `job validate` exits 0 when the body reports `valid: false`; assert on the body. A fresh scratch jobs DB contains the built-in `acp-health-dispatch-timeout-fettle` event job.
+Source conformance includes state-machine failure cases but is not installed job dispatch proof. Never load production schedules, managed resources, hooks, or job recipients into scratch. No live scheduler substitution. `job create` takes no `--job` (usage error, exit 2): the server mints `job_<hex>`, so read it from the create response. `job validate` exits 1 when the body reports `valid: false` and still prints the errors (T-11922). A fresh scratch jobs DB contains the built-in `acp-health-dispatch-timeout-fettle` event job.
 
 ## Proven when
 

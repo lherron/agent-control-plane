@@ -14,7 +14,7 @@ export async function runSystemEventCommand(
   if (subcommand === 'push') {
     const parsed = parseArgs(rest, {
       booleanFlags: ['--json'],
-      stringFlags: ['--project', '--kind', '--payload', '--occurred-at', '--server'],
+      stringFlags: ['--project', '--kind', '--payload', '--occurred-at', '--actor', '--server'],
     })
     requireNoPositionals(parsed)
     const response = await createGovernanceClient(parsed, deps).appendSystemEvent({
@@ -29,7 +29,14 @@ export async function runSystemEventCommand(
   if (subcommand === 'list') {
     const parsed = parseArgs(rest, {
       booleanFlags: ['--json'],
-      stringFlags: ['--project', '--kind', '--occurred-after', '--occurred-before', '--server'],
+      stringFlags: [
+        '--project',
+        '--kind',
+        '--occurred-after',
+        '--occurred-before',
+        '--actor',
+        '--server',
+      ],
     })
     requireNoPositionals(parsed)
     const response = await createGovernanceClient(parsed, deps).listSystemEvents({

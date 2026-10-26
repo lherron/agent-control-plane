@@ -33,9 +33,11 @@ export function requireDeliveryRequestId(params: Record<string, string>): string
   return deliveryRequestId
 }
 
-export function parseInterfaceBindingStatus(value: unknown): ApiInterfaceBinding['status'] {
+export function parseInterfaceBindingStatus(
+  value: unknown
+): ApiInterfaceBinding['status'] | undefined {
   if (value === undefined) {
-    return 'active'
+    return undefined
   }
 
   if (value !== 'active' && value !== 'disabled') {

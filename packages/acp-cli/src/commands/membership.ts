@@ -49,7 +49,7 @@ export async function runMembershipCommand(
   if (subcommand === 'list') {
     const parsed = parseArgs(rest, {
       booleanFlags: ['--json'],
-      stringFlags: ['--project', '--server'],
+      stringFlags: ['--project', '--actor', '--server'],
     })
     requireNoPositionals(parsed)
     return renderGovernanceResponse(

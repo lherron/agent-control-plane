@@ -48,7 +48,7 @@ export async function runProjectCommand(
   if (subcommand === 'list') {
     const parsed = parseArgs(rest, {
       booleanFlags: ['--json'],
-      stringFlags: ['--server'],
+      stringFlags: ['--actor', '--server'],
     })
     requireNoPositionals(parsed)
     return renderGovernanceResponse(
@@ -60,7 +60,7 @@ export async function runProjectCommand(
   if (subcommand === 'show') {
     const parsed = parseArgs(rest, {
       booleanFlags: ['--json'],
-      stringFlags: ['--project', '--server'],
+      stringFlags: ['--project', '--actor', '--server'],
     })
     requireNoPositionals(parsed)
     return renderGovernanceResponse(

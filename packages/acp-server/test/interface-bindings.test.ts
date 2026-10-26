@@ -180,4 +180,59 @@ describe('interface binding endpoints', () => {
       expect(payload.binding.projectId).toBe(fixture.seed.projectId)
     })
   })
+
+  test('an upsert that omits gatewayType or status keeps the stored values', async () => {
+    await withWiredServer(async (fixture) => {
+      const sessionRef = {
+        scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
+        laneRef: 'main',
+      }
+      await fixture.request({
+        method: 'POST',
+        path: '/v1/interface/bindings',
+        body: {
+          gatewayId: 'discord_prod',
+          gatewayType: 'discord',
+          conversationRef: 'channel:partial',
+          sessionRef,
+          status: 'disabled',
+        },
+      })
+
+      const response = await fixture.request({
+        method: 'POST',
+        path: '/v1/interface/bindings',
+        body: { gatewayId: 'discord_prod', conversationRef: 'channel:partial', sessionRef },
+      })
+      const payload = await fixture.json<{ binding: { gatewayType: string; status: string } }>(
+        response
+      )
+
+      expect(response.status).toBe(200)
+      expect(payload.binding).toMatchObject({ gatewayType: 'discord', status: 'disabled' })
+    })
+  })
+
+  test('a new binding without gatewayType or status defaults to unknown and active', async () => {
+    await withWiredServer(async (fixture) => {
+      const response = await fixture.request({
+        method: 'POST',
+        path: '/v1/interface/bindings',
+        body: {
+          gatewayId: 'discord_prod',
+          conversationRef: 'channel:fresh',
+          sessionRef: {
+            scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
+            laneRef: 'main',
+          },
+        },
+      })
+      const payload = await fixture.json<{ binding: { gatewayType: string; status: string } }>(
+        response
+      )
+
+      expect(response.status).toBe(201)
+      expect(payload.binding).toMatchObject({ gatewayType: 'unknown', status: 'active' })
+    })
+  })
 })
