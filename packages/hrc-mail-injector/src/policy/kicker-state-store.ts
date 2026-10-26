@@ -46,7 +46,8 @@ export function openKickerStateStore(
 ): KickerStateStore {
   mkdirSync(dirname(path), { recursive: true })
   const sqlite = new Database(path)
-  sqlite.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;')
+  // busy_timeout first: journal_mode takes a lock (see acp-admin-store open-store).
+  sqlite.exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;')
   try {
     ensureSchema(sqlite)
     if (importFrom !== undefined) importKickerStateStore(sqlite, importFrom)

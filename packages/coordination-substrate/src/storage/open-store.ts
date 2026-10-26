@@ -61,9 +61,11 @@ export function createCoordinationDatabase(path: string): Database {
   }
 
   const sqlite = new Database(path)
+  // busy_timeout first: journal_mode takes a lock, and without a timeout a
+  // concurrent writer or closing checkpoint fails the open with SQLITE_BUSY.
+  sqlite.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS};`)
   sqlite.exec('PRAGMA journal_mode = WAL;')
   sqlite.exec('PRAGMA foreign_keys = ON;')
-  sqlite.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS};`)
   return sqlite
 }
 

@@ -177,9 +177,11 @@ function createSqliteDatabase(dbPath: string): SqliteDatabase {
   }
 
   const sqlite = new Database(dbPath)
+  // busy_timeout first: journal_mode takes a lock, and without a timeout a
+  // concurrent writer or closing checkpoint fails the open with SQLITE_BUSY.
+  sqlite.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS};`)
   sqlite.exec(PRAGMA_JOURNAL_MODE_WAL)
   sqlite.exec(PRAGMA_FOREIGN_KEYS_ON)
-  sqlite.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS};`)
   return sqlite
 }
 
