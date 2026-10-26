@@ -162,7 +162,9 @@ smoke test (not a mocked client) is mandatory — see
 
 ## Git hooks
 
-ACP uses Lefthook as a local commit/push gate. `just install` (or, for a
+ACP uses Lefthook for light local checks; `just verify` runs after the push
+on mini's self-hosted runner, not in a hook (see
+`docs/local-git-hooks.md`). `just install` (or, for a
 dependency-only bootstrap, `bun install && bun run install:hooks`) sets the
 clone-local `core.hooksPath=.githooks`; the committed `.githooks/pre-commit`
 and `.githooks/pre-push` wrappers invoke the local Lefthook binary and fail

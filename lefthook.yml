@@ -29,13 +29,7 @@ pre-commit:
       run: bun scripts/check-public-surface.ts
     enablement-changelog:
       run: bun scripts/check-enablement-changelog.ts
-    typecheck:
-      run: bun run build && bun run typecheck
 
-pre-push:
-  parallel: false
-  commands:
-    install:
-      run: bun install
-    test:
-      run: ASP_PROJECT=agent-control-plane bun run test:fast
+# No build, typecheck or test gate in the hooks: `just verify` runs after the
+# push on mini's self-hosted runner (T-11909, .github/workflows/post-push-verify.yml).
+# .githooks/pre-push still reports the push to the timeline via wrkp.
