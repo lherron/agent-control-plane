@@ -6,7 +6,7 @@ HRC injectors, the workflow kernel, task/control-plane state, the ACP HTTP
 server, and operator dashboards/viewers.
 
 Current implementation spec: [`docs/agent-control-plane-current-spec.md`](docs/agent-control-plane-current-spec.md) —
-it supersedes older top-level planning notes for current behavior.
+it supersedes older top-level planning notes for current behavior. Use the [documentation index](docs/README.md) for reference and runbook pages.
 
 ASP and HRC packages are external dependencies sourced from the canonical
 Verdaccio registry at `http://mini:4873/` — the fleet's sole writable registry
