@@ -25,7 +25,6 @@ verification page identifies removed ACP-authoritative routes explicitly.
 
 - [Supervisor playbook](acp-supervisor-playbook.md) — Workflow supervisor procedure and evidence/checkpoint coordination.
 - [Workflow verification](acp-workflow-verification.md) — Workflow checkpoints and historical verification procedures, including obsolete-surface notices.
-- [Active-run contribution smoke checklist](active-run-contribution-virtu-smoke-checklist.md) — Historical Virtu smoke cases for active-run provider contributions.
 - [Evidence provenance scenario](runbooks/flow-presets/evidence-provenance-attach.md) — Exercise standalone evidence attachment with three-source provenance.
 - [Hotfix scenario](runbooks/flow-presets/hotfix-implementer-tester.md) — Exercise implementer/tester separation of duties for a hotfix.
 - [Obligation lifecycle scenario](runbooks/flow-presets/obligation-waive-cancel-lifecycle.md) — Exercise obligation waiver and cancellation paths.
@@ -33,11 +32,11 @@ verification page identifies removed ACP-authoritative routes explicitly.
 - [Procurement scenario](runbooks/flow-presets/procurement-legal-approval.md) — Exercise vendor waiting and legal approval.
 - [Support escalation scenario](runbooks/flow-presets/support-escalation-customer-response.md) — Exercise a support escalation awaiting customer response.
 
-## Archived harness design
+## Delegated work
 
-These documents preserve the June 2026 PBC harness design discussion; use the
-current implementation spec for present behavior.
+- [Reconciler reference](../packages/acp-reconciler/README.md) — Live request marker, reserve-before-start protocol, stall rules, configuration and read-only explain command.
+- [Delegated request lifecycle](proposals/acp-reconciler-design/delegated-request-lifecycle.png) — As-built lifecycle diagram ([editable](proposals/acp-reconciler-design/delegated-request-lifecycle.arris.json)).
 
-- [PBC harness concept](archive/PBC_HARNESS.md) — Original proposal for an ACP execution facade over wrkf.
-- [PBC harness implementation plan](archive/PBC_HARNESS_IMPL_PLAN.md) — Historical implementation plan grounded against the then-current repositories.
-- [PBC harness validation and specification](archive/PBC_HARNESS_VALIDATION_AND_SPEC.md) — Historical design validation, corrections, and formal implementation target.
+Finished design and smoke records live with their tasks: the PBC harness drafts
+on T-11912, provider-contribution checklist on T-01381, and reconciler intent and
+proposal on T-09980. Use `wrkq attach ls <task>` to find and retrieve them.

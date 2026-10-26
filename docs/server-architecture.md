@@ -29,10 +29,11 @@ client of hrc-runtime for everything session/runtime.
   message/attachment records; input admission leases and queue state;
   interface bindings/identities/message sources/delivery records; agents,
   projects, memberships, system-events; conversation threads/turns;
-  jobs/job-runs/cron/flow; coordination messages.
+  jobs/job-runs/cron/flow; local coordination records. Collaboration rooms,
+  envelopes and reply obligations belong to the wrkq ledger.
 - **Delegates**: task/container/comment truth to **wrkq** and transition
-  legality/obligations/effects to **wrkf**, both reached through a single
-  shared `@wrkq/client` process (`client.wrkq.*` / `client.wrkf.*`). Session
+  legality/obligations/effects to **wrkf**, both reached through the shared
+  `@wrkq/client` lifecycle (`client.wrkq.*` / `client.wrkf.*`). Session
   lifecycle, PTY/runtime provisioning, and the canonical event stream belong
   to **hrc-runtime**; ACP is a client of the HRC SDK/socket and reads the
   HRC SQLite DB read-only for run status.
@@ -57,9 +58,9 @@ Route tables live in `packages/acp-server/src/routing/{exact-routes,param-routes
 | `/v1/tasks/:taskId*` | Thin wrkf facades: `GET` returns `{ source: "wrkf", task, instance, next, timeline, evidence, obligations, effects, runs }`; `POST .../transitions`, `.../evidence`, `.../obligations/:id/{waive,cancel}` delegate to wrkf. |
 | `/v1/workflow-participant-runs*`, `/v1/wrkf/*` | Participant run start/complete/fail via wrkf `run.*`; `/v1/wrkf/ping` returns `{"wrkf":"available"\|"unavailable"}`. |
 | `/v1/webhooks/events`, `/v1/webhooks/wrkq` | Loopback-trusted event webhook ingest: canonical `AcpWebhookEvent` v1, plus a wrkq-v2 compatibility adapter. |
-| `/v1/gateway/deliveries*`, `/v1/gateway/:gatewayId/deliveries/stream` | Gateway delivery queue (list/ack/fail/requeue) and an SSE delivery stream — this is how gateway-discord drains outbound work. |
+| `/v1/gateway/deliveries*`, `/v1/gateway/:gatewayId/deliveries/stream` | Gateway delivery queue (list/ack/fail/requeue) and a cursor-based delivery drain used by gateway-discord. |
 | `/v1/session-refs/events`, `/v1/sessions/:id/events` | SSE session/session-ref event streams, consumed by gateway-discord's live-progress subscriptions. |
-| `/v1/mobile/*` | Production HRC mobile surface (see [mobile and iOS gateway surface](/docs/agent-control-plane/mobile-gateway-surface)) — served directly by `acp-server`'s own handlers, not by the standalone `gateway-ios` package. |
+| `/v1/mobile/*` | Production HRC mobile surface (see [mobile and iOS gateway surface](mobile-gateway-surface.md)) — served directly by `acp-server`'s own handlers, not by the standalone `gateway-ios` package. |
 | `/v1/admin/system-events` | Immutable observer projection of lifecycle telemetry, rendered as Discord cards by gateway-discord. |
 
 Workflow authority note: ACP-authoritative task-creation, workflow-publish,
@@ -70,8 +71,8 @@ source of truth.
 
 ## How gateways live inside acp-server
 
-Both interface gateways are **embedded in the `acp-server` process**, not
-separate daemons, and both restart via `acp server restart`:
+The Discord gateway and production mobile HTTP/WS surface are **embedded in
+the `acp-server` process** and are activated via `acp server restart` by Mable primary:
 
 - **gateway-discord** (`packages/gateway-discord`) is booted in-process from
   `packages/acp-cli/src/server-runtime.ts`. It talks to `acp-server` as an
@@ -80,11 +81,11 @@ separate daemons, and both restart via `acp server restart`:
   channel routing, `/v1/gateway/deliveries/:id/{ack,fail}` to drain outbound
   work, `/v1/admin/system-events` to poll lifecycle cards, and
   `/v1/session-refs/events` (SSE) for live per-run progress edits. See
-  [gateway-discord message flow](/docs/agent-control-plane/gateway-discord-message-flow).
+  [gateway-discord message flow](gateway-discord-message-flow.md).
 - **The mobile surface** (`/v1/mobile/*`) is implemented directly inside
   `acp-server` (`packages/acp-server/src/handlers/{mobile,mobile-ws}.ts`),
   distinct from the standalone `packages/gateway-ios` dev binary. See
-  [mobile and iOS gateway surface](/docs/agent-control-plane/mobile-gateway-surface)
+  [mobile and iOS gateway surface](mobile-gateway-surface.md)
   for the split between the two.
 
 ## HRC launch bridge
@@ -112,11 +113,13 @@ each overridable by an `ACP_*_DB_PATH` env var (see
 ## wrkf/wrkq bridge
 
 `packages/acp-server/src/wrkf/{client-lifecycle,port,participant-launch,errors}.ts`
-hold the one shared `@wrkq/client` process instance that backs both
+own the primary `@wrkq/client` instance that backs both
 `client.wrkf.*` (task.inspect/syncMeta, transition.apply, evidence.*,
 obligation.*, effect.*, run.*, action.*, workflow.*) and `client.wrkq.*`
 (task.{create,show,update} with etag CAS, workflow.timeline, container.show)
-calls. The locator precedence for the wrkq database is `--wrkq-db`,
+calls. Collaboration writes for another authenticated principal use a pooled
+connection from the same lifecycle; per-call actor overrides are not authority.
+The locator precedence for the wrkq database is `--wrkq-db`,
 `--wrkq-db-path`, `ACP_WRKQ_DB`, `WRKQ_DB`, `ACP_WRKQ_DB_PATH`, then
 `WRKQ_DB_PATH`. `ACP_WRKF_DISABLED=1`/`true` bypasses wrkf startup for local
 dev/test; check live availability with `curl http://127.0.0.1:18470/v1/wrkf/ping`.

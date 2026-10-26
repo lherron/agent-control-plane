@@ -19,7 +19,7 @@ Treat the advance as one deployment operation:
 
 1. Run the dry run and review the derived membership and source commit.
 2. Run the real advance, review the exact manifest/table/lock diff, validate, commit, and push it.
-3. On each ACP node, land the commit, run `just install`, restart ACP, and read `/v1/admin/deployment-coherence` from that node.
+3. On each ACP node, land the commit, run `just install`, have Mable primary activate it with `acp server restart`, and read `/v1/admin/deployment-coherence` from that node.
 4. Continue only when every node reports `ok: true` and the intended installed/running source identities.
 
 Never use `just pull-deps`, routine `just install`, producer `sync-downstream`, or a moving `latest` tag to advance ASP/HRC. An HRC release selected locally but not published cannot be advanced, and HRC deploys to svc or hrcdev do not advance shared latest. `just check-deps` and `just install` print `PRODUCER_PINNED` advisory lines so registry movement remains visible without changing the deployed tuple.

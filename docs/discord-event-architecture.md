@@ -69,7 +69,7 @@ interface bindings to enrich cards.
 
 - `append(...)`, `existsWithPayloadField(...)`, and
   `list({ kind, projectId, occurredAfter, occurredBefore, afterEventId, limit })`.
-- `afterEventId` is a **monotonic `event_id` (rowid) cursor** — gap-free, with no
+- `afterEventId` is a **monotonic `event_id` (rowid) cursor** — with no
   same-`occurredAt` skip (occurredAt can collide; rowid cannot).
 - HTTP: `GET/POST /v1/admin/system-events`
   (`handlers/admin-system-events.ts`, routed in `routing/exact-routes.ts`).
@@ -79,7 +79,8 @@ interface bindings to enrich cards.
 ### 3. Render + egress (gateway-discord, embedded in acp-server)
 
 `packages/gateway-discord/src/job-runs.ts` (`buildJobRunCard`, pure event →
-embed) and `app.ts` (`pollJobRunsOnce` / `runJobRunsLoop`):
+embed), `work-activity.ts` (`buildWorkActivityCard`), and `app.ts`
+(`resolveCardTarget` / `pollSystemEventsOnce` / `runSystemEventsLoop`):
 
 - Polls `GET /v1/admin/system-events?afterEventId=&limit=200` **globally** (no
   kind filter; filters client-side and advances the cursor past every event so
@@ -87,37 +88,41 @@ embed) and `app.ts` (`pollJobRunsOnce` / `runJobRunsLoop`):
 - Primes the cursor to the current tail on (re)start → no historical flood.
   In-memory cursor ⇒ **best-effort near-real-time** (events while the gateway is
   down are skipped).
-- Posts via the existing webhook manager to **one fixed channel**. The interface
+- Posts via the existing webhook manager to **one fixed channel per family**:
+  `job.*` goes to job-runs; recognized `wrkq.*` / `wrkf.*` goes to work-activity. The interface
   binding store is **never** consulted — posting is global and unfiltered.
-  Failures log `gw.jobruns.post_failed` and are dropped.
+  Failures log `gw.system_events.post_failed` and are dropped.
 
 ## Config
 
 Channel is **host config, not a binding**:
 
 - env `ACP_DISCORD_JOB_RUNS_CHANNEL_ID` → Consul
-  `cfg/dev/_global/discord/job_runs_channel_id`. Unset disables the poll loop.
+  `cfg/dev/_global/discord/job_runs_channel_id`. Unset disables job cards.
+- env `ACP_DISCORD_WORK_ACTIVITY_CHANNEL_ID` → Consul
+  `cfg/dev/_global/discord/work_activity_channel_id`. Unset disables work cards.
+  The poll loop runs when either family has a destination.
 - gateway-discord is **embedded in acp-server** (no separate process); restart
-  with `acp server restart`. Discord secrets live in Consul
+  with `acp server restart` by Mable primary. Discord secrets live in Consul
   (`cfg/dev/_global/discord/*`).
 
 ## Adding a card for a new event kind
 
 1. **Emit** the new event in acp-server at the layer that observes the committed
    transition; guard idempotency with `existsWithPayloadField` on a stable id.
-2. **Render**: extend the gateway render path. Today it only recognizes `job.*`
-   (`buildJobRunCard` returns `undefined` otherwise) — generalize it to a
-   kind→builder dispatch map, or add a sibling builder. Same channel = reuse the
-   loop; different channel = add a config key + poll loop.
+2. **Render**: extend the appropriate builder and `resolveCardTarget` family
+   dispatch. `buildJobRunCard` handles `job.*`; `buildWorkActivityCard` handles
+   recognized wrkq/wrkf lifecycle kinds. A new family can add a sibling builder
+   and channel config while reusing the global poll loop.
 3. **Test** (bun:test, mirror existing): store cursor/exists, emitter
    (emit-once + idempotent + optional fields), card builder shape, poll loop
    (only relevant kinds posted, cursor advance, binding-bypass).
 4. **Validate for real** (mandatory, see AGENTS.md "Discord Gateway
    Validation"): trigger a real event, confirm the card lands in Discord, read
-   it back via the Discord REST API. Build the system-events store, then
-   acp-server, then `acp server restart`.
+   it back via the Discord REST API. Validate, commit and push, then run
+   `just install` and ask Mable primary to activate with `acp server restart`.
 
-## Card format (current; iterate freely)
+## Job card format
 
 Embed, `username = "<agent> · jobs"`, dicebear avatar thumbnail
 (`avatarFor` in `identity.ts`). `Task` is parsed from `scopeRef` via
@@ -135,7 +140,5 @@ Embed, `username = "<agent> · jobs"`, dicebear avatar thumbnail
 
 ## Follow-ups
 
-- Generalize the gateway render path to a kind→builder dispatch map.
 - Hybrid render: preserve fenced code blocks from agent replies.
-- Optional per-event-family channels (each needs a config key + poll loop, or a
-  per-kind channel map).
+- Additional event families can reuse the existing family dispatch and poll loop.

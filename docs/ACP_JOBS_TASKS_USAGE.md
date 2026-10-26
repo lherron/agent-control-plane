@@ -31,7 +31,8 @@ step's result to `job_step_runs`.
 | *(omitted)* / `agent` | legacy agent step — dispatch the step `input` as an agent turn | continue/fail |
 
 `probe.name` must be in the built-in registry (`knownProbeNames`:
-`hrc-stale-tty-reap.v1`, `wrkq-refactor-eligible.v1`). You cannot invent a probe
+`hrc-stale-tty-reap.v1`, `wrkq-refactor-eligible.v1`,
+`hrc-event-local-node.v1`). You cannot invent a probe
 in a flow file — for custom "only-run-when-there-is-work" gating, use an `exec`
 step and branch on its exit code.
 
@@ -142,7 +143,10 @@ node = ["svc", "max3"] # scalar, owner set, or "all"
 cron = "*/15 * * * *"
 
 [target]
-project = "<project>"; agent = "<agent>"; lane = "main"; task = "<task>"
+project = "<project>"
+agent = "<agent>"
+lane = "main"
+task = "<task>"
 
 [input]
 content = "..."          # job-level input (available as {{input.content}})
@@ -256,7 +260,7 @@ validate a flow without waiting for cron. Delivery of a `pulpit-message` can be
 confirmed in the interface store:
 
 ```bash
-sqlite3 var/db/acp-interface.db \
+sqlite3 ~/praesidium/var/db/acp-interface.db \
   "SELECT delivery_request_id, status, created_at FROM delivery_requests \
    WHERE binding_id='<binding>' ORDER BY created_at DESC LIMIT 3;"
 ```

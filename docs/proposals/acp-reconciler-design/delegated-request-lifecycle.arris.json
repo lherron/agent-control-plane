@@ -1567,7 +1567,7 @@
           "title": "diagram.title"
         },
         "stamp": "T-10011",
-        "subtitle": "ACP reconciler · delegated sessions as built 2026-10-01 · docs/proposals/acp-reconciler-proposal.md",
+        "subtitle": "ACP reconciler · delegated sessions as built 2026-10-01 · packages/acp-reconciler/README.md",
         "theme": "transit",
         "title": "A delegated request: reserved before dispatch, finished by its worker"
       }
@@ -1997,7 +1997,7 @@
         "max_height": 0.0,
         "max_width": 0.0,
         "size": 14.0,
-        "text": "ACP reconciler · delegated sessions as built 2026-10-01 · docs/proposals/acp-reconciler-proposal.md",
+        "text": "ACP reconciler · delegated sessions as built 2026-10-01 · packages/acp-reconciler/README.md",
         "tracking": 0.0
       }
     },

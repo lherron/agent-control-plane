@@ -1,7 +1,11 @@
 # acp-reconciler
 
-Starts delegated work and reports stalls. Spec:
-[docs/proposals/acp-reconciler-proposal.md](../../docs/proposals/acp-reconciler-proposal.md).
+Starts delegated work and reports stalls. This page describes the implementation.
+The completed intent and design proposal are task attachments ATT-00407 and
+ATT-00408 on T-09980 (delegated sessions reconciler package); retrieve them with
+`wrkq attach get <attachment-id>`. The
+[as-built lifecycle diagram](../../docs/proposals/acp-reconciler-design/delegated-request-lifecycle.png)
+also has an [editable source](../../docs/proposals/acp-reconciler-design/delegated-request-lifecycle.arris.json).
 
 A task or subtask carrying `meta.acp.request: { rev: <positive integer> }` is a
 delegated request. Every scan reads current wrkq and HRC state. There is no

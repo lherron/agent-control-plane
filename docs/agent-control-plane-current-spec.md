@@ -385,7 +385,7 @@ Treat as historical or migration material unless current source says otherwise:
 Untracked drafts observed during this cleanup:
 
 - `CANONICAL_WORKFLOW_REFACTOR.md`
-- `PBC_HARNESS.md`
+- PBC harness drafts (preserved as attachments on T-11912)
 
 They describe target refactor direction and should not be treated as current
 implementation until source and installed behavior match them.

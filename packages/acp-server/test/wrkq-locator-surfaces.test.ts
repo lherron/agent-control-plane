@@ -46,7 +46,6 @@ describe('wrkq locator static surfaces', () => {
         'packages/acp-cli/package.json',
         'packages/acp-server/package.json',
         'packages/gateway-discord/package.json',
-        'packages/gateway-ios/package.json',
         'packages/wrkq-lib/package.json',
       ]
 

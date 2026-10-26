@@ -12,7 +12,7 @@ provenance: authored
 
 `gateway-discord` (`packages/gateway-discord`) is the Discord interface
 gateway. It is **embedded inside `acp-server`** — there is no separate
-gateway-discord process to start or restart independently; `acp server restart` restarts both. It maps Discord channels/threads to ACP session
+gateway-discord process to start or restart independently; `acp server restart` restarts both (activation by Mable primary). It maps Discord channels/threads to ACP session
 scopes and renders agent activity and lifecycle events back into Discord.
 
 ## Inbound flow: Discord message → ACP run
@@ -20,8 +20,8 @@ scopes and renders agent activity and lifecycle events back into Discord.
 1. **`Events.MessageCreate`** fires in `app.ts` (`handleMessageCreate`).
    Thread-creation system messages are skipped; bot messages are dropped
    unless they come from the configured virtu test bot
-   (`DISCORD_VIRTU_BOT_ID`, default `1165644636807778414`) or are the
-   gateway's own outbound webhook messages.
+   (`DISCORD_VIRTU_BOT_ID`, default `1165644636807778414`). The gateway's own
+   bot messages are dropped too.
 2. The message's `(channelId[, threadId])` is turned into a
    `(conversationRef, threadRef)` pair (`bindings.ts`,
    `channel:<id>` / `thread:<id>`) and looked up in an in-memory
@@ -41,7 +41,9 @@ scopes and renders agent activity and lifecycle events back into Discord.
    for that session (`resolveInputIntent`): `contribute_to_active_run` with
    `fallback: 'reject'` when a live placeholder is tracked, or
    `fallback: 'queue'` when the mobile dashboard snapshot shows an active
-   turn accepting input — otherwise no intent (ordinary new-turn admission).
+   turn accepting input. Both contribution intents request
+   `contributionSemantics: 'interrupt_and_continue'`; otherwise there is no
+   intent (ordinary new-turn admission).
 6. The gateway `POST`s to **`/v1/interface/messages`** on its own
    `acp-server` host, with `idempotencyKey: discord:message:<messageId>`,
    the `source` (gatewayId, conversationRef, threadRef, messageRef,
@@ -156,6 +158,8 @@ Validation"), any change to Discord gateway behavior requires this kind of
 real-Discord smoke; mocked/fake Discord clients only count for automated
 tests, never as the manual validation step.
 
-Standard dev gateway id: `acp-discord-smoke`. A worked multi-case example
-(steering/contribution semantics under `HRC_ACTIVE_RUN_CONTRIBUTIONS_ENABLED`)
-lives in `docs/active-run-contribution-virtu-smoke-checklist.md`.
+Standard dev gateway id: `acp-discord-smoke`. The historical provider-contribution
+smoke checklist is preserved as attachment ATT-00140 on T-01381 (AgentSpaces
+provider contribution smoke); retrieve it with `wrkq attach get ATT-00140`.
+Its branch, feature flag and restart commands describe that finished test, not
+current operating instructions.
