@@ -107,13 +107,17 @@ function displayParty(party: WrkqEnvelope['from']): string {
     : formatScopeHandleDisplay(party.scopeRef)
 }
 
+function isQuiet(envelope: WrkqEnvelope): boolean {
+  return envelope.to === null || envelope.obligation === 'none' || envelope.obligation === 'note'
+}
+
 function mirrorGlyph(envelope: WrkqEnvelope): string {
-  if (envelope.to === null || envelope.obligation === 'none') return '·'
+  if (isQuiet(envelope)) return '·'
   return envelope.obligation === 'reply_required' ? '↪' : '▸'
 }
 
 function mirrorColor(envelope: WrkqEnvelope): number {
-  if (envelope.to === null || envelope.obligation === 'none') return 0x4b5563
+  if (isQuiet(envelope)) return 0x4b5563
   return envelope.obligation === 'reply_required' ? 0xe0a23c : 0x7c8595
 }
 
@@ -186,6 +190,8 @@ export function resolveEnvelopeSinks(
     humanChannelId !== undefined &&
     envelope.to !== null &&
     envelope.to.scopeRef === undefined &&
+    // A note is recorded for the recipient to read, never presented to them.
+    envelope.obligation !== 'note' &&
     route.humanPrincipalRef === envelope.to.principalRef &&
     !alreadyPresentedToDiscord(envelope)
   ) {

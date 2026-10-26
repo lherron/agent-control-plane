@@ -209,6 +209,38 @@ describe('collaboration ledger adapter', () => {
     expect(result.messages[0]?.state).toBe('failed')
   })
 
+  test('projects note envelopes alongside the other obligations', async () => {
+    const obligations = ['reply_required', 'fyi', 'note', 'none'] as const
+    const client = {
+      wrkq: {
+        room: {
+          async list() {
+            return { items: [{ key: 'T-07614' }] }
+          },
+          async logView() {
+            return {
+              items: obligations.map((obligation, index) =>
+                envelope(`EN-0003${index}`, 'T-07614', `2026-10-26T17:00:3${index}Z`, {
+                  obligation,
+                })
+              ),
+            }
+          },
+        },
+      },
+    } as unknown as WorkClient
+
+    const result = await createCollaborationLedger(client, 'agent:acp-server').listMessagesByMember(
+      {
+        memberRef: 'cody@agent-control-plane:T-07614',
+      }
+    )
+
+    expect(result.messages.map((message) => message.obligation).sort()).toEqual(
+      [...obligations].sort()
+    )
+  })
+
   test('projects every wrkq envelope state, including expired and withdrawn terminals', async () => {
     const states = [
       'pending',

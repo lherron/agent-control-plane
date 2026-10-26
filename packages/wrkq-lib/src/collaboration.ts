@@ -116,6 +116,8 @@ function normalizedLimit(limit: number | undefined): number {
 const COLLABORATION_OBLIGATIONS: Record<WrkqEnvelopeObligation, true> = {
   reply_required: true,
   fyi: true,
+  // Recorded and addressed but never presented; it still belongs in history.
+  note: true,
   none: true,
 }
 
