@@ -389,6 +389,28 @@ hrc_responds() {
     hrc server status --json >/dev/null 2>&1
 }
 
+# The native HRC (rusthrc) never creates or migrates a store: Bun owns
+# migrations, and native refuses any store whose migration set differs from its
+# own. Initialize the scratch store with the Bun store package shipped in the
+# same release as the installed binary, never ACP's pinned hrc-store-sqlite,
+# which trails the fleet. A Bun `hrc` creates its own store.
+provision_hrc_store() {
+  local bin release store_pkg
+  bin="$(readlink -f "$(command -v hrc)")"
+  [[ "$(basename "${bin}")" == rusthrc ]] || return 0
+  release="$(cd "$(dirname "${bin}")/.." && pwd)"
+  store_pkg="${release}/packages/hrc-store-sqlite/dist/index.js"
+  [[ -f "${store_pkg}" ]] || die "installed rusthrc release ${release} ships no ${store_pkg#"${release}"/}"
+  log "initializing scratch HRC store from ${release##*/}"
+  (
+    cd "${release}"
+    HRC_SCRATCH_STORE="${HRC_STATE}/state.sqlite" HRC_STORE_PKG="${store_pkg}" \
+      bun --no-env-file -e \
+      'const { openHrcDatabase } = await import(process.env.HRC_STORE_PKG); openHrcDatabase(process.env.HRC_SCRATCH_STORE).close()' \
+      >/dev/null
+  )
+}
+
 # `hrc server serve`, never `hrc server start`. `start` probes launchd and
 # kickstarts the LaunchAgent when one is loaded — on a developer laptop that
 # would start (or restart) the operator's PRODUCTION daemon and ignore the
@@ -408,6 +430,7 @@ start_hrc() {
   fi
 
   mkdir -p "${HRC_RUN_DIR}" "${HRC_STATE}"
+  provision_hrc_store
   log "starting ephemeral HRC daemon (hrc server serve) → ${HRC_LOG}"
   (
     cd "${REPO_ROOT}"
