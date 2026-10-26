@@ -76,8 +76,11 @@ MOBILE_AUTH_FILE="${ROOT}/mobile-auth.json"
 # inherit: the caller's shell (a seat, or the mini runner's .env) and Bun's
 # auto-loaded checkout .env.local both point at the live mini wrkqd. Bun never
 # overrides a variable that is already set, even to empty, so empty values
-# keep dotenv from restoring a live token (T-11918).
+# keep dotenv from restoring a live token (T-11918). WRKQ_PROJECT_ROOT is pinned
+# to a value rather than emptied: wrkq treats an empty export as unset and falls
+# back to the .env.local file it reads itself.
 SCRATCH_WRKQ_ENV=(
+  "WRKQ_PROJECT_ROOT=agent-control-plane"
   "WRKQ_DB=${WRKQ_DB_FILE}"
   "HRC_WRKQ_DB=${WRKQ_DB_FILE}"
   "WRKQ_DB_PATH="
