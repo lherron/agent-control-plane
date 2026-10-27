@@ -1678,79 +1678,6 @@ describe('advanceJobFlow exec steps', () => {
       expect(inputAttemptStore.calls).toHaveLength(0)
     })
   })
-
-  test('exec step leaves inputAttemptId and runId unset', async () => {
-    await withFlowHarness(async ({ deps, jobsStore }) => {
-      const { jobRun } = await advanceCreatedFlow({
-        deps,
-        jobsStore,
-        flow: {
-          sequence: [
-            execStep('probe', 'process.exit(0)', {
-              branches: { exitCode: { '0': 'succeed' } },
-            }),
-          ],
-        },
-      })
-
-      const step = jobsStore.jobStepRuns.getById(jobRun.jobRunId, 'sequence', 'probe', 1).jobStepRun
-      expect(step).toMatchObject({
-        status: 'succeeded',
-        inputAttemptId: undefined,
-        runId: undefined,
-      })
-    })
-  })
-
-  test('agent step with fresh true still clears continuation before dispatch', async () => {
-    await withFlowHarness(
-      async ({ deps, jobsStore, order }) => {
-        const hrcCalls: Array<{ method: string; request: unknown }> = []
-        const { advanced } = await advanceCreatedFlow({
-          deps: {
-            ...deps,
-            hrcClient: {
-              resolveSession: async (request: unknown) => {
-                order.push('resolveSession')
-                hrcCalls.push({ method: 'resolveSession', request })
-                return { found: true, hostSessionId: 'hsid-fresh' }
-              },
-              clearContext: async (request: unknown) => {
-                order.push('clearContext')
-                hrcCalls.push({ method: 'clearContext', request })
-                return {
-                  hostSessionId: 'hsid-fresh',
-                  generation: 2,
-                  priorHostSessionId: 'hsid-previous',
-                }
-              },
-            } as never,
-          } as never,
-          jobsStore,
-          flow: {
-            sequence: [{ id: 'fresh-start', input: 'start with fresh context', fresh: true }],
-          },
-        })
-
-        expect(advanced.status).toBe('succeeded')
-        expect(order).toEqual(['resolveSession', 'clearContext', 'dispatch'])
-        expect(hrcCalls).toEqual([
-          {
-            method: 'resolveSession',
-            request: {
-              sessionRef:
-                'agent:larry:project:demo-project:task:T-01319:role:implementer/lane:main',
-            },
-          },
-          {
-            method: 'clearContext',
-            request: { hostSessionId: 'hsid-fresh', dropContinuation: true },
-          },
-        ])
-      },
-      [{ status: 'completed' }]
-    )
-  })
 })
 
 describe('advanceJobFlow scheduled fresh pre-run cleanup', () => {
@@ -2244,100 +2171,6 @@ describe('advanceJobFlow scheduled fresh pre-run cleanup', () => {
     })
   })
 
-  test('benign unknown-runtime termination still dispatches', async () => {
-    await withFlowHarness(
-      async ({ deps, jobsStore, order }) => {
-        const job = createFlowJob(jobsStore, {
-          sequence: [{ id: 'fresh-start', input: 'start with fresh context', fresh: true }],
-        })
-        seedPriorStepRun({
-          deps,
-          jobsStore,
-          job,
-          jobRunId: 'jrun_prior',
-          stepId: 'fresh-start',
-          triggeredAt: '2026-04-28T12:00:00.000Z',
-          runtimeId: 'rt-prior',
-        })
-        const jobRun = createJobRun(jobsStore, job.jobId, {
-          jobRunId: 'jrun_current',
-          triggeredAt: '2026-04-28T12:20:00.000Z',
-          triggeredBy: 'schedule',
-          status: 'claimed',
-        })
-
-        const advanced = await advanceJobFlow({
-          deps: {
-            ...deps,
-            hrcClient: hrcClientForFreshStep({
-              order,
-              terminate: () => {
-                throw Object.assign(new Error('unknown runtime "rt-prior"'), {
-                  code: 'unknown_runtime',
-                })
-              },
-            }),
-          } as never,
-          job,
-          jobRun,
-          actor: { kind: 'system', id: 'flow-engine-test' },
-          now: '2026-04-28T12:21:00.000Z',
-        })
-
-        expect(advanced.status).toBe('succeeded')
-        expect(order).toEqual(['terminate:rt-prior', 'resolveSession', 'clearContext', 'dispatch'])
-      },
-      [{ status: 'completed' }]
-    )
-  })
-
-  test('already-terminated runtime termination still dispatches', async () => {
-    await withFlowHarness(
-      async ({ deps, jobsStore, order }) => {
-        const job = createFlowJob(jobsStore, {
-          sequence: [{ id: 'fresh-start', input: 'start with fresh context', fresh: true }],
-        })
-        seedPriorStepRun({
-          deps,
-          jobsStore,
-          job,
-          jobRunId: 'jrun_prior',
-          stepId: 'fresh-start',
-          triggeredAt: '2026-04-28T12:00:00.000Z',
-          runtimeId: 'rt-prior',
-        })
-        const jobRun = createJobRun(jobsStore, job.jobId, {
-          jobRunId: 'jrun_current',
-          triggeredAt: '2026-04-28T12:20:00.000Z',
-          triggeredBy: 'schedule',
-          status: 'claimed',
-        })
-
-        const advanced = await advanceJobFlow({
-          deps: {
-            ...deps,
-            hrcClient: hrcClientForFreshStep({
-              order,
-              terminate: () => {
-                throw Object.assign(new Error('runtime "rt-prior" is terminated'), {
-                  code: 'runtime_unavailable',
-                })
-              },
-            }),
-          } as never,
-          job,
-          jobRun,
-          actor: { kind: 'system', id: 'flow-engine-test' },
-          now: '2026-04-28T12:21:00.000Z',
-        })
-
-        expect(advanced.status).toBe('succeeded')
-        expect(order).toEqual(['terminate:rt-prior', 'resolveSession', 'clearContext', 'dispatch'])
-      },
-      [{ status: 'completed' }]
-    )
-  })
-
   test('T-05415: repeated terminate timeouts degrade and still rotate the scheduled fresh run', async () => {
     await withFlowHarness(
       async ({ deps, jobsStore, order }) => {
@@ -2462,49 +2295,53 @@ describe('advanceJobFlow scheduled fresh pre-run cleanup', () => {
     )
   })
 
-  test('T-05415: already gone runtime remains a clean success without degradation', async () => {
-    await withFlowHarness(
-      async ({ deps, jobsStore, order }) => {
-        const { advanced, stepRun, priorRuntimeId } =
-          await advanceScheduledFreshRunWithPriorRuntime({
-            deps,
-            jobsStore,
-            order,
-            priorRuntimeId: 'rt-already-gone',
-            currentJobRunId: 'jrun_current_already_gone',
-            terminate: () => {
-              throw Object.assign(new Error('unknown runtime "rt-already-gone"'), {
-                code: 'unknown_runtime',
-              })
-            },
-          })
+  test.each([
+    { code: 'unknown_runtime', message: 'unknown runtime "rt-already-gone"' },
+    { code: 'runtime_unavailable', message: 'runtime "rt-already-gone" is terminated' },
+  ])(
+    'T-05415: terminate failing with benign $code is a clean success without degradation',
+    async ({ code, message }) => {
+      await withFlowHarness(
+        async ({ deps, jobsStore, order }) => {
+          const { advanced, stepRun, priorRuntimeId } =
+            await advanceScheduledFreshRunWithPriorRuntime({
+              deps,
+              jobsStore,
+              order,
+              priorRuntimeId: 'rt-already-gone',
+              currentJobRunId: 'jrun_current_already_gone',
+              terminate: () => {
+                throw Object.assign(new Error(message), { code })
+              },
+            })
 
-        expect(advanced.status).toBe('succeeded')
-        expect(order).toEqual([
-          `terminate:${priorRuntimeId}`,
-          'resolveSession',
-          'clearContext',
-          'dispatch',
-        ])
-        expect(stepRun.status).toBe('succeeded')
-        expect(stepRun.error).toBeUndefined()
-        expect(stepRun).not.toMatchObject({
-          degradation: expect.objectContaining({
-            code: 'scheduled_fresh_pre_run_cleanup_degraded',
-          }),
-        })
-        expect(
-          jobsStore.claimPendingInboxEvents({
-            leaseOwner: 'flow-engine-test',
-            leaseExpiresAt: '2026-04-28T12:22:00.000Z',
-            now: '2026-04-28T12:21:30.000Z',
-            limit: 10,
+          expect(advanced.status).toBe('succeeded')
+          expect(order).toEqual([
+            `terminate:${priorRuntimeId}`,
+            'resolveSession',
+            'clearContext',
+            'dispatch',
+          ])
+          expect(stepRun.status).toBe('succeeded')
+          expect(stepRun.error).toBeUndefined()
+          expect(stepRun).not.toMatchObject({
+            degradation: expect.objectContaining({
+              code: 'scheduled_fresh_pre_run_cleanup_degraded',
+            }),
           })
-        ).toHaveLength(0)
-      },
-      [{ status: 'completed' }]
-    )
-  })
+          expect(
+            jobsStore.claimPendingInboxEvents({
+              leaseOwner: 'flow-engine-test',
+              leaseExpiresAt: '2026-04-28T12:22:00.000Z',
+              now: '2026-04-28T12:21:30.000Z',
+              limit: 10,
+            })
+          ).toHaveLength(0)
+        },
+        [{ status: 'completed' }]
+      )
+    }
+  )
 
   test('T-05415: reaped still-running predecessor is treated as terminal so the next scheduled fresh run proceeds', async () => {
     await withFlowHarness(
@@ -3337,5 +3174,73 @@ describe('advanceJobFlow exec resume/replay', () => {
         'sequence step select_refactor_task failed: exec step exit 1: Worktree is dirty after selecting a task; skipping agent dispatch.'
       )
     })
+  })
+})
+
+describe('preserved flow branch and incident', () => {
+  test('exec step leaves inputAttemptId and runId unset', async () => {
+    await withFlowHarness(async ({ deps, jobsStore }) => {
+      const { jobRun } = await advanceCreatedFlow({
+        deps,
+        jobsStore,
+        flow: {
+          sequence: [
+            execStep('probe', 'process.exit(0)', {
+              branches: { exitCode: { '0': 'succeed' } },
+            }),
+          ],
+        },
+      })
+
+      const step = jobsStore.jobStepRuns.getById(jobRun.jobRunId, 'sequence', 'probe', 1).jobStepRun
+      expect(step).toMatchObject({
+        status: 'succeeded',
+        inputAttemptId: undefined,
+        runId: undefined,
+      })
+    })
+  })
+  test('T-05415: already gone runtime remains a clean success without degradation', async () => {
+    await withFlowHarness(
+      async ({ deps, jobsStore, order }) => {
+        const { advanced, stepRun, priorRuntimeId } =
+          await advanceScheduledFreshRunWithPriorRuntime({
+            deps,
+            jobsStore,
+            order,
+            priorRuntimeId: 'rt-already-gone',
+            currentJobRunId: 'jrun_current_already_gone',
+            terminate: () => {
+              throw Object.assign(new Error('unknown runtime "rt-already-gone"'), {
+                code: 'unknown_runtime',
+              })
+            },
+          })
+
+        expect(advanced.status).toBe('succeeded')
+        expect(order).toEqual([
+          `terminate:${priorRuntimeId}`,
+          'resolveSession',
+          'clearContext',
+          'dispatch',
+        ])
+        expect(stepRun.status).toBe('succeeded')
+        expect(stepRun.error).toBeUndefined()
+        expect(stepRun).not.toMatchObject({
+          degradation: expect.objectContaining({
+            code: 'scheduled_fresh_pre_run_cleanup_degraded',
+          }),
+        })
+        expect(
+          jobsStore.claimPendingInboxEvents({
+            leaseOwner: 'flow-engine-test',
+            leaseExpiresAt: '2026-04-28T12:22:00.000Z',
+            now: '2026-04-28T12:21:30.000Z',
+            limit: 10,
+          })
+        ).toHaveLength(0)
+      },
+      [{ status: 'completed' }]
+    )
   })
 })

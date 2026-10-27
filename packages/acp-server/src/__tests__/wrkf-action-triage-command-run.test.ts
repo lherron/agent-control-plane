@@ -177,8 +177,52 @@ function baseInput() {
   }
 }
 
+type RouteLaunchOverrides = {
+  wrkf: InstrumentedWrkfPort
+  command: LaunchCommandScopedRun
+  legacy?: LaunchRoleScopedRun | undefined
+  adminStore?: WrkfActionLaunchDeps['adminStore'] | undefined
+}
+
+/** POST /v1/wrkf/actions/launch for action:"triage" through the real router. */
+async function postTriageLaunch(
+  overrides: RouteLaunchOverrides,
+  body: Record<string, unknown> = {}
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  return withWiredServer(
+    async (fixture) => {
+      const response = await fixture.request({
+        method: 'POST',
+        path: '/v1/wrkf/actions/launch',
+        body: {
+          taskId: TASK_ID,
+          action: ACTION,
+          role: ROLE,
+          lane: 'triage',
+          idempotencyKey: IDEMPOTENCY_KEY,
+          sessionRef: SESSION_REF,
+          initialPrompt: 'caller text must not become a free-text runner prompt',
+          ...body,
+        },
+      })
+      return {
+        status: response.status,
+        body: await fixture.json<Record<string, unknown>>(response),
+      }
+    },
+    {
+      wrkf: overrides.wrkf,
+      runtimeResolver: FAKE_RUNTIME_RESOLVER,
+      triageCommandTargetId: CONFIGURED_TRIAGE_TARGET_ID,
+      launchCommandScopedRun: overrides.command,
+      launchRoleScopedRun: overrides.legacy ?? (async () => LEGACY_LAUNCHED),
+      ...(overrides.adminStore !== undefined ? { adminStore: overrides.adminStore } : {}),
+    }
+  )
+}
+
 describe('action:"triage" command-run adapter contract', () => {
-  test('performs exactly action.start -> launchCommandScopedRun -> action.bindExternal with structured WRKF binding', async () => {
+  test('POST launch triage performs exactly action.start -> launchCommandScopedRun -> action.bindExternal with structured WRKF binding', async () => {
     const events: string[] = []
     const wrkf = makeFakeWrkfPort({
       start: async (params) => {
@@ -193,10 +237,9 @@ describe('action:"triage" command-run adapter contract', () => {
     const commandCalls: LaunchCommandScopedRunRequest[] = []
     const legacyCalls: unknown[] = []
 
-    const result = await launchAction(
-      makeCandidateDeps({
+    const response = await postTriageLaunch(
+      {
         wrkf,
-        events,
         command: async (request) => {
           commandCalls.push(request)
           events.push('launchCommandScopedRun')
@@ -207,13 +250,11 @@ describe('action:"triage" command-run adapter contract', () => {
           events.push('launchRoleScopedRun')
           return LEGACY_LAUNCHED
         },
-      }),
-      {
-        ...baseInput(),
-        stdinJson: { workerAgent: 'clod' },
-      }
+      },
+      { stdinJson: { workerAgent: 'clod' } }
     )
 
+    expect(response.status).toBe(201)
     expect(events).toEqual(['action.start', 'launchCommandScopedRun', 'action.bindExternal'])
     expect(legacyCalls).toHaveLength(0)
     expect(commandCalls).toHaveLength(1)
@@ -258,13 +299,11 @@ describe('action:"triage" command-run adapter contract', () => {
       transport: COMMAND_LAUNCHED.transport,
     })
     expect(wrkf._calls.filter((call) => call.method === 'action.fail')).toHaveLength(0)
-    expect(result.hrcRunId).toBe(COMMAND_LAUNCHED.runId)
+    expect(response.body['hrcRunId']).toBe(COMMAND_LAUNCHED.runId)
   })
 
-  test('resolves canonical project id to filesystem slug for triage runner binding', async () => {
-    const events: string[] = []
+  test('POST launch triage resolves a canonical project id to its filesystem slug in the runner binding', async () => {
     const adminStore = createInMemoryAdminStore()
-    const wrkf = makeFakeWrkfPort()
     const commandCalls: LaunchCommandScopedRunRequest[] = []
 
     try {
@@ -276,18 +315,16 @@ describe('action:"triage" command-run adapter contract', () => {
         now: '2026-06-28T21:30:00.000Z',
       })
 
-      await launchAction(
-        makeCandidateDeps({
-          wrkf,
-          events,
+      const response = await postTriageLaunch(
+        {
+          wrkf: makeFakeWrkfPort(),
           adminStore,
           command: async (request) => {
             commandCalls.push(request)
             return COMMAND_LAUNCHED
           },
-        }),
+        },
         {
-          ...baseInput(),
           sessionRef: {
             scopeRef: 'agent:smokey:project:P-00006:task:T-05287',
             laneRef: 'main',
@@ -295,6 +332,7 @@ describe('action:"triage" command-run adapter contract', () => {
         }
       )
 
+      expect(response.status).toBe(201)
       expect(commandCalls).toHaveLength(1)
       expect(commandCalls[0]?.binding).toMatchObject({
         WRKF_TASK_ID: TASK_ID,
@@ -334,7 +372,7 @@ describe('action:"triage" command-run adapter contract', () => {
 })
 
 describe('action:"triage" command-run rollback boundaries', () => {
-  test('launchCommandScopedRun failure fails the wrkf action with launch evidence and never binds', async () => {
+  test('POST launch: launchCommandScopedRun failure fails the wrkf action with launch evidence and never binds', async () => {
     const events: string[] = []
     const wrkf = makeFakeWrkfPort({
       start: async () => {
@@ -346,22 +384,17 @@ describe('action:"triage" command-run rollback boundaries', () => {
         return { failed: params['failureResult'] }
       },
     })
-    const launchError = new Error('configured triage runner target unavailable')
 
-    await expect(
-      launchAction(
-        makeCandidateDeps({
-          wrkf,
-          events,
-          command: async () => {
-            events.push('launchCommandScopedRun')
-            throw launchError
-          },
-        }),
-        baseInput()
-      )
-    ).rejects.toThrow('configured triage runner target unavailable')
+    const response = await postTriageLaunch({
+      wrkf,
+      command: async () => {
+        events.push('launchCommandScopedRun')
+        throw new Error('configured triage runner target unavailable')
+      },
+    })
 
+    expect(response.status).toBe(500)
+    expect(JSON.stringify(response.body)).toContain('configured triage runner target unavailable')
     expect(events).toEqual(['action.start', 'launchCommandScopedRun', 'action.fail'])
     expect(wrkf._calls.filter((call) => call.method === 'action.bindExternal')).toHaveLength(0)
     const failCall = wrkf._calls.find((call) => call.method === 'action.fail')
@@ -488,7 +521,7 @@ describe('action:"triage" command-run rollback boundaries', () => {
     expect(wrkf._calls.filter((call) => call.method === 'action.bindExternal')).toHaveLength(0)
   })
 
-  test('bindExternal failure fails the wrkf action with orphaned HRC evidence', async () => {
+  test('POST launch: bindExternal failure fails the wrkf action with orphaned HRC evidence', async () => {
     const events: string[] = []
     const wrkf = makeFakeWrkfPort({
       start: async () => {
@@ -506,21 +539,17 @@ describe('action:"triage" command-run rollback boundaries', () => {
     })
     const commandCalls: LaunchCommandScopedRunRequest[] = []
 
-    await expect(
-      launchAction(
-        makeCandidateDeps({
-          wrkf,
-          events,
-          command: async (request) => {
-            commandCalls.push(request)
-            events.push('launchCommandScopedRun')
-            return COMMAND_LAUNCHED
-          },
-        }),
-        baseInput()
-      )
-    ).rejects.toThrow('wrkf bindExternal conflict')
+    const response = await postTriageLaunch({
+      wrkf,
+      command: async (request) => {
+        commandCalls.push(request)
+        events.push('launchCommandScopedRun')
+        return COMMAND_LAUNCHED
+      },
+    })
 
+    expect(response.status).toBe(500)
+    expect(JSON.stringify(response.body)).toContain('wrkf bindExternal conflict')
     expect(commandCalls).toHaveLength(1)
     expect(events).toEqual([
       'action.start',
@@ -541,7 +570,7 @@ describe('action:"triage" command-run rollback boundaries', () => {
     })
   })
 
-  test('post-bind command failure is not treated as ACP semantic completion or failure', async () => {
+  test('POST launch: a command run that fails after dispatch is runner-owned — ACP binds and never fails the action', async () => {
     const events: string[] = []
     const wrkf = makeFakeWrkfPort({
       start: async () => {
@@ -558,22 +587,19 @@ describe('action:"triage" command-run rollback boundaries', () => {
       },
     })
 
-    await launchAction(
-      makeCandidateDeps({
-        wrkf,
-        events,
-        command: async () => {
-          events.push('launchCommandScopedRun')
-          return {
-            ...COMMAND_LAUNCHED,
-            status: 'failed-after-dispatch',
-            errorMessage: 'runner later failed; runner owns wrkf.action.fail',
-          } as typeof COMMAND_LAUNCHED
-        },
-      }),
-      baseInput()
-    )
+    const response = await postTriageLaunch({
+      wrkf,
+      command: async () => {
+        events.push('launchCommandScopedRun')
+        return {
+          ...COMMAND_LAUNCHED,
+          status: 'failed-after-dispatch',
+          errorMessage: 'runner later failed; runner owns wrkf.action.fail',
+        } as typeof COMMAND_LAUNCHED
+      },
+    })
 
+    expect(response.status).toBe(201)
     expect(events).toEqual(['action.start', 'launchCommandScopedRun', 'action.bindExternal'])
     expect(wrkf._calls.filter((call) => call.method === 'action.fail')).toHaveLength(0)
   })
@@ -620,18 +646,8 @@ describe('POST /v1/wrkf/actions/launch action:"triage" command material security
     )
   })
 
-  test('client command/argv/cwd/env cannot choose the runner; success uses only configuredTargetId, otherwise rejects before launch', async () => {
-    const events: string[] = []
-    const wrkf = makeFakeWrkfPort({
-      start: async () => {
-        events.push('action.start')
-        return CANNED_ACTION_RUN
-      },
-      bindExternal: async (params) => {
-        events.push('action.bindExternal')
-        return { ...CANNED_ACTION_RUN, externalRunRef: params['externalRunRef'] }
-      },
-    })
+  test('client command/argv/cwd/env in the launch body is rejected 400 before any wrkf or HRC call', async () => {
+    const wrkf = makeFakeWrkfPort()
     const commandCalls: LaunchCommandScopedRunRequest[] = []
     const legacyCalls: unknown[] = []
     const overrides = {
@@ -640,12 +656,10 @@ describe('POST /v1/wrkf/actions/launch action:"triage" command material security
       triageCommandTargetId: CONFIGURED_TRIAGE_TARGET_ID,
       launchCommandScopedRun: async (request: LaunchCommandScopedRunRequest) => {
         commandCalls.push(request)
-        events.push('launchCommandScopedRun')
         return COMMAND_LAUNCHED
       },
       launchRoleScopedRun: (async (input) => {
         legacyCalls.push(input)
-        events.push('launchRoleScopedRun')
         return LEGACY_LAUNCHED
       }) satisfies LaunchRoleScopedRun,
     }
@@ -669,21 +683,13 @@ describe('POST /v1/wrkf/actions/launch action:"triage" command material security
         },
       })
 
-      if (response.status === 201 || response.status === 200) {
-        expect(commandCalls).toHaveLength(1)
-        expect(legacyCalls).toHaveLength(0)
-        expect(commandCalls[0]?.configuredTargetId).toBe(CONFIGURED_TRIAGE_TARGET_ID)
-        expect(commandCalls[0]).not.toHaveProperty('command')
-        expect(commandCalls[0]).not.toHaveProperty('argv')
-        expect(commandCalls[0]).not.toHaveProperty('cwd')
-        expect(commandCalls[0]).not.toHaveProperty('env')
-        expect(commandCalls[0]?.binding['WRKF_ACTION_RUN_ID']).toBe(CANNED_ACTION_RUN.actionRunId)
-      } else {
-        expect([400, 422]).toContain(response.status)
-        expect(commandCalls).toHaveLength(0)
-        expect(legacyCalls).toHaveLength(0)
-        expect(wrkf._calls).toHaveLength(0)
-      }
+      expect(response.status).toBe(400)
+      const body = await fixture.json<{ error: { code: string; message: string } }>(response)
+      expect(body.error.code).toBe('client_command_material_rejected')
+      expect(body.error.message).toContain('client-supplied command')
+      expect(commandCalls).toHaveLength(0)
+      expect(legacyCalls).toHaveLength(0)
+      expect(wrkf._calls).toHaveLength(0)
     }, overrides)
   })
 })

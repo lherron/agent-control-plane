@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import { withWiredServer } from './fixtures/wired-server.js'
 
 describe('admin interface identity endpoints', () => {
-  test('creates and upserts interface identities', async () => {
+  test('POST interface identity creates (201) then upserts (200), and GET filters by gateway and externalId', async () => {
     await withWiredServer(async (fixture) => {
       const created = await fixture.request({
         method: 'POST',

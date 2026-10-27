@@ -236,9 +236,18 @@ describe('acp admin managed-resource apply', () => {
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toContain('job_123')
     expect(result.stdout).toContain('2026-06-18T13:00:00.000Z')
-    expect(result.stdout).toContain('false')
-    expect(result.stdout).toContain('no')
-    expect(result.stdout).toMatch(/flow|1.*fresh|fresh.*1/)
+    const row = result.stdout.split('\n').find((line) => line.includes('job_123'))
+    expect(row?.trim().split(/\s{2,}/)).toEqual([
+      'scheduled-job',
+      'agent-smokey.daily-triage',
+      'job_123',
+      'created',
+      '2026-06-18T13:00:00.000Z',
+      'false',
+      'no',
+      '1 steps / 1 fresh / 0 freshDuration',
+    ])
+    expect(result.stdout).toContain('created 1 / updated 0 / noop 0 / failed 0')
   })
 })
 

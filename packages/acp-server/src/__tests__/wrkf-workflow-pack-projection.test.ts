@@ -159,27 +159,6 @@ describe('P2a: GET /v1/tasks/:taskId — projection includes pack block', () => 
   // (no hash supplied here — hash-free case; pbcManifest returns supported:true).
   //
   describe('PBC workflow inspect → pack resolved as supported level-3 (RED: pack field absent)', () => {
-    test('GET returns 200 with pack field present when wrkf reports pbc-progressive-refinement@9', async () => {
-      await withWiredServer(
-        async (fixture) => {
-          const response = await fixture.request({
-            method: 'GET',
-            path: `/v1/tasks/${TASK_ID}`,
-          })
-          expect(response.status).toBe(200)
-          const body = await fixture.json<{ source: string; pack: unknown }>(response)
-          // RED: body.pack is undefined — handler does not return a pack field yet
-          expect(body.pack).toBeDefined()
-        },
-        {
-          wrkf: makePackTestWrkfPort({
-            templateId: 'pbc-progressive-refinement',
-            templateVersion: '9',
-          }),
-        }
-      )
-    })
-
     test('pack block has supported:true and level:3 for pbc-progressive-refinement@9', async () => {
       await withWiredServer(
         async (fixture) => {
@@ -195,29 +174,10 @@ describe('P2a: GET /v1/tasks/:taskId — projection includes pack block', () => 
           expect(body.pack).toBeDefined()
           expect(body.pack.supported).toBe(true)
           expect(body.pack.level).toBe(3)
-        },
-        {
-          wrkf: makePackTestWrkfPort({
-            templateId: 'pbc-progressive-refinement',
-            templateVersion: '9',
-          }),
-        }
-      )
-    })
-
-    test('pack block id is "pbc" for pbc-progressive-refinement@9', async () => {
-      await withWiredServer(
-        async (fixture) => {
-          const response = await fixture.request({
-            method: 'GET',
-            path: `/v1/tasks/${TASK_ID}`,
-          })
-          expect(response.status).toBe(200)
-          const body = await fixture.json<{
-            pack: { id?: string; level: number; supported: boolean }
-          }>(response)
-          // RED: body.pack is undefined
-          expect(body.pack?.id).toBe('pbc')
+          expect(body.pack.id).toBe('pbc')
+          expect((body as unknown as Record<string, unknown>)['source']).toBe('wrkf')
+          expect((body as unknown as Record<string, unknown>)['task']).toBeDefined()
+          expect((body as unknown as Record<string, unknown>)['next']).toBeDefined()
         },
         {
           wrkf: makePackTestWrkfPort({
@@ -236,27 +196,6 @@ describe('P2a: GET /v1/tasks/:taskId — projection includes pack block', () => 
   //             for any workflowRef not claimed by a registered pack.
   //
   describe('unknown workflow inspect → pack: { level: 0, supported: false } (RED: pack field absent)', () => {
-    test('GET returns 200 with pack field present when wrkf reports an unknown workflow', async () => {
-      await withWiredServer(
-        async (fixture) => {
-          const response = await fixture.request({
-            method: 'GET',
-            path: `/v1/tasks/${TASK_ID}`,
-          })
-          expect(response.status).toBe(200)
-          const body = await fixture.json<{ pack: unknown }>(response)
-          // RED: body.pack is undefined
-          expect(body.pack).toBeDefined()
-        },
-        {
-          wrkf: makePackTestWrkfPort({
-            templateId: 'agent-tasker-feature-request',
-            templateVersion: '3',
-          }),
-        }
-      )
-    })
-
     test('pack block has supported:false and level:0 for an unknown workflow ref', async () => {
       await withWiredServer(
         async (fixture) => {
@@ -272,30 +211,6 @@ describe('P2a: GET /v1/tasks/:taskId — projection includes pack block', () => 
           expect(body.pack).toBeDefined()
           expect(body.pack.supported).toBe(false)
           expect(body.pack.level).toBe(0)
-        },
-        {
-          wrkf: makePackTestWrkfPort({
-            templateId: 'agent-tasker-feature-request',
-            templateVersion: '3',
-          }),
-        }
-      )
-    })
-
-    test('pack block for unknown workflow has no id field', async () => {
-      await withWiredServer(
-        async (fixture) => {
-          const response = await fixture.request({
-            method: 'GET',
-            path: `/v1/tasks/${TASK_ID}`,
-          })
-          expect(response.status).toBe(200)
-          const body = await fixture.json<{
-            pack: { id?: string; level: number; supported: boolean }
-          }>(response)
-          // RED: body.pack is undefined
-          // GREEN: pack exists but has no id (no pack claimed this workflow)
-          expect(body.pack).toBeDefined()
           expect(body.pack.id).toBeUndefined()
         },
         {
@@ -313,35 +228,5 @@ describe('P2a: GET /v1/tasks/:taskId — projection includes pack block', () => 
   // RED because: handler does not include a `pack` field yet (body.pack is undefined).
   // GREEN once: pack field is added; source/task/instance/next etc. remain intact.
   //
-  describe('existing projection fields survive pack addition (RED: pack absent → fails early)', () => {
-    test('response still has source:"wrkf", task, next after pack field is added', async () => {
-      await withWiredServer(
-        async (fixture) => {
-          const response = await fixture.request({
-            method: 'GET',
-            path: `/v1/tasks/${TASK_ID}`,
-          })
-          expect(response.status).toBe(200)
-          const body = await fixture.json<{
-            source: string
-            task: unknown
-            next: unknown
-            pack: unknown
-          }>(response)
-          // Pack must be present (RED now)
-          expect(body.pack).toBeDefined()
-          // Pre-existing fields must remain
-          expect(body.source).toBe('wrkf')
-          expect(body.task).toBeDefined()
-          expect(body.next).toBeDefined()
-        },
-        {
-          wrkf: makePackTestWrkfPort({
-            templateId: 'pbc-progressive-refinement',
-            templateVersion: '9',
-          }),
-        }
-      )
-    })
-  })
+  describe('existing projection fields survive pack addition (RED: pack absent → fails early)', () => {})
 })

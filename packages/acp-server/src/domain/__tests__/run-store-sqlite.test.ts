@@ -69,7 +69,7 @@ describe('InMemoryRunStore', () => {
 })
 
 describe('SqliteRunStore', () => {
-  test('atomically rejects a stale active-status transition after completion', () => {
+  test('a stale pending->failed CAS after completion is refused and leaves the run completed', () => {
     const dbPath = createDbPath()
     const store = openAcpStateStore({ dbPath })
     try {

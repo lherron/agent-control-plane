@@ -162,7 +162,7 @@ async function readHistory(input: {
 }
 
 describe('mobile collaboration ledger', () => {
-  test('history keeps the HRC prompt and carries collaboration identity and cursors onto it', async () => {
+  test('history matches a delivered HRC prompt to its ledger envelope and stamps envelope identity and both cursors on one frame', async () => {
     const message = ledgerMessage()
     const hrcText = `[T-07614 · lance (gen 1) → you · reply required]\nhistory: wrkc log T-07614\n${message.body}`
     const history = await readHistory({
@@ -225,7 +225,7 @@ describe('mobile collaboration ledger', () => {
     ])
   })
 
-  test('live timeline merges a ledger message discovered alongside its HRC prompt', async () => {
+  test('live timeline frame for an HRC prompt carries the ledger envelope discovered after the snapshot', async () => {
     const message = ledgerMessage()
     const liveEvent = hrcPrompt(
       41,
@@ -329,7 +329,7 @@ describe('mobile collaboration ledger', () => {
     })
   })
 
-  test('room-key messages query is ledger-only because HRC rows have no room identity', async () => {
+  test('room-key message query returns ledger envelopes without reading HRC messages', async () => {
     const collaboration = ledger({
       messages: [ledgerMessage({ legacyMessageId: 'msg-legacy' })],
     })
@@ -364,7 +364,7 @@ describe('mobile collaboration ledger', () => {
     )
   })
 
-  test('human DM writes only the agent:lance collaboration ledger', async () => {
+  test('mobile human DM is written as agent:lance to the session wrkq member ref with its idempotency key', async () => {
     const principals: string[] = []
     const sayCalls: CollaborationSayInput[] = []
     const humanLedger = ledger({ sayCalls })

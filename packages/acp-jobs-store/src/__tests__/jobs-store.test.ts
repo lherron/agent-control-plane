@@ -1,59 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { validateJobFlow } from '../flow-validation.js'
 import { createInMemoryJobsStore } from '../index.js'
-
-type SqliteTableRow = { name: string }
-type SqliteColumnRow = { name: string }
-
-function listUserTables(store: ReturnType<typeof createInMemoryJobsStore>): string[] {
-  return (
-    store.sqlite
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
-      )
-      .all() as SqliteTableRow[]
-  ).map((row) => row.name)
-}
-
-function listColumns(
-  store: ReturnType<typeof createInMemoryJobsStore>,
-  tableName: string
-): string[] {
-  const escapedTableName = tableName.replaceAll('"', '""')
-  return (
-    store.sqlite.prepare(`PRAGMA table_info("${escapedTableName}")`).all() as SqliteColumnRow[]
-  ).map((row) => row.name)
-}
-
-function hasAnyColumn(columns: readonly string[], aliases: readonly string[]): boolean {
-  return aliases.some((alias) => columns.includes(alias))
-}
-
-function findJobsTable(store: ReturnType<typeof createInMemoryJobsStore>): {
-  tableName: string
-  columns: string[]
-} | null {
-  const requiredColumnAliases = [
-    ['job_id', 'jobId'],
-    ['scope_ref', 'scopeRef'],
-    ['lane_ref', 'laneRef'],
-    ['schedule', 'schedule_json', 'schedule_cron', 'cron'],
-    ['input', 'input_json', 'input_template', 'input_content'],
-    ['enabled', 'disabled'],
-    ['created_at', 'createdAt'],
-    ['updated_at', 'updatedAt'],
-  ] as const
-
-  for (const tableName of listUserTables(store)) {
-    const columns = listColumns(store, tableName)
-    if (requiredColumnAliases.every((aliases) => hasAnyColumn(columns, aliases))) {
-      return { tableName, columns }
-    }
-  }
-
-  return null
-}
 
 function resolveJobsCrud(store: ReturnType<typeof createInMemoryJobsStore>): {
   create: (...args: unknown[]) => unknown
@@ -115,29 +62,7 @@ function unwrapJobList(value: unknown): Record<string, unknown>[] {
 }
 
 describe('jobs store contract', () => {
-  test('creates a durable jobs table for schedules, targets, and lifecycle state', () => {
-    const store = createInMemoryJobsStore()
-
-    try {
-      const jobsTable = findJobsTable(store)
-
-      expect(jobsTable).not.toBeNull()
-      expect(store.migrations.applied).toContain('003_job_flow')
-      expect(jobsTable?.columns ?? []).toEqual(
-        expect.arrayContaining([
-          expect.stringMatching(/job/i),
-          expect.stringMatching(/scope/i),
-          expect.stringMatching(/schedule|cron/i),
-          expect.stringMatching(/input/i),
-          'flow_json',
-        ])
-      )
-    } finally {
-      store.close()
-    }
-  })
-
-  test('supports create, list, get, patch, and soft-archive job flows', async () => {
+  test('a job can be created, listed, patched, and archived out of the list', async () => {
     const store = createInMemoryJobsStore()
 
     try {
@@ -236,25 +161,6 @@ describe('jobs store contract', () => {
       ).toContainEqual(flow)
     } finally {
       store.close()
-    }
-  })
-
-  test('exposes validator failures for invalid flow definitions', () => {
-    const result = validateJobFlow({
-      sequence: [
-        { id: 'work', input: 'Do the work.' },
-        { id: 'work', input: 'Do it again.' },
-      ],
-    })
-
-    expect(result.valid).toBe(false)
-    if (!result.valid) {
-      expect(result.errors).toEqual([
-        expect.objectContaining({
-          code: 'duplicate_step_id',
-          path: 'flow.sequence[1].id',
-        }),
-      ])
     }
   })
 })

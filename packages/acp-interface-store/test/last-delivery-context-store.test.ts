@@ -27,7 +27,7 @@ function getFutureStore(store: InterfaceStore): FutureInterfaceStore {
 }
 
 describe('last delivery context store', () => {
-  test('keys rows by canonical sessionRef scope and lane', () => {
+  test('an ack recorded without a lane is found under lane main', () => {
     withInterfaceStore(({ store }) => {
       const futureStore = getFutureStore(store)
       const implicitMain = normalizeSessionRef({ scopeRef: 'agent:smokey:project:test' })

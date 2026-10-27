@@ -30,12 +30,10 @@
 
 import { describe, expect, test } from 'bun:test'
 
-import { formatHrcExternalRef } from 'acp-core'
 import type { HrcRuntimeIntent } from 'hrc-core'
 
+import { withWiredServer } from '../../test/fixtures/wired-server.js'
 import type { LaunchRoleScopedRun, RuntimeResolver } from '../deps.js'
-import { InMemoryRunStore } from '../domain/run-store.js'
-import { launchAction } from '../wrkf/action-launch.js'
 import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -57,12 +55,6 @@ const CANNED_ACTION_RUN = {
   role: ROLE,
   lane: 'implement',
   status: 'active',
-}
-
-// action.start result when the run is already bound — replay, no launch.
-const CANNED_ACTION_RUN_BOUND = {
-  ...CANNED_ACTION_RUN,
-  externalRunRef: 'hrc:hrc-run-already-launched-env-001',
 }
 
 const CANNED_LAUNCHED = {
@@ -132,6 +124,29 @@ const BASE_INPUT = {
   sessionRef: SESSION_REF,
 }
 
+async function captureRoutePrompt(
+  input: typeof BASE_INPUT & { initialPrompt?: string }
+): Promise<string> {
+  const captured: { intent?: HrcRuntimeIntent } = {}
+  await withWiredServer(
+    async (fixture) => {
+      const response = await fixture.request({
+        method: 'POST',
+        path: '/v1/wrkf/actions/launch',
+        body: input,
+      })
+      expect(response.status).toBe(201)
+    },
+    {
+      wrkf: makeFakeWrkfPort(),
+      launchRoleScopedRun: capturingLauncher(captured),
+      runtimeResolver: FAKE_RUNTIME_RESOLVER,
+    }
+  )
+  expect(captured.intent).toBeDefined()
+  return captured.intent?.initialPrompt ?? ''
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // Test 1 — prompt envelope without caller initialPrompt
 //
@@ -141,143 +156,19 @@ const BASE_INPUT = {
 // ═════════════════════════════════════════════════════════════════════════════
 
 describe('[RED T-05034 test 1] prompt envelope — no caller initialPrompt', () => {
-  test('launched intent.initialPrompt contains the actionRunId', async () => {
-    const wrkf = makeFakeWrkfPort()
-    const runStore = new InMemoryRunStore()
-    const captured: { intent?: HrcRuntimeIntent } = {}
-    const launcher = capturingLauncher(captured)
-
-    await launchAction(
-      { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT
-    )
-
-    const prompt = captured.intent?.initialPrompt ?? ''
-    expect(prompt).toContain(CANNED_ACTION_RUN.actionRunId)
-  })
-
-  test('launched intent.initialPrompt contains the wrkfRunId (underlying runId)', async () => {
-    const wrkf = makeFakeWrkfPort()
-    const runStore = new InMemoryRunStore()
-    const captured: { intent?: HrcRuntimeIntent } = {}
-
-    await launchAction(
-      {
-        wrkf,
-        runStore,
-        launchRoleScopedRun: capturingLauncher(captured),
-        runtimeResolver: FAKE_RUNTIME_RESOLVER,
-      },
-      BASE_INPUT
-    )
-
-    const prompt = captured.intent?.initialPrompt ?? ''
-    expect(prompt).toContain(CANNED_ACTION_RUN.runId)
-  })
-
-  test('launched intent.initialPrompt contains the taskId', async () => {
-    const wrkf = makeFakeWrkfPort()
-    const runStore = new InMemoryRunStore()
-    const captured: { intent?: HrcRuntimeIntent } = {}
-
-    await launchAction(
-      {
-        wrkf,
-        runStore,
-        launchRoleScopedRun: capturingLauncher(captured),
-        runtimeResolver: FAKE_RUNTIME_RESOLVER,
-      },
-      BASE_INPUT
-    )
-
-    const prompt = captured.intent?.initialPrompt ?? ''
-    expect(prompt).toContain(TASK_ID)
-  })
-
-  test('launched intent.initialPrompt contains the action name', async () => {
-    const wrkf = makeFakeWrkfPort()
-    const runStore = new InMemoryRunStore()
-    const captured: { intent?: HrcRuntimeIntent } = {}
-
-    await launchAction(
-      {
-        wrkf,
-        runStore,
-        launchRoleScopedRun: capturingLauncher(captured),
-        runtimeResolver: FAKE_RUNTIME_RESOLVER,
-      },
-      BASE_INPUT
-    )
-
-    const prompt = captured.intent?.initialPrompt ?? ''
-    expect(prompt).toContain(ACTION)
-  })
-
-  test('[RED] launched prompt includes explicit instruction to call wrkf.action.complete on success', async () => {
-    // TODAY: buildActionPrompt omits complete/fail instructions → FAILS.
-    const wrkf = makeFakeWrkfPort()
-    const runStore = new InMemoryRunStore()
-    const captured: { intent?: HrcRuntimeIntent } = {}
-
-    await launchAction(
-      {
-        wrkf,
-        runStore,
-        launchRoleScopedRun: capturingLauncher(captured),
-        runtimeResolver: FAKE_RUNTIME_RESOLVER,
-      },
-      BASE_INPUT
-    )
-
-    const prompt = captured.intent?.initialPrompt ?? ''
-    // The prompt must tell the worker to call wrkf.action.complete with this actionRunId.
-    expect(prompt).toContain('wrkf.action.complete')
-  })
-
-  test('[RED] launched prompt includes explicit instruction to call wrkf.action.fail on failure', async () => {
-    // TODAY: buildActionPrompt omits complete/fail instructions → FAILS.
-    const wrkf = makeFakeWrkfPort()
-    const runStore = new InMemoryRunStore()
-    const captured: { intent?: HrcRuntimeIntent } = {}
-
-    await launchAction(
-      {
-        wrkf,
-        runStore,
-        launchRoleScopedRun: capturingLauncher(captured),
-        runtimeResolver: FAKE_RUNTIME_RESOLVER,
-      },
-      BASE_INPUT
-    )
-
-    const prompt = captured.intent?.initialPrompt ?? ''
-    // The prompt must tell the worker to call wrkf.action.fail on failure.
-    expect(prompt).toContain('wrkf.action.fail')
-  })
-
   test('[RED] launched prompt references the specific actionRunId for the complete/fail calls', async () => {
     // The worker must know WHICH actionRunId to complete/fail.
     // buildActionPrompt includes the actionRun blob (so actionRunId is present),
     // but it does NOT include a targeted protocol instruction linking the
     // actionRunId to the complete/fail calls → the test checks for both tokens
     // together (actionRunId + complete/fail reference).
-    const wrkf = makeFakeWrkfPort()
-    const runStore = new InMemoryRunStore()
-    const captured: { intent?: HrcRuntimeIntent } = {}
-
-    await launchAction(
-      {
-        wrkf,
-        runStore,
-        launchRoleScopedRun: capturingLauncher(captured),
-        runtimeResolver: FAKE_RUNTIME_RESOLVER,
-      },
-      BASE_INPUT
-    )
-
-    const prompt = captured.intent?.initialPrompt ?? ''
+    const prompt = await captureRoutePrompt(BASE_INPUT)
     // Both actionRunId and the protocol instruction must coexist.
     expect(prompt).toContain(CANNED_ACTION_RUN.actionRunId)
+    expect(prompt).toContain(CANNED_ACTION_RUN.runId)
+    expect(prompt).toContain(TASK_ID)
+    expect(prompt).toContain(ACTION)
+    expect(prompt).toContain('hrc:')
     expect(prompt).toContain('wrkf.action.complete')
     expect(prompt).toContain('wrkf.action.fail')
   })
@@ -296,147 +187,10 @@ describe('[RED T-05034 test 1] prompt envelope — no caller initialPrompt', () 
 // ═════════════════════════════════════════════════════════════════════════════
 
 describe('[RED T-05034 test 1] prompt envelope — WITH caller initialPrompt', () => {
-  test('[RED] caller text is present in the launched prompt', async () => {
-    // This PASSES today (caller text is used as-is), but combined with the
-    // envelope-presence assertions below it forms the full contract.
-    const wrkf = makeFakeWrkfPort()
-    const runStore = new InMemoryRunStore()
-    const captured: { intent?: HrcRuntimeIntent } = {}
-
-    await launchAction(
-      {
-        wrkf,
-        runStore,
-        launchRoleScopedRun: capturingLauncher(captured),
-        runtimeResolver: FAKE_RUNTIME_RESOLVER,
-      },
-      { ...BASE_INPUT, initialPrompt: CALLER_INITIAL_PROMPT }
-    )
-
-    const prompt = captured.intent?.initialPrompt ?? ''
-    expect(prompt).toContain(CALLER_INITIAL_PROMPT)
-  })
-
-  test('[RED] actionRunId still present in prompt even when caller supplies initialPrompt', async () => {
-    // TODAY: caller's initialPrompt replaces the envelope → actionRunId absent → FAILS.
-    const wrkf = makeFakeWrkfPort()
-    const runStore = new InMemoryRunStore()
-    const captured: { intent?: HrcRuntimeIntent } = {}
-
-    await launchAction(
-      {
-        wrkf,
-        runStore,
-        launchRoleScopedRun: capturingLauncher(captured),
-        runtimeResolver: FAKE_RUNTIME_RESOLVER,
-      },
-      { ...BASE_INPUT, initialPrompt: CALLER_INITIAL_PROMPT }
-    )
-
-    const prompt = captured.intent?.initialPrompt ?? ''
-    expect(prompt).toContain(CANNED_ACTION_RUN.actionRunId)
-  })
-
-  test('[RED] taskId still present in prompt even when caller supplies initialPrompt', async () => {
-    // TODAY: caller prompt replaces the envelope → taskId absent → FAILS.
-    const wrkf = makeFakeWrkfPort()
-    const runStore = new InMemoryRunStore()
-    const captured: { intent?: HrcRuntimeIntent } = {}
-
-    await launchAction(
-      {
-        wrkf,
-        runStore,
-        launchRoleScopedRun: capturingLauncher(captured),
-        runtimeResolver: FAKE_RUNTIME_RESOLVER,
-      },
-      { ...BASE_INPUT, initialPrompt: CALLER_INITIAL_PROMPT }
-    )
-
-    const prompt = captured.intent?.initialPrompt ?? ''
-    expect(prompt).toContain(TASK_ID)
-  })
-
-  test('[RED] wrkf.action.complete instruction present even when caller supplies initialPrompt', async () => {
-    // TODAY: caller prompt replaces the envelope entirely → FAILS.
-    const wrkf = makeFakeWrkfPort()
-    const runStore = new InMemoryRunStore()
-    const captured: { intent?: HrcRuntimeIntent } = {}
-
-    await launchAction(
-      {
-        wrkf,
-        runStore,
-        launchRoleScopedRun: capturingLauncher(captured),
-        runtimeResolver: FAKE_RUNTIME_RESOLVER,
-      },
-      { ...BASE_INPUT, initialPrompt: CALLER_INITIAL_PROMPT }
-    )
-
-    const prompt = captured.intent?.initialPrompt ?? ''
-    expect(prompt).toContain('wrkf.action.complete')
-  })
-
-  test('[RED] wrkf.action.fail instruction present even when caller supplies initialPrompt', async () => {
-    // TODAY: caller prompt replaces the envelope entirely → FAILS.
-    const wrkf = makeFakeWrkfPort()
-    const runStore = new InMemoryRunStore()
-    const captured: { intent?: HrcRuntimeIntent } = {}
-
-    await launchAction(
-      {
-        wrkf,
-        runStore,
-        launchRoleScopedRun: capturingLauncher(captured),
-        runtimeResolver: FAKE_RUNTIME_RESOLVER,
-      },
-      { ...BASE_INPUT, initialPrompt: CALLER_INITIAL_PROMPT }
-    )
-
-    const prompt = captured.intent?.initialPrompt ?? ''
-    expect(prompt).toContain('wrkf.action.fail')
-  })
-
-  test('[RED] caller text does not REPLACE the envelope: prompt is not equal to caller text alone', async () => {
-    // TODAY: prompt === initialPrompt (caller text IS the entire prompt) → FAILS.
-    const wrkf = makeFakeWrkfPort()
-    const runStore = new InMemoryRunStore()
-    const captured: { intent?: HrcRuntimeIntent } = {}
-
-    await launchAction(
-      {
-        wrkf,
-        runStore,
-        launchRoleScopedRun: capturingLauncher(captured),
-        runtimeResolver: FAKE_RUNTIME_RESOLVER,
-      },
-      { ...BASE_INPUT, initialPrompt: CALLER_INITIAL_PROMPT }
-    )
-
-    const prompt = captured.intent?.initialPrompt ?? ''
-    // The prompt must be LONGER than the caller text alone (envelope wraps it).
-    expect(prompt).not.toBe(CALLER_INITIAL_PROMPT)
-    expect(prompt.length).toBeGreaterThan(CALLER_INITIAL_PROMPT.length)
-  })
-
   test('[RED] envelope and caller text coexist: all protocol fields + caller text present together', async () => {
     // Compound assertion: every required envelope field plus the caller payload
     // must appear in a single prompt string. TODAY this FAILS.
-    const wrkf = makeFakeWrkfPort()
-    const runStore = new InMemoryRunStore()
-    const captured: { intent?: HrcRuntimeIntent } = {}
-
-    await launchAction(
-      {
-        wrkf,
-        runStore,
-        launchRoleScopedRun: capturingLauncher(captured),
-        runtimeResolver: FAKE_RUNTIME_RESOLVER,
-      },
-      { ...BASE_INPUT, initialPrompt: CALLER_INITIAL_PROMPT }
-    )
-
-    const prompt = captured.intent?.initialPrompt ?? ''
+    const prompt = await captureRoutePrompt({ ...BASE_INPUT, initialPrompt: CALLER_INITIAL_PROMPT })
     expect(prompt).toContain(CANNED_ACTION_RUN.actionRunId)
     expect(prompt).toContain(CANNED_ACTION_RUN.runId) // wrkfRunId
     expect(prompt).toContain(TASK_ID)
@@ -444,6 +198,7 @@ describe('[RED T-05034 test 1] prompt envelope — WITH caller initialPrompt', (
     expect(prompt).toContain('wrkf.action.complete')
     expect(prompt).toContain('wrkf.action.fail')
     expect(prompt).toContain(CALLER_INITIAL_PROMPT)
+    expect(prompt).not.toBe(CALLER_INITIAL_PROMPT)
   })
 })
 
@@ -461,32 +216,7 @@ describe('[RED T-05034 test 1] prompt envelope — WITH caller initialPrompt', (
 // expected ref format or a placeholder. Today the prompt doesn't mention hrc refs.
 // ═════════════════════════════════════════════════════════════════════════════
 
-describe('[RED T-05034 test 1] prompt envelope — HRC binding context', () => {
-  test('[RED] launched prompt references the expected hrc:<runId> external ref format', async () => {
-    // The envelope must tell the worker what external ref format is used so it
-    // can include it in failure_result if needed. Today no hrc ref appears.
-    // NOTE: the hrcRunId is NOT known before launch; the impl must include either
-    // a protocol note about the hrc: scheme or a format hint.
-    // We accept: the launched prompt contains 'hrc:' as a prefix hint.
-    const wrkf = makeFakeWrkfPort()
-    const runStore = new InMemoryRunStore()
-    const captured: { intent?: HrcRuntimeIntent } = {}
-
-    await launchAction(
-      {
-        wrkf,
-        runStore,
-        launchRoleScopedRun: capturingLauncher(captured),
-        runtimeResolver: FAKE_RUNTIME_RESOLVER,
-      },
-      BASE_INPUT
-    )
-
-    const prompt = captured.intent?.initialPrompt ?? ''
-    // Envelope should mention the hrc: ref format or the actionRunId binding context.
-    expect(prompt).toContain('hrc:')
-  })
-})
+describe('[RED T-05034 test 1] prompt envelope — HRC binding context', () => {})
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Test 7 — Launch retry idempotency: envelope content is deterministic
@@ -502,169 +232,33 @@ describe('[RED T-05034 test 1] prompt envelope — HRC binding context', () => {
 // ═════════════════════════════════════════════════════════════════════════════
 
 describe('[RED T-05034 test 7] launch envelope idempotency', () => {
-  test('[RED] two identical launch calls (same input) produce identical envelope content', async () => {
-    // Two launchAction calls with distinct run stores (simulating two retries
-    // that each launch fresh). Both should produce the same envelope.
-    const captured1: { intent?: HrcRuntimeIntent } = {}
-    const captured2: { intent?: HrcRuntimeIntent } = {}
+  test.each([{ initialPrompt: undefined }, { initialPrompt: CALLER_INITIAL_PROMPT }])(
+    'fresh launches produce identical envelopes with caller prompt $initialPrompt',
+    async ({ initialPrompt }) => {
+      // Two launchAction calls with distinct run stores (simulating two retries
+      // that each launch fresh). Both should produce the same envelope.
+      const input = { ...BASE_INPUT, idempotencyKey: 'wrkf-idem-a-001', initialPrompt }
+      const prompt1 = await captureRoutePrompt(input)
+      const prompt2 = await captureRoutePrompt(input)
 
-    const wrkf1 = makeFakeWrkfPort()
-    await launchAction(
-      {
-        wrkf: wrkf1,
-        runStore: new InMemoryRunStore(),
-        launchRoleScopedRun: capturingLauncher(captured1),
-        runtimeResolver: FAKE_RUNTIME_RESOLVER,
-      },
-      { ...BASE_INPUT, idempotencyKey: 'wrkf-idem-a-001' }
-    )
+      // Both prompts must contain the full protocol envelope (not just a stub).
+      expect(prompt1).toContain('wrkf.action.complete')
+      expect(prompt1).toContain('wrkf.action.fail')
+      expect(prompt2).toContain('wrkf.action.complete')
+      expect(prompt2).toContain('wrkf.action.fail')
 
-    const wrkf2 = makeFakeWrkfPort()
-    await launchAction(
-      {
-        wrkf: wrkf2,
-        runStore: new InMemoryRunStore(),
-        launchRoleScopedRun: capturingLauncher(captured2),
-        runtimeResolver: FAKE_RUNTIME_RESOLVER,
-      },
-      { ...BASE_INPUT, idempotencyKey: 'wrkf-idem-a-001' }
-    )
+      for (const prompt of [prompt1, prompt2]) {
+        if (initialPrompt) {
+          expect(prompt).toContain(CANNED_ACTION_RUN.actionRunId)
+          expect(prompt).toContain(initialPrompt)
+        }
+      }
 
-    const prompt1 = captured1.intent?.initialPrompt ?? ''
-    const prompt2 = captured2.intent?.initialPrompt ?? ''
-
-    // Both prompts must contain the full protocol envelope (not just a stub).
-    expect(prompt1).toContain('wrkf.action.complete')
-    expect(prompt1).toContain('wrkf.action.fail')
-    expect(prompt2).toContain('wrkf.action.complete')
-    expect(prompt2).toContain('wrkf.action.fail')
-
-    // They must be identical (deterministic from inputs).
-    expect(prompt1).toBe(prompt2)
-  })
-
-  test('[RED] repeated launch with same idempotencyKey and caller initialPrompt → envelope + caller text in both', async () => {
-    // Both retried calls must produce envelopes that wrap the caller text.
-    const captured1: { intent?: HrcRuntimeIntent } = {}
-    const captured2: { intent?: HrcRuntimeIntent } = {}
-
-    const wrkf1 = makeFakeWrkfPort()
-    await launchAction(
-      {
-        wrkf: wrkf1,
-        runStore: new InMemoryRunStore(),
-        launchRoleScopedRun: capturingLauncher(captured1),
-        runtimeResolver: FAKE_RUNTIME_RESOLVER,
-      },
-      { ...BASE_INPUT, idempotencyKey: 'wrkf-idem-b-001', initialPrompt: CALLER_INITIAL_PROMPT }
-    )
-
-    const wrkf2 = makeFakeWrkfPort()
-    await launchAction(
-      {
-        wrkf: wrkf2,
-        runStore: new InMemoryRunStore(),
-        launchRoleScopedRun: capturingLauncher(captured2),
-        runtimeResolver: FAKE_RUNTIME_RESOLVER,
-      },
-      { ...BASE_INPUT, idempotencyKey: 'wrkf-idem-b-001', initialPrompt: CALLER_INITIAL_PROMPT }
-    )
-
-    const prompt1 = captured1.intent?.initialPrompt ?? ''
-    const prompt2 = captured2.intent?.initialPrompt ?? ''
-
-    // Each prompt must contain the full envelope AND the caller text.
-    for (const prompt of [prompt1, prompt2]) {
-      expect(prompt).toContain('wrkf.action.complete')
-      expect(prompt).toContain('wrkf.action.fail')
-      expect(prompt).toContain(CANNED_ACTION_RUN.actionRunId)
-      expect(prompt).toContain(CALLER_INITIAL_PROMPT)
+      // They must be identical (deterministic from inputs).
+      expect(prompt1).toBe(prompt2)
     }
-
-    // Both must be identical.
-    expect(prompt1).toBe(prompt2)
-  })
-
-  test('replay via wrkf-bound action run skips launch (no second prompt built)', async () => {
-    // Existing behavior (GREEN): if action.start returns an already-bound run,
-    // no HRC launch occurs, so no prompt is built. This test stays GREEN.
-    const wrkf = makeFakeWrkfPort({ start: async () => CANNED_ACTION_RUN_BOUND })
-    const runStore = new InMemoryRunStore()
-    let launchCalled = false
-    const launcher: LaunchRoleScopedRun = async () => {
-      launchCalled = true
-      return CANNED_LAUNCHED
-    }
-
-    const result = await launchAction(
-      { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT
-    )
-
-    expect(result.replay).toBe(true)
-    expect(launchCalled).toBe(false)
-  })
-
-  test('[RED] envelope contains the hrc: external ref format hint in repeat launches too', async () => {
-    const wrkf = makeFakeWrkfPort()
-    const runStore = new InMemoryRunStore()
-    const captured: { intent?: HrcRuntimeIntent } = {}
-
-    await launchAction(
-      {
-        wrkf,
-        runStore,
-        launchRoleScopedRun: capturingLauncher(captured),
-        runtimeResolver: FAKE_RUNTIME_RESOLVER,
-      },
-      { ...BASE_INPUT, idempotencyKey: 'wrkf-idem-hrc-001' }
-    )
-
-    const prompt = captured.intent?.initialPrompt ?? ''
-    // Envelope includes hrc: format so worker knows the ref scheme.
-    expect(prompt).toContain('hrc:')
-    // No random content: the envelope is stable / deterministic.
-    expect(typeof prompt).toBe('string')
-    expect(prompt.length).toBeGreaterThan(50)
-  })
+  )
 })
 
 // ─── Regression guard ────────────────────────────────────────────────────────
 // Existing adapter behaviors that must NOT regress. These are currently GREEN.
-
-describe('[GREEN regression] existing adapter behaviors — must not regress', () => {
-  test('happy path still returns correct ids (non-envelope behaviors unchanged)', async () => {
-    const wrkf = makeFakeWrkfPort()
-    const runStore = new InMemoryRunStore()
-    const launcher: LaunchRoleScopedRun = async () => CANNED_LAUNCHED
-
-    const result = await launchAction(
-      { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT
-    )
-
-    expect(result.source).toBe('wrkf-action')
-    expect(result.taskId).toBe(TASK_ID)
-    expect(result.actionRunId).toBe(CANNED_ACTION_RUN.actionRunId)
-    expect(result.wrkfRunId).toBe(CANNED_ACTION_RUN.runId)
-    expect(result.hrcRunId).toBe(CANNED_LAUNCHED.runId)
-    expect(result.externalRunRef).toBe(formatHrcExternalRef(CANNED_LAUNCHED.runId))
-    expect(result.replay).toBe(false)
-  })
-
-  test('action.bindExternal is called with hrc:<id> ref and actionRunId', async () => {
-    const wrkf = makeFakeWrkfPort()
-    const runStore = new InMemoryRunStore()
-    const launcher: LaunchRoleScopedRun = async () => CANNED_LAUNCHED
-
-    await launchAction(
-      { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT
-    )
-
-    const bindCall = wrkf._calls.find((c) => c.method === 'action.bindExternal')
-    const p = bindCall!.params as Record<string, unknown>
-    expect(p['actionRunId']).toBe(CANNED_ACTION_RUN.actionRunId)
-    expect(p['externalRunRef']).toBe(formatHrcExternalRef(CANNED_LAUNCHED.runId))
-  })
-})

@@ -168,17 +168,7 @@ function createFetchQueue(expectations: FetchExpectation[]) {
 }
 
 describe('acp CLI smoke fixtures', () => {
-  test('top-level help exposes usage without pinning full prose', async () => {
-    const result = await runCli(['--help'])
-
-    expect(result.exitCode).toBe(0)
-    expect(result.stdout).toMatch(/usage:\s+acp/i)
-    expect(result.stdout).toContain('task')
-    expect(result.stdout).toContain('action')
-    expect(result.stdout).toContain('message')
-  })
-
-  test('action triage help documents idempotency and wrkq project resolution', async () => {
+  test('action triage --help documents --force and idempotency and offers no --project flag', async () => {
     const result = await runCli(['action', 'triage', '--help'])
 
     expect(result.exitCode).toBe(0)
@@ -189,7 +179,7 @@ describe('acp CLI smoke fixtures', () => {
     expect(result.stdout).toMatch(/duplicate HRC run/i)
   })
 
-  test('action triage posts exact governed launch body by default', async () => {
+  test('action triage <task> resolves the project via wrkq and POSTs the stable-key launch body', async () => {
     const workClient = createFakeWorkClient({
       taskId: 'T-20001',
       projectUuid: 'project-uuid-agent-spaces',
@@ -257,38 +247,7 @@ describe('acp CLI smoke fixtures', () => {
     ])
   })
 
-  test('action triage resolves project from @wrkq/client when launching', async () => {
-    const workClient = createFakeWorkClient({
-      taskId: 'T-20002',
-      projectUuid: 'project-uuid-wrkq',
-      projectId: 'wrkq',
-    })
-    const fetchQueue = createFetchQueue([
-      {
-        body: { actionRunId: 'act-env', wrkfRunId: 'wrun-env', replay: false },
-        assert(request) {
-          expect(request.body).toMatchObject({
-            sessionRef: {
-              scopeRef: 'agent:clod:project:wrkq:task:T-20002',
-              laneRef: 'main',
-            },
-          })
-        },
-      },
-    ])
-
-    const result = await runCli(['action', 'triage', 'T-20002', '--json'], {
-      fetchImpl: fetchQueue.fetchImpl,
-      createWorkClient: workClient.createWorkClient,
-    })
-
-    expect(result.exitCode).toBe(0)
-    expect(JSON.parse(result.stdout)).toMatchObject({
-      cli: { projectId: 'wrkq', forced: false },
-    })
-  })
-
-  test('action triage --force uses a fresh idempotency key', async () => {
+  test('action triage --force sends a unique force-suffixed idempotency key', async () => {
     const workClient = createFakeWorkClient({
       taskId: 'T-20003',
       projectUuid: 'project-uuid-acp',
@@ -322,7 +281,7 @@ describe('acp CLI smoke fixtures', () => {
     })
   })
 
-  test('action triage text output surfaces replay and HRC binding', async () => {
+  test('action triage text output shows replay=true and derives hrcRunId from an hrc: externalRunRef', async () => {
     const workClient = createFakeWorkClient({
       taskId: 'T-20004',
       projectUuid: 'project-uuid-agent-spaces',
@@ -354,10 +313,9 @@ describe('acp CLI smoke fixtures', () => {
     expect(result.stdout).toContain('act-replay')
     expect(result.stdout).toContain('externalRunRef')
     expect(result.stdout).toContain('hrc:hrc-replay')
-    expect(result.stdout).toContain('hrcRunId')
-    expect(result.stdout).toContain('hrc-replay')
-    expect(result.stdout).toContain('replay')
-    expect(result.stdout).toContain('true')
+    // hrcRunId is absent from the response; the CLI derives it from the hrc: externalRunRef.
+    expect(result.stdout).toMatch(/hrcRunId\s+hrc-replay\b/)
+    expect(result.stdout).toMatch(/replay\s+true/)
   })
 
   test('message broadcast sends one request per repeated recipient flag', async () => {
@@ -412,7 +370,7 @@ describe('acp CLI smoke fixtures', () => {
     expect(fetchQueue.calls).toHaveLength(2)
   })
 
-  test('send posts session input with subcommand-level --json', async () => {
+  test('send --scope-ref without a task POSTs /v1/inputs with the task:primary scope and the text', async () => {
     const fetchQueue = createFetchQueue([
       {
         body: {
@@ -442,7 +400,7 @@ describe('acp CLI smoke fixtures', () => {
     })
   })
 
-  test('send can request active-run contribution intent', async () => {
+  test('send --intent contribute POSTs a contribute_to_active_run intent with the chosen fallback and semantics', async () => {
     const fetchQueue = createFetchQueue([
       {
         body: {
@@ -565,7 +523,7 @@ describe('acp CLI smoke fixtures', () => {
     expect(result.stdout).not.toMatch(/\bapplied\b/i)
   })
 
-  test('task transition parses inline evidence entries', async () => {
+  test('task transition --evidence kind=ref sends inlineEvidence in the transition POST', async () => {
     const fetchQueue = createFetchQueue([
       {
         body: {
@@ -639,7 +597,7 @@ describe('acp CLI smoke fixtures', () => {
     })
   })
 
-  test('job create preserves JSON option parsing', async () => {
+  test('job create --cron/--input flags POST /v1/admin/jobs with parsed schedule and input JSON', async () => {
     const fetchQueue = createFetchQueue([
       {
         body: {
@@ -682,7 +640,7 @@ describe('acp CLI smoke fixtures', () => {
     expect(JSON.parse(result.stdout)).toMatchObject({ job: { jobId: 'job-1' } })
   })
 
-  test('missing required send text exits with usage error contract', async () => {
+  test('send without --text exits 2 naming --text and sends nothing', async () => {
     const fetchQueue = createFetchQueue([])
     const result = await runCli(
       ['send', '--scope-ref', 'agent:larry:project:agent-spaces', '--json'],
@@ -694,17 +652,17 @@ describe('acp CLI smoke fixtures', () => {
     expect(fetchQueue.calls).toHaveLength(0)
   })
 
-  test('unknown command exits with usage error contract', async () => {
+  test('unknown top-level command exits 2 naming the command', async () => {
     const result = await runCli(['does-not-exist'])
 
     expect(result.exitCode).toBe(2)
     expect(result.stderr).toContain("unknown command 'does-not-exist'")
   })
 
-  test('unknown subcommand under task obligation exits non-zero', async () => {
+  test('unknown task obligation subcommand exits 2 naming the subcommand', async () => {
     const result = await runCli(['task', 'obligation', 'expire'])
 
-    expect(result.exitCode).not.toBe(0)
-    expect(result.stderr).toMatch(/unknown/i)
+    expect(result.exitCode).toBe(2)
+    expect(result.stderr).toContain("unknown command 'expire'")
   })
 })

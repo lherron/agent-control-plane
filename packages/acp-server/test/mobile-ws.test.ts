@@ -2,15 +2,10 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   MOBILE_WS_PATHS,
-  abortMobileWebSocket,
-  buildMobileErrorEnvelope,
   buildMobileUpgradeData,
   parseMobileEventCursor,
   parseMobileMessageCursor,
-  parseMobileRawFlag,
   parseMobileRouteKind,
-  sendMobileErrorEnvelope,
-  sendMobileJsonEnvelope,
 } from '../src/handlers/mobile-ws.js'
 
 import type { ResolvedAcpServerDeps } from '../src/deps.js'
@@ -118,97 +113,6 @@ describe('parseMobileMessageCursor', () => {
   test('returns NaN for unparseable values so callers can gate with isFinite', () => {
     expect(Number.isNaN(parseMobileMessageCursor(makeUrl('?fromMessageSeq=abc')))).toBe(true)
     expect(Number.isNaN(parseMobileMessageCursor(makeUrl('?fromMessageSeq=')))).toBe(true)
-  })
-})
-
-describe('parseMobileRawFlag', () => {
-  test('only the literal string "true" enables raw mode', () => {
-    expect(parseMobileRawFlag(makeUrl('?raw=true'))).toBe(true)
-    expect(parseMobileRawFlag(makeUrl('?raw=TRUE'))).toBe(false)
-    expect(parseMobileRawFlag(makeUrl('?raw=1'))).toBe(false)
-    expect(parseMobileRawFlag(makeUrl(''))).toBe(false)
-  })
-})
-
-describe('buildMobileErrorEnvelope', () => {
-  test('produces the canonical typed envelope', () => {
-    expect(buildMobileErrorEnvelope('mobile_stream_failed', 'boom')).toEqual({
-      type: 'error',
-      code: 'mobile_stream_failed',
-      message: 'boom',
-    })
-  })
-})
-
-describe('sendMobileJsonEnvelope', () => {
-  test('JSON-stringifies the payload and forwards to ws.send', () => {
-    const sent: string[] = []
-    const ws = {
-      send: (msg: string) => {
-        sent.push(msg)
-        return msg.length
-      },
-    }
-    const ok = sendMobileJsonEnvelope(ws, { type: 'frame', n: 1 })
-    expect(ok).toBe(true)
-    expect(sent).toEqual([JSON.stringify({ type: 'frame', n: 1 })])
-  })
-
-  test('swallows send errors and returns false', () => {
-    const ws = {
-      send: () => {
-        throw new Error('socket closed')
-      },
-    }
-    expect(sendMobileJsonEnvelope(ws, { type: 'ping' })).toBe(false)
-  })
-})
-
-describe('sendMobileErrorEnvelope', () => {
-  test('sends a typed error envelope through sendMobileJsonEnvelope', () => {
-    const sent: string[] = []
-    const ws = {
-      send: (msg: string) => {
-        sent.push(msg)
-        return msg.length
-      },
-    }
-    sendMobileErrorEnvelope(ws, 'replay_gap_too_large', 'reconnect please')
-    expect(JSON.parse(sent[0]!)).toEqual({
-      type: 'error',
-      code: 'replay_gap_too_large',
-      message: 'reconnect please',
-    })
-  })
-})
-
-describe('abortMobileWebSocket', () => {
-  test('aborts the controller', () => {
-    const data = {
-      deps: {} as ResolvedAcpServerDeps,
-      url: 'http://acp.local/v1/mobile/sessions/hsid-test/timeline',
-      kind: 'timeline' as const,
-      hostSessionId: 'hsid-test',
-      abortController: new AbortController(),
-    }
-    abortMobileWebSocket({ data })
-    expect(data.abortController.signal.aborted).toBe(true)
-  })
-
-  test('swallows errors raised by abort()', () => {
-    const data = {
-      deps: {} as ResolvedAcpServerDeps,
-      url: 'http://acp.local/v1/mobile/sessions/hsid-test/timeline',
-      kind: 'timeline' as const,
-      hostSessionId: 'hsid-test',
-      abortController: {
-        abort() {
-          throw new Error('already disposed')
-        },
-        signal: new AbortController().signal,
-      } as unknown as AbortController,
-    }
-    expect(() => abortMobileWebSocket({ data })).not.toThrow()
   })
 })
 

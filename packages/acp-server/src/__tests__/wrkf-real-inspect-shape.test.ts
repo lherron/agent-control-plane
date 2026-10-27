@@ -208,29 +208,6 @@ describe('W2a real inspect shape — handler must project body.task from flat in
   // (id/taskRef/templateId/templateVersion/templateHash/status/phase/revision etc.)
   // and body.task is a non-null object with a taskId.
 
-  test('GET with real flat inspect shape: body.task is defined and has a taskId (RED: body.task is absent — handler reads inspected.task which is undefined)', async () => {
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'GET',
-          path: `/v1/tasks/${TASK_ID}`,
-        })
-        expect(response.status).toBe(200)
-        const body = await fixture.json<{
-          source: string
-          task: { taskId: string } | undefined
-        }>(response)
-        expect(body.source).toBe('wrkf')
-        // FAILS NOW:
-        //   handler reads inspected.task (no .task key in flat shape → undefined)
-        //   JSON serializes as absent → body.task === undefined
-        expect(body.task).toBeDefined()
-        expect(body.task?.taskId).toBe(TASK_ID)
-      },
-      { wrkf: makeRealShapeWrkfPort() }
-    )
-  })
-
   // ── 1b. body.task.workflow populated from template fields ──────────────────
   //
   // RED because: body.task is undefined (same root cause as 1a).
@@ -246,6 +223,7 @@ describe('W2a real inspect shape — handler must project body.task from flat in
         })
         expect(response.status).toBe(200)
         const body = await fixture.json<{
+          source: string
           task:
             | {
                 taskId: string
@@ -256,7 +234,9 @@ describe('W2a real inspect shape — handler must project body.task from flat in
             | undefined
         }>(response)
         // FAILS NOW: body.task is undefined (inspected.task is undefined)
+        expect(body.source).toBe('wrkf')
         expect(body.task).toBeDefined()
+        expect(body.task?.taskId).toBe(TASK_ID)
         // After fix: template fields map to workflow sub-object
         expect(body.task?.workflow).toBeDefined()
         expect(body.task?.workflow.id).toBe(REAL_FLAT_INSPECT.templateId)
@@ -308,21 +288,6 @@ describe('W2a real inspect shape — handler must project body.task from flat in
   //
   // This test PASSES now — source is set correctly regardless of inspect shape.
   // Included as a regression guard so we notice if source ever gets dropped.
-
-  test('GET with real flat inspect shape: source field is preserved as "wrkf" (PASSES now — regression guard)', async () => {
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'GET',
-          path: `/v1/tasks/${TASK_ID}`,
-        })
-        expect(response.status).toBe(200)
-        const body = await fixture.json<{ source: string }>(response)
-        expect(body.source).toBe('wrkf')
-      },
-      { wrkf: makeRealShapeWrkfPort() }
-    )
-  })
 })
 
 // ═════════════════════════════════════════════════════════════════════════════

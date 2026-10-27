@@ -96,7 +96,7 @@ describe('job lifecycle emitter (T-05245)', () => {
     expect(all[1]?.payload).toMatchObject({ status: 'succeeded', jobRunId: 'jr-1' })
   })
 
-  test('completion coverage: failed terminal emits one job.completed with error', () => {
+  test('failed terminal run emits one job.completed carrying errorCode and errorMessage, even across repeated ticks', () => {
     const job = makeJob()
     const { admin, emitter } = emitterWith(job)
     const run = makeRun({
@@ -146,52 +146,6 @@ describe('job lifecycle emitter (T-05245)', () => {
     expect(finalResponse.endsWith('…')).toBe(true)
   })
 
-  test('succeeded flow completion carries finalResponse from the latest successful agent step', () => {
-    const job = makeJob({ flow: { sequence: [] } as unknown as JobRecord['flow'] })
-    const admin = createInMemoryAdminStore()
-    const jobsStore = {
-      getJob: () => ({ job }),
-      jobStepRuns: {
-        listByJobRun: () => ({
-          jobStepRuns: [
-            {
-              jobRunId: 'jr-1',
-              phase: 'sequence',
-              stepId: 'collect',
-              status: 'succeeded',
-              attempt: 1,
-              runId: 'run-collect',
-              completedAt: '2026-06-28T09:00:02.000Z',
-              createdAt: '2026-06-28T09:00:00.000Z',
-              updatedAt: '2026-06-28T09:00:02.000Z',
-            },
-            {
-              jobRunId: 'jr-1',
-              phase: 'sequence',
-              stepId: 'report',
-              status: 'succeeded',
-              attempt: 1,
-              result: { runId: 'run-report' },
-              completedAt: '2026-06-28T09:00:04.000Z',
-              createdAt: '2026-06-28T09:00:03.000Z',
-              updatedAt: '2026-06-28T09:00:04.000Z',
-            },
-          ],
-        }),
-      },
-    } as unknown as JobsStore
-    const emitter = createJobLifecycleEmitter({
-      systemEvents: admin.systemEvents,
-      jobsStore,
-      resolveFinalText: (runId) => (runId === 'run-report' ? 'agent final response' : undefined),
-    })
-
-    emitter.reconcile(makeRun({ status: 'succeeded', completedAt: 'z' }), job)
-
-    const completed = admin.systemEvents.list({ kind: 'job.completed' })[0]
-    expect(completed?.payload['finalResponse']).toBe('agent final response')
-  })
-
   test('failed completion and runId-less runs carry no finalResponse', () => {
     const job = makeJob()
     const admin = createInMemoryAdminStore()
@@ -205,12 +159,16 @@ describe('job lifecycle emitter (T-05245)', () => {
     emitter.reconcile(makeRun({ jobRunId: 'jr-2', status: 'succeeded', completedAt: 'z' }), job)
 
     const events = admin.systemEvents.list({ kind: 'job.completed' })
+    expect(events.map((e) => [e.payload['jobRunId'], e.payload['status']])).toEqual([
+      ['jr-1', 'failed'],
+      ['jr-2', 'succeeded'],
+    ])
     for (const e of events) {
       expect(e.payload['finalResponse']).toBeUndefined()
     }
   })
 
-  test('resolves the job by id when not passed by the caller', () => {
+  test('a run reconciled without its job record still emits job.dispatched by looking the job up', () => {
     const job = makeJob()
     const { admin, emitter } = emitterWith(job)
     emitter.reconcile(makeRun({ status: 'dispatched' }))

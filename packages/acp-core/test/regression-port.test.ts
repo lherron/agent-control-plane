@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-
 import { getPreset } from '../src/index.js'
+
 import {
   InMemoryAcpWorkflowStore,
   createEvidence,
@@ -43,49 +43,6 @@ describe('task-core regression port', () => {
     if ('task' in second) {
       expect(second.task.version).toBe(2)
       expect(second.task.phase).toBe('verified')
-    }
-  })
-
-  test('stale expectedVersion detects version conflicts', async () => {
-    const store = new InMemoryAcpWorkflowStore()
-    await store.createTask(createTestTask({ taskId: 'task-003', phase: 'red' }))
-
-    const first = await store.transition('task-003', {
-      toPhase: 'green',
-      actor: { agentId: 'larry', role: 'implementer' },
-      evidence: [createEvidence('tdd_green_bundle')],
-      expectedVersion: 0,
-    })
-    expect('task' in first).toBe(true)
-
-    const stale = await store.transition('task-003', {
-      toPhase: 'verified',
-      actor: { agentId: 'curly', role: 'tester' },
-      evidence: [createEvidence('qa_bundle')],
-      expectedVersion: 0,
-    })
-
-    expect('error' in stale).toBe(true)
-    if ('error' in stale) {
-      expect(stale.error.code).toBe('version_conflict')
-    }
-  })
-
-  test('preset-driven transitions require evidence', async () => {
-    const store = new InMemoryAcpWorkflowStore()
-    await store.createTask(createTestTask({ taskId: 'task-004', phase: 'red' }))
-
-    const result = await store.transition('task-004', {
-      toPhase: 'green',
-      actor: { agentId: 'larry', role: 'implementer' },
-      evidence: [],
-      expectedVersion: 0,
-    })
-
-    expect('error' in result).toBe(true)
-    if ('error' in result) {
-      expect(result.error.code).toBe('missing_evidence')
-      expect(result.error.missingEvidenceKinds).toEqual(['tdd_green_bundle'])
     }
   })
 

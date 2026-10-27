@@ -313,6 +313,7 @@ describe('run outbound attachments', () => {
           })
 
           expect(uploadResponse.status).toBe(201)
+          const uploaded = await fixture.json<UploadResponse>(uploadResponse)
 
           const capture = createInterfaceResponseCapture({
             interfaceStore: fixture.interfaceStore,
@@ -331,6 +332,7 @@ describe('run outbound attachments', () => {
           })
           const streamPayload = await fixture.json<{
             deliveries: Array<{
+              deliveryRequestId: string
               body: {
                 text: string
                 attachments?: Array<Record<string, unknown>>
@@ -350,6 +352,12 @@ describe('run outbound attachments', () => {
               alt: 'Delivery image alt',
             }),
           ])
+          expect(
+            fixture.interfaceStore.outboundAttachments.get(uploaded.outboundAttachmentId)
+          ).toMatchObject({
+            state: 'consumed',
+            consumedByDeliveryRequestId: streamPayload.deliveries[0]?.deliveryRequestId,
+          })
         },
         { mediaStateDir }
       )
@@ -448,6 +456,9 @@ describe('run outbound attachments', () => {
           })
 
           expect(response.status).toBe(201)
+          expect(fixture.interfaceStore.outboundAttachments.listForRun(created.runId)).toEqual([
+            expect.objectContaining({ filename: 'mapped.txt', runId: created.runId }),
+          ])
         },
         { mediaStateDir }
       )
@@ -487,6 +498,7 @@ describe('run outbound attachments', () => {
 
       expect(response.status).toBe(403)
       expect(payload.error.code).toBe('correlation_mismatch')
+      expect(payload.error.message).toBe('HRC_RUN_ID does not match run')
     })
   })
 
@@ -506,6 +518,7 @@ describe('run outbound attachments', () => {
 
       expect(response.status).toBe(403)
       expect(payload.error.code).toBe('correlation_mismatch')
+      expect(payload.error.message).toBe('HRC_GENERATION does not match run dispatch fence')
     })
   })
 })

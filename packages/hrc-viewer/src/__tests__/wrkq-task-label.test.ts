@@ -15,9 +15,6 @@ import {
   createTaskSlugResolver,
   createTaskTitleReader,
   extractTaskIdFromIdentity,
-  isPlaceholderTaskSlug,
-  parseTaskSlug,
-  parseTaskTitles,
 } from '../wrkq-task-label.js'
 
 const ok = (stdout: string): WrkqRunResult => ({ stdout, stderr: '', exitCode: 0 })
@@ -48,52 +45,29 @@ describe('extractTaskIdFromIdentity', () => {
       extractTaskIdFromIdentity(fixtureIdentity('agent:daedalus:project:agent-spaces:task:primary'))
     ).toBeNull()
     expect(extractTaskIdFromIdentity(fixtureIdentity('agent:clod:project:hrc-runtime'))).toBeNull()
-  })
-
-  it('returns null for a non-T task segment', () => {
     expect(
       extractTaskIdFromIdentity(fixtureIdentity('agent:clod:project:hrc-runtime:task:repair'))
     ).toBeNull()
-  })
-
-  it('returns null for an unparseable scope ref', () => {
     expect(extractTaskIdFromIdentity(fixtureIdentity('not-a-scope'))).toBeNull()
   })
 })
 
-describe('parseTaskSlug', () => {
-  it('reads the slug from the first record of a wrkq cat array', () => {
-    expect(parseTaskSlug(slugJson('add-task-slug-to-ghostmux-status-bar'))).toBe(
-      'add-task-slug-to-ghostmux-status-bar'
-    )
-  })
-
-  it('accepts a bare object record too', () => {
-    expect(parseTaskSlug(JSON.stringify({ slug: 'a-slug' }))).toBe('a-slug')
-  })
-
-  it('returns null on malformed JSON', () => {
-    expect(parseTaskSlug('Error: container not found')).toBeNull()
-    expect(parseTaskSlug('')).toBeNull()
-  })
-
-  it('returns null on an empty array', () => {
-    expect(parseTaskSlug('[]')).toBeNull()
-  })
-
-  it('returns null on a missing or empty slug', () => {
-    expect(parseTaskSlug(JSON.stringify([{ id: 'T-1' }]))).toBeNull()
-    expect(parseTaskSlug(slugJson(''))).toBeNull()
-    expect(parseTaskSlug(slugJson('   '))).toBeNull()
-    expect(parseTaskSlug(slugJson(42))).toBeNull()
-  })
-
-  it('trims surrounding whitespace from the slug', () => {
-    expect(parseTaskSlug(slugJson('  trimmed  '))).toBe('trimmed')
-  })
-})
-
 describe('createTaskSlugResolver', () => {
+  it('accepts a bare object and trims surrounding slug whitespace', async () => {
+    const resolve = createTaskSlugResolver({
+      runner: async () => ok(JSON.stringify({ slug: '  a-slug  ' })),
+    })
+    expect(await resolve('T-04977')).toBe('a-slug')
+  })
+
+  it.each([{}, { slug: '' }, { slug: '   ' }, { slug: 42 }])(
+    'rejects a missing or empty slug: %j',
+    async (record) => {
+      const resolve = createTaskSlugResolver({ runner: async () => ok(JSON.stringify([record])) })
+      expect(await resolve('T-04977')).toBeNull()
+    }
+  )
+
   it('resolves the slug for a task scope', async () => {
     const resolve = createTaskSlugResolver({ runner: async () => ok(slugJson('my-slug')) })
     expect(
@@ -126,9 +100,11 @@ describe('createTaskSlugResolver', () => {
 
   it('returns null on malformed JSON and on a missing slug', async () => {
     const bad = createTaskSlugResolver({ runner: async () => ok('not json') })
-    expect(await bad('agent:clod:project:hrc-runtime:task:T-1')).toBeNull()
+    expect(await bad('T-1')).toBeNull()
+    const empty = createTaskSlugResolver({ runner: async () => ok('') })
+    expect(await empty('T-3')).toBeNull()
     const noSlug = createTaskSlugResolver({ runner: async () => ok('[]') })
-    expect(await noSlug('agent:clod:project:hrc-runtime:task:T-2')).toBeNull()
+    expect(await noSlug('T-2')).toBeNull()
   })
 
   it('returns null (never throws) when the runner throws', async () => {
@@ -172,32 +148,23 @@ describe('createTaskSlugResolver', () => {
   })
 })
 
-describe('isPlaceholderTaskSlug (T-08028)', () => {
-  it('recognizes the hcs `context-<19 digits>` placeholder', () => {
-    expect(isPlaceholderTaskSlug(PLACEHOLDER)).toBe(true)
-  })
-
-  it('does not classify a settled human slug as a placeholder', () => {
-    expect(isPlaceholderTaskSlug('wrkc-steer-default')).toBe(false)
-    expect(isPlaceholderTaskSlug('context-aware-routing')).toBe(false)
-    expect(isPlaceholderTaskSlug('context-1788523795324905000-renamed')).toBe(false)
-    expect(isPlaceholderTaskSlug('context-123')).toBe(false)
-  })
-})
-
 describe('createTaskSlugResolver placeholder staleness (T-08028)', () => {
-  it('re-reads a placeholder and yields the real slug on the next call', async () => {
+  it.each([
+    'wrkc-steer-default',
+    'context-aware-routing',
+    'context-1788523795324905000-renamed',
+    'context-123',
+  ])('caches a settled non-placeholder slug: %s', async (slug) => {
     let calls = 0
     const resolve = createTaskSlugResolver({
       runner: async () => {
         calls++
-        return ok(slugJson(calls === 1 ? PLACEHOLDER : 'wrkc-steer-default'))
+        return ok(slugJson(slug))
       },
     })
-    const scope = 'agent:chief:project:hcs:task:T-07987'
-    expect(await resolve(fixtureIdentity(scope)?.taskId)).toBe(PLACEHOLDER)
-    expect(await resolve(fixtureIdentity(scope)?.taskId)).toBe('wrkc-steer-default')
-    expect(calls).toBe(2)
+    expect(await resolve('T-07987')).toBe(slug)
+    expect(await resolve('T-07987')).toBe(slug)
+    expect(calls).toBe(1)
   })
 
   it('pins the real slug once it lands — no further spawns', async () => {
@@ -209,7 +176,7 @@ describe('createTaskSlugResolver placeholder staleness (T-08028)', () => {
       },
     })
     const scope = 'agent:chief:project:hcs:task:T-07987'
-    await resolve(fixtureIdentity(scope)?.taskId)
+    expect(await resolve(fixtureIdentity(scope)?.taskId)).toBe(PLACEHOLDER)
     expect(await resolve(fixtureIdentity(scope)?.taskId)).toBe('wrkc-steer-default')
     expect(await resolve(fixtureIdentity(scope)?.taskId)).toBe('wrkc-steer-default')
     expect(await resolve(fixtureIdentity(scope)?.taskId)).toBe('wrkc-steer-default')
@@ -248,26 +215,30 @@ describe('createTaskTitleReader (T-08331)', () => {
   })
   const failed = (stderr: string): WrkqRunResult => ({ stdout: '', stderr, exitCode: 1 })
 
-  it('parses id -> trimmed title and drops records with no id or no title', () => {
-    const titles = parseTaskTitles(
-      JSON.stringify([
-        record('T-08219', '  hrc-viewer should populate second status bar  '),
-        { id: 'T-08259', title: '   ' },
-        { title: 'no id at all' },
-        { id: 'not-a-task-id', title: 'wrong shape' },
-        record('T-08296', 'clod work'),
-      ])
-    )
-    expect([...titles]).toEqual([
+  it('reads trimmed titles and drops records with invalid ids or empty titles', async () => {
+    const read = createTaskTitleReader({
+      runner: async () =>
+        batch(
+          record('T-08219', '  hrc-viewer should populate second status bar  '),
+          { id: 'T-08259', title: '   ' },
+          { title: 'no id at all' },
+          { id: 'not-a-task-id', title: 'wrong shape' },
+          record('T-08296', 'clod work')
+        ),
+    })
+    expect([...(await read(['T-08219', 'T-08259', 'T-08296']))]).toEqual([
       ['T-08219', 'hrc-viewer should populate second status bar'],
       ['T-08296', 'clod work'],
     ])
   })
 
-  it('parses malformed JSON to an empty map instead of throwing', () => {
-    expect(parseTaskTitles('not json').size).toBe(0)
-    expect(parseTaskTitles('').size).toBe(0)
-  })
+  it.each(['not json', ''])(
+    'a zero-exit malformed response %j yields an empty title map',
+    async (stdout) => {
+      const read = createTaskTitleReader({ runner: async () => ok(stdout) })
+      expect((await read(['T-08219'])).size).toBe(0)
+    }
+  )
 
   it('reads every id in ONE invocation, deduped and filtered to canonical ids', async () => {
     const calls: string[][] = []

@@ -13,7 +13,7 @@ describe('actor precedence parsing', () => {
     ).toEqual({ kind: 'agent', id: 'curly' })
   })
 
-  test('accepts JSON-in-header actor values', () => {
+  test('JSON-object x-acp-actor header is parsed and beats a body actor', () => {
     expect(
       parseActorFromHeaders(
         new Headers({
@@ -23,7 +23,7 @@ describe('actor precedence parsing', () => {
             displayName: 'Header',
           }),
         }),
-        {},
+        { actor: { kind: 'agent', id: 'body-agent' } },
         { kind: 'system', id: 'acp-local' }
       )
     ).toEqual({ kind: 'human', id: 'header-human', displayName: 'Header' })
@@ -44,7 +44,7 @@ describe('actor precedence parsing', () => {
     })
   })
 
-  test('rejects unknown actor kinds with a validation error', () => {
+  test('unknown actor kind in x-acp-actor throws a kind validation error', () => {
     expect(() =>
       parseActorFromHeaders(
         new Headers({ 'x-acp-actor': 'robot:hal-9000' }),

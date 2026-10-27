@@ -149,191 +149,93 @@ function makeMinimalWrkfPort(): AcpWrkfWorkflowPort {
 // Section 1 - Non-operator actor receives 403 on all wrkf debug routes under this policy.
 // ---------------------------------------------------------------------------
 
-describe('/v1/wrkf/pbc/* operator gate - non-operator gets 403 (RED)', () => {
-  test('[RED] GET /v1/wrkf/pbc/tasks/:task/inspect -> 403 for non-operator actor', async () => {
-    // The injected policy denies 'wrkf.pbc.inspect' for this actor.
-    const wrkf = makeMinimalWrkfPort()
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'GET',
-          path: `/v1/wrkf/pbc/tasks/${TASK}/inspect`,
-        })
-        expect(response.status).toBe(403)
-        const body = await fixture.json<{ error: { code: string } }>(response)
-        expect(body.error.code).toBe('authz_deny')
-      },
-      { wrkf, ...NON_OPERATOR_OPTS }
-    )
-  })
+const debugRoutes = [
+  {
+    name: 'inspect',
+    method: 'GET' as const,
+    path: `/v1/wrkf/pbc/tasks/${TASK}/inspect`,
+    body: undefined,
+    operation: 'wrkf.pbc.inspect',
+  },
+  {
+    name: 'run-step',
+    method: 'POST' as const,
+    path: `/v1/wrkf/pbc/tasks/${TASK}/run-step`,
+    body: { idempotencyKey: `${IDEMPOTENCY_KEY}-run-step` },
+    operation: 'wrkf.pbc.run-step',
+  },
+  {
+    name: 'approve-transition',
+    method: 'POST' as const,
+    path: `/v1/wrkf/pbc/tasks/${TASK}/approve-transition`,
+    body: { transition: 'complete_implementation', idempotencyKey: `${IDEMPOTENCY_KEY}-approve` },
+    operation: 'wrkf.pbc.approve-transition',
+  },
+  {
+    name: 'run-until-blocked',
+    method: 'POST' as const,
+    path: `/v1/wrkf/pbc/tasks/${TASK}/run-until-blocked`,
+    body: { idempotencyKey: `${IDEMPOTENCY_KEY}-until`, maxTurns: 1 },
+    operation: 'wrkf.pbc.run-until-blocked',
+  },
+  {
+    name: 'deliver-effects',
+    method: 'POST' as const,
+    path: '/v1/wrkf/effects/deliver',
+    body: { task: TASK },
+    operation: 'wrkf.effects.deliver',
+  },
+]
 
-  test('[RED] POST /v1/wrkf/pbc/tasks/:task/run-step -> 403 for non-operator actor', async () => {
-    // The injected policy denies 'wrkf.pbc.run-step' for this actor.
-    const wrkf = makeMinimalWrkfPort()
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: `/v1/wrkf/pbc/tasks/${TASK}/run-step`,
-          body: { idempotencyKey: `${IDEMPOTENCY_KEY}-run-step` },
-        })
-        expect(response.status).toBe(403)
-        const body = await fixture.json<{ error: { code: string } }>(response)
-        expect(body.error.code).toBe('authz_deny')
-      },
-      { wrkf, ...NON_OPERATOR_OPTS }
-    )
-  })
-
-  test('[RED] POST /v1/wrkf/pbc/tasks/:task/approve-transition -> 403 for non-operator actor', async () => {
-    // The injected policy denies 'wrkf.pbc.approve-transition' for this actor.
-    const wrkf = makeMinimalWrkfPort()
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: `/v1/wrkf/pbc/tasks/${TASK}/approve-transition`,
-          body: {
-            transition: 'complete_implementation',
-            idempotencyKey: `${IDEMPOTENCY_KEY}-approve-transition`,
+describe('debug routes authorization by actor', () => {
+  test.each(debugRoutes)(
+    '$name denies a non-operator with authz_deny',
+    async ({ method, path, body }) => {
+      await withWiredServer(
+        async (fixture) => {
+          const response = await fixture.request({
+            method,
+            path,
+            ...(body !== undefined ? { body } : {}),
+          })
+          expect(response.status).toBe(403)
+          const result = await fixture.json<{ error: { code: string } }>(response)
+          expect(result.error.code).toBe('authz_deny')
+        },
+        { wrkf: makeMinimalWrkfPort(), ...NON_OPERATOR_OPTS }
+      )
+    }
+  )
+  test.each(debugRoutes)(
+    '$name allows a system actor and invokes its authorization operation',
+    async ({ method, path, body, operation }) => {
+      const seen: string[] = []
+      await withWiredServer(
+        async (fixture) => {
+          const response = await fixture.request({
+            method,
+            path,
+            ...(body !== undefined ? { body } : {}),
+          })
+          expect(response.status).toBe(200)
+          expect(seen).toEqual([operation])
+        },
+        {
+          wrkf: makeMinimalWrkfPort(),
+          authorize: (actor, op, resource) => {
+            seen.push(op)
+            return operatorOnlyAuthorize(actor, op, resource)
           },
-        })
-        expect(response.status).toBe(403)
-        const body = await fixture.json<{ error: { code: string } }>(response)
-        expect(body.error.code).toBe('authz_deny')
-      },
-      { wrkf, ...NON_OPERATOR_OPTS }
-    )
-  })
-
-  test('[RED] POST /v1/wrkf/pbc/tasks/:task/run-until-blocked -> 403 for non-operator actor', async () => {
-    // The injected policy denies 'wrkf.pbc.run-until-blocked' for this actor.
-    const wrkf = makeMinimalWrkfPort()
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: `/v1/wrkf/pbc/tasks/${TASK}/run-until-blocked`,
-          body: {
-            idempotencyKey: `${IDEMPOTENCY_KEY}-run-until-blocked`,
-            maxTurns: 1,
-          },
-        })
-        expect(response.status).toBe(403)
-        const body = await fixture.json<{ error: { code: string } }>(response)
-        expect(body.error.code).toBe('authz_deny')
-      },
-      { wrkf, ...NON_OPERATOR_OPTS }
-    )
-  })
-
-  test('[RED] POST /v1/wrkf/effects/deliver -> 403 for non-operator actor', async () => {
-    // The injected policy denies 'wrkf.effects.deliver' for this actor.
-    const wrkf = makeMinimalWrkfPort()
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: '/v1/wrkf/effects/deliver',
-          body: { task: TASK },
-        })
-        expect(response.status).toBe(403)
-        const body = await fixture.json<{ error: { code: string } }>(response)
-        expect(body.error.code).toBe('authz_deny')
-      },
-      { wrkf, ...NON_OPERATOR_OPTS }
-    )
-  })
+        }
+      )
+    }
+  )
 })
 
 // ---------------------------------------------------------------------------
 // Section 2 - Operator actor (system kind) passes through on all /v1/wrkf/pbc/* routes
 //      GREEN baseline: routes already work for operators; must stay GREEN after Phase 6
 // ---------------------------------------------------------------------------
-
-describe('/v1/wrkf/pbc/* operator gate - operator (system actor) passes (GREEN baseline)', () => {
-  test('GET /v1/wrkf/pbc/tasks/:task/inspect - not 403 for system actor', async () => {
-    // Default actor is { kind: 'system', id: 'acp-local' }.
-    // The injected policy allows 'wrkf.pbc.inspect' for system actors.
-    const wrkf = makeMinimalWrkfPort()
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'GET',
-          path: `/v1/wrkf/pbc/tasks/${TASK}/inspect`,
-        })
-        expect(response.status).not.toBe(403)
-      },
-      { wrkf, authorize: operatorOnlyAuthorize }
-    )
-  })
-
-  test('POST /v1/wrkf/pbc/tasks/:task/run-step - not 403 for system actor', async () => {
-    const wrkf = makeMinimalWrkfPort()
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: `/v1/wrkf/pbc/tasks/${TASK}/run-step`,
-          body: { idempotencyKey: `${IDEMPOTENCY_KEY}-op-run-step` },
-        })
-        expect(response.status).not.toBe(403)
-      },
-      { wrkf, authorize: operatorOnlyAuthorize }
-    )
-  })
-
-  test('POST /v1/wrkf/pbc/tasks/:task/approve-transition - not 403 for system actor', async () => {
-    const wrkf = makeMinimalWrkfPort()
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: `/v1/wrkf/pbc/tasks/${TASK}/approve-transition`,
-          body: {
-            transition: 'complete_implementation',
-            idempotencyKey: `${IDEMPOTENCY_KEY}-op-approve-transition`,
-          },
-        })
-        expect(response.status).not.toBe(403)
-      },
-      { wrkf, authorize: operatorOnlyAuthorize }
-    )
-  })
-
-  test('POST /v1/wrkf/pbc/tasks/:task/run-until-blocked - not 403 for system actor', async () => {
-    const wrkf = makeMinimalWrkfPort()
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: `/v1/wrkf/pbc/tasks/${TASK}/run-until-blocked`,
-          body: {
-            idempotencyKey: `${IDEMPOTENCY_KEY}-op-run-until-blocked`,
-            maxTurns: 1,
-          },
-        })
-        expect(response.status).not.toBe(403)
-      },
-      { wrkf, authorize: operatorOnlyAuthorize }
-    )
-  })
-
-  test('POST /v1/wrkf/effects/deliver - not 403 for system actor', async () => {
-    const wrkf = makeMinimalWrkfPort()
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: '/v1/wrkf/effects/deliver',
-          body: { task: TASK },
-        })
-        expect(response.status).not.toBe(403)
-      },
-      { wrkf, authorize: operatorOnlyAuthorize }
-    )
-  })
-})
 
 // ---------------------------------------------------------------------------
 // Section 3 - /v1/pbc/* product routes are UNAFFECTED by the operator gate
@@ -345,6 +247,7 @@ describe('/v1/wrkf/pbc/* operator gate - operator (system actor) passes (GREEN b
 describe('/v1/pbc/* product routes - unaffected by debug operator gate (GREEN baseline)', () => {
   test('GET /v1/pbc/tasks/:taskId - non-operator actor is not blocked (read-only, no authz)', async () => {
     const wrkf = makeMinimalWrkfPort()
+    const operations: string[] = []
     await withWiredServer(
       async (fixture) => {
         const response = await fixture.request({
@@ -352,9 +255,17 @@ describe('/v1/pbc/* product routes - unaffected by debug operator gate (GREEN ba
           path: `/v1/pbc/tasks/${TASK}`,
         })
         // pbc.tasks GET is read-only; not in mutatingRouteSpecs -> no gate -> non-403
-        expect(response.status).not.toBe(403)
+        expect(response.status).toBe(200)
+        expect(operations).toEqual([])
       },
-      { wrkf, ...NON_OPERATOR_OPTS }
+      {
+        wrkf,
+        ...NON_OPERATOR_OPTS,
+        authorize: (actor, op, resource) => {
+          operations.push(op)
+          return operatorOnlyAuthorize(actor, op, resource)
+        },
+      }
     )
   })
 
@@ -362,6 +273,7 @@ describe('/v1/pbc/* product routes - unaffected by debug operator gate (GREEN ba
     // Operation 'pbc.tasks.start' is NOT in DEBUG_OPERATIONS ->
     // operatorOnlyAuthorize returns 'allow' for non-system actors on this route.
     const wrkf = makeMinimalWrkfPort()
+    const operations: string[] = []
     await withWiredServer(
       async (fixture) => {
         const response = await fixture.request({
@@ -373,9 +285,17 @@ describe('/v1/pbc/* product routes - unaffected by debug operator gate (GREEN ba
           },
         })
         // Non-operator (agent actor) on product route -> operatorOnlyAuthorize allows -> not 403
-        expect(response.status).not.toBe(403)
+        expect(response.status).toBe(200)
+        expect(operations).toEqual(['pbc.tasks.start'])
       },
-      { wrkf, ...NON_OPERATOR_OPTS }
+      {
+        wrkf,
+        ...NON_OPERATOR_OPTS,
+        authorize: (actor, op, resource) => {
+          operations.push(op)
+          return operatorOnlyAuthorize(actor, op, resource)
+        },
+      }
     )
   })
 })

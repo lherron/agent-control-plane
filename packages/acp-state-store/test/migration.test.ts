@@ -233,12 +233,6 @@ function createLegacyInputStatusDb(): { dbPath: string; cleanup(): void } {
   }
 }
 
-function listColumnNames(store: ReturnType<typeof openAcpStateStore>, tableName: string): string[] {
-  return (
-    store.sqlite.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>
-  ).map((row) => row.name)
-}
-
 function createTableSql(store: ReturnType<typeof openAcpStateStore>, tableName: string): string {
   return (
     store.sqlite
@@ -254,16 +248,6 @@ describe('acp-state-store migrations', () => {
     try {
       const store = openAcpStateStore({ dbPath: fixture.dbPath })
 
-      expect(listColumnNames(store, 'runs')).toEqual(
-        expect.arrayContaining(['actor_kind', 'actor_id', 'actor_display_name'])
-      )
-      expect(listColumnNames(store, 'input_attempts')).toEqual(
-        expect.arrayContaining(['actor_kind', 'actor_id', 'actor_display_name', 'actor_agent_id'])
-      )
-      expect(listColumnNames(store, 'transition_outbox')).toEqual(
-        expect.arrayContaining(['actor_kind', 'actor_id', 'actor_display_name'])
-      )
-
       expect(store.runs.getRun('run_legacy')).toEqual(
         expect.objectContaining({
           runId: 'run_legacy',
@@ -271,21 +255,9 @@ describe('acp-state-store migrations', () => {
         })
       )
 
-      const legacyAttemptRow = store.sqlite
-        .prepare(
-          `SELECT actor_kind, actor_id, actor_display_name
-             FROM input_attempts
-            WHERE input_attempt_id = ?`
-        )
-        .get('ia_legacy') as {
-        actor_kind: string
-        actor_id: string
-        actor_display_name: string | null
-      }
-      expect(legacyAttemptRow).toEqual({
-        actor_kind: 'agent',
-        actor_id: 'clod',
-        actor_display_name: null,
+      expect(store.inputAttempts.getById('ia_legacy')?.inputAttempt.actor).toEqual({
+        kind: 'agent',
+        id: 'clod',
       })
 
       expect(store.transitionOutbox.get('evt_legacy')).toEqual(
@@ -304,22 +276,9 @@ describe('acp-state-store migrations', () => {
       })
 
       expect(createdAttempt.created).toBe(true)
-      const newAttemptRow = store.sqlite
-        .prepare(
-          `SELECT actor_kind, actor_id, actor_display_name
-             FROM input_attempts
-            WHERE input_attempt_id = ?`
-        )
-        .get(createdAttempt.inputAttempt.inputAttemptId) as {
-        actor_kind: string
-        actor_id: string
-        actor_display_name: string | null
-      }
-      expect(newAttemptRow).toEqual({
-        actor_kind: 'agent',
-        actor_id: 'clod',
-        actor_display_name: null,
-      })
+      expect(
+        store.inputAttempts.getById(createdAttempt.inputAttempt.inputAttemptId)?.inputAttempt.actor
+      ).toEqual({ kind: 'agent', id: 'clod' })
 
       store.close()
     } finally {

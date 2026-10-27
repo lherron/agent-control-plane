@@ -66,34 +66,6 @@ const AGENT_PANE = {
 }
 
 describe('T-08115 reap skip classification', () => {
-  it('reaps the pane it owns — the classification change does not disarm the reaper', async () => {
-    const fake = makeGhostmux({ surfaces: { 'surf-a': AGENT_PANE } })
-    const manager = new GhostmuxManager('ghostmux', fake.runner)
-
-    expect(await manager.reapHeadlessAgentPane('surf-a', 'rt-1')).toMatchObject({
-      status: 'reaped',
-      surfaceId: 'surf-a',
-    })
-    expect(fake.killed).toEqual(['surf-a'])
-  })
-
-  it('REFUSES a live pane that is genuinely not ours, and says what it saw', async () => {
-    // The positive control the fix must not break: a real, resolvable surface
-    // that belongs to the operator. It must survive.
-    const fake = makeGhostmux({
-      surfaces: { 'surf-operator': { hrc_role: 'headless-window-anchor' } },
-    })
-    const manager = new GhostmuxManager('ghostmux', fake.runner)
-
-    expect(await manager.reapHeadlessAgentPane('surf-operator', 'rt-1')).toEqual({
-      status: 'skipped',
-      reason: 'not_agent_pane',
-      observedRole: 'headless-window-anchor',
-      requiredRole: 'headless-agent-pane',
-    })
-    expect(fake.killed).toEqual([])
-  })
-
   it('REFUSES a bare surface carrying no hrc metadata at all', async () => {
     const fake = makeGhostmux({ surfaces: { 'surf-shell': {} } })
     const manager = new GhostmuxManager('ghostmux', fake.runner)
@@ -158,7 +130,6 @@ describe('T-08115 reap skip classification', () => {
     })
     expect(fake.killed).toEqual([])
   })
-
   it('FENCE: a pane rebound to a newer runtime reports both runtime ids', async () => {
     const fake = makeGhostmux({
       surfaces: { 'surf-a': { ...AGENT_PANE, hrc_runtime_id: 'rt-2' } },

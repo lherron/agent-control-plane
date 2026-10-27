@@ -85,10 +85,13 @@ describe('gateway delivery endpoints', () => {
         method: 'GET',
         path: '/v1/gateway/discord_prod/deliveries/stream?since=not-a-cursor',
       })
-      const payload = await fixture.json<{ error: { code: string } }>(response)
+      const payload = await fixture.json<{ error: { code: string; details?: { field?: string } } }>(
+        response
+      )
 
       expect(response.status).toBe(400)
       expect(payload.error.code).toBe('malformed_request')
+      expect(payload.error.details?.field).toBe('since')
     })
   })
 
@@ -203,10 +206,13 @@ describe('gateway delivery endpoints', () => {
           message: 'transport rejected the message',
         },
       })
-      const payload = await fixture.json<{ error: { code: string } }>(response)
+      const payload = await fixture.json<{ error: { code: string; details?: { field?: string } } }>(
+        response
+      )
 
       expect(response.status).toBe(400)
       expect(payload.error.code).toBe('malformed_request')
+      expect(payload.error.details?.field).toBe('code')
     })
   })
 })

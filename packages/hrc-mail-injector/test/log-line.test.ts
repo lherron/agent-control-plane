@@ -36,7 +36,7 @@ describe('hrc-mail-injector log lines', () => {
     expect(lines.map((line) => JSON.parse(line).level)).toEqual(['debug', 'info', 'warn', 'error'])
   })
 
-  test('omits data when empty', () => {
+  test('an empty detail object writes no data key', () => {
     const { lines, log } = capture()
     log('INFO', 'wrkq.kicker.started', {})
     expect(JSON.parse(lines[0]!)).not.toHaveProperty('data')

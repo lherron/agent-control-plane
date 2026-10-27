@@ -25,7 +25,7 @@ function decisionOf(result: Awaited<ReturnType<ReturnType<typeof core>['scanOnce
 }
 
 describe('config', () => {
-  test('unset designated node means not constructed', () => {
+  test('no ACP_RECONCILER_NODE yields no reconciler config', () => {
     expect(readReconcilerConfig({})).toBeUndefined()
   })
   test('spec defaults apply once a node is designated', () => {

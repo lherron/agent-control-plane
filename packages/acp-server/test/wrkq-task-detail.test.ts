@@ -200,16 +200,23 @@ describe('GET /v1/wrkq/tasks/:taskId', () => {
     const { client, calls } = fakeWorkClient()
 
     await withWiredServer(
-      async ({ request }) => {
-        for (const path of [
-          '/v1/wrkq/tasks/primary',
-          '/v1/wrkq/tasks/T-07475.2',
-          '/v1/wrkq/tasks/T-07475.Slug',
-          '/v1/wrkq/tasks/T-07475?comments=-1',
-          '/v1/wrkq/tasks/T-07475?comments=26',
-        ]) {
+      async ({ request, json }) => {
+        for (const [path, field] of [
+          ['/v1/wrkq/tasks/primary', 'taskId'],
+          ['/v1/wrkq/tasks/T-07475.2', 'taskId'],
+          ['/v1/wrkq/tasks/T-07475.Slug', 'taskId'],
+          ['/v1/wrkq/tasks/T-07475?comments=-1', 'comments'],
+          ['/v1/wrkq/tasks/T-07475?comments=26', 'comments'],
+        ] as const) {
           const response = await request({ method: 'GET', path })
-          expect(response.status).toBe(400)
+          const body = await json<{ error: { code: string; details?: { field?: string } } }>(
+            response
+          )
+          expect({ path, status: response.status, field: body.error.details?.field }).toEqual({
+            path,
+            status: 400,
+            field,
+          })
         }
         expect(calls).toEqual([])
       },
@@ -233,7 +240,7 @@ describe('GET /v1/wrkq/tasks/:taskId', () => {
     )
   })
 
-  test('maps a missing wrkq task to the existing 404 domain boundary', async () => {
+  test('wrkq task.show not-found returns 404 WRKQ_NOT_FOUND without further reads', async () => {
     const { client, calls } = fakeWorkClient({ notFound: true })
 
     await withWiredServer(

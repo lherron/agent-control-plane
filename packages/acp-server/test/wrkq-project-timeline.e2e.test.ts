@@ -103,7 +103,7 @@ describe.skipIf(!ENABLED)('GET /v1/wrkq/projects/:project/timeline (real wrkq)',
     if (artifact !== undefined) writeFileSync(artifact, `${JSON.stringify(evidence, null, 2)}\n`)
   })
 
-  test('1+5: limit=5 is newest-first, hides turn.*, and matches wrkp log entry keys', async () => {
+  test('default timeline read returns newest-first entries without turn.* and with wrkp log entry keys', async () => {
     const cliEntries = JSON.parse(wrkp(['log', PROJECT, '--limit', '5', '--json'])) as Record<
       string,
       unknown
@@ -186,7 +186,7 @@ describe.skipIf(!ENABLED)('GET /v1/wrkq/projects/:project/timeline (real wrkq)',
     evidence['forwardCursor'] = { forward, marker, entry }
   })
 
-  test('4: bad query is 400 with field; unknown project is 404', async () => {
+  test('malformed timeline query returns 400 naming the field; unknown project returns 404 WRKQ_NOT_FOUND', async () => {
     const rejected: Record<string, unknown> = {}
     for (const [query, field] of [
       ['?limit=0', 'limit'],

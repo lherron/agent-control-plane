@@ -90,6 +90,10 @@ describe('ACP learning workflow presets', () => {
       idempotencyKey: 'learning-promotion:self-review',
     })
     expect(selfReview.ok).toBe(false)
+    if (!selfReview.ok) {
+      expect(selfReview.error.code).toBe('sod_violation')
+      expect(selfReview.error.message).toContain('must differ from "patch_author"')
+    }
 
     const externalPromote = kernel.applyTransition({
       taskId: 'learning-promotion-1',
@@ -104,8 +108,13 @@ describe('ACP learning workflow presets', () => {
       idempotencyKey: 'learning-promotion:external-too-early',
     })
     expect(externalPromote.ok).toBe(false)
-    expect(kernel.listEvents('learning-promotion-1').map((event) => event.result)).toContain(
-      'rejected'
-    )
+    if (!externalPromote.ok) {
+      // promote is only legal after authority_review; the external authority cannot skip it.
+      expect(externalPromote.error.code).toBe('state_mismatch')
+    }
+    expect(kernel.listEvents('learning-promotion-1').at(-1)).toMatchObject({
+      type: 'transition.rejected',
+      rejectionCode: 'state_mismatch',
+    })
   })
 })

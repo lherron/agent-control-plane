@@ -3,15 +3,10 @@ import { describe, expect, test } from 'bun:test'
 import { createInMemoryAdminStore } from 'acp-admin-store'
 import { createInMemoryJobsStore } from 'acp-jobs-store'
 
-import type { Actor } from 'acp-core'
-import type { ResolvedAcpServerDeps } from '../deps.js'
-import { handleRunAdminJob } from '../handlers/admin-jobs.js'
-import { errorResponse } from '../http.js'
-
-const ACTOR: Actor = { kind: 'system', id: 'test' }
+import { withWiredServer } from '../../test/fixtures/wired-server.js'
 
 describe('manual job execution owner-set admission', () => {
-  test('returns a structured wrong-node conflict before creating a run or dispatching', async () => {
+  test('manual run of a job owned by another node returns 409 wrong_node and creates no run', async () => {
     const jobsStore = createInMemoryJobsStore()
     const adminStore = createInMemoryAdminStore()
     try {
@@ -28,49 +23,42 @@ describe('manual job execution owner-set admission', () => {
         mode: 'federated' as const,
         verifiedAt: '2026-07-23T12:00:00.000Z',
       }
-      const deps = {
-        jobsStore,
-        adminStore,
-        defaultActor: ACTOR,
-        jobNodeIdentityAuthority: {
-          verifyFresh: async () => ({ ok: true as const, identity }),
-          getDiagnostics: () => ({
-            startupState: 'ready' as const,
-            baseline: identity,
-            current: identity,
-            quiesced: false,
-          }),
-        },
-      } as unknown as ResolvedAcpServerDeps
 
-      let response: Response
-      try {
-        response = await handleRunAdminJob({
-          request: new Request(`http://acp.local/v1/admin/jobs/${job.jobId}/run`, {
+      await withWiredServer(
+        async (fixture) => {
+          const response = await fixture.request({
             method: 'POST',
-          }),
-          url: new URL(`http://acp.local/v1/admin/jobs/${job.jobId}/run`),
-          params: { jobId: job.jobId },
-          deps,
-          actor: ACTOR,
-        })
-      } catch (error) {
-        response = errorResponse(error)
-      }
+            path: `/v1/admin/jobs/${job.jobId}/run`,
+          })
 
-      expect(response.status).toBe(409)
-      expect(await response.json()).toEqual({
-        error: {
-          code: 'job_execution_wrong_node',
-          message: `job ${job.jobId} is not owned by node max3`,
-          details: {
-            jobId: job.jobId,
-            ownerSet: ['svc'],
-            currentNode: 'max3',
-          },
+          expect(response.status).toBe(409)
+          expect(await response.json()).toEqual({
+            error: {
+              code: 'job_execution_wrong_node',
+              message: `job ${job.jobId} is not owned by node max3`,
+              details: {
+                jobId: job.jobId,
+                ownerSet: ['svc'],
+                currentNode: 'max3',
+              },
+            },
+          })
+          expect(jobsStore.listJobRuns(job.jobId).jobRuns).toHaveLength(0)
         },
-      })
-      expect(jobsStore.listJobRuns(job.jobId).jobRuns).toHaveLength(0)
+        {
+          jobsStore,
+          adminStore,
+          jobNodeIdentityAuthority: {
+            verifyFresh: async () => ({ ok: true as const, identity }),
+            getDiagnostics: () => ({
+              startupState: 'ready' as const,
+              baseline: identity,
+              current: identity,
+              quiesced: false,
+            }),
+          } as never,
+        }
+      )
     } finally {
       jobsStore.close()
       adminStore.close()

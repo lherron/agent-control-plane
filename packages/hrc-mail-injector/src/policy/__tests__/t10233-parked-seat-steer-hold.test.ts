@@ -212,5 +212,7 @@ describe('T-10233 — steer hold on a seat parked on human input', () => {
     // sub-2 was written into the turn after all: the seat takes bodies again.
     await observe('input.accepted', { inputId: 'sub-2', disposition: 'attempted_steer' })
     expect(h.context.mailKickerSteerHold.has(RUNTIME)).toBe(false)
+    await driveMailTargetOnce(h.context, TARGET, 'periodic')
+    expect(steers).toBe(3)
   })
 })

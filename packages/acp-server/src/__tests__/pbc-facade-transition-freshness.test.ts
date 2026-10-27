@@ -334,180 +334,60 @@ const PATCH_DECISION_STATE: FakeWrkfState = {
 // apply uses the bumped hash → succeeds.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('dispose — survives evidence-write context bump (RED)', () => {
-  test('[RED] human dispose on behavior_note phase succeeds (not 409) when evidence.add bumps contextHash', async () => {
-    const wrkf = makeBumpingPort(BEHAVIOR_NOTE_STATE)
+describe('dispose — survives evidence-write context bump', () => {
+  test.each([
+    { phase: 'behavior_note', state: BEHAVIOR_NOTE_STATE },
+    // A human can dispose from ANY non-terminal phase, including while waiting
+    // for clarification (dispose_from_clarification).
+    { phase: 'clarification', state: CLARIFICATION_STATE },
+  ])(
+    'dispose from $phase after the evidence write bumps the wrkf context hash still returns the 200 projection (no stale-hash 409)',
+    async ({ phase, state }) => {
+      const wrkf = makeBumpingPort(state)
 
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: `/v1/pbc/tasks/${TASK}/dispose`,
-          headers: { 'x-acp-actor': HUMAN_ACTOR },
-          body: {
-            idempotencyKey: 'dispose-freshness-001',
-            resolution: 'abandoned',
-            reason: 'Scope dropped from sprint',
-          },
-        })
+      await withWiredServer(
+        async (fixture) => {
+          const response = await fixture.request({
+            method: 'POST',
+            path: `/v1/pbc/tasks/${TASK}/dispose`,
+            headers: { 'x-acp-actor': HUMAN_ACTOR },
+            body: {
+              idempotencyKey: `dispose-freshness-${phase}`,
+              resolution: 'abandoned',
+              reason: 'Scope dropped from sprint',
+            },
+          })
 
-        // RED: currently fails with 409 (WRKF_CONTEXT_MISMATCH) because the
-        // handler applies the transition with a stale contextHash captured before
-        // the evidence.add call. Fix: re-read wrkf.next after evidence.add.
-        expect(response.status).toBe(200)
-        const body = await fixture.json<Record<string, unknown>>(response)
-        expect(body['source']).toBe('wrkf')
-        expect(body['taskId']).toBe(TASK)
-        expect(body['workflowRef']).toBe(PBC_WORKFLOW_REF)
-      },
-      { wrkf }
-    )
-  })
+          // A handler that applies the transition with the contextHash captured
+          // before evidence.add gets WRKF_CONTEXT_MISMATCH from the bumping fake → 409.
+          expect(response.status).toBe(200)
+          const body = await fixture.json<Record<string, unknown>>(response)
+          expect(body['source']).toBe('wrkf')
+          expect(body['taskId']).toBe(TASK)
+          expect(body['workflowRef']).toBe(PBC_WORKFLOW_REF)
+          expect((body['diagnostics'] as Record<string, unknown>)['pack']).toBe('pbc')
 
-  test('[RED] dispose transition.apply receives the POST-evidence-write contextHash (not pre-write stale)', async () => {
-    const wrkf = makeBumpingPort(BEHAVIOR_NOTE_STATE)
-
-    // The pre-write contextHash (stale, should NOT be used by a fixed handler).
-    const staleContextHash = BEHAVIOR_NOTE_STATE.contextHash
-
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: `/v1/pbc/tasks/${TASK}/dispose`,
-          headers: { 'x-acp-actor': HUMAN_ACTOR },
-          body: {
-            idempotencyKey: 'dispose-freshness-ctx-check-001',
-            resolution: 'abandoned',
-            reason: 'Out of scope',
-          },
-        })
-
-        // RED: currently 409 because handler uses stale contextHash.
-        // After fix: 200, and the contextHash passed to transition.apply
-        // must be the POST-bump value, not the pre-bump stale value.
-        expect(response.status).toBe(200)
-
-        const applyCall = wrkf._calls.find((c) => c.method === 'transition.apply')
-        expect(applyCall).toBeDefined()
-        const applyParams = applyCall!.params as Record<string, unknown>
-
-        // The apply call must NOT use the stale pre-evidence-write contextHash.
-        expect(applyParams['contextHash']).not.toBe(staleContextHash)
-
-        // It must have used the bumped hash (sha256:ctx-bumped-4 = after revision 3 + 1 bump).
-        // More broadly, it must be a different (newer) hash than the stale one.
-        expect(typeof applyParams['contextHash']).toBe('string')
-      },
-      { wrkf }
-    )
-  })
-
-  test('[RED] human dispose on clarification phase (waiting) succeeds despite context bump', async () => {
-    // A human can dispose from ANY non-terminal phase, including while the task
-    // is waiting for clarification. The transition is dispose_from_clarification.
-    const wrkf = makeBumpingPort(CLARIFICATION_STATE)
-
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: `/v1/pbc/tasks/${TASK}/dispose`,
-          headers: { 'x-acp-actor': HUMAN_ACTOR },
-          body: {
-            idempotencyKey: 'dispose-freshness-clarif-001',
-            resolution: 'abandoned',
-            reason: 'No longer needed',
-          },
-        })
-
-        // RED: currently 409 WRKF_CONTEXT_MISMATCH (stale hash after evidence.add).
-        expect(response.status).toBe(200)
-      },
-      { wrkf }
-    )
-  })
-
-  test('[RED] dispose response projection source is wrkf and taskId matches', async () => {
-    const wrkf = makeBumpingPort(BEHAVIOR_NOTE_STATE)
-
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: `/v1/pbc/tasks/${TASK}/dispose`,
-          headers: { 'x-acp-actor': HUMAN_ACTOR },
-          body: {
-            idempotencyKey: 'dispose-freshness-shape-001',
-            resolution: 'abandoned',
-            reason: 'Scope change',
-          },
-        })
-
-        // RED: currently 409 instead of 200 with a valid PbcTaskProjection.
-        expect(response.status).toBe(200)
-        const body = await fixture.json<Record<string, unknown>>(response)
-
-        // Projection shape contract.
-        expect(body['source']).toBe('wrkf')
-        expect(body['taskId']).toBe(TASK)
-        expect(body['workflowRef']).toBe(PBC_WORKFLOW_REF)
-        expect(body['instance']).toBeDefined()
-        expect(body['screen']).toBeDefined()
-        expect(body['diagnostics']).toBeDefined()
-        const diagnostics = body['diagnostics'] as Record<string, unknown>
-        expect(diagnostics['pack']).toBe('pbc')
-      },
-      { wrkf }
-    )
-  })
-
-  test('[RED] dispose disposition_decision evidence is added before transition.apply', async () => {
-    const wrkf = makeBumpingPort(BEHAVIOR_NOTE_STATE)
-
-    await withWiredServer(
-      async (fixture) => {
-        await fixture.request({
-          method: 'POST',
-          path: `/v1/pbc/tasks/${TASK}/dispose`,
-          headers: { 'x-acp-actor': HUMAN_ACTOR },
-          body: {
-            idempotencyKey: 'dispose-freshness-order-001',
-            resolution: 'abandoned',
-            reason: 'Test ordering',
-          },
-        })
-
-        // Whether 200 or 409, we can assert ordering of calls.
-        // Evidence must be added BEFORE transition.apply is attempted.
-        const methods = wrkf._calls.map((c) => c.method)
-        const evidenceIdx = methods.indexOf('evidence.add')
-        const applyIdx = methods.indexOf('transition.apply')
-
-        expect(evidenceIdx).toBeGreaterThan(-1)
-        // If apply was attempted, it must come after evidence.
-        if (applyIdx >= 0) {
-          expect(applyIdx).toBeGreaterThan(evidenceIdx)
-        }
-      },
-      { wrkf }
-    )
-  })
+          const apply = wrkf._calls.find((c) => c.method === 'transition.apply')
+          expect((apply?.params as Record<string, unknown>)['transition']).toBe(
+            `dispose_from_${phase}`
+          )
+        },
+        { wrkf }
+      )
+    }
+  )
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
 // §2 — POST /v1/pbc/tasks/:taskId/input clarification_response — survives bump
 //
-// Bug: input.ts reads wrkf.next (contextHash=sha256:ctx-clarif-5), adds
-// clarification_response evidence (bumps to sha256:ctx-bumped-6), satisfies
-// the obligation (bumps again to sha256:ctx-bumped-7), then calls
-// transition.apply with the original stale sha256:ctx-clarif-5 → 409.
-//
-// Fix: re-read wrkf.next AFTER evidence/obligation writes.
+// Bug: input.ts read wrkf.next, added clarification_response evidence (bump),
+// satisfied the obligation (bump again), then applied the transition with the
+// original stale contextHash → 409. Fix: re-read wrkf.next after the writes.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('input clarification_response — survives evidence+obligation context bump (RED)', () => {
-  test('[RED] human clarification_response input succeeds (not 409) when writes bump contextHash', async () => {
+describe('input clarification_response — survives evidence+obligation context bump', () => {
+  test('clarification answer after evidence and obligation writes bump the context hash still returns the 200 projection', async () => {
     const wrkf = makeBumpingPort(CLARIFICATION_STATE)
 
     await withWiredServer(
@@ -523,109 +403,22 @@ describe('input clarification_response — survives evidence+obligation context 
           },
         })
 
-        // RED: currently 409 (WRKF_CONTEXT_MISMATCH) because the handler
-        // applies the transition with the contextHash captured BEFORE evidence.add
-        // and obligation.satisfy, both of which bump the hash.
         expect(response.status).toBe(200)
         const body = await fixture.json<Record<string, unknown>>(response)
-        expect(body['source']).toBe('wrkf')
-        expect(body['taskId']).toBe(TASK)
-      },
-      { wrkf }
-    )
-  })
-
-  test('[RED] clarification_response: transition.apply receives post-write contextHash', async () => {
-    const wrkf = makeBumpingPort(CLARIFICATION_STATE)
-
-    const staleContextHash = CLARIFICATION_STATE.contextHash
-
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: `/v1/pbc/tasks/${TASK}/input`,
-          headers: { 'x-acp-actor': HUMAN_ACTOR },
-          body: {
-            idempotencyKey: 'input-clarif-ctx-check-001',
-            kind: 'clarification_response',
-            data: { answer: 'Use the keyboard shortcut Ctrl+S' },
-          },
-        })
-
-        // RED: 409 currently.
-        expect(response.status).toBe(200)
-
-        const applyCall = wrkf._calls.find((c) => c.method === 'transition.apply')
-        expect(applyCall).toBeDefined()
-        const applyParams = applyCall!.params as Record<string, unknown>
-
-        // Must NOT be the stale pre-write contextHash.
-        expect(applyParams['contextHash']).not.toBe(staleContextHash)
-      },
-      { wrkf }
-    )
-  })
-
-  test('[RED] clarification_response input returns PbcTaskProjection on success', async () => {
-    const wrkf = makeBumpingPort(CLARIFICATION_STATE)
-
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: `/v1/pbc/tasks/${TASK}/input`,
-          headers: { 'x-acp-actor': HUMAN_ACTOR },
-          body: {
-            idempotencyKey: 'input-clarif-proj-001',
-            kind: 'clarification_response',
-            data: { answer: 'The upload button triggers the file picker' },
-          },
-        })
-
-        // RED: currently 409; after fix: 200 with full projection.
-        expect(response.status).toBe(200)
-        const body = await fixture.json<Record<string, unknown>>(response)
-
         expect(body['source']).toBe('wrkf')
         expect(body['taskId']).toBe(TASK)
         expect(body['workflowRef']).toBe(PBC_WORKFLOW_REF)
-        expect(body['instance']).toBeDefined()
-        expect(Array.isArray(body['actions'])).toBe(true)
-        expect(body['diagnostics']).toBeDefined()
-      },
-      { wrkf }
-    )
-  })
 
-  test('[RED] clarification_response: answer_clarification transition is applied (not rejected)', async () => {
-    const wrkf = makeBumpingPort(CLARIFICATION_STATE)
-
-    await withWiredServer(
-      async (fixture) => {
-        await fixture.request({
-          method: 'POST',
-          path: `/v1/pbc/tasks/${TASK}/input`,
-          headers: { 'x-acp-actor': HUMAN_ACTOR },
-          body: {
-            idempotencyKey: 'input-clarif-apply-check-001',
-            kind: 'clarification_response',
-            data: { answer: 'Double-click the submit button' },
-          },
-        })
-
-        // Evidence must be written before the transition apply attempt.
+        // Evidence is written before the transition, and the transition applied
+        // is answer_clarification.
         const methods = wrkf._calls.map((c) => c.method)
         const evidenceIdx = methods.indexOf('evidence.add')
         const applyIdx = methods.indexOf('transition.apply')
-
         expect(evidenceIdx).toBeGreaterThan(-1)
-        if (applyIdx >= 0) {
-          expect(applyIdx).toBeGreaterThan(evidenceIdx)
-          const applyCall = wrkf._calls[applyIdx]
-          const transition = (applyCall!.params as Record<string, unknown>)['transition']
-          expect(String(transition)).toContain('answer_clarification')
-        }
+        expect(applyIdx).toBeGreaterThan(evidenceIdx)
+        expect((wrkf._calls[applyIdx]!.params as Record<string, unknown>)['transition']).toBe(
+          'answer_clarification'
+        )
       },
       { wrkf }
     )
@@ -638,121 +431,42 @@ describe('input clarification_response — survives evidence+obligation context 
 // Same bug as clarification_response but on the patch_decision screen.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('input patch_decision — survives evidence+obligation context bump (RED)', () => {
-  test('[RED] human patch_decision input (finalize route) succeeds when writes bump contextHash', async () => {
-    const wrkf = makeBumpingPort(PATCH_DECISION_STATE)
+describe('input patch_decision — survives evidence+obligation context bump', () => {
+  test.each([
+    { route: 'finalize', transition: 'finalize_after_patch_decision' },
+    { route: 'revise', transition: 'revise_after_patch_decision' },
+  ])(
+    'patch decision ($route) after context-hash bumps returns the 200 projection and applies $transition',
+    async ({ route, transition }) => {
+      const wrkf = makeBumpingPort(PATCH_DECISION_STATE)
 
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: `/v1/pbc/tasks/${TASK}/input`,
-          headers: { 'x-acp-actor': HUMAN_ACTOR },
-          body: {
-            idempotencyKey: 'input-patch-finalize-freshness-001',
-            kind: 'patch_decision',
-            data: { route: 'finalize' },
-          },
-        })
+      await withWiredServer(
+        async (fixture) => {
+          const response = await fixture.request({
+            method: 'POST',
+            path: `/v1/pbc/tasks/${TASK}/input`,
+            headers: { 'x-acp-actor': HUMAN_ACTOR },
+            body: {
+              idempotencyKey: `input-patch-${route}-freshness-001`,
+              kind: 'patch_decision',
+              data: { route },
+            },
+          })
 
-        // RED: currently 409 (stale contextHash after evidence.add bumps it).
-        expect(response.status).toBe(200)
-        const body = await fixture.json<Record<string, unknown>>(response)
-        expect(body['source']).toBe('wrkf')
-        expect(body['taskId']).toBe(TASK)
-      },
-      { wrkf }
-    )
-  })
+          expect(response.status).toBe(200)
+          const body = await fixture.json<Record<string, unknown>>(response)
+          expect(body['source']).toBe('wrkf')
+          expect(body['taskId']).toBe(TASK)
+          expect(body['workflowRef']).toBe(PBC_WORKFLOW_REF)
+          expect((body['diagnostics'] as Record<string, unknown>)['pack']).toBe('pbc')
 
-  test('[RED] human patch_decision input (revise route) succeeds when writes bump contextHash', async () => {
-    const wrkf = makeBumpingPort(PATCH_DECISION_STATE)
-
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: `/v1/pbc/tasks/${TASK}/input`,
-          headers: { 'x-acp-actor': HUMAN_ACTOR },
-          body: {
-            idempotencyKey: 'input-patch-revise-freshness-001',
-            kind: 'patch_decision',
-            data: { route: 'revise' },
-          },
-        })
-
-        // RED: currently 409 (stale contextHash after evidence.add bumps it).
-        expect(response.status).toBe(200)
-        const body = await fixture.json<Record<string, unknown>>(response)
-        expect(body['source']).toBe('wrkf')
-        expect(body['taskId']).toBe(TASK)
-      },
-      { wrkf }
-    )
-  })
-
-  test('[RED] patch_decision: transition.apply receives post-write contextHash', async () => {
-    const wrkf = makeBumpingPort(PATCH_DECISION_STATE)
-
-    const staleContextHash = PATCH_DECISION_STATE.contextHash
-
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: `/v1/pbc/tasks/${TASK}/input`,
-          headers: { 'x-acp-actor': HUMAN_ACTOR },
-          body: {
-            idempotencyKey: 'input-patch-ctx-check-001',
-            kind: 'patch_decision',
-            data: { route: 'finalize' },
-          },
-        })
-
-        // RED: 409 currently.
-        expect(response.status).toBe(200)
-
-        const applyCall = wrkf._calls.find((c) => c.method === 'transition.apply')
-        expect(applyCall).toBeDefined()
-        const applyParams = applyCall!.params as Record<string, unknown>
-
-        // Must NOT be the stale pre-write contextHash.
-        expect(applyParams['contextHash']).not.toBe(staleContextHash)
-      },
-      { wrkf }
-    )
-  })
-
-  test('[RED] patch_decision returns PbcTaskProjection after successful input', async () => {
-    const wrkf = makeBumpingPort(PATCH_DECISION_STATE)
-
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: `/v1/pbc/tasks/${TASK}/input`,
-          headers: { 'x-acp-actor': HUMAN_ACTOR },
-          body: {
-            idempotencyKey: 'input-patch-proj-001',
-            kind: 'patch_decision',
-            data: { route: 'finalize' },
-          },
-        })
-
-        // RED: currently 409; after fix: 200 with full projection.
-        expect(response.status).toBe(200)
-        const body = await fixture.json<Record<string, unknown>>(response)
-
-        expect(body['source']).toBe('wrkf')
-        expect(body['taskId']).toBe(TASK)
-        expect(body['workflowRef']).toBe(PBC_WORKFLOW_REF)
-        expect(body['diagnostics']).toBeDefined()
-        const diagnostics = body['diagnostics'] as Record<string, unknown>
-        expect(diagnostics['pack']).toBe('pbc')
-      },
-      { wrkf }
-    )
-  })
+          const apply = wrkf._calls.find((c) => c.method === 'transition.apply')
+          expect((apply?.params as Record<string, unknown>)['transition']).toBe(transition)
+        },
+        { wrkf }
+      )
+    }
+  )
 })
 
 // ─────────────────────────────────────────────────────────────────────────────

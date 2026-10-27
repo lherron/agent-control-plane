@@ -1,15 +1,11 @@
 import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 
 import { Database } from 'bun:sqlite'
 import { afterEach, describe, expect, test } from 'bun:test'
 
-import {
-  collectAcpsE2eResidue,
-  parseAcpsE2eResidueArgs,
-  renderAcpsE2eResidue,
-} from './acps-e2e-residue.js'
+import { runAcpsE2eResidueCli } from './acps-e2e-residue.js'
 
 const temporaryRoots: string[] = []
 
@@ -74,10 +70,12 @@ afterEach(() => {
 })
 
 describe('ACPS E2E residue dry-run', () => {
-  test('counts distinct exact nonce scopes and summarizes their creation month read-only', () => {
+  test('--dry-run --db counts distinct exact nonce scopes by creation month and changes no rows', () => {
     const databasePath = createFixtureDatabase()
 
-    const report = collectAcpsE2eResidue(databasePath)
+    // A relative --db resolves against the working directory.
+    const relativePath = relative(process.cwd(), databasePath)
+    const report = JSON.parse(runAcpsE2eResidueCli(['--dry-run', '--db', relativePath, '--json']))
 
     expect(report).toEqual({
       databasePath,
@@ -89,7 +87,9 @@ describe('ACPS E2E residue dry-run', () => {
         { month: '2026-07', count: 1 },
       ],
     })
-    expect(renderAcpsE2eResidue(report)).toContain('No rows were changed.')
+    expect(runAcpsE2eResidueCli(['--dry-run', '--db', databasePath])).toContain(
+      'No rows were changed.'
+    )
 
     const database = new Database(databasePath, { readonly: true })
     try {
@@ -101,12 +101,8 @@ describe('ACPS E2E residue dry-run', () => {
     }
   })
 
-  test('requires the explicit dry-run guard and resolves an override database path', () => {
-    expect(() => parseAcpsE2eResidueArgs([])).toThrow('explicit --dry-run flag')
-    expect(parseAcpsE2eResidueArgs(['--dry-run', '--db', './fixture.sqlite', '--json'])).toEqual({
-      dryRun: true,
-      databasePath: join(process.cwd(), 'fixture.sqlite'),
-      json: true,
-    })
+  test('running without --dry-run is refused', () => {
+    const databasePath = createFixtureDatabase()
+    expect(() => runAcpsE2eResidueCli(['--db', databasePath])).toThrow('explicit --dry-run flag')
   })
 })

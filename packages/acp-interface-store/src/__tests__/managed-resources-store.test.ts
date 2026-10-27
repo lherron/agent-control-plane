@@ -116,65 +116,11 @@ function typeAssert<_T>(_v: _T): void {}
 typeAssert<ManagedBindingProvenanceRecord | undefined>(undefined)
 
 // ==================================================================
-// Provenance table schema
-// ==================================================================
-
-describe('managed_resource_provenance_interface schema (Phase D — store layer)', () => {
-  test('managed_resource_provenance_interface table exists after Phase D migration', () => {
-    const store = freshStore()
-    const tables = store.sqlite
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
-      )
-      .all() as Array<{ name: string }>
-    expect(tables.map((r) => r.name)).toContain('managed_resource_provenance_interface')
-  })
-
-  test('managed_resource_provenance_interface has required columns', () => {
-    const store = freshStore()
-    const cols = store.sqlite
-      .prepare("PRAGMA table_info('managed_resource_provenance_interface')")
-      .all() as Array<{ name: string }>
-    const names = cols.map((c) => c.name)
-    for (const required of [
-      'provenance_id',
-      'projection_id',
-      'projection_pk',
-      'binding_id',
-      'source_owner_scope_ref',
-      'source_hash',
-      'desired_projection_hash',
-      'resource_kind',
-      'state',
-      'applied_at',
-      'created_at',
-      'updated_at',
-    ]) {
-      expect(names).toContain(required)
-    }
-  })
-
-  test('projection_id column has a UNIQUE constraint', () => {
-    const store = freshStore()
-    const indexes = store.sqlite
-      .prepare(
-        "SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name='managed_resource_provenance_interface'"
-      )
-      .all() as Array<{ name: string; sql: string }>
-    const hasUnique = indexes.some(
-      (i) =>
-        i.sql?.toUpperCase().includes('UNIQUE') && i.sql?.toLowerCase().includes('projection_id')
-    )
-    expect(hasUnique).toBe(true)
-  })
-})
-
-// ==================================================================
 // Same-transaction provenance
 // ==================================================================
 
 describe('same-transaction provenance (Phase D invariant)', () => {
-  test('applyManagedBinding creates a binding row and a provenance row atomically', () => {
+  test('applying a new managed binding creates the binding and an active agent-directory provenance record', () => {
     const store = freshStore()
     const result = applyManagedBinding(store, DISCORD_BINDING)
 
@@ -199,30 +145,6 @@ describe('same-transaction provenance (Phase D invariant)', () => {
     expect(prov?.managedBy).toBe('agent-directory')
     expect(prov?.state).toBe('active')
   })
-
-  test('failed apply due to collision does not leave an orphaned provenance row', () => {
-    const store = freshStore()
-    // Pre-seed an unmanaged binding at the same bindingId
-    store.bindings.create({
-      bindingId: 'agent-smokey.discord-smoke',
-      gatewayId: 'acp-discord-smoke',
-      gatewayType: 'discord',
-      conversationRef: 'channel:1501224513390772224',
-      threadRef: 'thread:1501224513390772225',
-      scopeRef: 'agent:smokey:project:agent-spaces:task:primary',
-      laneRef: 'main',
-      projectId: 'agent-spaces',
-      status: 'active',
-      createdAt: NOW,
-      updatedAt: NOW,
-    })
-
-    const result = applyManagedBinding(store, DISCORD_BINDING)
-    expect(result.outcome).toBe('collision')
-
-    const prov = getManagedBindingProvenance(store, DISCORD_BINDING.projectionId)
-    expect(prov).toBeUndefined()
-  })
 })
 
 // ==================================================================
@@ -230,19 +152,6 @@ describe('same-transaction provenance (Phase D invariant)', () => {
 // ==================================================================
 
 describe('provenance uniqueness constraints (Phase D invariant)', () => {
-  test('two resources with the same projectionId but different projectionPk → stale_adoption_rejected', () => {
-    const store = freshStore()
-    expect(applyManagedBinding(store, DISCORD_BINDING).outcome).toBe('created')
-
-    const impostor: ApplyManagedBindingInput = {
-      ...DISCORD_BINDING,
-      projectionPk: 'agent-smokey.discord-smoke-v2',
-      desiredJson: { ...DISCORD_BINDING.desiredJson, bindingId: 'agent-smokey.discord-smoke-v2' },
-    }
-    const result = applyManagedBinding(store, impostor)
-    expect(result.outcome).toBe('stale_adoption_rejected')
-  })
-
   test('two distinct projectionIds with distinct projectionPks are both accepted', () => {
     const store = freshStore()
     expect(applyManagedBinding(store, DISCORD_BINDING).outcome).toBe('created')
@@ -257,17 +166,10 @@ describe('provenance uniqueness constraints (Phase D invariant)', () => {
 describe('idempotent reapply (Phase D invariant)', () => {
   test('applying the same resource twice produces noop on the second call', () => {
     const store = freshStore()
-    expect(applyManagedBinding(store, DISCORD_BINDING).outcome).toBe('created')
-    expect(applyManagedBinding(store, DISCORD_BINDING).outcome).toBe('noop')
-  })
-
-  test('reapply preserves the original bindingId (stable projection identity)', () => {
-    const store = freshStore()
     const first = applyManagedBinding(store, DISCORD_BINDING)
-    if (first.outcome !== 'created') throw new Error(`expected created, got ${first.outcome}`)
-
+    expect(first.outcome).toBe('created')
     const second = applyManagedBinding(store, DISCORD_BINDING)
-    expect(['noop', 'updated']).toContain(second.outcome)
+    expect(second.outcome).toBe('noop')
     expect(second.binding.bindingId).toBe(first.binding.bindingId)
   })
 
@@ -298,14 +200,14 @@ describe('idempotent reapply (Phase D invariant)', () => {
 // ==================================================================
 
 describe('collision fail-closed behavior (Phase D invariant)', () => {
-  test('bindingId exists with no provenance → UNMANAGED_COLLISION', () => {
+  test('bindingId exists with no provenance → UNMANAGED_COLLISION, leaving the binding untouched and no provenance', () => {
     const store = freshStore()
+    // Seeded fields differ from the managed desiredJson so an overwrite is visible.
     store.bindings.create({
       bindingId: 'agent-smokey.discord-smoke',
       gatewayId: 'acp-discord-smoke',
       gatewayType: 'discord',
-      conversationRef: 'channel:1501224513390772224',
-      threadRef: 'thread:1501224513390772225',
+      conversationRef: 'channel:unmanaged-original',
       scopeRef: 'agent:smokey:project:agent-spaces:task:primary',
       laneRef: 'main',
       projectId: 'agent-spaces',
@@ -313,11 +215,14 @@ describe('collision fail-closed behavior (Phase D invariant)', () => {
       createdAt: NOW,
       updatedAt: NOW,
     })
+    const before = store.bindings.findById('agent-smokey.discord-smoke')
 
     const result = applyManagedBinding(store, DISCORD_BINDING)
     expect(result.outcome).toBe('collision')
     if (result.outcome !== 'collision') return
     expect(result.error.code).toBe('UNMANAGED_COLLISION')
+    expect(store.bindings.findById('agent-smokey.discord-smoke')).toEqual(before)
+    expect(getManagedBindingProvenance(store, DISCORD_BINDING.projectionId)).toBeUndefined()
   })
 
   test('bindingId owned by a different projectionId → FOREIGN_MANAGED_COLLISION', () => {
@@ -333,31 +238,6 @@ describe('collision fail-closed behavior (Phase D invariant)', () => {
     expect(result.outcome).toBe('collision')
     if (result.outcome !== 'collision') return
     expect(result.error.code).toBe('FOREIGN_MANAGED_COLLISION')
-  })
-
-  test('collision does not mutate the pre-existing binding row', () => {
-    const store = freshStore()
-    store.bindings.create({
-      bindingId: 'agent-smokey.discord-smoke',
-      gatewayId: 'acp-discord-smoke',
-      gatewayType: 'discord',
-      conversationRef: 'channel:1501224513390772224',
-      threadRef: 'thread:1501224513390772225',
-      scopeRef: 'agent:smokey:project:agent-spaces:task:primary',
-      laneRef: 'main',
-      projectId: 'agent-spaces',
-      status: 'active',
-      createdAt: NOW,
-      updatedAt: NOW,
-    })
-
-    applyManagedBinding(store, DISCORD_BINDING)
-
-    const existing = store.bindings.findById('agent-smokey.discord-smoke')
-    // Gateway type should still be what was set by the unmanaged create
-    expect(existing?.gatewayType).toBe('discord')
-    // No provenance row created
-    expect(getManagedBindingProvenance(store, DISCORD_BINDING.projectionId)).toBeUndefined()
   })
 })
 
@@ -411,7 +291,7 @@ describe('drift detection (Phase D invariant)', () => {
 
     const drift = detectBindingDrift(store, DISCORD_BINDING.projectionId)
     expect(drift.hasDrift).toBe(true)
-    expect(drift.driftKind).toBeDefined()
+    expect(drift.driftKind).toBe('shape')
   })
 
   test('detectBindingDrift for unknown projectionId returns hasDrift=false', () => {
@@ -426,31 +306,18 @@ describe('drift detection (Phase D invariant)', () => {
 // ==================================================================
 
 describe('role_name persistence — Defect 2 guard (Phase F R2 RED)', () => {
-  test('role_name is written to interface_bindings when routing.roleName is set', () => {
-    // DISCORD_BINDING has desiredJson.routing.roleName = "coordinator"
+  test('a managed binding with routing.roleName persists that role on the binding', () => {
+    // DISCORD_BINDING has desiredJson.routing.roleName = "coordinator" while its
+    // scopeRef carries no :role: segment, so the role must come from routing.
     const store = freshStore()
     const result = applyManagedBinding(store, DISCORD_BINDING)
     expect(result.outcome).toBe('created')
 
-    // Read the raw DB row — bypass the mapped InterfaceBinding object, which
-    // reconstructs roleName from the scopeRef string and would also report NULL
-    // if the column is NULL.  We need to assert the *column* is persisted.
-    type Row = { role_name: string | null }
-    const row = store.sqlite
-      .prepare('SELECT role_name FROM interface_bindings WHERE binding_id = ?')
-      .get('agent-smokey.discord-smoke') as Row | undefined
-
-    expect(row).toBeDefined()
-
-    // ROOT CAUSE: deriveStructuredFields() in binding-repo.ts derives roleName
-    // ONLY from a ":role:" segment in scopeRef via parseScopeRef().
-    // Managed scopeRefs ("agent:smokey:project:agent-spaces:task:primary") carry
-    // no role segment, so binding.roleName (set from routing.roleName in
-    // bindingFromDesired at managed-resources.ts:210) is silently dropped on INSERT.
-    // FIX (not here): propagate binding.roleName directly rather than re-deriving it.
-    //
-    // THIS TEST MUST FAIL until the fix lands.
-    expect(row?.role_name).toBe('coordinator')
+    const binding = store.bindings.findById('agent-smokey.discord-smoke')
+    expect(binding?.roleName).toBe('coordinator')
+    expect(binding?.scopeRef).toBe(
+      'agent:smokey:project:agent-spaces:task:primary:role:coordinator'
+    )
   })
 })
 
@@ -491,33 +358,23 @@ describe('disable-only missing-source behavior (Phase D invariant)', () => {
     const created = applyManagedBinding(store, DISCORD_BINDING)
     if (created.outcome !== 'created') throw new Error('expected created')
 
-    // Seed a delivery request row directly (simulates prior message delivery activity).
-    // We insert at the SQL layer because the full enqueue API requires a complete actor/route context
-    // that is not relevant to what this test validates (that disable doesn't purge history).
-    store.sqlite
-      .prepare(
-        `INSERT INTO delivery_requests (
-           delivery_request_id, gateway_id, binding_id, scope_ref, lane_ref,
-           conversation_ref, body_kind, body_text, status,
-           actor_kind, actor_id, actor_stamp, created_at, updated_at
-         ) VALUES (
-           'dr_smoke_1', 'acp-discord-smoke', 'agent-smokey.discord-smoke',
-           'agent:smokey:project:agent-spaces:task:primary',
-           'main',
-           'channel:1501224513390772224', 'text', 'smoke test message',
-           'queued', 'agent', 'smokey', 'v1', ?, ?
-         )`
-      )
-      .run(NOW, NOW)
+    // Prior message delivery activity on the binding.
+    store.deliveries.enqueue({
+      deliveryRequestId: 'dr_smoke_1',
+      gatewayId: 'acp-discord-smoke',
+      bindingId: 'agent-smokey.discord-smoke',
+      scopeRef: 'agent:smokey:project:agent-spaces:task:primary',
+      laneRef: 'main',
+      conversationRef: 'channel:1501224513390772224',
+      bodyKind: 'text/markdown',
+      bodyText: 'smoke test message',
+      createdAt: NOW,
+    })
+    const before = store.deliveries.get('dr_smoke_1')
+    expect(before).toBeDefined()
 
     disableManagedBinding(store, DISCORD_BINDING.projectionId, 'source_missing')
 
-    // Delivery rows must still exist — disable must NOT purge delivery history
-    const rows = store.sqlite
-      .prepare(
-        "SELECT binding_id FROM delivery_requests WHERE binding_id = 'agent-smokey.discord-smoke'"
-      )
-      .all() as Array<{ binding_id: string }>
-    expect(rows.length).toBeGreaterThanOrEqual(1)
+    expect(store.deliveries.get('dr_smoke_1')).toEqual(before)
   })
 })

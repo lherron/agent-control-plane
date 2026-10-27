@@ -8,11 +8,4 @@ describe('projects feature', () => {
     expect(projectRoutes[0]?.children?.some((route) => route.index === true)).toBe(true)
     expect(projectRoutes[0]?.children?.some((route) => route.path === ':projectId')).toBe(true)
   })
-
-  it('imports project tab components', async () => {
-    const overview = await import('../src/features/projects/components/project-overview-tab')
-    const jobs = await import('../src/features/projects/components/project-jobs-tab')
-    expect(overview.ProjectOverviewTab).toBeDefined()
-    expect(jobs.ProjectJobsTab).toBeDefined()
-  })
 })

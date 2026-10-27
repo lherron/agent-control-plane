@@ -2,9 +2,12 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import path from 'node:path'
 import type { ExecFlowStep, ExecStepResult } from 'acp-core'
 
+import { createInMemoryJobsStore } from 'acp-jobs-store'
+
 import type { JobExecPolicy } from '../../src/jobs/exec-policy.js'
 import { resolveJobExecPolicy } from '../../src/jobs/exec-policy.js'
 import { runExecStep } from '../../src/jobs/exec-step.js'
+import { withWiredServer } from '../fixtures/wired-server.js'
 
 const jsRuntime = process.execPath
 const defaultCwd = process.cwd()
@@ -33,13 +36,17 @@ function policy(overrides: Partial<JobExecPolicy> = {}): JobExecPolicy {
   }
 }
 
-async function expectCodedRejection(promise: Promise<ExecStepResult>, code: string): Promise<void> {
+async function expectCodedRejection(
+  promise: Promise<ExecStepResult>,
+  code: string,
+  message: string
+): Promise<void> {
   expect.assertions(2)
 
   try {
     await promise
   } catch (error) {
-    expect(error).toMatchObject({ code })
+    expect(error).toMatchObject({ code, message })
     expect(error).toBeInstanceOf(Error)
     return
   }
@@ -47,7 +54,7 @@ async function expectCodedRejection(promise: Promise<ExecStepResult>, code: stri
   throw new Error(`Expected rejection with code ${code}`)
 }
 
-describe('resolveJobExecPolicy', () => {
+describe('exec policy default', () => {
   const originalEnv = { ...process.env }
 
   afterEach(() => {
@@ -59,14 +66,34 @@ describe('resolveJobExecPolicy', () => {
     Object.assign(process.env, originalEnv)
   })
 
-  test('defaults to disabled unless ACP_JOB_FLOW_EXEC_ENABLED=1', () => {
-    process.env.ACP_JOB_FLOW_EXEC_ENABLED = undefined
+  test('GET /v1/admin/jobs/scheduler reports exec steps disabled unless ACP_JOB_FLOW_EXEC_ENABLED=1', async () => {
+    const jobsStore = createInMemoryJobsStore()
+    try {
+      await withWiredServer(
+        async (fixture) => {
+          const readExecEnabled = async (): Promise<unknown> => {
+            const response = await fixture.request({
+              method: 'GET',
+              path: '/v1/admin/jobs/scheduler',
+            })
+            expect(response.status).toBe(200)
+            return (await fixture.json<{ execEnabled: unknown }>(response)).execEnabled
+          }
 
-    expect(resolveJobExecPolicy({ allowedCwdRoots: [defaultCwd] }).enabled).toBe(false)
+          process.env['ACP_JOB_FLOW_EXEC_ENABLED'] = undefined
+          expect(await readExecEnabled()).toBe(false)
 
-    process.env.ACP_JOB_FLOW_EXEC_ENABLED = '1'
+          process.env['ACP_JOB_FLOW_EXEC_ENABLED'] = 'true'
+          expect(await readExecEnabled()).toBe(false)
 
-    expect(resolveJobExecPolicy({ allowedCwdRoots: [defaultCwd] }).enabled).toBe(true)
+          process.env['ACP_JOB_FLOW_EXEC_ENABLED'] = '1'
+          expect(await readExecEnabled()).toBe(true)
+        },
+        { jobsStore }
+      )
+    } finally {
+      jobsStore.close()
+    }
   })
 })
 
@@ -161,27 +188,18 @@ describe('runExecStep', () => {
     expect(result.stderrTruncated).toBe(true)
   })
 
-  test('denies execution when policy is disabled', async () => {
-    await expectCodedRejection(
-      runExecStep({
-        step: execStep([jsRuntime, '-e', "process.stdout.write('should-not-run')"]),
-        defaultCwd,
-        policy: policy({ enabled: false }),
-      }),
-      'exec_policy_denied'
-    )
-  })
-
-  test('denies cwd outside allowed roots', async () => {
+  test('a cwd outside the allowed roots is refused with exec_policy_denied naming the cwd', async () => {
+    const cwd = path.parse(defaultCwd).root
     await expectCodedRejection(
       runExecStep({
         step: execStep([jsRuntime, '-e', "process.stdout.write('should-not-run')"], {
-          cwd: path.parse(defaultCwd).root,
+          cwd,
         }),
         defaultCwd,
         policy: policy({ allowedCwdRoots: [path.join(defaultCwd, 'allowed-root')] }),
       }),
-      'exec_policy_denied'
+      'exec_policy_denied',
+      `exec cwd is outside allowed roots: ${cwd}`
     )
   })
 

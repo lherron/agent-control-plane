@@ -34,21 +34,25 @@ describe('system events afterEventId cursor + payload-field existence (T-05245)'
     expect(afterSecond).toEqual([])
   })
 
-  test('afterEventId orders by event_id and honors limit', () => {
+  test('afterEventId pages forward in event_id order, limit rows at a time', () => {
     const store = createInMemoryAdminStore()
+    const appended: string[] = []
     for (let i = 0; i < 5; i += 1) {
-      store.systemEvents.append({
-        projectId: 'p',
-        kind: 'job.dispatched',
-        payload: { jobRunId: `jr-${i}` },
-        occurredAt: '2026-06-28T12:00:00.000Z',
-        recordedAt: '2026-06-28T12:00:00.000Z',
-      })
+      appended.push(
+        store.systemEvents.append({
+          projectId: 'p',
+          kind: 'job.dispatched',
+          payload: { jobRunId: `jr-${i}` },
+          occurredAt: '2026-06-28T12:00:00.000Z',
+          recordedAt: '2026-06-28T12:00:00.000Z',
+        }).eventId
+      )
     }
-    const page = store.systemEvents.list({ afterEventId: '0', limit: 3 })
-    expect(page).toHaveLength(3)
-    const ids = page.map((e) => Number(e.eventId))
-    expect(ids).toEqual([...ids].sort((a, b) => a - b))
+    const firstPage = store.systemEvents.list({ afterEventId: '0', limit: 3 })
+    expect(firstPage.map((e) => e.eventId)).toEqual(appended.slice(0, 3))
+
+    const secondPage = store.systemEvents.list({ afterEventId: appended[2] as string, limit: 3 })
+    expect(secondPage.map((e) => e.eventId)).toEqual(appended.slice(3))
   })
 
   test('existsWithPayloadField matches kind + payload.jobRunId for idempotency', () => {

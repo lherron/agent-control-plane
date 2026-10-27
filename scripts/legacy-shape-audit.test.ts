@@ -154,7 +154,7 @@ afterEach(() => {
 })
 
 describe('legacy shape audit', () => {
-  test('audits jobs and interface bindings with real parser failures', () => {
+  test("legacy-shaped job cooldown and lane ref rows are reported as FAIL with the parser's own error; valid and archived rows pass or are skipped", () => {
     const root = tmpRoot()
     const jobsDbPath = join(root, 'acp-jobs.db')
     const interfaceDbPath = join(root, 'acp-interface.db')

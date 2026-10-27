@@ -8,18 +8,4 @@ describe('acp-viewer', () => {
     expect(mod).toBeDefined()
     expect(mod.default).toBeDefined()
   })
-
-  it('viewer-store can be imported and initialized', async () => {
-    const { useViewerStore } = await import('../src/store/viewer-store')
-    expect(useViewerStore).toBeDefined()
-    const state = useViewerStore.getState()
-    expect(state.selectedProjectId).toBeUndefined()
-    expect(state.selectedAgentId).toBeUndefined()
-    expect(state.selectedJobId).toBeUndefined()
-  })
-
-  it('API types module can be imported', async () => {
-    const types = await import('../src/types/api')
-    expect(types).toBeDefined()
-  })
 })

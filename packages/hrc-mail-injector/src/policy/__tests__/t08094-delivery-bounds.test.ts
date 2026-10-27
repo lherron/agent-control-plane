@@ -109,9 +109,12 @@ describe('D2 — the redelivery loop is bounded per (envelope, runtime)', () => 
         .run(new Date(Date.now() - KICKER_SUBMISSION_TTL_MS - 1_000).toISOString(), envelope.id)
 
     await deliverOne(seatIn('turn-active'), envelope)
+    // Inside the TTL the intent is simply in flight.
+    expect(await reconcileOpenIntents(context, { reason: 'periodic' })).toMatchObject({ open: 1 })
     age()
     expect(await reconcileOpenIntents(context, { reason: 'periodic' })).toMatchObject({ open: 1 })
     expect(store.mailDelivery.getIntent(envelope.id)?.uncertainCause).toBe('ttl_without_landing')
+    expect(ledger.envelopes.get(envelope.id)?.state).toBe('pending')
     expect(ledger.failRequests).toEqual([])
     expect(
       (await readActionableEnvelopes(context, TARGET)).map((item) => item.envelope.id)
@@ -178,6 +181,8 @@ describe('D2 — the redelivery loop is bounded per (envelope, runtime)', () => 
         })
       )
       expect(store.mailDelivery.nonLandingStrikes(envelope.id, RUNTIME)).toBe(0)
+      // A proven-unwritten refusal releases the intent, so the next pass may retry.
+      expect(store.mailDelivery.getIntent(envelope.id)).toBeUndefined()
     }
     expect(ledger.failRequests).toEqual([])
     expect(ledger.envelopes.get(envelope.id)?.state).toBe('pending')

@@ -419,16 +419,26 @@ describe('admin jobs routes', () => {
     try {
       await withWiredServer(
         async (fixture) => {
-          await createJob(fixture)
+          const created = await createJob(fixture)
+          jobsStore.createJob({
+            projectId: 'other-project',
+            agentId: 'larry',
+            scopeRef: 'agent:larry:project:other-project',
+            laneRef: 'main',
+            schedule: { cron: '*/5 * * * *' },
+            input: { content: 'job in another project' },
+          })
 
           const response = await fixture.request({
             method: 'GET',
             path: `/v1/admin/jobs?projectId=${fixture.seed.projectId}`,
           })
-          const payload = await fixture.json<{ jobs: Array<{ projectId: string }> }>(response)
+          const payload = await fixture.json<{ jobs: Array<{ jobId: string; projectId: string }> }>(
+            response
+          )
 
           expect(response.status).toBe(200)
-          expect(payload.jobs).not.toHaveLength(0)
+          expect(payload.jobs.map((job) => job.jobId)).toEqual([created.job.jobId])
           expect(payload.jobs.every((job) => job.projectId === fixture.seed.projectId)).toBe(true)
         },
         { jobsStore }
@@ -804,6 +814,26 @@ describe('admin jobs routes', () => {
             `jobrun:${payload.jobRun.jobRunId}:phase:sequence:step:implement:attempt:1`,
           ])
           expect(launchCalls).toHaveLength(2)
+          const firstStepAttemptId = launchCalls[0]?.inputAttemptId
+          const attemptResponse = await fixture.request({
+            method: 'GET',
+            path: `/v1/input-attempts/${firstStepAttemptId}`,
+          })
+          expect(attemptResponse.status).toBe(200)
+          const attempt = await fixture.json<{
+            inputAttempt: { idempotencyKey?: string; metadata?: Record<string, unknown> }
+          }>(attemptResponse)
+          expect(attempt.inputAttempt.idempotencyKey).toBe(
+            `jobrun:${payload.jobRun.jobRunId}:phase:sequence:step:collect:attempt:1`
+          )
+          expect(attempt.inputAttempt.metadata?.['source']).toEqual({
+            kind: 'job',
+            jobId: created.job.jobId,
+            jobRunId: payload.jobRun.jobRunId,
+            stepId: 'collect',
+            phase: 'sequence',
+            attempt: 1,
+          })
           const completed = adminStore.systemEvents.list({ kind: 'job.completed' })
           expect(completed).toHaveLength(1)
           expect(completed[0]?.payload['finalResponse']).toBe(
@@ -956,11 +986,12 @@ describe('admin jobs routes', () => {
             path: `/v1/admin/jobs/${created.job.jobId}/run`,
           })
           const payload = await fixture.json<{
-            jobRun: { status: string; errorCode: string }
+            jobRun: { jobRunId: string; status: string; errorCode: string }
             steps: Array<{
               phase: string
               stepId: string
               status: string
+              inputAttemptId?: string
               error?: { code: string }
             }>
           }>(response)
@@ -976,6 +1007,19 @@ describe('admin jobs routes', () => {
           ])
           expect(payload.steps.find((step) => step.stepId === 'implement')?.error?.code).toBe(
             'result_field_mismatch'
+          )
+
+          const cleanup = payload.steps.find((step) => step.stepId === 'cleanup')
+          const attemptResponse = await fixture.request({
+            method: 'GET',
+            path: `/v1/input-attempts/${cleanup?.inputAttemptId}`,
+          })
+          expect(attemptResponse.status).toBe(200)
+          const attempt = await fixture.json<{ inputAttempt: { idempotencyKey?: string } }>(
+            attemptResponse
+          )
+          expect(attempt.inputAttempt.idempotencyKey).toBe(
+            `jobrun:${payload.jobRun.jobRunId}:phase:onFailure:step:cleanup:attempt:1`
           )
         },
         serverOverrides({
@@ -1138,16 +1182,24 @@ describe('admin jobs routes', () => {
       await withWiredServer(
         async (fixture) => {
           const created = await createJob(fixture)
-          await createJobRun(fixture, created.job.jobId)
+          const createdRun = await createJobRun(fixture, created.job.jobId)
+          const other = await createJob(fixture, {
+            scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:T-01176:role:implementer`,
+          })
+          await createJobRun(fixture, other.job.jobId)
 
           const response = await fixture.request({
             method: 'GET',
             path: `/v1/jobs/${created.job.jobId}/runs`,
           })
-          const payload = await fixture.json<{ jobRuns: Array<{ jobId: string }> }>(response)
+          const payload = await fixture.json<{
+            jobRuns: Array<{ jobRunId: string; jobId: string }>
+          }>(response)
 
           expect(response.status).toBe(200)
-          expect(payload.jobRuns).not.toHaveLength(0)
+          expect(payload.jobRuns.map((jobRun) => jobRun.jobRunId)).toEqual([
+            createdRun.jobRun.jobRunId,
+          ])
           expect(payload.jobRuns.every((jobRun) => jobRun.jobId === created.job.jobId)).toBe(true)
         },
         { jobsStore }
@@ -1202,19 +1254,25 @@ describe('admin jobs routes', () => {
           const created = await createJob(fixture)
           const payload = await createJobRun(fixture, created.job.jobId)
 
+          const attemptResponse = await fixture.request({
+            method: 'GET',
+            path: `/v1/input-attempts/${payload.jobRun.inputAttemptId}`,
+          })
+          expect(attemptResponse.status).toBe(200)
+          const attempt = await fixture.json<{
+            inputAttempt: { idempotencyKey?: string; metadata?: Record<string, unknown> }
+          }>(attemptResponse)
+
           expect(inputAttemptStore.calls).toHaveLength(1)
-          expect(inputAttemptStore.calls[0]).toEqual(
-            expect.objectContaining({
-              metadata: expect.objectContaining({
-                source: {
-                  kind: 'job',
-                  jobId: created.job.jobId,
-                  jobRunId: payload.jobRun.jobRunId,
-                },
-              }),
-            })
-          )
+          // Single-turn (legacy) job runs key the attempt by jobRunId and carry no step fields.
+          expect(attempt.inputAttempt.idempotencyKey).toBe(payload.jobRun.jobRunId)
+          expect(attempt.inputAttempt.metadata?.['source']).toEqual({
+            kind: 'job',
+            jobId: created.job.jobId,
+            jobRunId: payload.jobRun.jobRunId,
+          })
           expect(launchCalls).toHaveLength(1)
+          expect(launchCalls[0]?.inputAttemptId).toBe(payload.jobRun.inputAttemptId)
         },
         {
           jobsStore,

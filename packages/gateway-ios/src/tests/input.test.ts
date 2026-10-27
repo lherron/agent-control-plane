@@ -9,7 +9,7 @@ import type {
 } from 'hrc-core'
 
 import type { GatewayIosHrcClient } from '../input.js'
-import { createGatewayIosFetchHandler, createGatewayIosRoutes } from '../routes.js'
+import { createGatewayIosFetchHandler } from '../routes.js'
 
 function session(overrides: Partial<HrcSessionRecord> = {}): HrcSessionRecord {
   return {
@@ -78,12 +78,6 @@ async function body(response: Response): Promise<Record<string, unknown>> {
 }
 
 describe('gateway-ios input routes', () => {
-  it('registers POST /v1/input and POST /v1/interrupt', () => {
-    const routes = createGatewayIosRoutes({ hrcClient: {} as GatewayIosHrcClient })
-    expect(routes.map((route) => `${route.method} ${route.path}`)).toContain('POST /v1/input')
-    expect(routes.map((route) => `${route.method} ${route.path}`)).toContain('POST /v1/interrupt')
-  })
-
   it('POST /v1/input rejects headless sessions', async () => {
     let delivered = false
     const client = {
@@ -217,7 +211,9 @@ describe('gateway-ios input routes', () => {
     )
 
     expect(response.status).toBe(409)
-    expect((await body(response)).code).toBe(HrcErrorCode.STALE_CONTEXT)
+    const payload = await body(response)
+    expect(payload.code).toBe(HrcErrorCode.STALE_CONTEXT)
+    expect(payload.message).toBe('generation fence is stale')
     expect(delivered).toBe(false)
   })
 

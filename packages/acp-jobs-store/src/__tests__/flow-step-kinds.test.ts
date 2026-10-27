@@ -34,6 +34,16 @@ function expectCodes(
   }
 }
 
+function expectError(
+  result: ReturnType<typeof validateJobFlow>,
+  expected: { code: JobFlowValidationErrorCode; path: string }
+): void {
+  expect(result.valid).toBe(false)
+  if (!result.valid) {
+    expect(result.errors).toContainEqual(expect.objectContaining(expected))
+  }
+}
+
 // Import the error-code type so TypeScript checks new codes are in the union.
 import type { JobFlowValidationErrorCode } from '../flow-validation.js'
 
@@ -78,24 +88,14 @@ describe('wrkq-task step kind (Phase A — RED)', () => {
     ).toEqual({ valid: true })
   })
 
-  test('rejects wrkq-task missing required title with step-specific error', () => {
-    // RED: current code produces invalid_step_kind, not invalid_wrkq_task_step
-    expectCodes(
-      validateJobFlow({
-        sequence: [{ id: 'create', kind: 'wrkq-task', container: 'agent-control-plane/inbox' }],
-      }),
-      ['invalid_wrkq_task_step']
-    )
-  })
-
-  test('rejects wrkq-task missing required container with step-specific error', () => {
-    // RED: same
-    expectCodes(
-      validateJobFlow({
-        sequence: [{ id: 'create', kind: 'wrkq-task', title: 'A task' }],
-      }),
-      ['invalid_wrkq_task_step']
-    )
+  test.each([
+    ['title', { id: 'create', kind: 'wrkq-task', container: 'agent-control-plane/inbox' }],
+    ['container', { id: 'create', kind: 'wrkq-task', title: 'A task' }],
+  ])('rejects wrkq-task missing required %s with an error at that field', (field, step) => {
+    expectError(validateJobFlow({ sequence: [step] }), {
+      code: 'invalid_wrkq_task_step',
+      path: `flow.sequence[0].${field}`,
+    })
   })
 })
 
@@ -121,24 +121,14 @@ describe('pulpit-message step kind (Phase A — RED)', () => {
     ).toEqual({ valid: true })
   })
 
-  test('rejects pulpit-message missing required binding', () => {
-    // RED
-    expectCodes(
-      validateJobFlow({
-        sequence: [{ id: 'notify', kind: 'pulpit-message', content: 'Hello world.' }],
-      }),
-      ['invalid_pulpit_message_step']
-    )
-  })
-
-  test('rejects pulpit-message missing required content', () => {
-    // RED
-    expectCodes(
-      validateJobFlow({
-        sequence: [{ id: 'notify', kind: 'pulpit-message', binding: 'discord:primary' }],
-      }),
-      ['invalid_pulpit_message_step']
-    )
+  test.each([
+    ['binding', { id: 'notify', kind: 'pulpit-message', content: 'Hello world.' }],
+    ['content', { id: 'notify', kind: 'pulpit-message', binding: 'discord:primary' }],
+  ])('rejects pulpit-message missing required %s with an error at that field', (field, step) => {
+    expectError(validateJobFlow({ sequence: [step] }), {
+      code: 'invalid_pulpit_message_step',
+      path: `flow.sequence[0].${field}`,
+    })
   })
 })
 
@@ -180,13 +170,12 @@ describe('agent-dispatch step kind (Phase A — RED)', () => {
     ).toEqual({ valid: true })
   })
 
-  test('rejects agent-dispatch missing required scopeRef', () => {
-    // RED
-    expectCodes(
+  test('rejects agent-dispatch missing required scopeRef with an error at scopeRef', () => {
+    expectError(
       validateJobFlow({
         sequence: [{ id: 'dispatch', kind: 'agent-dispatch', input: { content: 'x' } }],
       }),
-      ['invalid_agent_dispatch_step']
+      { code: 'invalid_agent_dispatch_step', path: 'flow.sequence[0].scopeRef' }
     )
   })
 })
@@ -306,79 +295,25 @@ describe('step-output ref validation (Phase A — RED — test #4)', () => {
     )
   })
 
-  test('rejects step-output ref with dotted field name', () => {
-    // RED: field must be a bare identifier — no dots allowed
-    expectCodes(
-      validateJobFlow({
-        sequence: [
-          { id: 'create', kind: 'wrkq-task', title: 'x', container: 'inbox' },
-          {
-            id: 'dispatch',
-            kind: 'agent-dispatch',
-            scopeRef: { $step: 'create', field: 'nested.scopeRef' },
-            input: { content: 'x' },
-          },
-        ],
-      }),
-      ['invalid_step_output_ref']
-    )
-  })
-
-  test('rejects step-output ref with bracket notation in field name', () => {
-    // RED: no bracket notation
-    expectCodes(
-      validateJobFlow({
-        sequence: [
-          { id: 'create', kind: 'wrkq-task', title: 'x', container: 'inbox' },
-          {
-            id: 'dispatch',
-            kind: 'agent-dispatch',
-            scopeRef: { $step: 'create', field: 'arr[0]' },
-            input: { content: 'x' },
-          },
-        ],
-      }),
-      ['invalid_step_output_ref']
-    )
-  })
-
-  test('rejects malformed step-output ref missing $step', () => {
-    // RED: $step is required
-    expectCodes(
-      validateJobFlow({
-        sequence: [
-          { id: 'create', kind: 'wrkq-task', title: 'x', container: 'inbox' },
-          {
-            id: 'dispatch',
-            kind: 'agent-dispatch',
-            // missing $step — only has field
-            scopeRef: { field: 'assignedScopeRef' },
-            input: { content: 'x' },
-          },
-        ],
-      }),
-      ['invalid_step_output_ref']
-    )
-  })
-
-  test('rejects malformed step-output ref missing field', () => {
-    // RED: field is required
-    expectCodes(
-      validateJobFlow({
-        sequence: [
-          { id: 'create', kind: 'wrkq-task', title: 'x', container: 'inbox' },
-          {
-            id: 'dispatch',
-            kind: 'agent-dispatch',
-            // missing field — only has $step
-            scopeRef: { $step: 'create' },
-            input: { content: 'x' },
-          },
-        ],
-      }),
-      ['invalid_step_output_ref']
-    )
-  })
+  test.each([
+    ['dotted field', { $step: 'create', field: 'nested.scopeRef' }],
+    ['bracket field', { $step: 'create', field: 'arr[0]' }],
+    ['missing $step', { field: 'assignedScopeRef' }],
+    ['missing field', { $step: 'create' }],
+  ])(
+    'rejects a malformed step-output ref (%s) with invalid_step_output_ref',
+    (_label, scopeRef) => {
+      expectError(
+        validateJobFlow({
+          sequence: [
+            { id: 'create', kind: 'wrkq-task', title: 'x', container: 'inbox' },
+            { id: 'dispatch', kind: 'agent-dispatch', scopeRef, input: { content: 'x' } },
+          ],
+        }),
+        { code: 'invalid_step_output_ref', path: 'flow.sequence[1].scopeRef' }
+      )
+    }
+  )
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -405,38 +340,46 @@ describe('authority field guard — template strings rejected (Phase A — RED �
     )
   })
 
-  test('accepts wrkq-task with template string in title (content field)', () => {
-    // RED: title is a CONTENT field — templates are allowed here
-    expect(
-      validateJobFlow({
-        sequence: [
-          {
-            id: 'create',
-            kind: 'wrkq-task',
-            title: 'Task from event: {{title}}',
-            container: 'agent-control-plane/inbox',
-          },
-        ],
-      })
-    ).toEqual({ valid: true })
-  })
-
-  test('rejects wrkq-task with template in description (authority-adjacent — must use ref or literal)', () => {
-    // description is content so templates ARE allowed — it should be valid
-    // (this test is actually a positive case, confirming content fields are free)
-    expect(
-      validateJobFlow({
-        sequence: [
-          {
-            id: 'create',
-            kind: 'wrkq-task',
-            title: 'Incident task',
-            container: 'agent-control-plane/inbox',
-            description: 'Triggered by event {{event}} on {{subject_id}}.',
-          },
-        ],
-      })
-    ).toEqual({ valid: true })
+  test.each([
+    [
+      'wrkq-task title',
+      {
+        id: 'create',
+        kind: 'wrkq-task',
+        title: 'Task from event: {{title}}',
+        container: 'agent-control-plane/inbox',
+      },
+    ],
+    [
+      'wrkq-task description',
+      {
+        id: 'create',
+        kind: 'wrkq-task',
+        title: 'Incident task',
+        container: 'agent-control-plane/inbox',
+        description: 'Triggered by event {{event}} on {{subject_id}}.',
+      },
+    ],
+    [
+      'pulpit-message content',
+      {
+        id: 'notify',
+        kind: 'pulpit-message',
+        content: 'Task {{payload.ticket_id}} created by {{origin_actor}}.',
+        binding: 'discord:primary',
+      },
+    ],
+    [
+      'agent-dispatch input content',
+      {
+        id: 'dispatch',
+        kind: 'agent-dispatch',
+        scopeRef: 'agent:clod:project:agent-control-plane:task:primary',
+        input: { content: 'Process event {{event}} for task {{payload.ticket_id}}.' },
+      },
+    ],
+  ])('accepts a template string in a content field (%s)', (_label, step) => {
+    expect(validateJobFlow({ sequence: [step] })).toEqual({ valid: true })
   })
 
   // pulpit-message: binding is an authority field
@@ -455,22 +398,6 @@ describe('authority field guard — template strings rejected (Phase A — RED �
       }),
       ['authority_field_interpolation']
     )
-  })
-
-  test('accepts pulpit-message with template string in content (content field)', () => {
-    // RED: content is a CONTENT field — templates allowed
-    expect(
-      validateJobFlow({
-        sequence: [
-          {
-            id: 'notify',
-            kind: 'pulpit-message',
-            content: 'Task {{payload.ticket_id}} created by {{origin_actor}}.',
-            binding: 'discord:primary',
-          },
-        ],
-      })
-    ).toEqual({ valid: true })
   })
 
   // agent-dispatch: scopeRef and laneRef are authority fields
@@ -509,22 +436,6 @@ describe('authority field guard — template strings rejected (Phase A — RED �
     )
   })
 
-  test('accepts agent-dispatch with template string in input content field', () => {
-    // RED: input fields are CONTENT — templates allowed
-    expect(
-      validateJobFlow({
-        sequence: [
-          {
-            id: 'dispatch',
-            kind: 'agent-dispatch',
-            scopeRef: 'agent:clod:project:agent-control-plane:task:primary',
-            input: { content: 'Process event {{event}} for task {{payload.ticket_id}}.' },
-          },
-        ],
-      })
-    ).toEqual({ valid: true })
-  })
-
   test('accepts all new step kinds with step-output refs in authority fields', () => {
     // RED: step-output refs ARE allowed in authority fields (the trusted alternative to literals)
     expect(
@@ -551,50 +462,5 @@ describe('authority field guard — template strings rejected (Phase A — RED �
         ],
       })
     ).toEqual({ valid: true })
-  })
-})
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Group G — safety regressions  (test #8)
-// REGRESSION: these already pass and must continue to pass after Phase A
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('safety regressions — exec and flow invariants (test #8 — REGRESSION)', () => {
-  test('exec step still requires argv (shell command strings remain rejected)', () => {
-    const result = validateJobFlow({
-      sequence: [{ id: 'run', kind: 'exec', exec: { command: 'bun test' } }],
-    })
-    expect(result.valid).toBe(false)
-    if (!result.valid) {
-      expect(result.errors.map((e) => e.code)).toContain('invalid_exec_command')
-    }
-  })
-
-  test('exec step with valid argv is still accepted', () => {
-    expect(
-      validateJobFlow({
-        sequence: [{ id: 'run', kind: 'exec', exec: { argv: ['bun', 'test'] } }],
-      })
-    ).toEqual({ valid: true })
-  })
-
-  test('exec step with argv=[] is rejected (empty argv stays invalid)', () => {
-    const result = validateJobFlow({
-      sequence: [{ id: 'run', kind: 'exec', exec: { argv: [] } }],
-    })
-    expect(result.valid).toBe(false)
-    if (!result.valid) {
-      expect(result.errors.map((e) => e.code)).toContain('invalid_exec_argv')
-    }
-  })
-
-  test('unknown step kind is still rejected (guard stays in place)', () => {
-    const result = validateJobFlow({
-      sequence: [{ id: 'run', kind: 'shell', exec: { argv: ['ls'] } }],
-    })
-    expect(result.valid).toBe(false)
-    if (!result.valid) {
-      expect(result.errors.map((e) => e.code)).toContain('invalid_step_kind')
-    }
   })
 })

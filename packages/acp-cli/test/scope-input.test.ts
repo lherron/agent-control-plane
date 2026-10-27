@@ -91,15 +91,15 @@ describe('normalizeScopeInput', () => {
   })
 
   test('leaves bare agent unchanged when no project context is available', () => {
-    // ASP_PROJECT is deleted; cwd inference may still find a marker. To make
-    // this deterministic, just assert the resulting scopeRef starts with the
-    // expected agent prefix — if a project marker exists upstream the value
-    // will be task-qualified, otherwise it stays agent-only. Either way, the
-    // resolver must not throw.
-    const result = normalizeScopeInput('cody')
-    expect(
-      result.scopeRef === 'agent:cody' || result.scopeRef.startsWith('agent:cody:project:')
-    ).toBe(true)
+    const cwd = process.cwd()
+    const root = mkdtempSync(join(tmpdir(), 'acp-scope-bare-'))
+    try {
+      process.chdir(root)
+      expect(normalizeScopeInput('cody')).toEqual({ scopeRef: 'agent:cody' })
+    } finally {
+      process.chdir(cwd)
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   test('explicit --lane-ref main is emitted on output', () => {
@@ -179,6 +179,7 @@ describe('inferProjectIdFromCwd (vendored marker walk)', () => {
     try {
       const agentDir = join(home, 'praesidium', 'var', 'agents', 'rex')
       mkdirSync(agentDir, { recursive: true })
+      writeFileSync(join(agentDir, 'asp-targets.toml'), 'targets = []\n')
       expect(inferProjectIdFromCwd({ cwd: agentDir, env: { HOME: home } })).toBeUndefined()
       expect(
         inferProjectIdFromCwd({

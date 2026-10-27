@@ -82,24 +82,56 @@ describe('admin memberships endpoints', () => {
     })
   })
 
-  test('returns 404 when creating a membership for a missing project or agent', async () => {
-    await withWiredServer(async (fixture) => {
-      const response = await fixture.request({
-        method: 'POST',
-        path: '/v1/admin/memberships',
-        body: {
-          projectId: 'missing-project',
-          agentId: 'missing-agent',
-          role: 'observer',
-          actor: { kind: 'human', id: 'operator' },
-        },
-      })
+  test('returns 404 naming the missing project or agent when creating a membership', async () => {
+    const rows = [
+      {
+        name: 'missing project',
+        projectId: 'missing-project',
+        agentId: 'smokey',
+        expected: { message: 'project not found', details: { projectId: 'missing-project' } },
+      },
+      {
+        name: 'missing agent',
+        projectId: 'agent-spaces',
+        agentId: 'missing-agent',
+        expected: { message: 'agent not found', details: { agentId: 'missing-agent' } },
+      },
+    ]
 
-      expect(response.status).toBe(404)
-      expect(await fixture.json<{ error: { code: string } }>(response)).toEqual({
-        error: expect.objectContaining({ code: 'not_found' }),
+    for (const row of rows) {
+      await withWiredServer(async (fixture) => {
+        await fixture.request({
+          method: 'POST',
+          path: '/v1/admin/agents',
+          body: { agentId: 'smokey', status: 'active', actor: { kind: 'agent', id: 'operator' } },
+        })
+        await fixture.request({
+          method: 'POST',
+          path: '/v1/admin/projects',
+          body: {
+            projectId: 'agent-spaces',
+            displayName: 'Agent Spaces',
+            actor: { kind: 'agent', id: 'operator' },
+          },
+        })
+
+        const response = await fixture.request({
+          method: 'POST',
+          path: '/v1/admin/memberships',
+          body: {
+            projectId: row.projectId,
+            agentId: row.agentId,
+            role: 'observer',
+            actor: { kind: 'human', id: 'operator' },
+          },
+        })
+
+        expect(response.status, row.name).toBe(404)
+        expect(await fixture.json<{ error: Record<string, unknown> }>(response), row.name).toEqual({
+          error: expect.objectContaining({ code: 'not_found', ...row.expected }),
+        })
       })
-    })
+    }
   })
 
   test('returns 400 when GET /v1/admin/memberships omits projectId', async () => {

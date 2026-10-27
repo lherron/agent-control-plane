@@ -5,11 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { createInterfaceRunDispatcher } from '../src/integration/interface-run-dispatcher.js'
-import {
-  LAUNCH_CORRELATION_WINDOW_MS,
-  createRealLauncher,
-  hasInFlightHrcRunForSessionSince,
-} from '../src/real-launcher.js'
+import { LAUNCH_CORRELATION_WINDOW_MS, createRealLauncher } from '../src/real-launcher.js'
 
 import { type WiredServerFixture, withWiredServer } from './fixtures/wired-server.js'
 
@@ -90,7 +86,7 @@ async function postInterfaceMessage(fixture: WiredServerFixture): Promise<Respon
 }
 
 describe('ACP run correlation', () => {
-  test('stores HRC correlation fields on the ACP run after dispatch', async () => {
+  test('interface message dispatched through HRC → ACP run records hrcRunId, hostSessionId, generation, runtimeId and transport', async () => {
     const hrc = createHeadlessHrcDb()
     createRunScopedHrcEventsTable(hrc.db)
     const dispatchCalls: unknown[] = []
@@ -151,6 +147,8 @@ describe('ACP run correlation', () => {
 
           expect(response.status).toBe(201)
           expect(dispatchCalls).toHaveLength(1)
+          expect(payload.runId).not.toBe('hrc-run-123')
+          expect(dispatchCalls[0]).not.toHaveProperty('runId')
           expect(storedRun).toMatchObject({
             runId: payload.runId,
             hrcRunId: 'hrc-run-123',
@@ -177,7 +175,7 @@ describe('ACP run correlation', () => {
     }
   })
 
-  test('persists errorCode and errorMessage from failed HRC runs on the ACP run', async () => {
+  test("failed HRC run → ACP run failed with errorCode turn_failed and HRC's error message", async () => {
     const hrc = createHeadlessHrcDb()
     const launcher = createRealLauncher({
       hrcDbPath: hrc.hrcDbPath,
@@ -476,95 +474,8 @@ describe('ACP run correlation', () => {
     }
   })
 
-  test('rotated-session launch evidence preserves terminal and time-window bounds', () => {
+  test('dispatcher fails a stale pending run with dispatch_timeout when the only rotated-session HRC runs are terminal or accepted after the correlation window (T-07790)', async () => {
     const hrc = createHeadlessHrcDb()
-    const sessionRef = {
-      scopeRef: 'agent:mneme:project:signal-pipeline:task:primary',
-      laneRef: 'main',
-    }
-    const since = '2026-08-31T11:55:09.993Z'
-    const until = new Date(Date.parse(since) + LAUNCH_CORRELATION_WINDOW_MS).toISOString()
-
-    try {
-      hrc.db.run(
-        `INSERT INTO runs (
-           run_id, status, host_session_id, scope_ref, lane_ref, accepted_at, completed_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        'hrc-run-terminal-after-rotation',
-        'completed',
-        'hsid-post-rotation-terminal',
-        sessionRef.scopeRef,
-        sessionRef.laneRef,
-        '2026-08-31T11:55:11.946Z',
-        '2026-08-31T11:56:20.805Z'
-      )
-      hrc.db.run(
-        `INSERT INTO runs (
-           run_id, status, host_session_id, scope_ref, lane_ref, accepted_at
-         ) VALUES (?, ?, ?, ?, ?, ?)`,
-        'hrc-run-outside-window-after-rotation',
-        'running',
-        'hsid-post-rotation-late',
-        sessionRef.scopeRef,
-        sessionRef.laneRef,
-        until
-      )
-
-      expect(hasInFlightHrcRunForSessionSince(hrc.hrcDbPath, sessionRef, since, until)).toBe(false)
-    } finally {
-      hrc.cleanup()
-    }
-  })
-
-  test('correlates the returned ACP runId with the HRC run launched by interface messages', async () => {
-    const hrc = createHeadlessHrcDb()
-    createRunScopedHrcEventsTable(hrc.db)
-    const dispatchCalls: Array<Record<string, unknown>> = []
-    const launcher = createRealLauncher({
-      hrcDbPath: hrc.hrcDbPath,
-      pollIntervalMs: 1,
-      watchTimeoutMs: 250,
-      createClient: () =>
-        ({
-          resolveSession: async () => ({ found: true, hostSessionId: 'hsid-456', generation: 13 }),
-          dispatchTurn: async (input: unknown) => {
-            dispatchCalls.push(input as Record<string, unknown>)
-            hrc.db.run(
-              'INSERT INTO runs (run_id, status, error_code, error_message) VALUES (?, ?, NULL, NULL)',
-              'hrc-run-456',
-              'completed'
-            )
-            hrc.db.run(
-              'INSERT INTO events (run_id, event_kind, event_json) VALUES (?, ?, ?)',
-              'hrc-run-456',
-              'message_end',
-              JSON.stringify({
-                type: 'message_end',
-                message: {
-                  role: 'assistant',
-                  content: [{ type: 'text', text: 'Correlated.' }],
-                },
-              })
-            )
-            hrc.db.run(
-              'INSERT INTO hrc_events (run_id, event_kind, payload_json) VALUES (?, ?, ?)',
-              'hrc-run-456',
-              'turn.completed',
-              JSON.stringify({ finalOutput: 'Correlated.' })
-            )
-
-            return {
-              runId: 'hrc-run-456',
-              hostSessionId: 'hsid-456',
-              generation: 13,
-              runtimeId: 'rt-456',
-              transport: 'headless',
-              status: 'completed',
-              supportsInFlightInput: false,
-            }
-          },
-        }) as unknown as any,
-    })
 
     try {
       await withWiredServer(
@@ -572,15 +483,57 @@ describe('ACP run correlation', () => {
           addInterfaceBinding(fixture)
 
           const response = await postInterfaceMessage(fixture)
-          const payload = await fixture.json<{ inputAttemptId: string; runId: string }>(response)
-          const storedRun = fixture.runStore.getRun(payload.runId)
-
+          const payload = await fixture.json<{ runId: string }>(response)
           expect(response.status).toBe(201)
-          expect(payload.runId).not.toBe('hrc-run-456')
-          expect(dispatchCalls[0]).not.toHaveProperty('runId')
-          expect(storedRun).toMatchObject({
-            runId: payload.runId,
-            hrcRunId: 'hrc-run-456',
+
+          fixture.runStore.updateRun(payload.runId, {
+            hostSessionId: 'hsid-pre-rotation',
+            generation: 10,
+          })
+          const acpRun = fixture.runStore.getRun(payload.runId)
+          expect(acpRun).toMatchObject({ status: 'pending', hostSessionId: 'hsid-pre-rotation' })
+          expect(acpRun?.hrcRunId).toBeUndefined()
+
+          const createdMs = new Date(acpRun?.createdAt ?? '').getTime()
+          // Same scope/lane after rotation, accepted inside the window but already terminal.
+          hrc.db.run(
+            `INSERT INTO runs (
+               run_id, status, host_session_id, scope_ref, lane_ref, accepted_at, completed_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            'hrc-run-terminal-after-rotation',
+            'completed',
+            'hsid-post-rotation-terminal',
+            acpRun?.scopeRef,
+            acpRun?.laneRef,
+            new Date(createdMs + 100).toISOString(),
+            new Date(createdMs + 200).toISOString()
+          )
+          // Same scope/lane, still running, but accepted exactly at the window bound.
+          hrc.db.run(
+            `INSERT INTO runs (
+               run_id, status, host_session_id, scope_ref, lane_ref, accepted_at
+             ) VALUES (?, ?, ?, ?, ?, ?)`,
+            'hrc-run-outside-window-after-rotation',
+            'running',
+            'hsid-post-rotation-late',
+            acpRun?.scopeRef,
+            acpRun?.laneRef,
+            new Date(createdMs + LAUNCH_CORRELATION_WINDOW_MS).toISOString()
+          )
+
+          await Bun.sleep(2)
+          const dispatcher = createInterfaceRunDispatcher({
+            runStore: fixture.runStore,
+            interfaceStore: fixture.interfaceStore,
+            conversationStore: fixture.conversationStore,
+            hrcDbPath: hrc.hrcDbPath,
+            config: { intervalMs: 1, staleTimeoutMs: 1_000, dispatchStaleTimeoutMs: 1 },
+          })
+          await dispatcher.runOnce()
+
+          expect(fixture.runStore.getRun(payload.runId)).toMatchObject({
+            status: 'failed',
+            errorCode: 'dispatch_timeout',
           })
         },
         {
@@ -592,7 +545,10 @@ describe('ACP run correlation', () => {
             bundle: { kind: 'compose', compose: [] },
             harness: { provider: 'openai', interactive: true },
           }),
-          launchRoleScopedRun: launcher,
+          launchRoleScopedRun: async () => ({
+            runId: 'hrc-run-pending-correlation',
+            sessionId: 'session-pending-correlation',
+          }),
         }
       )
     } finally {

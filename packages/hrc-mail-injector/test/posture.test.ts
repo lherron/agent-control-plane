@@ -39,7 +39,7 @@ describe('mail injector HRC ownership admission', () => {
     expect(mail.status).toBe('completed')
   })
 
-  test('initializes each short-lived wrkq RPC session before reading events', async () => {
+  test('wrkq ledger: each RPC session sends rpc.initialize before eventsView and decodes high_water', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'hrc-mail-injector-wrkq-'))
     const fakeWrkq = join(directory, 'wrkq')
     const originalPath = process.env['PATH']

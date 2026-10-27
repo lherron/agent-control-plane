@@ -18,7 +18,7 @@
  *        inspect/manual); evidence / obligations / next all present
  *   2. POST /v1/tasks/:taskId/evidence with structured `data` and NO `ref`
  *      → 201, data forwarded to wrkf
- *   3. applyFreshTransition (server-side helper, fresh wrkf.next) → submit applied
+ *   3. POST /v1/tasks/:taskId/transitions → submit applied
  *   4. POST /v1/tasks/:taskId/obligations/:obligationId/satisfy → delegates to wrkf
  *   5. deliverWrkfEffects → delivers the pending set_task_state effect
  *
@@ -53,7 +53,6 @@ import {
 import { type WrkfLifecycle, createWrkfClientLifecycle } from '../wrkf/client-lifecycle.js'
 import { deliverWrkfEffects } from '../wrkf/effect-delivery.js'
 import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
-import { applyFreshTransition } from '../wrkf/transition-apply.js'
 
 // ── Binaries ────────────────────────────────────────────────────────────────
 
@@ -71,7 +70,6 @@ const EMPTY_HOOK_CATALOG_PATH = fileURLToPath(
   new URL('../../test/fixtures/empty-wrkf-hook-catalog.json', import.meta.url)
 )
 const DEMO_WORKFLOW_REF = 'demo-linear@1'
-const ACTOR = 'agent:demo-tester'
 
 const T = 30_000 // 30s per test (real subprocess)
 
@@ -281,26 +279,30 @@ describe('wrkf generic non-PBC smoke (T-02589)', () => {
   )
 
   test(
-    'applyFreshTransition (server-side helper, fresh next) applies the submit transition',
+    'POST /v1/tasks/:taskId/transitions applies submit and the task projection lists the opened demo_review obligation',
     async () => {
-      const wrkf = lc.wrkf as AcpWrkfWorkflowPort
-      const result = await applyFreshTransition(wrkf, {
-        task: taskId,
-        transition: 'submit',
-        role: 'agent',
-        actor: ACTOR,
-        routeKey: taskId,
+      const response = await request({
+        method: 'POST',
+        path: `/v1/tasks/${taskId}/transitions`,
+        body: {
+          transitionId: 'submit',
+          role: 'agent',
+          actor: { agentId: 'demo-tester' },
+          idempotencyKey: `${taskId}:submit`,
+        },
       })
-      // Transition advanced the instance from revision 0.
-      expect(result.instance.revision).toBeGreaterThan(0)
+      expect(response.status).toBe(200)
 
       // The submit transition opened the demo_review obligation generically.
-      const obligationsRaw = await wrkf.obligation.list({ task: taskId })
-      const obligations = (Array.isArray(obligationsRaw) ? obligationsRaw : []) as Json[]
+      const projection = await request({ method: 'GET', path: `/v1/tasks/${taskId}` })
+      expect(projection.status).toBe(200)
+      const body = (await projection.json()) as Json
+      const obligations = (Array.isArray(body['obligations']) ? body['obligations'] : []) as Json[]
       const open = obligations.find((o) => o['kind'] === 'demo_review')
       expect(open).toBeDefined()
       obligationId = open!['id'] as string
       expect(open!['status']).toBe('open')
+      expect(((body['instance'] as Json)['revision'] as number) > 0).toBe(true)
     },
     T
   )

@@ -44,22 +44,22 @@ describe('hrc-external-ref shared parser/formatter contract', () => {
   })
 
   test('format rejects already-prefixed input (caller bug)', () => {
-    expect(() => formatHrcExternalRef('hrc:run-abc')).toThrow()
+    expect(() => formatHrcExternalRef('hrc:run-abc')).toThrow(/already-prefixed ref/)
   })
 
   test('format rejects empty / whitespace-only input', () => {
-    expect(() => formatHrcExternalRef('')).toThrow()
-    expect(() => formatHrcExternalRef('   ')).toThrow()
+    expect(() => formatHrcExternalRef('')).toThrow(/bare HRC runId is required/)
+    expect(() => formatHrcExternalRef('   ')).toThrow(/bare HRC runId is required/)
   })
 
   test('parse rejects non-hrc scheme input', () => {
-    expect(() => parseHrcExternalRef('webhook:abc')).toThrow()
-    expect(() => parseHrcExternalRef('run-abc')).toThrow()
+    expect(() => parseHrcExternalRef('webhook:abc')).toThrow(/expected an 'hrc:' scheme ref/)
+    expect(() => parseHrcExternalRef('run-abc')).toThrow(/expected an 'hrc:' scheme ref/)
   })
 
   test('parse rejects an hrc: ref with an empty bare remainder', () => {
-    expect(() => parseHrcExternalRef('hrc:')).toThrow()
-    expect(() => parseHrcExternalRef('hrc:   ')).toThrow()
+    expect(() => parseHrcExternalRef('hrc:')).toThrow(/has an empty bare HRC runId/)
+    expect(() => parseHrcExternalRef('hrc:   ')).toThrow(/has an empty bare HRC runId/)
   })
 })
 
@@ -79,17 +79,5 @@ describe('hrc-external-ref external-ref compatibility', () => {
   test('recognizes the hrc: scheme', () => {
     expect(isHrcExternalRef('hrc:x')).toBe(true)
     expect(isHrcExternalRef('hrc:run-abc')).toBe(true)
-  })
-
-  test('HRC adapters: format prefixes for wrkf storage, parse yields bare for HRC', () => {
-    // Before wrkf storage: HRC launches MUST be prefixed.
-    const stored = formatHrcExternalRef('run-abc')
-    expect(isHrcExternalRef(stored)).toBe(true)
-    expect(stored).toBe('hrc:run-abc')
-
-    // Toward HRC: only the bare runId is passed.
-    const toHrc = parseHrcExternalRef(stored)
-    expect(toHrc).toBe('run-abc')
-    expect(isHrcExternalRef(toHrc)).toBe(false)
   })
 })

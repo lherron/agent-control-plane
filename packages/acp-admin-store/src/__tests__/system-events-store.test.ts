@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { type AdminStore, createInMemoryAdminStore, openSqliteAdminStore } from '../index.js'
+import { type AdminStore, createInMemoryAdminStore } from '../index.js'
 
 type SystemEventRecord = {
   eventId: string
@@ -70,30 +70,6 @@ describe('admin system events store acceptance', () => {
           occurredBefore: '2026-04-23T03:41:30.000Z',
         })
       ).toEqual([second])
-    } finally {
-      store.close()
-    }
-  })
-
-  test('supports the sqlite-backed helper for append-only listing', () => {
-    const store = openSqliteAdminStore({ dbPath: ':memory:' })
-
-    try {
-      const systemEvents = expectSystemEventsStore(store)
-      systemEvents.append({
-        projectId: 'wrkq',
-        kind: 'default-agent.updated',
-        payload: { agentId: 'smokey' },
-        occurredAt: '2026-04-23T03:42:00.000Z',
-        recordedAt: '2026-04-23T03:42:01.000Z',
-      })
-
-      expect(systemEvents.list({ projectId: 'wrkq' })).toEqual([
-        expect.objectContaining({
-          projectId: 'wrkq',
-          kind: 'default-agent.updated',
-        }),
-      ])
     } finally {
       store.close()
     }

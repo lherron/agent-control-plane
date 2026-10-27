@@ -129,6 +129,28 @@ function createFetchQueue(expectations: FetchExpectation[]) {
 }
 
 describe('job-run wait', () => {
+  test('invalid timeout values exit 2 naming the invalid duration without making a request', async () => {
+    for (const [raw, expected] of [
+      ['fast', 'must be a duration'],
+      ['5h', 'must be a duration'],
+      ['-1s', 'must be a duration'],
+      ['1.5s', 'must be a duration'],
+      ['0', 'must resolve to >= 1ms'],
+      ['0s', 'must resolve to >= 1ms'],
+    ] as const) {
+      let requests = 0
+      const result = await runCli(['job-run', 'wait', '--job-run', 'jr-1', `--timeout=${raw}`], {
+        fetchImpl: async () => {
+          requests += 1
+          return new Response('{}')
+        },
+      })
+      expect(result.exitCode, raw).toBe(2)
+      expect(result.stderr, raw).toContain(expected)
+      expect(requests, raw).toBe(0)
+    }
+  })
+
   test('polls until terminal status (running → succeeded)', async () => {
     const fetchQueue = createFetchQueue([
       {
@@ -352,35 +374,6 @@ describe('job-run show --steps', () => {
     expect(result.stdout).not.toContain('full stdout should stay hidden')
   })
 
-  test('--steps with --json preserves full payload', async () => {
-    const fetchQueue = createFetchQueue([
-      {
-        body: {
-          jobRun: {
-            jobRunId: 'jr-11',
-            status: 'succeeded',
-            steps: [{ stepId: 's1', phase: 'dispatch', status: 'completed', runId: 'run-a' }],
-          },
-        },
-        assert() {},
-      },
-    ])
-
-    const result = await runCli(['job-run', 'show', '--job-run', 'jr-11', '--steps', '--json'], {
-      fetchImpl: fetchQueue.fetchImpl,
-    })
-
-    expect(result.exitCode).toBe(0)
-    const output = JSON.parse(result.stdout)
-    // --json should return the full response, not the table
-    expect(output).toMatchObject({
-      jobRun: {
-        jobRunId: 'jr-11',
-        steps: [{ stepId: 's1' }],
-      },
-    })
-  })
-
   test('empty steps renders empty table', async () => {
     const fetchQueue = createFetchQueue([
       {
@@ -440,29 +433,6 @@ describe('job-run show --results', () => {
     expect(result.stdout).toContain('"outcome":"ok"')
     // String result rendered
     expect(result.stdout).toContain('plain-string')
-  })
-
-  test('--results with --json preserves full payload', async () => {
-    const fetchQueue = createFetchQueue([
-      {
-        body: {
-          jobRun: {
-            jobRunId: 'jr-21',
-            status: 'succeeded',
-            steps: [{ stepId: 's1', result: { answer: 42 } }],
-          },
-        },
-        assert() {},
-      },
-    ])
-
-    const result = await runCli(['job-run', 'show', '--job-run', 'jr-21', '--results', '--json'], {
-      fetchImpl: fetchQueue.fetchImpl,
-    })
-
-    expect(result.exitCode).toBe(0)
-    const output = JSON.parse(result.stdout)
-    expect(output.jobRun.steps[0].result).toEqual({ answer: 42 })
   })
 
   test('--steps --results with --json preserves full exec stdout/stderr', async () => {

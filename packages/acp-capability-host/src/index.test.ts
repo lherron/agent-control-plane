@@ -41,11 +41,14 @@ describe('acp-capability-host', () => {
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'cap.provider.list' }),
       })
     )
-    const body = await response.json()
+    const body = (await response.json()) as {
+      result?: { providers?: Array<{ id: string }> }
+      error?: unknown
+    }
 
     expect(response.status).toBe(200)
-    expect(JSON.stringify(body)).toContain('acp')
-    expect(JSON.stringify(body)).toContain('pbc')
+    expect(body.error).toBeUndefined()
+    expect(body.result?.providers?.map((provider) => provider.id)).toEqual(['acp', 'pbc'])
   })
 
   test('logs one rpc.request line per cap.sock frame, never the frame itself', async () => {

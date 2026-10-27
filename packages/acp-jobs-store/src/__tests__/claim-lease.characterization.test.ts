@@ -207,21 +207,6 @@ describe('characterization: claimDueJobRuns (job_runs claim-and-lease loop)', ()
       store.close()
     }
   })
-
-  test('returns an empty list when nothing is claimable', () => {
-    const store = createInMemoryJobsStore()
-    try {
-      const { jobRuns } = store.claimDueJobRuns({
-        now: '2026-04-23T12:00:00.000Z',
-        limit: 10,
-        leaseOwner: 'owner:1',
-        leaseExpiresAt: '2026-04-23T12:05:00.000Z',
-      })
-      expect(jobRuns).toEqual([])
-    } finally {
-      store.close()
-    }
-  })
 })
 
 describe('characterization: claimPendingInboxEvents (event_inbox claim-and-lease loop)', () => {
@@ -348,20 +333,6 @@ describe('characterization: claimPendingInboxEvents (event_inbox claim-and-lease
       const row = readInboxRow(store, 'wrkq:a')
       expect(row.lease_owner).toBe('owner-1')
       expect(row.attempts).toBe(1)
-    } finally {
-      store.close()
-    }
-  })
-
-  test('returns an empty array when nothing is claimable', () => {
-    const store = createInMemoryJobsStore()
-    try {
-      const claimed = store.claimPendingInboxEvents({
-        now: 'now-ts',
-        leaseOwner: 'me',
-        leaseExpiresAt: 'later-ts',
-      })
-      expect(claimed).toEqual([])
     } finally {
       store.close()
     }

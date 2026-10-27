@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -178,9 +178,12 @@ describe('acp job --in flag', () => {
       expect(fetchQueue.calls).toHaveLength(1)
     })
 
-    test('resolves inputFile in flow.sequence before sending', async () => {
+    test('resolves sequence and onFailure files while preserving other step fields', async () => {
       const promptFile = join(tempDir, 'prompt.txt')
       writeFileSync(promptFile, 'hello from file')
+      mkdirSync(join(tempDir, 'prompts'))
+      writeFileSync(join(tempDir, 'prompts', 'nested.txt'), 'nested input')
+      writeFileSync(join(tempDir, 'fail.txt'), 'failure handler input')
 
       const jobFile = join(tempDir, 'job.json')
       writeFileSync(
@@ -188,7 +191,12 @@ describe('acp job --in flag', () => {
         JSON.stringify({
           schedule: { cron: '0 * * * *' },
           flow: {
-            sequence: [{ stepId: 's1', inputFile: 'prompt.txt' }],
+            sequence: [
+              { stepId: 's1', inputFile: 'prompt.txt', agentId: 'worker', retries: 3 },
+              { stepId: 's2', inputFile: 'prompts/nested.txt' },
+              { stepId: 's3', input: 'direct input' },
+            ],
+            onFailure: [{ stepId: 'fail-1', inputFile: 'fail.txt' }],
           },
         })
       )
@@ -200,8 +208,14 @@ describe('acp job --in flag', () => {
             const body = request.body as Record<string, unknown>
             const flow = body['flow'] as Record<string, unknown>
             const steps = flow['sequence'] as Record<string, unknown>[]
-            expect(steps[0]['input']).toBe('hello from file')
-            expect(steps[0]['inputFile']).toBeUndefined()
+            expect(steps).toEqual([
+              { stepId: 's1', input: 'hello from file', agentId: 'worker', retries: 3 },
+              { stepId: 's2', input: 'nested input' },
+              { stepId: 's3', input: 'direct input' },
+            ])
+            expect(flow['onFailure']).toEqual([
+              { stepId: 'fail-1', input: 'failure handler input' },
+            ])
           },
         },
       ])
@@ -213,6 +227,35 @@ describe('acp job --in flag', () => {
       expect(result.exitCode).toBe(0)
     })
 
+    test('invalid job files and input files fail before contacting the server', async () => {
+      const cases = [
+        ['missing.json', undefined, 'failed to read job file'],
+        ['bad.json', 'not json {{{', 'not valid JSON'],
+        ['array.json', '[]', 'must contain a JSON object'],
+        [
+          'missing-input.json',
+          JSON.stringify({ flow: { sequence: [{ stepId: 's1', inputFile: 'absent.txt' }] } }),
+          'failed to read inputFile',
+        ],
+        [
+          'empty-input.json',
+          JSON.stringify({ flow: { sequence: [{ stepId: 's1', inputFile: '' }] } }),
+          'inputFile must be a non-empty string',
+        ],
+      ] as const
+      for (const [file, content, message] of cases) {
+        const path = join(tempDir, file)
+        if (content !== undefined) writeFileSync(path, content)
+        const fetchQueue = createFetchQueue([])
+        const result = await runCli(['job', 'validate', '--in', path, '--json'], {
+          fetchImpl: fetchQueue.fetchImpl,
+        })
+        expect(result.exitCode, file).toBe(2)
+        expect(result.stderr, file).toContain(message)
+        expect(fetchQueue.calls, file).toHaveLength(0)
+      }
+    })
+
     test('errors when --in is not provided', async () => {
       const fetchQueue = createFetchQueue([])
 
@@ -221,6 +264,7 @@ describe('acp job --in flag', () => {
       })
 
       expect(result.exitCode).toBe(2)
+      expect(result.stderr).toContain('--in')
       expect(fetchQueue.calls).toHaveLength(0)
     })
   })
@@ -247,7 +291,7 @@ describe('acp job --in flag', () => {
           assert(request) {
             expect(request.method).toBe('POST')
             expect(new URL(request.url).pathname).toBe('/v1/admin/jobs')
-            expect(request.body).toMatchObject({
+            expect(request.body).toEqual({
               projectId: 'proj-1',
               agentId: 'agent-1',
               scopeRef: 'agent:agent-1:project:proj-1',
@@ -291,63 +335,23 @@ describe('acp job --in flag', () => {
       expect(fetchQueue.calls).toHaveLength(0)
     })
 
-    test('mutual exclusion: --in with --input errors', async () => {
+    test('--in rejects each incompatible inline flag before making a request', async () => {
       const jobFile = join(tempDir, 'job.json')
       writeFileSync(jobFile, JSON.stringify({ projectId: 'p' }))
-
-      const fetchQueue = createFetchQueue([])
-      const result = await runCli(
-        ['job', 'create', '--in', jobFile, '--input', '{"x":1}', '--json'],
-        { fetchImpl: fetchQueue.fetchImpl }
-      )
-
-      expect(result.exitCode).toBe(2)
-      expect(result.stderr).toContain('--in cannot be combined with --input')
-      expect(fetchQueue.calls).toHaveLength(0)
-    })
-
-    test('mutual exclusion: --in with --cron errors', async () => {
-      const jobFile = join(tempDir, 'job.json')
-      writeFileSync(jobFile, JSON.stringify({ projectId: 'p' }))
-
-      const fetchQueue = createFetchQueue([])
-      const result = await runCli(
-        ['job', 'create', '--in', jobFile, '--cron', '0 * * * *', '--json'],
-        { fetchImpl: fetchQueue.fetchImpl }
-      )
-
-      expect(result.exitCode).toBe(2)
-      expect(result.stderr).toContain('--in cannot be combined with --cron')
-      expect(fetchQueue.calls).toHaveLength(0)
-    })
-
-    test('mutual exclusion: --in with --project errors', async () => {
-      const jobFile = join(tempDir, 'job.json')
-      writeFileSync(jobFile, JSON.stringify({ projectId: 'p' }))
-
-      const fetchQueue = createFetchQueue([])
-      const result = await runCli(
-        ['job', 'create', '--in', jobFile, '--project', 'proj-1', '--json'],
-        { fetchImpl: fetchQueue.fetchImpl }
-      )
-
-      expect(result.exitCode).toBe(2)
-      expect(result.stderr).toContain('--in cannot be combined with --project')
-      expect(fetchQueue.calls).toHaveLength(0)
-    })
-
-    test('mutual exclusion: --in with --agent errors', async () => {
-      const jobFile = join(tempDir, 'job.json')
-      writeFileSync(jobFile, JSON.stringify({ projectId: 'p' }))
-
-      const fetchQueue = createFetchQueue([])
-      const result = await runCli(['job', 'create', '--in', jobFile, '--agent', 'a1', '--json'], {
-        fetchImpl: fetchQueue.fetchImpl,
-      })
-
-      expect(result.exitCode).toBe(2)
-      expect(result.stderr).toContain('--in cannot be combined with --agent')
-      expect(fetchQueue.calls).toHaveLength(0)
+      for (const [flag, value] of [
+        ['--input', '{"x":1}'],
+        ['--cron', '0 * * * *'],
+        ['--project', 'proj-1'],
+        ['--agent', 'a1'],
+      ] as const) {
+        const fetchQueue = createFetchQueue([])
+        const result = await runCli(['job', 'create', '--in', jobFile, flag, value, '--json'], {
+          fetchImpl: fetchQueue.fetchImpl,
+        })
+        expect(result.exitCode, flag).toBe(2)
+        expect(result.stderr, flag).toContain(`--in cannot be combined with ${flag}`)
+        expect(fetchQueue.calls, flag).toHaveLength(0)
+      }
     })
   })
 

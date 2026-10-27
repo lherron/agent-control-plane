@@ -134,13 +134,15 @@ describe('acp mobile', () => {
 
   test('the admin routes are refused when the socket peer is not loopback', async () => {
     await withCli(async ({ run, setPeer }) => {
+      // The locality gate answers not_local (404) rather than a missing route or a 500.
+      const notLocal = { status: 404, body: { ok: false, code: 'not_local' } }
       setPeer(TAILSCALE)
-      await expect(run(['pairing-code'])).rejects.toThrow()
-      await expect(run(['devices', 'list'])).rejects.toThrow()
+      await expect(run(['pairing-code'])).rejects.toMatchObject(notLocal)
+      await expect(run(['devices', 'list'])).rejects.toMatchObject(notLocal)
 
       // An unobservable peer is not loopback either — the gate fails closed.
       setPeer(undefined)
-      await expect(run(['auth', 'status'])).rejects.toThrow()
+      await expect(run(['auth', 'status'])).rejects.toMatchObject(notLocal)
     })
   })
 

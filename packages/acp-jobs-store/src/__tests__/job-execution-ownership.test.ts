@@ -1,11 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import {
-  JobExecutionAdmissionError,
-  type JobExecutionIdentity,
-  createInMemoryJobsStore,
-  tickJobsScheduler,
-} from '../index.js'
+import { type JobExecutionIdentity, createInMemoryJobsStore, tickJobsScheduler } from '../index.js'
 
 const NOW = '2026-07-23T12:05:00.000Z'
 const SVC: JobExecutionIdentity = {
@@ -155,7 +150,12 @@ describe('job execution owner-set admission', () => {
           },
           SVC
         )
-      ).toThrow(JobExecutionAdmissionError)
+      ).toThrow(
+        expect.objectContaining({
+          name: 'JobExecutionAdmissionError',
+          code: 'job_execution_wrong_node',
+        })
+      )
       expect(store.listJobRuns(job.jobId).jobRuns).toHaveLength(0)
 
       store.updateJob(job.jobId, { executionNodes: ['svc'], disabled: true })
@@ -169,7 +169,12 @@ describe('job execution owner-set admission', () => {
           },
           SVC
         )
-      ).toThrow('disabled')
+      ).toThrow(
+        expect.objectContaining({
+          name: 'JobExecutionAdmissionError',
+          code: 'job_execution_disabled',
+        })
+      )
       expect(store.listJobRuns(job.jobId).jobRuns).toHaveLength(0)
     } finally {
       store.close()
@@ -335,7 +340,12 @@ describe('event-hook runs (T-09996)', () => {
           { triggeredAt: NOW, triggeredBy: 'manual', status: 'claimed', claimedAt: NOW },
           MAX3
         )
-      ).toThrow(JobExecutionAdmissionError)
+      ).toThrow(
+        expect.objectContaining({
+          name: 'JobExecutionAdmissionError',
+          code: 'job_execution_disabled',
+        })
+      )
     } finally {
       store.close()
     }

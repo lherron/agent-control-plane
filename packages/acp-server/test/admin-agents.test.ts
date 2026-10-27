@@ -86,8 +86,13 @@ describe('admin agents endpoints', () => {
       })
 
       expect(invalidPatch.status).toBe(400)
-      expect(await fixture.json<{ error: { code: string } }>(invalidPatch)).toEqual({
-        error: expect.objectContaining({ code: 'malformed_request' }),
+      expect(
+        await fixture.json<{ error: { code: string; details?: { field?: string } } }>(invalidPatch)
+      ).toEqual({
+        error: expect.objectContaining({
+          code: 'malformed_request',
+          details: expect.objectContaining({ field: 'status' }),
+        }),
       })
     })
   })

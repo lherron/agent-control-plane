@@ -141,55 +141,22 @@ describe('WrkfParticipantCapturesRepo.get — before any record (Phase 4a red)',
 // ─── Section 2: setOrConflict — created path ─────────────────────────────────
 
 describe('WrkfParticipantCapturesRepo.setOrConflict — created (Phase 4a red)', () => {
-  test('[RED] first call returns { state: created, record }', () => {
+  test('first capture creates a pending record with all fields and retrieves it', () => {
     const store = openAcpStateStore({ dbPath: ':memory:' })
     try {
       const repo = getRepo(store)
       const result = repo.setOrConflict(BASE)
       expect(result.state).toBe('created')
-    } finally {
-      store.close()
-    }
-  })
-
-  test('[RED] created record carries all input fields', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
-      const result = repo.setOrConflict(BASE) as Extract<SetOrConflictResult, { state: 'created' }>
-      expect(result.record.captureKey).toBe(BASE.captureKey)
-      expect(result.record.taskId).toBe(BASE.taskId)
-      expect(result.record.workflowRef).toBe(BASE.workflowRef)
-      expect(result.record.wrkfRunId).toBe(BASE.wrkfRunId)
-      expect(result.record.bodyHash).toBe(BASE.bodyHash)
-      expect(result.record.evidenceIds).toEqual(BASE.evidenceIds)
-      expect(result.record.obligationIds).toEqual(BASE.obligationIds)
-    } finally {
-      store.close()
-    }
-  })
-
-  test('[RED] created record has status=pending initially', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
-      const result = repo.setOrConflict(BASE) as Extract<SetOrConflictResult, { state: 'created' }>
-      expect(result.record.status).toBe('pending')
-    } finally {
-      store.close()
-    }
-  })
-
-  test('[RED] get after setOrConflict returns the stored record', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
-      repo.setOrConflict(BASE)
-      const record = repo.get(BASE.captureKey)
-      expect(record).toBeDefined()
-      expect(record?.captureKey).toBe(BASE.captureKey)
-      expect(record?.evidenceIds).toEqual(BASE.evidenceIds)
-      expect(record?.obligationIds).toEqual(BASE.obligationIds)
+      const record = result.record
+      expect(record.captureKey).toBe(BASE.captureKey)
+      expect(record.taskId).toBe(BASE.taskId)
+      expect(record.workflowRef).toBe(BASE.workflowRef)
+      expect(record.wrkfRunId).toBe(BASE.wrkfRunId)
+      expect(record.bodyHash).toBe(BASE.bodyHash)
+      expect(record.evidenceIds).toEqual(BASE.evidenceIds)
+      expect(record.obligationIds).toEqual(BASE.obligationIds)
+      expect(record.status).toBe('pending')
+      expect(repo.get(BASE.captureKey)).toEqual(record)
     } finally {
       store.close()
     }
@@ -214,26 +181,18 @@ describe('WrkfParticipantCapturesRepo.setOrConflict — created (Phase 4a red)',
 // ─── Section 3: setOrConflict — replay (get-before-write) ────────────────────
 
 describe('WrkfParticipantCapturesRepo.setOrConflict — replay (Phase 4a red)', () => {
-  test('[RED] second call with same captureKey + same bodyHash returns { state: replay }', () => {
+  test('replaying the same capture returns the original evidence, obligations and creation time', () => {
     const store = openAcpStateStore({ dbPath: ':memory:' })
     try {
       const repo = getRepo(store)
       repo.setOrConflict(BASE)
-      const r2 = repo.setOrConflict(BASE)
-      expect(r2.state).toBe('replay')
-    } finally {
-      store.close()
-    }
-  })
-
-  test('[RED] replay record carries the original evidenceIds and obligationIds', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
+      const first = repo.get(BASE.captureKey)
+      const replay = repo.setOrConflict(BASE)
+      expect(replay.state).toBe('replay')
+      expect(replay.record.evidenceIds).toEqual(BASE.evidenceIds)
+      expect(replay.record.obligationIds).toEqual(BASE.obligationIds)
       repo.setOrConflict(BASE)
-      const r2 = repo.setOrConflict(BASE) as Extract<SetOrConflictResult, { state: 'replay' }>
-      expect(r2.record.evidenceIds).toEqual(BASE.evidenceIds)
-      expect(r2.record.obligationIds).toEqual(BASE.obligationIds)
+      expect(repo.get(BASE.captureKey)?.createdAt).toBe(first?.createdAt)
     } finally {
       store.close()
     }
@@ -255,23 +214,6 @@ describe('WrkfParticipantCapturesRepo.setOrConflict — replay (Phase 4a red)', 
       expect(r2.state).toBe('replay')
       expect(r2.record.status).toBe('completed')
       expect(r2.record.evidenceIds).toEqual(finalEvidenceIds)
-    } finally {
-      store.close()
-    }
-  })
-
-  test('[RED] only one row exists after multiple setOrConflict calls for same key', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
-      repo.setOrConflict(BASE)
-      const first = repo.get(BASE.captureKey)
-
-      repo.setOrConflict(BASE)
-      repo.setOrConflict(BASE)
-      const after = repo.get(BASE.captureKey)
-      // createdAt must not change on replay
-      expect(after?.createdAt).toBe(first?.createdAt)
     } finally {
       store.close()
     }
@@ -326,24 +268,7 @@ describe('WrkfParticipantCapturesRepo.complete (Phase 4a red)', () => {
       expect(record.status).toBe('completed')
       expect(record.evidenceIds).toEqual(finalEvIds)
       expect(record.obligationIds).toEqual(finalOblIds)
-    } finally {
-      store.close()
-    }
-  })
-
-  test('[RED] get after complete returns the completed record', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
-      repo.setOrConflict(BASE)
-      repo.complete({
-        captureKey: BASE.captureKey,
-        evidenceIds: ['ev_final'],
-        obligationIds: [],
-      })
-      const record = repo.get(BASE.captureKey)
-      expect(record?.status).toBe('completed')
-      expect(record?.evidenceIds).toEqual(['ev_final'])
+      expect(repo.get(BASE.captureKey)).toEqual(record)
     } finally {
       store.close()
     }

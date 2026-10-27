@@ -131,6 +131,10 @@ describe('daemon placement resolution transport', () => {
     ).catch((error: unknown) => error)
     expect(error).toBeInstanceOf(HrcDomainError)
     expect((error as HrcDomainError).code).toBe(HrcErrorCode.RUNTIME_UNAVAILABLE)
+    expect((error as HrcDomainError).detail).toMatchObject({
+      code: 'hrc_daemon_unreachable',
+      socketPath: missing,
+    })
   })
 
   test('reports a daemon without the route as unsupported_capability', async () => {
@@ -162,6 +166,8 @@ describe('daemon placement resolution transport', () => {
         ).catch((error: unknown) => error)
         expect(error).toBeInstanceOf(HrcDomainError)
         expect((error as HrcDomainError).code).toBe(HrcErrorCode.RUNTIME_UNAVAILABLE)
+        expect((error as HrcDomainError).detail).toEqual({ code: 'placements_resolve_malformed' })
+        expect((error as Error).message).toBe('HRC placements.resolve returned a malformed body')
       }
     )
   })

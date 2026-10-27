@@ -5,11 +5,11 @@ import { adaptWrkqWebhookEvent } from 'acp-core'
 import { createInMemoryJobsStore } from 'acp-jobs-store'
 
 import type { Actor } from 'acp-core'
+import { withWiredServer } from '../../test/fixtures/wired-server.js'
 import type { ResolvedAcpServerDeps } from '../deps.js'
 import { handleCreateAdminJob, handlePatchAdminJob } from '../handlers/admin-jobs.js'
 import { handleAcpEventWebhook } from '../handlers/webhooks-events.js'
 import { handleWrkqWebhook } from '../handlers/webhooks-wrkq.js'
-import { errorResponse } from '../http.js'
 import { createEventJobEvaluator } from '../jobs/event-job-evaluator.js'
 
 const ACTOR: Actor = { kind: 'system', id: 'test' }
@@ -34,7 +34,7 @@ function jsonRequest(method: string, path: string, body: unknown): Request {
 }
 
 async function call(
-  handler: (ctx: {
+  _handler: (ctx: {
     request: Request
     url: URL
     params: Record<string, string>
@@ -43,13 +43,13 @@ async function call(
   }) => Response | Promise<Response>,
   request: Request,
   deps: ResolvedAcpServerDeps,
-  params: Record<string, string> = {}
+  _params: Record<string, string> = {}
 ): Promise<Response> {
-  try {
-    return await handler({ request, url: new URL(request.url), params, deps, actor: ACTOR })
-  } catch (error) {
-    return errorResponse(error)
-  }
+  return withWiredServer((fixture) => fixture.handler(request), {
+    adminStore: deps.adminStore,
+    jobsStore: deps.jobsStore,
+    defaultActor: ACTOR,
+  })
 }
 
 const EVENT_JOB_BODY = {
@@ -291,6 +291,11 @@ describe('admin jobs trigger union', () => {
       deps
     )
     expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatchObject({
+      code: 'malformed_request',
+      message: expect.stringContaining('must be loopback'),
+      details: { field: 'output' },
+    })
   })
 
   test('creates an event-triggered job with a guarded flow', async () => {
@@ -349,6 +354,11 @@ describe('admin jobs trigger union', () => {
       deps
     )
     expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatchObject({
+      code: 'malformed_request',
+      message: expect.stringContaining('only supported for non-flow'),
+      details: { field: 'output' },
+    })
   })
 
   test('allows bolting a guarded flow onto an event job via patch', async () => {
@@ -407,6 +417,11 @@ describe('admin jobs trigger union', () => {
       deps
     )
     expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatchObject({
+      code: 'malformed_request',
+      message: expect.stringContaining('trigger.source'),
+      details: { field: 'trigger' },
+    })
   })
 })
 
@@ -453,73 +468,68 @@ describe('event job origin policy evaluator', () => {
     expect(evaluator({ job: defaultPolicy, event: systemEvent, store }).decision).toBe('mint')
   })
 
-  test('absent policy defaults to deny: all agent-origin events blocked', () => {
-    expect(
-      evaluateEventOriginPolicy({
+  test.each([
+    {
+      name: 'default denies an agent',
+      input: { jobAgentId: 'scribe', origin: { actor: 'agent:mable' } },
+      expected: { decision: 'skip', reason: 'agent_origin_blocked' },
+    },
+    {
+      name: 'deny-self blocks same agent',
+      input: {
         jobAgentId: 'scribe',
-        origin: { actor: 'agent:mable' },
-      })
-    ).toEqual({ decision: 'skip', reason: 'agent_origin_blocked' })
-  })
-
-  test('deny-self blocks the same agent', () => {
-    expect(
-      evaluateEventOriginPolicy({
-        jobAgentId: 'scribe',
-        originPolicy: { agent: 'deny-self' },
+        originPolicy: { agent: 'deny-self' as const },
         origin: { actor: 'agent:scribe' },
-      })
-    ).toEqual({ decision: 'skip', reason: 'agent_origin_blocked' })
-  })
-
-  test('deny-self blocks inexact agent actor strings fail-closed', () => {
-    expect(
-      evaluateEventOriginPolicy({
+      },
+      expected: { decision: 'skip', reason: 'agent_origin_blocked' },
+    },
+    {
+      name: 'deny-self blocks inexact agent scope',
+      input: {
         jobAgentId: 'scribe',
-        originPolicy: { agent: 'deny-self' },
+        originPolicy: { agent: 'deny-self' as const },
         origin: { actor: 'agent:mable:project:taskboard' },
-      })
-    ).toEqual({ decision: 'skip', reason: 'agent_origin_blocked' })
-  })
-
-  test('deny-self allows other exact agent ids', () => {
-    expect(
-      evaluateEventOriginPolicy({
+      },
+      expected: { decision: 'skip', reason: 'agent_origin_blocked' },
+    },
+    {
+      name: 'deny-self allows other agent',
+      input: {
         jobAgentId: 'scribe',
-        originPolicy: { agent: 'deny-self' },
+        originPolicy: { agent: 'deny-self' as const },
         origin: { actor: 'agent:mable' },
-      }).decision
-    ).toBe('mint')
-  })
-
-  test("deny-self blocks actorless origin.kind='agent' fail-closed", () => {
-    expect(
-      evaluateEventOriginPolicy({
+      },
+      expected: { decision: 'mint' },
+    },
+    {
+      name: 'deny-self blocks actorless agent',
+      input: {
         jobAgentId: 'scribe',
-        originPolicy: { agent: 'deny-self' },
+        originPolicy: { agent: 'deny-self' as const },
         origin: { kind: 'agent' },
-      })
-    ).toEqual({ decision: 'skip', reason: 'agent_origin_blocked' })
-  })
-
-  test('explicit deny still blocks all agent-origin events', () => {
-    expect(
-      evaluateEventOriginPolicy({
+      },
+      expected: { decision: 'skip', reason: 'agent_origin_blocked' },
+    },
+    {
+      name: 'explicit deny blocks an agent',
+      input: {
         jobAgentId: 'scribe',
-        originPolicy: { agent: 'deny' },
+        originPolicy: { agent: 'deny' as const },
         origin: { actor: 'agent:mable' },
-      })
-    ).toEqual({ decision: 'skip', reason: 'agent_origin_blocked' })
-  })
-
-  test('operator allow still permits same-agent origin', () => {
-    expect(
-      evaluateEventOriginPolicy({
+      },
+      expected: { decision: 'skip', reason: 'agent_origin_blocked' },
+    },
+    {
+      name: 'allow permits same agent',
+      input: {
         jobAgentId: 'scribe',
-        originPolicy: { agent: 'allow' },
+        originPolicy: { agent: 'allow' as const },
         origin: { actor: 'agent:scribe' },
-      }).decision
-    ).toBe('mint')
+      },
+      expected: { decision: 'mint' },
+    },
+  ])('agent-origin policy: $name', ({ input, expected }) => {
+    expect(evaluateEventOriginPolicy(input)).toMatchObject(expected)
   })
 })
 
@@ -732,10 +742,12 @@ describe('POST /v1/webhooks/wrkq', () => {
       deps
     )
     expect(dup.status).toBe(204)
-    const count = jobsStore.sqlite.prepare('SELECT COUNT(*) AS c FROM event_inbox').get() as {
-      c: number
-    }
-    expect(count.c).toBe(1)
+    const events = jobsStore.claimPendingInboxEvents({
+      now: '2100-01-01T00:00:00.000Z',
+      leaseOwner: 'test',
+      leaseExpiresAt: '2101-01-01T00:00:00.000Z',
+    })
+    expect(events).toHaveLength(1)
   })
 
   test('unsupported schema_version → 400', async () => {
@@ -746,6 +758,11 @@ describe('POST /v1/webhooks/wrkq', () => {
       deps
     )
     expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatchObject({
+      code: 'malformed_request',
+      message: expect.stringContaining('unsupported schema_version'),
+      details: { field: 'webhook' },
+    })
   })
 
   // T-05270: recognized event appends exactly one lifecycle system event.
@@ -823,10 +840,12 @@ describe('POST /v1/webhooks/events', () => {
       deps
     )
     expect(dup.status).toBe(204)
-    const count = jobsStore.sqlite.prepare('SELECT COUNT(*) AS c FROM event_inbox').get() as {
-      c: number
-    }
-    expect(count.c).toBe(1)
+    const events = jobsStore.claimPendingInboxEvents({
+      now: '2100-01-01T00:00:00.000Z',
+      leaseOwner: 'test',
+      leaseExpiresAt: '2101-01-01T00:00:00.000Z',
+    })
+    expect(events).toHaveLength(1)
   })
 
   test('canonical hrc rev3 payload → 204 + one durable inbox row', async () => {
@@ -869,10 +888,12 @@ describe('POST /v1/webhooks/events', () => {
       deps
     )
     expect(duplicate.status).toBe(204)
-    const count = jobsStore.sqlite.prepare('SELECT COUNT(*) AS c FROM event_inbox').get() as {
-      c: number
-    }
-    expect(count.c).toBe(1)
+    const events = jobsStore.claimPendingInboxEvents({
+      now: '2100-01-01T00:00:00.000Z',
+      leaseOwner: 'test',
+      leaseExpiresAt: '2101-01-01T00:00:00.000Z',
+    })
+    expect(events).toHaveLength(1)
 
     const { schema_version: _schemaVersion, ...missingSchema } = hrcPayload
     const rejected = await call(
@@ -881,6 +902,11 @@ describe('POST /v1/webhooks/events', () => {
       deps
     )
     expect(rejected.status).toBe(400)
+    expect((await rejected.json()).error).toMatchObject({
+      code: 'malformed_request',
+      message: expect.stringContaining('unsupported schema_version'),
+      details: { field: 'webhook' },
+    })
   })
 
   test('same local HRC trip sequence from two nodes produces two inbox rows', async () => {
@@ -921,10 +947,12 @@ describe('POST /v1/webhooks/events', () => {
     expect(svc.status).toBe(204)
     expect(jobsStore.getInboxEvent('hrc:max3:42').event).toBeDefined()
     expect(jobsStore.getInboxEvent('hrc:svc:42').event).toBeDefined()
-    const count = jobsStore.sqlite.prepare('SELECT COUNT(*) AS c FROM event_inbox').get() as {
-      c: number
-    }
-    expect(count.c).toBe(2)
+    const events = jobsStore.claimPendingInboxEvents({
+      now: '2100-01-01T00:00:00.000Z',
+      leaseOwner: 'test',
+      leaseExpiresAt: '2101-01-01T00:00:00.000Z',
+    })
+    expect(events).toHaveLength(2)
   })
 
   test('invalid generic envelope → 400', async () => {
@@ -935,5 +963,10 @@ describe('POST /v1/webhooks/events', () => {
       deps
     )
     expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatchObject({
+      code: 'malformed_request',
+      message: expect.stringContaining('source must match'),
+      details: { field: 'webhook' },
+    })
   })
 })

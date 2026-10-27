@@ -54,6 +54,26 @@ function fieldValues(embed: unknown): Record<string, string> {
 
 // Required test #8: card builders.
 describe('buildWorkActivityCard (T-05270)', () => {
+  test.each([
+    ['T-12345', true],
+    ['T-12345.render-preview', true],
+    ['T-12345.2', false],
+    ['T-12345/reviewer', false],
+    ['T-12345.Slug', false],
+    ['primary', false],
+    ['', false],
+  ])('Taskboard link for %j follows task and named-subtask grammar', (ticketId, valid) => {
+    const card = buildWorkActivityCard(taskUpdated({ payload: { ticket_id: ticketId, slug: 'x' } }))
+    const fields = fieldValues(card?.embeds?.[0])
+    if (valid) {
+      expect(fields['Taskboard']).toBe(
+        `[Open task](http://max3.tail53cc3b.ts.net:18450/inbox-hub/agent-control-plane/${ticketId})`
+      )
+    } else {
+      expect(fields['Taskboard']).toBeUndefined()
+    }
+  })
+
   test('renders the from -> to arrow as the title hero for a state transition', () => {
     const card = buildWorkActivityCard(taskUpdated())
     const embed = card?.embeds?.[0]

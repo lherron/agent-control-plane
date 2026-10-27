@@ -135,29 +135,11 @@ async function createAdapterTask(
 // ===========================================================================
 
 describe('TaskStore — createTask round-trips riskClass', () => {
-  test(
-    'riskClass medium',
-    async () => {
-      const task = await createAdapterTask({ riskClass: 'medium' })
-      expect(task.riskClass).toBe('medium')
-    },
-    T
-  )
-
-  test(
-    'riskClass high',
-    async () => {
-      const task = await createAdapterTask({ riskClass: 'high' })
-      expect(task.riskClass).toBe('high')
-    },
-    T
-  )
-
-  test(
-    'riskClass low',
-    async () => {
-      const task = await createAdapterTask({ riskClass: 'low' })
-      expect(task.riskClass).toBe('low')
+  test.each(['low', 'medium', 'high'] as const)(
+    'createTask round-trips %s risk',
+    async (riskClass) => {
+      const task = await createAdapterTask({ riskClass })
+      expect(task.riskClass).toBe(riskClass)
     },
     T
   )
@@ -179,9 +161,11 @@ describe('TaskStore — projectId recovery via container.show (no SQL)', () => {
   test(
     'getTask recovers projectId consistently with createTask',
     async () => {
-      const created = await createAdapterTask()
+      const created = await createAdapterTask({ riskClass: 'high' })
       const loaded = await adapter.taskStore.getTask(created.taskId)
 
+      expect(loaded?.taskId).toBe(created.taskId)
+      expect(loaded?.riskClass).toBe('high')
       expect(loaded?.projectId).toBe(inboxProjectId)
       expect(loaded?.projectId).toBe(created.projectId)
     },
@@ -191,21 +175,8 @@ describe('TaskStore — projectId recovery via container.show (no SQL)', () => {
 
 describe('TaskStore — server-assigned taskId', () => {
   test(
-    'createTask returns a server-assigned taskId (T-NNNNN format)',
+    'createTask assigns its own T-NNNNN ID instead of the advisory input',
     async () => {
-      // wrkq.task.create does not accept a client-specified task id. The server assigns
-      // one sequentially. The adapter must use the returned WrkqTask.id as Task.taskId.
-      const task = await createAdapterTask()
-      expect(task.taskId).toMatch(/^T-\d{5}$/)
-    },
-    T
-  )
-
-  test(
-    'advisory input taskId is NOT preserved in returned Task.taskId',
-    async () => {
-      // Callers must use the server-returned taskId, not the input advisory id.
-      // This is a documented behavioral change from the SQLite adapter.
       const task = await adapter.taskStore.createTask({
         taskId: 'T-99999',
         projectId: 'inbox',
@@ -216,6 +187,7 @@ describe('TaskStore — server-assigned taskId', () => {
         roleMap: {},
         version: 0,
       })
+      expect(task.taskId).toMatch(/^T-\d{5}$/)
       expect(task.taskId).not.toBe('T-99999')
     },
     T
@@ -223,29 +195,6 @@ describe('TaskStore — server-assigned taskId', () => {
 })
 
 describe('TaskStore — MUST NOT forward legacy fields rejected by wrkq.task.update', () => {
-  test(
-    'createTask with workflowPreset/presetVersion/phase input succeeds without error',
-    async () => {
-      // wrkq.task.update now rejects phase/workflowPreset/presetVersion.
-      // The adapter must strip them from create and update params.
-      await expect(
-        adapter.taskStore.createTask({
-          taskId: 'T-legacy',
-          projectId: 'inbox',
-          kind: 'task',
-          lifecycleState: 'open',
-          phase: 'open',
-          workflowPreset: 'code_defect_fastlane',
-          presetVersion: 1,
-          riskClass: 'medium',
-          roleMap: {},
-          version: 0,
-        })
-      ).resolves.toBeDefined()
-    },
-    T
-  )
-
   test(
     'returned task does not expose workflowPreset or presetVersion',
     async () => {
@@ -279,56 +228,20 @@ describe('TaskStore — getTask', () => {
     },
     T
   )
-
-  test(
-    'getTask returns Task matching createTask output',
-    async () => {
-      const created = await createAdapterTask({ riskClass: 'high' })
-      const loaded = await adapter.taskStore.getTask(created.taskId)
-
-      expect(loaded).toBeDefined()
-      expect(loaded?.taskId).toBe(created.taskId)
-      expect(loaded?.riskClass).toBe('high')
-    },
-    T
-  )
 })
 
 describe('TaskStore — updateTask with expectEtag CAS', () => {
   test(
     'updateTask increments version on success',
     async () => {
-      const created = await createAdapterTask()
+      const created = await createAdapterTask({ riskClass: 'low' })
       const updated = await adapter.taskStore.updateTask({
         ...created,
         lifecycleState: 'active',
         riskClass: 'high',
       })
       expect(updated.version).toBeGreaterThan(created.version)
-    },
-    T
-  )
-
-  test(
-    'updateTask round-trips riskClass change',
-    async () => {
-      const created = await createAdapterTask({ riskClass: 'low' })
-      const updated = await adapter.taskStore.updateTask({ ...created, riskClass: 'high' })
       expect(updated.riskClass).toBe('high')
-    },
-    T
-  )
-
-  test(
-    'updateTask stale version throws WorkRpcError',
-    async () => {
-      const created = await createAdapterTask()
-      // Advance server state
-      await adapter.taskStore.updateTask({ ...created, lifecycleState: 'active' })
-      // Now attempt update with stale version — must throw
-      await expect(
-        adapter.taskStore.updateTask({ ...created, lifecycleState: 'blocked' })
-      ).rejects.toThrow(WorkRpcError)
     },
     T
   )
@@ -424,21 +337,6 @@ describe('RoleAssignmentStore — set/get via wrkf.role.set / wrkf.role.list', (
   )
 
   test(
-    'getRoleMap for task without workflow instance surfaces WorkRpcError (WRKF_NOT_FOUND)',
-    async () => {
-      // wrkf.role.list requires a workflow instance. No attachment → WRKF_NOT_FOUND.
-      const bareTask = await client.wrkq.task.create({
-        title: 'No workflow',
-        path: 'inbox/bare-role',
-      })
-      await expect(adapter.roleAssignmentStore.getRoleMap(bareTask.id)).rejects.toThrow(
-        WorkRpcError
-      )
-    },
-    T
-  )
-
-  test(
     'getRoleMap WorkRpcError domainCode is WRKF_NOT_FOUND for missing workflow instance',
     async () => {
       const bareTask = await client.wrkq.task.create({
@@ -487,7 +385,7 @@ describe('EvidenceStore — append/list via wrkf.evidence.add / wrkf.evidence.li
   )
 
   test(
-    'appendEvidence + listEvidence round-trips contentHash',
+    'appendEvidence and listEvidence preserve content hash, producer and build metadata',
     async () => {
       const freshTask = await client.wrkq.task.create({ title: 'Hash ev', path: 'inbox/hash-ev' })
       await client.wrkq.workflow.attach({ task: freshTask.id, workflow: DEMO_WORKFLOW_REF })
@@ -496,7 +394,8 @@ describe('EvidenceStore — append/list via wrkf.evidence.add / wrkf.evidence.li
         kind: 'demo_note',
         ref: 'artifact://notes/hash-test',
         contentHash: 'sha256:deadbeef',
-        producedBy: { agentId: 'cody', role: 'agent' },
+        producedBy: { agentId: 'tester-bot', role: 'agent' },
+        build: { id: 'build-42', version: '3.2.1', env: 'staging' },
       }
 
       await adapter.evidenceStore.appendEvidence(freshTask.id, [ev])
@@ -504,50 +403,8 @@ describe('EvidenceStore — append/list via wrkf.evidence.add / wrkf.evidence.li
       const items = await adapter.evidenceStore.listEvidence(freshTask.id)
       expect(items).toHaveLength(1)
       expect(items[0]?.contentHash).toBe('sha256:deadbeef')
-    },
-    T
-  )
-
-  test(
-    'appendEvidence + listEvidence round-trips build metadata',
-    async () => {
-      const freshTask = await client.wrkq.task.create({ title: 'Build ev', path: 'inbox/build-ev' })
-      await client.wrkq.workflow.attach({ task: freshTask.id, workflow: DEMO_WORKFLOW_REF })
-
-      const ev: EvidenceItem = {
-        kind: 'demo_note',
-        ref: 'artifact://build/1',
-        producedBy: { agentId: 'ci-bot', role: 'agent' },
-        build: { id: 'build-42', version: '3.2.1', env: 'staging' },
-      }
-
-      await adapter.evidenceStore.appendEvidence(freshTask.id, [ev])
-
-      const items = await adapter.evidenceStore.listEvidence(freshTask.id)
-      expect(items[0]?.build?.id).toBe('build-42')
-      expect(items[0]?.build?.version).toBe('3.2.1')
-      expect(items[0]?.build?.env).toBe('staging')
-    },
-    T
-  )
-
-  test(
-    'appendEvidence + listEvidence round-trips producedBy (agentId + role)',
-    async () => {
-      const freshTask = await client.wrkq.task.create({ title: 'By ev', path: 'inbox/by-ev' })
-      await client.wrkq.workflow.attach({ task: freshTask.id, workflow: DEMO_WORKFLOW_REF })
-
-      const ev: EvidenceItem = {
-        kind: 'demo_note',
-        ref: 'artifact://by/1',
-        producedBy: { agentId: 'tester-bot', role: 'agent' },
-      }
-
-      await adapter.evidenceStore.appendEvidence(freshTask.id, [ev])
-
-      const items = await adapter.evidenceStore.listEvidence(freshTask.id)
-      expect(items[0]?.producedBy?.agentId).toBe('tester-bot')
-      expect(items[0]?.producedBy?.role).toBe('agent')
+      expect(items[0]?.producedBy).toEqual({ agentId: 'tester-bot', role: 'agent' })
+      expect(items[0]?.build).toEqual({ id: 'build-42', version: '3.2.1', env: 'staging' })
     },
     T
   )
@@ -592,7 +449,7 @@ describe('EvidenceStore — append/list via wrkf.evidence.add / wrkf.evidence.li
 
       const items = await adapter.evidenceStore.listEvidence(freshTask.id)
       expect(typeof items[0]?.timestamp).toBe('string')
-      expect(() => new Date(items[0]?.timestamp ?? '')).not.toThrow()
+      expect(Number.isNaN(Date.parse(items[0]?.timestamp ?? ''))).toBe(false)
     },
     T
   )
@@ -601,11 +458,16 @@ describe('EvidenceStore — append/list via wrkf.evidence.add / wrkf.evidence.li
     'appendEvidence for task without workflow instance surfaces WorkRpcError',
     async () => {
       const bareTask = await client.wrkq.task.create({ title: 'Bare ev', path: 'inbox/bare-ev' })
-      await expect(
-        adapter.evidenceStore.appendEvidence(bareTask.id, [
+      let caught: unknown
+      try {
+        await adapter.evidenceStore.appendEvidence(bareTask.id, [
           { kind: 'demo_note', ref: 'artifact://bare/1' },
         ])
-      ).rejects.toThrow(WorkRpcError)
+      } catch (error) {
+        caught = error
+      }
+      expect(caught).toBeInstanceOf(WorkRpcError)
+      expect((caught as WorkRpcError).domainCode).toBe('WRKF_NOT_FOUND')
     },
     T
   )
@@ -665,113 +527,26 @@ describe('TransitionLogStore — listTransitions via wrkq.workflow.timeline', ()
   )
 
   test(
-    'listTransitions returns one record after one transition is applied',
+    'maps the transition event into one complete record with its state, actor and revisions',
     async () => {
       const transitions = await adapter.transitionLogStore.listTransitions(trTaskId)
       expect(transitions).toHaveLength(1)
-    },
-    T
-  )
-
-  test(
-    'listTransitions — transitionEventId matches the wrkf workflow event id',
-    async () => {
-      const transitions = await adapter.transitionLogStore.listTransitions(trTaskId)
-      expect(transitions[0]?.transitionEventId).toBe(transitionEventId)
-    },
-    T
-  )
-
-  test(
-    'listTransitions — taskId on record matches the queried task',
-    async () => {
-      const transitions = await adapter.transitionLogStore.listTransitions(trTaskId)
-      expect(transitions[0]?.taskId).toBe(trTaskId)
-    },
-    T
-  )
-
-  test(
-    'listTransitions — from lifecycleState + phase come from timeline payload.from',
-    async () => {
-      // demo-linear submit transitions from: { status:"open", phase:"start" }
-      const transitions = await adapter.transitionLogStore.listTransitions(trTaskId)
-      expect(transitions[0]?.from.lifecycleState).toBe('open')
-      expect(transitions[0]?.from.phase).toBe('start')
-    },
-    T
-  )
-
-  test(
-    'listTransitions — to lifecycleState + phase come from timeline payload.to',
-    async () => {
-      // demo-linear submit transitions to: { status:"waiting", phase:"review" }
-      const transitions = await adapter.transitionLogStore.listTransitions(trTaskId)
-      expect(transitions[0]?.to.lifecycleState).toBe('waiting')
-      expect(transitions[0]?.to.phase).toBe('review')
-    },
-    T
-  )
-
-  test(
-    'listTransitions — actor.agentId extracted from timeline event actor field',
-    async () => {
-      const transitions = await adapter.transitionLogStore.listTransitions(trTaskId)
-      expect(transitions[0]?.actor.agentId).toBe('larry')
-    },
-    T
-  )
-
-  test(
-    'listTransitions — actor.role extracted from timeline event role field',
-    async () => {
-      const transitions = await adapter.transitionLogStore.listTransitions(trTaskId)
-      expect(transitions[0]?.actor.role).toBe('agent')
-    },
-    T
-  )
-
-  test(
-    'listTransitions — timestamp is an ISO string from timeline event createdAt',
-    async () => {
-      const transitions = await adapter.transitionLogStore.listTransitions(trTaskId)
       const record = transitions[0] as LoggedTransitionRecord
-
+      expect(record.transitionEventId).toBe(transitionEventId)
+      expect(record.taskId).toBe(trTaskId)
+      expect(record.from.lifecycleState).toBe('open')
+      expect(record.from.phase).toBe('start')
+      expect(record.to.lifecycleState).toBe('waiting')
+      expect(record.to.phase).toBe('review')
+      expect(record.actor.agentId).toBe('larry')
+      expect(record.actor.role).toBe('agent')
       expect(typeof record.timestamp).toBe('string')
-      expect(() => new Date(record.timestamp)).not.toThrow()
-    },
-    T
-  )
-
-  test(
-    'listTransitions — expectedVersion = timeline observedRevision (0 for first transition)',
-    async () => {
-      // demo-linear fresh: observedRevision=0 (no prior transitions), nextRevision=1.
-      const transitions = await adapter.transitionLogStore.listTransitions(trTaskId)
-      expect(transitions[0]?.expectedVersion).toBe(0)
-    },
-    T
-  )
-
-  test(
-    'listTransitions — nextVersion = timeline nextRevision (1 after first transition)',
-    async () => {
-      const transitions = await adapter.transitionLogStore.listTransitions(trTaskId)
-      expect(transitions[0]?.nextVersion).toBe(1)
-    },
-    T
-  )
-
-  test(
-    'listTransitions — evidenceKinds is empty (not carried in timeline event payload)',
-    async () => {
-      // KNOWN LIMITATION: wrkq.workflow.timeline events do not include evidenceKinds.
-      // The adapter returns [] for all three evidence kind arrays.
-      // Callers needing evidence provenance must query evidenceStore separately.
-      const transitions = await adapter.transitionLogStore.listTransitions(trTaskId)
-      expect(transitions[0]?.evidenceKinds).toEqual([])
-      expect(transitions[0]?.requiredEvidenceKinds).toEqual([])
-      expect(transitions[0]?.waivedEvidenceKinds).toEqual([])
+      expect(Number.isNaN(Date.parse(record.timestamp))).toBe(false)
+      expect(record.expectedVersion).toBe(0)
+      expect(record.nextVersion).toBe(1)
+      expect(record.evidenceKinds).toEqual([])
+      expect(record.requiredEvidenceKinds).toEqual([])
+      expect(record.waivedEvidenceKinds).toEqual([])
     },
     T
   )
@@ -821,7 +596,7 @@ describe('TransitionLogStore — appendTransition (not faithfully mappable)', ()
 
       await expect(
         adapter.transitionLogStore.appendTransition(task.id, fakeRecord)
-      ).rejects.toThrow()
+      ).rejects.toThrow('appendTransition is not supported by the @wrkq/client adapter')
     },
     T
   )

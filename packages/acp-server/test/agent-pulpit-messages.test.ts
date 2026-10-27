@@ -261,6 +261,9 @@ describe('POST /v1/agent-pulpit/messages', () => {
         },
       })
       expect(missing.status).toBe(404)
+      expect((await fixture.json<{ error: { code: string } }>(missing)).error.code).toBe(
+        'interface_binding_not_found'
+      )
     })
 
     await withWiredServer(async (fixture) => {
@@ -348,6 +351,14 @@ describe('POST /v1/agent-pulpit/messages', () => {
         },
       })
       expect(response.status).toBe(400)
+      expect(
+        await fixture.json<{ error: { code: string; details?: { field?: string } } }>(response)
+      ).toEqual({
+        error: expect.objectContaining({
+          code: 'malformed_request',
+          details: expect.objectContaining({ field: 'idempotencyKey' }),
+        }),
+      })
     })
 
     await withWiredServer(

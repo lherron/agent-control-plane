@@ -204,7 +204,7 @@ describe('T-10418 remote timeline', () => {
     expect(closes.at(-1)?.code).toBe(1013)
   })
 
-  test('F23: a rolled generation on the home is session_not_found', async () => {
+  test('F23: remote timeline whose home rolled to a newer generation closes 1008 with session_not_found', async () => {
     const { client } = remoteHomeClient({ capability: true, homeHostSessionId: 'hsid-newer' })
     const { sent, closes } = await openTimeline(client, REMOTE_QUERY)
     expect(sent.find((e) => e['type'] === 'error')).toMatchObject({ code: 'session_not_found' })
@@ -212,20 +212,20 @@ describe('T-10418 remote timeline', () => {
     expect(closes.at(-1)?.code).toBe(1008)
   })
 
-  test('F21: without the HRC capability the remote refusal stays', async () => {
+  test('F21: remote timeline without HRC federatedSessionRead is refused remote_control_unavailable before any home lookup', async () => {
     const { client, calls } = remoteHomeClient({ capability: false })
     const { sent } = await openTimeline(client, REMOTE_QUERY)
     expect(sent).toEqual([expect.objectContaining({ code: 'remote_control_unavailable' })])
     expect(calls.continuity).toEqual([])
   })
 
-  test('§5.3: a remote timeline under the capability must name its sessionRef', async () => {
+  test('§5.3: remote timeline without sessionRef is refused session_ref_required', async () => {
     const { client } = remoteHomeClient({ capability: true })
     const { sent } = await openTimeline(client, 'sourceKind=remote_runtime_projection')
     expect(sent).toEqual([expect.objectContaining({ code: 'session_ref_required' })])
   })
 
-  test('F21: remote diagnostics stays refused even with the capability', async () => {
+  test('F21: remote diagnostics socket is refused remote_control_unavailable even with federatedSessionRead', async () => {
     const { client } = remoteHomeClient({ capability: true })
     const sent: Array<Record<string, unknown>> = []
     const ws: MobileWebSocketLike = {
@@ -289,7 +289,7 @@ describe('T-10418 remote history, health and control isolation', () => {
     }
   })
 
-  test('F12: input and interrupt for a remote hostSessionId with sourceKind omitted are refused as today', async () => {
+  test('F12: input and interrupt for a remote-only hostSessionId are refused 422 and never reach the home', async () => {
     const { client, calls } = remoteHomeClient({ capability: true })
     await withWiredServer(
       async ({ request, json }) => {

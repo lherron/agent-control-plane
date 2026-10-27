@@ -63,24 +63,24 @@ describe('T-07612 rev 5.1 §4 presentation', () => {
     )
   })
 
-  // The auto-mint is a backstop the reader cannot observe and cannot tell has
-  // failed. First contact is exactly where a missing verb strands them, so the
-  // say is spelled out before the obligation is ever late.
-  it('teaches the reply verb at first contact', () => {
-    expect(formatEnvelopePresentation(presentable(), NOW)).toContain(
-      "reply: wrkc say EN-00042 --to cody@hrc-runtime:T-07604 --as agent:clod - <<'EOF'"
-    )
-  })
-
   it('never teaches the defer verb in an injection', () => {
     for (const form of ['full', 'reminder', 'defer-retry'] as const) {
       expect(formatEnvelopePresentation(presentable({ form }), NOW)).not.toContain('wrkc defer')
     }
   })
 
-  it('omits the generation when this node cannot see the sender', () => {
-    expect(formatEnvelopePresentation(presentable(), NOW)).toContain(
-      '[T-07604 · 05:00A · cody@hrc-runtime:T-07604 → you · reply required]'
+  // First contact must teach the reply verb: the auto-mint is a backstop the
+  // reader cannot observe and cannot tell has failed, so a missing verb strands
+  // them. A reply_required header says so AND hands over the say that discharges it.
+  it('omits the generation when this node cannot see the sender, and teaches the reply verb', () => {
+    expect(formatEnvelopePresentation(presentable(), NOW)).toBe(
+      [
+        '[T-07604 · 05:00A · cody@hrc-runtime:T-07604 → you · reply required]',
+        'the body',
+        "reply: wrkc say EN-00042 --to cody@hrc-runtime:T-07604 --as agent:clod - <<'EOF'",
+        '…',
+        'EOF',
+      ].join('\n')
     )
   })
 
@@ -97,11 +97,12 @@ describe('T-07612 rev 5.1 §4 presentation', () => {
     // A cue, never the history itself: no room content is ever injected.
     // Header + cue + body + the three-line reply block, and nothing else.
     expect(cold.split('\n')).toHaveLength(6)
-  })
-
-  it('never cues a brand-new room even when asked', () => {
+    // No cue unless wrkq says the runtime is cold, however many messages exist.
     expect(
       formatEnvelopePresentation(presentable({ historyHint: false, messageCount: 1 }), NOW)
+    ).not.toContain('history:')
+    expect(
+      formatEnvelopePresentation(presentable({ historyHint: false, messageCount: 14 }), NOW)
     ).not.toContain('history:')
   })
 
@@ -111,45 +112,24 @@ describe('T-07612 rev 5.1 §4 presentation', () => {
   // our taxonomy rather than about their mail. The header now carries an
   // obligation clause ONLY when a reply is actually owed, so the absence of
   // "reply required" is what says "nothing is owed" — no label needed.
-  it('gives a notify no obligation clause, no reply line and no defer line', () => {
-    const rendered = formatEnvelopePresentation(
-      presentable({ envelope: envelope({ obligation: 'notify' }) }),
-      NOW
-    )
-    expect(rendered).toContain('→ you]')
-    expect(rendered).not.toContain('notify')
-    expect(rendered).not.toContain('reply required')
-    expect(rendered).not.toContain('reply:')
-    // Terminal at presentation: there is nothing to defer either.
-    expect(rendered).not.toContain('defer:')
-  })
-
   // A legacy fyi row renders identically. Those rows predate T-07746 and are
   // rewritten to `notify` by wrkq migration 000059; until that lands HRC still
   // reads them, and they must not resurrect the label.
-  it('renders a legacy fyi with no obligation clause either', () => {
-    const rendered = formatEnvelopePresentation(
-      presentable({ envelope: envelope({ obligation: 'fyi' }) }),
-      NOW
-    )
-    expect(rendered).toContain('→ you]')
-    expect(rendered).not.toContain('fyi]')
-    expect(rendered).not.toContain('reply:')
-    expect(rendered).not.toContain('defer:')
-  })
-
-  // The other side of the axis: a reply_required driven header says so AND
-  // hands over the verb that discharges it.
-  it('marks a reply_required driven header and names the say that discharges it', () => {
-    const rendered = formatEnvelopePresentation(
-      presentable({ envelope: envelope({ obligation: 'reply_required' }) }),
-      NOW
-    )
-    expect(rendered).toContain('· reply required]')
-    expect(rendered).toContain(
-      "reply: wrkc say EN-00042 --to cody@hrc-runtime:T-07604 --as agent:clod - <<'EOF'"
-    )
-  })
+  it.each(['notify', 'fyi'] as const)(
+    'gives a %s no obligation clause, no reply line and no defer line',
+    (obligation) => {
+      const rendered = formatEnvelopePresentation(
+        presentable({ envelope: envelope({ obligation }) }),
+        NOW
+      )
+      expect(rendered).toContain('→ you]')
+      expect(rendered).not.toContain(obligation)
+      expect(rendered).not.toContain('reply required')
+      expect(rendered).not.toContain('reply:')
+      // Terminal at presentation: there is nothing to defer either.
+      expect(rendered).not.toContain('defer:')
+    }
+  )
 
   it('marks a stored hold in the recipient header without changing the body grammar', () => {
     const held = envelope({ delivery: 'hold' })
@@ -220,16 +200,13 @@ describe('T-07612 rev 5.1 §4 presentation', () => {
     expect(rendered).toContain('--to lance')
   })
 
-  it('separates several envelopes into one injection', () => {
-    const rendered = formatEnvelopePresentations(
-      [
-        presentable(),
-        presentable({ envelope: envelope({ id: 'EN-00043', body: 'the second body' }) }),
-      ],
-      NOW
+  it('separates several envelopes into one injection with a blank line', () => {
+    const first = presentable()
+    const second = presentable({ envelope: envelope({ id: 'EN-00043', body: 'the second body' }) })
+    const rendered = formatEnvelopePresentations([first, second], NOW)
+    expect(rendered).toBe(
+      `${formatEnvelopePresentation(first, NOW)}\n\n${formatEnvelopePresentation(second, NOW)}`
     )
-    expect(rendered).toContain('the body')
-    expect(rendered).toContain('the second body')
   })
 })
 

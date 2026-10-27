@@ -99,10 +99,13 @@ describe('interface binding endpoints', () => {
           },
         },
       })
-      const payload = await fixture.json<{ error: { code: string } }>(response)
+      const payload = await fixture.json<{ error: { code: string; details?: { field?: string } } }>(
+        response
+      )
 
       expect(response.status).toBe(400)
       expect(payload.error.code).toBe('malformed_request')
+      expect(payload.error.details?.field).toBe('gatewayId')
     })
   })
 
@@ -112,10 +115,13 @@ describe('interface binding endpoints', () => {
         method: 'GET',
         path: '/v1/interface/bindings?gatewayId=',
       })
-      const payload = await fixture.json<{ error: { code: string } }>(response)
+      const payload = await fixture.json<{ error: { code: string; details?: { field?: string } } }>(
+        response
+      )
 
       expect(response.status).toBe(400)
       expect(payload.error.code).toBe('malformed_request')
+      expect(payload.error.details?.field).toBe('gatewayId')
     })
   })
 
@@ -153,31 +159,11 @@ describe('interface binding endpoints', () => {
           },
         },
       })
-      const payload = await fixture.json<{ error: { code: string } }>(response)
+      const payload = await fixture.json<{ error: { code: string; message: string } }>(response)
 
       expect(response.status).toBe(422)
       expect(payload.error.code).toBe('invalid_binding')
-    })
-  })
-
-  test('derives projectId from scopeRef when body omits it', async () => {
-    await withWiredServer(async (fixture) => {
-      const response = await fixture.request({
-        method: 'POST',
-        path: '/v1/interface/bindings',
-        body: {
-          gatewayId: 'discord_prod',
-          conversationRef: 'channel:derived',
-          sessionRef: {
-            scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
-            laneRef: 'main',
-          },
-        },
-      })
-      const payload = await fixture.json<{ binding: { projectId?: string } }>(response)
-
-      expect(response.status).toBe(201)
-      expect(payload.binding.projectId).toBe(fixture.seed.projectId)
+      expect(payload.error.message).toContain('wrong-project')
     })
   })
 
@@ -227,12 +213,16 @@ describe('interface binding endpoints', () => {
           },
         },
       })
-      const payload = await fixture.json<{ binding: { gatewayType: string; status: string } }>(
-        response
-      )
+      const payload = await fixture.json<{
+        binding: { gatewayType: string; status: string; projectId: string }
+      }>(response)
 
       expect(response.status).toBe(201)
-      expect(payload.binding).toMatchObject({ gatewayType: 'unknown', status: 'active' })
+      expect(payload.binding).toMatchObject({
+        gatewayType: 'unknown',
+        status: 'active',
+        projectId: fixture.seed.projectId,
+      })
     })
   })
 })

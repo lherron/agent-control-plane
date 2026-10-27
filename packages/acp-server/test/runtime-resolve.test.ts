@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import { withWiredServer } from './fixtures/wired-server.js'
 
 describe('POST /v1/runtime/resolve', () => {
-  test('delegates to runtimeResolver when provided', async () => {
+  test('resolver placement is returned with cwd forced to the project root', async () => {
     await withWiredServer(
       async (fixture) => {
         const response = await fixture.request({
@@ -76,6 +76,10 @@ describe('POST /v1/runtime/resolve', () => {
       })
 
       expect(response.status).toBe(404)
+      const payload = await fixture.json<{ error: { message: string } }>(response)
+      expect(payload.error.message).toBe(
+        'runtime placement not found for agent:curly:project:demo:task:T-80003:role:tester'
+      )
     })
   })
 
@@ -90,6 +94,9 @@ describe('POST /v1/runtime/resolve', () => {
       })
 
       expect(response.status).toBe(400)
+      const payload = await fixture.json<{ error: { code: string; message: string } }>(response)
+      expect(payload.error.code).toBe('malformed_request')
+      expect(payload.error.message).toContain('Invalid ScopeRef "not-a-scope-ref"')
     })
   })
 })

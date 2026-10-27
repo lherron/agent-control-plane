@@ -130,6 +130,9 @@ describe('schedules without an execution owner in federated mode', () => {
       }
     )
     expect(response.status).toBe(409)
+    expect(((await response.json()) as { error: { code: string } }).error.code).toBe(
+      'job_execution_unassigned_federated'
+    )
     expect(jobsStore.getJob(job.jobId).job?.disabled).toBe(true)
   })
 

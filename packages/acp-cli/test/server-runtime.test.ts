@@ -3,13 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import {
-  collectAcpServerStatus,
-  formatAcpServerStatus,
-  renderServerHelp,
-  resolveAcpServerPaths,
-  resolveDiscordRetainTurnProgress,
-} from '../src/server-runtime.js'
+import { resolveAcpServerPaths, resolveDiscordRetainTurnProgress } from '../src/server-runtime.js'
+import { runCli } from './cli-test-helpers.js'
 
 describe('acp server runtime', () => {
   const originalRuntimeDir = process.env.ACP_RUNTIME_DIR
@@ -62,11 +57,11 @@ describe('acp server runtime', () => {
     process.env.ACP_RUNTIME_DIR = tempDir
     process.env.ACP_PORT = '65534'
 
-    const status = await collectAcpServerStatus()
-
-    expect(status.running).toBe(false)
-    expect(status.endpoint).toBe('http://127.0.0.1:65534')
-    expect(formatAcpServerStatus(status)).toContain('ACP Server Status')
+    const result = await runCli(['server', 'status'])
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain('ACP Server Status')
+    expect(result.stdout).toContain('running:     no')
+    expect(result.stdout).toContain('http://127.0.0.1:65534')
   })
 
   test('status uses the first host from a comma-separated bind host list', async () => {
@@ -75,18 +70,12 @@ describe('acp server runtime', () => {
     process.env.ACP_HOST = '127.0.0.1,100.73.60.81'
     process.env.ACP_PORT = '65534'
 
-    const status = await collectAcpServerStatus()
-
-    expect(status.running).toBe(false)
-    expect(status.endpoint).toBe('http://127.0.0.1:65534')
-  })
-
-  test('documents the combined HTTP plus Discord process surface', () => {
-    expect(renderServerHelp()).toContain('acp server serve')
-    expect(renderServerHelp()).toContain('--no-discord')
-    expect(renderServerHelp()).toContain('Comma-separated bind host list')
-    expect(renderServerHelp()).toContain('ACP_DISCORD_RETAIN_TURN_PROGRESS=0')
-    expect(renderServerHelp()).toContain('bootout/bootstrap')
+    const result = await runCli(['server', 'status', '--json'])
+    expect(result.exitCode).toBe(0)
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      running: false,
+      endpoint: 'http://127.0.0.1:65534',
+    })
   })
 
   test('retains Discord turn progress by default and accepts explicit off values', () => {

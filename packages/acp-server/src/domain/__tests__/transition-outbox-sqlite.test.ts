@@ -58,37 +58,28 @@ describe('TransitionOutboxRepo', () => {
 
     const reopenedStore = openAcpStateStore({ dbPath })
     try {
-      const row = reopenedStore.sqlite
-        .prepare(
-          `SELECT status, leased_at, delivered_at, attempts, last_error, payload_json
-             FROM transition_outbox
-            WHERE transition_event_id = ?`
-        )
-        .get('tevt-001') as {
-        status: string
-        leased_at: string | null
-        delivered_at: string | null
-        attempts: number
-        last_error: string | null
-        payload_json: string
-      }
-
-      expect(row.status).toBe('delivered')
-      expect(row.leased_at).not.toBeNull()
-      expect(row.delivered_at).not.toBeNull()
-      expect(row.attempts).toBe(1)
-      expect(row.last_error).toBeNull()
-      expect(JSON.parse(row.payload_json)).toEqual({
+      const persisted = reopenedStore.transitionOutbox.get('tevt-001')
+      expect(persisted).toMatchObject({
         transitionEventId: 'tevt-001',
-        taskId: 'T-01161',
-        toPhase: 'verified',
+        status: 'delivered',
+        attempts: 1,
+        lastError: null,
+        payload: {
+          transitionEventId: 'tevt-001',
+          taskId: 'T-01161',
+          toPhase: 'verified',
+        },
       })
+      expect(persisted?.leasedAt).toEqual(expect.any(String))
+      expect(persisted?.deliveredAt).toEqual(expect.any(String))
+      // A delivered row is never leased again after reopen
+      expect(reopenedStore.transitionOutbox.leaseNext()).toBeUndefined()
     } finally {
       reopenedStore.close()
     }
   })
 
-  test('treats append as idempotent by transitionEventId', () => {
+  test('appending the same transitionEventId twice returns the original pending row', () => {
     const dbPath = createDbPath()
     const store = openAcpStateStore({ dbPath })
 
@@ -112,21 +103,11 @@ describe('TransitionOutboxRepo', () => {
 
       expect(second).toEqual(first)
 
-      const row = store.sqlite
-        .prepare(
-          `SELECT COUNT(*) AS total, status, attempts
-             FROM transition_outbox
-            WHERE transition_event_id = ?`
-        )
-        .get('tevt-002') as {
-        total: number
-        status: string
-        attempts: number
-      }
-
-      expect(row.total).toBe(1)
-      expect(row.status).toBe('pending')
-      expect(row.attempts).toBe(0)
+      expect(store.transitionOutbox.get('tevt-002')).toEqual(first)
+      expect(first).toMatchObject({ status: 'pending', attempts: 0 })
+      expect(store.transitionOutbox.leaseNext()?.transitionEventId).toBe('tevt-002')
+      store.transitionOutbox.markDelivered('tevt-002')
+      expect(store.transitionOutbox.leaseNext()).toBeUndefined()
     } finally {
       store.close()
     }

@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import { createInMemoryAdminStore } from '../index.js'
 
 describe('GAP 4: heartbeat target persistence', () => {
-  test('upsert with scopeRef persists target and defaults laneRef to main', () => {
+  test('upsert with a scopeRef and no laneRef records the target on lane main', () => {
     const store = createInMemoryAdminStore()
     try {
       const heartbeat = store.heartbeats.upsert({

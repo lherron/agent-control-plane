@@ -117,7 +117,7 @@ describe('POST /v1/wrkf/actions/launch — wrkf-action source-tagged response', 
             taskId: TASK_ID,
             action: ACTION,
             actor: { kind: 'agent', id: 'curly' },
-            idempotencyKey: 'd2-route-launch-001',
+            idempotencyKey: 'idem1',
             sessionRef: SESSION_REF,
           },
         })
@@ -140,9 +140,30 @@ describe('POST /v1/wrkf/actions/launch — wrkf-action source-tagged response', 
         expect(body.wrkfRunId).toBe(CANNED_ACTION_RUN.runId)
         expect(body.hrcRunId).toBe(CANNED_LAUNCHED.runId)
         expect(body.externalRunRef).toBe(`hrc:${CANNED_LAUNCHED.runId}`)
-        expect(body.launch).toBeDefined()
+        expect(wrkf._calls.filter((call) => call.method === 'action.bindExternal')).toMatchObject([
+          {
+            params: {
+              actionRunId: CANNED_ACTION_RUN.actionRunId,
+              externalRunRef: `hrc:${CANNED_LAUNCHED.runId}`,
+            },
+          },
+        ])
+        expect(body.launch).toMatchObject({ runId: CANNED_LAUNCHED.runId })
         expect(body.replay).toBe(false)
         expect(launchCalls).toHaveLength(1)
+        expect(wrkf._calls.find((call) => call.method === 'action.start')?.params).toMatchObject({
+          task: TASK_ID,
+          action: ACTION,
+          principal_ref: 'agent:curly',
+          idempotencyKey: 'idem1',
+        })
+        const bind = wrkf._calls.find((call) => call.method === 'action.bindExternal')
+          ?.params as Record<string, unknown>
+        expect(bind['idempotencyKey']).toBe('idem1:bindExternal')
+        expect(JSON.parse(bind['deliveryRef'] as string)).toMatchObject({ kind: 'hrc' })
+        const stored = fixture.runStore.getRun(`run_wrkf_${CANNED_ACTION_RUN.runId}`)
+        expect(stored?.hrcRunId).toBe(CANNED_LAUNCHED.runId)
+        expect(stored?.metadata?.['wrkfRunId']).toBe(CANNED_ACTION_RUN.runId)
       },
       {
         wrkf,
@@ -207,6 +228,9 @@ describe('POST /v1/wrkf/actions/launch — wrkf-action source-tagged response', 
         })
 
         expect(response.status).toBe(400)
+        expect(await fixture.json(response)).toMatchObject({
+          error: { details: { field: 'action' } },
+        })
         expect(wrkf._calls.find((c) => c.method === 'action.start')).toBeUndefined()
       },
       {
@@ -366,9 +390,14 @@ describe('POST /v1/wrkf/actions/launch — idempotency', () => {
           body,
         })
         expect(second.status).toBe(200)
-        const secondBody = await fixture.json<{ replay: boolean; hrcRunId?: string }>(second)
+        const secondBody = await fixture.json<{
+          replay: boolean
+          hrcRunId?: string
+          externalRunRef?: string
+        }>(second)
         expect(secondBody.replay).toBe(true)
         expect(secondBody.hrcRunId).toBe(CANNED_LAUNCHED.runId)
+        expect(secondBody.externalRunRef).toBe(`hrc:${CANNED_LAUNCHED.runId}`)
 
         // Exactly one HRC launch across both requests; replay does not re-bind.
         expect(launchCount).toBe(1)
@@ -537,6 +566,50 @@ describe('POST /v1/wrkf/actions/launch — actor authorization', () => {
         launchRoleScopedRun: launcher,
         runtimeResolver: FAKE_RUNTIME_RESOLVER,
         authorize,
+      }
+    )
+  })
+})
+
+describe('action launch stored metadata boundary', () => {
+  test('POST stores evolved wrkf workflow and role without semantic action-truth scalars', async () => {
+    const evolved = {
+      ...CANNED_ACTION_RUN,
+      workflow: undefined,
+      workflowRef: 'wrkq-simple-task@future',
+      role: 'evolved-implementer',
+      cp_run_id: 'leak-run',
+      cp_session_id: 'leak-session',
+      run_status: 'leak-status',
+      sdk_session_id: 'leak-sdk',
+    }
+    const wrkf = makeFakeWrkfPort({ start: async () => evolved })
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'POST',
+          path: '/v1/wrkf/actions/launch',
+          body: {
+            taskId: TASK_ID,
+            action: ACTION,
+            idempotencyKey: 'evolved-action',
+            sessionRef: SESSION_REF,
+          },
+        })
+        expect(response.status).toBe(201)
+        const run = fixture.runStore.getRun(`run_wrkf_${CANNED_ACTION_RUN.runId}`)
+        expect(run?.metadata).toMatchObject({
+          workflowRef: evolved.workflowRef,
+          role: evolved.role,
+        })
+        const blob = JSON.stringify(run)
+        for (const field of ['cp_run_id', 'cp_session_id', 'run_status', 'sdk_session_id'])
+          expect(blob).not.toContain(field)
+      },
+      {
+        wrkf,
+        launchRoleScopedRun: async () => CANNED_LAUNCHED,
+        runtimeResolver: FAKE_RUNTIME_RESOLVER,
       }
     )
   })

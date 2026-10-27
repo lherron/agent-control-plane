@@ -168,6 +168,7 @@ export function createLiveProgressHarness(
   options: {
     interfaceMessageResponse?: (ingressCount: number) => Record<string, unknown>
     beforeInterfaceMessageResponse?: () => Promise<void>
+    typingRefreshMs?: number
   } = {}
 ): LiveProgressHarness {
   const channel = new FakeChannel('chan_live_progress')
@@ -337,6 +338,7 @@ export function createLiveProgressHarness(
     gatewayId: 'discord_prod',
     client: client as never,
     fetchImpl,
+    ...(options.typingRefreshMs !== undefined ? { typingRefreshMs: options.typingRefreshMs } : {}),
     dashboardSnapshotImpl: async () => ({
       type: 'dashboard_snapshot',
       cursors: { lastHrcSeq: LIVE_PROGRESS_HRC_TAIL },

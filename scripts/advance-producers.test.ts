@@ -9,6 +9,7 @@ import {
 } from '../packages/acp-server/src/deployment-coherence.js'
 import {
   type GitRunner,
+  advanceProducers,
   assertPostAdvanceConsumerDeployment,
   assertPublishedProducerIdentity,
   assertUnrelatedLockSelectionsUnchanged,
@@ -123,7 +124,17 @@ describe('post-advance consumer deployment', () => {
 
   test('failed post-check restores the lock and relinks installed packages to it', async () => {
     const root = await mkdtemp(join(tmpdir(), 'acp-failed-advance-'))
+    const fixtureEnv = {
+      HOME: join(root, 'home'),
+      PRAESIDIUM_HOME: join(root, 'praesidium'),
+      ASP_HOME: join(root, 'asp'),
+      BUN_INSTALL: join(root, 'bun-install'),
+      BUN_INSTALL_CACHE_DIR: join(root, 'bun-cache'),
+    }
+    const previousEnv = new Map(Object.keys(fixtureEnv).map((key) => [key, process.env[key]]))
     try {
+      for (const path of Object.values(fixtureEnv)) await mkdir(path, { recursive: true })
+      Object.assign(process.env, fixtureEnv)
       const oldPackage = join(root, 'fixtures/old-package')
       const newPackage = join(root, 'fixtures/new-package')
       await mkdir(oldPackage, { recursive: true })
@@ -166,42 +177,54 @@ describe('post-advance consumer deployment', () => {
           .version
       ).toBe('1.0.0')
     } finally {
+      for (const [key, value] of previousEnv) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
       await rm(root, { recursive: true, force: true })
     }
   })
 })
 
 describe('producer advance arguments', () => {
-  test('reads the single-set form', () => {
-    expect(parseArguments(['set=asp', 'version=0.1.1-dev.1'])).toEqual({
+  test.each([
+    {
+      form: 'single-set',
+      argv: ['set=asp', 'version=0.1.1-dev.1'],
       requests: [{ setName: 'asp', version: '0.1.1-dev.1' }],
       dryRun: false,
-    })
-  })
-
-  test('reads both tuples from the paired form, so one install covers both', () => {
-    expect(parseArguments(['asp=0.1.1-dev.1', 'hrc=0.1.0-dev.2'])).toEqual({
+    },
+    {
+      form: 'paired, so one install covers both',
+      argv: ['asp=0.1.1-dev.1', 'hrc=0.1.0-dev.2'],
       requests: [
         { setName: 'asp', version: '0.1.1-dev.1' },
         { setName: 'hrc', version: '0.1.0-dev.2' },
       ],
       dryRun: false,
-    })
+    },
+    {
+      form: 'paired with --dry-run',
+      argv: ['asp=0.1.1-dev.1', 'hrc=0.1.0-dev.2', '--dry-run'],
+      requests: [
+        { setName: 'asp', version: '0.1.1-dev.1' },
+        { setName: 'hrc', version: '0.1.0-dev.2' },
+      ],
+      dryRun: true,
+    },
+  ])('reads the $form form', ({ argv, requests, dryRun }) => {
+    expect(parseArguments(argv)).toEqual({ requests, dryRun })
   })
 
-  test('carries --dry-run through the paired form', () => {
-    expect(parseArguments(['asp=0.1.1-dev.1', 'hrc=0.1.0-dev.2', '--dry-run']).dryRun).toBe(true)
+  test('refuses a set named twice before changing the checkout', async () => {
+    await expect(
+      advanceProducers(['set=asp', 'version=0.1.1-dev.1', 'asp=0.1.1-dev.2'])
+    ).rejects.toThrow(/named twice/)
   })
 
-  test('refuses a set named twice', () => {
-    expect(() => parseArguments(['set=asp', 'version=0.1.1-dev.1', 'asp=0.1.1-dev.2'])).toThrow(
-      /named twice/
-    )
-  })
-
-  test('refuses an unknown set and an empty request', () => {
-    expect(() => parseArguments(['set=wrkq', 'version=1'])).toThrow(/usage/)
-    expect(() => parseArguments([])).toThrow(/usage/)
+  test('refuses an unknown set and an empty request before changing the checkout', async () => {
+    await expect(advanceProducers(['set=wrkq', 'version=1'])).rejects.toThrow(/usage/)
+    await expect(advanceProducers([])).rejects.toThrow(/usage/)
   })
 })
 
@@ -250,20 +273,43 @@ describe('unrelated lock selections during an advance', () => {
     ).toThrow(/moved unrelated lock selections: unrelated-pkg/)
   })
 
-  test('allows a non-member whose declared pin the lock is catching up to', () => {
-    const snapshots = new Map([
-      ['package.json', JSON.stringify({ overrides: { 'cap-service': '9.9.9' } })],
-    ])
-    expect(declaredManifestVersions(snapshots).get('cap-service')).toEqual(new Set(['9.9.9']))
-    expect(() =>
-      assertUnrelatedLockSelectionsUnchanged(
-        lock({ 'agent-spaces': '1.0.0', 'cap-service': '1.0.0' }),
-        lock({ 'agent-spaces': '2.0.0', 'cap-service': '9.9.9' }),
-        members,
-        declaredManifestVersions(snapshots)
+  test.each([
+    {
+      source: 'root overrides',
+      path: 'package.json',
+      manifest: { overrides: { 'cap-service': '9.9.9' } },
+    },
+    {
+      source: 'workspace dependencies',
+      path: 'packages/x/package.json',
+      manifest: { dependencies: { 'cap-service': '9.9.9' } },
+    },
+    {
+      source: 'workspace devDependencies',
+      path: 'packages/x/package.json',
+      manifest: { devDependencies: { 'cap-service': '9.9.9' } },
+    },
+  ])(
+    'allows a non-member whose pin in $source the lock is catching up to',
+    ({ path, manifest }) => {
+      // bun.lock sits in the snapshot set too; it is not a manifest and must be skipped.
+      const snapshots = new Map([
+        [path, JSON.stringify(manifest)],
+        ['bun.lock', 'not a manifest'],
+      ])
+      expect(declaredManifestVersions(snapshots)).toEqual(
+        new Map([['cap-service', new Set(['9.9.9'])]])
       )
-    ).not.toThrow()
-  })
+      expect(() =>
+        assertUnrelatedLockSelectionsUnchanged(
+          lock({ 'agent-spaces': '1.0.0', 'cap-service': '1.0.0' }),
+          lock({ 'agent-spaces': '2.0.0', 'cap-service': '9.9.9' }),
+          members,
+          declaredManifestVersions(snapshots)
+        )
+      ).not.toThrow()
+    }
+  )
 
   test('still refuses a declared package that moved somewhere else entirely', () => {
     const snapshots = new Map([
@@ -280,19 +326,6 @@ describe('unrelated lock selections during an advance', () => {
         declaredManifestVersions(snapshots)
       )
     ).toThrow(/moved unrelated lock selections: cap-service/)
-  })
-
-  test('reads declarations from deps, devDeps and overrides, ignoring non-manifests', () => {
-    const snapshots = new Map([
-      ['package.json', JSON.stringify({ overrides: { a: '1' } })],
-      [
-        'packages/x/package.json',
-        JSON.stringify({ dependencies: { b: '2' }, devDependencies: { c: '3' } }),
-      ],
-      ['bun.lock', 'not a manifest'],
-    ])
-    const declared = declaredManifestVersions(snapshots)
-    expect([...declared.keys()].sort()).toEqual(['a', 'b', 'c'])
   })
 
   test('allows dropping a selection the manifests no longer declare', () => {

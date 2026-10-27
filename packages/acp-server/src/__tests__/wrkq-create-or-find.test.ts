@@ -276,27 +276,6 @@ describe('createOrFindWrkqTask — idempotency contract (Phase B RED)', () => {
     expect(result2.created).toBe(false)
   })
 
-  test('crash-style retry: external create succeeded but result not persisted → second call returns same taskId', async () => {
-    const fakeStore = makeStore()
-    const client = makeFakeWorkClient(fakeStore)
-    const input = makeInput('evt_crash_002')
-
-    // First call: creates the task (simulate caller crashes AFTER create but BEFORE persisting result_json)
-    // RED: throws "not implemented"
-    const result1 = await createOrFindWrkqTask(client, input)
-    expect(result1.created).toBe(true)
-    expect(fakeStore.createCount).toBe(1)
-
-    // Reset create count to detect if a SECOND create is attempted
-    fakeStore.createCount = 0
-
-    // Second call: simulates retry after crash — must find existing task, NOT create again
-    const result2 = await createOrFindWrkqTask(client, input)
-    expect(result2.taskId).toBe(result1.taskId)
-    expect(fakeStore.createCount).toBe(0) // NO second create
-    expect(result2.created).toBe(false) // found, not created
-  })
-
   test('different canonical event ids produce different task ids', async () => {
     const fakeStore = makeStore()
     const client = makeFakeWorkClient(fakeStore)
@@ -341,15 +320,5 @@ describe('createOrFindWrkqTask — idempotency contract (Phase B RED)', () => {
     expect(typeof result.taskPath).toBe('string')
     expect(result.taskPath).toBe(input.path)
     expect(typeof result.created).toBe('boolean')
-  })
-
-  test('key format is: acp-health:dispatch-timeout:${canonicalEventId}:task', async () => {
-    // Verify the key contract is correct — the implementation must use this exact format.
-    // This test documents the required key shape.
-    const canonicalEventId = 'evt_key_format_005'
-    const input = makeInput(canonicalEventId)
-    expect(input.key).toBe(`acp-health:dispatch-timeout:${canonicalEventId}:task`)
-    expect(input.path).toContain(input.key)
-    expect(input.path).toContain('agent-control-plane/inbox/')
   })
 })

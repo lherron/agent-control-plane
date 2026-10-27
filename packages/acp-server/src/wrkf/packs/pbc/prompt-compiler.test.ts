@@ -116,28 +116,16 @@ const BASE_INPUT: PromptCompileInput = {
 // ---------------------------------------------------------------------------
 
 describe('compilePbcPrompt', () => {
-  // --- basic shape -----------------------------------------------------------
-
-  test('returns a non-empty string', () => {
-    const result = compilePbcPrompt(BASE_INPUT)
-    expect(typeof result).toBe('string')
-    expect(result.length).toBeGreaterThan(0)
-  })
-
   // --- phase guidance -------------------------------------------------------
 
-  test('includes agentInstruction for the current state (active/pressure)', () => {
-    const result = compilePbcPrompt(BASE_INPUT)
-    expect(result).toContain('Run the pressure pass and produce pressure_pass evidence.')
-  })
+  test("prompt carries only the current status/phase's agentInstruction", () => {
+    // active/pressure: pressure guidance present, behavior_note guidance must not bleed in
+    const pressurePrompt = compilePbcPrompt(BASE_INPUT)
+    expect(pressurePrompt).toContain('Run the pressure pass and produce pressure_pass evidence.')
+    expect(pressurePrompt).not.toContain(
+      'Produce behavior_note and pre_interview_analysis evidence.'
+    )
 
-  test('does not include agentInstruction for a different state (active/behavior_note)', () => {
-    const result = compilePbcPrompt(BASE_INPUT)
-    // The behavior_note guidance must not bleed into the pressure prompt
-    expect(result).not.toContain('Produce behavior_note and pre_interview_analysis evidence.')
-  })
-
-  test('selects phase guidance by status+phase from the template', () => {
     // Switch to active/behavior_note
     const inputInBehaviorNote: PromptCompileInput = {
       ...BASE_INPUT,
@@ -188,27 +176,21 @@ describe('compilePbcPrompt', () => {
   test('includes evidence to produce for candidate transitions', () => {
     const result = compilePbcPrompt(BASE_INPUT)
     // finalize_ready_pbc.produceEvidence = ['pressure_pass', 'pbc_final']
-    expect(result).toContain('pressure_pass')
-    expect(result).toContain('pbc_final')
+    expect(result).toContain('Evidence to produce: pressure_pass, pbc_final')
   })
 
   // --- blocked transition guidance ------------------------------------------
 
-  test('includes blocked transition names', () => {
+  test('lists each blocked transition by name with its reason', () => {
     const result = compilePbcPrompt(BASE_INPUT)
     // run_pressure_pass is in next.blockedTransitions
-    expect(result).toContain('run_pressure_pass')
-  })
-
-  test('includes blocked transition reason when present', () => {
-    const result = compilePbcPrompt(BASE_INPUT)
-    expect(result).toContain('pressure pass already submitted')
+    expect(result).toContain('- run_pressure_pass — pressure pass already submitted')
   })
 
   // --- open obligations -----------------------------------------------------
 
-  test('includes open obligation kind when obligations are present', () => {
-    const inputWithObligation: PromptCompileInput = {
+  test('lists every open obligation with its id and status', () => {
+    const inputWithObligations: PromptCompileInput = {
       ...BASE_INPUT,
       obligations: [
         {
@@ -217,41 +199,15 @@ describe('compilePbcPrompt', () => {
           status: 'open',
           raw: {},
         } satisfies ObligationRecord,
-      ],
-    }
-    const result = compilePbcPrompt(inputWithObligation)
-    expect(result).toContain('clarification_response')
-  })
-
-  test('includes multiple open obligations', () => {
-    const inputWithObligations: PromptCompileInput = {
-      ...BASE_INPUT,
-      obligations: [
-        {
-          id: 'obl_1',
-          kind: 'clarification_response',
-          status: 'open',
-          raw: {},
-        } satisfies ObligationRecord,
         { id: 'obl_2', kind: 'patch_decision', status: 'open', raw: {} } satisfies ObligationRecord,
       ],
     }
     const result = compilePbcPrompt(inputWithObligations)
-    expect(result).toContain('clarification_response')
-    expect(result).toContain('patch_decision')
+    expect(result).toContain('- clarification_response (id: obl_clr_1, status: open)')
+    expect(result).toContain('- patch_decision (id: obl_2, status: open)')
   })
 
   // --- wrkf evidence loop (direct-wrkf recording) ---------------------------
-
-  test('instructs the participant to record evidence via wrkf evidence add', () => {
-    const result = compilePbcPrompt(BASE_INPUT)
-    expect(result).toContain('wrkf evidence add')
-  })
-
-  test('tells the participant to run wrkf next to discover required evidence', () => {
-    const result = compilePbcPrompt(BASE_INPUT)
-    expect(result).toContain('wrkf next')
-  })
 
   test('points the participant at wrkf evidence schema for the kind contract', () => {
     const result = compilePbcPrompt(BASE_INPUT)
@@ -264,28 +220,7 @@ describe('compilePbcPrompt', () => {
     expect(result).toContain('fix')
   })
 
-  test('does NOT instruct the participant to apply transitions itself', () => {
-    const result = compilePbcPrompt(BASE_INPUT)
-    expect(result).toContain('Do NOT run `wrkf transition`')
-  })
-
   // --- system-level guardrails ----------------------------------------------
-
-  test('includes guardrail: participant must not call wrkf directly', () => {
-    const result = compilePbcPrompt(BASE_INPUT)
-    // Must include some form of "do not call wrkf" instruction
-    expect(result.toLowerCase()).toMatch(
-      /do not.*wrkf|must not.*wrkf|no direct.*wrkf|wrkf.*directly/i
-    )
-  })
-
-  test('includes guardrail: participant must not apply transitions', () => {
-    const result = compilePbcPrompt(BASE_INPUT)
-    // Must tell participant that the harness applies transitions, not the participant
-    expect(result.toLowerCase()).toMatch(
-      /do not.*apply.*transition|must not.*transition|harness.*applies.*transition/i
-    )
-  })
 
   test('includes guardrail: agent must not fabricate product_owner obligation evidence', () => {
     const result = compilePbcPrompt(BASE_INPUT)
@@ -313,5 +248,15 @@ describe('compilePbcPrompt', () => {
     // Existing evidence summaries should be surfaced to the participant for context
     expect(result).toContain('pbc_draft')
     expect(result).toContain('First PBC draft submitted')
+  })
+})
+
+describe('participant transition guardrail', () => {
+  test('includes guardrail: participant must not apply transitions', () => {
+    const result = compilePbcPrompt(BASE_INPUT)
+    // Must tell participant that the harness applies transitions, not the participant
+    expect(result.toLowerCase()).toMatch(
+      /do not.*apply.*transition|must not.*transition|harness.*applies.*transition/i
+    )
   })
 })

@@ -1,8 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 
-import { observeBrokerSeat } from '../drive/seat.js'
+import { driveMailTargetOnce } from '../drive/target-driver.js'
 import type { T08094Harness } from './t08094-harness.js'
-import { RUNTIME_ID, createT08094Harness, destroyT08094Harness } from './t08094-harness.js'
+import {
+  RUNTIME_ID,
+  TARGET_REF,
+  createT08094Harness,
+  destroyT08094Harness,
+} from './t08094-harness.js'
 
 /**
  * T-10286 — a broker runtime whose invocation ended (`failed`, `stopped`,
@@ -38,14 +43,22 @@ describe('T-10286 terminal broker runtime is not a seat', () => {
   // reads `unavailable`, so an `absent` below is the status filter's doing.
   it('selects a live broker runtime whose probe fails as unavailable', async () => {
     brokerRuntimeIn('ready')
-    const seat = await observeBrokerSeat(harness.context, harness.session)
-    expect(seat).toMatchObject({ state: 'unavailable', runtimeId: RUNTIME_ID })
+    harness.ledger.say()
+    await driveMailTargetOnce(harness.context, TARGET_REF, 'insert')
+    expect(harness.dispatches).toHaveLength(0)
+    expect(
+      harness.logs.find((log) => log.event === 'wrkq.kicker.seat_not_ready')?.detail
+    ).toMatchObject({ observedSeatState: 'unavailable' })
   })
 
   for (const status of ['failed', 'stopped', 'disposed', 'exited', 'crashed', 'detached']) {
     it(`reads a ${status} broker runtime as an absent seat`, async () => {
       brokerRuntimeIn(status)
-      expect(await observeBrokerSeat(harness.context, harness.session)).toEqual({ state: 'absent' })
+      const envelope = harness.ledger.say()
+      await driveMailTargetOnce(harness.context, TARGET_REF, 'insert')
+      expect(harness.store.mailDelivery.getIntent(envelope.id)?.door).toBe('invoke')
+      expect(harness.dispatches).toHaveLength(1)
+      expect(harness.dispatches[0]).toMatchObject({ launchPromptOnColdBirth: true })
     })
   }
 })

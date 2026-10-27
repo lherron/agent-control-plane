@@ -229,9 +229,15 @@ describe('GET /v2/mobile/sessions', () => {
     const hrcClient = createPaginatedClient({ pageRequests, facetRequests })
 
     await withWiredServer(
-      async ({ request }) => {
+      async ({ request, json }) => {
         const response = await request({ method: 'GET', path: '/v2/mobile/sessions?limit=51' })
         expect(response.status).toBe(400)
+        expect(await json<{ error: { message: string } }>(response)).toMatchObject({
+          error: {
+            code: 'malformed_request',
+            message: 'limit must be an integer between 1 and 50',
+          },
+        })
         expect(pageRequests).toEqual([])
         expect(facetRequests).toEqual([])
       },
@@ -239,7 +245,7 @@ describe('GET /v2/mobile/sessions', () => {
     )
   })
 
-  test('publishes literal input for a headless-provisioned interactive broker', async () => {
+  test('headless-provisioned interactive tmux broker is listed with literal input enabled and runtime.adopted false', async () => {
     const pageRequests: SessionPageRequest[] = []
     const facetRequests: SessionFacetsRequest[] = []
     const hrcClient = createPaginatedClient({
@@ -287,7 +293,7 @@ describe('GET /v2/mobile/sessions', () => {
     )
   })
 
-  test('keeps a genuinely non-interactive tmux worker closed to literal input', async () => {
+  test('non-interactive tmux worker is listed with input and literalInput false', async () => {
     const pageRequests: SessionPageRequest[] = []
     const facetRequests: SessionFacetsRequest[] = []
     const hrcClient = createPaginatedClient({

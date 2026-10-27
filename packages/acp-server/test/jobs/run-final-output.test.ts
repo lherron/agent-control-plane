@@ -100,30 +100,6 @@ describe('getRunFinalAssistantText', () => {
   // Headless path (hrcRunId)
   // -----------------------------------------------------------------------
 
-  test('headless: extracts text from hrc_events via hrcRunId', () => {
-    const run = makeRun({ hrcRunId: 'hrc-run-42' })
-    const deps = makeDeps(run, '/fake/hrc.db')
-
-    const readers = fakeReaders({
-      readCompletedAssistantMessageFromHrcEvents: (dbPath, runId) => {
-        expect(dbPath).toBe('/fake/hrc.db')
-        expect(runId).toBe('hrc-run-42')
-        return makeMessageEndEvent('headless reply')
-      },
-    })
-
-    const result = getRunFinalAssistantText(deps, 'run-1', readers)
-    expect(result).toBe('headless reply')
-  })
-
-  test('headless: returns undefined when no events exist', () => {
-    const run = makeRun({ hrcRunId: 'hrc-run-empty' })
-    const deps = makeDeps(run)
-
-    const result = getRunFinalAssistantText(deps, 'run-1', fakeReaders())
-    expect(result).toBeUndefined()
-  })
-
   test('headless: reads final output from canonical hrc_events', () => {
     const path = makeStore()
     const db = new Database(path)
@@ -175,64 +151,6 @@ describe('getRunFinalAssistantText', () => {
   // Interactive/tmux path (hostSessionId)
   // -----------------------------------------------------------------------
 
-  test('interactive: extracts text from hrc_events via hostSessionId', () => {
-    const run = makeRun({
-      hostSessionId: 'hsid-789',
-      generation: 5,
-    })
-    const deps = makeDeps(run, '/fake/hrc.db')
-
-    const readers = fakeReaders({
-      readLatestAssistantMessageSeq: (dbPath, input) => {
-        expect(dbPath).toBe('/fake/hrc.db')
-        expect(input.hostSessionId).toBe('hsid-789')
-        expect(input.sessionRef.scopeRef).toBe('agent:larry@project:demo')
-        expect(input.sessionRef.laneRef).toBe('main')
-        return 10
-      },
-      readAssistantMessageAfterSeq: (options) => {
-        expect(options.hrcDbPath).toBe('/fake/hrc.db')
-        expect(options.hostSessionId).toBe('hsid-789')
-        expect(options.afterHrcSeq).toBe(9) // latestSeq - 1
-        return makeMessageEndEvent('interactive reply')
-      },
-    })
-
-    const result = getRunFinalAssistantText(deps, 'run-1', readers)
-    expect(result).toBe('interactive reply')
-  })
-
-  test('interactive: returns undefined when latestSeq is 0 (no messages)', () => {
-    const run = makeRun({
-      hostSessionId: 'hsid-empty',
-      generation: 1,
-    })
-    const deps = makeDeps(run)
-
-    const readers = fakeReaders({
-      readLatestAssistantMessageSeq: () => 0,
-    })
-
-    const result = getRunFinalAssistantText(deps, 'run-1', readers)
-    expect(result).toBeUndefined()
-  })
-
-  test('interactive: returns undefined when readAssistantMessageAfterSeq returns undefined', () => {
-    const run = makeRun({
-      hostSessionId: 'hsid-gap',
-      generation: 2,
-    })
-    const deps = makeDeps(run)
-
-    const readers = fakeReaders({
-      readLatestAssistantMessageSeq: () => 5,
-      readAssistantMessageAfterSeq: () => undefined,
-    })
-
-    const result = getRunFinalAssistantText(deps, 'run-1', readers)
-    expect(result).toBeUndefined()
-  })
-
   // -----------------------------------------------------------------------
   // Edge cases
   // -----------------------------------------------------------------------
@@ -243,37 +161,35 @@ describe('getRunFinalAssistantText', () => {
     expect(result).toBeUndefined()
   })
 
-  test('returns undefined when run has neither hrcRunId nor hostSessionId', () => {
+  test('returns undefined when run has neither hrcRunId nor hostSessionId, even when HRC readers have text', () => {
     const run = makeRun() // no hrcRunId, no hostSessionId
     const deps = makeDeps(run)
-    const result = getRunFinalAssistantText(deps, 'run-1', fakeReaders())
+    const result = getRunFinalAssistantText(
+      deps,
+      'run-1',
+      fakeReaders({
+        readCompletedAssistantMessageFromHrcEvents: () => makeMessageEndEvent('headless leak'),
+        readLatestAssistantMessageSeq: () => 10,
+        readAssistantMessageAfterSeq: () => makeMessageEndEvent('interactive leak'),
+      })
+    )
     expect(result).toBeUndefined()
   })
 
-  test('headless path takes priority when both hrcRunId and hostSessionId present', () => {
+  test('headless text wins when a run carries both hrcRunId and hostSessionId', () => {
     const run = makeRun({
       hrcRunId: 'hrc-run-priority',
       hostSessionId: 'hsid-also-present',
     })
     const deps = makeDeps(run, '/fake/hrc.db')
 
-    let headlessCalled = false
-    let interactiveCalled = false
-
     const readers = fakeReaders({
-      readCompletedAssistantMessageFromHrcEvents: () => {
-        headlessCalled = true
-        return makeMessageEndEvent('from headless')
-      },
-      readLatestAssistantMessageSeq: () => {
-        interactiveCalled = true
-        return 10
-      },
+      readCompletedAssistantMessageFromHrcEvents: () => makeMessageEndEvent('from headless'),
+      readLatestAssistantMessageSeq: () => 10,
+      readAssistantMessageAfterSeq: () => makeMessageEndEvent('from interactive'),
     })
 
-    getRunFinalAssistantText(deps, 'run-1', readers)
-    expect(headlessCalled).toBe(true)
-    expect(interactiveCalled).toBe(false)
+    expect(getRunFinalAssistantText(deps, 'run-1', readers)).toBe('from headless')
   })
 
   // -----------------------------------------------------------------------
@@ -331,24 +247,28 @@ describe('getRunFinalAssistantText', () => {
     expect(event?.type).toBe('turn_end')
   })
 
-  test('message_end with empty text returns undefined', () => {
-    const run = makeRun({ hrcRunId: 'hrc-run-empty-text' })
-    const deps = makeDeps(run)
+  test.each([{ text: '' }, { text: '   ' }])(
+    'a blank final assistant message in hrc_events yields no final text: $text',
+    ({ text }) => {
+      const path = makeStore()
+      const db = new Database(path)
+      db.prepare(
+        'INSERT INTO hrc_events (hrc_seq, run_id, event_kind, payload_json) VALUES (?, ?, ?, ?)'
+      ).run(
+        1,
+        'hrc-run-empty-text',
+        'turn.message',
+        JSON.stringify({
+          type: 'message_end',
+          message: { role: 'assistant', content: [{ type: 'text', text }] },
+        })
+      )
+      db.close()
 
-    // visible-assistant-messages.ts returns undefined for empty text
-    const emptyEvent: UnifiedSessionEvent = {
-      type: 'message_end',
-      message: { role: 'assistant', content: [{ type: 'text', text: '   ' }] },
+      const run = makeRun({ hrcRunId: 'hrc-run-empty-text' })
+      expect(getRunFinalAssistantText(makeDeps(run, path), 'run-1')).toBeUndefined()
     }
-
-    const readers = fakeReaders({
-      readCompletedAssistantMessageFromHrcEvents: () => emptyEvent,
-    })
-
-    const result = getRunFinalAssistantText(deps, 'run-1', readers)
-    // toCompletedVisibleAssistantMessage returns undefined for whitespace-only text
-    expect(result).toBeUndefined()
-  })
+  )
 })
 
 function makeRetainedOutputStore(): string {
@@ -414,7 +334,7 @@ describe('T-08575 run final output retained-evidence fence', () => {
     db.exec('ALTER TABLE hrc_events RENAME TO hrc_events_removed')
     db.close()
     const run = makeRun({ hostSessionId: 'hsid-output', generation: 1 })
-    expect(() => getRunFinalAssistantText(makeDeps(run, path), run.runId)).toThrow()
+    expect(() => getRunFinalAssistantText(makeDeps(run, path), run.runId)).toThrow(/hrc_events/)
   })
 
   test('T-Q1b control returns undefined for an empty recognized hrc_events table', () => {

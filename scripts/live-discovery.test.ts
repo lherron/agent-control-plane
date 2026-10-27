@@ -27,11 +27,30 @@ afterEach(() => {
 })
 
 describe('live ACP discovery', () => {
-  test('finds live ACP route handler entry points', async () => {
-    const routes = await collectRouteSummaries()
-    const taskRoute = routes.find((route) => route.key === 'GET /v1/tasks/:taskId')
+  test('param route is reported with its family, handler and the handler file it imports from', async () => {
+    const root = tmpRoot()
+    writeText(
+      join(root, 'packages/acp-server/src/handlers/workflow-tasks.ts'),
+      'export function handleGetWorkflowTask(): Response { return new Response("ok") }\nexport function handleOther(): Response { return new Response("ok") }\n'
+    )
+    writeText(
+      join(root, 'packages/acp-server/src/routing/param-routes.ts'),
+      `import {
+  handleGetWorkflowTask,
+  handleOther,
+} from '../handlers/workflow-tasks.js'
+export function buildParamRoutes() {
+  return [
+    createParamRoute('GET', '/v1/tasks/:taskId', handleGetWorkflowTask),
+    createParamRoute('POST', '/v1/other/:id', handleOther),
+  ]
+}
+`
+    )
 
-    expect(taskRoute).toMatchObject({
+    const routes = await collectRouteSummaries(root)
+
+    expect(routes.find((route) => route.key === 'GET /v1/tasks/:taskId')).toMatchObject({
       family: 'tasks',
       handler: 'handleGetWorkflowTask',
       handlerSource: 'packages/acp-server/src/handlers/workflow-tasks.ts',
@@ -39,7 +58,7 @@ describe('live ACP discovery', () => {
     })
   })
 
-  test('route discovery is live against the source tree', async () => {
+  test('route added to or removed from exact-routes.ts shows up or drops out on the next read', async () => {
     const root = tmpRoot()
     const exactRoutesPath = join(root, 'packages/acp-server/src/routing/exact-routes.ts')
     writeText(

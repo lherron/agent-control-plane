@@ -1,80 +1,38 @@
 import { describe, expect, test } from 'bun:test'
 
-import { type ConversationStore, createInMemoryConversationStore } from 'acp-conversation'
+import { createInMemoryConversationStore } from 'acp-conversation'
 
 import type { AcpServerDeps } from '../src/index.js'
 
-import { withWiredServer } from './fixtures/wired-server.js'
+import { type WiredServerFixture, withWiredServer } from './fixtures/wired-server.js'
 
-type LaunchCall = Parameters<NonNullable<AcpServerDeps['launchRoleScopedRun']>>[0]
-
-type TurnInput = {
-  threadId: string
-  role: 'human' | 'assistant' | 'system'
-  body: string
-  renderState: 'pending' | 'streaming' | 'delivered' | 'failed' | 'redacted'
-  links?: {
-    inputAttemptId?: string | undefined
-    runId?: string | undefined
-    taskId?: string | undefined
-    handoffId?: string | undefined
-    deliveryRequestId?: string | undefined
-    coordinationEventId?: string | undefined
-  }
-  actor?: { kind: 'human' | 'agent' | 'system'; id: string } | undefined
-  sentAt: string
+type ConversationTurn = {
+  role: string
+  actor?: { kind: string; id: string } | undefined
 }
 
-function createConversationStoreSpy(): {
-  store: ConversationStore
-  createTurnCalls: TurnInput[]
-  close(): void
-} {
-  const baseStore = createInMemoryConversationStore()
-  const createTurnCalls: TurnInput[] = []
-  let threadOrdinal = 0
+const ACTOR_ROWS = [
+  {
+    name: 'header beats body',
+    headers: { 'x-acp-actor': 'agent:curly' },
+    bodyActor: { kind: 'human', id: 'body-operator' },
+    expected: { kind: 'agent', id: 'curly' },
+  },
+  {
+    name: 'body without header',
+    headers: undefined,
+    bodyActor: { kind: 'human', id: 'body-operator' },
+    expected: { kind: 'human', id: 'body-operator' },
+  },
+  {
+    name: 'neither falls back to the default system actor',
+    headers: undefined,
+    bodyActor: undefined,
+    expected: { kind: 'system', id: 'acp-local' },
+  },
+] as const
 
-  const turnsById = new Map<string, TurnInput & { turnId: string }>()
-
-  const store = Object.assign(baseStore, {
-    createOrGetThread() {
-      threadOrdinal += 1
-      return { threadId: `thread_${threadOrdinal.toString().padStart(4, '0')}` }
-    },
-    createTurn(input: TurnInput) {
-      createTurnCalls.push(structuredClone(input))
-      const turnId = `turn_${createTurnCalls.length.toString().padStart(4, '0')}`
-      turnsById.set(turnId, { turnId, ...structuredClone(input) })
-      return turnId
-    },
-    attachLinks(turnId: string, links: TurnInput['links']) {
-      const existing = turnsById.get(turnId)
-      if (existing !== undefined) {
-        existing.links = { ...(existing.links ?? {}), ...structuredClone(links) }
-      }
-      return (
-        existing ?? {
-          turnId,
-          threadId: '',
-          role: 'assistant' as const,
-          body: '',
-          renderState: 'pending' as const,
-          sentAt: '',
-        }
-      )
-    },
-  }) as ConversationStore
-
-  return {
-    store,
-    createTurnCalls,
-    close() {
-      baseStore.close()
-    },
-  }
-}
-
-function createLaunchOverrides(calls: LaunchCall[]): Partial<AcpServerDeps> {
+function createLaunchOverrides(): Partial<AcpServerDeps> {
   return {
     runtimeResolver: async () => ({
       agentRoot: '/tmp/agents/larry',
@@ -85,7 +43,6 @@ function createLaunchOverrides(calls: LaunchCall[]): Partial<AcpServerDeps> {
       harness: { provider: 'openai', interactive: true },
     }),
     launchRoleScopedRun: async (input) => {
-      calls.push(input)
       await input.onEvent?.({
         type: 'message_end',
         messageId: 'assistant-visible',
@@ -100,158 +57,73 @@ function createLaunchOverrides(calls: LaunchCall[]): Partial<AcpServerDeps> {
   }
 }
 
-function findAssistantTurn(calls: readonly TurnInput[]): TurnInput | undefined {
-  return calls.find((turn) => turn.role === 'assistant')
+async function readAssistantTurn(fixture: WiredServerFixture): Promise<ConversationTurn> {
+  const threadsResponse = await fixture.request({
+    method: 'GET',
+    path: '/v1/conversation/threads',
+  })
+  expect(threadsResponse.status).toBe(200)
+  const { threads } = await fixture.json<{ threads: Array<{ threadId: string }> }>(threadsResponse)
+  expect(threads).toHaveLength(1)
+
+  const turnsResponse = await fixture.request({
+    method: 'GET',
+    path: `/v1/conversation/threads/${threads[0]?.threadId}/turns`,
+  })
+  expect(turnsResponse.status).toBe(200)
+  const { turns } = await fixture.json<{ turns: ConversationTurn[] }>(turnsResponse)
+  const assistant = turns.filter((turn) => turn.role === 'assistant')
+  expect(assistant).toHaveLength(1)
+  return assistant[0] as ConversationTurn
 }
 
 describe('actor-stamp: conversation turns', () => {
   test('prefers X-ACP-Actor over body actor when creating assistant turns', async () => {
-    const conversation = createConversationStoreSpy()
-    const launchCalls: LaunchCall[] = []
+    for (const row of ACTOR_ROWS) {
+      const conversationStore = createInMemoryConversationStore()
 
-    try {
-      await withWiredServer(
-        async (fixture) => {
-          fixture.interfaceStore.bindings.create({
-            bindingId: 'ifb_123',
-            gatewayId: 'discord_prod',
-            conversationRef: 'channel:123',
-            scopeRef: `agent:larry:project:${fixture.seed.projectId}`,
-            laneRef: 'main',
-            projectId: fixture.seed.projectId,
-            status: 'active',
-            createdAt: '2026-04-23T12:05:00.000Z',
-            updatedAt: '2026-04-23T12:05:00.000Z',
-          })
+      try {
+        await withWiredServer(
+          async (fixture) => {
+            fixture.interfaceStore.bindings.create({
+              bindingId: 'ifb_123',
+              gatewayId: 'discord_prod',
+              conversationRef: 'channel:123',
+              scopeRef: `agent:larry:project:${fixture.seed.projectId}`,
+              laneRef: 'main',
+              projectId: fixture.seed.projectId,
+              status: 'active',
+              createdAt: '2026-04-23T12:05:00.000Z',
+              updatedAt: '2026-04-23T12:05:00.000Z',
+            })
 
-          const response = await fixture.request({
-            method: 'POST',
-            path: '/v1/interface/messages',
-            headers: { 'x-acp-actor': 'agent:curly' },
-            body: {
-              actor: { kind: 'human', id: 'body-operator' },
-              source: {
-                gatewayId: 'discord_prod',
-                conversationRef: 'channel:123',
-                messageRef: 'discord:message:456',
-                authorRef: 'discord:user:999',
+            const response = await fixture.request({
+              method: 'POST',
+              path: '/v1/interface/messages',
+              headers: row.headers,
+              body: {
+                ...(row.bodyActor !== undefined ? { actor: row.bodyActor } : {}),
+                source: {
+                  gatewayId: 'discord_prod',
+                  conversationRef: 'channel:123',
+                  messageRef: 'discord:message:456',
+                  authorRef: 'discord:user:999',
+                },
+                content: `Need an assistant reply (${row.name}).`,
               },
-              content: 'Need an assistant reply.',
-            },
-          })
+            })
 
-          expect(response.status).toBe(201)
-          expect(findAssistantTurn(conversation.createTurnCalls)?.actor).toEqual({
-            kind: 'agent',
-            id: 'curly',
-          })
-        },
-        {
-          conversationStore: conversation.store,
-          ...createLaunchOverrides(launchCalls),
-        }
-      )
-    } finally {
-      conversation.close()
-    }
-  })
-
-  test('falls back to the body actor when creating assistant turns', async () => {
-    const conversation = createConversationStoreSpy()
-    const launchCalls: LaunchCall[] = []
-
-    try {
-      await withWiredServer(
-        async (fixture) => {
-          fixture.interfaceStore.bindings.create({
-            bindingId: 'ifb_123',
-            gatewayId: 'discord_prod',
-            conversationRef: 'channel:123',
-            scopeRef: `agent:larry:project:${fixture.seed.projectId}`,
-            laneRef: 'main',
-            projectId: fixture.seed.projectId,
-            status: 'active',
-            createdAt: '2026-04-23T12:05:00.000Z',
-            updatedAt: '2026-04-23T12:05:00.000Z',
-          })
-
-          const response = await fixture.request({
-            method: 'POST',
-            path: '/v1/interface/messages',
-            body: {
-              actor: { kind: 'human', id: 'body-operator' },
-              source: {
-                gatewayId: 'discord_prod',
-                conversationRef: 'channel:123',
-                messageRef: 'discord:message:789',
-                authorRef: 'discord:user:999',
-              },
-              content: 'Need a body-fallback assistant reply.',
-            },
-          })
-
-          expect(response.status).toBe(201)
-          expect(findAssistantTurn(conversation.createTurnCalls)?.actor).toEqual({
-            kind: 'human',
-            id: 'body-operator',
-          })
-        },
-        {
-          conversationStore: conversation.store,
-          ...createLaunchOverrides(launchCalls),
-        }
-      )
-    } finally {
-      conversation.close()
-    }
-  })
-
-  test('falls back to the default system actor when creating assistant turns without an actor', async () => {
-    const conversation = createConversationStoreSpy()
-    const launchCalls: LaunchCall[] = []
-
-    try {
-      await withWiredServer(
-        async (fixture) => {
-          fixture.interfaceStore.bindings.create({
-            bindingId: 'ifb_123',
-            gatewayId: 'discord_prod',
-            conversationRef: 'channel:123',
-            scopeRef: `agent:larry:project:${fixture.seed.projectId}`,
-            laneRef: 'main',
-            projectId: fixture.seed.projectId,
-            status: 'active',
-            createdAt: '2026-04-23T12:05:00.000Z',
-            updatedAt: '2026-04-23T12:05:00.000Z',
-          })
-
-          const response = await fixture.request({
-            method: 'POST',
-            path: '/v1/interface/messages',
-            body: {
-              source: {
-                gatewayId: 'discord_prod',
-                conversationRef: 'channel:123',
-                messageRef: 'discord:message:999',
-                authorRef: 'discord:user:999',
-              },
-              content: 'Need a default-actor assistant reply.',
-            },
-          })
-
-          expect(response.status).toBe(201)
-          expect(findAssistantTurn(conversation.createTurnCalls)?.actor).toEqual({
-            kind: 'system',
-            id: 'acp-local',
-          })
-        },
-        {
-          conversationStore: conversation.store,
-          ...createLaunchOverrides(launchCalls),
-        }
-      )
-    } finally {
-      conversation.close()
+            expect(response.status, row.name).toBe(201)
+            expect((await readAssistantTurn(fixture)).actor, row.name).toEqual(row.expected)
+          },
+          {
+            conversationStore,
+            ...createLaunchOverrides(),
+          }
+        )
+      } finally {
+        conversationStore.close()
+      }
     }
   })
 })

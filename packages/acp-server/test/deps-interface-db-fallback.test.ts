@@ -13,7 +13,7 @@
  */
 
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -46,22 +46,24 @@ describe('interface-store default path under a test runner', () => {
     expect(() => resolveAcpServerDeps({})).toThrow(
       /refusing to open the default interface DB under a test runner/
     )
-  })
-
-  test('names the production path in the failure so the caller can see what it dodged', () => {
-    Reflect.deleteProperty(process.env, 'ACP_INTERFACE_DB_PATH')
-
+    // The failure names the production path so the caller can see what it dodged.
     expect(() => resolveAcpServerDeps({})).toThrow(DEFAULT_INTERFACE_DB_PATH)
   })
 
   test('honours an explicit ACP_INTERFACE_DB_PATH', () => {
     const dir = mkdtempSync(join(tmpdir(), 'acp-deps-interface-'))
     tempDirs.push(dir)
-    process.env['ACP_INTERFACE_DB_PATH'] = join(dir, 'interface.db')
+    const dbPath = join(dir, 'interface.db')
+    process.env['ACP_INTERFACE_DB_PATH'] = dbPath
+    expect(existsSync(dbPath)).toBe(false)
 
     const resolved = resolveAcpServerDeps({})
 
-    expect(resolved.interfaceStore).toBeDefined()
+    try {
+      expect(existsSync(dbPath)).toBe(true)
+    } finally {
+      resolved.interfaceStore.close()
+    }
   })
 
   test('an injected interfaceStore never reaches the path resolver at all', () => {

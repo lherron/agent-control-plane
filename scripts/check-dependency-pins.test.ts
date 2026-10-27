@@ -27,7 +27,7 @@ async function withPinFixture(
 }
 
 describe('check-dependency-pins', () => {
-  test('flags floating, ranged, and wrong exact declarations for a governed dependency', async () => {
+  test('member declaring a governed dependency as latest, a range, or a different exact version is flagged against the root pin', async () => {
     for (const specifier of ['latest', '^1.3.0', '1.4.0']) {
       await withPinFixture(
         { overrides: { '@types/bun': '1.3.14' } },
@@ -133,7 +133,7 @@ async function makeDoctorTree(
 }
 
 describe('workspace-doctor', () => {
-  test('reports and prunes a nested copy that differs from the root resolution', async () => {
+  test('nested copy differing from the root resolution is reported by --check (exit 1) and pruned by a plain run', async () => {
     const tree = await makeDoctorTree([
       { rel: 'node_modules/@types/bun', version: '1.3.14' },
       { rel: 'packages/member/node_modules/@types/bun', version: '1.4.0' },

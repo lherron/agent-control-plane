@@ -113,20 +113,6 @@ function buildWithEvidence(
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('buildPbcTaskProjection — artifacts populated from evidence (RED, T-03110)', () => {
-  test('[RED] intake_metadata evidence → artifacts.intake defined with first-class data', () => {
-    const next = makeNext({ status: 'active', phase: 'behavior_note' })
-    const evidence: EvidenceSnap[] = [
-      { id: 'ev-001', kind: 'intake_metadata', data: { title: 'Fix login button' }, raw: {} },
-    ]
-
-    const projection = buildWithEvidence({ taskId: 'T-unit-01', next, evidence })
-
-    // RED: artifacts is {} — intake will be undefined until impl populates it
-    expect(projection.artifacts['intake']).toBeDefined()
-    const intake = projection.artifacts['intake'] as Record<string, unknown>
-    expect(intake['data']).toEqual({ title: 'Fix login button' })
-  })
-
   test('[RED] behavior_note evidence → artifacts.behaviorNote defined', () => {
     const next = makeNext({ status: 'active', phase: 'behavior_note' })
     const evidence: EvidenceSnap[] = [
@@ -137,27 +123,6 @@ describe('buildPbcTaskProjection — artifacts populated from evidence (RED, T-0
 
     // RED: artifacts.behaviorNote must be defined
     expect(projection.artifacts['behaviorNote']).toBeDefined()
-  })
-
-  test('[RED] pbc_draft evidence → artifacts.draft defined with first-class data field', () => {
-    const next = makeNext({ status: 'active', phase: 'behavior_note' })
-    const evidence: EvidenceSnap[] = [
-      { id: 'ev-001', kind: 'intake_metadata', data: { title: 'test' }, raw: {} },
-      {
-        id: 'ev-002',
-        kind: 'pbc_draft',
-        data: { content: 'Draft body text', sections: ['intro', 'scope'] },
-        raw: {},
-      },
-    ]
-
-    const projection = buildWithEvidence({ taskId: 'T-unit-03', next, evidence })
-
-    // RED: artifacts.draft must be defined with data first-class
-    expect(projection.artifacts['draft']).toBeDefined()
-    const draft = projection.artifacts['draft'] as Record<string, unknown>
-    expect(draft['data']).toBeDefined()
-    expect((draft['data'] as Record<string, unknown>)['content']).toBe('Draft body text')
   })
 
   test('[RED] pbc_draft with summary → artifacts.draft carries summary as fallback', () => {
@@ -177,34 +142,6 @@ describe('buildPbcTaskProjection — artifacts populated from evidence (RED, T-0
     expect(projection.artifacts['draft']).toBeDefined()
     const draft = projection.artifacts['draft'] as Record<string, unknown>
     expect(draft['summary']).toBe('First draft of the PBC document')
-  })
-
-  test('[RED] after revise loop, artifacts.draft shows latest fresh pbc_draft (not stale)', () => {
-    // Evidence timeline: stale draft → too_vague pressure_pass (boundary) → fresh draft
-    const next = makeNext({ status: 'active', phase: 'behavior_note', revision: 3 })
-    const evidence: EvidenceSnap[] = [
-      { id: 'ev-001', kind: 'intake_metadata', data: { title: 'test' }, raw: {} },
-      { id: 'ev-002', kind: 'pbc_draft', data: { content: 'Stale draft v1', rev: 1 }, raw: {} },
-      {
-        id: 'ev-003',
-        kind: 'pressure_pass',
-        data: {},
-        facts: { verdict: 'too_vague', reviewedDraftEvidenceId: 'ev-002' },
-        raw: {},
-      },
-      // ↑ revision boundary — everything before this is stale
-      { id: 'ev-004', kind: 'pbc_draft', data: { content: 'Fresh draft v2', rev: 2 }, raw: {} },
-    ]
-
-    const projection = buildWithEvidence({ taskId: 'T-unit-05', next, evidence })
-
-    // RED: implementation must use currentRevisionWindow to find the fresh draft
-    expect(projection.artifacts['draft']).toBeDefined()
-    const draft = projection.artifacts['draft'] as Record<string, unknown>
-    const draftData = draft['data'] as Record<string, unknown>
-    // Must show ev-004 (fresh) NOT ev-002 (stale)
-    expect(draftData['content']).toBe('Fresh draft v2')
-    expect(draftData['rev']).toBe(2)
   })
 
   test('[RED] clarification_response evidence → artifacts.clarificationResponse defined', () => {

@@ -137,41 +137,6 @@ describe('P1-D2: projectEvidenceRecord — data, actor, role as first-class fiel
     return ev as unknown as Record<string, unknown>
   }
 
-  test('projectEvidenceRecord includes data as a first-class field when present (RED: currently absent)', () => {
-    const DATA_PAYLOAD = { score: 98, verdict: 'pass' }
-    const ev = projectEvidenceRecord({
-      id: 'ev_d2_001',
-      kind: 'score_result',
-      data: DATA_PAYLOAD,
-    })
-    const ext = asExtended(ev)
-    // RED: ext['data'] will be undefined — projectEvidenceRecord doesn't read 'data'
-    expect(ext['data']).toEqual(DATA_PAYLOAD)
-  })
-
-  test('projectEvidenceRecord includes actor as a first-class field when present (RED: currently only in raw)', () => {
-    const ev = projectEvidenceRecord({
-      id: 'ev_d2_002',
-      kind: 'manual',
-      principal_ref: 'agent:pressure-reviewer',
-    })
-    const ext = asExtended(ev)
-    // projectEvidenceRecord maps the wrkf wire `principal_ref` onto the projected
-    // `actor` field (ACP-domain projection name).
-    expect(ext['actor']).toBe('agent:pressure-reviewer')
-  })
-
-  test('projectEvidenceRecord includes role as a first-class field when present (RED: currently only in raw)', () => {
-    const ev = projectEvidenceRecord({
-      id: 'ev_d2_003',
-      kind: 'manual',
-      role: 'assessor',
-    })
-    const ext = asExtended(ev)
-    // RED: ext['role'] is undefined — projectEvidenceRecord doesn't project role
-    expect(ext['role']).toBe('assessor')
-  })
-
   test('projectEvidenceRecord: data, actor, role all included together', () => {
     const DATA_VAL = { approved: true, timestamp: '2026-06-08T00:00:00Z' }
     const ev = projectEvidenceRecord({
@@ -204,37 +169,6 @@ describe('P1-D2: projectEvidenceRecord — data, actor, role as first-class fiel
     const ext = asExtended(ev)
     // data not in raw → should not be in projected output
     expect('data' in ext).toBe(false)
-  })
-
-  test('projectEvidenceRecord: actor absent → actor field not included in output', () => {
-    const ev = projectEvidenceRecord({
-      id: 'ev_d2_006',
-      kind: 'manual',
-    })
-    const ext = asExtended(ev)
-    // After impl: actor absent from raw → absent from projected output
-    // (This test may currently pass accidentally since actor is never set — keep as regression guard)
     expect('actor' in ext).toBe(false)
-  })
-
-  test('EvidenceRecord type must include data, actor, role (structural type check via assignment)', () => {
-    // This test uses a type assertion to verify the EvidenceRecord TYPE has the new fields.
-    // RED: TypeScript currently rejects the assignment because data/actor/role are not in the type.
-    // When the type is updated, this assignment will compile; the runtime assertion below verifies
-    // the projector actually emits the field.
-    const raw = {
-      id: 'ev_d2_007',
-      kind: 'manual',
-      data: { x: 1 },
-      principal_ref: 'agent:x',
-      role: 'owner',
-    }
-    const ev = projectEvidenceRecord(raw)
-    // Cast to test runtime projection (avoids TS compile error before type is updated)
-    const withData = ev as unknown as { data?: { x: number }; actor?: string; role?: string }
-    // RED: withData.data is undefined
-    expect(withData.data).toEqual({ x: 1 })
-    expect(withData.actor).toBe('agent:x')
-    expect(withData.role).toBe('owner')
   })
 })

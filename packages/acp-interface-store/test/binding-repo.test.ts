@@ -112,7 +112,7 @@ describe('BindingRepo', () => {
     })
   })
 
-  test('resolves active project-level primary candidates by gateway type', () => {
+  test('primary candidates include only project-level (task-less) active bindings for the gateway type', () => {
     withInterfaceStore(({ store }) => {
       store.bindings.create({
         bindingId: 'bind-primary',

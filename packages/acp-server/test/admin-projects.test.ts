@@ -42,12 +42,18 @@ describe('admin projects endpoints', () => {
         path: '/v1/admin/projects',
       })
       expect(listResponse.status).toBe(200)
+      expect(
+        (await fixture.json<{ projects: Array<{ projectId: string }> }>(listResponse)).projects
+      ).toContainEqual(expect.objectContaining({ projectId: 'agent-spaces' }))
 
       const getResponse = await fixture.request({
         method: 'GET',
         path: '/v1/admin/projects/agent-spaces',
       })
       expect(getResponse.status).toBe(200)
+      expect(
+        (await fixture.json<{ project: { projectId: string } }>(getResponse)).project.projectId
+      ).toBe('agent-spaces')
 
       // Add agent as project member before setting as default
       const membershipResponse = await fixture.request({
@@ -82,21 +88,48 @@ describe('admin projects endpoints', () => {
     })
   })
 
-  test('returns 404 when default-agent references a missing agent or project', async () => {
-    await withWiredServer(async (fixture) => {
-      const missingProject = await fixture.request({
-        method: 'POST',
-        path: '/v1/admin/projects/missing/default-agent',
-        body: {
-          agentId: 'ghost',
-          actor: { kind: 'human', id: 'operator' },
-        },
-      })
+  test('default-agent on a missing project or a missing agent returns 404 naming the missing resource', async () => {
+    const rows = [
+      {
+        name: 'missing project',
+        projectId: 'missing',
+        agentId: 'ghost',
+        expected: { message: 'project not found', details: { projectId: 'missing' } },
+      },
+      {
+        name: 'missing agent',
+        projectId: 'agent-spaces',
+        agentId: 'ghost',
+        expected: { message: 'agent not found', details: { agentId: 'ghost' } },
+      },
+    ]
 
-      expect(missingProject.status).toBe(404)
-      expect(await fixture.json<{ error: { code: string } }>(missingProject)).toEqual({
-        error: expect.objectContaining({ code: 'not_found' }),
+    for (const row of rows) {
+      await withWiredServer(async (fixture) => {
+        await fixture.request({
+          method: 'POST',
+          path: '/v1/admin/projects',
+          body: {
+            projectId: 'agent-spaces',
+            displayName: 'Agent Spaces',
+            actor: { kind: 'agent', id: 'operator' },
+          },
+        })
+
+        const response = await fixture.request({
+          method: 'POST',
+          path: `/v1/admin/projects/${row.projectId}/default-agent`,
+          body: {
+            agentId: row.agentId,
+            actor: { kind: 'human', id: 'operator' },
+          },
+        })
+
+        expect(response.status, row.name).toBe(404)
+        expect(await fixture.json<{ error: Record<string, unknown> }>(response), row.name).toEqual({
+          error: expect.objectContaining({ code: 'not_found', ...row.expected }),
+        })
       })
-    })
+    }
   })
 })

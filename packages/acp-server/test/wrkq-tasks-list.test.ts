@@ -117,14 +117,20 @@ describe('GET /v1/wrkq/tasks', () => {
     const workClient = fakeWorkClient(requests, { items: [] })
 
     await withWiredServer(
-      async ({ request }) => {
-        for (const path of [
-          '/v1/wrkq/tasks?state=not-a-state',
-          '/v1/wrkq/tasks?limit=201',
-          '/v1/wrkq/tasks?project=agent-control-plane&path=agent-control-plane%2Finbox',
-        ]) {
+      async ({ request, json }) => {
+        for (const [path, details] of [
+          ['/v1/wrkq/tasks?state=not-a-state', { field: 'state', value: 'not-a-state' }],
+          ['/v1/wrkq/tasks?limit=201', { field: 'limit' }],
+          [
+            '/v1/wrkq/tasks?project=agent-control-plane&path=agent-control-plane%2Finbox',
+            { fields: ['project', 'path'] },
+          ],
+        ] as const) {
           const response = await request({ method: 'GET', path })
-          expect(response.status).toBe(400)
+          expect({ path, status: response.status }).toEqual({ path, status: 400 })
+          expect(await json<{ error: { details?: unknown } }>(response)).toMatchObject({
+            error: { code: 'malformed_request', details },
+          })
         }
         expect(requests).toEqual([])
       },

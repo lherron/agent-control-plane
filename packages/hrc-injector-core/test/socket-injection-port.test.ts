@@ -123,6 +123,7 @@ describe('socket injection subscriptions', () => {
   test('re-declares mail and resumes broker evidence after HRC restarts', async () => {
     let declarations = 0
     let follows = 0
+    const followedFrom: number[] = []
     let releaseFirstFollow!: () => void
     let releaseRecoveredFollow!: () => void
     const firstFollow = new Promise<void>((resolve) => {
@@ -136,8 +137,9 @@ describe('socket injection subscriptions', () => {
         declarations += 1
         return { subscriberId: `subscriber-${declarations}` }
       },
-      async followBrokerEvents() {
+      async followBrokerEvents(request: { afterCommit: number }) {
         follows += 1
+        followedFrom.push(request.afterCommit)
         if (follows === 1) {
           await firstFollow
           throw new Error('HRC socket closed during restart')
@@ -160,6 +162,9 @@ describe('socket injection subscriptions', () => {
       expect(declarations).toBeGreaterThanOrEqual(2)
       expect(follows).toBeGreaterThanOrEqual(2)
     })
+
+    // The recovered follow resumes from the same broker cursor, not from zero.
+    expect(followedFrom.slice(0, 2)).toEqual([41, 41])
 
     releaseRecoveredFollow()
     await unsubscribe()

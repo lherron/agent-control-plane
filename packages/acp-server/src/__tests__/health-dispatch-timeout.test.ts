@@ -27,7 +27,7 @@ function run(overrides: Partial<StoredRun> = {}): StoredRun {
 }
 
 describe('dispatch timeout health wiring', () => {
-  test('emits one normalized acp-health event grouped by session lane', () => {
+  test('dispatch_timeout run emits one acp-health inbox event keyed by run, deduped on re-emit', () => {
     const store = createInMemoryJobsStore()
     try {
       const first = emitDispatchTimeoutHealthEvent({
@@ -71,7 +71,7 @@ describe('dispatch timeout health wiring', () => {
     }
   })
 
-  test('suppresses diagnostic-run dispatch_timeout events as the loop guard', () => {
+  test('dispatch_timeout on a health-diagnostic run emits no health event (loop guard)', () => {
     const store = createInMemoryJobsStore()
     try {
       const result = emitDispatchTimeoutHealthEvent({
@@ -100,7 +100,7 @@ describe('dispatch timeout health wiring', () => {
     }
   })
 
-  test('ensures the built-in event-triggered fettle flow', () => {
+  test('ensuring the dispatch-timeout fettle job sets event trigger, 300s cooldown, task->pulpit->dispatch', () => {
     const store = createInMemoryJobsStore()
     try {
       const job = ensureDispatchTimeoutHealthJob(store)

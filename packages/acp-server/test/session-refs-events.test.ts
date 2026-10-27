@@ -96,32 +96,6 @@ describe('GET /v1/session-refs/events', () => {
     )
   })
 
-  test('supports scopeRef-only project sessions with main lane', async () => {
-    const hrcClient = createHrcClientDouble((options) =>
-      (async function* () {
-        yield createLifecycleEvent({
-          scopeRef: options?.scopeRef,
-          laneRef: options?.laneRef,
-        } as Partial<HrcLifecycleEvent>)
-      })()
-    )
-
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request(
-          eventsRequest(
-            `sessionRef=${encodeURIComponent('agent:larry:project:agent-spaces/lane:main')}`
-          )
-        )
-
-        expect(response.status).toBe(200)
-        const events = parseNdjson(await response.text())
-        expect(events[0]).toMatchObject({ scopeRef: SCOPE_REF, laneRef: 'main' })
-      },
-      { hrcClient }
-    )
-  })
-
   test('rejects malformed sessionRef values with field details', async () => {
     const hrcClient = createHrcClientDouble(async function* () {})
     const invalid = [

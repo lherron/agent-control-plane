@@ -66,24 +66,17 @@ describe('session dashboard reducer red contract', () => {
     expect(selectSortedRows(state).map((row) => row.rowId)).toEqual(['host-session-1:1'])
   })
 
-  test('duplicate event idempotency is a no-op after the first application', () => {
-    // SESSION_DASHBOARD.md §12: applying the same event twice is idempotent.
-    const event = baseEvent({ hrcSeq: 10, label: 'Only once' })
-    const once = applyEvent(initialState(), event)
-    const twice = applyEvent(once, event)
-
-    expect(twice).toEqual(once)
-    expect(selectVisibleEvents(twice, {}).map((visible) => visible.id)).toEqual(['hrc:10'])
-  })
-
   test('dedupes stable event id across replay after live ingestion', () => {
     // SESSION_DASHBOARD.md §10.3: reconnect replay may include the last processed event.
     const live = applyEvent(initialState(), baseEvent({ hrcSeq: 41, label: 'Live event' }))
     const replayed = applyEvent(live, baseEvent({ hrcSeq: 41, label: 'Replayed duplicate' }))
 
+    // The whole state is untouched: no counter, cursor or row moves on a replay.
+    expect(replayed).toEqual(live)
     expect(replayed.events.size).toBe(1)
     expect(replayed.lastProcessedHrcSeq).toBe(41)
     expect(selectVisibleEvents(replayed, {})[0]?.label).toBe('Live event')
+    expect(selectVisibleEvents(replayed, {}).map((event) => event.id)).toEqual(['hrc:41'])
   })
 
   test('malformed NDJSON recovery drops bad complete lines and preserves clean remainder', () => {
@@ -243,39 +236,6 @@ describe('session dashboard reducer red contract', () => {
       'hrc:203',
       'hrc:204',
     ])
-  })
-
-  test('in-flight accepted and queued paths branch, applied rejoins, and rejected stays visible', () => {
-    // SESSION_DASHBOARD.md §19.1: accepted/rejected/applied in-flight input paths are visible.
-    const state = [
-      baseEvent({ hrcSeq: 90, eventKind: 'inflight.accepted', family: 'input', label: 'Accepted' }),
-      baseEvent({
-        hrcSeq: 91,
-        eventKind: 'user_input_queued_in_flight',
-        family: 'input',
-        label: 'Queued branch',
-      }),
-      baseEvent({
-        hrcSeq: 92,
-        eventKind: 'user_input_applied_in_flight',
-        family: 'input',
-        severity: 'success',
-        label: 'Rejoined',
-      }),
-      baseEvent({
-        hrcSeq: 93,
-        eventKind: 'inflight.rejected',
-        family: 'input',
-        severity: 'warning',
-        label: 'Rejected',
-      }),
-    ].reduce((current, event) => applyEvent(current, event), initialState())
-
-    const [row] = selectSortedRows(state)
-    expect(row?.acp?.inputAttemptId).toBeUndefined()
-    expect(selectVisibleEvents(state, { severity: 'warning' }).map((event) => event.label)).toEqual(
-      ['Rejected']
-    )
   })
 
   test('payload redaction happens before reducer state or selectors expose events', () => {

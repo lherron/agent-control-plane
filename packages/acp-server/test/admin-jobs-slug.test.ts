@@ -100,6 +100,14 @@ describe('admin jobs — slug + description', () => {
             },
           })
           expect(response.status).toBe(400)
+          expect(
+            await fixture.json<{ error: { code: string; details?: { field?: string } } }>(response)
+          ).toEqual({
+            error: expect.objectContaining({
+              code: 'malformed_request',
+              details: expect.objectContaining({ field: 'slug' }),
+            }),
+          })
         },
         { jobsStore }
       )

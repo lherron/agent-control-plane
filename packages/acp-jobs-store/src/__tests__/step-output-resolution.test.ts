@@ -95,33 +95,12 @@ describe('resolveStepOutputRef — successful resolution (Phase B RED)', () => {
         field: 'taskId',
       })
       expect(taskId).toBe('T-05001')
-    } finally {
-      store.close()
-    }
-  })
-
-  test('reads projectId field from a succeeded step result_json', () => {
-    const store = createInMemoryJobsStore()
-    try {
-      const { jobRun } = makeJobRun(store)
-
-      store.jobStepRuns.updateStep(jobRun.jobRunId, 'sequence', 'create_task', 1, {
-        status: 'succeeded',
-        result: {
-          taskId: 'T-05001',
-          projectId: 'agent-control-plane',
-          taskPath: 'agent-control-plane/inbox/x',
-          created: false,
-        },
-        completedAt: '2026-06-19T10:00:01.000Z',
-      })
-
-      // RED: throws "not implemented"
-      const projectId = resolveStepOutputRef(store, jobRun.jobRunId, 'sequence', {
-        $step: 'create_task',
-        field: 'projectId',
-      })
-      expect(projectId).toBe('agent-control-plane')
+      expect(
+        resolveStepOutputRef(store, jobRun.jobRunId, 'sequence', {
+          $step: 'create_task',
+          field: 'projectId',
+        })
+      ).toBe('agent-control-plane')
     } finally {
       store.close()
     }
@@ -168,86 +147,27 @@ describe('resolveStepOutputRef — fail CLOSED for missing step (Phase B RED)', 
 // ─── Group C: fail-closed for non-succeeded step ─────────────────────────────
 
 describe('resolveStepOutputRef — fail CLOSED for non-succeeded step (Phase B RED)', () => {
-  test('returns undefined when the step is still pending (not yet executed)', () => {
-    const store = createInMemoryJobsStore()
-    try {
-      const { jobRun } = makeJobRun(store)
-      // create_task is still 'pending' (inserted by makeJobRun)
-
-      // RED: throws "not implemented"
-      const result = resolveStepOutputRef(store, jobRun.jobRunId, 'sequence', {
-        $step: 'create_task',
-        field: 'taskId',
-      })
-      expect(result).toBeUndefined()
-    } finally {
-      store.close()
+  test.each(['pending', 'running', 'failed', 'cancelled'] as const)(
+    'returns undefined for %s even when the step has a result',
+    (status) => {
+      const store = createInMemoryJobsStore()
+      try {
+        const { jobRun } = makeJobRun(store)
+        store.jobStepRuns.updateStep(jobRun.jobRunId, 'sequence', 'create_task', 1, {
+          status,
+          result: { taskId: 'T-05001' },
+        })
+        expect(
+          resolveStepOutputRef(store, jobRun.jobRunId, 'sequence', {
+            $step: 'create_task',
+            field: 'taskId',
+          })
+        ).toBeUndefined()
+      } finally {
+        store.close()
+      }
     }
-  })
-
-  test('returns undefined when the step status is running', () => {
-    const store = createInMemoryJobsStore()
-    try {
-      const { jobRun } = makeJobRun(store)
-
-      store.jobStepRuns.updateStep(jobRun.jobRunId, 'sequence', 'create_task', 1, {
-        status: 'running',
-        startedAt: '2026-06-19T10:00:01.000Z',
-      })
-
-      // RED
-      const result = resolveStepOutputRef(store, jobRun.jobRunId, 'sequence', {
-        $step: 'create_task',
-        field: 'taskId',
-      })
-      expect(result).toBeUndefined()
-    } finally {
-      store.close()
-    }
-  })
-
-  test('returns undefined when the step status is failed', () => {
-    const store = createInMemoryJobsStore()
-    try {
-      const { jobRun } = makeJobRun(store)
-
-      store.jobStepRuns.updateStep(jobRun.jobRunId, 'sequence', 'create_task', 1, {
-        status: 'failed',
-        error: { code: 'wrkq_error', message: 'connection refused' },
-        completedAt: '2026-06-19T10:00:01.000Z',
-      })
-
-      // RED
-      const result = resolveStepOutputRef(store, jobRun.jobRunId, 'sequence', {
-        $step: 'create_task',
-        field: 'taskId',
-      })
-      expect(result).toBeUndefined()
-    } finally {
-      store.close()
-    }
-  })
-
-  test('returns undefined when the step status is cancelled', () => {
-    const store = createInMemoryJobsStore()
-    try {
-      const { jobRun } = makeJobRun(store)
-
-      store.jobStepRuns.updateStep(jobRun.jobRunId, 'sequence', 'create_task', 1, {
-        status: 'cancelled',
-        completedAt: '2026-06-19T10:00:01.000Z',
-      })
-
-      // RED
-      const result = resolveStepOutputRef(store, jobRun.jobRunId, 'sequence', {
-        $step: 'create_task',
-        field: 'taskId',
-      })
-      expect(result).toBeUndefined()
-    } finally {
-      store.close()
-    }
-  })
+  )
 })
 
 // ─── Group D: fail-closed for bad result shape ───────────────────────────────
@@ -265,9 +185,23 @@ describe('resolveStepOutputRef — fail CLOSED for wrong-typed / missing field (
           projectId: 'agent-control-plane',
           taskPath: 'x',
           created: true,
+          numericField: 42,
         },
         completedAt: '2026-06-19T10:00:01.000Z',
       })
+
+      expect(
+        resolveStepOutputRef(store, jobRun.jobRunId, 'sequence', {
+          $step: 'create_task',
+          field: 'numericField',
+        })
+      ).toBeUndefined()
+      expect(
+        resolveStepOutputRef(store, jobRun.jobRunId, 'sequence', {
+          $step: 'create_task',
+          field: 'created',
+        })
+      ).toBeUndefined()
 
       // 'deliveryRequestId' is NOT in the wrkq-task result
       const result = resolveStepOutputRef(store, jobRun.jobRunId, 'sequence', {
@@ -275,56 +209,6 @@ describe('resolveStepOutputRef — fail CLOSED for wrong-typed / missing field (
         field: 'deliveryRequestId',
       })
       // RED: fails closed — undefined, not throw
-      expect(result).toBeUndefined()
-    } finally {
-      store.close()
-    }
-  })
-
-  test('returns undefined when the field value is a number (wrong type)', () => {
-    const store = createInMemoryJobsStore()
-    try {
-      const { jobRun } = makeJobRun(store)
-
-      store.jobStepRuns.updateStep(jobRun.jobRunId, 'sequence', 'create_task', 1, {
-        status: 'succeeded',
-        result: {
-          taskId: 'T-05001',
-          numericField: 42,
-          taskPath: 'x',
-          projectId: 'y',
-          created: true,
-        },
-        completedAt: '2026-06-19T10:00:01.000Z',
-      })
-
-      // numericField is a number, not a string → fail closed
-      const result = resolveStepOutputRef(store, jobRun.jobRunId, 'sequence', {
-        $step: 'create_task',
-        field: 'numericField',
-      })
-      expect(result).toBeUndefined()
-    } finally {
-      store.close()
-    }
-  })
-
-  test('returns undefined when the field value is a boolean (wrong type)', () => {
-    const store = createInMemoryJobsStore()
-    try {
-      const { jobRun } = makeJobRun(store)
-
-      store.jobStepRuns.updateStep(jobRun.jobRunId, 'sequence', 'create_task', 1, {
-        status: 'succeeded',
-        result: { taskId: 'T-05001', created: true, taskPath: 'x', projectId: 'y' },
-        completedAt: '2026-06-19T10:00:01.000Z',
-      })
-
-      // 'created' is boolean, not string → fail closed
-      const result = resolveStepOutputRef(store, jobRun.jobRunId, 'sequence', {
-        $step: 'create_task',
-        field: 'created',
-      })
       expect(result).toBeUndefined()
     } finally {
       store.close()
@@ -349,40 +233,6 @@ describe('resolveStepOutputRef — fail CLOSED for wrong-typed / missing field (
       })
       // RED
       expect(result).toBeUndefined()
-    } finally {
-      store.close()
-    }
-  })
-})
-
-// ─── Group E: reads from DB not in-memory state ──────────────────────────────
-
-describe('resolveStepOutputRef — reads from persistent store, not in-memory state (Phase B RED)', () => {
-  test('resolution reads result_json written by a previous executor call, not passed-in state', () => {
-    const store = createInMemoryJobsStore()
-    try {
-      const { jobRun } = makeJobRun(store)
-
-      // Simulate: prior executor call wrote result to store
-      store.jobStepRuns.updateStep(jobRun.jobRunId, 'sequence', 'create_task', 1, {
-        status: 'succeeded',
-        result: {
-          taskId: 'T-09999',
-          projectId: 'agent-control-plane',
-          taskPath: 'agent-control-plane/inbox/evt999',
-          created: true,
-        },
-        completedAt: '2026-06-19T10:00:01.000Z',
-      })
-
-      // Now a NEW call to resolveStepOutputRef reads from the store
-      // (NOT passed in via function args) — confirms DB-backed resolution
-      const taskId = resolveStepOutputRef(store, jobRun.jobRunId, 'sequence', {
-        $step: 'create_task',
-        field: 'taskId',
-      })
-      // RED: throws "not implemented"
-      expect(taskId).toBe('T-09999')
     } finally {
       store.close()
     }

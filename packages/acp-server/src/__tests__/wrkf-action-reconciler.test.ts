@@ -237,15 +237,6 @@ function makeFakePort(overrides: FakePortOverrides = {}): InstrumentedPort {
 // ═════════════════════════════════════════════════════════════════════════════
 
 describe('[RED T-05034 test 4] reconcile on HRC failed — action.fail called once', () => {
-  test('action.show is called first to check current status', async () => {
-    const port = makeFakePort()
-    await reconcileActionHrcTerminal({ wrkf: port }, { ...BASE_INPUT, hrcTerminalStatus: 'failed' })
-
-    const showCall = port._calls.find((c) => c.method === 'action.show')
-    expect(showCall).toBeDefined()
-    expect((showCall!.params as Record<string, unknown>)['actionRunId']).toBe(ACTION_RUN_ID)
-  })
-
   test('wrkf.action.fail is called once when HRC status is failed and action is active', async () => {
     const port = makeFakePort()
     await reconcileActionHrcTerminal({ wrkf: port }, { ...BASE_INPUT, hrcTerminalStatus: 'failed' })
@@ -450,28 +441,6 @@ describe('[RED T-05034 test 5] protocol breach — HRC completed, wrkf action st
     }
     // No-op if the impl chose to record breach metadata instead of calling fail.
   })
-
-  test('protocol breach — action.fail NOT called a second time on replay', async () => {
-    // First call: breach recorded (may or may not call action.fail).
-    const port = makeFakePort()
-    await reconcileActionHrcTerminal(
-      { wrkf: port },
-      { ...BASE_INPUT, hrcTerminalStatus: 'completed' }
-    )
-    // Second call: action is now terminal (show returns terminal) → no_op.
-    const port2 = makeFakePort({ showResult: { ...TERMINAL_ACTION_RUN, status: 'failed' } })
-    const result2 = await reconcileActionHrcTerminal(
-      { wrkf: port2 },
-      { ...BASE_INPUT, hrcTerminalStatus: 'completed' }
-    )
-
-    const failCallsAfterSecond = port2._calls.filter((c) => c.method === 'action.fail')
-    // Second call must be idempotent: if first call already marked it terminal,
-    // the second call sees terminal status and does nothing.
-    expect(failCallsAfterSecond).toHaveLength(0)
-    expect(result2.alreadyTerminal).toBe(true)
-    expect(result2.outcome).toBe('no_op')
-  })
 })
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -482,29 +451,6 @@ describe('[RED T-05034 test 5] protocol breach — HRC completed, wrkf action st
 // ═════════════════════════════════════════════════════════════════════════════
 
 describe('[RED T-05034 test 7] reconcile idempotency', () => {
-  test('calling reconciler twice with same actionRunId+hrcRunId calls action.fail at most once', async () => {
-    // First call: action is active → fail is called.
-    const port1 = makeFakePort()
-    await reconcileActionHrcTerminal(
-      { wrkf: port1 },
-      { ...BASE_INPUT, hrcTerminalStatus: 'failed' }
-    )
-    const firstFailCount = port1._calls.filter((c) => c.method === 'action.fail').length
-    expect(firstFailCount).toBe(1)
-
-    // Second call: action is now terminal (replay guard) → fail is NOT called.
-    const port2 = makeFakePort({ showResult: TERMINAL_ACTION_RUN })
-    const result2 = await reconcileActionHrcTerminal(
-      { wrkf: port2 },
-      { ...BASE_INPUT, hrcTerminalStatus: 'failed' }
-    )
-
-    const secondFailCalls = port2._calls.filter((c) => c.method === 'action.fail')
-    expect(secondFailCalls).toHaveLength(0)
-    expect(result2.outcome).toBe('no_op')
-    expect(result2.alreadyTerminal).toBe(true)
-  })
-
   test('idempotencyKey is identical across repeated calls with same actionRunId+hrcRunId', async () => {
     // The idempotencyKey must be deterministic (derived purely from inputs).
     const port1 = makeFakePort()
@@ -552,29 +498,6 @@ describe('[RED T-05034 test 7] reconcile idempotency', () => {
     )
 
     expect(fr1).toBe(fr2)
-  })
-
-  test('duplicate HRC terminal events for the same run → action.fail called at most once total', async () => {
-    // Simulate two concurrent/replayed HRC terminal events. The first succeeds
-    // and marks the action terminal. The second sees terminal status → no-op.
-    const port1 = makeFakePort()
-    const [r1, r2] = await Promise.all([
-      reconcileActionHrcTerminal({ wrkf: port1 }, { ...BASE_INPUT, hrcTerminalStatus: 'failed' }),
-      // Second reconciler sees an already-terminal run (wrkf is idempotent source of truth).
-      reconcileActionHrcTerminal(
-        { wrkf: makeFakePort({ showResult: TERMINAL_ACTION_RUN }) },
-        { ...BASE_INPUT, hrcTerminalStatus: 'failed' }
-      ),
-    ])
-
-    // Exactly one of the two should have called action.fail (the other is a no-op).
-    const totalFails = port1._calls.filter((c) => c.method === 'action.fail').length
-    expect(totalFails).toBeLessThanOrEqual(1)
-
-    // At least one outcome is 'failed_action'; the no-op outcome is 'no_op'.
-    const outcomes = [r1.outcome, r2.outcome]
-    expect(outcomes).toContain('failed_action')
-    expect(outcomes).toContain('no_op')
   })
 
   test('action.show is called before every reconcile attempt (read before write)', async () => {

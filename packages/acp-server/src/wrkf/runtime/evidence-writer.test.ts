@@ -20,13 +20,11 @@
  *   MUST still succeed even when the directive is skipped.
  *
  * Tests:
- *   1. [RED]   by-kind directive with no matching open obligation → directive
- *              skipped, no throw, evidence still written, obligation.satisfy
- *              NOT called. Currently THROWS.
- *   2. [GREEN] by-kind directive with a matching open obligation → satisfied as
- *              before. Already works; must stay green after the fix.
- *   3. [GREEN] explicit obligationId that does not exist → still throws. The
- *              leniency is BY-KIND only; explicit bad ids stay strict.
+ *   1. by-kind directives (table): a no-match directive is skipped (no throw,
+ *      evidence still written, obligation.satisfy NOT called), and a later
+ *      matching directive is still satisfied with the matched id.
+ *   2. explicit obligationId that does not exist → still throws. The
+ *      leniency is BY-KIND only; explicit bad ids stay strict.
  */
 
 import { describe, expect, test } from 'bun:test'
@@ -107,26 +105,63 @@ function makePort(opts: {
 }
 
 // ---------------------------------------------------------------------------
-// Test 1 — RED: by-kind directive, NO matching open obligation → skip, no throw
+// By-kind directives: a no-match directive is skipped, a match is satisfied
 // ---------------------------------------------------------------------------
 
 describe('satisfyObligations by-kind: no matching open obligation → skip directive (T-03595)', () => {
   /**
-   * RED — currently throws:
-   *   Error: no open obligation matching kind "behavior_note" to satisfy
-   *
-   * After fix: evidence.add IS called, obligation.satisfy IS NOT called,
-   * result.evidenceAdded has 1 entry, result.obligationsSatisfied is empty.
-   *
-   * This is the live bug: larry emits behavior_note evidence with a spurious
+   * The live bug: larry emits behavior_note evidence with a spurious
    * satisfyObligations:[{obligationKind:'behavior_note'}] directive. The kind
    * is evidence-only — no obligation of that kind is ever open — so the lookup
-   * finds nothing and currently throws, losing the ingest.
+   * found nothing and threw, losing the ingest. A skipped directive must not
+   * stop later by-kind directives that DO match an open obligation.
    */
-  test('evidence is written and directive is skipped — no throw, no satisfy call [RED: currently throws]', async () => {
-    const port = makePort({
-      obligations: [], // no open obligation of any kind
-    })
+  const cases: Array<{
+    name: string
+    obligations: FakeObligation[]
+    evidence: Array<{ kind: string; summary: string }>
+    satisfyObligations: Array<{ obligationKind: string; evidenceIndex: number }>
+    satisfiedIds: string[]
+  }> = [
+    {
+      name: 'by-kind satisfy directive with no open obligation of that kind is skipped and the evidence is still written',
+      obligations: [],
+      evidence: [{ kind: 'behavior_note', summary: 'agent followed policy constraints' }],
+      satisfyObligations: [{ obligationKind: 'behavior_note', evidenceIndex: 0 }],
+      satisfiedIds: [],
+    },
+    {
+      name: 'two unmatched directives skip both obligations while writing both evidence items',
+      obligations: [],
+      evidence: [
+        { kind: 'behavior_note', summary: 'first note' },
+        { kind: 'pre_interview_analysis', summary: 'analysis text' },
+      ],
+      satisfyObligations: [
+        { obligationKind: 'behavior_note', evidenceIndex: 0 },
+        { obligationKind: 'pre_interview_analysis', evidenceIndex: 1 },
+      ],
+      satisfiedIds: [],
+    },
+    {
+      name: 'a skipped no-match by-kind directive does not stop a later matching one from being satisfied',
+      obligations: [
+        { id: 'obl-clarification-001', kind: 'clarification_response', status: 'open' },
+      ],
+      evidence: [
+        { kind: 'behavior_note', summary: 'first note' },
+        { kind: 'clarification_response', summary: 'here is my clarification' },
+      ],
+      satisfyObligations: [
+        { obligationKind: 'behavior_note', evidenceIndex: 0 },
+        { obligationKind: 'clarification_response', evidenceIndex: 1 },
+      ],
+      satisfiedIds: ['obl-clarification-001'],
+    },
+  ]
+
+  test.each(cases)('$name', async ({ obligations, evidence, satisfyObligations, satisfiedIds }) => {
+    const port = makePort({ obligations })
     const policy: EvidenceWritePolicy = { allowObligationKindLookup: true }
 
     const result = await writeEvidenceAndSatisfyObligations(
@@ -135,124 +170,22 @@ describe('satisfyObligations by-kind: no matching open obligation → skip direc
         task: 'task-behavior-note',
         role: 'larry',
         actor: 'larry',
-        participantOutput: {
-          evidence: [{ kind: 'behavior_note', summary: 'agent followed policy constraints' }],
-          satisfyObligations: [
-            // spurious: behavior_note is evidence-only, never an obligation
-            { obligationKind: 'behavior_note', evidenceIndex: 0 },
-          ],
-        },
+        participantOutput: { evidence, satisfyObligations },
       },
       policy
     )
 
-    // Evidence MUST be written
+    // Every evidence item is written, in order
     const addCalls = port._calls.filter((c) => c.method === 'evidence.add')
-    expect(addCalls).toHaveLength(1)
-    expect(result.evidenceAdded).toHaveLength(1)
-    expect(result.evidenceAdded[0]!.kind).toBe('behavior_note')
-
-    // Directive MUST be skipped — no satisfy call
-    const satisfyCalls = port._calls.filter((c) => c.method === 'obligation.satisfy')
-    expect(satisfyCalls).toHaveLength(0)
-    expect(result.obligationsSatisfied).toHaveLength(0)
-  })
-
-  /**
-   * Variant: multiple evidence items, mixed directives — one by-kind with no
-   * match (behavior_note → skip), ensuring the non-matching directive does not
-   * block evidence writes for the OTHER evidence items either.
-   */
-  test('multiple evidence items: no-match by-kind directive skipped, all evidence still written [RED: currently throws]', async () => {
-    const port = makePort({
-      obligations: [], // still no open obligations
-    })
-    const policy: EvidenceWritePolicy = { allowObligationKindLookup: true }
-
-    const result = await writeEvidenceAndSatisfyObligations(
-      port,
-      {
-        task: 'task-multi-evidence',
-        role: 'larry',
-        actor: 'larry',
-        participantOutput: {
-          evidence: [
-            { kind: 'behavior_note', summary: 'first note' },
-            { kind: 'pre_interview_analysis', summary: 'analysis text' },
-          ],
-          satisfyObligations: [
-            { obligationKind: 'behavior_note', evidenceIndex: 0 },
-            { obligationKind: 'pre_interview_analysis', evidenceIndex: 1 },
-          ],
-        },
-      },
-      policy
+    expect(addCalls.map((c) => (c.params as { kind: string }).kind)).toEqual(
+      evidence.map((e) => e.kind)
     )
+    expect(result.evidenceAdded.map((e) => e.kind)).toEqual(evidence.map((e) => e.kind))
 
-    // Both evidence items MUST be written
-    const addCalls = port._calls.filter((c) => c.method === 'evidence.add')
-    expect(addCalls).toHaveLength(2)
-    expect(result.evidenceAdded).toHaveLength(2)
-
-    // Both directives MUST be skipped
+    // Only matched obligations are satisfied, with the matched id
     const satisfyCalls = port._calls.filter((c) => c.method === 'obligation.satisfy')
-    expect(satisfyCalls).toHaveLength(0)
-    expect(result.obligationsSatisfied).toHaveLength(0)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Test 2 — GREEN: by-kind directive, matching open obligation → satisfied
-// ---------------------------------------------------------------------------
-
-describe('satisfyObligations by-kind: matching open obligation → satisfied (T-03595)', () => {
-  /**
-   * GREEN — already works with current code; must continue to work after fix.
-   *
-   * A human /input response carries a clarification_response evidence item and
-   * a satisfyObligations directive by kind. An open clarification_response
-   * obligation exists → it must be satisfied.
-   */
-  test('open obligation found by kind is satisfied and evidence is written [GREEN: must stay green]', async () => {
-    const port = makePort({
-      obligations: [
-        { id: 'obl-clarification-001', kind: 'clarification_response', status: 'open' },
-      ],
-    })
-    const policy: EvidenceWritePolicy = { allowObligationKindLookup: true }
-
-    const result = await writeEvidenceAndSatisfyObligations(
-      port,
-      {
-        task: 'task-clarification',
-        role: 'human',
-        actor: 'user-1',
-        participantOutput: {
-          evidence: [
-            {
-              kind: 'clarification_response',
-              summary: 'here is my clarification',
-              facts: { clarification_needed: false },
-            },
-          ],
-          satisfyObligations: [{ obligationKind: 'clarification_response', evidenceIndex: 0 }],
-        },
-      },
-      policy
-    )
-
-    // Evidence written
-    const addCalls = port._calls.filter((c) => c.method === 'evidence.add')
-    expect(addCalls).toHaveLength(1)
-    expect(result.evidenceAdded).toHaveLength(1)
-
-    // Obligation satisfied with the matched id
-    const satisfyCalls = port._calls.filter((c) => c.method === 'obligation.satisfy')
-    expect(satisfyCalls).toHaveLength(1)
-    const satisfyParams = satisfyCalls[0]!.params as { id: string; task: string }
-    expect(satisfyParams.id).toBe('obl-clarification-001')
-    expect(result.obligationsSatisfied).toHaveLength(1)
-    expect(result.obligationsSatisfied[0]!.id).toBe('obl-clarification-001')
+    expect(satisfyCalls.map((c) => (c.params as { id: string }).id)).toEqual(satisfiedIds)
+    expect(result.obligationsSatisfied.map((o) => o.id)).toEqual(satisfiedIds)
   })
 })
 
@@ -269,7 +202,7 @@ describe('satisfyObligations with explicit obligationId that does not exist (T-0
    * no longer exists (race, stale client) gets an error — this is intentional
    * to surface bad explicit ids rather than silently swallow them.
    */
-  test('explicit bad obligationId propagates the error — strict path unchanged [GREEN: must stay green]', async () => {
+  test('explicit obligationId that wrkf rejects is still sent to obligation.satisfy and the ingest fails', async () => {
     const port = makePort({
       obligations: [], // no obligations at all → satisfy will throw for any id
     })

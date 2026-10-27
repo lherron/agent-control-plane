@@ -209,20 +209,44 @@ describe('shared agent inspection adapter', () => {
 
     await withWiredServer(
       async (fixture) => {
-        for (const body of [
-          request,
-          { ...request, cwd: '/tmp' },
-          { ...request, environment: { TOKEN: 'secret' } },
-        ]) {
+        const rows = [
+          {
+            name: 'route agent differs from identifiers.agentId',
+            path: '/admin/agents/another-agent/inspect',
+            body: request,
+            message: 'identifiers.agentId must match the route agentId',
+            offending: undefined,
+          },
+          {
+            name: 'unknown cwd field',
+            path: '/admin/agents/disk-agent/inspect',
+            body: { ...request, cwd: '/tmp' },
+            message: 'Agent inspection request is invalid',
+            offending: 'cwd',
+          },
+          {
+            name: 'unknown environment field',
+            path: '/admin/agents/disk-agent/inspect',
+            body: { ...request, environment: { TOKEN: 'secret' } },
+            message: 'Agent inspection request is invalid',
+            offending: 'environment',
+          },
+        ]
+        for (const row of rows) {
           const response = await fixture.request({
             method: 'POST',
-            path:
-              body === request
-                ? '/admin/agents/another-agent/inspect'
-                : '/admin/agents/disk-agent/inspect',
-            body,
+            path: row.path,
+            body: row.body,
           })
-          expect(response.status).toBe(400)
+          expect(response.status, row.name).toBe(400)
+          const { error } = await fixture.json<{
+            error: { code: string; message: string; details?: unknown }
+          }>(response)
+          expect(error.code, row.name).toBe('invalid_agent_inspection_request')
+          expect(error.message, row.name).toBe(row.message)
+          if (row.offending !== undefined) {
+            expect(JSON.stringify(error.details), row.name).toContain(row.offending)
+          }
         }
 
         const protocolFailure = await fixture.request({

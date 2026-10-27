@@ -183,61 +183,83 @@ describe('run_pressure_pass freshness (Invariant 2)', () => {
 // ===========================================================================
 
 describe('finalize_ready_pbc stale pressure_pass (Invariant 3)', () => {
-  test('BLOCKED: pressure_pass.data.reviewedDraftEvidenceId does not match current eligible draft', () => {
-    // pressure_pass references a different (older) draft id
-    const timeline: PbcEvidenceSnapshot[] = [
-      draft('ev_draft_current'),
-      pressurePass('ev_pp_stale', {
-        verdict: 'ready',
-        reviewedDraftEvidenceId: 'ev_draft_STALE', // points at non-existent/old draft
-      }),
+  test('BLOCKED: pressure_pass.data.reviewedDraftEvidenceId is not the current eligible draft (unknown id or pre-revise draft)', () => {
+    const timelines: PbcEvidenceSnapshot[][] = [
+      // pressure_pass references a different (older) draft id
+      [
+        draft('ev_draft_current'),
+        pressurePass('ev_pp_stale', {
+          verdict: 'ready',
+          reviewedDraftEvidenceId: 'ev_draft_STALE', // points at non-existent/old draft
+        }),
+      ],
+      // After a too_vague revise, a new draft was written — the pressure_pass still
+      // references the PRE-revise draft id.
+      [
+        draft('ev_draft_1'),
+        pressurePass('ev_pp_too_vague', { verdict: 'too_vague' }),
+        draft('ev_draft_2'), // new eligible draft
+        pressurePass('ev_pp_2', {
+          verdict: 'ready',
+          reviewedDraftEvidenceId: 'ev_draft_1', // STALE: points at pre-revise draft
+        }),
+      ],
     ]
 
-    const result = checkPbcFreshness({
-      evidenceTimeline: timeline,
-      transition: 'finalize_ready_pbc',
-    })
+    for (const timeline of timelines) {
+      const result = checkPbcFreshness({
+        evidenceTimeline: timeline,
+        transition: 'finalize_ready_pbc',
+      })
 
-    assertBlocked(result)
-    expect(result.reason).toMatch(/stale|mismatch|reviewed.*draft|draft.*reviewed/i)
+      assertBlocked(result)
+      expect(result.reason).toMatch(/stale|mismatch|reviewed.*draft|draft.*reviewed/i)
+    }
   })
 
-  test('OK: pressure_pass.data.reviewedDraftEvidenceId matches current eligible draft', () => {
-    const timeline: PbcEvidenceSnapshot[] = [
-      draft('ev_draft_1'),
-      pressurePass('ev_pp_1', {
-        verdict: 'ready',
-        reviewedDraftEvidenceId: 'ev_draft_1', // correct — points at the current draft
-      }),
+  test('OK: pressure_pass and pbc_final refs that match the current eligible draft pass (first cycle and after too_vague revise)', () => {
+    const timelines: PbcEvidenceSnapshot[][] = [
+      // pressure_pass points at the current draft; no pbc_final yet
+      [
+        draft('ev_draft_1'),
+        pressurePass('ev_pp_1', {
+          verdict: 'ready',
+          reviewedDraftEvidenceId: 'ev_draft_1', // correct — points at the current draft
+        }),
+      ],
+      // full fresh path: draft → pressure(ready, reviewedDraftId=draft) → final(all refs match)
+      [
+        draft('ev_d1'),
+        pressurePass('ev_pp1', { verdict: 'ready', reviewedDraftEvidenceId: 'ev_d1' }),
+        pbcFinal('ev_f1', {
+          basedOnDraftEvidenceId: 'ev_d1',
+          basedOnPressurePassEvidenceId: 'ev_pp1',
+        }),
+      ],
+      // after too_vague revise: fresh draft + fresh pressure_pass + final all reference the new draft
+      [
+        draft('ev_d_old'),
+        pressurePass('ev_pp_tooVague', { verdict: 'too_vague' }),
+        draft('ev_d_new'), // fresh after boundary
+        pressurePass('ev_pp_ready', {
+          verdict: 'ready',
+          reviewedDraftEvidenceId: 'ev_d_new', // matches the fresh draft ✓
+        }),
+        pbcFinal('ev_f1', {
+          basedOnDraftEvidenceId: 'ev_d_new',
+          basedOnPressurePassEvidenceId: 'ev_pp_ready',
+        }),
+      ],
     ]
 
-    const result = checkPbcFreshness({
-      evidenceTimeline: timeline,
-      transition: 'finalize_ready_pbc',
-    })
+    for (const timeline of timelines) {
+      const result = checkPbcFreshness({
+        evidenceTimeline: timeline,
+        transition: 'finalize_ready_pbc',
+      })
 
-    expect(result.blocked).toBe(false)
-  })
-
-  test('BLOCKED: pressure_pass references a draft that predates too_vague revise boundary', () => {
-    // After a too_vague revise, a new draft was written — the pressure_pass still
-    // references the PRE-revise draft id.
-    const timeline: PbcEvidenceSnapshot[] = [
-      draft('ev_draft_1'),
-      pressurePass('ev_pp_too_vague', { verdict: 'too_vague' }),
-      draft('ev_draft_2'), // new eligible draft
-      pressurePass('ev_pp_2', {
-        verdict: 'ready',
-        reviewedDraftEvidenceId: 'ev_draft_1', // STALE: points at pre-revise draft
-      }),
-    ]
-
-    const result = checkPbcFreshness({
-      evidenceTimeline: timeline,
-      transition: 'finalize_ready_pbc',
-    })
-
-    assertBlocked(result)
+      expect(result.blocked).toBe(false)
+    }
   })
 })
 
@@ -302,7 +324,7 @@ describe('finalize_ready_pbc stale pbc_final pressure_pass reference (Invariant 
 // ===========================================================================
 
 describe('finalize_after_patch_decision after patch revise (Invariant 6)', () => {
-  test('BLOCKED: old patch_decision.route=finalize before revise boundary cannot finalize later draft', () => {
+  test('patch revise with no later finalize decision blocks finalize_after_patch_decision', () => {
     // Round 1: finalize decision recorded, then superseded by a revise decision.
     // Round 2: new draft + pressure_pass exist but no NEW route=finalize after the boundary.
     const timeline: PbcEvidenceSnapshot[] = [
@@ -354,59 +376,6 @@ describe('finalize_after_patch_decision after patch revise (Invariant 6)', () =>
 // ===========================================================================
 
 describe('happy path (fresh artifacts, all refs match)', () => {
-  test('full fresh path: draft → pressure(ready, reviewedDraftId=draft) → final(all refs match) → finalize_ready_pbc', () => {
-    const timeline: PbcEvidenceSnapshot[] = [
-      draft('ev_d1'),
-      pressurePass('ev_pp1', { verdict: 'ready', reviewedDraftEvidenceId: 'ev_d1' }),
-      pbcFinal('ev_f1', {
-        basedOnDraftEvidenceId: 'ev_d1',
-        basedOnPressurePassEvidenceId: 'ev_pp1',
-      }),
-    ]
-
-    const result = checkPbcFreshness({
-      evidenceTimeline: timeline,
-      transition: 'finalize_ready_pbc',
-    })
-
-    expect(result.blocked).toBe(false)
-  })
-
-  test('happy path: run_pressure_pass before pbc_final (no refs to check yet)', () => {
-    // Requesting run_pressure_pass on first cycle — just one draft, no prior revise
-    const timeline: PbcEvidenceSnapshot[] = [draft('ev_d1')]
-
-    const result = checkPbcFreshness({
-      evidenceTimeline: timeline,
-      transition: 'run_pressure_pass',
-    })
-
-    expect(result.blocked).toBe(false)
-  })
-
-  test('happy path: after too_vague revise, fresh draft + fresh pressure_pass(reviewedDraftId=new) passes', () => {
-    const timeline: PbcEvidenceSnapshot[] = [
-      draft('ev_d_old'),
-      pressurePass('ev_pp_tooVague', { verdict: 'too_vague' }),
-      draft('ev_d_new'), // fresh after boundary
-      pressurePass('ev_pp_ready', {
-        verdict: 'ready',
-        reviewedDraftEvidenceId: 'ev_d_new', // matches the fresh draft ✓
-      }),
-      pbcFinal('ev_f1', {
-        basedOnDraftEvidenceId: 'ev_d_new',
-        basedOnPressurePassEvidenceId: 'ev_pp_ready',
-      }),
-    ]
-
-    const result = checkPbcFreshness({
-      evidenceTimeline: timeline,
-      transition: 'finalize_ready_pbc',
-    })
-
-    expect(result.blocked).toBe(false)
-  })
-
   test('happy path: patch revise cycle → fresh patch_decision(finalize) → finalize_after_patch_decision', () => {
     const timeline: PbcEvidenceSnapshot[] = [
       draft('ev_d1'),
@@ -435,18 +404,10 @@ describe('happy path (fresh artifacts, all refs match)', () => {
 // ===========================================================================
 
 describe('transitions not covered by freshness guard pass through', () => {
-  test('normalize_feedback is never blocked by the freshness guard', () => {
-    const result = checkPbcFreshness({ evidenceTimeline: [], transition: 'normalize_feedback' })
-    expect(result.blocked).toBe(false)
-  })
-
-  test('draft_pbc is never blocked by the freshness guard', () => {
-    const result = checkPbcFreshness({ evidenceTimeline: [], transition: 'draft_pbc' })
-    expect(result.blocked).toBe(false)
-  })
-
-  test('revise_too_vague_pbc is never blocked by the freshness guard', () => {
-    const result = checkPbcFreshness({ evidenceTimeline: [], transition: 'revise_too_vague_pbc' })
-    expect(result.blocked).toBe(false)
+  test('transitions the guard does not own (normalize_feedback, draft_pbc, revise_too_vague_pbc) are never blocked', () => {
+    for (const transition of ['normalize_feedback', 'draft_pbc', 'revise_too_vague_pbc']) {
+      const result = checkPbcFreshness({ evidenceTimeline: [], transition })
+      expect(result.blocked).toBe(false)
+    }
   })
 })

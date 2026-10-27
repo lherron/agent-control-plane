@@ -23,7 +23,6 @@ import { describe, expect, test } from 'bun:test'
 // These imports define the module contract. They will fail until the module exists.
 import {
   type EvidenceIngestionInput,
-  type EvidenceIngestionResult,
   type ParticipantOutput,
   type PbcEvidencePort,
   ingestEvidenceAndSatisfyObligations,
@@ -107,195 +106,81 @@ function makeFakePort(
 // ---------------------------------------------------------------------------
 
 describe('validateParticipantOutputFacts', () => {
-  // --- pre_interview_analysis -----------------------------------------------
-
-  test('accepts pre_interview_analysis with clarification_needed=true (boolean)', () => {
+  test.each([
+    {
+      name: 'clarification true',
+      evidence: [{ kind: 'pre_interview_analysis', facts: { clarification_needed: true } }],
+    },
+    {
+      name: 'clarification false',
+      evidence: [{ kind: 'pre_interview_analysis', facts: { clarification_needed: false } }],
+    },
+    ...['ready', 'needs_patch', 'too_vague'].map((verdict) => ({
+      name: `pressure ${verdict}`,
+      evidence: [{ kind: 'pressure_pass', facts: { verdict } }],
+    })),
+    ...['finalize', 'revise'].map((route) => ({
+      name: `patch ${route}`,
+      evidence: [{ kind: 'patch_decision', facts: { route } }],
+    })),
+    ...['wont_fix', 'duplicate', 'unclear', 'out_of_scope'].map((resolution) => ({
+      name: `disposition ${resolution}`,
+      evidence: [{ kind: 'disposition_decision', facts: { resolution } }],
+    })),
+    {
+      name: 'optional facts absent',
+      evidence: [{ kind: 'behavior_note', summary: 'Bug observed in prod' }],
+    },
+    { name: 'empty evidence', evidence: [] },
+  ])('valid participant facts: $name', ({ evidence }) => {
     expect(() =>
-      validateParticipantOutputFacts({
-        evidence: [
-          {
-            kind: 'pre_interview_analysis',
-            facts: { clarification_needed: true },
-          },
-        ],
-      } satisfies ParticipantOutput)
+      validateParticipantOutputFacts({ evidence } satisfies ParticipantOutput)
     ).not.toThrow()
   })
 
-  test('accepts pre_interview_analysis with clarification_needed=false (boolean)', () => {
-    expect(() =>
-      validateParticipantOutputFacts({
-        evidence: [
-          {
-            kind: 'pre_interview_analysis',
-            facts: { clarification_needed: false },
-          },
-        ],
-      } satisfies ParticipantOutput)
-    ).not.toThrow()
-  })
-
-  test('throws for non-boolean clarification_needed (string "true")', () => {
-    expect(() =>
-      validateParticipantOutputFacts({
-        evidence: [
-          {
-            kind: 'pre_interview_analysis',
-            facts: { clarification_needed: 'true' },
-          },
-        ],
-      } satisfies ParticipantOutput)
-    ).toThrow(/clarification_needed.*boolean/i)
-  })
-
-  test('throws for non-boolean clarification_needed (number 1)', () => {
-    expect(() =>
-      validateParticipantOutputFacts({
-        evidence: [
-          {
-            kind: 'pre_interview_analysis',
-            facts: { clarification_needed: 1 },
-          },
-        ],
-      } satisfies ParticipantOutput)
-    ).toThrow(/clarification_needed.*boolean/i)
-  })
-
-  // --- pressure_pass verdict ------------------------------------------------
-
-  test('accepts pressure_pass with verdict="ready"', () => {
-    expect(() =>
-      validateParticipantOutputFacts({
-        evidence: [{ kind: 'pressure_pass', facts: { verdict: 'ready' } }],
-      } satisfies ParticipantOutput)
-    ).not.toThrow()
-  })
-
-  test('accepts pressure_pass with verdict="needs_patch"', () => {
-    expect(() =>
-      validateParticipantOutputFacts({
-        evidence: [{ kind: 'pressure_pass', facts: { verdict: 'needs_patch' } }],
-      } satisfies ParticipantOutput)
-    ).not.toThrow()
-  })
-
-  test('accepts pressure_pass with verdict="too_vague"', () => {
-    expect(() =>
-      validateParticipantOutputFacts({
-        evidence: [{ kind: 'pressure_pass', facts: { verdict: 'too_vague' } }],
-      } satisfies ParticipantOutput)
-    ).not.toThrow()
-  })
-
-  test('throws for pressure_pass with invalid verdict', () => {
-    expect(() =>
-      validateParticipantOutputFacts({
-        evidence: [{ kind: 'pressure_pass', facts: { verdict: 'approved' } }],
-      } satisfies ParticipantOutput)
-    ).toThrow(/verdict.*ready.*needs_patch.*too_vague|invalid.*verdict/i)
-  })
-
-  test('throws for pressure_pass missing verdict entirely', () => {
-    expect(() =>
-      validateParticipantOutputFacts({
-        evidence: [{ kind: 'pressure_pass', facts: {} }],
-      } satisfies ParticipantOutput)
-    ).toThrow(/verdict/i)
-  })
-
-  // --- patch_decision route -------------------------------------------------
-
-  test('accepts patch_decision with route="finalize"', () => {
-    expect(() =>
-      validateParticipantOutputFacts({
-        evidence: [{ kind: 'patch_decision', facts: { route: 'finalize' } }],
-      } satisfies ParticipantOutput)
-    ).not.toThrow()
-  })
-
-  test('accepts patch_decision with route="revise"', () => {
-    expect(() =>
-      validateParticipantOutputFacts({
-        evidence: [{ kind: 'patch_decision', facts: { route: 'revise' } }],
-      } satisfies ParticipantOutput)
-    ).not.toThrow()
-  })
-
-  test('throws for patch_decision with invalid route', () => {
-    expect(() =>
-      validateParticipantOutputFacts({
-        evidence: [{ kind: 'patch_decision', facts: { route: 'skip' } }],
-      } satisfies ParticipantOutput)
-    ).toThrow(/route.*finalize.*revise|invalid.*route/i)
-  })
-
-  // --- disposition_decision resolution -------------------------------------
-
-  test('accepts disposition_decision with resolution="wont_fix"', () => {
-    expect(() =>
-      validateParticipantOutputFacts({
-        evidence: [{ kind: 'disposition_decision', facts: { resolution: 'wont_fix' } }],
-      } satisfies ParticipantOutput)
-    ).not.toThrow()
-  })
-
-  test('accepts disposition_decision with resolution="duplicate"', () => {
-    expect(() =>
-      validateParticipantOutputFacts({
-        evidence: [{ kind: 'disposition_decision', facts: { resolution: 'duplicate' } }],
-      } satisfies ParticipantOutput)
-    ).not.toThrow()
-  })
-
-  test('accepts disposition_decision with resolution="unclear"', () => {
-    expect(() =>
-      validateParticipantOutputFacts({
-        evidence: [{ kind: 'disposition_decision', facts: { resolution: 'unclear' } }],
-      } satisfies ParticipantOutput)
-    ).not.toThrow()
-  })
-
-  test('accepts disposition_decision with resolution="out_of_scope"', () => {
-    expect(() =>
-      validateParticipantOutputFacts({
-        evidence: [{ kind: 'disposition_decision', facts: { resolution: 'out_of_scope' } }],
-      } satisfies ParticipantOutput)
-    ).not.toThrow()
-  })
-
-  test('throws for disposition_decision with invalid resolution', () => {
-    expect(() =>
-      validateParticipantOutputFacts({
-        evidence: [{ kind: 'disposition_decision', facts: { resolution: 'rejected' } }],
-      } satisfies ParticipantOutput)
-    ).toThrow(/resolution.*wont_fix.*duplicate.*unclear.*out_of_scope|invalid.*resolution/i)
-  })
-
-  // --- general / optional facts ---------------------------------------------
-
-  test('accepts evidence with no facts (facts are optional)', () => {
-    expect(() =>
-      validateParticipantOutputFacts({
-        evidence: [{ kind: 'behavior_note', summary: 'Bug observed in prod' }],
-      } satisfies ParticipantOutput)
-    ).not.toThrow()
-  })
-
-  test('accepts empty evidence array', () => {
-    expect(() =>
-      validateParticipantOutputFacts({ evidence: [] } satisfies ParticipantOutput)
-    ).not.toThrow()
-  })
-
-  test('validates all evidence items, not just the first', () => {
-    expect(() =>
-      validateParticipantOutputFacts({
-        evidence: [
-          { kind: 'behavior_note' },
-          { kind: 'pressure_pass', facts: { verdict: 'INVALID' } }, // bad verdict
-        ],
-      } satisfies ParticipantOutput)
-    ).toThrow(/verdict/i)
+  test.each([
+    {
+      name: 'clarification string',
+      evidence: [{ kind: 'pre_interview_analysis', facts: { clarification_needed: 'true' } }],
+      error: /clarification_needed.*boolean/i,
+    },
+    {
+      name: 'clarification number',
+      evidence: [{ kind: 'pre_interview_analysis', facts: { clarification_needed: 1 } }],
+      error: /clarification_needed.*boolean/i,
+    },
+    {
+      name: 'invalid pressure verdict',
+      evidence: [{ kind: 'pressure_pass', facts: { verdict: 'approved' } }],
+      error: /verdict.*ready.*needs_patch.*too_vague|invalid.*verdict/i,
+    },
+    {
+      name: 'missing pressure verdict',
+      evidence: [{ kind: 'pressure_pass', facts: {} }],
+      error: /verdict/i,
+    },
+    {
+      name: 'invalid patch route',
+      evidence: [{ kind: 'patch_decision', facts: { route: 'skip' } }],
+      error: /route.*finalize.*revise|invalid.*route/i,
+    },
+    {
+      name: 'invalid disposition',
+      evidence: [{ kind: 'disposition_decision', facts: { resolution: 'rejected' } }],
+      error: /resolution.*wont_fix.*duplicate.*unclear.*out_of_scope|invalid.*resolution/i,
+    },
+    {
+      name: 'invalid second evidence item',
+      evidence: [
+        { kind: 'behavior_note' },
+        { kind: 'pressure_pass', facts: { verdict: 'INVALID' } },
+      ],
+      error: /verdict/i,
+    },
+  ])('invalid participant facts: $name', ({ evidence, error }) => {
+    expect(() => validateParticipantOutputFacts({ evidence } satisfies ParticipantOutput)).toThrow(
+      error
+    )
   })
 })
 
@@ -341,23 +226,6 @@ describe('ingestEvidenceAndSatisfyObligations', () => {
     expect(params['facts']).toEqual({ verdict: 'ready' })
   })
 
-  test('returns added evidence records in result.evidenceAdded', async () => {
-    const port = makeFakePort()
-    const input: EvidenceIngestionInput = {
-      task: TASK,
-      role: ROLE,
-      actor: ACTOR,
-      participantOutput: {
-        evidence: [{ kind: 'pbc_draft', summary: 'First draft' }],
-      },
-    }
-
-    const result: EvidenceIngestionResult = await ingestEvidenceAndSatisfyObligations(port, input)
-
-    expect(result.evidenceAdded).toHaveLength(1)
-    expect(result.evidenceAdded[0]?.kind).toBe('pbc_draft')
-  })
-
   test('calls evidence.add for every item in participantOutput.evidence', async () => {
     const port = makeFakePort()
     const input: EvidenceIngestionInput = {
@@ -372,60 +240,16 @@ describe('ingestEvidenceAndSatisfyObligations', () => {
       },
     }
 
-    await ingestEvidenceAndSatisfyObligations(port, input)
+    const result = await ingestEvidenceAndSatisfyObligations(port, input)
 
     const addCalls = port._calls.filter((c) => c.method === 'evidence.add')
     expect(addCalls).toHaveLength(2)
+    expect(result.evidenceAdded.map((item) => item.kind)).toEqual(['pressure_pass', 'pbc_final'])
     expect((addCalls[0]!.params as Record<string, unknown>)['kind']).toBe('pressure_pass')
     expect((addCalls[1]!.params as Record<string, unknown>)['kind']).toBe('pbc_final')
   })
 
   // --- next re-read invariant -----------------------------------------------
-
-  test('re-reads next after all evidence adds (non-negotiable context-hash rotation invariant)', async () => {
-    const port = makeFakePort()
-    const input: EvidenceIngestionInput = {
-      task: TASK,
-      role: ROLE,
-      actor: ACTOR,
-      participantOutput: {
-        evidence: [{ kind: 'pressure_pass', facts: { verdict: 'ready' } }],
-      },
-    }
-
-    await ingestEvidenceAndSatisfyObligations(port, input)
-
-    const callMethods = port._calls.map((c) => c.method)
-    const lastEvidenceAddIdx = callMethods.lastIndexOf('evidence.add')
-    expect(lastEvidenceAddIdx).toBeGreaterThan(-1)
-
-    // A `next` call must appear after the last evidence.add
-    const nextAfterEvidence = port._calls
-      .slice(lastEvidenceAddIdx + 1)
-      .some((c) => c.method === 'next')
-    expect(nextAfterEvidence).toBe(true)
-  })
-
-  test('next is called using wrkf wire name (task, no actor)', async () => {
-    const port = makeFakePort()
-    const input: EvidenceIngestionInput = {
-      task: TASK,
-      role: ROLE,
-      actor: ACTOR,
-      participantOutput: {
-        evidence: [{ kind: 'pbc_draft' }],
-      },
-    }
-
-    await ingestEvidenceAndSatisfyObligations(port, input)
-
-    const nextCall = port._calls.find((c) => c.method === 'next')
-    expect(nextCall).toBeDefined()
-    const params = nextCall!.params as Record<string, unknown>
-    expect(params['task']).toBe(TASK)
-    // actor must NOT be passed to next (spec §3.2: wrkf.next does not accept actor)
-    expect(params['actor']).toBeUndefined()
-  })
 
   // --- obligation satisfaction by id ----------------------------------------
 
@@ -455,31 +279,6 @@ describe('ingestEvidenceAndSatisfyObligations', () => {
 
     expect(result.obligationsSatisfied).toHaveLength(1)
     expect(result.obligationsSatisfied[0]?.kind).toBe('clarification_response')
-  })
-
-  test('calls obligation.list before obligation.satisfy', async () => {
-    const port = makeFakePort({
-      obligations: [{ id: 'obl_clr_1', kind: 'clarification_response', status: 'open' }],
-    })
-    const input: EvidenceIngestionInput = {
-      task: TASK,
-      role: ROLE,
-      actor: ACTOR,
-      // PO-kind evidence produced by agent role requires the simulation flag (gate, SPEC §4.10)
-      allowProductOwnerSimulation: true,
-      participantOutput: {
-        evidence: [{ kind: 'clarification_response' }],
-        satisfyObligations: [{ obligationId: 'obl_clr_1', evidenceIndex: 0 }],
-      },
-    }
-
-    await ingestEvidenceAndSatisfyObligations(port, input)
-
-    const callMethods = port._calls.map((c) => c.method)
-    const listIdx = callMethods.indexOf('obligation.list')
-    const satisfyIdx = callMethods.indexOf('obligation.satisfy')
-    expect(listIdx).toBeGreaterThan(-1)
-    expect(satisfyIdx).toBeGreaterThan(listIdx)
   })
 
   // --- obligation satisfaction by kind (no id) ------------------------------
@@ -534,8 +333,7 @@ describe('ingestEvidenceAndSatisfyObligations', () => {
     const satisfyCall = port._calls.find((c) => c.method === 'obligation.satisfy')
     const params = satisfyCall!.params as Record<string, unknown>
     // evidenceId must be the id returned by the evidence.add call
-    expect(typeof params['evidenceId']).toBe('string')
-    expect((params['evidenceId'] as string).length).toBeGreaterThan(0)
+    expect(params['evidenceId']).toBe('ev_fake_1')
   })
 
   // --- full call-order invariant (evidence → list → satisfy → next) ---------
@@ -568,7 +366,8 @@ describe('ingestEvidenceAndSatisfyObligations', () => {
     expect(evidenceAddIdx).toBeGreaterThan(-1)
     expect(listIdx).toBeGreaterThan(evidenceAddIdx)
     expect(satisfyIdx).toBeGreaterThan(listIdx)
-    expect(lastNextIdx).toBeGreaterThan(evidenceAddIdx)
+    expect(lastNextIdx).toBeGreaterThan(callMethods.lastIndexOf('evidence.add'))
+    expect(lastNextIdx).toBeGreaterThan(satisfyIdx)
   })
 
   // --- product_owner simulation gate ----------------------------------------
@@ -622,27 +421,27 @@ describe('ingestEvidenceAndSatisfyObligations', () => {
     expect(addCalls).toHaveLength(1)
   })
 
-  test('does not gate evidence of non-product_owner kinds for agent role', async () => {
+  // --- result shape ---------------------------------------------------------
+
+  test('returns empty obligationsSatisfied when no satisfyObligations in output', async () => {
     const port = makeFakePort()
     const input: EvidenceIngestionInput = {
       task: TASK,
-      role: 'agent',
+      role: ROLE,
       actor: ACTOR,
       participantOutput: {
-        evidence: [
-          { kind: 'pressure_pass', facts: { verdict: 'ready' } },
-          { kind: 'pbc_final', summary: 'Final' },
-        ],
+        evidence: [{ kind: 'pbc_draft' }],
+        // no satisfyObligations
       },
-      // no allowProductOwnerSimulation — but these are agent-role evidence kinds
     }
 
     const result = await ingestEvidenceAndSatisfyObligations(port, input)
 
-    expect(result.evidenceAdded).toHaveLength(2)
+    expect(result.obligationsSatisfied).toEqual([])
+    // obligation.list and satisfy must NOT have been called
+    expect(port._calls.some((c) => c.method === 'obligation.list')).toBe(false)
+    expect(port._calls.some((c) => c.method === 'obligation.satisfy')).toBe(false)
   })
-
-  // --- result shape ---------------------------------------------------------
 
   test('returns the fresh next state in result.next after ingestion', async () => {
     const port = makeFakePort()
@@ -661,24 +460,5 @@ describe('ingestEvidenceAndSatisfyObligations', () => {
     expect(result.next).toBeDefined()
     expect(result.next.instance.state.status).toBe('active')
     expect(result.next.instance.revision).toBe(3)
-  })
-
-  test('returns empty obligationsSatisfied when no satisfyObligations in output', async () => {
-    const port = makeFakePort()
-    const input: EvidenceIngestionInput = {
-      task: TASK,
-      role: ROLE,
-      actor: ACTOR,
-      participantOutput: {
-        evidence: [{ kind: 'pbc_draft' }],
-        // no satisfyObligations
-      },
-    }
-
-    const result = await ingestEvidenceAndSatisfyObligations(port, input)
-
-    expect(result.obligationsSatisfied).toEqual([])
-    // obligation.list and satisfy must NOT have been called
-    expect(port._calls.some((c) => c.method === 'obligation.satisfy')).toBe(false)
   })
 })

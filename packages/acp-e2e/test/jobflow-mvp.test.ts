@@ -15,7 +15,7 @@ import {
 import { withSeedStack } from './fixtures/seed-stack.js'
 
 describe('JobFlow MVP e2e', () => {
-  test('runs two terminal sequence steps and exposes parsed results through GET /v1/job-runs/:jobRunId', async () => {
+  test("two-step agent job run succeeds and GET /v1/job-runs shows each step's parsed result block", async () => {
     const jobsStore = createInMemoryJobsStore()
     const runStore = new InMemoryRunStore()
     const inputAttemptStore = new RecordingInputAttemptStore()
@@ -108,7 +108,7 @@ describe('JobFlow MVP e2e', () => {
     }
   })
 
-  test('fails on missing required result field and runs onFailure when configured', async () => {
+  test('agent result missing a required field fails the job run with required_result_field_missing and runs onFailure', async () => {
     const jobsStore = createInMemoryJobsStore()
     const runStore = new InMemoryRunStore()
     const inputAttemptStore = new RecordingInputAttemptStore()

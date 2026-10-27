@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { Actor } from 'acp-core'
 
-import { type AdminStore, createInMemoryAdminStore, openSqliteAdminStore } from '../index.js'
+import { type AdminStore, createInMemoryAdminStore } from '../index.js'
 
 type AdminProjectRecord = {
   projectId: string
@@ -97,29 +97,6 @@ describe('admin projects store acceptance', () => {
         updatedBy: { kind: 'human', id: 'operator' },
       })
       expect(projects.get('wrkq')).toEqual(updated)
-    } finally {
-      store.close()
-    }
-  })
-
-  test('supports the sqlite-backed helper for persistence semantics', () => {
-    const store = openSqliteAdminStore({ dbPath: ':memory:' })
-
-    try {
-      const projects = expectProjectsStore(store)
-      projects.create({
-        projectId: 'taskboard',
-        displayName: 'Taskboard',
-        actor: ACTOR,
-        now: '2026-04-23T03:10:00.000Z',
-      })
-
-      expect(projects.list()).toEqual([
-        expect.objectContaining({
-          projectId: 'taskboard',
-          displayName: 'Taskboard',
-        }),
-      ])
     } finally {
       store.close()
     }

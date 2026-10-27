@@ -69,7 +69,7 @@ function brokerStartFailedEvent(): HrcLifecycleEvent {
 }
 
 describe('T-08139 D2 — broker-start failure returns a seated target to the sweep', () => {
-  it('reconciles another envelope on a later pass while one target drive stays open', async () => {
+  it('a periodic sweep settles while a target drive is blocked, and the next sweep commits a newly evidenced landing', async () => {
     const envelope = harness.ledger.say({ body: 'landing observed after first periodic pass' })
     await deliverOneTo(harness, seatIn('turn-active'), envelope)
     let releaseDrive: (() => void) | undefined

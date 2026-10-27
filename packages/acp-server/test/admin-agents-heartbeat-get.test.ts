@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import { withWiredServer } from './fixtures/wired-server.js'
 
 describe('admin agent heartbeat detail endpoint', () => {
-  test('GET /v1/admin/agents/:agentId/heartbeat reads heartbeat state', async () => {
+  test('GET heartbeat returns null before any PUT, the stored target after one, and 404 for an unknown agent', async () => {
     await withWiredServer(async (fixture) => {
       const created = await fixture.request({
         method: 'POST',
@@ -34,6 +34,13 @@ describe('admin agent heartbeat detail endpoint', () => {
         },
       })
       expect(upserted.status).toBe(200)
+      expect(
+        await fixture.json<{ heartbeat: { targetScopeRef: string; targetLaneRef: string } }>(
+          upserted
+        )
+      ).toMatchObject({
+        heartbeat: { targetScopeRef: 'agent:larry:project:agent-spaces', targetLaneRef: 'main' },
+      })
 
       const response = await fixture.request({
         method: 'GET',

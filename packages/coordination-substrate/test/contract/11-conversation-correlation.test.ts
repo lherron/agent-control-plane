@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
 import { appendEvent, listEvents } from '../../src/index.js'
-import { listEventLinks } from '../../src/queries/links.js'
 import { withTmpStore } from '../fixtures/tmp-store.js'
 
 describe('11 conversation correlation', () => {
@@ -41,17 +40,25 @@ describe('11 conversation correlation', () => {
         },
       })
 
-      const correlated = listEvents(store, {
+      appendEvent(store, {
         projectId: 'demo',
-        conversationThreadId: 'thread-44',
+        event: {
+          kind: 'message.posted',
+          ts: '2026-04-19T01:40:02.000Z',
+          links: { conversationThreadId: 'other-thread', conversationTurnId: 'turn-other' },
+        },
       })
-      const links = listEventLinks(store, {
+
+      const correlated = listEvents(store, {
         projectId: 'demo',
         conversationThreadId: 'thread-44',
       })
 
       expect(correlated).toHaveLength(2)
-      expect(links.map((link) => link.conversationTurnId)).toEqual(['turn-1', 'turn-2'])
+      expect(correlated.map((event) => event.links?.conversationTurnId)).toEqual([
+        'turn-1',
+        'turn-2',
+      ])
       expect(
         correlated.every((event) => event.semanticSession?.scopeRef.includes(':task:t44'))
       ).toBe(true)

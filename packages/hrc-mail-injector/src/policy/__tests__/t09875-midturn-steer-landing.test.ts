@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 
 import { observeBrokerLanding } from '../drive/landing.js'
+import { readActionableEnvelopes } from '../drive/presentation.js'
 import { reconcileOpenIntents } from '../drive/reconcile.js'
 import { STEER_WRITE_RECONCILE_GRACE_MS } from '../internal.js'
 import type { T08094Harness } from './t08094-harness.js'
 import {
   RUNTIME_ID as RUNTIME,
+  TARGET_REF as TARGET,
   createT08094Harness,
   deliverOneTo,
   destroyT08094Harness,
@@ -184,7 +186,7 @@ describe('T-09875 — mid-turn steer receipt', () => {
     expect(row.presentedTo).toHaveLength(0)
   })
 
-  it('never lands a write that the producer proved was not written', async () => {
+  it('a started input refused afterwards stays fenced as a post-write refusal: no receipt, no redelivery', async () => {
     const fyi = h.ledger.say({ obligation: 'fyi' })
     await deliverOneTo(h, seatIn('turn-active'), fyi)
     append(7, 'input.accepted', { inputId: 'sub-1', disposition: 'started' })
@@ -199,6 +201,16 @@ describe('T-09875 — mid-turn steer receipt', () => {
 
     await reconcileOpenIntents(h.context, { reason: 'periodic' })
     expect(h.ledger.envelopes.get(fyi.id)?.presentedTo).toHaveLength(0)
+    // The input was accepted and started before the refusal, so the refusal is
+    // charged as post-write: the intent stays fenced on the rejection's evidence
+    // and the body is never offered for redelivery.
+    expect(h.store.mailDelivery.getIntent(fyi.id)).toMatchObject({
+      uncertainCause: 'input.rejected',
+      lastEvidenceKind: 'post_write_refusal',
+    })
+    expect(
+      (await readActionableEnvelopes(h.context, TARGET)).map((item) => item.envelope.id)
+    ).not.toContain(fyi.id)
   })
 
   it('keeps the idle path: a started input lands only on its execution', async () => {

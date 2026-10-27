@@ -547,6 +547,7 @@ describe('ACP session/control endpoints', () => {
 
         expect(response.status).toBe(200)
         expect(text).toContain('"hostSessionId":"hsid-events-001"')
+        expect(text).toContain('"runId":"hrc-run-001"')
         expect(calls).toHaveLength(1)
         expect(calls[0]).toEqual(
           expect.objectContaining({
@@ -563,12 +564,14 @@ describe('ACP session/control endpoints', () => {
     )
   })
 
-  test('GET /v1/sessions/:sessionId/events defaults follow and aborts upstream on cancel', async () => {
+  test('GET /v1/sessions/:sessionId/events without follow watches HRC with follow=true and aborts upstream on cancel', async () => {
     let signal: AbortSignal | undefined
+    let follow: boolean | undefined
     let returned = false
     const hrcClient = createHrcClientDouble({
       watch: (options) => {
         signal = options?.signal
+        follow = options?.follow
         return (async function* () {
           try {
             yield createLifecycleEvent({ hrcSeq: 1, hostSessionId: 'hsid-events-002' })
@@ -600,6 +603,7 @@ describe('ACP session/control endpoints', () => {
         await reader?.cancel()
         await Bun.sleep(0)
 
+        expect(follow).toBe(true)
         expect(signal?.aborted).toBe(true)
         expect(returned).toBe(true)
       },

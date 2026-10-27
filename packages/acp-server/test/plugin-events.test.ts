@@ -45,21 +45,6 @@ function hrcClientWithTail(
   } as unknown as AcpHrcClient
 }
 
-describe('ACP plugin event cursor', () => {
-  test('is deterministic, restart-independent, and rejects alternate encodings', () => {
-    const position = { ledgerIncarnationId: 'ledger-a', hrcSeq: 37 }
-    const cursor = encodePluginEventCursor(position)
-    expect(decodePluginEventCursor(cursor)).toEqual(position)
-    expect(encodePluginEventCursor(position)).toBe(cursor)
-
-    const nonCanonical = Buffer.from(
-      JSON.stringify({ hrcSeq: 37, ledgerIncarnationId: 'ledger-a', v: 1 })
-    ).toString('base64url')
-    expect(() => decodePluginEventCursor(nonCanonical)).toThrow('canonically encoded')
-    expect(() => decodePluginEventCursor(`${cursor}=`)).toThrow('encoding is invalid')
-  })
-})
-
 describe('ACP plugin event HTTP routes', () => {
   test('tail forwards every exact filter and binds its cursor to the global head', async () => {
     let observed: HrcEventTailOptions | undefined
@@ -123,20 +108,25 @@ describe('ACP plugin event HTTP routes', () => {
   test('tail rejects missing, out-of-range, duplicate, and unknown query parameters', async () => {
     await withWiredServer(
       async (fixture) => {
-        for (const path of [
-          '/v1/plugins/events/tail',
-          '/v1/plugins/events/tail?limit=0',
-          '/v1/plugins/events/tail?limit=501',
-          '/v1/plugins/events/tail?limit=1&limit=2',
-          '/v1/plugins/events/tail?limit=1&permission=all',
-        ]) {
+        for (const [path, message] of [
+          ['/v1/plugins/events/tail', 'limit is required'],
+          ['/v1/plugins/events/tail?limit=0', 'limit is required'],
+          ['/v1/plugins/events/tail?limit=501', 'limit must be an integer from 1 through 500'],
+          ['/v1/plugins/events/tail?limit=1&limit=2', 'query parameter limit is duplicated'],
+          [
+            '/v1/plugins/events/tail?limit=1&permission=all',
+            'unsupported query parameter: permission',
+          ],
+        ] as const) {
           const response = await fixture.request({ method: 'GET', path })
-          expect(response.status).toBe(400)
-          expect(await fixture.json(response)).toMatchObject({
+          expect({ path, status: response.status }).toEqual({ path, status: 400 })
+          const body = await fixture.json<{ error: { code: string; message: string } }>(response)
+          expect(body).toMatchObject({
             ok: false,
             value: null,
             error: { code: 'malformed_request' },
           })
+          expect(body.error.message).toContain(message)
         }
       },
       {
@@ -225,7 +215,7 @@ describe('ACP plugin event HTTP routes', () => {
     expect(authorityReads).toBe(4)
   })
 
-  test('the socket route is distinct from mobile and requires an upgrade', async () => {
+  test('plain GET /v1/plugins/events without upgrade returns 426 upgrade_required in the plugin envelope', async () => {
     await withWiredServer(async (fixture) => {
       const response = await fixture.request({ method: 'GET', path: '/v1/plugins/events' })
       expect(response.status).toBe(426)
@@ -238,6 +228,46 @@ describe('ACP plugin event HTTP routes', () => {
         },
       })
     })
+  })
+
+  test('resolve-cursor rejects a non-canonical or padded cursor with the decode reason', async () => {
+    const client = hrcClientWithTail({
+      events: [],
+      ledgerIncarnationId: 'ledger-a',
+      headHrcSeq: 40,
+      truncated: false,
+    })
+
+    await withWiredServer(
+      async (fixture) => {
+        const resolve = (cursor: string) =>
+          fixture.request({
+            method: 'POST',
+            path: '/v1/plugins/events/resolve-cursor',
+            body: { cursor },
+          })
+        const now = await fixture.json<{ value: { cursor: string } }>(await resolve('now'))
+        const reissued = await fixture.json<{ value: { cursor: string } }>(
+          await resolve(now.value.cursor)
+        )
+        expect(reissued.value.cursor).toBe(now.value.cursor)
+
+        const nonCanonical = Buffer.from(
+          JSON.stringify({ hrcSeq: 40, ledgerIncarnationId: 'ledger-a', v: 1 })
+        ).toString('base64url')
+        for (const [cursor, reason] of [
+          [nonCanonical, 'canonically encoded'],
+          [`${now.value.cursor}=`, 'encoding is invalid'],
+        ] as const) {
+          const response = await resolve(cursor)
+          expect({ reason, status: response.status }).toEqual({ reason, status: 400 })
+          const body = await fixture.json<{ ok: boolean; error: { message: string } }>(response)
+          expect(body.ok).toBe(false)
+          expect(body.error.message).toContain(reason)
+        }
+      },
+      { hrcClient: client }
+    )
   })
 
   test('resolve-cursor preserves the result envelope for malformed JSON', async () => {

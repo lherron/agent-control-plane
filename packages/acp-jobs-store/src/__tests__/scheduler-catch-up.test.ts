@@ -52,7 +52,7 @@ function resolveTick(
 }
 
 describe('scheduler catch-up policy', () => {
-  test('emits exactly one catch-up run after downtime, then skips to the next fire window', async () => {
+  test('after downtime the scheduler mints one catch-up run, then resumes on the next fire', async () => {
     const store = jobsStoreModule.createInMemoryJobsStore() as unknown as Record<string, unknown>
 
     try {

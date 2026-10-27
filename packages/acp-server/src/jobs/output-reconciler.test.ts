@@ -148,7 +148,7 @@ describe('job output reconciler', () => {
     interfaceStore.close()
   })
 
-  test('failed ACP run marks job run failed without posting', async () => {
+  test('a failed ACP run settles the job run failed (run_failed) without posting to the sink', async () => {
     const jobsStore = createInMemoryJobsStore()
     const runStore = new InMemoryRunStore()
     const interfaceStore = makeInterfaceStore()

@@ -114,6 +114,12 @@ describe('pruning unselected root-store versions on producer advance (T-08572 H3
 
       const removed = await pruneUnselectedRootStoreVersions({ root, synced, lockText })
       expect(removed).toEqual([`hrc-sdk@${OLD}`])
+      // The selected producer version and third-party store dirs stay on disk.
+      const { readdir } = await import('node:fs/promises')
+      expect((await readdir(join(root, 'node_modules', '.bun'))).sort()).toEqual([
+        `hrc-sdk@${NEW}`,
+        'left-pad@9.9.9',
+      ])
 
       const after = await installedFromStore(root)
       const manifests = [
@@ -123,20 +129,6 @@ describe('pruning unselected root-store versions on producer advance (T-08572 H3
       const report = evaluateConsumerDeployment({ lockText, installed: after, manifests }, expected)
       expect(report.findings).toEqual([])
       expect(report.ok).toBe(true)
-    } finally {
-      await rm(root, { recursive: true, force: true })
-    }
-  })
-
-  test('keeps the selected version, unlisted members and third-party dirs', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'root-store-prune-'))
-    try {
-      await seedStore(root)
-      const { readdir } = await import('node:fs/promises')
-      const store = join(root, 'node_modules', '.bun')
-      await pruneUnselectedRootStoreVersions({ root, synced: new Set(['hrc-sdk']), lockText })
-      const remaining = (await readdir(store)).sort()
-      expect(remaining).toEqual([`hrc-sdk@${NEW}`, 'left-pad@9.9.9'])
     } finally {
       await rm(root, { recursive: true, force: true })
     }

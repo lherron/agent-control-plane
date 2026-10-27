@@ -543,13 +543,6 @@ describe('event-claim minting', () => {
     expect(persisted?.output?.sinks[0]?.url).toBe('http://127.0.0.1:18551/original')
   })
 
-  test('the inbox event is marked processed after a tick', async () => {
-    const store = createInMemoryJobsStore()
-    store.createJob(eventJob())
-    await ingestAndTick(store, adaptWrkqWebhookEvent(wrkqEvent()))
-    expect(store.getInboxEvent('wrkq:evt_1').event?.status).toBe('processed')
-  })
-
   test('agent-origin policy: default deny blocks, deny-self splits self/cross-agent, allow preserved', async () => {
     const store = createInMemoryJobsStore()
     store.createJob(

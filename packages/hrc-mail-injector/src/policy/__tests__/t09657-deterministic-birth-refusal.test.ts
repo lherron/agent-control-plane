@@ -19,7 +19,6 @@ import { HrcDomainError, HrcErrorCode } from 'hrc-core'
 
 import { driveMailTargetOnce } from '../drive/target-driver.js'
 import { BIRTH_SWEEP_MAX_REFUSALS } from '../internal.js'
-import { formatEnvelopeFailureNotice } from '../ledger/presentation.js'
 import { queueFailureNotice } from '../terminal/failure-notices.js'
 import { chargeBirthSweepRefusal } from '../wake/birth-retry.js'
 import {
@@ -139,15 +138,6 @@ describe('T-09657 — deterministic birth refusal', () => {
 })
 
 describe('T-09657 — sender notice carries the failure detail', () => {
-  it('renders detail into the undeliverable notice', () => {
-    const envelope = h.ledger.say()
-    const notice = formatEnvelopeFailureNotice(envelope, 'undeliverable', {
-      detail: `HRC refused the birth: ${REFUSAL}`,
-    })
-    expect(notice).toContain('failed: undeliverable')
-    expect(notice).toContain(REFUSAL)
-  })
-
   it('reads detail from the envelope.failed payload', async () => {
     const envelope = h.ledger.say({
       from: { principalRef: 'agent:clod', scopeRef: SCOPE_REF },
@@ -158,6 +148,7 @@ describe('T-09657 — sender notice carries the failure detail', () => {
     } as never)
 
     const [queued] = h.store.mailDelivery.listUndeliveredFailureNotices(TARGET_REF)
+    expect(queued?.notice).toContain('failed: undeliverable')
     expect(queued?.notice).toContain(REFUSAL)
   })
 })

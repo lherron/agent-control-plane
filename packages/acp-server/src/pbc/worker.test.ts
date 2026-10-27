@@ -41,7 +41,6 @@ import { describe, expect, test } from 'bun:test'
 import {
   type PbcContinuationWorkerInput,
   type PbcContinuationWorkerPort,
-  type PbcContinuationWorkerResult,
   runPbcContinuationWorker,
 } from './worker.js'
 
@@ -447,127 +446,7 @@ function freshDraftAndPressureTimeline(): Record<string, unknown>[] {
 // ===========================================================================
 
 describe('runPbcContinuationWorker — behavior_note phase', () => {
-  // ── basic: applies draft_pbc when clarification not needed ─────────────────
-
-  test('behavior_note → evidence ingested → draft_pbc transition applied', async () => {
-    const port = makeFakeWorkerPort({
-      finalText: behaviorNoteText({ clarificationNeeded: false }),
-      nextSequence: [
-        // iteration 1 start
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 1,
-          contextHash: 'sha256:ctx1',
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        // after evidence write (fresh next before transition)
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 2,
-          contextHash: 'sha256:ctx2',
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        // post-transition: closed → stops loop
-        makeNextRaw({ status: 'closed', phase: 'finalized', revision: 3, actions: [] }),
-      ],
-    })
-
-    const result: PbcContinuationWorkerResult = await runPbcContinuationWorker(port, {
-      taskId: 'T-00001',
-      idempotencyKey: 'worker-bn-1',
-      actor: 'agent:pbc-writer',
-    } satisfies PbcContinuationWorkerInput)
-
-    // Transition draft_pbc must have been applied
-    const applyCall = port._calls.find(
-      (c) =>
-        c.method === 'transition.apply' &&
-        (c.params as Record<string, unknown>)['transition'] === 'draft_pbc'
-    )
-    expect(applyCall).toBeDefined()
-    expect(result.turnsCompleted).toBeGreaterThanOrEqual(1)
-  })
-
-  test('behavior_note: worker does NOT call evidence.add (the agent records directly); launches the turn and applies draft_pbc', async () => {
-    const port = makeFakeWorkerPort({
-      finalText: behaviorNoteText({ clarificationNeeded: false }),
-      nextSequence: [
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 1,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 2,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        makeNextRaw({ status: 'closed', phase: 'finalized', revision: 3, actions: [] }),
-      ],
-    })
-
-    await runPbcContinuationWorker(port, {
-      taskId: 'T-00001',
-      idempotencyKey: 'worker-bn-evidence',
-      actor: 'agent:pbc-writer',
-    } satisfies PbcContinuationWorkerInput)
-
-    // The worker no longer ingests evidence — the agent records it directly.
-    expect(port._calls.filter((c) => c.method === 'evidence.add')).toHaveLength(0)
-    // The worker launches the participant turn ...
-    expect(port._calls.some((c) => c.method === 'launchAcpRun')).toBe(true)
-    // ... and applies the draft_pbc transition.
-    const applyCall = port._calls.find(
-      (c) =>
-        c.method === 'transition.apply' &&
-        (c.params as Record<string, unknown>)['transition'] === 'draft_pbc'
-    )
-    expect(applyCall).toBeDefined()
-  })
-
-  test('run.finish (status completed) is called after the turn and before transition.apply', async () => {
-    const port = makeFakeWorkerPort({
-      finalText: behaviorNoteText({ clarificationNeeded: false }),
-      nextSequence: [
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 1,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 2,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        makeNextRaw({ status: 'closed', phase: 'finalized', revision: 3, actions: [] }),
-      ],
-    })
-
-    await runPbcContinuationWorker(port, {
-      taskId: 'T-00001',
-      idempotencyKey: 'worker-bn-finish-order',
-      actor: 'agent:pbc-writer',
-    } satisfies PbcContinuationWorkerInput)
-
-    const launchIdx = port._calls.findIndex((c) => c.method === 'launchAcpRun')
-    const finishIdx = port._calls.findIndex((c) => c.method === 'run.finish')
-    const transitionIdx = port._calls.findIndex((c) => c.method === 'transition.apply')
-
-    expect(launchIdx).toBeGreaterThan(-1)
-    expect(finishIdx).toBeGreaterThan(launchIdx)
-    expect(transitionIdx).toBeGreaterThan(finishIdx)
-
-    const finishCall = port._calls.find((c) => c.method === 'run.finish')!
-    expect((finishCall.params as Record<string, unknown>)['status']).toBe('completed')
-  })
-
-  test('behavior_note: transition uses fresh contextHash from re-read next (not stale)', async () => {
+  test('a completed behavior_note turn applies draft_pbc with the re-read revision and contextHash, then stops closed', async () => {
     const port = makeFakeWorkerPort({
       finalText: behaviorNoteText({ clarificationNeeded: false }),
       nextSequence: [
@@ -590,17 +469,48 @@ describe('runPbcContinuationWorker — behavior_note phase', () => {
       ],
     })
 
-    await runPbcContinuationWorker(port, {
+    const result = await runPbcContinuationWorker(port, {
       taskId: 'T-00001',
       idempotencyKey: 'worker-bn-cas',
       actor: 'agent:pbc-writer',
     } satisfies PbcContinuationWorkerInput)
 
+    // One full turn, in order: start run → launch → bind → read text → finish run →
+    // re-read next → apply → deliver effects → re-read until closed.
+    expect(port._calls.map((c) => c.method)).toEqual([
+      'next',
+      'run.start',
+      'evidence.list',
+      'launchAcpRun',
+      'run.bindExternal',
+      'getFinalAssistantText',
+      'run.finish',
+      'next',
+      'evidence.list',
+      'transition.apply',
+      'effect.list',
+      'next',
+      'next',
+    ])
+    // The worker no longer ingests evidence itself — the agent records it directly.
+    expect(port._calls.filter((c) => c.method === 'evidence.add')).toHaveLength(0)
+    expect(port._calls.find((c) => c.method === 'run.finish')?.params).toEqual({
+      runId: 'wrkf_run_fake_1',
+      status: 'completed',
+    })
     const applyCall = port._calls.find((c) => c.method === 'transition.apply')
-    expect(applyCall).toBeDefined()
-    const params = applyCall!.params as Record<string, unknown>
-    expect(params['contextHash']).toBe('sha256:fresh')
-    expect(params['expectRevision']).toBe(2)
+    expect(applyCall?.params).toMatchObject({
+      transition: 'draft_pbc',
+      contextHash: 'sha256:fresh',
+      expectRevision: 2,
+    })
+    expect(result).toEqual({
+      taskId: 'T-00001',
+      turnsCompleted: 1,
+      stopReason: 'closed',
+      finalStatus: 'succeeded',
+      finalRevision: 3,
+    })
   })
 
   // ── stops at ask_clarification when clarification needed ───────────────────
@@ -655,108 +565,9 @@ describe('runPbcContinuationWorker — behavior_note phase', () => {
     expect(applyCall).toBeDefined()
   })
 
-  // ── HRC launch and text recovery called ───────────────────────────────────
-
-  test('behavior_note: launchAcpRun and getFinalAssistantText are called per turn', async () => {
-    const port = makeFakeWorkerPort({
-      finalText: behaviorNoteText({ clarificationNeeded: false }),
-      nextSequence: [
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 1,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 2,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        makeNextRaw({ status: 'closed', phase: 'finalized', revision: 3, actions: [] }),
-      ],
-    })
-
-    await runPbcContinuationWorker(port, {
-      taskId: 'T-00001',
-      idempotencyKey: 'worker-bn-launch',
-      actor: 'agent:pbc-writer',
-    } satisfies PbcContinuationWorkerInput)
-
-    expect(port._calls.some((c) => c.method === 'launchAcpRun')).toBe(true)
-    expect(port._calls.some((c) => c.method === 'getFinalAssistantText')).toBe(true)
-  })
-
-  // ── run.start called before evidence ingest ────────────────────────────────
-
-  test('run.start is called before launchAcpRun in each turn', async () => {
-    const port = makeFakeWorkerPort({
-      finalText: behaviorNoteText({ clarificationNeeded: false }),
-      nextSequence: [
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 1,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 2,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        makeNextRaw({ status: 'closed', phase: 'finalized', revision: 3, actions: [] }),
-      ],
-    })
-
-    await runPbcContinuationWorker(port, {
-      taskId: 'T-00001',
-      idempotencyKey: 'worker-bn-run-order',
-      actor: 'agent:pbc-writer',
-    } satisfies PbcContinuationWorkerInput)
-
-    const runStartIdx = port._calls.findIndex((c) => c.method === 'run.start')
-    const launchIdx = port._calls.findIndex((c) => c.method === 'launchAcpRun')
-
-    expect(runStartIdx).toBeGreaterThan(-1)
-    expect(launchIdx).toBeGreaterThan(runStartIdx)
-  })
-
-  // ── stopReason closed ──────────────────────────────────────────────────────
-
-  test('returns stopReason=closed when instance transitions to closed status', async () => {
-    const port = makeFakeWorkerPort({
-      finalText: behaviorNoteText({ clarificationNeeded: false }),
-      nextSequence: [
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 1,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 2,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        makeNextRaw({ status: 'closed', phase: 'finalized', revision: 3, actions: [] }),
-      ],
-    })
-
-    const result = await runPbcContinuationWorker(port, {
-      taskId: 'T-00001',
-      idempotencyKey: 'worker-bn-closed',
-      actor: 'agent:pbc-writer',
-    } satisfies PbcContinuationWorkerInput)
-
-    expect(result.stopReason).toBe('closed')
-    expect(result.finalStatus).toBe('succeeded')
-  })
-
   // ── stops immediately on already-closed instance ───────────────────────────
 
-  test('stops immediately (no run.start) when instance is already closed', async () => {
+  test('an already-closed instance stops at once with zero turns and no run.start or launch', async () => {
     const port = makeFakeWorkerPort({
       nextSequence: [
         makeNextRaw({ status: 'closed', phase: 'finalized', revision: 5, actions: [] }),
@@ -769,14 +580,19 @@ describe('runPbcContinuationWorker — behavior_note phase', () => {
       actor: 'agent:pbc-writer',
     } satisfies PbcContinuationWorkerInput)
 
-    expect(result.stopReason).toBe('closed')
-    expect(port._calls.find((c) => c.method === 'run.start')).toBeUndefined()
-    expect(port._calls.find((c) => c.method === 'launchAcpRun')).toBeUndefined()
+    expect(result).toEqual({
+      taskId: 'T-00001',
+      turnsCompleted: 0,
+      stopReason: 'closed',
+      finalStatus: 'succeeded',
+      finalRevision: 5,
+    })
+    expect(port._calls.map((c) => c.method)).toEqual(['next'])
   })
 
   // ── stale flag is diagnostics-only ────────────────────────────────────────
 
-  test('ignores next.instance.stale and attempts participant work', async () => {
+  test('a stale instance still gets a participant turn; no legal transition after retries stops blocked_or_ambiguous', async () => {
     const port = makeFakeWorkerPort({
       finalText: behaviorNoteText(),
       nextSequence: [
@@ -857,7 +673,7 @@ describe('runPbcContinuationWorker — behavior_note phase', () => {
 describe('runPbcContinuationWorker — pressure phase', () => {
   // ── pressure ready → pbc_final → finalize ─────────────────────────────────
 
-  test('pressure/ready → pbc_final evidence → finalize_ready_pbc transition applied', async () => {
+  test('pressure phase finalize is applied as the pressure reviewer (role + principal_ref) and stops closed', async () => {
     // Evidence timeline already has fresh pbc_draft + pressure_pass (freshness passes)
     const port = makeFakeWorkerPort({
       // HRC writes pbc_final output in the pressure turn
@@ -991,7 +807,7 @@ describe('runPbcContinuationWorker — pressure phase', () => {
 
   // ── pressure freshness guard blocks stale finalize ─────────────────────────
 
-  test('finalize_ready_pbc blocked by freshness guard when evidence is stale', async () => {
+  test('finalize_ready_pbc with no fresh pbc_draft is not applied and stops naming the freshness block', async () => {
     // No fresh draft in evidence timeline → freshness guard blocks finalize
     const port = makeFakeWorkerPort({
       finalText: pbcFinalText('ev_draft_old', 'ev_pp_old'),
@@ -1028,8 +844,10 @@ describe('runPbcContinuationWorker — pressure phase', () => {
         (c.params as Record<string, unknown>)['transition'] === 'finalize_ready_pbc'
     )
     expect(finalizeApply).toBeUndefined()
-    // Worker should stop (blocked_or_ambiguous or similar)
-    expect(result.stopReason).not.toBeUndefined()
+    expect(port._calls.filter((c) => c.method === 'transition.apply')).toHaveLength(0)
+    expect(result.stopReason).toBe(
+      'pbc freshness blocked: no fresh pbc_draft after revision boundary'
+    )
   })
 
   // ── needs_patch → STOPS at patch_decision human gate ──────────────────────
@@ -1085,7 +903,7 @@ describe('runPbcContinuationWorker — pressure phase', () => {
 
   // ── too_vague → revise_too_vague_pbc → loops back ─────────────────────────
 
-  test('too_vague → revise_too_vague_pbc applied → loops back to pbc_draft', async () => {
+  test('too_vague pressure verdict applies revise_too_vague_pbc', async () => {
     const port = makeFakeWorkerPort({
       finalText: pressurePassTooVagueText('ev_draft_1'),
       evidence: freshDraftTimeline(),
@@ -1131,8 +949,13 @@ describe('runPbcContinuationWorker — pressure phase', () => {
     )
     expect(reviseApply).toBeDefined()
 
-    // Worker eventually stops (not infinite loop)
-    expect(result.stopReason).toBeDefined()
+    expect(
+      port._calls.filter((c) => c.method === 'transition.apply').map((c) => c.params['transition'])
+    ).toEqual(['revise_too_vague_pbc'])
+    expect(
+      port._calls.filter((c) => c.method === 'launchAcpRun').map((c) => c.params['role'])
+    ).toEqual(['pressure_reviewer'])
+    expect(result).toMatchObject({ stopReason: 'closed', turnsCompleted: 1, finalRevision: 7 })
   })
 
   // ── SoD: finalize requires distinct pressure reviewer ─────────────────────
@@ -1176,11 +999,14 @@ describe('runPbcContinuationWorker — pressure phase', () => {
 
   // ── Effects delivered after finalize ──────────────────────────────────────
 
-  test('effects delivered after finalize_ready_pbc transition', async () => {
+  test('pending effects are each delivered once after finalize_ready_pbc is applied', async () => {
     const port = makeFakeWorkerPort({
       finalText: pbcFinalText('ev_draft_1', 'ev_pp_1'),
       evidence: freshDraftAndPressureTimeline(),
-      effects: [{ id: 'eff_finalize_1', kind: 'set_task_state', status: 'pending' }],
+      effects: [
+        { id: 'eff_finalize_1', kind: 'set_task_state', status: 'pending' },
+        { id: 'eff_finalize_2', kind: 'set_task_state', status: 'pending' },
+      ],
       nextSequence: [
         makeNextRaw({
           status: 'active',
@@ -1213,172 +1039,12 @@ describe('runPbcContinuationWorker — pressure phase', () => {
     expect(transitionIdx).toBeGreaterThan(-1)
     expect(effectListIdx).toBeGreaterThan(transitionIdx)
     expect(effectDeliverIdx).toBeGreaterThan(effectListIdx)
+    // Each listed pending effect is delivered exactly once.
     expect(
-      (port._calls.find((c) => c.method === 'effect.deliver')!.params as Record<string, unknown>)[
-        'effectId'
-      ]
-    ).toBe('eff_finalize_1')
-  })
-})
-
-// ===========================================================================
-// 3. CRASH / REPLAY — evidence capture idempotency
-// ===========================================================================
-
-describe('runPbcContinuationWorker — crash/replay', () => {
-  // ── crash after evidence write before transition → no duplicate evidence ───
-
-  test('crash after evidence write: transition still applied (replay does not skip transition)', async () => {
-    const existingEvidenceId = 'ev_existing_bn_1'
-    const captureKey = 'worker-crash-trans:participant-output:T-00001'
-    const preSeededCapture = {
-      status: 'ingested',
-      evidenceAdded: [{ id: existingEvidenceId, kind: 'behavior_note', raw: {} }],
-      obligationsSatisfied: [],
-    }
-
-    const port = makeFakeWorkerPort({
-      captureStore: { [captureKey]: preSeededCapture },
-      finalText: behaviorNoteText({ clarificationNeeded: false }),
-      nextSequence: [
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 2,
-          contextHash: 'sha256:ctx2',
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 2,
-          contextHash: 'sha256:ctx2',
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        makeNextRaw({ status: 'closed', phase: 'finalized', revision: 3, actions: [] }),
-      ],
-    })
-
-    await runPbcContinuationWorker(port, {
-      taskId: 'T-00001',
-      idempotencyKey: 'worker-crash-trans',
-      actor: 'agent:pbc-writer',
-    } satisfies PbcContinuationWorkerInput)
-
-    // Transition must still be applied on replay
-    const applyCall = port._calls.find((c) => c.method === 'transition.apply')
-    expect(applyCall).toBeDefined()
-    expect((applyCall!.params as Record<string, unknown>)['transition']).toBe('draft_pbc')
-  })
-
-  // ── crash after transition before effects → effect delivery replay ─────────
-
-  test('effect delivery replay: effects delivered idempotently (only pending effects)', async () => {
-    // Simulate crash after transition: first "run" already applied transition;
-    // second "run" sees effects as still pending and delivers them
-    // The key invariant: effect.deliver called exactly once per pending effect in
-    // a single worker invocation (no double delivery within one run).
-    const port = makeFakeWorkerPort({
-      finalText: behaviorNoteText({ clarificationNeeded: false }),
-      effects: [
-        { id: 'eff_replay_1', kind: 'set_task_state', status: 'pending' },
-        { id: 'eff_replay_2', kind: 'set_task_state', status: 'pending' },
-      ],
-      nextSequence: [
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 1,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 2,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        makeNextRaw({ status: 'closed', phase: 'finalized', revision: 3, actions: [] }),
-      ],
-    })
-
-    await runPbcContinuationWorker(port, {
-      taskId: 'T-00001',
-      idempotencyKey: 'worker-eff-replay',
-      actor: 'agent:pbc-writer',
-    } satisfies PbcContinuationWorkerInput)
-
-    const deliverCalls = port._calls.filter((c) => c.method === 'effect.deliver')
-    const deliveredIds = deliverCalls.map((c) => (c.params as Record<string, unknown>)['effectId'])
-
-    // Each pending effect delivered exactly once
-    expect(deliveredIds.filter((id) => id === 'eff_replay_1')).toHaveLength(1)
-    expect(deliveredIds.filter((id) => id === 'eff_replay_2')).toHaveLength(1)
-  })
-
-  test('no effect.deliver called if effect.list returns empty (already delivered)', async () => {
-    // Simulates crash after all effects delivered: effect.list returns empty
-    const port = makeFakeWorkerPort({
-      finalText: behaviorNoteText({ clarificationNeeded: false }),
-      effects: [], // empty → already delivered
-      nextSequence: [
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 1,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 2,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        makeNextRaw({ status: 'closed', phase: 'finalized', revision: 3, actions: [] }),
-      ],
-    })
-
-    await runPbcContinuationWorker(port, {
-      taskId: 'T-00001',
-      idempotencyKey: 'worker-no-eff-deliver',
-      actor: 'agent:pbc-writer',
-    } satisfies PbcContinuationWorkerInput)
-
-    const deliverCalls = port._calls.filter((c) => c.method === 'effect.deliver')
-    expect(deliverCalls).toHaveLength(0)
-  })
-
-  // ── first missing HRC text awaits participant output ───────────────────────
-
-  test('run.fail is not called on first missing getFinalAssistantText while participant turn is live', async () => {
-    const port = makeFakeWorkerPort({
-      finalText: undefined, // no text → worker fails the run
-      nextSequence: [
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 1,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-      ],
-    })
-
-    const result = await runPbcContinuationWorker(port, {
-      taskId: 'T-00001',
-      idempotencyKey: 'worker-no-text',
-      actor: 'agent:pbc-writer',
-    } satisfies PbcContinuationWorkerInput)
-
-    // run.fail must NOT be called: the participant turn may still be running.
-    const failCall = port._calls.find((c) => c.method === 'run.fail')
-    expect(failCall).toBeUndefined()
-
-    // run.finish must NOT be called
-    const finishCall = port._calls.find((c) => c.method === 'run.finish')
-    expect(finishCall).toBeUndefined()
-
-    // Worker reports non-terminal await status. Timeout tests cover eventual run.fail.
-    expect(result.stopReason).toBe('awaiting_participant_output')
-    expect(result.finalStatus).not.toBe('failed')
+      port._calls
+        .filter((c) => c.method === 'effect.deliver')
+        .map((c) => (c.params as Record<string, unknown>)['effectId'])
+    ).toEqual(['eff_finalize_1', 'eff_finalize_2'])
   })
 })
 
@@ -1387,116 +1053,60 @@ describe('runPbcContinuationWorker — crash/replay', () => {
 // ===========================================================================
 
 describe('runPbcContinuationWorker — disposition gate', () => {
-  test('dispose_from_behavior_note is NEVER applied by the worker', async () => {
-    const port = makeFakeWorkerPort({
+  test.each([
+    {
+      phase: 'behavior_note',
+      transition: 'dispose_from_behavior_note',
       finalText: behaviorNoteText({ clarificationNeeded: false }),
-      nextSequence: [
-        // Only disposition available
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 1,
-          actions: [{ transition: 'dispose_from_behavior_note' }],
-        }),
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 2,
-          actions: [{ transition: 'dispose_from_behavior_note' }],
-        }),
-      ],
-    })
-
-    const result = await runPbcContinuationWorker(port, {
-      taskId: 'T-00001',
-      idempotencyKey: 'worker-no-dispose',
-      actor: 'agent:pbc-writer',
-      maxTurns: 1,
-    } satisfies PbcContinuationWorkerInput)
-
-    // disposition must never be applied
-    const dispositionApply = port._calls.find(
-      (c) =>
-        c.method === 'transition.apply' &&
-        String((c.params as Record<string, unknown>)['transition']).startsWith('dispose_from_')
-    )
-    expect(dispositionApply).toBeUndefined()
-    // Worker stops without applying disposition
-    expect(result.stopReason).toBeDefined()
-  })
-
-  test('dispose_from_pbc_draft is NEVER applied by the worker', async () => {
-    const port = makeFakeWorkerPort({
+      evidence: [] as Record<string, unknown>[],
+      revision: 1,
+      pressureActor: undefined,
+    },
+    {
+      phase: 'pbc_draft',
+      transition: 'dispose_from_pbc_draft',
       finalText: pbcDraftText(),
       evidence: freshDraftTimeline(),
-      nextSequence: [
-        makeNextRaw({
-          status: 'active',
-          phase: 'pbc_draft',
-          revision: 3,
-          actions: [{ transition: 'dispose_from_pbc_draft' }],
-        }),
-        makeNextRaw({
-          status: 'active',
-          phase: 'pbc_draft',
-          revision: 4,
-          actions: [{ transition: 'dispose_from_pbc_draft' }],
-        }),
-      ],
-    })
-
-    const result = await runPbcContinuationWorker(port, {
-      taskId: 'T-00001',
-      idempotencyKey: 'worker-no-dispose-pbc',
-      actor: 'agent:pbc-writer',
-      maxTurns: 1,
-    } satisfies PbcContinuationWorkerInput)
-
-    const dispositionApply = port._calls.find(
-      (c) =>
-        c.method === 'transition.apply' &&
-        String((c.params as Record<string, unknown>)['transition']).startsWith('dispose_from_')
-    )
-    expect(dispositionApply).toBeUndefined()
-    expect(result.stopReason).toBeDefined()
-  })
-
-  test('dispose_from_pressure is NEVER applied by the worker', async () => {
-    const port = makeFakeWorkerPort({
+      revision: 3,
+      pressureActor: undefined,
+    },
+    {
+      phase: 'pressure',
+      transition: 'dispose_from_pressure',
       finalText: pressurePassText('ev_draft_1'),
       evidence: freshDraftTimeline(),
-      nextSequence: [
-        makeNextRaw({
-          status: 'active',
-          phase: 'pressure',
-          revision: 5,
-          actions: [{ transition: 'dispose_from_pressure' }],
-        }),
-        makeNextRaw({
-          status: 'active',
-          phase: 'pressure',
-          revision: 6,
-          actions: [{ transition: 'dispose_from_pressure' }],
-        }),
-      ],
-    })
-
-    const result = await runPbcContinuationWorker(port, {
-      taskId: 'T-00001',
-      idempotencyKey: 'worker-no-dispose-pressure',
-      actor: 'agent:pbc-writer',
+      revision: 5,
       pressureActor: 'agent:pressure-reviewer',
-      maxTurns: 1,
-    } satisfies PbcContinuationWorkerInput)
+    },
+  ])(
+    'a $phase phase offering only $transition is never disposed by the worker and stops blocked_or_ambiguous',
+    async ({ phase, transition, finalText, evidence, revision, pressureActor }) => {
+      const port = makeFakeWorkerPort({
+        finalText,
+        evidence,
+        nextSequence: [
+          makeNextRaw({ status: 'active', phase, revision, actions: [{ transition }] }),
+          makeNextRaw({
+            status: 'active',
+            phase,
+            revision: revision + 1,
+            actions: [{ transition }],
+          }),
+        ],
+      })
 
-    const dispositionApply = port._calls.find(
-      (c) =>
-        c.method === 'transition.apply' &&
-        String((c.params as Record<string, unknown>)['transition']).startsWith('dispose_from_')
-    )
-    expect(dispositionApply).toBeUndefined()
-    expect(result.stopReason).toBeDefined()
-  })
+      const result = await runPbcContinuationWorker(port, {
+        taskId: 'T-00001',
+        idempotencyKey: `worker-no-${transition}`,
+        actor: 'agent:pbc-writer',
+        ...(pressureActor !== undefined ? { pressureActor } : {}),
+        maxTurns: 1,
+      } satisfies PbcContinuationWorkerInput)
+
+      expect(port._calls.filter((c) => c.method === 'transition.apply')).toHaveLength(0)
+      expect(result.stopReason).toBe('blocked_or_ambiguous')
+    }
+  )
 })
 
 // ===========================================================================
@@ -1504,7 +1114,7 @@ describe('runPbcContinuationWorker — disposition gate', () => {
 // ===========================================================================
 
 describe('runPbcContinuationWorker — maxTurns', () => {
-  test('stops at maxTurns with max_turns stop reason', async () => {
+  test('maxTurns 2 with an always-actionable phase stops max_turns after 2 turns', async () => {
     // Always return an actionable state so worker doesn't stop for other reasons
     const alwaysNext = makeNextRaw({
       status: 'active',
@@ -1531,129 +1141,6 @@ describe('runPbcContinuationWorker — maxTurns', () => {
 })
 
 // ===========================================================================
-// 6. Result model
-// ===========================================================================
-
-describe('runPbcContinuationWorker — result model', () => {
-  test('result.taskId matches input.taskId', async () => {
-    const port = makeFakeWorkerPort({
-      nextSequence: [makeNextRaw({ status: 'closed', phase: 'finalized', actions: [] })],
-    })
-
-    const result = await runPbcContinuationWorker(port, {
-      taskId: 'T-99999',
-      idempotencyKey: 'worker-task-id',
-      actor: 'agent:pbc-writer',
-    } satisfies PbcContinuationWorkerInput)
-
-    expect(result.taskId).toBe('T-99999')
-  })
-
-  test('result.turnsCompleted is 0 when stopped immediately (closed)', async () => {
-    const port = makeFakeWorkerPort({
-      nextSequence: [
-        makeNextRaw({ status: 'closed', phase: 'finalized', revision: 5, actions: [] }),
-      ],
-    })
-
-    const result = await runPbcContinuationWorker(port, {
-      taskId: 'T-00001',
-      idempotencyKey: 'worker-turns-zero',
-      actor: 'agent:pbc-writer',
-    } satisfies PbcContinuationWorkerInput)
-
-    expect(result.turnsCompleted).toBe(0)
-  })
-
-  test('result.finalRevision reflects the last wrkf.next revision read', async () => {
-    const port = makeFakeWorkerPort({
-      finalText: behaviorNoteText({ clarificationNeeded: false }),
-      nextSequence: [
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 3,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 4,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        makeNextRaw({ status: 'closed', phase: 'finalized', revision: 5, actions: [] }),
-      ],
-    })
-
-    const result = await runPbcContinuationWorker(port, {
-      taskId: 'T-00001',
-      idempotencyKey: 'worker-final-rev',
-      actor: 'agent:pbc-writer',
-    } satisfies PbcContinuationWorkerInput)
-
-    // Must reflect the latest revision seen
-    expect(result.finalRevision).toBeGreaterThanOrEqual(4)
-  })
-
-  test('result.stopReason is always present', async () => {
-    const port = makeFakeWorkerPort({
-      nextSequence: [makeNextRaw({ status: 'closed', phase: 'finalized', actions: [] })],
-    })
-
-    const result = await runPbcContinuationWorker(port, {
-      taskId: 'T-00001',
-      idempotencyKey: 'worker-stopr',
-      actor: 'agent:pbc-writer',
-    } satisfies PbcContinuationWorkerInput)
-
-    expect(typeof result.stopReason).toBe('string')
-    expect(result.stopReason!.length).toBeGreaterThan(0)
-  })
-
-  test('result.finalStatus is succeeded when instance closes normally', async () => {
-    const port = makeFakeWorkerPort({
-      finalText: behaviorNoteText({ clarificationNeeded: false }),
-      nextSequence: [
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 1,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 2,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-        makeNextRaw({ status: 'closed', phase: 'finalized', revision: 3, actions: [] }),
-      ],
-    })
-
-    const result = await runPbcContinuationWorker(port, {
-      taskId: 'T-00001',
-      idempotencyKey: 'worker-final-ok',
-      actor: 'agent:pbc-writer',
-    } satisfies PbcContinuationWorkerInput)
-
-    expect(result.finalStatus).toBe('succeeded')
-  })
-})
-
-// ===========================================================================
-// 7. PbcContinuationWorkerPort type contract
-// ===========================================================================
-
-describe('PbcContinuationWorkerPort type contract', () => {
-  test('makeFakeWorkerPort satisfies PbcContinuationWorkerPort structural type', () => {
-    // Type-only assertion: compile failure = red (structural mismatch)
-    const port: PbcContinuationWorkerPort =
-      makeFakeWorkerPort() as unknown as PbcContinuationWorkerPort
-    expect(port).toBeDefined()
-  })
-})
-
-// ===========================================================================
 // 8. RESUMABLE AWAITING — RED tests for T-03527
 //
 // These tests are RED against the current implementation (worker.ts lines 196-200)
@@ -1673,7 +1160,7 @@ describe('PbcContinuationWorkerPort type contract', () => {
 describe('runPbcContinuationWorker — awaiting: empty text within wait window (T-03527 behavior 1)', () => {
   // ── Core: non-terminal result when text not yet available ──────────────────
 
-  test('empty getFinalAssistantText → stopReason awaiting_participant_output, not failed', async () => {
+  test('empty final text within the wait window reports awaiting_participant_output (running) and leaves the run open', async () => {
     const port = makeFakeWorkerPort({
       finalText: undefined,
       nextSequence: [
@@ -1692,76 +1179,16 @@ describe('runPbcContinuationWorker — awaiting: empty text within wait window (
       actor: 'agent:pbc-writer',
     })
 
-    // Must return non-terminal "still waiting" result
+    // Must return non-terminal "still waiting" result; the open run is left live.
     expect(result.stopReason).toBe('awaiting_participant_output')
-    expect(result.finalStatus).not.toBe('failed')
-  })
-
-  test('empty getFinalAssistantText → evidence.add NOT called', async () => {
-    const port = makeFakeWorkerPort({
-      finalText: undefined,
-      nextSequence: [
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 1,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-      ],
-    })
-
-    await runPbcContinuationWorker(port, {
-      taskId: 'T-00001',
-      idempotencyKey: 'worker-await-02',
-      actor: 'agent:pbc-writer',
-    })
-
-    expect(port._calls.some((c) => c.method === 'evidence.add')).toBe(false)
-  })
-
-  test('empty getFinalAssistantText → transition.apply NOT called', async () => {
-    const port = makeFakeWorkerPort({
-      finalText: undefined,
-      nextSequence: [
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 1,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-      ],
-    })
-
-    await runPbcContinuationWorker(port, {
-      taskId: 'T-00001',
-      idempotencyKey: 'worker-await-03',
-      actor: 'agent:pbc-writer',
-    })
-
-    expect(port._calls.some((c) => c.method === 'transition.apply')).toBe(false)
-  })
-
-  test('empty getFinalAssistantText → run.fail NOT called (participant turn is still live)', async () => {
-    const port = makeFakeWorkerPort({
-      finalText: undefined,
-      nextSequence: [
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 1,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-      ],
-    })
-
-    await runPbcContinuationWorker(port, {
-      taskId: 'T-00001',
-      idempotencyKey: 'worker-await-04',
-      actor: 'agent:pbc-writer',
-    })
-
-    // run.fail must NOT be called: the participant (larry) is still running
-    expect(port._calls.some((c) => c.method === 'run.fail')).toBe(false)
+    for (const method of ['run.fail', 'run.finish', 'transition.apply', 'evidence.add']) {
+      expect(port._calls.filter((c) => c.method === method)).toHaveLength(0)
+    }
+    // The wait window starts: the first-miss timestamp is recorded for later timeout checks.
+    expect(
+      port._calls.filter((c) => c.method === 'captures.set').map((c) => c.params)
+    ).toMatchObject([{ captureKey: 'worker-await-01:output-wait-started-at:1' }])
+    expect(result.finalStatus).toBe('running')
   })
 
   // ── Job lease: renewed when awaiting, NOT transitioned to terminal ─────────
@@ -1896,7 +1323,7 @@ describe('runPbcContinuationWorker — resume: subsequent invocation with text (
     // All launchAcpRun calls must use the SAME idempotency key
     // (idempotent on :launch:revision — no new turn started on resume)
     const launchCalls = port._calls.filter((c) => c.method === 'launchAcpRun')
-    expect(launchCalls.length).toBeGreaterThanOrEqual(1)
+    expect(launchCalls).toHaveLength(2)
     const launchKeys = launchCalls.map(
       (c) => (c.params as Record<string, unknown>)['idempotencyKey']
     )
@@ -1916,20 +1343,12 @@ describe('runPbcContinuationWorker — timeout: max-wait exceeded (T-03527 behav
   // tracking key (contains 'wait' / 'await' / 'elapsed' / 'since').
   // Current code never checks captures when text is undefined — it fails immediately.
 
-  test('timeout exceeded → fails with missing_final_assistant_text AND elapsed time was checked via captures', async () => {
-    // Pre-seed captures to simulate that output-wait began 10 minutes ago
+  test('final text still missing after the max wait fails the run with missing_final_assistant_text', async () => {
+    // The wait window opened 10 minutes ago (recorded on the first miss).
     const TEN_MINUTES_AGO = new Date(Date.now() - 10 * 60 * 1000).toISOString()
-    const captureStore: Record<string, unknown> = {
-      // Cover plausible key shapes the implementation might use:
-      'worker-timeout-01:output-wait-started-at:1': TEN_MINUTES_AGO,
-      'worker-timeout-01:output-wait-start:1': TEN_MINUTES_AGO,
-      'worker-timeout-01:awaiting-since:1': TEN_MINUTES_AGO,
-      'worker-timeout-01:participant-wait-start:1': TEN_MINUTES_AGO,
-    }
-
     const port = makeFakeWorkerPort({
       finalText: undefined,
-      captureStore,
+      captureStore: { 'worker-timeout-01:output-wait-started-at:1': TEN_MINUTES_AGO },
       nextSequence: [
         makeNextRaw({
           status: 'active',
@@ -1946,58 +1365,15 @@ describe('runPbcContinuationWorker — timeout: max-wait exceeded (T-03527 behav
       actor: 'agent:pbc-writer',
     })
 
-    // Timeout path: fails with the canonical missing-text error
     expect(result.stopReason).toBe('missing_final_assistant_text')
     expect(result.finalStatus).toBe('failed')
-
-    // RED assertion: the implementation MUST check captures for elapsed time
-    // (so it can distinguish "within window" from "timeout exceeded").
-    // Current code never calls captures.get when text is undefined.
-    const captureGetCalls = port._calls.filter((c) => c.method === 'captures.get')
-    const elapsedKeyCall = captureGetCalls.find((c) => {
-      const key = String((c.params as Record<string, unknown>)['captureKey'] ?? '')
-      return (
-        key.includes('wait') ||
-        key.includes('await') ||
-        key.includes('elapsed') ||
-        key.includes('since')
-      )
-    })
-    expect(elapsedKeyCall).toBeDefined()
-  })
-
-  test('timeout: run.fail IS called when timeout exceeded (open run must be cleaned up)', async () => {
-    const TEN_MINUTES_AGO = new Date(Date.now() - 10 * 60 * 1000).toISOString()
-    const captureStore: Record<string, unknown> = {
-      'worker-timeout-02:output-wait-started-at:1': TEN_MINUTES_AGO,
-      'worker-timeout-02:output-wait-start:1': TEN_MINUTES_AGO,
-      'worker-timeout-02:awaiting-since:1': TEN_MINUTES_AGO,
-      'worker-timeout-02:participant-wait-start:1': TEN_MINUTES_AGO,
-    }
-
-    const port = makeFakeWorkerPort({
-      finalText: undefined,
-      captureStore,
-      nextSequence: [
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 1,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-      ],
-    })
-
-    await runPbcContinuationWorker(port, {
-      taskId: 'T-00001',
-      idempotencyKey: 'worker-timeout-02',
-      actor: 'agent:pbc-writer',
-    })
-
-    // On timeout (not on every awaiting tick), run.fail must be called
-    expect(port._calls.some((c) => c.method === 'run.fail')).toBe(true)
-    // run.finish must NOT be called (the run did not succeed)
-    expect(port._calls.some((c) => c.method === 'run.finish')).toBe(false)
+    // The elapsed time was read from the recorded wait start ...
+    expect(
+      port._calls.filter((c) => c.method === 'captures.get').map((c) => c.params)
+    ).toContainEqual({ captureKey: 'worker-timeout-01:output-wait-started-at:1' })
+    // ... and the open wrkf run is cleaned up as failed, never finished.
+    expect(port._calls.filter((c) => c.method === 'run.fail')).toHaveLength(1)
+    expect(port._calls.filter((c) => c.method === 'run.finish')).toHaveLength(0)
   })
 })
 
@@ -2108,128 +1484,127 @@ function extractLaunchPrompt(port: FakeWorkerPort): string | undefined {
   return (call.params as Record<string, unknown>)['prompt'] as string | undefined
 }
 
-describe('runPbcContinuationWorker — worker prompt content (T-03678)', () => {
-  // ── Test 1 (RED): behavior_note phase — prompt must contain rawFeedback ─────
-  //
-  // The pbc-writer's pre_interview_analysis asked "what is the actual product
-  // feedback?" because the prompt did not include the intake rawFeedback.
-  // After the fix, rawFeedback must appear verbatim in the compiled prompt.
+const RAW_FEEDBACK = 'dark mode toggle is missing from the settings page'
+const BN_CONTENT = 'User expects a dark-mode toggle in Settings > Display.'
+const CLARIF_ANSWER = 'Settings > Display > Theme — add a dark/light toggle control.'
+const DRAFT_CONTENT =
+  'When the user navigates to Settings > Display, they see a dark mode toggle that persists across sessions.'
+const DRAFT_EVIDENCE_ID = 'ev_draft_1'
 
-  test('behavior_note: compiled prompt contains intake_metadata rawFeedback string from priorEvidence [RED]', async () => {
-    const RAW_FEEDBACK = 'dark mode toggle is missing from the settings page'
+const DRAFT_PHASE_EVIDENCE = [
+  makeEvidenceRecord('ev_intake_1', 'intake_metadata', {
+    facts: { rawFeedback: 'dark mode toggle is missing' },
+  }),
+  makeEvidenceRecord('ev_bn_1', 'behavior_note', { facts: { content: BN_CONTENT } }),
+  makeEvidenceRecord('ev_cr_1', 'clarification_response', { facts: { answer: CLARIF_ANSWER } }),
+]
+const PRESSURE_PHASE_EVIDENCE = [
+  makeEvidenceRecord('ev_bn_1', 'behavior_note', {
+    facts: { content: 'User expects dark mode toggle in Settings.' },
+  }),
+  makeEvidenceRecord(DRAFT_EVIDENCE_ID, 'pbc_draft', {
+    facts: { content: DRAFT_CONTENT, iteration: 1 },
+  }),
+]
 
-    const port = makeFakeWorkerPort({
-      // finalText undefined → awaiting path; launchAcpRun still fires first
-      finalText: undefined,
+describe('runPbcContinuationWorker — worker prompt content (T-03678 template path, T-03755 fallback path)', () => {
+  // T-03678: the template path must embed prior-evidence CONTENT, not a summary list.
+  // T-03755: the fallback path (no next.instance.template — the live production case)
+  // must embed the same CONTEXT section, plus the draft evidence id the reviewer copies
+  // into reviewedDraftEvidenceId.
+  test.each([
+    {
+      path: 'template',
+      phase: 'behavior_note',
+      revision: 1,
+      actions: [{ transition: 'draft_pbc' }],
       evidence: [
         makeEvidenceRecord('ev_intake_1', 'intake_metadata', {
           facts: { rawFeedback: RAW_FEEDBACK },
         }),
       ],
-      nextSequence: [
-        makeNextRawWithTemplate({
-          phase: 'behavior_note',
-          revision: 1,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-      ],
-    })
-
-    await runPbcContinuationWorker(port, {
-      taskId: 'T-03678-bn',
-      idempotencyKey: 'prompt-content-bn-01',
-      actor: 'agent:pbc-writer',
-    })
-
-    const prompt = extractLaunchPrompt(port)
-    expect(prompt).toBeDefined()
-    // RED: current compilePbcPrompt renders "- intake_metadata (id: ev_intake_1)"
-    // — the rawFeedback string is NOT included anywhere in the prompt.
-    expect(prompt).toContain(RAW_FEEDBACK)
-  })
-
-  // ── Test 2 (RED): pbc_draft phase — prompt must contain behavior_note + clarif content
-
-  test('pbc_draft: compiled prompt contains behavior_note content and clarification_response answer from priorEvidence [RED]', async () => {
-    const BN_CONTENT = 'User expects a dark-mode toggle in Settings > Display.'
-    const CLARIF_ANSWER = 'Settings > Display > Theme — add a dark/light toggle control.'
-
-    const port = makeFakeWorkerPort({
-      finalText: undefined,
+      pressureActor: undefined,
+      mustContain: [RAW_FEEDBACK],
+    },
+    {
+      path: 'template',
+      phase: 'pbc_draft',
+      revision: 3,
+      actions: [{ transition: 'run_pressure_pass' }],
+      evidence: DRAFT_PHASE_EVIDENCE,
+      pressureActor: undefined,
+      mustContain: [BN_CONTENT, CLARIF_ANSWER],
+    },
+    {
+      path: 'template',
+      phase: 'pressure',
+      revision: 5,
+      // explicit pressure_reviewer role so participantFor returns pressure_reviewer
+      actions: [{ transition: 'finalize_ready_pbc', role: 'pressure_reviewer' }],
+      evidence: PRESSURE_PHASE_EVIDENCE,
+      pressureActor: 'agent:pbc-reviewer',
+      mustContain: [DRAFT_CONTENT],
+    },
+    {
+      path: 'fallback',
+      phase: 'behavior_note',
+      revision: 1,
+      actions: [{ transition: 'draft_pbc' }],
       evidence: [
         makeEvidenceRecord('ev_intake_1', 'intake_metadata', {
-          facts: { rawFeedback: 'dark mode toggle is missing' },
-        }),
-        makeEvidenceRecord('ev_bn_1', 'behavior_note', {
-          facts: { content: BN_CONTENT },
-        }),
-        makeEvidenceRecord('ev_cr_1', 'clarification_response', {
-          facts: { answer: CLARIF_ANSWER },
+          facts: { rawFeedback: RAW_FEEDBACK },
         }),
       ],
-      nextSequence: [
-        makeNextRawWithTemplate({
-          phase: 'pbc_draft',
-          revision: 3,
-          actions: [{ transition: 'run_pressure_pass' }],
-        }),
-      ],
-    })
-
-    await runPbcContinuationWorker(port, {
-      taskId: 'T-03678-draft',
-      idempotencyKey: 'prompt-content-draft-01',
-      actor: 'agent:pbc-writer',
-    })
-
-    const prompt = extractLaunchPrompt(port)
-    expect(prompt).toBeDefined()
-    // RED: current compilePbcPrompt only lists "- behavior_note (id: ev_bn_1)"
-    // — neither facts.content nor clarification_response facts.answer is included.
-    expect(prompt).toContain(BN_CONTENT)
-    expect(prompt).toContain(CLARIF_ANSWER)
-  })
-
-  // ── Test 3 (RED): pressure phase — prompt must contain current pbc_draft content
-
-  test('pressure: compiled prompt contains pbc_draft facts.content from priorEvidence [RED]', async () => {
-    const DRAFT_CONTENT =
-      'When the user navigates to Settings > Display, they see a dark mode toggle that persists across sessions.'
-
-    const port = makeFakeWorkerPort({
-      finalText: undefined,
-      evidence: [
-        makeEvidenceRecord('ev_bn_1', 'behavior_note', {
-          facts: { content: 'User expects dark mode toggle in Settings.' },
-        }),
-        makeEvidenceRecord('ev_draft_1', 'pbc_draft', {
-          facts: { content: DRAFT_CONTENT, iteration: 1 },
-        }),
-      ],
-      nextSequence: [
-        makeNextRawWithTemplate({
-          phase: 'pressure',
-          revision: 5,
-          // explicit pressure_reviewer role so participantFor returns pressure_reviewer
-          actions: [{ transition: 'finalize_ready_pbc', role: 'pressure_reviewer' }],
-        }),
-      ],
-    })
-
-    await runPbcContinuationWorker(port, {
-      taskId: 'T-03678-pressure',
-      idempotencyKey: 'prompt-content-pressure-01',
-      actor: 'agent:pbc-writer',
-      // distinct pressureActor so the SoD check in pbcWorkerPolicy passes
+      pressureActor: undefined,
+      mustContain: [RAW_FEEDBACK],
+    },
+    {
+      path: 'fallback',
+      phase: 'pbc_draft',
+      revision: 3,
+      actions: [{ transition: 'run_pressure_pass' }],
+      evidence: DRAFT_PHASE_EVIDENCE,
+      pressureActor: undefined,
+      mustContain: [BN_CONTENT, CLARIF_ANSWER],
+    },
+    {
+      path: 'fallback',
+      phase: 'pressure',
+      revision: 5,
+      // non-finalization transition avoids the SoD stop check
+      actions: [{ transition: 'request_patch_decision' }],
+      evidence: PRESSURE_PHASE_EVIDENCE,
       pressureActor: 'agent:pbc-reviewer',
-    })
+      mustContain: [DRAFT_CONTENT, DRAFT_EVIDENCE_ID],
+    },
+  ])(
+    'the $phase launch prompt ($path path) embeds the prior evidence content the phase needs',
+    async ({ path, phase, revision, actions, evidence, pressureActor, mustContain }) => {
+      const next =
+        path === 'template'
+          ? makeNextRawWithTemplate({ phase, revision, actions })
+          : makeNextRaw({ status: 'active', phase, revision, actions })
+      const port = makeFakeWorkerPort({
+        // finalText undefined → awaiting path; launchAcpRun still fires first
+        finalText: undefined,
+        evidence,
+        nextSequence: [next],
+      })
 
-    const prompt = extractLaunchPrompt(port)
-    expect(prompt).toBeDefined()
-    // RED: current compilePbcPrompt only lists "- pbc_draft (id: ev_draft_1)"
-    // — the draft text (facts.content) is NOT embedded in the prompt.
-    expect(prompt).toContain(DRAFT_CONTENT)
-  })
+      await runPbcContinuationWorker(port, {
+        taskId: `T-prompt-${path}-${phase}`,
+        idempotencyKey: `prompt-content-${path}-${phase}`,
+        actor: 'agent:pbc-writer',
+        ...(pressureActor !== undefined ? { pressureActor } : {}),
+      })
+
+      const prompt = extractLaunchPrompt(port)
+      expect(prompt).toBeDefined()
+      for (const text of mustContain) {
+        expect(prompt).toContain(text)
+      }
+    }
+  )
 
   // ── Test 4 (GREEN): strict-JSON directive + per-phase schema always present ──
   //
@@ -2264,160 +1639,5 @@ describe('runPbcContinuationWorker — worker prompt content (T-03678)', () => {
     // The old strict-JSON-emit contract is gone.
     expect(prompt).not.toContain('## Output contract — STRICT')
     expect(prompt).not.toContain('ParticipantOutput')
-  })
-})
-
-// ===========================================================================
-// 11. WORKER PROMPT CONTENT — FALLBACK PATH (T-03755)
-//
-// RED tests: compileWorkerPrompt FALLBACK (triggered when next.instance.template
-// is absent — the live production case) must ALSO embed the CONTEXT section with
-// raw product feedback and per-phase prior-evidence content.
-//
-// Root cause: T-03678 added the CONTEXT section only inside compilePbcPrompt
-// (the template path). compileWorkerPrompt's fallback (worker.ts ~line 569) emits
-// only Task/Role/Actor/Workflow-state + strict directive + schema — NO context.
-// Live next has no template → fallback is used → agents write content-blind.
-//
-// These three tests force the FALLBACK path (next.instance.template is UNDEFINED)
-// and assert content that the fallback currently omits. All three FAIL now.
-// The existing T-03678 tests (template path) must remain GREEN through the fix.
-// ===========================================================================
-
-describe('runPbcContinuationWorker — worker prompt content FALLBACK path (T-03755)', () => {
-  // ── Test 1 (RED): behavior_note phase, fallback → must contain rawFeedback ──────
-  //
-  // FAILS NOW: compileWorkerPrompt fallback omits the CONTEXT section entirely.
-  // extractRawFeedback / PHASE_CONTEXT_KINDS are only applied in compilePbcPrompt
-  // (template path). The fallback only emits Task/Role/Actor/Workflow-state header
-  // + STRICT_OUTPUT_DIRECTIVE + PARTICIPANT_OUTPUT_SCHEMA.
-
-  test('behavior_note fallback: compiled prompt contains intake_metadata rawFeedback string [RED]', async () => {
-    const RAW_FEEDBACK = 'dark mode toggle is missing from the settings page'
-
-    const port = makeFakeWorkerPort({
-      // finalText undefined → awaiting_participant_output path; launchAcpRun still fires
-      finalText: undefined,
-      evidence: [
-        makeEvidenceRecord('ev_intake_1', 'intake_metadata', {
-          facts: { rawFeedback: RAW_FEEDBACK },
-        }),
-      ],
-      nextSequence: [
-        // NO template on instance → tryCompileTemplatePrompt returns undefined → fallback
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 1,
-          actions: [{ transition: 'draft_pbc' }],
-        }),
-      ],
-    })
-
-    await runPbcContinuationWorker(port, {
-      taskId: 'T-03755-bn',
-      idempotencyKey: 'prompt-fallback-bn-01',
-      actor: 'agent:pbc-writer',
-    })
-
-    const prompt = extractLaunchPrompt(port)
-    expect(prompt).toBeDefined()
-    // RED: fallback prompt has no context section — rawFeedback absent
-    expect(prompt).toContain(RAW_FEEDBACK)
-  })
-
-  // ── Test 2 (RED): pbc_draft phase, fallback → must contain behavior_note + clarif content ──
-  //
-  // FAILS NOW: fallback emits no prior-evidence content. The pbc-writer needs
-  // behavior_note content + clarification_response answer to draft a grounded PBC.
-
-  test('pbc_draft fallback: compiled prompt contains behavior_note content and clarification_response answer [RED]', async () => {
-    const BN_CONTENT = 'User expects a dark-mode toggle in Settings > Display.'
-    const CLARIF_ANSWER = 'Settings > Display > Theme — add a dark/light toggle control.'
-
-    const port = makeFakeWorkerPort({
-      finalText: undefined,
-      evidence: [
-        makeEvidenceRecord('ev_intake_1', 'intake_metadata', {
-          facts: { rawFeedback: 'dark mode toggle is missing' },
-        }),
-        makeEvidenceRecord('ev_bn_1', 'behavior_note', {
-          facts: { content: BN_CONTENT },
-        }),
-        makeEvidenceRecord('ev_cr_1', 'clarification_response', {
-          facts: { answer: CLARIF_ANSWER },
-        }),
-      ],
-      nextSequence: [
-        // NO template on instance → fallback path
-        makeNextRaw({
-          status: 'active',
-          phase: 'pbc_draft',
-          revision: 3,
-          actions: [{ transition: 'run_pressure_pass' }],
-        }),
-      ],
-    })
-
-    await runPbcContinuationWorker(port, {
-      taskId: 'T-03755-draft',
-      idempotencyKey: 'prompt-fallback-draft-01',
-      actor: 'agent:pbc-writer',
-    })
-
-    const prompt = extractLaunchPrompt(port)
-    expect(prompt).toBeDefined()
-    // RED: fallback prompt has no context — neither BN_CONTENT nor CLARIF_ANSWER present
-    expect(prompt).toContain(BN_CONTENT)
-    expect(prompt).toContain(CLARIF_ANSWER)
-  })
-
-  // ── Test 3 (RED): pressure phase, fallback → must contain pbc_draft content AND evidence id ──
-  //
-  // FAILS NOW: fallback omits all prior-evidence content. Both assertions are RED:
-  // (a) pbc_draft content — reviewer can't evaluate what it can't see.
-  // (b) pbc_draft evidence id — pbc-reviewer MUST copy this into
-  //     reviewedDraftEvidenceId so the finalize gate can close.
-
-  test('pressure fallback: compiled prompt contains pbc_draft content AND pbc_draft evidence id [RED]', async () => {
-    const DRAFT_CONTENT =
-      'When the user navigates to Settings > Display, they see a dark mode toggle that persists across sessions.'
-    const DRAFT_EVIDENCE_ID = 'ev_draft_fallback_1'
-
-    const port = makeFakeWorkerPort({
-      finalText: undefined,
-      evidence: [
-        makeEvidenceRecord('ev_bn_1', 'behavior_note', {
-          facts: { content: 'User expects dark mode toggle in Settings.' },
-        }),
-        makeEvidenceRecord(DRAFT_EVIDENCE_ID, 'pbc_draft', {
-          facts: { content: DRAFT_CONTENT, iteration: 1 },
-        }),
-      ],
-      nextSequence: [
-        // NO template on instance → fallback path.
-        // Use request_patch_decision (non-finalization) to avoid SoD stop check.
-        makeNextRaw({
-          status: 'active',
-          phase: 'pressure',
-          revision: 5,
-          actions: [{ transition: 'request_patch_decision' }],
-        }),
-      ],
-    })
-
-    await runPbcContinuationWorker(port, {
-      taskId: 'T-03755-pressure',
-      idempotencyKey: 'prompt-fallback-pressure-01',
-      actor: 'agent:pbc-writer',
-      pressureActor: 'agent:pbc-reviewer',
-    })
-
-    const prompt = extractLaunchPrompt(port)
-    expect(prompt).toBeDefined()
-    // RED: fallback prompt has no context section — draft content absent
-    expect(prompt).toContain(DRAFT_CONTENT)
-    // RED: evidence id absent — reviewer cannot set reviewedDraftEvidenceId
-    expect(prompt).toContain(DRAFT_EVIDENCE_ID)
   })
 })

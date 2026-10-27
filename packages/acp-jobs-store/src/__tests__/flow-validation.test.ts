@@ -31,14 +31,6 @@ function expectError(
 }
 
 describe('JobFlow validation', () => {
-  test('accepts a minimal concrete-input flow', () => {
-    expect(
-      validateJobFlow({
-        sequence: [{ id: 'work', input: 'Do the work.' }],
-      })
-    ).toEqual({ valid: true })
-  })
-
   test('rejects missing and empty sequence arrays', () => {
     expectCodes(validateJobFlow({}), ['missing_sequence'])
     expectCodes(validateJobFlow({ sequence: [] }), ['empty_sequence'])
@@ -68,36 +60,21 @@ describe('JobFlow validation', () => {
     )
   })
 
-  test('accepts a known native probe with outcome branches to idle and work targets', () => {
-    // T-05417 RED: probe is a server-side named registry lookup, not an exec script.
+  // T-05417 / T-05433: probes are server-side named registry lookups, not exec scripts.
+  test.each([
+    ['hrc-stale-tty-reap.v1', 'reap'],
+    ['wrkq-refactor-eligible.v1', 'refactor'],
+  ])('accepts registered native probe %s with idle/work outcome branches', (name, workStep) => {
     expect(
       validateJobFlow({
         sequence: [
           {
             id: 'gate',
             kind: 'probe',
-            probe: { name: 'hrc-stale-tty-reap.v1' },
-            branches: { outcome: { idle: 'succeed', work: 'reap' } },
+            probe: { name },
+            branches: { outcome: { idle: 'succeed', work: workStep } },
           },
-          { id: 'reap', input: 'Reap stale HRC TTY sessions.' },
-        ],
-      })
-    ).toEqual({ valid: true })
-  })
-
-  test('accepts the wrkq refactor eligibility native probe with outcome branches', () => {
-    // T-05433 RED: cody's wrkq-refactor schedule should use a native in-process probe,
-    // preserving the idle/work branch contract while removing the exec preflight.
-    expect(
-      validateJobFlow({
-        sequence: [
-          {
-            id: 'eligible',
-            kind: 'probe',
-            probe: { name: 'wrkq-refactor-eligible.v1' },
-            branches: { outcome: { idle: 'succeed', work: 'refactor' } },
-          },
-          { id: 'refactor', input: 'Run the wrkq refactor workflow.' },
+          { id: workStep, input: 'Do the probed work.' },
         ],
       })
     ).toEqual({ valid: true })
@@ -151,14 +128,31 @@ describe('JobFlow validation', () => {
     )
   })
 
-  test('rejects duplicate step ids across phases', () => {
-    expectCodes(
-      validateJobFlow({
+  test.each([
+    [
+      'within a phase',
+      {
+        sequence: [
+          { id: 'work', input: 'Do the work.' },
+          { id: 'work', input: 'Do it again.' },
+        ],
+      },
+      'flow.sequence[1].id',
+    ],
+    [
+      'across phases',
+      {
         sequence: [{ id: 'work', input: 'Do the work.' }],
         onFailure: [{ id: 'work', input: 'Report failure.' }],
-      }),
-      ['duplicate_step_id']
-    )
+      },
+      'flow.onFailure[0].id',
+    ],
+  ])('rejects duplicate step ids %s at the second occurrence', (_label, flow, path) => {
+    const result = validateJobFlow(flow)
+    expect(result.valid).toBe(false)
+    if (!result.valid) {
+      expect(result.errors).toEqual([expect.objectContaining({ code: 'duplicate_step_id', path })])
+    }
   })
 
   test('rejects missing input, both input fields, and server-side inputFile', () => {
@@ -341,45 +335,50 @@ describe('JobFlow validation', () => {
       })
     ).toEqual({ valid: true })
 
-    expectCodes(
-      validateJobFlow({
-        sequence: [
-          { id: 'missing-exec', kind: 'exec' },
-          { id: 'empty-argv', kind: 'exec', exec: { argv: [] } },
-          { id: 'blank-arg', kind: 'exec', exec: { argv: ['bun', ''] } },
-          { id: 'shell-string', kind: 'exec', exec: { command: 'bun run test' } },
-          { id: 'bad-cwd', kind: 'exec', exec: { argv: ['bun'], cwd: '' } },
-          { id: 'bad-env', kind: 'exec', exec: { argv: ['bun'], env: { CI: true } } },
-          { id: 'bad-timeout', kind: 'exec', exec: { argv: ['bun'], timeout: '5 minutes' } },
-          { id: 'bad-output-zero', kind: 'exec', exec: { argv: ['bun'], maxOutputBytes: 0 } },
-          {
-            id: 'bad-success-exit-codes-empty',
-            kind: 'exec',
-            exec: { argv: ['bun'], successExitCodes: [] },
-          },
-          {
-            id: 'bad-success-exit-codes-value',
-            kind: 'exec',
-            exec: { argv: ['bun'], successExitCodes: [0, 300] },
-          },
-          {
-            id: 'bad-output-too-large',
-            kind: 'exec',
-            exec: { argv: ['bun'], maxOutputBytes: Number.MAX_SAFE_INTEGER },
-          },
-        ],
-      }),
-      [
-        'missing_exec',
-        'invalid_exec_argv',
-        'invalid_exec_command',
-        'invalid_exec_cwd',
-        'invalid_exec_env',
-        'invalid_exec_timeout',
-        'invalid_exec_max_output_bytes',
-        'invalid_exec_success_exit_codes',
-      ]
-    )
+    const invalid = validateJobFlow({
+      sequence: [
+        { id: 'missing-exec', kind: 'exec' },
+        { id: 'empty-argv', kind: 'exec', exec: { argv: [] } },
+        { id: 'blank-arg', kind: 'exec', exec: { argv: ['bun', ''] } },
+        { id: 'shell-string', kind: 'exec', exec: { command: 'bun run test' } },
+        { id: 'bad-cwd', kind: 'exec', exec: { argv: ['bun'], cwd: '' } },
+        { id: 'bad-env', kind: 'exec', exec: { argv: ['bun'], env: { CI: true } } },
+        { id: 'bad-timeout', kind: 'exec', exec: { argv: ['bun'], timeout: '5 minutes' } },
+        { id: 'bad-output-zero', kind: 'exec', exec: { argv: ['bun'], maxOutputBytes: 0 } },
+        {
+          id: 'bad-success-exit-codes-empty',
+          kind: 'exec',
+          exec: { argv: ['bun'], successExitCodes: [] },
+        },
+        {
+          id: 'bad-success-exit-codes-value',
+          kind: 'exec',
+          exec: { argv: ['bun'], successExitCodes: [0, 300] },
+        },
+        {
+          id: 'bad-output-too-large',
+          kind: 'exec',
+          exec: { argv: ['bun'], maxOutputBytes: Number.MAX_SAFE_INTEGER },
+        },
+      ],
+    })
+    expect(invalid.valid).toBe(false)
+    if (!invalid.valid) {
+      expect(invalid.errors.map((error) => [error.code, error.path])).toEqual([
+        ['missing_exec', 'flow.sequence[0].exec'],
+        ['invalid_exec_argv', 'flow.sequence[1].exec.argv'],
+        ['invalid_exec_argv', 'flow.sequence[2].exec.argv'],
+        ['invalid_exec_command', 'flow.sequence[3].exec.command'],
+        ['invalid_exec_argv', 'flow.sequence[3].exec.argv'],
+        ['invalid_exec_cwd', 'flow.sequence[4].exec.cwd'],
+        ['invalid_exec_env', 'flow.sequence[5].exec.env'],
+        ['invalid_exec_timeout', 'flow.sequence[6].exec.timeout'],
+        ['invalid_exec_max_output_bytes', 'flow.sequence[7].exec.maxOutputBytes'],
+        ['invalid_exec_success_exit_codes', 'flow.sequence[8].exec.successExitCodes'],
+        ['invalid_exec_success_exit_codes', 'flow.sequence[9].exec.successExitCodes'],
+        ['invalid_exec_max_output_bytes', 'flow.sequence[10].exec.maxOutputBytes'],
+      ])
+    }
   })
 
   test('validates exec branch and next targets within the same phase', () => {
@@ -399,29 +398,42 @@ describe('JobFlow validation', () => {
       })
     ).toEqual({ valid: true })
 
-    expectCodes(
-      validateJobFlow({
-        sequence: [
-          execStep('build', ['bun', 'run', 'build'], {
-            next: 'notify',
-            branches: {
-              exitCode: {
-                '-1': 'test',
-                '1.5': 'test',
-                '256': 'test',
-                abc: 'test',
-                '2': 'missing',
-                '3': 'notify',
-              },
-              default: 'missing',
+    const invalid = validateJobFlow({
+      sequence: [
+        execStep('build', ['bun', 'run', 'build'], {
+          next: 'notify',
+          branches: {
+            exitCode: {
+              '-1': 'test',
+              '1.5': 'test',
+              '256': 'test',
+              abc: 'test',
+              '2': 'missing',
+              '3': 'notify',
             },
-          }),
-          execStep('test', ['bun', 'run', 'test']),
-        ],
-        onFailure: [{ id: 'notify', input: 'Report failure.' }],
-      }),
-      ['invalid_branch_exit_code', 'invalid_flow_next']
-    )
+            default: 'missing',
+          },
+        }),
+        execStep('test', ['bun', 'run', 'test']),
+      ],
+      onFailure: [{ id: 'notify', input: 'Report failure.' }],
+    })
+    expect(invalid.valid).toBe(false)
+    if (!invalid.valid) {
+      expect(invalid.errors.map((error) => [error.code, error.path])).toEqual(
+        expect.arrayContaining([
+          ['invalid_branch_exit_code', 'flow.sequence[0].branches.exitCode.-1'],
+          ['invalid_branch_exit_code', 'flow.sequence[0].branches.exitCode.1.5'],
+          ['invalid_branch_exit_code', 'flow.sequence[0].branches.exitCode.256'],
+          ['invalid_branch_exit_code', 'flow.sequence[0].branches.exitCode.abc'],
+          ['invalid_flow_next', 'flow.sequence[0].next'],
+          ['invalid_flow_next', 'flow.sequence[0].branches.exitCode.2'],
+          ['invalid_flow_next', 'flow.sequence[0].branches.exitCode.3'],
+          ['invalid_flow_next', 'flow.sequence[0].branches.default'],
+        ])
+      )
+      expect(invalid.errors).toHaveLength(8)
+    }
   })
 
   test('rejects phase-local cycles through implicit, next, and exec branch edges', () => {

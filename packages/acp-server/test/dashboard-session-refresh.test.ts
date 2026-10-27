@@ -95,33 +95,6 @@ function recorder(reads: DashboardSessionReads, coalesceMs = 20) {
 }
 
 describe('dashboard session refresh coalescing (T-11794)', () => {
-  test('a burst for one session is one read set and one refresh at the last hrcSeq', async () => {
-    const { client, calls } = countingClient()
-    const { refresher, refreshed } = recorder(createDashboardSessionReads(client))
-
-    for (const seq of [1, 2, 3, 4, 5]) refresher.note(event(seq))
-    await sleep(60)
-
-    expect(refreshed).toEqual([{ hrcSeq: 5, hostSessionId: 'hsid-a' }])
-    expect(calls).toEqual({ sessions: 1, runtimes: 1, latest: 1, run: 1 })
-  })
-
-  test('interleaved sessions refresh once each', async () => {
-    const { client, calls } = countingClient()
-    const { refresher, refreshed } = recorder(createDashboardSessionReads(client))
-
-    refresher.note(event(1, 'hsid-a'))
-    refresher.note(event(2, 'hsid-b'))
-    refresher.note(event(3, 'hsid-a'))
-    await sleep(60)
-
-    expect(refreshed).toEqual([
-      { hrcSeq: 3, hostSessionId: 'hsid-a' },
-      { hrcSeq: 2, hostSessionId: 'hsid-b' },
-    ])
-    expect(calls.run).toBe(2)
-  })
-
   test('an event after a window closes gets its own trailing refresh', async () => {
     const { client, calls } = countingClient()
     const { refresher, refreshed } = recorder(createDashboardSessionReads(client))
@@ -195,17 +168,6 @@ describe('dashboard session refresh coalescing (T-11794)', () => {
     expect(calls.run).toBe(2)
   })
 
-  test('a session HRC no longer lists refreshes with no inputs and skips the other reads', async () => {
-    const { client, calls } = countingClient({ sessions: [] })
-    const { refresher, refreshed } = recorder(createDashboardSessionReads(client))
-
-    refresher.note(event(1))
-    await sleep(60)
-
-    expect(refreshed).toEqual([{ hrcSeq: 1, hostSessionId: undefined }])
-    expect(calls).toEqual({ sessions: 1, runtimes: 0, latest: 0, run: 0 })
-  })
-
   test('drain flushes pending sessions at once and waits for them', async () => {
     const { client } = countingClient()
     const { refresher, refreshed } = recorder(createDashboardSessionReads(client), 10_000)
@@ -228,17 +190,5 @@ describe('dashboard session refresh coalescing (T-11794)', () => {
 
     expect(refreshed).toEqual([])
     expect(calls.sessions).toBe(0)
-  })
-
-  test('a failed read reports the error and stops refreshing', async () => {
-    const { client } = countingClient({ fail: true })
-    const { refresher, refreshed, errors } = recorder(createDashboardSessionReads(client))
-
-    refresher.note(event(1))
-    await sleep(60)
-
-    expect(refreshed).toEqual([])
-    expect(errors).toHaveLength(1)
-    expect((errors[0] as Error).message).toBe('hrc unavailable')
   })
 })

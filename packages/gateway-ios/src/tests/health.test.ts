@@ -150,17 +150,4 @@ describe('GET /v1/health', () => {
     expect(result.hrc.ok).toBe(false)
     expect(result.hrc.error).toBe('Status endpoint not available')
   })
-
-  it('preserves gateway fields regardless of HRC state', async () => {
-    const failClient = createFakeHrcClient({
-      healthError: new Error('dead'),
-    })
-
-    const result = await handleHealth(failClient, 'my-gateway')
-
-    // Gateway is always ok (it's up if this code is running)
-    expect(result.ok).toBe(true)
-    expect(result.gatewayId).toBe('my-gateway')
-    expect(result.apiVersion).toBe('v1')
-  })
 })

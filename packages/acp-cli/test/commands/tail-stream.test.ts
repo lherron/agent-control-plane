@@ -37,6 +37,26 @@ describe('acp tail — incremental streaming', () => {
     })
   })
 
+  test('JSON streaming handles split records and a final record without a newline', async () => {
+    const encoder = new TextEncoder()
+    const first = JSON.stringify({ hrcSeq: 1, eventKind: 'split' })
+    const second = JSON.stringify({ hrcSeq: 99 })
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(first.slice(0, 10)))
+        controller.enqueue(encoder.encode(`${first.slice(10)}\n${second}`))
+        controller.close()
+      },
+    })
+    const output = await runTailCommand(['--session', 'hsid-split', '--json'], {
+      fetchImpl: async () => new Response(body, { status: 200 }),
+    })
+    expect(output).toEqual({
+      format: 'json',
+      body: [{ hrcSeq: 1, eventKind: 'split' }, { hrcSeq: 99 }],
+    })
+  })
+
   test('--table renders events in table format', async () => {
     const events = [{ hrcSeq: 10, eventKind: 'turn.message', hostSessionId: 'hsid-2', ts: 'T1' }]
     const ndjson = `${events.map((e) => JSON.stringify(e)).join('\n')}\n`
@@ -87,6 +107,7 @@ describe('acp tail — incremental streaming', () => {
     const encoder = new TextEncoder()
     const writtenLines: string[] = []
     let streamClosed = false
+    const closedAtWrite: boolean[] = []
 
     const line1 = `${JSON.stringify({ hrcSeq: 1, eventKind: 'turn.start' })}\n`
     const line2 = `${JSON.stringify({ hrcSeq: 2, eventKind: 'turn.end' })}\n`
@@ -118,6 +139,7 @@ describe('acp tail — incremental streaming', () => {
     process.stdout.write = ((chunk: string | ArrayBufferView | ArrayBuffer, ...rest: unknown[]) => {
       if (typeof chunk === 'string') {
         writtenLines.push(chunk.trim())
+        closedAtWrite.push(streamClosed)
       }
       const callback = rest.find((value) => typeof value === 'function') as (() => void) | undefined
       callback?.()
@@ -133,6 +155,7 @@ describe('acp tail — incremental streaming', () => {
     // Both records should have been written
     expect(writtenLines.length).toBeGreaterThanOrEqual(2)
     expect(writtenLines[0]).toContain('"hrcSeq":1')
+    expect(closedAtWrite[0]).toBe(false)
     expect(writtenLines[1]).toContain('"hrcSeq":2')
     // And the stream should have been fully consumed
     expect(streamClosed).toBe(true)

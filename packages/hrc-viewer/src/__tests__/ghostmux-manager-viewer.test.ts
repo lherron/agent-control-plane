@@ -189,30 +189,34 @@ describe('GhostmuxManager.ensureHeadlessViewer (consolidated window/tab/pane)', 
     expect(fake.calls.filter((c) => c[0] === 'new-pane')).toHaveLength(0)
   })
 
-  it('reuse rebinds the pane to the new runtime and creates no new surface (fence)', async () => {
-    const fake = makeFakeGhostmux()
-    const manager = new GhostmuxManager('ghostmux', fake.runner)
+  it.each([cloRef, 'agent:cody:project:agent-loop:task:T-06319:role:tester'])(
+    'reuse rebinds %s to the new runtime and creates no new surface (fence)',
+    async (scopeRef) => {
+      const fake = makeFakeGhostmux()
+      const manager = new GhostmuxManager('ghostmux', fake.runner)
 
-    await manager.ensureHeadlessViewer({
-      identity: fixtureIdentity(cloRef),
-      scopeRef: cloRef,
-      runtimeId: 'rt-1',
-      attachCommand: 'a1',
-    })
-    const before = fake.liveIds().length
-    const result = await manager.ensureHeadlessViewer({
-      identity: fixtureIdentity(cloRef),
-      scopeRef: cloRef,
-      runtimeId: 'rt-2',
-      attachCommand: 'a2',
-    })
+      await manager.ensureHeadlessViewer({
+        identity: fixtureIdentity(scopeRef),
+        scopeRef,
+        runtimeId: 'rt-1',
+        attachCommand: 'a1',
+      })
+      const before = fake.liveIds().length
+      const result = await manager.ensureHeadlessViewer({
+        identity: fixtureIdentity(scopeRef),
+        scopeRef,
+        runtimeId: 'rt-2',
+        attachCommand: 'a2',
+      })
 
-    expect(result.status).toBe('reused')
-    expect(fake.liveIds().length).toBe(before)
-    // Metadata rebound to the CURRENT runtime BEFORE returning (daedalus C5).
-    const paneId = fake.agentPanes()[0]?.[0]
-    expect(fake.surfaceMeta(paneId ?? '')?.['hrc_runtime_id']).toBe('rt-2')
-  })
+      expect(result.status).toBe('reused')
+      expect(fake.liveIds().length).toBe(before)
+      // Metadata rebound to the CURRENT runtime BEFORE returning (daedalus C5).
+      expect(fake.agentPanes()).toHaveLength(1)
+      const paneId = fake.agentPanes()[0]?.[0]
+      expect(fake.surfaceMeta(paneId ?? '')?.['hrc_runtime_id']).toBe('rt-2')
+    }
+  )
 
   it('reattaches a changed target once, preserving the surface across reconcile and restart', async () => {
     const fake = makeFakeGhostmux()
@@ -414,7 +418,13 @@ describe('GhostmuxManager.ensureHeadlessViewer (consolidated window/tab/pane)', 
     await Promise.resolve()
     const paneId = fake.agentPanes()[0]?.[0]
     expect(fake.calls).toContainEqual(['set-bg', '-t', paneId, '#1e1631', '--json'])
-    expect(fake.calls.some((c) => c[0] === 'statusbar')).toBe(true)
+    expect(fake.calls).toContainEqual([
+      'statusbar',
+      'set',
+      '-t',
+      paneId,
+      '◆ CLOD|hrc-runtime|▶ running',
+    ])
   })
 
   // -------------------------------------------------------------------------
@@ -508,29 +518,5 @@ describe('GhostmuxManager.ensureHeadlessViewer (consolidated window/tab/pane)', 
       new Set(['main', 'lane:forked'])
     )
     expect(new Set(panes.map(([, s]) => s.surfaceMeta['hrc_pane_key'])).size).toBe(2)
-  })
-
-  it('a newer runtime of the exact same (scope, lane) REUSES its pane (AC7 unchanged)', async () => {
-    const fake = makeFakeGhostmux()
-    const manager = new GhostmuxManager('ghostmux', fake.runner)
-
-    await manager.ensureHeadlessViewer({
-      identity: fixtureIdentity(`${codyBase}:role:tester`),
-      scopeRef: `${codyBase}:role:tester`,
-      runtimeId: 'rt-1',
-      attachCommand: 'a1',
-    })
-    const before = fake.liveIds().length
-    const result = await manager.ensureHeadlessViewer({
-      identity: fixtureIdentity(`${codyBase}:role:tester`),
-      scopeRef: `${codyBase}:role:tester`,
-      runtimeId: 'rt-2',
-      attachCommand: 'a2',
-    })
-
-    expect(result.status).toBe('reused')
-    expect(fake.liveIds().length).toBe(before)
-    expect(fake.agentPanes()).toHaveLength(1)
-    expect(fake.agentPanes()[0]?.[1].surfaceMeta['hrc_runtime_id']).toBe('rt-2')
   })
 })

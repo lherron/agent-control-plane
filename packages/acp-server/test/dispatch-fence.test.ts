@@ -158,34 +158,43 @@ describe('ACP dispatch fences', () => {
         }) as unknown as any,
     })
 
-    await launcher({
-      sessionRef: {
-        scopeRef: 'agent:rex:project:agent-spaces',
-        laneRef: 'main',
+    await withWiredServer(
+      async (fixture) => {
+        addInterfaceBinding(fixture)
+
+        const response = await postInterfaceMessage(fixture)
+        const [storedRun] = fixture.runStore.listRuns()
+
+        expect(response.status).toBe(201)
+        expect(dispatchCalls).toHaveLength(1)
+        expect(dispatchCalls[0]).toEqual(
+          expect.objectContaining({
+            hostSessionId: 'hsid-123',
+            prompt: 'Please summarize the status of T-01163.',
+            fences: {
+              expectedHostSessionId: 'hsid-123',
+              expectedGeneration: 4,
+            },
+          })
+        )
+        expect(storedRun).toMatchObject({
+          dispatchFence: {
+            expectedHostSessionId: 'hsid-123',
+            expectedGeneration: 4,
+          },
+        })
       },
-      intent: {
-        placement: {
-          agentRoot: '/tmp/rex',
+      {
+        runtimeResolver: async () => ({
+          agentRoot: '/tmp/agents/curly',
+          projectRoot: '/tmp/project',
+          cwd: '/tmp/project',
           runMode: 'task',
           bundle: { kind: 'compose', compose: [] },
-        },
-        harness: {
-          provider: 'openai',
-          interactive: false,
-        },
-        initialPrompt: 'remember chartreuse',
-      },
-    })
-
-    expect(dispatchCalls[0]).toEqual(
-      expect.objectContaining({
-        hostSessionId: 'hsid-123',
-        prompt: 'remember chartreuse',
-        fences: {
-          expectedHostSessionId: 'hsid-123',
-          expectedGeneration: 4,
-        },
-      })
+          harness: { provider: 'openai', interactive: true },
+        }),
+        launchRoleScopedRun: launcher,
+      }
     )
   })
 
@@ -280,24 +289,47 @@ describe('ACP dispatch fences', () => {
     })
 
     try {
-      await launcher({
-        sessionRef: {
-          scopeRef: 'agent:cody:project:agent-spaces:task:discord',
-          laneRef: 'main',
+      await withWiredServer(
+        async (fixture) => {
+          fixture.interfaceStore.bindings.create({
+            bindingId: 'ifb_cody_discord',
+            gatewayId: 'discord_prod',
+            conversationRef: 'channel:cody',
+            scopeRef: 'agent:cody:project:agent-spaces:task:discord',
+            laneRef: 'main',
+            projectId: 'agent-spaces',
+            status: 'active',
+            createdAt: '2026-04-21T17:00:00.000Z',
+            updatedAt: '2026-04-21T17:00:00.000Z',
+          })
+
+          const response = await fixture.request({
+            method: 'POST',
+            path: '/v1/interface/messages',
+            body: {
+              source: {
+                gatewayId: 'discord_prod',
+                conversationRef: 'channel:cody',
+                messageRef: 'discord:message:tmux',
+                authorRef: 'discord:user:999',
+              },
+              content: 'What is 2+2?',
+            },
+          })
+          expect(response.status).toBe(201)
         },
-        intent: {
-          placement: {
+        {
+          runtimeResolver: async () => ({
             agentRoot: '/tmp/cody',
+            projectRoot: '/tmp/project',
+            cwd: '/tmp/project',
             runMode: 'task',
             bundle: { kind: 'compose', compose: [] },
-          },
-          harness: {
-            provider: 'openai',
-            interactive: false,
-          },
-          initialPrompt: 'What is 2+2?',
-        },
-      })
+            harness: { provider: 'openai', interactive: false },
+          }),
+          launchRoleScopedRun: launcher,
+        }
+      )
 
       expect(resolveCalls).toHaveLength(1)
       expect(deliverCalls).toEqual([

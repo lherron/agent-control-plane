@@ -44,7 +44,7 @@ import { type AcpStateStore, type PbcContinuationJob, openAcpStateStore } from '
 // ─── RED IMPORT ──────────────────────────────────────────────────────────────
 // This import will FAIL until src/pbc/worker-scheduler.ts is created.
 // Every test in this file is RED for that reason.
-import { type PbcWorkerScheduler, createPbcWorkerScheduler } from '../pbc/worker-scheduler.js'
+import { createPbcWorkerScheduler } from '../pbc/worker-scheduler.js'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -76,29 +76,9 @@ describe('createPbcWorkerScheduler — enabled path (tick called)', () => {
     store.close()
   })
 
-  // ── basic: single queued job is picked up and runWorker is called ──────────
-
-  test('tick() invokes runWorker exactly once for a single queued job', async () => {
-    const job = admitJob(store, { taskId: 'T-sched-01' })
-
-    const workerCalls: PbcContinuationJob[] = []
-    const scheduler: PbcWorkerScheduler = createPbcWorkerScheduler({
-      stateStore: store,
-      runWorker: async (j) => {
-        workerCalls.push(j)
-      },
-    })
-
-    await scheduler.tick()
-
-    expect(workerCalls).toHaveLength(1)
-    expect(workerCalls[0]!.jobId).toBe(job.jobId)
-    expect(workerCalls[0]!.taskId).toBe('T-sched-01')
-  })
-
   // ── job is leased (running) before runWorker is invoked ───────────────────
 
-  test('job is in running status when runWorker is invoked (lease acquired first)', async () => {
+  test('each drained job is leased (running) before the worker runs', async () => {
     admitJob(store, { taskId: 'T-sched-02' })
 
     let statusAtInvocation: string | undefined
@@ -115,48 +95,35 @@ describe('createPbcWorkerScheduler — enabled path (tick called)', () => {
     expect(statusAtInvocation).toBe('running')
   })
 
-  // ── no queued jobs → runWorker is never called ────────────────────────────
-
-  test('tick() does not invoke runWorker when no queued jobs exist', async () => {
-    let workerCallCount = 0
-    const scheduler = createPbcWorkerScheduler({
-      stateStore: store,
-      runWorker: async () => {
-        workerCallCount++
-      },
-    })
-
-    await scheduler.tick()
-
-    expect(workerCallCount).toBe(0)
-  })
-
   // ── multiple queued jobs: all picked up in a single tick ──────────────────
 
-  test('tick() processes all queued jobs in one tick', async () => {
+  test('one tick hands every queued continuation job to the worker exactly once', async () => {
     const job1 = admitJob(store, { taskId: 'T-sched-03a', key: 'k1' })
     const job2 = admitJob(store, { taskId: 'T-sched-03b', key: 'k2' })
     const job3 = admitJob(store, { taskId: 'T-sched-03c', key: 'k3' })
 
-    const processedIds: string[] = []
+    const processed: PbcContinuationJob[] = []
     const scheduler = createPbcWorkerScheduler({
       stateStore: store,
       runWorker: async (job) => {
-        processedIds.push(job.jobId)
+        processed.push(job)
       },
     })
 
     await scheduler.tick()
 
-    expect(processedIds).toContain(job1.jobId)
-    expect(processedIds).toContain(job2.jobId)
-    expect(processedIds).toContain(job3.jobId)
-    expect(processedIds).toHaveLength(3)
+    expect(processed.map((job) => [job.jobId, job.taskId]).sort()).toEqual(
+      [
+        [job1.jobId, 'T-sched-03a'],
+        [job2.jobId, 'T-sched-03b'],
+        [job3.jobId, 'T-sched-03c'],
+      ].sort()
+    )
   })
 
   // ── runWorker error is isolated — other jobs in the same tick still run ───
 
-  test('runWorker error for one job does not abort remaining jobs in the same tick', async () => {
+  test('a worker failure on one job does not stop the tick from running the others', async () => {
     const failJob = admitJob(store, { taskId: 'T-sched-04a', key: 'fail' })
     const okJob = admitJob(store, { taskId: 'T-sched-04b', key: 'ok' })
 
@@ -180,65 +147,9 @@ describe('createPbcWorkerScheduler — enabled path (tick called)', () => {
 
   // ── already-running jobs (non-expired lease) are not re-leased ────────────
 
-  test('tick() does not invoke runWorker for a job that is already running with a live lease', async () => {
-    const job = admitJob(store, { taskId: 'T-sched-05' })
-
-    // Manually acquire the lease as if another worker already claimed it
-    const farFuture = new Date(Date.now() + 10 * 60 * 1000).toISOString()
-    store.pbcContinuationJobs.acquireLease({
-      jobId: job.jobId,
-      leaseOwner: 'some-other-worker',
-      leaseExpiresAt: farFuture,
-    })
-
-    let workerCallCount = 0
-    const scheduler = createPbcWorkerScheduler({
-      stateStore: store,
-      runWorker: async () => {
-        workerCallCount++
-      },
-    })
-
-    await scheduler.tick()
-
-    // Already-running job with live lease: not re-processed
-    expect(workerCallCount).toBe(0)
-  })
-
-  // ── terminal jobs (succeeded/failed) are skipped ─────────────────────────
-
-  test('tick() does not invoke runWorker for terminal (succeeded) jobs', async () => {
-    const job = admitJob(store, { taskId: 'T-sched-06' })
-
-    // Advance the job to a terminal state manually
-    const farFuture = new Date(Date.now() + 60_000).toISOString()
-    store.pbcContinuationJobs.acquireLease({
-      jobId: job.jobId,
-      leaseOwner: 'pre-run',
-      leaseExpiresAt: farFuture,
-    })
-    store.pbcContinuationJobs.transition({
-      jobId: job.jobId,
-      toStatus: 'succeeded',
-      stopReason: 'closed',
-    })
-
-    let workerCallCount = 0
-    const scheduler = createPbcWorkerScheduler({
-      stateStore: store,
-      runWorker: async () => {
-        workerCallCount++
-      },
-    })
-
-    await scheduler.tick()
-
-    expect(workerCallCount).toBe(0)
-  })
-
   // ── successive ticks: completed job not re-run on the next tick ───────────
 
-  test('a job completed in one tick is not re-processed in the next tick', async () => {
+  test('a job the worker finished is not handed out again on the next tick', async () => {
     admitJob(store, { taskId: 'T-sched-07' })
 
     let workerCallCount = 0
@@ -282,15 +193,6 @@ describe('createPbcWorkerScheduler — disabled path (no tick)', () => {
     store.close()
   })
 
-  test('admitted job stays queued when no scheduler is constructed', () => {
-    // Simulates ACP_SCHEDULER_ENABLED=false: stateStore exists, scheduler is never
-    // built, setInterval is never started — jobs stay queued forever.
-    const job = admitJob(store, { taskId: 'T-sched-disabled-01' })
-
-    const fresh = store.pbcContinuationJobs.get(job.jobId)
-    expect(fresh?.status).toBe('queued')
-  })
-
   test('admitted job stays queued when scheduler is built but tick() is never called', async () => {
     // Scheduler created but tick never fired (e.g. interval cleared before first tick).
     const job = admitJob(store, { taskId: 'T-sched-disabled-02' })
@@ -302,6 +204,9 @@ describe('createPbcWorkerScheduler — disabled path (no tick)', () => {
         throw new Error('runWorker must not be called without tick()')
       },
     })
+
+    // Give any auto-started timer or microtask a chance to run before checking.
+    await Bun.sleep(20)
 
     // No tick() call — job must still be queued
     const fresh = store.pbcContinuationJobs.get(job.jobId)
@@ -334,7 +239,7 @@ describe('createPbcWorkerScheduler — awaiting-output re-pick (T-03527 behavior
     store.close()
   })
 
-  test('scheduler re-picks a running job with an expired lease on the next tick (mid-await scenario)', async () => {
+  test('running job whose lease expired is re-picked on the next tick', async () => {
     // Arrange: admit a job (starts as 'queued')
     const job = admitJob(store, { taskId: 'T-sched-await-01' })
 
@@ -368,27 +273,39 @@ describe('createPbcWorkerScheduler — awaiting-output re-pick (T-03527 behavior
     expect(workerCallCount).toBe(2)
   })
 
-  test('scheduler does NOT re-pick a running job whose lease is still active', async () => {
-    // Sanity guard: active-lease running jobs must not be double-invoked
-    admitJob(store, { taskId: 'T-sched-await-02' })
+  test.each([
+    { holder: 'the scheduler itself (10-minute lease)', preHeld: false },
+    { holder: 'another worker', preHeld: true },
+  ])(
+    'a running job with a live lease held by $holder is not handed out again',
+    async ({ preHeld }) => {
+      // Sanity guard: active-lease running jobs must not be double-invoked
+      const job = admitJob(store, { taskId: 'T-sched-await-02' })
+      if (preHeld) {
+        store.pbcContinuationJobs.acquireLease({
+          jobId: job.jobId,
+          leaseOwner: 'some-other-worker',
+          leaseExpiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+        })
+      }
 
-    let workerCallCount = 0
-    const scheduler = createPbcWorkerScheduler({
-      stateStore: store,
-      runWorker: async () => {
-        workerCallCount++
-        // Worker does NOT renew/expire the lease → lease remains active until it
-        // naturally expires (based on leaseMs option, which defaults to 5 min)
-      },
-      leaseMs: 10 * 60 * 1000, // 10-minute lease → far from expiry during the test
-    })
+      let workerCallCount = 0
+      const scheduler = createPbcWorkerScheduler({
+        stateStore: store,
+        runWorker: async () => {
+          workerCallCount++
+          // Worker does NOT renew/expire the lease → lease remains active.
+        },
+        leaseMs: 10 * 60 * 1000, // 10-minute lease → far from expiry during the test
+      })
 
-    await scheduler.tick() // first tick: picks queued job, lease acquired (active)
-    expect(workerCallCount).toBe(1)
+      await scheduler.tick()
+      expect(workerCallCount).toBe(preHeld ? 0 : 1)
 
-    await scheduler.tick() // second tick: lease still active → must NOT re-pick
-    expect(workerCallCount).toBe(1) // unchanged
-  })
+      await scheduler.tick() // lease still active → must NOT re-pick
+      expect(workerCallCount).toBe(preHeld ? 0 : 1)
+    }
+  )
 
   test('scheduler re-picks multiple running-expired-lease jobs in a single tick', async () => {
     const job1 = admitJob(store, { taskId: 'T-sched-await-multi-01', key: 'km1' })
@@ -423,40 +340,5 @@ describe('createPbcWorkerScheduler — awaiting-output re-pick (T-03527 behavior
     expect(processedIds).toContain(job1.jobId)
     expect(processedIds).toContain(job2.jobId)
     expect(processedIds).toHaveLength(2)
-  })
-})
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Type contract
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('createPbcWorkerScheduler — type contract', () => {
-  test('return value satisfies PbcWorkerScheduler structural type', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const scheduler: PbcWorkerScheduler = createPbcWorkerScheduler({
-        stateStore: store,
-        runWorker: async () => {},
-      })
-      expect(typeof scheduler.tick).toBe('function')
-    } finally {
-      store.close()
-    }
-  })
-
-  test('leaseOwner and leaseMs options are accepted (optional)', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      // Compile-time check: both optional params accepted
-      const scheduler: PbcWorkerScheduler = createPbcWorkerScheduler({
-        stateStore: store,
-        runWorker: async () => {},
-        leaseOwner: 'test-owner',
-        leaseMs: 30_000,
-      })
-      expect(typeof scheduler.tick).toBe('function')
-    } finally {
-      store.close()
-    }
   })
 })

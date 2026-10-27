@@ -10,7 +10,7 @@ describe('acp render — replay-backed and capture modes', () => {
       { hrcSeq: 2, eventKind: 'turn.message', text: 'world' },
       { hrcSeq: 3, eventKind: 'turn.end' },
     ]
-    const ndjson = `${events.map((e) => JSON.stringify(e)).join('\n')}\n`
+    const ndjson = `${events.map((e) => JSON.stringify(e)).join('\n\n')}\n`
 
     const queue = createFetchQueue([
       {
@@ -42,7 +42,9 @@ describe('acp render — replay-backed and capture modes', () => {
   })
 
   test('replay mode extracts text from content.text field', async () => {
-    const events = [{ hrcSeq: 1, eventKind: 'turn.message', content: { text: 'from content' } }]
+    const events = [
+      { hrcSeq: 1, eventKind: 'turn.message', text: 'ignored', content: { text: 'from content' } },
+    ]
     const ndjson = `${events.map((e) => JSON.stringify(e)).join('\n')}\n`
 
     const queue = createFetchQueue([
@@ -142,33 +144,6 @@ describe('acp render — replay-backed and capture modes', () => {
     await expect(
       runRenderCommand(['--session', 'hsid-bad', '--source', 'invalid'], {})
     ).rejects.toThrow('--source must be "replay" or "capture"')
-  })
-
-  test('replay mode handles events with no text content', async () => {
-    const events = [
-      { hrcSeq: 1, eventKind: 'session.start' },
-      { hrcSeq: 2, eventKind: 'turn.message', text: 'only text' },
-      { hrcSeq: 3, eventKind: 'session.end' },
-    ]
-    const ndjson = `${events.map((e) => JSON.stringify(e)).join('\n')}\n`
-
-    const queue = createFetchQueue([
-      {
-        text: ndjson,
-        assert() {},
-      },
-    ])
-
-    const output = await runRenderCommand(['--session', 'hsid-mixed'], {
-      fetchImpl: queue.fetchImpl,
-    })
-
-    expect(output).toMatchObject({
-      body: {
-        source: 'replay',
-        frame: { kind: 'replay', text: 'only text', eventCount: 3, lastSeq: 3 },
-      },
-    })
   })
 
   test('replay mode with empty event stream produces empty text', async () => {

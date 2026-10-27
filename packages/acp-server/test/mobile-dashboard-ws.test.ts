@@ -455,8 +455,9 @@ describe('remote projection stream refusal', () => {
 
     await openMobileWebSocket(ws)
 
+    // The canonical mobile error envelope: exactly type, code and message.
     expect(sent).toEqual([
-      expect.objectContaining({ type: 'error', code: 'remote_control_unavailable' }),
+      { type: 'error', code: 'remote_control_unavailable', message: expect.any(String) },
     ])
     expect(closed).toEqual([{ code: 1008, reason: 'remote control unavailable' }])
     expect(listSessionsCalls).toBe(0)
@@ -464,7 +465,7 @@ describe('remote projection stream refusal', () => {
 })
 
 describe('WS /v1/mobile/dashboard', () => {
-  test('coalesces session freshness reads used by the index and snapshot cursor', async () => {
+  test('opening the dashboard reads HRC session freshness exactly once for index and cursor', async () => {
     const hrcEvents = [event(41), event(42)]
     const baseClient = createDashboardClient(hrcEvents)
     let latestCalls = 0
@@ -519,79 +520,89 @@ describe('WS /v1/mobile/dashboard', () => {
     expect(bucket.map((item) => item.hrcSeq)).toEqual([8, 9, 10, 11, 12])
   })
 
-  test('includes heavyweight session internals only when sessionDetails is requested', async () => {
-    const { ws, sent } = createDashboardSocket({
-      hrcClient: createDashboardClient([event(1)]),
-      url: 'http://acp.local/v1/mobile/dashboard?sessionDetails=true',
-    })
+  test.each([
+    { query: '', includesInternals: false },
+    { query: '?sessionDetails=true', includesInternals: true },
+    { query: '?raw=true', includesInternals: true },
+    { query: '?raw=TRUE', includesInternals: false },
+    { query: '?raw=1', includesInternals: false },
+  ])(
+    'heavyweight session internals are included only for sessionDetails=true or the literal raw=true: "$query"',
+    async ({ query, includesInternals }) => {
+      const { ws, sent } = createDashboardSocket({
+        hrcClient: createDashboardClient([event(1)]),
+        url: `http://acp.local/v1/mobile/dashboard${query}`,
+      })
 
-    await openMobileWebSocket(ws)
+      await openMobileWebSocket(ws)
 
-    const sessions = (sent[0] as Record<string, unknown>).sessions as Array<Record<string, unknown>>
-    const session = sessions[0]!.session as Record<string, unknown>
-    expect(session.continuation).toEqual(SESSION.continuation)
-    expect(session.lastAppliedIntent).toEqual(SESSION.lastAppliedIntentJson)
-    expect(JSON.stringify(session)).toContain(LARGE_INITIAL_PROMPT)
-  })
-
-  test('summaryStatus becomes inactive when runtime is dead even if session record is active', async () => {
-    const deadRuntime: HrcRuntimeSnapshot = { ...RUNTIME, status: 'terminated' }
-    const client = {
-      listSessions: async () => [SESSION],
-      listRuntimes: async () => [deadRuntime],
-      listLatestEventBySession: async () => [event(1)],
-      getLatestRunForSession: async () => RUN,
-      listRuns: async () => [RUN],
-      watch: () => (async function* () {})(),
-    } as unknown as AcpHrcClient
-    const { ws, sent } = createDashboardSocket({ hrcClient: client })
-
-    await openMobileWebSocket(ws)
-
-    const sessions = (sent[0] as Record<string, unknown>).sessions as Array<Record<string, unknown>>
-    expect(sessions[0]!.summaryStatus).toBe('inactive')
-    expect((sessions[0]!.session as Record<string, unknown>).status).toBe('active')
-  })
-
-  test('projects a detached external runtime honestly instead of reporting it active', async () => {
-    const detachedRuntime: HrcRuntimeSnapshot = {
-      ...RUNTIME,
-      status: 'detached',
+      const sessions = (sent[0] as Record<string, unknown>).sessions as Array<
+        Record<string, unknown>
+      >
+      const session = sessions[0]!.session as Record<string, unknown>
+      if (includesInternals) {
+        expect(session.continuation).toEqual(SESSION.continuation)
+        expect(session.lastAppliedIntent).toEqual(SESSION.lastAppliedIntentJson)
+        expect(JSON.stringify(session)).toContain(LARGE_INITIAL_PROMPT)
+      } else {
+        expect(session.continuation).toBeUndefined()
+        expect(session.lastAppliedIntent).toBeUndefined()
+        expect(JSON.stringify(session)).not.toContain(LARGE_INITIAL_PROMPT)
+      }
     }
-    const client = {
-      listSessions: async () => [SESSION],
-      listRuntimes: async () => [detachedRuntime],
-      listLatestEventBySession: async () => [event(1)],
-      getLatestRunForSession: async () => RUN,
-      listRuns: async () => [RUN],
-      watch: () => (async function* () {})(),
-    } as unknown as AcpHrcClient
-    const { ws, sent } = createDashboardSocket({ hrcClient: client })
+  )
 
-    await openMobileWebSocket(ws)
+  test.each([
+    {
+      runtimeState: 'a terminated runtime under an active session record',
+      runtimes: [{ ...RUNTIME, status: 'terminated' }] as HrcRuntimeSnapshot[],
+      latestRun: RUN as HrcRunRecord | undefined,
+      expected: { summaryStatus: 'inactive', sessionStatus: 'active' },
+    },
+    {
+      runtimeState: 'a detached external runtime',
+      runtimes: [{ ...RUNTIME, status: 'detached' }] as HrcRuntimeSnapshot[],
+      latestRun: RUN as HrcRunRecord | undefined,
+      expected: { summaryStatus: 'detached', status: 'detached', runtimeStatus: 'detached' },
+    },
+    {
+      runtimeState: 'no attached runtime',
+      runtimes: [] as HrcRuntimeSnapshot[],
+      latestRun: undefined as HrcRunRecord | undefined,
+      expected: { summaryStatus: 'inactive' },
+    },
+  ])(
+    'summaryStatus derives from runtime state: $runtimeState',
+    async ({ runtimes, latestRun, expected }) => {
+      const client = {
+        listSessions: async () => [SESSION],
+        listRuntimes: async () => runtimes,
+        listLatestEventBySession: async () => [event(1)],
+        getLatestRunForSession: async () => latestRun,
+        listRuns: async () => (latestRun === undefined ? [] : [latestRun]),
+        watch: () => (async function* () {})(),
+      } as unknown as AcpHrcClient
+      const { ws, sent } = createDashboardSocket({ hrcClient: client })
 
-    const sessions = (sent[0] as Record<string, unknown>).sessions as Array<Record<string, unknown>>
-    expect(sessions[0]!.summaryStatus).toBe('detached')
-    expect(sessions[0]!.status).toBe('detached')
-    expect(sessions[0]!.runtime).toMatchObject({ status: 'detached' })
-  })
+      await openMobileWebSocket(ws)
 
-  test('summaryStatus is inactive when no runtime is attached', async () => {
-    const client = {
-      listSessions: async () => [SESSION],
-      listRuntimes: async () => [],
-      listLatestEventBySession: async () => [event(1)],
-      getLatestRunForSession: async () => undefined,
-      listRuns: async () => [],
-      watch: () => (async function* () {})(),
-    } as unknown as AcpHrcClient
-    const { ws, sent } = createDashboardSocket({ hrcClient: client })
-
-    await openMobileWebSocket(ws)
-
-    const sessions = (sent[0] as Record<string, unknown>).sessions as Array<Record<string, unknown>>
-    expect(sessions[0]!.summaryStatus).toBe('inactive')
-  })
+      const sessions = (sent[0] as Record<string, unknown>).sessions as Array<
+        Record<string, unknown>
+      >
+      expect(sessions[0]!.summaryStatus).toBe(expected.summaryStatus)
+      if ('sessionStatus' in expected) {
+        expect((sessions[0]!.session as Record<string, unknown>).status).toBe(
+          expected.sessionStatus
+        )
+      }
+      if ('status' in expected) {
+        expect(sessions[0]!.status).toBe(expected.status)
+      }
+      if ('runtimeStatus' in expected) {
+        expect(sessions[0]!.runtime).toMatchObject({ status: expected.runtimeStatus })
+      }
+    }
+  )
 
   test('replays from fromHrcSeq, then live streams from snapshot high water without duplicates', async () => {
     process.env['ACP_MOBILE_DASHBOARD_MAX_REPLAY_AGE_MS'] = String(7 * 24 * 60 * 60 * 1000)
@@ -643,7 +654,110 @@ describe('WS /v1/mobile/dashboard', () => {
     expect(runReads).toBe(1)
   })
 
-  test('T-11794: a failed session refresh still fails the stream', async () => {
+  test('T-11794: interleaved live sessions each refresh once at their last event', async () => {
+    const otherSession = {
+      ...SESSION,
+      hostSessionId: 'hsid-other',
+      scopeRef: 'agent:larry:project:agent-spaces:task:T-other',
+    }
+    const otherRuntime = {
+      ...RUNTIME,
+      hostSessionId: otherSession.hostSessionId,
+      scopeRef: otherSession.scopeRef,
+    }
+    const otherRun = {
+      ...RUN,
+      hostSessionId: otherSession.hostSessionId,
+      scopeRef: otherSession.scopeRef,
+    }
+    const hrcEvents = [
+      event(1),
+      event(2),
+      event(3, { hostSessionId: otherSession.hostSessionId, scopeRef: otherSession.scopeRef }),
+      event(4),
+    ]
+    const baseClient = createDashboardClient(hrcEvents)
+    let runReads = 0
+    const client = {
+      ...baseClient,
+      listSessions: async (filter: { scopeRef?: string } = {}) =>
+        [SESSION, otherSession].filter(
+          (record) => filter.scopeRef === undefined || record.scopeRef === filter.scopeRef
+        ),
+      listRuntimes: async () => [RUNTIME, otherRuntime],
+      listLatestEventBySession: async () => [hrcEvents[0]!],
+      listRuns: async () => [RUN, otherRun],
+      getLatestRunForSession: async ({ hostSessionId }: { hostSessionId: string }) => {
+        runReads += 1
+        return hostSessionId === otherSession.hostSessionId ? otherRun : RUN
+      },
+    } as AcpHrcClient
+    const { ws, sent } = createDashboardSocket({ hrcClient: client })
+
+    await openMobileWebSocket(ws)
+
+    expect(sent.filter((entry) => entry.type === 'hrc_event').map((entry) => entry.hrcSeq)).toEqual(
+      [2, 3, 4]
+    )
+    expect(
+      sent
+        .filter((entry) => entry.type === 'session_updated')
+        .map((entry) => ({
+          hrcSeq: entry.hrcSeq,
+          hostSessionId: (entry.session as Record<string, unknown>).hostSessionId,
+        }))
+    ).toEqual([
+      { hrcSeq: 4, hostSessionId: SESSION.hostSessionId },
+      { hrcSeq: 3, hostSessionId: otherSession.hostSessionId },
+    ])
+    expect(runReads).toBe(2)
+  })
+
+  test('T-11794: a live event for an unlisted session sends its event but no summary and skips other HRC reads', async () => {
+    const hrcEvents = [event(1), event(2)]
+    const baseClient = createDashboardClient(hrcEvents)
+    let live = false
+    const reads = { sessions: 0, runtimes: 0, latest: 0, run: 0 }
+    const client = {
+      ...baseClient,
+      listSessions: async (...args: Parameters<AcpHrcClient['listSessions']>) => {
+        if (live) {
+          reads.sessions += 1
+          return []
+        }
+        return baseClient.listSessions(...args)
+      },
+      listRuntimes: async (...args: Parameters<AcpHrcClient['listRuntimes']>) => {
+        if (live) reads.runtimes += 1
+        return baseClient.listRuntimes(...args)
+      },
+      listLatestEventBySession: async () => {
+        if (live) reads.latest += 1
+        return [hrcEvents[0]!]
+      },
+      getLatestRunForSession: async (
+        ...args: Parameters<AcpHrcClient['getLatestRunForSession']>
+      ) => {
+        if (live) reads.run += 1
+        return baseClient.getLatestRunForSession(...args)
+      },
+      watch: (options: Parameters<AcpHrcClient['watch']>[0]) => {
+        live = options?.follow === true
+        return baseClient.watch(options)
+      },
+    } as AcpHrcClient
+    const { ws, sent } = createDashboardSocket({ hrcClient: client })
+
+    await openMobileWebSocket(ws)
+
+    expect(sent.filter((entry) => entry.type === 'hrc_event').map((entry) => entry.hrcSeq)).toEqual(
+      [2]
+    )
+    expect(sent.filter((entry) => entry.type === 'session_updated')).toEqual([])
+    expect(reads).toEqual({ sessions: 1, runtimes: 0, latest: 0, run: 0 })
+  })
+
+  test('T-11794: an HRC run-read failure during live refresh rejects the dashboard stream instead of being swallowed', async () => {
     const hrcEvents = [event(1), event(2)]
     const baseClient = createDashboardClient(hrcEvents)
     const client = {
@@ -682,6 +796,76 @@ describe('WS /v1/mobile/dashboard', () => {
     closeMobileWebSocket(ws)
     expect(ws.data.abortController.signal.aborted).toBe(true)
   })
+
+  test('a socket whose send throws does not reject the dashboard stream', async () => {
+    const { ws } = createDashboardSocket({ hrcClient: createDashboardClient([event(1), event(2)]) })
+    let sendAttempts = 0
+    ws.send = () => {
+      sendAttempts += 1
+      throw new Error('socket closed')
+    }
+
+    await openMobileWebSocket(ws)
+
+    expect(sendAttempts).toBeGreaterThan(0)
+  })
+
+  test('closing a socket whose abort controller is already disposed does not throw', () => {
+    const { ws } = createDashboardSocket({ hrcClient: createDashboardClient([]) })
+    ws.data.abortController = {
+      abort() {
+        throw new Error('already disposed')
+      },
+      signal: new AbortController().signal,
+    } as unknown as AbortController
+
+    expect(() => closeMobileWebSocket(ws)).not.toThrow()
+  })
+})
+
+describe('WS /v1/mobile/sessions/:hostSessionId/diagnostics', () => {
+  test.each([
+    { query: '', expected: { fromSeq: 1 }, absent: ['generation'] },
+    { query: '?fromHrcSeq=0', expected: { fromSeq: 1 }, absent: ['generation'] },
+    { query: '?fromHrcSeq=7&generation=12', expected: { fromSeq: 7, generation: 12 }, absent: [] },
+    { query: '?generation=abc', expected: { fromSeq: 1 }, absent: ['generation'] },
+    // The path hostSessionId and live follow always win over query values.
+    {
+      query: '?follow=false&hostSessionId=hsid-query',
+      expected: { fromSeq: 1 },
+      absent: ['generation'],
+    },
+  ])(
+    'diagnostics watches HRC live from the clamped fromHrcSeq for the path session: "$query"',
+    async ({ query, expected, absent }) => {
+      const watched: Array<Record<string, unknown>> = []
+      const client = {
+        watch: (options: Record<string, unknown>) => {
+          watched.push(options)
+          return (async function* () {})()
+        },
+      } as unknown as AcpHrcClient
+      const { ws, sent } = createDashboardSocket({
+        hrcClient: client,
+        url: `http://acp.local/v1/mobile/sessions/hsid-diagnostics/diagnostics${query}`,
+        kind: 'diagnostics',
+        hostSessionId: 'hsid-diagnostics',
+      })
+
+      await openMobileWebSocket(ws)
+
+      expect(sent).toEqual([])
+      expect(watched).toHaveLength(1)
+      expect(watched[0]).toMatchObject({
+        ...expected,
+        hostSessionId: 'hsid-diagnostics',
+        follow: true,
+      })
+      for (const key of absent) {
+        expect(key in watched[0]!).toBe(false)
+      }
+    }
+  )
 })
 
 // T-08575: retained rows advance the event cursor but never replace the

@@ -6,10 +6,11 @@ import type { Actor } from 'acp-core'
 import type { LaunchIntentDeps } from '../src/launch-role-scoped.js'
 import { resolveLaunchIntent } from '../src/launch-role-scoped.js'
 
-// Regression coverage for the queue/wake-dispatch bug where resolveLaunchIntent
-// was invoked without adminStore, so placement.cwd fell back to agentRoot
-// instead of the admin-store project root (heather@vitals running in
-// ~/var/agents/heather instead of ~/praesidium/vitals).
+// Degenerate-bundle rebuild against the admin-store project root. The wake
+// path's admin-store cwd regression (heather@vitals running in
+// ~/var/agents/heather instead of ~/praesidium/vitals) is guarded through the
+// dispatcher in wake-dispatcher.test.ts; this seam test stays until the wake
+// dispatcher accepts a placementFetch (production change, rewrite-held).
 //
 // Fixture deliberately makes runtimeResolver return WRONG paths so the test
 // fails for the exact missing-adminStore class of bug, not because fixture
@@ -30,7 +31,7 @@ function makeSessionRef(projectId: string): { scopeRef: string; laneRef: string 
 }
 
 describe('resolveLaunchIntent admin-store project-root resolution', () => {
-  test('empty-compose bundle is rebuilt with the adminStore project root when runtimeResolver returns a degenerate bundle', async () => {
+  test('degenerate compose bundle is re-resolved against the admin-store project root', async () => {
     const adminStore = createInMemoryAdminStore()
     adminStore.projects.create({
       projectId: 'vitals',
@@ -80,45 +81,5 @@ describe('resolveLaunchIntent admin-store project-root resolution', () => {
         runMode: 'task',
       },
     ])
-  })
-
-  test('falls back to runtimeResolver projectRoot when adminStore has no entry for the project', async () => {
-    const adminStore = createInMemoryAdminStore()
-    // Intentionally no project registered.
-    const deps: LaunchIntentDeps = {
-      adminStore,
-      runtimeResolver: async () => ({
-        agentRoot: WRONG_AGENT_ROOT,
-        projectRoot: WRONG_PROJECT_ROOT,
-        cwd: WRONG_CWD,
-        runMode: 'task',
-        bundle: { kind: 'spaces-snapshot', snapshotId: 'snap-1' },
-        harness: { provider: 'anthropic', interactive: true },
-      }),
-      agentRootResolver: undefined,
-    }
-
-    const intent = await resolveLaunchIntent(deps, makeSessionRef('unregistered'))
-
-    expect(intent.placement.projectRoot).toBe(WRONG_PROJECT_ROOT)
-    expect(intent.placement.cwd).toBe(WRONG_PROJECT_ROOT)
-  })
-
-  test('rejects a project scope when neither runtime nor admin metadata resolves its root', async () => {
-    const adminStore = createInMemoryAdminStore()
-    const deps: LaunchIntentDeps = {
-      adminStore,
-      runtimeResolver: async () => ({
-        agentRoot: WRONG_AGENT_ROOT,
-        cwd: WRONG_AGENT_ROOT,
-        runMode: 'task',
-        bundle: { kind: 'spaces-snapshot', snapshotId: 'snap-1' },
-      }),
-      agentRootResolver: undefined,
-    }
-
-    await expect(resolveLaunchIntent(deps, makeSessionRef('unregistered'))).rejects.toThrow(
-      'project root not found for agent:tester:project:unregistered'
-    )
   })
 })

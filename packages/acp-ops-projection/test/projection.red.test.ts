@@ -132,7 +132,7 @@ describe('session dashboard projection red contract', () => {
     )
   })
 
-  test('deriveSessionRow emits the exact populated field set for a representative session', () => {
+  test('deriveSessionRow folds runtime/acp preview fields across events and colors the row by its pending delivery', () => {
     const sessionRef = {
       scopeRef: 'agent:larry:project:agent-control-plane:task:T-04535',
       laneRef: 'main',
@@ -314,16 +314,6 @@ describe('session dashboard projection red contract', () => {
 })
 
 describe('session dashboard redaction red contract', () => {
-  test('exports the section 16 recommended redaction defaults', () => {
-    // T-01201 red test: defaults are part of the public projection contract.
-    expect(defaultRedactionOptions).toEqual({
-      payloadPreviewTextLimit: 240,
-      payloadPreviewObjectDepth: 3,
-      payloadPreviewArrayLimit: 20,
-      rawPayloadDebug: false,
-    })
-  })
-
   test('redacts credential-like keys at any depth', () => {
     // T-01201 red test: SESSION_DASHBOARD.md §16 credential keys must be stripped.
     const sensitive = {
@@ -356,6 +346,13 @@ describe('session dashboard redaction red contract', () => {
   })
 
   test('truncates long strings to the default 240 character preview limit', () => {
+    // Preserve the exported default-options contract alongside observable behavior.
+    expect(defaultRedactionOptions).toEqual({
+      payloadPreviewTextLimit: 240,
+      payloadPreviewObjectDepth: 3,
+      payloadPreviewArrayLimit: 20,
+      rawPayloadDebug: false,
+    })
     // T-01201 red test: SESSION_DASHBOARD.md §16 caps message previews.
     const preview = redactPayload('x'.repeat(260)).payloadPreview
 

@@ -10,34 +10,26 @@ describe('job-flow-canvas layout', () => {
     expect(result.canvasHeight).toBeGreaterThan(0)
   })
 
-  it('lays out a single sequence node at padding offset', () => {
+  const customConfig = {
+    cardWidth: 100,
+    cardHeight: 50,
+    horizontalGap: 40,
+    verticalGap: 30,
+    paddingLeft: 20,
+    paddingTop: 10,
+  }
+
+  it.each([
+    ['the default config', DEFAULT_LAYOUT_CONFIG],
+    ['a custom config', customConfig],
+  ])('lays out a single sequence node at the padding offset of %s', (_name, config) => {
     const nodes: LayoutNode[] = [{ id: 'step-1', phase: 'sequence', index: 0 }]
-    const result = computeLayout(nodes)
+    const result = computeLayout(nodes, config)
 
     const pos = result.positions.get('step-1')
     expect(pos).toBeDefined()
-    expect(pos!.x).toBe(DEFAULT_LAYOUT_CONFIG.paddingLeft)
-    expect(pos!.y).toBe(DEFAULT_LAYOUT_CONFIG.paddingTop)
-  })
-
-  it('arranges sequence nodes left-to-right', () => {
-    const nodes: LayoutNode[] = [
-      { id: 'a', phase: 'sequence', index: 0 },
-      { id: 'b', phase: 'sequence', index: 1 },
-      { id: 'c', phase: 'sequence', index: 2 },
-    ]
-    const result = computeLayout(nodes)
-
-    const posA = result.positions.get('a')!
-    const posB = result.positions.get('b')!
-    const posC = result.positions.get('c')!
-
-    expect(posA.x).toBeLessThan(posB.x)
-    expect(posB.x).toBeLessThan(posC.x)
-
-    // All at same y
-    expect(posA.y).toBe(posB.y)
-    expect(posB.y).toBe(posC.y)
+    expect(pos!.x).toBe(config.paddingLeft)
+    expect(pos!.y).toBe(config.paddingTop)
   })
 
   it('places onFailure nodes below sequence nodes', () => {
@@ -54,18 +46,21 @@ describe('job-flow-canvas layout', () => {
     expect(failPos.x).toBe(seqPos.x) // Same x for index 0
   })
 
-  it('computes correct horizontal spacing', () => {
+  it('places sequence nodes left-to-right one card plus gap apart on one row', () => {
     const nodes: LayoutNode[] = [
       { id: 'a', phase: 'sequence', index: 0 },
       { id: 'b', phase: 'sequence', index: 1 },
+      { id: 'c', phase: 'sequence', index: 2 },
     ]
     const config = DEFAULT_LAYOUT_CONFIG
     const result = computeLayout(nodes, config)
+    const step = config.cardWidth + config.horizontalGap
 
-    const posA = result.positions.get('a')!
-    const posB = result.positions.get('b')!
-
-    expect(posB.x - posA.x).toBe(config.cardWidth + config.horizontalGap)
+    nodes.forEach((node, index) => {
+      const pos = result.positions.get(node.id)!
+      expect(pos.x).toBe(config.paddingLeft + index * step)
+      expect(pos.y).toBe(config.paddingTop)
+    })
   })
 
   it('canvas dimensions accommodate all nodes', () => {
@@ -83,22 +78,5 @@ describe('job-flow-canvas layout', () => {
     // Canvas height should cover onFailure row
     const posC = result.positions.get('c')!
     expect(result.canvasHeight).toBeGreaterThanOrEqual(posC.y + DEFAULT_LAYOUT_CONFIG.cardHeight)
-  })
-
-  it('works with custom config', () => {
-    const nodes: LayoutNode[] = [{ id: 'x', phase: 'sequence', index: 0 }]
-    const customConfig = {
-      cardWidth: 100,
-      cardHeight: 50,
-      horizontalGap: 40,
-      verticalGap: 30,
-      paddingLeft: 20,
-      paddingTop: 10,
-    }
-    const result = computeLayout(nodes, customConfig)
-
-    const pos = result.positions.get('x')!
-    expect(pos.x).toBe(20)
-    expect(pos.y).toBe(10)
   })
 })

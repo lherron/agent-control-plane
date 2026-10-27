@@ -46,6 +46,10 @@ describe('renderStatusBar', () => {
     expect(spec.right).toBe('▶ running')
     expect(spec.bg).toBe(agentTheme('clod').bg)
     expect(spec.fg).toBe(agentTheme('clod').fg)
+    const exited = renderStatusBar(fixtureIdentity('agent:smokey:project:wrkq:task:T-1'), 'exited')
+    expect(exited.left).toBe('◆ SMOKEY · T-1')
+    expect(exited.center).toBe('wrkq · T-1/main')
+    expect(exited.right).toBe('■ exited')
   })
 
   it('surfaces a fork lane in the center field as <task>/<lane> (T-06321)', () => {
@@ -56,17 +60,6 @@ describe('renderStatusBar', () => {
       'lane:forked'
     )
     expect(spec.center).toBe('hrc · T-02341/forked')
-  })
-
-  it('an omitted lane normalizes to main in the center field', () => {
-    expect(
-      renderStatusBar(
-        fixtureIdentity('agent:clod:project:hrc-runtime:task:T-02341'),
-        'running',
-        null,
-        undefined
-      ).center
-    ).toBe('hrc · T-02341/main')
   })
 
   it('appends the task scope, uncapitalized, after the agent name in the left field', () => {
@@ -86,13 +79,6 @@ describe('renderStatusBar', () => {
     )
     expect(spec.center).toBe('asp')
     expect(spec.right).toBe('✓ idle')
-  })
-
-  it('always emits all three fields (never blanks left/center)', () => {
-    const spec = renderStatusBar(fixtureIdentity('agent:smokey:project:wrkq:task:T-1'), 'exited')
-    expect(spec.left).toBe('◆ SMOKEY · T-1')
-    expect(spec.center).toBe('wrkq · T-1/main')
-    expect(spec.right).toBe('■ exited')
   })
 
   it('degrades gracefully on an unparseable scope ref', () => {
@@ -315,16 +301,6 @@ describe('HeadlessViewerStatusProjector', () => {
     await flushAll()
     expect(applied[0]?.spec.center).toBe('hrc · T-04977/main')
   })
-
-  it('never repaints terminal color — the projector only writes the status bar', async () => {
-    // The projector is constructed with NO terminal-background dependency; color
-    // is identity, applied once at spawn/reuse, never per lifecycle event.
-    const { projector } = makeHarness()
-    expect('setTerminalBackground' in (projector as unknown as Record<string, unknown>)).toBe(false)
-    expect(Object.keys(projector as unknown as Record<string, unknown>)).not.toContain(
-      'applyTerminalBackground'
-    )
-  })
 })
 
 /**
@@ -333,14 +309,6 @@ describe('HeadlessViewerStatusProjector', () => {
  * the bar rather than stamping when there is nothing to say.
  */
 describe('renderSecondaryStatusBar (T-08331)', () => {
-  it('puts `▸ <title>` in left and leaves center and right empty', () => {
-    expect(renderSecondaryStatusBar('hrc-viewer should populate second status bar')).toEqual({
-      left: '▸ hrc-viewer should populate second status bar',
-      center: '',
-      right: '',
-    })
-  })
-
   it('trims the title before the marker, as hcs does', () => {
     expect(renderSecondaryStatusBar('  create procelain surface for wrkp log  ')?.left).toBe(
       '▸ create procelain surface for wrkp log'

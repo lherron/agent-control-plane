@@ -87,7 +87,7 @@ function probeStep(name: string) {
 }
 
 describe('jobflow-probe e2e', () => {
-  test('scheduled probe idle succeeds without dispatching an agent turn', async () => {
+  test('probe outcome idle ends the job run succeeded without launching the agent step', async () => {
     const jobsStore = createInMemoryJobsStore()
     const runStore = new InMemoryRunStore()
     const inputAttemptStore = new RecordingInputAttemptStore()
@@ -143,7 +143,7 @@ describe('jobflow-probe e2e', () => {
     }
   })
 
-  test('scheduled probe work dispatches the agent step and records the taken branch', async () => {
+  test('probe outcome work launches the reap step and records the taken branch', async () => {
     const jobsStore = createInMemoryJobsStore()
     const runStore = new InMemoryRunStore()
     const inputAttemptStore = new RecordingInputAttemptStore()
@@ -198,7 +198,7 @@ describe('jobflow-probe e2e', () => {
     }
   })
 
-  test('exec exitCode branch records the taken branch on the step run', async () => {
+  test('exec exit 7 listed in successExitCodes succeeds the step and records branch exitCode:7 -> succeed', async () => {
     const jobsStore = createInMemoryJobsStore()
     const runStore = new InMemoryRunStore()
     const inputAttemptStore = new RecordingInputAttemptStore()

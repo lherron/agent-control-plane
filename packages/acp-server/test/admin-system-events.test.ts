@@ -21,6 +21,18 @@ describe('admin system events endpoints', () => {
         event: expect.objectContaining({ kind: 'project.created', projectId: 'agent-spaces' }),
       })
 
+      for (const other of [
+        { projectId: 'agent-spaces', kind: 'project.updated' },
+        { projectId: 'other-project', kind: 'project.created' },
+      ]) {
+        const otherResponse = await fixture.request({
+          method: 'POST',
+          path: '/v1/admin/system-events',
+          body: { ...other, payload: {}, occurredAt: '2026-04-23T04:01:00.000Z' },
+        })
+        expect(otherResponse.status).toBe(201)
+      }
+
       const listResponse = await fixture.request({
         method: 'GET',
         path: '/v1/admin/system-events?projectId=agent-spaces&kind=project.created',
@@ -30,7 +42,13 @@ describe('admin system events endpoints', () => {
       expect(
         await fixture.json<{ events: Array<{ kind: string; projectId: string }> }>(listResponse)
       ).toEqual({
-        events: [expect.objectContaining({ kind: 'project.created', projectId: 'agent-spaces' })],
+        events: [
+          expect.objectContaining({
+            kind: 'project.created',
+            projectId: 'agent-spaces',
+            payload: { source: 'acceptance-test' },
+          }),
+        ],
       })
     })
   })

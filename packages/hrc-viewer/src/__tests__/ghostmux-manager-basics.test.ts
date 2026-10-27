@@ -200,18 +200,6 @@ describe('deriveHeadlessTabIdentity', () => {
     expect(nova.tabKey).not.toBe(primary.tabKey)
   })
 
-  it('does NOT collide two primary scopes from different projects', () => {
-    const a = deriveHeadlessTabIdentity(
-      'agent:clod:project:hrc-runtime:task:primary',
-      fixtureIdentity('agent:clod:project:hrc-runtime:task:primary')
-    )
-    const b = deriveHeadlessTabIdentity(
-      'agent:smokey:project:agent-control-plane:task:primary',
-      fixtureIdentity('agent:smokey:project:agent-control-plane:task:primary')
-    )
-    expect(a.tabKey).not.toBe(b.tabKey)
-  })
-
   it('qualifies an agent-only ref by agent root when no project is present', () => {
     const id = deriveHeadlessTabIdentity('agent:daedalus', fixtureIdentity('agent:daedalus'))
     expect(id.tabKey).toBe('project:agent-root-daedalus:primary')

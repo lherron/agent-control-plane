@@ -95,57 +95,6 @@ describe('flow scheduler branch', () => {
     }
   })
 
-  test('flow advancement can reconcile an existing partial step state without duplicating rows', async () => {
-    const store = createInMemoryJobsStore()
-
-    try {
-      createFlowJob(store)
-      let capturedEntry: ClaimedDueJob | undefined
-
-      const runs = await tickJobsScheduler({
-        store,
-        now: '2026-04-27T23:05:00.000Z',
-        advanceFlowJobRun: async (entry) => {
-          capturedEntry = entry
-          ensureSequenceStepRows(store, entry)
-          store.jobStepRuns.updateStep(entry.jobRun.jobRunId, 'sequence', 'collect', 1, {
-            status: 'running',
-            inputAttemptId: 'iat_collect',
-            runId: 'run_collect',
-            startedAt: entry.jobRun.triggeredAt,
-          })
-          return store.updateJobRun(entry.jobRun.jobRunId, {
-            status: 'dispatched',
-            dispatchedAt: entry.jobRun.triggeredAt,
-            leaseOwner: null,
-            leaseExpiresAt: null,
-          }).jobRun
-        },
-      })
-
-      expect(runs).toHaveLength(1)
-      if (capturedEntry === undefined) {
-        throw new Error('expected flow scheduler to call advanceFlowJobRun')
-      }
-
-      ensureSequenceStepRows(store, capturedEntry)
-      expect(store.jobStepRuns.listByJobRun(runs[0]!.jobRunId).jobStepRuns).toEqual([
-        expect.objectContaining({
-          stepId: 'collect',
-          status: 'running',
-          inputAttemptId: 'iat_collect',
-          runId: 'run_collect',
-        }),
-        expect.objectContaining({
-          stepId: 'implement',
-          status: 'pending',
-        }),
-      ])
-    } finally {
-      store.close()
-    }
-  })
-
   // T-05416: scheduler-level retry semantics must classify transient infra
   // failures without terminalizing the job run, then retry the same run later.
   test('transient flow advance errors keep the run retryable and recover on a later tick (T-05416 red)', async () => {
@@ -262,6 +211,35 @@ describe('flow scheduler branch', () => {
       expect(finalRun?.errorCode).not.toBe('flow_advance_failed')
       expect(finalRun?.errorMessage).toContain('HTTP 503')
       expect(finalRun?.errorMessage).toContain('attempt 3')
+    } finally {
+      store.close()
+    }
+  })
+
+  test.each([
+    'job_run_max_duration_exceeded',
+    'orphaned_by_job_change',
+    'stale_claimed_non_flow',
+    'agent_step_timeout',
+  ])('terminal advance error %s fails the due run without retry', async (code) => {
+    const store = createInMemoryJobsStore()
+    try {
+      const job = createFlowJob(store)
+      const runs = await tickJobsScheduler({
+        store,
+        now: '2026-04-27T23:05:00.000Z',
+        advanceFlowJobRun: async () => {
+          throw Object.assign(new Error('timeout'), { code })
+        },
+      })
+      expect(runs).toHaveLength(1)
+      const run = store.getJobRun(runs[0]!.jobRunId).jobRun
+      expect(run).toMatchObject({
+        jobId: job.jobId,
+        status: 'failed',
+        errorCode: 'flow_advance_failed',
+      })
+      expect(hasRetryBackoffMetadata(run)).toBe(false)
     } finally {
       store.close()
     }

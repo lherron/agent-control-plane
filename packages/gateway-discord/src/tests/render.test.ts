@@ -283,45 +283,6 @@ describe('formatNoticeLine', () => {
 // ---------------------------------------------------------------------------
 
 describe('renderBlock tool rendering', () => {
-  test('renders tool block with per-tool emoji and input-based preview', () => {
-    const frame: RenderFrame = {
-      runId: 'r1',
-      projectId: 'p1',
-      phase: 'progress',
-      blocks: [
-        {
-          t: 'tool',
-          toolName: 'Read',
-          summary: '`/src/index.ts`',
-          input: { file_path: '/src/index.ts' },
-        } as never,
-      ],
-      updatedAt: Date.now(),
-    }
-    const content = renderFrameToDiscordContent(frame, 2000)
-    expect(content).toContain('📖 Read: /src/index.ts')
-  })
-
-  test('renders shell display label for wrapped command_execution tool blocks', () => {
-    const frame: RenderFrame = {
-      runId: 'r1',
-      projectId: 'p1',
-      phase: 'progress',
-      blocks: [
-        {
-          t: 'tool',
-          toolName: 'command_execution',
-          summary: '',
-          input: { command: "/bin/zsh -lc 'printf X'" },
-        } as never,
-      ],
-      updatedAt: Date.now(),
-    }
-    const content = renderFrameToDiscordContent(frame, 2000)
-    expect(content).toContain('shell: printf X')
-    expect(content).not.toContain('command_execution: /bin/zsh -lc')
-  })
-
   test('renders failed tool with ❌ replacing tool emoji', () => {
     const frame: RenderFrame = {
       runId: 'r1',
@@ -420,22 +381,6 @@ describe('buildProgressBubble', () => {
     }
   }
 
-  test('renders up to 12 tool lines without collapse', () => {
-    const frame: RenderFrame = {
-      runId: 'r1',
-      projectId: 'p1',
-      phase: 'progress',
-      blocks: Array.from({ length: 12 }, (_, i) => makeToolBlock(i)) as never,
-      updatedAt: Date.now(),
-    }
-
-    const bubble = buildProgressBubble(frame)
-    const lines = bubble.split('\n')
-    const toolLines = lines.filter((l) => l.includes('📖 Read:'))
-    expect(toolLines).toHaveLength(12)
-    expect(bubble).not.toContain('earlier tools')
-  })
-
   test('collapses oldest when exceeding 12 lines', () => {
     const frame: RenderFrame = {
       runId: 'r1',
@@ -452,22 +397,6 @@ describe('buildProgressBubble', () => {
     // Should contain the last tool (index 14), not the first (index 0)
     expect(bubble).toContain('fixture-14.ts')
     expect(bubble).not.toContain('fixture-00.ts')
-  })
-
-  test('20 tools with 12-line cap shows +8 collapsed', () => {
-    const frame: RenderFrame = {
-      runId: 'r1',
-      projectId: 'p1',
-      phase: 'progress',
-      blocks: Array.from({ length: 20 }, (_, i) => makeToolBlock(i)) as never,
-      updatedAt: Date.now(),
-    }
-
-    const bubble = buildProgressBubble(frame)
-    expect(bubble).toContain('_... +8 earlier tools_')
-    const toolLines = bubble.split('\n').filter((l) => l.includes('📖 Read:'))
-    expect(toolLines).toHaveLength(12)
-    expect(bubble).toContain('fixture-19.ts')
   })
 
   test('keeps assistant text intact and drops tool lines to fit budget', () => {

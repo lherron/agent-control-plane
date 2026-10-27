@@ -304,83 +304,94 @@ describe('GET /v1/wrkf/pbc/tasks/:task/inspect — read-only inspection (RED)', 
   // RED: route not registered → server returns 404.
 
   test('[RED] returns 200 with wrkf projection on successful inspect', async () => {
+    const specificTask = 'T-98765'
     const wrkf = makeFakePbcPort()
 
     await withWiredServer(
       async (fixture) => {
         const response = await fixture.request({
           method: 'GET',
-          path: `/v1/wrkf/pbc/tasks/${TASK}/inspect`,
+          path: `/v1/wrkf/pbc/tasks/${specificTask}/inspect`,
         })
 
         // RED: route not registered → 404; handler not implemented
         expect(response.status).toBe(200)
         const body = await fixture.json<Record<string, unknown>>(response)
-        expect(body['task']).toBeDefined()
-        expect(body['workflowRef']).toBe('pbc-progressive-refinement@9')
-        expect(body['instance']).toBeDefined()
-        expect(body['next']).toBeDefined()
-      },
-      { wrkf }
-    )
-  })
-
-  test('[RED] inspect translates :task param to wrkf `task` field (never taskId)', async () => {
-    const SPECIFIC_TASK = 'T-98765'
-    const wrkf = makeFakePbcPort()
-
-    await withWiredServer(
-      async (fixture) => {
-        await fixture.request({
-          method: 'GET',
-          path: `/v1/wrkf/pbc/tasks/${SPECIFIC_TASK}/inspect`,
+        expect(body).toEqual({
+          task: specificTask,
+          workflowRef: 'pbc-progressive-refinement@9',
+          instance: {
+            status: 'in_progress',
+            phase: 'implementation',
+            revision: 7,
+            contextHash: 'ctx-hash-abc',
+          },
+          next: {
+            actions: [
+              {
+                transition: 'complete_implementation',
+                role: 'implementer',
+                raw: CANNED_NEXT.actions[0],
+              },
+            ],
+            blockedTransitions: [],
+            openObligations: [],
+            pendingEffects: [],
+          },
         })
-
-        // The wrkf call must use `task`, NOT `taskId`
-        const nextCall = wrkf._calls.find((c) => c.method === 'next')
-        expect(nextCall).toBeDefined()
-        const p = nextCall!.params as Record<string, unknown>
-        expect(p['task']).toBe(SPECIFIC_TASK)
-        expect(p['taskId']).toBeUndefined()
+        expect(wrkf._calls).toEqual([
+          { method: 'next', params: { task: specificTask, role: 'agent' } },
+        ])
       },
       { wrkf }
     )
   })
 
-  test('[RED] inspect MUST NOT call evidence.add, transition.apply, or run.start (read-only)', async () => {
-    const wrkf = makeFakePbcPort()
-
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'GET',
-          path: `/v1/wrkf/pbc/tasks/${TASK}/inspect`,
-        })
-
-        // RED: route not registered → 404; handler must return 200 and call only read methods
-        expect(response.status).toBe(200)
-
-        const writeCalls = wrkf._calls.filter((c) =>
-          ['evidence.add', 'transition.apply', 'run.start', 'run.finish', 'run.fail'].includes(
-            c.method
-          )
-        )
-        expect(writeCalls).toHaveLength(0)
+  test.each([
+    {
+      name: 'inspect',
+      method: 'GET' as const,
+      path: `/v1/wrkf/pbc/tasks/${TASK}/inspect`,
+      body: undefined,
+    },
+    {
+      name: 'run-step',
+      method: 'POST' as const,
+      path: `/v1/wrkf/pbc/tasks/${TASK}/run-step`,
+      body: { actor: ACTOR, idempotencyKey: IDEMPOTENCY_KEY },
+    },
+    {
+      name: 'approve-transition',
+      method: 'POST' as const,
+      path: `/v1/wrkf/pbc/tasks/${TASK}/approve-transition`,
+      body: {
+        transition: 'complete_implementation',
+        actor: ACTOR,
+        idempotencyKey: IDEMPOTENCY_KEY,
       },
-      { wrkf }
-    )
-  })
-
-  test('[RED] returns 503 WRKF_UNAVAILABLE when deps.wrkf is absent', async () => {
+    },
+    {
+      name: 'run-until-blocked',
+      method: 'POST' as const,
+      path: `/v1/wrkf/pbc/tasks/${TASK}/run-until-blocked`,
+      body: { actor: ACTOR, idempotencyKey: IDEMPOTENCY_KEY },
+    },
+    {
+      name: 'deliver-effects',
+      method: 'POST' as const,
+      path: '/v1/wrkf/effects/deliver',
+      body: { task: TASK },
+    },
+  ])('$name without wrkf returns 503 WRKF_UNAVAILABLE', async ({ method, path, body }) => {
     await withWiredServer(async (fixture) => {
       const response = await fixture.request({
-        method: 'GET',
-        path: `/v1/wrkf/pbc/tasks/${TASK}/inspect`,
+        method,
+        path,
+        ...(body !== undefined ? { body } : {}),
       })
-      // RED: returns 404 (route not registered); should be 503
       expect(response.status).toBe(503)
-      const body = await fixture.json<{ error: { code: string } }>(response)
-      expect(body.error.code).toBe('WRKF_UNAVAILABLE')
+      const result = await fixture.json<{ error: { code: string } }>(response)
+      expect(result.error.code).toBe('WRKF_UNAVAILABLE')
     })
   })
 
@@ -415,13 +426,14 @@ describe('POST /v1/wrkf/pbc/tasks/:task/run-step — one participant action (RED
   // RED: route not registered → 404; handler not implemented.
 
   test('[RED] returns 200 with PbcHarnessResult on successful run-step', async () => {
+    const specificTask = 'T-55555'
     const wrkf = makeFakePbcPort()
 
     await withWiredServer(
       async (fixture) => {
         const response = await fixture.request({
           method: 'POST',
-          path: `/v1/wrkf/pbc/tasks/${TASK}/run-step`,
+          path: `/v1/wrkf/pbc/tasks/${specificTask}/run-step`,
           body: {
             actor: ACTOR,
             idempotencyKey: IDEMPOTENCY_KEY,
@@ -434,33 +446,14 @@ describe('POST /v1/wrkf/pbc/tasks/:task/run-step — one participant action (RED
         // RED: 404 (route absent); should be 200 with result
         expect(response.status).toBe(200)
         const body = await fixture.json<Record<string, unknown>>(response)
-        expect(body['task']).toBe(TASK)
+        expect(body['task']).toBe(specificTask)
         expect(body['workflowRef']).toBe('pbc-progressive-refinement@9')
         expect(body['instance']).toBeDefined()
         expect(body['next']).toBeDefined()
-      },
-      { wrkf }
-    )
-  })
-
-  test('[RED] run-step passes :task param as `task` to harness (never taskId)', async () => {
-    const SPECIFIC_TASK = 'T-55555'
-    const wrkf = makeFakePbcPort()
-
-    await withWiredServer(
-      async (fixture) => {
-        await fixture.request({
-          method: 'POST',
-          path: `/v1/wrkf/pbc/tasks/${SPECIFIC_TASK}/run-step`,
-          body: { actor: ACTOR, idempotencyKey: IDEMPOTENCY_KEY },
-        })
-
-        // The harness run.start must receive task, not taskId
-        const startCall = wrkf._calls.find((c) => c.method === 'run.start')
-        expect(startCall).toBeDefined()
-        const p = startCall!.params as Record<string, unknown>
-        expect(p['task']).toBe(SPECIFIC_TASK)
-        expect(p['taskId']).toBeUndefined()
+        const wireCall = wrkf._calls.find((c) => c.method === 'run.start')
+        expect(wireCall).toBeDefined()
+        expect(wireCall!.params).toMatchObject({ task: specificTask })
+        expect((wireCall!.params as Record<string, unknown>)['taskId']).toBeUndefined()
       },
       { wrkf }
     )
@@ -479,22 +472,13 @@ describe('POST /v1/wrkf/pbc/tasks/:task/run-step — one participant action (RED
 
         // RED: 404 (route absent); should be 400 (validation)
         expect(response.status).toBe(400)
+        expect(await response.json()).toMatchObject({
+          error: { code: 'malformed_request', details: { field: 'idempotencyKey' } },
+        })
+        expect(wrkf._calls).toEqual([])
       },
       { wrkf }
     )
-  })
-
-  test('[RED] returns 503 WRKF_UNAVAILABLE when deps.wrkf is absent', async () => {
-    await withWiredServer(async (fixture) => {
-      const response = await fixture.request({
-        method: 'POST',
-        path: `/v1/wrkf/pbc/tasks/${TASK}/run-step`,
-        body: { actor: ACTOR, idempotencyKey: IDEMPOTENCY_KEY },
-      })
-      expect(response.status).toBe(503)
-      const body = await fixture.json<{ error: { code: string } }>(response)
-      expect(body.error.code).toBe('WRKF_UNAVAILABLE')
-    })
   })
 
   test('[RED] maps WRKF_TRANSITION_BLOCKED → HTTP 422', async () => {
@@ -610,87 +594,6 @@ describe('run-step idempotency — body-hash persistence (RED)', () => {
   // same route idempotencyKey + same request body → replay (no duplicate evidence).
   // same route idempotencyKey + different body → HTTP 409.
 
-  test('[RED] repeated run-step with SAME idempotencyKey + SAME body does NOT call evidence.add twice', async () => {
-    // evidence.add MUST NOT be re-called on replay; wrkf does NOT dedupe evidence.
-    const wrkf = makeFakePbcPort()
-
-    const body = {
-      actor: ACTOR,
-      idempotencyKey: 'idem-replay-test-001',
-      participantOutput: {
-        evidence: [{ kind: 'result', summary: 'implementation complete' }],
-      },
-    }
-
-    await withWiredServer(
-      async (fixture) => {
-        // First request: fresh → evidence.add called, result persisted
-        const first = await fixture.request({
-          method: 'POST',
-          path: `/v1/wrkf/pbc/tasks/${TASK}/run-step`,
-          body,
-        })
-        expect(first.status).toBe(200)
-
-        const evidenceCallsAfterFirst = wrkf._calls.filter(
-          (c) => c.method === 'evidence.add'
-        ).length
-
-        // Second request: same key + same body → REPLAY (no new evidence.add)
-        const second = await fixture.request({
-          method: 'POST',
-          path: `/v1/wrkf/pbc/tasks/${TASK}/run-step`,
-          body,
-        })
-        // RED: 404 (route absent) on first; should be 200 replay on second
-        expect(second.status).toBe(200)
-
-        const evidenceCallsAfterSecond = wrkf._calls.filter(
-          (c) => c.method === 'evidence.add'
-        ).length
-
-        // Replay must NOT call evidence.add again
-        expect(evidenceCallsAfterSecond).toBe(evidenceCallsAfterFirst)
-      },
-      { wrkf }
-    )
-  })
-
-  test('[RED] replay returns the same result body as the first request', async () => {
-    const wrkf = makeFakePbcPort()
-
-    const requestBody = {
-      actor: ACTOR,
-      idempotencyKey: 'idem-replay-shape-001',
-      participantOutput: { evidence: [] },
-    }
-
-    await withWiredServer(
-      async (fixture) => {
-        const first = await fixture.request({
-          method: 'POST',
-          path: `/v1/wrkf/pbc/tasks/${TASK}/run-step`,
-          body: requestBody,
-        })
-        expect(first.status).toBe(200)
-        const firstBody = await fixture.json<Record<string, unknown>>(first)
-
-        const second = await fixture.request({
-          method: 'POST',
-          path: `/v1/wrkf/pbc/tasks/${TASK}/run-step`,
-          body: requestBody,
-        })
-        expect(second.status).toBe(200)
-        const secondBody = await fixture.json<Record<string, unknown>>(second)
-
-        // Replay must return same result structure
-        expect(secondBody['task']).toBe(firstBody['task'])
-        expect(secondBody['workflowRef']).toBe(firstBody['workflowRef'])
-      },
-      { wrkf }
-    )
-  })
-
   test('[RED] SAME idempotencyKey + DIFFERENT body → HTTP 409 IDEMPOTENCY_MISMATCH', async () => {
     // This is the body-hash conflict path. The idempotencyKey was already used
     // with a different request body → return 409, do NOT execute.
@@ -740,7 +643,7 @@ describe('run-step idempotency — body-hash persistence (RED)', () => {
     const body = {
       actor: ACTOR,
       idempotencyKey: 'idem-order-test-001',
-      participantOutput: { evidence: [] },
+      participantOutput: { evidence: [{ kind: 'result', summary: 'implementation complete' }] },
     }
 
     await withWiredServer(
@@ -753,7 +656,9 @@ describe('run-step idempotency — body-hash persistence (RED)', () => {
         })
         expect(first.status).toBe(200)
 
+        const firstResult = await fixture.json<Record<string, unknown>>(first)
         const callsAfterFirst = wrkf._calls.length
+        expect(wrkf._calls.filter((c) => c.method === 'evidence.add')).toHaveLength(1)
 
         // Second request: replay; store consulted FIRST → zero new wrkf calls
         const second = await fixture.request({
@@ -763,6 +668,7 @@ describe('run-step idempotency — body-hash persistence (RED)', () => {
         })
         expect(second.status).toBe(200)
 
+        expect(await fixture.json<Record<string, unknown>>(second)).toEqual(firstResult)
         // On replay, no additional wrkf calls should have been made
         expect(wrkf._calls.length).toBe(callsAfterFirst)
       },
@@ -777,13 +683,14 @@ describe('run-step idempotency — body-hash persistence (RED)', () => {
 
 describe('POST /v1/wrkf/pbc/tasks/:task/approve-transition (RED)', () => {
   test('[RED] returns 200 with PbcHarnessResult on successful approve-transition', async () => {
+    const specificTask = 'T-77777'
     const wrkf = makeFakePbcPort()
 
     await withWiredServer(
       async (fixture) => {
         const response = await fixture.request({
           method: 'POST',
-          path: `/v1/wrkf/pbc/tasks/${TASK}/approve-transition`,
+          path: `/v1/wrkf/pbc/tasks/${specificTask}/approve-transition`,
           body: {
             transition: 'complete_implementation',
             actor: ACTOR,
@@ -794,35 +701,13 @@ describe('POST /v1/wrkf/pbc/tasks/:task/approve-transition (RED)', () => {
         // RED: 404 (route); should be 200
         expect(response.status).toBe(200)
         const body = await fixture.json<Record<string, unknown>>(response)
-        expect(body['task']).toBe(TASK)
+        expect(body['task']).toBe(specificTask)
         expect(body['workflowRef']).toBe('pbc-progressive-refinement@9')
         expect(body['transitionApplied']).toBeDefined()
-      },
-      { wrkf }
-    )
-  })
-
-  test('[RED] approve-transition passes :task param as `task` to harness (never taskId)', async () => {
-    const SPECIFIC_TASK = 'T-77777'
-    const wrkf = makeFakePbcPort()
-
-    await withWiredServer(
-      async (fixture) => {
-        await fixture.request({
-          method: 'POST',
-          path: `/v1/wrkf/pbc/tasks/${SPECIFIC_TASK}/approve-transition`,
-          body: {
-            transition: 'complete_implementation',
-            actor: ACTOR,
-            idempotencyKey: IDEMPOTENCY_KEY,
-          },
-        })
-
-        const applyCall = wrkf._calls.find((c) => c.method === 'transition.apply')
-        expect(applyCall).toBeDefined()
-        const p = applyCall!.params as Record<string, unknown>
-        expect(p['task']).toBe(SPECIFIC_TASK)
-        expect(p['taskId']).toBeUndefined()
+        const wireCall = wrkf._calls.find((c) => c.method === 'transition.apply')
+        expect(wireCall).toBeDefined()
+        expect(wireCall!.params).toMatchObject({ task: specificTask })
+        expect((wireCall!.params as Record<string, unknown>)['taskId']).toBeUndefined()
       },
       { wrkf }
     )
@@ -909,23 +794,6 @@ describe('POST /v1/wrkf/pbc/tasks/:task/approve-transition (RED)', () => {
       { wrkf }
     )
   })
-
-  test('[RED] returns 503 WRKF_UNAVAILABLE when deps.wrkf is absent', async () => {
-    await withWiredServer(async (fixture) => {
-      const response = await fixture.request({
-        method: 'POST',
-        path: `/v1/wrkf/pbc/tasks/${TASK}/approve-transition`,
-        body: {
-          transition: 'complete_implementation',
-          actor: ACTOR,
-          idempotencyKey: IDEMPOTENCY_KEY,
-        },
-      })
-      expect(response.status).toBe(503)
-      const body = await fixture.json<{ error: { code: string } }>(response)
-      expect(body.error.code).toBe('WRKF_UNAVAILABLE')
-    })
-  })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -935,6 +803,7 @@ describe('POST /v1/wrkf/pbc/tasks/:task/approve-transition (RED)', () => {
 describe('POST /v1/wrkf/pbc/tasks/:task/run-until-blocked (RED)', () => {
   test('[RED] returns 200 with PbcHarnessResult.stopReason on completion', async () => {
     // Make next return closed so the autopilot stops immediately.
+    const specificTask = 'T-33333'
     const wrkf = makeFakePbcPort({
       next: async () => ({
         instance: {
@@ -953,7 +822,7 @@ describe('POST /v1/wrkf/pbc/tasks/:task/run-until-blocked (RED)', () => {
       async (fixture) => {
         const response = await fixture.request({
           method: 'POST',
-          path: `/v1/wrkf/pbc/tasks/${TASK}/run-until-blocked`,
+          path: `/v1/wrkf/pbc/tasks/${specificTask}/run-until-blocked`,
           body: {
             actor: ACTOR,
             idempotencyKey: IDEMPOTENCY_KEY,
@@ -965,59 +834,14 @@ describe('POST /v1/wrkf/pbc/tasks/:task/run-until-blocked (RED)', () => {
         expect(response.status).toBe(200)
         const body = await fixture.json<{ stopReason: string; task: string }>(response)
         expect(body.stopReason).toBe('closed')
-        expect(body.task).toBe(TASK)
+        expect(body.task).toBe(specificTask)
+        const wireCall = wrkf._calls.find((c) => c.method === 'next')
+        expect(wireCall).toBeDefined()
+        expect(wireCall!.params).toMatchObject({ task: specificTask })
+        expect((wireCall!.params as Record<string, unknown>)['taskId']).toBeUndefined()
       },
       { wrkf }
     )
-  })
-
-  test('[RED] run-until-blocked passes :task param as `task` to harness (never taskId)', async () => {
-    const SPECIFIC_TASK = 'T-33333'
-    const wrkf = makeFakePbcPort({
-      next: async () => ({
-        instance: {
-          state: { status: 'closed', phase: 'done' },
-          revision: 1,
-          contextHash: 'ctx-done',
-        },
-        actions: [],
-        blockedTransitions: [],
-        openObligations: [],
-        pendingEffects: [],
-      }),
-    })
-
-    await withWiredServer(
-      async (fixture) => {
-        await fixture.request({
-          method: 'POST',
-          path: `/v1/wrkf/pbc/tasks/${SPECIFIC_TASK}/run-until-blocked`,
-          body: {
-            actor: ACTOR,
-            idempotencyKey: IDEMPOTENCY_KEY,
-            maxTurns: 1,
-          },
-        })
-
-        const nextCall = wrkf._calls.find((c) => c.method === 'next')
-        expect(nextCall).toBeDefined()
-        const p = nextCall!.params as Record<string, unknown>
-        expect(p['task']).toBe(SPECIFIC_TASK)
-        expect(p['taskId']).toBeUndefined()
-      },
-      { wrkf }
-    )
-  })
-
-  test('[RED] returns 503 WRKF_UNAVAILABLE when deps.wrkf is absent', async () => {
-    await withWiredServer(async (fixture) => {
-      const response = await fixture.request({
-        method: 'POST',
-        path: `/v1/wrkf/pbc/tasks/${TASK}/run-until-blocked`,
-        body: { actor: ACTOR, idempotencyKey: IDEMPOTENCY_KEY },
-      })
-      expect(response.status).toBe(503)
-    })
   })
 })
 
@@ -1028,47 +852,6 @@ describe('POST /v1/wrkf/pbc/tasks/:task/run-until-blocked (RED)', () => {
 describe('POST /v1/wrkf/effects/deliver — list then deliver per effectId (RED)', () => {
   // RED: route not registered → 404; handler not implemented.
   // Key contract: effect.list({task}) → deliver per effectId. task NOT passed to deliver.
-
-  test('[RED] returns 200 with {delivered, skipped} result', async () => {
-    const wrkf = makeFakePbcPort()
-
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: '/v1/wrkf/effects/deliver',
-          body: { task: TASK },
-        })
-
-        // RED: 404 (route); should be 200
-        expect(response.status).toBe(200)
-        const body = await fixture.json<{ delivered: string[]; skipped: unknown[] }>(response)
-        expect(Array.isArray(body.delivered)).toBe(true)
-        expect(Array.isArray(body.skipped)).toBe(true)
-      },
-      { wrkf }
-    )
-  })
-
-  test('[RED] calls effect.list with {task} from request body', async () => {
-    const wrkf = makeFakePbcPort()
-
-    await withWiredServer(
-      async (fixture) => {
-        await fixture.request({
-          method: 'POST',
-          path: '/v1/wrkf/effects/deliver',
-          body: { task: TASK },
-        })
-
-        const listCall = wrkf._calls.find((c) => c.method === 'effect.list')
-        expect(listCall).toBeDefined()
-        const p = listCall!.params as Record<string, unknown>
-        expect(p['task']).toBe(TASK)
-      },
-      { wrkf }
-    )
-  })
 
   test('[RED] calls effect.deliver for each pending effect by effectId', async () => {
     const wrkf = makeFakePbcPort()
@@ -1089,35 +872,6 @@ describe('POST /v1/wrkf/effects/deliver — list then deliver per effectId (RED)
         const effectIds = deliverCalls.map((c) => (c.params as Record<string, unknown>)['effectId'])
         expect(effectIds).toContain('eff-aaa')
         expect(effectIds).toContain('eff-bbb')
-      },
-      { wrkf }
-    )
-  })
-
-  test('[RED] effect.deliver is called with effectId only — task is NOT passed to deliver', async () => {
-    // SPEC §4.6.5: "task? is server-ignored on effect.deliver"
-    // The handler MUST NOT pass task to effect.deliver.
-    const wrkf = makeFakePbcPort()
-
-    await withWiredServer(
-      async (fixture) => {
-        await fixture.request({
-          method: 'POST',
-          path: '/v1/wrkf/effects/deliver',
-          body: { task: TASK },
-        })
-
-        const deliverCalls = wrkf._calls.filter((c) => c.method === 'effect.deliver')
-        expect(deliverCalls.length).toBeGreaterThan(0)
-
-        for (const call of deliverCalls) {
-          const p = call.params as Record<string, unknown>
-          // effectId must be present
-          expect(typeof p['effectId']).toBe('string')
-          // task must NOT be forwarded to deliver
-          expect(p['task']).toBeUndefined()
-          expect(p['taskId']).toBeUndefined()
-        }
       },
       { wrkf }
     )
@@ -1184,19 +938,6 @@ describe('POST /v1/wrkf/effects/deliver — list then deliver per effectId (RED)
       { wrkf }
     )
   })
-
-  test('[RED] returns 503 WRKF_UNAVAILABLE when deps.wrkf is absent', async () => {
-    await withWiredServer(async (fixture) => {
-      const response = await fixture.request({
-        method: 'POST',
-        path: '/v1/wrkf/effects/deliver',
-        body: { task: TASK },
-      })
-      expect(response.status).toBe(503)
-      const body = await fixture.json<{ error: { code: string } }>(response)
-      expect(body.error.code).toBe('WRKF_UNAVAILABLE')
-    })
-  })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1205,125 +946,6 @@ describe('POST /v1/wrkf/effects/deliver — list then deliver per effectId (RED)
 
 describe('Route registration and authz wrapping (RED)', () => {
   // RED: routes not in param-routes.ts / exact-routes.ts → 404 for all 5.
-
-  test('[RED] GET /v1/wrkf/pbc/tasks/:task/inspect is registered (not 404)', async () => {
-    const wrkf = makeFakePbcPort()
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'GET',
-          path: `/v1/wrkf/pbc/tasks/${TASK}/inspect`,
-        })
-        expect(response.status).not.toBe(404)
-      },
-      { wrkf }
-    )
-  })
-
-  test('[RED] POST /v1/wrkf/pbc/tasks/:task/run-step is registered (not 404)', async () => {
-    const wrkf = makeFakePbcPort()
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: `/v1/wrkf/pbc/tasks/${TASK}/run-step`,
-          body: { actor: ACTOR, idempotencyKey: IDEMPOTENCY_KEY },
-        })
-        expect(response.status).not.toBe(404)
-      },
-      { wrkf }
-    )
-  })
-
-  test('[RED] POST /v1/wrkf/pbc/tasks/:task/approve-transition is registered (not 404)', async () => {
-    const wrkf = makeFakePbcPort()
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: `/v1/wrkf/pbc/tasks/${TASK}/approve-transition`,
-          body: { transition: 'test', actor: ACTOR, idempotencyKey: IDEMPOTENCY_KEY },
-        })
-        expect(response.status).not.toBe(404)
-      },
-      { wrkf }
-    )
-  })
-
-  test('[RED] POST /v1/wrkf/pbc/tasks/:task/run-until-blocked is registered (not 404)', async () => {
-    const wrkf = makeFakePbcPort()
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: `/v1/wrkf/pbc/tasks/${TASK}/run-until-blocked`,
-          body: { actor: ACTOR, idempotencyKey: IDEMPOTENCY_KEY },
-        })
-        expect(response.status).not.toBe(404)
-      },
-      { wrkf }
-    )
-  })
-
-  test('[RED] POST /v1/wrkf/effects/deliver is registered (not 404)', async () => {
-    const wrkf = makeFakePbcPort()
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: '/v1/wrkf/effects/deliver',
-          body: { task: TASK },
-        })
-        expect(response.status).not.toBe(404)
-      },
-      { wrkf }
-    )
-  })
-
-  test('[RED] mutating POST routes respond 403 when authorize returns deny (authz wrapping asserted)', async () => {
-    // withActorAndAuthz wrapping is required on all mutating PBC routes.
-    // With authorize → 'deny', the wrapped routes must return 403.
-    // Without the wrapper, handlers execute directly and return 200/422/etc (not 403).
-    const wrkf = makeFakePbcPort()
-    const muatingRoutes = [
-      {
-        method: 'POST',
-        path: `/v1/wrkf/pbc/tasks/${TASK}/run-step`,
-        body: { actor: ACTOR, idempotencyKey: IDEMPOTENCY_KEY },
-      },
-      {
-        method: 'POST',
-        path: `/v1/wrkf/pbc/tasks/${TASK}/approve-transition`,
-        body: { transition: 'test', actor: ACTOR, idempotencyKey: IDEMPOTENCY_KEY },
-      },
-      {
-        method: 'POST',
-        path: `/v1/wrkf/pbc/tasks/${TASK}/run-until-blocked`,
-        body: { actor: ACTOR, idempotencyKey: IDEMPOTENCY_KEY },
-      },
-      {
-        method: 'POST',
-        path: '/v1/wrkf/effects/deliver',
-        body: { task: TASK },
-      },
-    ]
-
-    await withWiredServer(
-      async (fixture) => {
-        for (const route of muatingRoutes) {
-          const response = await fixture.request(route)
-          // Routes that go through withActorAndAuthz with deny → 403
-          // Routes that don't have the wrapper would return something else (200, 422, 503...)
-          // RED: returns 404 (not registered) → will be 403 once registered with authz wrapper
-          expect(response.status).toBe(403)
-        }
-      },
-      {
-        wrkf,
-        authorize: () => 'deny', // override to always deny
-      }
-    )
-  })
 
   test('[RED] GET /v1/wrkf/pbc/tasks/:task/inspect responds 403 when authorize returns deny', async () => {
     const wrkf = makeFakePbcPort()

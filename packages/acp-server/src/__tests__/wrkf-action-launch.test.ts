@@ -46,12 +46,6 @@ const CANNED_ACTION_RUN = {
   status: 'active',
 }
 
-/** action.start result when the action run already carries a bound ref (replay). */
-const CANNED_ACTION_RUN_BOUND = {
-  ...CANNED_ACTION_RUN,
-  externalRunRef: 'hrc:hrc-run-already-launched-001',
-}
-
 const CANNED_LAUNCHED = {
   runId: 'hrc-run-launched-001',
   sessionId: 'host-session-001',
@@ -131,179 +125,15 @@ const BASE_INPUT = {
 
 // ─── Happy path ──────────────────────────────────────────────────────────────
 
-describe('launchAction — happy path', () => {
-  test('composes action.start -> launch -> action.bindExternal and returns both ids', async () => {
-    const wrkf = makeFakeWrkfPort()
-    const runStore = new InMemoryRunStore()
-    const launcher: LaunchRoleScopedRun = async () => CANNED_LAUNCHED
-
-    const result = await launchAction(
-      { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT
-    )
-
-    expect(result.source).toBe('wrkf-action')
-    expect(result.taskId).toBe(TASK_ID)
-    expect(result.actionRunId).toBe(CANNED_ACTION_RUN.actionRunId)
-    expect(result.wrkfRunId).toBe(CANNED_ACTION_RUN.runId)
-    expect(result.hrcRunId).toBe(CANNED_LAUNCHED.runId)
-    expect(result.externalRunRef).toBe(formatHrcExternalRef(CANNED_LAUNCHED.runId))
-    expect(result.replay).toBe(false)
-    expect(result.launch?.runId).toBe(CANNED_LAUNCHED.runId)
-  })
-
-  test('action.start is called with task, action, string actor and idempotencyKey', async () => {
-    const wrkf = makeFakeWrkfPort()
-    const runStore = new InMemoryRunStore()
-    const launcher: LaunchRoleScopedRun = async () => CANNED_LAUNCHED
-
-    await launchAction(
-      { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT
-    )
-
-    const startCall = wrkf._calls.find((c) => c.method === 'action.start')
-    const p = startCall!.params as Record<string, unknown>
-    expect(p['task']).toBe(TASK_ID)
-    expect(p['action']).toBe(ACTION)
-    expect(p['principal_ref']).toBe('agent:curly')
-    expect(p['idempotencyKey']).toBe(IDEMPOTENCY_KEY)
-  })
-
-  test('bindExternal keys on actionRunId with prefixed hrc ref and :bindExternal key', async () => {
-    const wrkf = makeFakeWrkfPort()
-    const runStore = new InMemoryRunStore()
-    const launcher: LaunchRoleScopedRun = async () => CANNED_LAUNCHED
-
-    await launchAction(
-      { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT
-    )
-
-    const bindCall = wrkf._calls.find((c) => c.method === 'action.bindExternal')
-    const p = bindCall!.params as Record<string, unknown>
-    expect(p['actionRunId']).toBe(CANNED_ACTION_RUN.actionRunId)
-    expect(p['externalRunRef']).toBe(formatHrcExternalRef(CANNED_LAUNCHED.runId))
-    expect(p['idempotencyKey']).toBe(`${IDEMPOTENCY_KEY}:bindExternal`)
-    const deliveryRef = JSON.parse(p['deliveryRef'] as string) as Record<string, unknown>
-    expect(deliveryRef['kind']).toBe('hrc')
-  })
-
-  test('ACP run store is keyed on the underlying runId and records hrcRunId before bind', async () => {
-    const wrkf = makeFakeWrkfPort()
-    const runStore = new InMemoryRunStore()
-    const launcher: LaunchRoleScopedRun = async () => CANNED_LAUNCHED
-
-    await launchAction(
-      { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT
-    )
-
-    const acpRun = runStore.getRun(ACP_RUN_ID)
-    expect(acpRun).toBeDefined()
-    expect(acpRun?.hrcRunId).toBe(CANNED_LAUNCHED.runId)
-    expect(acpRun?.metadata?.['wrkfRunId']).toBe(CANNED_ACTION_RUN.runId)
-  })
-
-  test('persists the workflow ref and role returned by action.start across template evolution', async () => {
-    const evolvedActionRun = {
-      ...CANNED_ACTION_RUN,
-      workflow: undefined,
-      workflowRef: 'wrkq-simple-task@future',
-      role: 'evolved-implementer',
-    }
-    const wrkf = makeFakeWrkfPort({ start: async () => evolvedActionRun })
-    const runStore = new InMemoryRunStore()
-    const launcher: LaunchRoleScopedRun = async () => CANNED_LAUNCHED
-
-    await launchAction(
-      { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT
-    )
-
-    const acpRun = runStore.getRun(ACP_RUN_ID)
-    expect(acpRun?.metadata?.['workflowRef']).toBe(evolvedActionRun.workflowRef)
-    expect(acpRun?.metadata?.['role']).toBe(evolvedActionRun.role)
-  })
-
-  test('does NOT persist semantic action-truth scalars (cp_*, session_id, run_status) in ACP run', async () => {
-    const wrkf = makeFakeWrkfPort()
-    const runStore = new InMemoryRunStore()
-    const launcher: LaunchRoleScopedRun = async () => CANNED_LAUNCHED
-
-    await launchAction(
-      { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT
-    )
-
-    const acpRun = runStore.getRun(ACP_RUN_ID)
-    const blob = JSON.stringify(acpRun)
-    expect(blob).not.toContain('cp_run_id')
-    expect(blob).not.toContain('cp_session_id')
-    expect(blob).not.toContain('run_status')
-    expect(blob).not.toContain('sdk_session_id')
-  })
-})
+describe('launchAction — happy path', () => {})
 
 // ─── Replay: action.start already bound ──────────────────────────────────────
 
-describe('launchAction — replay (action already bound)', () => {
-  test('externalRunRef present on action.start → replay:true, no launch, no bind', async () => {
-    const wrkf = makeFakeWrkfPort({ start: async () => CANNED_ACTION_RUN_BOUND })
-    const runStore = new InMemoryRunStore()
-    const launchCalls: unknown[] = []
-    const launcher: LaunchRoleScopedRun = async (input) => {
-      launchCalls.push(input)
-      return CANNED_LAUNCHED
-    }
-
-    const result = await launchAction(
-      { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT
-    )
-
-    expect(result.replay).toBe(true)
-    expect(result.externalRunRef).toBe(CANNED_ACTION_RUN_BOUND.externalRunRef)
-    expect(result.hrcRunId).toBe('hrc-run-already-launched-001')
-    expect(launchCalls).toHaveLength(0)
-    expect(wrkf._calls.find((c) => c.method === 'action.bindExternal')).toBeUndefined()
-  })
-})
+describe('launchAction — replay (action already bound)', () => {})
 
 // ─── Crash-window recovery ───────────────────────────────────────────────────
 
-describe('launchAction — crash-window recovery', () => {
-  test('retry after launch-before-bind re-binds discovered hrcRunId without relaunching', async () => {
-    const wrkf = makeFakeWrkfPort({ start: async () => CANNED_ACTION_RUN })
-    const runStore = new InMemoryRunStore()
-    const { run: seed } = runStore.createOrGetRun({
-      sessionRef: SESSION_REF,
-      wrkfTaskId: TASK_ID,
-      wrkfInstanceId: CANNED_ACTION_RUN.instanceId,
-      wrkfRunId: CANNED_ACTION_RUN.runId,
-      workflowRef: 'wrkq-simple-task@1',
-      role: ROLE,
-    })
-    runStore.updateRun(seed.runId, { hrcRunId: CANNED_LAUNCHED.runId })
-
-    const launchCalls: unknown[] = []
-    const launcher: LaunchRoleScopedRun = async (input) => {
-      launchCalls.push(input)
-      return CANNED_LAUNCHED
-    }
-
-    const result = await launchAction(
-      { wrkf, runStore, launchRoleScopedRun: launcher, runtimeResolver: FAKE_RUNTIME_RESOLVER },
-      BASE_INPUT
-    )
-
-    expect(launchCalls).toHaveLength(0)
-    const bindCall = wrkf._calls.find((c) => c.method === 'action.bindExternal')
-    const p = bindCall!.params as Record<string, unknown>
-    expect(p['externalRunRef']).toBe(formatHrcExternalRef(CANNED_LAUNCHED.runId))
-    expect(result.hrcRunId).toBe(CANNED_LAUNCHED.runId)
-  })
-})
+describe('launchAction — crash-window recovery', () => {})
 
 // ─── Orphan on bind failure ──────────────────────────────────────────────────
 

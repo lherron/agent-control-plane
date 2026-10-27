@@ -64,13 +64,14 @@ function createWakeDispatcherInput(input: {
   fixture: Awaited<Parameters<Parameters<typeof withWiredServer>[0]>[0]>
   launchRoleScopedRun: NonNullable<AcpServerDeps['launchRoleScopedRun']>
   adminStore?: AdminStore | undefined
+  runtimeResolver?: NonNullable<AcpServerDeps['runtimeResolver']> | undefined
 }): WakeDispatcherFactoryInput {
   return {
     coordStore: input.fixture.coordStore,
     inputAttemptStore: input.fixture.inputAttemptStore,
     runStore: input.fixture.runStore,
     adminStore: input.adminStore ?? createInMemoryAdminStore(),
-    runtimeResolver: createRuntimeResolver(),
+    runtimeResolver: input.runtimeResolver ?? createRuntimeResolver(),
     launchRoleScopedRun: input.launchRoleScopedRun,
   }
 }
@@ -116,7 +117,7 @@ function readWakeState(coordStore: CoordinationStore, wakeId: string): string | 
 }
 
 describe('wake dispatcher worker', () => {
-  test('leases pending wakes, creates an input attempt + run, dispatches through the shared launcher path, and consumes the wake', async () => {
+  test('pending wake launches one run and is consumed', async () => {
     const launchCalls: LaunchCall[] = []
     const module = await loadWakeDispatcherModule()
 
@@ -199,7 +200,7 @@ describe('wake dispatcher worker', () => {
     })
   })
 
-  test('skips cancelled wakes', async () => {
+  test('cancelled wake is never launched', async () => {
     const launchCalls: LaunchCall[] = []
     const module = await loadWakeDispatcherModule()
 
@@ -231,7 +232,7 @@ describe('wake dispatcher worker', () => {
     })
   })
 
-  test('shuts down cleanly when stop() is called during an in-flight poll', async () => {
+  test('stop() waits for an in-flight wake launch to finish', async () => {
     const launchCalls: LaunchCall[] = []
     const launchStarted = createDeferred<void>()
     const releaseLaunch = createDeferred<void>()
@@ -281,5 +282,107 @@ describe('wake dispatcher worker', () => {
 
       expect(launchCalls).toHaveLength(1)
     })
+  })
+})
+
+// Placement project-root resolution as the wake path launches it. The resolver
+// deliberately reports WRONG paths so the admin-store root must win when it is
+// registered (the heather@vitals incident: cwd fell back to the agent root).
+const ADMIN_HOME_DIR = '/admin/project/home'
+const WRONG_AGENT_ROOT = '/agent/root/wrong'
+const WRONG_PROJECT_ROOT = '/agent/root/wrong-project'
+const WRONG_CWD = '/agent/root/wrong-cwd'
+
+function wrongPathsResolver(input: {
+  projectRoot?: string | undefined
+}): NonNullable<AcpServerDeps['runtimeResolver']> {
+  return async () => ({
+    agentRoot: WRONG_AGENT_ROOT,
+    ...(input.projectRoot !== undefined ? { projectRoot: input.projectRoot } : {}),
+    cwd: WRONG_CWD,
+    runMode: 'task',
+    bundle: { kind: 'spaces-snapshot', snapshotId: 'snap-1' },
+    harness: { provider: 'anthropic', interactive: true },
+  })
+}
+
+describe('wake dispatcher launch placement', () => {
+  async function dispatchOneWake(input: {
+    projectId: string
+    adminStore?: AdminStore | undefined
+    runtimeResolver: NonNullable<AcpServerDeps['runtimeResolver']>
+  }) {
+    const launchCalls: LaunchCall[] = []
+    const module = await loadWakeDispatcherModule()
+    return withWiredServer(async (fixture) => {
+      const { wake } = seedWake({
+        coordStore: fixture.coordStore,
+        projectId: input.projectId,
+        taskId: 'T-62010',
+      })
+      const dispatcher = module.createWakeDispatcher(
+        createWakeDispatcherInput({
+          fixture,
+          adminStore: input.adminStore,
+          runtimeResolver: input.runtimeResolver,
+          launchRoleScopedRun: async (call) => {
+            launchCalls.push(call)
+            return { runId: call.acpRunId ?? 'run-launch-fallback', sessionId: 'session-1' }
+          },
+        })
+      )
+      await dispatcher.runOnce()
+      return {
+        launchCalls,
+        runs: fixture.runStore.listRuns(),
+        wakeState: readWakeState(fixture.coordStore, wake.wakeId),
+      }
+    })
+  }
+
+  test('wake for a registered admin project launches in the admin-store project root, not the resolver paths', async () => {
+    const adminStore = createInMemoryAdminStore()
+    adminStore.projects.create({
+      projectId: 'vitals',
+      displayName: 'vitals',
+      homeDir: ADMIN_HOME_DIR,
+      actor: { kind: 'agent', id: 'tester' },
+      now: '2026-05-15T00:00:00.000Z',
+    })
+
+    const { launchCalls } = await dispatchOneWake({
+      projectId: 'vitals',
+      adminStore,
+      runtimeResolver: wrongPathsResolver({ projectRoot: WRONG_PROJECT_ROOT }),
+    })
+
+    expect(launchCalls).toHaveLength(1)
+    expect(launchCalls[0]?.intent.placement.projectRoot).toBe(ADMIN_HOME_DIR)
+    expect(launchCalls[0]?.intent.placement.cwd).toBe(ADMIN_HOME_DIR)
+  })
+
+  test('wake for a project the admin store does not know launches in the resolver project root', async () => {
+    const { launchCalls } = await dispatchOneWake({
+      projectId: 'unregistered',
+      runtimeResolver: wrongPathsResolver({ projectRoot: WRONG_PROJECT_ROOT }),
+    })
+
+    expect(launchCalls).toHaveLength(1)
+    expect(launchCalls[0]?.intent.placement.projectRoot).toBe(WRONG_PROJECT_ROOT)
+    expect(launchCalls[0]?.intent.placement.cwd).toBe(WRONG_PROJECT_ROOT)
+  })
+
+  test('wake whose project root resolves nowhere fails its run with project root not found and launches nothing', async () => {
+    const { launchCalls, runs, wakeState } = await dispatchOneWake({
+      projectId: 'unregistered',
+      runtimeResolver: wrongPathsResolver({}),
+    })
+
+    expect(launchCalls).toEqual([])
+    expect(runs).toHaveLength(1)
+    expect(runs[0]?.errorMessage).toContain(
+      'project root not found for agent:curly:project:unregistered'
+    )
+    expect(wakeState).not.toBe('consumed')
   })
 })

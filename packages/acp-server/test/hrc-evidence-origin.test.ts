@@ -130,7 +130,7 @@ describe('hrcActuatingEvidenceClause', () => {
     const hrcActuatingEvidenceClause = mod?.hrcActuatingEvidenceClause as (db: Database) => string
     const db = createOldStore()
     db.close()
-    expect(() => hrcActuatingEvidenceClause(db)).toThrow()
+    expect(() => hrcActuatingEvidenceClause(db)).toThrow(/closed/i)
   })
 
   test('T0f observes an in-place schema upgrade on the next call', () => {

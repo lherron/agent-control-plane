@@ -219,24 +219,25 @@ describe('POST /v1/coordination/messages', () => {
 
   test('accepts human, agent, sessionRef, and system participants', async () => {
     await withWiredServer(async (fixture) => {
+      const testerSessionRef = {
+        scopeRef: `agent:curly:project:${fixture.seed.projectId}:task:T-71003:role:tester`,
+        laneRef: 'main',
+      }
       const cases = [
         {
           from: { kind: 'human', humanId: 'human-123', displayName: 'Dana' },
           to: { kind: 'agent', agentId: 'curly' },
+          participants: [{ kind: 'agent', agentId: 'curly' }],
         },
         {
           from: { kind: 'agent', agentId: 'clod' },
-          to: {
-            kind: 'sessionRef',
-            sessionRef: {
-              scopeRef: `agent:curly:project:${fixture.seed.projectId}:task:T-71003:role:tester`,
-              laneRef: 'main',
-            },
-          },
+          to: { kind: 'sessionRef', sessionRef: testerSessionRef },
+          participants: [{ kind: 'session', sessionRef: testerSessionRef }],
         },
         {
           from: { kind: 'system' },
           to: { kind: 'human', humanId: 'human-456', displayName: 'Riley' },
+          participants: [{ kind: 'human', ref: 'human-456' }],
         },
       ] as const
 
@@ -246,12 +247,20 @@ describe('POST /v1/coordination/messages', () => {
           path: '/v1/coordination/messages',
           body: {
             projectId: fixture.seed.projectId,
-            ...message,
+            from: message.from,
+            to: message.to,
             body: `variant ${index + 1}`,
           },
         })
 
         expect(response.status).toBe(201)
+        const { coordinationEventId } = await fixture.json<{ coordinationEventId: string }>(
+          response
+        )
+        const stored = listEvents(fixture.coordStore, { projectId: fixture.seed.projectId }).find(
+          (event) => event.eventId === coordinationEventId
+        )
+        expect(stored?.participants, `variant ${index + 1}`).toEqual(message.participants)
       }
 
       expect(listEvents(fixture.coordStore, { projectId: fixture.seed.projectId })).toHaveLength(3)

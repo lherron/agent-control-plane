@@ -3,32 +3,6 @@ import { describe, expect, test } from 'bun:test'
 import { withInterfaceStore } from './helpers.js'
 
 describe('OutboundAttachmentRepo', () => {
-  test('initializes the outbound_attachments table and index', () => {
-    withInterfaceStore(({ store }) => {
-      const columns = store.sqlite
-        .prepare(`SELECT name FROM pragma_table_info('outbound_attachments') ORDER BY cid ASC`)
-        .all() as Array<{ name: string }>
-      const indexes = store.sqlite
-        .prepare(`SELECT name FROM pragma_index_list('outbound_attachments') ORDER BY name ASC`)
-        .all() as Array<{ name: string }>
-
-      expect(columns.map((column) => column.name)).toEqual([
-        'outboundAttachmentId',
-        'runId',
-        'state',
-        'consumedByDeliveryRequestId',
-        'path',
-        'filename',
-        'contentType',
-        'sizeBytes',
-        'alt',
-        'createdAt',
-        'updatedAt',
-      ])
-      expect(indexes.map((index) => index.name)).toContain('outbound_attachments_run_state_idx')
-    })
-  })
-
   test('creates and lists pending outbound attachments for a run', () => {
     withInterfaceStore(({ store }) => {
       const created = store.outboundAttachments.create({

@@ -3,32 +3,9 @@ import { describe, expect, test } from 'bun:test'
 import { withWiredServer } from './fixtures/wired-server.js'
 
 describe('GAP 1: placement metadata HTTP endpoints', () => {
-  test('POST /v1/admin/agents with homeDir persists and returns it', async () => {
-    await withWiredServer(async (fixture) => {
-      const response = await fixture.request({
-        method: 'POST',
-        path: '/v1/admin/agents',
-        body: {
-          agentId: 'curly',
-          displayName: 'Curly',
-          homeDir: '/home/curly',
-          status: 'active',
-          actor: { kind: 'agent', id: 'operator' },
-        },
-      })
-
-      expect(response.status).toBe(201)
-      const result = await fixture.json<{
-        agent: { agentId: string; homeDir: string }
-      }>(response)
-      expect(result.agent.agentId).toBe('curly')
-      expect(result.agent.homeDir).toBe('/home/curly')
-    })
-  })
-
   test('GET /v1/admin/agents/:agentId returns homeDir', async () => {
     await withWiredServer(async (fixture) => {
-      await fixture.request({
+      const created = await fixture.request({
         method: 'POST',
         path: '/v1/admin/agents',
         body: {
@@ -39,6 +16,12 @@ describe('GAP 1: placement metadata HTTP endpoints', () => {
         },
       })
 
+      expect(created.status).toBe(201)
+      expect(
+        await fixture.json<{ agent: { agentId: string; homeDir: string } }>(created)
+      ).toMatchObject({
+        agent: { agentId: 'curly', homeDir: '/home/curly' },
+      })
       const getResponse = await fixture.request({
         method: 'GET',
         path: '/v1/admin/agents/curly',
@@ -103,31 +86,9 @@ describe('GAP 1: placement metadata HTTP endpoints', () => {
     })
   })
 
-  test('POST /v1/admin/projects still accepts legacy rootDir', async () => {
-    await withWiredServer(async (fixture) => {
-      const response = await fixture.request({
-        method: 'POST',
-        path: '/v1/admin/projects',
-        body: {
-          projectId: 'agent-spaces',
-          displayName: 'Agent Spaces',
-          rootDir: '/Users/dev/agent-spaces',
-          actor: { kind: 'agent', id: 'operator' },
-        },
-      })
-
-      expect(response.status).toBe(201)
-      const result = await fixture.json<{
-        project: { homeDir: string; rootDir: string }
-      }>(response)
-      expect(result.project.homeDir).toBe('/Users/dev/agent-spaces')
-      expect(result.project.rootDir).toBe('/Users/dev/agent-spaces')
-    })
-  })
-
   test('GET /v1/admin/projects/:projectId returns homeDir and rootDir', async () => {
     await withWiredServer(async (fixture) => {
-      await fixture.request({
+      const created = await fixture.request({
         method: 'POST',
         path: '/v1/admin/projects',
         body: {
@@ -138,6 +99,12 @@ describe('GAP 1: placement metadata HTTP endpoints', () => {
         },
       })
 
+      expect(created.status).toBe(201)
+      expect(
+        await fixture.json<{ project: { homeDir: string; rootDir: string } }>(created)
+      ).toMatchObject({
+        project: { homeDir: '/Users/dev/agent-spaces', rootDir: '/Users/dev/agent-spaces' },
+      })
       const getResponse = await fixture.request({
         method: 'GET',
         path: '/v1/admin/projects/agent-spaces',
@@ -189,60 +156,6 @@ describe('GAP 1: placement metadata HTTP endpoints', () => {
       const result = await fixture.json<{ error: { code: string; message: string } }>(response)
       expect(result.error.code).toBe('malformed_request')
       expect(result.error.message).toContain('not a member')
-    })
-  })
-
-  test('default-agent accepts agent that is a project member', async () => {
-    await withWiredServer(async (fixture) => {
-      // Create project
-      await fixture.request({
-        method: 'POST',
-        path: '/v1/admin/projects',
-        body: {
-          projectId: 'test-proj',
-          displayName: 'Test Project',
-          actor: { kind: 'agent', id: 'operator' },
-        },
-      })
-
-      // Create agent
-      await fixture.request({
-        method: 'POST',
-        path: '/v1/admin/agents',
-        body: {
-          agentId: 'member',
-          status: 'active',
-          actor: { kind: 'agent', id: 'operator' },
-        },
-      })
-
-      // Add as member
-      await fixture.request({
-        method: 'POST',
-        path: '/v1/admin/memberships',
-        body: {
-          projectId: 'test-proj',
-          agentId: 'member',
-          role: 'implementer',
-          actor: { kind: 'agent', id: 'operator' },
-        },
-      })
-
-      // Set default agent — should succeed
-      const response = await fixture.request({
-        method: 'POST',
-        path: '/v1/admin/projects/test-proj/default-agent',
-        body: {
-          agentId: 'member',
-          actor: { kind: 'agent', id: 'operator' },
-        },
-      })
-
-      expect(response.status).toBe(200)
-      const result = await fixture.json<{
-        project: { defaultAgentId: string }
-      }>(response)
-      expect(result.project.defaultAgentId).toBe('member')
     })
   })
 })

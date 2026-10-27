@@ -10,6 +10,27 @@ function readActor(record: Record<string, unknown>): unknown {
   return record['actor']
 }
 
+const ACTOR_ROWS = [
+  {
+    name: 'header beats body',
+    headers: { 'x-acp-actor': 'agent:curly' },
+    bodyActor: { kind: 'human', id: 'body-operator' },
+    expected: { kind: 'agent', id: 'curly' },
+  },
+  {
+    name: 'body without header',
+    headers: undefined,
+    bodyActor: { kind: 'human', id: 'body-operator' },
+    expected: { kind: 'human', id: 'body-operator' },
+  },
+  {
+    name: 'neither falls back to the default system actor',
+    headers: undefined,
+    bodyActor: undefined,
+    expected: { kind: 'system', id: 'acp-local' },
+  },
+] as const
+
 function createLaunchOverrides(calls: LaunchCall[]): Partial<AcpServerDeps> {
   return {
     runtimeResolver: async () => ({
@@ -36,145 +57,68 @@ function createLaunchOverrides(calls: LaunchCall[]): Partial<AcpServerDeps> {
   }
 }
 
-describe('actor-stamp: delivery requests', () => {
-  test('prefers X-ACP-Actor over body actor when creating a delivery request', async () => {
-    const launchCalls: LaunchCall[] = []
+describe('actor-stamp: POST /v1/inputs', () => {
+  test('POST /v1/inputs stamps the resolved actor (header > body > default) on the attempt, run and delivery request', async () => {
+    for (const [index, row] of ACTOR_ROWS.entries()) {
+      const launchCalls: LaunchCall[] = []
 
-    await withWiredServer(async (fixture) => {
-      fixture.interfaceStore.bindings.create({
-        bindingId: 'ifb_123',
-        gatewayId: 'discord_prod',
-        conversationRef: 'channel:123',
-        scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
-        laneRef: 'main',
-        projectId: fixture.seed.projectId,
-        status: 'active',
-        createdAt: '2026-04-23T12:05:00.000Z',
-        updatedAt: '2026-04-23T12:05:00.000Z',
-      })
+      await withWiredServer(async (fixture) => {
+        fixture.interfaceStore.bindings.create({
+          bindingId: 'ifb_123',
+          gatewayId: 'discord_prod',
+          conversationRef: 'channel:123',
+          scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
+          laneRef: 'main',
+          projectId: fixture.seed.projectId,
+          status: 'active',
+          createdAt: '2026-04-23T12:05:00.000Z',
+          updatedAt: '2026-04-23T12:05:00.000Z',
+        })
 
-      const response = await fixture.request({
-        method: 'POST',
-        path: '/v1/inputs',
-        headers: { 'x-acp-actor': 'agent:curly' },
-        body: {
-          actor: { kind: 'human', id: 'body-operator' },
-          sessionRef: {
-            scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
-            laneRef: 'main',
-          },
-          content: 'Create a delivery request.',
-          meta: {
-            interfaceSource: {
-              gatewayId: 'discord_prod',
-              bindingId: 'ifb_123',
-              conversationRef: 'channel:123',
-              messageRef: 'discord:message:123',
-              replyToMessageRef: 'discord:message:123',
+        const messageRef = `discord:message:${123 + index}`
+        const response = await fixture.request({
+          method: 'POST',
+          path: '/v1/inputs',
+          headers: row.headers,
+          body: {
+            ...(row.bodyActor !== undefined ? { actor: row.bodyActor } : {}),
+            sessionRef: {
+              scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
+              laneRef: 'main',
+            },
+            content: `Create a delivery request (${row.name}).`,
+            meta: {
+              interfaceSource: {
+                gatewayId: 'discord_prod',
+                bindingId: 'ifb_123',
+                conversationRef: 'channel:123',
+                messageRef,
+                replyToMessageRef: messageRef,
+              },
             },
           },
-        },
-      })
+        })
 
-      expect(response.status).toBe(201)
-      const [delivery] = fixture.interfaceStore.deliveries.listQueuedForGateway('discord_prod')
-      expect(readActor(delivery as unknown as Record<string, unknown>)).toEqual({
-        kind: 'agent',
-        id: 'curly',
-      })
-    }, createLaunchOverrides(launchCalls))
-  })
+        expect(response.status, row.name).toBe(201)
+        const payload = await fixture.json<{
+          inputAttempt: Record<string, unknown>
+          run: { runId: string }
+        }>(response)
+        expect(readActor(payload.inputAttempt), row.name).toEqual(row.expected)
 
-  test('falls back to the body actor when creating a delivery request', async () => {
-    const launchCalls: LaunchCall[] = []
+        const runResponse = await fixture.request({
+          method: 'GET',
+          path: `/v1/runs/${payload.run.runId}`,
+        })
+        expect(runResponse.status, row.name).toBe(200)
+        const runPayload = await fixture.json<{ run: Record<string, unknown> }>(runResponse)
+        expect(readActor(runPayload.run), row.name).toEqual(row.expected)
 
-    await withWiredServer(async (fixture) => {
-      fixture.interfaceStore.bindings.create({
-        bindingId: 'ifb_123',
-        gatewayId: 'discord_prod',
-        conversationRef: 'channel:123',
-        scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
-        laneRef: 'main',
-        projectId: fixture.seed.projectId,
-        status: 'active',
-        createdAt: '2026-04-23T12:05:00.000Z',
-        updatedAt: '2026-04-23T12:05:00.000Z',
-      })
-
-      const response = await fixture.request({
-        method: 'POST',
-        path: '/v1/inputs',
-        body: {
-          actor: { kind: 'human', id: 'body-operator' },
-          sessionRef: {
-            scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
-            laneRef: 'main',
-          },
-          content: 'Create a delivery request from body actor.',
-          meta: {
-            interfaceSource: {
-              gatewayId: 'discord_prod',
-              bindingId: 'ifb_123',
-              conversationRef: 'channel:123',
-              messageRef: 'discord:message:124',
-              replyToMessageRef: 'discord:message:124',
-            },
-          },
-        },
-      })
-
-      expect(response.status).toBe(201)
-      const [delivery] = fixture.interfaceStore.deliveries.listQueuedForGateway('discord_prod')
-      expect(readActor(delivery as unknown as Record<string, unknown>)).toEqual({
-        kind: 'human',
-        id: 'body-operator',
-      })
-    }, createLaunchOverrides(launchCalls))
-  })
-
-  test('falls back to the default system actor when creating a delivery request without an actor', async () => {
-    const launchCalls: LaunchCall[] = []
-
-    await withWiredServer(async (fixture) => {
-      fixture.interfaceStore.bindings.create({
-        bindingId: 'ifb_123',
-        gatewayId: 'discord_prod',
-        conversationRef: 'channel:123',
-        scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
-        laneRef: 'main',
-        projectId: fixture.seed.projectId,
-        status: 'active',
-        createdAt: '2026-04-23T12:05:00.000Z',
-        updatedAt: '2026-04-23T12:05:00.000Z',
-      })
-
-      const response = await fixture.request({
-        method: 'POST',
-        path: '/v1/inputs',
-        body: {
-          sessionRef: {
-            scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
-            laneRef: 'main',
-          },
-          content: 'Create a delivery request from the env default actor.',
-          meta: {
-            interfaceSource: {
-              gatewayId: 'discord_prod',
-              bindingId: 'ifb_123',
-              conversationRef: 'channel:123',
-              messageRef: 'discord:message:125',
-              replyToMessageRef: 'discord:message:125',
-            },
-          },
-        },
-      })
-
-      expect(response.status).toBe(201)
-      const [delivery] = fixture.interfaceStore.deliveries.listQueuedForGateway('discord_prod')
-      expect(readActor(delivery as unknown as Record<string, unknown>)).toEqual({
-        kind: 'system',
-        id: 'acp-local',
-      })
-    }, createLaunchOverrides(launchCalls))
+        const [delivery] = fixture.interfaceStore.deliveries.listQueuedForGateway('discord_prod')
+        expect(readActor(delivery as unknown as Record<string, unknown>), row.name).toEqual(
+          row.expected
+        )
+      }, createLaunchOverrides(launchCalls))
+    }
   })
 })

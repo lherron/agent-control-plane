@@ -103,11 +103,12 @@ function expectStateMatches(actual: WorkState, expected: Partial<WorkState> | un
 
 function expectReject(
   result: { ok: true } | { ok: false; error: { code: WorkflowRejectionCode } },
-  code: WorkflowRejectionCode
+  code: WorkflowRejectionCode,
+  detail: Record<string, unknown> = {}
 ): void {
   expect(result.ok).toBe(false)
   if (!result.ok) {
-    expect(result.error.code).toBe(code)
+    expect(result.error).toMatchObject({ code, ...detail })
   }
 }
 
@@ -260,6 +261,9 @@ function applyTransitionExpectingRejection(
     actor: ActorRef
     role: string
     expected: WorkflowRejectionCode
+    /** The rejection's message, which names the rule (e.g. the SoD role pair). */
+    message: string
+    missingEvidenceKinds?: string[] | undefined
     inlineEvidence?: EvidenceInput[] | undefined
   }
 ): void {
@@ -277,20 +281,39 @@ function applyTransitionExpectingRejection(
       ...(input.inlineEvidence !== undefined ? { inlineEvidence: input.inlineEvidence } : {}),
       idempotencyKey: `scenario:${fixture.scenario.scenarioId}:negative:${input.transitionId}:${input.role}:${input.expected}`,
     }),
-    input.expected
+    input.expected,
+    {
+      transitionId: input.transitionId,
+      message: input.message,
+      ...(input.missingEvidenceKinds !== undefined
+        ? { missingEvidenceKinds: input.missingEvidenceKinds }
+        : {}),
+    }
   )
 }
 
-function runNegativeCheck(fixture: ScenarioFixture, name: string): void {
+function runNegativeCheck(
+  fixture: ScenarioFixture,
+  negative: Scenario['negativeChecks'][number]
+): void {
   const { scenario } = fixture
-  switch (`${scenario.scenarioId}:${name}`) {
+  const reject = (
+    state: ReturnType<typeof runHappyPath>,
+    input: Parameters<typeof applyTransitionExpectingRejection>[2]
+  ): void => {
+    // The scenario artifact declares the rejection; the check must agree with it.
+    expect(input.expected).toBe(negative.expectedRejection)
+    applyTransitionExpectingRejection(fixture, state, input)
+  }
+  switch (`${scenario.scenarioId}:${negative.name}`) {
     case 'hotfix-implementer-tester:implementer-actor-cannot-act-as-tester': {
       const state = runHappyPath(fixture, { stopAfterStepId: '05-implement-fix' })
-      applyTransitionExpectingRejection(fixture, state, {
+      reject(state, {
         transitionId: 'verify',
         actor: actorFor(scenario, 'implementer'),
         role: 'tester',
         expected: 'role_not_bound',
+        message: 'Role "tester" is bound to a different actor',
         inlineEvidence: [{ kind: 'verification_report', ref: 'negative:qa' }],
       })
       return
@@ -301,11 +324,12 @@ function runNegativeCheck(fixture: ScenarioFixture, name: string): void {
         stopAfterStepId: '05-implement-fix',
         roleBindingsOverride: { implementer, tester: implementer },
       })
-      applyTransitionExpectingRejection(fixture, state, {
+      reject(state, {
         transitionId: 'verify',
         actor: implementer,
         role: 'tester',
         expected: 'sod_violation',
+        message: 'Role "tester" must differ from "implementer"',
         inlineEvidence: [{ kind: 'verification_report', ref: 'negative:qa' }],
       })
       return
@@ -315,32 +339,36 @@ function runNegativeCheck(fixture: ScenarioFixture, name: string): void {
         stopAfterStepId: '03-start',
         skipStepIds: ['04-attach-fix-evidence'],
       })
-      applyTransitionExpectingRejection(fixture, state, {
+      reject(state, {
         transitionId: 'implement_fix',
         actor: actorFor(scenario, 'implementer'),
         role: 'implementer',
         expected: 'missing_evidence',
+        message: 'Missing required evidence for transition "implement_fix"',
+        missingEvidenceKinds: ['commit_ref', 'regression_test'],
       })
       return
     }
     case 'support-escalation-customer-response:resume-without-obligation': {
       const state = runHappyPath(fixture, { stopAfterStepId: '06-wait-for-customer' })
-      applyTransitionExpectingRejection(fixture, state, {
+      reject(state, {
         transitionId: 'resume_resolution',
         actor: actorFor(scenario, 'support_agent'),
         role: 'support_agent',
         expected: 'obligation_not_satisfied',
+        message: 'Transition "resume_resolution" requires a satisfied obligation',
         inlineEvidence: [{ kind: 'customer_response', ref: 'negative:customer-response' }],
       })
       return
     }
     case 'support-escalation-customer-response:wait-prevents-direct-resolve': {
       const state = runHappyPath(fixture, { stopAfterStepId: '06-wait-for-customer' })
-      applyTransitionExpectingRejection(fixture, state, {
+      reject(state, {
         transitionId: 'resolve',
         actor: actorFor(scenario, 'support_agent'),
         role: 'support_agent',
         expected: 'state_mismatch',
+        message: 'Transition "resolve" is not legal from the current state',
         inlineEvidence: [{ kind: 'resolution_note', ref: 'negative:resolution' }],
       })
       return
@@ -355,11 +383,12 @@ function runNegativeCheck(fixture: ScenarioFixture, name: string): void {
           legal_reviewer: actorFor(scenario, 'legal_reviewer'),
         },
       })
-      applyTransitionExpectingRejection(fixture, state, {
+      reject(state, {
         transitionId: 'complete_legal_review',
         actor: requester,
         role: 'procurement_lead',
         expected: 'sod_violation',
+        message: 'Role "procurement_lead" must differ from "requester"',
         inlineEvidence: [{ kind: 'legal_review', ref: 'negative:legal-review' }],
       })
       return
@@ -374,11 +403,12 @@ function runNegativeCheck(fixture: ScenarioFixture, name: string): void {
           legal_reviewer: procurementLead,
         },
       })
-      applyTransitionExpectingRejection(fixture, state, {
+      reject(state, {
         transitionId: 'resume_legal_review',
         actor: procurementLead,
         role: 'legal_reviewer',
         expected: 'sod_violation',
+        message: 'Role "legal_reviewer" must differ from "procurement_lead"',
         inlineEvidence: [{ kind: 'vendor_response', ref: 'negative:vendor-response' }],
       })
       return
@@ -393,11 +423,12 @@ function runNegativeCheck(fixture: ScenarioFixture, name: string): void {
           legal_reviewer: requester,
         },
       })
-      applyTransitionExpectingRejection(fixture, state, {
+      reject(state, {
         transitionId: 'resume_legal_review',
         actor: requester,
         role: 'legal_reviewer',
         expected: 'sod_violation',
+        message: 'Role "legal_reviewer" must differ from "requester"',
         inlineEvidence: [{ kind: 'vendor_response', ref: 'negative:vendor-response' }],
       })
       return
@@ -412,33 +443,36 @@ function runNegativeCheck(fixture: ScenarioFixture, name: string): void {
           legal_reviewer: procurementLead,
         },
       })
-      applyTransitionExpectingRejection(fixture, state, {
+      reject(state, {
         transitionId: 'resume_legal_review',
         actor: procurementLead,
         role: 'legal_reviewer',
         expected: 'sod_violation',
+        message: 'Role "legal_reviewer" must differ from "procurement_lead"',
         inlineEvidence: [{ kind: 'vendor_response', ref: 'negative:vendor-response' }],
       })
       return
     }
     case 'procurement-legal-approval:requester-actor-cannot-act-as-procurement-lead': {
       const state = runHappyPath(fixture, { stopAfterStepId: '10-attach-approval-record' })
-      applyTransitionExpectingRejection(fixture, state, {
+      reject(state, {
         transitionId: 'approve',
         actor: actorFor(scenario, 'requester'),
         role: 'procurement_lead',
         expected: 'role_not_bound',
+        message: 'Role "procurement_lead" is bound to a different actor',
         inlineEvidence: [{ kind: 'approval_record', ref: 'negative:approval' }],
       })
       return
     }
     case 'procurement-legal-approval:resume-legal-review-without-vendor': {
       const state = runHappyPath(fixture, { stopAfterStepId: '05-wait-for-vendor' })
-      applyTransitionExpectingRejection(fixture, state, {
+      reject(state, {
         transitionId: 'resume_legal_review',
         actor: actorFor(scenario, 'legal_reviewer'),
         role: 'legal_reviewer',
         expected: 'obligation_not_satisfied',
+        message: 'Transition "resume_legal_review" requires a satisfied obligation',
         inlineEvidence: [{ kind: 'vendor_response', ref: 'negative:vendor-response' }],
       })
       return
@@ -448,17 +482,18 @@ function runNegativeCheck(fixture: ScenarioFixture, name: string): void {
         stopAfterStepId: '07-resume-legal-review',
         skipStepIds: ['08-legal-completes-review'],
       })
-      applyTransitionExpectingRejection(fixture, state, {
+      reject(state, {
         transitionId: 'complete_legal_review',
         actor: actorFor(scenario, 'procurement_lead'),
         role: 'procurement_lead',
         expected: 'obligation_not_satisfied',
+        message: 'Transition "complete_legal_review" requires a satisfied obligation',
         inlineEvidence: [{ kind: 'legal_review', ref: 'negative:legal-review' }],
       })
       return
     }
     default:
-      throw new Error(`Unhandled scenario negative check ${scenario.scenarioId}:${name}`)
+      throw new Error(`Unhandled scenario negative check ${scenario.scenarioId}:${negative.name}`)
   }
 }
 
@@ -484,7 +519,7 @@ describe('flow preset scenario artifacts', () => {
 
     for (const negative of fixture.scenario.negativeChecks) {
       test(`${fixture.scenario.scenarioId} negative: ${negative.name}`, () => {
-        runNegativeCheck(fixture, negative.name)
+        runNegativeCheck(fixture, negative)
       })
     }
   }

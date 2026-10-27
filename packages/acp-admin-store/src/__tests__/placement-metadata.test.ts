@@ -43,39 +43,25 @@ describe('GAP 1: placement metadata persistence', () => {
     }
   })
 
-  test('agent create rejects empty homeDir', () => {
-    const store = createInMemoryAdminStore()
-    try {
-      expect(() =>
-        store.agents.create({
-          agentId: 'bad',
-          homeDir: '',
-          status: 'active',
-          actor: ACTOR,
-          now: '2026-04-23T10:00:00.000Z',
-        })
-      ).toThrow('homeDir must not be empty')
-    } finally {
-      store.close()
+  test.each([[''], ['   ']])(
+    'agent create with blank homeDir %p throws homeDir must not be empty',
+    (homeDir) => {
+      const store = createInMemoryAdminStore()
+      try {
+        expect(() =>
+          store.agents.create({
+            agentId: 'bad',
+            homeDir,
+            status: 'active',
+            actor: ACTOR,
+            now: '2026-04-23T10:00:00.000Z',
+          })
+        ).toThrow('homeDir must not be empty')
+      } finally {
+        store.close()
+      }
     }
-  })
-
-  test('agent create rejects whitespace-only homeDir', () => {
-    const store = createInMemoryAdminStore()
-    try {
-      expect(() =>
-        store.agents.create({
-          agentId: 'bad',
-          homeDir: '   ',
-          status: 'active',
-          actor: ACTOR,
-          now: '2026-04-23T10:00:00.000Z',
-        })
-      ).toThrow('homeDir must not be empty')
-    } finally {
-      store.close()
-    }
-  })
+  )
 
   test('agent patch updates homeDir', () => {
     const store = createInMemoryAdminStore()

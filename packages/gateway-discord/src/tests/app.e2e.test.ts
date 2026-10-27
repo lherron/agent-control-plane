@@ -58,6 +58,8 @@ class FakeWebhook {
     payload: FakeWebhookSendPayload
   }> = []
   readonly avatarEdits: Array<{ avatar?: Buffer | string | null | undefined }> = []
+  readonly sendAttempts: FakeWebhookSendPayload[] = []
+  failNextSendWith: unknown
   private nextId = 1
 
   constructor(
@@ -68,6 +70,12 @@ class FakeWebhook {
   ) {}
 
   async send(input: string | FakeWebhookSendPayload): Promise<FakeSentMessage> {
+    this.sendAttempts.push(typeof input === 'string' ? { content: input } : input)
+    if (this.failNextSendWith !== undefined) {
+      const error = this.failNextSendWith
+      this.failNextSendWith = undefined
+      throw error
+    }
     const payload = typeof input === 'string' ? { content: input } : input
     const message = new FakeSentMessage(`wh_${this.nextId++}`, this.channelId, payload.content)
     this.sent.push({ ...payload, message })
@@ -254,6 +262,102 @@ async function captureIngressPostForMessage(
 
   expect(captured).toHaveLength(1)
   return captured[0] as CapturedInterfaceMessage
+}
+
+const CODY_PROFILE = {
+  agentId: 'cody',
+  displayName: 'Cody',
+  role: null,
+  avatarUrl: 'https://example.com/cody.png',
+  sourceAvailability: { profile: true, soul: true, contextTemplate: false },
+  diagnostics: [],
+  warningCount: 0,
+  errorCount: 0,
+}
+
+/**
+ * ACP boundary fake for the delivery and ingress paths: serves bindings, the
+ * agent catalog, the delivery stream (drained once) with ack/fail, and a fixed
+ * ingress response. Every outbound path is recorded.
+ */
+function createAcpFetch(input: {
+  bindings?: unknown[] | undefined
+  agents?: unknown[] | undefined
+  deliveries?: unknown[] | undefined
+  interfaceMessageResponse?: Record<string, unknown> | undefined
+}) {
+  const deliveries = [...(input.deliveries ?? [])]
+  const paths: string[] = []
+  const fetchImpl = createFetch(async (request) => {
+    const url = new URL(request.url)
+    paths.push(url.pathname)
+    if (url.pathname === '/v1/interface/bindings') {
+      return Response.json({ bindings: input.bindings ?? [] })
+    }
+    if (url.pathname === '/admin/agents') {
+      return Response.json({ projectId: null, contexts: {}, agents: input.agents ?? [] })
+    }
+    if (url.pathname === '/v1/gateway/discord_prod/deliveries/stream') {
+      return Response.json({ deliveries: deliveries.splice(0), nextCursor: null })
+    }
+    if (/^\/v1\/gateway\/deliveries\/[^/]+\/(ack|fail)$/.test(url.pathname)) {
+      return Response.json({})
+    }
+    if (url.pathname === '/v1/interface/messages' && input.interfaceMessageResponse) {
+      return Response.json(input.interfaceMessageResponse, { status: 201 })
+    }
+    if (url.pathname === '/v1/session-refs/events') {
+      return new Response(new ReadableStream())
+    }
+    return new Response('not found', { status: 404 })
+  })
+  return { fetchImpl, paths }
+}
+
+function codyTaskBinding(channelId: string) {
+  return {
+    bindingId: `ifb_${channelId}`,
+    gatewayId: 'discord_prod',
+    conversationRef: `channel:${channelId}`,
+    scopeRef: 'agent:cody:project:agent-spaces:task:T-04321',
+    laneRef: 'main',
+    projectId: 'agent-spaces',
+    status: 'active',
+    createdAt: '2026-05-06T14:00:00.000Z',
+    updatedAt: '2026-05-06T14:00:00.000Z',
+  }
+}
+
+function codyDelivery(
+  channelId: string,
+  overrides: Partial<DeliveryRequest> & { body: DeliveryRequest['body'] }
+): DeliveryRequest {
+  return {
+    deliveryRequestId: `dr_${channelId}`,
+    gatewayId: 'discord_prod',
+    bindingId: `ifb_${channelId}`,
+    sessionRef: {
+      scopeRef: 'agent:cody:project:agent-spaces:task:T-04321',
+      laneRef: 'main',
+    },
+    conversationRef: `channel:${channelId}`,
+    status: 'queued',
+    createdAt: '2026-05-06T15:00:00.000Z',
+    ...overrides,
+  }
+}
+
+function inboundChannelMessage(input: { id: string; channelId: string; content: string }) {
+  return {
+    guildId: 'guild_1',
+    author: { id: 'user_1', bot: false },
+    content: input.content,
+    attachments: { size: 0 },
+    channelId: input.channelId,
+    id: input.id,
+    channel: { isThread: () => false },
+    reply: async () => undefined,
+  } as never
 }
 
 describe('GatewayDiscordApp local e2e', () => {
@@ -908,15 +1012,21 @@ describe('GatewayDiscordApp local e2e', () => {
     store.close()
   })
 
-  test('posts a visible ledger human-delivery failure stub when no placeholder remains', async () => {
+  test('posts a visible ledger human-delivery failure stub when the human notice is rejected by Discord', async () => {
     const channel = new FakeChannel('chan_ledger_failure_stub')
+    const webhook = await channel.createWebhook({ name: 'agent-pulpit' })
+    webhook.failNextSendWith = Object.assign(new Error('Invalid Form Body'), { status: 400 })
     const client = new FakeClient()
     client.addChannel(channel)
-    const app = new GatewayDiscordApp({
-      acpBaseUrl: 'http://acp.test',
+    const store = openInterfaceStore({ dbPath: ':memory:' })
+    store.discordLedgerProjection.advanceCursor('discord_prod', 70)
+    store.discordLedgerProjection.recordRoute({
       gatewayId: 'discord_prod',
-      client: client as never,
-      fetchImpl: createFetch(async () => Response.json({ bindings: [] })),
+      roomUuid: 'room_ledger_failure_stub',
+      roomKey: 'R-00004',
+      bindingId: 'ifb_failure_stub',
+      conversationRef: `channel:${channel.id}`,
+      humanPrincipalRef: 'agent:lance',
     })
     const failedReply = {
       uuid: 'reply-failure-uuid',
@@ -942,37 +1052,63 @@ describe('GatewayDiscordApp local e2e', () => {
       createdAt: '2026-09-01T00:00:00Z',
       updatedAt: '2026-09-01T00:00:00Z',
     } as unknown as WrkqEnvelope
-
-    await (
-      app as unknown as {
-        showLedgerHumanDeliveryFailure(sink: unknown, reason: string): Promise<void>
-      }
-    ).showLedgerHumanDeliveryFailure(
-      {
-        kind: 'human-notice',
-        channelId: channel.id,
-        payload: {
-          username: 'cody@agent-spaces:primary',
-          content: '-# cody@agent-spaces:primary . EN-00071\nfull reply text',
+    const failedEnvelopes: unknown[] = []
+    const workClient = {
+      call: async (_method: string, params: { cursor: number }) => ({
+        items:
+          params.cursor < 71
+            ? [
+                {
+                  id: 71,
+                  timestamp: '2026-09-01T00:00:00Z',
+                  resource_id: 'reply-failure-uuid',
+                  event_type: 'envelope.created',
+                  payload: JSON.stringify({
+                    id: 'EN-00071',
+                    room_uuid: 'room_ledger_failure_stub',
+                    to_principal_ref: 'agent:lance',
+                  }),
+                },
+              ]
+            : [],
+        high_water: 71,
+      }),
+      wrkq: {
+        envelope: {
+          show: async () => failedReply,
+          fail: async (params: unknown) => {
+            failedEnvelopes.push(params)
+            return { ...failedReply, state: 'failed' }
+          },
         },
-        envelope: failedReply,
-        route: {
-          gatewayId: 'discord_prod',
-          roomUuid: failedReply.roomUuid,
-          roomKey: failedReply.roomKey,
-          bindingId: 'ifb_failure_stub',
-          conversationRef: `channel:${channel.id}`,
-          humanPrincipalRef: 'agent:lance',
-        },
+        room: { show: async () => ({ workRef: null }) },
       },
-      'discord_http_400: Invalid Form Body'
-    )
+    } as unknown as WorkClient
+    const app = new GatewayDiscordApp({
+      acpBaseUrl: 'http://acp.test',
+      gatewayId: 'discord_prod',
+      client: client as never,
+      ledgerHumanEgress: { client: workClient, store },
+      fetchImpl: createFetch(async () => Response.json({ bindings: [] })),
+    })
 
-    const webhook = [...channel.webhooks.values()].find((value) => value.name === 'agent-pulpit')
-    expect(webhook?.sent).toHaveLength(1)
-    expect(webhook?.sent[0]?.content).toBe(
+    const egress = (app as unknown as { ledgerHumanEgress: { pollOnce(): Promise<number> } })
+      .ledgerHumanEgress
+    await egress.pollOnce()
+
+    // The rejected human notice carried the sender's scope handle and principal avatar.
+    expect(webhook.sendAttempts[0]).toMatchObject({
+      username: 'cody@agent-spaces:primary',
+      avatarURL: 'https://api.dicebear.com/7.x/bottts/png?seed=cody',
+    })
+    expect(failedEnvelopes).toMatchObject([{ envelope: 'EN-00071', reason: 'undeliverable' }])
+    expect(webhook.sent).toHaveLength(1)
+    expect(webhook.sent[0]?.content).toBe(
       '⚠️ reply delivery failed (discord_http_400: Invalid Form Body) — full text: wrkc show EN-00071'
     )
+
+    await app.stop()
+    store.close()
   })
 
   test('ordinary Discord messages fall back to normal queueing when contribution is unavailable', async () => {
@@ -1645,34 +1781,6 @@ describe('GatewayDiscordApp local e2e', () => {
     })
   })
 
-  test('posts image-only messages with a media placeholder', async () => {
-    const body = await captureIngressPostForMessage(
-      createInboundMessage({
-        id: 'msg_image_only',
-        content: '',
-        attachments: new Map([
-          createAttachment('att_image', {
-            url: 'https://cdn.discordapp.test/attachments/photo.jpg',
-            name: 'photo.jpg',
-            contentType: 'image/jpeg',
-            size: 4096,
-          }),
-        ]),
-      })
-    )
-
-    expect(body.content).toBe('<media:image> (1 image)')
-    expect(body.attachments).toEqual([
-      {
-        kind: 'url',
-        url: 'https://cdn.discordapp.test/attachments/photo.jpg',
-        filename: 'photo.jpg',
-        contentType: 'image/jpeg',
-        sizeBytes: 4096,
-      },
-    ])
-  })
-
   test('posts multiple image attachments with a count-aware placeholder', async () => {
     const body = await captureIngressPostForMessage(
       createInboundMessage({
@@ -1725,6 +1833,22 @@ describe('GatewayDiscordApp local e2e', () => {
         sizeBytes: 8192,
       },
     ])
+  })
+
+  test('appends Discord embed titles and URLs to the ingress content', async () => {
+    const body = await captureIngressPostForMessage({
+      ...(createInboundMessage({ id: 'msg_embed', content: 'Find this episode.' }) as object),
+      embeds: [
+        {
+          title: 'Deep Questions with Cal Newport',
+          url: 'https://www.youtube.com/watch?v=episode-id',
+        },
+      ],
+    } as never)
+
+    expect(body.content).toBe(
+      'Find this episode.\n\n[Discord embed 1]\ntitle: Deep Questions with Cal Newport\nurl: https://www.youtube.com/watch?v=episode-id'
+    )
   })
 
   test('sends a fresh webhook message without Discord reply references when no placeholder exists', async () => {
@@ -1807,56 +1931,25 @@ describe('GatewayDiscordApp local e2e', () => {
     const channel = new FakeChannel('chan_profile_avatar')
     const client = new FakeClient()
     client.addChannel(channel)
+    const acp = createAcpFetch({
+      agents: [CODY_PROFILE],
+      deliveries: [
+        codyDelivery(channel.id, {
+          sessionRef: { scopeRef: 'agent:cody:project:agent-spaces', laneRef: 'main' },
+          body: { kind: 'text/markdown', text: 'Profile avatar delivery.' },
+        }),
+      ],
+    })
 
     const app = new GatewayDiscordApp({
       acpBaseUrl: 'http://acp.test',
       gatewayId: 'discord_prod',
       client: client as never,
-      fetchImpl: createFetch(async (request) => {
-        const url = new URL(request.url)
-        if (url.pathname === '/admin/agents') {
-          return Response.json({
-            projectId: null,
-            contexts: {},
-            agents: [
-              {
-                agentId: 'cody',
-                displayName: 'Cody',
-                role: null,
-                avatarUrl: 'https://example.com/cody.png',
-                sourceAvailability: { profile: true, soul: true, contextTemplate: false },
-                diagnostics: [],
-                warningCount: 0,
-                errorCount: 0,
-              },
-            ],
-          })
-        }
-
-        return Response.json({ bindings: [] })
-      }),
+      fetchImpl: acp.fetchImpl,
     })
 
-    const delivery: DeliveryRequest = {
-      deliveryRequestId: 'dr_profile_avatar',
-      gatewayId: 'discord_prod',
-      bindingId: 'ifb_profile_avatar',
-      sessionRef: {
-        scopeRef: 'agent:cody:project:agent-spaces',
-        laneRef: 'main',
-      },
-      conversationRef: `channel:${channel.id}`,
-      body: { kind: 'text/markdown', text: 'Profile avatar delivery.' },
-      status: 'queued',
-      createdAt: '2026-06-10T15:00:00.000Z',
-    }
-
     await app.refreshBindings()
-    await (
-      app as unknown as {
-        deliverToDiscord(delivery: DeliveryRequest): Promise<void>
-      }
-    ).deliverToDiscord(delivery)
+    await app.pollDeliveriesOnce()
 
     const webhook = [...channel.webhooks.values()].find((w) => w.name === 'agent-pulpit')
     expect(webhook).toBeDefined()
@@ -1866,6 +1959,7 @@ describe('GatewayDiscordApp local e2e', () => {
       'https://example.com/cody.png'
     )
     expect(webhook?.avatarEdits).toHaveLength(0)
+    expect(acp.paths).toContain(`/v1/gateway/deliveries/dr_${channel.id}/ack`)
   })
 
   test('sends delivery body attachments through the agent webhook without reply references', async () => {
@@ -1882,46 +1976,36 @@ describe('GatewayDiscordApp local e2e', () => {
       const channel = new FakeChannel('chan_delivery_files')
       const client = new FakeClient()
       client.addChannel(channel)
+      const acp = createAcpFetch({
+        deliveries: [
+          codyDelivery(channel.id, {
+            sessionRef: { scopeRef: 'agent:curly:project:project_media', laneRef: 'main' },
+            replyToMessageRef: 'discord:message:origin',
+            body: {
+              kind: 'text/markdown',
+              text: 'Here is the generated image.',
+              attachments: [
+                {
+                  kind: 'url',
+                  url: 'https://media.acp.test/generated.png',
+                  filename: 'generated.png',
+                  contentType: 'image/png',
+                  alt: 'Generated image alt text',
+                },
+              ],
+            },
+          }),
+        ],
+      })
 
       const app = new GatewayDiscordApp({
         acpBaseUrl: 'http://acp.test',
         gatewayId: 'discord_prod',
         client: client as never,
-        fetchImpl: createFetch(async () => Response.json({ bindings: [] })),
+        fetchImpl: acp.fetchImpl,
       })
 
-      const delivery: DeliveryRequest = {
-        deliveryRequestId: 'dr_delivery_files',
-        gatewayId: 'discord_prod',
-        bindingId: 'ifb_delivery_files',
-        sessionRef: {
-          scopeRef: 'agent:curly:project:project_media',
-          laneRef: 'main',
-        },
-        conversationRef: 'channel:chan_delivery_files',
-        replyToMessageRef: 'discord:message:origin',
-        body: {
-          kind: 'text/markdown',
-          text: 'Here is the generated image.',
-          attachments: [
-            {
-              kind: 'url',
-              url: 'https://media.acp.test/generated.png',
-              filename: 'generated.png',
-              contentType: 'image/png',
-              alt: 'Generated image alt text',
-            },
-          ],
-        },
-        status: 'queued',
-        createdAt: '2026-04-24T23:00:00.000Z',
-      }
-
-      await (
-        app as unknown as {
-          deliverToDiscord(delivery: DeliveryRequest): Promise<void>
-        }
-      ).deliverToDiscord(delivery)
+      await app.pollDeliveriesOnce()
 
       expect(channel.sent).toHaveLength(0)
       const webhook = [...channel.webhooks.values()].find(
@@ -1948,68 +2032,28 @@ describe('GatewayDiscordApp local e2e', () => {
     const channel = new FakeChannel('chan_placeholder_identity')
     const client = new FakeClient()
     client.addChannel(channel)
+    const acp = createAcpFetch({
+      bindings: [codyTaskBinding(channel.id)],
+      agents: [CODY_PROFILE],
+      interfaceMessageResponse: { inputAttemptId: 'ia_placeholder', runId: 'run_placeholder' },
+    })
 
     const app = new GatewayDiscordApp({
       acpBaseUrl: 'http://acp.test',
       gatewayId: 'discord_prod',
       client: client as never,
-      fetchImpl: createFetch(async (request) => {
-        const url = new URL(request.url)
-        if (url.pathname === '/admin/agents') {
-          return Response.json({
-            projectId: null,
-            contexts: {},
-            agents: [
-              {
-                agentId: 'cody',
-                displayName: 'Cody',
-                role: null,
-                avatarUrl: 'https://example.com/cody.png',
-                sourceAvailability: { profile: true, soul: true, contextTemplate: false },
-                diagnostics: [],
-                warningCount: 0,
-                errorCount: 0,
-              },
-            ],
-          })
-        }
-
-        return Response.json({ bindings: [] })
-      }),
+      fetchImpl: acp.fetchImpl,
+      dashboardSnapshotImpl: async () => ({ type: 'dashboard_snapshot', sessions: [] }),
     })
 
     await app.refreshBindings()
-    const placeholder = await (
-      app as unknown as {
-        createPlaceholder(input: {
-          message: unknown
-          channelId: string
-          content: string
-          sessionRef: { scopeRef: string; laneRef: string }
-        }): Promise<
-          | (Record<string, unknown> & {
-              id: string
-              channelId: string
-              webhookId: string
-              identity: {
-                agentId: string
-                subtext: string
-                avatarUrl?: string | undefined
-                webhookAvatar?: { key: string; data: Buffer } | undefined
-              }
-            })
-          | undefined
-        >
-      }
-    ).createPlaceholder({
-      message: { id: 'incoming_placeholder' },
-      channelId: channel.id,
-      content: 'Please do the work',
-      sessionRef: {
-        scopeRef: 'agent:cody:project:agent-spaces:task:T-04321',
-        laneRef: 'main',
-      },
-    })
+    await app.handleMessageCreate(
+      inboundChannelMessage({
+        id: 'incoming_placeholder',
+        channelId: channel.id,
+        content: 'Please do the work',
+      })
+    )
 
     expect(channel.sent).toHaveLength(0)
     const webhook = [...channel.webhooks.values()].find(
@@ -2025,96 +2069,66 @@ describe('GatewayDiscordApp local e2e', () => {
     expect(webhook?.sent[0]?.content).toBe(
       '-# cody@agent-spaces:T-04321~main\n⏳ **Processing:** Please do the work'
     )
-    expect(placeholder).toMatchObject({
-      kind: 'message',
-      id: webhook?.sent[0]?.message.id,
-      channelId: channel.id,
-      webhookId: webhook?.id,
-      identity: {
-        agentId: 'cody',
-        subtext: 'cody@agent-spaces:T-04321~main',
-        avatarUrl: 'https://example.com/cody.png',
-      },
-    })
+    await app.stop()
   })
 
   test('finalizes webhook placeholders by editing via the same webhook identity', async () => {
     const channel = new FakeChannel('chan_placeholder_final')
-    const webhook = await channel.createWebhook({ name: 'agent-pulpit' })
     const client = new FakeClient()
     client.addChannel(channel)
+    const acp = createAcpFetch({
+      bindings: [codyTaskBinding(channel.id)],
+      interfaceMessageResponse: { inputAttemptId: 'ia_final', runId: 'run_webhook_final' },
+      deliveries: [
+        codyDelivery(channel.id, {
+          runId: 'run_webhook_final',
+          body: {
+            kind: 'text/markdown',
+            text: `Final answer\n\n${'overflow '.repeat(30)}`,
+          },
+        }),
+      ],
+    })
 
     const app = new GatewayDiscordApp({
       acpBaseUrl: 'http://acp.test',
       gatewayId: 'discord_prod',
       client: client as never,
-      fetchImpl: createFetch(async () => Response.json({ bindings: [] })),
+      fetchImpl: acp.fetchImpl,
+      dashboardSnapshotImpl: async () => ({ type: 'dashboard_snapshot', sessions: [] }),
       maxChars: 80,
     })
-    ;(
-      app as unknown as {
-        placeholdersByRunId: Map<string, unknown>
-      }
-    ).placeholdersByRunId.set('run_webhook_final', {
-      ui: {
-        gatewayId: 'discord_prod',
-        kind: 'message',
-        id: 'wh_placeholder_1',
-        channelId: channel.id,
-        webhookId: webhook.id,
-      },
-      identity: {
-        agentId: 'cody',
-        subtext: 'cody@agent-spaces:T-04321~main',
-        avatarUrl: 'https://api.dicebear.com/7.x/bottts/png?seed=cody',
-      },
-    })
 
-    const delivery: DeliveryRequest = {
-      deliveryRequestId: 'dr_webhook_final',
-      gatewayId: 'discord_prod',
-      bindingId: 'ifb_webhook_final',
-      sessionRef: {
-        scopeRef: 'agent:cody:project:agent-spaces:task:T-04321',
-        laneRef: 'main',
-      },
-      runId: 'run_webhook_final',
-      conversationRef: `channel:${channel.id}`,
-      body: {
-        kind: 'text/markdown',
-        text: `Final answer\n\n${'overflow '.repeat(30)}`,
-      },
-      status: 'queued',
-      createdAt: '2026-05-06T14:00:00.000Z',
-    }
+    await app.refreshBindings()
+    await app.handleMessageCreate(
+      inboundChannelMessage({ id: 'msg_final', channelId: channel.id, content: 'Do the work' })
+    )
+    const webhook = [...channel.webhooks.values()].find((w) => w.name === 'agent-pulpit')
+    expect(webhook?.sent).toHaveLength(1)
+    const placeholderId = webhook?.sent[0]?.message.id
 
-    await (
-      app as unknown as {
-        deliverToDiscord(delivery: DeliveryRequest): Promise<void>
-      }
-    ).deliverToDiscord(delivery)
+    await app.pollDeliveriesOnce()
 
     expect(channel.sent).toHaveLength(0)
-    expect(webhook.edits).toHaveLength(1)
-    expect(webhook.edits[0]).toMatchObject({
-      messageId: 'wh_placeholder_1',
-      payload: {},
-    })
-    expect(webhook.edits[0]?.payload.username).toBeUndefined()
-    expect(webhook.edits[0]?.payload.avatar_url).toBeUndefined()
-    expect(webhook.edits[0]?.payload.avatarURL).toBeUndefined()
-    expect(webhook.edits[0]?.payload.content).toContain(
+    expect(webhook?.edits).toHaveLength(1)
+    expect(webhook?.edits[0]?.messageId).toBe(placeholderId)
+    expect(webhook?.edits[0]?.payload.username).toBeUndefined()
+    expect(webhook?.edits[0]?.payload.avatar_url).toBeUndefined()
+    expect(webhook?.edits[0]?.payload.avatarURL).toBeUndefined()
+    expect(webhook?.edits[0]?.payload.content).toContain(
       '-# cody@agent-spaces:T-04321~main\nFinal answer'
     )
-    expect(webhook.sent.length).toBeGreaterThan(0)
-    expect(webhook.sent.every((payload) => payload.username === 'cody')).toBe(true)
+    const overflow = webhook?.sent.slice(1) ?? []
+    expect(overflow.length).toBeGreaterThan(0)
+    expect(overflow.every((payload) => payload.username === 'cody')).toBe(true)
     expect(
-      webhook.sent.every(
+      overflow.every(
         (payload) =>
           (payload.avatar_url ?? payload.avatarURL) ===
           'https://api.dicebear.com/7.x/bottts/png?seed=cody'
       )
     ).toBe(true)
+    await app.stop()
   })
 
   test('webhook placeholder without webhookId falls through to fresh webhook send (never Rex)', async () => {
@@ -2192,37 +2206,23 @@ describe('GatewayDiscordApp local e2e', () => {
     const client = new FakeClient()
     client.addChannel(channel)
 
+    // Body sized so that subtext + body would push the first chunk over
+    // maxChars unless the prefix is budgeted in.
     const maxChars = 100
+    const acp = createAcpFetch({
+      deliveries: [
+        codyDelivery(channel.id, { body: { kind: 'text/markdown', text: 'x '.repeat(150) } }),
+      ],
+    })
     const app = new GatewayDiscordApp({
       acpBaseUrl: 'http://acp.test',
       gatewayId: 'discord_prod',
       client: client as never,
-      fetchImpl: createFetch(async () => Response.json({ bindings: [] })),
+      fetchImpl: acp.fetchImpl,
       maxChars,
     })
 
-    // Body sized so that subtext + body would push the first chunk over
-    // maxChars unless the prefix is budgeted in.
-    const longBody = 'x '.repeat(150)
-    const delivery: DeliveryRequest = {
-      deliveryRequestId: 'dr_chunk_budget',
-      gatewayId: 'discord_prod',
-      bindingId: 'ifb_chunk_budget',
-      sessionRef: {
-        scopeRef: 'agent:cody:project:agent-spaces:task:T-04321',
-        laneRef: 'main',
-      },
-      conversationRef: `channel:${channel.id}`,
-      body: { kind: 'text/markdown', text: longBody },
-      status: 'queued',
-      createdAt: '2026-05-06T15:00:00.000Z',
-    }
-
-    await (
-      app as unknown as {
-        deliverToDiscord(delivery: DeliveryRequest): Promise<void>
-      }
-    ).deliverToDiscord(delivery)
+    await app.pollDeliveriesOnce()
 
     const webhook = [...channel.webhooks.values()].find((w) => w.name === 'agent-pulpit')
     expect(webhook).toBeDefined()

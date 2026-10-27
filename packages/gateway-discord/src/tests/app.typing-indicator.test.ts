@@ -13,7 +13,7 @@ describe('GatewayDiscordApp Discord typing indicator', () => {
   })
 
   test('stops pinging sendTyping as soon as a turn_end event arrives via SSE', async () => {
-    const harness = createLiveProgressHarness()
+    const harness = createLiveProgressHarness({ typingRefreshMs: 5 })
     await harness.app.refreshBindings()
     await harness.app.handleMessageCreate(harness.inboundMessage())
 
@@ -27,38 +27,36 @@ describe('GatewayDiscordApp Discord typing indicator', () => {
         input: { command: 'echo pre' },
       })
     )
-    await waitFor(() => harness.channel.typingPings.length > 0)
-    const pingsBeforeTurnEnd = harness.channel.typingPings.length
+    // With a 5ms refresh the timer keeps pinging while the turn is live.
+    await waitFor(() => harness.channel.typingPings.length >= 3, 400)
+    expect(harness.channel.typingPings.length).toBeGreaterThanOrEqual(3)
 
     harness.emit(hrcEvent(2, { type: 'turn_end' }))
     // Give the SSE consumer a tick to handle turn_end and clear the timer.
     await new Promise((resolve) => setTimeout(resolve, 50))
     const pingsAfterTurnEnd = harness.channel.typingPings.length
 
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    await new Promise((resolve) => setTimeout(resolve, 50))
     expect(harness.channel.typingPings.length).toBe(pingsAfterTurnEnd)
-    expect(pingsAfterTurnEnd).toBeGreaterThanOrEqual(pingsBeforeTurnEnd)
+    await harness.app.stop()
   })
 
   test('stops pinging sendTyping once the placeholder is cleared by final delivery', async () => {
-    const harness = createLiveProgressHarness()
+    const harness = createLiveProgressHarness({ typingRefreshMs: 5 })
     await harness.app.refreshBindings()
     await harness.app.handleMessageCreate(harness.inboundMessage())
 
-    await waitFor(() => harness.channel.typingPings.length > 0)
-    const pingsBeforeDelivery = harness.channel.typingPings.length
+    // With a 5ms refresh the timer keeps pinging while the placeholder is live.
+    await waitFor(() => harness.channel.typingPings.length >= 3, 400)
+    expect(harness.channel.typingPings.length).toBeGreaterThanOrEqual(3)
 
     harness.enqueueDelivery('final answer; placeholder is gone now.')
     await harness.app.pollDeliveriesOnce()
-
     const pingsAfterDelivery = harness.channel.typingPings.length
 
-    // Allow more wall time than TYPING_REFRESH_MS (8s); if the timer was still
-    // running we'd see another ping. Use a short, deterministic wait — the
-    // test stays under a couple hundred ms by relying on the absence of any
-    // additional ping. The strict invariant is: count should not grow.
+    // Ten refresh intervals pass; a still-running timer would ping again.
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(harness.channel.typingPings.length).toBe(pingsAfterDelivery)
-    expect(pingsAfterDelivery).toBeGreaterThanOrEqual(pingsBeforeDelivery)
+    await harness.app.stop()
   })
 })

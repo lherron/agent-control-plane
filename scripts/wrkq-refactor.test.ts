@@ -51,52 +51,47 @@ describe('wrkq-refactor automation helpers', () => {
     expect(options.limit).toBe(80)
   })
 
-  test('parseArgs supports archiving an invalid refactor task with a required reason', () => {
-    const options = parseArgs([
-      'archive',
-      '--task',
-      'T-00001',
-      '--reason',
-      'Current source no longer contains the stale export.',
-      '--dry-run',
-    ])
+  test.each([
+    {
+      command: 'archive',
+      argv: [
+        'archive',
+        '--task',
+        'T-00001',
+        '--reason',
+        'Current source no longer contains the stale export.',
+        '--dry-run',
+      ],
+      expected: {
+        taskId: 'T-00001',
+        reason: 'Current source no longer contains the stale export.',
+      },
+    },
+    {
+      command: 'block',
+      argv: [
+        'block',
+        '--task',
+        'T-00001',
+        '--reason',
+        'Review-required public CLI contract change.',
+        '--dry-run',
+      ],
+      expected: { taskId: 'T-00001', reason: 'Review-required public CLI contract change.' },
+    },
+    {
+      command: 'publish',
+      argv: ['publish', '--message', 'chore(acp): automate wrkq refactor loop', '--dry-run'],
+      expected: { message: 'chore(acp): automate wrkq refactor loop' },
+    },
+  ])(
+    'parseArgs reads the $command subcommand with its required value and --dry-run',
+    ({ command, argv, expected }) => {
+      expect(parseArgs(argv)).toMatchObject({ command, dryRun: true, ...expected })
+    }
+  )
 
-    expect(options.command).toBe('archive')
-    expect(options.taskId).toBe('T-00001')
-    expect(options.reason).toBe('Current source no longer contains the stale export.')
-    expect(options.dryRun).toBe(true)
-  })
-
-  test('parseArgs supports blocking a no-proceed refactor task with a required reason', () => {
-    const options = parseArgs([
-      'block',
-      '--task',
-      'T-00001',
-      '--reason',
-      'Review-required public CLI contract change.',
-      '--dry-run',
-    ])
-
-    expect(options.command).toBe('block')
-    expect(options.taskId).toBe('T-00001')
-    expect(options.reason).toBe('Review-required public CLI contract change.')
-    expect(options.dryRun).toBe(true)
-  })
-
-  test('parseArgs supports the final publish step with a commit message', () => {
-    const options = parseArgs([
-      'publish',
-      '--message',
-      'chore(acp): automate wrkq refactor loop',
-      '--dry-run',
-    ])
-
-    expect(options.command).toBe('publish')
-    expect(options.message).toBe('chore(acp): automate wrkq refactor loop')
-    expect(options.dryRun).toBe(true)
-  })
-
-  test('normalizeRefactorTaskList treats wrkq null output as an empty queue', () => {
+  test('wrkq printing null for the refactor list is an empty queue, not a crash', () => {
     expect(normalizeRefactorTaskList(null)).toEqual([])
   })
 

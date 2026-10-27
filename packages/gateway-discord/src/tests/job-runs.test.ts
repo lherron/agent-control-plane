@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 
 import { GatewayDiscordApp } from '../app.js'
 import { JobRunFailureCardLimiter, buildJobRunCard } from '../job-runs.js'
-import { createWebhookManager, webhookPayloadHasContent } from '../webhooks.js'
+import { createWebhookManager } from '../webhooks.js'
 
 function dispatchedEvent(overrides: Record<string, unknown> = {}) {
   return {
@@ -147,25 +147,17 @@ describe('buildJobRunCard (T-05245)', () => {
     const card = buildJobRunCard(event)
     expect((card?.embeds?.[0] as { description: string }).description).toBe('Dispatched (schedule)')
   })
-
-  test('ignores non-job system events', () => {
-    expect(buildJobRunCard({ ...dispatchedEvent(), kind: 'input.started' })).toBeUndefined()
-  })
 })
 
 describe('webhook payload at-least-one-of invariant (T-05245)', () => {
-  test('webhookPayloadHasContent accepts embed-only and rejects empty', () => {
-    expect(webhookPayloadHasContent({ embeds: [{ title: 'x' }] })).toBe(true)
-    expect(webhookPayloadHasContent({ content: 'hi' })).toBe(true)
-    expect(webhookPayloadHasContent({})).toBe(false)
-    expect(webhookPayloadHasContent({ content: '', embeds: [] })).toBe(false)
-  })
-
   test('manager send throws fast on an empty payload', async () => {
     const manager = createWebhookManager({
       client: { channels: { fetch: async () => null } },
     })
     await expect(manager.send('chan', {} as never)).rejects.toThrow(/at least one/)
+    await expect(manager.send('chan', { content: '', embeds: [] } as never)).rejects.toThrow(
+      /at least one/
+    )
   })
 })
 
@@ -289,47 +281,16 @@ describe('job-runs failure card rate limit (T-10005)', () => {
     }
   }
 
-  test('posts 3 failure cards per job per window, then one plain summary when the window rolls', () => {
-    let clock = 0
-    const limiter = new JobRunFailureCardLimiter({ now: () => clock })
-    const admitted = Array.from({ length: 145 }, (_, i) => limiter.admit(failedEvent(i + 1)))
-    expect(admitted.filter(Boolean)).toHaveLength(3)
-    expect(limiter.takeSummaries()).toEqual([])
-
-    clock += 10 * 60_000
-    const summaries = limiter.takeSummaries()
-    expect(summaries).toHaveLength(1)
-    const embed = (summaries[0]?.embeds as Array<Record<string, unknown>>)[0]
-    expect(embed?.['title']).toBe('✗ 142 more failed runs · transcript-summary-discord')
-    expect(JSON.stringify(embed?.['fields'])).toContain('output_delivery_exhausted × 142')
-    expect(JSON.stringify(embed?.['fields'])).toContain('jr-4')
-    expect(JSON.stringify(embed?.['fields'])).toContain('jr-145')
-    expect(limiter.takeSummaries()).toEqual([])
-    // A new window admits individual cards again.
-    expect(limiter.admit(failedEvent(200))).toBe(true)
-  })
-
-  test('limits each job separately and never limits started or succeeded cards', () => {
-    const limiter = new JobRunFailureCardLimiter({ now: () => 0 })
-    for (let i = 0; i < 3; i += 1) {
-      expect(limiter.admit(failedEvent(i, 'job-a'))).toBe(true)
-    }
-    expect(limiter.admit(failedEvent(10, 'job-a'))).toBe(false)
-    expect(limiter.admit(failedEvent(11, 'job-b'))).toBe(true)
-    expect(limiter.admit(dispatchedEvent())).toBe(true)
-    expect(
-      limiter.admit({
-        ...failedEvent(12, 'job-a'),
-        payload: { ...failedEvent(12, 'job-a').payload, status: 'succeeded' },
-      })
-    ).toBe(true)
-  })
-
   test('pollSystemEventsOnce posts capped failure cards and flushes the summary on a later poll', async () => {
     const channel = new FakeChannel('chan-job-runs')
     const client = new FakeClient()
     client.add(channel)
-    let batch: unknown[] = Array.from({ length: 20 }, (_, i) => failedEvent(i + 1))
+    let batch: unknown[] = [
+      ...Array.from({ length: 145 }, (_, i) => failedEvent(i + 1)),
+      failedEvent(200, 'job-b'),
+      dispatchedEvent(),
+      { ...failedEvent(201), payload: { ...failedEvent(201).payload, status: 'succeeded' } },
+    ]
     const fetchImpl = async () =>
       ({
         ok: true,
@@ -349,13 +310,33 @@ describe('job-runs failure card rate limit (T-10005)', () => {
 
     await app.pollSystemEventsOnce()
     const webhook = [...channel.webhooks.values()][0]
-    expect(webhook?.sends).toHaveLength(3)
+    expect(webhook?.sends).toHaveLength(6) // three job-a failures, job-b, dispatched and succeeded
+    const initialCards = (webhook?.sends ?? []).map(
+      (send) => (send['embeds'] as Array<{ title: string; footer: { text: string } }>)[0]
+    )
+    expect(initialCards.map((card) => card?.title)).toEqual([
+      ...Array(3).fill('✗ Job failed · transcript-summary-discord'),
+      '✗ Job failed · job-b',
+      '▶ Job started · daily-standup',
+      '✓ Job succeeded · transcript-summary-discord',
+    ])
+    expect(initialCards.slice(0, 3).map((card) => card?.footer.text)).toEqual([
+      'jobRun jr-1',
+      'jobRun jr-2',
+      'jobRun jr-3',
+    ])
 
     batch = []
     clock += 10 * 60_000
     await app.pollSystemEventsOnce()
-    expect(webhook?.sends).toHaveLength(4)
-    const embed = (webhook?.sends[3]?.['embeds'] as Array<Record<string, unknown>>)[0]
-    expect(embed?.['title']).toBe('✗ 17 more failed runs · transcript-summary-discord')
+    expect(webhook?.sends).toHaveLength(7)
+    const embed = (webhook?.sends[6]?.['embeds'] as Array<Record<string, unknown>>)[0]
+    expect(embed?.['title']).toBe('✗ 142 more failed runs · transcript-summary-discord')
+    expect(JSON.stringify(embed?.['fields'])).toContain('output_delivery_exhausted × 142')
+    expect(JSON.stringify(embed?.['fields'])).toContain('jr-4')
+    expect(JSON.stringify(embed?.['fields'])).toContain('jr-145')
+    batch = [failedEvent(300)]
+    await app.pollSystemEventsOnce()
+    expect(webhook?.sends).toHaveLength(8)
   })
 })

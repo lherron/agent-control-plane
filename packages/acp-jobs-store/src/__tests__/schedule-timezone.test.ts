@@ -21,11 +21,20 @@ describe('nextFireAfter with an IANA timezone', () => {
     for (const cron of crons) {
       for (const after of ['2026-03-07T12:34:56.000Z', '2026-10-31T23:59:00.000Z']) {
         const legacy = fires(cron, after, 20)
-        expect(fires(cron, after, 20, undefined)).toEqual(legacy)
         expect(fires(cron, after, 20, 'UTC')).toEqual(legacy)
       }
     }
     expect(nextFireAfter('0 2 * * *', '2026-03-07T12:00:00.000Z')).toBe('2026-03-08T02:00:00.000Z')
+    expect(fires('*/15 * * * *', '2026-03-07T12:34:56.000Z', 3)).toEqual([
+      '2026-03-07T12:45:00.000Z',
+      '2026-03-07T13:00:00.000Z',
+      '2026-03-07T13:15:00.000Z',
+    ])
+    expect(fires('30 9 * * 1-5', '2026-03-07T12:34:56.000Z', 3)).toEqual([
+      '2026-03-09T09:30:00.000Z',
+      '2026-03-10T09:30:00.000Z',
+      '2026-03-11T09:30:00.000Z',
+    ])
   })
 
   test('02:00 Chicago on a normal CST day fires 08:00Z and on a CDT day 07:00Z', () => {

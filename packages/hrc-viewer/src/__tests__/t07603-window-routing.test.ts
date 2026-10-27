@@ -23,49 +23,9 @@ import {
   INTERACTIVE_WINDOW_KEY,
   defaultWindowKeyForTab,
   deriveHeadlessTabIdentity,
-  headlessWindowTitle,
-  resolveWindowKey,
 } from '../ghostmux'
 
-const windowKeyFor = (scopeRef: string, hint?: string | undefined) =>
-  resolveWindowKey(hint, deriveHeadlessTabIdentity(scopeRef, fixtureIdentity(scopeRef)))
-
 describe('T-07603 scope-shape routing', () => {
-  it('sends hcs-project task scopes to the chief window', () => {
-    expect(windowKeyFor('agent:cody:project:hcs:task:T-12345')).toBe(CHIEF_WINDOW_KEY)
-    expect(windowKeyFor('agent:chief:project:hcs:task:T-12345')).toBe(CHIEF_WINDOW_KEY)
-  })
-
-  it('still sends task scopes in other projects to the headless window', () => {
-    expect(windowKeyFor('agent:cody:project:hrc-runtime:task:T-12345')).toBe(
-      DEFAULT_HEADLESS_WINDOW_KEY
-    )
-    expect(windowKeyFor('agent:cody:project:hrc-runtime:task:T-07595')).toBe(
-      DEFAULT_HEADLESS_WINDOW_KEY
-    )
-    // Role-qualified seats inherit the task id, so they stay background too.
-    expect(windowKeyFor('agent:clod:project:hrc-runtime:task:T-07595:role:p3-prod-run')).toBe(
-      DEFAULT_HEADLESS_WINDOW_KEY
-    )
-  })
-
-  it('sends every chief scope to the dedicated chief window', () => {
-    expect(windowKeyFor('agent:chief:project:hcs:task:primary')).toBe(CHIEF_WINDOW_KEY)
-  })
-
-  it('sends operator-named scopes to the interactive window', () => {
-    expect(windowKeyFor('agent:mable:project:hcs:task:primary')).toBe(INTERACTIVE_WINDOW_KEY)
-    for (const scopeRef of [
-      'agent:clod:project:hrc-runtime:task:primary',
-      'agent:mable:project:hrc-runtime:task:primary-nova',
-      'agent:clod:project:hrc-runtime:task:minisvc',
-      'agent:clod:project:hrc-runtime:task:minilab',
-      'agent:clod:project:hrc-runtime:task:viewrca',
-    ]) {
-      expect(windowKeyFor(scopeRef)).toBe(INTERACTIVE_WINDOW_KEY)
-    }
-  })
-
   it('sends an UNPARSEABLE scope to the headless window, never the operator’s', () => {
     // `deriveHeadlessTabIdentity` returns before `isRealTaskId` for a scope it
     // cannot parse, so keying off a bare taskId would land junk in the operator's
@@ -76,26 +36,6 @@ describe('T-07603 scope-shape routing', () => {
     )
     expect(tab.tabKey.startsWith('unparsed:')).toBe(true)
     expect(defaultWindowKeyForTab(tab)).toBe(DEFAULT_HEADLESS_WINDOW_KEY)
-  })
-
-  it('an explicit hint always wins over the derived key', () => {
-    expect(windowKeyFor('agent:cody:project:hcs:task:T-12345', 'console')).toBe(
-      INTERACTIVE_WINDOW_KEY
-    )
-    // A task scope forced into the interactive window...
-    expect(windowKeyFor('agent:cody:project:hrc-runtime:task:T-07595', 'console')).toBe('console')
-    // ...and an operator scope forced into the headless pile.
-    expect(windowKeyFor('agent:clod:project:hrc-runtime:task:primary', 'default')).toBe('default')
-    // Blank/whitespace hints are absent hints, not keys.
-    expect(windowKeyFor('agent:clod:project:hrc-runtime:task:primary', '   ')).toBe(
-      INTERACTIVE_WINDOW_KEY
-    )
-  })
-
-  it('gives the dedicated chief window its own presentation title', () => {
-    expect(headlessWindowTitle(CHIEF_WINDOW_KEY)).toBe('Chief Contexts')
-    expect(headlessWindowTitle(DEFAULT_HEADLESS_WINDOW_KEY)).toBe('Headless Sessions')
-    expect(headlessWindowTitle(INTERACTIVE_WINDOW_KEY)).toBe('Headless Sessions · console')
   })
 })
 
@@ -201,6 +141,53 @@ function makeFake() {
 const PRIMARY = 'agent:clod:project:hrc-runtime:task:primary'
 
 describe('T-07603 interactive-window adoption', () => {
+  it.each([
+    ['agent:cody:project:hcs:task:T-12345', undefined, CHIEF_WINDOW_KEY],
+    ['agent:chief:project:hcs:task:T-12345', undefined, CHIEF_WINDOW_KEY],
+    ['agent:chief:project:hcs:task:primary', undefined, CHIEF_WINDOW_KEY],
+    ['agent:cody:project:hrc-runtime:task:T-12345', undefined, DEFAULT_HEADLESS_WINDOW_KEY],
+    ['agent:cody:project:hrc-runtime:task:T-07595', undefined, DEFAULT_HEADLESS_WINDOW_KEY],
+    [
+      'agent:clod:project:hrc-runtime:task:T-07595:role:p3-prod-run',
+      undefined,
+      DEFAULT_HEADLESS_WINDOW_KEY,
+    ],
+    ['agent:mable:project:hcs:task:primary', undefined, INTERACTIVE_WINDOW_KEY],
+    ...['primary', 'primary-nova', 'minisvc', 'minilab', 'viewrca'].map(
+      (slot) =>
+        [`agent:clod:project:hrc-runtime:task:${slot}`, undefined, INTERACTIVE_WINDOW_KEY] as const
+    ),
+    ['this is not a scope ref', undefined, DEFAULT_HEADLESS_WINDOW_KEY],
+    ['agent:cody:project:hcs:task:T-12345', 'console', INTERACTIVE_WINDOW_KEY],
+    ['agent:cody:project:hrc-runtime:task:T-07595', 'console', INTERACTIVE_WINDOW_KEY],
+    ['agent:clod:project:hrc-runtime:task:primary', 'default', DEFAULT_HEADLESS_WINDOW_KEY],
+    ['agent:clod:project:hrc-runtime:task:primary', '   ', INTERACTIVE_WINDOW_KEY],
+  ] as const)(
+    'places scope %s with hint %s in window %s',
+    async (scopeRef, windowKey, expected) => {
+      const fake = makeFake()
+      const manager = new GhostmuxManager('ghostmux', fake.runner)
+      await manager.ensureHeadlessViewer({
+        identity: fixtureIdentity(scopeRef),
+        scopeRef,
+        runtimeId: 'rt-test',
+        attachCommand: 'a',
+        ...(windowKey !== undefined ? { windowKey } : {}),
+      })
+      expect(
+        [...fake.windows.values()].some((window) => window.metadata['hrc_window_key'] === expected)
+      ).toBe(true)
+      const windowCreate = fake.calls.find((args) => args[0] === 'new' && args.includes('--window'))
+      const title =
+        expected === CHIEF_WINDOW_KEY
+          ? 'Chief Contexts'
+          : expected === INTERACTIVE_WINDOW_KEY
+            ? 'Headless Sessions · console'
+            : 'Headless Sessions'
+      expect(windowCreate?.[windowCreate.indexOf('--title') + 1]).toBe(title)
+    }
+  )
+
   it('adopts the OLDEST untagged window and stamps it', async () => {
     const fake = makeFake()
     const oldest = fake.allocWindow()

@@ -103,9 +103,18 @@ describe('parseWrkqWebhookEvent: subtask owner fields', () => {
   })
 
   test('malformed owner fields are rejected fail-closed', () => {
-    expect(parseWrkqWebhookEvent({ ...subtaskEvent(), subtask_owner_id: 12345 }).ok).toBe(false)
-    expect(parseWrkqWebhookEvent({ ...subtaskEvent(), subtask_owner_uuid: '' }).ok).toBe(false)
-    expect(parseWrkqWebhookEvent({ ...subtaskEvent(), subtask_owner_id: ' ' }).ok).toBe(false)
+    expect(parseWrkqWebhookEvent({ ...subtaskEvent(), subtask_owner_id: 12345 })).toEqual({
+      ok: false,
+      error: 'subtask_owner_id must be a string when present',
+    })
+    expect(parseWrkqWebhookEvent({ ...subtaskEvent(), subtask_owner_uuid: '' })).toEqual({
+      ok: false,
+      error: 'subtask_owner_uuid must be non-empty when present',
+    })
+    expect(parseWrkqWebhookEvent({ ...subtaskEvent(), subtask_owner_id: ' ' })).toEqual({
+      ok: false,
+      error: 'subtask_owner_id must be non-empty when present',
+    })
   })
 })
 

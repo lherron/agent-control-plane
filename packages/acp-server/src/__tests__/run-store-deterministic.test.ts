@@ -57,60 +57,20 @@ const BASE = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('InMemoryRunStore.createOrGetRun — initial creation (W4a red)', () => {
-  test('[RED] createOrGetRun exists on InMemoryRunStore', () => {
+  test('first creation returns and stores deterministic wrkf identity and metadata', () => {
     const store = new InMemoryRunStore()
-    // FAIL: method does not exist yet
-    expect(typeof (store as unknown as Record<string, unknown>)['createOrGetRun']).toBe('function')
-  })
-
-  test('[RED] first call returns { run, created: true }', () => {
-    const store = new InMemoryRunStore()
-    const callFn = (store as unknown as Record<string, (...args: unknown[]) => unknown>)[
-      'createOrGetRun'
-    ].bind(store)
-
-    const result = callFn(BASE) as { run: { runId: string }; created: boolean }
-    expect(result.created).toBe(true)
-    expect(result.run.runId).toBe(`run_wrkf_${BASE.wrkfRunId}`)
-  })
-
-  test('[RED] stored run has deterministic runId run_wrkf_<wrkfRunId>', () => {
-    const store = new InMemoryRunStore()
-    const callFn = (store as unknown as Record<string, (...args: unknown[]) => unknown>)[
-      'createOrGetRun'
-    ].bind(store)
-
-    const { run } = callFn(BASE) as { run: { runId: string }; created: boolean }
+    const { run, created } = store.createOrGetRun(BASE)
+    expect(created).toBe(true)
     expect(run.runId).toBe(`run_wrkf_${BASE.wrkfRunId}`)
-  })
-
-  test('[RED] getRun can retrieve the run by the deterministic id', () => {
-    const store = new InMemoryRunStore()
-    const callFn = (store as unknown as Record<string, (...args: unknown[]) => unknown>)[
-      'createOrGetRun'
-    ].bind(store)
-
-    callFn(BASE)
-    const found = store.getRun(`run_wrkf_${BASE.wrkfRunId}`)
-    expect(found).toBeDefined()
-  })
-
-  test('[RED] stored metadata carries source:wrkf and all wrkf fields', () => {
-    const store = new InMemoryRunStore()
-    const callFn = (store as unknown as Record<string, (...args: unknown[]) => unknown>)[
-      'createOrGetRun'
-    ].bind(store)
-
-    const { run } = callFn(BASE) as {
-      run: { metadata: Record<string, unknown> }
-      created: boolean
-    }
-    expect(run.metadata?.['source']).toBe('wrkf')
-    expect(run.metadata?.['wrkfTaskId']).toBe(BASE.wrkfTaskId)
-    expect(run.metadata?.['wrkfInstanceId']).toBe(BASE.wrkfInstanceId)
-    expect(run.metadata?.['wrkfRunId']).toBe(BASE.wrkfRunId)
-    expect(run.metadata?.['workflowRef']).toBe(BASE.workflowRef)
-    expect(run.metadata?.['role']).toBe(BASE.role)
+    expect(store.getRun(run.runId)).toBeDefined()
+    expect(run.metadata).toMatchObject({
+      source: 'wrkf',
+      wrkfTaskId: BASE.wrkfTaskId,
+      wrkfInstanceId: BASE.wrkfInstanceId,
+      wrkfRunId: BASE.wrkfRunId,
+      workflowRef: BASE.workflowRef,
+      role: BASE.role,
+    })
   })
 })
 
@@ -119,40 +79,15 @@ describe('InMemoryRunStore.createOrGetRun — initial creation (W4a red)', () =>
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('InMemoryRunStore.createOrGetRun — replay (W4a red)', () => {
-  test('[RED] second call returns created: false', () => {
+  test('replay returns the same deterministic run without another entry', () => {
     const store = new InMemoryRunStore()
-    const callFn = (store as unknown as Record<string, (...args: unknown[]) => unknown>)[
-      'createOrGetRun'
-    ].bind(store)
-
-    callFn(BASE)
-    const r2 = callFn(BASE) as { run: unknown; created: boolean }
-    expect(r2.created).toBe(false)
-  })
-
-  test('[RED] two calls return the same runId', () => {
-    const store = new InMemoryRunStore()
-    const callFn = (store as unknown as Record<string, (...args: unknown[]) => unknown>)[
-      'createOrGetRun'
-    ].bind(store)
-
-    const r1 = callFn(BASE) as { run: { runId: string }; created: boolean }
-    const r2 = callFn(BASE) as { run: { runId: string }; created: boolean }
-    expect(r1.run.runId).toBe(r2.run.runId)
-  })
-
-  test('[RED] listRuns contains exactly one entry after two identical calls', () => {
-    const store = new InMemoryRunStore()
-    const callFn = (store as unknown as Record<string, (...args: unknown[]) => unknown>)[
-      'createOrGetRun'
-    ].bind(store)
-
-    callFn(BASE)
-    callFn(BASE)
-
-    const all = store.listRuns()
-    const matches = all.filter((r) => r.runId === `run_wrkf_${BASE.wrkfRunId}`)
-    expect(matches).toHaveLength(1)
+    const first = store.createOrGetRun(BASE)
+    const second = store.createOrGetRun(BASE)
+    expect(second.created).toBe(false)
+    expect(first.run.runId).toBe(second.run.runId)
+    expect(
+      store.listRuns().filter((run) => run.runId === `run_wrkf_${BASE.wrkfRunId}`)
+    ).toHaveLength(1)
   })
 })
 
@@ -161,52 +96,15 @@ describe('InMemoryRunStore.createOrGetRun — replay (W4a red)', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('InMemoryRunStore.createOrGetRun — conflict (W4a red)', () => {
-  test('[RED] different wrkfTaskId for same wrkfRunId throws RunCorrelationConflictError', async () => {
-    // Import RunCorrelationConflictError from acp-state-store once it exists
-    const ssModule = await import('acp-state-store')
-    const { RunCorrelationConflictError } = ssModule as unknown as {
-      RunCorrelationConflictError: new (...args: unknown[]) => Error
-    }
-
+  test.each([
+    { wrkfTaskId: 'T-CONFLICT' },
+    { workflowRef: 'other-flow@v99' },
+    { role: 'supervisor' },
+  ])('conflicting wrkf correlation field is rejected: %o', async (change) => {
+    const { RunCorrelationConflictError } = await import('acp-state-store')
     const store = new InMemoryRunStore()
-    const callFn = (store as unknown as Record<string, (...args: unknown[]) => unknown>)[
-      'createOrGetRun'
-    ].bind(store)
-
-    callFn(BASE)
-    expect(() => callFn({ ...BASE, wrkfTaskId: 'T-CONFLICT' })).toThrow(RunCorrelationConflictError)
-  })
-
-  test('[RED] different workflowRef for same wrkfRunId throws RunCorrelationConflictError', async () => {
-    const ssModule = await import('acp-state-store')
-    const { RunCorrelationConflictError } = ssModule as unknown as {
-      RunCorrelationConflictError: new (...args: unknown[]) => Error
-    }
-
-    const store = new InMemoryRunStore()
-    const callFn = (store as unknown as Record<string, (...args: unknown[]) => unknown>)[
-      'createOrGetRun'
-    ].bind(store)
-
-    callFn(BASE)
-    expect(() => callFn({ ...BASE, workflowRef: 'other-flow@v99' })).toThrow(
-      RunCorrelationConflictError
-    )
-  })
-
-  test('[RED] different role for same wrkfRunId throws RunCorrelationConflictError', async () => {
-    const ssModule = await import('acp-state-store')
-    const { RunCorrelationConflictError } = ssModule as unknown as {
-      RunCorrelationConflictError: new (...args: unknown[]) => Error
-    }
-
-    const store = new InMemoryRunStore()
-    const callFn = (store as unknown as Record<string, (...args: unknown[]) => unknown>)[
-      'createOrGetRun'
-    ].bind(store)
-
-    callFn(BASE)
-    expect(() => callFn({ ...BASE, role: 'supervisor' })).toThrow(RunCorrelationConflictError)
+    store.createOrGetRun(BASE)
+    expect(() => store.createOrGetRun({ ...BASE, ...change })).toThrow(RunCorrelationConflictError)
   })
 
   test('[RED] different wrkfInstanceId does NOT conflict (instance may rotate)', async () => {

@@ -55,21 +55,20 @@ function acpEvent(overrides: Partial<AcpWebhookEvent> = {}): AcpWebhookEvent {
 }
 
 describe('parseWrkqWebhookEvent', () => {
-  test('accepts a valid v2 payload', () => {
-    const result = parseWrkqWebhookEvent(event())
-    expect(result.ok).toBe(true)
-  })
-
   test('rejects wrong schema_version', () => {
     const result = parseWrkqWebhookEvent({ ...event(), schema_version: 1 })
-    expect(result.ok).toBe(false)
+    expect(result).toEqual({ ok: false, error: 'unsupported schema_version: 1 (expected 2)' })
   })
 
   test('rejects missing event_id / event_seq', () => {
-    expect(parseWrkqWebhookEvent({ ...event(), event_id: '' }).ok).toBe(false)
-    expect(parseWrkqWebhookEvent({ ...event(), event_seq: 'x' as unknown as number }).ok).toBe(
-      false
-    )
+    expect(parseWrkqWebhookEvent({ ...event(), event_id: '' })).toEqual({
+      ok: false,
+      error: 'event_id is required',
+    })
+    expect(parseWrkqWebhookEvent({ ...event(), event_seq: 'x' as unknown as number })).toEqual({
+      ok: false,
+      error: 'event_seq must be a finite number',
+    })
   })
 
   test('rejects malformed recognized enrichment objects while accepting current changes maps', () => {
@@ -96,8 +95,8 @@ describe('parseWrkqWebhookEvent', () => {
             preview: ['raw', 'body'],
           },
         })
-      ).ok
-    ).toBe(false)
+      )
+    ).toEqual({ ok: false, error: 'id must be a string when present' })
 
     expect(
       parseWrkqWebhookEvent(
@@ -118,6 +117,11 @@ describe('parseAcpWebhookEvent + wrkq adapter', () => {
   test('accepts a valid generic v1 envelope', () => {
     const result = parseAcpWebhookEvent(acpEvent())
     expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.event.canonical_event_id).toBe('media-ingest:transcript-1')
+      expect(result.event.subject).toEqual({ type: 'transcript', id: 'tr_1' })
+      expect(result.event.payload).toEqual(acpEvent().payload)
+    }
   })
 
   test('accepts the canonical hrc rev3 envelope', () => {
@@ -160,10 +164,22 @@ describe('parseAcpWebhookEvent + wrkq adapter', () => {
   })
 
   test('rejects malformed generic identity/source/seq/payload', () => {
-    expect(parseAcpWebhookEvent({ ...acpEvent(), source: 'Bad Source' }).ok).toBe(false)
-    expect(parseAcpWebhookEvent({ ...acpEvent(), event_id: '' }).ok).toBe(false)
-    expect(parseAcpWebhookEvent({ ...acpEvent(), event_seq: 1.2 }).ok).toBe(false)
-    expect(parseAcpWebhookEvent({ ...acpEvent(), payload: [] }).ok).toBe(false)
+    expect(parseAcpWebhookEvent({ ...acpEvent(), source: 'Bad Source' })).toEqual({
+      ok: false,
+      error: 'source must match /^[a-z][a-z0-9._-]{0,79}$/',
+    })
+    expect(parseAcpWebhookEvent({ ...acpEvent(), event_id: '' })).toEqual({
+      ok: false,
+      error: 'event_id is required',
+    })
+    expect(parseAcpWebhookEvent({ ...acpEvent(), event_seq: 1.2 })).toEqual({
+      ok: false,
+      error: 'event_seq must be a non-negative integer',
+    })
+    expect(parseAcpWebhookEvent({ ...acpEvent(), payload: [] })).toEqual({
+      ok: false,
+      error: 'payload must be an object when present',
+    })
   })
 
   test('adapts wrkq v2 into the canonical model while preserving wrkq fields', () => {
@@ -272,7 +288,7 @@ describe('evaluateEventMatch', () => {
     ).toBe(true)
   })
 
-  test('"draft created by lance" composite match (the cody-review job)', () => {
+  test('draft created by human:lance matches the cody-review trigger; agent drafts and non-draft creates do not', () => {
     const draftByLance = adaptWrkqWebhookEvent(event({ transition: { from: null, to: 'draft' } }))
     const match = {
       event: 'created',
@@ -350,7 +366,10 @@ describe('resolveEventAction (fail-closed)', () => {
       inputTemplate: { content: 'x' },
       event: adaptWrkqWebhookEvent(event({ ticket_id: undefined })),
     })
-    expect(result.ok).toBe(false)
+    expect(result).toEqual({
+      ok: false,
+      error: 'scopeRef: undefined template variable: {{ticket_id}}',
+    })
   })
 
   test('unknown template variable is rejected', () => {
@@ -359,7 +378,10 @@ describe('resolveEventAction (fail-closed)', () => {
       inputTemplate: { content: 'Hello {{unknown_var}}' },
       event: adaptWrkqWebhookEvent(event()),
     })
-    expect(result.ok).toBe(false)
+    expect(result).toEqual({
+      ok: false,
+      error: 'input.content: unknown template variable: {{unknown_var}}',
+    })
   })
 
   test('resolved scopeRef is validated through the SessionRef parser', () => {
@@ -369,6 +391,11 @@ describe('resolveEventAction (fail-closed)', () => {
       event: adaptWrkqWebhookEvent(event()),
     })
     expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toStartWith(
+        'resolved scopeRef is not a valid SessionRef: Invalid ScopeRef "not a scope ref T-00042"'
+      )
+    }
   })
 
   test('untrusted title is capped but structural scopeRef never sees it', () => {
@@ -390,7 +417,10 @@ describe('resolveEventAction (fail-closed)', () => {
       inputTemplate: { content: 'x' },
       event: acpEvent({ payload: { project: 'media-ingest' } }),
     })
-    expect(denied.ok).toBe(false)
+    expect(denied).toEqual({
+      ok: false,
+      error: 'scopeRef: unknown template variable: {{payload.project}}',
+    })
 
     const resolved = resolveEventAction({
       scopeRefTemplate: 'agent:mneme:project:media-ingest:task:primary',
@@ -407,11 +437,6 @@ describe('resolveEventAction (fail-closed)', () => {
 })
 
 describe('validateJobTrigger', () => {
-  test('accepts a schedule trigger', () => {
-    const result = validateJobTrigger({ kind: 'schedule', cron: '0 * * * *' })
-    expect(result.valid).toBe(true)
-  })
-
   test('accepts schedule catchUp policy on the trigger surface', () => {
     const result = validateJobTrigger({
       kind: 'schedule',
@@ -467,15 +492,32 @@ describe('validateJobTrigger', () => {
           subject: { type: 'transcript' },
           payload: { backend: { eq: 'mlx' } },
         },
-      }).valid
-    ).toBe(true)
+      })
+    ).toEqual({
+      valid: true,
+      trigger: {
+        kind: 'event',
+        source: 'media-ingest',
+        match: {
+          event: 'transcript.completed',
+          subject: { type: 'transcript' },
+          payload: { backend: { eq: 'mlx' } },
+        },
+      },
+    })
   })
 
   test('rejects unknown kind and bad cooldown', () => {
-    expect(validateJobTrigger({ kind: 'cron', cron: '0 * * * *' }).valid).toBe(false)
+    expect(validateJobTrigger({ kind: 'cron', cron: '0 * * * *' })).toEqual({
+      valid: false,
+      errors: ["trigger.kind must be 'schedule' or 'event' (got cron)"],
+    })
     expect(
-      validateJobTrigger({ kind: 'event', source: 'wrkq', match: {}, cooldown: 'soon' }).valid
-    ).toBe(false)
+      validateJobTrigger({ kind: 'event', source: 'wrkq', match: {}, cooldown: 'soon' })
+    ).toEqual({
+      valid: false,
+      errors: ['trigger.cooldown must be a duration string like "5m" or "1h"'],
+    })
   })
 
   test('rejects invalid matcher syntax', () => {
@@ -484,15 +526,18 @@ describe('validateJobTrigger', () => {
         kind: 'event',
         source: 'media-ingest',
         match: { payload: { 'bad path': { eq: 'x' } } },
-      }).valid
-    ).toBe(false)
+      })
+    ).toEqual({ valid: false, errors: ['trigger.match.payload has invalid path: bad path'] })
     expect(
       validateJobTrigger({
         kind: 'event',
         source: 'Media Ingest',
         match: {},
-      }).valid
-    ).toBe(false)
+      })
+    ).toEqual({
+      valid: false,
+      errors: ['trigger.source must match /^[a-z][a-z0-9._-]{0,79}$/ for event triggers'],
+    })
   })
 })
 

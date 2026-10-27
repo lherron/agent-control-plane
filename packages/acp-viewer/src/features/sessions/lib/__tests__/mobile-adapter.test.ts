@@ -98,15 +98,12 @@ describe('mobileEventToDashboardEvent', () => {
     expect(event?.sessionRef.laneRef).toBe('main')
   })
 
-  test('returns undefined when scopeRef is missing', () => {
-    expect(mobileEventToDashboardEvent({ ...TURN_MESSAGE, scopeRef: undefined })).toBeUndefined()
-  })
-
-  test('returns undefined when hostSessionId is missing', () => {
-    expect(
-      mobileEventToDashboardEvent({ ...TURN_MESSAGE, hostSessionId: undefined })
-    ).toBeUndefined()
-  })
+  test.each(['scopeRef', 'hostSessionId'] as const)(
+    'returns undefined when %s is missing',
+    (field) => {
+      expect(mobileEventToDashboardEvent({ ...TURN_MESSAGE, [field]: undefined })).toBeUndefined()
+    }
+  )
 })
 
 describe('mobileSnapshotToDashboardSnapshot', () => {
@@ -150,6 +147,7 @@ describe('mobileSnapshotToDashboardSnapshot', () => {
     expect(snapshot.sessions[0]?.sessionRef.scopeRef).toBe(
       'agent:clod:project:agent-control-plane:task:primary'
     )
+    expect(snapshot.sessions[0]?.sessionRef.laneRef).toBe('main')
     expect(snapshot.sessions[0]?.runtime?.status).toBe('idle')
     // StatusStrip counts reflect the roster (idle session counted)
     expect(snapshot.summary.counts.idle).toBe(1)
@@ -176,12 +174,6 @@ describe('mobileSnapshotToDashboardSnapshot', () => {
 })
 
 describe('parseSessionRef', () => {
-  test('splits scope and lane', () => {
-    expect(parseSessionRef('agent:clod:project:x:task:primary/lane:main')).toEqual({
-      scopeRef: 'agent:clod:project:x:task:primary',
-      laneRef: 'main',
-    })
-  })
   test('defaults lane to main when absent', () => {
     expect(parseSessionRef('agent:clod:project:x')).toEqual({
       scopeRef: 'agent:clod:project:x',

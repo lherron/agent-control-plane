@@ -4,7 +4,7 @@ import { reconcileOpenIntents } from '../drive/reconcile.js'
 import { driveMailTargetOnce } from '../drive/target-driver.js'
 import { PERIODIC_QUIET_BACKSTOP_MS } from '../internal.js'
 import { sweepLapsedObligations } from '../terminal/runtime-lapse.js'
-import { periodicTargetFingerprint, recordPeriodicDrive } from '../wake/quiet-targets.js'
+import { recordPeriodicDrive } from '../wake/quiet-targets.js'
 import { runMailKickerSweep } from '../wake/sweep.js'
 import type { T08094Harness } from './t08094-harness.js'
 import {
@@ -101,7 +101,7 @@ describe('T-11680 periodic sweep drives outstanding mail or changed state only',
     expect(await sweep()).toContain(STALE)
   })
 
-  it('ignores the timestamp reconcile rewrites, not a changed intent', () => {
+  it('ignores the timestamp reconcile rewrites, not a changed intent', async () => {
     h.store.mailDelivery.openIntent({
       envelopeId: 'EN-90003',
       targetSessionRef: STALE,
@@ -110,21 +110,22 @@ describe('T-11680 periodic sweep drives outstanding mail or changed state only',
       presentationId: 'present-90003',
       submittedHrcSeq: 1,
     })
-    const seated = new Set<string>()
-    const before = periodicTargetFingerprint(h.context, STALE, seated)
+    expect(await sweep()).toContain(STALE)
+    expect(await sweep()).not.toContain(STALE)
 
     h.storeSql
       .query('UPDATE hrcmail_delivery_intents SET updated_at = ? WHERE envelope_id = ?')
       .run('2099-01-01T00:00:00.000Z', 'EN-90003')
-    expect(periodicTargetFingerprint(h.context, STALE, seated)).toBe(before)
+    expect(await sweep()).not.toContain(STALE)
 
     h.storeSql
       .query('UPDATE hrcmail_delivery_intents SET uncertain_cause = ? WHERE envelope_id = ?')
       .run('ttl_without_landing', 'EN-90003')
-    expect(periodicTargetFingerprint(h.context, STALE, seated)).not.toBe(before)
-    expect(periodicTargetFingerprint(h.context, STALE, new Set([STALE]))).not.toBe(
-      periodicTargetFingerprint(h.context, STALE, seated)
-    )
+    expect(await sweep()).toContain(STALE)
+    expect(await sweep()).not.toContain(STALE)
+    const originalLiveSessionRefs = h.context.port.liveSessionRefs
+    h.context.port.liveSessionRefs = async () => [...(await originalLiveSessionRefs()), STALE]
+    expect(await sweep()).toContain(STALE)
   })
 
   it('reports an empty drive so the sweep can tell nothing was outstanding', async () => {

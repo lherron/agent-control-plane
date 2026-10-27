@@ -1,75 +1,26 @@
 /**
- * Red tests — Phase 1, Deliverable 5:
- * applyFreshTransition helper — re-reads wrkf.next, applies with fresh
- * revision/contextHash, retries once on stale mismatch.
+ * applyFreshTransition — re-reads wrkf.next, applies with the fresh
+ * revision/contextHash, retries exactly once on a stale CAS mismatch.
  *
- * WHY RED NOW:
- *   File `src/wrkf/transition-apply.ts` does not exist.
- *   Importing from it fails at module load time with "Cannot find module".
- *   ALL tests in this file are RED as a consequence.
+ * Callers: the PBC start/input/dispose routes (src/pbc/*.ts). The behavior a
+ * caller can observe is the transition.apply RPC sent to the wrkf daemon; the
+ * fake port below records it at that boundary. Route-level coverage of the
+ * stale-contextHash case lives in
+ * src/__tests__/pbc-facade-transition-freshness.test.ts; the revision CAS and
+ * the single bounded retry are only covered here (rewrite-held: a route test
+ * needs a wrkf fake that fails once).
  *
- * WHAT THE IMPL AGENT MUST CREATE:
- *   New file: `packages/acp-server/src/wrkf/transition-apply.ts`
- *
- *   Exported function signature:
- *     export async function applyFreshTransition(
- *       port: TransitionApplyPort,
- *       input: ApplyFreshTransitionInput
- *     ): Promise<ApplyFreshTransitionResult>
- *
- *   Where:
- *     TransitionApplyPort = {
- *       next(params: { task: string; role?: string }): Promise<unknown>
- *       transition: {
- *         apply(params: WrkfTransitionApplyParams): Promise<unknown>
- *       }
- *     }
- *
- *     ApplyFreshTransitionInput = {
- *       task: string
- *       transition: string
- *       role?: string
- *       actor?: string
- *       routeKey?: string
- *       runChecks?: boolean
- *     }
- *
- *     ApplyFreshTransitionResult = {
- *       transitionResult: unknown
- *       instance: { revision: number; contextHash?: string }  // post-apply state
- *     }
- *
- *   Algorithm (SPEC §4.12):
- *     1. Call port.next({ task }) to read current revision + contextHash
- *     2. Project the next response (projectNextActionResponse) to get instance
- *     3. Call port.transition.apply({
- *          task, transition, role, actor,
- *          expectRevision: instance.revision,
- *          contextHash: instance.contextHash,
- *          idempotencyKey: derivedKey,  // derived from routeKey + transition + revision
- *          ...(runChecks !== undefined ? { runChecks } : {})
- *        })
- *     4. On WRKF_STALE_REVISION or WRKF_CONTEXT_MISMATCH:
- *          - Re-read next ONCE (same call as step 1)
- *          - Retry transition.apply with fresh revision/contextHash
- *          - If it fails again — propagate the error
- *     5. After successful apply, re-read next to get the post-apply instance
- *     6. Return { transitionResult, instance: postApplyInstance }
- *
- *   Key invariants tested here:
- *     - ALWAYS reads next before first apply (not using a caller-provided CAS)
- *     - Retries EXACTLY ONCE on WRKF_STALE_REVISION / WRKF_CONTEXT_MISMATCH
- *     - Does NOT retry on other errors
- *     - Re-reads next after success (for post-apply instance)
- *     - idempotencyKey changes between the first attempt and the retry
- *       (uses the fresh revision from the re-read)
- *
- * Fake port pattern: same `_calls` spy as pbc-harness.test.ts / effect-delivery.test.ts.
+ * SPEC §4.12:
+ *   1. next({ task }) → current revision + contextHash
+ *   2. transition.apply({ task, transition, role, principal_ref,
+ *        expectRevision, contextHash, idempotencyKey })
+ *   3. WRKF_STALE_REVISION / WRKF_CONTEXT_MISMATCH → re-read next ONCE and retry
+ *      with the fresh revision/contextHash (and a fresh idempotencyKey); a
+ *      second failure propagates. Other errors propagate immediately.
  */
 
 import { describe, expect, test } from 'bun:test'
 
-// RED: transition-apply.ts does not exist — import fails at module load.
 import {
   type ApplyFreshTransitionInput,
   type ApplyFreshTransitionResult,
@@ -149,193 +100,77 @@ function makeFakePort(opts: {
 
 const TASK = 'T-P1D5-001'
 
-// ╔══════════════════════════════════════════════════════════════════════════════╗
-// ║  1. Module exports applyFreshTransition                                     ║
-// ╚══════════════════════════════════════════════════════════════════════════════╝
-
-describe('P1-D5: applyFreshTransition is exported from transition-apply.ts', () => {
-  // RED: module doesn't exist — all tests fail at import
-
-  test('applyFreshTransition is a function', () => {
-    // RED: module doesn't exist → import fails
-    expect(typeof applyFreshTransition).toBe('function')
-  })
-
-  test('applyFreshTransition returns a Promise', async () => {
-    const port = makeFakePort({})
-    const input: ApplyFreshTransitionInput = {
-      task: TASK,
-      transition: 'submit',
-      role: 'owner',
-      actor: 'agent:test-agent',
-      routeKey: 'test-route',
-    }
-    // RED: TypeError: applyFreshTransition is not a function
-    const result = applyFreshTransition(port, input)
-    expect(result).toBeInstanceOf(Promise)
-    const resolved: ApplyFreshTransitionResult = await result
-    expect(resolved).toBeDefined()
-  })
-})
-
-// ╔══════════════════════════════════════════════════════════════════════════════╗
-// ║  2. Always reads next before first apply                                    ║
-// ╚══════════════════════════════════════════════════════════════════════════════╝
+function applyParams(port: FakeTransitionApplyPort): Array<Record<string, unknown>> {
+  return port._calls
+    .filter((c) => c.method === 'transition.apply')
+    .map((c) => c.params as Record<string, unknown>)
+}
 
 describe('P1-D5: applyFreshTransition — always reads next before applying', () => {
-  test('calls next({task}) before transition.apply', async () => {
+  test('transition.apply carries the input identity and the revision/contextHash read from next() first', async () => {
     const port = makeFakePort({
-      nextSequence: [makeNextRaw({ revision: 5, contextHash: 'sha256:ctx5' })],
+      nextSequence: [makeNextRaw({ revision: 7, contextHash: 'sha256:ctxdeadbeef' })],
     })
-    const input: ApplyFreshTransitionInput = {
-      task: TASK,
-      transition: 'submit',
-      role: 'owner',
-      actor: 'agent:test',
-      routeKey: 'key1',
-    }
-
-    // RED: TypeError
-    await applyFreshTransition(port, input)
-
-    const methods = port._calls.map((c) => c.method)
-    const nextIdx = methods.indexOf('next')
-    const applyIdx = methods.indexOf('transition.apply')
-    expect(nextIdx).toBeGreaterThan(-1)
-    expect(applyIdx).toBeGreaterThan(nextIdx)
-  })
-
-  test('transition.apply uses revision from next() response', async () => {
-    const REVISION = 7
-    const port = makeFakePort({ nextSequence: [makeNextRaw({ revision: REVISION })] })
-    const input: ApplyFreshTransitionInput = {
-      task: TASK,
-      transition: 'submit',
-      role: 'owner',
-      actor: 'agent:test',
-      routeKey: 'key2',
-    }
-
-    // RED: TypeError
-    await applyFreshTransition(port, input)
-
-    const applyCall = port._calls.find((c) => c.method === 'transition.apply')
-    expect(applyCall).toBeDefined()
-    const params = applyCall!.params as Record<string, unknown>
-    expect(params['expectRevision']).toBe(REVISION)
-  })
-
-  test('transition.apply uses contextHash from next() response', async () => {
-    const CTX_HASH = 'sha256:ctxdeadbeef'
-    const port = makeFakePort({ nextSequence: [makeNextRaw({ contextHash: CTX_HASH })] })
-    const input: ApplyFreshTransitionInput = {
-      task: TASK,
-      transition: 'submit',
-      role: 'owner',
-      actor: 'agent:test',
-      routeKey: 'key3',
-    }
-
-    // RED: TypeError
-    await applyFreshTransition(port, input)
-
-    const applyCall = port._calls.find((c) => c.method === 'transition.apply')
-    expect(applyCall).toBeDefined()
-    const params = applyCall!.params as Record<string, unknown>
-    expect(params['contextHash']).toBe(CTX_HASH)
-  })
-
-  test('transition.apply receives task, transition, role, actor from input', async () => {
-    const port = makeFakePort({})
     const input: ApplyFreshTransitionInput = {
       task: TASK,
       transition: 'submit',
       role: 'owner',
       actor: 'agent:test-actor',
-      routeKey: 'key4',
+      routeKey: 'key2',
     }
 
-    // RED: TypeError
     await applyFreshTransition(port, input)
 
-    const applyCall = port._calls.find((c) => c.method === 'transition.apply')
-    expect(applyCall).toBeDefined()
-    const params = applyCall!.params as Record<string, unknown>
-    expect(params['task']).toBe(TASK)
-    expect(params['transition']).toBe('submit')
-    expect(params['role']).toBe('owner')
-    expect(params['principal_ref']).toBe('agent:test-actor')
+    // next is read before the first apply
+    const methods = port._calls.map((c) => c.method)
+    expect(methods.indexOf('next')).toBeGreaterThan(-1)
+    expect(methods.indexOf('transition.apply')).toBeGreaterThan(methods.indexOf('next'))
+
+    expect(applyParams(port)).toEqual([
+      {
+        task: TASK,
+        transition: 'submit',
+        role: 'owner',
+        principal_ref: 'agent:test-actor',
+        expectRevision: 7,
+        contextHash: 'sha256:ctxdeadbeef',
+        idempotencyKey: 'key2:transition:submit:7',
+      },
+    ])
   })
 })
 
-// ╔══════════════════════════════════════════════════════════════════════════════╗
-// ║  3. Retries exactly once on WRKF_STALE_REVISION / WRKF_CONTEXT_MISMATCH    ║
-// ╚══════════════════════════════════════════════════════════════════════════════╝
-
 describe('P1-D5: applyFreshTransition — retries once on stale mismatch', () => {
-  test('WRKF_STALE_REVISION: re-reads next and retries transition.apply once', async () => {
-    const FRESH_REVISION = 8
-    const port = makeFakePort({
-      nextSequence: [
-        makeNextRaw({ revision: 5 }), // first next read (stale)
-        makeNextRaw({ revision: FRESH_REVISION }), // second next read (fresh)
-        makeNextRaw({ revision: FRESH_REVISION }), // third read after success
-      ],
-      applyShouldThrowSequence: [
-        makeWrkfError('WRKF_STALE_REVISION', 'revision mismatch'),
-        null, // second attempt succeeds
-      ],
-    })
-    const input: ApplyFreshTransitionInput = {
-      task: TASK,
-      transition: 'submit',
-      role: 'owner',
-      actor: 'agent:test',
-      routeKey: 'retry-key1',
+  test.each([{ code: 'WRKF_STALE_REVISION' }, { code: 'WRKF_CONTEXT_MISMATCH' }])(
+    '$code: re-reads next and retries transition.apply once with the fresh revision and contextHash',
+    async ({ code }) => {
+      const port = makeFakePort({
+        nextSequence: [
+          makeNextRaw({ revision: 5, contextHash: 'sha256:stale-ctx' }), // first read (stale)
+          makeNextRaw({ revision: 8, contextHash: 'sha256:fresh-ctx' }), // re-read (fresh)
+          makeNextRaw({ revision: 9, contextHash: 'sha256:after' }), // read after success
+        ],
+        applyShouldThrowSequence: [makeWrkfError(code, 'stale'), null],
+      })
+
+      await applyFreshTransition(port, {
+        task: TASK,
+        transition: 'submit',
+        role: 'owner',
+        actor: 'agent:test',
+        routeKey: 'retry-key',
+      })
+
+      const applies = applyParams(port)
+      expect(applies).toHaveLength(2)
+      expect(applies[0]).toMatchObject({ expectRevision: 5, contextHash: 'sha256:stale-ctx' })
+      expect(applies[1]).toMatchObject({
+        expectRevision: 8,
+        contextHash: 'sha256:fresh-ctx',
+        idempotencyKey: 'retry-key:transition:submit:8',
+      })
     }
-
-    // RED: TypeError
-    const result = await applyFreshTransition(port, input)
-    expect(result).toBeDefined()
-
-    const applyCalls = port._calls.filter((c) => c.method === 'transition.apply')
-    // Must have been called exactly twice (first attempt + one retry)
-    expect(applyCalls).toHaveLength(2)
-
-    // Second apply must use the fresh revision from the re-read
-    const retryParams = applyCalls[1]!.params as Record<string, unknown>
-    expect(retryParams['expectRevision']).toBe(FRESH_REVISION)
-  })
-
-  test('WRKF_CONTEXT_MISMATCH: re-reads next and retries once', async () => {
-    const FRESH_HASH = 'sha256:fresh-ctx'
-    const port = makeFakePort({
-      nextSequence: [
-        makeNextRaw({ contextHash: 'sha256:stale-ctx' }),
-        makeNextRaw({ contextHash: FRESH_HASH }),
-        makeNextRaw({ contextHash: FRESH_HASH }),
-      ],
-      applyShouldThrowSequence: [
-        makeWrkfError('WRKF_CONTEXT_MISMATCH', 'context hash mismatch'),
-        null,
-      ],
-    })
-    const input: ApplyFreshTransitionInput = {
-      task: TASK,
-      transition: 'submit',
-      role: 'owner',
-      actor: 'agent:test',
-      routeKey: 'retry-key2',
-    }
-
-    // RED: TypeError
-    await applyFreshTransition(port, input)
-
-    const applyCalls = port._calls.filter((c) => c.method === 'transition.apply')
-    expect(applyCalls).toHaveLength(2)
-    const retryParams = applyCalls[1]!.params as Record<string, unknown>
-    expect(retryParams['contextHash']).toBe(FRESH_HASH)
-  })
+  )
 
   test('does NOT retry on non-stale errors (e.g. WRKF_ROLE_DENIED) — propagates immediately', async () => {
     const port = makeFakePort({
@@ -350,14 +185,12 @@ describe('P1-D5: applyFreshTransition — retries once on stale mismatch', () =>
       routeKey: 'no-retry-key',
     }
 
-    // RED: TypeError. After impl: rejects with WRKF_ROLE_DENIED.
     await expect(applyFreshTransition(port, input)).rejects.toMatchObject({
       code: 'WRKF_ROLE_DENIED',
     })
 
     // transition.apply called only once (no retry)
-    const applyCalls = port._calls.filter((c) => c.method === 'transition.apply')
-    expect(applyCalls).toHaveLength(1)
+    expect(applyParams(port)).toHaveLength(1)
   })
 
   test('retry also fails with WRKF_STALE_REVISION — propagates the second error', async () => {
@@ -381,22 +214,18 @@ describe('P1-D5: applyFreshTransition — retries once on stale mismatch', () =>
       routeKey: 'double-stale-key',
     }
 
-    // RED: TypeError. After impl: rejects with WRKF_STALE_REVISION (second error).
+    // Both errors share the code; the message tells the second one apart.
     await expect(applyFreshTransition(port, input)).rejects.toMatchObject({
       code: 'WRKF_STALE_REVISION',
+      message: 'second stale — propagate',
     })
 
     // transition.apply called exactly twice
-    const applyCalls = port._calls.filter((c) => c.method === 'transition.apply')
-    expect(applyCalls).toHaveLength(2)
+    expect(applyParams(port)).toHaveLength(2)
   })
 })
 
-// ╔══════════════════════════════════════════════════════════════════════════════╗
-// ║  4. Re-reads next after successful apply                                    ║
-// ╚══════════════════════════════════════════════════════════════════════════════╝
-
-describe('P1-D5: applyFreshTransition — re-reads next after success', () => {
+describe('post-apply return contract', () => {
   test('calls next at least twice: once before apply and once after', async () => {
     const port = makeFakePort({
       nextSequence: [
@@ -419,7 +248,6 @@ describe('P1-D5: applyFreshTransition — re-reads next after success', () => {
     // Pre-apply read + post-apply read = 2
     expect(nextCalls.length).toBeGreaterThanOrEqual(2)
   })
-
   test('result.instance contains post-apply revision from the re-read next', async () => {
     const POST_APPLY_REVISION = 9
     const port = makeFakePort({
@@ -439,7 +267,6 @@ describe('P1-D5: applyFreshTransition — re-reads next after success', () => {
     // The returned instance must reflect the post-apply state (revision 9, not 5)
     expect(result.instance.revision).toBe(POST_APPLY_REVISION)
   })
-
   test('result.transitionResult contains the raw transition.apply response', async () => {
     const APPLY_RESULT = { transition: 'submit', revision: 2, status: 'applied', extra: 'data' }
     const port = makeFakePort({ applyResult: APPLY_RESULT })
@@ -458,33 +285,5 @@ describe('P1-D5: applyFreshTransition — re-reads next after success', () => {
       transition: 'submit',
       status: 'applied',
     })
-  })
-})
-
-// ╔══════════════════════════════════════════════════════════════════════════════╗
-// ║  5. Does not touch operator routes                                          ║
-// ╚══════════════════════════════════════════════════════════════════════════════╝
-
-describe('P1-D5: applyFreshTransition — no new public HTTP route', () => {
-  // Structural test: applyFreshTransition is a server-side helper only.
-  // The existing POST /v1/tasks/:taskId/transitions must remain unchanged.
-  // This test documents the constraint; the impl agent must not add a new route.
-
-  test('applyFreshTransition takes a port and input, not a Request — it is not an HTTP handler', () => {
-    // Verify the function signature: first arg is port, second is input (not Request/Response)
-    // This passes once the module exists and the function is properly typed.
-    // RED: TypeError
-    const portLike: TransitionApplyPort = {
-      next: async (_p) => makeNextRaw(),
-      transition: { apply: async (_p) => makeApplyResult('x', 1) },
-    }
-    // Should not throw a "Request is not defined" or similar — it takes plain objects
-    const p = applyFreshTransition(portLike, {
-      task: 'T-check',
-      transition: 'x',
-      routeKey: 'type-check',
-    })
-    expect(p).toBeInstanceOf(Promise)
-    return p
   })
 })

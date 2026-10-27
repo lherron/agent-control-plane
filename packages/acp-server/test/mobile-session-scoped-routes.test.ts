@@ -93,7 +93,7 @@ function makeHrcClient(input: {
 }
 
 describe('POST /v1/mobile/sessions/:hostSessionId/input', () => {
-  test('extracts hostSessionId from path and forwards sessionRef to deliverLiteralBySelector', async () => {
+  test('mobile input for a hostSessionId delivers the text to that session sessionRef with enter', async () => {
     const calls: DeliverCall[] = []
     const hrcClient = makeHrcClient({
       sessions: [OTHER_SESSION, SESSION],
@@ -124,7 +124,7 @@ describe('POST /v1/mobile/sessions/:hostSessionId/input', () => {
     )
   })
 
-  test('returns 422 when delivery fails', async () => {
+  test('mobile input returns 422 input_failed carrying the HRC delivery error', async () => {
     const hrcClient = makeHrcClient({
       sessions: [SESSION],
       runtimes: [RUNTIME],
@@ -139,16 +139,22 @@ describe('POST /v1/mobile/sessions/:hostSessionId/input', () => {
           body: { clientInputId: 'cli-2', text: 'hello' },
         })
         expect(response.status).toBe(422)
-        const body = await json<{ ok: boolean; code: string; clientInputId: string }>(response)
+        const body = await json<{
+          ok: boolean
+          code: string
+          clientInputId: string
+          message: string
+        }>(response)
         expect(body.ok).toBe(false)
         expect(body.code).toBe('input_failed')
         expect(body.clientInputId).toBe('cli-2')
+        expect(body.message).toBe('boom')
       },
       { hrcClient }
     )
   })
 
-  test('returns 422 when session not found for unknown hostSessionId', async () => {
+  test('mobile input for an unknown hostSessionId returns 422 input_failed naming the missing session', async () => {
     const hrcClient = makeHrcClient({
       sessions: [OTHER_SESSION],
       runtimes: [],
@@ -162,9 +168,10 @@ describe('POST /v1/mobile/sessions/:hostSessionId/input', () => {
           body: { clientInputId: 'cli-3', text: 'hello' },
         })
         expect(response.status).toBe(422)
-        const body = await json<{ ok: boolean; code: string }>(response)
+        const body = await json<{ ok: boolean; code: string; message: string }>(response)
         expect(body.ok).toBe(false)
         expect(body.code).toBe('input_failed')
+        expect(body.message).toBe('session not found: hsid-missing')
       },
       { hrcClient }
     )
@@ -200,25 +207,6 @@ describe('POST /v1/mobile/sessions/:hostSessionId/input', () => {
           })
         )
         expect(listSessionsCalls).toBe(0)
-      },
-      { hrcClient }
-    )
-  })
-
-  test('legacy POST /v1/mobile/input route is removed (404)', async () => {
-    const hrcClient = makeHrcClient({ sessions: [SESSION], runtimes: [RUNTIME] })
-    await withWiredServer(
-      async ({ request }) => {
-        const response = await request({
-          method: 'POST',
-          path: '/v1/mobile/input',
-          body: {
-            clientInputId: 'cli-legacy',
-            text: 'hi',
-            sessionRef: 'agent:cody:project:agent-spaces/lane:main',
-          },
-        })
-        expect(response.status).toBe(404)
       },
       { hrcClient }
     )
@@ -303,28 +291,10 @@ describe('POST /v1/mobile/sessions/:hostSessionId/interrupt', () => {
       { hrcClient }
     )
   })
-
-  test('legacy POST /v1/mobile/interrupt route is removed (404)', async () => {
-    const hrcClient = makeHrcClient({ sessions: [SESSION], runtimes: [RUNTIME] })
-    await withWiredServer(
-      async ({ request }) => {
-        const response = await request({
-          method: 'POST',
-          path: '/v1/mobile/interrupt',
-          body: {
-            clientInputId: 'cli-legacy',
-            sessionRef: 'agent:cody:project:agent-spaces/lane:main',
-          },
-        })
-        expect(response.status).toBe(404)
-      },
-      { hrcClient }
-    )
-  })
 })
 
 describe('GET /v1/mobile/history', () => {
-  test('refuses remote projection history before invoking local HRC methods', async () => {
+  test('remote-projection history without HRC federated capability is refused remote_control_unavailable before any HRC read', async () => {
     let watchCalls = 0
     const hrcClient = {
       watch: () => {
@@ -352,21 +322,31 @@ describe('GET /v1/mobile/history', () => {
 })
 
 describe('removed unscoped mobile session endpoints', () => {
-  test('GET /v1/mobile/sessions is removed (404)', async () => {
-    await withWiredServer(async ({ request }) => {
-      const response = await request({ method: 'GET', path: '/v1/mobile/sessions' })
-      expect(response.status).toBe(404)
-    })
-  })
-
-  test('POST /v1/mobile/sessions/refresh is removed (404)', async () => {
-    await withWiredServer(async ({ request }) => {
-      const response = await request({
-        method: 'POST',
-        path: '/v1/mobile/sessions/refresh',
-        body: {},
-      })
-      expect(response.status).toBe(404)
-    })
+  test.each([
+    ['POST', '/v1/mobile/input'],
+    ['POST', '/v1/mobile/interrupt'],
+    ['GET', '/v1/mobile/sessions'],
+    ['POST', '/v1/mobile/sessions/refresh'],
+  ] as const)('removed legacy mobile route %s %s returns 404', async (method, path) => {
+    const hrcClient = makeHrcClient({ sessions: [SESSION], runtimes: [RUNTIME] })
+    await withWiredServer(
+      async ({ request }) => {
+        const response = await request({
+          method,
+          path,
+          ...(method === 'POST'
+            ? {
+                body: {
+                  clientInputId: 'cli-legacy',
+                  text: 'hi',
+                  sessionRef: 'agent:cody:project:agent-spaces/lane:main',
+                },
+              }
+            : {}),
+        })
+        expect(response.status).toBe(404)
+      },
+      { hrcClient }
+    )
   })
 })

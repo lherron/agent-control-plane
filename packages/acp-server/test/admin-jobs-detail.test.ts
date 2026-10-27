@@ -17,7 +17,7 @@ function createBaseJobInput(overrides: Record<string, unknown> = {}) {
 }
 
 describe('admin job detail endpoint', () => {
-  test('omits flow for input-only jobs', async () => {
+  test('input-only job detail reports kind input, zero flow steps and no flow block', async () => {
     const jobsStore = createInMemoryJobsStore()
 
     try {

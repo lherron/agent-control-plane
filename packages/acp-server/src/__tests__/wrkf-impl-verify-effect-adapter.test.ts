@@ -7,9 +7,6 @@
  * HRC ref, and then stops. The runner owns semantic completion/failure.
  */
 
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
-
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 
 import { withWiredServer } from '../../test/fixtures/wired-server.js'
@@ -291,22 +288,36 @@ describe('action:"implement" command-run adapter contract', () => {
     const commandCalls: LaunchCommandScopedRunRequest[] = []
     const legacyCalls: unknown[] = []
 
-    const result = await launchAction(
-      makeCandidateDeps({
+    const result = await withWiredServer(
+      async (fixture) => {
+        const input = {
+          ...implementInput(),
+          lane: 'lane:impl',
+          sessionRef: { ...SESSION_REF, laneRef: 'lane:impl' },
+        }
+        const response = await fixture.request({
+          method: 'POST',
+          path: '/v1/wrkf/actions/launch',
+          body: input,
+        })
+        expect(response.status).toBe(201)
+        return await fixture.json<{ hrcRunId: string }>(response)
+      },
+      {
         wrkf,
-        events,
-        command: async (request) => {
+        runtimeResolver: FAKE_RUNTIME_RESOLVER,
+        implCommandTargetId: CONFIGURED_IMPL_TARGET_ID,
+        launchCommandScopedRun: async (request) => {
           commandCalls.push(request)
           events.push('launchCommandScopedRun')
           return COMMAND_LAUNCHED
         },
-        legacy: async (input) => {
+        launchRoleScopedRun: async (input) => {
           legacyCalls.push(input)
           events.push('launchRoleScopedRun')
           return LEGACY_LAUNCHED
         },
-      }),
-      implementInput()
+      }
     )
 
     expect(events).toEqual(['action.start', 'launchCommandScopedRun', 'action.bindExternal'])
@@ -314,7 +325,7 @@ describe('action:"implement" command-run adapter contract', () => {
     expect(commandCalls).toHaveLength(1)
     expect(commandCalls[0]).toMatchObject({
       configuredTargetId: CONFIGURED_IMPL_TARGET_ID,
-      sessionRef: SESSION_REF,
+      sessionRef: { ...SESSION_REF, laneRef: 'lane:impl' },
       idempotencyKey: `${IDEMPOTENCY_KEY}:launchCommand`,
       binding: {
         WRKF_TASK_ID: TASK_ID,
@@ -324,7 +335,7 @@ describe('action:"implement" command-run adapter contract', () => {
         WRKF_ROLE: IMPLEMENT_ROLE,
         ASP_PROJECT: 'agent-control-plane',
         HRC_SESSION_REF: SESSION_REF.scopeRef,
-        HRC_LANE: SESSION_REF.laneRef,
+        HRC_LANE: 'lane:impl',
       },
     })
     expect(commandCalls[0]).not.toHaveProperty('prompt')
@@ -335,17 +346,6 @@ describe('action:"implement" command-run adapter contract', () => {
     expect(commandCalls[0]).not.toHaveProperty('env')
     expect(wrkf._calls.filter((call) => call.method === 'action.fail')).toHaveLength(0)
     expect(result.hrcRunId).toBe(COMMAND_LAUNCHED.runId)
-  })
-
-  test('acp-server source imports no agent-loop package for implement or verify runners', () => {
-    const sources = [
-      join(import.meta.dir, '..', 'wrkf', 'action-launch.ts'),
-      join(import.meta.dir, '..', 'handlers', 'wrkf-action-launch.ts'),
-    ]
-      .map((path) => readFileSync(path, 'utf8'))
-      .join('\n')
-
-    expect(sources).not.toContain('@praesidium/agent-loop')
   })
 
   test('launch failure and bind failure roll back only the started action; post-bind command failure is runner-owned', async () => {

@@ -182,7 +182,7 @@ const placementFetchStub = async () => ({
 })
 
 describe('POST /v1/workflow-interact-runs', () => {
-  test('starts an open-ended workflow interaction and returns runtime attach details', async () => {
+  test('workflow-interact POST resolves the session, starts its runtime with reuse_pty and ACP_WORKFLOW_INTERACT=1, and returns the attach descriptor', async () => {
     const resolveSessionRequests: ResolveSessionRequest[] = []
     const startRuntimeRequests: StartRuntimeRequest[] = []
     const attachDescriptor = createAttachDescriptor()
@@ -339,10 +339,11 @@ describe('POST /v1/workflow-interact-runs', () => {
             workflowInteract: true,
           },
         })
-        const payload = await fixture.json<{ error: { code: string } }>(response)
+        const payload = await fixture.json<{ error: { code: string; message: string } }>(response)
 
         expect(response.status).toBe(400)
         expect(payload.error.code).toBe('malformed_request')
+        expect(payload.error.message).toContain('Invalid ScopeRef "not a scope ref"')
         expect(hrcCalls).toEqual([])
       },
       {
@@ -353,7 +354,7 @@ describe('POST /v1/workflow-interact-runs', () => {
     )
   })
 
-  test('normalizes a no-harness launch intent to interactive mode before startRuntime', async () => {
+  test('workflow-interact launch without a resolver harness takes the placement harness and starts in interactive mode', async () => {
     const startRuntimeRequests: StartRuntimeRequest[] = []
     const hrcClient = createHrcClientDouble({
       resolveSession: async () => ({ found: true, hostSessionId: 'hsid-normalize', generation: 1 }),

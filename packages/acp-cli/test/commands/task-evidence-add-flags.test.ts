@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import { runTaskEvidenceAddCommand } from '../../src/commands/task-evidence-add.js'
 
 describe('acp task evidence add flag alignment', () => {
-  test('passes --summary in the evidence item', async () => {
+  test("--summary is sent as the evidence item's summary", async () => {
     const seen: unknown[] = []
     await runTaskEvidenceAddCommand(
       [
@@ -40,7 +40,7 @@ describe('acp task evidence add flag alignment', () => {
     })
   })
 
-  test('--supervisor-run aliases --supervisor-run-id', async () => {
+  test('--supervisor-run sup_1 is sent as supervisorRunId', async () => {
     const seen: unknown[] = []
     await runTaskEvidenceAddCommand(
       [

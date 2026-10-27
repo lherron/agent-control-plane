@@ -4,42 +4,47 @@ import { withWiredServer } from './fixtures/wired-server.js'
 
 describe('admin heartbeat endpoints', () => {
   test('PUT /v1/admin/agents/:agentId/heartbeat upserts heartbeat', async () => {
-    await withWiredServer(async (fixture) => {
-      // First create the agent
-      const createAgent = await fixture.request({
-        method: 'POST',
-        path: '/v1/admin/agents',
-        body: {
-          agentId: 'clod',
-          displayName: 'Clod',
-          status: 'active',
-          actor: { kind: 'agent', id: 'operator' },
-        },
-      })
-      expect(createAgent.status).toBe(201)
+    const rows = [
+      {
+        name: 'source and note',
+        body: { source: 'cli-test', note: 'checking in' },
+        expected: { agentId: 'clod', source: 'cli-test', lastNote: 'checking in', status: 'alive' },
+      },
+      {
+        name: 'empty body',
+        body: {},
+        expected: { agentId: 'clod', status: 'alive' },
+      },
+    ]
 
-      // PUT heartbeat
-      const heartbeatResponse = await fixture.request({
-        method: 'PUT',
-        path: '/v1/admin/agents/clod/heartbeat',
-        body: {
-          source: 'cli-test',
-          note: 'checking in',
-        },
-      })
+    for (const row of rows) {
+      await withWiredServer(async (fixture) => {
+        const createAgent = await fixture.request({
+          method: 'POST',
+          path: '/v1/admin/agents',
+          body: {
+            agentId: 'clod',
+            displayName: 'Clod',
+            status: 'active',
+            actor: { kind: 'agent', id: 'operator' },
+          },
+        })
+        expect(createAgent.status, row.name).toBe(201)
 
-      expect(heartbeatResponse.status).toBe(200)
-      const result = await fixture.json<{
-        heartbeat: { agentId: string; source: string; lastNote: string; status: string }
-      }>(heartbeatResponse)
-      expect(result.heartbeat.agentId).toBe('clod')
-      expect(result.heartbeat.source).toBe('cli-test')
-      expect(result.heartbeat.lastNote).toBe('checking in')
-      expect(result.heartbeat.status).toBe('alive')
-    })
+        const heartbeatResponse = await fixture.request({
+          method: 'PUT',
+          path: '/v1/admin/agents/clod/heartbeat',
+          body: row.body,
+        })
+
+        expect(heartbeatResponse.status, row.name).toBe(200)
+        const result = await fixture.json<{ heartbeat: Record<string, unknown> }>(heartbeatResponse)
+        expect(result.heartbeat, row.name).toMatchObject(row.expected)
+      })
+    }
   })
 
-  test('PUT heartbeat updates on subsequent calls', async () => {
+  test('a second heartbeat PUT replaces source and note', async () => {
     await withWiredServer(async (fixture) => {
       await fixture.request({
         method: 'POST',
@@ -87,33 +92,6 @@ describe('admin heartbeat endpoints', () => {
     })
   })
 
-  test('PUT heartbeat with minimal body (no source/note)', async () => {
-    await withWiredServer(async (fixture) => {
-      await fixture.request({
-        method: 'POST',
-        path: '/v1/admin/agents',
-        body: {
-          agentId: 'minimal',
-          status: 'active',
-          actor: { kind: 'agent', id: 'operator' },
-        },
-      })
-
-      const response = await fixture.request({
-        method: 'PUT',
-        path: '/v1/admin/agents/minimal/heartbeat',
-        body: {},
-      })
-
-      expect(response.status).toBe(200)
-      const result = await fixture.json<{
-        heartbeat: { agentId: string; status: string }
-      }>(response)
-      expect(result.heartbeat.agentId).toBe('minimal')
-      expect(result.heartbeat.status).toBe('alive')
-    })
-  })
-
   test('POST /v1/admin/agents/:agentId/heartbeat/wake returns 404 for unknown agent', async () => {
     await withWiredServer(async (fixture) => {
       const response = await fixture.request({
@@ -123,30 +101,6 @@ describe('admin heartbeat endpoints', () => {
       })
 
       expect(response.status).toBe(404)
-    })
-  })
-
-  test('POST wake returns 400 when agent has no explicit target', async () => {
-    await withWiredServer(async (fixture) => {
-      await fixture.request({
-        method: 'POST',
-        path: '/v1/admin/agents',
-        body: {
-          agentId: 'lonely',
-          status: 'active',
-          actor: { kind: 'agent', id: 'operator' },
-        },
-      })
-
-      const response = await fixture.request({
-        method: 'POST',
-        path: '/v1/admin/agents/lonely/heartbeat/wake',
-        body: {},
-      })
-
-      expect(response.status).toBe(400)
-      const result = await fixture.json<{ error: { code: string } }>(response)
-      expect(result.error.code).toBe('malformed_request')
     })
   })
 

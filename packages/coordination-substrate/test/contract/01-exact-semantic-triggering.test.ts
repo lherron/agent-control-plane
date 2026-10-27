@@ -4,7 +4,7 @@ import { appendEvent, listPendingWakes } from '../../src/index.js'
 import { withTmpStore } from '../fixtures/tmp-store.js'
 
 describe('01 exact semantic triggering', () => {
-  test('wake requires a canonical SessionRef with explicit laneRef', () => {
+  test('wake without an explicit laneRef is rejected as non-canonical; with laneRef it is listed pending', () => {
     withTmpStore((store) => {
       expect(() =>
         appendEvent(store, {

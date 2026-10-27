@@ -31,12 +31,14 @@ function createTask(roleBindings: Record<string, ActorRef | null> = { owner }) {
 }
 
 function expectReject<T extends WorkflowRejectionCode>(
-  result: { ok: true } | { ok: false; error: { code: WorkflowRejectionCode } },
-  code: T
+  result: { ok: true } | { ok: false; error: { code: WorkflowRejectionCode; message: string } },
+  code: T,
+  messageFragment: string
 ) {
   expect(result.ok).toBe(false)
   if (!result.ok) {
     expect(result.error.code).toBe(code)
+    expect(result.error.message).toContain(messageFragment)
   }
 }
 
@@ -85,7 +87,8 @@ describe('workflow participant runtime kernel surface', () => {
         actor: owner,
         idempotencyKey: 'participant:start:unbound',
       }),
-      'role_not_bound'
+      'role_not_bound',
+      'is not bound'
     )
 
     const bound = createTask()
@@ -96,8 +99,11 @@ describe('workflow participant runtime kernel surface', () => {
         actor: otherActor,
         idempotencyKey: 'participant:start:mismatch',
       }),
-      'role_not_bound'
+      'role_not_bound',
+      'is bound to a different actor'
     )
+    // The mismatched actor must not have claimed the role.
+    expect(bound.kernel.getTask(bound.taskId)?.roleBindings['owner']).toEqual(owner)
   })
 
   test('idempotently resumes an existing run and recompiles ParticipantContext', () => {

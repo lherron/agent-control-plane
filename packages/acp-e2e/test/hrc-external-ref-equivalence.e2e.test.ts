@@ -233,7 +233,7 @@ describe('hrc external-ref cross-impl equivalence — real wrkf e2e (C-0009)', (
   }
 
   // ── Domain boundary: TS formatter rejects empty / whitespace ────────────────
-  test('formatHrcExternalRef throws on empty/whitespace (Go preserves "" — divergence is unreachable in prod)', () => {
+  test('empty or whitespace run id is refused by formatHrcExternalRef', () => {
     expect(() => formatHrcExternalRef('')).toThrow()
     expect(() => formatHrcExternalRef('   ')).toThrow()
   })

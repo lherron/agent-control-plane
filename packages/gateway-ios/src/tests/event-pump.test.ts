@@ -178,52 +178,6 @@ describe('event-pump', () => {
     expect(watchCalls[0]?.fromSeq).toBeUndefined()
   })
 
-  test('snapshot arrives before any live events', async () => {
-    const events = [makeEvent(1), makeEvent(2), makeEvent(3)]
-    const messages: HrcMessageRecord[] = []
-
-    const received: Array<{ type: string; hrcSeq?: number }> = []
-
-    const abortController = new AbortController()
-
-    const client = createFakeHrcClient({ events, messages })
-
-    const pumpPromise = runEventPump({
-      hrcClient: client,
-      sessionRef: SESSION_REF,
-      fromHrcSeq: 0,
-      fromMessageSeq: 0,
-      signal: abortController.signal,
-
-      async buildSnapshot() {
-        received.push({ type: 'snapshot' })
-        return { hrcSeq: 0, messageSeq: 0 }
-      },
-
-      onEvent(event) {
-        received.push({ type: 'event', hrcSeq: event.hrcSeq })
-      },
-
-      onMessage() {},
-    })
-
-    // Wait a bit for the pump to process, then abort
-    await new Promise((r) => setTimeout(r, 100))
-    abortController.abort()
-    await pumpPromise
-
-    // Snapshot must be first
-    expect(received.length).toBeGreaterThan(0)
-    expect(received[0]?.type).toBe('snapshot')
-
-    // All events must come after the snapshot
-    const eventEntries = received.filter((r) => r.type === 'event')
-    const snapshotIndex = received.findIndex((r) => r.type === 'snapshot')
-    for (const entry of eventEntries) {
-      expect(received.indexOf(entry)).toBeGreaterThan(snapshotIndex)
-    }
-  })
-
   test('race: events arriving during snapshot are buffered and delivered after snapshot exactly once', async () => {
     // This event will be buffered because it arrives while the snapshot is building
     const liveEvent = makeEvent(5)

@@ -138,56 +138,6 @@ typeAssert<DriftReport>({ hasDrift: false })
 // Provenance table schema
 // ==================================================================
 
-describe('managed_resource_provenance_jobs schema (Phase D — store layer)', () => {
-  test('managed_resource_provenance_jobs table exists after Phase D migration', () => {
-    const store = freshStore()
-    const tables = store.sqlite
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
-      )
-      .all() as Array<{ name: string }>
-    expect(tables.map((r) => r.name)).toContain('managed_resource_provenance_jobs')
-  })
-
-  test('managed_resource_provenance_jobs has required columns', () => {
-    const store = freshStore()
-    const cols = store.sqlite
-      .prepare("PRAGMA table_info('managed_resource_provenance_jobs')")
-      .all() as Array<{ name: string }>
-    const names = cols.map((c) => c.name)
-    for (const required of [
-      'provenance_id',
-      'projection_id',
-      'projection_pk',
-      'job_id',
-      'source_owner_scope_ref',
-      'source_hash',
-      'desired_projection_hash',
-      'resource_kind',
-      'state',
-      'applied_at',
-      'created_at',
-      'updated_at',
-    ]) {
-      expect(names).toContain(required)
-    }
-  })
-
-  test('projection_id column has a UNIQUE constraint', () => {
-    const store = freshStore()
-    const indexes = store.sqlite
-      .prepare(
-        "SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name='managed_resource_provenance_jobs'"
-      )
-      .all() as Array<{ name: string; sql: string }>
-    const hasUnique = indexes.some(
-      (i) =>
-        i.sql?.toUpperCase().includes('UNIQUE') && i.sql?.toLowerCase().includes('projection_id')
-    )
-    expect(hasUnique).toBe(true)
-  })
-})
-
 // ==================================================================
 // Same-transaction provenance
 // ==================================================================
@@ -334,26 +284,6 @@ describe('same-transaction provenance (Phase D invariant)', () => {
     })
     expect(detectJobDrift(store, hookWithOutput.projectionId).hasDrift).toBe(true)
   })
-
-  test('failed apply due to collision does not leave an orphaned provenance row', () => {
-    const store = freshStore()
-    // Pre-seed an unmanaged job at the same slug
-    store.createJob({
-      slug: 'agent-smokey.daily-triage',
-      projectId: 'agent-spaces',
-      agentId: 'smokey',
-      scopeRef: 'agent:smokey:project:agent-spaces:task:primary',
-      schedule: { cron: '0 8 * * *' },
-      input: { content: 'unmanaged pre-existing job' },
-    })
-
-    const result = applyManagedJob(store, SCHEDULED_JOB)
-    expect(result.outcome).toBe('collision')
-
-    // Transaction was rolled back — no orphaned provenance
-    const prov = getManagedJobProvenance(store, SCHEDULED_JOB.projectionId)
-    expect(prov).toBeUndefined()
-  })
 })
 
 // ==================================================================
@@ -361,21 +291,6 @@ describe('same-transaction provenance (Phase D invariant)', () => {
 // ==================================================================
 
 describe('provenance uniqueness constraints (Phase D invariant)', () => {
-  test('two resources with the same projectionId but different projectionPk → stale_adoption_rejected', () => {
-    const store = freshStore()
-    const first = applyManagedJob(store, SCHEDULED_JOB)
-    expect(first.outcome).toBe('created')
-
-    // Attempt to apply a resource with the same projectionId but a different slug
-    const impostor: ApplyManagedJobInput = {
-      ...SCHEDULED_JOB,
-      projectionPk: 'agent-smokey.daily-triage-v2',
-      desiredJson: { ...SCHEDULED_JOB.desiredJson, slug: 'agent-smokey.daily-triage-v2' },
-    }
-    const second = applyManagedJob(store, impostor)
-    expect(second.outcome).toBe('stale_adoption_rejected')
-  })
-
   test('two distinct projectionIds with distinct projectionPks are both accepted', () => {
     const store = freshStore()
     expect(applyManagedJob(store, SCHEDULED_JOB).outcome).toBe('created')
@@ -391,8 +306,13 @@ describe('provenance uniqueness constraints (Phase D invariant)', () => {
 describe('idempotent reapply (Phase D invariant)', () => {
   test('applying the same resource twice produces noop on the second call', () => {
     const store = freshStore()
-    expect(applyManagedJob(store, SCHEDULED_JOB).outcome).toBe('created')
-    expect(applyManagedJob(store, SCHEDULED_JOB).outcome).toBe('noop')
+    const first = applyManagedJob(store, SCHEDULED_JOB)
+    expect(first.outcome).toBe('created')
+    if (first.outcome !== 'created') throw new Error('expected created')
+    const replay = applyManagedJob(store, SCHEDULED_JOB)
+    expect(replay.outcome).toBe('noop')
+    if (replay.outcome !== 'noop') throw new Error('expected noop')
+    expect(replay.job.jobId).toBe(first.job.jobId)
 
     // Exactly one job row and one provenance row
     expect(
@@ -430,12 +350,12 @@ describe('idempotent reapply (Phase D invariant)', () => {
   })
 
   test.each([
-    [['svc', 'max3'], 'noncanonical ordering'],
-    [['svc', 'svc'], 'duplicate members'],
-    [['all', 'svc'], 'mixed wildcard'],
-    [['local'], 'reserved local'],
-    [[], 'empty owner set'],
-  ])('rejects %s owner set before job mutation (%s)', (nodes) => {
+    [['svc', 'max3'], 'noncanonical ordering', /deduplicated and deterministically ordered/],
+    [['svc', 'svc'], 'duplicate members', /deduplicated and deterministically ordered/],
+    [['all', 'svc'], 'mixed wildcard', /cannot mix/],
+    [['local'], 'reserved local', /non-empty array/],
+    [[], 'empty owner set', /non-empty array/],
+  ])('rejects %s owner set before job mutation (%s)', (nodes, _label, message) => {
     const store = freshStore()
     const invalid: ApplyManagedJobInput = {
       ...SCHEDULED_JOB,
@@ -447,6 +367,8 @@ describe('idempotent reapply (Phase D invariant)', () => {
 
     const result = applyManagedJob(store, invalid)
     expect(result.outcome).toBe('validation_error')
+    if (result.outcome !== 'validation_error') throw new Error('expected validation error')
+    expect(result.error.message).toMatch(message)
     expect(store.listJobs().jobs).toHaveLength(0)
   })
 
@@ -462,6 +384,8 @@ describe('idempotent reapply (Phase D invariant)', () => {
 
     const result = applyManagedJob(store, invalid)
     expect(result.outcome).toBe('validation_error')
+    if (result.outcome !== 'validation_error') throw new Error('expected validation error')
+    expect(result.error.message).toMatch(/unsupported for event-hook/)
     expect(store.listJobs().jobs).toHaveLength(0)
   })
 
@@ -469,16 +393,6 @@ describe('idempotent reapply (Phase D invariant)', () => {
     const store = freshStore()
     expect(applyManagedJob(store, EVENT_HOOK).outcome).toBe('created')
     expect(applyManagedJob(store, EVENT_HOOK).outcome).toBe('noop')
-  })
-
-  test('reapply preserves the original jobId (stable projection identity)', () => {
-    const store = freshStore()
-    const first = applyManagedJob(store, SCHEDULED_JOB)
-    if (first.outcome !== 'created') throw new Error(`expected created, got ${first.outcome}`)
-
-    const second = applyManagedJob(store, SCHEDULED_JOB)
-    expect(['noop', 'updated']).toContain(second.outcome)
-    expect(second.job.jobId).toBe(first.job.jobId)
   })
 
   test('reapply with changed desiredJson produces "updated" outcome and updates provenance hash', () => {
@@ -520,6 +434,7 @@ describe('collision fail-closed behavior (Phase D invariant)', () => {
     expect(result.outcome).toBe('collision')
     if (result.outcome !== 'collision') return
     expect(result.error.code).toBe('UNMANAGED_COLLISION')
+    expect(getManagedJobProvenance(store, SCHEDULED_JOB.projectionId)).toBeUndefined()
   })
 
   test('slug owned by a different projectionId → FOREIGN_MANAGED_COLLISION', () => {
@@ -605,7 +520,7 @@ describe('drift detection (Phase D invariant)', () => {
 
     const drift = detectJobDrift(store, SCHEDULED_JOB.projectionId)
     expect(drift.hasDrift).toBe(true)
-    expect(drift.driftKind).toBeDefined()
+    expect(drift.driftKind).toBe('shape')
   })
 
   test('detectJobDrift for unknown projectionId returns hasDrift=false (resource absent)', () => {
@@ -657,12 +572,10 @@ describe('disable-only missing-source behavior (Phase D invariant)', () => {
       payload: { ticket_id: 'T-99999', project_scope_id: 'agent-spaces' },
     })
 
+    const before = store.getInboxEvent('wrkq:evt_pre_disable').event
+    expect(before).toBeDefined()
     disableManagedJob(store, EVENT_HOOK.projectionId, 'source_missing')
-
-    const rows = store.sqlite
-      .prepare("SELECT event_id FROM event_inbox WHERE event_id = 'wrkq:evt_pre_disable'")
-      .all() as Array<{ event_id: string }>
-    expect(rows).toHaveLength(1)
+    expect(store.getInboxEvent('wrkq:evt_pre_disable').event).toEqual(before)
   })
 })
 
@@ -708,7 +621,7 @@ describe('event-hook cooldown validation (Phase D invariant)', () => {
     const result = applyManagedJob(store, malformed)
     expect(result.outcome).toBe('validation_error')
     if (result.outcome !== 'validation_error') return
-    expect(result.error.code).toMatch(/MALFORMED_COOLDOWN|INVALID_COOLDOWN/)
+    expect(result.error.code).toBe('MALFORMED_COOLDOWN')
   })
 
   test('event-hook with absent cooldown is rejected before apply', () => {
@@ -781,11 +694,7 @@ describe('reconcile must not mutate event runtime facts (Phase D invariant)', ()
 
     applyManagedJob(store, EVENT_HOOK)
 
-    const rows = store.sqlite
-      .prepare("SELECT event_id, status FROM event_inbox WHERE event_id = 'wrkq:evt_pre_apply'")
-      .all() as Array<{ event_id: string; status: string }>
-    expect(rows).toHaveLength(1)
-    expect(rows[0]?.status).toBe('pending')
+    expect(store.getInboxEvent('wrkq:evt_pre_apply').event?.status).toBe('pending')
   })
 
   test('updating a managed event-hook via reapply does not mutate event_job_matches', () => {

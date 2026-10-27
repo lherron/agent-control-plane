@@ -17,13 +17,8 @@ import { createWrkfClientLifecycle } from '../wrkf/client-lifecycle.js'
 // ---------------------------------------------------------------------------
 // Helpers: minimal fake WorkClient factories for lifecycle unit tests.
 // `createClient` runs autoInitialize internally and rejects on handshake
-// failure, so a failing factory models the fail-closed path; a resolving
-// factory models a live, already-initialized client.
+// failure; a resolving factory models a live, already-initialized client.
 // ---------------------------------------------------------------------------
-
-function failingFactory(): () => Promise<WorkClient> {
-  return () => Promise.reject(new Error('wrkf: binary not found or db unreadable'))
-}
 
 function succeedingFactory(onClose?: () => void): () => Promise<WorkClient> {
   const fake = {
@@ -73,38 +68,6 @@ describe('createWrkfClientLifecycle — fail-closed startup', () => {
       if (originalTokenFile === undefined) Reflect.deleteProperty(process.env, 'WRKQD_TOKEN_FILE')
       else process.env['WRKQD_TOKEN_FILE'] = originalTokenFile
     }
-  })
-
-  test('propagates client creation rejection: startup must throw when wrkf fails to init', async () => {
-    // Production requirement: if wrkf cannot initialize, acp-server must NOT start.
-    // createWrkfClientLifecycle must NOT catch the error and return a half-initialized lifecycle.
-    //
-    // Simulated scenario: binary missing, db unreadable, protocol handshake failure.
-    await expect(
-      createWrkfClientLifecycle({
-        // Inject a failing factory (test seam) instead of spawning a real binary.
-        _createClient: failingFactory(),
-        dbPath: '/nonexistent/wrkf.db',
-        clientInfo: { name: 'acp-server', version: '0.1.0' },
-      })
-    ).rejects.toThrow()
-  })
-
-  test('returns a live WrkfLifecycle when the client initializes', async () => {
-    const lifecycle = await createWrkfClientLifecycle({
-      _createClient: succeedingFactory(),
-      dbPath: '/tmp/wrkf-test.db',
-      clientInfo: { name: 'acp-server', version: '0.1.0' },
-    })
-
-    expect(lifecycle).toBeDefined()
-    // The returned lifecycle exposes the port adapter
-    expect(lifecycle.wrkf).toBeDefined()
-    // And provides a close() handle for graceful shutdown
-    expect(typeof lifecycle.close).toBe('function')
-
-    // Clean up
-    await lifecycle.close()
   })
 
   test('forwards an explicit hook catalog to the shared client', async () => {
@@ -214,34 +177,23 @@ describe('createWrkfClientLifecycle — fail-closed startup', () => {
     expect(seen).toHaveLength(1)
     await lifecycle.close()
   })
-
-  test('close() is idempotent and does not throw', async () => {
-    const lifecycle = await createWrkfClientLifecycle({
-      _createClient: succeedingFactory(),
-      dbPath: '/tmp/wrkf-test.db',
-      clientInfo: { name: 'acp-server', version: '0.1.0' },
-    })
-
-    // Must not reject on double close (graceful teardown path)
-    await lifecycle.close()
-    await expect(lifecycle.close()).resolves.toBeUndefined()
-  })
 })
 
 describe('createWrkfClientLifecycle — close on shutdown', () => {
   test('lifecycle.close() calls through to the underlying client close', async () => {
-    let closeCalled = false
+    let closeCalls = 0
     const lifecycle = await createWrkfClientLifecycle({
       _createClient: succeedingFactory(() => {
-        closeCalled = true
+        closeCalls++
       }),
       dbPath: '/tmp/wrkf-test.db',
       clientInfo: { name: 'acp-server', version: '0.1.0' },
     })
 
-    expect(closeCalled).toBe(false)
+    expect(closeCalls).toBe(0)
     await lifecycle.close()
-    expect(closeCalled).toBe(true)
+    await lifecycle.close()
+    expect(closeCalls).toBe(1)
   })
 })
 

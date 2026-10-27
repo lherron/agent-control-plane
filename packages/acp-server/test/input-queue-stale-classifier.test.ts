@@ -182,7 +182,9 @@ describe('input queue stale pending classifier', () => {
     createQueuedItem(deps, { run: queued })
 
     await letRunBecomeStale()
+    const before = structuredClone(deps.runStore.listRuns())
     await createInputQueueDispatcher(deps).runOnce()
+    expect(deps.runStore.listRuns()).toEqual(before)
 
     expect(deps.runStore.getRun(parked.runId)).toMatchObject({
       status: 'pending',
@@ -308,28 +310,6 @@ describe('input queue stale pending classifier', () => {
       status: 'failed',
       errorCode: 'dispatch_timeout',
     })
-  })
-
-  test('R4 classifier returns undefined when in-flight HRC-run evidence exists', async () => {
-    const deps = createDeps()
-    const sessionRef = {
-      scopeRef: 'agent:larry:project:agent-spaces:task:T-r4-classifier:role:implementer',
-      laneRef: 'main',
-    }
-    const parked = deps.runStore.createRun({ sessionRef, status: 'pending' })
-    const partial = deps.runStore.updateRun(parked.runId, { hostSessionId: 'hsid-r4-classifier' })
-
-    await letRunBecomeStale()
-
-    expect(
-      testingHooks().classifyStalePendingRunBlocker({
-        run: deps.runStore.getRun(partial.runId) ?? partial,
-        siblings: [],
-        timeoutMs: 1,
-        hrcDbPath: '/tmp/hrc-r4-classifier.sqlite',
-        hasInFlightHrcRunSince: () => true,
-      })
-    ).toBeUndefined()
   })
 
   test('T-04935 a pending run whose correlated HRC run is TERMINAL is failed (no in-flight evidence)', async () => {
@@ -544,7 +524,7 @@ describe('input queue stale pending classifier', () => {
       laneRef: 'main',
     }
     const parked = deps.runStore.createRun({ sessionRef, status: 'pending' })
-    const admission = createHeldAdmissionForRun(deps, parked)
+    createHeldAdmissionForRun(deps, parked)
 
     await letRunBecomeStale()
     await createInputQueueDispatcher(deps).runOnce()
@@ -552,14 +532,6 @@ describe('input queue stale pending classifier', () => {
     const current = deps.runStore.getRun(parked.runId)
     expect(current?.status).toBe('pending')
     expect(current?.errorCode).toBeUndefined()
-    expect(
-      testingHooks().classifyStalePendingRunBlocker({
-        run: deps.runStore.getRun(parked.runId) ?? parked,
-        siblings: [],
-        admission,
-        timeoutMs: 1,
-      })
-    ).toBeUndefined()
   })
 
   test('T-05212 dispatch:false interface-originated run still follows stale blocker handling', async () => {
@@ -591,29 +563,6 @@ describe('input queue stale pending classifier', () => {
       status: 'failed',
       errorCode: 'dispatch_timeout',
     })
-  })
-
-  test('R5 sameSessionHasActiveRun is pure across repeated calls', async () => {
-    const deps = createDeps()
-    const sessionRef = {
-      scopeRef: 'agent:larry:project:agent-spaces:task:T-r5:role:implementer',
-      laneRef: 'main',
-    }
-    const staleBlocker = deps.runStore.createRun({ sessionRef, status: 'pending' })
-    deps.runStore.updateRun(staleBlocker.runId, { hostSessionId: 'hsid-r5-stale' })
-    const queued = deps.runStore.createRun({ sessionRef, status: 'queued' })
-    const item = createQueuedItem(deps, { run: queued })
-
-    await letRunBecomeStale()
-    const before = deps.runStore.listRuns()
-    const hooks = testingHooks()
-    const first = hooks.sameSessionHasActiveRun(deps, item)
-    const second = hooks.sameSessionHasActiveRun(deps, item)
-    const after = deps.runStore.listRuns()
-
-    expect(first).toBe(true)
-    expect(second).toBe(true)
-    expect(after).toEqual(before)
   })
 
   test('R6 idle stale runs are eventually reaped by a separate bounded sweep pass', async () => {

@@ -71,7 +71,9 @@ describe('GatewayDiscordApp live progress final budget', () => {
         message: { role: 'assistant', content: 'BEFORE-LIVE' },
       })
     )
-    harness.emit(toolStart(4, 'tool_live', 'command_execution', { command: 'sleep 20' }))
+    harness.emit(
+      toolStart(4, 'tool_live', 'command_execution', { command: 'sleep 20; printf TOOL-LIVE' })
+    )
     harness.emit(toolEnd(5, 'tool_live', 'command_execution'))
     harness.emit(
       hrcEvent(6, {
@@ -84,24 +86,24 @@ describe('GatewayDiscordApp live progress final budget', () => {
       hrcEvent(7, {
         type: 'message_update',
         messageId: 'msg-after',
-        textDelta: 'AFTER-LIVE',
+        textDelta: 'AFTER-LIVE\n',
       })
     )
     harness.emit(
       hrcEvent(8, {
         type: 'message_end',
         messageId: 'msg-after',
-        message: { role: 'assistant', content: 'AFTER-LIVE' },
+        message: { role: 'assistant', content: 'AFTER-LIVE\n' },
       })
     )
 
     await waitFor(() => webhook.edits.length > 0)
-    harness.enqueueDelivery('AFTER-LIVE')
+    harness.enqueueDelivery('AFTER-LIVE\r\n')
     await harness.app.pollDeliveriesOnce()
 
     const content = webhook.edits.at(-1)?.payload.content ?? ''
     const beforeIndex = content.indexOf('BEFORE-LIVE')
-    const toolIndex = content.indexOf('command_execution')
+    const toolIndex = content.indexOf('shell: sleep 20; printf TOOL-LIVE')
     const afterIndex = content.indexOf('AFTER-LIVE')
     expect(beforeIndex).toBeGreaterThanOrEqual(0)
     expect(toolIndex).toBeGreaterThan(beforeIndex)

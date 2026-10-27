@@ -28,7 +28,7 @@ afterEach(() => {
 })
 
 describe('boundary and manifest diagnostics', () => {
-  test('boundary check explains planted forbidden imports', async () => {
+  test('planted forbidden hrc-server import exits 1 and names the file with what/why/fix guidance', async () => {
     const root = tmpRoot()
     writeText(
       join(root, 'packages/acp-server/src/bad.ts'),
@@ -49,7 +49,7 @@ describe('boundary and manifest diagnostics', () => {
     )
   })
 
-  test('manifest check explains planted missing workspace dependencies', async () => {
+  test('import of an undeclared workspace package exits 1 and names the missing dependency and importer', async () => {
     const root = tmpRoot()
     writeText(
       join(root, 'packages/importer/package.json'),

@@ -68,17 +68,15 @@
 
 import { describe, expect, test } from 'bun:test'
 
-// These imports define the module contract. They will fail until the module exists.
-import {
-  type ApproveTransitionRequest,
-  type PbcHarnessPort,
-  type PbcHarnessResult,
-  type RunStepRequest,
-  type RunUntilBlockedRequest,
-  approveTransition,
-  runStep,
-  runUntilBlocked,
+import { withWiredServer } from '../../test/fixtures/wired-server.js'
+import type {
+  ApproveTransitionRequest,
+  PbcHarnessPort,
+  PbcHarnessResult,
+  RunStepRequest,
+  RunUntilBlockedRequest,
 } from './pbc-harness.js'
+import type { AcpWrkfWorkflowPort } from './port.js'
 
 // ---------------------------------------------------------------------------
 // Fake WrkfPort
@@ -309,6 +307,63 @@ function makeFakePort(
 }
 
 // ---------------------------------------------------------------------------
+// Route surface: every operation goes through the real ACP router
+// (POST /v1/wrkf/pbc/tasks/:task/{run-step,approve-transition,run-until-blocked})
+// with the fake port mounted as deps.wrkf — the wrkf daemon boundary.
+// Each call gets a fresh wired server, so the route's own idempotency store
+// never short-circuits a repeated call; harness-level dedupe stays observable.
+// ---------------------------------------------------------------------------
+
+type PbcRouteOp = 'run-step' | 'approve-transition' | 'run-until-blocked'
+
+type PbcRouteResponse = { status: number; body: Record<string, unknown> }
+
+async function postPbcRoute(
+  port: FakePbcHarnessPort,
+  op: PbcRouteOp,
+  input: { task: string; routeKey?: string } & Record<string, unknown>
+): Promise<PbcRouteResponse> {
+  const { task, routeKey, ...rest } = input
+  const body = routeKey !== undefined ? { ...rest, idempotencyKey: routeKey } : rest
+  return withWiredServer(
+    async (fixture) => {
+      const response = await fixture.request({
+        method: 'POST',
+        path: `/v1/wrkf/pbc/tasks/${task}/${op}`,
+        body,
+      })
+      return {
+        status: response.status,
+        body: await fixture.json<Record<string, unknown>>(response),
+      }
+    },
+    { wrkf: port as unknown as AcpWrkfWorkflowPort }
+  )
+}
+
+async function expectPbcRouteOk(
+  port: FakePbcHarnessPort,
+  op: PbcRouteOp,
+  input: { task: string; routeKey?: string } & Record<string, unknown>
+): Promise<PbcHarnessResult> {
+  const response = await postPbcRoute(port, op, input)
+  expect(response.status).toBe(200)
+  return response.body as unknown as PbcHarnessResult
+}
+
+function runStepRoute(port: FakePbcHarnessPort, input: RunStepRequest) {
+  return expectPbcRouteOk(port, 'run-step', { ...input })
+}
+
+function approveTransitionRoute(port: FakePbcHarnessPort, input: ApproveTransitionRequest) {
+  return expectPbcRouteOk(port, 'approve-transition', { ...input })
+}
+
+function runUntilBlockedRoute(port: FakePbcHarnessPort, input: RunUntilBlockedRequest) {
+  return expectPbcRouteOk(port, 'run-until-blocked', { ...input })
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -329,28 +384,9 @@ function assertHarnessResultRevision(
 describe('runStep', () => {
   // ── Wire names ─────────────────────────────────────────────────────────────
 
-  test('calls run.start with wrkf wire name `task`, not `taskId`', async () => {
-    const port = makeFakePort({
-      nextSequence: [makeNextRaw({ status: 'open', phase: 'intake', revision: 0 })],
-    })
-    await runStep(port, {
-      task: 'T-00099',
-      role: 'agent',
-      actor: 'agent:pbc-writer',
-      idempotencyKey: 'route-key-1',
-      participantOutput: { evidence: [] },
-    } satisfies RunStepRequest)
-
-    const runStartCall = port._calls.find((c) => c.method === 'run.start')
-    expect(runStartCall).toBeDefined()
-    const params = runStartCall!.params as Record<string, unknown>
-    expect(params['task']).toBe('T-00099')
-    expect(params['taskId']).toBeUndefined()
-  })
-
-  test('next is called with `task` wire name, no actor param', async () => {
+  test('run-step reads next with task only and never forwards actor', async () => {
     const port = makeFakePort()
-    await runStep(port, {
+    await runStepRoute(port, {
       task: 'T-00099',
       role: 'agent',
       actor: 'agent:pbc-writer',
@@ -364,15 +400,15 @@ describe('runStep', () => {
     for (const call of nextCalls) {
       const params = call.params as Record<string, unknown>
       expect(params['actor']).toBeUndefined()
-      expect(params['task']).toBeDefined()
+      expect(params['task']).toBe('T-00099')
     }
   })
 
   // ── run.finish contract ─────────────────────────────────────────────────────
 
-  test('run.finish is NEVER called with evidenceRefs', async () => {
+  test('run-step finishes the wrkf run without evidenceRefs, outcome or idempotencyKey', async () => {
     const port = makeFakePort()
-    await runStep(port, {
+    await runStepRoute(port, {
       task: 'T-00099',
       role: 'agent',
       actor: 'agent:pbc-writer',
@@ -394,7 +430,7 @@ describe('runStep', () => {
     const port = makeFakePort({
       nextSequence: [makeNextRaw({ revision: 0 }), makeNextRaw({ revision: 1 })],
     })
-    await runStep(port, {
+    await runStepRoute(port, {
       task: 'T-00001',
       role: 'agent',
       actor: 'agent:pbc-writer',
@@ -414,7 +450,7 @@ describe('runStep', () => {
 
   // ── No transition before output ingested ────────────────────────────────────
 
-  test('does NOT apply transition before participant output is ingested (supplied mode, transitionPolicy=none)', async () => {
+  test('transitionPolicy=none ingests evidence and applies no transition even with one legal action', async () => {
     const port = makeFakePort({
       nextSequence: [
         makeNextRaw({
@@ -425,7 +461,7 @@ describe('runStep', () => {
         }),
       ],
     })
-    await runStep(port, {
+    await runStepRoute(port, {
       task: 'T-00001',
       role: 'agent',
       actor: 'agent:pbc-writer',
@@ -435,6 +471,7 @@ describe('runStep', () => {
       transitionPolicy: 'none',
     } satisfies RunStepRequest)
 
+    expect(port._calls.filter((c) => c.method === 'evidence.add')).toHaveLength(1)
     const transitionCall = port._calls.find((c) => c.method === 'transition.apply')
     expect(transitionCall).toBeUndefined()
   })
@@ -450,7 +487,7 @@ describe('runStep', () => {
         }),
       ],
     })
-    const result = await runStep(port, {
+    const result = await runStepRoute(port, {
       task: 'T-00001',
       role: 'agent',
       actor: 'agent:pbc-writer',
@@ -490,7 +527,7 @@ describe('runStep', () => {
       ],
     })
 
-    const result = await runStep(port, {
+    const result = await runStepRoute(port, {
       task: 'T-00001',
       role: 'agent',
       actor: 'agent:pbc-writer',
@@ -510,61 +547,40 @@ describe('runStep', () => {
     expect(result.transitionApplied).toBeDefined()
   })
 
-  test('does NOT apply transition when transitionPolicy=single-safe and zero actions', async () => {
+  test.each([
+    {
+      label: 'zero legal actions',
+      status: 'waiting',
+      phase: 'clarification',
+      actions: [] as Array<{ transition: string }>,
+    },
+    {
+      label: 'two ambiguous legal actions',
+      status: 'active',
+      phase: 'behavior_note',
+      actions: [{ transition: 'ask_clarification' }, { transition: 'draft_pbc' }],
+    },
+  ])('single-safe applies no transition with $label', async ({ status, phase, actions }) => {
     const port = makeFakePort({
       nextSequence: [
-        makeNextRaw({ status: 'waiting', phase: 'clarification', revision: 3, actions: [] }),
-        makeNextRaw({ status: 'waiting', phase: 'clarification', revision: 3, actions: [] }),
+        makeNextRaw({ status, phase, revision: 1, actions }),
+        makeNextRaw({ status, phase, revision: 2, actions }),
       ],
     })
-    const result = await runStep(port, {
-      task: 'T-00001',
-      role: 'agent',
-      actor: 'agent:pbc-writer',
-      idempotencyKey: 'rk-3',
-      launchRuntime: false,
-      participantOutput: { evidence: [] },
-      transitionPolicy: 'single-safe',
-    } satisfies RunStepRequest)
-
-    expect(result.transitionApplied).toBeUndefined()
-  })
-
-  test('does NOT apply transition when transitionPolicy=single-safe and multiple ambiguous actions', async () => {
-    const port = makeFakePort({
-      nextSequence: [
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 1,
-          actions: [{ transition: 'ask_clarification' }, { transition: 'draft_pbc' }],
-        }),
-        makeNextRaw({
-          status: 'active',
-          phase: 'behavior_note',
-          revision: 2,
-          actions: [{ transition: 'ask_clarification' }, { transition: 'draft_pbc' }],
-        }),
-      ],
-    })
-    const result = await runStep(port, {
+    const result = await runStepRoute(port, {
       task: 'T-00001',
       role: 'agent',
       actor: 'agent:pbc-writer',
       idempotencyKey: 'rk-4',
       launchRuntime: false,
       participantOutput: {
-        evidence: [
-          {
-            kind: 'pre_interview_analysis',
-            facts: { clarification_needed: false },
-          },
-        ],
+        evidence: [{ kind: 'pre_interview_analysis', facts: { clarification_needed: false } }],
       },
       transitionPolicy: 'single-safe',
     } satisfies RunStepRequest)
 
-    // Two non-deterministic actions: harness must not pick one arbitrarily
+    // The harness must not pick one arbitrarily (or invent one when none is legal)
+    expect(port._calls.some((c) => c.method === 'transition.apply')).toBe(false)
     expect(result.transitionApplied).toBeUndefined()
   })
 
@@ -589,7 +605,7 @@ describe('runStep', () => {
       effects: [{ id: 'eff_001', kind: 'set_task_state', status: 'pending' }],
     })
 
-    await runStep(port, {
+    await runStepRoute(port, {
       task: 'T-00001',
       role: 'agent',
       actor: 'agent:pbc-writer',
@@ -613,7 +629,7 @@ describe('runStep', () => {
     const port = makeFakePort({
       effects: [{ id: 'eff_001', kind: 'set_task_state', status: 'pending' }],
     })
-    await runStep(port, {
+    await runStepRoute(port, {
       task: 'T-00001',
       role: 'agent',
       actor: 'agent:pbc-writer',
@@ -635,7 +651,7 @@ describe('runStep', () => {
     const port = makeFakePort({
       nextSequence: [makeNextRaw({ revision: 1, contextHash: 'sha256:ctx1' }), freshNext],
     })
-    const result = await runStep(port, {
+    const result = await runStepRoute(port, {
       task: 'T-00001',
       role: 'agent',
       actor: 'agent:pbc-writer',
@@ -649,35 +665,9 @@ describe('runStep', () => {
     assertHarnessResultRevision(result, 2, 'sha256:ctx2')
   })
 
-  test('result.task matches the requested task selector', async () => {
-    const port = makeFakePort()
-    const result = await runStep(port, {
-      task: 'T-42000',
-      role: 'agent',
-      actor: 'agent:pbc-writer',
-      idempotencyKey: 'rk-8',
-      launchRuntime: false,
-      participantOutput: { evidence: [] },
-    } satisfies RunStepRequest)
-    expect(result.task).toBe('T-42000')
-  })
-
-  test('result.workflowRef is pbc-progressive-refinement@9', async () => {
-    const port = makeFakePort()
-    const result = await runStep(port, {
-      task: 'T-00001',
-      role: 'agent',
-      actor: 'agent:pbc-writer',
-      idempotencyKey: 'rk-9',
-      launchRuntime: false,
-      participantOutput: { evidence: [] },
-    } satisfies RunStepRequest)
-    expect(result.workflowRef).toBe('pbc-progressive-refinement@9')
-  })
-
   test('result.runs.started is populated from run.start response', async () => {
     const port = makeFakePort()
-    const result = await runStep(port, {
+    const result = await runStepRoute(port, {
       task: 'T-00001',
       role: 'agent',
       actor: 'agent:pbc-writer',
@@ -686,12 +676,12 @@ describe('runStep', () => {
       participantOutput: { evidence: [] },
     } satisfies RunStepRequest)
     expect(result.runs.started).toBeDefined()
-    expect((result.runs.started as Record<string, unknown>)['id']).toMatch(/^run_fake_/)
+    expect((result.runs.started as Record<string, unknown>)['id']).toBe('run_fake_1')
   })
 
   test('result.evidenceAdded reflects all ingested evidence', async () => {
     const port = makeFakePort()
-    const result = await runStep(port, {
+    const result = await runStepRoute(port, {
       task: 'T-00001',
       role: 'agent',
       actor: 'agent:pbc-writer',
@@ -723,11 +713,11 @@ describe('runStep', () => {
     }
 
     // First call
-    await runStep(port, input)
+    await runStepRoute(port, input)
     const firstCallCount = port._calls.filter((c) => c.method === 'evidence.add').length
 
     // Second call with SAME idempotencyKey
-    await runStep(port, input)
+    await runStepRoute(port, input)
     const secondCallCount = port._calls.filter((c) => c.method === 'evidence.add').length
 
     // evidence.add must NOT be called again on replay
@@ -769,16 +759,16 @@ describe('runStep', () => {
       },
     } as unknown as FakePbcHarnessPort
 
-    await expect(
-      runStep(port, {
-        task: 'T-00001',
-        role: 'agent',
-        actor: 'agent:pbc-writer',
-        idempotencyKey: 'rk-fail-1',
-        launchRuntime: false,
-        participantOutput: { evidence: [{ kind: 'bad_kind' }] },
-      } satisfies RunStepRequest)
-    ).rejects.toThrow()
+    const response = await postPbcRoute(port, 'run-step', {
+      task: 'T-00001',
+      role: 'agent',
+      actor: 'agent:pbc-writer',
+      idempotencyKey: 'rk-fail-1',
+      launchRuntime: false,
+      participantOutput: { evidence: [{ kind: 'bad_kind' }] },
+    } satisfies RunStepRequest)
+    expect(response.status).toBe(500)
+    expect(JSON.stringify(response.body)).toContain('evidence.add failed: invalid kind')
 
     const failCall = _calls.find((c) => c.method === 'run.fail')
     expect(failCall).toBeDefined()
@@ -796,41 +786,31 @@ describe('runStep', () => {
 describe('approveTransition', () => {
   // ── Re-read next immediately before apply ──────────────────────────────────
 
-  test('re-reads next immediately before applying transition (fresh CAS)', async () => {
-    const port = makeFakePort({
-      nextSequence: [makeNextRaw({ revision: 4, contextHash: 'sha256:ctx4' })],
-    })
-    await approveTransition(port, {
-      task: 'T-00001',
-      transition: 'normalize_feedback',
-      actor: 'human:operator',
-      routeKey: 'approve-rk-1',
-    } satisfies ApproveTransitionRequest)
-
-    // next must be called before transition.apply
-    const callMethods = port._calls.map((c) => c.method)
-    const nextIdx = callMethods.indexOf('next')
-    const applyIdx = callMethods.indexOf('transition.apply')
-    expect(nextIdx).toBeGreaterThan(-1)
-    expect(applyIdx).toBeGreaterThan(nextIdx)
-  })
-
-  test('uses fresh expectRevision+contextHash from re-read next', async () => {
+  test('approve-transition re-reads next and applies with its revision and contextHash under wrkf wire names', async () => {
     const port = makeFakePort({
       nextSequence: [makeNextRaw({ revision: 7, contextHash: 'sha256:ctx7' })],
     })
-    await approveTransition(port, {
+    await approveTransitionRoute(port, {
       task: 'T-00001',
       transition: 'run_pressure_pass',
       actor: 'human:operator',
       routeKey: 'approve-rk-2',
     } satisfies ApproveTransitionRequest)
 
+    // next is re-read before the apply (fresh CAS)
+    const callMethods = port._calls.map((c) => c.method)
+    expect(callMethods.indexOf('next')).toBeGreaterThan(-1)
+    expect(callMethods.indexOf('transition.apply')).toBeGreaterThan(callMethods.indexOf('next'))
     const applyCall = port._calls.find((c) => c.method === 'transition.apply')
     expect(applyCall).toBeDefined()
     const params = applyCall!.params as Record<string, unknown>
     expect(params['expectRevision']).toBe(7)
     expect(params['contextHash']).toBe('sha256:ctx7')
+    // wrkf wire names: task + transition, never taskId / transitionId
+    expect(params['task']).toBe('T-00001')
+    expect(params['taskId']).toBeUndefined()
+    expect(params['transition']).toBe('run_pressure_pass')
+    expect(params['transitionId']).toBeUndefined()
   })
 
   // ── Deterministic idempotency key ──────────────────────────────────────────
@@ -839,7 +819,7 @@ describe('approveTransition', () => {
     const port = makeFakePort({
       nextSequence: [makeNextRaw({ revision: 3, contextHash: 'sha256:ctx3' })],
     })
-    await approveTransition(port, {
+    await approveTransitionRoute(port, {
       task: 'T-00001',
       transition: 'finalize_ready_pbc',
       actor: 'human:operator',
@@ -858,7 +838,7 @@ describe('approveTransition', () => {
     const port = makeFakePort({
       nextSequence: [makeNextRaw({ revision: 2 })],
     })
-    await approveTransition(port, {
+    await approveTransitionRoute(port, {
       task: 'T-00001',
       transition: 'normalize_feedback',
       actor: 'human:operator',
@@ -875,7 +855,7 @@ describe('approveTransition', () => {
     const port = makeFakePort({
       nextSequence: [makeNextRaw({ revision: 1 })],
     })
-    await approveTransition(port, {
+    await approveTransitionRoute(port, {
       task: 'T-00001',
       transition: 'normalize_feedback',
       actor: 'human:operator',
@@ -886,7 +866,7 @@ describe('approveTransition', () => {
     expect(applyCall).toBeDefined()
     const params = applyCall!.params as Record<string, unknown>
     // default is false
-    expect(params['runChecks']).toBeFalsy()
+    expect(params['runChecks']).toBe(false)
   })
 
   // ── Effect delivery after transition ────────────────────────────────────────
@@ -899,7 +879,7 @@ describe('approveTransition', () => {
         { id: 'eff_101', kind: 'set_task_state', status: 'pending' },
       ],
     })
-    const result = await approveTransition(port, {
+    const result = await approveTransitionRoute(port, {
       task: 'T-00001',
       transition: 'finalize_ready_pbc',
       actor: 'human:operator',
@@ -921,7 +901,7 @@ describe('approveTransition', () => {
     const port = makeFakePort({
       nextSequence: [makeNextRaw({ revision: 8, contextHash: 'sha256:ctx8' })],
     })
-    const result = await approveTransition(port, {
+    const result = await approveTransitionRoute(port, {
       task: 'T-00099',
       transition: 'normalize_feedback',
       actor: 'human:operator',
@@ -935,26 +915,6 @@ describe('approveTransition', () => {
   })
 
   // ── Wire names ─────────────────────────────────────────────────────────────
-
-  test('transition.apply uses `task` wire name, not `taskId`', async () => {
-    const port = makeFakePort({
-      nextSequence: [makeNextRaw({ revision: 0 })],
-    })
-    await approveTransition(port, {
-      task: 'T-00088',
-      transition: 'normalize_feedback',
-      actor: 'human:operator',
-      routeKey: 'approve-rk-7',
-    } satisfies ApproveTransitionRequest)
-
-    const applyCall = port._calls.find((c) => c.method === 'transition.apply')
-    expect(applyCall).toBeDefined()
-    const params = applyCall!.params as Record<string, unknown>
-    expect(params['task']).toBe('T-00088')
-    expect(params['taskId']).toBeUndefined()
-    expect(params['transition']).toBeDefined()
-    expect(params['transitionId']).toBeUndefined()
-  })
 
   // ── Stale revision: single retry ───────────────────────────────────────────
 
@@ -975,7 +935,7 @@ describe('approveTransition', () => {
         return undefined
       },
     })
-    const result = await approveTransition(port, {
+    const result = await approveTransitionRoute(port, {
       task: 'T-00001',
       transition: 'normalize_feedback',
       actor: 'human:operator',
@@ -1004,16 +964,36 @@ describe('approveTransition', () => {
       },
     })
 
-    await expect(
-      approveTransition(port, {
-        task: 'T-00001',
-        transition: 'normalize_feedback',
-        actor: 'human:operator',
-        routeKey: 'approve-rk-stale2',
-      } satisfies ApproveTransitionRequest)
-    ).rejects.toThrow(/WRKF_STALE_REVISION/i)
+    const response = await postPbcRoute(port, 'approve-transition', {
+      task: 'T-00001',
+      transition: 'normalize_feedback',
+      actor: 'human:operator',
+      routeKey: 'approve-rk-stale2',
+    } satisfies ApproveTransitionRequest)
+    expect(response.status).toBe(409)
+    expect((response.body['error'] as Record<string, unknown>)['code']).toBe('WRKF_STALE_REVISION')
 
     expect(applyCallCount).toBe(2) // exactly 1 retry
+  })
+
+  test('transition.apply uses `task` wire name, not `taskId`', async () => {
+    const port = makeFakePort({
+      nextSequence: [makeNextRaw({ revision: 0 })],
+    })
+    await approveTransitionRoute(port, {
+      task: 'T-00088',
+      transition: 'normalize_feedback',
+      actor: 'human:operator',
+      routeKey: 'approve-rk-7',
+    } satisfies ApproveTransitionRequest)
+
+    const applyCall = port._calls.find((c) => c.method === 'transition.apply')
+    expect(applyCall).toBeDefined()
+    const params = applyCall!.params as Record<string, unknown>
+    expect(params['task']).toBe('T-00088')
+    expect(params['taskId']).toBeUndefined()
+    expect(params['transition']).toBeDefined()
+    expect(params['transitionId']).toBeUndefined()
   })
 })
 
@@ -1030,13 +1010,14 @@ describe('runUntilBlocked', () => {
         makeNextRaw({ status: 'closed', phase: 'finalized', revision: 10, actions: [] }),
       ],
     })
-    const result = await runUntilBlocked(port, {
+    const result = await runUntilBlockedRoute(port, {
       task: 'T-00001',
       actor: 'agent:pbc-writer',
       idempotencyKey: 'autopilot-1',
     } satisfies RunUntilBlockedRequest)
 
     expect(result.stopReason).toBe('closed')
+    expect(result.workflowRef).toBe('pbc-progressive-refinement@9')
     // No run.start when instance is already closed
     expect(port._calls.find((c) => c.method === 'run.start')).toBeUndefined()
   })
@@ -1055,7 +1036,7 @@ describe('runUntilBlocked', () => {
         }),
       ],
     })
-    const result = await runUntilBlocked(port, {
+    const result = await runUntilBlockedRoute(port, {
       task: 'T-00001',
       actor: 'agent:pbc-writer',
       idempotencyKey: 'autopilot-stale',
@@ -1080,7 +1061,7 @@ describe('runUntilBlocked', () => {
       nextSequence: Array.from({ length: 20 }, () => alwaysNext),
     })
 
-    const result = await runUntilBlocked(port, {
+    const result = await runUntilBlockedRoute(port, {
       task: 'T-00001',
       actor: 'agent:pbc-writer',
       idempotencyKey: 'autopilot-maxturn',
@@ -1104,7 +1085,7 @@ describe('runUntilBlocked', () => {
         }),
       ],
     })
-    const result = await runUntilBlocked(port, {
+    const result = await runUntilBlockedRoute(port, {
       task: 'T-00001',
       actor: 'agent:pbc-writer',
       idempotencyKey: 'autopilot-clarif',
@@ -1127,7 +1108,7 @@ describe('runUntilBlocked', () => {
         }),
       ],
     })
-    const result = await runUntilBlocked(port, {
+    const result = await runUntilBlockedRoute(port, {
       task: 'T-00001',
       actor: 'agent:pbc-writer',
       idempotencyKey: 'autopilot-patch',
@@ -1157,7 +1138,7 @@ describe('runUntilBlocked', () => {
         }),
       ],
     })
-    const result = await runUntilBlocked(port, {
+    const result = await runUntilBlockedRoute(port, {
       task: 'T-00001',
       actor: 'agent:pbc-writer',
       idempotencyKey: 'autopilot-ambig',
@@ -1191,7 +1172,7 @@ describe('runUntilBlocked', () => {
     })
 
     // Same actor for draft and pressure — SoD violation
-    const result = await runUntilBlocked(port, {
+    const result = await runUntilBlockedRoute(port, {
       task: 'T-00001',
       actor: 'agent:pbc-writer', // same actor for both roles
       pressureActor: 'agent:pbc-writer', // SAME as actor → SoD violation
@@ -1240,7 +1221,7 @@ describe('runUntilBlocked', () => {
       ],
     })
 
-    const result = await runUntilBlocked(port, {
+    const result = await runUntilBlockedRoute(port, {
       task: 'T-00001',
       actor: 'agent:pbc-writer',
       pressureActor: 'agent:pressure-reviewer', // distinct
@@ -1248,10 +1229,14 @@ describe('runUntilBlocked', () => {
       maxTurns: 5,
     } satisfies RunUntilBlockedRequest)
 
-    // Should stop as closed, not as SoD violation
-    expect(result.stopReason).not.toBe('requires_distinct_pressure_reviewer')
-    // Either 'closed' or 'max_turns' depending on how many loops ran
-    expect(['closed', 'max_turns']).toContain(result.stopReason)
+    // Finalizes and stops as closed, not as an SoD violation
+    expect(result.stopReason).toBe('closed')
+    const finalizeCall = port._calls.find(
+      (c) =>
+        c.method === 'transition.apply' &&
+        (c.params as Record<string, unknown>)['transition'] === 'finalize_ready_pbc'
+    )
+    expect(finalizeCall).toBeDefined()
   })
 
   // ── Disposition gating ────────────────────────────────────────────────────
@@ -1275,7 +1260,7 @@ describe('runUntilBlocked', () => {
       ],
     })
 
-    const result = await runUntilBlocked(port, {
+    const result = await runUntilBlockedRoute(port, {
       task: 'T-00001',
       actor: 'agent:pbc-writer',
       idempotencyKey: 'autopilot-disp',
@@ -1283,7 +1268,7 @@ describe('runUntilBlocked', () => {
     } satisfies RunUntilBlockedRequest)
 
     // Must stop rather than apply a disposition without explicit approval
-    expect(result.stopReason).not.toBeUndefined()
+    expect(result.stopReason).toBe('blocked_or_ambiguous')
     const dispositionCall = port._calls.find(
       (c) =>
         c.method === 'transition.apply' &&
@@ -1316,7 +1301,7 @@ describe('runUntilBlocked', () => {
       ],
     })
 
-    const result = await runUntilBlocked(port, {
+    const result = await runUntilBlockedRoute(port, {
       task: 'T-00001',
       actor: 'agent:pbc-writer',
       idempotencyKey: 'autopilot-disp-ok',
@@ -1330,51 +1315,10 @@ describe('runUntilBlocked', () => {
         (c.params as Record<string, unknown>)['transition'] === 'dispose_from_behavior_note'
     )
     expect(dispositionCall).toBeDefined()
-    expect(['closed', 'max_turns']).toContain(result.stopReason)
+    expect(result.stopReason).toBe('closed')
   })
 
   // ── Effect delivery after each transition ──────────────────────────────────
-
-  test('delivers effects after each committed transition in autopilot loop', async () => {
-    const port = makeFakePort({
-      nextSequence: [
-        makeNextRaw({
-          status: 'open',
-          phase: 'intake',
-          revision: 0,
-          actions: [{ transition: 'normalize_feedback' }],
-        }),
-        makeNextRaw({
-          status: 'open',
-          phase: 'intake',
-          revision: 1,
-          actions: [{ transition: 'normalize_feedback' }],
-        }),
-        makeNextRaw({
-          status: 'closed',
-          phase: 'finalized',
-          revision: 2,
-          actions: [],
-        }),
-      ],
-      effects: [{ id: 'eff_200', kind: 'set_task_state', status: 'pending' }],
-    })
-
-    await runUntilBlocked(port, {
-      task: 'T-00001',
-      actor: 'agent:pbc-writer',
-      idempotencyKey: 'autopilot-eff',
-      maxTurns: 3,
-    } satisfies RunUntilBlockedRequest)
-
-    // effect.deliver must have been called
-    const deliverCalls = port._calls.filter((c) => c.method === 'effect.deliver')
-    expect(deliverCalls.length).toBeGreaterThan(0)
-    // All deliver calls use adapter 'acp'
-    for (const call of deliverCalls) {
-      expect((call.params as Record<string, unknown>)['adapter']).toBe('acp')
-    }
-  })
 
   // ── Obligation before transition: clarification path ──────────────────────
 
@@ -1388,7 +1332,15 @@ describe('runUntilBlocked', () => {
           actions: [{ transition: 'answer_clarification' }],
           openObligations: [{ id: 'obl_clarifA', kind: 'clarification_response', status: 'open' }],
         }),
-        // After obligation satisfaction, next has answer_clarification
+        // Re-read by the evidence writer after the obligation is satisfied
+        makeNextRaw({
+          status: 'waiting',
+          phase: 'clarification',
+          revision: 4,
+          actions: [{ transition: 'answer_clarification' }],
+          openObligations: [],
+        }),
+        // Fresh read the autopilot chooses from
         makeNextRaw({
           status: 'waiting',
           phase: 'clarification',
@@ -1407,7 +1359,7 @@ describe('runUntilBlocked', () => {
       obligations: [{ id: 'obl_clarifA', kind: 'clarification_response', status: 'open' }],
     })
 
-    await runUntilBlocked(port, {
+    const result = await runUntilBlockedRoute(port, {
       task: 'T-00001',
       actor: 'agent:pbc-writer',
       idempotencyKey: 'autopilot-clarif-ob',
@@ -1420,14 +1372,32 @@ describe('runUntilBlocked', () => {
     const applyIdx = callMethods.lastIndexOf('transition.apply')
 
     // obligation.satisfy must come BEFORE transition.apply for answer_clarification
-    if (applyIdx !== -1) {
-      expect(satisfyIdx).toBeGreaterThan(-1)
-      expect(satisfyIdx).toBeLessThan(applyIdx)
-    }
+    expect(applyIdx).toBeGreaterThan(-1)
+    expect((port._calls[applyIdx]!.params as Record<string, unknown>)['transition']).toBe(
+      'answer_clarification'
+    )
+    expect(satisfyIdx).toBeGreaterThan(-1)
+    expect(satisfyIdx).toBeLessThan(applyIdx)
+    expect(result.stopReason).toBe('closed')
   })
 
   test('obligation.satisfy called before patch-decision transitions (patch_decision path)', async () => {
     const port = makeFakePort({
+      // Fresh draft -> pressure pass -> final chain so finalization passes freshness;
+      // the simulated patch_decision (route=finalize) is appended by the autopilot.
+      evidence: [
+        makeEvidenceSnapshot('ev_draft_1', 'pbc_draft'),
+        makeEvidenceSnapshot('ev_pp_1', 'pressure_pass', {
+          facts: { verdict: 'needs_patch' },
+          data: { reviewedDraftEvidenceId: 'ev_draft_1' },
+        }),
+        makeEvidenceSnapshot('ev_final_1', 'pbc_final', {
+          data: {
+            basedOnDraftEvidenceId: 'ev_draft_1',
+            basedOnPressurePassEvidenceId: 'ev_pp_1',
+          },
+        }),
+      ],
       nextSequence: [
         makeNextRaw({
           status: 'waiting',
@@ -1436,6 +1406,15 @@ describe('runUntilBlocked', () => {
           actions: [{ transition: 'finalize_after_patch_decision' }],
           openObligations: [{ id: 'obl_patchB', kind: 'patch_decision', status: 'open' }],
         }),
+        // Re-read by the evidence writer after the obligation is satisfied
+        makeNextRaw({
+          status: 'waiting',
+          phase: 'patch_decision',
+          revision: 6,
+          actions: [{ transition: 'finalize_after_patch_decision' }],
+          openObligations: [],
+        }),
+        // Fresh read the autopilot chooses from
         makeNextRaw({
           status: 'waiting',
           phase: 'patch_decision',
@@ -1453,7 +1432,7 @@ describe('runUntilBlocked', () => {
       obligations: [{ id: 'obl_patchB', kind: 'patch_decision', status: 'open' }],
     })
 
-    await runUntilBlocked(port, {
+    const result = await runUntilBlockedRoute(port, {
       task: 'T-00001',
       actor: 'agent:pbc-writer',
       pressureActor: 'agent:pressure-reviewer',
@@ -1465,10 +1444,13 @@ describe('runUntilBlocked', () => {
     const callMethods = port._calls.map((c) => c.method)
     const satisfyIdx = callMethods.lastIndexOf('obligation.satisfy')
     const applyIdx = callMethods.lastIndexOf('transition.apply')
-    if (applyIdx !== -1) {
-      expect(satisfyIdx).toBeGreaterThan(-1)
-      expect(satisfyIdx).toBeLessThan(applyIdx)
-    }
+    expect(applyIdx).toBeGreaterThan(-1)
+    expect((port._calls[applyIdx]!.params as Record<string, unknown>)['transition']).toBe(
+      'finalize_after_patch_decision'
+    )
+    expect(satisfyIdx).toBeGreaterThan(-1)
+    expect(satisfyIdx).toBeLessThan(applyIdx)
+    expect(result.stopReason).toBe('closed')
   })
 
   // ── Re-read next after every write ────────────────────────────────────────
@@ -1502,20 +1484,21 @@ describe('runUntilBlocked', () => {
       ],
     })
 
-    await runUntilBlocked(port, {
+    await runUntilBlockedRoute(port, {
       task: 'T-00001',
       actor: 'agent:pbc-writer',
       idempotencyKey: 'autopilot-reread',
       maxTurns: 3,
     } satisfies RunUntilBlockedRequest)
 
-    // transition.apply must use contextHash from the re-read next (sha256:ctx1, not sha256:ctx0)
+    // open/intake applies normalize_feedback, using the contextHash from the
+    // re-read next (sha256:ctx1, not sha256:ctx0)
     const applyCall = port._calls.find((c) => c.method === 'transition.apply')
-    if (applyCall !== undefined) {
-      const params = applyCall.params as Record<string, unknown>
-      expect(params['contextHash']).toBe('sha256:ctx1')
-      expect(params['expectRevision']).toBe(1)
-    }
+    expect(applyCall).toBeDefined()
+    const params = applyCall!.params as Record<string, unknown>
+    expect(params['transition']).toBe('normalize_feedback')
+    expect(params['contextHash']).toBe('sha256:ctx1')
+    expect(params['expectRevision']).toBe(1)
   })
 
   // ── set_task_state delivery: list then deliver(effectId) ─────────────────
@@ -1545,7 +1528,7 @@ describe('runUntilBlocked', () => {
       effects: [{ id: 'eff_set_1', kind: 'set_task_state', status: 'pending' }],
     })
 
-    await runUntilBlocked(port, {
+    await runUntilBlockedRoute(port, {
       task: 'T-00001',
       actor: 'agent:pbc-writer',
       idempotencyKey: 'autopilot-deliver',
@@ -1566,87 +1549,5 @@ describe('runUntilBlocked', () => {
 
   // ── PbcHarnessResult ─────────────────────────────────────────────────────
 
-  test('result.workflowRef is pbc-progressive-refinement@9', async () => {
-    const port = makeFakePort({
-      nextSequence: [makeNextRaw({ status: 'closed', phase: 'finalized', actions: [] })],
-    })
-    const result = await runUntilBlocked(port, {
-      task: 'T-00001',
-      actor: 'agent:pbc-writer',
-      idempotencyKey: 'autopilot-wfref',
-    } satisfies RunUntilBlockedRequest)
-    expect(result.workflowRef).toBe('pbc-progressive-refinement@9')
-  })
-
-  test('result.stopReason is always present in runUntilBlocked result', async () => {
-    const port = makeFakePort({
-      nextSequence: [makeNextRaw({ status: 'closed', phase: 'finalized', actions: [] })],
-    })
-    const result = await runUntilBlocked(port, {
-      task: 'T-00001',
-      actor: 'agent:pbc-writer',
-      idempotencyKey: 'autopilot-stopr',
-    } satisfies RunUntilBlockedRequest)
-    expect(result.stopReason).toBeDefined()
-    expect(typeof result.stopReason).toBe('string')
-  })
-
-  test('result.diagnostics is an array (possibly empty)', async () => {
-    const port = makeFakePort({
-      nextSequence: [makeNextRaw({ status: 'closed', phase: 'finalized', actions: [] })],
-    })
-    const result = await runUntilBlocked(port, {
-      task: 'T-00001',
-      actor: 'agent:pbc-writer',
-      idempotencyKey: 'autopilot-diag',
-    } satisfies RunUntilBlockedRequest)
-    expect(Array.isArray(result.diagnostics)).toBe(true)
-  })
-
   // ── State policy: open/intake → normalize_feedback ────────────────────────
-
-  test('autopilot applies normalize_feedback in open/intake state', async () => {
-    const port = makeFakePort({
-      nextSequence: [
-        makeNextRaw({
-          status: 'open',
-          phase: 'intake',
-          revision: 0,
-          actions: [{ transition: 'normalize_feedback' }],
-        }),
-        makeNextRaw({
-          status: 'open',
-          phase: 'intake',
-          revision: 1,
-          actions: [{ transition: 'normalize_feedback' }],
-        }),
-        makeNextRaw({ status: 'closed', phase: 'finalized', revision: 2, actions: [] }),
-      ],
-    })
-
-    await runUntilBlocked(port, {
-      task: 'T-00001',
-      actor: 'agent:pbc-writer',
-      idempotencyKey: 'autopilot-intake',
-      maxTurns: 3,
-    } satisfies RunUntilBlockedRequest)
-
-    const applyCall = port._calls.find((c) => c.method === 'transition.apply')
-    if (applyCall !== undefined) {
-      expect((applyCall.params as Record<string, unknown>)['transition']).toBe('normalize_feedback')
-    }
-  })
-})
-
-// ===========================================================================
-// PbcHarnessPort shape conformance
-// ===========================================================================
-
-describe('PbcHarnessPort type contract', () => {
-  test('makeFakePort satisfies PbcHarnessPort structural type', () => {
-    // Type-only assertion: if makeFakePort() doesn't satisfy PbcHarnessPort,
-    // this test will fail to compile (red in type-check, not just runtime).
-    const port: PbcHarnessPort = makeFakePort() as unknown as PbcHarnessPort
-    expect(port).toBeDefined()
-  })
 })

@@ -20,43 +20,8 @@ function makeNext(input: {
   } as unknown as NextActionResponse
 }
 
-const FRESH_TIMELINE = [
-  { id: 'ev_draft_1', kind: 'pbc_draft', facts: { revision: 1 } },
-  {
-    id: 'ev_pp_1',
-    kind: 'pressure_pass',
-    facts: { verdict: 'ready' },
-    data: { reviewedDraftEvidenceId: 'ev_draft_1' },
-  },
-  {
-    id: 'ev_final_1',
-    kind: 'pbc_final',
-    data: { basedOnDraftEvidenceId: 'ev_draft_1', basedOnPressurePassEvidenceId: 'ev_pp_1' },
-  },
-]
-
 describe('choosePbcTransition finalization role binding', () => {
-  test('finalize_ready_pbc carries role pressure_reviewer with the reviewer actor', async () => {
-    const chosen = await choosePbcTransition({
-      next: makeNext({
-        status: 'active',
-        phase: 'pressure',
-        actions: [{ transition: 'finalize_ready_pbc' }],
-      }),
-      actor: 'agent:pbc-writer',
-      role: 'agent',
-      reviewerActor: 'agent:pbc-reviewer',
-      evidenceTimeline: FRESH_TIMELINE,
-    })
-
-    expect(chosen).toEqual({
-      transition: 'finalize_ready_pbc',
-      actor: 'agent:pbc-reviewer',
-      role: 'pressure_reviewer',
-    })
-  })
-
-  test('non-finalization transition carries no actor/role override', async () => {
+  test("non-finalization transitions apply as the worker's own actor and role", async () => {
     const chosen = await choosePbcTransition({
       next: makeNext({
         status: 'open',

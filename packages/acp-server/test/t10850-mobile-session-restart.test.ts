@@ -204,13 +204,19 @@ describe('POST /v1/mobile/sessions/:hostSessionId/restart', () => {
     expect(result.body['code']).toBe('not_restartable')
   })
 
-  test('requires the generation fence', async () => {
+  test('a restart without fences.expectedGeneration is refused 400 before HRC is called', async () => {
     const calls: RestartCall[] = []
     const result = await restart(makeHrcClient({ calls }), stores(), {
       fences: {},
     })
 
     expect(result.status).toBe(400)
+    expect(result.body).toMatchObject({
+      error: {
+        message: 'fences.expectedGeneration is required',
+        details: { field: 'fences.expectedGeneration' },
+      },
+    })
     expect(calls).toHaveLength(0)
   })
 })

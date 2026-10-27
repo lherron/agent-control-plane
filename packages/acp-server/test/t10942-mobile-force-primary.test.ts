@@ -527,10 +527,14 @@ describe('POST /v1/mobile/sessions with force', () => {
         },
       },
       stores(),
-      async (post) => {
+      async (post, calls) => {
         const result = await post({ requestId: 'req-occupied', ...FORCE })
         expect(result.status).toBe(409)
         expect(result.body).toMatchObject({ code: 'session_scope_occupied' })
+        // One exact start, no roster fallback after the refusal.
+        expect(calls.starts).toHaveLength(1)
+        expect(calls.starts[0]).toMatchObject({ conflictPolicy: 'reject' })
+        expect('baseSessionRef' in (calls.starts[0] as object)).toBe(false)
       }
     )
   })
@@ -539,6 +543,12 @@ describe('POST /v1/mobile/sessions with force', () => {
     await scenario({ heads: [null] }, stores(), async (post, calls) => {
       const result = await post({ requestId: 'req-minisvc', taskId: 'minisvc', ...FORCE })
       expect(result.status).toBe(400)
+      expect(result.body).toMatchObject({
+        error: {
+          message: 'force is only supported for the primary scope',
+          details: { field: 'force' },
+        },
+      })
       expect(calls.restarts).toHaveLength(0)
       expect(calls.starts).toHaveLength(0)
     })

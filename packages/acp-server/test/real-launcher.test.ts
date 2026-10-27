@@ -8,13 +8,7 @@ import type { HrcDispatchOrigin, HrcRuntimeIntent } from 'hrc-core'
 
 import { InMemoryInputAttemptStore } from '../src/domain/input-attempt-store.js'
 import { InMemoryRunStore } from '../src/domain/run-store.js'
-import type { FetchPlacementResolution } from '../src/placement-resolution.js'
-import {
-  createRealLauncher,
-  normalizeRealLauncherIntent,
-  readAssistantMessageAfterSeq,
-  toUnifiedAssistantMessageEndFromRawEvents,
-} from '../src/real-launcher.js'
+import { createRealLauncher, readAssistantMessageAfterSeq } from '../src/real-launcher.js'
 
 async function captureDispatchOrigin(input: {
   actor: { kind: 'human' | 'agent' | 'system'; id: string }
@@ -203,7 +197,7 @@ describe('real launcher helpers', () => {
       expect(await captureFirstTurnTimeout({ scope: OVERRIDE_SCOPE, ms: '1000' })).toBe(1000)
     })
 
-    test('does not pass the override for a different scope', async () => {
+    test('override env for a different scope sends no firstTurnTimeoutMs', async () => {
       expect(
         await captureFirstTurnTimeout({
           scope: 'agent:smokey:project:hrc-runtime:task:bridge-echo',
@@ -471,7 +465,7 @@ describe('real launcher helpers', () => {
     }
   })
 
-  test('dispatches prompt turns through dispatchTurn and emits canonical hrc_events replies', async () => {
+  test('headless prompt dispatches one fenced dispatchTurn and emits the assistant message_end', async () => {
     const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-real-launcher-db-'))
     const hrcDbPath = join(fixtureDir, 'hrc.sqlite')
     const db = new Database(hrcDbPath)
@@ -622,7 +616,7 @@ describe('real launcher helpers', () => {
     }
   })
 
-  test('returns session identity without dispatch when no prompt is provided', async () => {
+  test('whitespace-only prompt resolves the session and skips dispatch', async () => {
     const calls: string[] = []
     const launcher = createRealLauncher({
       hrcDbPath: ':memory:',
@@ -1148,363 +1142,163 @@ describe('real launcher helpers', () => {
     }
   })
 
-  test('returns session identity without dispatch when no prompt is provided', async () => {
-    const calls: string[] = []
-    const launcher = createRealLauncher({
-      hrcDbPath: ':memory:',
-      createClient: () =>
-        ({
-          resolveSession: async () => {
-            calls.push('resolveSession')
-            return { found: true, hostSessionId: 'hsid-empty' }
-          },
-          ensureRuntime: async () => {
-            throw new Error('ensureRuntime should not be called for empty-prompt launches')
-          },
-          dispatchTurn: async () => {
-            throw new Error('dispatchTurn should not run when no prompt is provided')
-          },
-        }) as unknown as any,
-    })
-
-    const result = await launcher({
-      sessionRef: {
-        scopeRef: 'agent:rex:project:agent-spaces',
-        laneRef: 'main',
-      },
-      intent: {
-        placement: {
-          agentRoot: '/tmp/rex',
-          runMode: 'task',
-          bundle: { kind: 'compose', compose: [] },
-        },
-        harness: {
-          provider: 'openai',
-          interactive: false,
-        },
-        execution: {
-          preferredMode: 'headless',
-        },
-        initialPrompt: '   ',
-      },
-    })
-
-    expect(result).toEqual({
-      runId: 'hsid-empty',
-      sessionId: 'hsid-empty',
-      hostSessionId: 'hsid-empty',
-      generation: undefined,
-    })
-    expect(calls).toEqual(['resolveSession'])
-  })
-
-  test('normalizes missing harness to anthropic headless real execution', async () => {
-    const seen: unknown[] = []
-    const fetchPlacement: FetchPlacementResolution = async (input) => {
-      seen.push(input)
-      return {
-        agentRoot: '/agents/rex',
-        projectRoot: '/projects/agent-spaces',
-        cwd: '/projects/agent-spaces',
-        bundle: { kind: 'agent-project', agentName: 'rex' },
-        harness: { provider: 'anthropic', interactive: true },
-      }
-    }
-
-    const intent = {
+  // Harness inference as a launch observes it: createRealLauncher fetches
+  // placement from the HRC daemon on its socketPath and resolves the session
+  // with the normalized runtime intent (no prompt, so no dispatch).
+  test.each([
+    {
+      name: 'missing harness takes the daemon anthropic harness as headless',
+      scopeRef: 'agent:rex:project:agent-spaces',
       placement: {
         agentRoot: '/agents/rex',
         projectRoot: '/projects/agent-spaces',
         cwd: '/projects/agent-spaces',
-        runMode: 'task',
-        bundle: { kind: 'compose', compose: [] },
-        correlation: {
-          sessionRef: {
-            scopeRef: 'agent:rex:project:agent-spaces',
-            laneRef: 'main',
-          },
+      },
+      daemonHarness: { provider: 'anthropic', interactive: true } as Record<string, unknown>,
+      harness: undefined,
+      execution: undefined,
+      expectedHarness: { provider: 'anthropic', interactive: false } as Record<string, unknown>,
+      expectedExecution: { preferredMode: 'headless' } as Record<string, unknown> | undefined,
+      expectedDaemonRequests: [
+        {
+          scopeRef: 'agent:rex:project:agent-spaces',
+          agentRoot: '/agents/rex',
+          projectRoot: '/projects/agent-spaces',
+          cwd: '/projects/agent-spaces',
+          runMode: 'task',
         },
-      },
-    } as HrcRuntimeIntent
-
-    const normalized = await normalizeRealLauncherIntent({
-      sessionRef: {
-        scopeRef: 'agent:rex:project:agent-spaces',
-        laneRef: 'main',
-      },
-      intent,
-      fetchPlacement,
-    })
-
-    expect(normalized.harness).toEqual({
-      provider: 'anthropic',
-      interactive: false,
-    })
-    expect(normalized.execution).toEqual({ preferredMode: 'headless' })
-    expect(normalized.placement.dryRun).toBe(false)
-    expect(seen).toEqual([
-      {
-        scopeRef: 'agent:rex:project:agent-spaces',
-        agentRoot: '/agents/rex',
-        projectRoot: '/projects/agent-spaces',
-        cwd: '/projects/agent-spaces',
-        runMode: 'task',
-      },
-    ])
-  })
-
-  test('normalizes agent-sdk daemon harness to SDK execution', async () => {
-    const fetchPlacement: FetchPlacementResolution = async () => ({
-      agentRoot: '/agents/sparky',
-      cwd: '/agents/sparky',
-      bundle: { kind: 'agent-project', agentName: 'sparky' },
-      harness: {
+      ] as unknown[] | undefined,
+    },
+    {
+      name: 'agent-sdk daemon harness launches as SDK execution',
+      scopeRef: 'agent:sparky:project:agent-spaces',
+      placement: { agentRoot: '/agents/sparky' },
+      daemonHarness: {
         provider: 'anthropic',
         frontend: 'agent-sdk',
         effectiveHarness: 'agent-sdk',
         transport: 'sdk',
         interactive: false,
       },
-    })
-
-    const normalized = await normalizeRealLauncherIntent({
-      sessionRef: {
-        scopeRef: 'agent:sparky:project:agent-spaces',
-        laneRef: 'main',
-      },
-      intent: {
-        placement: {
-          agentRoot: '/agents/sparky',
-          runMode: 'task',
-          bundle: { kind: 'compose', compose: [] },
-        },
-      } as HrcRuntimeIntent,
-      fetchPlacement,
-    })
-
-    expect(normalized.harness).toEqual({
-      provider: 'anthropic',
-      interactive: false,
-      id: 'agent-sdk',
-    })
-    expect(normalized.execution).toBeUndefined()
-    expect(normalized.placement.dryRun).toBe(false)
-  })
-
-  test('normalizes codex daemon harness to non-interactive headless broker intent', async () => {
-    const fetchPlacement: FetchPlacementResolution = async () => ({
-      agentRoot: '/agents/mneme',
-      cwd: '/agents/mneme',
-      bundle: { kind: 'agent-project', agentName: 'mneme' },
-      harness: {
+      harness: undefined,
+      execution: undefined,
+      expectedHarness: { provider: 'anthropic', interactive: false, id: 'agent-sdk' },
+      expectedExecution: undefined,
+      expectedDaemonRequests: undefined,
+    },
+    {
+      name: 'codex daemon harness launches as a non-interactive headless broker',
+      scopeRef: 'agent:mneme:project:media-ingest',
+      placement: { agentRoot: '/agents/mneme' },
+      daemonHarness: {
         provider: 'openai',
         frontend: 'codex-cli',
         effectiveHarness: 'codex',
         transport: 'cli',
         interactive: true,
       },
-    })
-
-    const normalized = await normalizeRealLauncherIntent({
-      sessionRef: {
-        scopeRef: 'agent:mneme:project:media-ingest',
-        laneRef: 'main',
+      harness: undefined,
+      execution: undefined,
+      expectedHarness: { provider: 'openai', interactive: false, id: 'codex-cli' },
+      expectedExecution: { preferredMode: 'headless' },
+      expectedDaemonRequests: undefined,
+    },
+    {
+      name: 'explicit openai harness is kept and defaults to headless without a daemon read',
+      scopeRef: 'agent:cody:project:agent-spaces',
+      placement: {
+        agentRoot: '/tmp/agents/cody',
+        projectRoot: '/tmp/agent-spaces',
+        cwd: '/tmp/agent-spaces',
       },
-      intent: {
-        placement: {
-          agentRoot: '/agents/mneme',
-          runMode: 'task',
-          bundle: { kind: 'compose', compose: [] },
+      daemonHarness: undefined,
+      harness: { provider: 'openai' as const, interactive: false },
+      execution: undefined,
+      expectedHarness: { provider: 'openai', interactive: false },
+      expectedExecution: { preferredMode: 'headless' },
+      expectedDaemonRequests: [],
+    },
+    {
+      name: 'explicit interactive preferredMode without a live tmux runtime launches interactive',
+      scopeRef: 'agent:cody:project:agent-spaces',
+      placement: { agentRoot: '/tmp/cody' },
+      daemonHarness: undefined,
+      harness: { provider: 'openai' as const, interactive: false },
+      execution: { preferredMode: 'interactive' as const },
+      expectedHarness: { provider: 'openai', interactive: true },
+      expectedExecution: { preferredMode: 'interactive' },
+      expectedDaemonRequests: [],
+    },
+  ])(
+    'launch without a prompt resolves the session with the normalized intent: $name',
+    async (row) => {
+      const socketPath = join(
+        tmpdir(),
+        `acp-real-launcher-placement-${process.pid}-${Math.random().toString(36).slice(2)}.sock`
+      )
+      const daemonRequests: unknown[] = []
+      const daemon = Bun.serve({
+        unix: socketPath,
+        fetch: async (request) => {
+          if (new URL(request.url).pathname !== '/v1/placements/resolve') {
+            return new Response('not found', { status: 404 })
+          }
+          daemonRequests.push(await request.json())
+          return Response.json({
+            agentRoot: row.placement.agentRoot,
+            cwd: row.placement.agentRoot,
+            bundle: { kind: 'agent-project', agentName: 'agent' },
+            harness: row.daemonHarness,
+          })
         },
-      } as HrcRuntimeIntent,
-      fetchPlacement,
-    })
+      })
+      const resolveRequests: Array<{ runtimeIntent: HrcRuntimeIntent; create?: boolean }> = []
+      try {
+        const launcher = createRealLauncher({
+          hrcDbPath: ':memory:',
+          socketPath,
+          createClient: () =>
+            ({
+              resolveSession: async (request: {
+                runtimeIntent: HrcRuntimeIntent
+                create?: boolean
+              }) => {
+                resolveRequests.push(request)
+                return { found: true, hostSessionId: 'hsid-normalized', generation: 1 }
+              },
+            }) as unknown as any,
+        })
 
-    expect(normalized.harness).toEqual({
-      provider: 'openai',
-      interactive: false,
-      id: 'codex-cli',
-    })
-    expect(normalized.execution).toEqual({ preferredMode: 'headless' })
-    expect(normalized.placement.dryRun).toBe(false)
-  })
-
-  test('preserves an explicit harness and defaults openai execution to headless', async () => {
-    const normalized = await normalizeRealLauncherIntent({
-      sessionRef: {
-        scopeRef: 'agent:cody:project:agent-spaces',
-        laneRef: 'main',
-      },
-      intent: {
-        placement: {
-          agentRoot: '/Users/lherron/praesidium/var/agents/cody',
-          projectRoot: '/Users/lherron/praesidium/agent-spaces',
-          cwd: '/Users/lherron/praesidium/agent-spaces',
-          runMode: 'task',
-          bundle: { kind: 'compose', compose: [] },
-        },
-        harness: {
-          provider: 'openai',
-          interactive: false,
-        },
-      },
-    })
-
-    expect(normalized.harness).toEqual({
-      provider: 'openai',
-      interactive: false,
-    })
-    expect(normalized.execution).toEqual({ preferredMode: 'headless' })
-    expect(normalized.placement.dryRun).toBe(false)
-  })
-
-  test('honors explicit interactive preferredMode when no live tmux runtime exists', async () => {
-    const normalized = await normalizeRealLauncherIntent({
-      sessionRef: {
-        scopeRef: 'agent:cody:project:agent-spaces',
-        laneRef: 'main',
-      },
-      intent: {
-        placement: {
-          agentRoot: '/tmp/cody',
-          runMode: 'task',
-          bundle: { kind: 'compose', compose: [] },
-        },
-        harness: {
-          provider: 'openai',
-          interactive: false,
-        },
-        execution: {
-          preferredMode: 'interactive',
-        },
-      },
-    })
-
-    expect(normalized.harness).toEqual({
-      provider: 'openai',
-      interactive: true,
-    })
-    expect(normalized.execution).toEqual({ preferredMode: 'interactive' })
-  })
-
-  test('passes through explicit message_end assistant events', () => {
-    const event = toUnifiedAssistantMessageEndFromRawEvents([
-      {
-        eventKind: 'message_end',
-        eventJson: {
-          type: 'message_end',
-          messageId: 'msg-123',
-          message: {
-            role: 'assistant',
-            content: [{ type: 'text', text: 'Explicit end' }],
-          },
-        },
-      },
-    ])
-
-    expect(event).toEqual({
-      type: 'message_end',
-      messageId: 'msg-123',
-      message: {
-        role: 'assistant',
-        content: [{ type: 'text', text: 'Explicit end' }],
-      },
-    })
-  })
-
-  test('maps sdk assistant message rows into one message_end event', () => {
-    const event = toUnifiedAssistantMessageEndFromRawEvents([
-      {
-        eventKind: 'sdk.message',
-        eventJson: {
-          type: 'message',
-          role: 'assistant',
-          content: 'Hello from rex',
-          payload: {
-            message: {
-              id: 'sdk-msg-1',
+        await launcher({
+          sessionRef: { scopeRef: row.scopeRef, laneRef: 'main' },
+          intent: {
+            placement: {
+              ...row.placement,
+              runMode: 'task',
+              bundle: { kind: 'compose', compose: [] },
             },
-          },
-        },
-      },
-    ])
+            ...(row.harness !== undefined ? { harness: row.harness } : {}),
+            ...(row.execution !== undefined ? { execution: row.execution } : {}),
+          } as HrcRuntimeIntent,
+        })
+      } finally {
+        daemon.stop(true)
+        rmSync(socketPath, { force: true })
+      }
 
-    expect(event).toEqual({
-      type: 'message_end',
-      messageId: 'sdk-msg-1',
-      message: {
-        role: 'assistant',
-        content: [{ type: 'text', text: 'Hello from rex' }],
-      },
-    })
-  })
-
-  test('falls back to sdk complete finalOutput when no assistant message row exists', () => {
-    const event = toUnifiedAssistantMessageEndFromRawEvents([
-      {
-        eventKind: 'sdk.complete',
-        eventJson: {
-          type: 'complete',
-          result: {
-            success: true,
-            finalOutput: 'Final output only',
-          },
-        },
-      },
-    ])
-
-    expect(event).toEqual({
-      type: 'message_end',
-      message: {
-        role: 'assistant',
-        content: [{ type: 'text', text: 'Final output only' }],
-      },
-    })
-  })
-
-  test('accumulates assistant deltas when no final message exists yet', () => {
-    const event = toUnifiedAssistantMessageEndFromRawEvents([
-      {
-        eventKind: 'sdk.message_delta',
-        eventJson: {
-          type: 'message_delta',
-          role: 'assistant',
-          delta: '4',
-        },
-      },
-      {
-        eventKind: 'sdk.message_delta',
-        eventJson: {
-          type: 'message_delta',
-          role: 'assistant',
-          delta: '2',
-        },
-      },
-    ])
-
-    expect(event).toEqual({
-      type: 'message_end',
-      message: {
-        role: 'assistant',
-        content: [{ type: 'text', text: '42' }],
-      },
-    })
-  })
-
-  test('returns undefined when the raw run never emitted assistant output', () => {
-    expect(
-      toUnifiedAssistantMessageEndFromRawEvents([
-        {
-          eventKind: 'sdk.message',
-          eventJson: {
-            type: 'message',
-            role: 'user',
-            content: 'ping',
-          },
-        },
-      ])
-    ).toBeUndefined()
-  })
+      expect(resolveRequests).toHaveLength(1)
+      const runtimeIntent = resolveRequests[0]?.runtimeIntent
+      expect(runtimeIntent?.harness).toEqual(row.expectedHarness)
+      expect(runtimeIntent?.execution).toEqual(row.expectedExecution)
+      expect(runtimeIntent?.placement.dryRun).toBe(false)
+      expect(resolveRequests[0]?.create).toBe(true)
+      if (row.expectedDaemonRequests !== undefined) {
+        expect(daemonRequests).toEqual(row.expectedDaemonRequests)
+      } else {
+        expect(daemonRequests).toHaveLength(1)
+      }
+    }
+  )
 })
 
 type RetainedLauncherStore = {
@@ -1733,7 +1527,7 @@ function retainedLauncherClient(onEnter?: (() => void) | undefined) {
 // T-08575: launcher baselines and no-runId completion waits share the same
 // ordinary-origin population, while malformed stores fail before delivery.
 describe('T-08575 real launcher retained-evidence fence', () => {
-  test('T2 fallback wait skips retained history and emits the later live reply', async () => {
+  test('fallback completion wait skips retained-origin history and emits only the later live reply', async () => {
     const store = createRetainedLauncherStore({ evidenceColumn: true })
     const runStore = new InMemoryRunStore()
     const acpRun = retainedAcpRun(runStore)
@@ -1786,7 +1580,7 @@ describe('T-08575 real launcher retained-evidence fence', () => {
     }
   })
 
-  test('T2 C ordinary-origin fallback reply still completes immediately', async () => {
+  test('fallback completion wait accepts an ordinary-origin reply written at enter', async () => {
     const store = createRetainedLauncherStore({ evidenceColumn: true })
     const runStore = new InMemoryRunStore()
     const acpRun = retainedAcpRun(runStore)
@@ -1817,7 +1611,7 @@ describe('T-08575 real launcher retained-evidence fence', () => {
     }
   })
 
-  test('T-TX2 fallback wait detects and selects from one production read transaction', async () => {
+  test('schema change between detection and select during the fallback wait never leaks retained rows', async () => {
     const store = createRetainedLauncherStore()
     store.db.exec('PRAGMA journal_mode = WAL')
     insertOrdinaryLauncherEvent(store.db, { hrcSeq: 5, text: 'LIVE-BASELINE' })
@@ -1877,7 +1671,7 @@ describe('T-08575 real launcher retained-evidence fence', () => {
     { id: 'C', origin: null, expectedSeq: 9, replayed: false },
     { id: "C'", origin: null, expectedSeq: 9, replayed: true },
   ]) {
-    test(`T3a launch baseline ${control.id} case`, async () => {
+    test(`launch baseline afterHrcSeq skips retained rows but counts ordinary and replayed rows (${control.id} row)`, async () => {
       const store = createRetainedLauncherStore({ evidenceColumn: true })
       insertRetainedLauncherEvent(store.db, {
         hrcSeq: 5,
@@ -1910,7 +1704,7 @@ describe('T-08575 real launcher retained-evidence fence', () => {
     })
   }
 
-  test('T-TX1 launch baseline detects and selects from one production read transaction', async () => {
+  test('schema change between detection and select at launch keeps the baseline at the last ordinary row', async () => {
     const store = createRetainedLauncherStore()
     store.db.exec('PRAGMA journal_mode = WAL')
     insertOrdinaryLauncherEvent(store.db, { hrcSeq: 5, text: 'LIVE-BASELINE' })
@@ -1955,6 +1749,17 @@ describe('T-08575 real launcher retained-evidence fence', () => {
     }
   })
 
+  // The corrupt-file row has no message pin: today a corrupt store fails open in
+  // the live-tmux lookup and the launcher reaches client.dispatchTurn, which the
+  // fake lacks (TypeError). Suspected product bug, held for the owner (T-11957).
+  const EXPECTED_STORE_FAULT: Record<
+    'missing' | 'without-hrc-seq' | 'corrupt',
+    string | undefined
+  > = {
+    missing: 'hrc_events schema unrecognized: table missing',
+    'without-hrc-seq': 'hrc_events schema unrecognized: hrc_seq column missing',
+    corrupt: undefined,
+  }
   for (const broken of ['missing', 'without-hrc-seq', 'corrupt'] as const) {
     test(`T-Q1a rejects before delivery when the HRC store is ${broken}`, async () => {
       const store =
@@ -1977,17 +1782,19 @@ describe('T-08575 real launcher retained-evidence fence', () => {
         createClient: () => client.client,
       })
       try {
-        await expect(
-          launcher({
-            ...retainedLauncherInput(runStore, acpRun.runId),
-            waitForCompletion: false,
-          })
-        ).rejects.toThrow()
+        const error = await launcher({
+          ...retainedLauncherInput(runStore, acpRun.runId),
+          waitForCompletion: false,
+        }).catch((caught: unknown) => caught)
+        expect(error).toBeInstanceOf(Error)
+        const expectedFault = EXPECTED_STORE_FAULT[broken]
+        if (expectedFault !== undefined) {
+          expect((error as Error).message).toBe(expectedFault)
+        }
         expect(client.calls()).toBe(0)
-        expect(runStore.getRun(acpRun.runId)).not.toMatchObject({
-          afterHrcSeq: 0,
-          status: 'running',
-        })
+        const run = runStore.getRun(acpRun.runId)
+        expect(run?.status).toBe('pending')
+        expect(run?.afterHrcSeq).toBeUndefined()
       } finally {
         store.db?.close()
         rmSync(store.fixtureDir, { recursive: true, force: true })
@@ -1995,7 +1802,7 @@ describe('T-08575 real launcher retained-evidence fence', () => {
     })
   }
 
-  test('T-Q1a control permits an empty recognized hrc_events table', async () => {
+  test('empty recognized hrc_events table launches with baseline 0', async () => {
     const store = createRetainedLauncherStore({ evidenceColumn: true })
     const runStore = new InMemoryRunStore()
     const acpRun = retainedAcpRun(runStore)

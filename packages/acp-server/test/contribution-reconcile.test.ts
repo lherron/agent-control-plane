@@ -1,14 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { createInMemoryAdminStore } from 'acp-admin-store'
-import type { InputAdmissionRecord, InputApplication } from 'acp-core'
-import type { HrcActiveRunContributionResponse } from 'hrc-core'
+import type { InputApplication } from 'acp-core'
 
-import {
-  InMemoryInputAdmissionStore,
-  InMemoryInputApplicationStore,
-  type InputAdmissionStore,
-  type InputApplicationStore,
-} from '../src/index.js'
+import { InMemoryInputAdmissionStore, InMemoryInputApplicationStore } from '../src/index.js'
 
 import { withWiredServer } from './fixtures/wired-server.js'
 
@@ -35,17 +29,6 @@ type ReconcileStores = {
   adminStore: ReturnType<typeof createInMemoryAdminStore>
   inputAdmissionStore: InMemoryInputAdmissionStore
   inputApplicationStore: InMemoryInputApplicationStore
-}
-
-type ReconcileStoreContract = InputApplicationStore & {
-  reconcileFromHrcLedger(input: {
-    inputApplicationId: string
-    ledger: HrcActiveRunContributionResponse
-    inputAdmissionStore: InputAdmissionStore
-  }): {
-    inputApplication: InputApplication
-    inputAdmission?: InputAdmissionRecord | undefined
-  }
 }
 
 function createReconcileStores(): ReconcileStores {
@@ -102,47 +85,6 @@ function hrcNotFound(): Error & { status?: number } {
 }
 
 describe('contribution reconciliation', () => {
-  test('store reconciliation accepts an admission_pending application without mutating original admission response', () => {
-    const stores = createReconcileStores()
-    const application = seedPendingAdmission(stores, {
-      inputAttemptId: 'attempt-store-accepted',
-      targetRunId: 'hrc-store-accepted',
-    })
-    const originalAdmission = stores.inputAdmissionStore.getByInputAttemptId(
-      application.inputAttemptId
-    )
-
-    const reconciled = (
-      stores.inputApplicationStore as ReconcileStoreContract
-    ).reconcileFromHrcLedger({
-      inputApplicationId: application.inputApplicationId,
-      inputAdmissionStore: stores.inputAdmissionStore,
-      ledger: {
-        status: 'accepted',
-        inputApplicationId: application.inputApplicationId,
-        runId: 'hrc-store-accepted',
-        hostSessionId: 'hsid-store-accepted',
-        generation: 4,
-        runtimeId: 'rt-store-accepted',
-      },
-    })
-
-    expect(reconciled.inputApplication).toMatchObject({
-      inputApplicationId: application.inputApplicationId,
-      status: 'accepted',
-      hrcRunId: 'hrc-store-accepted',
-      hostSessionId: 'hsid-store-accepted',
-      generation: 4,
-      runtimeId: 'rt-store-accepted',
-    })
-    expect(reconciled.inputAdmission).toMatchObject({
-      inputAttemptId: application.inputAttemptId,
-      admissionKind: 'accepted_in_flight',
-      currentState: expect.objectContaining({ applicationStatus: 'accepted' }),
-    })
-    expect(reconciled.inputAdmission?.originalResponse).toEqual(originalAdmission?.originalResponse)
-  })
-
   test('single id accepted from HRC transitions ACP InputApplication and InputAdmission', async () => {
     const stores = createReconcileStores()
     const application = seedPendingAdmission(stores, {
@@ -389,7 +331,7 @@ describe('contribution reconciliation', () => {
     )
   })
 
-  test('reconciliation requires admin actor authorization', async () => {
+  test('reconcile asks authorize for admin.contributions.reconcile on the input-application and returns 403 on deny', async () => {
     const stores = createReconcileStores()
     const application = seedPendingAdmission(stores, {
       inputAttemptId: 'attempt-route-authz',

@@ -6,9 +6,10 @@ import { withTmpStore } from '../fixtures/tmp-store.js'
 describe('10 replay ordering', () => {
   test('events return in stable per-project sequence order', () => {
     withTmpStore((store) => {
+      // Timestamps run backwards so a ts-ordered read would reverse the result.
       appendEvent(store, {
         projectId: 'demo',
-        event: { kind: 'system.noted', ts: '2026-04-19T01:30:00.000Z' },
+        event: { kind: 'system.noted', ts: '2026-04-19T01:30:02.000Z' },
       })
       appendEvent(store, {
         projectId: 'demo',
@@ -16,7 +17,7 @@ describe('10 replay ordering', () => {
       })
       appendEvent(store, {
         projectId: 'demo',
-        event: { kind: 'artifact.linked', ts: '2026-04-19T01:30:02.000Z' },
+        event: { kind: 'artifact.linked', ts: '2026-04-19T01:30:00.000Z' },
       })
 
       const events = listEvents(store, { projectId: 'demo' })

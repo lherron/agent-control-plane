@@ -66,6 +66,24 @@ const EMPTY_HOOK_CATALOG_PATH = fileURLToPath(
   new URL('../../test/fixtures/empty-wrkf-hook-catalog.json', import.meta.url)
 )
 
+/**
+ * Test-local variant of the shared demo-linear template whose `submit` outcome
+ * also emits a `wake_role` effect, so the wake_role payload guard below always
+ * has a real effect to inspect (the shared fixture emits only set_task_state).
+ */
+function demoTemplateWithWakeRole(): string {
+  const template = JSON.parse(readFileSync(DEMO_TEMPLATE_PATH, 'utf8')) as {
+    transitions: Array<{ outcomes: Array<{ effects: unknown[] }> }>
+  }
+  template.transitions[0]!.outcomes[0]!.effects.push({
+    kind: 'wake_role',
+    role: 'agent',
+    semanticKey: 'wake:{taskUuid}:{revision}:agent',
+    reason: 'demo-linear submit wakes the agent role',
+  })
+  return JSON.stringify(template)
+}
+
 let fixtureDir = ''
 let fixtureDbPath = ''
 let fixtureTaskId = ''
@@ -116,7 +134,7 @@ describe('W5 real-process: @wrkq/client effect shape contract (fidelity guard)',
     })
     try {
       await lifecycle.client!.wrkf.workflow.install({
-        body: readFileSync(DEMO_TEMPLATE_PATH, 'utf8'),
+        body: demoTemplateWithWakeRole(),
         sourceName: 'demo-linear-template.json',
       })
       const task = await lifecycle.client!.wrkq.task.create({
@@ -177,12 +195,8 @@ describe('W5 real-process: @wrkq/client effect shape contract (fidelity guard)',
       expect(Array.isArray(result)).toBe(true)
       const effects = result as Array<Record<string, unknown>>
 
-      if (effects.length === 0) {
-        console.log(
-          `[FIDELITY GUARD] No effects on ${fixtureTaskId} — effect key assertions skipped`
-        )
-        return
-      }
+      // The fixture's submit transition always emits effects; an empty list is drift.
+      expect(effects.length).toBeGreaterThan(0)
 
       const effect = effects[0]!
       const keys = Object.keys(effect)
@@ -226,14 +240,8 @@ describe('W5 real-process: @wrkq/client effect shape contract (fidelity guard)',
       const effects = (Array.isArray(result) ? result : []) as Array<Record<string, unknown>>
       const wakeRoleEffects = effects.filter((e) => e['kind'] === 'wake_role')
 
-      // If the live task has no wake_role effects, skip the payload assertions.
-      // The guard is still useful: it checks the list API returns effects at all.
-      if (wakeRoleEffects.length === 0) {
-        console.log(
-          `[FIDELITY GUARD] No wake_role effects on ${fixtureTaskId} — payload shape assertions skipped`
-        )
-        return
-      }
+      // The test-local template's submit outcome emits a wake_role effect.
+      expect(wakeRoleEffects.length).toBeGreaterThan(0)
 
       for (const effect of wakeRoleEffects) {
         const payload = effect['payload'] as Record<string, unknown>
@@ -317,46 +325,6 @@ describe('W5 real-process: @wrkq/client effect shape contract (fidelity guard)',
     }
   }, 15000)
 
-  // ── Shape: claim response keys when effects are present ──────────────────
-  //
-  // PASSES NOW (using an existing leased effect or verifying the key structure).
-  // When a claim succeeds, the response must have {effects:[...], leaseToken:string}.
-
-  test('REAL-PROCESS: @wrkq/client effect.list returns an ARRAY (not {effects:[...]} wrapper)', async () => {
-    // FIDELITY GUARD: The @wrkq/client effect.list API returns a bare array of effects,
-    // NOT an {effects:[...]} wrapper object. This differs from effect.claim which DOES
-    // use an {effects:[...]} wrapper.
-    //
-    // REAL SHAPE (captured 2026-06-05):
-    //   effect.list → Array<WrkfEffect>  (bare array, 0..N items)
-    //   effect.claim → {effects:WrkfEffect[], leaseToken:string, leaseExpiresAt:string}
-    //
-    // The reconciler uses effect.claim (not effect.list), so this is informational
-    // for implementers who might be tempted to use effect.list.
-    const lc = await createWrkfClientLifecycle({
-      command: WRKF_BINARY,
-      dbLocator: fixtureDbPath,
-      hookCatalogPath: EMPTY_HOOK_CATALOG_PATH,
-      clientInfo: { name: 'acp-server-test-effect-shape', version: '0.1.0' },
-    })
-    try {
-      const result = await lc.wrkf!.effect.list({ task: fixtureTaskId })
-
-      // effect.list returns a bare array, not an {effects:[...]} object
-      expect(Array.isArray(result)).toBe(true)
-
-      // FIDELITY GUARD: must NOT be wrapped in {effects: [...]}
-      if (!Array.isArray(result) && typeof result === 'object' && result !== null) {
-        expect(
-          (result as Record<string, unknown>)['effects'],
-          'effect.list must return bare array, not {effects:[...]} — shape drift detected'
-        ).toBeUndefined()
-      }
-    } finally {
-      await lc.close()
-    }
-  }, 15000)
-
   // ── Shape: effect idempotencyKey identity components ─────────────────────
   //
   // PASSES NOW. The reconciler uses idempotencyKey as the appendEvent idempotencyKey.
@@ -375,12 +343,7 @@ describe('W5 real-process: @wrkq/client effect shape contract (fidelity guard)',
       const result = await lc.wrkf!.effect.list({ task: fixtureTaskId })
       const effects = (Array.isArray(result) ? result : []) as Array<Record<string, unknown>>
 
-      if (effects.length === 0) {
-        console.log(
-          `[FIDELITY GUARD] No effects on ${fixtureTaskId} — idempotencyKey format check skipped`
-        )
-        return
-      }
+      expect(effects.length).toBeGreaterThan(0)
 
       for (const effect of effects) {
         const key = effect['idempotencyKey'] as string

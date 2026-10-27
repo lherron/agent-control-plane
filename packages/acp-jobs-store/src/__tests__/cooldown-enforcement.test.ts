@@ -191,7 +191,7 @@ async function ingestAndTick(
 // ---------------------------------------------------------------------------
 
 describe('T-04893 RED A-1 — ISO cooldown persisted form must be runtime-parseable', () => {
-  test('managed event-hook "PT300S" cooldown: persisted trigger.cooldown satisfies parseDurationToMs > 0', () => {
+  test('a managed event hook with ISO cooldown PT300S is stored in a runtime-parseable form', () => {
     const store = createInMemoryJobsStore()
     const result = applyManagedJob(store, EVENT_HOOK_ISO_COOLDOWN)
 

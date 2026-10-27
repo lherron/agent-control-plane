@@ -70,6 +70,13 @@ describe('GatewayDiscordApp live tool progress e2e', () => {
     expect(content).toContain('❓ **File layer**')
     expect(content).toContain('How do you want the file layer handled?')
     expect(content).toContain('1. **Summon agent-minder**')
+    // Both prose segments keep their arrival order around the tool line.
+    expect(content.indexOf('First assistant update.')).toBeLessThan(
+      content.indexOf('📖 Read: /tmp/example.txt')
+    )
+    expect(content.indexOf('📖 Read: /tmp/example.txt')).toBeLessThan(
+      content.indexOf('Second assistant update.')
+    )
   })
 
   test('steers replies into an active AskUserQuestion placeholder without dashboard state', async () => {
@@ -488,3 +495,200 @@ function hrcTurnEvent(
     payload,
   }
 }
+
+describe('GatewayDiscordApp live progress assistant text and tool lines', () => {
+  async function liveHarness() {
+    const harness = createLiveProgressHarness()
+    await harness.app.refreshBindings()
+    await harness.app.handleMessageCreate(harness.inboundMessage())
+    return harness
+  }
+
+  function latestEdit(webhook: FakeWebhook): string {
+    return webhook.edits.at(-1)?.payload.content ?? ''
+  }
+
+  function occurrences(content: string, text: string): number {
+    return content.split(text).length - 1
+  }
+
+  test('a turn.message carrying the streamed messageId renders the streamed text once', async () => {
+    const harness = await liveHarness()
+    const webhook = harness.webhook()
+
+    harness.emit(
+      hrcTurnEvent(1, 'message_start', {
+        type: 'message_start',
+        messageId: 'msg-streamed',
+        message: { role: 'assistant', content: '' },
+      })
+    )
+    harness.emit(
+      hrcTurnEvent(2, 'message_update', {
+        type: 'message_update',
+        messageId: 'msg-streamed',
+        textDelta: 'STREAMED-ONCE',
+      })
+    )
+    harness.emit(toolStart(3, 'tool_after', 'Read', { file_path: '/after.ts' }))
+    harness.emit(
+      hrcTurnEvent(4, 'turn.message', {
+        type: 'message_end',
+        messageId: 'msg-streamed',
+        message: { role: 'assistant', content: 'STREAMED-ONCE' },
+      })
+    )
+    await waitFor(() => latestEdit(webhook).includes('📖 Read: /after.ts'), 1000)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    expect(occurrences(latestEdit(webhook), 'STREAMED-ONCE')).toBe(1)
+  })
+
+  test('an anchorless cumulative message_end after a streamed message renders the text once', async () => {
+    const harness = await liveHarness()
+    const webhook = harness.webhook()
+
+    harness.emit(
+      hrcTurnEvent(1, 'message_start', {
+        type: 'message_start',
+        messageId: 'msg-streamed',
+        message: { role: 'assistant', content: '' },
+      })
+    )
+    harness.emit(
+      hrcTurnEvent(2, 'message_update', {
+        type: 'message_update',
+        messageId: 'msg-streamed',
+        textDelta: 'CUMULATIVE-ONCE',
+      })
+    )
+    harness.emit(
+      hrcTurnEvent(3, 'message_end', {
+        type: 'message_end',
+        messageId: 'msg-streamed',
+        message: { role: 'assistant', content: 'CUMULATIVE-ONCE' },
+      })
+    )
+    harness.emit(
+      hrcTurnEvent(4, 'message_end', {
+        type: 'message_end',
+        message: { role: 'assistant', content: 'CUMULATIVE-ONCE' },
+      })
+    )
+    harness.emit(toolStart(5, 'tool_after', 'Read', { file_path: '/after.ts' }))
+    await waitFor(() => latestEdit(webhook).includes('📖 Read: /after.ts'), 1000)
+
+    expect(occurrences(latestEdit(webhook), 'CUMULATIVE-ONCE')).toBe(1)
+  })
+
+  test('an id-less streamed message closed by a tool is not duplicated by its id-less message_end', async () => {
+    const harness = await liveHarness()
+    const webhook = harness.webhook()
+
+    harness.emit(
+      hrcTurnEvent(1, 'message_start', {
+        type: 'message_start',
+        message: { role: 'assistant', content: '' },
+      })
+    )
+    harness.emit(
+      hrcTurnEvent(2, 'message_update', { type: 'message_update', textDelta: 'NOID-BEFORE' })
+    )
+    harness.emit(toolStart(3, 'tool_mid', 'Read', { file_path: '/mid.ts' }))
+    harness.emit(toolEnd(4, 'tool_mid', 'Read'))
+    harness.emit(
+      hrcTurnEvent(5, 'message_end', {
+        type: 'message_end',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'NOID-BEFORE' }] },
+      })
+    )
+    harness.emit(toolStart(6, 'tool_last', 'Read', { file_path: '/last.ts' }))
+    await waitFor(() => latestEdit(webhook).includes('📖 Read: /last.ts'), 1000)
+
+    const content = latestEdit(webhook)
+    expect(occurrences(content, 'NOID-BEFORE')).toBe(1)
+    expect(content.indexOf('NOID-BEFORE')).toBeLessThan(content.indexOf('📖 Read: /mid.ts'))
+  })
+
+  test('a message_end-only assistant turn renders once even when turn_end repeats it as finalOutput', async () => {
+    const harness = await liveHarness()
+    const webhook = harness.webhook()
+
+    harness.emit(toolStart(1, 'tool_codex', 'Read', { file_path: '/c.ts' }))
+    harness.emit(toolEnd(2, 'tool_codex', 'Read'))
+    harness.emit(
+      hrcTurnEvent(3, 'message_end', {
+        type: 'message_end',
+        messageId: 'msg-codex',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'CODEX-FINAL' }] },
+      })
+    )
+    harness.emit(
+      hrcTurnEvent(4, 'turn_end', { type: 'turn_end', payload: { finalOutput: 'CODEX-FINAL' } })
+    )
+    await waitFor(() => latestEdit(webhook).includes('CODEX-FINAL'), 1000)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    const content = latestEdit(webhook)
+    expect(occurrences(content, 'CODEX-FINAL')).toBe(1)
+    expect(content.indexOf('📖 Read: /c.ts')).toBeLessThan(content.indexOf('CODEX-FINAL'))
+  })
+
+  test('each tool renders its emoji and primary argument as one progress line', async () => {
+    const harness = await liveHarness()
+    const webhook = harness.webhook()
+    const rows: Array<[string, Record<string, unknown>, string]> = [
+      ['Write', { file_path: '/w.ts' }, '✍️ Write: /w.ts'],
+      ['Edit', { file_path: '/e.ts' }, '🔧 Edit: /e.ts'],
+      ['Grep', { pattern: 'TODO', path: '/src' }, '🔎 Grep: TODO'],
+      ['Glob', { pattern: '**/*.ts' }, '📁 Glob: **/*.ts'],
+      ['Task', { description: 'Run tests' }, '🤖 Task: Run tests'],
+      ['WebFetch', { url: 'https://example.com' }, '📄 WebFetch: https://example.com'],
+      ['WebSearch', { query: 'bun test runner' }, '🔍 WebSearch: bun test runner'],
+      ['NotebookEdit', { notebook_path: '/nb.ipynb' }, '📓 NotebookEdit: /nb.ipynb'],
+      ['TodoWrite', { todos: [{ text: 'a' }, { text: 'b' }] }, '📋 TodoWrite: 2 todos'],
+      ['TodoWrite', { todos: [{ text: 'a' }] }, '📋 TodoWrite: 1 todo'],
+      ['CustomTool', { count: 42, path: '/foo' }, '⚙️ CustomTool: /foo'],
+    ]
+    rows.forEach(([toolName, input], index) => {
+      harness.emit(toolStart(index + 1, `tool_${index}`, toolName, input))
+    })
+    await waitFor(() => latestEdit(webhook).includes('⚙️ CustomTool: /foo'), 2000)
+
+    const lines = latestEdit(webhook).split('\n')
+    for (const [, , expected] of rows) {
+      expect(lines).toContain(expected)
+    }
+  })
+
+  test('keeps the latest twelve notices inline and truncates a long notice to the line cap', async () => {
+    const harness = await liveHarness()
+    const webhook = harness.webhook()
+    const notice = (seq: number, level: string, message: string) =>
+      hrcTurnEvent(seq, 'notice', { type: 'notice', level, message })
+
+    harness.emit(notice(1, 'info', 'connected to live session stream'))
+    harness.emit(notice(2, 'warn', 'tool output was compacted'))
+    harness.emit(notice(3, 'error', 'tool progress edit failed'))
+    for (let index = 0; index < 11; index += 1) {
+      harness.emit(notice(index + 4, 'info', `extra notice ${index}`))
+    }
+    harness.emit(notice(15, 'info', `LONG-NOTICE ${'x'.repeat(200)}`))
+    await waitFor(() => latestEdit(webhook).includes('LONG-NOTICE'), 1000)
+
+    const content = latestEdit(webhook)
+    expect(content).toContain('_... +3 earlier tools_')
+    expect(content).not.toContain('connected to live session stream')
+    expect(content).not.toContain('tool output was compacted')
+    expect(content).not.toContain('tool progress edit failed')
+    expect(content).toContain('ℹ️ extra notice 0')
+    expect(content).toContain('ℹ️ extra notice 10')
+    const noticeLines = content
+      .split('\n')
+      .filter((line) => line.startsWith('ℹ️ ') || line.startsWith('⚠️ ') || line.startsWith('❌ '))
+    expect(noticeLines).toHaveLength(12)
+    const longLine = noticeLines.find((line) => line.includes('LONG-NOTICE')) ?? ''
+    expect(longLine.length).toBeLessThanOrEqual(80)
+    expect(longLine.endsWith('...')).toBe(true)
+  })
+})

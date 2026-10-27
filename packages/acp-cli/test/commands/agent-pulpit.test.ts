@@ -1,101 +1,87 @@
-import { describe, expect, test } from 'bun:test'
+import { expect, test } from 'bun:test'
+import { createFetchQueue, runCli } from '../cli-test-helpers.js'
 
-import { runAgentPulpitCommand } from '../../src/commands/agent-pulpit.js'
-import type { AcpClient } from '../../src/http-client.js'
-
-function clientDouble(overrides: Partial<AcpClient>): AcpClient {
-  return {
-    createAgentPulpitMessage:
-      overrides.createAgentPulpitMessage ?? (() => Promise.reject(new Error('not implemented'))),
-  } as AcpClient
+const delivery = {
+  deliveryRequestId: 'dr_cli_binding',
+  gatewayId: 'acp-discord-smoke',
+  bindingId: 'ifb_mneme',
+  sessionRef: { scopeRef: 'agent:mneme:project:media-ingest', laneRef: 'main' },
+  conversationRef: 'channel:mneme',
+  body: { kind: 'text/markdown', text: 'smoke' },
+  status: 'queued',
+  createdAt: '2026-06-10T00:00:00.000Z',
 }
 
-describe('agent-pulpit send command', () => {
-  test('sends using an explicit binding and prints generated idempotency key', async () => {
-    const output = await runAgentPulpitCommand(
-      ['send', '--binding', 'ifb_mneme', '--text', 'smoke'],
-      {
-        createClient: () =>
-          clientDouble({
-            async createAgentPulpitMessage(input) {
-              expect(input.bindingId).toBe('ifb_mneme')
-              expect(input.text).toBe('smoke')
-              expect(input.idempotencyKey).toMatch(/^acp-cli:agent-pulpit:/)
-              return {
-                idempotencyKey: input.idempotencyKey,
-                delivery: {
-                  deliveryRequestId: 'dr_cli_binding',
-                  gatewayId: 'acp-discord-smoke',
-                  bindingId: 'ifb_mneme',
-                  sessionRef: { scopeRef: 'agent:mneme:project:media-ingest', laneRef: 'main' },
-                  conversationRef: 'channel:mneme',
-                  body: { kind: 'text/markdown', text: 'smoke' },
-                  status: 'queued',
-                  createdAt: '2026-06-10T00:00:00.000Z',
-                },
-              }
-            },
-          }),
-      }
-    )
+test('agent-pulpit send binding through CLI and HTTP client', async () => {
+  const queue = createFetchQueue([
+    {
+      body: { idempotencyKey: 'acp-cli:agent-pulpit:fixture', delivery },
+      assert(request) {
+        expect(request.method).toBe('POST')
+        expect(new URL(request.url).pathname).toBe('/v1/agent-pulpit/messages')
+        expect(request.body).toMatchObject({
+          bindingId: 'ifb_mneme',
+          text: 'smoke',
+          idempotencyKey: expect.stringMatching(/^acp-cli:agent-pulpit:/),
+        })
+      },
+    },
+  ])
+  const result = await runCli(
+    ['agent-pulpit', 'send', '--binding', 'ifb_mneme', '--text', 'smoke'],
+    { fetchImpl: queue.fetchImpl }
+  )
+  expect(result.exitCode).toBe(0)
+  expect(result.stdout).toContain('Queued dr_cli_binding (queued)')
+  expect(result.stdout).toContain('idempotencyKey: acp-cli:agent-pulpit:')
+  expect(queue.calls).toHaveLength(1)
+})
 
-    expect(output.format).toBe('text')
-    expect(output.text).toContain('Queued dr_cli_binding (queued)')
-    expect(output.text).toContain('idempotencyKey: acp-cli:agent-pulpit:')
+test('agent-pulpit send selectors through CLI and HTTP client', async () => {
+  const queue = createFetchQueue([
+    {
+      body: {
+        idempotencyKey: 'media-ingest:done:1',
+        delivery: { ...delivery, deliveryRequestId: 'dr_cli_primary' },
+      },
+      assert(request) {
+        expect(request.method).toBe('POST')
+        expect(new URL(request.url).pathname).toBe('/v1/agent-pulpit/messages')
+        expect(request.body).toMatchObject({
+          gatewayType: 'discord',
+          agentId: 'mneme',
+          projectId: 'media-ingest',
+          laneRef: 'main',
+          text: 'done',
+          idempotencyKey: 'media-ingest:done:1',
+        })
+      },
+    },
+  ])
+  const result = await runCli(
+    [
+      'agent-pulpit',
+      'send',
+      '--gateway-type',
+      'discord',
+      '--agent',
+      'mneme',
+      '--project',
+      'media-ingest',
+      '--lane-ref',
+      'main',
+      '--text',
+      'done',
+      '--idempotency-key',
+      'media-ingest:done:1',
+      '--json',
+    ],
+    { fetchImpl: queue.fetchImpl }
+  )
+  expect(result.exitCode).toBe(0)
+  expect(JSON.parse(result.stdout)).toMatchObject({
+    idempotencyKey: 'media-ingest:done:1',
+    delivery: { deliveryRequestId: 'dr_cli_primary' },
   })
-
-  test('sends using primary gateway type, agent, and project selectors', async () => {
-    const output = await runAgentPulpitCommand(
-      [
-        'send',
-        '--gateway-type',
-        'discord',
-        '--agent',
-        'mneme',
-        '--project',
-        'media-ingest',
-        '--lane-ref',
-        'main',
-        '--text',
-        'done',
-        '--idempotency-key',
-        'media-ingest:done:1',
-        '--json',
-      ],
-      {
-        createClient: () =>
-          clientDouble({
-            async createAgentPulpitMessage(input) {
-              expect(input).toMatchObject({
-                gatewayType: 'discord',
-                agentId: 'mneme',
-                projectId: 'media-ingest',
-                laneRef: 'main',
-                text: 'done',
-                idempotencyKey: 'media-ingest:done:1',
-              })
-              return {
-                idempotencyKey: input.idempotencyKey,
-                delivery: {
-                  deliveryRequestId: 'dr_cli_primary',
-                  gatewayId: 'acp-discord-smoke',
-                  bindingId: 'ifb_mneme',
-                  sessionRef: { scopeRef: 'agent:mneme:project:media-ingest', laneRef: 'main' },
-                  conversationRef: 'channel:mneme',
-                  body: { kind: 'text/markdown', text: 'done' },
-                  status: 'queued',
-                  createdAt: '2026-06-10T00:00:00.000Z',
-                },
-              }
-            },
-          }),
-      }
-    )
-
-    expect(output.format).toBe('json')
-    expect(output.body).toMatchObject({
-      idempotencyKey: 'media-ingest:done:1',
-      delivery: { deliveryRequestId: 'dr_cli_primary' },
-    })
-  })
+  expect(queue.calls).toHaveLength(1)
 })

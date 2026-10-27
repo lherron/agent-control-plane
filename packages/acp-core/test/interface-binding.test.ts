@@ -93,7 +93,9 @@ describe('resolveBinding', () => {
 })
 
 describe('delivery request predicates', () => {
-  test('allow ack and fail for non-terminal statuses', () => {
+  test('queued and delivering deliveries can be acked or failed and are not terminal', () => {
+    expect(isTerminal('queued')).toBe(false)
+    expect(isTerminal('delivering')).toBe(false)
     expect(canAck('queued')).toBe(true)
     expect(canAck('delivering')).toBe(true)
     expect(canFail('queued')).toBe(true)

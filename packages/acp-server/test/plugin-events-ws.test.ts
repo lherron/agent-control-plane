@@ -370,7 +370,7 @@ describe('ACP plugin event WebSocket', () => {
     expect(socket.data.abortController.signal.aborted).toBe(true)
   })
 
-  test('asserts exact filters again at the ACP boundary', async () => {
+  test('an HRC event outside the requested filters closes the socket with filter_assertion_failed', async () => {
     const sent: Array<Record<string, unknown>> = []
     const closes: Array<[number | undefined, string | undefined]> = []
     const client = clientForStream(() =>
@@ -406,7 +406,7 @@ describe('ACP plugin event WebSocket', () => {
     expect(closes).toEqual([[1011, 'filter_assertion_failed']])
   })
 
-  test('ping returns pong without changing stream state', () => {
+  test('ping answers pong and a malformed client frame is ignored', () => {
     const sent: string[] = []
     const socket = {
       data: buildPluginEventsUpgradeData(

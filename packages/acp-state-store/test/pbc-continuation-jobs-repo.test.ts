@@ -174,64 +174,22 @@ const LEASE_EXPIRES = '2099-01-01T00:05:00.000Z'
 // ─── Section 1: admit — initial creation ─────────────────────────────────────
 
 describe('PbcContinuationJobsRepo.admit — initial creation (Phase 4a red)', () => {
-  test('[RED] admit returns { job, created: true } on first call', () => {
+  test('first admission creates a queued job with the supplied fields and a retrievable id', () => {
     const store = openAcpStateStore({ dbPath: ':memory:' })
     try {
       const repo = getRepo(store)
       const result = repo.admit(BASE_ADMIT)
       expect(result.created).toBe(true)
-      expect(result.job).toBeDefined()
-    } finally {
-      store.close()
-    }
-  })
-
-  test('[RED] admitted job has status=queued, attempt=0', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
-      const { job } = repo.admit(BASE_ADMIT)
+      const { job } = result
+      expect(job).toBeDefined()
       expect(job.status).toBe('queued')
       expect(job.attempt).toBe(0)
-    } finally {
-      store.close()
-    }
-  })
-
-  test('[RED] admitted job carries the input fields', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
-      const { job } = repo.admit(BASE_ADMIT)
       expect(job.taskId).toBe(BASE_ADMIT.taskId)
       expect(job.workflowRef).toBe(BASE_ADMIT.workflowRef)
       expect(job.revisionAtAdmission).toBe(BASE_ADMIT.revisionAtAdmission)
       expect(job.idempotencyKey).toBe(BASE_ADMIT.idempotencyKey)
-    } finally {
-      store.close()
-    }
-  })
-
-  test('[RED] admitted job has a non-empty jobId', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
-      const { job } = repo.admit(BASE_ADMIT)
-      expect(typeof job.jobId).toBe('string')
-      expect(job.jobId.length).toBeGreaterThan(0)
-    } finally {
-      store.close()
-    }
-  })
-
-  test('[RED] admitted job is retrievable via get(jobId)', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
-      const { job } = repo.admit(BASE_ADMIT)
-      const found = repo.get(job.jobId)
-      expect(found).toBeDefined()
-      expect(found?.jobId).toBe(job.jobId)
+      expect(job.jobId).toMatch(/^job_/)
+      expect(repo.get(job.jobId)).toEqual(job)
     } finally {
       store.close()
     }
@@ -251,80 +209,38 @@ describe('PbcContinuationJobsRepo.admit — initial creation (Phase 4a red)', ()
 // ─── Section 2: admit — dedupe / replay ──────────────────────────────────────
 
 describe('PbcContinuationJobsRepo.admit — dedupe replay (Phase 4a red)', () => {
-  test('[RED] second admit with same (taskId, revisionAtAdmission, idempotencyKey) returns created:false', () => {
+  test('repeated admission of one composite key returns the original job without another row', () => {
     const store = openAcpStateStore({ dbPath: ':memory:' })
     try {
       const repo = getRepo(store)
+      const first = repo.admit(BASE_ADMIT)
+      const replay = repo.admit(BASE_ADMIT)
+      expect(replay.created).toBe(false)
+      expect(replay.job.jobId).toBe(first.job.jobId)
+      expect(replay.job.createdAt).toBe(first.job.createdAt)
       repo.admit(BASE_ADMIT)
-      const r2 = repo.admit(BASE_ADMIT)
-      expect(r2.created).toBe(false)
-    } finally {
-      store.close()
-    }
-  })
-
-  test('[RED] replay returns the same jobId as the original', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
-      const r1 = repo.admit(BASE_ADMIT)
-      const r2 = repo.admit(BASE_ADMIT)
-      expect(r2.job.jobId).toBe(r1.job.jobId)
-    } finally {
-      store.close()
-    }
-  })
-
-  test('[RED] replay preserves the original createdAt (no new row inserted)', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
-      const r1 = repo.admit(BASE_ADMIT)
-      const r2 = repo.admit(BASE_ADMIT)
-      expect(r2.job.createdAt).toBe(r1.job.createdAt)
-    } finally {
-      store.close()
-    }
-  })
-
-  test('[RED] only one row exists after multiple admit calls for same composite key', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
-      repo.admit(BASE_ADMIT)
-      repo.admit(BASE_ADMIT)
-      repo.admit(BASE_ADMIT)
-      const all = repo.listByStatus('queued')
-      const matches = all.filter(
-        (j) => j.taskId === BASE_ADMIT.taskId && j.idempotencyKey === BASE_ADMIT.idempotencyKey
-      )
+      const matches = repo
+        .listByStatus('queued')
+        .filter(
+          (j) => j.taskId === BASE_ADMIT.taskId && j.idempotencyKey === BASE_ADMIT.idempotencyKey
+        )
       expect(matches).toHaveLength(1)
     } finally {
       store.close()
     }
   })
 
-  test('[RED] different idempotencyKey for same taskId+revision creates a distinct job', () => {
+  test.each([
+    ['idempotency key', { idempotencyKey: 'pbc-job-idem-002' }],
+    ['revision', { revisionAtAdmission: 'etag-rev-99' }],
+  ])('changing the %s creates a distinct job', (_label, change) => {
     const store = openAcpStateStore({ dbPath: ':memory:' })
     try {
       const repo = getRepo(store)
-      const r1 = repo.admit(BASE_ADMIT)
-      const r2 = repo.admit({ ...BASE_ADMIT, idempotencyKey: 'pbc-job-idem-002' })
-      expect(r2.created).toBe(true)
-      expect(r2.job.jobId).not.toBe(r1.job.jobId)
-    } finally {
-      store.close()
-    }
-  })
-
-  test('[RED] different revisionAtAdmission for same taskId+key creates a distinct job', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
-      const r1 = repo.admit(BASE_ADMIT)
-      const r2 = repo.admit({ ...BASE_ADMIT, revisionAtAdmission: 'etag-rev-99' })
-      expect(r2.created).toBe(true)
-      expect(r2.job.jobId).not.toBe(r1.job.jobId)
+      const original = repo.admit(BASE_ADMIT)
+      const distinct = repo.admit({ ...BASE_ADMIT, ...change })
+      expect(distinct.created).toBe(true)
+      expect(distinct.job.jobId).not.toBe(original.job.jobId)
     } finally {
       store.close()
     }
@@ -334,32 +250,17 @@ describe('PbcContinuationJobsRepo.admit — dedupe replay (Phase 4a red)', () =>
 // ─── Section 3: acquireLease ──────────────────────────────────────────────────
 
 describe('PbcContinuationJobsRepo.acquireLease (Phase 4a red)', () => {
-  test('[RED] acquireLease on a queued job succeeds: returns { acquired: true }', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
-      const { job } = repo.admit(BASE_ADMIT)
-      const result = repo.acquireLease({
-        jobId: job.jobId,
-        leaseOwner: LEASE_OWNER,
-        leaseExpiresAt: LEASE_EXPIRES,
-      })
-      expect(result.acquired).toBe(true)
-    } finally {
-      store.close()
-    }
-  })
-
   test('[RED] after acquireLease: status=running, leaseOwner set, attempt incremented', () => {
     const store = openAcpStateStore({ dbPath: ':memory:' })
     try {
       const repo = getRepo(store)
       const { job } = repo.admit(BASE_ADMIT)
-      const { job: leased } = repo.acquireLease({
+      const { job: leased, acquired } = repo.acquireLease({
         jobId: job.jobId,
         leaseOwner: LEASE_OWNER,
         leaseExpiresAt: LEASE_EXPIRES,
       })
+      expect(acquired).toBe(true)
       expect(leased.status).toBe('running')
       expect(leased.leaseOwner).toBe(LEASE_OWNER)
       expect(leased.leaseExpiresAt).toBe(LEASE_EXPIRES)
@@ -411,23 +312,6 @@ describe('PbcContinuationJobsRepo.acquireLease (Phase 4a red)', () => {
       store.close()
     }
   })
-
-  test('[RED] listByStatus(running) returns the leased job', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
-      const { job } = repo.admit(BASE_ADMIT)
-      repo.acquireLease({
-        jobId: job.jobId,
-        leaseOwner: LEASE_OWNER,
-        leaseExpiresAt: LEASE_EXPIRES,
-      })
-      const running = repo.listByStatus('running')
-      expect(running.some((j) => j.jobId === job.jobId)).toBe(true)
-    } finally {
-      store.close()
-    }
-  })
 })
 
 // ─── Section 4: renewLease ────────────────────────────────────────────────────
@@ -473,7 +357,10 @@ describe('PbcContinuationJobsRepo.renewLease (Phase 4a red)', () => {
           leaseOwner: 'wrong-owner',
           leaseExpiresAt: LEASE_EXPIRES,
         })
-      ).toThrow()
+      ).toThrow(
+        `lease owner mismatch on job ${job.jobId}: expected ${LEASE_OWNER}, got wrong-owner`
+      )
+      expect(repo.get(job.jobId)?.leaseExpiresAt).toBe(LEASE_EXPIRES)
     } finally {
       store.close()
     }
@@ -512,7 +399,10 @@ describe('PbcContinuationJobsRepo.releaseLease (Phase 4a red)', () => {
         leaseOwner: LEASE_OWNER,
         leaseExpiresAt: LEASE_EXPIRES,
       })
-      expect(() => repo.releaseLease({ jobId: job.jobId, leaseOwner: 'wrong-owner' })).toThrow()
+      expect(() => repo.releaseLease({ jobId: job.jobId, leaseOwner: 'wrong-owner' })).toThrow(
+        `lease owner mismatch on job ${job.jobId}: expected ${LEASE_OWNER}, got wrong-owner`
+      )
+      expect(repo.get(job.jobId)).toMatchObject({ status: 'running', leaseOwner: LEASE_OWNER })
     } finally {
       store.close()
     }
@@ -564,6 +454,7 @@ describe('PbcContinuationJobsRepo.transition — terminal status (Phase 4a red)'
       expect(done.status).toBe('succeeded')
       expect(done.resultJson).toEqual({ outputs: ['out_001'] })
       expect(done.finishedAt).toBeDefined()
+      expect(repo.get(job.jobId)).toEqual(done)
     } finally {
       store.close()
     }
@@ -609,72 +500,39 @@ describe('PbcContinuationJobsRepo.transition — terminal status (Phase 4a red)'
     }
   })
 
-  test('[RED] get after transition returns the terminal job', () => {
+  test.each([
+    ['succeeded', 'failed'],
+    ['failed', 'succeeded'],
+    ['cancelled', 'cancelled'],
+  ] as const)('a %s job refuses a further %s transition', (first, next) => {
     const store = openAcpStateStore({ dbPath: ':memory:' })
     try {
       const repo = getRepo(store)
       const { job } = repo.admit(BASE_ADMIT)
-      repo.acquireLease({
+      if (first !== 'cancelled') {
+        repo.acquireLease({
+          jobId: job.jobId,
+          leaseOwner: LEASE_OWNER,
+          leaseExpiresAt: LEASE_EXPIRES,
+        })
+      }
+      repo.transition({
         jobId: job.jobId,
-        leaseOwner: LEASE_OWNER,
-        leaseExpiresAt: LEASE_EXPIRES,
+        toStatus: first,
+        resultJson: { ok: true },
+        errorJson: { code: 'ERR' },
+        stopReason: 'first-cancel',
       })
-      repo.transition({ jobId: job.jobId, toStatus: 'succeeded', resultJson: { ok: true } })
-      const found = repo.get(job.jobId)
-      expect(found?.status).toBe('succeeded')
-      expect(found?.resultJson).toEqual({ ok: true })
-    } finally {
-      store.close()
-    }
-  })
-
-  test('[RED] transition throws when already in terminal state succeeded', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
-      const { job } = repo.admit(BASE_ADMIT)
-      repo.acquireLease({
-        jobId: job.jobId,
-        leaseOwner: LEASE_OWNER,
-        leaseExpiresAt: LEASE_EXPIRES,
-      })
-      repo.transition({ jobId: job.jobId, toStatus: 'succeeded', resultJson: { ok: true } })
       expect(() =>
-        repo.transition({ jobId: job.jobId, toStatus: 'failed', errorJson: { code: 'RE-ENTER' } })
-      ).toThrow()
-    } finally {
-      store.close()
-    }
-  })
-
-  test('[RED] transition throws when already in terminal state failed', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
-      const { job } = repo.admit(BASE_ADMIT)
-      repo.acquireLease({
-        jobId: job.jobId,
-        leaseOwner: LEASE_OWNER,
-        leaseExpiresAt: LEASE_EXPIRES,
-      })
-      repo.transition({ jobId: job.jobId, toStatus: 'failed', errorJson: { code: 'ERR' } })
-      expect(() =>
-        repo.transition({ jobId: job.jobId, toStatus: 'succeeded', resultJson: {} })
-      ).toThrow()
-    } finally {
-      store.close()
-    }
-  })
-
-  test('[RED] transition throws when already cancelled', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
-      const { job } = repo.admit(BASE_ADMIT)
-      repo.transition({ jobId: job.jobId, toStatus: 'cancelled', stopReason: 'first-cancel' })
-      expect(() =>
-        repo.transition({ jobId: job.jobId, toStatus: 'cancelled', stopReason: 'second-cancel' })
-      ).toThrow()
+        repo.transition({
+          jobId: job.jobId,
+          toStatus: next,
+          resultJson: {},
+          errorJson: { code: 'RE-ENTER' },
+          stopReason: 'second-cancel',
+        })
+      ).toThrow(`cannot transition job ${job.jobId} from terminal status ${first}`)
+      expect(repo.get(job.jobId)?.status).toBe(first)
     } finally {
       store.close()
     }
@@ -684,105 +542,55 @@ describe('PbcContinuationJobsRepo.transition — terminal status (Phase 4a red)'
 // ─── Section 7: replay returns prior result (operation already-achieved) ──────
 
 describe('PbcContinuationJobsRepo — replay returns prior result (Phase 4a red)', () => {
-  test('[RED] admit after succeeded job returns the existing succeeded job (not created)', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
-      const r1 = repo.admit(BASE_ADMIT)
-      repo.acquireLease({
-        jobId: r1.job.jobId,
-        leaseOwner: LEASE_OWNER,
-        leaseExpiresAt: LEASE_EXPIRES,
-      })
-      repo.transition({
-        jobId: r1.job.jobId,
-        toStatus: 'succeeded',
-        resultJson: { finalOutput: 'X' },
-      })
-
-      // Crash-recovery: admit again with same composite key → should replay, not create duplicate
-      const r2 = repo.admit(BASE_ADMIT)
-      expect(r2.created).toBe(false)
-      expect(r2.job.jobId).toBe(r1.job.jobId)
-      expect(r2.job.status).toBe('succeeded')
-      expect(r2.job.resultJson).toEqual({ finalOutput: 'X' })
-    } finally {
-      store.close()
+  test.each([
+    ['succeeded', { resultJson: { finalOutput: 'X' } }],
+    ['failed', { errorJson: { code: 'TIMED_OUT' } }],
+  ] as const)(
+    're-admission after %s returns the same terminal job and outcome',
+    (status, outcome) => {
+      const store = openAcpStateStore({ dbPath: ':memory:' })
+      try {
+        const repo = getRepo(store)
+        const first = repo.admit(BASE_ADMIT)
+        repo.acquireLease({
+          jobId: first.job.jobId,
+          leaseOwner: LEASE_OWNER,
+          leaseExpiresAt: LEASE_EXPIRES,
+        })
+        repo.transition({ jobId: first.job.jobId, toStatus: status, ...outcome })
+        const replay = repo.admit(BASE_ADMIT)
+        expect(replay.created).toBe(false)
+        expect(replay.job.jobId).toBe(first.job.jobId)
+        expect(replay.job.status).toBe(status)
+        expect(replay.job).toMatchObject(outcome)
+      } finally {
+        store.close()
+      }
     }
-  })
-
-  test('[RED] admit after failed job returns the existing failed job (crash-safe, no double-apply)', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
-      const r1 = repo.admit(BASE_ADMIT)
-      repo.acquireLease({
-        jobId: r1.job.jobId,
-        leaseOwner: LEASE_OWNER,
-        leaseExpiresAt: LEASE_EXPIRES,
-      })
-      repo.transition({ jobId: r1.job.jobId, toStatus: 'failed', errorJson: { code: 'TIMED_OUT' } })
-
-      const r2 = repo.admit(BASE_ADMIT)
-      expect(r2.created).toBe(false)
-      expect(r2.job.status).toBe('failed')
-      expect(r2.job.errorJson).toEqual({ code: 'TIMED_OUT' })
-    } finally {
-      store.close()
-    }
-  })
+  )
 })
 
 // ─── Section 8: listByStatus ──────────────────────────────────────────────────
 
 describe('PbcContinuationJobsRepo.listByStatus (Phase 4a red)', () => {
-  test('[RED] listByStatus(queued) returns only queued jobs', () => {
+  test('lists only jobs in the requested queued, running, or succeeded status', () => {
     const store = openAcpStateStore({ dbPath: ':memory:' })
     try {
       const repo = getRepo(store)
-      const j1 = repo.admit(BASE_ADMIT).job
-      const j2 = repo.admit({ ...BASE_ADMIT, idempotencyKey: 'key-two' }).job
-      repo.acquireLease({ jobId: j2.jobId, leaseOwner: LEASE_OWNER, leaseExpiresAt: LEASE_EXPIRES })
-
-      const queued = repo.listByStatus('queued')
-      expect(queued.some((j) => j.jobId === j1.jobId)).toBe(true)
-      expect(queued.some((j) => j.jobId === j2.jobId)).toBe(false)
-    } finally {
-      store.close()
-    }
-  })
-
-  test('[RED] listByStatus(running) returns only running jobs', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
-      const j1 = repo.admit(BASE_ADMIT).job
-      repo.acquireLease({ jobId: j1.jobId, leaseOwner: LEASE_OWNER, leaseExpiresAt: LEASE_EXPIRES })
-      const j2 = repo.admit({ ...BASE_ADMIT, idempotencyKey: 'key-two' }).job
-      // j2 stays queued
-
-      const running = repo.listByStatus('running')
-      expect(running.some((j) => j.jobId === j1.jobId)).toBe(true)
-      expect(running.some((j) => j.jobId === j2.jobId)).toBe(false)
-    } finally {
-      store.close()
-    }
-  })
-
-  test('[RED] listByStatus(succeeded) returns only succeeded jobs', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
-      const j1 = repo.admit(BASE_ADMIT).job
-      repo.acquireLease({ jobId: j1.jobId, leaseOwner: LEASE_OWNER, leaseExpiresAt: LEASE_EXPIRES })
-      repo.transition({ jobId: j1.jobId, toStatus: 'succeeded', resultJson: {} })
-
-      const j2 = repo.admit({ ...BASE_ADMIT, idempotencyKey: 'key-two' }).job
-      // j2 stays queued
-
-      const succeeded = repo.listByStatus('succeeded')
-      expect(succeeded.some((j) => j.jobId === j1.jobId)).toBe(true)
-      expect(succeeded.some((j) => j.jobId === j2.jobId)).toBe(false)
+      const queued = repo.admit(BASE_ADMIT).job
+      const running = repo.admit({ ...BASE_ADMIT, idempotencyKey: 'key-running' }).job
+      const succeeded = repo.admit({ ...BASE_ADMIT, idempotencyKey: 'key-succeeded' }).job
+      for (const job of [running, succeeded]) {
+        repo.acquireLease({
+          jobId: job.jobId,
+          leaseOwner: LEASE_OWNER,
+          leaseExpiresAt: LEASE_EXPIRES,
+        })
+      }
+      repo.transition({ jobId: succeeded.jobId, toStatus: 'succeeded', resultJson: {} })
+      expect(repo.listByStatus('queued').map((job) => job.jobId)).toEqual([queued.jobId])
+      expect(repo.listByStatus('running').map((job) => job.jobId)).toEqual([running.jobId])
+      expect(repo.listByStatus('succeeded').map((job) => job.jobId)).toEqual([succeeded.jobId])
     } finally {
       store.close()
     }

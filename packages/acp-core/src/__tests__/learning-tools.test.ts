@@ -108,7 +108,7 @@ describe('learning tool helpers', () => {
     ).toMatchObject({ reviewedBy: reviewer, reason: 'independently reviewed' })
   })
 
-  test('low-authority lifecycle and high-authority promotion gates are enforced', () => {
+  test('archived artifacts cannot revive and promotion lists each unmet authority requirement until met', () => {
     const artifact: LearningArtifactBase = {
       artifactId: 'playbook-1',
       artifactKind: 'workflow_playbook',

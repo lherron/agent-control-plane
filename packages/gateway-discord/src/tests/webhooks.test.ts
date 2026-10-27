@@ -190,30 +190,33 @@ describe('Discord webhook provisioning', () => {
     expect([...channel.webhooks.values()].at(-1)?.token).toBe('token_1')
   })
 
-  test('invalidates a cached webhook after 404 or 403 and re-provisions on the next send', async () => {
-    const { createWebhookManager } = await loadWebhooksModule()
-    const client = new FakeClient()
-    const channel = new FakeChannel('chan_invalidated')
-    client.addChannel(channel)
-    const manager = createWebhookManager({
-      client,
-      webhookName: 'agent-pulpit',
-    })
+  test.each([404, 403])(
+    'invalidates a cached webhook after %i and re-provisions on the next send',
+    async (status) => {
+      const { createWebhookManager } = await loadWebhooksModule()
+      const client = new FakeClient()
+      const channel = new FakeChannel('chan_invalidated')
+      client.addChannel(channel)
+      const manager = createWebhookManager({
+        client,
+        webhookName: 'agent-pulpit',
+      })
 
-    const stale = await manager.getOrCreateWebhook(channel.id)
-    stale.queuedErrors.push(discordError(404))
+      const stale = await manager.getOrCreateWebhook(channel.id)
+      stale.queuedErrors.push(discordError(status))
 
-    await expect(manager.send(channel.id, { content: 'first attempt' })).rejects.toThrow(
-      'Discord 404'
-    )
-    channel.webhooks.delete(stale.id)
-    await manager.send(channel.id, { content: 'second attempt' })
+      await expect(manager.send(channel.id, { content: 'first attempt' })).rejects.toThrow(
+        `Discord ${status}`
+      )
+      channel.webhooks.delete(stale.id)
+      await manager.send(channel.id, { content: 'second attempt' })
 
-    expect(channel.createWebhookCount).toBe(2)
-    const active = [...channel.webhooks.values()].at(-1)
-    expect(active).not.toBe(stale)
-    expect(active?.sends.map((payload) => payload.content)).toEqual(['second attempt'])
-  })
+      expect(channel.createWebhookCount).toBe(2)
+      const active = [...channel.webhooks.values()].at(-1)
+      expect(active).not.toBe(stale)
+      expect(active?.sends.map((payload) => payload.content)).toEqual(['second attempt'])
+    }
+  )
 })
 
 describe('Discord webhook payloads', () => {

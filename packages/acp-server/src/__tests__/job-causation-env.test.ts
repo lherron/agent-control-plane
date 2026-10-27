@@ -79,7 +79,7 @@ function makeDeps(captured: HrcRuntimeIntent[] = []): ResolvedAcpServerDeps {
 }
 
 describe('job causation launch env', () => {
-  test('immediate job dispatch injects WRKQ_CAUSATION_REF into launch env', async () => {
+  test('job run with a causation ref launches HRC with WRKQ_CAUSATION_REF set', async () => {
     const captured: HrcRuntimeIntent[] = []
     const deps = makeDeps(captured)
 
@@ -96,7 +96,7 @@ describe('job causation launch env', () => {
     expect(captured[0]?.launch?.env?.[WRKQ_CAUSATION_REF_ENV]).toBe('jrun_parent')
   })
 
-  test('queued job dispatch reconstructs WRKQ_CAUSATION_REF from stored run metadata', async () => {
+  test('job run queued behind a busy session still launches with WRKQ_CAUSATION_REF once dispatched', async () => {
     const captured: HrcRuntimeIntent[] = []
     const deps = makeDeps(captured)
     const blockingRun = deps.runStore.createRun({

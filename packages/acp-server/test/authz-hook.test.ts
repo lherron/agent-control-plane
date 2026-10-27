@@ -3,7 +3,7 @@ import { describe, expect, mock, test } from 'bun:test'
 import { withWiredServer } from './fixtures/wired-server.js'
 
 describe('authz-hook', () => {
-  test('defaults to allow when no authorize hook is provided', async () => {
+  test('without an authorize hook, a mutating admin request is allowed (201)', async () => {
     await withWiredServer(async (fixture) => {
       const response = await fixture.request({
         method: 'POST',

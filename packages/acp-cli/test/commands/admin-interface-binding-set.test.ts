@@ -1,70 +1,53 @@
-import { describe, expect, test } from 'bun:test'
+import { expect, test } from 'bun:test'
+import { createFetchQueue, runCli } from '../cli-test-helpers.js'
 
-import { runAdminInterfaceBindingSetCommand } from '../../src/commands/admin-interface-binding-set.js'
-import type { AcpClient } from '../../src/http-client.js'
-
-function createClientDouble(overrides: Partial<AcpClient>): AcpClient {
-  return {
-    getTask: overrides.getTask ?? (() => Promise.reject(new Error('not implemented'))),
-    addEvidence: overrides.addEvidence ?? (() => Promise.reject(new Error('not implemented'))),
-    transitionTask:
-      overrides.transitionTask ?? (() => Promise.reject(new Error('not implemented'))),
-    listInterfaceBindings:
-      overrides.listInterfaceBindings ?? (() => Promise.reject(new Error('not implemented'))),
-    upsertInterfaceBinding:
-      overrides.upsertInterfaceBinding ?? (() => Promise.reject(new Error('not implemented'))),
-  }
+const binding = {
+  bindingId: 'ifb_123',
+  gatewayId: 'acp-discord-smoke',
+  gatewayType: 'discord',
+  conversationRef: 'channel:123',
+  sessionRef: { scopeRef: 'agent:cody:project:agent-spaces:task:discord', laneRef: 'main' },
+  projectId: 'agent-spaces',
+  status: 'active',
+  createdAt: '2026-04-20T00:00:00.000Z',
+  updatedAt: '2026-04-20T00:00:00.000Z',
 }
 
-describe('admin interface binding set command', () => {
-  test('binds a conversation to a session handle', async () => {
-    const client = createClientDouble({
-      async upsertInterfaceBinding(input) {
-        expect(input).toEqual({
+test('admin interface binding set through CLI and HTTP client', async () => {
+  const queue = createFetchQueue([
+    {
+      body: { binding },
+      assert(request) {
+        expect(request.method).toBe('POST')
+        expect(new URL(request.url).pathname).toBe('/v1/interface/bindings')
+        expect(request.body).toEqual({
           gatewayId: 'acp-discord-smoke',
           conversationRef: 'channel:123',
           projectId: 'agent-spaces',
-          sessionRef: {
-            scopeRef: 'agent:cody:project:agent-spaces:task:discord',
-          },
+          sessionRef: { scopeRef: binding.sessionRef.scopeRef },
           status: 'active',
         })
-
-        return {
-          binding: {
-            bindingId: 'ifb_123',
-            gatewayId: 'acp-discord-smoke',
-            conversationRef: 'channel:123',
-            sessionRef: {
-              scopeRef: 'agent:cody:project:agent-spaces:task:discord',
-              laneRef: 'main',
-            },
-            projectId: 'agent-spaces',
-            status: 'active',
-            createdAt: '2026-04-20T00:00:00.000Z',
-            updatedAt: '2026-04-20T00:00:00.000Z',
-          },
-        }
       },
-    })
-
-    const output = await runAdminInterfaceBindingSetCommand(
-      [
-        '--gateway',
-        'acp-discord-smoke',
-        '--conversation-ref',
-        'channel:123',
-        '--project',
-        'agent-spaces',
-        '--session',
-        'cody@agent-spaces:discord',
-      ],
-      { createClient: () => client }
-    )
-
-    expect(output.format).toBe('text')
-    expect(output).toMatchObject({
-      text: expect.stringContaining('agent:cody:project:agent-spaces:task:discord'),
-    })
-  })
+    },
+  ])
+  const result = await runCli(
+    [
+      'admin',
+      'interface',
+      'binding',
+      'set',
+      '--gateway',
+      'acp-discord-smoke',
+      '--conversation-ref',
+      'channel:123',
+      '--project',
+      'agent-spaces',
+      '--session',
+      'cody@agent-spaces:discord',
+    ],
+    { fetchImpl: queue.fetchImpl }
+  )
+  expect(result.exitCode).toBe(0)
+  expect(result.stdout).toContain(binding.sessionRef.scopeRef)
+  expect(queue.calls).toHaveLength(1)
 })

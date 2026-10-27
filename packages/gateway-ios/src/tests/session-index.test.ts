@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { parseScopeRef } from 'agent-scope'
 import type { HrcRuntimeSnapshot, HrcSessionRecord, HrcTargetView } from 'hrc-core'
 import type { HrcClient } from 'hrc-sdk'
+import { createGatewayIosRoutes } from '../routes.js'
 import { createSessionIndex } from '../session-index.js'
 
 // ---------------------------------------------------------------------------
@@ -296,52 +297,37 @@ describe('GET /v1/sessions', () => {
 
   // -- Mode filter --
 
-  it('mode=interactive narrows to interactive sessions', async () => {
-    const sessions = [
-      makeSession({ hostSessionId: 'h-int' }),
-      makeSession({
-        hostSessionId: 'h-head',
-        lastAppliedIntentJson: {
-          placement: { nodeId: 'local' },
-          harness: { harness: 'claude-code', provider: 'anthropic' },
-          execution: { preferredMode: 'headless' },
-        },
-      }),
-    ]
-
-    const index = createSessionIndex({
-      client: createFakeClient({ sessions }),
-    })
-    const result = await index.handleListSessions({ mode: 'interactive' })
-
-    expect(result.sessions).toHaveLength(1)
-    expect(result.sessions[0]!.mode).toBe('interactive')
-    expect(result.counts.all).toBe(1)
-    expect(result.counts.interactive).toBe(1)
-    expect(result.counts.headless).toBe(0)
-  })
-
-  it('mode=headless narrows to headless sessions', async () => {
-    const sessions = [
-      makeSession({ hostSessionId: 'h-int2' }),
-      makeSession({
-        hostSessionId: 'h-head2',
-        lastAppliedIntentJson: {
-          placement: { nodeId: 'local' },
-          harness: { harness: 'claude-code', provider: 'anthropic' },
-          execution: { preferredMode: 'headless' },
-        },
-      }),
-    ]
-
-    const index = createSessionIndex({
-      client: createFakeClient({ sessions }),
-    })
-    const result = await index.handleListSessions({ mode: 'headless' })
-
-    expect(result.sessions).toHaveLength(1)
-    expect(result.sessions[0]!.mode).toBe('headless')
-  })
+  it.each(['interactive', 'headless'] as const)(
+    'GET mode=%s filters sessions and counts',
+    async (mode) => {
+      const sessions = [
+        makeSession({ hostSessionId: 'h-int' }),
+        makeSession({
+          hostSessionId: 'h-head',
+          lastAppliedIntentJson: {
+            placement: { nodeId: 'local' },
+            harness: { harness: 'claude-code', provider: 'anthropic' },
+            execution: { preferredMode: 'headless' },
+          },
+        }),
+      ]
+      const routes = createGatewayIosRoutes({
+        hrcClient: createFakeClient({ sessions }),
+        gatewayId: 'test',
+      })
+      const response = await routes.fetch(new Request(`http://ios.test/v1/sessions?mode=${mode}`))
+      expect(response.status).toBe(200)
+      const result = (await response.json()) as {
+        sessions: Array<{ mode: string }>
+        counts: { all: number; interactive: number; headless: number }
+      }
+      expect(result.sessions).toHaveLength(1)
+      expect(result.sessions[0]?.mode).toBe(mode)
+      expect(result.counts.all).toBe(1)
+      expect(result.counts.interactive).toBe(mode === 'interactive' ? 1 : 0)
+      expect(result.counts.headless).toBe(mode === 'headless' ? 1 : 0)
+    }
+  )
 
   // -- Status filter --
 
@@ -363,62 +349,20 @@ describe('GET /v1/sessions', () => {
 
   // -- q filter --
 
-  it('q filter does case-insensitive substring match on title', async () => {
+  it.each([
+    ['ALICE', 'alice'],
+    ['agent:larry:project:wrkq', 'larry'],
+    ['cody@agent', 'cody'],
+  ])('q filter %s matches title, sessionRef or displayRef', async (q, title) => {
     const sessions = [
-      makeSession({
-        hostSessionId: 'hq1',
-        scopeRef: 'agent:alice:project:demo',
-      }),
-      makeSession({
-        hostSessionId: 'hq2',
-        scopeRef: 'agent:bob:project:demo',
-      }),
+      makeSession({ hostSessionId: 'hq1', scopeRef: 'agent:alice:project:demo' }),
+      makeSession({ hostSessionId: 'hq2', scopeRef: 'agent:larry:project:wrkq' }),
+      makeSession({ hostSessionId: 'hq3', scopeRef: 'agent:cody:project:agent-spaces' }),
     ]
-
-    const index = createSessionIndex({
-      client: createFakeClient({ sessions }),
-    })
-    const result = await index.handleListSessions({ q: 'ALICE' })
-
+    const index = createSessionIndex({ client: createFakeClient({ sessions }) })
+    const result = await index.handleListSessions({ q })
     expect(result.sessions).toHaveLength(1)
-    expect(result.sessions[0]!.title).toBe('alice')
-  })
-
-  it('q filter matches on sessionRef', async () => {
-    const sessions = [
-      makeSession({
-        hostSessionId: 'hq-ref',
-        scopeRef: 'agent:cody:project:agent-spaces',
-      }),
-      makeSession({
-        hostSessionId: 'hq-ref2',
-        scopeRef: 'agent:larry:project:wrkq',
-      }),
-    ]
-
-    const index = createSessionIndex({
-      client: createFakeClient({ sessions }),
-    })
-    const result = await index.handleListSessions({ q: 'wrkq' })
-
-    expect(result.sessions).toHaveLength(1)
-    expect(result.sessions[0]!.title).toBe('larry')
-  })
-
-  it('q filter matches on displayRef', async () => {
-    const sessions = [
-      makeSession({
-        hostSessionId: 'hq-display',
-        scopeRef: 'agent:cody:project:agent-spaces',
-      }),
-    ]
-
-    const index = createSessionIndex({
-      client: createFakeClient({ sessions }),
-    })
-    const result = await index.handleListSessions({ q: 'cody@agent' })
-
-    expect(result.sessions).toHaveLength(1)
+    expect(result.sessions[0]?.title).toBe(title)
   })
 
   it('counts reflect mode bucket, not q filter', async () => {

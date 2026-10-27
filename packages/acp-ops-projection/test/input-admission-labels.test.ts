@@ -29,6 +29,9 @@ type MissingApplicationStatus = Exclude<
 const assertEveryAdmissionKindCovered: MissingAdmissionKind extends never ? true : never = true
 const assertEveryApplicationStatusCovered: MissingApplicationStatus extends never ? true : never =
   true
+// Typecheck-time exhaustiveness guard: a new acp-core admission kind or
+// application status fails `tsc` here until the label table covers it.
+void [assertEveryAdmissionKindCovered, assertEveryApplicationStatusCovered]
 
 const baseEvent = (overrides: Partial<HrcLifecycleEvent> = {}): HrcLifecycleEvent => ({
   hrcSeq: 200,
@@ -46,13 +49,6 @@ const baseEvent = (overrides: Partial<HrcLifecycleEvent> = {}): HrcLifecycleEven
 })
 
 describe('input admission UX labels', () => {
-  test('label coverage tracks every admission kind and application status', () => {
-    expect(assertEveryAdmissionKindCovered).toBe(true)
-    expect(assertEveryApplicationStatusCovered).toBe(true)
-    expect(allAdmissionKinds).toHaveLength(5)
-    expect(allApplicationStatuses).toHaveLength(6)
-  })
-
   test.each([
     [
       'accepted contribution',

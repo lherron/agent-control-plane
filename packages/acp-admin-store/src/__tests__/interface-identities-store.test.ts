@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { type AdminStore, createInMemoryAdminStore, openSqliteAdminStore } from '../index.js'
+import { type AdminStore, createInMemoryAdminStore } from '../index.js'
 
 type InterfaceIdentityRecord = {
   gatewayId: string
@@ -79,35 +79,6 @@ describe('admin interface identities store acceptance', () => {
           externalId: 'user:123',
         })
       ).toEqual(upserted)
-    } finally {
-      store.close()
-    }
-  })
-
-  test('supports the sqlite-backed helper for composite-key lookup', () => {
-    const store = openSqliteAdminStore({ dbPath: ':memory:' })
-
-    try {
-      const identities = expectInterfaceIdentitiesStore(store)
-      identities.register({
-        gatewayId: 'slack_prod',
-        externalId: 'U123',
-        linkedAgentId: 'larry',
-        now: '2026-04-23T03:32:00.000Z',
-      })
-
-      expect(
-        identities.getByCompositeKey({
-          gatewayId: 'slack_prod',
-          externalId: 'U123',
-        })
-      ).toEqual(
-        expect.objectContaining({
-          gatewayId: 'slack_prod',
-          externalId: 'U123',
-          linkedAgentId: 'larry',
-        })
-      )
     } finally {
       store.close()
     }

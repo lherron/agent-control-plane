@@ -72,7 +72,7 @@ describe('injector state import', () => {
     })
   })
 
-  test('admits only an HRC posture without an in-process delivery owner', () => {
+  test('disabled and absent HRC postures admit the injector; in-process refuses it', () => {
     expect(() => assertInjectorAdmissible('disabled')).not.toThrow()
     expect(() => assertInjectorAdmissible('absent')).not.toThrow()
     expect(() => assertInjectorAdmissible('in-process')).toThrow('injector admission refused')

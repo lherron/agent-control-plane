@@ -32,6 +32,31 @@ function createLaunchOverrides(calls: LaunchCall[]): Partial<AcpServerDeps> {
   }
 }
 
+const ACTOR_ROWS = [
+  {
+    name: 'header beats body',
+    headers: { 'x-acp-actor': 'agent:curly' },
+    bodyActor: { kind: 'human', id: 'body-operator' },
+    expected: { kind: 'agent', id: 'curly' },
+  },
+  {
+    name: 'body without header',
+    headers: undefined,
+    bodyActor: { kind: 'human', id: 'body-operator' },
+    expected: { kind: 'human', id: 'body-operator' },
+  },
+  {
+    name: 'neither falls back to the default system actor',
+    headers: undefined,
+    bodyActor: undefined,
+    expected: { kind: 'system', id: 'acp-local' },
+  },
+] as const
+
+function actorBody(row: (typeof ACTOR_ROWS)[number]): Record<string, unknown> {
+  return row.bodyActor !== undefined ? { actor: row.bodyActor } : {}
+}
+
 async function createJob(
   fixture: Parameters<typeof withWiredServer>[0] extends (fixture: infer T) => unknown ? T : never,
   input: { headers?: HeadersInit | undefined; body?: Record<string, unknown> | undefined }
@@ -56,193 +81,72 @@ async function createJob(
 
 describe('actor-stamp: jobs', () => {
   test('prefers X-ACP-Actor over body actor when creating a job', async () => {
-    const jobsStore = createInMemoryJobsStore()
+    for (const row of ACTOR_ROWS) {
+      const jobsStore = createInMemoryJobsStore()
 
-    try {
-      await withWiredServer(
-        async (fixture) => {
-          const created = await createJob(fixture, {
-            headers: { 'x-acp-actor': 'agent:curly' },
-            body: { actor: { kind: 'human', id: 'body-operator' } },
-          })
+      try {
+        await withWiredServer(
+          async (fixture) => {
+            const created = await createJob(fixture, {
+              headers: row.headers,
+              body: actorBody(row),
+            })
 
-          expect(created.response.status).toBe(201)
-          const getResponse = await fixture.request({
-            method: 'GET',
-            path: `/v1/admin/jobs/${created.jobId}`,
-          })
+            expect(created.response.status, row.name).toBe(201)
+            const getResponse = await fixture.request({
+              method: 'GET',
+              path: `/v1/admin/jobs/${created.jobId}`,
+            })
 
-          expect(getResponse.status).toBe(200)
-          const payload = await fixture.json<{ job: Record<string, unknown> }>(getResponse)
-          expect(readActor(payload.job)).toEqual({ kind: 'agent', id: 'curly' })
-        },
-        { jobsStore }
-      )
-    } finally {
-      jobsStore.close()
-    }
-  })
-
-  test('falls back to the body actor when creating a job', async () => {
-    const jobsStore = createInMemoryJobsStore()
-
-    try {
-      await withWiredServer(
-        async (fixture) => {
-          const created = await createJob(fixture, {
-            body: { actor: { kind: 'human', id: 'body-operator' } },
-          })
-
-          expect(created.response.status).toBe(201)
-          const getResponse = await fixture.request({
-            method: 'GET',
-            path: `/v1/admin/jobs/${created.jobId}`,
-          })
-
-          expect(getResponse.status).toBe(200)
-          const payload = await fixture.json<{ job: Record<string, unknown> }>(getResponse)
-          expect(readActor(payload.job)).toEqual({ kind: 'human', id: 'body-operator' })
-        },
-        { jobsStore }
-      )
-    } finally {
-      jobsStore.close()
-    }
-  })
-
-  test('falls back to the default system actor when creating a job without an actor', async () => {
-    const jobsStore = createInMemoryJobsStore()
-
-    try {
-      await withWiredServer(
-        async (fixture) => {
-          const created = await createJob(fixture, {})
-
-          expect(created.response.status).toBe(201)
-          const getResponse = await fixture.request({
-            method: 'GET',
-            path: `/v1/admin/jobs/${created.jobId}`,
-          })
-
-          expect(getResponse.status).toBe(200)
-          const payload = await fixture.json<{ job: Record<string, unknown> }>(getResponse)
-          expect(readActor(payload.job)).toEqual({ kind: 'system', id: 'acp-local' })
-        },
-        { jobsStore }
-      )
-    } finally {
-      jobsStore.close()
+            expect(getResponse.status, row.name).toBe(200)
+            const payload = await fixture.json<{ job: Record<string, unknown> }>(getResponse)
+            expect(readActor(payload.job), row.name).toEqual(row.expected)
+          },
+          { jobsStore }
+        )
+      } finally {
+        jobsStore.close()
+      }
     }
   })
 
   test('prefers X-ACP-Actor over body actor when creating a job-run', async () => {
-    const jobsStore = createInMemoryJobsStore()
-    const launchCalls: LaunchCall[] = []
+    for (const row of ACTOR_ROWS) {
+      const jobsStore = createInMemoryJobsStore()
+      const launchCalls: LaunchCall[] = []
 
-    try {
-      await withWiredServer(
-        async (fixture) => {
-          const created = await createJob(fixture, {})
-          expect(created.response.status).toBe(201)
+      try {
+        await withWiredServer(
+          async (fixture) => {
+            const created = await createJob(fixture, {})
+            expect(created.response.status, row.name).toBe(201)
 
-          const runResponse = await fixture.request({
-            method: 'POST',
-            path: `/v1/admin/jobs/${created.jobId}/run`,
-            headers: { 'x-acp-actor': 'agent:curly' },
-            body: { actor: { kind: 'human', id: 'body-operator' } },
-          })
+            const runResponse = await fixture.request({
+              method: 'POST',
+              path: `/v1/admin/jobs/${created.jobId}/run`,
+              headers: row.headers,
+              ...(row.bodyActor !== undefined ? { body: actorBody(row) } : {}),
+            })
 
-          expect(runResponse.status).toBe(202)
-          const runPayload = await fixture.json<{ jobRun: { jobRunId: string } }>(runResponse)
-          const getResponse = await fixture.request({
-            method: 'GET',
-            path: `/v1/job-runs/${runPayload.jobRun.jobRunId}`,
-          })
+            expect(runResponse.status, row.name).toBe(202)
+            const runPayload = await fixture.json<{ jobRun: { jobRunId: string } }>(runResponse)
+            const getResponse = await fixture.request({
+              method: 'GET',
+              path: `/v1/job-runs/${runPayload.jobRun.jobRunId}`,
+            })
 
-          expect(getResponse.status).toBe(200)
-          const payload = await fixture.json<{ jobRun: Record<string, unknown> }>(getResponse)
-          expect(readActor(payload.jobRun)).toEqual({ kind: 'agent', id: 'curly' })
-        },
-        {
-          jobsStore,
-          ...createLaunchOverrides(launchCalls),
-        }
-      )
-    } finally {
-      jobsStore.close()
-    }
-  })
-
-  test('falls back to the body actor when creating a job-run', async () => {
-    const jobsStore = createInMemoryJobsStore()
-    const launchCalls: LaunchCall[] = []
-
-    try {
-      await withWiredServer(
-        async (fixture) => {
-          const created = await createJob(fixture, {})
-          expect(created.response.status).toBe(201)
-
-          const runResponse = await fixture.request({
-            method: 'POST',
-            path: `/v1/admin/jobs/${created.jobId}/run`,
-            body: { actor: { kind: 'human', id: 'body-operator' } },
-          })
-
-          expect(runResponse.status).toBe(202)
-          const runPayload = await fixture.json<{ jobRun: { jobRunId: string } }>(runResponse)
-          const getResponse = await fixture.request({
-            method: 'GET',
-            path: `/v1/job-runs/${runPayload.jobRun.jobRunId}`,
-          })
-
-          expect(getResponse.status).toBe(200)
-          const payload = await fixture.json<{ jobRun: Record<string, unknown> }>(getResponse)
-          expect(readActor(payload.jobRun)).toEqual({ kind: 'human', id: 'body-operator' })
-        },
-        {
-          jobsStore,
-          ...createLaunchOverrides(launchCalls),
-        }
-      )
-    } finally {
-      jobsStore.close()
-    }
-  })
-
-  test('falls back to the default system actor when creating a job-run without an actor', async () => {
-    const jobsStore = createInMemoryJobsStore()
-    const launchCalls: LaunchCall[] = []
-
-    try {
-      await withWiredServer(
-        async (fixture) => {
-          const created = await createJob(fixture, {})
-          expect(created.response.status).toBe(201)
-
-          const runResponse = await fixture.request({
-            method: 'POST',
-            path: `/v1/admin/jobs/${created.jobId}/run`,
-          })
-
-          expect(runResponse.status).toBe(202)
-          const runPayload = await fixture.json<{ jobRun: { jobRunId: string } }>(runResponse)
-          const getResponse = await fixture.request({
-            method: 'GET',
-            path: `/v1/job-runs/${runPayload.jobRun.jobRunId}`,
-          })
-
-          expect(getResponse.status).toBe(200)
-          const payload = await fixture.json<{ jobRun: Record<string, unknown> }>(getResponse)
-          expect(readActor(payload.jobRun)).toEqual({ kind: 'system', id: 'acp-local' })
-        },
-        {
-          jobsStore,
-          ...createLaunchOverrides(launchCalls),
-        }
-      )
-    } finally {
-      jobsStore.close()
+            expect(getResponse.status, row.name).toBe(200)
+            const payload = await fixture.json<{ jobRun: Record<string, unknown> }>(getResponse)
+            expect(readActor(payload.jobRun), row.name).toEqual(row.expected)
+          },
+          {
+            jobsStore,
+            ...createLaunchOverrides(launchCalls),
+          }
+        )
+      } finally {
+        jobsStore.close()
+      }
     }
   })
 })

@@ -123,7 +123,7 @@ describe('admin agent system prompt endpoint', () => {
     }
   })
 
-  test('returns null when the daemon reports no system prompt', async () => {
+  test('daemon preview with no system prompt returns systemPrompt: null', async () => {
     const adminStore = seedStores()
     try {
       await withWiredServer(
@@ -154,6 +154,8 @@ describe('admin agent system prompt endpoint', () => {
   })
 
   test('rejects an unknown runMode before touching the daemon', async () => {
+    seenPlacements.length = 0
+    seenPreviews.length = 0
     const adminStore = seedStores()
     try {
       await withWiredServer(
@@ -163,6 +165,16 @@ describe('admin agent system prompt endpoint', () => {
             path: '/v1/admin/agents/larry/system-prompt?runMode=nope',
           })
           expect(response.status).toBe(400)
+          expect(
+            await fixture.json<{ error: { code: string; details?: { field?: string } } }>(response)
+          ).toEqual({
+            error: expect.objectContaining({
+              code: 'malformed_request',
+              details: expect.objectContaining({ field: 'runMode' }),
+            }),
+          })
+          expect(seenPlacements).toEqual([])
+          expect(seenPreviews).toEqual([])
         },
         { adminStore, ...daemonDoubles }
       )

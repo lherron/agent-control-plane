@@ -163,17 +163,11 @@ describe('T-09270 exact-TTY operator presentation', () => {
         'secondary:operator-live',
       ])
     )
-    expect(harness.operations).not.toEqual(
-      expect.arrayContaining([
-        'operator-title:operator-stale',
-        'background:operator-stale',
-        'status:operator-stale',
-        'secondary:operator-stale',
-      ])
-    )
-    expect(harness.operations).not.toEqual(
-      expect.arrayContaining(['rebind:operator-live', 'reap:operator-live'])
-    )
+    for (const operation of ['operator-title', 'background', 'status', 'secondary']) {
+      expect(harness.operations).not.toContain(`${operation}:operator-stale`)
+    }
+    expect(harness.operations).not.toContain('rebind:operator-live')
+    expect(harness.operations).not.toContain('reap:operator-live')
     expect(
       harness.operations.filter((operation) => operation === 'status:operator-live')
     ).toHaveLength(1)
@@ -249,8 +243,7 @@ describe('T-09270 exact-TTY operator presentation', () => {
         'secondary:operator-live',
       ])
     )
-    expect(harness.operations).not.toEqual(
-      expect.arrayContaining(['rebind:operator-live', 'reap:operator-live'])
-    )
+    expect(harness.operations).not.toContain('rebind:operator-live')
+    expect(harness.operations).not.toContain('reap:operator-live')
   })
 })

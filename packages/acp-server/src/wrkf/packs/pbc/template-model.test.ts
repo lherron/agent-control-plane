@@ -53,10 +53,6 @@ const NEXT_ACTION_MODEL = {
 }
 
 describe('PBC template model projection', () => {
-  test('exports the Phase 1 default template ref', () => {
-    expect(PBC_WORKFLOW_TEMPLATE_REF).toBe('pbc-progressive-refinement@9')
-  })
-
   test('projects nextActionModel from workflow.show and supports phase/transition lookup', () => {
     const model = projectPbcTemplateModelFromWorkflowShow({
       ref: 'pbc-progressive-refinement@9',
@@ -77,7 +73,7 @@ describe('PBC template model projection', () => {
     expect(finalize?.operatorHint).toBe('Apply finalize_ready_pbc only with distinct actors.')
   })
 
-  test('throws clear errors for missing or malformed nextActionModel', () => {
+  test('malformed nextActionModel is rejected so the worker falls back', () => {
     expect(() => projectPbcTemplateModelFromWorkflowShow({})).toThrow(
       'workflow.nextActionModel must be an object'
     )
@@ -98,5 +94,11 @@ describe('PBC template model projection', () => {
     ).toThrow(
       'workflow.nextActionModel.phaseGuidance.active/pressure.agentInstruction must be a non-empty string'
     )
+  })
+})
+
+describe('exported template reference', () => {
+  test('exports the Phase 1 default template ref', () => {
+    expect(PBC_WORKFLOW_TEMPLATE_REF).toBe('pbc-progressive-refinement@9')
   })
 })

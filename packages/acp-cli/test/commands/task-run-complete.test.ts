@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test'
 
-import { AcpClientHttpError } from '../../src/http-client.js'
 import { runCli } from '../cli-test-helpers.js'
 
 async function loadCommand(): Promise<{
@@ -98,34 +97,6 @@ describe('acp task run-complete command', () => {
     )
   })
 
-  test('throws AcpClientHttpError on server error', async () => {
-    const { runTaskRunCompleteCommand } = await loadCommand()
-    const fetchImpl = async () =>
-      new Response(
-        JSON.stringify({
-          error: {
-            code: 'invalid_run_state',
-            message: 'Run is not in running state',
-          },
-        }),
-        { status: 409, headers: { 'content-type': 'application/json' } }
-      )
-
-    await expect(
-      runTaskRunCompleteCommand(
-        ['--server', 'http://acp.test', '--run', 'run_err', '--outcome', 'success', '--json'],
-        { fetchImpl }
-      )
-    ).rejects.toBeInstanceOf(AcpClientHttpError)
-
-    await expect(
-      runTaskRunCompleteCommand(
-        ['--server', 'http://acp.test', '--run', 'run_err', '--outcome', 'success', '--json'],
-        { fetchImpl }
-      )
-    ).rejects.toHaveProperty('status', 409)
-  })
-
   test('exits non-zero on server error via runCli', async () => {
     const result = await runCli(
       [
@@ -154,9 +125,11 @@ describe('acp task run-complete command', () => {
     )
 
     expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain('invalid_run_state')
   })
 
   test('is registered under acp task run-complete', async () => {
+    const requests: Array<{ url: string; method: string | undefined }> = []
     const result = await runCli(
       [
         '--server',
@@ -170,17 +143,23 @@ describe('acp task run-complete command', () => {
         '--json',
       ],
       {
-        fetchImpl: async () =>
-          new Response(
+        fetchImpl: async (input, init) => {
+          requests.push({ url: String(input), method: init?.method })
+          return new Response(
             JSON.stringify({ participantRun: { runId: 'run_1', status: 'completed' } }),
             {
               status: 200,
               headers: { 'content-type': 'application/json' },
             }
-          ),
+          )
+        },
       }
     )
 
     expect(result.exitCode).toBe(0)
+    expect(requests).toEqual([
+      { url: 'http://acp.test/v1/workflow-participant-runs/run_1/complete', method: 'POST' },
+    ])
+    expect(JSON.parse(result.stdout)).toMatchObject({ participantRun: { runId: 'run_1' } })
   })
 })

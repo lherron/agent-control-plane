@@ -94,7 +94,7 @@ describe('SqliteInputAttemptStore', () => {
     }
   })
 
-  test('throws a conflict when the same idempotency key is reused with a different fingerprint', () => {
+  test('reusing an idempotency key with a different body after reopen throws a conflict naming the key', () => {
     const dbPath = createDbPath()
     const firstStore = openAcpStateStore({ dbPath })
 

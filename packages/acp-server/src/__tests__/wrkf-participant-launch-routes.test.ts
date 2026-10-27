@@ -239,7 +239,7 @@ describe('POST /v1/workflow-participant-runs — wrkf source-tagged response (W4
             taskId: TASK_ID,
             role: ROLE,
             actor: { kind: 'agent', id: 'larry' },
-            idempotencyKey: 'route-test-launch-001',
+            idempotencyKey: 'idem3',
             sessionRef: 'agent:larry:project:acps-test:task:T-09992~main',
           },
         })
@@ -262,9 +262,40 @@ describe('POST /v1/workflow-participant-runs — wrkf source-tagged response (W4
         expect(body.instanceId).toBe(CANNED_INSTANCE.instanceId)
         expect(body.workflowRef).toBe(CANNED_INSTANCE.workflowRef)
         expect(body.revision).toBe(CANNED_INSTANCE.revision)
-        expect(body.wrkfRun).toBeDefined()
-        expect(body.launch).toBeDefined()
+        expect(body.wrkfRun).toMatchObject({ id: CANNED_WRKF_RUN.id, role: ROLE })
+        expect(body.launch).toMatchObject({
+          runId: CANNED_LAUNCHED.runId,
+          hostSessionId: CANNED_LAUNCHED.hostSessionId,
+          runtimeId: CANNED_LAUNCHED.runtimeId,
+        })
         expect(body.replay).toBe(false)
+        for (const field of ['participantRun', 'context', 'workflowHrcRunMap', 'ok'])
+          expect((body as unknown as Record<string, unknown>)[field]).toBeUndefined()
+        expect(wrkf._calls.find((call) => call.method === 'task.inspect')?.params).toMatchObject({
+          task: TASK_ID,
+        })
+        expect(wrkf._calls.find((call) => call.method === 'run.start')?.params).toMatchObject({
+          task: TASK_ID,
+          role: ROLE,
+          idempotencyKey: 'idem3',
+        })
+        expect(launchCalls).toHaveLength(1)
+        expect(launchCalls[0]).toMatchObject({
+          sessionRef: { scopeRef: 'agent:larry:project:acps-test:task:T-09992', laneRef: 'main' },
+          acpRunId: `run_wrkf_${CANNED_WRKF_RUN.id}`,
+        })
+        const bind = wrkf._calls.find((call) => call.method === 'run.bindExternal')
+          ?.params as Record<string, unknown>
+        expect(bind).toMatchObject({
+          runId: CANNED_WRKF_RUN.id,
+          externalRunRef: `hrc:${CANNED_LAUNCHED.runId}`,
+          idempotencyKey: 'idem3:bindExternal',
+        })
+        expect(JSON.parse(bind['deliveryRef'] as string)).toMatchObject({ kind: 'hrc' })
+        expect(fixture.runStore.getRun(`run_wrkf_${CANNED_WRKF_RUN.id}`)?.metadata).toMatchObject({
+          source: 'wrkf',
+          wrkfRunId: CANNED_WRKF_RUN.id,
+        })
       },
       {
         wrkf,
@@ -299,10 +330,16 @@ describe('POST /v1/workflow-participant-runs — wrkf source-tagged response (W4
 
         // RED: returns 422 (kernel path), not 200 with replay:true
         expect(response.status).toBe(200)
-        const body = await fixture.json<{ source: string; replay: boolean }>(response)
+        const body = await fixture.json<{
+          source: string
+          replay: boolean
+          wrkfRun: { externalRunRef: string }
+        }>(response)
         expect(body.source).toBe('wrkf')
         expect(body.replay).toBe(true)
         expect(launchCalls).toHaveLength(0)
+        expect(wrkf._calls.filter((call) => call.method === 'run.bindExternal')).toHaveLength(0)
+        expect(body.wrkfRun.externalRunRef).toBe(CANNED_WRKF_RUN_BOUND.externalRunRef)
       },
       {
         wrkf,
@@ -312,59 +349,26 @@ describe('POST /v1/workflow-participant-runs — wrkf source-tagged response (W4
     )
   })
 
-  test('[RED] response must NOT contain ACP participant-run objects (participantRun, context fields)', async () => {
-    // wrkfRun IS the run; no ACP participant-run object should be returned
-    const wrkf = makeFakeWrkfPort()
-    const launcher: LaunchRoleScopedRun = async () => CANNED_LAUNCHED
-
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: '/v1/workflow-participant-runs',
-          body: {
-            taskId: TASK_ID,
-            role: ROLE,
-            idempotencyKey: 'route-test-no-acp-001',
-            sessionRef: 'agent:larry:project:acps-test:task:T-09992~main',
-          },
-        })
-
-        expect(response.status).toBe(201)
-        const body = await fixture.json<Record<string, unknown>>(response)
-        // ACP participant-run objects must not be present in the response
-        expect(body['participantRun']).toBeUndefined()
-        expect(body['context']).toBeUndefined()
-        expect(body['workflowHrcRunMap']).toBeUndefined()
-        expect(body['ok']).toBeUndefined()
+  test.each([
+    {
+      path: '/v1/workflow-participant-runs',
+      body: {
+        taskId: TASK_ID,
+        role: ROLE,
+        idempotencyKey: 'idem4',
+        sessionRef: 'agent:larry:project:acps-test:task:T-09992~main',
       },
-      {
-        wrkf,
-        launchRoleScopedRun: launcher,
-        runtimeResolver: FAKE_RUNTIME_RESOLVER,
-      }
-    )
-  })
-
-  test('[RED] returns 503 WRKF_UNAVAILABLE when deps.wrkf is not configured', async () => {
-    // Current handler ignores deps.wrkf and falls through to kernel → wrong error
+    },
+    { path: `/v1/workflow-participant-runs/${WRKF_RUN_ID}/complete`, body: { summary: 'done' } },
+    { path: `/v1/workflow-participant-runs/${WRKF_RUN_ID}/fail`, body: { reason: 'failed' } },
+  ])('POST $path returns 503 WRKF_UNAVAILABLE without wrkf', async ({ path, body }) => {
     await withWiredServer(async (fixture) => {
-      const response = await fixture.request({
-        method: 'POST',
-        path: '/v1/workflow-participant-runs',
-        body: {
-          taskId: TASK_ID,
-          role: ROLE,
-          idempotencyKey: 'route-test-no-wrkf-001',
-          sessionRef: 'agent:larry:project:acps-test:task:T-09992~main',
-        },
-      })
-      // RED: current handler does not check deps.wrkf → returns 422 from kernel path
+      const response = await fixture.request({ method: 'POST', path, body })
       expect(response.status).toBe(503)
-      const body = await fixture.json<{ error: { code: string } }>(response)
-      expect(body.error.code).toBe('WRKF_UNAVAILABLE')
+      expect((await fixture.json<{ error: { code: string } }>(response)).error.code).toBe(
+        'WRKF_UNAVAILABLE'
+      )
     })
-    // withWiredServer called without wrkf override → deps.wrkf is undefined
   })
 
   test('blocked launch claim retry returns HTTP 409 with WRKF_PARTICIPANT_LAUNCH_BLOCKED', async () => {
@@ -390,6 +394,7 @@ describe('POST /v1/workflow-participant-runs — wrkf source-tagged response (W4
           body,
         })
         expect(first.status).toBe(500)
+        expect(JSON.stringify(await fixture.json(first))).toContain('acknowledgement was lost')
 
         const retry = await fixture.request({
           method: 'POST',
@@ -400,6 +405,15 @@ describe('POST /v1/workflow-participant-runs — wrkf source-tagged response (W4
         const retryBody = await fixture.json<{ error: { code: string } }>(retry)
         expect(retryBody.error.code).toBe('WRKF_PARTICIPANT_LAUNCH_BLOCKED')
         expect(launchCount).toBe(1)
+        expect(wrkf._calls.filter((call) => call.method === 'run.start')).toHaveLength(2)
+        const run = fixture.runStore.getRun(`run_wrkf_${CANNED_WRKF_RUN.id}`)
+        expect(run?.hrcRunId).toBeUndefined()
+        expect(run?.errorCode).toBe('wrkf_launch_failed_ambiguous')
+        expect(run?.metadata?.['wrkfLaunchClaim']).toMatchObject({
+          status: 'launch_failed',
+          wrkfRunId: CANNED_WRKF_RUN.id,
+          errorCode: 'wrkf_launch_failed_ambiguous',
+        })
       },
       {
         wrkf,
@@ -428,11 +442,18 @@ describe('POST /v1/workflow-participant-runs/:runId/complete — wrkf.run.finish
           path: `/v1/workflow-participant-runs/${WRKF_RUN_ID}/complete`,
           body: {
             summary: 'implementation done',
+            outcome: 'success',
+            evidenceRefs: ['artifact://x'],
+            idempotencyKey: 'key-complete',
           },
         })
 
         // RED: current handler calls kernel → 422 (run not in kernel state)
         expect(response.status).toBe(200)
+        expect(await fixture.json(response)).toMatchObject({
+          source: 'wrkf',
+          run: CANNED_FINISH_RESULT,
+        })
 
         const finishCall = wrkf._calls.find((c) => c.method === 'run.finish')
         expect(finishCall).toBeDefined()
@@ -440,78 +461,12 @@ describe('POST /v1/workflow-participant-runs/:runId/complete — wrkf.run.finish
         expect(p['runId']).toBe(WRKF_RUN_ID)
         expect(p['status']).toBe('completed')
         expect(p['summary']).toBe('implementation done')
-      },
-      { wrkf }
-    )
-  })
-
-  test('[RED] returns {source:"wrkf", run: ...} response shape', async () => {
-    const wrkf = makeFakeWrkfPort()
-
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: `/v1/workflow-participant-runs/${WRKF_RUN_ID}/complete`,
-          body: {
-            summary: 'implementation done',
-          },
-        })
-
-        expect(response.status).toBe(200)
-        const body = await fixture.json<{ source: string; run: Record<string, unknown> }>(response)
-        // RED: current handler returns kernel-style response without source:'wrkf'
-        expect(body.source).toBe('wrkf')
-        expect(body.run).toBeDefined()
-      },
-      { wrkf }
-    )
-  })
-
-  test('[RED] complete handler does NOT accept outcome, evidenceRefs, or idempotencyKey fields (wrkf.run.finish has no such params)', async () => {
-    // wrkf.run.finish signature: {runId, status, summary}
-    // Old kernel handler accepted outcome/evidenceRefs/idempotencyKey — new one must not forward them.
-    const wrkf = makeFakeWrkfPort()
-
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: `/v1/workflow-participant-runs/${WRKF_RUN_ID}/complete`,
-          body: {
-            summary: 'implementation done',
-            outcome: 'success', // old kernel field — must be ignored
-            evidenceRefs: ['artifact://x'], // old kernel field — must be ignored
-            idempotencyKey: 'key-complete', // old kernel field — must be ignored
-          },
-        })
-
-        // Request should succeed (extra fields ignored or stripped)
-        expect(response.status).toBe(200)
-        const finishCall = wrkf._calls.find((c) => c.method === 'run.finish')
-        expect(finishCall).toBeDefined()
-        const p = finishCall!.params as Record<string, unknown>
-        // Only runId, status, summary should be forwarded; old fields silently ignored
         expect(p['outcome']).toBeUndefined()
         expect(p['evidenceRefs']).toBeUndefined()
         expect(p['idempotencyKey']).toBeUndefined()
       },
       { wrkf }
     )
-  })
-
-  test('[RED] returns 503 WRKF_UNAVAILABLE when deps.wrkf is not configured', async () => {
-    await withWiredServer(async (fixture) => {
-      const response = await fixture.request({
-        method: 'POST',
-        path: `/v1/workflow-participant-runs/${WRKF_RUN_ID}/complete`,
-        body: { summary: 'done' },
-      })
-      // RED: current handler uses kernel → different error
-      expect(response.status).toBe(503)
-      const body = await fixture.json<{ error: { code: string } }>(response)
-      expect(body.error.code).toBe('WRKF_UNAVAILABLE')
-    })
   })
 })
 
@@ -539,6 +494,10 @@ describe('POST /v1/workflow-participant-runs/:runId/fail — wrkf.run.fail (W4b 
 
         // RED: current handler calls kernel → 422 (run not in kernel state)
         expect(response.status).toBe(200)
+        expect(await fixture.json(response)).toMatchObject({
+          source: 'wrkf',
+          run: CANNED_FAIL_RESULT,
+        })
 
         const failCall = wrkf._calls.find((c) => c.method === 'run.fail')
         expect(failCall).toBeDefined()
@@ -577,27 +536,6 @@ describe('POST /v1/workflow-participant-runs/:runId/fail — wrkf.run.fail (W4b 
     )
   })
 
-  test('[RED] returns {source:"wrkf", run: ...} response shape', async () => {
-    const wrkf = makeFakeWrkfPort()
-
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: `/v1/workflow-participant-runs/${WRKF_RUN_ID}/fail`,
-          body: { reason: 'agent crashed' },
-        })
-
-        expect(response.status).toBe(200)
-        const body = await fixture.json<{ source: string; run: Record<string, unknown> }>(response)
-        // RED: current handler returns kernel-style response without source:'wrkf'
-        expect(body.source).toBe('wrkf')
-        expect(body.run).toBeDefined()
-      },
-      { wrkf }
-    )
-  })
-
   test('[RED] conflicting fail payload → wrkf.run.fail throws → 409', async () => {
     // wrkf handles idempotency: same payload → replay; conflicting → throws WRKF_IDEMPOTENCY_MISMATCH.
     // The route handler must map WRKF_IDEMPOTENCY_MISMATCH to HTTP 409.
@@ -622,20 +560,6 @@ describe('POST /v1/workflow-participant-runs/:runId/fail — wrkf.run.fail (W4b 
       },
       { wrkf }
     )
-  })
-
-  test('[RED] returns 503 WRKF_UNAVAILABLE when deps.wrkf is not configured', async () => {
-    await withWiredServer(async (fixture) => {
-      const response = await fixture.request({
-        method: 'POST',
-        path: `/v1/workflow-participant-runs/${WRKF_RUN_ID}/fail`,
-        body: { reason: 'crash' },
-      })
-      // RED: current handler uses kernel → different error
-      expect(response.status).toBe(503)
-      const body = await fixture.json<{ error: { code: string } }>(response)
-      expect(body.error.code).toBe('WRKF_UNAVAILABLE')
-    })
   })
 })
 
@@ -692,4 +616,240 @@ describe('runId semantics — WRKF run ids (W4b red)', () => {
       { wrkf }
     )
   })
+})
+
+describe('participant launch failure boundary', () => {
+  test('failed HRC launch returns its error, does not bind, and retains the dispatch fence', async () => {
+    const wrkf = makeFakeWrkfPort()
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'POST',
+          path: '/v1/workflow-participant-runs',
+          body: {
+            taskId: TASK_ID,
+            role: ROLE,
+            idempotencyKey: 'participant-launch-failure',
+            sessionRef: 'agent:larry:project:acps-test:task:T-09992~main',
+          },
+        })
+        expect(response.status).toBe(500)
+        expect(JSON.stringify(await fixture.json(response))).toContain('HRC socket timeout')
+        expect(wrkf._calls.filter((call) => call.method === 'run.bindExternal')).toHaveLength(0)
+        const run = fixture.runStore.getRun(`run_wrkf_${CANNED_WRKF_RUN.id}`)
+        expect(run).toBeDefined()
+        expect(run?.hrcRunId).toBeUndefined()
+      },
+      {
+        wrkf,
+        launchRoleScopedRun: async () => {
+          throw new Error('HRC socket timeout')
+        },
+        runtimeResolver: FAKE_RUNTIME_RESOLVER,
+      }
+    )
+  })
+})
+
+describe('participant terminal run boundary', () => {
+  test('a terminal wrkf run rejects launch before invoking HRC', async () => {
+    const wrkf = makeFakeWrkfPort({
+      runStart: async () => {
+        throw new WrkfError('WRKF_RUN_TERMINAL', 'cannot restart a completed run')
+      },
+    })
+    let launchCount = 0
+    await withWiredServer(
+      async (fixture) => {
+        const response = await fixture.request({
+          method: 'POST',
+          path: '/v1/workflow-participant-runs',
+          body: {
+            taskId: TASK_ID,
+            role: ROLE,
+            idempotencyKey: 'terminal-run',
+            sessionRef: 'agent:larry:project:acps-test:task:T-09992~main',
+          },
+        })
+        const responseBody = await fixture.json<{ error: { code: string; message: string } }>(
+          response
+        )
+        expect(response.status).toBe(500)
+        expect(responseBody.error.code).toBe('WRKF_RUN_TERMINAL')
+        expect(responseBody.error.message).toBe('cannot restart a completed run')
+        expect(launchCount).toBe(0)
+      },
+      {
+        wrkf,
+        launchRoleScopedRun: async () => {
+          launchCount++
+          return CANNED_LAUNCHED
+        },
+        runtimeResolver: FAKE_RUNTIME_RESOLVER,
+      }
+    )
+  })
+})
+
+describe('participant bind conflict boundary', () => {
+  test.each(['WRKF_CONFLICT', 'WRKF_IDEMPOTENCY_MISMATCH'])(
+    'bind failure $code records the HRC run and blocks relaunch',
+    async (code) => {
+      const wrkf = makeFakeWrkfPort({
+        bindExternal: async () => {
+          throw new WrkfError(code, 'conflicting external bind')
+        },
+      })
+      let launchCount = 0
+      await withWiredServer(
+        async (fixture) => {
+          const body = {
+            taskId: TASK_ID,
+            role: ROLE,
+            idempotencyKey: 'bind-conflict',
+            sessionRef: 'agent:larry:project:acps-test:task:T-09992~main',
+          }
+          const first = await fixture.request({
+            method: 'POST',
+            path: '/v1/workflow-participant-runs',
+            body,
+          })
+          expect(first.status).toBe(code === 'WRKF_CONFLICT' ? 500 : 409)
+          expect((await fixture.json<{ error: { code: string } }>(first)).error.code).toBe(code)
+          const run = fixture.runStore.getRun(`run_wrkf_${CANNED_WRKF_RUN.id}`)
+          expect(run?.hrcRunId).toBe(CANNED_LAUNCHED.runId)
+          expect(run?.errorCode).toBe('wrkf_bind_external_failed')
+          expect(run?.metadata?.['wrkfExternalBind']).toMatchObject({
+            status: 'orphaned',
+            hrcRunId: CANNED_LAUNCHED.runId,
+            wrkfRunId: CANNED_WRKF_RUN.id,
+            errorCode: code,
+          })
+          const retry = await fixture.request({
+            method: 'POST',
+            path: '/v1/workflow-participant-runs',
+            body,
+          })
+          expect(retry.status).toBe(409)
+          expect(launchCount).toBe(1)
+        },
+        {
+          wrkf,
+          launchRoleScopedRun: async () => {
+            launchCount++
+            return CANNED_LAUNCHED
+          },
+          runtimeResolver: FAKE_RUNTIME_RESOLVER,
+        }
+      )
+    }
+  )
+})
+
+describe('participant durable claim and crash recovery through POST', () => {
+  test('concurrent same-key requests admit one HRC launch', async () => {
+    const wrkf = makeFakeWrkfPort()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let launchCount = 0
+    await withWiredServer(
+      async (fixture) => {
+        const body = {
+          taskId: TASK_ID,
+          role: ROLE,
+          idempotencyKey: 'concurrent-route',
+          sessionRef: 'agent:larry:project:acps-test:task:T-09992~main',
+        }
+        const first = fixture.request({
+          method: 'POST',
+          path: '/v1/workflow-participant-runs',
+          body,
+        })
+        while (launchCount === 0) await Bun.sleep(1)
+        const second = await fixture.request({
+          method: 'POST',
+          path: '/v1/workflow-participant-runs',
+          body,
+        })
+        expect(second.status).toBe(409)
+        expect((await fixture.json<{ error: { code: string } }>(second)).error.code).toBe(
+          'WRKF_PARTICIPANT_LAUNCH_BLOCKED'
+        )
+        release()
+        expect((await first).status).toBe(201)
+        expect(launchCount).toBe(1)
+      },
+      {
+        wrkf,
+        launchRoleScopedRun: async () => {
+          launchCount++
+          await gate
+          return CANNED_LAUNCHED
+        },
+        runtimeResolver: FAKE_RUNTIME_RESOLVER,
+      }
+    )
+  })
+
+  test.each([{ conflict: false }, { conflict: true }])(
+    'seeded HRC correlation rebinds without relaunch, conflict=$conflict',
+    async ({ conflict }) => {
+      const wrkf = makeFakeWrkfPort({
+        bindExternal: async (params) => {
+          if (conflict)
+            throw new WrkfError(
+              'WRKF_EXTERNAL_REF_CONFLICT',
+              'externalRunRef already bound to a different run'
+            )
+          return { ...CANNED_WRKF_RUN, externalRunRef: params['externalRunRef'] }
+        },
+      })
+      let launchCount = 0
+      await withWiredServer(
+        async (fixture) => {
+          const sessionRef = {
+            scopeRef: 'agent:larry:project:acps-test:task:T-09992',
+            laneRef: 'main',
+          }
+          const { run } = fixture.runStore.createOrGetRun({
+            sessionRef,
+            wrkfTaskId: TASK_ID,
+            wrkfInstanceId: CANNED_INSTANCE.instanceId,
+            wrkfRunId: CANNED_WRKF_RUN.id,
+            workflowRef: CANNED_INSTANCE.workflowRef,
+            role: ROLE,
+          })
+          fixture.runStore.updateRun(run.runId, { hrcRunId: CANNED_LAUNCHED.runId })
+          const response = await fixture.request({
+            method: 'POST',
+            path: '/v1/workflow-participant-runs',
+            body: { taskId: TASK_ID, role: ROLE, idempotencyKey: 'rebind-route', sessionRef },
+          })
+          if (conflict) {
+            expect(response.status).toBe(409)
+            expect((await fixture.json<{ error: { code: string } }>(response)).error.code).toBe(
+              'WRKF_EXTERNAL_REF_CONFLICT'
+            )
+          } else {
+            expect(response.status).toBe(201)
+            expect((await fixture.json<{ source: string }>(response)).source).toBe('wrkf')
+          }
+          expect(launchCount).toBe(0)
+          expect(
+            wrkf._calls.find((call) => call.method === 'run.bindExternal')?.params
+          ).toMatchObject({ externalRunRef: `hrc:${CANNED_LAUNCHED.runId}` })
+        },
+        {
+          wrkf,
+          launchRoleScopedRun: async () => {
+            launchCount++
+            return CANNED_LAUNCHED
+          },
+          runtimeResolver: FAKE_RUNTIME_RESOLVER,
+        }
+      )
+    }
+  )
 })

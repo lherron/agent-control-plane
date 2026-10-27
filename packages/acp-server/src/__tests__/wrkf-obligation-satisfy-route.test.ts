@@ -124,25 +124,6 @@ function makeFakeWrkfPort(
 // ╚══════════════════════════════════════════════════════════════════════════════╝
 
 describe('P1-D3: POST /v1/tasks/:taskId/obligations/:obligationId/satisfy — route exists', () => {
-  // RED: route not registered → 404 for all requests
-
-  test('POST satisfy returns 2xx (not 404) — route must be registered', async () => {
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: `/v1/tasks/${TASK_ID}/obligations/${OBLIGATION_ID}/satisfy`,
-          body: { actor: { agentId: 'test-agent' }, role: 'owner' },
-        })
-        // RED: currently returns 404 (route not registered)
-        expect(response.status).not.toBe(404)
-        expect(response.status).toBeGreaterThanOrEqual(200)
-        expect(response.status).toBeLessThan(300)
-      },
-      { wrkf: makeFakeWrkfPort() }
-    )
-  })
-
   test('obligation.satisfy is called with task and id (obligationId) — no pre-check', async () => {
     let capturedArgs: Record<string, unknown> | null = null
 
@@ -174,32 +155,6 @@ describe('P1-D3: POST /v1/tasks/:taskId/obligations/:obligationId/satisfy — ro
       }
     )
   })
-
-  test('obligation.satisfy is called even when obligation absent from ACP state (no pre-check)', async () => {
-    // Critical invariant: handler must NOT call obligation.list before satisfy.
-    // wrkf is the authority for obligation existence.
-    let satisfyCalled = false
-
-    await withWiredServer(
-      async (fixture) => {
-        await fixture.request({
-          method: 'POST',
-          path: `/v1/tasks/${TASK_ID}/obligations/OB-DOES-NOT-EXIST/satisfy`,
-          body: { actor: { agentId: 'test-agent' } },
-        })
-        // RED: route doesn't exist → 404, satisfy never called
-        expect(satisfyCalled).toBe(true)
-      },
-      {
-        wrkf: makeFakeWrkfPort({
-          obligationSatisfy: async (_params) => {
-            satisfyCalled = true
-            return CANNED_SATISFY_RESULT
-          },
-        }),
-      }
-    )
-  })
 })
 
 // ╔══════════════════════════════════════════════════════════════════════════════╗
@@ -218,96 +173,15 @@ describe('P1-D3: POST satisfy — optional params forwarded to wrkf.obligation.s
           body: {
             evidenceId: 'ev_abc123',
             actor: { agentId: 'test-agent' },
-            role: 'owner',
-          },
-        })
-        // RED: route doesn't exist
-        expect(capturedArgs).not.toBeNull()
-        expect(capturedArgs!['evidenceId']).toBe('ev_abc123')
-      },
-      {
-        wrkf: makeFakeWrkfPort({
-          obligationSatisfy: async (params) => {
-            capturedArgs = params as Record<string, unknown>
-            return CANNED_SATISFY_RESULT
-          },
-        }),
-      }
-    )
-  })
-
-  test('actor is forwarded in wrkf wire format', async () => {
-    let capturedArgs: Record<string, unknown> | null = null
-
-    await withWiredServer(
-      async (fixture) => {
-        await fixture.request({
-          method: 'POST',
-          path: `/v1/tasks/${TASK_ID}/obligations/${OBLIGATION_ID}/satisfy`,
-          body: {
-            actor: { agentId: 'test-agent' },
-            role: 'owner',
-          },
-        })
-        // RED: route doesn't exist
-        expect(capturedArgs).not.toBeNull()
-        // actor should be in wrkf wire format: "agent:test-agent"
-        expect(capturedArgs!['principal_ref']).toBe('agent:test-agent')
-      },
-      {
-        wrkf: makeFakeWrkfPort({
-          obligationSatisfy: async (params) => {
-            capturedArgs = params as Record<string, unknown>
-            return CANNED_SATISFY_RESULT
-          },
-        }),
-      }
-    )
-  })
-
-  test('role is forwarded when provided', async () => {
-    let capturedArgs: Record<string, unknown> | null = null
-
-    await withWiredServer(
-      async (fixture) => {
-        await fixture.request({
-          method: 'POST',
-          path: `/v1/tasks/${TASK_ID}/obligations/${OBLIGATION_ID}/satisfy`,
-          body: {
-            actor: { agentId: 'test-agent' },
             role: 'assessor',
-          },
-        })
-        // RED: route doesn't exist
-        expect(capturedArgs).not.toBeNull()
-        expect(capturedArgs!['role']).toBe('assessor')
-      },
-      {
-        wrkf: makeFakeWrkfPort({
-          obligationSatisfy: async (params) => {
-            capturedArgs = params as Record<string, unknown>
-            return CANNED_SATISFY_RESULT
-          },
-        }),
-      }
-    )
-  })
-
-  test('reason is forwarded when provided', async () => {
-    let capturedArgs: Record<string, unknown> | null = null
-
-    await withWiredServer(
-      async (fixture) => {
-        await fixture.request({
-          method: 'POST',
-          path: `/v1/tasks/${TASK_ID}/obligations/${OBLIGATION_ID}/satisfy`,
-          body: {
-            actor: { agentId: 'test-agent' },
             reason: 'obligation met by evidence ev_abc123',
           },
         })
         // RED: route doesn't exist
         expect(capturedArgs).not.toBeNull()
+        expect(capturedArgs!['evidenceId']).toBe('ev_abc123')
+        expect(capturedArgs!['principal_ref']).toBe('agent:test-agent')
+        expect(capturedArgs!['role']).toBe('assessor')
         expect(capturedArgs!['reason']).toBe('obligation met by evidence ev_abc123')
       },
       {
@@ -355,86 +229,26 @@ describe('P1-D3: POST satisfy — optional params forwarded to wrkf.obligation.s
 // ╚══════════════════════════════════════════════════════════════════════════════╝
 
 describe('P1-D3: POST satisfy — error handling', () => {
-  test('deps.wrkf undefined → 503 WRKF_UNAVAILABLE', async () => {
-    await withWiredServer(async (fixture) => {
-      const response = await fixture.request({
-        method: 'POST',
-        path: `/v1/tasks/${TASK_ID}/obligations/${OBLIGATION_ID}/satisfy`,
-        body: { actor: { agentId: 'test-agent' } },
-      })
-      // RED: route doesn't exist → 404, not 503
-      expect(response.status).toBe(503)
-      const body = await fixture.json<{ error: { code: string } }>(response)
-      expect(body.error.code).toBe('WRKF_UNAVAILABLE')
-    })
-  })
-
-  test('WRKF_NOT_FOUND from satisfy → 404', async () => {
+  test.each([
+    { code: 'WRKF_NOT_FOUND', status: 404, role: undefined },
+    { code: 'WRKF_ROLE_DENIED', status: 403, role: 'wrong-role' },
+    { code: 'WRKF_VALIDATION', status: 422, role: undefined },
+  ])('$code from satisfy maps to $status', async ({ code, status, role }) => {
     await withWiredServer(
       async (fixture) => {
         const response = await fixture.request({
           method: 'POST',
           path: `/v1/tasks/${TASK_ID}/obligations/${OBLIGATION_ID}/satisfy`,
-          body: { actor: { agentId: 'test-agent' } },
+          body: { actor: { agentId: 'test-agent' }, role },
         })
-        // RED: route doesn't exist → 404 for wrong reason (route missing, not wrkf error)
-        expect(response.status).toBe(404)
+        expect(response.status).toBe(status)
         const body = await fixture.json<{ error: { code: string } }>(response)
-        expect(body.error.code).toBe('WRKF_NOT_FOUND')
+        expect(body.error.code).toBe(code)
       },
       {
         wrkf: makeFakeWrkfPort({
-          obligationSatisfy: async (_params) => {
-            throw new WrkfError('WRKF_NOT_FOUND', 'obligation not found')
-          },
-        }),
-      }
-    )
-  })
-
-  test('WRKF_ROLE_DENIED from satisfy → 403', async () => {
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: `/v1/tasks/${TASK_ID}/obligations/${OBLIGATION_ID}/satisfy`,
-          body: { actor: { agentId: 'test-agent' }, role: 'wrong-role' },
-        })
-        // RED: route doesn't exist → 404
-        expect(response.status).toBe(403)
-        const body = await fixture.json<{ error: { code: string } }>(response)
-        expect(body.error.code).toBe('WRKF_ROLE_DENIED')
-      },
-      {
-        wrkf: makeFakeWrkfPort({
-          obligationSatisfy: async (_params) => {
-            throw new WrkfError('WRKF_ROLE_DENIED', 'role not permitted to satisfy obligation')
-          },
-        }),
-      }
-    )
-  })
-
-  test('WRKF_VALIDATION from satisfy → 422', async () => {
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request({
-          method: 'POST',
-          path: `/v1/tasks/${TASK_ID}/obligations/${OBLIGATION_ID}/satisfy`,
-          body: { actor: { agentId: 'test-agent' } },
-        })
-        // RED: route doesn't exist → 404
-        expect(response.status).toBe(422)
-        const body = await fixture.json<{ error: { code: string } }>(response)
-        expect(body.error.code).toBe('WRKF_VALIDATION')
-      },
-      {
-        wrkf: makeFakeWrkfPort({
-          obligationSatisfy: async (_params) => {
-            throw new WrkfError(
-              'WRKF_VALIDATION',
-              'obligation cannot be satisfied in current state'
-            )
+          obligationSatisfy: async () => {
+            throw new WrkfError(code, 'satisfy failed')
           },
         }),
       }

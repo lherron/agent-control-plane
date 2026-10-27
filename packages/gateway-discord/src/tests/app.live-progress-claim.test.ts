@@ -11,7 +11,7 @@ import {
 } from './live-progress-test-helpers.test.js'
 
 describe('GatewayDiscordApp live progress run claiming', () => {
-  test('compares numeric pendingSince to ISO event.ts with equality allowed', () => {
+  test('an event stamped exactly at placeholder registration is claimable; one stamped 1ms earlier is not', () => {
     const pendingSince = Date.parse('2026-05-06T19:00:00.000Z')
 
     expect(
@@ -34,27 +34,20 @@ describe('GatewayDiscordApp live progress run claiming', () => {
     ).toBe(false)
   })
 
-  test('does not claim malformed or missing event timestamps', () => {
-    const pendingSince = Date.parse('2026-05-06T19:00:00.000Z')
-
-    expect(eventTimestampIsClaimable({ pendingSince, eventTs: 'not-a-date' })).toBe(false)
-    expect(eventTimestampIsClaimable({ pendingSince })).toBe(false)
-  })
-
-  test('uses the claimed HRC run id to render final tool history for an ACP delivery', async () => {
+  test('tool events with a malformed or missing timestamp never claim the pending placeholder', async () => {
     const harness = createLiveProgressHarness()
     await harness.app.refreshBindings()
     await harness.app.handleMessageCreate(harness.inboundMessage())
-
-    harness.emit(toolStart(1, 'tool_1', 'Bash', { command: 'bun test --filter bridge' }))
-    await waitFor(() => harness.webhook().edits.length > 0)
-
-    harness.enqueueDelivery('Final answer with bridged history.')
-    await harness.app.pollDeliveriesOnce()
-
-    const content = harness.webhook().edits.at(-1)?.payload.content ?? ''
-    expect(content).toContain('Final answer with bridged history.')
-    expect(content).toContain('bun test --filter bridge')
+    harness.emit({
+      ...toolStart(1, 'tool_bad_ts', 'Bash', { command: 'malformed timestamp' }),
+      ts: 'not-a-date',
+    })
+    const { ts: _omitted, ...withoutTs } = toolStart(2, 'tool_no_ts', 'Bash', {
+      command: 'missing timestamp',
+    })
+    harness.emit(withoutTs)
+    await waitFor(() => harness.webhook().edits.length > 0, 400)
+    expect(harness.webhook().edits).toHaveLength(0)
   })
 
   test('FIFO claims concurrent pending placeholders for interleaved new runs', async () => {
@@ -114,7 +107,8 @@ describe('GatewayDiscordApp live progress run claiming', () => {
       })
     )
 
-    await new Promise((resolve) => setTimeout(resolve, 25))
+    // A claimed placeholder would get its first progress edit within this window.
+    await waitFor(() => harness.webhook().edits.length > 0, 400)
 
     expect(harness.webhook().edits).toHaveLength(0)
   })

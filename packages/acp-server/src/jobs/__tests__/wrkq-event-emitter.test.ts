@@ -1,14 +1,30 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, spyOn, test } from 'bun:test'
 
-import { createInMemoryAdminStore } from 'acp-admin-store'
-import { type WrkqWebhookEvent, adaptWrkqWebhookEvent } from 'acp-core'
+import { type AdminStore, createInMemoryAdminStore } from 'acp-admin-store'
+import type { WrkqWebhookEvent } from 'acp-core'
 
-import { createWrkqEventEmitter } from '../wrkq-event-emitter.js'
+import { withWiredServer } from '../../../test/fixtures/wired-server.js'
 
-const NOW = () => new Date('2026-06-28T10:00:00.000Z')
-
-function adapt(body: WrkqWebhookEvent) {
-  return adaptWrkqWebhookEvent(body)
+/** POST each event to /v1/webhooks/wrkq through the real router; return statuses. */
+async function postWrkqEvents(
+  adminStore: AdminStore,
+  ...events: WrkqWebhookEvent[]
+): Promise<number[]> {
+  return withWiredServer(
+    async (fixture) => {
+      const statuses: number[] = []
+      for (const event of events) {
+        const response = await fixture.request({
+          method: 'POST',
+          path: '/v1/webhooks/wrkq',
+          body: event,
+        })
+        statuses.push(response.status)
+      }
+      return statuses
+    },
+    { adminStore }
+  )
 }
 
 function taskEvent(overrides: Partial<WrkqWebhookEvent> = {}): WrkqWebhookEvent {
@@ -54,13 +70,12 @@ function workflowEvent(overrides: Partial<WrkqWebhookEvent> = {}): WrkqWebhookEv
   }
 }
 
-describe('wrkq event emitter (T-05270)', () => {
+describe('POST /v1/webhooks/wrkq system-event projection (T-05270)', async () => {
   // Required test #1
-  test('valid wrkq task event appends exactly one wrkq.* system event', () => {
+  test('valid wrkq task event appends exactly one wrkq.* system event', async () => {
     const admin = createInMemoryAdminStore()
-    const emitter = createWrkqEventEmitter({ systemEvents: admin.systemEvents, now: NOW })
 
-    emitter.emit(adapt(taskEvent()))
+    expect(await postWrkqEvents(admin, taskEvent())).toEqual([204])
 
     const rows = admin.systemEvents.list({ kind: 'wrkq.updated' })
     expect(rows).toHaveLength(1)
@@ -80,12 +95,12 @@ describe('wrkq event emitter (T-05270)', () => {
   })
 
   // Required test #2
-  test('subtask events carry the owner id/uuid alongside the subtask identity (T-09903)', () => {
+  test('subtask events carry the owner id/uuid alongside the subtask identity (T-09903)', async () => {
     const admin = createInMemoryAdminStore()
-    const emitter = createWrkqEventEmitter({ systemEvents: admin.systemEvents, now: NOW })
 
-    emitter.emit(
-      adapt(
+    expect(
+      await postWrkqEvents(
+        admin,
         taskEvent({
           ticket_id: 'T-05270.diagram',
           ticket_uuid: 'uuid-subtask',
@@ -93,7 +108,7 @@ describe('wrkq event emitter (T-05270)', () => {
           subtask_owner_uuid: 'uuid-owner',
         })
       )
-    )
+    ).toEqual([204])
 
     expect(admin.systemEvents.list({ kind: 'wrkq.updated' })[0]?.payload).toMatchObject({
       ticket_id: 'T-05270.diagram',
@@ -103,11 +118,10 @@ describe('wrkq event emitter (T-05270)', () => {
     })
   })
 
-  test('valid wrkf workflow event appends exactly one wrkf.* system event with workflow payload', () => {
+  test('valid wrkf workflow event appends exactly one wrkf.* system event with workflow payload', async () => {
     const admin = createInMemoryAdminStore()
-    const emitter = createWrkqEventEmitter({ systemEvents: admin.systemEvents, now: NOW })
 
-    emitter.emit(adapt(workflowEvent()))
+    expect(await postWrkqEvents(admin, workflowEvent())).toEqual([204])
 
     const rows = admin.systemEvents.list({ kind: 'wrkf.workflow_transitioned' })
     expect(rows).toHaveLength(1)
@@ -121,54 +135,53 @@ describe('wrkq event emitter (T-05270)', () => {
   })
 
   // Required test #3
-  test('duplicate delivery of the same canonical id does not append a second row', () => {
+  test('duplicate delivery of the same canonical id does not append a second row', async () => {
     const admin = createInMemoryAdminStore()
-    const emitter = createWrkqEventEmitter({ systemEvents: admin.systemEvents, now: NOW })
 
-    emitter.emit(adapt(taskEvent()))
-    emitter.emit(adapt(taskEvent())) // replay, same event_id
+    // replay, same event_id
+    expect(await postWrkqEvents(admin, taskEvent(), taskEvent())).toEqual([204, 204])
 
     expect(admin.systemEvents.list({ kind: 'wrkq.updated' })).toHaveLength(1)
   })
 
-  // Required test #5 (emitter half): unknown event name appends nothing.
-  test('unknown event name appends no lifecycle system event', () => {
+  test('a failing system-event append still returns 204 and logs wrkq.systemevent.emit_failed', async () => {
     const admin = createInMemoryAdminStore()
-    const emitter = createWrkqEventEmitter({ systemEvents: admin.systemEvents, now: NOW })
-
-    emitter.emit(adapt(taskEvent({ event: 'snoozed', event_id: 'evt-unknown' })))
-
-    expect(admin.systemEvents.list()).toHaveLength(0)
-  })
-
-  test('emit is observer-only: a failing append never throws, onError is notified', () => {
-    let captured: unknown
-    const emitter = createWrkqEventEmitter({
+    const failingAdmin = {
+      ...admin,
       systemEvents: {
+        ...admin.systemEvents,
         existsWithPayloadField: () => false,
         append: () => {
           throw new Error('store down')
         },
-      } as never,
-      now: NOW,
-      onError: (err) => {
-        captured = err
       },
-    })
+    } as AdminStore
 
-    expect(() => emitter.emit(adapt(taskEvent()))).not.toThrow()
-    expect((captured as Error).message).toBe('store down')
+    const warn = spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      expect(await postWrkqEvents(failingAdmin, taskEvent())).toEqual([204])
+      const logged = warn.mock.calls.map((call) => JSON.parse(String(call[0])))
+      expect(logged).toEqual([
+        expect.objectContaining({
+          event: 'wrkq.systemevent.emit_failed',
+          data: { canonicalEventId: 'wrkq:evt-1', wrkqEvent: 'updated' },
+          err: expect.objectContaining({ message: 'store down' }),
+        }),
+      ])
+    } finally {
+      warn.mockRestore()
+    }
   })
 
-  test('comment_added projects only bounded comment details and keeps raw bodies out of system events', () => {
+  test('comment_added projects only bounded comment details and keeps raw bodies out of system events', async () => {
     // T-05316 red bar: Discord work-activity cards consume this observer payload;
     // the emitter must project a compact contract instead of leaking producer blobs.
     const admin = createInMemoryAdminStore()
-    const emitter = createWrkqEventEmitter({ systemEvents: admin.systemEvents, now: NOW })
     const rawBody = `First line\u0000\n\n${'x'.repeat(300)}`
 
-    emitter.emit(
-      adapt(
+    expect(
+      await postWrkqEvents(
+        admin,
         taskEvent({
           event: 'comment_added',
           event_id: 'comment-event-1',
@@ -183,7 +196,7 @@ describe('wrkq event emitter (T-05270)', () => {
           },
         })
       )
-    )
+    ).toEqual([204])
 
     const payload = admin.systemEvents.list({ kind: 'wrkq.comment_added' })[0]?.payload
     expect(payload?.['comment']).toEqual({
@@ -201,14 +214,14 @@ describe('wrkq event emitter (T-05270)', () => {
     expect(payload?.['changes']).toBeUndefined()
   })
 
-  test('updated and workflow events project renderer-safe summaries without raw nested payloads', () => {
+  test('updated and workflow events project renderer-safe summaries without raw nested payloads', async () => {
     // T-05316 red bar: keep useful summaries, but do not forward arbitrary
     // producer objects that Discord must never render or inspect.
     const admin = createInMemoryAdminStore()
-    const emitter = createWrkqEventEmitter({ systemEvents: admin.systemEvents, now: NOW })
 
-    emitter.emit(
-      adapt(
+    expect(
+      await postWrkqEvents(
+        admin,
         taskEvent({
           event_id: 'updated-event-1',
           event: 'updated',
@@ -221,7 +234,7 @@ describe('wrkq event emitter (T-05270)', () => {
           },
         })
       )
-    )
+    ).toEqual([204])
 
     const updatedPayload = admin.systemEvents.list({ kind: 'wrkq.updated' })[0]?.payload
     expect(updatedPayload?.['changes']).toEqual({
@@ -231,8 +244,9 @@ describe('wrkq event emitter (T-05270)', () => {
     expect(JSON.stringify(updatedPayload)).not.toContain('private body')
     expect(JSON.stringify(updatedPayload)).not.toContain('evidence')
 
-    emitter.emit(
-      adapt(
+    expect(
+      await postWrkqEvents(
+        admin,
         workflowEvent({
           event_id: 'workflow-event-1',
           event: 'workflow_transitioned',
@@ -255,7 +269,7 @@ describe('wrkq event emitter (T-05270)', () => {
           },
         })
       )
-    )
+    ).toEqual([204])
 
     const workflowPayload = admin.systemEvents.list({ kind: 'wrkf.workflow_transitioned' })[0]
       ?.payload

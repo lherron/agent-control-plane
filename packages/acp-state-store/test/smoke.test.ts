@@ -30,9 +30,17 @@ describe('acp-state-store smoke', () => {
       createdAt: '2026-04-23T00:00:02.000Z',
     })
 
-    expect(createdRun.actor).toEqual({ kind: 'system', id: 'acp-local' })
-    expect(createdAttempt.inputAttempt.actor).toEqual({ kind: 'system', id: 'acp-local' })
-    expect(outboxRecord.actor).toEqual({ kind: 'system', id: 'acp-local' })
+    expect(store.runs.getRun(createdRun.runId)?.actor).toEqual({ kind: 'system', id: 'acp-local' })
+    expect(
+      store.inputAttempts.getById(createdAttempt.inputAttempt.inputAttemptId)?.inputAttempt.actor
+    ).toEqual({
+      kind: 'system',
+      id: 'acp-local',
+    })
+    expect(store.transitionOutbox.get(outboxRecord.transitionEventId)?.actor).toEqual({
+      kind: 'system',
+      id: 'acp-local',
+    })
 
     store.close()
   })

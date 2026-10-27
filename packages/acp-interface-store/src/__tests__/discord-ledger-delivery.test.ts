@@ -47,7 +47,7 @@ describe('Discord ledger delivery store', () => {
     store.close()
   })
 
-  test('T5c: the attempt is spent in the same durable write, so a crash before the send keeps it', () => {
+  test('T5c: a crash between claim and send keeps the spent attempt, so the next claim is attempt 2', () => {
     withStoreDirectory((dbPath) => {
       const first = openInterfaceStore({ dbPath })
       const claim = first.discordLedgerDeliveries.beginAttempt({ ...TARGET, maxAttempts: 3 })

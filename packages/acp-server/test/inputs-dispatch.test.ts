@@ -154,6 +154,7 @@ describe('POST /v1/inputs dispatch', () => {
 
       expect(response.status).toBe(201)
       expect(payload.inputAttempt.taskId).toBe('T-61001')
+      expect(fixture.runStore.listRuns()).toHaveLength(1)
       expect(payload.run.runId).toBeTruthy()
       expect(payload.run.scopeRef).toBe(sessionRef.scopeRef)
       expect(payload.run.laneRef).toBe(sessionRef.laneRef)
@@ -200,6 +201,7 @@ describe('POST /v1/inputs dispatch', () => {
         secondPayload.inputAttempt.inputAttemptId
       )
       expect(firstPayload.run.runId).toBe(secondPayload.run.runId)
+      expect(fixture.runStore.listRuns()).toHaveLength(1)
       expect(launchCalls).toHaveLength(1)
     }, createLaunchOverrides(launchCalls))
   })

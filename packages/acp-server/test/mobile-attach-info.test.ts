@@ -2,9 +2,6 @@ import { describe, expect, test } from 'bun:test'
 
 import { HrcDomainError, type HrcRuntimeSnapshot, type HrcSessionRecord } from 'hrc-core'
 
-import { parseTmuxAttachArgv } from '../src/handlers/mobile-attach-info.js'
-import { isLoopbackPeer } from '../src/routing/peer.js'
-
 import type { AcpHrcClient } from '../src/deps.js'
 import { withWiredServer } from './fixtures/wired-server.js'
 
@@ -80,40 +77,51 @@ function makeHrcClient(input: {
 const PATH = `/v1/mobile/sessions/${HOST_SESSION_ID}/attach-info`
 
 describe('GET /v1/mobile/sessions/:hostSessionId/attach-info', () => {
-  test('proxies the hrc attach descriptor for a loopback caller', async () => {
+  test('proxies the hrc attach descriptor, socket and target parsed out, for any loopback peer form', async () => {
     const seen: string[] = []
     const hrcClient = makeHrcClient({
       sessions: [SESSION],
       runtimes: [RUNTIME],
       onGetAttachDescriptor: (runtimeId) => seen.push(runtimeId),
     })
+    // Loopback v4, the 127/8 block, v6 loopback (both spellings, bracketed) and v4-mapped v6.
+    const addresses = [
+      LOOPBACK.address,
+      '127.1.2.3',
+      '::1',
+      '0:0:0:0:0:0:0:1',
+      '::ffff:127.0.0.1',
+      '[::1]',
+    ]
 
     await withWiredServer(
       async ({ request, json }) => {
-        const response = await request({ method: 'GET', path: PATH, peer: LOOPBACK })
-        expect(response.status).toBe(200)
-        expect(
-          await json<{
-            local: boolean
-            argv: string[]
-            socketPath: string
-            target: string
-            bindingFence: Record<string, unknown>
-          }>(response)
-        ).toEqual({
-          local: true,
-          argv: DESCRIPTOR.argv,
-          socketPath: SOCKET_PATH,
-          target: TARGET,
-          bindingFence: DESCRIPTOR.bindingFence,
-        })
-        expect(seen).toEqual([RUNTIME.runtimeId])
+        for (const address of addresses) {
+          const response = await request({ method: 'GET', path: PATH, peer: { address } })
+          expect({ address, status: response.status }).toEqual({ address, status: 200 })
+          expect(
+            await json<{
+              local: boolean
+              argv: string[]
+              socketPath: string
+              target: string
+              bindingFence: Record<string, unknown>
+            }>(response)
+          ).toEqual({
+            local: true,
+            argv: DESCRIPTOR.argv,
+            socketPath: SOCKET_PATH,
+            target: TARGET,
+            bindingFence: DESCRIPTOR.bindingFence,
+          })
+        }
+        expect(seen).toEqual(addresses.map(() => RUNTIME.runtimeId))
       },
       { hrcClient }
     )
   })
 
-  test('404 not_local for a non-loopback peer, without touching hrc', async () => {
+  test('404 not_local for a remote or spoof-shaped peer, without touching hrc', async () => {
     const seen: string[] = []
     const hrcClient = makeHrcClient({
       sessions: [SESSION],
@@ -123,9 +131,19 @@ describe('GET /v1/mobile/sessions/:hostSessionId/attach-info', () => {
 
     await withWiredServer(
       async ({ request, json }) => {
-        const response = await request({ method: 'GET', path: PATH, peer: TAILSCALE })
-        expect(response.status).toBe(404)
-        expect((await json<{ reason: string }>(response)).reason).toBe('not_local')
+        for (const address of [
+          TAILSCALE.address,
+          '10.0.0.2',
+          '0.0.0.0',
+          '',
+          '::ffff:10.0.0.2',
+          '127.0.0.1.evil.test',
+          'fe80::1%en0',
+        ]) {
+          const response = await request({ method: 'GET', path: PATH, peer: { address } })
+          expect({ address, status: response.status }).toEqual({ address, status: 404 })
+          expect((await json<{ reason: string }>(response)).reason).toBe('not_local')
+        }
         expect(seen).toEqual([])
       },
       { hrcClient }
@@ -216,88 +234,31 @@ describe('GET /v1/mobile/sessions/:hostSessionId/attach-info', () => {
     )
   })
 
-  test('409 not_attachable for an attach argv this gateway cannot parse', async () => {
-    const hrcClient = makeHrcClient({
-      sessions: [SESSION],
-      runtimes: [RUNTIME],
-      descriptor: {
-        transport: 'tmux',
-        argv: [TMUX_BINARY, '-S', SOCKET_PATH, 'attach-session', '-t', TARGET, '-d'],
-        bindingFence: DESCRIPTOR.bindingFence,
-      },
-    })
+  test('409 not_attachable for any attach argv shape this gateway cannot parse', async () => {
+    const refusedShapes: string[][] = [
+      [],
+      ['tmux', '-S', SOCKET_PATH, 'attach-session', '-t'],
+      [TMUX_BINARY, '-S', SOCKET_PATH, 'attach-session', '-t', TARGET, '-d'],
+      ['tmux', '-S', SOCKET_PATH, 'kill-session', '-t', TARGET],
+      ['tmux', '-L', 'name', 'attach-session', '-t', TARGET],
+      ['tmux', '-S', '', 'attach-session', '-t', TARGET],
+      ['/opt/homebrew/bin/not-tmux', '-S', SOCKET_PATH, 'attach-session', '-t', TARGET],
+    ]
+    for (const argv of refusedShapes) {
+      const hrcClient = makeHrcClient({
+        sessions: [SESSION],
+        runtimes: [RUNTIME],
+        descriptor: { transport: 'tmux', argv, bindingFence: DESCRIPTOR.bindingFence },
+      })
 
-    await withWiredServer(
-      async ({ request, json }) => {
-        const response = await request({ method: 'GET', path: PATH, peer: LOOPBACK })
-        expect(response.status).toBe(409)
-        expect((await json<{ reason: string }>(response)).reason).toBe('not_attachable')
-      },
-      { hrcClient }
-    )
-  })
-})
-
-describe('isLoopbackPeer', () => {
-  test('accepts loopback v4, the 127/8 block, v6 loopback, and v4-mapped v6', () => {
-    for (const address of [
-      '127.0.0.1',
-      '127.1.2.3',
-      '::1',
-      '0:0:0:0:0:0:0:1',
-      '::ffff:127.0.0.1',
-      '[::1]',
-    ]) {
-      expect(isLoopbackPeer({ address })).toBe(true)
+      await withWiredServer(
+        async ({ request, json }) => {
+          const response = await request({ method: 'GET', path: PATH, peer: LOOPBACK })
+          expect({ argv, status: response.status }).toEqual({ argv, status: 409 })
+          expect((await json<{ reason: string }>(response)).reason).toBe('not_attachable')
+        },
+        { hrcClient }
+      )
     }
-  })
-
-  test('rejects remote addresses, an absent peer, and spoof-shaped values', () => {
-    expect(isLoopbackPeer(undefined)).toBe(false)
-    for (const address of [
-      '100.73.60.81',
-      '10.0.0.2',
-      '0.0.0.0',
-      '',
-      '::ffff:10.0.0.2',
-      '127.0.0.1.evil.test',
-      'fe80::1%en0',
-    ]) {
-      expect(isLoopbackPeer({ address })).toBe(false)
-    }
-  })
-})
-
-describe('parseTmuxAttachArgv', () => {
-  test('reads socket and target back out of the hrc attach argv, spaces included', () => {
-    expect(parseTmuxAttachArgv(DESCRIPTOR.argv)).toEqual({
-      socketPath: SOCKET_PATH,
-      target: TARGET,
-    })
-  })
-
-  test('refuses any other argv shape rather than guessing', () => {
-    expect(parseTmuxAttachArgv([])).toBeUndefined()
-    expect(parseTmuxAttachArgv(['tmux', '-S', SOCKET_PATH, 'attach-session', '-t'])).toBeUndefined()
-    expect(
-      parseTmuxAttachArgv(['tmux', '-S', SOCKET_PATH, 'attach-session', '-t', TARGET, '-d'])
-    ).toBeUndefined()
-    expect(
-      parseTmuxAttachArgv(['tmux', '-S', SOCKET_PATH, 'kill-session', '-t', TARGET])
-    ).toBeUndefined()
-    expect(
-      parseTmuxAttachArgv(['tmux', '-L', 'name', 'attach-session', '-t', TARGET])
-    ).toBeUndefined()
-    expect(parseTmuxAttachArgv(['tmux', '-S', '', 'attach-session', '-t', TARGET])).toBeUndefined()
-    expect(
-      parseTmuxAttachArgv([
-        '/opt/homebrew/bin/not-tmux',
-        '-S',
-        SOCKET_PATH,
-        'attach-session',
-        '-t',
-        TARGET,
-      ])
-    ).toBeUndefined()
   })
 })

@@ -11,7 +11,7 @@ import {
 import { withTmpStore } from '../fixtures/tmp-store.js'
 
 describe('04 projection rebuildability', () => {
-  test('replaying the ledger yields the same currently-open handoff and wake anchors', () => {
+  test('cancelled handoff and consumed wake leave the open/pending queries while the ledger keeps both declarations', () => {
     withTmpStore((store) => {
       const review = appendEvent(store, {
         projectId: 'demo',

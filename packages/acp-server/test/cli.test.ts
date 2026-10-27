@@ -246,7 +246,7 @@ describe('acp-server cli helpers', () => {
     expect(stoppedAfterFailure).toEqual(['127.0.0.1'])
   })
 
-  test('formats startup config as log data and help text', () => {
+  test('startup log lists one endpoint per bind host, and --help documents the wrkq locator inputs but not WRKF_DB_PATH', () => {
     expect(
       formatStartupConfig({
         wrkqDbLocator: 'rpc://mini:7171',
@@ -401,7 +401,7 @@ describe('acp-server cli helpers', () => {
     ).rejects.toThrow('project root unknown for missing-project')
   })
 
-  test('real launcher wins over echo launcher and warns on conflicts', () => {
+  test('ACP_REAL_HRC_LAUNCHER=1 beats ACP_DEV_ECHO_LAUNCHER=1 and logs one ignored-config warning', () => {
     const warn = mock(() => {})
     const originalWarn = console.warn
 

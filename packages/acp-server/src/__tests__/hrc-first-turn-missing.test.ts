@@ -69,7 +69,7 @@ function flowDeps(
 }
 
 describe('HRC first-turn-missing built-in job', () => {
-  test('is slug-idempotent and preserves the frozen static dispatch contract', () => {
+  test('ensuring the first-turn-missing job twice keeps one job with the frozen event trigger and two-step flow', () => {
     const store = createInMemoryJobsStore()
     try {
       const first = ensureHrcFirstTurnMissingJob(store)
@@ -101,7 +101,7 @@ describe('HRC first-turn-missing built-in job', () => {
     }
   })
 
-  test('rev3 envelope on the co-resident HRC node dispatches with verbatim retrieval hint', async () => {
+  test('first-turn-missing event on this node dispatches fettle once with the rendered notice; replayed event is not re-dispatched', async () => {
     const store = createInMemoryJobsStore()
     try {
       const job = ensureHrcFirstTurnMissingJob(store)
@@ -166,7 +166,7 @@ describe('HRC first-turn-missing built-in job', () => {
     }
   })
 
-  test('nodeId mismatch is a warned no-op with no dispatch', async () => {
+  test('first-turn-missing event from another node dispatches nothing and logs node_tripwire_blocked', async () => {
     const store = createInMemoryJobsStore()
     const warn = spyOn(console, 'warn').mockImplementation(() => {})
     try {

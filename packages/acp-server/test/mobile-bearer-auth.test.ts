@@ -7,12 +7,13 @@
  */
 import { describe, expect, test } from 'bun:test'
 
+import { createAcpListenerHandlers } from '../src/acp-listener.js'
+import { resolveAcpServerDeps } from '../src/deps.js'
 import {
-  authorizeMobileRequest,
-  classifyMobileRoute,
-  parseBearerToken,
-} from '../src/mobile-auth/gate.js'
-import { type MobileAuthStore, createMobileAuthStore } from '../src/mobile-auth/store.js'
+  type MobileAuthStore,
+  PAIRING_CODE_TTL_MS,
+  createMobileAuthStore,
+} from '../src/mobile-auth/store.js'
 
 import { type WiredServerFixture, withWiredServer } from './fixtures/wired-server.js'
 
@@ -30,14 +31,24 @@ function bearer(token: string): HeadersInit {
 }
 
 /** Pair one device and arm enforcement, returning the device's live token. */
-function armedStore(): { store: MobileAuthStore; token: string; deviceId: string } {
+function armedStore(): {
+  store: MobileAuthStore
+  token: string
+  deviceId: string
+  tokenHash: string
+} {
   const store = createMobileAuthStore()
   const redeemed = store.redeemPairingCode(store.mintPairingCode().code, 'test-device')
   if (redeemed === undefined) {
     throw new Error('fixture pairing failed')
   }
   store.setEnforce(true)
-  return { store, token: redeemed.token, deviceId: redeemed.device.deviceId }
+  return {
+    store,
+    token: redeemed.token,
+    deviceId: redeemed.device.deviceId,
+    tokenHash: redeemed.device.tokenHash,
+  }
 }
 
 async function withArmedServer<T>(
@@ -46,37 +57,6 @@ async function withArmedServer<T>(
   const auth = armedStore()
   return withWiredServer((fixture) => run(fixture, auth), { mobileAuthStore: auth.store })
 }
-
-describe('mobile route classification (spec §1)', () => {
-  test('exempt routes are an explicit allowlist, not a prefix', () => {
-    expect(classifyMobileRoute('/v1/mobile/health')).toBe('exempt')
-    expect(classifyMobileRoute('/v1/mobile/pairing')).toBe('exempt')
-    expect(classifyMobileRoute('/v1/mobile/pair')).toBe('pair')
-    expect(classifyMobileRoute('/v1/mobile/health/extra')).toBe('bearer')
-  })
-
-  test('every mobile API version lands in the bearer tier by default', () => {
-    expect(classifyMobileRoute('/v1/mobile/dashboard')).toBe('bearer')
-    expect(classifyMobileRoute('/v2/mobile/sessions')).toBe('bearer')
-    expect(classifyMobileRoute('/v2/mobile/dashboard')).toBe('bearer')
-    expect(classifyMobileRoute('/v9/mobile/whatever')).toBe('bearer')
-  })
-
-  test('non-mobile routes are outside the gate entirely', () => {
-    expect(classifyMobileRoute('/v1/sessions')).toBeUndefined()
-    expect(classifyMobileRoute('/v1/admin/agents')).toBeUndefined()
-    expect(classifyMobileRoute('/v1/mobile')).toBeUndefined()
-    expect(classifyMobileRoute('/mobile/dashboard')).toBeUndefined()
-  })
-
-  test('bearer parsing accepts only a well-formed Bearer header', () => {
-    expect(parseBearerToken('Bearer abc')).toBe('abc')
-    expect(parseBearerToken('bearer abc')).toBe('abc')
-    expect(parseBearerToken('Basic abc')).toBeUndefined()
-    expect(parseBearerToken('abc')).toBeUndefined()
-    expect(parseBearerToken(null)).toBeUndefined()
-  })
-})
 
 describe('dark ship: enforce=false is zero behavior change (spec §4 step 1)', () => {
   test('a tokenless tailnet caller reaches every route class', async () => {
@@ -137,15 +117,17 @@ describe('enforced gate: bearer tier (spec §1 row 3)', () => {
     })
   })
 
-  test('a valid bearer admits a tailnet caller', async () => {
+  test('a valid bearer admits a tailnet caller, whatever the scheme case', async () => {
     await withArmedServer(async ({ request }, { token }) => {
-      const response = await request({
-        method: 'GET',
-        path: GUARDED_PATH,
-        peer: TAILSCALE,
-        headers: bearer(token),
-      })
-      expect(response.status).toBe(426)
+      for (const authorization of [`Bearer ${token}`, `bearer ${token}`]) {
+        const response = await request({
+          method: 'GET',
+          path: GUARDED_PATH,
+          peer: TAILSCALE,
+          headers: { authorization },
+        })
+        expect({ authorization, status: response.status }).toEqual({ authorization, status: 426 })
+      }
     })
   })
 
@@ -164,8 +146,42 @@ describe('enforced gate: bearer tier (spec §1 row 3)', () => {
         peer: TAILSCALE,
         headers: { authorization: token },
       })
+      const otherScheme = await request({
+        method: 'GET',
+        path: GUARDED_PATH,
+        peer: TAILSCALE,
+        headers: { authorization: `Basic ${token}` },
+      })
+      const empty = await request({
+        method: 'GET',
+        path: GUARDED_PATH,
+        peer: TAILSCALE,
+        headers: { authorization: 'Bearer ' },
+      })
+      const blank = await request({
+        method: 'GET',
+        path: GUARDED_PATH,
+        peer: TAILSCALE,
+        headers: { authorization: 'Bearer    ' },
+      })
 
-      for (const response of [missing, invalid, malformed]) {
+      for (const response of [missing, invalid, malformed, otherScheme, empty, blank]) {
+        expect(response.status).toBe(401)
+        expect(await json(response)).toEqual(UNAUTHORIZED_BODY)
+      }
+    })
+  })
+
+  test('a deviceId or a stored token hash presented as a bearer is refused', async () => {
+    await withArmedServer(async ({ request, json }, { deviceId, tokenHash }) => {
+      expect(deviceId.length).toBeGreaterThan(0)
+      for (const credential of [deviceId, tokenHash]) {
+        const response = await request({
+          method: 'GET',
+          path: GUARDED_PATH,
+          peer: TAILSCALE,
+          headers: bearer(credential),
+        })
         expect(response.status).toBe(401)
         expect(await json(response)).toEqual(UNAUTHORIZED_BODY)
       }
@@ -222,63 +238,46 @@ describe('enforced gate: bearer tier (spec §1 row 3)', () => {
     })
   })
 
-  test('GET /v2/mobile/sessions is gated (named by spec rev 4 §7)', async () => {
+  test('/v2 and unknown-version mobile routes are gated identically to /v1', async () => {
+    // /v2/mobile/sessions is named by spec rev 4 §7; an unknown version fails closed.
+    const rows: Array<[path: string, admittedStatus: number | undefined]> = [
+      [GUARDED_V2_PATH, 426],
+      ['/v2/mobile/sessions', undefined],
+      ['/v9/mobile/whatever', undefined],
+    ]
     await withArmedServer(async ({ request, json }, { token }) => {
-      const denied = await request({ method: 'GET', path: '/v2/mobile/sessions', peer: TAILSCALE })
-      expect(denied.status).toBe(401)
-      expect(await json(denied)).toEqual(UNAUTHORIZED_BODY)
+      for (const [path, admittedStatus] of rows) {
+        const denied = await request({ method: 'GET', path, peer: TAILSCALE })
+        expect({ path, status: denied.status }).toEqual({ path, status: 401 })
+        expect(await json(denied)).toEqual(UNAUTHORIZED_BODY)
 
-      const admitted = await request({
-        method: 'GET',
-        path: '/v2/mobile/sessions',
-        peer: TAILSCALE,
-        headers: bearer(token),
-      })
-      expect(admitted.status).not.toBe(401)
-
-      expect(
-        (await request({ method: 'GET', path: '/v2/mobile/sessions', peer: LOOPBACK })).status
-      ).not.toBe(401)
+        const admitted = await request({
+          method: 'GET',
+          path,
+          peer: TAILSCALE,
+          headers: bearer(token),
+        })
+        const local = await request({ method: 'GET', path, peer: LOOPBACK })
+        for (const response of [admitted, local]) {
+          expect({ path, status: response.status }).not.toEqual({ path, status: 401 })
+        }
+        if (admittedStatus !== undefined) expect(admitted.status).toBe(admittedStatus)
+      }
     })
   })
 
-  test('/v2 mobile routes are gated identically to /v1', async () => {
-    await withArmedServer(async ({ request, json }, { token }) => {
-      const denied = await request({ method: 'GET', path: GUARDED_V2_PATH, peer: TAILSCALE })
-      expect(denied.status).toBe(401)
-      expect(await json(denied)).toEqual(UNAUTHORIZED_BODY)
-
-      expect(
-        (
-          await request({
-            method: 'GET',
-            path: GUARDED_V2_PATH,
-            peer: TAILSCALE,
-            headers: bearer(token),
-          })
-        ).status
-      ).toBe(426)
+  test('non-mobile routes never answer the mobile 401 to a tokenless tailnet caller', async () => {
+    await withArmedServer(async ({ request }) => {
+      for (const path of ['/v1/sessions', '/v1/admin/agents', '/v1/mobile', '/mobile/dashboard']) {
+        const response = await request({ method: 'GET', path, peer: TAILSCALE })
+        const body = await response.text()
+        expect({ path, body }).not.toEqual({ path, body: JSON.stringify(UNAUTHORIZED_BODY) })
+        expect({ path, status: response.status }).not.toEqual({ path, status: 401 })
+      }
     })
   })
 
-  test('the /v2/mobile/dashboard WS upgrade is gated (named by spec rev 4 §7)', () => {
-    const { store, token } = armedStore()
-    const pathname = '/v2/mobile/dashboard'
-    expect(authorizeMobileRequest({ pathname, peer: TAILSCALE, authorization: null, store })).toBe(
-      'unauthorized'
-    )
-    expect(
-      authorizeMobileRequest({
-        pathname,
-        peer: TAILSCALE,
-        authorization: `Bearer ${token}`,
-        store,
-      })
-    ).toBe('allow')
-  })
-
-  test('WS upgrade paths take the same decision as HTTP (spec §3)', () => {
-    const { store, token } = armedStore()
+  test('WS upgrade paths take the same decision as HTTP (spec §3)', async () => {
     const wsPaths = [
       '/v1/mobile/dashboard',
       '/v2/mobile/dashboard',
@@ -286,46 +285,80 @@ describe('enforced gate: bearer tier (spec §1 row 3)', () => {
       '/v1/mobile/sessions/hsid-1/timeline',
       '/v1/mobile/sessions/hsid-1/diagnostics',
     ]
+    await withArmedServer(async (fixture, { token }) => {
+      const handlers = createAcpListenerHandlers({
+        acpServer: fixture.server,
+        deps: resolveAcpServerDeps(fixture.deps),
+        handleCapRpc: async () => Response.json({ jsonrpc: '2.0', id: 1, result: {} }),
+      })
+      const attempt = async (
+        pathname: string,
+        peer: typeof TAILSCALE | null,
+        authorization?: string
+      ): Promise<{ status: number | 'upgraded'; body?: unknown }> => {
+        let upgraded = false
+        const response = await handlers.fetch(
+          new Request(`http://acp.test${pathname}`, {
+            headers: {
+              upgrade: 'websocket',
+              connection: 'Upgrade',
+              ...(authorization !== undefined ? { authorization } : {}),
+            },
+          }),
+          {
+            requestIP: () => peer,
+            upgrade: () => {
+              upgraded = true
+              return true
+            },
+          }
+        )
+        if (upgraded) return { status: 'upgraded' }
+        if (response === undefined) throw new Error('no response and no upgrade')
+        return { status: response.status, body: await response.json() }
+      }
 
-    for (const pathname of wsPaths) {
-      expect(
-        authorizeMobileRequest({ pathname, peer: TAILSCALE, authorization: null, store })
-      ).toBe('unauthorized')
-      expect(
-        authorizeMobileRequest({ pathname, peer: undefined, authorization: null, store })
-      ).toBe('unauthorized')
-      expect(
-        authorizeMobileRequest({
+      for (const pathname of wsPaths) {
+        const refused = { status: 401, body: UNAUTHORIZED_BODY }
+        expect({ pathname, ...(await attempt(pathname, TAILSCALE)) }).toEqual({
           pathname,
-          peer: TAILSCALE,
-          authorization: `Bearer ${token}xyz`,
-          store,
+          ...refused,
         })
-      ).toBe('unauthorized')
-      expect(authorizeMobileRequest({ pathname, peer: LOOPBACK, authorization: null, store })).toBe(
-        'allow'
-      )
-      expect(
-        authorizeMobileRequest({
+        expect({ pathname, ...(await attempt(pathname, null)) }).toEqual({ pathname, ...refused })
+        expect({
           pathname,
-          peer: TAILSCALE,
-          authorization: `Bearer ${token}`,
-          store,
+          ...(await attempt(pathname, TAILSCALE, `Bearer ${token}xyz`)),
+        }).toEqual({ pathname, ...refused })
+        expect({ pathname, ...(await attempt(pathname, LOOPBACK)) }).toEqual({
+          pathname,
+          status: 'upgraded',
         })
-      ).toBe('allow')
-    }
+        expect({ pathname, ...(await attempt(pathname, TAILSCALE, `Bearer ${token}`)) }).toEqual({
+          pathname,
+          status: 'upgraded',
+        })
+      }
+    })
   })
 })
 
 describe('enforced gate: exempt and pair rows (spec §1 rows 1-2)', () => {
-  test('health and the pairing descriptor stay open to any peer', async () => {
-    await withArmedServer(async ({ request }) => {
+  test('health and the pairing descriptor stay open to any peer; the exemption is exact, not a prefix', async () => {
+    await withArmedServer(async ({ request, json }) => {
       expect(
         (await request({ method: 'GET', path: '/v1/mobile/health', peer: TAILSCALE })).status
       ).not.toBe(401)
       expect(
         (await request({ method: 'GET', path: '/v1/mobile/pairing', peer: TAILSCALE })).status
       ).toBe(200)
+
+      const extra = await request({
+        method: 'GET',
+        path: '/v1/mobile/health/extra',
+        peer: TAILSCALE,
+      })
+      expect(extra.status).toBe(401)
+      expect(await json(extra)).toEqual(UNAUTHORIZED_BODY)
     })
   })
 
@@ -366,19 +399,34 @@ describe('enforced gate: exempt and pair rows (spec §1 rows 1-2)', () => {
 
   test('a bad, replayed, or absent code from the tailnet gets the same 401', async () => {
     await withArmedServer(async ({ request, json }, { store }) => {
-      const { code } = store.mintPairingCode()
       const pair = (body: Record<string, unknown>) =>
         request({ method: 'POST', path: '/v1/mobile/pair', body, peer: TAILSCALE })
+      const devices = async () =>
+        (
+          await json<{ devices: unknown[] }>(
+            await request({ method: 'GET', path: '/v1/mobile/auth/devices', peer: LOOPBACK })
+          )
+        ).devices.length
 
+      // No code outstanding yet.
+      const unminted = await pair({ pairingCode: 'AAAAAAAA' })
+      expect(unminted.status).toBe(401)
+      expect(await json(unminted)).toEqual(UNAUTHORIZED_BODY)
+
+      const { code } = store.mintPairingCode()
+      // A typo is refused without burning the live code.
       const wrong = await pair({ pairingCode: 'AAAAAAAA' })
       expect(wrong.status).toBe(401)
       expect(await json(wrong)).toEqual(UNAUTHORIZED_BODY)
 
+      const before = await devices()
       expect((await pair({ pairingCode: code })).status).toBe(200)
 
       const replayed = await pair({ pairingCode: code })
       expect(replayed.status).toBe(401)
       expect(await json(replayed)).toEqual(UNAUTHORIZED_BODY)
+      // Single use: the replay minted no second device.
+      expect(await devices()).toBe(before + 1)
 
       const codeless = await pair({})
       expect(codeless.status).toBe(401)
@@ -464,7 +512,7 @@ describe('loopback auth admin routes (spec §4 — the server is the only writer
             peer: LOOPBACK,
           })
         )
-        expect(minted.code).toHaveLength(8)
+        expect(minted.code).toMatch(/^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{8}$/)
 
         const paired = await json<{ token: string; deviceId: string }>(
           await request({
@@ -499,6 +547,10 @@ describe('loopback auth admin routes (spec §4 — the server is the only writer
         })
         expect(revoked.status).toBe(200)
         expect(store.verifyToken(paired.token)).toBe(false)
+        const afterRevoke = await json<{ devices: unknown[] }>(
+          await request({ method: 'GET', path: '/v1/mobile/auth/devices', peer: LOOPBACK })
+        )
+        expect(afterRevoke.devices).toEqual([])
 
         const missing = await request({
           method: 'POST',
@@ -555,20 +607,97 @@ describe('loopback auth admin routes (spec §4 — the server is the only writer
   })
 
   test('enforce requires an explicit boolean', async () => {
+    const store = createMobileAuthStore()
+    store.redeemPairingCode(store.mintPairingCode().code)
     await withWiredServer(
-      async ({ request }) => {
+      async ({ request, json }) => {
+        const response = await request({
+          method: 'POST',
+          path: '/v1/mobile/auth/enforce',
+          body: { enforce: 'yes' },
+          peer: LOOPBACK,
+        })
+        expect(response.status).toBe(400)
         expect(
-          (
-            await request({
-              method: 'POST',
-              path: '/v1/mobile/auth/enforce',
-              body: { enforce: 'yes' },
-              peer: LOOPBACK,
-            })
-          ).status
-        ).toBe(400)
+          await json<{ error: { details?: Record<string, unknown> } }>(response)
+        ).toMatchObject({ error: { details: { field: 'enforce' } } })
+        expect(store.isEnforcing()).toBe(false)
       },
-      { mobileAuthStore: createMobileAuthStore() }
+      { mobileAuthStore: store }
+    )
+  })
+
+  test('minting a new pairing code voids the previous outstanding one', async () => {
+    const store = createMobileAuthStore()
+    await withWiredServer(
+      async ({ request, json }) => {
+        const mint = async () =>
+          json<{ code: string }>(
+            await request({ method: 'POST', path: '/v1/mobile/auth/pairing-code', peer: LOOPBACK })
+          )
+        const first = await mint()
+        const second = await mint()
+        const pair = (pairingCode: string) =>
+          request({
+            method: 'POST',
+            path: '/v1/mobile/pair',
+            body: { pairingCode },
+            peer: TAILSCALE,
+          })
+
+        expect((await pair(first.code)).status).toBe(401)
+        expect((await pair(second.code)).status).toBe(200)
+      },
+      { mobileAuthStore: store }
+    )
+  })
+
+  test('a pairing code past its TTL is refused and pairs no device', async () => {
+    let now = 1_000_000
+    const store = createMobileAuthStore({ now: () => now })
+    await withWiredServer(
+      async ({ request, json }) => {
+        const minted = await json<{ code: string; expiresAt: string }>(
+          await request({ method: 'POST', path: '/v1/mobile/auth/pairing-code', peer: LOOPBACK })
+        )
+        expect(Date.parse(minted.expiresAt)).toBe(now + PAIRING_CODE_TTL_MS)
+
+        now += PAIRING_CODE_TTL_MS + 1
+        const expired = await request({
+          method: 'POST',
+          path: '/v1/mobile/pair',
+          body: { pairingCode: minted.code },
+          peer: TAILSCALE,
+        })
+        expect(expired.status).toBe(401)
+        expect(await json(expired)).toEqual(UNAUTHORIZED_BODY)
+        const listed = await json<{ devices: unknown[] }>(
+          await request({ method: 'GET', path: '/v1/mobile/auth/devices', peer: LOOPBACK })
+        )
+        expect(listed.devices).toEqual([])
+      },
+      { mobileAuthStore: store }
+    )
+  })
+
+  test('a hand-typed pairing code matches regardless of case and surrounding spaces', async () => {
+    const store = createMobileAuthStore()
+    await withWiredServer(
+      async ({ request, json }) => {
+        const minted = await json<{ code: string }>(
+          await request({ method: 'POST', path: '/v1/mobile/auth/pairing-code', peer: LOOPBACK })
+        )
+        const response = await request({
+          method: 'POST',
+          path: '/v1/mobile/pair',
+          body: { pairingCode: ` ${minted.code.toLowerCase()} ` },
+          peer: TAILSCALE,
+        })
+        expect(response.status).toBe(200)
+        const body = await json<{ token: string }>(response)
+        expect(store.verifyToken(body.token)).toBe(true)
+      },
+      { mobileAuthStore: store }
     )
   })
 })

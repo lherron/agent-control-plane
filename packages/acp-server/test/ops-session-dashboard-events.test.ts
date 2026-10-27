@@ -1,10 +1,7 @@
 /**
- * Red tests for GET /v1/ops/session-dashboard/events (NDJSON stream)
+ * Tests for GET /v1/ops/session-dashboard/events (NDJSON stream)
  *
  * Spec reference: SESSION_DASHBOARD.md §11.1–§11.3
- *
- * These tests exercise the dashboard event stream endpoint contract. They are
- * intentionally RED — the route is not yet wired and no handler exists.
  *
  * The new /v1/ops/session-dashboard/events endpoint streams DashboardEvent
  * objects (projected from HRC lifecycle events) as NDJSON. It is distinct from
@@ -13,10 +10,9 @@
  *
  * Non-goals:
  * - Does NOT test authZ (skipped for Phase 1).
- * - Does NOT implement the handler.
- * - Does NOT touch handlers/sessions-events.ts (existing per-session proxy).
  */
 import { describe, expect, test } from 'bun:test'
+import { createInMemoryAdminStore } from 'acp-admin-store'
 import { parseScopeRef } from 'agent-scope'
 
 import type { DashboardEvent } from 'acp-ops-projection'
@@ -115,27 +111,6 @@ function parseNdjson(text: string): Array<DashboardEvent | null> {
 // ---------------------------------------------------------------------------
 
 describe('GET /v1/ops/session-dashboard/events', () => {
-  // -- Content-Type ----------------------------------------------------------
-
-  test('responds with application/x-ndjson content type', async () => {
-    const hrcClient = createHrcClientDouble({
-      watch: (_options) =>
-        (async function* () {
-          // empty stream
-        })(),
-    })
-
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request(eventsRequest())
-
-        expect(response.status).toBe(200)
-        expect(response.headers.get('content-type')).toContain('application/x-ndjson')
-      },
-      { hrcClient }
-    )
-  })
-
   // -- Replay from fromSeq in order -----------------------------------------
 
   test('replays events from fromSeq in order', async () => {
@@ -166,184 +141,105 @@ describe('GET /v1/ops/session-dashboard/events', () => {
     )
   })
 
-  // -- Filtering by scopeRef ------------------------------------------------
+  // -- Each filter keeps only matching events ------------------------------
 
-  test('filters events by scopeRef', async () => {
-    const targetScope = 'agent:curly:project:agent-spaces:task:T-01200:role:tester'
-    const otherScope = 'agent:larry:project:wrkq:task:T-00100:role:implementer'
+  const TARGET_SCOPE = 'agent:curly:project:agent-spaces:task:T-01200:role:tester'
+  const OTHER_SCOPE = 'agent:larry:project:wrkq:task:T-00100:role:implementer'
 
+  test.each([
+    {
+      filter: 'scopeRef',
+      query: `scopeRef=${encodeURIComponent(TARGET_SCOPE)}`,
+      events: [
+        { hrcSeq: 1, scopeRef: TARGET_SCOPE },
+        { hrcSeq: 2, scopeRef: OTHER_SCOPE },
+        { hrcSeq: 3, scopeRef: TARGET_SCOPE },
+      ],
+      expectedSeqs: [1, 3],
+    },
+    {
+      filter: 'laneRef',
+      query: 'laneRef=main',
+      events: [
+        { hrcSeq: 1, laneRef: 'main' },
+        { hrcSeq: 2, laneRef: 'repair' },
+        { hrcSeq: 3, laneRef: 'main' },
+      ],
+      expectedSeqs: [1, 3],
+    },
+    {
+      filter: 'hostSessionId',
+      query: 'hostSessionId=hsid-target',
+      events: [
+        { hrcSeq: 1, hostSessionId: 'hsid-target' },
+        { hrcSeq: 2, hostSessionId: 'hsid-other' },
+        { hrcSeq: 3, hostSessionId: 'hsid-target' },
+      ],
+      expectedSeqs: [1, 3],
+    },
+    {
+      filter: 'runId',
+      query: 'runId=run-aaa',
+      events: [
+        { hrcSeq: 1, runId: 'run-aaa' },
+        { hrcSeq: 2, runId: 'run-bbb' },
+        { hrcSeq: 3, runId: 'run-aaa' },
+      ],
+      expectedSeqs: [1, 3],
+    },
+    {
+      filter: 'runtimeId',
+      query: 'runtimeId=rt-001',
+      events: [
+        { hrcSeq: 1, runtimeId: 'rt-001' },
+        { hrcSeq: 2, runtimeId: 'rt-002' },
+        { hrcSeq: 3, runtimeId: 'rt-001' },
+      ],
+      expectedSeqs: [1, 3],
+    },
+    {
+      // projectId matches the stored identity derived from the scopeRef.
+      filter: 'projectId',
+      query: 'projectId=agent-spaces',
+      events: [
+        { hrcSeq: 1, scopeRef: TARGET_SCOPE },
+        { hrcSeq: 2, scopeRef: OTHER_SCOPE },
+      ],
+      expectedSeqs: [1],
+    },
+    {
+      // Filters combine with AND semantics.
+      filter: 'scopeRef+laneRef+hostSessionId',
+      query: `scopeRef=${encodeURIComponent(TARGET_SCOPE)}&laneRef=main&hostSessionId=hsid-combo`,
+      events: [
+        { hrcSeq: 1, scopeRef: TARGET_SCOPE, laneRef: 'main', hostSessionId: 'hsid-combo' },
+        { hrcSeq: 2, scopeRef: TARGET_SCOPE, laneRef: 'repair', hostSessionId: 'hsid-combo' },
+        { hrcSeq: 3, scopeRef: TARGET_SCOPE, laneRef: 'main', hostSessionId: 'hsid-other' },
+      ],
+      expectedSeqs: [1],
+    },
+  ] satisfies Array<{
+    filter: string
+    query: string
+    events: Array<Partial<HrcCoreLifecycleEvent>>
+    expectedSeqs: number[]
+  }>)('the $filter filter keeps only matching events', async ({ query, events, expectedSeqs }) => {
     const hrcClient = createHrcClientDouble({
       watch: (_options) =>
         (async function* () {
-          yield createHrcEvent({ hrcSeq: 1, scopeRef: targetScope })
-          yield createHrcEvent({ hrcSeq: 2, scopeRef: otherScope })
-          yield createHrcEvent({ hrcSeq: 3, scopeRef: targetScope })
+          for (const overrides of events) yield createHrcEvent(overrides)
         })(),
     })
 
     await withWiredServer(
       async (fixture) => {
-        const response = await fixture.request(
-          eventsRequest(`scopeRef=${encodeURIComponent(targetScope)}`)
-        )
+        const response = await fixture.request(eventsRequest(query))
 
         expect(response.status).toBe(200)
         const text = await response.text()
-        const events = parseNdjson(text).filter((e): e is DashboardEvent => e !== null)
+        const received = parseNdjson(text).filter((e): e is DashboardEvent => e !== null)
 
-        expect(events.length).toBe(2)
-        for (const event of events) {
-          expect(event.sessionRef.scopeRef).toBe(targetScope)
-        }
-      },
-      { hrcClient }
-    )
-  })
-
-  // -- Filtering by laneRef -------------------------------------------------
-
-  test('filters events by laneRef', async () => {
-    const hrcClient = createHrcClientDouble({
-      watch: (_options) =>
-        (async function* () {
-          yield createHrcEvent({ hrcSeq: 1, laneRef: 'main' })
-          yield createHrcEvent({ hrcSeq: 2, laneRef: 'repair' })
-          yield createHrcEvent({ hrcSeq: 3, laneRef: 'main' })
-        })(),
-    })
-
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request(eventsRequest('laneRef=main'))
-
-        expect(response.status).toBe(200)
-        const text = await response.text()
-        const events = parseNdjson(text).filter((e): e is DashboardEvent => e !== null)
-
-        expect(events.length).toBe(2)
-        for (const event of events) {
-          expect(event.sessionRef.laneRef).toBe('main')
-        }
-      },
-      { hrcClient }
-    )
-  })
-
-  // -- Filtering by hostSessionId -------------------------------------------
-
-  test('filters events by hostSessionId', async () => {
-    const hrcClient = createHrcClientDouble({
-      watch: (_options) =>
-        (async function* () {
-          yield createHrcEvent({ hrcSeq: 1, hostSessionId: 'hsid-target' })
-          yield createHrcEvent({ hrcSeq: 2, hostSessionId: 'hsid-other' })
-          yield createHrcEvent({ hrcSeq: 3, hostSessionId: 'hsid-target' })
-        })(),
-    })
-
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request(eventsRequest('hostSessionId=hsid-target'))
-
-        expect(response.status).toBe(200)
-        const text = await response.text()
-        const events = parseNdjson(text).filter((e): e is DashboardEvent => e !== null)
-
-        expect(events.length).toBe(2)
-        for (const event of events) {
-          expect(event.hostSessionId).toBe('hsid-target')
-        }
-      },
-      { hrcClient }
-    )
-  })
-
-  // -- Filtering by runId ---------------------------------------------------
-
-  test('filters events by runId', async () => {
-    const hrcClient = createHrcClientDouble({
-      watch: (_options) =>
-        (async function* () {
-          yield createHrcEvent({ hrcSeq: 1, runId: 'run-aaa' })
-          yield createHrcEvent({ hrcSeq: 2, runId: 'run-bbb' })
-          yield createHrcEvent({ hrcSeq: 3, runId: 'run-aaa' })
-        })(),
-    })
-
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request(eventsRequest('runId=run-aaa'))
-
-        expect(response.status).toBe(200)
-        const text = await response.text()
-        const events = parseNdjson(text).filter((e): e is DashboardEvent => e !== null)
-
-        expect(events.length).toBe(2)
-        for (const event of events) {
-          expect(event.runId).toBe('run-aaa')
-        }
-      },
-      { hrcClient }
-    )
-  })
-
-  // -- Filtering by runtimeId -----------------------------------------------
-
-  test('filters events by runtimeId', async () => {
-    const hrcClient = createHrcClientDouble({
-      watch: (_options) =>
-        (async function* () {
-          yield createHrcEvent({ hrcSeq: 1, runtimeId: 'rt-001' })
-          yield createHrcEvent({ hrcSeq: 2, runtimeId: 'rt-002' })
-          yield createHrcEvent({ hrcSeq: 3, runtimeId: 'rt-001' })
-        })(),
-    })
-
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request(eventsRequest('runtimeId=rt-001'))
-
-        expect(response.status).toBe(200)
-        const text = await response.text()
-        const events = parseNdjson(text).filter((e): e is DashboardEvent => e !== null)
-
-        expect(events.length).toBe(2)
-        for (const event of events) {
-          expect(event.runtimeId).toBe('rt-001')
-        }
-      },
-      { hrcClient }
-    )
-  })
-
-  // -- Filtering by projectId -----------------------------------------------
-
-  test('filters events by projectId', async () => {
-    const hrcClient = createHrcClientDouble({
-      watch: (_options) =>
-        (async function* () {
-          yield createHrcEvent({
-            hrcSeq: 1,
-            scopeRef: 'agent:curly:project:agent-spaces:task:T-01200:role:tester',
-          })
-          yield createHrcEvent({
-            hrcSeq: 2,
-            scopeRef: 'agent:larry:project:wrkq:task:T-00100:role:implementer',
-          })
-        })(),
-    })
-
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request(eventsRequest('projectId=agent-spaces'))
-
-        expect(response.status).toBe(200)
-        const text = await response.text()
-        const events = parseNdjson(text).filter((e): e is DashboardEvent => e !== null)
-
-        // Only the event with stored identity.projectId agent-spaces should match
-        expect(events.length).toBe(1)
-        expect(events[0]!.sessionRef.scopeRef).toContain('project:agent-spaces')
+        expect(received.map((event) => event.hrcSeq)).toEqual(expectedSeqs)
       },
       { hrcClient }
     )
@@ -367,12 +263,12 @@ describe('GET /v1/ops/session-dashboard/events', () => {
             category: 'turn',
             payload: { type: 'message_end', message: { role: 'assistant', content: [] } },
           })
-          // tool.call ⇒ family 'tool'
+          // tool_execution_start ⇒ family 'tool'
           yield createHrcEvent({
             hrcSeq: 3,
-            eventKind: 'turn.tool_use',
+            eventKind: 'turn.tool_call',
             category: 'turn',
-            payload: { type: 'tool_use', name: 'bash' },
+            payload: { type: 'tool_execution_start', toolName: 'bash' },
           })
         })(),
     })
@@ -385,10 +281,9 @@ describe('GET /v1/ops/session-dashboard/events', () => {
         const text = await response.text()
         const events = parseNdjson(text).filter((e): e is DashboardEvent => e !== null)
 
-        // Only runtime-family events should come through
-        for (const event of events) {
-          expect(event.family).toBe('runtime')
-        }
+        // Only the runtime-family event (session.created) comes through
+        expect(events.map((event) => event.hrcSeq)).toEqual([1])
+        expect(events[0]!.family).toBe('runtime')
       },
       { hrcClient }
     )
@@ -414,7 +309,7 @@ describe('GET /v1/ops/session-dashboard/events', () => {
         const text = await response.text()
         const events = parseNdjson(text).filter((e): e is DashboardEvent => e !== null)
 
-        expect(events.length).toBeLessThanOrEqual(5)
+        expect(events.map((event) => event.hrcSeq)).toEqual([1, 2, 3, 4, 5])
       },
       { hrcClient }
     )
@@ -422,12 +317,7 @@ describe('GET /v1/ops/session-dashboard/events', () => {
 
   // -- Heartbeat blank lines during idle follow ------------------------------
 
-  test('emits heartbeat blank lines during idle follow', async () => {
-    let _yieldControl: (() => void) | undefined
-    const _waitForYield = new Promise<void>((resolve) => {
-      _yieldControl = resolve
-    })
-
+  test('an idle followed stream emits heartbeat blank lines between events', async () => {
     const hrcClient = createHrcClientDouble({
       watch: (_options) =>
         (async function* () {
@@ -446,11 +336,9 @@ describe('GET /v1/ops/session-dashboard/events', () => {
         expect(response.status).toBe(200)
         const text = await response.text()
 
-        // The response should contain at least one blank line (heartbeat)
-        // between events when following an idle stream
-        const lines = text.split('\n')
-        const blankLines = lines.filter((line) => line.trim().length === 0)
-        expect(blankLines.length).toBeGreaterThan(0)
+        // At least one heartbeat blank line sits between the two events while
+        // the followed stream is idle (the trailing newline does not count).
+        expect(text).toMatch(/\}\n\n+\{/)
       },
       { hrcClient }
     )
@@ -458,7 +346,7 @@ describe('GET /v1/ops/session-dashboard/events', () => {
 
   // -- Stream terminates cleanly on client abort -----------------------------
 
-  test('terminates cleanly when client aborts', async () => {
+  test('client abort of a followed stream closes the HRC watch', async () => {
     let generatorClosed = false
 
     const hrcClient = createHrcClientDouble({
@@ -619,77 +507,6 @@ describe('GET /v1/ops/session-dashboard/events', () => {
     )
   })
 
-  // -- Combined filters work together ----------------------------------------
-
-  test('combines scopeRef, laneRef, and hostSessionId filters', async () => {
-    const targetScope = 'agent:curly:project:agent-spaces:task:T-01200:role:tester'
-
-    const hrcClient = createHrcClientDouble({
-      watch: (_options) =>
-        (async function* () {
-          yield createHrcEvent({
-            hrcSeq: 1,
-            scopeRef: targetScope,
-            laneRef: 'main',
-            hostSessionId: 'hsid-combo',
-          })
-          yield createHrcEvent({
-            hrcSeq: 2,
-            scopeRef: targetScope,
-            laneRef: 'repair',
-            hostSessionId: 'hsid-combo',
-          })
-          yield createHrcEvent({
-            hrcSeq: 3,
-            scopeRef: targetScope,
-            laneRef: 'main',
-            hostSessionId: 'hsid-other',
-          })
-        })(),
-    })
-
-    await withWiredServer(
-      async (fixture) => {
-        const qs = `scopeRef=${encodeURIComponent(targetScope)}&laneRef=main&hostSessionId=hsid-combo`
-        const response = await fixture.request(eventsRequest(qs))
-
-        expect(response.status).toBe(200)
-        const text = await response.text()
-        const events = parseNdjson(text).filter((e): e is DashboardEvent => e !== null)
-
-        // Only event with hrcSeq=1 matches all three filters
-        expect(events.length).toBe(1)
-        expect(events[0]!.hrcSeq).toBe(1)
-      },
-      { hrcClient }
-    )
-  })
-
-  // -- follow=false terminates after replay ----------------------------------
-
-  test('follow=false terminates stream after replay completes', async () => {
-    const hrcClient = createHrcClientDouble({
-      watch: (_options) =>
-        (async function* () {
-          yield createHrcEvent({ hrcSeq: 1 })
-          yield createHrcEvent({ hrcSeq: 2 })
-        })(),
-    })
-
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request(eventsRequest('follow=false&fromSeq=1'))
-
-        expect(response.status).toBe(200)
-        const text = await response.text()
-        const events = parseNdjson(text).filter((e): e is DashboardEvent => e !== null)
-
-        expect(events.length).toBe(2)
-      },
-      { hrcClient }
-    )
-  })
-
   // -- Empty stream returns 200 with no events -------------------------------
 
   test('returns 200 with empty body for empty event stream', async () => {
@@ -713,5 +530,79 @@ describe('GET /v1/ops/session-dashboard/events', () => {
       },
       { hrcClient }
     )
+  })
+
+  // -- Input admission system events (no HRC client) -----------------------
+
+  test('input admission system events render their admission label, never steered or applied', async () => {
+    const adminStore = createInMemoryAdminStore()
+    const admissions: Array<{ kind: string; payload: Record<string, unknown> }> = [
+      {
+        kind: 'input.application.accepted',
+        payload: { admissionKind: 'accepted_in_flight', applicationStatus: 'accepted' },
+      },
+      {
+        kind: 'input.application.pending',
+        payload: { admissionKind: 'admission_pending', applicationStatus: 'pending' },
+      },
+      {
+        kind: 'input.application.ambiguous',
+        payload: { admissionKind: 'admission_pending', applicationStatus: 'ambiguous' },
+      },
+      {
+        kind: 'input.queued',
+        payload: {
+          admissionKind: 'queued_run',
+          applicationStatus: 'failed',
+          reason: 'contribution_unsupported_fallback_queued',
+        },
+      },
+      { kind: 'input.queued', payload: { admissionKind: 'queued_run', queueStatus: 'queued' } },
+    ]
+    admissions.forEach(({ kind, payload }, index) => {
+      const occurredAt = `2026-05-07T12:00:0${index}.000Z`
+      adminStore.systemEvents.append({
+        projectId: 'agent-spaces',
+        kind,
+        payload: {
+          scopeRef: 'agent:curly:project:agent-spaces:task:T-01383',
+          laneRef: 'main',
+          hostSessionId: 'host-session-labels',
+          generation: 1,
+          ...payload,
+        },
+        occurredAt,
+        recordedAt: occurredAt,
+      })
+    })
+
+    try {
+      await withWiredServer(
+        async (fixture) => {
+          const response = await fixture.request(eventsRequest())
+
+          expect(response.status).toBe(200)
+          const text = await response.text()
+          const labels = parseNdjson(text)
+            .filter((e): e is DashboardEvent => e !== null)
+            .map((event) => event.label)
+
+          expect(labels).toEqual([
+            'Contribution accepted',
+            'Contribution pending',
+            'Contribution ambiguous',
+            'Unsupported contribution fallback queued',
+            'Queued',
+          ])
+          for (const label of labels) {
+            expect(label).not.toMatch(/\bsteered\b/i)
+            expect(label).not.toMatch(/\bapplied\b/i)
+          }
+        },
+        { adminStore }
+      )
+    } finally {
+      adminStore.close?.()
+    }
   })
 })

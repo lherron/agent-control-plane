@@ -154,22 +154,12 @@ describe('WrkfRouteIdempotencyRepo.get — before any record (Phase 4a red)', ()
 // ─── Section 2: admitOrReplay — fresh path ────────────────────────────────────
 
 describe('WrkfRouteIdempotencyRepo.admitOrReplay — fresh (Phase 4a red)', () => {
-  test('[RED] first call returns { state: admitted }', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
-      const result = repo.admitOrReplay({ ...BASE_KEY, bodyHash: 'hash-aaa' })
-      expect(result.state).toBe('admitted')
-    } finally {
-      store.close()
-    }
-  })
-
   test('[RED] after admitOrReplay, get returns the stored record with status=pending', () => {
     const store = openAcpStateStore({ dbPath: ':memory:' })
     try {
       const repo = getRepo(store)
-      repo.admitOrReplay({ ...BASE_KEY, bodyHash: 'hash-aaa' })
+      const admitted = repo.admitOrReplay({ ...BASE_KEY, bodyHash: 'hash-aaa' })
+      expect(admitted.state).toBe('admitted')
       const record = repo.get(BASE_KEY)
       expect(record).toBeDefined()
       expect(record?.route).toBe(BASE_KEY.route)
@@ -208,30 +198,19 @@ describe('WrkfRouteIdempotencyRepo.admitOrReplay — fresh (Phase 4a red)', () =
 // ─── Section 3: admitOrReplay — replay path ───────────────────────────────────
 
 describe('WrkfRouteIdempotencyRepo.admitOrReplay — replay (Phase 4a red)', () => {
-  test('[RED] second call with same key + same body_hash returns { state: replay }', () => {
+  test('replaying an admitted key preserves its record and creation time', () => {
     const store = openAcpStateStore({ dbPath: ':memory:' })
     try {
       const repo = getRepo(store)
       repo.admitOrReplay({ ...BASE_KEY, bodyHash: 'hash-aaa' })
-      const r2 = repo.admitOrReplay({ ...BASE_KEY, bodyHash: 'hash-aaa' })
-      expect(r2.state).toBe('replay')
-    } finally {
-      store.close()
-    }
-  })
-
-  test('[RED] replay result carries the stored record', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
+      const first = repo.get(BASE_KEY)
+      const replay = repo.admitOrReplay({ ...BASE_KEY, bodyHash: 'hash-aaa' })
+      expect(replay.state).toBe('replay')
+      if (replay.state !== 'replay') throw new Error('expected replay')
+      expect(replay.record.bodyHash).toBe('hash-aaa')
+      expect(replay.record.idempotencyKey).toBe(BASE_KEY.idempotencyKey)
       repo.admitOrReplay({ ...BASE_KEY, bodyHash: 'hash-aaa' })
-      const r2 = repo.admitOrReplay({
-        ...BASE_KEY,
-        bodyHash: 'hash-aaa',
-      }) as Extract<AdmitResult, { state: 'replay' }>
-      expect(r2.record).toBeDefined()
-      expect(r2.record.bodyHash).toBe('hash-aaa')
-      expect(r2.record.idempotencyKey).toBe(BASE_KEY.idempotencyKey)
+      expect(repo.get(BASE_KEY)?.createdAt).toBe(first?.createdAt)
     } finally {
       store.close()
     }
@@ -251,26 +230,6 @@ describe('WrkfRouteIdempotencyRepo.admitOrReplay — replay (Phase 4a red)', () 
       expect(r2.state).toBe('replay')
       expect(r2.record.status).toBe('completed')
       expect(r2.record.responseJson).toEqual({ ok: true, evidenceId: 'ev_001' })
-    } finally {
-      store.close()
-    }
-  })
-
-  test('[RED] only one row exists after multiple replays of the same key', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
-      repo.admitOrReplay({ ...BASE_KEY, bodyHash: 'hash-aaa' })
-      repo.admitOrReplay({ ...BASE_KEY, bodyHash: 'hash-aaa' })
-      repo.admitOrReplay({ ...BASE_KEY, bodyHash: 'hash-aaa' })
-      // get should return exactly one record (not multiple)
-      const record = repo.get(BASE_KEY)
-      expect(record).toBeDefined()
-      // createdAt must not change across replays
-      const first = record?.createdAt
-      repo.admitOrReplay({ ...BASE_KEY, bodyHash: 'hash-aaa' })
-      const after = repo.get(BASE_KEY)
-      expect(after?.createdAt).toBe(first)
     } finally {
       store.close()
     }
@@ -321,20 +280,7 @@ describe('WrkfRouteIdempotencyRepo.recordResponse (Phase 4a red)', () => {
       })
       expect(record.status).toBe('completed')
       expect(record.responseJson).toEqual({ evidenceId: 'ev_capture_001' })
-    } finally {
-      store.close()
-    }
-  })
-
-  test('[RED] get after recordResponse returns the completed record', () => {
-    const store = openAcpStateStore({ dbPath: ':memory:' })
-    try {
-      const repo = getRepo(store)
-      repo.admitOrReplay({ ...BASE_KEY, bodyHash: 'hash-aaa' })
-      repo.recordResponse({ ...BASE_KEY, responseJson: { ok: true } })
-      const record = repo.get(BASE_KEY)
-      expect(record?.status).toBe('completed')
-      expect(record?.responseJson).toEqual({ ok: true })
+      expect(repo.get(BASE_KEY)).toEqual(record)
     } finally {
       store.close()
     }

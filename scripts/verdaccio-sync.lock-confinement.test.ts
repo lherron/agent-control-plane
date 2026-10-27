@@ -30,7 +30,7 @@ ${entries.join('\n\n')}
 `
 
 describe('confining a producer advance to its derived member set', () => {
-  test('a moving @wrkq/client selection remains byte-identical', () => {
+  test('advancing agent-scope leaves the @wrkq/client lock entry byte-identical even though a fresh resolve moved it', () => {
     const beforeWrkq = entry('@wrkq/client', '@wrkq/client@1.0.0')
     const before = lock('1.0.0', 'latest', [beforeWrkq, entry('agent-scope', 'agent-scope@1.0.0')])
     const after = lock('2.0.0', 'latest', [

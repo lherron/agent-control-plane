@@ -209,6 +209,8 @@ describe('ASP/HRC consumer deployment coherence', () => {
   }
 
   test('accepts the post-independence shape: aspContracts present, aspBuild absent', () => {
+    // spaces-aspc-facade is installed in ACP but absent from aspContracts:
+    // an execution package HRC no longer ships is out of scope by construction.
     const report = evaluateConsumerDeployment(
       newShapeFixture([{ name: 'agent-scope', version: aspBuild.setVersion }]),
       TEST_EXPECTED_CONSUMER_PRODUCERS
@@ -221,18 +223,6 @@ describe('ASP/HRC consumer deployment coherence', () => {
         'asp: running aspContracts with 1 entries (post-independence shape; no aspBuild)',
       ])
     )
-  })
-
-  test('ignores installed ASP members the running release no longer ships', () => {
-    // spaces-aspc-facade is installed in ACP but absent from aspContracts:
-    // an execution package HRC no longer ships is out of scope by construction.
-    const report = evaluateConsumerDeployment(
-      newShapeFixture([{ name: 'agent-scope', version: aspBuild.setVersion }]),
-      TEST_EXPECTED_CONSUMER_PRODUCERS
-    )
-
-    expect(report.ok).toBe(true)
-    expect(report.findings).toEqual([])
   })
 
   test('names the package when a running contract version drifts', () => {

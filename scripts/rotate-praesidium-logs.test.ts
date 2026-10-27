@@ -124,7 +124,12 @@ describe('rotate-praesidium-logs', () => {
       expect(result.exitCode).toBe(0)
     }
 
-    expect(archivesFor(log)).toHaveLength(2)
+    const kept = archivesFor(log)
+    expect(kept).toHaveLength(2)
+    const contents = kept.map((archive) =>
+      Bun.spawnSync(['/usr/bin/gzip', '-dc', join(dir, archive)]).stdout.toString()
+    )
+    expect(contents.sort()).toEqual(['rotation-2\n'.repeat(8), 'rotation-3\n'.repeat(8)])
   })
 
   test('skips contention and recovers after a killed lock holder', async () => {

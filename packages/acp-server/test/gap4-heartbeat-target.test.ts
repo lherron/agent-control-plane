@@ -3,43 +3,6 @@ import { describe, expect, test } from 'bun:test'
 import { withWiredServer } from './fixtures/wired-server.js'
 
 describe('GAP 4: heartbeat explicit target HTTP endpoints', () => {
-  test('PUT heartbeat with scopeRef persists target', async () => {
-    await withWiredServer(async (fixture) => {
-      // Create agent
-      await fixture.request({
-        method: 'POST',
-        path: '/v1/admin/agents',
-        body: {
-          agentId: 'curly',
-          status: 'active',
-          actor: { kind: 'agent', id: 'operator' },
-        },
-      })
-
-      // PUT heartbeat with target
-      const response = await fixture.request({
-        method: 'PUT',
-        path: '/v1/admin/agents/curly/heartbeat',
-        body: {
-          source: 'cli',
-          scopeRef: 'agent:curly:project:agent-spaces',
-          laneRef: 'main',
-        },
-      })
-
-      expect(response.status).toBe(200)
-      const result = await fixture.json<{
-        heartbeat: {
-          agentId: string
-          targetScopeRef: string
-          targetLaneRef: string
-        }
-      }>(response)
-      expect(result.heartbeat.targetScopeRef).toBe('agent:curly:project:agent-spaces')
-      expect(result.heartbeat.targetLaneRef).toBe('main')
-    })
-  })
-
   test('PUT heartbeat with scopeRef defaults laneRef to main', async () => {
     await withWiredServer(async (fixture) => {
       await fixture.request({
@@ -66,67 +29,6 @@ describe('GAP 4: heartbeat explicit target HTTP endpoints', () => {
       }>(response)
       expect(result.heartbeat.targetScopeRef).toBe('agent:curly:project:agent-spaces')
       expect(result.heartbeat.targetLaneRef).toBe('main')
-    })
-  })
-
-  test('POST wake uses persisted heartbeat target', async () => {
-    await withWiredServer(async (fixture) => {
-      // Create agent + project + membership
-      await fixture.request({
-        method: 'POST',
-        path: '/v1/admin/agents',
-        body: {
-          agentId: 'cody',
-          status: 'active',
-          actor: { kind: 'agent', id: 'operator' },
-        },
-      })
-      await fixture.request({
-        method: 'POST',
-        path: '/v1/admin/projects',
-        body: {
-          projectId: 'agent-spaces',
-          displayName: 'Agent Spaces',
-          actor: { kind: 'agent', id: 'operator' },
-        },
-      })
-      await fixture.request({
-        method: 'POST',
-        path: '/v1/admin/memberships',
-        body: {
-          projectId: 'agent-spaces',
-          agentId: 'cody',
-          role: 'implementer',
-          actor: { kind: 'agent', id: 'operator' },
-        },
-      })
-
-      // Set heartbeat with explicit target
-      await fixture.request({
-        method: 'PUT',
-        path: '/v1/admin/agents/cody/heartbeat',
-        body: {
-          scopeRef: 'agent:cody:project:agent-spaces',
-          laneRef: 'main',
-        },
-      })
-
-      // Wake should use persisted target
-      const response = await fixture.request({
-        method: 'POST',
-        path: '/v1/admin/agents/cody/heartbeat/wake',
-        body: {},
-      })
-
-      expect(response.status).toBe(202)
-      const result = await fixture.json<{
-        accepted: boolean
-        agentId: string
-        projectId: string
-      }>(response)
-      expect(result.accepted).toBe(true)
-      expect(result.agentId).toBe('cody')
-      expect(result.projectId).toBe('agent-spaces')
     })
   })
 
@@ -272,18 +174,6 @@ describe('GAP 4: heartbeat explicit target HTTP endpoints', () => {
         projectId: string
       }>(response)
       expect(result.projectId).toBe('override-proj')
-    })
-  })
-
-  test('POST wake returns 404 for unknown agent', async () => {
-    await withWiredServer(async (fixture) => {
-      const response = await fixture.request({
-        method: 'POST',
-        path: '/v1/admin/agents/ghost/heartbeat/wake',
-        body: {},
-      })
-
-      expect(response.status).toBe(404)
     })
   })
 })

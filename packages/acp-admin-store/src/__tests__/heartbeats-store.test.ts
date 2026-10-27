@@ -1,11 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import { STALE_HEARTBEAT_EVENT_KIND, checkStaleHeartbeats } from '../heartbeat-stale.js'
-import {
-  STALE_HEARTBEAT_THRESHOLD_MS,
-  createInMemoryAdminStore,
-  openSqliteAdminStore,
-} from '../index.js'
+import { STALE_HEARTBEAT_THRESHOLD_MS, createInMemoryAdminStore } from '../index.js'
 
 describe('heartbeats store', () => {
   test('upsert creates a heartbeat and get reads it back', () => {
@@ -40,7 +36,7 @@ describe('heartbeats store', () => {
     }
   })
 
-  test('upsert updates existing heartbeat timestamp and metadata', () => {
+  test('a second upsert replaces lastHeartbeatAt, source and note', () => {
     const store = createInMemoryAdminStore()
     try {
       store.heartbeats.upsert({
@@ -119,7 +115,7 @@ describe('heartbeats store', () => {
     }
   })
 
-  test('optional fields omitted when null', () => {
+  test('upsert without source or note returns a record with neither key and status alive', () => {
     const store = createInMemoryAdminStore()
     try {
       const heartbeat = store.heartbeats.upsert({
@@ -135,22 +131,6 @@ describe('heartbeats store', () => {
       store.close()
     }
   })
-
-  test('sqlite-backed store supports heartbeats', () => {
-    const store = openSqliteAdminStore({ dbPath: ':memory:' })
-    try {
-      const heartbeat = store.heartbeats.upsert({
-        agentId: 'persisted',
-        source: 'test',
-        now: '2026-04-23T04:00:00.000Z',
-      })
-
-      expect(heartbeat.agentId).toBe('persisted')
-      expect(store.heartbeats.get('persisted')).toEqual(heartbeat)
-    } finally {
-      store.close()
-    }
-  })
 })
 
 describe('stale heartbeat detection', () => {
@@ -158,7 +138,7 @@ describe('stale heartbeat detection', () => {
     expect(STALE_HEARTBEAT_THRESHOLD_MS).toBe(600_000)
   })
 
-  test('checkStaleHeartbeats emits system events for stale agents', () => {
+  test('a heartbeat older than 10 minutes emits one agent.heartbeat.stale event on the member project', () => {
     const store = createInMemoryAdminStore()
     try {
       // Set up a project + membership so system events can be emitted
@@ -263,7 +243,7 @@ describe('stale heartbeat detection', () => {
     }
   })
 
-  test('checkStaleHeartbeats skips agents without project membership', () => {
+  test('a stale agent with no project membership is reported stale but emits no event', () => {
     const store = createInMemoryAdminStore()
     try {
       store.heartbeats.upsert({
@@ -299,7 +279,7 @@ describe('stale heartbeat detection', () => {
     }
   })
 
-  test('checkStaleHeartbeats uses custom threshold', () => {
+  test('a custom 2-minute threshold flags a 3-minute-old heartbeat as stale', () => {
     const store = createInMemoryAdminStore()
     try {
       store.projects.create({

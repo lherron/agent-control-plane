@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { Actor } from 'acp-core'
 
-import { type AdminStore, createInMemoryAdminStore, openSqliteAdminStore } from '../index.js'
+import { type AdminStore, createInMemoryAdminStore } from '../index.js'
 
 type AdminAgentStatus = 'active' | 'disabled'
 
@@ -83,6 +83,7 @@ describe('admin agents store acceptance', () => {
       })
       expect(repeated).toEqual(created)
       expect(agents.list()).toEqual([created])
+      expect(agents.get('missing')).toBeUndefined()
     } finally {
       store.close()
     }
@@ -119,30 +120,6 @@ describe('admin agents store acceptance', () => {
         createdBy: ACTOR,
         updatedBy: { kind: 'human', id: 'operator', displayName: 'Operator' },
       })
-    } finally {
-      store.close()
-    }
-  })
-
-  test('supports the sqlite-backed helper with the same uniqueness guarantees', () => {
-    const store = openSqliteAdminStore({ dbPath: ':memory:' })
-
-    try {
-      const agents = expectAgentsStore(store)
-      agents.create({
-        agentId: 'curly',
-        status: 'active',
-        actor: ACTOR,
-        now: '2026-04-23T02:50:00.000Z',
-      })
-
-      expect(agents.list()).toEqual([
-        expect.objectContaining({
-          agentId: 'curly',
-          status: 'active',
-        }),
-      ])
-      expect(agents.get('missing')).toBeUndefined()
     } finally {
       store.close()
     }

@@ -21,7 +21,7 @@ function createFeatureTask(overrides: Parameters<typeof createTestTask>[0] = {})
 }
 
 describe('code_feature_tdd preset', () => {
-  test('first phase transition activates an open scoped task', () => {
+  test('owner scoped -> ready with scope_bundle activates an open code_feature_tdd task', () => {
     const preset = getPreset('code_feature_tdd', 1)
     const task = createFeatureTask()
 
@@ -42,7 +42,7 @@ describe('code_feature_tdd preset', () => {
     }
   })
 
-  test('enforces feature TDD evidence gates', () => {
+  test('ready -> red without tdd_red_bundle fails missing_evidence naming tdd_red_bundle', () => {
     const preset = getPreset('code_feature_tdd', 1)
     const task = createFeatureTask({ phase: 'ready', lifecycleState: 'active' })
 

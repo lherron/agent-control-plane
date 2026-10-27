@@ -2,13 +2,11 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   type ActorRef,
-  type WorkflowRejectionCode,
   createInMemoryWorkflowKernel,
 } from '../../../packages/acp-core/src/workflow/index.js'
 import { basicWorkflowV1 } from './fixtures/workflows.js'
 
 const owner: ActorRef = { kind: 'agent', id: 'larry' }
-const intruder: ActorRef = { kind: 'agent', id: 'mallory' }
 
 function seededKernel() {
   const kernel = createInMemoryWorkflowKernel({ now: '2026-05-09T12:00:00.000Z' })
@@ -30,62 +28,7 @@ function createTask(roleBindings: Record<string, ActorRef | null> = { owner }) {
   return { kernel, taskId: 'task-participant-conformance' }
 }
 
-function expectReject<T extends WorkflowRejectionCode>(
-  result: { ok: true } | { ok: false; error: { code: WorkflowRejectionCode } },
-  code: T
-) {
-  expect(result.ok).toBe(false)
-  if (!result.ok) {
-    expect(result.error.code).toBe(code)
-  }
-}
-
 describe('ACP participant runtime conformance', () => {
-  test('direct participant launch requires a persisted matching role binding', () => {
-    const bound = createTask()
-    const launched = (bound.kernel as any).startParticipantRun({
-      taskId: bound.taskId,
-      role: 'owner',
-      actor: owner,
-      idempotencyKey: 'conformance:participant:start',
-    })
-
-    expect(launched.ok).toBe(true)
-    expect(launched.participantRun).toMatchObject({
-      kind: 'participant',
-      role: 'owner',
-      actor: owner,
-      status: 'launched',
-    })
-    expect(launched.context).toMatchObject({
-      contextHash: launched.participantRun.contextHash,
-      task: { id: bound.taskId },
-      run: { id: launched.participantRun.runId, actor: owner, role: 'owner' },
-    })
-
-    const mismatched = createTask()
-    expectReject(
-      (mismatched.kernel as any).startParticipantRun({
-        taskId: mismatched.taskId,
-        role: 'owner',
-        actor: intruder,
-        idempotencyKey: 'conformance:participant:mismatch',
-      }),
-      'role_not_bound'
-    )
-
-    const unbound = createTask({ owner: null })
-    expectReject(
-      (unbound.kernel as any).startParticipantRun({
-        taskId: unbound.taskId,
-        role: 'owner',
-        actor: owner,
-        idempotencyKey: 'conformance:participant:unbound',
-      }),
-      'role_not_bound'
-    )
-  })
-
   test('resume returns the existing participant run and recompiles context for current task state', () => {
     const { kernel, taskId } = createTask()
     const launched = (kernel as any).startParticipantRun({

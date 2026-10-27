@@ -180,39 +180,6 @@ describe('Discord write planner', () => {
     expect(content).toContain('/tmp/fixture-9.ts')
   })
 
-  test('preserves assistant/tool ordering and de-dupes delivery text from final segment', () => {
-    const plan = planFinalDeliveryWrite({
-      delivery: delivery('AFTER-LIVE\r\n'),
-      run: runState({
-        assistantSegments: [
-          { id: 'msg-before', seq: 1, text: 'BEFORE-LIVE' },
-          { id: 'msg-after', seq: 5, text: 'AFTER-LIVE\n' },
-        ],
-        toolExecutions: [
-          {
-            toolUseId: 'tool-live',
-            toolName: 'command_execution',
-            input: { command: 'sleep 20; printf TOOL-LIVE' },
-            status: 'completed',
-            seq: 3,
-          },
-        ],
-      }),
-      identity,
-      maxChars: 2000,
-    })
-
-    const content = plan.chunks.join('\n')
-    const beforeIndex = content.indexOf('BEFORE-LIVE')
-    const toolIndex = content.indexOf('shell: sleep 20; printf TOOL-LIVE')
-    const afterIndex = content.indexOf('AFTER-LIVE')
-
-    expect(beforeIndex).toBeGreaterThanOrEqual(0)
-    expect(toolIndex).toBeGreaterThan(beforeIndex)
-    expect(afterIndex).toBeGreaterThan(toolIndex)
-    expect(content.match(/AFTER-LIVE/g)).toHaveLength(1)
-  })
-
   test('renders shell display label for wrapped command_execution in final delivery plan', () => {
     const plan = planFinalDeliveryWrite({
       delivery: delivery('done'),

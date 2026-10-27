@@ -4,82 +4,54 @@ import { listEvents } from 'coordination-substrate'
 
 import { withWiredServer } from './fixtures/wired-server.js'
 
+const ACTOR_ROWS = [
+  {
+    name: 'header beats body',
+    headers: { 'x-acp-actor': 'agent:curly' },
+    bodyActor: { kind: 'human', id: 'body-operator' },
+    expected: { kind: 'agent', agentId: 'curly' },
+  },
+  {
+    name: 'body without header',
+    headers: undefined,
+    bodyActor: { kind: 'human', id: 'body-operator' },
+    expected: { kind: 'human', id: 'body-operator' },
+  },
+  {
+    name: 'neither falls back to the default system actor',
+    headers: undefined,
+    bodyActor: undefined,
+    expected: { kind: 'system', id: 'acp-local' },
+  },
+] as const
+
 describe('actor-stamp: coordination messages', () => {
   test('prefers X-ACP-Actor over message body semantics when appending a coordination event', async () => {
-    await withWiredServer(async (fixture) => {
-      const response = await fixture.request({
-        method: 'POST',
-        path: '/v1/coordination/messages',
-        headers: { 'x-acp-actor': 'agent:curly' },
-        body: {
-          actor: { kind: 'human', id: 'body-operator' },
-          projectId: fixture.seed.projectId,
-          from: { kind: 'agent', agentId: 'larry' },
-          to: {
-            kind: 'sessionRef',
-            sessionRef: {
-              scopeRef: `agent:moe:project:${fixture.seed.projectId}`,
-              laneRef: 'main',
+    for (const row of ACTOR_ROWS) {
+      await withWiredServer(async (fixture) => {
+        const response = await fixture.request({
+          method: 'POST',
+          path: '/v1/coordination/messages',
+          headers: row.headers,
+          body: {
+            ...(row.bodyActor !== undefined ? { actor: row.bodyActor } : {}),
+            projectId: fixture.seed.projectId,
+            from: { kind: 'agent', agentId: 'larry' },
+            to: {
+              kind: 'sessionRef',
+              sessionRef: {
+                scopeRef: `agent:moe:project:${fixture.seed.projectId}`,
+                laneRef: 'main',
+              },
             },
+            body: `Actor stamp row: ${row.name}.`,
           },
-          body: 'Header actor should stamp the coordination event.',
-        },
+        })
+
+        expect(response.status, row.name).toBe(201)
+        const [event] = listEvents(fixture.coordStore, { projectId: fixture.seed.projectId })
+        expect(event?.actor, row.name).toEqual(row.expected)
       })
-
-      expect(response.status).toBe(201)
-      const [event] = listEvents(fixture.coordStore, { projectId: fixture.seed.projectId })
-      expect(event?.actor).toEqual({ kind: 'agent', agentId: 'curly' })
-    })
-  })
-
-  test('falls back to the body actor when appending a coordination event', async () => {
-    await withWiredServer(async (fixture) => {
-      const response = await fixture.request({
-        method: 'POST',
-        path: '/v1/coordination/messages',
-        body: {
-          actor: { kind: 'human', id: 'body-operator' },
-          projectId: fixture.seed.projectId,
-          from: { kind: 'agent', agentId: 'larry' },
-          to: {
-            kind: 'sessionRef',
-            sessionRef: {
-              scopeRef: `agent:moe:project:${fixture.seed.projectId}`,
-              laneRef: 'main',
-            },
-          },
-          body: 'Body actor should stamp the coordination event.',
-        },
-      })
-
-      expect(response.status).toBe(201)
-      const [event] = listEvents(fixture.coordStore, { projectId: fixture.seed.projectId })
-      expect(event?.actor).toEqual({ kind: 'human', id: 'body-operator' })
-    })
-  })
-
-  test('falls back to the default system actor when appending a coordination event without an actor', async () => {
-    await withWiredServer(async (fixture) => {
-      const response = await fixture.request({
-        method: 'POST',
-        path: '/v1/coordination/messages',
-        body: {
-          projectId: fixture.seed.projectId,
-          from: { kind: 'agent', agentId: 'larry' },
-          to: {
-            kind: 'sessionRef',
-            sessionRef: {
-              scopeRef: `agent:moe:project:${fixture.seed.projectId}`,
-              laneRef: 'main',
-            },
-          },
-          body: 'Default actor should stamp the coordination event.',
-        },
-      })
-
-      expect(response.status).toBe(201)
-      const [event] = listEvents(fixture.coordStore, { projectId: fixture.seed.projectId })
-      expect(event?.actor).toEqual({ kind: 'system', id: 'acp-local' })
-    })
+    }
   })
 })
