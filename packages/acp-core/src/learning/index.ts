@@ -1,5 +1,5 @@
 import { hashValue, stableJson } from '../internal/canonical-json.js'
-import type { ActorRef, WorkflowEvent, WorkflowKernelSnapshot } from '../workflow/index.js'
+import type { ActorRef, WorkflowEvent, WorkflowKernelSnapshot } from '../workflow/types.js'
 
 const SHORT_HASH_START = 7
 const SHORT_HASH_END = 19

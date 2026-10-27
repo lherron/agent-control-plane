@@ -211,7 +211,7 @@ export type {
   WorkflowTask,
   WorkState,
   WorkStatus,
-} from './workflow/index.js'
+} from './workflow/types.js'
 
 export type {
   EvidenceStore,

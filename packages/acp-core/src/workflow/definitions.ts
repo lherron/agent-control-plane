@@ -1,7 +1,7 @@
 import type { Preset, TransitionPolicyRule } from '../models/preset.js'
 import { codeDefectFastlaneV1 } from '../presets/code_defect_fastlane.v1.js'
 import { codeFeatureTddV1 } from '../presets/code_feature_tdd.v1.js'
-import type { Requirement, RoleSpec, WorkflowDefinition } from './index.js'
+import type { Requirement, RoleSpec, WorkflowDefinition } from './types.js'
 
 function transitionIdFor(rule: TransitionPolicyRule): string {
   if (rule.toPhase === 'completed') {
