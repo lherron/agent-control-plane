@@ -4,15 +4,20 @@ Start with the [current implementation spec](agent-control-plane-current-spec.md
 for live behavior and authority boundaries. The pages below provide focused
 references, operating procedures, and historical context.
 
-## Architecture and mobile interfaces
+## Architecture and interfaces
 
+- [Package index](package-index.md) — Every package under `packages/` and its responsibility.
 - [Server architecture](server-architecture.md) — ACP server responsibilities, delegated authority, and integration boundaries.
 - [Mobile gateway surface](mobile-gateway-surface.md) — Mobile-facing APIs, ports, and implementation boundaries.
 - [Mobile bearer authentication](mobile-surface-bearer-auth-spec.md) — Approved authentication design and trust rules for mobile routes.
+- [gateway-discord message flow](gateway-discord-message-flow.md) — Discord ingress/egress, bindings, and real-Discord virtu smoke recipe.
+- [Discord event architecture](discord-event-architecture.md) — System-events → Discord lifecycle cards, and how to add a card.
 
 ## Operations and contribution
 
 - [Operations runbook](operations-runbook.md) — Running and inspecting ACP and its embedded gateways; apply the current restart-authority rules in AGENTS.md.
+- [Scheduled jobs and flows](ACP_JOBS_TASKS_USAGE.md) — Authoring, registering, and validating jobs on the ACP job engine.
+- [Agent enablement changelog](agent-enablement-changelog.md) — Append-only record of agent-enablement lessons and their routed carrier.
 - [Advancing producer tuples](producer-advance.md) — Coordinating ASP/HRC dependency advances and deployment readback.
 - [Local Git hooks](local-git-hooks.md) — Bootstrapping and understanding the repository's commit and push gates.
 - [Suppression guard](SUPPRESSION_GUARD.md) — Reviewed suppression markers, inventory, and validation policy.

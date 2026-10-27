@@ -22,13 +22,18 @@ itself is `bun link`ed from `packages/acp-cli`; `just install` rebuilds,
 republishes the ACP package set, and updates the main-checkout links — it
 does **not** reload launchd on its own.
 
-Standard restart doctrine:
+Standard restart doctrine (`acp server restart` is Mable primary only; anyone
+else asks `mable@<project>:primary`):
 
 ```bash
 just install
 acp server restart
 acp server status
 ```
+
+`ACP_REAL_HRC_LAUNCHER=1` and the embedded `HRC_RUNTIME_DIR`/`HRC_STATE_DIR`
+env in the ACP plist tell `acp-server` to spawn real HRC client paths against
+the locally-running HRC daemon.
 
 `acp server restart` (`packages/acp-cli/src/server-runtime.ts`,
 `runServerCommand`) detects whether the process is launchd-supervised. If it
@@ -155,10 +160,24 @@ database, located via `ACP_WRKQ_DB`/`WRKQ_DB` (or the legacy
   from the checked-out tree (`areas`: `routes`, `packages`, `cli`,
   `adoption`, `all`). Prefer this over trusting stale docs for exact
   route/command shapes.
+- Mobile timeline acceptance gate (opt-in, P-00454/T-07724): `bun run test:acceptance` — spawns an
+  isolated real HRC daemon, an isolated real wrkq store and the production `acp-server`, drives
+  `/v1/mobile/history` and the timeline WebSocket over real HTTP with bearer auth, and writes
+  `var/e2e-reports/mobile-timeline-ordering.json`. Needs `wrkf`/`wrkqadm` on PATH and a non-loopback
+  IPv4 interface. It is out of the default `bun run test` gate while it reports an open campaign
+  defect; promoting it belongs to the campaign.
 
 For any change to Discord gateway behavior specifically, a real-Discord
 smoke test (not a mocked client) is mandatory — see
 [gateway-discord message flow](/docs/agent-control-plane/gateway-discord-message-flow).
+
+## ACP viewer
+
+`packages/acp-viewer` is the local read-only dashboard (`bun run dev`, port
+`18471` with `strictPort`, proxying `/v1` to `127.0.0.1:18470`). A successful
+snapshot can contain sessions with `events: 0` — an empty event stream is not
+automatically a rendering bug; dev demo data should only appear when the
+snapshot request fails.
 
 ## Git hooks
 

@@ -109,6 +109,15 @@ system-events store is an **immutable observer projection, never
 authority** — a failed/duplicate/slow card post must never change
 authoritative task/run state).
 
+## Bindings
+
+Bindings map a Discord conversation to an ACP session scope. Facts that bite:
+
+- The CLI surface is `acp admin interface binding ...` — under `admin interface`, not bare `interface`.
+- `binding set` upserts on `(gatewayId, conversationRef [, threadRef])`, so re-running with the same channel repoints scope/lane without churning binding IDs.
+- `conversationRef` is `channel:<numeric-id>` (thread: add `--thread-ref thread:<id>`) — the numeric Discord ID, never the `#name`.
+- A run's `metadata.meta.interfaceSource.bindingId` is the authoritative proof of which binding routed an inbound.
+
 ## Testing with the virtu bot
 
 `virtu` is a second Discord bot identity used as an automated test client —
