@@ -301,11 +301,7 @@ run evidence attach with idempotency replay and conflict checks.
 ### Verification recipes
 
 ```bash
-# Kernel conformance — obligation lifecycle
-bun test tests/conformance/acp-workflow/obligation-lifecycle.conformance.test.ts
-# 1 test, 5 expect() calls
-
-# Kernel unit — obligation lifecycle
+# Kernel obligation lifecycle, including waiver rejection (T-11957 survivor)
 bun test packages/acp-core/src/__tests__/workflow-obligation-lifecycle.test.ts
 
 # Server integration — waive/cancel handlers

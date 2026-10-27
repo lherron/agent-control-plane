@@ -162,7 +162,6 @@ acp task transition \
 
 ```bash
 bun test tests/conformance/acp-workflow/flow-presets-scenarios.test.ts
-bun test tests/conformance/acp-workflow/obligation-lifecycle.conformance.test.ts
 bun test packages/acp-core/src/__tests__/workflow-obligation-lifecycle.test.ts
 bun test packages/acp-server/test/workflow-task-obligations.test.ts
 bun test packages/acp-cli/test/commands/task-obligation-waive-cancel.test.ts

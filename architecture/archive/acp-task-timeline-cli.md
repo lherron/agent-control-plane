@@ -211,8 +211,7 @@ Already used by `hrc-cli` (^5.6.2), `cli` (^5.3.0), and `execution`. Pin to ^5 f
 - `packages/acp-cli/src/commands/task-timeline.ts` — command handler + flag parsing
 - `packages/acp-cli/src/output/timeline-render.ts` — pure renderer: `(input: TaskTimelineInput, opts: RenderOptions) => string`
 - `packages/acp-cli/src/output/timeline-project.ts` — pure projection: `(taskShowResponse) => TimelineRow[]`
-- `packages/acp-cli/src/__tests__/timeline-render.test.ts` — golden-file tests for color and `--plain`
-- `packages/acp-cli/src/__tests__/timeline-project.test.ts` — projection unit tests
+- `packages/acp-cli/test/commands/task-timeline.test.ts` — command-surface tests for timeline projection, rendering, and `--plain` (survives the T-11957 test collapse)
 
 ### 7.3 Reuse
 

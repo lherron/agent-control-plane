@@ -424,9 +424,7 @@ behavior is byte-identical (existing render tests are the regression net).
 - `packages/acp-cli/src/output/hrc-event-to-row.ts` — pure: maps an HRC event row to a `TimelineRow` using the icon table from §5.7 and Discord's `formatToolLine` for tool kinds.
 - `packages/acp-cli/src/hrc-store-reader.ts` — opens `state.sqlite` read-only (`new Database(path, { readonly: true })`), exposes `fetchHrcEventsForRun({ scopeRef, laneRef, hrcRunId, fromTs, toTs })`.
 - Tests:
-  - `__tests__/timeline-hrc-join.test.ts` (unit)
-  - `__tests__/hrc-event-to-row.test.ts` (golden lines per HRC kind)
-  - `__tests__/hrc-store-reader.test.ts` (uses a tmp sqlite with seed rows)
+  - `test/commands/task-timeline.test.ts` (T-11957 survivor: CLI output, HRC event formatting, filters, and temporary SQLite store variants)
   - `test/commands/task-timeline-with-hrc.test.ts` (integration via CLI runner)
 
 ### 8.2 Updates
