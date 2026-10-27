@@ -140,8 +140,35 @@ describe('admin jobs — slug + description', () => {
               scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:b`,
             },
           })
-          // The unique index raises; the server should not 201 it.
-          expect(dup.status).not.toBe(201)
+          expect(dup.status).toBe(409)
+          const dupBody = await fixture.json<{
+            error: { code: string; details?: Record<string, unknown> }
+          }>(dup)
+          expect(dupBody.error.code).toBe('job_slug_conflict')
+          expect(dupBody.error.details).toMatchObject({
+            projectId: fixture.seed.projectId,
+            slug: 'dup-slug',
+          })
+
+          const other = await fixture.request({
+            method: 'POST',
+            path: '/v1/admin/jobs',
+            body: {
+              ...body,
+              slug: 'other-slug',
+              scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:c`,
+            },
+          })
+          expect(other.status).toBe(201)
+          const { job } = await fixture.json<{ job: { jobId: string } }>(other)
+          const renamed = await fixture.request({
+            method: 'PATCH',
+            path: `/v1/admin/jobs/${job.jobId}`,
+            body: { slug: 'dup-slug' },
+          })
+          expect(renamed.status).toBe(409)
+          const renamedBody = await fixture.json<{ error: { code: string } }>(renamed)
+          expect(renamedBody.error.code).toBe('job_slug_conflict')
         },
         { jobsStore }
       )

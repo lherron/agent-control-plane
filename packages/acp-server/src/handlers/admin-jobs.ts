@@ -42,6 +42,26 @@ import { summarizeJobRunHealth } from './admin-detail-shared.js'
 
 const MANUAL_FLOW_JOB_RUN_LEASE_MS = 30 * 60_000
 
+// jobs_project_slug_idx is the only arbiter of slug uniqueness; a pre-read
+// would race, so translate its violation instead of letting it surface as 500.
+function withJobSlugConflict<T>(projectId: string, slug: string | undefined, write: () => T): T {
+  try {
+    return write()
+  } catch (error) {
+    if (
+      slug !== undefined &&
+      error instanceof Error &&
+      error.message.includes('UNIQUE constraint failed: jobs.project_id, jobs.slug')
+    ) {
+      throw new AcpHttpError(409, 'job_slug_conflict', `job slug already exists: ${slug}`, {
+        projectId,
+        slug,
+      })
+    }
+    throw error
+  }
+}
+
 function throwJobExecutionAdmissionConflict(error: unknown): never {
   if (error instanceof JobExecutionAdmissionError) {
     throw new AcpHttpError(409, error.code, error.message, {
@@ -302,20 +322,23 @@ export const handleCreateAdminJob: RouteHandler = async ({ request, deps, actor 
     label: slug ?? '(new)',
   })
   const jobsStore = requireJobsStore(deps)
-  const created = jobsStore.createJob({
-    agentId: requireTrimmedStringField(body, 'agentId'),
-    projectId: requireTrimmedStringField(body, 'projectId'),
-    scopeRef: requireTrimmedStringField(body, 'scopeRef'),
-    ...(slug !== undefined ? { slug } : {}),
-    ...(description !== undefined ? { description } : {}),
-    ...(laneRef !== undefined ? { laneRef } : {}),
-    ...(trigger !== undefined ? { trigger } : { schedule }),
-    input: parseInputTemplate(body),
-    ...(output !== undefined && output !== null ? { output } : {}),
-    ...(flow !== undefined ? { flow } : {}),
-    ...(disabled !== undefined ? { disabled } : {}),
-    actor: actor ?? deps.defaultActor,
-  })
+  const projectId = requireTrimmedStringField(body, 'projectId')
+  const created = withJobSlugConflict(projectId, slug, () =>
+    jobsStore.createJob({
+      agentId: requireTrimmedStringField(body, 'agentId'),
+      projectId,
+      scopeRef: requireTrimmedStringField(body, 'scopeRef'),
+      ...(slug !== undefined ? { slug } : {}),
+      ...(description !== undefined ? { description } : {}),
+      ...(laneRef !== undefined ? { laneRef } : {}),
+      ...(trigger !== undefined ? { trigger } : { schedule }),
+      input: parseInputTemplate(body),
+      ...(output !== undefined && output !== null ? { output } : {}),
+      ...(flow !== undefined ? { flow } : {}),
+      ...(disabled !== undefined ? { disabled } : {}),
+      actor: actor ?? deps.defaultActor,
+    })
+  )
 
   return json(created, 201)
 }
@@ -400,17 +423,19 @@ export const handlePatchAdminJob: RouteHandler = async ({ request, params, deps,
     mode: undefined,
     label: `${existing.slug} (${existing.jobId})`,
   })
-  const updated = requireJobsStore(deps).updateJob(jobId, {
-    ...(slug !== undefined ? { slug } : {}),
-    ...descriptionPatch,
-    ...(trigger !== undefined ? { trigger } : {}),
-    ...(schedule !== undefined ? { schedule } : {}),
-    ...(input !== undefined ? { input } : {}),
-    ...(output !== undefined ? { output } : {}),
-    ...(flow !== undefined ? { flow } : {}),
-    ...(disabled !== undefined ? { disabled } : {}),
-    actor: actor ?? deps.defaultActor,
-  })
+  const updated = withJobSlugConflict(existing.projectId, slug, () =>
+    requireJobsStore(deps).updateJob(jobId, {
+      ...(slug !== undefined ? { slug } : {}),
+      ...descriptionPatch,
+      ...(trigger !== undefined ? { trigger } : {}),
+      ...(schedule !== undefined ? { schedule } : {}),
+      ...(input !== undefined ? { input } : {}),
+      ...(output !== undefined ? { output } : {}),
+      ...(flow !== undefined ? { flow } : {}),
+      ...(disabled !== undefined ? { disabled } : {}),
+      actor: actor ?? deps.defaultActor,
+    })
+  )
 
   return json(updated)
 }
