@@ -65,25 +65,7 @@ public-surface, enablement-changelog, lint, typecheck, and test gates.
 
 ## Repository Map
 
-- `AGENTS.md` - agent-facing operating rules for this repository.
-- `docs/agent-control-plane-current-spec.md` - current implementation spec.
-- `packages/acp-core/` - domain types, presets, legacy kernel, and validators.
-- `packages/acp-state-store/` - runtime state, run, queue, and outbox stores.
-- `packages/acp-admin-store/` - agents, projects, memberships, and events.
-- `packages/acp-interface-store/` - interface bindings and delivery state.
-- `packages/acp-conversation/` - conversation thread and turn persistence.
-- `packages/acp-jobs-store/` - scheduled jobs, job runs, and flows.
-- `packages/acp-server/` - HTTP server, wrkf facades, launch bridge, jobs.
-- `packages/acp-cli/` - installed `acp` operator CLI.
-- `packages/gateway-discord/` - Discord gateway integration.
-- `packages/gateway-ios/` - mobile gateway surface.
-- `packages/acp-ops-projection/`, `packages/acp-ops-reducer/`,
-  `packages/acp-viewer/` - dashboard projection and viewer surfaces.
-- `packages/coordination-substrate/` - coordination ledger.
-- `packages/wrkq-lib/` - TypeScript access to wrkq SQLite state.
-- `packages/wlearn/` - workflow-learning replay and trace tools.
-- `scripts/` - repository checks, discovery tools, and smoke helpers.
-- `tests/conformance/acp-workflow/` - canonical ACP workflow conformance suite.
-- `launchd/` - launchd source plist for the local ACP server.
-- `capabilities/`, `scenarios/`, `specs/` - capability metadata, scenario
-  runbooks, and historical or migration specs.
+A Bun workspace: ACP packages under `packages/`, repository checks and discovery
+tools under `scripts/`, and the workflow conformance suite under `tests/`.
+The [package index](docs/package-index.md) is the single source of truth for
+what each package owns.
