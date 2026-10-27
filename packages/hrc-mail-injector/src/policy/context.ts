@@ -11,10 +11,12 @@ import type { MailKickerLedger } from './ledger/client.js'
 
 /** See `terminal/failure-notices.ts`. */
 export type FailureNoticeBackoff = {
-  /** The idempotency key that was refused. */
+  /** The owed notice set, hashed without the runtime so a reseat cannot reset it. */
   key: string
-  /** HRC answered the stable dispatch with a non-start; the same key only replays it. */
-  parked: boolean
+  /** HRC answered this runtime's stable dispatch with a non-start; that key only replays it. */
+  parkedRuntimeId?: string
+  /** The attempt budget is spent; the notice stays owed until the set changes. */
+  exhausted: boolean
   attempts: number
   nextAtMs: number
 }

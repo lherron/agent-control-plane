@@ -73,6 +73,8 @@ export const BIRTH_SWEEP_NOT_HOSTED_BASE_MS = 15 * 60_000
  */
 export const FAILURE_NOTICE_BACKOFF_BASE_MS = 30_000
 export const FAILURE_NOTICE_BACKOFF_MAX_MS = 60 * 60_000
+/** Tries per owed notice set before it parks with a WARN (T-11970). */
+export const FAILURE_NOTICE_MAX_ATTEMPTS = 8
 export const BIRTH_SWEEP_MAX_REFUSALS = 5
 export const LAPSE_SWEEP_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1_000
 /**

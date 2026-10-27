@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it, setSystemTime } from 'bun:test'
 
 import type { KickerDispatchOptions } from '../contracts.js'
 import { deliverFailureNotices } from '../terminal/failure-notices.js'
@@ -17,10 +17,12 @@ describe('sender failure notice dispatch uncertainty', () => {
   })
 
   afterEach(async () => {
+    setSystemTime()
     await destroyT08094Harness(h)
   })
 
   it('replays one stable HRC dispatch after a lost response instead of writing the notice again', async () => {
+    presentOn('rt-t08094')
     h.store.mailDelivery.recordFailureNotice({
       envelopeId: 'EN-15268',
       targetSessionRef: TARGET_REF,
@@ -55,9 +57,28 @@ describe('sender failure notice dispatch uncertainty', () => {
   // foundry-acceptance-{host,k10,lifecycle}, 2026-10-04: three senders
   // whose seats could not take a notice drove one HRC submission every sweep,
   // indefinitely — about 80% of live admission traffic.
+  // A notice only rides a live broker seat (T-11970), so present one.
   function presentOn(runtimeId: string): void {
     h.context.port.runtimesByHostSession = async () =>
-      [{ runtimeId, generation: h.session.generation, status: 'ready' }] as never
+      [
+        {
+          runtimeId,
+          generation: h.session.generation,
+          status: 'ready',
+          controllerKind: 'harness-broker',
+          activeInvocationId: `inv-${runtimeId}`,
+        },
+      ] as never
+    h.context.port.seat = async () =>
+      ({
+        runtimeId,
+        invocationId: `inv-${runtimeId}`,
+        generation: h.session.generation,
+        admissionClasses: ['enqueue'],
+        currentBrokerSeq: 0,
+        probe: { seat: { state: 'idle' } },
+        probeError: null,
+      }) as never
   }
 
   it('parks a notice whose stable dispatch replays a failed start until the sender reseats', async () => {
@@ -123,11 +144,16 @@ describe('sender failure notice dispatch uncertainty', () => {
     expect(attempts).toBe(2)
     expect(h.store.mailDelivery.listUndeliveredFailureNotices(TARGET_REF)).toHaveLength(1)
 
+    // A reattached seat does not reset the backoff (T-11970): the notice
+    // waits out the current delay, then rides the new seat.
     presentOn('rt-reattached')
     h.context.port.enqueue = async () => {
       attempts += 1
       return h.dispatchResult()
     }
+    await deliverFailureNotices(h.context, TARGET_REF, h.session)
+    expect(attempts).toBe(2)
+    setSystemTime(new Date(Date.now() + 60 * 60_000))
     await deliverFailureNotices(h.context, TARGET_REF, h.session)
     expect(attempts).toBe(3)
     expect(h.store.mailDelivery.listUndeliveredFailureNotices(TARGET_REF)).toHaveLength(0)

@@ -99,5 +99,10 @@ function failureNoticeBackoffDue(
   nowMs: number
 ): boolean {
   const backoff = server.mailKickerFailureNoticeBackoff.get(targetSessionRef)
-  return backoff !== undefined && !backoff.parked && backoff.nextAtMs <= nowMs
+  return (
+    backoff !== undefined &&
+    !backoff.exhausted &&
+    backoff.parkedRuntimeId === undefined &&
+    backoff.nextAtMs <= nowMs
+  )
 }
