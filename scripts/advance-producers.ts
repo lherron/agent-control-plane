@@ -16,6 +16,7 @@ import {
   entryPackageName,
   entryResolvedVersion,
   installConfinedPackages,
+  lockWorkspaces,
   lockedPackageVersions,
   packagesBlock,
   packagesManifestPaths,
@@ -408,21 +409,6 @@ export function memberTransitiveSelections(
     }
   }
   return owned
-}
-
-type LockWorkspace = {
-  name?: string
-  dependencies?: Record<string, string>
-  devDependencies?: Record<string, string>
-  optionalDependencies?: Record<string, string>
-  peerDependencies?: Record<string, string>
-}
-
-function lockWorkspaces(lock: string): Record<string, LockWorkspace> {
-  const parsed = JSON.parse(lock.replace(/,(\s*[}\]])/g, '$1')) as {
-    workspaces?: Record<string, LockWorkspace>
-  }
-  return parsed.workspaces ?? {}
 }
 
 /**

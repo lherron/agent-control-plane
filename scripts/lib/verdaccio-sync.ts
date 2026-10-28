@@ -461,6 +461,11 @@ export function confineLockToSyncedPackages(
       pending.push(source)
     }
   }
+  // A resolve pass can still list a subtree the advance orphaned (an old member
+  // dependency and everything under it); the frozen relink prunes it and then
+  // refuses the lock. Keep only what the workspaces actually reach.
+  const reachable = reachableLockKeys(after, merged)
+  for (const key of [...merged.keys()]) if (!reachable.has(key)) merged.delete(key)
   // The head is a projection of the tracked manifests, not a resolution: it is
   // the only place an ADDED or REMOVED declaration shows up, so it has to come
   // from the fresh install. Entries below still come from `before` for anything
@@ -469,13 +474,64 @@ export function confineLockToSyncedPackages(
   return `${head}${orderedLockEntries(beforeBlock.entries, merged, introduced).join('\n\n')}\n${beforeBlock.tail}`
 }
 
+export type LockWorkspace = {
+  name?: string
+  dependencies?: Record<string, string>
+  devDependencies?: Record<string, string>
+  optionalDependencies?: Record<string, string>
+  peerDependencies?: Record<string, string>
+}
+
+export function lockWorkspaces(lock: string): Record<string, LockWorkspace> {
+  const parsed = JSON.parse(lock.replace(/,(\s*[}\]])/g, '$1')) as {
+    workspaces?: Record<string, LockWorkspace>
+  }
+  return parsed.workspaces ?? {}
+}
+
+/** Keys of `entries` reachable from `lock`'s workspace declarations and workspace entries. */
+export function reachableLockKeys(lock: string, entries: ReadonlyMap<string, string>): Set<string> {
+  const queue: string[] = []
+  for (const [from, workspace] of Object.entries(lockWorkspaces(lock))) {
+    for (const group of [
+      workspace.dependencies,
+      workspace.devDependencies,
+      workspace.optionalDependencies,
+      workspace.peerDependencies,
+    ]) {
+      for (const dependency of Object.keys(group ?? {})) {
+        const key = resolveDependencyKey(
+          from === '' ? '' : (workspace.name ?? from),
+          dependency,
+          entries
+        )
+        if (key !== undefined) queue.push(key)
+      }
+    }
+  }
+  for (const [key, line] of entries) {
+    if (entryResolvedVersion(line)?.startsWith('workspace:')) queue.push(key)
+  }
+  const reached = new Set<string>()
+  while (queue.length > 0) {
+    const key = queue.pop() as string
+    if (reached.has(key)) continue
+    reached.add(key)
+    for (const [dependency] of entryDependencySpecs(entries.get(key) as string)) {
+      const target = resolveDependencyKey(key, dependency, entries)
+      if (target !== undefined) queue.push(target)
+    }
+  }
+  return reached
+}
+
 function orderedLockEntries(
   before: ReadonlyMap<string, string>,
   merged: ReadonlyMap<string, string>,
   introduced: readonly string[]
 ): string[] {
   const keys = [...before.keys()].filter((key) => merged.has(key))
-  for (const key of [...introduced].sort()) {
+  for (const key of [...introduced].filter((key) => merged.has(key)).sort()) {
     const at = keys.findIndex((existing) => existing > key)
     keys.splice(at === -1 ? keys.length : at, 0, key)
   }

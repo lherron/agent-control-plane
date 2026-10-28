@@ -131,16 +131,102 @@ ${entry('newly-added', 'newly-added@3.0.0')}
     expect(confined).not.toContain('orphan-pkg@1.0.0')
   })
 
-  test('keeps an undeclared entry when no declarations are supplied', () => {
+  test('keeps an undeclared entry the workspace graph still reaches', () => {
+    // `@wrkq/client` is pinned to its old entry, which still needs `helper`
+    // even though the fresh resolution's newer client dropped it.
     const before = lock('1.0.0', 'latest', [
+      entry('@wrkq/client', '@wrkq/client@1.0.0', '{ "dependencies": { "helper": "1.0.0" } }'),
       entry('agent-scope', 'agent-scope@1.0.0'),
-      entry('orphan-pkg', 'orphan-pkg@1.0.0'),
+      entry('helper', 'helper@1.0.0'),
     ])
-    const after = lock('2.0.0', 'latest', [entry('agent-scope', 'agent-scope@2.0.0')])
+    const after = lock('2.0.0', 'latest', [
+      entry('@wrkq/client', '@wrkq/client@9.9.9'),
+      entry('agent-scope', 'agent-scope@2.0.0'),
+    ])
 
     const confined = confineLockToSyncedPackages(before, after, new Set(['agent-scope']), '2.0.0')
 
-    expect(confined).toContain('orphan-pkg@1.0.0')
+    expect(confined).toContain('@wrkq/client@1.0.0')
+    expect(confined).toContain('helper@1.0.0')
+  })
+})
+
+describe('a subtree the advance orphaned (T-12016)', () => {
+  // The ASP advance replaced the member's old pi dependency. Bun's resolve pass
+  // still listed the old pi package and its nested AWS subtree, so the
+  // confined lock carried them, and the frozen relink (which prunes them)
+  // refused the lockfile.
+  const workspaceEntry = (name: string): string =>
+    `    ${JSON.stringify(name)}: [${JSON.stringify(`${name}@workspace:packages/${name}`)}],`
+  const piLock = (agentSpaces: string, entries: readonly string[]): string =>
+    `{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "demo",
+      "dependencies": {
+        "agent-spaces": ${JSON.stringify(agentSpaces)},
+      },
+    },
+    "packages/tool": {
+      "name": "tool",
+    },
+  },
+  "packages": {
+${entries.join('\n\n')}
+  }
+}
+`
+  const oldPi = entry('pi-ai', 'pi-ai@1.0.0', '{ "dependencies": { "aws-crypto": "5.2.0" } }')
+  const awsCrypto = entry('aws-crypto', 'aws-crypto@5.2.0')
+  const before = piLock('1.0.0', [
+    entry('agent-spaces', 'agent-spaces@1.0.0', '{ "dependencies": { "pi-ai": "1.0.0" } }'),
+    awsCrypto,
+    oldPi,
+    workspaceEntry('tool'),
+  ])
+  const after = piLock('2.0.0', [
+    entry('agent-spaces', 'agent-spaces@2.0.0', '{ "dependencies": { "pi-agent": "2.0.0" } }'),
+    awsCrypto,
+    entry('pi-agent', 'pi-agent@2.0.0'),
+    oldPi,
+    workspaceEntry('tool'),
+  ])
+
+  test('drops entries no workspace reaches, even when the fresh resolution still lists them', () => {
+    const confined = confineLockToSyncedPackages(
+      before,
+      after,
+      new Set(['agent-spaces']),
+      '2.0.0',
+      new Map([['agent-spaces', new Set(['2.0.0'])]])
+    )
+
+    expect(confined).toContain('agent-spaces@2.0.0')
+    expect(confined).toContain('pi-agent@2.0.0')
+    expect(confined).not.toContain('pi-ai@1.0.0')
+    expect(confined).not.toContain('aws-crypto@5.2.0')
+    expect(confined).toContain('tool@workspace:packages/tool')
+  })
+
+  test('never renders a pruned entry the fresh resolution introduced', () => {
+    const staleOnlyInAfter = piLock('2.0.0', [
+      entry('agent-spaces', 'agent-spaces@2.0.0', '{ "dependencies": { "pi-agent": "2.0.0" } }'),
+      entry('agent-spaces/stale', 'stale@1.0.0'),
+      entry('pi-agent', 'pi-agent@2.0.0'),
+      workspaceEntry('tool'),
+    ])
+    const confined = confineLockToSyncedPackages(
+      before,
+      staleOnlyInAfter,
+      new Set(['agent-spaces']),
+      '2.0.0',
+      new Map([['agent-spaces', new Set(['2.0.0'])]])
+    )
+
+    expect(confined).not.toContain('stale@1.0.0')
+    expect(confined).not.toContain('undefined')
   })
 })
 
