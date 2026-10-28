@@ -41,9 +41,12 @@ export type AgentInspectionProjectRootSources = {
  * Trusted ACP project-id resolver supplied to Agent Spaces at service startup.
  *
  * Resolves like a launch does: an explicit admin-store root wins, otherwise
- * HRC's placement rule (`resolveCanonicalProjectRoot`: wrkq registry, checkout
- * scan, sibling fallback) over the wrkq project registry (T-12021). Anything
- * that does not resolve is undefined, which Agent Spaces answers with 404.
+ * HRC's placement rule (`resolveCanonicalProjectRoot`) over the wrkq project
+ * registry (T-12021). Its sibling fallback is relative to a caller's cwd, and an
+ * inspection request has no caller cwd: from the server's own checkout it would
+ * walk an unknown id up into that checkout, and a process-wide root override
+ * would answer every id with one root, so only registry and checkout-scan roots
+ * are accepted. Anything else is undefined, which Agent Spaces answers with 404.
  */
 export function createAgentInspectionProjectRootResolver(
   sources: AgentInspectionProjectRootSources
@@ -54,11 +57,14 @@ export function createAgentInspectionProjectRootResolver(
     const adminRoot = project?.rootDir ?? project?.homeDir
     if (adminRoot !== undefined) return adminRoot
     try {
-      return resolveCanonicalProjectRoot(projectId, {
+      const resolved = resolveCanonicalProjectRoot(projectId, {
         env: sources.env ?? process.env,
         cwd: sources.cwd ?? process.cwd(),
         registryProjects: await sources.loadRegistryProjects(),
-      }).root
+      })
+      return resolved.source === 'wrkq-registry' || resolved.source === 'marker-scan'
+        ? resolved.root
+        : undefined
     } catch {
       return undefined
     }

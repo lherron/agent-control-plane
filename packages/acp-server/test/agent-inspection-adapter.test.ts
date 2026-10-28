@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -103,6 +103,10 @@ describe('shared agent inspection adapter', () => {
       for (const dir of [agentsRoot, join(registeredRoot, '.git'), join(scannedRoot, '.git')]) {
         mkdirSync(dir, { recursive: true })
       }
+      // acp-server runs from its own checkout; an unknown id must not walk up into it.
+      const serverCheckout = join(searchRoot, 'agent-control-plane')
+      mkdirSync(join(serverCheckout, '.git'), { recursive: true })
+      writeFileSync(join(serverCheckout, 'asp-targets.toml'), '')
       const resolveProjectRoot = createAgentInspectionProjectRootResolver({
         adminStore: createInMemoryAdminStore(),
         loadRegistryProjects: async () => [
@@ -110,7 +114,7 @@ describe('shared agent inspection adapter', () => {
           { slug: 'hrc-runtime', path: 'hrc-runtime', title: 'hrc-runtime', root: null },
         ],
         env: { HOME: scratch, HRC_PROJECT_SEARCH_ROOTS: searchRoot },
-        cwd: scratch,
+        cwd: serverCheckout,
       })
       const service = createAspcService({ agentsRoot, resolveProjectRoot })
 
