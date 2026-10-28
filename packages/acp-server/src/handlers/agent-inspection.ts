@@ -8,8 +8,10 @@ import {
   agentInspectionRequestSchema,
 } from 'spaces-aspc-protocol/agent-inspection'
 
+import type { WorkClient } from '@wrkq/client'
 import type { AdminStore } from 'acp-admin-store'
 import type { AdminAgent } from 'acp-core'
+import { type WrkqProjectRegistryEntry, resolveCanonicalProjectRoot } from 'hrc-core'
 import type { AcpServerDeps } from '../deps.js'
 
 import { AcpHttpError, json } from '../http.js'
@@ -28,13 +30,67 @@ const MALFORMED_REQUEST_CODE = 'invalid_agent_inspection_request'
 const PROTOCOL_FAILURE_CODE = 'agent_inspection_protocol_failure'
 const PRODUCER_UNAVAILABLE_CODE = 'agent_inspection_producer_unavailable'
 
-/** Trusted ACP project-id resolver supplied to Agent Spaces at service startup. */
-export function resolveAgentInspectionProjectRoot(
-  adminStore: AdminStore | undefined,
-  projectId: string
-): string | undefined {
-  const project = adminStore?.projects.get(projectId)
-  return project?.rootDir ?? project?.homeDir
+export type AgentInspectionProjectRootSources = {
+  adminStore?: AdminStore | undefined
+  loadRegistryProjects: () => Promise<readonly WrkqProjectRegistryEntry[]>
+  env?: Record<string, string | undefined> | undefined
+  cwd?: string | undefined
+}
+
+/**
+ * Trusted ACP project-id resolver supplied to Agent Spaces at service startup.
+ *
+ * Resolves like a launch does: an explicit admin-store root wins, otherwise
+ * HRC's placement rule (`resolveCanonicalProjectRoot`: wrkq registry, checkout
+ * scan, sibling fallback) over the wrkq project registry (T-12021). Anything
+ * that does not resolve is undefined, which Agent Spaces answers with 404.
+ */
+export function createAgentInspectionProjectRootResolver(
+  sources: AgentInspectionProjectRootSources
+): (projectId: string) => Promise<string | undefined> {
+  return async (projectId) => {
+    if (!isPlainProjectId(projectId)) return undefined
+    const project = sources.adminStore?.projects.get(projectId)
+    const adminRoot = project?.rootDir ?? project?.homeDir
+    if (adminRoot !== undefined) return adminRoot
+    try {
+      return resolveCanonicalProjectRoot(projectId, {
+        env: sources.env ?? process.env,
+        cwd: sources.cwd ?? process.cwd(),
+        registryProjects: await sources.loadRegistryProjects(),
+      }).root
+    } catch {
+      return undefined
+    }
+  }
+}
+
+/** A project id names a project; it is never a path the caller supplies. */
+function isPlainProjectId(projectId: string): boolean {
+  return (
+    projectId.length > 0 &&
+    projectId !== '.' &&
+    projectId !== '..' &&
+    !projectId.includes('/') &&
+    !projectId.includes('\\')
+  )
+}
+
+/** The wrkq project registry (`wrkq.project.listView`), as HRC placement reads it. */
+export async function loadWrkqProjectRegistry(
+  client: WorkClient | undefined
+): Promise<WrkqProjectRegistryEntry[]> {
+  if (client === undefined) return []
+  const projects: WrkqProjectRegistryEntry[] = []
+  let cursor: string | undefined
+  // Bounded: a registry is tens of projects; an endless cursor is a server fault.
+  for (let page = 0; page < 100; page += 1) {
+    const view = await client.wrkq.project.listView(cursor === undefined ? {} : { cursor })
+    projects.push(...view.items)
+    cursor = view.next_cursor
+    if (cursor === undefined || cursor.length === 0) break
+  }
+  return projects
 }
 
 function authorityFrom(context: RouteContext): AgentInspectionAuthority {

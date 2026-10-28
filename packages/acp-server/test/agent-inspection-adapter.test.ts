@@ -1,4 +1,7 @@
 import { describe, expect, test } from 'bun:test'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { createInMemoryAdminStore } from 'acp-admin-store'
 import {
@@ -7,7 +10,9 @@ import {
   agentInspectionRequestSchema,
 } from 'spaces-aspc-protocol/agent-inspection'
 
-import { resolveAgentInspectionProjectRoot } from '../src/handlers/agent-inspection.js'
+import { createAspcService } from 'spaces-aspc'
+
+import { createAgentInspectionProjectRootResolver } from '../src/handlers/agent-inspection.js'
 import type { AgentInspectionAuthority } from '../src/index.js'
 import { withWiredServer } from './fixtures/wired-server.js'
 
@@ -86,21 +91,83 @@ function fakeAuthority(
 }
 
 describe('shared agent inspection adapter', () => {
-  test('resolves project roots only from the trusted ACP project store', () => {
-    const adminStore = createInMemoryAdminStore()
-    adminStore.projects.create({
-      projectId: 'agent-control-plane',
-      displayName: 'Agent Control Plane',
-      rootDir: '/trusted/agent-control-plane',
-      actor: { kind: 'agent', id: 'test' },
-      now: '2026-08-23T10:00:00.000Z',
-    })
+  test('resolves project ids absent from the admin store the way placement does', async () => {
+    // Production shape (T-12021): the admin store knows none of these projects;
+    // placement finds them through the wrkq registry and the checkout scan.
+    const scratch = mkdtempSync(join(tmpdir(), 'acp-inspect-roots-'))
+    try {
+      const agentsRoot = join(scratch, 'agents')
+      const searchRoot = join(scratch, 'praesidium')
+      const registeredRoot = join(scratch, 'elsewhere', 'loggia-checkout')
+      const scannedRoot = join(searchRoot, 'hrc-runtime')
+      for (const dir of [agentsRoot, join(registeredRoot, '.git'), join(scannedRoot, '.git')]) {
+        mkdirSync(dir, { recursive: true })
+      }
+      const resolveProjectRoot = createAgentInspectionProjectRootResolver({
+        adminStore: createInMemoryAdminStore(),
+        loadRegistryProjects: async () => [
+          { slug: 'loggia', path: 'loggia', title: 'loggia', root: registeredRoot },
+          { slug: 'hrc-runtime', path: 'hrc-runtime', title: 'hrc-runtime', root: null },
+        ],
+        env: { HOME: scratch, HRC_PROJECT_SEARCH_ROOTS: searchRoot },
+        cwd: scratch,
+      })
+      const service = createAspcService({ agentsRoot, resolveProjectRoot })
 
-    expect(resolveAgentInspectionProjectRoot(adminStore, 'agent-control-plane')).toBe(
-      '/trusted/agent-control-plane'
-    )
-    expect(resolveAgentInspectionProjectRoot(adminStore, '/client/supplied/root')).toBeUndefined()
-    expect(resolveAgentInspectionProjectRoot(undefined, 'agent-control-plane')).toBeUndefined()
+      await withWiredServer(
+        async (fixture) => {
+          for (const projectId of ['loggia', 'hrc-runtime']) {
+            const response = await fixture.request({
+              method: 'GET',
+              path: `/admin/agents?projectId=${projectId}`,
+            })
+            expect({ projectId, status: response.status }).toEqual({ projectId, status: 200 })
+            expect((await fixture.json(response)) as { projectId: string }).toMatchObject({
+              projectId,
+            })
+          }
+
+          const unknown = await fixture.request({
+            method: 'GET',
+            path: '/admin/agents?projectId=no-such-project',
+          })
+          expect(unknown.status).toBe(404)
+        },
+        { agentInspectionAuthority: service }
+      )
+    } finally {
+      rmSync(scratch, { recursive: true, force: true })
+    }
+  })
+
+  test('an explicit admin-store root still wins and client paths never resolve', async () => {
+    const scratch = mkdtempSync(join(tmpdir(), 'acp-inspect-roots-'))
+    try {
+      const registeredRoot = join(scratch, 'registered')
+      mkdirSync(join(registeredRoot, '.git'), { recursive: true })
+      const adminStore = createInMemoryAdminStore()
+      adminStore.projects.create({
+        projectId: 'agent-control-plane',
+        displayName: 'Agent Control Plane',
+        rootDir: '/trusted/agent-control-plane',
+        actor: { kind: 'agent', id: 'test' },
+        now: '2026-08-23T10:00:00.000Z',
+      })
+      const resolve = createAgentInspectionProjectRootResolver({
+        adminStore,
+        loadRegistryProjects: async () => [
+          { slug: 'agent-control-plane', path: 'agent-control-plane', root: registeredRoot },
+        ],
+        env: { HOME: scratch, HRC_PROJECT_SEARCH_ROOTS: scratch },
+        cwd: scratch,
+      })
+
+      expect(await resolve('agent-control-plane')).toBe('/trusted/agent-control-plane')
+      expect(await resolve(registeredRoot)).toBeUndefined()
+      expect(await resolve('../registered')).toBeUndefined()
+    } finally {
+      rmSync(scratch, { recursive: true, force: true })
+    }
   })
 
   test('forwards only optional projectId and never caches the producer roster', async () => {

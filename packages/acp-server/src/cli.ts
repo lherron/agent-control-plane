@@ -41,7 +41,10 @@ import {
 import { createDevFlowLauncher } from './dev-flow-launcher.js'
 import { createEchoLauncher } from './echo-launcher.js'
 import { dispatchJobRunThroughInputs } from './handlers/admin-jobs.js'
-import { resolveAgentInspectionProjectRoot } from './handlers/agent-inspection.js'
+import {
+  createAgentInspectionProjectRootResolver,
+  loadWrkqProjectRegistry,
+} from './handlers/agent-inspection.js'
 import { InputAdmissionService } from './input-admission/input-admission-service.js'
 import { createInputQueueDispatcher } from './integration/input-queue-dispatcher.js'
 import {
@@ -1087,7 +1090,10 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
   const inputQueueMaxDepth = readPositiveIntegerEnv('ACP_INPUT_QUEUE_MAX_DEPTH')
   const inputQueueTtlMs = readPositiveIntegerEnv('ACP_INPUT_QUEUE_TTL_MS')
   const aspcService = createAspcService({
-    resolveProjectRoot: (projectId) => resolveAgentInspectionProjectRoot(adminStore, projectId),
+    resolveProjectRoot: createAgentInspectionProjectRootResolver({
+      adminStore,
+      loadRegistryProjects: () => loadWrkqProjectRegistry(wrkfLifecycle.client),
+    }),
   })
   const agentInspectionAuthority = {
     catalogAgentInspection: (request: Parameters<typeof aspcService.catalogAgentInspection>[0]) =>
