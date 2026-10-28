@@ -27,8 +27,8 @@
   },
   "dependencies": {
     "acp-core": "*",
-    "agent-scope": "0.1.1-dev.20261013091757",
-    "hrc-sdk": "0.5.13-dev.20261023142048"
+    "agent-scope": "0.1.1-dev.20261028084240",
+    "hrc-sdk": "0.5.13-dev.20261028084125"
   },
   "devDependencies": {
     "@types/bun": "1.3.14",
