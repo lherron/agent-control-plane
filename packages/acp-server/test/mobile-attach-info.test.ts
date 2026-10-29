@@ -261,4 +261,66 @@ describe('GET /v1/mobile/sessions/:hostSessionId/attach-info', () => {
       )
     }
   })
+
+  test('proxies an hrcpty seat descriptor with its socket read back out of the argv (T-12046)', async () => {
+    const hrcptySocket = '/Users/lherron/praesidium/var/run/hrc/bipc/de68538e6275/hrcpty.sock'
+    const argv = ['/Users/lherron/.bun/bin/hrc-pty', 'attach', '--socket', hrcptySocket]
+    const bindingFence = {
+      hostSessionId: HOST_SESSION_ID,
+      runtimeId: RUNTIME.runtimeId,
+      generation: SESSION.generation,
+      supervisorPid: 59921,
+    }
+    const hrcClient = makeHrcClient({
+      sessions: [SESSION],
+      runtimes: [{ ...RUNTIME, transport: 'hrcpty', tmuxJson: undefined }],
+      descriptor: { transport: 'hrcpty', argv, bindingFence },
+    })
+
+    await withWiredServer(
+      async ({ request, json }) => {
+        const response = await request({ method: 'GET', path: PATH, peer: LOOPBACK })
+        expect(response.status).toBe(200)
+        expect(await json(response)).toEqual({
+          local: true,
+          transport: 'hrcpty',
+          argv,
+          socketPath: hrcptySocket,
+          bindingFence,
+        })
+      },
+      { hrcClient }
+    )
+  })
+
+  test('409 not_attachable for an hrcpty argv shape this gateway cannot parse', async () => {
+    const socket = '/tmp/bipc/x/hrcpty.sock'
+    const refusedShapes: string[][] = [
+      [],
+      ['hrc-pty', 'attach', '--socket'],
+      ['hrc-pty', 'attach', socket],
+      ['hrc-pty', 'attach', '--socket', ''],
+      ['hrc-pty', 'attach', '--socket', socket, '--read-only'],
+      ['hrc-pty', 'serve', '--socket', socket],
+      ['/usr/local/bin/not-hrc-pty', 'attach', '--socket', socket],
+      // A tmux argv under the hrcpty transport is a mismatch, never a tmux attach.
+      DESCRIPTOR.argv,
+    ]
+    for (const argv of refusedShapes) {
+      const hrcClient = makeHrcClient({
+        sessions: [SESSION],
+        runtimes: [RUNTIME],
+        descriptor: { transport: 'hrcpty', argv, bindingFence: DESCRIPTOR.bindingFence },
+      })
+
+      await withWiredServer(
+        async ({ request, json }) => {
+          const response = await request({ method: 'GET', path: PATH, peer: LOOPBACK })
+          expect({ argv, status: response.status }).toEqual({ argv, status: 409 })
+          expect((await json<{ reason: string }>(response)).reason).toBe('not_attachable')
+        },
+        { hrcClient }
+      )
+    }
+  })
 })

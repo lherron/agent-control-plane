@@ -398,7 +398,10 @@ async function runHrcClientProbe(input: {
 
   if (probe === undefined) {
     const staleRuntimes = await input.deps.hrcClient.listRuntimes({ stale: true })
-    const hasStaleTtyRuntime = staleRuntimes.some((runtime) => runtime.transport === 'tmux')
+    // An hrcpty seat (T-12046) is a terminal runtime just as a tmux one is.
+    const hasStaleTtyRuntime = staleRuntimes.some(
+      (runtime) => runtime.transport === 'tmux' || runtime.transport === 'hrcpty'
+    )
     return { outcome: hasStaleTtyRuntime ? 'work' : 'idle' }
   }
 

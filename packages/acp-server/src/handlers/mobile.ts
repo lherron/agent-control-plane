@@ -557,8 +557,10 @@ function projectSession(input: {
   // not proof that the resulting tmux runtime cannot accept literal input.
   // Preserve genuinely non-interactive worker behavior by requiring either an
   // interactive execution mode or the persisted interactive-harness intent.
+  // An hrcpty seat (T-12046) takes literal input through its supervisor as a
+  // tmux seat does through its pane.
   const supportsInput =
-    input.runtime?.transport === 'tmux' &&
+    (input.runtime?.transport === 'tmux' || input.runtime?.transport === 'hrcpty') &&
     input.runtime.supportsInflightInput === true &&
     (mode === 'interactive' || input.record.lastAppliedIntentJson?.harness.interactive === true)
   const projectedRuntime =

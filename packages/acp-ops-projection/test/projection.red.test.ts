@@ -417,9 +417,12 @@ describe('runtime transport narrowing', () => {
   // 'headless' is the dominant transport in the hrc store and was silently
   // dropped by an older 'tmux' | 'sdk' whitelist, leaving most rows with no
   // transport at all. Every HRC transport must survive the projection.
-  test.each(['sdk', 'tmux', 'headless'])('deriveSessionRow keeps transport %s', (transport) => {
-    expect(deriveSessionRow([runtimeEvent(transport)], 90_000).runtime?.transport).toBe(transport)
-  })
+  test.each(['sdk', 'tmux', 'headless', 'hrcpty'])(
+    'deriveSessionRow keeps transport %s',
+    (transport) => {
+      expect(deriveSessionRow([runtimeEvent(transport)], 90_000).runtime?.transport).toBe(transport)
+    }
+  )
 
   test('deriveSessionRow drops a transport outside the HRC vocabulary', () => {
     expect(deriveSessionRow([runtimeEvent('ghostty')], 90_000).runtime?.transport).toBeUndefined()
@@ -429,6 +432,7 @@ describe('runtime transport narrowing', () => {
     expect(asSessionRuntimeTransport('sdk')).toBe('sdk')
     expect(asSessionRuntimeTransport('tmux')).toBe('tmux')
     expect(asSessionRuntimeTransport('headless')).toBe('headless')
+    expect(asSessionRuntimeTransport('hrcpty')).toBe('hrcpty')
     expect(asSessionRuntimeTransport('ghostty')).toBeUndefined()
     expect(asSessionRuntimeTransport('federated-message')).toBeUndefined()
     expect(asSessionRuntimeTransport('')).toBeUndefined()

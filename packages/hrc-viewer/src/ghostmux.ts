@@ -813,7 +813,8 @@ export class GhostmuxManager {
     hostSessionId?: string | undefined
     generation?: number | undefined
     attachCommand: string
-    attachTarget?: { socketPath: string; attachTarget: string } | undefined
+    /** A tmux target, or (hrcpty seat, T-12046) the supervisor socket alone. */
+    attachTarget?: { socketPath: string; attachTarget?: string | undefined } | undefined
     /**
      * Optional explicit pane-title override; default is `<label> · <agent>`, plus
      * ` · <role>` for a role-qualified scope.

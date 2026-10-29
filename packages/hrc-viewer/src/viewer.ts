@@ -18,6 +18,7 @@ import {
   viewerStateForRuntimeStatus,
   viewerTerminalBg,
 } from './headless-viewer-status.js'
+import { type HrcptyClientProbe, createHrcptyClientProbe } from './hrcpty-clients.js'
 import { type TmuxClientProbe, createTmuxClientProbe } from './tmux-clients.js'
 import {
   type TaskSlugResolver,
@@ -41,7 +42,19 @@ type HrcPresentationRuntimeRow = Awaited<
   ReturnType<HrcViewerClient['listPresentationRuntimes']>
 >['runtimes'][number]
 type OperatorSurface = { surfaceId: string; clientTty: string }
-type PresentationRuntimeRow = HrcPresentationRuntimeRow
+/**
+ * An hrcpty seat's presentation (T-12046): rusthrc projects it beside `tmux` on
+ * the presentation row and on the `runtime.presentation` event. hrc-sdk does not
+ * type it yet, so it is read defensively.
+ */
+type HrcptyPresentation = { socketPath: string; attachCommand: string }
+type PresentationRuntimeRow = HrcPresentationRuntimeRow & {
+  hrcpty?: HrcptyPresentation | undefined
+}
+/** What the viewer pane attaches to: a tmux target, or an hrcpty supervisor socket. */
+type ViewerAttach =
+  | { transport: 'tmux'; socketPath: string; attachTarget: string }
+  | { transport: 'hrcpty'; socketPath: string; attachCommand: string }
 
 export type ViewerGhostmux = {
   ensureHeadlessViewer(options: {
@@ -52,7 +65,7 @@ export type ViewerGhostmux = {
     hostSessionId?: string | undefined
     generation?: number | undefined
     attachCommand: string
-    attachTarget?: { socketPath: string; attachTarget: string } | undefined
+    attachTarget?: { socketPath: string; attachTarget?: string | undefined } | undefined
     title?: string | undefined
     statusBar?: GhostmuxStatusBarSpec | undefined
     terminalBg?: string | undefined
@@ -106,6 +119,8 @@ export type HrcViewerOptions = {
    * the operator-attached suppression is testable without a live tmux server.
    */
   probeTmuxClients?: TmuxClientProbe | undefined
+  /** Attached client count for an hrcpty seat (T-12046). Injected for tests. */
+  probeHrcptyClients?: HrcptyClientProbe | undefined
   /** Batched wrkq task-title reader for the secondary bar (T-08331). Injected for tests. */
   readTaskTitles?: TaskTitleReader | undefined
   /** wrkq task-slug resolver for the primary status bar. Injected for tests. */
@@ -188,10 +203,32 @@ function normalizePresentationLaneRef(laneRef: string | undefined): string {
   return laneRef ?? 'main'
 }
 
+function asHrcptyPresentation(value: unknown): HrcptyPresentation | undefined {
+  const record = asRecord(value)
+  const socketPath = record['socketPath']
+  const attachCommand = record['attachCommand']
+  return typeof socketPath === 'string' &&
+    socketPath !== '' &&
+    typeof attachCommand === 'string' &&
+    attachCommand !== ''
+    ? { socketPath, attachCommand }
+    : undefined
+}
+
+function viewerAttachFor(row: PresentationRuntimeRow): ViewerAttach | undefined {
+  if (row.tmux !== undefined) return { transport: 'tmux', ...row.tmux }
+  const hrcpty = asHrcptyPresentation(row.hrcpty)
+  return hrcpty === undefined ? undefined : { transport: 'hrcpty', ...hrcpty }
+}
+
 function attachCommandFor(row: PresentationRuntimeRow, lingerSeconds: number): string | null {
-  if (row.tmux === undefined) return null
+  const attach = viewerAttachFor(row)
+  if (attach === undefined) return null
   return [
-    `tmux -S ${shellQuote(row.tmux.socketPath)} attach-session -t ${shellQuote(row.tmux.attachTarget)}`,
+    // rusthrc's hrcpty attachCommand is already the shell-quoted attach argv.
+    attach.transport === 'tmux'
+      ? `tmux -S ${shellQuote(attach.socketPath)} attach-session -t ${shellQuote(attach.attachTarget)}`
+      : attach.attachCommand,
     `hrc monitor session-report --runtime ${shellQuote(row.runtimeId)} --scope ${shellQuote(row.scopeRef)} --wait-key --wait-timeout ${lingerSeconds + REAP_HANDOFF_MARGIN_SECONDS}`,
     'exit',
   ].join('; ')
@@ -249,6 +286,7 @@ export class HrcViewer {
   private stopped = false
   private readonly statusProjector: HeadlessViewerStatusProjector
   private readonly probeTmuxClients: TmuxClientProbe
+  private readonly probeHrcptyClients: HrcptyClientProbe
   private readonly readTaskTitles: TaskTitleReader
   private readonly resolveTaskSlug: TaskSlugResolver
   private readonly manageNonTaskSessions: boolean
@@ -273,6 +311,7 @@ export class HrcViewer {
     this.schedule = options.schedule ?? ((fn, ms) => setTimeout(fn, ms))
     this.clearScheduled = options.clearScheduled ?? ((handle) => clearTimeout(handle))
     this.probeTmuxClients = options.probeTmuxClients ?? createTmuxClientProbe()
+    this.probeHrcptyClients = options.probeHrcptyClients ?? createHrcptyClientProbe()
     this.readTaskTitles = options.readTaskTitles ?? defaultTaskTitleReader()
     this.resolveTaskSlug = options.resolveTaskSlug ?? defaultTaskSlugResolver()
     this.manageNonTaskSessions = options.manageNonTaskSessions ?? MANAGE_NON_TASK_SESSIONS
@@ -467,7 +506,14 @@ export class HrcViewer {
     const tmux = asRecord(payload['tmux'])
     const socketPath = typeof tmux['socketPath'] === 'string' ? tmux['socketPath'] : undefined
     const attachTarget = typeof tmux['attachTarget'] === 'string' ? tmux['attachTarget'] : undefined
-    if (event.runtimeId === undefined || socketPath === undefined || attachTarget === undefined) {
+    const hrcpty = asHrcptyPresentation(payload['hrcpty'])
+    const attach =
+      socketPath !== undefined && attachTarget !== undefined
+        ? { tmux: { socketPath, attachTarget } }
+        : hrcpty !== undefined
+          ? { hrcpty }
+          : undefined
+    if (event.runtimeId === undefined || attach === undefined) {
       this.log('INFO', 'broker_headless_viewer.skipped_no_socket', {
         runtimeId: event.runtimeId,
         scopeRef: event.scopeRef,
@@ -492,7 +538,7 @@ export class HrcViewer {
           ? { viewerWindow: presentation['viewerWindow'] }
           : {}),
       },
-      tmux: { socketPath, attachTarget },
+      ...attach,
       ...(typeof payload['title'] === 'string' ? { title: payload['title'] } : {}),
     })
   }
@@ -565,7 +611,7 @@ export class HrcViewer {
         if (
           row.presentation?.viewerRequested !== true ||
           row.presentation.operatorAttachable !== true ||
-          row.tmux === undefined
+          viewerAttachFor(row) === undefined
         ) {
           await this.paintPresentationSurfaces(undefined, row, eventsByRuntime.get(row.runtimeId))
           continue
@@ -613,13 +659,14 @@ export class HrcViewer {
     latestEvent?: LifecycleEvent | undefined,
     paint = true
   ): Promise<void> {
-    const tmux = row.tmux
+    const attach = viewerAttachFor(row)
     const attachCommand = attachCommandFor(row, this.lingerSeconds)
-    if (attachCommand === null || tmux === undefined) return
+    if (attachCommand === null || attach === undefined) return
     // T-07711: captured by the veto below so the skip can NAME the terminals it
     // deferred to. A reclassified case has to leave a positive line — proving
-    // the fix by the absence of a `created` line proves nothing.
-    let operatorClients: readonly string[] = []
+    // the fix by the absence of a `created` line proves nothing. An hrcpty
+    // supervisor reports a count, not ttys (T-12046).
+    let operatorClients: readonly string[] | number = []
     // T-10826: classified the way ghostmux groups the pane, so the gate and the
     // tab it would have landed in can never disagree about what a task is.
     const nonTaskVetoed =
@@ -637,7 +684,10 @@ export class HrcViewer {
       hostSessionId: row.hostSessionId,
       generation: row.generation,
       attachCommand,
-      attachTarget: tmux,
+      attachTarget:
+        attach.transport === 'tmux'
+          ? { socketPath: attach.socketPath, attachTarget: attach.attachTarget }
+          : { socketPath: attach.socketPath },
       windowKey: row.presentation?.viewerWindow,
       // Only reached when no pane of ours exists for this identity, so every
       // attached client is somebody ELSE's terminal — an operator watching this
@@ -645,7 +695,11 @@ export class HrcViewer {
       // for every error, dead socket and timeout, and the create proceeds.
       skipCreateWhen: async () => {
         if (nonTaskVetoed) return true
-        operatorClients = await this.probeTmuxClients(tmux.socketPath, tmux.attachTarget)
+        if (attach.transport === 'hrcpty') {
+          operatorClients = await this.probeHrcptyClients(attach.socketPath)
+          return operatorClients > 0
+        }
+        operatorClients = await this.probeTmuxClients(attach.socketPath, attach.attachTarget)
         return operatorClients.length > 0
       },
     })
@@ -659,7 +713,9 @@ export class HrcViewer {
         this.log('INFO', 'broker_headless_viewer.skipped_operator_attached', {
           runtimeId: row.runtimeId,
           scopeRef: row.scopeRef,
-          attachTarget: tmux.attachTarget,
+          ...(attach.transport === 'tmux'
+            ? { attachTarget: attach.attachTarget }
+            : { transport: attach.transport, socketPath: attach.socketPath }),
           clients: operatorClients,
         })
       }
@@ -703,6 +759,9 @@ export class HrcViewer {
    * on this runtime's attach target may receive an operator presentation write.
    */
   private async qualifiedOperatorSurfaceIds(row: PresentationRuntimeRow): Promise<string[]> {
+    // An hrcpty supervisor reports how many clients are attached, not their
+    // ttys, so no operator surface can be qualified for an hrcpty seat: only
+    // the viewer's own pane is painted (T-12046).
     if (row.tmux === undefined || row.operatorSurfaces === undefined) return []
     const candidates = row.operatorSurfaces.filter(
       (surface): surface is OperatorSurface =>

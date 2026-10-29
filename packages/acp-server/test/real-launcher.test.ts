@@ -866,6 +866,139 @@ describe('real launcher helpers', () => {
     }
   })
 
+  // T-12046 §6: an hrcpty seat's runtime transport is 'hrcpty'. ACP's direct
+  // literal path is a pre-broker tmux mechanism and is not ported, so a live
+  // hrcpty runtime must not be matched and the turn goes over broker dispatchTurn.
+  test('a live hrcpty runtime takes broker dispatchTurn, never the tmux literal path', async () => {
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-real-launcher-hrcpty-db-'))
+    const hrcDbPath = join(fixtureDir, 'hrc.sqlite')
+    const db = new Database(hrcDbPath)
+    db.exec(`
+      CREATE TABLE continuities (
+        scope_ref TEXT NOT NULL,
+        lane_ref TEXT NOT NULL,
+        active_host_session_id TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (scope_ref, lane_ref)
+      );
+      CREATE TABLE runtimes (
+        runtime_id TEXT PRIMARY KEY,
+        host_session_id TEXT NOT NULL,
+        transport TEXT NOT NULL,
+        status TEXT NOT NULL,
+        tmux_json TEXT,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE runs (
+        run_id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        error_code TEXT,
+        error_message TEXT
+      );
+      CREATE TABLE events (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id TEXT,
+        event_kind TEXT NOT NULL,
+        event_json TEXT NOT NULL
+      );
+      CREATE TABLE hrc_events (
+        hrc_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id TEXT,
+        event_kind TEXT NOT NULL,
+        payload_json TEXT NOT NULL
+      );
+    `)
+    const sessionRef = {
+      scopeRef: 'agent:clod:project:agent-control-plane:task:T-12054',
+      laneRef: 'main' as const,
+    }
+    db.run(
+      `INSERT INTO continuities (scope_ref, lane_ref, active_host_session_id, updated_at)
+        VALUES (?, ?, ?, ?)`,
+      sessionRef.scopeRef,
+      'main',
+      'hsid-hrcpty',
+      '2026-10-29T17:00:00.000Z'
+    )
+    // The row rusthrc writes for an hrcpty seat (T-12049): transport hrcpty, no tmux_json.
+    db.run(
+      `INSERT INTO runtimes (runtime_id, host_session_id, transport, status, tmux_json, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)`,
+      'rt-hrcpty',
+      'hsid-hrcpty',
+      'hrcpty',
+      'ready',
+      null,
+      '2026-10-29T17:00:01.000Z'
+    )
+
+    const calls: string[] = []
+    const runStore = new InMemoryRunStore()
+    const acpRun = runStore.createRun({ sessionRef, status: 'pending' })
+    const launcher = createRealLauncher({
+      hrcDbPath,
+      pollIntervalMs: 1,
+      createClient: () =>
+        ({
+          resolveSession: async () => {
+            calls.push('resolveSession')
+            return { found: true, hostSessionId: 'hsid-hrcpty', generation: 1 }
+          },
+          deliverLiteralBySelector: async () => {
+            throw new Error('an hrcpty seat must not take the tmux literal path')
+          },
+          dispatchTurn: async (input: { hostSessionId: string; prompt: string }) => {
+            calls.push('dispatchTurn')
+            expect(input).toMatchObject({ hostSessionId: 'hsid-hrcpty', prompt: 'hello hrcpty' })
+            db.run(
+              'INSERT INTO runs (run_id, status, error_code, error_message) VALUES (?, ?, NULL, NULL)',
+              'run-hrcpty',
+              'completed'
+            )
+            return {
+              runId: 'run-hrcpty',
+              hostSessionId: 'hsid-hrcpty',
+              generation: 1,
+              runtimeId: 'rt-hrcpty',
+              // hrcpty runs are broker-driven; HRC keeps the run row 'headless'.
+              transport: 'headless',
+              status: 'completed',
+              supportsInFlightInput: true,
+            }
+          },
+        }) as unknown as any,
+    })
+
+    try {
+      const result = await launcher({
+        sessionRef,
+        intent: {
+          placement: {
+            agentRoot: '/tmp/clod',
+            runMode: 'task',
+            bundle: { kind: 'compose', compose: [] },
+          },
+          harness: { provider: 'anthropic', interactive: true },
+          initialPrompt: 'hello hrcpty',
+        },
+        acpRunId: acpRun.runId,
+        runStore,
+      })
+
+      expect(calls).toEqual(['resolveSession', 'dispatchTurn'])
+      expect(result).toMatchObject({ runId: 'run-hrcpty', runtimeId: 'rt-hrcpty' })
+      expect(runStore.getRun(acpRun.runId)).toMatchObject({
+        status: 'completed',
+        hrcRunId: 'run-hrcpty',
+        runtimeId: 'rt-hrcpty',
+        transport: 'headless',
+      })
+    } finally {
+      db.close()
+      rmSync(fixtureDir, { recursive: true, force: true })
+    }
+  })
+
   test('throws the persisted run failure details when the HRC run fails', async () => {
     const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-real-launcher-failed-db-'))
     const hrcDbPath = join(fixtureDir, 'hrc.sqlite')

@@ -60,9 +60,14 @@ export type DashboardEvent = {
  * HRC's runtime transport and NOT ACP's run transport (`hrc`, `hrc-command`,
  * `federated-message`), which is a different concept that never reaches here.
  */
-export type SessionRuntimeTransport = 'sdk' | 'tmux' | 'headless'
+export type SessionRuntimeTransport = 'sdk' | 'tmux' | 'headless' | 'hrcpty'
 
-const SESSION_RUNTIME_TRANSPORTS: readonly SessionRuntimeTransport[] = ['sdk', 'tmux', 'headless']
+const SESSION_RUNTIME_TRANSPORTS: readonly SessionRuntimeTransport[] = [
+  'sdk',
+  'tmux',
+  'headless',
+  'hrcpty',
+]
 
 /**
  * Narrow a transport read off an untyped event payload. Unknown spellings are

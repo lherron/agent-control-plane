@@ -329,4 +329,43 @@ describe('GET /v2/mobile/sessions', () => {
       { hrcClient }
     )
   })
+
+  test('interactive hrcpty seat is listed with input and literalInput enabled (T-12046)', async () => {
+    const pageRequests: SessionPageRequest[] = []
+    const facetRequests: SessionFacetsRequest[] = []
+    const hrcClient = createPaginatedClient({
+      pageRequests,
+      facetRequests,
+      localSession: {
+        ...LOCAL_SESSION,
+        lastAppliedIntentJson: {
+          harness: { interactive: true },
+          execution: { preferredMode: 'headless' },
+        },
+      },
+      localRuntime: { ...LOCAL_RUNTIME, transport: 'hrcpty', tmuxJson: undefined },
+      localExecutionMode: 'headless',
+    })
+
+    await withWiredServer(
+      async ({ request, json }) => {
+        const response = await request({ method: 'GET', path: '/v2/mobile/sessions?limit=50' })
+        expect(response.status).toBe(200)
+        const body = await json<{
+          sessions: Array<{
+            nodeId?: string
+            capabilities?: Record<string, unknown>
+            runtime?: Record<string, unknown>
+          }>
+        }>(response)
+        const local = body.sessions.find((session) => session.nodeId === 'svc')
+
+        expect(local).toMatchObject({
+          capabilities: { input: true, literalInput: true },
+          runtime: { transport: 'hrcpty', supportsInflightInput: true },
+        })
+      },
+      { hrcClient }
+    )
+  })
 })

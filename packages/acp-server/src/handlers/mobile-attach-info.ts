@@ -18,6 +18,12 @@
  * the frame timeline instead". A local session that simply has nothing to attach
  * to (no durable lease, dead runtime, headless-without-tui) is `409
  * {reason: 'not_attachable'}`.
+ *
+ * An hrcpty seat (T-12046) is proxied the same way: hrc-server's descriptor is
+ * `{transport:'hrcpty', argv:[<hrc-pty>, 'attach', '--socket', <socket>]}`, the
+ * response carries `transport: 'hrcpty'` and the socket read back out of that
+ * argv, and the client runs the argv verbatim where it runs `tmux attach`. A tmux
+ * response is unchanged.
  */
 
 import { basename, isAbsolute } from 'node:path'
@@ -33,6 +39,10 @@ import { findLocalMobileSessionByHostSessionId } from './mobile.js'
 type ParsedTmuxAttach = {
   socketPath: string
   target: string
+}
+
+type ParsedHrcptyAttach = {
+  socketPath: string
 }
 
 function notLocal(detail: Record<string, unknown>): Response {
@@ -77,6 +87,29 @@ export function parseTmuxAttachArgv(argv: readonly string[]): ParsedTmuxAttach |
     return undefined
   }
   return { socketPath, target }
+}
+
+/**
+ * Read `socketPath` back out of hrc-server's hrcpty attach argv, exactly
+ * `<absolute path to hrc-pty> attach --socket <socket>` (rusthrc
+ * `hrcpty::attach_argv`; a bare `hrc-pty` is its fallback when it cannot name
+ * its own install dir). Any other shape is not-attachable, as for tmux.
+ */
+export function parseHrcptyAttachArgv(argv: readonly string[]): ParsedHrcptyAttach | undefined {
+  if (argv.length !== 4) {
+    return undefined
+  }
+  const [command, subcommand, socketFlag, socketPath] = argv
+  const isHrcptyCommand =
+    command === 'hrc-pty' ||
+    (command !== undefined && isAbsolute(command) && basename(command) === 'hrc-pty')
+  if (!isHrcptyCommand || subcommand !== 'attach' || socketFlag !== '--socket') {
+    return undefined
+  }
+  if (socketPath === undefined || socketPath.length === 0) {
+    return undefined
+  }
+  return { socketPath }
 }
 
 export const handleMobileAttachInfo: RouteHandler = async ({ deps, params, peer }) => {
@@ -138,8 +171,29 @@ export const handleMobileAttachInfo: RouteHandler = async ({ deps, params, peer 
     })
   }
 
+  // hrc-core still types the descriptor as tmux-only; rusthrc also serves hrcpty.
+  const transport: string = descriptor.transport
+  if (transport === 'hrcpty') {
+    const hrcpty = parseHrcptyAttachArgv(descriptor.argv)
+    if (hrcpty === undefined) {
+      return notAttachable({
+        hostSessionId,
+        runtimeId: runtime.runtimeId,
+        transport,
+        message: 'attach descriptor is not an hrc-pty attach',
+      })
+    }
+    return json({
+      local: true,
+      transport,
+      argv: descriptor.argv,
+      socketPath: hrcpty.socketPath,
+      bindingFence: descriptor.bindingFence,
+    })
+  }
+
   const parsed = parseTmuxAttachArgv(descriptor.argv)
-  if (descriptor.transport !== 'tmux' || parsed === undefined) {
+  if (transport !== 'tmux' || parsed === undefined) {
     return notAttachable({
       hostSessionId,
       runtimeId: runtime.runtimeId,
