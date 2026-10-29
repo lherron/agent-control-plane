@@ -7,7 +7,7 @@ import type {
   JobRecord,
   JobRunRecord,
   JobsStore,
-} from './open-store.js'
+} from './store-contracts.js'
 
 export type DispatchThroughInputs = (input: {
   jobId: string

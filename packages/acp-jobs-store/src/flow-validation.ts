@@ -2,7 +2,7 @@ import type { FlowNext, JobFlow, JobFlowStep, JobTriggerKind, StepExpectation } 
 
 import { isValidCron } from './cron.js'
 import { isValidFreshDuration } from './fresh-duration.js'
-import type { JobSchedule } from './open-store.js'
+import type { JobSchedule } from './store-contracts.js'
 
 export type JobFlowValidationErrorCode =
   | 'invalid_cron'

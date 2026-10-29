@@ -1,4 +1,4 @@
-import type { JobRunRecord } from './open-store.js'
+import type { JobRunRecord } from './store-contracts.js'
 
 export type FlowJobRunResponseStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'skipped'
 

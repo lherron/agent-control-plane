@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { stableJson } from './record-json.js'
 
 import { validateJobTrigger } from 'acp-core'
 
@@ -7,7 +8,7 @@ import {
   formatJobFlowValidationErrors,
   validateJobFlowJob,
 } from './flow-validation.js'
-import type { CreateJobInput, JobRecord, JobsStore, UpdateJobInput } from './open-store.js'
+import type { CreateJobInput, JobRecord, JobsStore, UpdateJobInput } from './store-contracts.js'
 
 // ---------------------------------------------------------------------------
 // Types (API contract frozen by Phase C RED tests)
@@ -107,20 +108,6 @@ function newProvenanceId(): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => stableJson(item)).join(',')}]`
-  }
-  if (!isRecord(value)) {
-    return JSON.stringify(value)
-  }
-  return `{${Object.keys(value)
-    .filter((key) => value[key] !== undefined)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`)
-    .join(',')}}`
 }
 
 function internalHash(value: unknown): string {

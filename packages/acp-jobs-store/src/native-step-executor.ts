@@ -13,7 +13,7 @@
 
 import type { JobStepRunPhase } from 'acp-core'
 import { buildHealthIncidentMeta } from './health-incident.js'
-import type { JobsStore } from './open-store.js'
+import type { JobsStore } from './store-contracts.js'
 
 // ─── Result types (persisted to job_step_runs.result_json) ─────────────────
 
