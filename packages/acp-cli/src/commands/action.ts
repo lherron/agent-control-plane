@@ -95,12 +95,22 @@ async function resolveTaskProjectId(taskId: string, deps: CommandDependencies): 
 
   try {
     const task = await client.wrkq.task.show({ task: taskId })
-    const container = await client.wrkq.container.show({ project: task.projectUuid })
-    const projectId = container.id.trim()
-    if (projectId.length === 0) {
-      throw new CliUsageError(`could not resolve project for task ${taskId}`)
+    // A task's projectUuid names its immediate container (often a directory
+    // such as inbox); the scope wants the owning project's path, so walk up to
+    // the nearest kind:'project' ancestor.
+    let containerUuid: string | undefined = task.projectUuid
+    for (let depth = 0; containerUuid !== undefined && depth < 16; depth += 1) {
+      const container = await client.wrkq.container.show({ project: containerUuid })
+      if (container.kind === 'project') {
+        const projectId = container.path.trim()
+        if (projectId.length > 0) {
+          return projectId
+        }
+        break
+      }
+      containerUuid = container.parentUuid
     }
-    return projectId
+    throw new CliUsageError(`could not resolve project for task ${taskId}`)
   } finally {
     await client.close()
   }

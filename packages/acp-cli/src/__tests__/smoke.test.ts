@@ -89,11 +89,30 @@ async function runCli(
   }
 }
 
+// Mirrors the real wrkq shape: a task's projectUuid names its immediate
+// container (often a directory such as inbox), and the owning project is the
+// nearest kind:'project' ancestor reached through parentUuid.
 function createFakeWorkClient(input: {
   taskId: string
   projectUuid: string
   projectId: string
 }) {
+  const containers: Record<string, Record<string, unknown>> = {
+    [input.projectUuid]: {
+      id: 'P-00222',
+      slug: 'inbox',
+      kind: 'directory',
+      path: `${input.projectId}/inbox`,
+      parentUuid: `${input.projectUuid}-root`,
+    },
+    [`${input.projectUuid}-root`]: {
+      id: 'P-00212',
+      slug: input.projectId,
+      kind: 'project',
+      path: input.projectId,
+      parentUuid: '00000000-0000-4000-8000-000000000001',
+    },
+  }
   const calls: Array<{ method: string; params?: unknown }> = []
   return {
     calls,
@@ -110,8 +129,9 @@ function createFakeWorkClient(input: {
           container: {
             async show(params: { project: string }) {
               calls.push({ method: 'wrkq.container.show', params })
-              expect(params).toEqual({ project: input.projectUuid })
-              return { id: input.projectId }
+              const container = containers[params.project]
+              expect(container).toBeDefined()
+              return container
             },
           },
         },
@@ -242,6 +262,7 @@ describe('acp CLI smoke fixtures', () => {
     expect(fetchQueue.calls).toHaveLength(1)
     expect(workClient.calls.map((call) => call.method)).toEqual([
       'wrkq.task.show',
+      'wrkq.container.show',
       'wrkq.container.show',
       'close',
     ])
