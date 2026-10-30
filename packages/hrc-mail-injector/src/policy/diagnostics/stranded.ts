@@ -20,12 +20,13 @@
  *      the body and nothing says so. The periodic reconcile clears these at TTL;
  *      this is what makes the interval visible before then.
  *
- * Neither reader disposes anything.
+ * Stalled launches without a live runtime enter bounded birth recovery.
  */
 import type { HrcMailPresentation } from 'hrc-store-sqlite'
 
 import type { MailKickerContext } from '../context.js'
-import { STALLED_DELIVERY_THRESHOLD_MS, errorText } from '../internal.js'
+import { recoverFailedLaunch } from '../drive/launch-recovery.js'
+import { STALLED_DELIVERY_THRESHOLD_MS, errorText, parseSessionRef } from '../internal.js'
 import { newestPresentationReceipt } from '../ledger/types.js'
 import { isRuntimeTerminal } from '../terminal/runtime-status.js'
 
@@ -154,8 +155,25 @@ export function findStalledDeliveries(server: MailKickerContext): StalledDeliver
  * Bounded per PROCESS rather than permanently because a restart is exactly when
  * someone is reading, and `boot_reconcile` names the population again there.
  */
-export function reportStalledDeliveries(server: MailKickerContext): Promise<void> {
+export async function reportStalledDeliveries(server: MailKickerContext): Promise<void> {
+  let runtimes: Awaited<ReturnType<typeof server.port.allRuntimes>> | undefined
   for (const delivery of findStalledDeliveries(server)) {
+    if (delivery.door === 'launch') {
+      const target = parseSessionRef(delivery.targetSessionRef)
+      runtimes ??= await server.port.allRuntimes()
+      const live = runtimes.some(
+        (runtime) =>
+          runtime.scopeRef === target.scopeRef &&
+          runtime.laneRef === target.laneRef &&
+          !isRuntimeTerminal(runtime.status)
+      )
+      if (!live) {
+        const intent = server.store.mailDelivery.getIntent(delivery.envelope)
+        if (intent !== undefined)
+          await recoverFailedLaunch(server, intent, 'stalled_delivery: scope has no live runtime')
+        continue
+      }
+    }
     if (server.mailKickerStalledDeliveryAnnounced.has(delivery.envelope)) continue
     server.mailKickerStalledDeliveryAnnounced.add(delivery.envelope)
     server.log('WARN', 'wrkq.kicker.stalled_delivery', {
@@ -168,10 +186,9 @@ export function reportStalledDeliveries(server: MailKickerContext): Promise<void
       ageMs: delivery.ageMs,
       thresholdMs: STALLED_DELIVERY_THRESHOLD_MS,
       reason: 'submission admitted but no landing fact observed',
-      recovery: 'the periodic reconcile clears this at TTL and redelivers once',
+      recovery: 'reconcile landing evidence; retry stalled launches only after the runtime ends',
     })
   }
-  return Promise.resolve()
 }
 
 /**

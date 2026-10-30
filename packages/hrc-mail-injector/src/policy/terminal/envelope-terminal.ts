@@ -7,6 +7,7 @@ import { parseSessionRef } from '../internal.js'
 import type { WrkqEnvelope, WrkqEnvelopeFailureReason } from '../ledger/types.js'
 
 export type EnvelopeFailCallSite =
+  | 'launch_birth_exhausted'
   | 'birth_refusals_exhausted'
   | 'birth_refused_deterministic'
   | 'dispose_runtime_obligations'
@@ -100,7 +101,11 @@ export async function failEnvelopeWithAudit(
   // authority to fail mail once it has. `non_landing_strikes_exhausted` is the
   // opposite evidence — the seat is live and is precisely why nothing lands, so
   // suppressing on liveness would suppress the only case the bound exists for.
-  if (input.reason === 'undeliverable' && input.callSite !== 'non_landing_strikes_exhausted') {
+  if (
+    input.reason === 'undeliverable' &&
+    input.callSite !== 'non_landing_strikes_exhausted' &&
+    input.callSite !== 'launch_birth_exhausted'
+  ) {
     const live = await liveRuntimeForTarget(server, input.targetSessionRef)
     if (live !== undefined) {
       server.log('WARN', 'wrkq.kicker.envelope_terminal_suppressed', {

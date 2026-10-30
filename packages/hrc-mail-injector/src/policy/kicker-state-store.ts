@@ -1,6 +1,7 @@
 import { Database } from 'bun:sqlite'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { createLaunchFailures } from 'hrc-injector-core'
 
 import { HrcMailDeliveryRepository, WrkqLedgerCursorRepository } from 'hrc-store-sqlite'
 import type {
@@ -55,6 +56,7 @@ export function openKickerStateStore(
       mailDelivery: new HrcMailDeliveryRepository(sqlite),
       wrkqLedgerCursors: new WrkqLedgerCursorRepository(sqlite),
       driveDiagnostics: createDriveDiagnostics(sqlite),
+      launchFailures: createLaunchFailures(sqlite),
       close: () => sqlite.close(),
     }
   } catch (error) {

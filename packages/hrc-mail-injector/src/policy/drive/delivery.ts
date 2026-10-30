@@ -665,21 +665,12 @@ export async function deliverByColdBirth(
     observedSeatState: 'absent',
   })
 
-  let session: HrcSessionRecord
-  try {
-    // The only message-traffic provisioning path. `ensureTargetSession` enters
-    // the normal summon/placement gate before it mints anything, so a scope
-    // this node does not home is refused here rather than pre-filtered.
-    session = await server.port.ensureTargetSession(targetSessionRef, runtimeIntent, {
-      persistIntent: false,
-    })
-    // The seat exists, so this node no longer owes the birth. Left open, the
-    // refusal keeps the scope in every later sweep's candidate set for nothing.
-    server.store.mailDelivery.resolveBirthRefusal(targetSessionRef, 'birth established')
-  } catch (error) {
-    server.store.mailDelivery.clearIntent(item.envelope.id)
-    throw error
-  }
+  // Leave the write-ahead intent for the target driver to classify a refusal
+  // or recover a transient birth failure under the per-envelope bound.
+  const session = await server.port.ensureTargetSession(targetSessionRef, runtimeIntent, {
+    persistIntent: false,
+  })
+  server.store.mailDelivery.resolveBirthRefusal(targetSessionRef, 'birth established')
 
   let presentable: PresentableEnvelope
   try {
@@ -740,8 +731,7 @@ export async function deliverByColdBirth(
       )
       throw error
     }
-    // The invoke/launch RPC may have reached the provider before its response
-    // was lost. It is an uncertain delivery, never a new birth opportunity.
+    // Retain the intent until the target driver accounts for this failed launch.
     server.store.mailDelivery.markUncertain(item.envelope.id, 'dispatch_error', 'dispatch_error')
     throw error
   }

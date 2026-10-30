@@ -152,6 +152,10 @@ export type HrcInjectionPort = {
 /** The kicker-owned durable delivery state. */
 export type KickerStateStore = {
   mailDelivery: HrcMailDeliveryRepository
+  launchFailures: {
+    get(envelopeId: string): { attempts: number; lastError: string } | undefined
+    record(envelopeId: string, presentationId: string, error: string): number
+  }
   wrkqLedgerCursors: WrkqLedgerCursorRepository
   /**
    * Latest safe, injector-owned explanation for an envelope.  This is evidence

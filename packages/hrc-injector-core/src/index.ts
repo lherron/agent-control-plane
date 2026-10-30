@@ -18,6 +18,7 @@ export { verifyInjectorHrcContract } from './real-daemon-contract.js'
 
 export {
   INJECTOR_MOVED_TABLES,
+  createLaunchFailures,
   importInjectorStateStore,
   injectorTableParity,
   openInjectorStateStore,

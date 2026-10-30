@@ -39,6 +39,7 @@ import {
   skipForeignHomedTarget,
 } from './authority.js'
 import { deliverByColdBirth, deliverDigestToSeat, deliverToSeat } from './delivery.js'
+import { failExhaustedLaunch, recoverFailedLaunch } from './launch-recovery.js'
 import type { ActionableEnvelope } from './presentation.js'
 import { classifyBacklogFyi, readActionableEnvelopes, summonsATurn } from './presentation.js'
 import type { ObservedBrokerSeat } from './seat.js'
@@ -47,7 +48,7 @@ import { steerHoldFor } from './steer-hold.js'
 
 export type DriveMailTargetOutcome =
   | { outcome: 'empty' }
-  | { outcome: 'birth-refused'; notPlaceableHere?: true }
+  | { outcome: 'birth-refused'; notPlaceableHere?: true; launchRetry?: true }
   | { outcome: 'undeliverable'; failed: number }
   | undefined
 
@@ -76,6 +77,15 @@ async function birthForTarget(
   // birth a fresh runtime for the session (T-09643 ruling).
   const summons = actionable.find((item) => summonsATurn(item.envelope))
   if (summons === undefined) return
+  if (await failExhaustedLaunch(server, summons.envelope.id, targetSessionRef)) {
+    return { outcome: 'undeliverable', failed: 1 }
+  }
+  if (
+    server.store.launchFailures.get(summons.envelope.id) !== undefined &&
+    (server.mailKickerBirthSweepBackoff.get(targetSessionRef)?.nextAtMs ?? 0) > Date.now()
+  ) {
+    return { outcome: 'birth-refused', launchRetry: true }
+  }
   try {
     const outcome = await deliverByColdBirth(server, targetSessionRef, summons, wakeReason)
     if (outcome === 'submitted' && actionable.length > 1) {
@@ -91,6 +101,7 @@ async function birthForTarget(
     // every node that lost it.
     const deferral = birthDeferralFor(error)
     if (deferral !== undefined && scopeRef !== undefined) {
+      server.store.mailDelivery.clearIntent(summons.envelope.id)
       deferBirthForTarget(server, targetSessionRef, scopeRef, deferral, wakeReason)
       return
     }
@@ -99,6 +110,7 @@ async function birthForTarget(
     // recorded below is the no-host backstop's only record.
     const local = localPlacementRefusalFor(error)
     if (local !== undefined) {
+      server.store.mailDelivery.clearIntent(summons.envelope.id)
       server.log('INFO', 'wrkq.kicker.birth_not_placeable_here', {
         targetSessionRef,
         wakeReason,
@@ -138,6 +150,7 @@ async function birthForTarget(
     // still bounds it.
     const deterministic = deterministicBirthRefusalFor(error)
     if (deterministic !== undefined) {
+      server.store.mailDelivery.clearIntent(summons.envelope.id)
       server.log('WARN', 'wrkq.kicker.birth_refusal_deterministic', {
         targetSessionRef,
         wakeReason,
@@ -166,6 +179,11 @@ async function birthForTarget(
           error: errorText(failError),
         })
       }
+    }
+    const intent = server.store.mailDelivery.getIntent(summons.envelope.id)
+    if (intent?.door === 'launch') {
+      await recoverFailedLaunch(server, intent, errorText(error))
+      return { outcome: 'birth-refused', launchRetry: true }
     }
     return { outcome: 'birth-refused' }
   }

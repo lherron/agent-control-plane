@@ -51,6 +51,7 @@ export function openInjectorStateStore(
       mailDelivery: new HrcMailDeliveryRepository(sqlite),
       wrkqLedgerCursors: new WrkqLedgerCursorRepository(sqlite),
       driveDiagnostics: createDriveDiagnostics(sqlite),
+      launchFailures: createLaunchFailures(sqlite),
       close: () => sqlite.close(),
     }
   } catch (error) {
@@ -308,5 +309,34 @@ function verifyParity(source: Database, destination: Database): void {
         `injector store import mismatch for ${table}: source ${JSON.stringify(sourceParity)}, destination ${JSON.stringify(destinationParity)}`
       )
     }
+  }
+}
+
+export function createLaunchFailures(sqlite: Database): InjectorStateStore['launchFailures'] {
+  sqlite.exec(`CREATE TABLE IF NOT EXISTS hrcmail_launch_failures (
+    envelope_id TEXT PRIMARY KEY, presentation_id TEXT NOT NULL,
+    attempts INTEGER NOT NULL, last_error TEXT NOT NULL
+  )`)
+  return {
+    get: (envelopeId) =>
+      sqlite
+        .query<{ attempts: number; lastError: string }, [string]>(
+          'SELECT attempts, last_error AS lastError FROM hrcmail_launch_failures WHERE envelope_id = ?'
+        )
+        .get(envelopeId) ?? undefined,
+    record: (envelopeId, presentationId, error) => {
+      const row = sqlite
+        .query<{ attempts: number }, [string, string, string]>(`
+            INSERT INTO hrcmail_launch_failures (envelope_id, presentation_id, attempts, last_error)
+            VALUES (?, ?, 1, ?)
+            ON CONFLICT(envelope_id) DO UPDATE SET
+              attempts = attempts + CASE WHEN presentation_id = excluded.presentation_id THEN 0 ELSE 1 END,
+              presentation_id = excluded.presentation_id, last_error = excluded.last_error
+            RETURNING attempts
+          `)
+        .get(envelopeId, presentationId, error)
+      if (row === null) throw new Error('launch failure was not recorded')
+      return row.attempts
+    },
   }
 }

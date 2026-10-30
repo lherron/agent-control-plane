@@ -140,6 +140,10 @@ export type HrcInjectionPort = {
 /** State owned by the external injector, never by HRC. */
 export type InjectorStateStore = {
   mailDelivery: HrcMailDeliveryRepository
+  launchFailures: {
+    get(envelopeId: string): { attempts: number; lastError: string } | undefined
+    record(envelopeId: string, presentationId: string, error: string): number
+  }
   wrkqLedgerCursors: WrkqLedgerCursorRepository
   /** Latest bounded injector evidence; never delivery authority. */
   driveDiagnostics: InjectorDriveDiagnostics

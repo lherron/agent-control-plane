@@ -102,14 +102,13 @@ describe('T-09657 — deterministic birth refusal', () => {
     )
 
     const outcome = await driveMailTargetOnce(h.context, TARGET_REF, 'periodic')
-    expect(outcome).toMatchObject({ outcome: 'birth-refused' })
-    await chargeBirthSweepRefusal(h.context, TARGET_REF)
+    expect(outcome).toMatchObject({ outcome: 'birth-refused', launchRetry: true })
 
     expect(h.ledger.failRequests).toHaveLength(0)
     expect(h.store.mailDelivery.listRefusedBirthTargets()).toContain(TARGET_REF)
-    expect(events('wrkq.kicker.unborn_birth_retry')[0]?.detail).toMatchObject({
+    expect(events('wrkq.kicker.launch_birth_released')[0]?.detail).toMatchObject({
       targetSessionRef: TARGET_REF,
-      attempt: 1,
+      attempts: 1,
     })
   })
 
