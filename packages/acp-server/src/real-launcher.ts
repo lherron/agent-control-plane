@@ -39,12 +39,22 @@ type LiveTmuxRuntime = {
   runtimeId: string
 }
 
+/**
+ * The HRC client surface the launcher drives. locateScope is optional because
+ * embedders may inject a partial legacy client (assertPromptLaunchOwnedLocally).
+ */
+export type RealLauncherClient = Pick<
+  HrcClient,
+  'ensureTarget' | 'resolveSession' | 'deliverLiteralBySelector' | 'dispatchTurn'
+> &
+  Partial<Pick<HrcClient, 'locateScope'>>
+
 type RealLauncherOptions = {
   socketPath?: string | undefined
   hrcDbPath?: string | undefined
   watchTimeoutMs?: number | undefined
   pollIntervalMs?: number | undefined
-  createClient?: ((socketPath: string) => HrcClient) | undefined
+  createClient?: ((socketPath: string) => RealLauncherClient) | undefined
   inputAttemptStore?: InputAttemptStore | undefined
   /** Without it, no launch may first-birth an unbound scope. */
   jobFirstBirthAuthority?: JobFirstBirthAuthority | undefined
@@ -628,7 +638,7 @@ function readInterfaceSourceFromRun(run: ReturnType<RunStore['getRun']>): unknow
 }
 
 async function assertPromptLaunchOwnedLocally(input: {
-  client: HrcClient
+  client: RealLauncherClient
   sessionRef: SessionRef
   prompt: string | undefined
   /** Set only when the jobs store vouches for this launch's job run. */

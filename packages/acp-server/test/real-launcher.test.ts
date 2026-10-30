@@ -8,7 +8,11 @@ import type { HrcDispatchOrigin, HrcRuntimeIntent } from 'hrc-core'
 
 import { InMemoryInputAttemptStore } from '../src/domain/input-attempt-store.js'
 import { InMemoryRunStore } from '../src/domain/run-store.js'
-import { createRealLauncher, readAssistantMessageAfterSeq } from '../src/real-launcher.js'
+import {
+  type RealLauncherClient,
+  createRealLauncher,
+  readAssistantMessageAfterSeq,
+} from '../src/real-launcher.js'
 
 async function captureDispatchOrigin(input: {
   actor: { kind: 'human' | 'agent' | 'system'; id: string }
@@ -935,38 +939,58 @@ describe('real launcher helpers', () => {
     const calls: string[] = []
     const runStore = new InMemoryRunStore()
     const acpRun = runStore.createRun({ sessionRef, status: 'pending' })
+    const client: RealLauncherClient = {
+      ensureTarget: async () => {
+        throw new Error('an hrcpty seat launch must not first-birth')
+      },
+      resolveSession: async () => {
+        calls.push('resolveSession')
+        return {
+          found: true,
+          hostSessionId: 'hsid-hrcpty',
+          generation: 1,
+          created: false,
+          session: {
+            hostSessionId: 'hsid-hrcpty',
+            scopeRef: sessionRef.scopeRef,
+            laneRef: 'main',
+            generation: 1,
+            status: 'active',
+            createdAt: '2026-10-29T17:00:00.000Z',
+            updatedAt: '2026-10-29T17:00:00.000Z',
+          },
+        }
+      },
+      deliverLiteralBySelector: async () => {
+        throw new Error('an hrcpty seat must not take the tmux literal path')
+      },
+      dispatchTurn: async (input) => {
+        calls.push('dispatchTurn')
+        expect(input).toMatchObject({ hostSessionId: 'hsid-hrcpty', prompt: 'hello hrcpty' })
+        db.run(
+          'INSERT INTO runs (run_id, status, error_code, error_message) VALUES (?, ?, NULL, NULL)',
+          'run-hrcpty',
+          'completed'
+        )
+        return {
+          runId: 'run-hrcpty',
+          hostSessionId: 'hsid-hrcpty',
+          generation: 1,
+          runtimeId: 'rt-hrcpty',
+          // hrcpty runs are broker-driven; HRC keeps the run row 'headless'.
+          transport: 'headless',
+          stage: 'terminal',
+          status: 'completed',
+          replayed: false,
+          supportsInFlightInput: true,
+          observation: {},
+        }
+      },
+    }
     const launcher = createRealLauncher({
       hrcDbPath,
       pollIntervalMs: 1,
-      createClient: () =>
-        ({
-          resolveSession: async () => {
-            calls.push('resolveSession')
-            return { found: true, hostSessionId: 'hsid-hrcpty', generation: 1 }
-          },
-          deliverLiteralBySelector: async () => {
-            throw new Error('an hrcpty seat must not take the tmux literal path')
-          },
-          dispatchTurn: async (input: { hostSessionId: string; prompt: string }) => {
-            calls.push('dispatchTurn')
-            expect(input).toMatchObject({ hostSessionId: 'hsid-hrcpty', prompt: 'hello hrcpty' })
-            db.run(
-              'INSERT INTO runs (run_id, status, error_code, error_message) VALUES (?, ?, NULL, NULL)',
-              'run-hrcpty',
-              'completed'
-            )
-            return {
-              runId: 'run-hrcpty',
-              hostSessionId: 'hsid-hrcpty',
-              generation: 1,
-              runtimeId: 'rt-hrcpty',
-              // hrcpty runs are broker-driven; HRC keeps the run row 'headless'.
-              transport: 'headless',
-              status: 'completed',
-              supportsInFlightInput: true,
-            }
-          },
-        }) as unknown as any,
+      createClient: () => client,
     })
 
     try {

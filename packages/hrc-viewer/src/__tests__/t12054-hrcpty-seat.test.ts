@@ -21,11 +21,18 @@ const SOCKET = '/tmp/t12054/bipc/de68538e6275/hrcpty.sock'
 const ATTACH_COMMAND = `'/Users/lherron/.bun/bin/hrc-pty' attach --socket '${SOCKET}'`
 
 type Event = Parameters<HrcViewer['handleEvent']>[0]
+type PresentationRuntimeRow = Awaited<
+  ReturnType<HrcViewerClient['listPresentationRuntimes']>
+>['runtimes'][number]
+/** hrc-sdk does not type the hrcpty presentation yet; rusthrc projects it on the row. */
+type HrcptyPresentationRuntimeRow = PresentationRuntimeRow & {
+  hrcpty: { socketPath: string; supervisorPid: number; attachCommand: string }
+}
 
 function presentationEvent(): Event {
   return {
     hrcSeq: 1,
-    eventId: 'evt-1',
+    streamSeq: 1,
     ts: '2026-10-29T17:12:30.000Z',
     hostSessionId: 'hs-1',
     scopeRef: SCOPE,
@@ -42,11 +49,11 @@ function presentationEvent(): Event {
       presentation: { operatorAttachable: true, viewerRequested: true },
       hrcpty: { socketPath: SOCKET, attachCommand: ATTACH_COMMAND },
     },
-  } as Event
+  }
 }
 
 function makeHarness(attachedClients: number) {
-  const rows = [
+  const rows: HrcptyPresentationRuntimeRow[] = [
     {
       runtimeId: 'rt-hrcpty',
       hostSessionId: 'hs-1',
@@ -57,6 +64,7 @@ function makeHarness(attachedClients: number) {
       status: 'idle',
       presentation: { operatorAttachable: true, viewerRequested: true },
       hrcpty: { socketPath: SOCKET, supervisorPid: 59921, attachCommand: ATTACH_COMMAND },
+      operatorSurfaces: [],
     },
   ]
   const createdCalls: Array<Parameters<ViewerGhostmux['ensureHeadlessViewer']>[0]> = []
@@ -64,7 +72,7 @@ function makeHarness(attachedClients: number) {
   const tmuxProbeCalls: unknown[] = []
   const logs: Array<{ event: string; fields: Record<string, unknown> }> = []
   const panes: HeadlessViewerPane[] = []
-  const client = {
+  const client: HrcViewerClient = {
     async health() {
       return { ok: true }
     },
@@ -76,9 +84,9 @@ function makeHarness(attachedClients: number) {
       return []
     },
     async listPresentationRuntimes() {
-      return { ok: true as const, runtimes: rows }
+      return { ok: true, runtimes: rows }
     },
-  } as unknown as HrcViewerClient
+  }
   const ghostmux: ViewerGhostmux = {
     async ensureHeadlessViewer(options) {
       if (options.skipCreateWhen !== undefined && (await options.skipCreateWhen())) {
