@@ -186,31 +186,72 @@ describe('T-09875 — mid-turn steer receipt', () => {
     expect(row.presentedTo).toHaveLength(0)
   })
 
-  it('a started input refused afterwards stays fenced as a post-write refusal: no receipt, no redelivery', async () => {
-    const fyi = h.ledger.say({ obligation: 'fyi' })
-    await deliverOneTo(h, seatIn('turn-active'), fyi)
+  /**
+   * The broker emits `input.accepted {disposition: 'started'}` BEFORE it calls the
+   * driver, so it is not evidence of a write. EN-38597 is the live specimen: a
+   * steer to an idle seat, refused by the quiescence gate before the paste, with
+   * typed `not_written` evidence. The typed proof decides: no receipt, and the
+   * intent is released for bounded redelivery rather than parked (T-12119).
+   */
+  function refusedBeforePaste(): void {
     append(7, 'input.accepted', { inputId: 'sub-1', disposition: 'started' })
     append(8, 'input.rejected', {
       inputId: 'sub-1',
       reason: 'pane_not_quiescent',
       deliveryEvidence: 'not_written',
     })
-    h.storeSql
-      .query('UPDATE hrcmail_delivery_intents SET submitted_at = ? WHERE envelope_id = ?')
-      .run(new Date(Date.now() - STEER_WRITE_RECONCILE_GRACE_MS - 1_000).toISOString(), fyi.id)
+    append(9, 'submission.rejected', { submissionId: 'sub-1', reason: 'pane_not_quiescent' })
+  }
 
-    await reconcileOpenIntents(h.context, { reason: 'periodic' })
-    expect(h.ledger.envelopes.get(fyi.id)?.presentedTo).toHaveLength(0)
-    // The input was accepted and started before the refusal, so the refusal is
-    // charged as post-write: the intent stays fenced on the rejection's evidence
-    // and the body is never offered for redelivery.
-    expect(h.store.mailDelivery.getIntent(fyi.id)).toMatchObject({
-      uncertainCause: 'input.rejected',
-      lastEvidenceKind: 'post_write_refusal',
-    })
+  async function expectReleasedForRedelivery(envelopeId: string): Promise<void> {
+    expect(h.ledger.envelopes.get(envelopeId)?.presentedTo).toHaveLength(0)
+    expect(h.ledger.envelopes.get(envelopeId)?.state).toBe('pending')
+    expect(h.ledger.failRequests).toEqual([])
+    expect(h.store.mailDelivery.getIntent(envelopeId)).toBeUndefined()
     expect(
       (await readActionableEnvelopes(h.context, TARGET)).map((item) => item.envelope.id)
-    ).not.toContain(fyi.id)
+    ).toContain(envelopeId)
+  }
+
+  it('reconcile releases a started input the driver refused before its first write', async () => {
+    const request = h.ledger.say()
+    await deliverOneTo(h, seatIn('turn-active'), request)
+    refusedBeforePaste()
+    h.storeSql
+      .query('UPDATE hrcmail_delivery_intents SET submitted_at = ? WHERE envelope_id = ?')
+      .run(new Date(Date.now() - STEER_WRITE_RECONCILE_GRACE_MS - 1_000).toISOString(), request.id)
+
+    await reconcileOpenIntents(h.context, { reason: 'periodic' })
+    await expectReleasedForRedelivery(request.id)
+  })
+
+  it('the live refusal pair releases the intent once, whatever order the observer runs it in', async () => {
+    for (const order of [
+      ['input.rejected', 'submission.rejected'],
+      ['submission.rejected', 'input.rejected'],
+    ] as const) {
+      const request = h.ledger.say()
+      await deliverOneTo(h, seatIn('turn-active'), request)
+      const submissionId = h.store.mailDelivery.getIntent(request.id)?.submissionId
+      if (submissionId === undefined) throw new Error('intent has no submission')
+      const events = {
+        'input.rejected': record(8, 'input.rejected', {
+          inputId: submissionId,
+          reason: 'pane_not_quiescent',
+          deliveryEvidence: 'not_written',
+        }),
+        'submission.rejected': record(9, 'submission.rejected', {
+          submissionId,
+          reason: 'pane_not_quiescent',
+        }),
+      }
+      append(7, 'input.accepted', { inputId: submissionId, disposition: 'started' })
+      // The controller starts one observer operation per committed event and
+      // does not wait for the previous one.
+      await Promise.all(order.map((type) => observeBrokerLanding(h.context, events[type])))
+      await expectReleasedForRedelivery(request.id)
+      h.ledger.envelopes.delete(request.id)
+    }
   })
 
   it('keeps the idle path: a started input lands only on its execution', async () => {

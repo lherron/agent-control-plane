@@ -40,8 +40,7 @@
  * unbounded it is a loop that costs the reader a turn per cycle forever
  * (T-08094 finding 5, live). The bound counts NON-LANDING OUTCOMES per
  * (envelope, runtime) and a TTL expiry is only one kind of them; see
- * `refuseIntent` for the post-write / pre-write split that decides when a
- * refusal is one.
+ * `refuseIntent` for how a proven pre-write refusal is paced.
  *
  * The receipt is written with the intent's own presentation id, minted before
  * the door was called. wrkq's unique index on that id is the dedupe, so a
@@ -521,34 +520,6 @@ function clearRefusedIntents(
 }
 
 /**
- * Did the body reach the pane BEFORE this refusal?
- *
- * This is chief's discriminator and the whole weight of the bound rests on it.
- * The broker emits `input.accepted` when it has written a submission to the
- * harness; a refusal that arrives after one means the reader HAS READ THE BODY,
- * whatever the broker later decided about attributing it. `merged-into-foreign-turn`
- * is the specimen: the body landed in the pane, drove a turn, and was then
- * settled as belonging to somebody else.
- *
- * A refusal with no `input.accepted` — `pane_not_quiescent`, a busy seat, an
- * admission refused on state or policy — wrote nothing, so redelivering it
- * costs the reader nothing and must not be charged as if it had.
- */
-async function refusalFollowedAWrite(
-  server: MailKickerContext,
-  runtimeId: string,
-  submissionId: string | undefined
-): Promise<boolean> {
-  if (submissionId === undefined) return false
-  const { result } = await server.port.brokerEventsQuery({
-    op: 'input-accepted',
-    runtimeId,
-    inputId: submissionId,
-  })
-  return result?.op === 'input-accepted' && result.accepted
-}
-
-/**
  * Charge ONE non-landing outcome against this (envelope, runtime), and fail the
  * envelope when the bound is spent.
  *
@@ -604,14 +575,16 @@ export async function chargeNonLandingOutcome(
 }
 
 /**
- * Refuse ONE intent: charge it if the reader already read it, pace it if not.
+ * Refuse ONE intent the producer proved was never written.
  *
- * POST-WRITE refusal → a full strike. The body reached the pane; redelivering
- * it shows the reader the same message twice, so the third one is where HRC
- * stops rather than where it tries harder.
+ * Every caller holds correlated `deliveryEvidence: 'not_written'`, and that
+ * typed proof decides (T-08204 rev 3 §4). An `input.accepted {started}` before
+ * it is not a write: the broker emits it before it calls the driver, so a driver
+ * that refuses before its first paste follows one (EN-38597, T-12119). A
+ * refusal after a real write carries `possibly_written` or no evidence and never
+ * reaches here; it stays fenced where it was observed.
  *
- * PRE-WRITE refusal → no strike per event, and the classification below
- * decides the door. A steer refused for a reason that will not pass while this
+ * No strike per event, and the classification below decides the door. A steer refused for a reason that will not pass while this
  * turn runs — capability, a guarded turn, authority — becomes an ENQUEUE for
  * that envelope on its very next pass, queued behind the turn (T-08533: steer is
  * best effort, mail is not); a capability refusal also memoizes the runtime so
@@ -635,13 +608,6 @@ export async function refuseIntent(
   if (runtimeId === undefined) {
     // No runtime is no (envelope, runtime) pair to charge. Nothing to bound.
     clearRefusedIntents(server, members, reason)
-    return 'refused'
-  }
-
-  if (await refusalFollowedAWrite(server, runtimeId, intent.submissionId)) {
-    for (const member of members) {
-      server.store.mailDelivery.markUncertain(member.envelopeId, reason, 'post_write_refusal')
-    }
     return 'refused'
   }
 
