@@ -2150,9 +2150,9 @@ describe('GatewayDiscordApp local e2e', () => {
     })
     ;(
       app as unknown as {
-        placeholdersByRunId: Map<string, unknown>
+        pending: { placeholdersByRunId: Map<string, unknown> }
       }
-    ).placeholdersByRunId.set('run_legacy_no_webhook', {
+    ).pending.placeholdersByRunId.set('run_legacy_no_webhook', {
       ui: {
         gatewayId: 'discord_prod',
         kind: 'message',
@@ -2180,9 +2180,9 @@ describe('GatewayDiscordApp local e2e', () => {
 
     await (
       app as unknown as {
-        deliverToDiscord(delivery: DeliveryRequest): Promise<void>
+        output: { deliverToDiscord(delivery: DeliveryRequest): Promise<void> }
       }
-    ).deliverToDiscord(delivery)
+    ).output.deliverToDiscord(delivery)
 
     // Bot path must not be used — channel.sent contains no agent finals.
     expect(channel.sent).toHaveLength(0)

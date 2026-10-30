@@ -55,3 +55,16 @@ export function classifyDiscordError(
     }
   }
 }
+
+export function isDiscordRateLimit(error: unknown): boolean {
+  return httpErrorField(error, 'status') === 429 || httpErrorField(error, 'code') === 429
+}
+
+export function isDiscordWebhookGone(error: unknown): boolean {
+  const status = httpErrorField(error, 'status')
+  const code = httpErrorField(error, 'code')
+  if (status === 404 || code === 404) {
+    return true
+  }
+  return error instanceof Error && /webhook .*not found|was not found/i.test(error.message)
+}
