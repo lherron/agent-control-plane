@@ -77,15 +77,6 @@ async function birthForTarget(
   // birth a fresh runtime for the session (T-09643 ruling).
   const summons = actionable.find((item) => summonsATurn(item.envelope))
   if (summons === undefined) return
-  if (await failExhaustedLaunch(server, summons.envelope.id, targetSessionRef)) {
-    return { outcome: 'undeliverable', failed: 1 }
-  }
-  if (
-    server.store.launchFailures.get(summons.envelope.id) !== undefined &&
-    (server.mailKickerBirthSweepBackoff.get(targetSessionRef)?.nextAtMs ?? 0) > Date.now()
-  ) {
-    return { outcome: 'birth-refused', launchRetry: true }
-  }
   try {
     const outcome = await deliverByColdBirth(server, targetSessionRef, summons, wakeReason)
     if (outcome === 'submitted' && actionable.length > 1) {
@@ -320,6 +311,28 @@ export async function driveMailTargetOnce(
   if (actionable.length === 0) {
     complete('empty')
     return { outcome: 'empty' }
+  }
+
+  // Failed launch recovery gates every door. A timed-out launch can leave a
+  // broker that still advertises idle; steering into it bypassed the birth
+  // backoff and replaced the released intent with another stranded fence.
+  const remaining: ActionableEnvelope[] = []
+  for (const item of actionable) {
+    if (await failExhaustedLaunch(server, item.envelope.id, targetSessionRef)) {
+      summary.terminalized++
+    } else remaining.push(item)
+  }
+  actionable = remaining
+  if (actionable.length === 0) {
+    complete('undeliverable')
+    return { outcome: 'undeliverable', failed: summary.terminalized }
+  }
+  if (
+    (server.mailKickerBirthSweepBackoff.get(targetSessionRef)?.nextAtMs ?? 0) > Date.now() &&
+    actionable.some((item) => server.store.launchFailures.get(item.envelope.id) !== undefined)
+  ) {
+    complete('birth_backoff', { recovery: 'periodic_wake' })
+    return { outcome: 'birth-refused', launchRetry: true }
   }
 
   if (session === undefined) {

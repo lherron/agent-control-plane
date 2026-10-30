@@ -111,3 +111,17 @@ it('does not birth a fourth time if the third failure terminal RPC needs retry',
   expect(births).toBe(3)
   expect(h.ledger.envelopes.get(envelope.id)?.state).toBe('failed')
 })
+
+it('holds every delivery door during launch backoff, even when a failed runtime still reports live', async () => {
+  const envelope = h.ledger.say()
+  h.store.launchFailures.record(envelope.id, 'failed-launch', 'identity timeout')
+  h.context.mailKickerBirthSweepBackoff.set(TARGET, { attempts: 1, nextAtMs: Date.now() + 60_000 })
+  let probes = 0
+  h.context.port.runtimesByHostSession = async () => {
+    probes++
+    throw new Error('must not probe or steer yet')
+  }
+  await driveMailTargetOnce(h.context, TARGET, 'periodic')
+  expect(probes).toBe(0)
+  expect(h.store.mailDelivery.getIntent(envelope.id)).toBeUndefined()
+})
