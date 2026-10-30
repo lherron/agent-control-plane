@@ -1169,6 +1169,8 @@ function createTmuxActuationFixture(input: {
   runStore?: InMemoryRunStore | undefined
   generation?: number | undefined
   hrcRunId?: string | undefined
+  bornAgoMs?: number | undefined
+  staleTimeoutMs?: number | undefined
 }) {
   const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-interface-retained-store-'))
   fixtureDirs.push(fixtureDir)
@@ -1178,34 +1180,40 @@ function createTmuxActuationFixture(input: {
     scopeRef: 'agent:smokey:project:agent-control-plane:task:T-08575',
     laneRef: 'main' as const,
   }
-  const run = runStore.createRun({
-    sessionRef,
-    status: 'running',
-    metadata: {
-      meta: {
-        interfaceSource: {
-          gatewayId: 'discord_prod',
-          bindingId: 'ifb_retained',
-          conversationRef: 'channel:retained',
-          messageRef: 'discord:message:prompt',
-          replyToMessageRef: 'discord:message:prompt',
+  if (input.bornAgoMs !== undefined) setSystemTime(new Date(Date.now() - input.bornAgoMs))
+  let run: StoredRun
+  try {
+    run = runStore.createRun({
+      sessionRef,
+      status: 'running',
+      metadata: {
+        meta: {
+          interfaceSource: {
+            gatewayId: 'discord_prod',
+            bindingId: 'ifb_retained',
+            conversationRef: 'channel:retained',
+            messageRef: 'discord:message:prompt',
+            replyToMessageRef: 'discord:message:prompt',
+          },
         },
       },
-    },
-  })
-  runStore.updateRun(run.runId, {
-    hostSessionId: 'hsid-retained',
-    runtimeId: 'rt-retained',
-    transport: input.hrcRunId === undefined ? 'tmux' : 'headless',
-    afterHrcSeq: 10,
-    ...(input.generation !== undefined ? { generation: input.generation } : {}),
-    ...(input.hrcRunId !== undefined ? { hrcRunId: input.hrcRunId } : {}),
-  })
+    })
+    runStore.updateRun(run.runId, {
+      hostSessionId: 'hsid-retained',
+      runtimeId: 'rt-retained',
+      transport: input.hrcRunId === undefined ? 'tmux' : 'headless',
+      afterHrcSeq: 10,
+      ...(input.generation !== undefined ? { generation: input.generation } : {}),
+      ...(input.hrcRunId !== undefined ? { hrcRunId: input.hrcRunId } : {}),
+    })
+  } finally {
+    if (input.bornAgoMs !== undefined) setSystemTime()
+  }
   const dispatcher = dispatcherModule.createInterfaceRunDispatcher({
     runStore,
     interfaceStore,
     hrcDbPath: input.hrcDbPath,
-    config: { intervalMs: 1, staleTimeoutMs: 10 },
+    config: { intervalMs: 1, staleTimeoutMs: input.staleTimeoutMs ?? 10 },
   })
   return { dispatcher, interfaceStore, runStore, run, sessionRef }
 }
@@ -1425,8 +1433,14 @@ describe('T-08575 retained-evidence actuation fence', () => {
   for (const generation of [undefined, 7] as const) {
     test(`T4 runOnce does not emit turn_timeout from retained old activity (${generation === undefined ? 'without' : 'with'} generation)`, async () => {
       const hrc = createEvidenceHrcDb()
-      const fx = createTmuxActuationFixture({ hrcDbPath: hrc.hrcDbPath, generation })
-      await Bun.sleep(20)
+      // Birth the run past the stale window so only fresh activity can keep it running;
+      // the 10-minute window leaves no wall-clock race between insert and runOnce.
+      const fx = createTmuxActuationFixture({
+        hrcDbPath: hrc.hrcDbPath,
+        generation,
+        bornAgoMs: 12 * 60_000,
+        staleTimeoutMs: 10 * 60_000,
+      })
       insertEvidenceEvent(hrc.db, {
         hrcSeq: 11,
         hostSessionId: 'hsid-retained',
@@ -1471,8 +1485,9 @@ describe('T-08575 retained-evidence actuation fence', () => {
           hrcDbPath: hrc.hrcDbPath,
           generation: branch === 'without-generation' ? undefined : 7,
           hrcRunId: branch === 'own-run' ? 'run-live' : undefined,
+          bornAgoMs: 12 * 60_000,
+          staleTimeoutMs: 10 * 60_000,
         })
-        await Bun.sleep(20)
         insertEvidenceEvent(hrc.db, {
           hrcSeq: 11,
           hostSessionId: 'hsid-retained',
