@@ -1,0 +1,56 @@
+id: agent-control-plane.ledger-input-cancellation
+kind: contract
+status: active
+owner_project: agent-control-plane
+scope: Discord cancellation of one ledger-routed interface input
+predicate: >
+  POST /v1/interface/ledger-inputs/:envelopeId/cancel receives gatewayId,
+  roomUuid and actorRef and acts as the stored ledger projection route's
+  humanPrincipalRef. The in-process gateway retains the existing ACP-run
+  reaction admission rule; this route introduces no new authorization rule.
+  A missing route refuses with ledger_route_not_found. A pending or deferred
+  envelope without a receipt is withdrawn; a presentation race re-reads and
+  follows the presented path. Withdrawal states only ledger withdrawal before
+  presentation, never proof that an in-flight body was not delivered.
+  A presented envelope uses its latest receipt for the addressee. Missing
+  runtimeId or inputId returns not_applied without ack or interrupt. Otherwise
+  ACP explicitly acknowledges the obligation as the mapped principal before
+  calling HRC interrupt with the receipt's runtimeId, node and inputId under
+  producer contract hrc-runtime.federated-input-interrupt. B never issues an
+  unguarded interrupt. HRC success without warning returns interrupted; a
+  warning or error returns not_applied with a reason. Terminal or already
+  replied envelopes return not_applied. No ACP run is invented for this path.
+  A reaction before ingress returns is remembered and dispatched after ledger
+  in-flight registration. Every cancellation outcome retires that in-flight
+  before the placeholder edit, so live progress cannot replace the outcome
+  and a later reply is a fresh message. Withdrawal renders Cancelled (withdrawn
+  before presentation); interrupt success renders Cancelled; refusal and HTTP
+  failure render Cancel not applied with a reason. Applied and not_applied
+  outcomes are logged with ledger envelope and route context.
+  Unsupported are completion races beyond the input guard, unavailable peers
+  without retry, hold or preempt recall beyond plain withdrawal, the
+  pre-receipt door-crossing window, launch-carried receipts without inputId,
+  and fan-out. The existing ACP-run cancellation path remains unchanged.
+authority: Daedalus APPROVE EN-39461 on T-12177 specification rev 2, 2026-10-31
+source:
+  - wrkq:T-12177
+  - packages/gateway-discord/src/discord-ingress.ts
+  - packages/gateway-discord/src/ledger-responses.ts
+  - packages/acp-interface-store/src/repos/discord-ledger-projection-repo.ts
+  - packages/hrc-mail-injector/src/policy/drive/landing.ts
+  - packages/hrc-mail-injector/src/policy/wake/ledger-tail.ts
+producer_contract: hrc-runtime architecture/contracts/federated-input-interrupt.yaml
+validation_scope: >
+  Requester owns T-12177 rev 2's live svc and max3 turn-stop gates, late-cancel
+  next-turn gate, observed pending withdrawal, visible failure, and unchanged
+  ACP-run cancellation checks. The approval adds no gate. Pending smoke does
+  not claim general prevention of delivery inside the excluded crossing window.
+last_verified: >
+  2026-10-31 specification rev 2 reviewed against source and retained delivery
+  evidence. EN-39455 F1-F3 resolve in the revised design. Implementation and
+  installed acceptance remain unverified; no build, test, install, restart or
+  live smoke was run by the reviewer.
+reopen_when: >
+  Mapped principal authority, ledger-versus-execution state meaning, receipt
+  target selection, required input guard, ack ordering, placeholder lifetime,
+  visible outcome semantics, producer contract or unsupported scope changes.
