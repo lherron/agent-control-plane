@@ -57,7 +57,10 @@ function acpEvent(overrides: Partial<AcpWebhookEvent> = {}): AcpWebhookEvent {
 describe('parseWrkqWebhookEvent', () => {
   test('rejects wrong schema_version', () => {
     const result = parseWrkqWebhookEvent({ ...event(), schema_version: 1 })
-    expect(result).toEqual({ ok: false, error: 'unsupported schema_version: 1 (expected 2)' })
+    expect(result).toEqual({
+      ok: false,
+      error: `unsupported schema_version: 1 (expected 2) for event ${event().event}`,
+    })
   })
 
   test('rejects missing event_id / event_seq', () => {

@@ -210,6 +210,18 @@ It validates the wrkq shape, adapts it into `AcpWebhookEvent`, and stores the
 normalized payload. Scheduler evaluation reads the normalized model; it must not
 assume inbox payloads are wrkq-only.
 
+The route ingests only the task and workflow event families. wrkq's `envelope.*`,
+`promise.*` and `container.*` webhooks use their own bodies without
+`schema_version`, and the route rejects them with 400 (`... for event <name>`).
+ACP's global subscriptions on the wrkq root container are therefore narrowed:
+
+```bash
+wrkq container set P-00000 --add-webhook-url <acp>/v1/webhooks/wrkq --webhook-events task,workflow
+```
+
+Do not register ACP with `wrkq webhook add`. It writes a bare subscription, and
+when the URL is already registered it resets the URL's narrowing to bare (T-12175).
+
 HRC is a canonical producer on `POST /v1/webhooks/events`. Its rev3 envelope
 uses `source: "hrc"`, `<nodeId>:<tripEventSeq>` as `event_id`, the HRC ledger
 sequence as `event_seq`, the HRC reason code as `event` (`first_turn_missing`

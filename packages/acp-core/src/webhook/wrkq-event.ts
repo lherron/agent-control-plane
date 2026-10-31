@@ -348,9 +348,14 @@ export function parseWrkqWebhookEvent(body: unknown): ParseWrkqWebhookEventResul
 
   const schemaVersion = body['schema_version']
   if (schemaVersion !== SUPPORTED_SCHEMA_VERSION) {
+    // Name the event: wrkq's envelope.* / promise.* / container.* families have
+    // their own typed bodies without a v2 envelope, and reach this route only
+    // through an un-narrowed subscription (T-12175).
+    const event = body['event']
+    const eventSuffix = typeof event === 'string' && event.length > 0 ? ` for event ${event}` : ''
     return {
       ok: false,
-      error: `unsupported schema_version: ${String(schemaVersion)} (expected ${SUPPORTED_SCHEMA_VERSION})`,
+      error: `unsupported schema_version: ${String(schemaVersion)} (expected ${SUPPORTED_SCHEMA_VERSION})${eventSuffix}`,
     }
   }
 

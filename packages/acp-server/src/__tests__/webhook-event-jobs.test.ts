@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
 
 import { createInMemoryAdminStore } from 'acp-admin-store'
 import { adaptWrkqWebhookEvent } from 'acp-core'
@@ -763,6 +764,35 @@ describe('POST /v1/webhooks/wrkq', () => {
       message: expect.stringContaining('unsupported schema_version'),
       details: { field: 'webhook' },
     })
+  })
+
+  // T-12175: wrkq delivers envelope.* and promise.* to a bare (un-narrowed)
+  // subscription in their own typed shapes with no schema_version. These are
+  // real bodies captured from mini wrkqd. They are not v2 task events: the
+  // route stays fail-closed, writes nothing, and names the event so the log
+  // says which family arrived (the fix is narrowing the subscription).
+  test.each([
+    ['envelope-created.json', 'envelope.created'],
+    ['promise-created.json', 'promise.created'],
+  ])('real wrkq %s body → 400 naming the event, no inbox row', async (file, event) => {
+    const body = JSON.parse(
+      readFileSync(new URL(`../../test/fixtures/wrkq-webhook/${file}`, import.meta.url), 'utf8')
+    )
+    expect(body.schema_version).toBeUndefined()
+    const { jobsStore, deps } = makeDeps()
+    const res = await call(handleWrkqWebhook, jsonRequest('POST', '/v1/webhooks/wrkq', body), deps)
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatchObject({
+      code: 'malformed_request',
+      message: `unsupported schema_version: undefined (expected 2) for event ${event}`,
+    })
+    expect(
+      jobsStore.claimPendingInboxEvents({
+        now: '2100-01-01T00:00:00.000Z',
+        leaseOwner: 'test',
+        leaseExpiresAt: '2101-01-01T00:00:00.000Z',
+      })
+    ).toHaveLength(0)
   })
 
   // T-05270: recognized event appends exactly one lifecycle system event.

@@ -1,0 +1,32 @@
+{
+    "event": "envelope.created",
+    "envelope": {
+        "id": "EN-39357",
+        "uuid": "d08987ea-996d-40e9-868c-9563064a21f8",
+        "room_uuid": "f57226a2-c918-46cb-ae16-824b2b72e291",
+        "room_key": "T-12178",
+        "room_kind": "task",
+        "group_id": "EN-39357",
+        "from_principal_ref": "agent:clod",
+        "from_scope_ref": "clod@agent-control-plane:T-12175",
+        "to_scope_ref": null,
+        "to_principal_ref": null,
+        "obligation": "none",
+        "state": "acked",
+        "task_id": "T-12178",
+        "materialization_intent": null,
+        "etag": 1
+    },
+    "changes": {
+        "from_principal_ref": "agent:clod",
+        "from_scope_ref": "clod@agent-control-plane:T-12175",
+        "group_id": "EN-39357",
+        "id": "EN-39357",
+        "obligation": "none",
+        "room_uuid": "f57226a2-c918-46cb-ae16-824b2b72e291",
+        "state": "acked",
+        "task_uuid": "b1b1125d-55f8-4dc2-bf3d-a6ba706e7d64"
+    },
+    "actor": "agent:clod",
+    "occurred_at": "2026-10-31T17:06:56Z"
+}

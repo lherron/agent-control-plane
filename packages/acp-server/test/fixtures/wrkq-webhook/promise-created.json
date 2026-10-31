@@ -1,0 +1,30 @@
+{
+    "event": "promise.created",
+    "promise": {
+        "id": "PR-00401",
+        "uuid": "7bfbe824-b3f4-4ec4-8c42-bd920091e781",
+        "owner_principal_ref": "agent:clod",
+        "subject": "T-12175 capture probe promise",
+        "review_question": null,
+        "review_at": "2026-11-30T17:07:01Z",
+        "state": "open",
+        "last_reviewed_at": null,
+        "last_review_note": null,
+        "etag": 1
+    },
+    "subject_ref": {
+        "type": "task",
+        "uuid": "b1b1125d-55f8-4dc2-bf3d-a6ba706e7d64",
+        "id": "T-12178",
+        "path": "clod-scratch-t12175/capture-probe"
+    },
+    "changes": {
+        "owner_principal_ref": "agent:clod",
+        "review_at": "2026-11-30T17:07:01Z",
+        "state": "open",
+        "subject": "T-12175 capture probe promise",
+        "subject_task_uuid": "b1b1125d-55f8-4dc2-bf3d-a6ba706e7d64"
+    },
+    "actor": "agent:clod",
+    "occurred_at": "2026-10-31T17:07:01Z"
+}
