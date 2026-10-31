@@ -88,6 +88,13 @@ function collaborationRouteFromState(
     : undefined
 }
 
+type LedgerCancelResult = {
+  outcome: 'interrupted' | 'withdrawn' | 'not_applied'
+  reason?: string | undefined
+  node?: string | undefined
+  runtimeId?: string | undefined
+}
+
 export class DiscordIngress {
   private readonly keywordRoutesByMessageId = new Map<string, IngressRoute>()
   constructor(
@@ -96,7 +103,7 @@ export class DiscordIngress {
       bindings: BindingIndex
       client: Client
       gatewayId: string
-      ledger: Pick<LedgerResponses, 'registerLedgerInFlight'>
+      ledger: Pick<LedgerResponses, 'registerLedgerInFlight' | 'retireLedgerInFlight'>
       ledgerHumanEgress: DiscordLedgerEgress | undefined
       live: Pick<LiveProgress, 'sessionEventsManager'>
       output: Pick<
@@ -143,11 +150,16 @@ export class DiscordIngress {
       return
     }
 
+    if (placeholder.ledgerInFlight !== undefined) {
+      await this.cancelLedgerInput(placeholder, actor.id)
+      return
+    }
+
     if (placeholder.acpRunId === undefined) {
       placeholder.cancelRequested = true
       placeholder.cancelActorId = actor?.id
       log.info('gw.discord.cancel_reaction.deferred', {
-        message: 'Cancel reaction recorded before ACP run id was available',
+        message: 'Cancel reaction recorded before the ACP run id or ledger route was available',
         trace: { gatewayId: this.options.gatewayId, projectId: placeholder.projectId },
         data: {
           messageId: placeholder.ui.id,
@@ -331,6 +343,9 @@ export class DiscordIngress {
             route: collaborationRoute,
             bindingId: routeBinding.bindingId,
           })
+          if (pendingPlaceholder.cancelRequested === true) {
+            await this.cancelLedgerInput(pendingPlaceholder, pendingPlaceholder.cancelActorId)
+          }
         } else {
           // A deployment without ledger egress cannot ever replace this live
           // surface. Preserve the prior no-stale-placeholder behavior.
@@ -494,6 +509,108 @@ export class DiscordIngress {
       `🛑 **Cancel requested:** ${placeholder.promptPreview ?? runId}`
     )
     this.options.pending.removePendingPlaceholder(placeholder, 'cancel_reaction')
+  }
+
+  /**
+   * T-12177: a ledger-routed input has no ACP run. ACP cancels the input
+   * envelope itself (withdraw, or interrupt the turn its receipt names on that
+   * turn's node). Every outcome, including a failed call, is shown on the
+   * placeholder, and the in-flight is retired so live progress cannot paint
+   * over the result; a later reply posts as a fresh message.
+   */
+  private async cancelLedgerInput(
+    placeholder: PendingPlaceholder,
+    actorId: string | undefined
+  ): Promise<void> {
+    const inFlight = placeholder.ledgerInFlight
+    if (inFlight === undefined || placeholder.cancelDispatching === true) {
+      return
+    }
+    placeholder.cancelRequested = true
+    placeholder.cancelActorId = actorId
+    placeholder.cancelDispatching = true
+
+    const envelopeId = inFlight.inputEnvelopeId
+    let result: LedgerCancelResult
+    if (envelopeId === undefined) {
+      result = { outcome: 'not_applied', reason: 'ingress returned no ledger envelope' }
+    } else {
+      result = await this.requestLedgerCancel(envelopeId, inFlight.roomUuid, actorId)
+    }
+
+    const preview = placeholder.promptPreview ?? envelopeId ?? 'request'
+    const content =
+      result.outcome === 'interrupted'
+        ? `🛑 **Cancelled:** ${preview}`
+        : result.outcome === 'withdrawn'
+          ? `🛑 **Cancelled (withdrawn before presentation):** ${preview}`
+          : `⚠️ **Cancel not applied:** ${result.reason ?? 'unknown reason'}`
+
+    log.info(
+      result.outcome === 'not_applied'
+        ? 'gw.discord.cancel_reaction.not_applied'
+        : 'gw.discord.cancel_reaction.applied',
+      {
+        message: 'Discord cancel reaction on a ledger-routed placeholder',
+        trace: { gatewayId: this.options.gatewayId, projectId: placeholder.projectId },
+        data: {
+          route: 'ledger',
+          envelopeId,
+          roomKey: inFlight.roomKey,
+          outcome: result.outcome,
+          reason: result.reason,
+          node: result.node,
+          runtimeId: result.runtimeId,
+          actorRef: actorId !== undefined ? `discord:user:${actorId}` : undefined,
+          messageId: placeholder.ui.id,
+          sessionRef: placeholder.sessionRef,
+        },
+      }
+    )
+
+    await this.options.ledger.retireLedgerInFlight(
+      inFlight,
+      `cancel_reaction_${result.outcome}`,
+      {}
+    )
+    await this.options.output.noticePlaceholder(placeholder.ui, content)
+  }
+
+  private async requestLedgerCancel(
+    envelopeId: string,
+    roomUuid: string,
+    actorId: string | undefined
+  ): Promise<LedgerCancelResult> {
+    try {
+      const response = await this.options.acp.fetch(
+        `${this.options.acp.baseUrl}/v1/interface/ledger-inputs/${encodeURIComponent(envelopeId)}/cancel`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            gatewayId: this.options.gatewayId,
+            roomUuid,
+            ...(actorId !== undefined ? { actorRef: `discord:user:${actorId}` } : {}),
+          }),
+        }
+      )
+      if (!response.ok) {
+        const reason =
+          extractIngressFailureReason(await response.text()) ?? `HTTP ${response.status}`
+        return { outcome: 'not_applied', reason }
+      }
+      const body = (await response.json()) as Partial<LedgerCancelResult>
+      return body.outcome === 'interrupted' ||
+        body.outcome === 'withdrawn' ||
+        body.outcome === 'not_applied'
+        ? (body as LedgerCancelResult)
+        : { outcome: 'not_applied', reason: 'unrecognized cancel response' }
+    } catch (error) {
+      return {
+        outcome: 'not_applied',
+        reason: `could not reach ACP: ${error instanceof Error ? error.message : String(error)}`,
+      }
+    }
   }
 
   private async resolveSteeringAvailability(sessionRef: InterfaceSessionRef): Promise<boolean> {

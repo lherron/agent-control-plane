@@ -89,6 +89,7 @@
       "POST /v1/input",
       "POST /v1/inputs",
       "POST /v1/interface/bindings",
+      "POST /v1/interface/ledger-inputs/:envelopeId/cancel",
       "POST /v1/interface/messages",
       "POST /v1/interrupt",
       "POST /v1/messages",

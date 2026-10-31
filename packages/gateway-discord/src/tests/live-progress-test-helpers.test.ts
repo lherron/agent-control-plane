@@ -147,6 +147,8 @@ export type LiveProgressHarness = {
   eventRequests: URL[]
   interfaceMessages: unknown[]
   cancelledRunIds: string[]
+  /** T-12177: POST /v1/interface/ledger-inputs/:envelopeId/cancel calls. */
+  ledgerCancels: Array<{ envelopeId: string; body: Record<string, unknown> }>
   emit: (event: Record<string, unknown>) => void
   closeEvents: () => void
   enqueueDelivery: (text: string) => void
@@ -169,6 +171,8 @@ export function createLiveProgressHarness(
     interfaceMessageResponse?: (ingressCount: number) => Record<string, unknown>
     beforeInterfaceMessageResponse?: () => Promise<void>
     typingRefreshMs?: number
+    ledgerHumanEgress?: ConstructorParameters<typeof GatewayDiscordApp>[0]['ledgerHumanEgress']
+    ledgerCancelResponse?: (envelopeId: string) => Response | Promise<Response>
   } = {}
 ): LiveProgressHarness {
   const channel = new FakeChannel('chan_live_progress')
@@ -181,6 +185,7 @@ export function createLiveProgressHarness(
   const eventRequests: URL[] = []
   const interfaceMessages: unknown[] = []
   const cancelledRunIds: string[] = []
+  const ledgerCancels: LiveProgressHarness['ledgerCancels'] = []
   let ingressCount = 0
 
   const enqueue = (line: string) => {
@@ -233,6 +238,22 @@ export function createLiveProgressHarness(
           generation: 7,
         },
         { status: 201 }
+      )
+    }
+
+    const ledgerCancelMatch = url.pathname.match(
+      /^\/v1\/interface\/ledger-inputs\/([^/]+)\/cancel$/
+    )
+    if (ledgerCancelMatch !== null) {
+      expect(request.method).toBe('POST')
+      const envelopeId = decodeURIComponent(ledgerCancelMatch[1] ?? '')
+      ledgerCancels.push({
+        envelopeId,
+        body: (await request.clone().json()) as Record<string, unknown>,
+      })
+      return (
+        (await options.ledgerCancelResponse?.(envelopeId)) ??
+        Response.json({ outcome: 'interrupted', node: 'max3', runtimeId: 'rt_live_progress' })
       )
     }
 
@@ -339,6 +360,9 @@ export function createLiveProgressHarness(
     client: client as never,
     fetchImpl,
     ...(options.typingRefreshMs !== undefined ? { typingRefreshMs: options.typingRefreshMs } : {}),
+    ...(options.ledgerHumanEgress !== undefined
+      ? { ledgerHumanEgress: options.ledgerHumanEgress }
+      : {}),
     dashboardSnapshotImpl: async () => ({
       type: 'dashboard_snapshot',
       cursors: { lastHrcSeq: LIVE_PROGRESS_HRC_TAIL },
@@ -353,6 +377,7 @@ export function createLiveProgressHarness(
     eventRequests,
     interfaceMessages,
     cancelledRunIds,
+    ledgerCancels,
     emit: (event) =>
       enqueue(
         `${JSON.stringify({

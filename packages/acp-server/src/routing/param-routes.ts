@@ -22,6 +22,7 @@ import { handleFailGatewayDelivery } from '../handlers/gateway-deliveries-fail.j
 import { handleStreamGatewayDeliveries } from '../handlers/gateway-deliveries-stream.js'
 import { handleGetInputAttempt } from '../handlers/input-attempts-get.js'
 import { handleGetJobRun, handleListJobRuns } from '../handlers/job-runs.js'
+import { handleCancelLedgerInput } from '../handlers/ledger-input-cancel.js'
 import { handleGetMediaAttachment } from '../handlers/media-attachments.js'
 import { handleMobileAttachInfo } from '../handlers/mobile-attach-info.js'
 import { handleMobileRestart } from '../handlers/mobile-sessions-restart.js'
@@ -251,6 +252,11 @@ export function buildParamRoutes(): ParamRoute[] {
       withSpec('POST', '/v1/runs/:runId/outbound-messages', handlePostRunOutboundMessage)
     ),
     createParamRoute('POST', '/v1/runs/:runId/cancel', handleCancelRun),
+    createParamRoute(
+      'POST',
+      '/v1/interface/ledger-inputs/:envelopeId/cancel',
+      handleCancelLedgerInput
+    ),
     createParamRoute(
       'GET',
       '/v1/wrkf/pbc/tasks/:task/inspect',

@@ -175,7 +175,6 @@ export type AcpHrcClient = Pick<
   | 'getStatus'
   | 'getAttachDescriptor'
   | 'getSession'
-  | 'interrupt'
   | 'listLatestEventBySession'
   | 'listMessages'
   | 'listRuns'
@@ -196,6 +195,20 @@ export type AcpHrcClient = Pick<
   | 'watchBoundedEvents'
   | 'watchMessages'
 > & {
+  /**
+   * T-12177 (hrc-runtime.federated-input-interrupt): `node` forwards the
+   * interrupt to the runtime's home node; `inputId` skips it unless the
+   * executing turn's broker manifest carries that input. The pinned hrc-sdk
+   * types only `ownerRunId`; its request body already spreads the options.
+   */
+  interrupt(
+    runtimeId: string,
+    options?: {
+      ownerRunId?: string | undefined
+      node?: string | undefined
+      inputId?: string | undefined
+    }
+  ): ReturnType<HrcClient['interrupt']>
   listSessionsPage?: HrcClient['listSessionsPage']
   /** T-10418: home-routed continuity read behind remote timeline/history lookup. */
   getSessionByContinuity?: HrcClient['getSessionByContinuity']
