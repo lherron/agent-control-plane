@@ -212,6 +212,7 @@ export async function createTimelineStack(): Promise<TimelineStack> {
         ACP_RUNTIME_DIR: join(acpDir, 'run'),
         ACP_CAP_SOCKET_PATH: join(acpDir, 'cap.sock'),
         ACP_CAP_CATALOG_STATE_DIR: join(acpDir, 'cap-catalog'),
+        ACP_MEDIA_STATE_DIR: acpDir,
         WRKF_HOOK_CATALOG: EMPTY_HOOK_CATALOG,
         NODE_ENV: 'test',
       },

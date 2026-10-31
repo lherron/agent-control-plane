@@ -40,6 +40,7 @@ Source anchors (repo-relative): packages/gateway-discord/src; packages/gateway-i
 - Surface: `route:GET /v1/conversation/threads/:threadId @ packages/acp-server/src/routing/param-routes.ts`
 - Surface: `route:GET /v1/conversation/threads/:threadId/turns @ packages/acp-server/src/routing/param-routes.ts`
 - Surface: `route:GET /v1/interface/bindings @ packages/acp-server/src/routing/exact-routes.ts`
+- Surface: `route:GET /v1/media/attachments/:spoolId/:filename @ packages/acp-server/src/routing/param-routes.ts`
 - Surface: `route:GET /v1/mobile/auth/devices @ packages/acp-server/src/routing/exact-routes.ts`
 - Surface: `route:GET /v1/mobile/dashboard @ packages/acp-server/src/routing/exact-routes.ts`
 - Surface: `route:GET /v1/mobile/dm/targets @ packages/acp-server/src/routing/exact-routes.ts`
@@ -96,8 +97,8 @@ Scratch helper fetches mobile health and verifies an unknown HTTP route is rejec
 
 ## Gotchas
 
-Health is not history/timeline or bearer-auth proof. Source fake-client tests are not Discord smoke. Never reuse live bindings, bot tokens, pairing state, delivery requests or production jobs. The dev-env scratch acp-server does not set `ACP_MOBILE_AUTH_PATH`, so it resolves the live `var/state/acp-server/mobile-auth.json`; never run `acp mobile auth|devices|pairing-code` or bearer requests against it. Only the acceptance fixture isolates mobile auth. `binding disable` changes only `status`; a binding upsert that omits `gatewayType` or `status` keeps the stored value (T-11922). The acceptance gate was documented with an open campaign defect but exited 0 (13/13) on T-11918; report the actual exit.
+Health is not history/timeline or bearer-auth proof. Source fake-client tests are not Discord smoke. Never reuse live bindings, bot tokens, pairing state, delivery requests or production jobs. The dev-env scratch acp-server does not set `ACP_MOBILE_AUTH_PATH`, so it resolves the live `var/state/acp-server/mobile-auth.json`; never run `acp mobile auth|devices|pairing-code` or bearer requests against it. Only the acceptance fixture isolates mobile auth. `binding disable` changes only `status`; a binding upsert that omits `gatewayType` or `status` keeps the stored value (T-11922). Inbound Discord attachments spool to `var/state/acp-server/media/attachments/<discord-message-id>/` (override `ACP_MEDIA_STATE_DIR`), and `GET /v1/media/attachments/:spoolId/:filename` serves them so seats on other nodes can fetch them (T-12176). dev-env and the timeline acceptance stack set the override to their own root; any other scratch acp-server without it reads and writes the live spool. The acceptance gate was documented with an open campaign defect but exited 0 (13/13) on T-11918; report the actual exit.
 
 ## Proven when
 
-Health response and route rejection recorded by scratch helper prove HTTP plumbing only. Mobile bearer/history/WS, Discord, bindings and outbound attachments remain manually undriven until their actual path and failure responses are captured.
+Health response and route rejection recorded by scratch helper prove HTTP plumbing only. Mobile bearer/history/WS, Discord, bindings, inbound attachment fetch and outbound attachments remain manually undriven until their actual path and failure responses are captured.

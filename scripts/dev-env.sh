@@ -528,6 +528,7 @@ start_acp() {
     ACP_AGENT_ASSETS_DIR="${ASSETS_DIR}" \
     ACP_RUNTIME_DIR="${ACP_RUN_DIR}" \
     ACP_CAP_CATALOG_STATE_DIR="${ROOT}/cap-catalog" \
+    ACP_MEDIA_STATE_DIR="${ROOT}" \
     WRKF_HOOK_CATALOG="${WRKF_HOOK_CATALOG_FILE}" \
     HRC_RUNTIME_DIR="${HRC_RUN_DIR}" \
     HRC_STATE_DIR="${HRC_STATE}" \
@@ -602,6 +603,7 @@ export ACP_INTERFACE_DB_PATH='${DB_DIR}/acp-interface.db'
 export ACP_STATE_DB_PATH='${DB_DIR}/acp-state.db'
 export ACP_COORD_DB_PATH='${DB_DIR}/acp-coordination.db'
 export ACP_AGENT_ASSETS_DIR='${ASSETS_DIR}'
+export ACP_MEDIA_STATE_DIR='${ROOT}'
 export ACP_RUNTIME_DIR='${ACP_RUN_DIR}'
 EOF
 }
