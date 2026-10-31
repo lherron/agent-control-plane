@@ -71,15 +71,17 @@ function ledgerDouble(initial: EnvelopeState[], options: { ackFails?: boolean } 
         withdraw: async (params: { envelope: string; reason?: string }) => {
           calls.push({ op: 'withdraw', envelope: params.envelope, reason: params.reason })
           const view = current()
-          return view.state === 'pending'
-            ? {
-                withdrawn: [envelope({ ...view, state: 'withdrawn', terminal: true })],
-                refused: [],
-              }
-            : {
-                withdrawn: [],
-                refused: [{ envelopeId: ENVELOPE, reason: 'already_presented', state: view.state }],
-              }
+          if (view.state !== 'pending') {
+            // Real wrkq (observed live): a single-envelope withdraw of a
+            // presented envelope throws WRKQ_ALREADY_PRESENTED, no result.
+            throw Object.assign(new Error('already_presented'), {
+              code: 'WRKQ_ALREADY_PRESENTED',
+            })
+          }
+          return {
+            withdrawn: [envelope({ ...view, state: 'withdrawn', terminal: true })],
+            refused: [],
+          }
         },
         ack: async (params: { envelopes: string[]; note?: string }) => {
           calls.push({ op: 'ack', envelopes: params.envelopes, note: params.note })
@@ -325,6 +327,30 @@ describe('POST /v1/interface/ledger-inputs/:envelopeId/cancel', () => {
           runtimeId: 'rt-svc-1',
         })
         expect(ledger.calls).toEqual([{ op: 'show', envelope: ENVELOPE }])
+      },
+      {
+        workClientForPrincipal: ledger.workClientForPrincipal,
+        hrcClient: hrcDouble(ledger.calls, ok),
+      }
+    )
+  })
+
+  test('deferred envelope that was already presented is not_applied with its state, not interrupted', async () => {
+    const ledger = ledgerDouble([{ state: 'deferred', terminal: false, presentedTo: [PRESENTED] }])
+    await withWiredServer(
+      async (fixture) => {
+        recordRoute(fixture)
+        const result = await cancel(fixture)
+        expect(result.status).toBe(200)
+        expect(result.body).toEqual({
+          outcome: 'not_applied',
+          reason: 'not_cancellable_while_deferred',
+        })
+        expect(ledger.calls.map((call) => (call as { op: string }).op)).toEqual([
+          'show',
+          'withdraw',
+          'show',
+        ])
       },
       {
         workClientForPrincipal: ledger.workClientForPrincipal,

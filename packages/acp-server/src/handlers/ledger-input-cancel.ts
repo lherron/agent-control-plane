@@ -81,22 +81,33 @@ export const handleCancelLedgerInput: RouteHandler = async ({ params, request, d
 
   let view = await show()
   if (!view.terminal && (view.state === 'pending' || view.state === 'deferred')) {
-    const result = await envelope.withdraw({
-      envelope: envelopeId,
-      reason: WITHDRAW_REASON,
-      principalRef: route.humanPrincipalRef,
-    })
-    if (result.withdrawn.some((item) => item.id === envelopeId)) {
-      return json({ outcome: 'withdrawn' } satisfies LedgerInputCancelOutcome)
+    try {
+      const result = await envelope.withdraw({
+        envelope: envelopeId,
+        reason: WITHDRAW_REASON,
+        principalRef: route.humanPrincipalRef,
+      })
+      if (result.withdrawn.some((item) => item.id === envelopeId)) {
+        return json({ outcome: 'withdrawn' } satisfies LedgerInputCancelOutcome)
+      }
+    } catch {
+      // wrkq refuses a single-envelope withdraw by throwing (already_presented
+      // when a receipt committed first, wrong_state otherwise). The re-read
+      // below decides: presented means the turn now owns it.
     }
-    // Lost the race to presentation: the turn now owns it.
     view = await show()
   }
 
-  if (view.terminal || view.state !== 'presented') {
+  if (view.terminal) {
     return json({
       outcome: 'not_applied',
       reason: 'already_finished',
+    } satisfies LedgerInputCancelOutcome)
+  }
+  if (view.state !== 'presented') {
+    return json({
+      outcome: 'not_applied',
+      reason: `not_cancellable_while_${view.state}`,
     } satisfies LedgerInputCancelOutcome)
   }
 
