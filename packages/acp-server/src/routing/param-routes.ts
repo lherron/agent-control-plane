@@ -22,6 +22,7 @@ import { handleFailGatewayDelivery } from '../handlers/gateway-deliveries-fail.j
 import { handleStreamGatewayDeliveries } from '../handlers/gateway-deliveries-stream.js'
 import { handleGetInputAttempt } from '../handlers/input-attempts-get.js'
 import { handleGetJobRun, handleListJobRuns } from '../handlers/job-runs.js'
+import { handleGetMediaAttachment } from '../handlers/media-attachments.js'
 import { handleMobileAttachInfo } from '../handlers/mobile-attach-info.js'
 import { handleMobileRestart } from '../handlers/mobile-sessions-restart.js'
 import { handleMobileInput, handleMobileInterrupt } from '../handlers/mobile.js'
@@ -233,6 +234,7 @@ export function buildParamRoutes(): ParamRoute[] {
       handleCancelWorkflowObligation
     ),
     createParamRoute('GET', '/v1/runs/:runId', handleGetRun),
+    createParamRoute('GET', '/v1/media/attachments/:spoolId/:filename', handleGetMediaAttachment),
     createParamRoute(
       'GET',
       '/v1/runs/:runId/outbound-attachments',

@@ -6,6 +6,7 @@ import {
   formatStartupConfig,
   isEnabledEnvFlag,
   renderHelp,
+  resolveAttachmentBaseUrl,
   resolveBindHosts,
   resolveCliOptions,
   resolveLauncherDeps,
@@ -208,6 +209,15 @@ describe('acp-server cli helpers', () => {
       resolveCliOptions([], { WRKQ_DB_PATH: '/tmp/wrkq.db', ACP_HOST: '0.0.0.0' })
     ).toThrow('must not bind 0.0.0.0')
     expect(() => resolveBindHosts('127.0.0.1,')).toThrow('non-empty hosts')
+  })
+
+  test('announces attachments at the first non-loopback bind so other nodes can fetch them', () => {
+    expect(resolveAttachmentBaseUrl({ host: '127.0.0.1,100.73.60.81', port: 18470 })).toBe(
+      'http://100.73.60.81:18470'
+    )
+    expect(resolveAttachmentBaseUrl({ host: '127.0.0.1', port: 18470 })).toBe(
+      'http://127.0.0.1:18470'
+    )
   })
 
   test('binds one listener per host and closes partial binds on failure', () => {

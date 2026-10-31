@@ -1,3 +1,5 @@
+import { basename } from 'node:path'
+
 import type {
   AttachmentRef,
   InputAdmissionRecord,
@@ -16,7 +18,7 @@ import {
 import type { UnifiedSessionEvent } from 'spaces-runtime'
 import type { CollaborationSayReceipt } from 'wrkq-lib'
 
-import { resolveAttachmentRefs } from '../attachments.js'
+import { resolveAttachmentRefs, spooledAttachmentUrl } from '../attachments.js'
 import { createInterfaceResponseCapture } from '../delivery/interface-response-capture.js'
 import type { ResolvedAcpServerDeps } from '../deps.js'
 import {
@@ -319,7 +321,8 @@ function appendAttachmentContext(
     source: AttachmentRef
     resolved?: AttachmentRef | undefined
   }>,
-  discordMessageId?: string | undefined
+  discordMessageId?: string | undefined,
+  spool: { baseUrl?: string | undefined; stateDir?: string | undefined } = {}
 ): string {
   if (entries.length === 0) {
     return content
@@ -334,12 +337,18 @@ function appendAttachmentContext(
       }
 
       // wrkc envelopes are durable while Discord CDN URLs are signed and
-      // short-lived, so only the downloaded path enters presented body text.
-      // The spool is deliberately node-local (the gateway and target agent are
-      // co-located today); native wrkc attachments would require a spec change.
+      // short-lived, so only ACP's spooled copy enters presented body text.
+      // The path only resolves on the ACP node; a seat placed elsewhere (svc)
+      // fetches the same file from ACP's media route (T-12176). The hint writes
+      // to $TMPDIR, never the seat's cwd, which is usually a repo checkout.
       // Path/filename, type, and Discord source id remain meaningful metadata
       // even if a later retention policy has aged the spool file out.
-      return `Attachment: ${resolved.path} (${contentType}, discord message ${discordMessageId})`
+      const line = `Attachment: ${resolved.path} (${contentType}, discord message ${discordMessageId})`
+      const url = spooledAttachmentUrl(spool.baseUrl, spool.stateDir, resolved.path)
+      if (url === undefined) {
+        return line
+      }
+      return `${line}\n  from another node: curl -fsS '${url}' -o "\${TMPDIR:-/tmp}/${basename(resolved.path)}"`
     })
     return `${content}\n\n${lines.join('\n')}`
   }
@@ -438,7 +447,10 @@ export class InputAdmissionService {
     }
 
     return {
-      content: appendAttachmentContext(input.content, entries, discordMessageId),
+      content: appendAttachmentContext(input.content, entries, discordMessageId, {
+        baseUrl: this.deps.attachmentBaseUrl,
+        stateDir: this.deps.mediaStateDir,
+      }),
       ...(resolvedAttachments.length > 0 ? { resolvedAttachments } : {}),
     }
   }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -163,6 +163,113 @@ describe('POST /v1/interface/messages', () => {
             new Response('fixture-image-bytes', {
               headers: { 'content-type': 'image/png', 'content-length': '19' },
             }),
+          collaborationLedgerForPrincipal: async () => ledger,
+        }
+      )
+    } finally {
+      rmSync(mediaStateDir, { recursive: true, force: true })
+    }
+  })
+
+  test('announces a spooled Discord attachment at a URL a seat on another node can fetch (T-12176)', async () => {
+    const mediaStateDir = mkdtempSync(join(tmpdir(), 'acp-interface-ledger-remote-'))
+    const says: CollaborationSayInput[] = []
+    const ledger: CollaborationLedger = {
+      async listMessagesByMember() {
+        return { messages: [] }
+      },
+      async listMessagesByRoom() {
+        return { messages: [] }
+      },
+      async say(input) {
+        says.push(input)
+        return { roomKey: input.ref, groupId: 'EN-12176', envelopes: [] }
+      },
+    }
+    // Files a traversal would reach if the route trusted its params.
+    mkdirSync(join(mediaStateDir, 'media', 'attachments', '9001'), { recursive: true })
+    writeFileSync(join(mediaStateDir, 'media', 'secret.txt'), 'OUTSIDE-SPOOL')
+    writeFileSync(join(mediaStateDir, 'media', 'attachments', '9001', '.hidden'), 'HIDDEN')
+
+    try {
+      await withWiredServer(
+        async (fixture) => {
+          fixture.interfaceStore.bindings.create({
+            bindingId: 'ifb_ledger_remote',
+            gatewayId: 'discord_prod',
+            conversationRef: 'channel:ledger-remote',
+            scopeRef: `agent:smokey:project:${fixture.seed.projectId}`,
+            laneRef: 'main',
+            projectId: fixture.seed.projectId,
+            status: 'active',
+            createdAt: '2026-10-31T12:00:00.000Z',
+            updatedAt: '2026-10-31T12:00:00.000Z',
+          })
+
+          const response = await fixture.request({
+            method: 'POST',
+            path: '/v1/interface/messages',
+            body: {
+              source: {
+                gatewayId: 'discord_prod',
+                conversationRef: 'channel:ledger-remote',
+                messageRef: 'discord:message:9001',
+                authorRef: 'discord:user:lance',
+              },
+              content: 'Quote the marker line.',
+              attachments: [
+                {
+                  kind: 'url',
+                  url: 'https://cdn.discordapp.com/attachments/1/2/notes.txt?ex=1',
+                  filename: 'notes.txt',
+                  contentType: 'text/plain',
+                },
+              ],
+            },
+          })
+          expect(response.status).toBe(201)
+
+          const localPath = join(mediaStateDir, 'media', 'attachments', '9001', 'notes.txt')
+          const url = 'http://100.64.0.9:18470/v1/media/attachments/9001/notes.txt'
+          expect(says[0]?.body).toBe(
+            `Quote the marker line.\n\nAttachment: ${localPath} (text/plain, discord message 9001)\n  from another node: curl -fsS '${url}' -o "\${TMPDIR:-/tmp}/notes.txt"`
+          )
+
+          const fetched = await fixture.request({
+            method: 'GET',
+            path: '/v1/media/attachments/9001/notes.txt',
+          })
+          expect(fetched.status).toBe(200)
+          expect(fetched.headers.get('content-type')).toBe('text/plain')
+          expect(await fetched.text()).toBe('MARKER line one\n')
+
+          const missing = await fixture.request({
+            method: 'GET',
+            path: '/v1/media/attachments/9001/absent.txt',
+          })
+          expect(missing.status).toBe(404)
+
+          for (const path of [
+            '/v1/media/attachments/9001/..%2Fsecret.txt',
+            '/v1/media/attachments/9001/..%2F..%2Fsecret.txt',
+            '/v1/media/attachments/..%2F..%2Fmedia/secret.txt',
+            '/v1/media/attachments/%2E%2E/secret.txt',
+            '/v1/media/attachments/../secret.txt',
+            '/v1/media/attachments/9001/.hidden',
+            '/v1/media/attachments/.9001/notes.txt',
+          ]) {
+            const refused = await fixture.handler(new Request(`http://acp.test${path}`))
+            expect([400, 404]).toContain(refused.status)
+            const text = await refused.text()
+            expect(text).not.toContain('OUTSIDE-SPOOL')
+            expect(text).not.toContain('HIDDEN')
+          }
+        },
+        {
+          mediaStateDir,
+          attachmentBaseUrl: 'http://100.64.0.9:18470',
+          attachmentFetchImpl: async () =>
+            new Response('MARKER line one\n', { headers: { 'content-type': 'text/plain' } }),
           collaborationLedgerForPrincipal: async () => ledger,
         }
       )

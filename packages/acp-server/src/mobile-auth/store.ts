@@ -21,10 +21,9 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
-export const DEFAULT_MOBILE_AUTH_PATH = join(
-  '/Users/lherron/praesidium/var/state/acp-server',
-  'mobile-auth.json'
-)
+import { acpStateDir } from '../state-dir.js'
+
+export const DEFAULT_MOBILE_AUTH_PATH = join(acpStateDir(), 'mobile-auth.json')
 
 /** Single-use pairing code lifetime (spec §2). */
 export const PAIRING_CODE_TTL_MS = 5 * 60 * 1000

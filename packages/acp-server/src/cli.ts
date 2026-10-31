@@ -79,6 +79,7 @@ import { resolveMobileAuthStore } from './mobile-auth/store.js'
 import { createPbcWorkerScheduler } from './pbc/worker-scheduler.js'
 import { type PbcContinuationWorkerPort, runPbcContinuationWorker } from './pbc/worker.js'
 import { createRealLauncher, readRunStatus } from './real-launcher.js'
+import { acpStateDir } from './state-dir.js'
 import { ACP_SERVER_USER_AGENT } from './user-agent.js'
 import { createWrkfClientLifecycle } from './wrkf/client-lifecycle.js'
 
@@ -98,7 +99,7 @@ function toPrincipalRef(actor: string): string {
   return trimmed.startsWith('agent:') ? trimmed : `agent:${trimmed}`
 }
 const DEFAULT_ACP_RUNTIME_DIR = '/Users/lherron/praesidium/var/run/acp'
-const DEFAULT_CAP_CATALOG_STATE_DIR = '/Users/lherron/praesidium/var/state/acp-server/cap-catalog'
+const DEFAULT_CAP_CATALOG_STATE_DIR = join(acpStateDir(), 'cap-catalog')
 // PBC continuation worker launches participant turns as real provisioned agents.
 // Draft (agent role) and pressure reviewer must be DISTINCT for separation-of-duty.
 // Overridable per deployment; a task's explicit roleMap still takes precedence.
@@ -426,6 +427,23 @@ export function renderHelp(): string {
 function resolveAcpBaseUrl(options: AcpServerCliOptions): string {
   const [host = DEFAULT_HOST] = resolveBindHosts(options.host)
   return `http://${formatHostForUrl(host)}:${options.port}`
+}
+
+/**
+ * The base URL a seat on ANOTHER node uses to reach this server: the first
+ * non-loopback bind (the tailnet address in production), else the first bind.
+ */
+export function resolveAttachmentBaseUrl(
+  options: Pick<AcpServerCliOptions, 'host' | 'port'>
+): string {
+  const hosts = resolveBindHosts(options.host)
+  const host = hosts.find((candidate) => !isLoopbackBindHost(candidate)) ?? hosts[0] ?? DEFAULT_HOST
+  return `http://${formatHostForUrl(host)}:${options.port}`
+}
+
+function isLoopbackBindHost(host: string): boolean {
+  const bare = host.replace(/^\[|\]$/g, '').toLowerCase()
+  return bare === 'localhost' || bare === '::1' || /^127\./.test(bare)
 }
 
 function resolveCapSocketPath(env: NodeJS.ProcessEnv = process.env): string {
@@ -1121,6 +1139,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
         }
       : {}),
     agentAssetsDir: options.agentAssetsDir,
+    attachmentBaseUrl: resolveAttachmentBaseUrl(options),
     ...(wrkfLifecycle.client !== undefined ? { workClient: wrkfLifecycle.client } : {}),
     ...(wrkfLifecycle.principalRef !== undefined
       ? { workClientPrincipalRef: wrkfLifecycle.principalRef }

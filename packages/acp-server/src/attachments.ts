@@ -1,16 +1,56 @@
 import { access, mkdir, stat, writeFile } from 'node:fs/promises'
-import { basename, extname, join } from 'node:path'
+import { basename, extname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { writeLogLine } from 'acp-core'
 
+import { acpStateDir } from './state-dir.js'
+
 import type { AttachmentRef } from 'acp-core'
 
-export const DEFAULT_INTERFACE_MEDIA_STATE_DIR =
-  process.env['ACP_MEDIA_STATE_DIR'] ?? join(process.cwd(), 'packages/acp-server/state')
+export const DEFAULT_INTERFACE_MEDIA_STATE_DIR = process.env['ACP_MEDIA_STATE_DIR'] ?? acpStateDir()
 export const DEFAULT_INTERFACE_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024
 
 const MEDIA_SUBDIR = 'media'
 const ATTACHMENTS_SUBDIR = 'attachments'
+
+/** HTTP prefix that serves the inbound attachment spool (T-12176). */
+export const MEDIA_ATTACHMENTS_ROUTE_PREFIX = '/v1/media/attachments'
+
+/** `<stateDir>/media/attachments`: one subdirectory per spool id (Discord message id). */
+export function attachmentSpoolRoot(stateDir: string | undefined): string {
+  return join(stateDir ?? DEFAULT_INTERFACE_MEDIA_STATE_DIR, MEDIA_SUBDIR, ATTACHMENTS_SUBDIR)
+}
+
+/**
+ * A spool path segment: the characters sanitizeFilename and Discord ids produce,
+ * never starting with a dot, so `.`, `..` and hidden files cannot be named.
+ */
+const SPOOL_SEGMENT = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,159}$/
+
+export function isSpoolSegment(value: string): boolean {
+  return SPOOL_SEGMENT.test(value)
+}
+
+/**
+ * The URL another node fetches a spooled attachment from, or undefined when
+ * `filePath` is not a `<spoolId>/<file>` entry of this server's spool (e.g. a
+ * caller-supplied local file, which only exists on its own node).
+ */
+export function spooledAttachmentUrl(
+  baseUrl: string | undefined,
+  stateDir: string | undefined,
+  filePath: string
+): string | undefined {
+  if (baseUrl === undefined) {
+    return undefined
+  }
+  const parts = relative(attachmentSpoolRoot(stateDir), filePath).split(sep)
+  if (parts.length !== 2 || !parts.every(isSpoolSegment)) {
+    return undefined
+  }
+  const [spoolId, filename] = parts as [string, string]
+  return `${baseUrl.replace(/\/+$/, '')}${MEDIA_ATTACHMENTS_ROUTE_PREFIX}/${encodeURIComponent(spoolId)}/${encodeURIComponent(filename)}`
+}
 
 type FetchLike = typeof fetch
 
@@ -257,12 +297,7 @@ async function downloadUrlAttachment(
     reader.releaseLock()
   }
 
-  const attachmentsDir = join(
-    options.stateDir ?? DEFAULT_INTERFACE_MEDIA_STATE_DIR,
-    MEDIA_SUBDIR,
-    ATTACHMENTS_SUBDIR,
-    options.runId
-  )
+  const attachmentsDir = join(attachmentSpoolRoot(options.stateDir), options.runId)
   await mkdir(attachmentsDir, { recursive: true })
   const filePath = await uniqueAttachmentPath(attachmentsDir, filename)
   await writeFile(filePath, Buffer.concat(chunks, sizeBytes))

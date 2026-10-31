@@ -1,3 +1,5 @@
+import { join } from 'node:path'
+
 import type { WorkClient } from '@wrkq/client'
 import { type AdminStore, createInMemoryAdminStore } from 'acp-admin-store'
 import type { ConversationStore } from 'acp-conversation'
@@ -41,6 +43,7 @@ import { InMemoryInputAttemptStore, type InputAttemptStore } from './domain/inpu
 import { InMemoryRunStore, type RunStore, type StoredRun } from './domain/run-store.js'
 import type { JobExecPolicy } from './jobs/exec-policy.js'
 import { type MobileAuthStore, resolveMobileAuthStore } from './mobile-auth/store.js'
+import { acpStateDir } from './state-dir.js'
 import {
   InMemoryWrkfParticipantCaptureStore,
   InMemoryWrkfRouteIdempotencyStore,
@@ -52,8 +55,7 @@ import type { AcpWrkfWorkflowPort } from './wrkf/port.js'
 
 export const DEFAULT_INTERFACE_DB_PATH = '/Users/lherron/praesidium/var/db/acp-interface.db'
 export const DEFAULT_STATE_DB_PATH = '/Users/lherron/praesidium/var/db/acp-state.db'
-export const DEFAULT_AGENT_ASSETS_DIR =
-  '/Users/lherron/praesidium/var/state/acp-server/assets/agents'
+export const DEFAULT_AGENT_ASSETS_DIR = join(acpStateDir(), 'assets', 'agents')
 
 /**
  * Resolve the interface-store path for a caller that supplied no `interfaceStore`.
@@ -278,6 +280,12 @@ export interface AcpServerDeps {
   runStore?: RunStore | undefined
   runLivenessResolver?: RunLivenessResolver | undefined
   mediaStateDir?: string | undefined
+  /**
+   * Base URL other nodes use to reach this server (first non-loopback bind).
+   * Spooled inbound attachments are announced as `<base>/v1/media/attachments/...`
+   * so a seat placed off the ACP node can fetch them (T-12176).
+   */
+  attachmentBaseUrl?: string | undefined
   attachmentMaxBytes?: number | undefined
   attachmentFetchImpl?: typeof fetch | undefined
   deliveryTargetResolver?: DeliveryTargetResolver | undefined
