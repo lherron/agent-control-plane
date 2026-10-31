@@ -39,6 +39,7 @@ const ALLOWED_FIELDS = new Set([
   'projectId',
   'taskId',
   'viewerWindow',
+  'model',
   'requestId',
   'force',
 ])
@@ -262,6 +263,14 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
   const requestId = requireTrimmedStringField(body, 'requestId')
   const taskId = resolveMobileTaskId(body)
   const force = parseMobileForce(body, taskId)
+  const model = readOptionalTrimmedStringField(body, 'model')
+  if (model !== undefined && force !== undefined) {
+    throw new HrcDomainError(
+      HrcErrorCode.MALFORMED_REQUEST,
+      'model cannot be combined with force',
+      { field: 'model' }
+    )
+  }
   // T-07603: no service default. HRC derives placement from scope shape, so a
   // mobile session lands in the operator's interactive window without ACP naming
   // a window at all. An explicit client-supplied key is still forwarded and still
@@ -284,6 +293,7 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
     runMode: baseIntent.placement.runMode as DeclarationRunMode,
     interactive: true,
     preferredMode: 'headless',
+    ...(model !== undefined ? { provision: { model } } : {}),
     ...(deps.hrcAgentSources !== undefined ? { agentSources: deps.hrcAgentSources } : {}),
   }
   let resolved: ResolveRuntimeIntentResponse
@@ -291,6 +301,12 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
     resolved = await deps.hrcClient.resolveRuntimeIntent(declarationRequest)
   } catch (error) {
     throw declarationFailure(error, requestId)
+  }
+  if (model !== undefined && resolved.intent.summonDirectives?.model !== model) {
+    throw new HrcDomainError(
+      HrcErrorCode.INTERNAL_ERROR,
+      'HRC did not preserve the requested model directive'
+    )
   }
   for (const warning of resolved.declaration.warnings) {
     writeLogLine({
@@ -310,6 +326,12 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
     ...baseIntent,
     harness: resolved.intent.harness,
     execution: resolved.intent.execution,
+    ...(model !== undefined && resolved.intent.provision !== undefined
+      ? { provision: resolved.intent.provision }
+      : {}),
+    ...(model !== undefined && resolved.intent.summonDirectives !== undefined
+      ? { summonDirectives: resolved.intent.summonDirectives }
+      : {}),
     ...(viewerWindow !== undefined ? { presentation: { viewerWindow } } : {}),
   }
 

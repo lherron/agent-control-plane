@@ -144,6 +144,78 @@ function runtimeResolver(): AcpRuntimePlacement {
 }
 
 describe('POST /v1/mobile/sessions', () => {
+  test.each(['opus', 'fable', 'sol', 'astra'])(
+    'passes %s through HRC declaration as a summon directive',
+    async (model) => {
+      const fixture = createDeclarationHrcClient({
+        resolveImpl: (request) => ({
+          ...defaultDeclarationResolution(request),
+          intent: {
+            ...(defaultDeclarationResolution(request)['intent'] as Record<string, unknown>),
+            provision: { model },
+            summonDirectives: { model },
+          },
+        }),
+      })
+      await withWiredServer(
+        async ({ request }) => {
+          const response = await request({
+            method: 'POST',
+            path: '/v1/mobile/sessions',
+            body: { ...MOBILE_BODY, model },
+          })
+          expect(response.status).toBe(200)
+          expect(fixture.resolveCalls[0]).toMatchObject({ provision: { model } })
+          expect(fixture.starts[0]?.runtimeIntent).toMatchObject({
+            summonDirectives: { model },
+            provision: { model },
+          })
+        },
+        { hrcClient: fixture.client, runtimeResolver }
+      )
+    }
+  )
+
+  test('refuses to start when HRC does not return the requested summon directive', async () => {
+    const fixture = createDeclarationHrcClient({})
+    await withWiredServer(
+      async ({ request }) => {
+        const response = await request({
+          method: 'POST',
+          path: '/v1/mobile/sessions',
+          body: { ...MOBILE_BODY, model: 'sol' },
+        })
+        expect(response.status).toBeGreaterThanOrEqual(400)
+        expect(fixture.starts).toHaveLength(0)
+      },
+      { hrcClient: fixture.client, runtimeResolver }
+    )
+  })
+
+  test.each(['new_context', 'reconcile', 'launch_successor'])(
+    'rejects explicit model with force %s before HRC',
+    async (mode) => {
+      const fixture = createDeclarationHrcClient({})
+      const force =
+        mode === 'launch_successor'
+          ? { mode, expectedHostSessionId: 'hsid-old', expectedGeneration: 1 }
+          : { mode }
+      await withWiredServer(
+        async ({ request }) => {
+          const response = await request({
+            method: 'POST',
+            path: '/v1/mobile/sessions',
+            body: { ...MOBILE_BODY, model: 'sol', force },
+          })
+          expect(response.status).toBe(400)
+          expect(fixture.resolveCalls).toHaveLength(0)
+          expect(fixture.starts).toHaveLength(0)
+        },
+        { hrcClient: fixture.client, runtimeResolver }
+      )
+    }
+  )
+
   test('passes only the base scope to HRC and projects the claimed scope prominently', async () => {
     const starts: StartRuntimeRequest[] = []
     const hrcClient = createHrcClient({ onStart: (request) => starts.push(request) })
