@@ -6,3 +6,9 @@
 73408a1f79f0afa0c5ef98063752103c5f17cce8:asp_modules/ralph-build/claude/plugins/000-ralph-build-loop/.asp-cache.json:generic-api-key:5
 73408a1f79f0afa0c5ef98063752103c5f17cce8:asp_modules/ralph-plan/claude/plugins/000-ralph-plan-loop/.asp-cache.json:generic-api-key:5
 73408a1f79f0afa0c5ef98063752103c5f17cce8:asp_modules/ralph-plan/claude/plugins/001-praesidium-defaults/.asp-cache.json:generic-api-key:5
+
+# T-12173: synthetic PBC test idempotencyKey literals (e.g. 'continue-dedup-rev-001'), moved unchanged from pbc-product-routes.test.ts; previously classified in T-11883/T-11798. Not secrets.
+packages/acp-server/src/__tests__/pbc-product-continuation-jobs.test.ts:generic-api-key:93
+packages/acp-server/src/__tests__/pbc-product-continuation-jobs.test.ts:generic-api-key:131
+packages/acp-server/src/__tests__/pbc-product-dispose.test.ts:generic-api-key:117
+packages/acp-server/src/__tests__/pbc-product-dispose.test.ts:generic-api-key:148

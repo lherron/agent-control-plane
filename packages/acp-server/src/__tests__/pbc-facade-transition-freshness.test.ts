@@ -6,7 +6,7 @@
  * the transition with the now-stale contextHash → 409 WRKF_CONTEXT_MISMATCH.
  *
  * ─── Key divergence from existing fakes ──────────────────────────────────────
- * The fakes in pbc-product-routes.test.ts keep contextHash constant, which
+ * The fakes in test/fixtures/pbc-product.ts keep contextHash constant, which
  * means transition.apply always receives the "correct" hash even though the
  * handlers read it before the evidence writes. That masking is exactly why
  * the bug passed tests while failing in production.
@@ -27,7 +27,7 @@
  * the bumping fake will accept it → 200 → tests turn GREEN.
  *
  * ─── Scope ───────────────────────────────────────────────────────────────────
- * This file is SEPARATE from pbc-product-routes.test.ts and
+ * This file is SEPARATE from the pbc-product-*.test.ts contract suites and
  * pbc-projection.test.ts (other agents edit those in parallel).
  * Only the NEW file src/__tests__/pbc-facade-transition-freshness.test.ts is
  * committed (stage only this file).
