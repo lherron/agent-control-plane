@@ -80,6 +80,15 @@ export type FakeHrc = {
   ledger: FakeLedgerEvent[]
   /** `refuse`: seats whose literal input answers 409 stale_context. */
   literalInput: { mode: LiteralInputMode; refuse: Set<string> }
+  /**
+   * Seats whose session routes answer an HRC error, as a federated seat whose
+   * home is retired or unreachable does (`session_home_pending` 503, …).
+   * `routes` limits it to `annotations` and/or `attention`.
+   */
+  seatErrors: Map<
+    string,
+    { status: number; code: string; routes: Array<'annotations' | 'attention'> }
+  >
   /** A direct put, as Vesta's `hrc session annotation put --as agent:vesta` would land. */
   put(row: {
     scopeRef: string
@@ -127,6 +136,7 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
     mode: 'accept',
     refuse: new Set(),
   }
+  const seatErrors: FakeHrc['seatErrors'] = new Map()
   let lastStamp = 0
   let seq = 1000
   let runCounter = 0
@@ -249,6 +259,9 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
       return hrcError(400, 'annotation_invalid', { reason: 'scopeRef must be a string' })
     }
     const detail = { scopeRef, laneRef: canonicalLane(input['laneRef'] as string | undefined) }
+    const injected = seatErrors.get(scopeRef)
+    if (injected?.routes.includes('annotations'))
+      return hrcError(injected.status, injected.code, detail)
     const seat = seatMap.get(scopeRef)
     if (seat === undefined) return hrcError(404, 'unknown_host_session', detail)
 
@@ -455,6 +468,10 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
       }
       if (request.method === 'GET' && url.pathname === '/v1/sessions/attention') {
         const scopeRef = url.searchParams.get('scopeRef') ?? ''
+        const injected = seatErrors.get(scopeRef)
+        if (injected?.routes.includes('attention')) {
+          return hrcError(injected.status, injected.code, { scopeRef, laneRef: 'main' })
+        }
         const seat = seatMap.get(scopeRef)
         if (seat === undefined) {
           return hrcError(404, 'unknown_host_session', { scopeRef, laneRef: 'main' })
@@ -485,6 +502,7 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
     calls,
     ledger,
     literalInput,
+    seatErrors,
     put(row) {
       const seat = seatMap.get(row.scopeRef)
       if (seat === undefined) throw new Error(`fake HRC: unknown seat ${row.scopeRef}`)

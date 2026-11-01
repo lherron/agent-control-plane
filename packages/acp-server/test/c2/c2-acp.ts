@@ -26,6 +26,8 @@ export const SEAT_REF = `${SEAT}/lane:main`
 export const FIXTURE_VESTA = 'agent:clod:project:c2:task:c2fixture-vesta'
 /** Stands in for a real human card: a seat outside every fixture scope, holding c2 rows. */
 export const OUT_SEAT = 'agent:mable:project:human:task:primary'
+/** Shaped like the max3 seat whose scope HRC retired with no home bound (session_home_pending). */
+export const RETIRED_SEAT = 'agent:stella:project:arris:task:primary-quasar'
 export const ATTENTION_AT = '2026-11-01T05:00:00.000Z'
 export const REPLY_TEXT = 'Ship it; the fixture is disposable.'
 export const SCOPE_ALLOW = ['^agent:smokey:project:c2:task:c2fixture-[a-z0-9-]+$']
@@ -60,6 +62,8 @@ export type C2AcpOptions = {
   hrcDownAtBoot?: boolean
   /** Serve the fixture Vesta (scope row and config there) instead of production's. */
   fixtureVesta?: boolean
+  /** Shape HRC before ACP's first read (e.g. inject seat errors). */
+  beforeBoot?: (fake: FakeHrc) => void
 }
 
 export function fixtureSeats(): FakeSeat[] {
@@ -70,6 +74,14 @@ export function fixtureSeats(): FakeSeat[] {
       generation: 1,
       runtimeLive: true,
       runtimeId: 'rt-fixture-vesta',
+      attention: null,
+    },
+    {
+      scopeRef: RETIRED_SEAT,
+      hostSessionId: 'hsid-retired',
+      generation: 1,
+      runtimeLive: false,
+      runtimeId: 'rt-retired',
       attention: null,
     },
     {
@@ -199,6 +211,7 @@ export async function withC2Acp<T>(
     },
   })
 
+  options.beforeBoot?.(fake)
   if (options.hrcDownAtBoot === true) await fake.stop()
   const hrcClient = new HrcClient({
     socketPath: fake.socketPath,

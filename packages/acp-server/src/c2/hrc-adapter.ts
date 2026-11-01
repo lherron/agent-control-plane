@@ -170,6 +170,35 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
     }
   }
 
+  /** Seat → HRC code already logged as unobservable; cleared by a good read. */
+  const unobservable = new Map<string, string>()
+
+  /**
+   * A seat this node cannot read (HRC answers e.g. `session_home_pending`
+   * for a scope it retired, or `session_home_unreachable`) is skipped for this
+   * pass, never fatal to the sweep, the tick or the snapshot. Its cards are
+   * then absent from the view, so an action on one refuses `card_not_open`
+   * through normal preflight. Only an HRC refusal qualifies: an unreachable
+   * socket still fails the whole read. Vesta is never read through here.
+   */
+  async function readSeat<T>(
+    scopeRef: string,
+    read: () => Promise<T>
+  ): Promise<{ ok: true; value: T } | { ok: false }> {
+    try {
+      const value = await read()
+      unobservable.delete(scopeRef)
+      return { ok: true, value }
+    } catch (error) {
+      if (!(error instanceof HrcDomainError)) throw error
+      if (unobservable.get(scopeRef) !== error.code) {
+        unobservable.set(scopeRef, error.code)
+        log(`c2.seat.unobservable ${scopeRef} ${error.code}: skipped until it reads again`)
+      }
+      return { ok: false }
+    }
+  }
+
   async function sweep(): Promise<void> {
     const sessions = await client.listSessions({ latestGeneration: true })
     const scopes = new Set<string>()
@@ -181,8 +210,8 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
     if (options.ownsUnscoped && sweeps % SCAN_EVERY === 0) {
       const found = new Set<string>()
       await mapLimit(continuities, SCAN_CONCURRENCY, async (scopeRef) => {
-        const rows = await c2Rows(scopeRef)
-        if (rows !== undefined && rows.length > 0) found.add(scopeRef)
+        const read = await readSeat(scopeRef, () => c2Rows(scopeRef))
+        if (read.ok && read.value !== undefined && read.value.length > 0) found.add(scopeRef)
       })
       rowSeats = found
     }
@@ -210,14 +239,24 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
     scopeRef: string,
     at: string
   ): Promise<{ seat?: SeatRow; rows: AnnotationRow[] }> {
-    const [attention, rows] = await Promise.all([
-      client.getSessionAttention({ scopeRef, laneRef: 'main' }).catch((error: unknown) => {
-        if (error instanceof HrcDomainError && error.code === 'unknown_host_session')
-          return undefined
-        throw error
-      }),
-      c2Rows(scopeRef),
-    ])
+    const read = async () =>
+      Promise.all([
+        client.getSessionAttention({ scopeRef, laneRef: 'main' }).catch((error: unknown) => {
+          if (error instanceof HrcDomainError && error.code === 'unknown_host_session')
+            return undefined
+          throw error
+        }),
+        c2Rows(scopeRef),
+      ])
+    let attention: Awaited<ReturnType<typeof read>>[0]
+    let rows: Awaited<ReturnType<typeof read>>[1]
+    if (scopeRef === vestaSeat) {
+      ;[attention, rows] = await read()
+    } else {
+      const seatRead = await readSeat(scopeRef, read)
+      if (!seatRead.ok) return { rows: [] }
+      ;[attention, rows] = seatRead.value
+    }
     if (options.ownsUnscoped && rows !== undefined && rows.length > 0) rowSeats.add(scopeRef)
     if (attention === undefined) return { rows: rows ?? [] }
     const seat: SeatRow = {
