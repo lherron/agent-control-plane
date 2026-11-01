@@ -45,7 +45,9 @@ describe('GET /v1/mobile/c2/cards', () => {
       })
       expect(body.capabilities.artifacts).toBe(true)
       expect(body.capabilities.longPoll).toBe(true)
-      expect(body.capabilities.actions).toEqual(expect.arrayContaining(['reply', 'jump', 'snooze']))
+      expect(body.capabilities.actions).toEqual(
+        expect.arrayContaining(['reply', 'answer', 'jump', 'snooze'])
+      )
 
       const row = body.seats.find((seat) => seat.scopeRef === SEAT)
       expect(row).toMatchObject({

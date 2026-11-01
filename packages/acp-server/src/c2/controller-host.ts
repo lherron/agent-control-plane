@@ -34,6 +34,7 @@ export const C2_ACTION_KINDS = [
   'reply',
   'choose',
   'compose',
+  'answer',
   'jump',
   'delegate',
   'elucidate',
