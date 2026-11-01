@@ -11,7 +11,15 @@ import { describe, expect, test } from 'bun:test'
 import { closeSync, ftruncateSync, mkdirSync, openSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { type C2Acp, SEAT, cardBody, forgeArtifactId, snapshotCard, withC2Acp } from './c2-acp.js'
+import {
+  type C2Acp,
+  SEAT,
+  cardBody,
+  forgeArtifactId,
+  settle,
+  snapshotCard,
+  withC2Acp,
+} from './c2-acp.js'
 
 const CSP = "default-src 'none'; img-src data:; style-src 'unsafe-inline'"
 
@@ -80,7 +88,10 @@ describe('refusals', () => {
         body: { ...acp.card().body, title: 'Revised' },
       })
       expect(await refusal(acp, oldId)).toEqual({ status: 409, code: 'artifact_stale' })
+      // GET serves the warm snapshot (T-12227): let a background refresh see the put.
+      await settle(200)
       const { card: fresh } = await snapshotCard(acp)
+      expect(fresh.title).toBe('Revised')
       const newId = fresh.evidence.find((item) => item.label === 'look')?.image?.artifact
       expect(newId).not.toBe(oldId)
       expect((await acp.get(`/v1/mobile/c2/artifacts/${newId}`)).status).toBe(200)

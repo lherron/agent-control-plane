@@ -40,6 +40,10 @@ export const C2_ACTION_KINDS = [
   'snooze',
 ] as const
 export const LONG_POLL_MAX_MS = 25_000
+/** A GET older than this kicks a background refresh (never waited on). */
+export const SNAPSHOT_FRESH_MS = 5_000
+/** Cold start only: how long a GET waits for the first snapshot before home_unavailable. */
+export const COLD_SNAPSHOT_WAIT_MS = 10_000
 
 type WireBody = ReturnType<typeof toWire>
 type Snapshot = { body: WireBody; revision: string; asOf: string; okAt: number; node: string }
@@ -78,7 +82,11 @@ export function createC2Service(config: AcpC2Config, hrcClient: AcpHrcClient): C
     ...(config.node !== undefined ? { node: config.node } : {}),
   })
 
+  // The warm snapshot (T-12227). The poll timer refreshes it in the background;
+  // a phone GET reads it and never waits on an HRC observation once it exists.
   let last: Snapshot | undefined
+  /** The last background refresh failed: serve `last` as stale until one succeeds. */
+  let unreachable = false
   const waiters = new Set<() => void>()
   let refreshing: Promise<Snapshot> | null = null
 
@@ -89,6 +97,7 @@ export function createC2Service(config: AcpC2Config, hrcClient: AcpHrcClient): C
     const snapshot: Snapshot = { body, revision, asOf: view.asOf, okAt: Date.now(), node }
     const changed = last?.revision !== revision
     last = snapshot
+    unreachable = false
     if (changed) {
       for (const wake of waiters) wake()
     }
@@ -97,11 +106,42 @@ export function createC2Service(config: AcpC2Config, hrcClient: AcpHrcClient): C
 
   function refresh(): Promise<Snapshot> {
     if (refreshing === null) {
-      refreshing = readSnapshot().finally(() => {
-        refreshing = null
-      })
+      refreshing = readSnapshot()
+        .catch((error: unknown) => {
+          unreachable = true
+          throw error
+        })
+        .finally(() => {
+          refreshing = null
+        })
     }
     return refreshing
+  }
+
+  function refreshInBackground(): void {
+    void refresh().catch(() => undefined)
+  }
+
+  /** The cached snapshot, or on a cold start the first read within its bound. */
+  async function current(): Promise<{ snapshot: Snapshot; reachable: boolean } | undefined> {
+    if (last !== undefined) {
+      if (Date.now() - last.okAt > SNAPSHOT_FRESH_MS) refreshInBackground()
+      return { snapshot: last, reachable: !unreachable }
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const bound = new Promise<undefined>((resolve) => {
+      timer = setTimeout(() => resolve(undefined), COLD_SNAPSHOT_WAIT_MS)
+    })
+    try {
+      const first = await Promise.race([refresh(), bound])
+      if (first !== undefined) return { snapshot: first, reachable: true }
+      log('c2.home_unavailable', { error: `no snapshot within ${COLD_SNAPSHOT_WAIT_MS}ms` })
+    } catch (error) {
+      log('c2.home_unavailable', { error: String(error) })
+    } finally {
+      clearTimeout(timer)
+    }
+    return undefined
   }
 
   function full(snapshot: Snapshot, reachable: boolean) {
@@ -155,25 +195,16 @@ export function createC2Service(config: AcpC2Config, hrcClient: AcpHrcClient): C
   }
 
   const stopController = controller.start()
-  const poll = setInterval(() => {
-    void refresh().catch(() => undefined)
-  }, pollMs)
+  const poll = setInterval(refreshInBackground, pollMs)
   void refresh().catch((error) => log('c2.observe.failed', { error: String(error) }))
 
   return {
     async cards({ after, waitMs }) {
-      let current: Snapshot
-      try {
-        current = await refresh()
-      } catch (error) {
-        if (last === undefined) {
-          log('c2.home_unavailable', { error: String(error) })
-          return { status: 503, body: { ok: false, code: 'home_unavailable' } }
-        }
-        return { status: 200, body: full(last, false) }
-      }
-      if (after === undefined || current.revision !== after)
-        return { status: 200, body: full(current, true) }
+      const read = await current()
+      if (read === undefined) return { status: 503, body: { ok: false, code: 'home_unavailable' } }
+      const { snapshot, reachable } = read
+      if (after === undefined || snapshot.revision !== after)
+        return { status: 200, body: full(snapshot, reachable) }
 
       const wait = Math.min(waitMs ?? LONG_POLL_MAX_MS, LONG_POLL_MAX_MS)
       if (wait > 0) {
@@ -187,7 +218,7 @@ export function createC2Service(config: AcpC2Config, hrcClient: AcpHrcClient): C
           waiters.add(done)
         })
       }
-      const latest = last ?? current
+      const latest = last ?? snapshot
       if (latest.revision === after)
         return { status: 200, body: { ok: true, unchanged: true, revision: after } }
       // Waiters wake only from a successful read, so a changed `last` is current.
@@ -217,7 +248,7 @@ export function createC2Service(config: AcpC2Config, hrcClient: AcpHrcClient): C
       // c2-core decides the line and when one is due; ACP sends it once, never for a replay.
       const line = response.replayed ? null : actedLine(response.card, request, response)
       if (line !== null) void sendActedLine(request.requestId, line)
-      void refresh().catch(() => undefined)
+      refreshInBackground()
       return {
         status: response.outcome === 'not_submitted' ? 503 : 200,
         body: toWireResponse(response),

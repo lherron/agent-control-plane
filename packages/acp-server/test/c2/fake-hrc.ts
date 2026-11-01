@@ -89,6 +89,10 @@ export type FakeHrc = {
     string,
     { status: number; code: string; routes: Array<'annotations' | 'attention'> }
   >
+  /** Injected latency on every GET (sessions, attention, annotation lists), as a loaded HRC shows. */
+  readDelayMs: number
+  /** GET reads currently in flight, and the most ever in flight for one scopeRef. */
+  inflight: { now: Map<string, number>; max: Map<string, number> }
   /** A direct put, as Vesta's `hrc session annotation put --as agent:vesta` would land. */
   put(row: {
     scopeRef: string
@@ -141,6 +145,7 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
   let seq = 1000
   let runCounter = 0
   let stopped = false
+  const inflight: FakeHrc['inflight'] = { now: new Map(), max: new Map() }
 
   function stamp(): string {
     const now = Math.max(Date.now(), lastStamp + 1)
@@ -459,6 +464,15 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
       }
       calls.push(call)
 
+      if (request.method === 'GET' && fake.readDelayMs > 0) {
+        const key = url.searchParams.get('scopeRef') ?? url.pathname
+        const now = (inflight.now.get(key) ?? 0) + 1
+        inflight.now.set(key, now)
+        inflight.max.set(key, Math.max(now, inflight.max.get(key) ?? 0))
+        await new Promise((resolve) => setTimeout(resolve, fake.readDelayMs))
+        inflight.now.set(key, (inflight.now.get(key) ?? 1) - 1)
+      }
+
       if (request.method === 'GET' && url.pathname === '/v1/sessions') {
         const scopeRef = url.searchParams.get('scopeRef')
         const rows = [...seatMap.values()].filter(
@@ -495,7 +509,7 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
     },
   })
 
-  return {
+  const fake: FakeHrc = {
     socketPath,
     seats: seatMap,
     annotations,
@@ -503,6 +517,8 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
     ledger,
     literalInput,
     seatErrors,
+    readDelayMs: 0,
+    inflight,
     put(row) {
       const seat = seatMap.get(row.scopeRef)
       if (seat === undefined) throw new Error(`fake HRC: unknown seat ${row.scopeRef}`)
@@ -529,4 +545,5 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
       rmSync(dir, { recursive: true, force: true })
     },
   }
+  return fake
 }
