@@ -21,9 +21,9 @@
     "test": "bun test"
   },
   "dependencies": {
-    "hrc-core": "0.5.13-dev.20261028100835",
-    "hrc-sdk": "0.5.13-dev.20261028100835",
-    "hrc-store-sqlite": "0.5.13-dev.20261028100835",
+    "hrc-core": "0.5.13-dev.20261101001555",
+    "hrc-sdk": "0.5.13-dev.20261101001555",
+    "hrc-store-sqlite": "0.5.13-dev.20261101001555",
     "spaces-harness-broker-protocol": "0.1.1-dev.20261028103736"
   },
   "devDependencies": {

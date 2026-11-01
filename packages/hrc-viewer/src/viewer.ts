@@ -44,11 +44,12 @@ type HrcPresentationRuntimeRow = Awaited<
 type OperatorSurface = { surfaceId: string; clientTty: string }
 /**
  * An hrcpty seat's presentation (T-12046): rusthrc projects it beside `tmux` on
- * the presentation row and on the `runtime.presentation` event. hrc-sdk does not
- * type it yet, so it is read defensively.
+ * the presentation row and on the `runtime.presentation` event. The viewer needs
+ * only the attach pair; the event payload carries no `supervisorPid`, so the
+ * row's stricter SDK type is replaced, and the value is read defensively.
  */
 type HrcptyPresentation = { socketPath: string; attachCommand: string }
-type PresentationRuntimeRow = HrcPresentationRuntimeRow & {
+type PresentationRuntimeRow = Omit<HrcPresentationRuntimeRow, 'hrcpty'> & {
   hrcpty?: HrcptyPresentation | undefined
 }
 /** What the viewer pane attaches to: a tmux target, or an hrcpty supervisor socket. */
