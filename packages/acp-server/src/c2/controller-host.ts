@@ -9,6 +9,7 @@
  * Card policy, receipts and outcomes are c2-core's.
  */
 import {
+  type ActionKind,
   type ActionRequest,
   type ActionResponse,
   Controller,
@@ -40,7 +41,14 @@ export const C2_ACTION_KINDS = [
   'elucidate',
   'rotate',
   'snooze',
-] as const
+] as const satisfies readonly ActionKind[]
+// The advertised `capabilities.actions` must name every kind c2-core accepts: the
+// phone gates Send on it, and a kind missing here silently disables that action
+// (T-12235: 'answer' in c2-core 0.1.8). c2-core does not export its kind set, so
+// this fails typecheck at the pin bump instead of in the field.
+type MissingActionKinds = Exclude<ActionKind, (typeof C2_ACTION_KINDS)[number]>
+const allActionKindsAdvertised: [MissingActionKinds] extends [never] ? true : never = true
+void allActionKindsAdvertised
 export const LONG_POLL_MAX_MS = 25_000
 /** A GET older than this kicks a background refresh (never waited on). */
 export const SNAPSHOT_FRESH_MS = 5_000
