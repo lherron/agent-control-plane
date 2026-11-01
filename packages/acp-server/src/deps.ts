@@ -29,6 +29,7 @@ import type { UnifiedSessionEvent } from 'spaces-runtime'
 import type { CollaborationLedger, WrkqStoreAdapter } from 'wrkq-lib'
 import type { FetchPlacementResolution, FetchRunPreview } from './placement-resolution.js'
 
+import type { AcpC2Config } from './c2/config.js'
 import {
   InMemoryInputAdmissionStore,
   InMemoryInputApplicationStore,
@@ -269,6 +270,8 @@ export interface AcpServerDeps {
   verifyCommandTargetId?: string | undefined
   verifyCommandSessionRef?: SessionRef | undefined
   hrcClient?: AcpHrcClient | undefined
+  /** T-12207: C2 mobile cards host config; the routes answer home_unavailable without it. */
+  c2?: AcpC2Config | undefined
   /**
    * T-08572: caller agent-source context for HRC declaration resolution
    * (ASP_AGENTS_ROOT/ASP_HOME from the acp-server launcher env). Attached only
