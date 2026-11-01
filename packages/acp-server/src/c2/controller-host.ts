@@ -13,7 +13,7 @@ import {
   type ActionResponse,
   Controller,
   PRODUCTION_VESTA,
-  displayId,
+  actedLine,
   online,
   toWire,
   validateRequest,
@@ -122,31 +122,19 @@ export function createC2Service(config: AcpC2Config, hrcClient: AcpHrcClient): C
   }
 
   /**
-   * The acted line (card-contract §6): after a delivered reply/choose/compose
+   * The acted line (card-contract §6), as c2-core `actedLine` words it: after a delivered reply/choose/compose
    * WITH a runId, one best-effort line to the live configured Vesta seat
    * through the fenced literal input. Never retried or queued; skipped when
    * Vesta is offline; its failure never changes the action's outcome.
    */
-  async function sendActedLine(request: ActionRequest, response: ActionResponse): Promise<void> {
+  async function sendActedLine(requestId: string, line: string): Promise<void> {
     try {
       const view = await controller.read()
-      const receipt = view.receipts.find(
-        (r) =>
-          r.row.id === request.requestId &&
-          r.key.sessionRef === request.key.sessionRef &&
-          r.key.generation === request.key.generation
-      )
       const vesta = view.seatRows.find((row) => row.scopeRef === config.vestaSeat)
-      const runId = response.receipt?.runId
-      if (receipt === undefined || runId === undefined || vesta === undefined || !online(vesta)) {
-        log('c2.acted.skipped', {
-          requestId: request.requestId,
-          vestaOnline: vesta !== undefined && online(vesta),
-        })
+      if (vesta === undefined || !online(vesta)) {
+        log('c2.acted.skipped', { requestId, vestaOnline: false })
         return
       }
-      const cardId = response.card?.id ?? displayId(request.key)
-      const line = `[c2] acted ${cardId} ${receipt.body.actionId} recommended=${receipt.body.recommended} edited=${receipt.body.edited} run=${runId}`
       const sent = await host.send(
         {
           sessionRef: vesta.sessionRef,
@@ -157,12 +145,12 @@ export function createC2Service(config: AcpC2Config, hrcClient: AcpHrcClient): C
         C2_CONTROLLER_PRINCIPAL
       )
       log('c2.acted', {
-        requestId: request.requestId,
+        requestId,
         ok: !('code' in sent),
         ...('code' in sent ? { code: sent.code } : {}),
       })
     } catch (error) {
-      log('c2.acted.failed', { requestId: request.requestId, error: String(error) })
+      log('c2.acted.failed', { requestId, error: String(error) })
     }
   }
 
@@ -226,7 +214,9 @@ export function createC2Service(config: AcpC2Config, hrcClient: AcpHrcClient): C
         }
       }
       log('c2.act', { requestId: request.requestId, kind: request.kind, outcome: response.outcome })
-      if (actedLineDue(request, response)) void sendActedLine(request, response)
+      // c2-core decides the line and when one is due; ACP sends it once, never for a replay.
+      const line = response.replayed ? null : actedLine(response.card, request, response)
+      if (line !== null) void sendActedLine(request.requestId, line)
       void refresh().catch(() => undefined)
       return {
         status: response.outcome === 'not_submitted' ? 503 : 200,
@@ -261,18 +251,6 @@ export function createC2Service(config: AcpC2Config, hrcClient: AcpHrcClient): C
       for (const wake of waiters) wake()
     },
   }
-}
-
-const ACTED_KINDS: ReadonlySet<string> = new Set(['reply', 'choose', 'compose'])
-
-function actedLineDue(request: ActionRequest, response: ActionResponse): boolean {
-  return (
-    response.ok &&
-    !response.replayed &&
-    ACTED_KINDS.has(request.kind) &&
-    (response.outcome === 'sent' || response.outcome === 'resolved') &&
-    response.receipt?.runId !== undefined
-  )
 }
 
 const services = new WeakMap<AcpC2Config, C2Service>()
