@@ -32,6 +32,8 @@ export type AcpC2Config = {
    * `unknown_outcome`, never `not_submitted`, and is never retried.
    */
   literalInputTimeoutMs?: number | undefined
+  /** The controller's settle window after a start or remount (c2-core default 30 s). */
+  settleMs?: number | undefined
 }
 
 export const C2_DEFAULTS = {

@@ -7,7 +7,10 @@
  * /v1/sessions/attention` (T-12212 shape), the four annotation routes with
  * their admission refusals and HTTP statuses (`hrc-native .../sessions.rs`
  * `annotation_refusal`: invalid 400; unknown_* 404; quota/stale_* 409), and
- * `POST /v1/literal-input/by-selector`. Errors use HRC's `{error:{code,
+ * `POST /v1/literal-input/by-selector`, and `GET /v1/runtimes` (T-12233: the
+ * runtime record, checked against max3 HRC 2026-11-01: an array of records with
+ * `runtimeId`, `hostSessionId`, `generation`, `status`, `runtimeStateJson
+ * .terminationReason`; live runtimes only unless `all=true`). Errors use HRC's `{error:{code,
  * message, detail}}` envelope. Any other route answers 404 and is recorded, so
  * an unexpected dependency shows up in `calls`.
  *
@@ -70,6 +73,20 @@ export type FakeLedgerEvent = {
   payload: Record<string, unknown>
 }
 
+/** A runtime record as `GET /v1/runtimes` returns it (the fields the C2 host reads). */
+export type FakeRuntime = {
+  runtimeId: string
+  hostSessionId: string
+  scopeRef: string
+  laneRef: string
+  generation: number
+  status: string
+  statusChangedAt?: string
+  runtimeStateJson?: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}
+
 export type LiteralInputMode = 'accept' | 'accept-no-run' | 'hang'
 
 export type FakeHrc = {
@@ -78,6 +95,8 @@ export type FakeHrc = {
   annotations: FakeAnnotation[]
   calls: FakeCall[]
   ledger: FakeLedgerEvent[]
+  /** Runtime records (`GET /v1/runtimes`); tests add terminated ones. */
+  runtimes: FakeRuntime[]
   /** `refuse`: seats whose literal input answers 409 stale_context. */
   literalInput: { mode: LiteralInputMode; refuse: Set<string> }
   /**
@@ -136,6 +155,7 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
   const annotations: FakeAnnotation[] = []
   const calls: FakeCall[] = []
   const ledger: FakeLedgerEvent[] = []
+  const runtimes: FakeRuntime[] = []
   const literalInput: { mode: LiteralInputMode; refuse: Set<string> } = {
     mode: 'accept',
     refuse: new Set(),
@@ -499,6 +519,18 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
           attention: seat.runtimeLive ? seat.attention : null,
         })
       }
+      if (request.method === 'GET' && url.pathname === '/v1/runtimes') {
+        const hostSessionId = url.searchParams.get('hostSessionId')
+        const scope = url.searchParams.get('scope')
+        const all = url.searchParams.get('all') === 'true'
+        const rows = runtimes.filter(
+          (r) =>
+            (hostSessionId === null || r.hostSessionId === hostSessionId) &&
+            (scope === null || r.scopeRef === scope) &&
+            (all || r.status !== 'terminated')
+        )
+        return Response.json(structuredClone(rows))
+      }
       if (url.pathname.startsWith('/v1/sessions/annotations')) {
         return annotationRoute(request, url, call)
       }
@@ -515,6 +547,7 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
     annotations,
     calls,
     ledger,
+    runtimes,
     literalInput,
     seatErrors,
     readDelayMs: 0,

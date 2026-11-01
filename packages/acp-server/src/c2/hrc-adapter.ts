@@ -17,6 +17,13 @@
  * `not_submitted` for a send. A literal-input call that does not answer within
  * `literalInputTimeoutMs` THROWS: the call was made, so c2-core records it as
  * `unknown_outcome`, keeps the card locked and never resends.
+ *
+ * End causes (T-12233): `runtimeEnd` answers from HRC's runtime record for the
+ * card's host session (`GET /v1/runtimes?hostSessionId=…&all=true`, one cheap
+ * indexed read; the reason is `runtimeStateJson.terminationReason`, e.g.
+ * `user_initiated_session_end`). The ledger's `runtime.terminated` event carries
+ * the same reason but its tail read is far slower on a loaded HRC. A generation
+ * with any non-terminal runtime is not ended; no record is "not confirmed".
  */
 import { HrcDomainError } from 'hrc-core'
 
@@ -42,6 +49,7 @@ export type C2HrcClient = Pick<
   | 'deliverLiteralBySelector'
   | 'getSessionAttention'
   | 'getStatus'
+  | 'listRuntimes'
   | 'listSessionAnnotations'
   | 'listSessions'
   | 'putSessionAnnotation'
@@ -61,6 +69,8 @@ export type C2HrcHostOptions = {
    */
   ownsUnscoped: boolean
   literalInputTimeoutMs: number
+  /** Handoff lookup (T-12233 §4); absent means the rotated wake reads `handoff=unknown`. */
+  handoffSince?: ((scopeRef: string, sinceIso: string) => Promise<boolean | null>) | undefined
   log(line: string): void
 }
 
@@ -73,6 +83,8 @@ export type C2HrcHost = C2Host & {
 const SCAN_EVERY = 4
 const SCAN_CONCURRENCY = 8
 const TASK_SEAT = /:task:T-/
+/** Only a recorded termination confirms an end; any other status may be a liveness blip (the hold). */
+const TERMINATED = 'terminated'
 
 type Observation = { seats: SeatRow[]; annotations: AnnotationRow[] }
 
@@ -148,6 +160,8 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
   let sweeping: Promise<void> | null = null
   let observing: Promise<Observation> | null = null
   let fingerprint: string | undefined
+  /** `<sessionRef>#<generation>` → that generation's host session, from observed c2 rows and seats. */
+  const hostSessions = new Map<string, string>()
 
   async function node(): Promise<string> {
     if (resolvedNode !== undefined) return resolvedNode
@@ -300,8 +314,21 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
     const seats: SeatRow[] = []
     const annotations: AnnotationRow[] = []
     for (const result of results) {
-      if (result.seat !== undefined) seats.push(result.seat)
+      if (result.seat !== undefined) {
+        seats.push(result.seat)
+        hostSessions.set(
+          `${result.seat.sessionRef}#${result.seat.generation}`,
+          result.seat.hostSessionId
+        )
+      }
       annotations.push(...result.rows)
+      for (const row of result.rows) {
+        if (row.subject === 'generation' && typeof row.generation === 'number' && row.hostSessionId)
+          hostSessions.set(
+            `${row.scopeRef}/lane:${row.laneRef ?? 'main'}#${row.generation}`,
+            row.hostSessionId
+          )
+      }
     }
     const next = JSON.stringify([seats, annotations])
     if (fingerprint !== undefined && next !== fingerprint) {
@@ -351,8 +378,29 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
     }
   }
 
+  /** T-12233 §3: the terminated runtime of one generation, or null while not confirmed. */
+  async function runtimeEnd(sessionRef: string, generation: number) {
+    const hostSessionId = hostSessions.get(`${sessionRef}#${generation}`)
+    if (hostSessionId === undefined) return null
+    const runtimes = (await client.listRuntimes({ hostSessionId, all: true })).filter(
+      (r) => r.generation === generation
+    )
+    if (runtimes.length === 0 || runtimes.some((r) => r.status !== TERMINATED)) return null
+    const last = runtimes.reduce((a, r) =>
+      (r.statusChangedAt ?? r.updatedAt) > (a.statusChangedAt ?? a.updatedAt) ? r : a
+    )
+    const state = last.runtimeStateJson as { terminationReason?: unknown } | undefined
+    const reason =
+      typeof state?.terminationReason === 'string'
+        ? state.terminationReason
+        : (last.lifecycleTerminalReason ?? null)
+    return { runtimeId: last.runtimeId, terminatedReason: reason }
+  }
+
   return {
     node,
+    runtimeEnd,
+    ...(options.handoffSince !== undefined ? { handoffSince: options.handoffSince } : {}),
     async seats() {
       return (await shared()).seats
     },

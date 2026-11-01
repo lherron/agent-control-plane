@@ -20,6 +20,7 @@ import {
   wireCard,
 } from '@praesidium/c2-core'
 
+import type { WorkClient } from '@wrkq/client'
 import { writeLogLine } from 'acp-core'
 
 import type { AcpHrcClient } from '../deps.js'
@@ -61,7 +62,27 @@ function log(event: string, data: Record<string, unknown>): void {
   writeLogLine({ level: 'info', component: 'acp-c2', event, data })
 }
 
-export function createC2Service(config: AcpC2Config, hrcClient: AcpHrcClient): C2Service {
+/**
+ * T-12233 §4: whether a pending or acknowledged wrkq handoff for the agent@project
+ * scope (`agent:<a>:project:<p>`) was created at/after `sinceIso`. wrkq lists
+ * newest first and stamps whole seconds, so a handoff in the attention's own
+ * second counts. Null without a wrkq client.
+ */
+export function wrkqHandoffSince(workClient: WorkClient | undefined) {
+  if (workClient === undefined) return undefined
+  return async (scopeRef: string, sinceIso: string): Promise<boolean | null> => {
+    const since = Math.floor(Date.parse(sinceIso) / 1000) * 1000
+    if (Number.isNaN(since)) return null
+    const page = await workClient.wrkq.handoff.listView({ scopeRef, status: 'all', limit: 5 })
+    return page.items.some((h) => Date.parse(h.created_at) >= since)
+  }
+}
+
+export function createC2Service(
+  config: AcpC2Config,
+  hrcClient: AcpHrcClient,
+  workClient?: WorkClient | undefined
+): C2Service {
   const pollMs = config.pollMs ?? C2_DEFAULTS.pollMs
   const roots = config.artifactRoots ?? defaultArtifactRoots()
   const host: C2HrcHost = createC2HrcHost({
@@ -72,6 +93,7 @@ export function createC2Service(config: AcpC2Config, hrcClient: AcpHrcClient): C
     sweepMs: config.sweepMs ?? C2_DEFAULTS.sweepMs,
     ownsUnscoped: config.vestaSeat === PRODUCTION_VESTA,
     literalInputTimeoutMs: config.literalInputTimeoutMs ?? C2_DEFAULTS.literalInputTimeoutMs,
+    handoffSince: wrkqHandoffSince(workClient),
     log: (line) => log('c2.host', { line }),
   })
   const controller = new Controller(host, {
@@ -80,6 +102,7 @@ export function createC2Service(config: AcpC2Config, hrcClient: AcpHrcClient): C
     actor: C2_PHONE_PRINCIPAL,
     classify: true,
     ...(config.node !== undefined ? { node: config.node } : {}),
+    ...(config.settleMs !== undefined ? { settleMs: config.settleMs } : {}),
   })
 
   // The warm snapshot (T-12227). The poll timer refreshes it in the background;
@@ -290,11 +313,12 @@ const services = new WeakMap<AcpC2Config, C2Service>()
 export function ensureC2Service(deps: {
   c2?: AcpC2Config | undefined
   hrcClient?: AcpHrcClient | undefined
+  workClient?: WorkClient | undefined
 }): C2Service | undefined {
   if (deps.c2 === undefined || deps.hrcClient === undefined) return undefined
   let service = services.get(deps.c2)
   if (service === undefined) {
-    service = createC2Service(deps.c2, deps.hrcClient)
+    service = createC2Service(deps.c2, deps.hrcClient, deps.workClient)
     services.set(deps.c2, service)
   }
   return service

@@ -7,6 +7,7 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+import type { WorkClient } from '@wrkq/client'
 import { HrcClient } from 'hrc-sdk'
 
 import { createAcpListenerHandlers } from '../../src/acp-listener.js'
@@ -64,6 +65,8 @@ export type C2AcpOptions = {
   fixtureVesta?: boolean
   /** Shape HRC before ACP's first read (e.g. inject seat errors). */
   beforeBoot?: (fake: FakeHrc) => void
+  /** The wrkq client ACP reads handoffs through (T-12233); absent means no handoff lookup. */
+  workClient?: WorkClient
 }
 
 export function fixtureSeats(): FakeSeat[] {
@@ -229,6 +232,7 @@ export async function withC2Acp<T>(
     hrcClient,
     c2,
     ...(options.mobileAuthStore !== undefined ? { mobileAuthStore: options.mobileAuthStore } : {}),
+    ...(options.workClient !== undefined ? { workClient: options.workClient } : {}),
   }
 
   try {
