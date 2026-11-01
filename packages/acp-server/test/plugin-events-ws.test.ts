@@ -98,7 +98,11 @@ async function withPluginWebSocketServer<T>(
   run: (baseUrl: string) => Promise<T>
 ): Promise<T> {
   const deps = { hrcClient } as ResolvedAcpServerDeps
+  // Bind the address the client dials. Bun's default binds the IPv6 wildcard,
+  // and a parallel package's IPv4 127.0.0.1 listener may hold the same port
+  // number, so ws://127.0.0.1 could reach a foreign server ("WebSocket failed").
   const server = Bun.serve<PluginEventsWebSocketData>({
+    hostname: '127.0.0.1',
     port: 0,
     fetch(request, bunServer) {
       const url = new URL(request.url)
