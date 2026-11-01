@@ -1515,7 +1515,14 @@ describe('T-08575 retained-evidence actuation fence', () => {
   test('T-TX3 dispatcher finalize detects and selects from one production read transaction', async () => {
     const hrc = createHrcDb()
     hrc.db.exec('PRAGMA journal_mode = WAL')
-    const fx = createTmuxActuationFixture({ hrcDbPath: hrc.hrcDbPath, generation: 7 })
+    // A 10-minute stale window keeps a loaded runner from timing the run out
+    // between the two reads (CI run 41280761236 took 65ms against the 10ms
+    // default); staleness is not what this test fences (T-12143 pattern).
+    const fx = createTmuxActuationFixture({
+      hrcDbPath: hrc.hrcDbPath,
+      generation: 7,
+      staleTimeoutMs: 10 * 60_000,
+    })
     insertAssistantMessage(hrc.db, {
       hrcSeq: 5,
       hostSessionId: 'hsid-retained',
