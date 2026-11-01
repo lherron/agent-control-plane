@@ -33,6 +33,9 @@
       "GET /v1/jobs/:jobId/runs",
       "GET /v1/media/attachments/:spoolId/:filename",
       "GET /v1/mobile/auth/devices",
+      "GET /v1/mobile/c2/actions/:requestId",
+      "GET /v1/mobile/c2/artifacts/:id",
+      "GET /v1/mobile/c2/cards",
       "GET /v1/mobile/dashboard",
       "GET /v1/mobile/dm/targets",
       "GET /v1/mobile/health",
@@ -96,6 +99,7 @@
       "POST /v1/mobile/auth/devices/revoke",
       "POST /v1/mobile/auth/enforce",
       "POST /v1/mobile/auth/pairing-code",
+      "POST /v1/mobile/c2/actions",
       "POST /v1/mobile/messages/dm",
       "POST /v1/mobile/messages/query",
       "POST /v1/mobile/pair",
@@ -1025,6 +1029,35 @@
         "path": "acp mobile auth disable"
       },
       {
+        "description": "operate the C2 mobile cards host",
+        "options": [],
+        "path": "acp c2"
+      },
+      {
+        "description": "the C2 scope row on the Vesta seat (absent allows nothing)",
+        "options": [],
+        "path": "acp c2 scope"
+      },
+      {
+        "description": "show the scope row",
+        "options": [
+          "--json",
+          "--table",
+          "--vesta-seat"
+        ],
+        "path": "acp c2 scope show"
+      },
+      {
+        "description": "replace the scope allowlist (written as agent:lance)",
+        "options": [
+          "--allow",
+          "--json",
+          "--table",
+          "--vesta-seat"
+        ],
+        "path": "acp c2 scope set"
+      },
+      {
         "description": "send coordination messages",
         "options": [],
         "path": "acp message"
@@ -1394,6 +1427,10 @@
         "acp agent show",
         "acp agent-pulpit",
         "acp agent-pulpit send",
+        "acp c2",
+        "acp c2 scope",
+        "acp c2 scope set",
+        "acp c2 scope show",
         "acp delivery",
         "acp delivery list-failed",
         "acp delivery retry",
@@ -2131,6 +2168,8 @@
         "AgentInspectionAuthority",
         "AgentRootResolver",
         "AuthorizeFn",
+        "C2ScopeClient",
+        "C2ScopeRow",
         "DeliveryTargetResolver",
         "DispatchFence",
         "InputAdmissionStore",
@@ -2157,6 +2196,7 @@
       ],
       "rootValues": [
         "createAcpServer",
+        "createC2ScopeClient",
         "createDurableWrkfStores",
         "createWrkfClientLifecycle",
         "DurableWrkfParticipantCaptureStore",
@@ -2177,10 +2217,14 @@
         "launchAction",
         "launchRoleScopedTaskRun",
         "parseCliArgs",
+        "readC2Scope",
         "renderAcpServerHelp",
         "resolveCliOptions",
         "resolveLaunchIntent",
-        "startAcpServeBin"
+        "resolveVestaSeat",
+        "startAcpServeBin",
+        "validateScopeAllow",
+        "writeC2Scope"
       ]
     },
     "acp-state-store": {

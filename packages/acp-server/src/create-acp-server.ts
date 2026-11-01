@@ -1,3 +1,4 @@
+import { ensureC2Service, stopC2Service } from './c2/controller-host.js'
 import { type AcpServerDeps, resolveAcpServerDeps } from './deps.js'
 import { errorResponse } from './http.js'
 import { authorizeMobileRequest, mobileUnauthorizedResponse } from './mobile-auth/gate.js'
@@ -27,6 +28,8 @@ export interface AcpServer {
   handler(request: Request, options?: AcpServerHandlerOptions): Promise<Response>
   /** The template `method pathname` would route to, without running it. */
   routeTemplate(method: string, pathname: string): string
+  /** Stop instance-owned background work (the C2 controller host). */
+  close?(): Promise<void>
 }
 
 type MatchedRoute = { template: string; handler: RouteHandler; params: RouteParams }
@@ -35,6 +38,8 @@ export function createAcpServer(deps: AcpServerDeps): AcpServer {
   const resolvedDeps = resolveAcpServerDeps(deps)
   const exactRouteHandlers = buildExactRouteHandlers(resolvedDeps)
   const paramRoutes = buildParamRoutes()
+  // T-12207: the C2 controller is always on wherever C2 config and HRC exist.
+  ensureC2Service(resolvedDeps)
 
   function matchRoute(method: string, pathname: string): MatchedRoute | undefined {
     const exactRouteHandler = exactRouteHandlers[exactRouteKey(method, pathname)]
@@ -45,6 +50,9 @@ export function createAcpServer(deps: AcpServerDeps): AcpServer {
   }
 
   return {
+    async close(): Promise<void> {
+      stopC2Service(resolvedDeps)
+    },
     routeTemplate(method: string, pathname: string): string {
       return matchRoute(method, pathname)?.template ?? UNMATCHED_ROUTE
     },

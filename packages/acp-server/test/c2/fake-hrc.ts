@@ -78,7 +78,8 @@ export type FakeHrc = {
   annotations: FakeAnnotation[]
   calls: FakeCall[]
   ledger: FakeLedgerEvent[]
-  literalInput: { mode: LiteralInputMode }
+  /** `refuse`: seats whose literal input answers 409 stale_context. */
+  literalInput: { mode: LiteralInputMode; refuse: Set<string> }
   /** A direct put, as Vesta's `hrc session annotation put --as agent:vesta` would land. */
   put(row: {
     scopeRef: string
@@ -122,7 +123,10 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
   const annotations: FakeAnnotation[] = []
   const calls: FakeCall[] = []
   const ledger: FakeLedgerEvent[] = []
-  const literalInput: { mode: LiteralInputMode } = { mode: 'accept' }
+  const literalInput: { mode: LiteralInputMode; refuse: Set<string> } = {
+    mode: 'accept',
+    refuse: new Set(),
+  }
   let lastStamp = 0
   let seq = 1000
   let runCounter = 0
@@ -396,6 +400,7 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
       return hrcError(404, 'unknown_session', { sessionRef })
     }
     if (
+      literalInput.refuse.has(scopeRef) ||
       body.fences?.expectedHostSessionId !== seat.hostSessionId ||
       body.fences?.expectedGeneration !== seat.generation
     ) {

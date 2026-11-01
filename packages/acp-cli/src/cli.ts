@@ -17,6 +17,7 @@ import {
 } from './commands/admin-managed-resource.js'
 import { runAgentPulpitCommand } from './commands/agent-pulpit.js'
 import { runAgentCommand } from './commands/agent.js'
+import { runC2Command } from './commands/c2.js'
 import { runDeliveryCommand } from './commands/delivery.js'
 import { runHeartbeatCommand } from './commands/heartbeat.js'
 import { runInterfaceIdentityCommand } from './commands/interface-identity.js'
@@ -551,6 +552,28 @@ function addRuntimeCommands(program: Command, deps: CommandDependencies): void {
     .action(runLeaf(deps, [], runRenderCommand))
 }
 
+function addC2Commands(program: Command, deps: CommandDependencies): void {
+  const c2 = program.command('c2').description('operate the C2 mobile cards host')
+  const scope = c2
+    .command('scope')
+    .description('the C2 scope row on the Vesta seat (absent allows nothing)')
+  scope
+    .command('show')
+    .description('show the scope row')
+    .option('--vesta-seat <scopeRef>', 'Vesta seat (default ACP_C2_VESTA_SEAT or production Vesta)')
+    .option('--json', 'emit JSON output')
+    .option('--table', 'emit table output')
+    .action(runLeaf(deps, ['scope', 'show'], runC2Command))
+  scope
+    .command('set')
+    .description('replace the scope allowlist (written as agent:lance)')
+    .option('--allow <regex>', 'allowed seat scopeRef pattern (repeatable)', repeatable(), [])
+    .option('--vesta-seat <scopeRef>', 'Vesta seat (default ACP_C2_VESTA_SEAT or production Vesta)')
+    .option('--json', 'emit JSON output')
+    .option('--table', 'emit table output')
+    .action(runLeaf(deps, ['scope', 'set'], runC2Command))
+}
+
 function addMobileCommands(program: Command, deps: CommandDependencies): void {
   const mobile = program
     .command('mobile')
@@ -723,6 +746,7 @@ export function buildProgram(
   addGovernanceCommands(program, deps)
   addRuntimeCommands(program, deps)
   addMobileCommands(program, deps)
+  addC2Commands(program, deps)
   addCoordinationCommands(program, deps)
 
   program

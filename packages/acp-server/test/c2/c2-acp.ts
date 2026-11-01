@@ -52,6 +52,8 @@ export type C2AcpOptions = {
   mobileAuthStore?: MobileAuthStore
   /** Skip seeding the scope row on the Vesta seat (absent row allows nothing). */
   noScope?: boolean
+  /** Stop HRC before ACP boots, so no snapshot was ever read. */
+  hrcDownAtBoot?: boolean
 }
 
 export function fixtureSeats(): FakeSeat[] {
@@ -159,6 +161,7 @@ export async function withC2Acp<T>(
     body: cardBody({ image: imagePath, html: htmlPath }),
   })
 
+  if (options.hrcDownAtBoot === true) await fake.stop()
   const hrcClient = new HrcClient({
     socketPath: fake.socketPath,
     userAgent: 'acp-c2-reds',
@@ -354,6 +357,16 @@ export function reconcilePath(requestId: string, key: CardKey): string {
     generation: String(key.generation),
   })
   return `/v1/mobile/c2/actions/${encodeURIComponent(requestId)}?${query}`
+}
+
+/** Literal inputs to the fixture card's own seat (not the acted line to Vesta). */
+export function seatSends(acp: C2Acp) {
+  return acp.fake
+    .literalInputs()
+    .filter(
+      (call) =>
+        (call.body as { selector?: { sessionRef?: string } }).selector?.sessionRef === SEAT_REF
+    )
 }
 
 /** Wait past a few controller poll periods so background work would have shown. */

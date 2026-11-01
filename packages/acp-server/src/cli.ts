@@ -26,6 +26,7 @@ import {
 
 import { createAccessLogger } from './access-log.js'
 import { createAcpListenerHandlers } from './acp-listener.js'
+import { c2ConfigFromEnv } from './c2/controller-host.js'
 import { createAcpServer } from './create-acp-server.js'
 import {
   type AcpHrcClient,
@@ -415,6 +416,7 @@ export function renderHelp(): string {
     `  ACP_ACTOR         Defaults to WRKQ_ACTOR or ${DEFAULT_ACTOR}`,
     '  WRKF_BIN          Defaults to wrkf',
     '  ACP_WRKF_DISABLED Set to 1 or true to bypass wrkf startup in local dev/test',
+    '  ACP_C2_VESTA_SEAT  Vesta seat whose C2 scope row and asks this instance serves; defaults to agent:vesta:project:c2:task:primary',
     '  ACP_RECONCILER_NODE Designated HRC node for the delegated-session reconciler; unset = not run',
     '  ACP_RECONCILER_INTERVAL_MS Scan interval, 30000-60000; defaults to 45000',
     '  ACP_RECONCILER_GLOBAL_CAPACITY Defaults to 4',
@@ -1129,6 +1131,8 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     interfaceStore,
     stateStore,
     ...launcherDeps,
+    // T-12207: the C2 cards host is always on where this instance has HRC.
+    ...(launcherDeps.hrcClient !== undefined ? { c2: c2ConfigFromEnv() } : {}),
     ...(jobNodeIdentityAuthority !== undefined ? { jobNodeIdentityAuthority } : {}),
     ...(inputQueueMaxDepth !== undefined || inputQueueTtlMs !== undefined
       ? {

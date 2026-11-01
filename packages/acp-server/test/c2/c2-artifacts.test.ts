@@ -1,7 +1,4 @@
 /**
- * Phase R red, flips in phase G: each test.failing becomes test(...) as it
- * goes green (Bun fails a test.failing that passes).
- *
  * T-12207 Work step 5/6: `GET /v1/mobile/c2/artifacts/:id`. The id is opaque,
  * bound to {key, updatedAt, field, index}; ACP re-reads the card and takes the
  * path only from that body, realpaths it, and requires containment under the
@@ -42,7 +39,7 @@ async function forgedEvidence(acp: C2Acp): Promise<string> {
 }
 
 describe('positive control', () => {
-  test.failing('an evidence image is served at full resolution, byte for byte', async () => {
+  test('an evidence image is served at full resolution, byte for byte', async () => {
     await withC2Acp(async (acp) => {
       const { card } = await snapshotCard(acp)
       const id = card.evidence.find((item) => item.label === 'look')?.image?.artifact
@@ -57,7 +54,7 @@ describe('positive control', () => {
     })
   })
 
-  test.failing('the detail explanation is HTML with the restrictive CSP and nosniff', async () => {
+  test('the detail explanation is HTML with the restrictive CSP and nosniff', async () => {
     await withC2Acp(async (acp) => {
       const { card } = await snapshotCard(acp)
       const response = await acp.get(`/v1/mobile/c2/artifacts/${card.detail.artifact}`)
@@ -71,29 +68,26 @@ describe('positive control', () => {
 })
 
 describe('refusals', () => {
-  test.failing(
-    'a changed card invalidates its old artifact id; the refreshed id works',
-    async () => {
-      await withC2Acp(async (acp) => {
-        const { card } = await snapshotCard(acp)
-        const oldId = card.evidence.find((item) => item.label === 'look')?.image?.artifact ?? ''
-        acp.fake.put({
-          scopeRef: SEAT,
-          generation: 2,
-          kind: 'card',
-          id: card.key.id,
-          body: { ...acp.card().body, title: 'Revised' },
-        })
-        expect(await refusal(acp, oldId)).toEqual({ status: 409, code: 'artifact_stale' })
-        const { card: fresh } = await snapshotCard(acp)
-        const newId = fresh.evidence.find((item) => item.label === 'look')?.image?.artifact
-        expect(newId).not.toBe(oldId)
-        expect((await acp.get(`/v1/mobile/c2/artifacts/${newId}`)).status).toBe(200)
+  test('a changed card invalidates its old artifact id; the refreshed id works', async () => {
+    await withC2Acp(async (acp) => {
+      const { card } = await snapshotCard(acp)
+      const oldId = card.evidence.find((item) => item.label === 'look')?.image?.artifact ?? ''
+      acp.fake.put({
+        scopeRef: SEAT,
+        generation: 2,
+        kind: 'card',
+        id: card.key.id,
+        body: { ...acp.card().body, title: 'Revised' },
       })
-    }
-  )
+      expect(await refusal(acp, oldId)).toEqual({ status: 409, code: 'artifact_stale' })
+      const { card: fresh } = await snapshotCard(acp)
+      const newId = fresh.evidence.find((item) => item.label === 'look')?.image?.artifact
+      expect(newId).not.toBe(oldId)
+      expect((await acp.get(`/v1/mobile/c2/artifacts/${newId}`)).status).toBe(200)
+    })
+  })
 
-  test.failing('a card path outside the roots is refused', async () => {
+  test('a card path outside the roots is refused', async () => {
     await withC2Acp(async (acp) => {
       const outside = join(acp.roots.outside, 'secret.png')
       writeFileSync(outside, 'not for the phone')
@@ -105,7 +99,7 @@ describe('refusals', () => {
     })
   })
 
-  test.failing('a symlink under a root that escapes it is refused', async () => {
+  test('a symlink under a root that escapes it is refused', async () => {
     await withC2Acp(async (acp) => {
       const outside = join(acp.roots.outside, 'secret.png')
       writeFileSync(outside, 'not for the phone')
@@ -119,7 +113,7 @@ describe('refusals', () => {
     })
   })
 
-  test.failing('a traversal path that lexically starts under a root is refused', async () => {
+  test('a traversal path that lexically starts under a root is refused', async () => {
     await withC2Acp(async (acp) => {
       writeFileSync(join(acp.roots.outside, 'secret.png'), 'not for the phone')
       repoint(acp, join(acp.roots.wrkqArtifacts, '..', 'outside', 'secret.png'))
@@ -130,7 +124,7 @@ describe('refusals', () => {
     })
   })
 
-  test.failing('a sibling directory sharing a root prefix is refused', async () => {
+  test('a sibling directory sharing a root prefix is refused', async () => {
     await withC2Acp(async (acp) => {
       const sibling = `${acp.roots.wrkqArtifacts}-evil`
       mkdirSync(sibling, { recursive: true })
@@ -143,7 +137,7 @@ describe('refusals', () => {
     })
   })
 
-  test.failing('an index or field the card does not link is refused', async () => {
+  test('an index or field the card does not link is refused', async () => {
     await withC2Acp(async (acp) => {
       const { card } = await snapshotCard(acp)
       // evidence[0] is a text item, evidence[9] does not exist.
@@ -159,7 +153,7 @@ describe('refusals', () => {
     })
   })
 
-  test.failing('an image over 20 MB is refused', async () => {
+  test('an image over 20 MB is refused', async () => {
     await withC2Acp(async (acp) => {
       const big = join(acp.roots.wrkqArtifacts, 'T-00000', 'huge.png')
       const fd = openSync(big, 'w')
@@ -173,7 +167,7 @@ describe('refusals', () => {
     })
   })
 
-  test.failing('HTML over 64 KB is refused', async () => {
+  test('HTML over 64 KB is refused', async () => {
     await withC2Acp(async (acp) => {
       const fat = join(acp.roots.scratchC2, 'fat.html')
       writeFileSync(fat, `<p>${'x'.repeat(64 * 1024)}</p>`)
@@ -186,7 +180,7 @@ describe('refusals', () => {
     })
   })
 
-  test.failing('a malformed id is 400', async () => {
+  test('a malformed id is 400', async () => {
     await withC2Acp(async (acp) => {
       expect(await refusal(acp, 'not-base64url-json')).toEqual({
         status: 400,

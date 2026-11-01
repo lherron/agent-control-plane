@@ -195,6 +195,12 @@ export type AcpHrcClient = Pick<
   | 'watch'
   | 'watchBoundedEvents'
   | 'watchMessages'
+  // T-12207: the C2 host (seat attention and the four annotation routes).
+  | 'getSessionAttention'
+  | 'listSessionAnnotations'
+  | 'putSessionAnnotation'
+  | 'deleteSessionAnnotation'
+  | 'actOnSessionAnnotation'
 > & {
   /**
    * T-12177 (hrc-runtime.federated-input-interrupt): `node` forwards the

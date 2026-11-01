@@ -7,21 +7,40 @@
  * NOT here — it is the HRC `ns c2, kind config, id scope` seat annotation on
  * the Vesta seat (C2 rev 4 D5), and an absent row allows nothing.
  */
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+
 export type AcpC2Config = {
   /** Vesta's seat scopeRef, e.g. `agent:vesta:project:c2:task:primary`. */
   vestaSeat: string
-  /** This node's id as it appears in `home.node`, `seat.node` and receipts. */
-  node: string
+  /**
+   * This node's id as it appears in `home.node`, `seat.node` and receipts.
+   * Default: HRC's declared `status.node.nodeId`.
+   */
+  node?: string | undefined
   /**
    * Artifact roots, resolved with realpath before containment checks. Default:
    * `~/praesidium/var/wrkq-artifacts` and `~/praesidium/var/scratch/c2`.
    */
   artifactRoots?: readonly string[] | undefined
-  /** HRC observation cadence for the controller loop and long poll. */
+  /** Fast HRC observation cadence (Vesta, in-scope seats, seats with c2 rows). */
   pollMs?: number | undefined
+  /** Full seat sweep cadence: which continuities hold c2 rows or match scope. */
+  sweepMs?: number | undefined
   /**
    * Bound on the one HRC literal-input call. Expiry after the call was made is
    * `unknown_outcome`, never `not_submitted`, and is never retried.
    */
   literalInputTimeoutMs?: number | undefined
+}
+
+export const C2_DEFAULTS = {
+  pollMs: 2000,
+  sweepMs: 60_000,
+  literalInputTimeoutMs: 30_000,
+} as const
+
+export function defaultArtifactRoots(): string[] {
+  const root = join(homedir(), 'praesidium', 'var')
+  return [join(root, 'wrkq-artifacts'), join(root, 'scratch', 'c2')]
 }

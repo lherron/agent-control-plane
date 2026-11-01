@@ -72,3 +72,12 @@ export {
   type WrkfActionLaunchInput,
   type WrkfActionLaunchResult,
 } from './wrkf/action-launch.js'
+export {
+  createC2ScopeClient,
+  readC2Scope,
+  resolveVestaSeat,
+  validateScopeAllow,
+  writeC2Scope,
+  type C2ScopeClient,
+  type C2ScopeRow,
+} from './c2/scope.js'

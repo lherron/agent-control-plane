@@ -260,6 +260,10 @@ acp mobile auth | -
 acp mobile auth status | --actor --json --server --table
 acp mobile auth enable | --actor --force --json --server --table
 acp mobile auth disable | --actor --json --server --table
+acp c2 | -
+acp c2 scope | -
+acp c2 scope show | --json --table --vesta-seat
+acp c2 scope set | --allow --json --table --vesta-seat
 acp message | -
 acp message send | --actor --coordination-only --dispatch --from-agent --from-human --from-lane-ref --from-session --from-system --json --project --server --table --text --to-agent --to-human --to-lane-ref --to-session --to-system --wake
 acp message broadcast | --actor --coordination-only --dispatch --from-agent --from-human --from-lane-ref --from-session --from-system --json --project --server --table --text --to-agent --to-human --to-lane-ref --to-session --to-system --wake

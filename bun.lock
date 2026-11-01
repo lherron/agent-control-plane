@@ -194,6 +194,7 @@
         "acp-server": "./src/cli.ts",
       },
       "dependencies": {
+        "@praesidium/c2-core": "0.1.4",
         "@wrkq/client": "latest",
         "acp-admin-store": "*",
         "acp-capability-host": "*",
@@ -676,6 +677,8 @@
     "@napi-rs/lzma-linux-x64-gnu": ["@napi-rs/lzma-linux-x64-gnu@1.5.1", "http://mini:4873/@napi-rs/lzma-linux-x64-gnu/-/lzma-linux-x64-gnu-1.5.1.tgz", { "os": "linux", "cpu": "x64" }, "sha512-oTXEIha4SsuXdTA4Iyskj0kpdx2yVXdhd75c2v3xGrHFfVMsbhTPZU/nMPL4sWKo4pBHm3aucLaqGlF696dTyQ=="],
 
     "@opentelemetry/semantic-conventions": ["@opentelemetry/semantic-conventions@1.43.0", "http://mini:4873/@opentelemetry/semantic-conventions/-/semantic-conventions-1.43.0.tgz", {}, "sha512-eSYWTm620tTk45EKSedaUL8MFYI8hW164hIXsgIHyxu3VobUB3fFCu5t0hQby6OoWRPsG1KkKUG2M5UadiLiVg=="],
+
+    "@praesidium/c2-core": ["@praesidium/c2-core@0.1.4", "http://mini:4873/@praesidium/c2-core/-/c2-core-0.1.4.tgz", {}, "sha512-Quc1JMfp8cWGCW9a4KmPgL5+/Q22ufNGa8WnGDAdMhRy453Na/0o6V+YnT4tCINExgQT9a+HPoZ/ylR/3e/CfA=="],
 
     "@protobufjs/aspromise": ["@protobufjs/aspromise@1.1.2", "http://mini:4873/@protobufjs/aspromise/-/aspromise-1.1.2.tgz", {}, "sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ=="],
 
