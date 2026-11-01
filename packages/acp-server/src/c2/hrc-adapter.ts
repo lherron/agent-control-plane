@@ -54,6 +54,12 @@ export type C2HrcHostOptions = {
   principal: string
   node?: string | undefined
   sweepMs: number
+  /**
+   * Also observe every seat holding c2 rows, outside the scope, so the owner's
+   * lifecycle ends narrowed-out cards (D5). Only the production-Vesta instance
+   * owns those; any other instance (a fixture) sees just its Vesta and scope.
+   */
+  ownsUnscoped: boolean
   literalInputTimeoutMs: number
   log(line: string): void
 }
@@ -172,7 +178,7 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
       scopes.add(session.scopeRef)
     }
     continuities = [...scopes].sort()
-    if (sweeps % SCAN_EVERY === 0) {
+    if (options.ownsUnscoped && sweeps % SCAN_EVERY === 0) {
       const found = new Set<string>()
       await mapLimit(continuities, SCAN_CONCURRENCY, async (scopeRef) => {
         const rows = await c2Rows(scopeRef)
@@ -212,7 +218,7 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
       }),
       c2Rows(scopeRef),
     ])
-    if (rows !== undefined && rows.length > 0) rowSeats.add(scopeRef)
+    if (options.ownsUnscoped && rows !== undefined && rows.length > 0) rowSeats.add(scopeRef)
     if (attention === undefined) return { rows: rows ?? [] }
     const seat: SeatRow = {
       scopeRef: attention.scopeRef,

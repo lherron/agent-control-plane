@@ -22,6 +22,10 @@ export const VESTA = 'agent:vesta:project:c2:task:primary'
 /** Inside Stella's owner-approved boundary (`:project:c2:task:c2fixture-`). */
 export const SEAT = 'agent:smokey:project:c2:task:c2fixture-acp'
 export const SEAT_REF = `${SEAT}/lane:main`
+/** A non-production Vesta, as the 18471 fixture instance is configured. */
+export const FIXTURE_VESTA = 'agent:clod:project:c2:task:c2fixture-vesta'
+/** Stands in for a real human card: a seat outside every fixture scope, holding c2 rows. */
+export const OUT_SEAT = 'agent:mable:project:human:task:primary'
 export const ATTENTION_AT = '2026-11-01T05:00:00.000Z'
 export const REPLY_TEXT = 'Ship it; the fixture is disposable.'
 export const SCOPE_ALLOW = ['^agent:smokey:project:c2:task:c2fixture-[a-z0-9-]+$']
@@ -54,10 +58,28 @@ export type C2AcpOptions = {
   noScope?: boolean
   /** Stop HRC before ACP boots, so no snapshot was ever read. */
   hrcDownAtBoot?: boolean
+  /** Serve the fixture Vesta (scope row and config there) instead of production's. */
+  fixtureVesta?: boolean
 }
 
 export function fixtureSeats(): FakeSeat[] {
   return [
+    {
+      scopeRef: FIXTURE_VESTA,
+      hostSessionId: 'hsid-fixture-vesta',
+      generation: 1,
+      runtimeLive: true,
+      runtimeId: 'rt-fixture-vesta',
+      attention: null,
+    },
+    {
+      scopeRef: OUT_SEAT,
+      hostSessionId: 'hsid-out-seat',
+      generation: 4,
+      runtimeLive: true,
+      runtimeId: 'rt-out-seat',
+      attention: null,
+    },
     {
       scopeRef: VESTA,
       hostSessionId: 'hsid-vesta-fixture',
@@ -143,9 +165,10 @@ export async function withC2Acp<T>(
   writeFileSync(htmlPath, '<!doctype html><title>why</title><p>Because it is disposable.</p>')
 
   const fake = startFakeHrc(fixtureSeats())
+  const vestaSeat = options.fixtureVesta === true ? FIXTURE_VESTA : VESTA
   if (options.noScope !== true) {
     fake.put({
-      scopeRef: VESTA,
+      scopeRef: vestaSeat,
       subject: 'seat',
       kind: 'config',
       id: 'scope',
@@ -160,6 +183,21 @@ export async function withC2Acp<T>(
     id: ATTENTION_AT,
     body: cardBody({ image: imagePath, html: htmlPath }),
   })
+  // An open card on a seat no fixture scope allows, whose attention has moved on.
+  fake.put({
+    scopeRef: OUT_SEAT,
+    generation: 4,
+    kind: 'card',
+    id: '2026-11-01T04:00:00.000Z',
+    body: {
+      v: 4,
+      source: 'vesta',
+      state: 'open',
+      title: 'human',
+      actions: [],
+      createdAt: '2026-11-01T04:00:00.000Z',
+    },
+  })
 
   if (options.hrcDownAtBoot === true) await fake.stop()
   const hrcClient = new HrcClient({
@@ -167,7 +205,7 @@ export async function withC2Acp<T>(
     userAgent: 'acp-c2-reds',
   }) as unknown as AcpHrcClient
   const c2: AcpC2Config = {
-    vestaSeat: VESTA,
+    vestaSeat,
     node: NODE,
     artifactRoots: [roots.wrkqArtifacts, roots.scratchC2],
     pollMs: 50,

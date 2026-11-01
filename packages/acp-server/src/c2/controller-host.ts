@@ -66,6 +66,7 @@ export function createC2Service(config: AcpC2Config, hrcClient: AcpHrcClient): C
     principal: C2_CONTROLLER_PRINCIPAL,
     node: config.node,
     sweepMs: config.sweepMs ?? C2_DEFAULTS.sweepMs,
+    ownsUnscoped: config.vestaSeat === PRODUCTION_VESTA,
     literalInputTimeoutMs: config.literalInputTimeoutMs ?? C2_DEFAULTS.literalInputTimeoutMs,
     log: (line) => log('c2.host', { line }),
   })
