@@ -163,7 +163,7 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
   async function c2Rows(scopeRef: string): Promise<AnnotationRow[] | undefined> {
     try {
       const listed = await client.listSessionAnnotations({ scopeRef, laneRef: 'main', ns: 'c2' })
-      return listed.annotations as unknown as AnnotationRow[]
+      return listed.annotations
     } catch (error) {
       if (error instanceof HrcDomainError && error.code === 'unknown_host_session') return undefined
       throw error

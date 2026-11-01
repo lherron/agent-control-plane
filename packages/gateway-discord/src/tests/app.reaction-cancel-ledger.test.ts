@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
-import type { WorkClient } from '@wrkq/client'
+import { createClient } from '@wrkq/client'
+import { FakeTransport } from '@wrkq/client/testing'
 import { openInterfaceStore } from 'acp-interface-store'
 
 import { createLiveProgressHarness, waitFor } from './live-progress-test-helpers.test.js'
@@ -38,23 +39,26 @@ function user(id = 'user_cancel') {
   return { id, bot: false, partial: false } as never
 }
 
-function ledgerHarness(
+async function ledgerHarness(
   options: {
     ledgerCancelResponse?: (envelopeId: string) => Response | Promise<Response>
     beforeInterfaceMessageResponse?: () => Promise<void>
   } = {}
 ) {
+  // A real @wrkq/client with no wrkq behind it: these tests drive only the ❌
+  // cancel route, so any wrkq call answers JSON-RPC method-not-found.
+  const client = await createClient({ transport: new FakeTransport(), autoInitialize: false })
   return createLiveProgressHarness({
     interfaceMessageResponse: () => LEDGER_STATE,
     ledgerHumanEgress: {
-      client: {} as unknown as WorkClient,
+      client,
       store: openInterfaceStore({ dbPath: ':memory:' }),
     },
     ...options,
   })
 }
 
-async function sendAndReact(harness: ReturnType<typeof ledgerHarness>) {
+async function sendAndReact(harness: Awaited<ReturnType<typeof ledgerHarness>>) {
   await harness.app.refreshBindings()
   await harness.app.handleMessageCreate(harness.inboundMessage())
   const messageId = harness.webhook().sent[0]!.message.id
@@ -62,12 +66,12 @@ async function sendAndReact(harness: ReturnType<typeof ledgerHarness>) {
   return messageId
 }
 
-const lastEdit = (harness: ReturnType<typeof ledgerHarness>) =>
+const lastEdit = (harness: Awaited<ReturnType<typeof ledgerHarness>>) =>
   String(harness.webhook().edits.at(-1)?.payload.content ?? '')
 
 describe('GatewayDiscordApp ❌ on a ledger-routed placeholder', () => {
   test('cancels the ledger input envelope and shows Cancelled', async () => {
-    const harness = ledgerHarness()
+    const harness = await ledgerHarness()
     const messageId = await sendAndReact(harness)
 
     expect(harness.cancelledRunIds).toEqual([])
@@ -89,7 +93,7 @@ describe('GatewayDiscordApp ❌ on a ledger-routed placeholder', () => {
   })
 
   test('withdrawn shows Cancelled (withdrawn before presentation)', async () => {
-    const harness = ledgerHarness({
+    const harness = await ledgerHarness({
       ledgerCancelResponse: () => Response.json({ outcome: 'withdrawn' }),
     })
     await sendAndReact(harness)
@@ -97,7 +101,7 @@ describe('GatewayDiscordApp ❌ on a ledger-routed placeholder', () => {
   })
 
   test('not_applied shows the reason, never silent', async () => {
-    const harness = ledgerHarness({
+    const harness = await ledgerHarness({
       ledgerCancelResponse: () =>
         Response.json({ outcome: 'not_applied', reason: 'runtime_unavailable: svc down' }),
     })
@@ -106,7 +110,7 @@ describe('GatewayDiscordApp ❌ on a ledger-routed placeholder', () => {
   })
 
   test('a failing cancel route shows Cancel not applied', async () => {
-    const harness = ledgerHarness({
+    const harness = await ledgerHarness({
       ledgerCancelResponse: () => new Response('boom', { status: 500 }),
     })
     await sendAndReact(harness)
@@ -118,7 +122,7 @@ describe('GatewayDiscordApp ❌ on a ledger-routed placeholder', () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve
     })
-    const harness = ledgerHarness({ beforeInterfaceMessageResponse: () => gate })
+    const harness = await ledgerHarness({ beforeInterfaceMessageResponse: () => gate })
     await harness.app.refreshBindings()
     const pending = harness.app.handleMessageCreate(harness.inboundMessage())
     await waitFor(() => [...harness.channel.webhooks.values()].some((w) => w.sent.length > 0))

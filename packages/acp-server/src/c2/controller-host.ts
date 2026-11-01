@@ -25,7 +25,7 @@ import { writeLogLine } from 'acp-core'
 import type { AcpHrcClient } from '../deps.js'
 import { mintArtifactId, serveArtifact } from './artifacts.js'
 import { type AcpC2Config, C2_DEFAULTS, defaultArtifactRoots } from './config.js'
-import { type C2HrcClient, type C2HrcHost, createC2HrcHost } from './hrc-adapter.js'
+import { type C2HrcHost, createC2HrcHost } from './hrc-adapter.js'
 
 export const C2_CONTROLLER_PRINCIPAL = 'system:c2-controller'
 export const C2_PHONE_PRINCIPAL = 'agent:lance'
@@ -61,7 +61,7 @@ export function createC2Service(config: AcpC2Config, hrcClient: AcpHrcClient): C
   const pollMs = config.pollMs ?? C2_DEFAULTS.pollMs
   const roots = config.artifactRoots ?? defaultArtifactRoots()
   const host: C2HrcHost = createC2HrcHost({
-    client: hrcClient as unknown as C2HrcClient,
+    client: hrcClient,
     vestaSeat: config.vestaSeat,
     principal: C2_CONTROLLER_PRINCIPAL,
     node: config.node,

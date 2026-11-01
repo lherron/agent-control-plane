@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
-import type { WorkClient } from '@wrkq/client'
+import { type JsonRpcRequest, type JsonRpcResponse, createClient } from '@wrkq/client'
+import { FakeTransport } from '@wrkq/client/testing'
+import { HrcClient } from 'hrc-sdk'
 
 import type { AcpHrcClient } from '../src/index.js'
 import { withWiredServer } from './fixtures/wired-server.js'
@@ -49,6 +53,15 @@ const PRESENTED: Receipt = {
   presentedAt: '2026-10-31T17:31:49Z',
 }
 
+/** A request param the route sends; any other shape fails the test loudly. */
+function param(request: JsonRpcRequest, key: string): unknown {
+  const params = request.params
+  if (typeof params !== 'object' || params === null) {
+    throw new Error(`${request.method} sent no params object`)
+  }
+  return (params as Record<string, unknown>)[key]
+}
+
 function ledgerDouble(initial: EnvelopeState[], options: { ackFails?: boolean } = {}) {
   const calls: unknown[] = []
   const principals: string[] = []
@@ -61,36 +74,60 @@ function ledgerDouble(initial: EnvelopeState[], options: { ackFails?: boolean } 
     obligation: 'reply_required',
     ...view,
   })
-  const client = {
-    wrkq: {
-      envelope: {
-        show: async (params: { envelope: string; principalRef?: string }) => {
-          calls.push({ op: 'show', envelope: params.envelope })
-          return envelope(current())
-        },
-        withdraw: async (params: { envelope: string; reason?: string }) => {
-          calls.push({ op: 'withdraw', envelope: params.envelope, reason: params.reason })
-          const view = current()
-          if (view.state !== 'pending') {
-            // Real wrkq (observed live): a single-envelope withdraw of a
-            // presented envelope throws WRKQ_ALREADY_PRESENTED, no result.
-            throw Object.assign(new Error('already_presented'), {
-              code: 'WRKQ_ALREADY_PRESENTED',
-            })
-          }
-          return {
-            withdrawn: [envelope({ ...view, state: 'withdrawn', terminal: true })],
-            refused: [],
-          }
-        },
-        ack: async (params: { envelopes: string[]; note?: string }) => {
-          calls.push({ op: 'ack', envelopes: params.envelopes, note: params.note })
-          if (options.ackFails) throw new Error('ack refused: not an operator')
-          return { items: [] }
-        },
-      },
-    },
-  } as unknown as WorkClient
+  const result = (request: JsonRpcRequest, value: unknown): JsonRpcResponse => ({
+    jsonrpc: '2.0',
+    id: request.id,
+    result: value,
+  })
+  // The real @wrkq/client over an in-memory transport: the route drives the
+  // typed envelope facade exactly as in production; an unregistered method
+  // answers JSON-RPC method-not-found.
+  const transport = new FakeTransport()
+    .onMethod('wrkq.envelope.show', (request) => {
+      calls.push({ op: 'show', envelope: param(request, 'envelope') })
+      return result(request, envelope(current()))
+    })
+    .onMethod('wrkq.envelope.withdraw', (request) => {
+      calls.push({
+        op: 'withdraw',
+        envelope: param(request, 'envelope'),
+        reason: param(request, 'reason'),
+      })
+      const view = current()
+      if (view.state !== 'pending') {
+        // Real wrkq (observed live): a single-envelope withdraw of a
+        // presented envelope refuses WRKQ_ALREADY_PRESENTED, no result.
+        return {
+          jsonrpc: '2.0',
+          id: request.id,
+          error: {
+            code: -32000,
+            message: 'already_presented',
+            data: { code: 'WRKQ_ALREADY_PRESENTED' },
+          },
+        }
+      }
+      return result(request, {
+        withdrawn: [envelope({ ...view, state: 'withdrawn', terminal: true })],
+        refused: [],
+      })
+    })
+    .onMethod('wrkq.envelope.ack', (request) => {
+      calls.push({
+        op: 'ack',
+        envelopes: param(request, 'envelopes'),
+        note: param(request, 'note'),
+      })
+      if (options.ackFails) {
+        return {
+          jsonrpc: '2.0',
+          id: request.id,
+          error: { code: -32000, message: 'ack refused: not an operator' },
+        }
+      }
+      return result(request, { items: [] })
+    })
+  const client = createClient({ transport, autoInitialize: false })
   return {
     calls,
     principals,
@@ -101,16 +138,21 @@ function ledgerDouble(initial: EnvelopeState[], options: { ackFails?: boolean } 
   }
 }
 
+/**
+ * A real hrc-sdk client on a socket path that does not exist, with only
+ * `interrupt` answered; every other HRC call fails ENOENT, never reaching a
+ * live daemon.
+ */
 function hrcDouble(
   calls: unknown[],
   respond: () => Promise<Awaited<ReturnType<AcpHrcClient['interrupt']>>>
 ): AcpHrcClient {
-  return {
-    interrupt: async (runtimeId: string, options?: unknown) => {
-      calls.push({ op: 'interrupt', runtimeId, options })
-      return respond()
-    },
-  } as unknown as AcpHrcClient
+  const interrupt: AcpHrcClient['interrupt'] = async (runtimeId, options) => {
+    calls.push({ op: 'interrupt', runtimeId, options })
+    return respond()
+  }
+  const socketPath = join(tmpdir(), `acp-ledger-cancel-${crypto.randomUUID()}`, 'hrc.sock')
+  return Object.assign(new HrcClient({ socketPath }), { interrupt })
 }
 
 async function cancel(fixture: Parameters<Parameters<typeof withWiredServer>[0]>[0]) {

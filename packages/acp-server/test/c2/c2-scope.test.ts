@@ -25,7 +25,7 @@ import {
 
 test('narrowing the scope row hides and refuses the card; widening restores it', async () => {
   await withC2Acp(async (acp) => {
-    const scope = new HrcClient({ socketPath: acp.fake.socketPath }) as unknown as C2ScopeClient
+    const scope: C2ScopeClient = new HrcClient({ socketPath: acp.fake.socketPath })
     const { card } = await snapshotCard(acp)
 
     const before = await readC2Scope(scope, VESTA)
@@ -50,7 +50,7 @@ test('narrowing the scope row hides and refuses the card; widening restores it',
 
 test('an invalid pattern is refused before any HRC write', async () => {
   await withC2Acp(async (acp) => {
-    const scope = new HrcClient({ socketPath: acp.fake.socketPath }) as unknown as C2ScopeClient
+    const scope: C2ScopeClient = new HrcClient({ socketPath: acp.fake.socketPath })
     const writes = acp.fake.writes().length
     await expect(writeC2Scope(scope, VESTA, ['(unclosed'])).rejects.toThrow(/invalid allow pattern/)
     expect(acp.fake.writes()).toHaveLength(writes)

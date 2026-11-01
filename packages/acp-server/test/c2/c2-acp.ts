@@ -213,10 +213,10 @@ export async function withC2Acp<T>(
 
   options.beforeBoot?.(fake)
   if (options.hrcDownAtBoot === true) await fake.stop()
-  const hrcClient = new HrcClient({
+  const hrcClient: AcpHrcClient = new HrcClient({
     socketPath: fake.socketPath,
     userAgent: 'acp-c2-reds',
-  }) as unknown as AcpHrcClient
+  })
   const c2: AcpC2Config = {
     vestaSeat,
     node: NODE,

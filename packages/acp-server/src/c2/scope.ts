@@ -36,7 +36,7 @@ export function createC2ScopeClient(): C2ScopeClient {
   return new HrcClient({
     socketPath: resolveControlSocketPath(),
     userAgent: ACP_SERVER_USER_AGENT,
-  }) as unknown as C2ScopeClient
+  })
 }
 
 export async function readC2Scope(client: C2ScopeClient, vestaSeat: string): Promise<C2ScopeRow> {
