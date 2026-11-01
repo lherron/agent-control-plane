@@ -5,6 +5,7 @@ Start at [the skill](../SKILL.md). These maps enumerate source capability famili
 - [CLI and administration](cli-admin.md)
 - [Workflow, effects and jobs](workflow-jobs.md)
 - [Interfaces and gateways](interfaces.md)
+- [C2 mobile cards](c2-cards.md)
 - [HRC delivery and reconciliation](injection.md)
 - [Stores and projections](stores-projections.md)
 - [Capabilities and learning](capabilities-learning.md)
