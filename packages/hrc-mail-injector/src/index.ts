@@ -12,6 +12,7 @@ import {
 } from 'hrc-injector-core'
 
 import { normalizeFailureNoticeDispatchResult } from './failure-notice-dispatch.js'
+import { federatedLiveRuntimes } from './federated-runtimes.js'
 import { createJsonLineLog } from './log-line.js'
 import { createWrkqLedger } from './wrkq-ledger.js'
 
@@ -81,6 +82,7 @@ export async function startMailInjector(
       // are supplied by the same HRC socket implementation at runtime.
       port: {
         ...socketPort,
+        federatedLiveRuntimes: (scopeRef: string) => federatedLiveRuntimes(client, scopeRef),
         enqueue: async (
           session: Parameters<typeof socketPort.enqueue>[0],
           intent: Parameters<typeof socketPort.enqueue>[1],

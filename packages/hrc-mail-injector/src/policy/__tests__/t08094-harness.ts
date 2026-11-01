@@ -271,6 +271,11 @@ export async function createT08094Harness(): Promise<T08094Harness> {
       },
       registry: undefined,
       resolveForeignHome: async () => undefined,
+      federatedLiveRuntimes: async () => ({
+        localNodeId: 'max3',
+        liveNodeIds: [],
+        unansweredNodeIds: [],
+      }),
       resolveRuntimeIntent: () => ({}) as never,
       findTargetSession: () => session,
       ensureTargetSession: async () => session,

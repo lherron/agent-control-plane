@@ -247,3 +247,51 @@ export function localPlacementRefusalFor(error: unknown): LocalPlacementRefusal 
     ...(typeof projectRoot === 'string' ? { projectRoot } : {}),
   }
 }
+
+/**
+ * The node that holds a live runtime for an UNBOUND scope this node has
+ * nothing seated for (T-12214).
+ *
+ * `resolveForeignHome` knows declared, registry and designation homes only, so
+ * an unbound scope (a participant-only seat is the live case) looks local on
+ * every node. The node without the runtime then took the launch door, HRC
+ * refused it, and the refusals exhausted into `undeliverable` while the node
+ * that HAS the seat had already admitted the mail. A live runtime elsewhere is
+ * a placement fact: this node leaves the target to that node.
+ *
+ * A scope bound to THIS node is never skipped on this evidence: a runtime that
+ * lingers on an old home while retirement completes must not strand mail that
+ * both nodes would then call the other's. A failed read throws; the caller
+ * defers rather than guesses.
+ */
+export async function liveRuntimeHomeElsewhere(
+  server: MailKickerContext,
+  scopeRef: string
+): Promise<{ home: ForeignHome | undefined; complete: boolean }> {
+  const report = await server.port.federatedLiveRuntimes(scopeRef)
+  const complete = report.unansweredNodeIds.length === 0
+  const isLocal = (nodeId: string) => nodeId === server.nodeId || nodeId === report.localNodeId
+  if (report.liveNodeIds.some(isLocal)) return { home: undefined, complete }
+  const homeNodeId = report.liveNodeIds.find((nodeId) => !isLocal(nodeId))
+  if (homeNodeId === undefined) return { home: undefined, complete }
+  const bindings = await server.port.localPlacementBindings()
+  const boundHere = bindings.bindings.some(
+    (binding) =>
+      binding.scopeRef === scopeRef &&
+      binding.state === 'active' &&
+      binding.homeNodeId === server.nodeId
+  )
+  return { home: boundHere ? undefined : { homeNodeId, source: 'federated-runtime' }, complete }
+}
+
+/**
+ * HRC's summon gate refused the birth because the scope is participant-only and
+ * no participant is registered (T-12214). Keyed on the typed gate reason, never
+ * on the message text. It says "this node cannot seat it", which is not a
+ * launch failure: it is never charged against the envelope's launch bound.
+ */
+export function participantOnlyRefusalFor(error: unknown): { message: string } | undefined {
+  if (!(error instanceof HrcDomainError)) return undefined
+  if (error.detail['reason'] !== 'participant-only') return undefined
+  return { message: error.message }
+}

@@ -1,6 +1,7 @@
 import type { HrcDatabase } from 'hrc-store-sqlite'
 import { createPlacementLedgerRepository } from 'hrc-store-sqlite'
 
+import { isTerminalRuntimeStatus } from 'hrc-core'
 import type {
   HrcRuntimeIntent,
   HrcSessionRecord,
@@ -99,6 +100,21 @@ export function createInProcessInjectionPort(
     },
     withdraw: (input) => dependencies.broker.withdraw(input),
     resolveForeignHome: dependencies.resolveForeignHome,
+    // The daemon-embedded adapter has no peer inventory; it answers for itself.
+    federatedLiveRuntimes: async (scopeRef) => ({
+      localNodeId: dependencies.nodeId,
+      liveNodeIds: dependencies.db.runtimes
+        .listAll()
+        .some(
+          (runtime) =>
+            runtime.scopeRef === scopeRef &&
+            !isTerminalRuntimeStatus(runtime.status) &&
+            runtime.status !== 'detached'
+        )
+        ? [dependencies.nodeId]
+        : [],
+      unansweredNodeIds: [],
+    }),
     resolveRuntimeIntent: dependencies.resolveRuntimeIntent,
     targetBySessionRef: async (targetSessionRef) =>
       dependencies.findTargetSession(targetSessionRef),

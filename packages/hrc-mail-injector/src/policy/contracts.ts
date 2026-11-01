@@ -24,7 +24,14 @@ export type KickerLogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
 
 export type ForeignHome = Readonly<{
   homeNodeId: string
-  source: 'placement-ledger' | 'registry'
+  source: 'placement-ledger' | 'registry' | 'federated-runtime'
+}>
+
+/** Nodes with a live runtime for one exact scope; see hrc-injector-core (T-12214). */
+export type FederatedScopeRuntimes = Readonly<{
+  localNodeId: string
+  liveNodeIds: readonly string[]
+  unansweredNodeIds: readonly string[]
 }>
 
 export type KickerRegistryConsultResult =
@@ -91,6 +98,7 @@ export type HrcInjectionPort = {
       | { runtimeId: string; envelopeId: string; reason: string }
   ): Promise<KickerRpcResult<SubmissionWithdrawResponse>>
   resolveForeignHome(scopeRef: string): Promise<ForeignHome | undefined>
+  federatedLiveRuntimes(scopeRef: string): Promise<FederatedScopeRuntimes>
   resolveRuntimeIntent(
     scopeRef: string,
     materializationIntent: string | undefined

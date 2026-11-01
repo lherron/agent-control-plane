@@ -35,7 +35,9 @@ import {
   deferBirthForTarget,
   deterministicBirthRefusalFor,
   kickerScopeRefFor,
+  liveRuntimeHomeElsewhere,
   localPlacementRefusalFor,
+  participantOnlyRefusalFor,
   skipForeignHomedTarget,
 } from './authority.js'
 import { deliverByColdBirth, deliverDigestToSeat, deliverToSeat } from './delivery.js'
@@ -122,6 +124,18 @@ async function birthForTarget(
       }
       return { outcome: 'birth-refused', notPlaceableHere: true }
     }
+    const participantOnly = participantOnlyRefusalFor(error)
+    if (participantOnly !== undefined && scopeRef !== undefined) {
+      server.store.mailDelivery.clearIntent(summons.envelope.id)
+      return await settleParticipantOnlyRefusal(
+        server,
+        targetSessionRef,
+        scopeRef,
+        summons,
+        participantOnly.message,
+        wakeReason
+      )
+    }
     server.log('WARN', 'wrkq.kicker.birth_failed', {
       targetSessionRef,
       wakeReason,
@@ -178,6 +192,87 @@ async function birthForTarget(
     }
     return { outcome: 'birth-refused' }
   }
+}
+
+/**
+ * HRC refused the birth as participant-only (T-12214): this node cannot seat
+ * the scope, which is a placement fact, not a launch failure. The intent is
+ * already cleared and nothing is charged against the envelope's launch bound.
+ *
+ * Re-read the federated inventory, because the drive's own read can predate a
+ * participant registering elsewhere:
+ *  - live on another node → that node delivers it; skip as foreign-homed;
+ *  - every node answered and none is live → nobody can seat it, so fail the
+ *    pending mail now with the participant-only reason the sender needs;
+ *  - a peer did not answer, or the read failed → not provably unseated; leave
+ *    it on the long not-placeable horizon.
+ */
+async function settleParticipantOnlyRefusal(
+  server: MailKickerContext,
+  targetSessionRef: string,
+  scopeRef: string,
+  summons: ActionableEnvelope,
+  message: string,
+  wakeReason: HrcMailDriveWakeReason
+): Promise<DriveMailTargetOutcome> {
+  server.log('WARN', 'wrkq.kicker.birth_refused_participant_only', {
+    targetSessionRef,
+    wakeReason,
+    envelope: summons.envelope.id,
+    nodeId: server.nodeId,
+    message,
+  })
+  let placement: Awaited<ReturnType<typeof liveRuntimeHomeElsewhere>> | undefined
+  try {
+    placement = await liveRuntimeHomeElsewhere(server, scopeRef)
+  } catch (error) {
+    server.log('WARN', 'wrkq.kicker.federated_runtimes_failed', {
+      targetSessionRef,
+      scopeRef,
+      error: errorText(error),
+    })
+  }
+  if (placement?.home !== undefined) {
+    skipForeignHomedTarget(server, targetSessionRef, scopeRef, placement.home, wakeReason)
+    return
+  }
+  if (placement?.complete === true) {
+    try {
+      const terminal = await failUndeliverableMail(server, targetSessionRef, {
+        refusals: 1,
+        callSite: 'birth_refused_deterministic',
+        detail: `birth_failed: ${message}`,
+      })
+      if (terminal !== undefined) {
+        server.store.mailDelivery.resolveBirthRefusal(
+          targetSessionRef,
+          `participant-only and live on no node; pending mail failed undeliverable: ${message}`
+        )
+        server.mailKickerBirthSweepBackoff.delete(targetSessionRef)
+        return { outcome: 'undeliverable', failed: terminal.failed }
+      }
+    } catch (failError) {
+      server.log('WARN', 'wrkq.kicker.undeliverable_failed', {
+        targetSessionRef,
+        error: errorText(failError),
+      })
+    }
+  }
+  server.log('INFO', 'wrkq.kicker.birth_not_placeable_here', {
+    targetSessionRef,
+    wakeReason,
+    envelope: summons.envelope.id,
+    nodeId: server.nodeId,
+    source: 'participant-only',
+    message,
+    federatedRead: placement === undefined ? 'failed' : 'incomplete',
+  })
+  server.store.mailDelivery.recordBirthRefusal({
+    targetSessionRef,
+    scopeRef,
+    reason: `no node seated ${scopeRef}; node ${server.nodeId} cannot seat it: ${message}`,
+  })
+  return { outcome: 'birth-refused', notPlaceableHere: true }
 }
 
 export async function driveMailTargetOnce(
@@ -263,6 +358,35 @@ export async function driveMailTargetOnce(
     complete('skipped')
     return
   }
+  // T-12214: before the launch door, an unbound scope live on another node is
+  // that node's to deliver. Read only when this node would launch, so a seated
+  // target never pays for the federated inventory.
+  const launchHereOrSkip = async (): Promise<boolean> => {
+    if (scopeRef === undefined) return true
+    let placement: Awaited<ReturnType<typeof liveRuntimeHomeElsewhere>>
+    try {
+      placement = await liveRuntimeHomeElsewhere(server, scopeRef)
+      phase('federated_runtimes', 'ok', {
+        ...(placement.home === undefined ? {} : { homeNodeId: placement.home.homeNodeId }),
+        complete: placement.complete,
+      })
+    } catch (error) {
+      phase('federated_runtimes', 'failed', {
+        diagnostic: boundedFailure('federated_runtimes', error),
+      })
+      complete('deferred', { recovery: 'periodic_wake' })
+      return false
+    }
+    if (placement.home === undefined) return true
+    skipForeignHomedTarget(server, targetSessionRef, scopeRef, placement.home, wakeReason)
+    phase('home_resolution', 'skipped', {
+      homeNodeId: placement.home.homeNodeId,
+      reason: 'foreign_home',
+      source: placement.home.source,
+    })
+    complete('skipped')
+    return false
+  }
 
   let session: Awaited<ReturnType<typeof server.port.targetBySessionRef>> | undefined
   try {
@@ -337,6 +461,8 @@ export async function driveMailTargetOnce(
 
   if (session === undefined) {
     phase('runtime_selection', 'skipped', { reason: 'no_target_session' })
+    if (actionable.some((item) => summonsATurn(item.envelope)) && !(await launchHereOrSkip()))
+      return
     const outcome = await birthForTarget(server, targetSessionRef, scopeRef, actionable, wakeReason)
     completeBirth(outcome)
     return outcome
@@ -387,6 +513,7 @@ export async function driveMailTargetOnce(
   // delivering fyi mail to driven targets with an existing session and an
   // absent broker (regression in 70e683c7, caught by the T-07615 suite).
   if (seat.state === 'absent' && actionable.some((item) => summonsATurn(item.envelope))) {
+    if (!(await launchHereOrSkip())) return
     const outcome = await birthForTarget(server, targetSessionRef, scopeRef, actionable, wakeReason)
     completeBirth(outcome)
     return outcome
