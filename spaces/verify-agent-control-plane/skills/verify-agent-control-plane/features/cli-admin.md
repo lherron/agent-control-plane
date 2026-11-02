@@ -91,8 +91,6 @@ Source anchors (repo-relative): packages/acp-cli/src/cli.ts; packages/acp-server
 - Surface: `route:POST /v1/admin/memberships @ packages/acp-server/src/routing/exact-routes.ts`
 - Surface: `route:POST /v1/admin/projects @ packages/acp-server/src/routing/exact-routes.ts`
 - Surface: `route:POST /v1/admin/projects/:projectId/default-agent @ packages/acp-server/src/routing/param-routes.ts`
-- Surface: `route:POST /v1/admin/reconciler/acp-request-backfill/apply @ packages/acp-server/src/routing/exact-routes.ts`
-- Surface: `route:POST /v1/admin/reconciler/acp-request-backfill/plan @ packages/acp-server/src/routing/exact-routes.ts`
 - Surface: `route:POST /v1/admin/system-events @ packages/acp-server/src/routing/exact-routes.ts`
 - Surface: `route:POST /v1/agent-pulpit/messages @ packages/acp-server/src/routing/exact-routes.ts`
 - Surface: `route:POST /v1/coordination/messages @ packages/acp-server/src/routing/exact-routes.ts`

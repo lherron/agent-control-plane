@@ -56,10 +56,6 @@ import {
   handlePluginEventsUpgradeRequired,
   handleResolvePluginEventCursor,
 } from '../handlers/plugin-events.js'
-import {
-  handleRequestBackfillApply,
-  handleRequestBackfillPlan,
-} from '../handlers/reconciler-request-backfill.js'
 import { handleResolveRuntime } from '../handlers/runtime-resolve.js'
 import { handleSessionRefEvents } from '../handlers/session-refs-events.js'
 import { handleListSessions } from '../handlers/sessions-list.js'
@@ -97,10 +93,6 @@ function maybeWrapMutatingRoute(
 
 export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRouteHandlers {
   return {
-    [exactRouteKey('POST', '/v1/admin/reconciler/acp-request-backfill/plan')]:
-      handleRequestBackfillPlan,
-    [exactRouteKey('POST', '/v1/admin/reconciler/acp-request-backfill/apply')]:
-      handleRequestBackfillApply,
     [exactRouteKey('GET', '/admin/agents')]: handleCatalogAgentInspection,
     [exactRouteKey('POST', '/v1/interface/bindings')]: maybeWrapMutatingRoute(
       'POST',

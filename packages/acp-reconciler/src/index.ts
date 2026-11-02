@@ -70,13 +70,3 @@ export function createAcpReconciler(options: AcpReconcilerOptions): AcpReconcile
   const { reader, writer } = createProductionPorts(options)
   return createReconcilerCore({ config: options.config, reader, writer, log: options.log })
 }
-
-export {
-  BACKFILL_PRINCIPAL,
-  BackfillFailure,
-  REQUEST_BACKFILL_SOURCE_SHA256,
-  applyBackfill,
-  planBackfill,
-  validateManifest,
-} from './request-backfill.js'
-export type { BackfillRow, BackfillManifest } from './request-backfill.js'

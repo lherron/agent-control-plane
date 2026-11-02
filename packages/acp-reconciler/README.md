@@ -8,10 +8,10 @@ ATT-00408 on T-09980 (delegated sessions reconciler package); retrieve them with
 also has an [editable source](../../docs/proposals/acp-reconciler-design/delegated-request-lifecycle.arris.json).
 
 A task or subtask carrying `ext acp/request/main { rev: <positive integer> }`
-is a delegated request. During migration, scans union extension discovery with
-legacy meta markers. The extension wins whenever it exists; only a `not_found`
-read permits `meta.acp.request` as fallback. Both lists are paginated and the
-extension list filters unfinished subject states. Every scan reads current wrkq
+is a delegated request. Scans discover only singleton task extension records,
+with paginated unfinished-state filtering, and re-read each marker before using
+it. A missing marker is ignored; invalid bodies and transport errors never
+fall back to task metadata. Every scan reads current wrkq
 and HRC state. There is no controller database or persistent cursor. Each scan:
 
 1. Starts each `open`, unclaimed request assigned to a valid `agent:<id>`, while
@@ -83,56 +83,16 @@ request starts, waits, is active, invalid or stalled, with its start key,
 reservation time and stall evidence. It is read-only. It receives only the
 read half of each port and writes nothing, not even a reservation probe.
 
-## Request-marker migration maintenance
+## Completed request-marker migration
 
-ACP hosts two fixed operations on the **same cached WorkClient object** supplied
-to its normal reconciler:
-
-| Method and route | Exact JSON body | Result |
-| --- | --- | --- |
-| `POST /v1/admin/reconciler/acp-request-backfill/plan` | `{}` | Read-only, full historical census and review manifest |
-| `POST /v1/admin/reconciler/acp-request-backfill/apply` | `{ "manifest": <reviewed object>, "expectedSha256": "<digest>" }` | Bounded application of only the reviewed subjects |
-
-These are trusted host-local operator operations. Admission requires an observed
-loopback socket peer, no `Origin` header, JSON content type and exact body shape.
-Unknown and remote peers refuse; forwarded, Host and actor headers establish no
-authority. Locality does **not** authenticate Mable or an HRC task. Campaign policy
-separately restricts invocation to Mable and requires explicit release of the
-operation and exact apply manifest. Source delivery or route availability grants
-no install, activation, live plan or apply permission.
-
-The host fixes the producer to its configured `agent:acp-reconciler`, binds the
-startup database locator, and checks current HRC node authority against the
-designated reconciler node before owner reads or writes. Disabled/unavailable
-reconciler capability, wrong principal or node refuses. The caller cannot select
-an actor, client, locator, script, namespace or arbitrary write. The standalone
-`scripts/acp-request-backfill.ts` wrapper shares the algorithm, but a task shell
-selecting a literal principal is not evidence of service execution.
-
-Plan follows every task cursor across all states, deleted subjects and named
-subtasks. It skips unrelated ACP metadata and refuses malformed actual request
-markers. Apply checks the reviewed digest, locator, UUIDs and task/extension
-fences before any write and again at each acting point. It reconciles
-`max(metaRev, extRev)` using extension CAS and emits keyed `ext.backfill` facts
-(`backfill:<T>:acp/request`) with string `meta_rev`, `ext_rev`, `written` attrs.
-It changes no task metadata, claims or worker lifecycle.
-
-Only one maintenance operation runs at a time; busy refuses without queuing.
-Errors stop work. A lost reply or disconnect leaves effects uncertain: inspect
-owner state, retain the original manifest/digest, then explicitly reconcile that
-same manifest after authorization. Exact expected post-put state and keyed facts
-support recovery and zero-write/zero-new-fact replay. There is no automatic retry,
-rollback promise or cancellation of the shared client on HTTP disconnect.
-
-HTTP replies and `request_backfill.receipt` logs carry request correlation, host
-instance UUID/PID, times, node, startup locator, producer, manifest digest, counts
-and returned fact IDs or partial acknowledged progress. Consumed host/routine
-SHA256 values are captured from module bytes at load, **not** inferred from the
-checkout's current HEAD; the activating operator must map them to the delivered
-source/build. Null service HRC scope is not replaced with a fabricated task scope.
-Installed host/client provenance, live plan/apply and rerun acceptance remain
-separate operator gates. See the
-[host authority contract](../../architecture/contracts/reconciler-request-backfill-host.yaml).
+The completed one-shot migration CLI, shared legacy routine and hosted plan/apply
+capability have been removed. Normal reconciliation still uses the cached,
+attributed WorkClient resolved at startup. Historical task T-12366 retains the
+immutable manifests, receipts, provenance and first/rerun acceptance evidence;
+persisted tasks, extensions and facts are unchanged. The
+[retired authority record](../../architecture/contracts/reconciler-request-backfill-host.yaml)
+records the exact retirement scope. Source removal does not prove activation
+of that removal in an already running process.
 
 ## Known limits
 

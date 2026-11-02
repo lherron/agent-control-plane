@@ -20,7 +20,7 @@ function row(id: string) {
 const missing = { code: -32004, message: 'not found', data: { code: 'WRKQ_NOT_FOUND' } }
 
 describe('request discovery and read rule', () => {
-  test('unions paginated ext and meta discovery, deduplicates, and uses ext rev', async () => {
+  test('discovers only paginated ext requests, ignoring legacy-only tasks', async () => {
     const transport = new FakeTransport()
       .onMethod('wrkq.ext.listView', (req) => ({
         jsonrpc: '2.0',
@@ -53,7 +53,6 @@ describe('request discovery and read rule', () => {
     expect(records.map(({ id, marker }) => ({ id, marker }))).toEqual([
       { id: 'T-1', marker: { ok: true, rev: 1 } },
       { id: 'T-3', marker: { ok: true, rev: 3 } },
-      { id: 'T-2', marker: { ok: true, rev: 2 } },
     ])
     const extCalls = transport.capturedRequests.filter((r) => r.method === 'wrkq.ext.listView')
     expect(extCalls.map((r) => r.params)).toEqual([
@@ -71,15 +70,14 @@ describe('request discovery and read rule', () => {
         cursor: 'ext-next',
       },
     ])
-    expect(
-      transport.capturedRequests.filter((r) => r.method === 'wrkq.task.list')[1]?.params
-    ).toMatchObject({ cursor: 'meta-next' })
+    expect(transport.capturedRequests.filter((r) => r.method === 'wrkq.task.list')).toEqual([])
     await client.close()
   })
 
   test('an invalid ext body overrides a valid meta marker', async () => {
     const transport = new FakeTransport()
-      .onResult('wrkq.ext.listView', { items: [] })
+      .onResult('wrkq.ext.listView', { items: [row('T-1')] })
+      .onResult('wrkq.task.show', task('T-1', 4))
       .onResult('wrkq.task.list', { items: [task('T-1', 4)] })
       .onResult('wrkq.ext.show', { ext: { body: { rev: 1, force: true } } })
       .onResult('wrkq.container.show', { id: 'P-1', path: 'project', kind: 'project' })
@@ -93,11 +91,24 @@ describe('request discovery and read rule', () => {
 
   test('ext read errors other than not_found fail the scan', async () => {
     const transport = new FakeTransport()
-      .onResult('wrkq.ext.listView', { items: [] })
+      .onResult('wrkq.ext.listView', { items: [row('T-1')] })
+      .onResult('wrkq.task.show', task('T-1', 4))
       .onResult('wrkq.task.list', { items: [task('T-1', 4)] })
       .onError('wrkq.ext.show', { code: -32603, message: 'unavailable' })
     const client = await createClient({ transport, autoInitialize: false })
     await expect(createWrkqReader(client).listRequests()).rejects.toThrow('unavailable')
+    await client.close()
+  })
+
+  test('a marker removed after discovery cannot resurrect a legacy rev', async () => {
+    const transport = new FakeTransport()
+      .onResult('wrkq.ext.listView', { items: [row('T-1')] })
+      .onResult('wrkq.task.show', task('T-1', 9))
+      .onResult('wrkq.task.list', { items: [task('T-1', 9)] })
+      .onError('wrkq.ext.show', missing)
+      .onResult('wrkq.container.show', { id: 'P-1', path: 'project', kind: 'project' })
+    const client = await createClient({ transport, autoInitialize: false })
+    expect(await createWrkqReader(client).listRequests()).toEqual([])
     await client.close()
   })
 

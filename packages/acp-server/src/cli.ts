@@ -9,7 +9,7 @@ import { writeLogLine } from 'acp-core'
 import type { Actor } from 'acp-core'
 import { openInterfaceStore } from 'acp-interface-store'
 import { type JobsStore, createJobsScheduler, openSqliteJobsStore } from 'acp-jobs-store'
-import { readReconcilerConfig } from 'acp-reconciler'
+import { createAcpReconciler, readReconcilerConfig } from 'acp-reconciler'
 import { type PbcContinuationJob, openAcpStateStore } from 'acp-state-store'
 import { type SessionRef, normalizeSessionRef, parseScopeRef } from 'agent-scope'
 import { openCoordinationStore } from 'coordination-substrate'
@@ -80,7 +80,6 @@ import { resolveMobileAuthStore } from './mobile-auth/store.js'
 import { createPbcWorkerScheduler } from './pbc/worker-scheduler.js'
 import { type PbcContinuationWorkerPort, runPbcContinuationWorker } from './pbc/worker.js'
 import { createRealLauncher, readRunStatus } from './real-launcher.js'
-import { createHostedReconciler } from './reconciler-request-backfill.js'
 import { acpStateDir } from './state-dir.js'
 import { ACP_SERVER_USER_AGENT } from './user-agent.js'
 import { createWrkfClientLifecycle } from './wrkf/client-lifecycle.js'
@@ -1122,32 +1121,22 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     inspectAgentSelection: (request: Parameters<typeof aspcService.inspectAgentSelection>[0]) =>
       aspcService.inspectAgentSelection(request),
   }
-  // Bind maintenance to the SAME attributed object used by the normal reconciler.
-  const maintenanceNodeAuthority =
-    jobNodeIdentityAuthority ?? createJobNodeIdentityAuthority(launcherDeps.hrcClient)
-  if (jobNodeIdentityAuthority === undefined) await maintenanceNodeAuthority.initialize()
-  const { reconciler, requestBackfill } = await createHostedReconciler({
-    config: readReconcilerConfig(process.env),
-    lifecycle: wrkfLifecycle,
-    target: options.wrkqDbLocator,
-    nodeAuthority: maintenanceNodeAuthority,
-    log: (line) =>
-      writeLogLine({
-        level: 'info',
-        component: 'acp-reconciler',
-        event: 'reconciler.log',
-        data: { message: line.replace(/^acp-reconciler: /, '') },
-      }),
-    receiptLog: (reply) =>
-      writeLogLine({
-        level: reply.status < 400 ? 'info' : 'error',
-        component: 'acp-reconciler',
-        event: 'request_backfill.receipt',
-        data: reply,
-      }),
-  })
+  const reconcilerConfig = readReconcilerConfig(process.env)
+  const reconciler =
+    reconcilerConfig === undefined
+      ? undefined
+      : createAcpReconciler({
+          config: reconcilerConfig,
+          workClient: await wrkfLifecycle.clientForPrincipal(reconcilerConfig.principalRef),
+          log: (line) =>
+            writeLogLine({
+              level: 'info',
+              component: 'acp-reconciler',
+              event: 'reconciler.log',
+              data: { message: line.replace(/^acp-reconciler: /, '') },
+            }),
+        })
   const serverDeps = {
-    ...(requestBackfill === undefined ? {} : { requestBackfill }),
     ...(wrkqStore !== undefined ? { wrkqStore } : {}),
     coordStore,
     ...(adminStore !== undefined ? { adminStore } : {}),

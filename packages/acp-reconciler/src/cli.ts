@@ -7,8 +7,7 @@ import { type ExplainResult, explainWith } from './reconciler.js'
 
 const USAGE = `Usage: acp-reconciler explain [<task-id>] [--json]
 
-Read-only: evaluates every delegated request (ext acp/request/main, legacy meta
-fallback only on not_found) exactly as the
+Read-only: evaluates every delegated request (ext acp/request/main only) exactly as the
 running reconciler would and prints why each one starts, waits, is active,
 invalid or stalled, with reservation and stall evidence. Writes nothing.
 Capacity and claim window come from ACP_RECONCILER_* (defaults when unset).`

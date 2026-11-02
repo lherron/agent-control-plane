@@ -8,7 +8,7 @@ export const STALL_FACT_TYPE = 'delegation.stalled'
 
 export type StallKind = 'ended_holder' | 'unclaimed_reservation' | 'orphaned_in_progress'
 
-/** `ext acp/request/main` (legacy: `meta.acp.request`) — exactly `{ rev: <positive integer> }`. */
+/** `ext acp/request/main` — exactly `{ rev: <positive integer> }`. */
 export type RequestMarker =
   | Readonly<{ ok: true; rev: number }>
   | Readonly<{ ok: false; reason: string }>
@@ -74,18 +74,6 @@ const UNFINISHED_STATES = new Set(['idea', 'draft', 'open', 'in_progress', 'bloc
 
 export function isUnfinished(state: string): boolean {
   return UNFINISHED_STATES.has(state)
-}
-
-export function parseRequestMarker(
-  meta: Readonly<Record<string, unknown>>
-): RequestMarker | undefined {
-  const acp = meta['acp']
-  if (acp === undefined || acp === null || typeof acp !== 'object' || Array.isArray(acp)) {
-    return undefined
-  }
-  if (!Object.hasOwn(acp, 'request')) return undefined
-  const request = (acp as Record<string, unknown>)['request']
-  return parseRequestBody(request, 'meta.acp.request')
 }
 
 export function parseRequestBody(request: unknown, source = 'ext acp/request/main'): RequestMarker {

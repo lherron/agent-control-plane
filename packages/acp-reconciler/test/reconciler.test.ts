@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import { ReconcilerConfigError, readReconcilerConfig } from '../src/config.js'
-import { parseRequestMarker } from '../src/model.js'
+import { parseRequestBody } from '../src/model.js'
 import type { ReconcilerWriter } from '../src/ports.js'
 import { createReconcilerCore } from '../src/reconciler.js'
 import { FakeWorld, testConfig } from './fake-world.js'
@@ -57,17 +57,17 @@ describe('config', () => {
 
 describe('request marker', () => {
   test('accepts exactly { rev: positive integer }', () => {
-    expect(parseRequestMarker({ acp: { request: { rev: 3 } } })).toEqual({ ok: true, rev: 3 })
-    expect(parseRequestMarker({ other: 1 })).toBeUndefined()
-    expect(parseRequestMarker({ acp: { workflow: {} } })).toBeUndefined()
+    expect(parseRequestBody({ rev: 3 })).toEqual({ ok: true, rev: 3 })
+    expect(parseRequestBody({ other: 1 })).toMatchObject({ ok: false })
+    expect(parseRequestBody(undefined)).toMatchObject({ ok: false })
   })
   test('refuses unknown fields and bad revs', () => {
-    expect(parseRequestMarker({ acp: { request: { rev: 1, force: true } } })).toMatchObject({
+    expect(parseRequestBody({ rev: 1, force: true })).toMatchObject({
       ok: false,
     })
-    expect(parseRequestMarker({ acp: { request: { rev: 0 } } })).toMatchObject({ ok: false })
-    expect(parseRequestMarker({ acp: { request: { rev: '1' } } })).toMatchObject({ ok: false })
-    expect(parseRequestMarker({ acp: { request: null } })).toMatchObject({ ok: false })
+    expect(parseRequestBody({ rev: 0 })).toMatchObject({ ok: false })
+    expect(parseRequestBody({ rev: '1' })).toMatchObject({ ok: false })
+    expect(parseRequestBody(null)).toMatchObject({ ok: false })
   })
 })
 
@@ -130,7 +130,7 @@ describe('reserve then start', () => {
     world.put({ id: 'T-5', assigneePrincipalRef: 'agent:ghost' })
     world.put({
       id: 'T-6',
-      marker: { ok: false, reason: 'meta.acp.request.rev must be a positive integer' },
+      marker: { ok: false, reason: 'ext acp/request/main.rev must be a positive integer' },
     })
     world.put({ id: 'T-7', state: 'completed' })
     world.put({ id: 'T-8.x', ownerId: 'T-8', ownerGone: true })

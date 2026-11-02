@@ -25,7 +25,6 @@ import {
   type WorkerValidity,
   isUnfinished,
   parseRequestBody,
-  parseRequestMarker,
   scopeRefOfSession,
 } from './model.js'
 
@@ -88,22 +87,6 @@ export function createWrkqReader(
         }
         extCursor = page.nextCursor
       } while (extCursor !== undefined)
-      let cursor: string | undefined
-      do {
-        const page = await client.wrkq.task.list({
-          subtasks: true,
-          state: [...UNFINISHED_LIST_STATES],
-          summary: true,
-          limit: LIST_PAGE,
-          ...(cursor !== undefined ? { cursor } : {}),
-        })
-        for (const task of page.items) {
-          if (parseRequestMarker(task.meta ?? {}) !== undefined)
-            marked.set(task.id, marked.get(task.id) ?? task)
-        }
-        cursor = page.nextCursor
-      } while (cursor !== undefined)
-
       // A task's projectUuid names its immediate container (often a directory
       // such as `inbox`); the HRC project and the timeline need the enclosing
       // `kind: project` container.
@@ -126,8 +109,8 @@ export function createWrkqReader(
       const owners = new Map<string, boolean>()
       const records: RequestRecord[] = []
       for (const task of marked.values()) {
-        // Only a missing row admits the legacy marker. Invalid bodies and RPC
-        // failures must never silently dispatch the rev stored in meta.
+        // Re-read the go signal at the acting point. Removal means no request;
+        // malformed bodies and transport failures never resurrect old data.
         let marker: RequestMarker | undefined
         try {
           const { ext } = await client.wrkq.ext.show({
@@ -139,7 +122,7 @@ export function createWrkqReader(
           marker = parseRequestBody(ext.body)
         } catch (error) {
           if (!(error instanceof WorkRpcError) || error.domainCode !== 'WRKQ_NOT_FOUND') throw error
-          marker = parseRequestMarker(task.meta ?? {})
+          continue
         }
         if (marker === undefined) continue
         const project = await owningProject(task.projectUuid)

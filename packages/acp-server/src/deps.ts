@@ -252,8 +252,6 @@ export type HrcAgentSources = {
 }
 
 export interface AcpServerDeps {
-  /** Fixed-purpose closure bound to the actual reconciler client; no client proxy. */
-  requestBackfill?: import('./reconciler-request-backfill.js').RequestBackfillCapability | undefined
   // The four acp-core store ports, served by the @wrkq/client-backed adapter
   // (wrkq-lib createWrkqStoreAdapter). Optional: when wrkf is disabled
   // (ACP_WRKF_DISABLED) there is no client and thus no wrkq store — the server
