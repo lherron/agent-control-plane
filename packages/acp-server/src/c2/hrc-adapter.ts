@@ -9,6 +9,8 @@
  *    fetches attention, c2 rows and the `hrc.asks` record for just those
  *    seats: Vesta, every seat the scope row allows, and every seat holding c2
  *    rows (card contract rev 4 §3).
+ * One annotation list supplies both namespaces, including Vesta's scope row;
+ * at most eight seats are observed concurrently (two reads per seat).
  * Concurrent reads share one in-flight observation; a completed one is never
  * reused, so an action's preflight always sees HRC as it is now.
  *
@@ -187,25 +189,16 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
 
   /** c2's rows plus the seat's `hrc.asks` record (card contract rev 4 §3). */
   async function seatRows(scopeRef: string): Promise<AnnotationRow[] | undefined> {
-    const [own, asks] = await Promise.all([
-      c2Rows(scopeRef),
-      client
-        .listSessionAnnotations({
-          scopeRef,
-          laneRef: 'main',
-          subject: 'seat',
-          ns: 'hrc',
-          kind: 'asks',
-        })
-        .then((listed) => listed.annotations as AnnotationRow[])
-        .catch((error: unknown) => {
-          if (error instanceof HrcDomainError && error.code === 'unknown_host_session')
-            return undefined
-          throw error
-        }),
-    ])
-    if (own === undefined && asks === undefined) return undefined
-    return [...(own ?? []), ...(asks ?? [])]
+    try {
+      const { annotations } = await client.listSessionAnnotations({ scopeRef, laneRef: 'main' })
+      return annotations.filter(
+        (row) =>
+          row.ns === 'c2' || (row.ns === 'hrc' && row.subject === 'seat' && row.kind === 'asks')
+      )
+    } catch (error) {
+      if (error instanceof HrcDomainError && error.code === 'unknown_host_session') return undefined
+      throw error
+    }
   }
 
   /** `<seat> <read>` → HRC code already logged as unobservable; cleared by a good read. */
@@ -279,7 +272,8 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
 
   async function observeSeat(
     scopeRef: string,
-    at: string
+    at: string,
+    listedRows?: AnnotationRow[]
   ): Promise<{ seat?: SeatRow; rows: AnnotationRow[] }> {
     const readAttention = () =>
       client.getSessionAttention({ scopeRef, laneRef: 'main' }).catch((error: unknown) => {
@@ -290,7 +284,10 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
     let attention: Awaited<ReturnType<typeof readAttention>>
     let rows: AnnotationRow[] | undefined
     if (scopeRef === vestaSeat) {
-      ;[attention, rows] = await Promise.all([readAttention(), seatRows(scopeRef)])
+      ;[attention, rows] = await Promise.all([
+        readAttention(),
+        listedRows === undefined ? seatRows(scopeRef) : Promise.resolve(listedRows),
+      ])
     } else {
       const [live, listed] = await Promise.all([
         readSeat(scopeRef, 'attention', readAttention),
@@ -319,9 +316,10 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
   async function observe(): Promise<Observation> {
     await ensureSwept()
     const at = await node()
-    const vestaRows = (await c2Rows(vestaSeat)) ?? []
+    const vestaRows = (await seatRows(vestaSeat)) ?? []
     const scopeRow = vestaRows.find(
-      (row) => row.subject === 'seat' && row.kind === 'config' && row.id === 'scope'
+      (row) =>
+        row.ns === 'c2' && row.subject === 'seat' && row.kind === 'config' && row.id === 'scope'
     )
     const allow =
       scopeRow !== undefined && Array.isArray((scopeRow.body as { allow?: unknown }).allow)
@@ -332,8 +330,8 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
     const allowed = scopePredicate(allow)
     const targets = new Set<string>([...rowSeats, ...continuities.filter(allowed)])
     targets.delete(vestaSeat)
-    const results = await Promise.all(
-      [vestaSeat, ...targets].map((scopeRef) => observeSeat(scopeRef, at))
+    const results = await mapLimit([vestaSeat, ...targets], SCAN_CONCURRENCY, (scopeRef) =>
+      observeSeat(scopeRef, at, scopeRef === vestaSeat ? vestaRows : undefined)
     )
     const seats: SeatRow[] = []
     const annotations: AnnotationRow[] = []
