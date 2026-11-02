@@ -7,10 +7,12 @@ import {
   readdirSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
+import { gzipSync } from 'node:zlib'
 
 const script = resolve(import.meta.dir, 'rotate-praesidium-logs.sh')
 const tempDirs: string[] = []
@@ -131,6 +133,46 @@ describe('rotate-praesidium-logs', () => {
     )
     expect(contents.sort()).toEqual(['rotation-2\n'.repeat(8), 'rotation-3\n'.repeat(8)])
   })
+
+  for (const equalMtime of [false, true]) {
+    test(equalMtime
+      ? 'equal archive mtimes use C filename order, without claiming PID chronology'
+      : 'subsecond archive recency beats PID order and inherited active-log mtime', () => {
+      const dir = makeTempDir()
+      const log = join(dir, 'service.log')
+      const lock = join(dir, 'rotation.lock')
+      // Same timestamp; reverse lexical PID order opposes recorded recency.
+      // Only fixture metadata is set: no wall-clock override or sleeps.
+      const older = `${log}.20200101T000000Z.9.gz`
+      const newer = `${log}.20200101T000000Z.10.gz`
+      const second = Date.UTC(2020, 0, 1) / 1000
+      writeFileSync(older, gzipSync('older\n'))
+      writeFileSync(newer, gzipSync('newer\n'))
+      utimesSync(older, second, second + (equalMtime ? 0.875 : 0.125))
+      utimesSync(newer, second, second + 0.875)
+      writeFileSync(log, 'just-rotated\n'.repeat(8))
+      // cp -p and gzip inherit this stale mtime unless completion is stamped.
+      utimesSync(log, second - 100, second - 100)
+      const inode = statSync(log).ino
+
+      const result = rotate(log, lock, ['--keep', '2'])
+
+      expect(result.exitCode).toBe(0)
+      expect(result.stderr.toString()).toBe('')
+      const kept = archivesFor(log)
+      expect(kept).toHaveLength(2)
+      expect(existsSync(newer)).toBe(true)
+      expect(existsSync(older)).toBe(false)
+      const contents = kept.map((archive) =>
+        Bun.spawnSync(['/usr/bin/gzip', '-dc', join(dir, archive)]).stdout.toString()
+      )
+      expect(contents.sort()).toEqual(['just-rotated\n'.repeat(8), 'newer\n'])
+      const completed = logLines(result.stdout)[0]!.data['archive'] as string
+      expect(statSync(completed).mtimeMs).toBeGreaterThan((second + 1) * 1000)
+      expect(statSync(log).ino).toBe(inode)
+      expect(readFileSync(log, 'utf8')).toBe('')
+    })
+  }
 
   test('skips contention and recovers after a killed lock holder', async () => {
     const dir = makeTempDir()

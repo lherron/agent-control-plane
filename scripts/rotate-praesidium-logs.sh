@@ -155,7 +155,10 @@ prune_archives() {
   while IFS= read -r candidate; do
     archives[$index]="$candidate"
     index=$((index + 1))
-  done < <(/usr/bin/printf '%s\n' "${archives[@]}" | LC_ALL=C /usr/bin/sort -r)
+  # BSD ls uses filesystem mtime precision, including subsecond differences.
+  # Equal mtimes have indistinguishable recency; C filename order only breaks
+  # those ties. A timestamp/PID filename is not a chronological sequence.
+  done < <(LC_ALL=C /bin/ls -1t -- "${archives[@]}")
 
   for ((index = keep; index < ${#archives[@]}; index++)); do
     /bin/rm -f -- "${archives[$index]}"
@@ -198,6 +201,9 @@ rotate_log() {
     die "compression failed; preserved uncompressed archive for $path"
   fi
   /bin/mv "$staging.gz" "$archive"
+  # cp -p and gzip preserve the active log's old mtime. Retention must order
+  # completed rotations, including a stale log rotated for the first time.
+  /usr/bin/touch "$archive"
   prune_archives "$path"
 
   log_line info rotation.rotated \
