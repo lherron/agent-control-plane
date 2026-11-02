@@ -70,9 +70,9 @@ function revision(body: unknown): number {
   return parsed.rev
 }
 function metaRevision(meta: Record<string, unknown>): number | undefined {
-  if (!Object.hasOwn(meta, 'acp')) return undefined
   const marker = parseRequestMarker(meta)
-  if (!marker?.ok) throw new Error(marker?.reason ?? 'malformed meta.acp.request')
+  if (marker === undefined) return undefined
+  if (!marker.ok) throw new Error(marker.reason)
   return marker.rev
 }
 async function readExt(client: Client, task: string): Promise<ExtSnapshot> {

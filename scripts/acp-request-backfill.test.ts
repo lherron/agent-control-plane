@@ -166,6 +166,30 @@ describe('ACP manifest-bound backfill', () => {
       })
     })
   }
+  test('retained operator shapes are nonrequests; malformed actual requests still refuse', async () => {
+    // Exact nonrequest bodies from T-12366/operator-census/diagnostic-full.
+    const shapes = [
+      ['T-01144', { acp: { fromKind: 'bug', kind: 'bug', promoted: true } }],
+      ['T-2331290C', { acp: { kind: 'task' } }],
+      ['T-2417717B', { acp: { kind: 'task' } }],
+      ['T-3E77507D', { acp: { kind: 'code_change' } }],
+    ] as const
+    const f = fixture()
+    for (const [id, meta] of shapes) {
+      f.add(id, 1)
+      f.tasks.get(id)!.meta = structuredClone(meta)
+    }
+    f.add('T-09980.recon-smoke', 1)
+    const plan = await planBackfill(f.client, 'scratch')
+    expect(plan.scanned).toBe(5)
+    expect(plan.rows.map((row) => row.task)).toEqual(['T-09980.recon-smoke'])
+    expect(f.calls.every((call) => call.startsWith('page:'))).toBe(true)
+    expect(f.events.size).toBe(0)
+    for (const request of [null, {}, { rev: 0 }, { rev: 1, extra: true }, 'invalid']) {
+      f.tasks.get('T-01144')!.meta = { acp: { request } }
+      await expect(planBackfill(f.client, 'scratch')).rejects.toThrow()
+    }
+  })
   test('all-row preflight prevents partial writes on later task/extension drift', async () => {
     for (const drift of ['task', 'ext']) {
       const f = fixture()
