@@ -60,7 +60,14 @@ Read-only live checks:
 - `GET /v1/mobile/c2/cards` answers 410;
 - `acp c2 scope show --table`.
 
-Actions run only against C2-owner-provided disposable fixture seats (the 18471 fixture instance, or a fixture seat the C2 owner has cleared in production scope), never against a real seat's rows. Scratch-only driving: a dev-env acp-server against the scratch HRC, with `ACP_C2_VESTA_SEAT` set to a fixture Vesta.
+Actions run only against C2-owner-provided disposable fixture seats (the 18471 fixture instance, or a fixture seat the C2 owner has cleared in production scope), never against a real seat's rows.
+
+Scratch-only driving is narrow. acp-server hosts the controller only when `ACP_REAL_HRC_LAUNCHER=1` wires an HRC client, and dev-env does not set that flag. A dev-env acp-server therefore has no C2 service. Even with `ACP_C2_VESTA_SEAT` set to a fixture Vesta, it answers as follows (T-12334):
+- `GET /v1/mobile/c2/v2/snapshot`: 503 `home_unavailable` within 0 ms;
+- `GET /v1/mobile/c2/cards` and `POST /v1/mobile/c2/actions`: 410 `wire_version_unsupported` with `wire: 2`;
+- `acp c2 scope show --vesta-seat <fixture>` against the scratch HRC: `unknown_host_session` (exit 1), because a fixture seat with no home has no host session.
+
+A positive scratch snapshot or action needs the real launcher and a homed fixture Vesta. The fixture agents have `harness = "codex"`, so a birth would start a real provider session. That is outside upkeep authority.
 
 ## Gotchas
 

@@ -16,7 +16,7 @@ Use package source/README and `bun scripts/discover-acp.ts packages injector`. I
 
 ## Driving it
 
-Inspect isolated package integration suites through `just verify`. A manual delivery drive requires a dedicated scratch wrkq ledger, scratch HRC socket, explicit principal/project and task recipient, disabled live mail reads, and owned lifecycle. If any override is absent, block the drive and record which boundary is missing.
+Inspect isolated package integration suites through `just verify`. Delivery, ACK/cursor, birth and reconciler drives are **undriven by design** under the owner constraint (T-11680): no fake-recipient harness, PATH shim, placement-bind engineering or live recipient substitute may be built or used to drive them. T-11920 drove the standalone injector, booting it against a scratch HRC and a scratch ledger. It showed admission, import, tail, boot reconcile and `inspect`. A scratch envelope to a homeless recipient stayed `pending`, because the kicker wakes only seated, placement-bound or unborn-designated targets on its node. That partial drive does not make this map driven.
 
 ## Gotchas
 
@@ -24,4 +24,4 @@ No production inbox reads/writes through these drives, no timing or ACK/cursor e
 
 ## Proven when
 
-Current status: source-only tests, no manual mail/ACK/reconciler proof. A future proof must correlate scratch envelope, reservation, HRC input result and durable ACK with retry/stall failure cases.
+Current status: undriven by design (owner constraint, T-11680). The proof is source-only package suites plus T-11920's narrow scratch boot and admission. There is no manual delivery, ACK, cursor, retry, stall, birth or reconciler proof. Report this map as undriven in every upkeep and never count it as driven. A future proof needs a separate owner ruling. It must then correlate the scratch envelope, reservation, HRC input result and durable ACK, including retry/stall failure cases.
