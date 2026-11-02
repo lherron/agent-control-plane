@@ -86,6 +86,8 @@
       "POST /v1/admin/memberships",
       "POST /v1/admin/projects",
       "POST /v1/admin/projects/:projectId/default-agent",
+      "POST /v1/admin/reconciler/acp-request-backfill/apply",
+      "POST /v1/admin/reconciler/acp-request-backfill/plan",
       "POST /v1/admin/system-events",
       "POST /v1/agent-pulpit/messages",
       "POST /v1/coordination/messages",
@@ -2135,6 +2137,8 @@
       "rootTypes": [
         "AcpReconciler",
         "AcpReconcilerOptions",
+        "BackfillManifest",
+        "BackfillRow",
         "Decision",
         "ExplainResult",
         "ReconcilerConfig",
@@ -2145,12 +2149,18 @@
         "ScanResult"
       ],
       "rootValues": [
+        "applyBackfill",
+        "BACKFILL_PRINCIPAL",
+        "BackfillFailure",
         "createAcpReconciler",
         "createProductionPorts",
+        "planBackfill",
         "readReconcilerConfig",
         "RECONCILER_DEFAULTS",
         "RECONCILER_ENV",
-        "ReconcilerConfigError"
+        "ReconcilerConfigError",
+        "REQUEST_BACKFILL_SOURCE_SHA256",
+        "validateManifest"
       ]
     },
     "acp-server": {

@@ -91,6 +91,8 @@ Source anchors (repo-relative): packages/acp-cli/src/cli.ts; packages/acp-server
 - Surface: `route:POST /v1/admin/memberships @ packages/acp-server/src/routing/exact-routes.ts`
 - Surface: `route:POST /v1/admin/projects @ packages/acp-server/src/routing/exact-routes.ts`
 - Surface: `route:POST /v1/admin/projects/:projectId/default-agent @ packages/acp-server/src/routing/param-routes.ts`
+- Surface: `route:POST /v1/admin/reconciler/acp-request-backfill/apply @ packages/acp-server/src/routing/exact-routes.ts`
+- Surface: `route:POST /v1/admin/reconciler/acp-request-backfill/plan @ packages/acp-server/src/routing/exact-routes.ts`
 - Surface: `route:POST /v1/admin/system-events @ packages/acp-server/src/routing/exact-routes.ts`
 - Surface: `route:POST /v1/agent-pulpit/messages @ packages/acp-server/src/routing/exact-routes.ts`
 - Surface: `route:POST /v1/coordination/messages @ packages/acp-server/src/routing/exact-routes.ts`
@@ -113,6 +115,8 @@ Use `acp --help` and `acp project --help` for installed syntax. The scratch help
 ## Driving it
 
 Run `bun scripts/verify-acp-scratch.ts` inside the owned environment (see SKILL.md). Inspect `wire-shapes`, `project-create`, `project-show`, `project-conflict`, and missing-project HTTP records. The helper exercises source CLI over real HTTP; separately run installed `acp --help` to establish installed surface availability.
+
+Request-marker maintenance has separate [operator and recovery instructions](../../../../../packages/acp-reconciler/README.md#request-marker-migration-maintenance). Source tests cover fixed routes and actual lifecycle cache binding; isolated owner scratch covers historical cursors, partial failures and keyed replay. Do not call the production host plan/apply as a generic scratch drive: operator admission, consumed-host provenance and exact-manifest release remain separate gates.
 
 ## Gotchas
 
