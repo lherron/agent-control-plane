@@ -1,0 +1,77 @@
+id: agent-control-plane.reconciler-request-backfill.host-authority
+kind: contract
+status: active
+owner_project: agent-control-plane
+scope: ACP-hosted M5 acp/request marker maintenance plan and apply
+predicate: >
+  ACP may expose only POST /v1/admin/reconciler/acp-request-backfill/plan
+  with body {} and POST /v1/admin/reconciler/acp-request-backfill/apply
+  with manifest and expectedSha256. Admission uses the observed socket peer
+  through the existing fail-closed isLoopbackPeer boundary. Remote or unknown
+  peers and browser-origin requests are refused; JSON content type and exact
+  request shapes are required. Forwarded, Host, actor and principal assertions
+  cannot establish admission or select the producer. This boundary trusts
+  host-local operator processes; it does not authenticate Mable or an HRC
+  task-runtime identity. Separate campaign/operator release governs invocation
+  and the exact apply manifest; source approval or route availability is not
+  operational release.
+
+  The host binds both operations to the same actual cached WorkClient object
+  supplied to its reconciler, the resolved startup locator, and configured
+  agent:acp-reconciler principal. Missing lifecycle/client, another principal,
+  or unavailable or mismatched current HRC logical-node authority refuses
+  before effects. ACP does not derive node identity from hostname or introduce
+  another placement registry. No caller-controlled client, locator, actor,
+  method, namespace, body, script, shell, path or environment proxy is admitted.
+  A standalone script or child with a literal service principal is not evidence
+  that the running service executed maintenance. A genuine service may have
+  null HRC scope; no scope is fabricated.
+
+  Plan is wrkq-read-only. Apply reuses the delivered bounded reconciliation
+  routine over only the exact reviewed manifest and matching digest/locator,
+  with all-row preflight and acting-point UUID/task/meta/ext checks, max-revision
+  reconciliation and ext CAS. Exact expected post-put state supports explicit
+  same-manifest recovery. Only acp/request/main ext writes and keyed
+  ext.backfill project facts backfill:<T>:acp/request are permitted, with
+  string attributes meta_rev, ext_rev and written. No task/meta/claim writes,
+  deletes, worker births, normal-loop dispatch or automatic maintenance occurs.
+
+  One maintenance operation runs at a time; busy refuses without queuing.
+  Errors stop further work and retain partial acknowledged results and cause.
+  No automatic retry, rescan inside apply, request journal or second migration
+  store is introduced. Caller disconnection leaves effects uncertain pending
+  owner readback and explicit same-manifest reconciliation, without closing the
+  shared client or killing ACP. Receipts do not promise atomic multi-write
+  rollback. Host execution/client provenance, node, locator, producer, consumed
+  revision, request correlation, manifest digest, counts and returned fact IDs
+  or errors remain inspectable without credential leakage.
+authority: Daedalus APPROVE T-12366 service-host-amendment.md r1, EN-43162 and EN-43169, 2026-11-02
+source:
+  - wrkq:T-12366
+  - wrkq:T-12352
+  - packages/acp-server/src/acp-listener.ts
+  - packages/acp-server/src/routing/peer.ts
+  - packages/acp-server/src/handlers/mobile-auth-admin.ts
+  - packages/acp-server/src/wrkf/client-lifecycle.ts
+  - packages/acp-server/src/cli.ts
+  - packages/acp-server/src/jobs/node-identity.ts
+  - packages/acp-reconciler/src/index.ts
+  - packages/acp-reconciler/src/config.ts
+  - scripts/acp-request-backfill.ts
+validation_scope: >
+  Requester owns the six checks submitted in service-host-amendment.md r1:
+  client identity and fail-closed availability/node/principal/busy admission;
+  peer/origin/shape/override refusal; historical cursor/parser coverage;
+  manifest/fence/partial-loss/replay evidence; full ACP and conformance checks
+  then operator-only activation/provenance; separately admitted live plan,
+  exact-manifest apply, genuine service receipts/owner facts and rerun0/0.
+  This approval adds no test requirement and grants no operational release.
+last_verified: >
+  2026-11-02 preimplementation architecture review of r1 against the installed
+  LaunchAgent's selected non-secret launch fields and existing source. New host
+  handlers are not implemented or verified by this ruling. No build, test,
+  install, restart, maintenance invocation or live apply was run by the reviewer.
+reopen_when: >
+  Admission trust, fixed capability, actual client reuse, producer or locator,
+  HRC node authority, manifest/reconciliation/recovery semantics, concurrency,
+  provenance or operational release boundary changes.
