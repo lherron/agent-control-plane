@@ -7,9 +7,12 @@ ATT-00408 on T-09980 (delegated sessions reconciler package); retrieve them with
 [as-built lifecycle diagram](../../docs/proposals/acp-reconciler-design/delegated-request-lifecycle.png)
 also has an [editable source](../../docs/proposals/acp-reconciler-design/delegated-request-lifecycle.arris.json).
 
-A task or subtask carrying `meta.acp.request: { rev: <positive integer> }` is a
-delegated request. Every scan reads current wrkq and HRC state. There is no
-controller database and no cursor. Each scan:
+A task or subtask carrying `ext acp/request/main { rev: <positive integer> }`
+is a delegated request. During migration, scans union extension discovery with
+legacy meta markers. The extension wins whenever it exists; only a `not_found`
+read permits `meta.acp.request` as fallback. Both lists are paginated and the
+extension list filters unfinished subject states. Every scan reads current wrkq
+and HRC state. There is no controller database or persistent cursor. Each scan:
 
 1. Starts each `open`, unclaimed request assigned to a valid `agent:<id>`, while
    capacity allows. Before dispatch it reserves the start with a keyed

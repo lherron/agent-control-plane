@@ -1,4 +1,4 @@
-import type { WorkClient } from '@wrkq/client'
+import { type WorkClient, WorkRpcError } from '@wrkq/client'
 import type { WrkqTask } from '@wrkq/client/wrkq'
 import { isTerminalRuntimeStatus } from 'hrc-core'
 import {
@@ -14,6 +14,7 @@ import {
   type HolderLiveness,
   type RequestClaim,
   type RequestFacts,
+  type RequestMarker,
   type RequestRecord,
   STALL_FACT_TYPE,
   START_FACT_TYPE,
@@ -22,6 +23,8 @@ import {
   type StartFact,
   type WorkerRef,
   type WorkerValidity,
+  isUnfinished,
+  parseRequestBody,
   parseRequestMarker,
   scopeRefOfSession,
 } from './model.js'
@@ -66,7 +69,25 @@ export function createWrkqReader(
 ): Pick<ReconcilerReader, 'listRequests' | 'readFacts'> {
   return {
     async listRequests() {
-      const marked: WrkqTask[] = []
+      const marked = new Map<string, WrkqTask>()
+      // Extension discovery is state-filtered so closed backfill history is not
+      // paged every scan. Only the singleton marker on a task is a go signal.
+      let extCursor: string | undefined
+      do {
+        const page = await client.wrkq.ext.listView({
+          ns: 'acp',
+          kind: 'request',
+          subjectStates: [...UNFINISHED_LIST_STATES],
+          limit: LIST_PAGE,
+          ...(extCursor !== undefined ? { cursor: extCursor } : {}),
+        })
+        for (const row of page.items) {
+          if (row.id !== 'main' || row.subject.type !== 'task') continue
+          const task = await client.wrkq.task.show({ task: row.subject.id })
+          if (isUnfinished(task.state)) marked.set(task.id, task)
+        }
+        extCursor = page.nextCursor
+      } while (extCursor !== undefined)
       let cursor: string | undefined
       do {
         const page = await client.wrkq.task.list({
@@ -77,7 +98,8 @@ export function createWrkqReader(
           ...(cursor !== undefined ? { cursor } : {}),
         })
         for (const task of page.items) {
-          if (parseRequestMarker(task.meta ?? {}) !== undefined) marked.push(task)
+          if (parseRequestMarker(task.meta ?? {}) !== undefined)
+            marked.set(task.id, marked.get(task.id) ?? task)
         }
         cursor = page.nextCursor
       } while (cursor !== undefined)
@@ -103,7 +125,23 @@ export function createWrkqReader(
       }
       const owners = new Map<string, boolean>()
       const records: RequestRecord[] = []
-      for (const task of marked) {
+      for (const task of marked.values()) {
+        // Only a missing row admits the legacy marker. Invalid bodies and RPC
+        // failures must never silently dispatch the rev stored in meta.
+        let marker: RequestMarker | undefined
+        try {
+          const { ext } = await client.wrkq.ext.show({
+            subject: { task: task.id },
+            ns: 'acp',
+            kind: 'request',
+            id: 'main',
+          })
+          marker = parseRequestBody(ext.body)
+        } catch (error) {
+          if (!(error instanceof WorkRpcError) || error.domainCode !== 'WRKQ_NOT_FOUND') throw error
+          marker = parseRequestMarker(task.meta ?? {})
+        }
+        if (marker === undefined) continue
         const project = await owningProject(task.projectUuid)
         let ownerGone: boolean | undefined
         if (task.subtaskOwner !== undefined) {
@@ -137,7 +175,7 @@ export function createWrkqReader(
           assigneePrincipalRef: optionalString(task.assigneePrincipalRef),
           requesterPrincipalRef: optionalString(task.requesterPrincipalRef),
           requesterScopeRef: optionalString(task.requesterScopeRef),
-          marker: parseRequestMarker(task.meta ?? {}) ?? { ok: false, reason: 'marker vanished' },
+          marker,
           claim,
           claimGeneration: task.claimGeneration,
           ownerId: task.subtaskOwner,

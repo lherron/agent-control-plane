@@ -8,7 +8,7 @@ export const STALL_FACT_TYPE = 'delegation.stalled'
 
 export type StallKind = 'ended_holder' | 'unclaimed_reservation' | 'orphaned_in_progress'
 
-/** `meta.acp.request` — exactly `{ rev: <positive integer> }`. */
+/** `ext acp/request/main` (legacy: `meta.acp.request`) — exactly `{ rev: <positive integer> }`. */
 export type RequestMarker =
   | Readonly<{ ok: true; rev: number }>
   | Readonly<{ ok: false; reason: string }>
@@ -85,17 +85,21 @@ export function parseRequestMarker(
   }
   if (!Object.hasOwn(acp, 'request')) return undefined
   const request = (acp as Record<string, unknown>)['request']
+  return parseRequestBody(request, 'meta.acp.request')
+}
+
+export function parseRequestBody(request: unknown, source = 'ext acp/request/main'): RequestMarker {
   if (request === null || typeof request !== 'object' || Array.isArray(request)) {
-    return { ok: false, reason: 'meta.acp.request must be an object' }
+    return { ok: false, reason: `${source} must be an object` }
   }
   const keys = Object.keys(request)
   const unknown = keys.filter((key) => key !== 'rev')
   if (unknown.length > 0) {
-    return { ok: false, reason: `meta.acp.request has unknown field(s): ${unknown.join(', ')}` }
+    return { ok: false, reason: `${source} has unknown field(s): ${unknown.join(', ')}` }
   }
   const rev = (request as Record<string, unknown>)['rev']
   if (typeof rev !== 'number' || !Number.isSafeInteger(rev) || rev < 1) {
-    return { ok: false, reason: 'meta.acp.request.rev must be a positive integer' }
+    return { ok: false, reason: `${source}.rev must be a positive integer` }
   }
   return { ok: true, rev }
 }

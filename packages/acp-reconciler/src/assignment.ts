@@ -19,7 +19,7 @@ export function assignmentBody(
     }.`,
     `- Read the activity timeline: \`wrkp log --task ${timelineTask}\`.`,
     `- Claim ${request.id} before touching any output.`,
-    `- After claiming, re-read the request and proceed only if its assignee is agent:${start.agentId} and meta.acp.request.rev is ${start.rev}; otherwise reject per the skill.`,
+    `- After claiming, re-read the request and proceed only if its assignee is agent:${start.agentId} and the rev from \`wrkq ext get ${request.id} acp request main --json\` (body.rev; meta.acp.request.rev only on not_found) is ${start.rev}; otherwise reject per the skill.`,
     `- If ${request.id} is already completed or claimed, this initial assignment is a no-op.`,
     '',
     'Record your result on the request, complete it, release your claim, then send the requester one --fyi notice. This assignment carries no reply obligation; do not message the reconciler.',
@@ -36,7 +36,7 @@ export function stallNoticeBody(
   return [
     `Delegation stall on ${request.id}: ${stall.stall.kind} — ${stall.reason}.`,
     evidence === '' ? undefined : `Evidence: ${evidence}`,
-    'Nothing was released, retried or failed. Recovery is deliberate: inspect the seat, then bump meta.acp.request.rev and reopen, or reassign.',
+    `Nothing was released, retried or failed. Recovery is deliberate: inspect the seat, then read \`wrkq ext get ${request.id} acp request main --json\`, bump body.rev using \`wrkq ext put\` with its etag (create the ext row on not_found), and reopen, or reassign.`,
   ]
     .filter((line) => line !== undefined)
     .join('\n')
