@@ -14,11 +14,11 @@ import {
   type ActionResponse,
   Controller,
   PRODUCTION_VESTA,
-  actedLine,
+  WIRE_VERSION,
   online,
   toWire,
   validateRequest,
-  wireCard,
+  wireResponse,
 } from '@praesidium/c2-core'
 
 import type { WorkClient } from '@wrkq/client'
@@ -32,20 +32,18 @@ import { type C2HrcHost, createC2HrcHost } from './hrc-adapter.js'
 export const C2_CONTROLLER_PRINCIPAL = 'system:c2-controller'
 export const C2_PHONE_PRINCIPAL = 'agent:lance'
 export const C2_ACTION_KINDS = [
-  'reply',
-  'choose',
-  'compose',
   'answer',
+  'compose',
   'jump',
   'delegate',
-  'elucidate',
   'rotate',
+  'elucidate',
+  'release',
   'snooze',
 ] as const satisfies readonly ActionKind[]
 // The advertised `capabilities.actions` must name every kind c2-core accepts: the
 // phone gates Send on it, and a kind missing here silently disables that action
-// (T-12235: 'answer' in c2-core 0.1.8). c2-core does not export its kind set, so
-// this fails typecheck at the pin bump instead of in the field.
+// (card contract §12.3). This fails typecheck at the pin bump instead of in the field.
 type MissingActionKinds = Exclude<ActionKind, (typeof C2_ACTION_KINDS)[number]>
 const allActionKindsAdvertised: [MissingActionKinds] extends [never] ? true : never = true
 void allActionKindsAdvertised
@@ -60,9 +58,12 @@ type Snapshot = { body: WireBody; revision: string; asOf: string; okAt: number; 
 export type C2HttpResult = { status: number; body: unknown }
 
 export type C2Service = {
-  cards(query: { after?: string | undefined; waitMs?: number | undefined }): Promise<C2HttpResult>
+  snapshot(query: {
+    after?: string | undefined
+    waitMs?: number | undefined
+  }): Promise<C2HttpResult>
   act(raw: unknown): Promise<C2HttpResult>
-  reconcile(requestId: string, sessionRef: string, generation: number): Promise<C2HttpResult>
+  reconcile(requestId: string, sessionRef: string): Promise<C2HttpResult>
   artifact(id: string): Promise<Response>
   stop(): void
 }
@@ -112,6 +113,8 @@ export function createC2Service(
     classify: true,
     ...(config.node !== undefined ? { node: config.node } : {}),
     ...(config.settleMs !== undefined ? { settleMs: config.settleMs } : {}),
+    ...(config.reviewAfterMs !== undefined ? { reviewAfterMs: config.reviewAfterMs } : {}),
+    ...(config.graceMs !== undefined ? { graceMs: config.graceMs } : {}),
   })
 
   // The warm snapshot (T-12227). The poll timer refreshes it in the background;
@@ -180,6 +183,7 @@ export function createC2Service(
     const ageMs = reachable ? 0 : Date.now() - snapshot.okAt
     return {
       ok: true as const,
+      wire: WIRE_VERSION,
       revision: snapshot.revision,
       asOf: snapshot.asOf,
       home: { node: snapshot.node, reachable, ageMs, stale: !reachable },
@@ -189,14 +193,13 @@ export function createC2Service(
   }
 
   function toWireResponse(response: ActionResponse) {
-    const { card, ...rest } = response
-    return card !== undefined ? { ...rest, card: wireCard(card, mintArtifactId) } : rest
+    return wireResponse(response, mintArtifactId)
   }
 
   /**
-   * The acted line (card-contract §6), as c2-core `actedLine` words it: after a delivered reply/choose/compose
-   * WITH a runId, one best-effort line to the live configured Vesta seat
-   * through the fenced literal input. Never retried or queued; skipped when
+   * The acted line (card contract §6), as c2-core words it (`response.acted`): after a
+   * delivered answer or compose, one best-effort line to the live configured Vesta
+   * seat through the fenced literal input. Never retried or queued; skipped when
    * Vesta is offline; its failure never changes the action's outcome.
    */
   async function sendActedLine(requestId: string, line: string): Promise<void> {
@@ -231,7 +234,7 @@ export function createC2Service(
   void refresh().catch((error) => log('c2.observe.failed', { error: String(error) }))
 
   return {
-    async cards({ after, waitMs }) {
+    async snapshot({ after, waitMs }) {
       const read = await current()
       if (read === undefined) return { status: 503, body: { ok: false, code: 'home_unavailable' } }
       const { snapshot, reachable } = read
@@ -278,8 +281,8 @@ export function createC2Service(
       }
       log('c2.act', { requestId: request.requestId, kind: request.kind, outcome: response.outcome })
       // c2-core decides the line and when one is due; ACP sends it once, never for a replay.
-      const line = response.replayed ? null : actedLine(response.card, request, response)
-      if (line !== null) void sendActedLine(request.requestId, line)
+      if (!response.replayed && response.acted !== undefined)
+        void sendActedLine(request.requestId, response.acted)
       refreshInBackground()
       return {
         status: response.outcome === 'not_submitted' ? 503 : 200,
@@ -287,11 +290,11 @@ export function createC2Service(
       }
     },
 
-    async reconcile(requestId, sessionRef, generation) {
+    async reconcile(requestId, sessionRef) {
       try {
         return {
           status: 200,
-          body: toWireResponse(await controller.reconcile(requestId, sessionRef, generation)),
+          body: toWireResponse(await controller.reconcile(requestId, sessionRef)),
         }
       } catch (error) {
         log('c2.reconcile.failed', { requestId, error: String(error) })

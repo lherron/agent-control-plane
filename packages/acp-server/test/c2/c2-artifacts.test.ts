@@ -1,199 +1,97 @@
 /**
- * T-12207 Work step 5/6: `GET /v1/mobile/c2/artifacts/:id`. The id is opaque,
- * bound to {key, updatedAt, field, index}; ACP re-reads the card and takes the
- * path only from that body, realpaths it, and requires containment under the
- * configured roots. Refusal codes are ACP's: `artifact_stale` (409: the card
- * changed or is gone; the client refreshes), `artifact_refused` (403: off-root,
- * symlink escape, traversal, or a field/index the card does not link),
+ * `GET /v1/mobile/c2/v2/artifacts/:id` (card contract rev 4.1 §12.2, §5 Elucidate): a row's `c2.detail` HTML.
+ * The id is opaque, bound to {sessionRef, rowId}; ACP re-reads the view and takes the path only from that
+ * row's detail, realpaths it, and requires containment under the configured roots. Codes:
+ * `artifact_missing` (404), `artifact_refused` (403: off-root, symlink escape, traversal, non-HTML),
  * `artifact_too_large` (413), `invalid_artifact_id` (400).
  */
 import { describe, expect, test } from 'bun:test'
-import { closeSync, ftruncateSync, mkdirSync, openSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import {
-  type C2Acp,
-  SEAT,
-  cardBody,
-  forgeArtifactId,
-  settle,
-  snapshotCard,
-  withC2Acp,
-} from './c2-acp.js'
+import { type C2Acp, SEAT, SEAT_REF, settle, snapshotEntry, withC2Acp } from './c2-acp.js'
 
 const CSP = "default-src 'none'; img-src data:; style-src 'unsafe-inline'"
+const forge = (sessionRef: string, rowId: string) =>
+  Buffer.from(JSON.stringify({ sessionRef, rowId })).toString('base64url')
 
 async function refusal(acp: C2Acp, id: string): Promise<{ status: number; code: unknown }> {
-  const response = await acp.get(`/v1/mobile/c2/artifacts/${id}`)
+  const response = await acp.get(`/v1/mobile/c2/v2/artifacts/${id}`)
   const body = (await response.json()) as { ok?: boolean; code?: unknown }
   expect(body.ok).toBe(false)
   return { status: response.status, code: body.code }
 }
 
-/** Re-put the fixture card with the evidence image pointing at `image`. */
-function repoint(acp: C2Acp, image: string, html = acp.htmlPath): void {
+function repoint(acp: C2Acp, path: string): void {
   acp.fake.put({
     scopeRef: SEAT,
-    generation: 2,
-    kind: 'card',
-    id: acp.card().id,
-    body: cardBody({ image, html }),
+    subject: 'seat',
+    kind: 'detail',
+    id: 'ship',
+    body: { v: 1, detailRef: path, at: 'x' },
+    by: 'agent:vesta',
   })
 }
 
-async function forgedEvidence(acp: C2Acp): Promise<string> {
-  const { card } = await snapshotCard(acp)
-  return forgeArtifactId({ key: card.key, updatedAt: card.updatedAt, field: 'evidence', index: 1 })
-}
-
-describe('positive control', () => {
-  test('an evidence image is served at full resolution, byte for byte', async () => {
+describe('row explanations', () => {
+  test('the detail is HTML with the restrictive CSP and nosniff', async () => {
     await withC2Acp(async (acp) => {
-      const { card } = await snapshotCard(acp)
-      const id = card.evidence.find((item) => item.label === 'look')?.image?.artifact
-      expect(typeof id).toBe('string')
-      const response = await acp.get(`/v1/mobile/c2/artifacts/${id}`)
+      const { entry } = await snapshotEntry(acp)
+      const id = entry.rows[0]?.detail.artifact
+      expect(id).toBeString()
+      const response = await acp.get(`/v1/mobile/c2/v2/artifacts/${id}`)
       expect(response.status).toBe(200)
-      expect(response.headers.get('content-type')).toBe('image/png')
-      expect(response.headers.get('x-content-type-options')).toBe('nosniff')
-      const bytes = new Uint8Array(await response.arrayBuffer())
-      expect(bytes.length).toBe(acp.imageBytes.length)
-      expect(Buffer.compare(Buffer.from(bytes), Buffer.from(acp.imageBytes))).toBe(0)
-    })
-  })
-
-  test('the detail explanation is HTML with the restrictive CSP and nosniff', async () => {
-    await withC2Acp(async (acp) => {
-      const { card } = await snapshotCard(acp)
-      const response = await acp.get(`/v1/mobile/c2/artifacts/${card.detail.artifact}`)
-      expect(response.status).toBe(200)
-      expect(response.headers.get('content-type')).toStartWith('text/html')
+      expect(response.headers.get('content-type')).toBe('text/html; charset=utf-8')
       expect(response.headers.get('content-security-policy')).toBe(CSP)
       expect(response.headers.get('x-content-type-options')).toBe('nosniff')
       expect(await response.text()).toContain('Because it is disposable.')
     })
   })
-})
 
-describe('refusals', () => {
-  test('a changed card invalidates its old artifact id; the refreshed id works', async () => {
+  test('a path outside the roots, a symlink escape, a traversal and a sibling prefix are refused', async () => {
     await withC2Acp(async (acp) => {
-      const { card } = await snapshotCard(acp)
-      const oldId = card.evidence.find((item) => item.label === 'look')?.image?.artifact ?? ''
-      acp.fake.put({
-        scopeRef: SEAT,
-        generation: 2,
-        kind: 'card',
-        id: card.key.id,
-        body: { ...acp.card().body, title: 'Revised' },
-      })
-      expect(await refusal(acp, oldId)).toEqual({ status: 409, code: 'artifact_stale' })
-      // GET serves the warm snapshot (T-12227): let a background refresh see the put.
-      await settle(200)
-      const { card: fresh } = await snapshotCard(acp)
-      expect(fresh.title).toBe('Revised')
-      const newId = fresh.evidence.find((item) => item.label === 'look')?.image?.artifact
-      expect(newId).not.toBe(oldId)
-      expect((await acp.get(`/v1/mobile/c2/artifacts/${newId}`)).status).toBe(200)
-    })
-  })
-
-  test('a card path outside the roots is refused', async () => {
-    await withC2Acp(async (acp) => {
-      const outside = join(acp.roots.outside, 'secret.png')
-      writeFileSync(outside, 'not for the phone')
-      repoint(acp, outside)
-      expect(await refusal(acp, await forgedEvidence(acp))).toEqual({
-        status: 403,
-        code: 'artifact_refused',
-      })
-    })
-  })
-
-  test('a symlink under a root that escapes it is refused', async () => {
-    await withC2Acp(async (acp) => {
-      const outside = join(acp.roots.outside, 'secret.png')
-      writeFileSync(outside, 'not for the phone')
-      const link = join(acp.roots.wrkqArtifacts, 'T-00000', 'escape.png')
+      const outside = join(acp.roots.outside, 'x.html')
+      writeFileSync(outside, '<p>no</p>')
+      const id = forge(SEAT_REF, 'ship')
+      const cases: string[] = [outside]
+      const link = join(acp.roots.scratchC2, 'link.html')
       symlinkSync(outside, link)
-      repoint(acp, link)
-      expect(await refusal(acp, await forgedEvidence(acp))).toEqual({
-        status: 403,
-        code: 'artifact_refused',
-      })
-    })
-  })
-
-  test('a traversal path that lexically starts under a root is refused', async () => {
-    await withC2Acp(async (acp) => {
-      writeFileSync(join(acp.roots.outside, 'secret.png'), 'not for the phone')
-      repoint(acp, join(acp.roots.wrkqArtifacts, '..', 'outside', 'secret.png'))
-      expect(await refusal(acp, await forgedEvidence(acp))).toEqual({
-        status: 403,
-        code: 'artifact_refused',
-      })
-    })
-  })
-
-  test('a sibling directory sharing a root prefix is refused', async () => {
-    await withC2Acp(async (acp) => {
-      const sibling = `${acp.roots.wrkqArtifacts}-evil`
+      cases.push(link, join(acp.roots.scratchC2, '..', '..', 'outside', 'x.html'))
+      const sibling = `${acp.roots.scratchC2}-evil`
       mkdirSync(sibling, { recursive: true })
-      writeFileSync(join(sibling, 'x.png'), 'prefix trick')
-      repoint(acp, join(sibling, 'x.png'))
-      expect(await refusal(acp, await forgedEvidence(acp))).toEqual({
-        status: 403,
-        code: 'artifact_refused',
-      })
-    })
-  })
-
-  test('an index or field the card does not link is refused', async () => {
-    await withC2Acp(async (acp) => {
-      const { card } = await snapshotCard(acp)
-      // evidence[0] is a text item, evidence[9] does not exist.
-      for (const index of [0, 9]) {
-        const id = forgeArtifactId({
-          key: card.key,
-          updatedAt: card.updatedAt,
-          field: 'evidence',
-          index,
-        })
+      writeFileSync(join(sibling, 'y.html'), '<p>no</p>')
+      cases.push(join(sibling, 'y.html'))
+      for (const path of cases) {
+        repoint(acp, path)
+        await settle(150)
         expect(await refusal(acp, id)).toEqual({ status: 403, code: 'artifact_refused' })
       }
     })
   })
 
-  test('an image over 20 MB is refused', async () => {
+  test('non-HTML is refused; HTML over 64 KB is too large', async () => {
     await withC2Acp(async (acp) => {
-      const big = join(acp.roots.wrkqArtifacts, 'T-00000', 'huge.png')
-      const fd = openSync(big, 'w')
-      ftruncateSync(fd, 20 * 1024 * 1024 + 1)
-      closeSync(fd)
+      const id = forge(SEAT_REF, 'ship')
+      const png = join(acp.roots.scratchC2, 'x.png')
+      writeFileSync(png, 'png')
+      repoint(acp, png)
+      await settle(150)
+      expect(await refusal(acp, id)).toEqual({ status: 403, code: 'artifact_refused' })
+      const big = join(acp.roots.scratchC2, 'big.html')
+      writeFileSync(big, 'x'.repeat(64 * 1024 + 1))
       repoint(acp, big)
-      expect(await refusal(acp, await forgedEvidence(acp))).toEqual({
-        status: 413,
-        code: 'artifact_too_large',
-      })
+      await settle(150)
+      expect(await refusal(acp, id)).toEqual({ status: 413, code: 'artifact_too_large' })
     })
   })
 
-  test('HTML over 64 KB is refused', async () => {
+  test('a row without a detail, an unknown row and a malformed id are refused', async () => {
     await withC2Acp(async (acp) => {
-      const fat = join(acp.roots.scratchC2, 'fat.html')
-      writeFileSync(fat, `<p>${'x'.repeat(64 * 1024)}</p>`)
-      repoint(acp, acp.imagePath, fat)
-      const { card } = await snapshotCard(acp)
-      expect(await refusal(acp, card.detail.artifact ?? '')).toEqual({
-        status: 413,
-        code: 'artifact_too_large',
+      expect(await refusal(acp, forge(SEAT_REF, 'nope'))).toEqual({
+        status: 404,
+        code: 'artifact_missing',
       })
-    })
-  })
-
-  test('a malformed id is 400', async () => {
-    await withC2Acp(async (acp) => {
-      expect(await refusal(acp, 'not-base64url-json')).toEqual({
+      expect(await refusal(acp, 'not-base64-json')).toEqual({
         status: 400,
         code: 'invalid_artifact_id',
       })

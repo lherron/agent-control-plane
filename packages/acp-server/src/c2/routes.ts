@@ -1,11 +1,15 @@
 /**
- * `/v1/mobile/c2/*` (T-12205 r2.1 "Mobile wire contract"), behind the existing
+ * `/v1/mobile/c2/v2/*` (card contract rev 4.1 §12 "Mobile wire"), behind the existing
  * mobile gate (`classifyMobileRoute` puts every `/v1/mobile/...` path in the
  * bearer tier; nothing here adds or relaxes auth). No client `scope`, home URL
  * or Vesta identity is accepted.
  */
 import type { RouteHandler } from '../routing/route-context.js'
 import { LONG_POLL_MAX_MS, ensureC2Service } from './controller-host.js'
+
+/** §12.1: every v1 card route answers 410 and executes nothing, so an old phone fails closed. */
+export const handleC2V1Gone: RouteHandler = async () =>
+  Response.json({ ok: false, code: 'wire_version_unsupported', wire: 2 }, { status: 410 })
 
 function unavailable(): Response {
   return Response.json({ ok: false, code: 'home_unavailable' }, { status: 503 })
@@ -20,7 +24,7 @@ function parseInteger(raw: string | null): number | undefined {
   return Number.parseInt(raw, 10)
 }
 
-export const handleC2Cards: RouteHandler = async ({ url, deps }) => {
+export const handleC2Snapshot: RouteHandler = async ({ url, deps }) => {
   const service = ensureC2Service(deps)
   if (service === undefined) return unavailable()
   const after = url.searchParams.get('after') ?? undefined
@@ -32,7 +36,7 @@ export const handleC2Cards: RouteHandler = async ({ url, deps }) => {
       return badRequest(`waitMs must be an integer 0..${LONG_POLL_MAX_MS}`)
     }
   }
-  const result = await service.cards({ after, waitMs })
+  const result = await service.snapshot({ after, waitMs })
   return Response.json(result.body, { status: result.status })
 }
 
@@ -54,11 +58,9 @@ export const handleC2Reconcile: RouteHandler = async ({ url, params, deps }) => 
   if (service === undefined) return unavailable()
   const requestId = params['requestId']
   const sessionRef = url.searchParams.get('sessionRef')
-  const generation = parseInteger(url.searchParams.get('generation'))
   if (requestId === undefined || requestId === '') return badRequest('requestId is required')
   if (sessionRef === null || sessionRef === '') return badRequest('sessionRef is required')
-  if (generation === undefined) return badRequest('generation must be an integer')
-  const result = await service.reconcile(requestId, sessionRef, generation)
+  const result = await service.reconcile(requestId, sessionRef)
   return Response.json(result.body, { status: result.status })
 }
 

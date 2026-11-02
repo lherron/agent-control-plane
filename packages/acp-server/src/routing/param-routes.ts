@@ -1,4 +1,4 @@
-import { handleC2Artifact, handleC2Reconcile } from '../c2/routes.js'
+import { handleC2Artifact, handleC2Reconcile, handleC2V1Gone } from '../c2/routes.js'
 import { handleGetAgentPfp, handlePatchAdminAgentProfile } from '../handlers/admin-agent-profile.js'
 import { handleGetAdminAgentSystemPrompt } from '../handlers/admin-agent-system-prompt.js'
 import { handleGetAdminAgentDetail } from '../handlers/admin-agents-detail.js'
@@ -325,8 +325,10 @@ export function buildParamRoutes(): ParamRoute[] {
       '/v1/workflow-participant-runs/:runId/fail',
       handleFailWorkflowParticipantRun
     ),
-    createParamRoute('GET', '/v1/mobile/c2/actions/:requestId', handleC2Reconcile),
-    createParamRoute('GET', '/v1/mobile/c2/artifacts/:id', handleC2Artifact),
+    createParamRoute('GET', '/v1/mobile/c2/actions/:requestId', handleC2V1Gone),
+    createParamRoute('GET', '/v1/mobile/c2/artifacts/:id', handleC2V1Gone),
+    createParamRoute('GET', '/v1/mobile/c2/v2/actions/:requestId', handleC2Reconcile),
+    createParamRoute('GET', '/v1/mobile/c2/v2/artifacts/:id', handleC2Artifact),
     createParamRoute('POST', '/v1/mobile/sessions/:hostSessionId/input', handleMobileInput),
     createParamRoute('POST', '/v1/mobile/sessions/:hostSessionId/interrupt', handleMobileInterrupt),
     createParamRoute('POST', '/v1/mobile/sessions/:hostSessionId/restart', handleMobileRestart),

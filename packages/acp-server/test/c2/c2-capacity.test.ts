@@ -1,32 +1,31 @@
 /**
- * T-12207 Work step 6: HRC's 256-per-subject quota refuses the receipt create,
- * which happens before any claim or send. That is a provable pre-dispatch
- * refusal: `not_submitted {reason: annotation_capacity}`, no send, no act, the
- * card untouched, and no receipt or other row pruned to make room.
+ * Card contract rev 4 §3 quota: receipts, row claims, pings, details and the asks record share the seat
+ * subject's 256-row quota. The receipt create happens before any claim or send, so its refusal is a provable
+ * pre-dispatch refusal: `not_submitted {reason: annotation_capacity}`, no send, no act, the record untouched,
+ * and no row pruned to make room.
  */
 import { expect, test } from 'bun:test'
 
 import {
   type ActionResponse,
   SEAT,
-  replyRequest,
+  answerRequest,
   seatSends,
-  snapshotCard,
+  snapshotEntry,
   withC2Acp,
 } from './c2-acp.js'
 
 test('annotation_quota at the receipt create is not_submitted annotation_capacity with nothing sent', async () => {
   await withC2Acp(async (acp) => {
-    const { card } = await snapshotCard(acp)
-    // Fill the card's generation subject to 256 rows (the card plus 255 notes).
-    for (let i = 0; i < 255; i += 1) {
-      acp.fake.put({ scopeRef: SEAT, generation: 2, kind: 'note', id: `n${i}`, body: { i } })
+    const { entry } = await snapshotEntry(acp)
+    // Fill the seat subject to 256 rows (the asks record and its detail plus 254 notes).
+    for (let i = 0; i < 254; i += 1) {
+      acp.fake.put({ scopeRef: SEAT, subject: 'seat', kind: 'note', id: `n${i}`, body: { i } })
     }
     const before = structuredClone(acp.fake.annotations)
-    const cardBefore = structuredClone(acp.card())
-    const request = replyRequest(card)
-
-    const response = await acp.post('/v1/mobile/c2/actions', request)
+    const recordBefore = structuredClone(acp.record())
+    const request = answerRequest(entry)
+    const response = await acp.post('/v1/mobile/c2/v2/actions', request)
     expect([200, 503]).toContain(response.status)
     const body = (await response.json()) as ActionResponse
     expect(body.ok).toBe(false)
@@ -38,8 +37,8 @@ test('annotation_quota at the receipt create is not_submitted annotation_capacit
     expect(
       acp.fake.ledger.filter((event) => event.eventKind === 'session.annotation.action')
     ).toHaveLength(0)
-    expect(acp.fake.find(SEAT, 'receipt', request.requestId, 2)).toBeUndefined()
-    expect(acp.card()).toEqual(cardBefore)
+    expect(acp.fake.find(SEAT, 'receipt', request.requestId, null)).toBeUndefined()
+    expect(acp.record()).toEqual(recordBefore)
     expect(acp.fake.annotations).toEqual(before)
     expect(acp.fake.calls.some((call) => call.path === '/v1/sessions/annotations/delete')).toBe(
       false

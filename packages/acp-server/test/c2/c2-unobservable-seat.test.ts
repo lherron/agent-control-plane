@@ -4,7 +4,7 @@
  * annotation list with HRC `session_home_pending` (503: the node retired the
  * scope and no home is bound yet). One such seat failed the production
  * sweep and every snapshot. A per-seat HRC refusal now skips that seat for the
- * pass, logged once per seat and code; an action on its card still refuses
+ * pass, logged once per seat and code; an action on its entry still refuses
  * through normal preflight; Vesta and HRC itself stay strict.
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
@@ -13,13 +13,14 @@ import {
   type ActionResponse,
   RETIRED_SEAT,
   SEAT,
+  SEAT_REF,
   type Snapshot,
   VESTA,
+  answerRequest,
   reconcilePath,
-  replyRequest,
   seatSends,
   settle,
-  snapshotCard,
+  snapshotEntry,
   withC2Acp,
 } from './c2-acp.js'
 
@@ -49,10 +50,10 @@ describe('an unobservable seat', () => {
       test(`${code} on ${route} skips the seat; the snapshot still answers`, async () => {
         await withC2Acp(
           async (acp) => {
-            const { status, body } = await acp.getJson<Snapshot>('/v1/mobile/c2/cards')
+            const { status, body } = await acp.getJson<Snapshot>('/v1/mobile/c2/v2/snapshot')
             expect(status).toBe(200)
             expect(body.home).toMatchObject({ reachable: true, stale: false })
-            expect(body.seats.map((seat) => seat.scopeRef)).toEqual([SEAT])
+            expect(body.entries.map((e) => e.seat.scopeRef)).toEqual([SEAT])
             if (route === 'attention') {
               const asked = acp.fake.calls.filter(
                 (call) =>
@@ -63,7 +64,7 @@ describe('an unobservable seat', () => {
           },
           {
             beforeBoot: (fake) => {
-              // A card makes the seat one the production instance observes.
+              // A c2 row makes the seat one the production instance observes.
               if (route === 'attention') {
                 fake.put({
                   scopeRef: RETIRED_SEAT,
@@ -84,7 +85,7 @@ describe('an unobservable seat', () => {
   test('the skip is logged once per seat and code, not every pass', async () => {
     await withC2Acp(
       async (acp) => {
-        for (let i = 0; i < 3; i += 1) await acp.getJson('/v1/mobile/c2/cards')
+        for (let i = 0; i < 3; i += 1) await acp.getJson('/v1/mobile/c2/v2/snapshot')
         await settle(300)
         const lines = logged.filter(
           (line) => line.includes('c2.seat.unobservable') && line.includes(RETIRED_SEAT)
@@ -109,8 +110,8 @@ describe('an unobservable seat', () => {
     requestId: string
   ) {
     expect(seatSends(acp)).toHaveLength(0)
-    expect(acp.fake.find(SEAT, 'receipt', requestId, 2)?.body['stage'] ?? 'absent').not.toMatch(
-      /dispatching|delivered/
+    expect(acp.fake.find(SEAT, 'receipt', requestId, null)?.body['stage'] ?? 'absent').not.toMatch(
+      /claiming|sending|delivered/
     )
     const okActs = acp.fake.ledger.filter(
       (event) =>
@@ -127,15 +128,18 @@ describe('an unobservable seat', () => {
 
   test('a retired scope (reads and writes refused) answers typed not_submitted session_home_pending', async () => {
     await withC2Acp(async (acp) => {
-      const { card } = await snapshotCard(acp)
+      const { entry } = await snapshotEntry(acp)
       acp.fake.seatErrors.set(SEAT, {
         status: 503,
         code: 'session_home_pending',
         routes: ['annotations', 'attention'],
       })
       await settle(200)
-      const request = replyRequest(card)
-      const { status, body } = await acp.postJson<ActionResponse>('/v1/mobile/c2/actions', request)
+      const request = answerRequest(entry)
+      const { status, body } = await acp.postJson<ActionResponse>(
+        '/v1/mobile/c2/v2/actions',
+        request
+      )
       // c2-core's first step, the create-only receipt, is refused: provably pre-dispatch.
       expect(status).toBe(503)
       expect(body).toMatchObject({
@@ -146,31 +150,35 @@ describe('an unobservable seat', () => {
       })
       expectNothingDelivered(acp, request.requestId)
       // Healthy seats and the scope row keep working: Vesta still reads, the seat is just absent.
-      const { status: snapStatus, body: snapshot } =
-        await acp.getJson<Snapshot>('/v1/mobile/c2/cards')
+      const { status: snapStatus, body: snapshot } = await acp.getJson<Snapshot>(
+        '/v1/mobile/c2/v2/snapshot'
+      )
       expect(snapStatus).toBe(200)
       expect(snapshot.vesta.online).toBe(true)
-      expect(snapshot.seats.some((seat) => seat.scopeRef === SEAT)).toBe(false)
+      expect(snapshot.entries.some((e) => e.seat.scopeRef === SEAT)).toBe(false)
     })
   })
 
-  test('an unreadable live row keeps the card visible and refuses with c2-core preflight seat_unknown', async () => {
+  test('an unreadable live row keeps the entry visible and refuses with c2-core preflight seat_unknown', async () => {
     await withC2Acp(async (acp) => {
-      const { card } = await snapshotCard(acp)
+      const { entry } = await snapshotEntry(acp)
       acp.fake.seatErrors.set(SEAT, {
         status: 503,
         code: 'session_home_unreachable',
         routes: ['attention'],
       })
       await settle(200)
-      const { body: snapshot } = await acp.getJson<Snapshot>('/v1/mobile/c2/cards')
-      const shown = snapshot.seats.find((seat) => seat.scopeRef === SEAT)?.card
-      // The card is still there, unknown rather than moved: never superseded on a missing row.
-      expect(shown?.key).toEqual(card.key)
-      expect(shown?.state).toBe('open')
+      const { body: snapshot } = await acp.getJson<Snapshot>('/v1/mobile/c2/v2/snapshot')
+      const shown = snapshot.entries.find((e) => e.seat.scopeRef === SEAT)
+      // The row is still there; the seat is unknown, not gone.
+      expect(shown?.key).toEqual(entry.key)
+      expect(shown?.rows[0]?.state).toBe('open')
       expect(shown?.seat.online).toBe(false)
-      const request = replyRequest(card)
-      const { status, body } = await acp.postJson<ActionResponse>('/v1/mobile/c2/actions', request)
+      const request = answerRequest(entry)
+      const { status, body } = await acp.postJson<ActionResponse>(
+        '/v1/mobile/c2/v2/actions',
+        request
+      )
       expect(status).toBe(503)
       expect(body).toMatchObject({
         ok: false,
@@ -178,11 +186,9 @@ describe('an unobservable seat', () => {
         reason: 'seat_unknown',
         replayed: false,
       })
-      expect(acp.fake.find(SEAT, 'receipt', request.requestId, 2)?.body['stage']).toBe('done')
+      expect(acp.fake.find(SEAT, 'receipt', request.requestId, null)?.body['stage']).toBe('done')
       expectNothingDelivered(acp, request.requestId)
-      const readback = await acp.getJson<ActionResponse>(
-        reconcilePath(request.requestId, request.key)
-      )
+      const readback = await acp.getJson<ActionResponse>(reconcilePath(request.requestId, SEAT_REF))
       expect(readback.body).toMatchObject({ outcome: 'not_submitted', reason: 'seat_unknown' })
     })
   })
@@ -190,7 +196,7 @@ describe('an unobservable seat', () => {
   test('Vesta stays strict: her unreadable rows make the snapshot unavailable, never empty', async () => {
     await withC2Acp(
       async (acp) => {
-        const { status, body } = await acp.getJson('/v1/mobile/c2/cards')
+        const { status, body } = await acp.getJson('/v1/mobile/c2/v2/snapshot')
         expect(status).toBe(503)
         expect(body).toEqual({ ok: false, code: 'home_unavailable' })
       },

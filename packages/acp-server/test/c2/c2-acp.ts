@@ -1,7 +1,8 @@
 /**
- * Ephemeral ACP for the C2 mobile cards reds (T-12207): the real router and
- * listener handlers on a Bun.serve TCP port, a real hrc-sdk `HrcClient` over
- * the fake HRC unix socket, and a disposable fixture seat with one Vesta card.
+ * Ephemeral ACP for the C2 mobile wire (card contract rev 4.1 §12, T-12239): the
+ * real router and listener handlers on a Bun.serve TCP port, a real hrc-sdk
+ * `HrcClient` over the fake HRC unix socket, and a disposable fixture seat whose
+ * `hrc.asks` record holds one open row.
  * Nothing here touches a real seat or a human card.
  */
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -30,7 +31,8 @@ export const OUT_SEAT = 'agent:mable:project:human:task:primary'
 /** Shaped like the max3 seat whose scope HRC retired with no home bound (session_home_pending). */
 export const RETIRED_SEAT = 'agent:stella:project:arris:task:primary-quasar'
 export const ATTENTION_AT = '2026-11-01T05:00:00.000Z'
-export const REPLY_TEXT = 'Ship it; the fixture is disposable.'
+export const ASK = 'Ship the disposable fixture?'
+export const ANSWER_TEXT = `1. ${ASK} \u2014 Ship.`
 export const SCOPE_ALLOW = ['^agent:smokey:project:c2:task:c2fixture-[a-z0-9-]+$']
 
 export type C2Roots = { wrkqArtifacts: string; scratchC2: string; outside: string }
@@ -40,11 +42,9 @@ export type C2Acp = {
   fake: FakeHrc
   wired: WiredServerFixture
   roots: C2Roots
-  /** Raw bytes of the card's evidence image (the full-resolution control). */
-  imageBytes: Uint8Array
-  imagePath: string
   htmlPath: string
-  card(): FakeAnnotation
+  /** The fixture seat's `hrc.asks` record. */
+  record(): FakeAnnotation
   get(path: string, headers?: HeadersInit): Promise<Response>
   post(path: string, body: unknown, headers?: HeadersInit): Promise<Response>
   getJson<T = Record<string, unknown>>(path: string): Promise<{ status: number; body: T }>
@@ -120,38 +120,21 @@ export function fixtureSeats(): FakeSeat[] {
   ]
 }
 
-export function cardBody(paths: { image: string; html: string }): Record<string, unknown> {
+export function asksBody(extra: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    v: 4,
-    source: 'vesta',
-    attentionAt: ATTENTION_AT,
-    title: 'Ship the disposable fixture?',
-    blocked: 'The fixture seat waits for a yes or no.',
-    recommendation: { action: 'ship', why: 'It is disposable.' },
-    actions: [
-      { id: 'ship', kind: 'reply', label: 'Ship it', text: REPLY_TEXT },
-      { id: 'write', kind: 'compose', label: 'Write', draft: '' },
-      { kind: 'jump', label: 'Open session' },
-      { id: 'later', kind: 'snooze', label: 'Later', minutes: 30 },
+    v: 1,
+    questions: [
+      {
+        id: 'ship',
+        ask: ASK,
+        options: [{ label: 'Ship' }, { label: 'Hold', text: 'Hold until Monday' }],
+        recommended: 'Ship',
+        why: 'It is disposable.',
+        task: 'T-12239',
+        ...extra,
+      },
     ],
-    evidence: [
-      { label: 'excerpt', text: 'Ship the fixture?' },
-      { label: 'look', image: paths.image },
-    ],
-    detailRef: paths.html,
-    createdAt: ATTENTION_AT,
-    state: 'open',
   }
-}
-
-/** The ACP §5 artifact id encoding, for forged-id refusals. */
-export function forgeArtifactId(input: {
-  key: Record<string, unknown>
-  updatedAt: string
-  field: 'evidence' | 'detail'
-  index: number
-}): string {
-  return Buffer.from(JSON.stringify(input)).toString('base64url')
 }
 
 export function newRequestId(): string {
@@ -170,12 +153,6 @@ export async function withC2Acp<T>(
   }
   for (const dir of Object.values(roots)) mkdirSync(dir, { recursive: true })
 
-  // 3 MiB of deterministic bytes: large enough that any thumbnailing shows.
-  const imageBytes = new Uint8Array(3 * 1024 * 1024)
-  for (let i = 0; i < imageBytes.length; i += 1) imageBytes[i] = (i * 31 + 7) & 0xff
-  const imagePath = join(roots.wrkqArtifacts, 'T-00000', 'look.png')
-  mkdirSync(join(roots.wrkqArtifacts, 'T-00000'), { recursive: true })
-  writeFileSync(imagePath, imageBytes)
   const htmlPath = join(roots.scratchC2, 'explain.html')
   writeFileSync(htmlPath, '<!doctype html><title>why</title><p>Because it is disposable.</p>')
 
@@ -193,10 +170,20 @@ export async function withC2Acp<T>(
   }
   fake.put({
     scopeRef: SEAT,
-    generation: 2,
-    kind: 'card',
-    id: ATTENTION_AT,
-    body: cardBody({ image: imagePath, html: htmlPath }),
+    subject: 'seat',
+    ns: 'hrc',
+    kind: 'asks',
+    id: 'open',
+    body: asksBody(),
+    by: 'agent:smokey',
+  })
+  fake.put({
+    scopeRef: SEAT,
+    subject: 'seat',
+    kind: 'detail',
+    id: 'ship',
+    body: { v: 1, detailRef: htmlPath, at: ATTENTION_AT },
+    by: 'agent:vesta',
   })
   // An open card on a seat no fixture scope allows, whose attention has moved on.
   fake.put({
@@ -261,12 +248,10 @@ export async function withC2Acp<T>(
         fake,
         wired,
         roots,
-        imageBytes,
-        imagePath,
         htmlPath,
-        card() {
-          const row = fake.find(SEAT, 'card', ATTENTION_AT, 2)
-          if (row === undefined) throw new Error('fixture card missing')
+        record() {
+          const row = fake.find(SEAT, 'asks', 'open', null)
+          if (row === undefined) throw new Error('fixture asks record missing')
           return row
         },
         get,
@@ -294,68 +279,44 @@ export async function withC2Acp<T>(
   }
 }
 
-// ---- wire shapes the reds read (T-12205 r2.1 "Mobile wire contract") ----
+// ---- wire shapes the reds read (card contract rev 4.1 §12.3–§12.4) ----
 
-export type CardKey = {
-  sessionRef: string
-  subject: 'generation'
-  generation: number
-  ns: 'c2'
-  kind: 'card' | 'ask'
+export type EntryKey = { sessionRef: string; subject: 'seat'; ns: string; kind: string; id: string }
+export type WireAction = { id: string; kind: string; label: string; text?: string }
+export type WireRow = {
   id: string
-}
-export type WireAction = {
-  id: string
-  kind: string
-  label: string
-  text?: string
-  minutes?: number
-  draft?: string
-}
-export type WireCard = {
-  id: string
-  key: CardKey
-  createdAt: string
-  updatedAt: string
-  updatedBy: string
-  source: string
+  displayId: string
+  ask: string
+  options: Array<{ label: string; text: string }>
+  recommended?: string
+  sent?: { by: string; runId?: string; at: string; text: string }
   state: string
-  title: string
-  actions: WireAction[]
-  evidence: Array<{ label: string; text?: string; image?: { artifact: string } }>
+  preselect: string | null
+  reviewAlternative: string | null
   detail: { status: string; artifact?: string }
-  pending: { actionId: string; requestId: string; at: string } | null
-  seat: {
-    node: string
-    scopeRef: string
-    sessionRef: string
-    hostSessionId: string
-    generation: number
-    attentionAt: string | null
-    online: boolean
-  }
-  runId?: string
-  sentText?: string
+  actions: WireAction[]
+}
+export type WireEntry = {
+  id: string
+  seat: { scopeRef: string; sessionRef: string; online: boolean; generation: number | null }
+  key: EntryKey
+  expectUpdatedAt: string
+  record: { updatedAt: string; updatedBy: string; createdAt: string } | null
+  attention: Record<string, unknown> | null
+  rows: WireRow[]
+  basicCard: { title: string; body: string; attentionAt: string } | null
+  actions: WireAction[]
 }
 export type Snapshot = {
   ok: true
+  wire: number
   unchanged?: true
   revision: string
   asOf: string
   home: { node: string; reachable: boolean; ageMs: number; stale: boolean }
-  vesta: { online: boolean; sessionRef?: string; hostSessionId?: string; generation?: number }
-  seats: Array<{
-    scopeRef: string
-    agent: string
-    project: string
-    seat: string
-    online: boolean
-    card: WireCard | null
-    drafting: boolean
-  }>
-  asks: WireCard[]
-  recent: WireCard[]
-  counts: { waiting: number; asks: number }
+  vesta: { online: boolean; sessionRef?: string; generation?: number }
+  entries: WireEntry[]
+  counts: { openRows: number; openEntries: number }
   capabilities: { actions: string[]; artifacts: boolean; longPoll: boolean }
 }
 export type ActionResponse = {
@@ -363,7 +324,7 @@ export type ActionResponse = {
   outcome: string
   requestId: string
   replayed: boolean
-  card?: WireCard
+  entry?: WireEntry
   receipt?: {
     node: string
     sessionRef: string
@@ -378,43 +339,39 @@ export type ActionResponse = {
   ledger?: { hrcSeq: number }
 }
 
-export async function snapshotCard(acp: C2Acp): Promise<{ snapshot: Snapshot; card: WireCard }> {
-  const { status, body } = await acp.getJson<Snapshot>('/v1/mobile/c2/cards')
-  if (status !== 200) {
-    throw new Error(`GET /v1/mobile/c2/cards answered ${status}: ${JSON.stringify(body)}`)
-  }
-  const card = body.seats.find((row) => row.scopeRef === SEAT)?.card
-  if (card === null || card === undefined) {
-    throw new Error(`fixture seat has no card in ${JSON.stringify(body.seats)}`)
-  }
-  return { snapshot: body, card }
+export const SNAPSHOT = '/v1/mobile/c2/v2/snapshot'
+export const ACTIONS = '/v1/mobile/c2/v2/actions'
+
+export async function snapshotEntry(acp: C2Acp): Promise<{ snapshot: Snapshot; entry: WireEntry }> {
+  const { status, body } = await acp.getJson<Snapshot>(SNAPSHOT)
+  if (status !== 200) throw new Error(`GET ${SNAPSHOT} answered ${status}: ${JSON.stringify(body)}`)
+  const entry = body.entries.find((e) => e.seat.scopeRef === SEAT)
+  if (entry === undefined)
+    throw new Error(`fixture seat has no entry in ${JSON.stringify(body.entries)}`)
+  return { snapshot: body, entry }
 }
 
-export function replyRequest(card: WireCard, overrides: Record<string, unknown> = {}) {
-  const action = card.actions.find((candidate) => candidate.kind === 'reply')
-  if (action === undefined) throw new Error('fixture card has no reply action')
+/** The recommended answer to the fixture row, exactly as assembled (§12.5). */
+export function answerRequest(entry: WireEntry, overrides: Record<string, unknown> = {}) {
   return {
     requestId: newRequestId(),
-    key: card.key,
-    expectUpdatedAt: card.updatedAt,
-    actionId: action.id,
-    kind: 'reply',
-    text: action.text,
+    key: entry.key,
+    expectUpdatedAt: entry.expectUpdatedAt,
+    actionId: 'answers',
+    kind: 'answer',
+    text: ANSWER_TEXT,
+    answers: [{ id: 'ship', option: 'Ship' }],
     recommended: true,
     edited: false,
     ...overrides,
   }
 }
 
-export function reconcilePath(requestId: string, key: CardKey): string {
-  const query = new URLSearchParams({
-    sessionRef: key.sessionRef,
-    generation: String(key.generation),
-  })
-  return `/v1/mobile/c2/actions/${encodeURIComponent(requestId)}?${query}`
+export function reconcilePath(requestId: string, sessionRef: string): string {
+  return `/v1/mobile/c2/v2/actions/${encodeURIComponent(requestId)}?${new URLSearchParams({ sessionRef })}`
 }
 
-/** Literal inputs to the fixture card's own seat (not the acted line to Vesta). */
+/** Literal inputs to the fixture seat itself (not lines to Vesta). */
 export function seatSends(acp: C2Acp) {
   return acp.fake
     .literalInputs()

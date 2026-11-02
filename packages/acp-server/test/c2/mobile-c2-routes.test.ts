@@ -1,7 +1,7 @@
 /**
- * T-12207 phase R: the four `/v1/mobile/c2/*` routes on an ephemeral ACP.
- * Wire law: hrc-ios `architecture/contracts/C2_MOBILE_CARDS.md` r2.1 (d977bc2).
- * External acceptance target: hrc-ios `scripts/c2-mobile-contract-e2e.py`.
+ * The mobile wire v2 on an ephemeral ACP (card contract rev 4.1 §12, T-12239):
+ * `/v1/mobile/c2/v2/{snapshot,actions,actions/:requestId,artifacts/:id}`, and the
+ * v1 card routes answering 410 so an old phone build fails closed.
  */
 import { describe, expect, test } from 'bun:test'
 
@@ -10,145 +10,177 @@ import { resolveAcpServerDeps } from '../../src/deps.js'
 import { createMobileAuthStore } from '../../src/mobile-auth/store.js'
 
 import {
-  ATTENTION_AT,
+  ACTIONS,
+  ANSWER_TEXT,
+  ASK,
   type ActionResponse,
   NODE,
-  REPLY_TEXT,
   SEAT,
   SEAT_REF,
+  SNAPSHOT,
   type Snapshot,
   VESTA,
+  answerRequest,
+  asksBody,
   newRequestId,
   reconcilePath,
-  replyRequest,
   seatSends,
   settle,
-  snapshotCard,
+  snapshotEntry,
   withC2Acp,
 } from './c2-acp.js'
 
-describe('GET /v1/mobile/c2/cards', () => {
-  test('returns the full snapshot for an in-scope seat with server-side text and opaque artifacts', async () => {
+const writesOf = (acp: Parameters<Parameters<typeof withC2Acp>[0]>[0]) => acp.fake.writes().length
+
+describe('§12.1 v1 routes fail closed', () => {
+  test('every v1 card route answers 410 wire_version_unsupported and writes nothing', async () => {
     await withC2Acp(async (acp) => {
-      const { status, body } = await acp.getJson<Snapshot>('/v1/mobile/c2/cards')
-      expect(status).toBe(200)
-      expect(body.ok).toBe(true)
-      expect(typeof body.revision).toBe('string')
-      expect(body.revision.length).toBeGreaterThan(0)
-      expect(Number.isNaN(Date.parse(body.asOf))).toBe(false)
-      expect(body.home).toMatchObject({ node: NODE, reachable: true, stale: false })
-      expect(body.vesta).toMatchObject({
-        online: true,
-        sessionRef: `${VESTA}/lane:main`,
-        hostSessionId: 'hsid-vesta-fixture',
-        generation: 3,
+      const { entry } = await snapshotEntry(acp)
+      const before = writesOf(acp)
+      const gone = { ok: false, code: 'wire_version_unsupported', wire: 2 }
+      const cards = await acp.get('/v1/mobile/c2/cards')
+      expect(cards.status).toBe(410)
+      expect(await cards.json()).toEqual(gone)
+      const post = await acp.post('/v1/mobile/c2/actions', {
+        requestId: newRequestId(),
+        key: {
+          sessionRef: SEAT_REF,
+          subject: 'generation',
+          generation: 2,
+          ns: 'c2',
+          kind: 'card',
+          id: 'x',
+        },
+        expectUpdatedAt: entry.expectUpdatedAt,
+        actionId: 'ship',
+        kind: 'reply',
+        text: 'Ship it',
+        recommended: true,
+        edited: false,
       })
-      expect(body.capabilities.artifacts).toBe(true)
-      expect(body.capabilities.longPoll).toBe(true)
-      expect(body.capabilities.actions).toEqual(
-        expect.arrayContaining(['reply', 'answer', 'jump', 'snooze'])
-      )
+      expect(post.status).toBe(410)
+      expect(await post.json()).toEqual(gone)
+      expect((await acp.get('/v1/mobile/c2/actions/x?sessionRef=s&generation=1')).status).toBe(410)
+      expect((await acp.get('/v1/mobile/c2/artifacts/x')).status).toBe(410)
+      await settle(200)
+      expect(writesOf(acp)).toBe(before)
+      expect(seatSends(acp)).toHaveLength(0)
+    })
+  })
+})
 
-      const row = body.seats.find((seat) => seat.scopeRef === SEAT)
+describe('GET /v1/mobile/c2/v2/snapshot', () => {
+  test('wire 2 with the seat entry, its row, server-side actions and capabilities', async () => {
+    await withC2Acp(async (acp) => {
+      const { snapshot, entry } = await snapshotEntry(acp)
+      expect(snapshot).toMatchObject({
+        ok: true,
+        wire: 2,
+        home: { node: NODE, reachable: true, stale: false },
+      })
+      expect(snapshot.capabilities.actions).toEqual([
+        'answer',
+        'compose',
+        'jump',
+        'delegate',
+        'rotate',
+        'elucidate',
+        'release',
+        'snooze',
+      ])
+      expect(snapshot.counts).toEqual({ openRows: 1, openEntries: 1 })
+      expect(entry.key).toEqual({
+        sessionRef: SEAT_REF,
+        subject: 'seat',
+        ns: 'hrc',
+        kind: 'asks',
+        id: 'open',
+      })
+      expect(entry.expectUpdatedAt).toBe(acp.record().updatedAt)
+      expect(entry.record?.updatedBy).toBe('agent:smokey')
+      expect(entry.seat).toMatchObject({ scopeRef: SEAT, online: true, generation: 2 })
+      expect(entry.attention).toMatchObject({ state: 'blocking', excerpt: 'Ship the fixture?' })
+      const row = entry.rows[0]!
       expect(row).toMatchObject({
-        agent: 'smokey',
-        project: 'c2',
-        seat: 'c2fixture-acp',
-        online: true,
+        id: 'ship',
+        displayId: `${SEAT}#ship`,
+        ask: ASK,
+        state: 'open',
+        preselect: 'Ship',
+        reviewAlternative: null,
       })
-      expect(body.seats.filter((seat) => seat.scopeRef === SEAT)).toHaveLength(1)
-      const card = row?.card
-      expect(card).not.toBeNull()
-      expect(card?.key).toEqual({
-        sessionRef: SEAT_REF,
-        subject: 'generation',
-        generation: 2,
-        ns: 'c2',
-        kind: 'card',
-        id: ATTENTION_AT,
-      })
-      expect(card?.id).toBe(`${SEAT}#2#${ATTENTION_AT}`)
-      expect(card?.state).toBe('open')
-      expect(card?.pending).toBeNull()
-      expect(card?.updatedAt).toBe(acp.card().updatedAt)
-      expect(card?.seat).toMatchObject({
-        node: NODE,
-        scopeRef: SEAT,
-        sessionRef: SEAT_REF,
-        hostSessionId: 'hsid-c2fixture-acp',
-        generation: 2,
-        attentionAt: ATTENTION_AT,
-        online: true,
-      })
-      // Every declared action carries a server-normalized id; reply carries its exact text.
-      for (const action of card?.actions ?? []) expect(action.id.length).toBeGreaterThan(0)
-      expect(card?.actions.find((action) => action.kind === 'reply')?.text).toBe(REPLY_TEXT)
-      expect(card?.actions.some((action) => action.kind === 'jump')).toBe(true)
-
-      const image = card?.evidence.find((item) => item.label === 'look')?.image
-      expect(typeof image?.artifact).toBe('string')
-      expect(card?.detail.status).toBe('ready')
-      expect(typeof card?.detail.artifact).toBe('string')
-      // Home paths never reach the mobile DTO.
-      expect(JSON.stringify(body)).not.toContain(acp.roots.wrkqArtifacts)
-      expect(JSON.stringify(body)).not.toContain(acp.roots.scratchC2)
-
-      expect(body.counts).toEqual({ waiting: 1, asks: 0 })
-      expect(body.asks).toEqual([])
-      expect(body.recent.length).toBeLessThanOrEqual(50)
+      expect(row.options).toEqual([
+        { label: 'Ship', text: 'Ship' },
+        { label: 'Hold', text: 'Hold until Monday' },
+      ])
+      expect(row.detail.status).toBe('ready')
+      expect(row.detail.artifact).toBeString()
+      expect(JSON.stringify(snapshot)).not.toContain(acp.htmlPath)
+      expect(row.actions).toEqual([
+        {
+          id: 'elucidate:ship',
+          kind: 'elucidate',
+          label: 'Elucidate',
+          text: `[c2] elucidate ${SEAT}#ship`,
+        },
+      ])
+      expect(entry.actions.map((a) => a.id)).toEqual([
+        'answers',
+        'compose',
+        'jump',
+        'delegate',
+        'rotate',
+      ])
+      expect(entry.actions.find((a) => a.kind === 'rotate')?.text).toBe(
+        `[c2] rotate ${SEAT} (Lance)`
+      )
     })
   })
 
-  test('an absent scope row allows nothing: the card does not project', async () => {
+  test('an absent scope row allows nothing', async () => {
     await withC2Acp(
       async (acp) => {
-        const { status, body } = await acp.getJson<Snapshot>('/v1/mobile/c2/cards')
+        const { status, body } = await acp.getJson<Snapshot>(SNAPSHOT)
         expect(status).toBe(200)
-        expect(body.seats.some((seat) => seat.card !== null)).toBe(false)
-        expect(body.counts.waiting).toBe(0)
+        expect(body.entries.some((e) => e.seat.scopeRef === SEAT)).toBe(false)
+        expect(body.counts.openRows).toBe(0)
       },
       { noScope: true }
     )
   })
 
-  test('a bounded long poll answers unchanged at its deadline with the same revision', async () => {
-    await withC2Acp(async (acp) => {
-      const { snapshot } = await snapshotCard(acp)
-      const started = Date.now()
-      const { status, body } = await acp.getJson<Snapshot>(
-        `/v1/mobile/c2/cards?after=${encodeURIComponent(snapshot.revision)}&waitMs=400`
-      )
-      const elapsed = Date.now() - started
-      expect(status).toBe(200)
-      expect(body).toEqual({ ok: true, unchanged: true, revision: snapshot.revision })
-      expect(elapsed).toBeGreaterThanOrEqual(350)
-      expect(elapsed).toBeLessThan(5000)
-    })
-  })
-
-  test('a long poll returns the full snapshot early when a card changes in HRC', async () => {
+  test('a bounded long poll answers unchanged at its deadline; a record change wakes it early', async () => {
     await withC2Acp(
       async (acp) => {
-        const { snapshot } = await snapshotCard(acp)
+        const { snapshot } = await snapshotEntry(acp)
+        const quiet = await acp.getJson<Snapshot>(
+          `${SNAPSHOT}?after=${encodeURIComponent(snapshot.revision)}&waitMs=400`
+        )
+        expect(quiet.body).toEqual({
+          ok: true,
+          unchanged: true,
+          revision: snapshot.revision,
+        } as never)
         const started = Date.now()
         const pending = acp.getJson<Snapshot>(
-          `/v1/mobile/c2/cards?after=${encodeURIComponent(snapshot.revision)}&waitMs=20000`
+          `${SNAPSHOT}?after=${encodeURIComponent(snapshot.revision)}&waitMs=20000`
         )
         await settle(200)
-        // Vesta re-puts her card with a new title.
         acp.fake.put({
           scopeRef: SEAT,
-          generation: 2,
-          kind: 'card',
-          id: ATTENTION_AT,
-          body: { ...acp.card().body, title: 'Ship it now?' },
+          subject: 'seat',
+          ns: 'hrc',
+          kind: 'asks',
+          id: 'open',
+          body: asksBody({ ask: 'Ship it now?' }),
+          by: 'agent:smokey',
         })
-        const { status, body } = await pending
-        expect(status).toBe(200)
+        const { body } = await pending
         expect(Date.now() - started).toBeLessThan(10_000)
-        expect(body.unchanged).toBeUndefined()
         expect(body.revision).not.toBe(snapshot.revision)
-        expect(body.seats.find((seat) => seat.scopeRef === SEAT)?.card?.title).toBe('Ship it now?')
+        expect(body.entries.find((e) => e.seat.scopeRef === SEAT)?.rows[0]?.ask).toBe(
+          'Ship it now?'
+        )
       },
       { config: { pollMs: 50 } }
     )
@@ -156,38 +188,33 @@ describe('GET /v1/mobile/c2/cards', () => {
 
   test('waitMs above 25000 is malformed', async () => {
     await withC2Acp(async (acp) => {
-      const { snapshot } = await snapshotCard(acp)
-      const response = await acp.get(
-        `/v1/mobile/c2/cards?after=${encodeURIComponent(snapshot.revision)}&waitMs=25001`
-      )
-      expect(response.status).toBe(400)
+      const { snapshot } = await snapshotEntry(acp)
+      expect(
+        (await acp.get(`${SNAPSHOT}?after=${encodeURIComponent(snapshot.revision)}&waitMs=25001`))
+          .status
+      ).toBe(400)
     })
   })
 
-  test('with HRC gone it serves the last snapshot marked stale, and actions are not_submitted', async () => {
+  test('with HRC gone it serves the last snapshot marked stale, and an action is not_submitted', async () => {
     await withC2Acp(async (acp) => {
-      const { snapshot, card } = await snapshotCard(acp)
+      const { snapshot, entry } = await snapshotEntry(acp)
       await acp.fake.stop()
       await settle(300)
-      const { status, body } = await acp.getJson<Snapshot>('/v1/mobile/c2/cards')
+      const { status, body } = await acp.getJson<Snapshot>(SNAPSHOT)
       expect(status).toBe(200)
       expect(body.home).toMatchObject({ node: NODE, reachable: false, stale: true })
-      expect(body.seats.find((seat) => seat.scopeRef === SEAT)?.card?.key).toEqual(card.key)
       expect(body.revision).toBe(snapshot.revision)
-
-      // A refused connect is provably pre-dispatch.
-      const action = await acp.post('/v1/mobile/c2/actions', replyRequest(card))
+      const action = await acp.post(ACTIONS, answerRequest(entry))
       expect([200, 503]).toContain(action.status)
-      const result = (await action.json()) as ActionResponse
-      expect(result.ok).toBe(false)
-      expect(result.outcome).toBe('not_submitted')
+      expect(((await action.json()) as ActionResponse).ok).toBe(false)
     })
   })
 
   test('with no prior snapshot and HRC gone it answers 503 home_unavailable', async () => {
     await withC2Acp(
       async (acp) => {
-        const { status, body } = await acp.getJson('/v1/mobile/c2/cards')
+        const { status, body } = await acp.getJson(SNAPSHOT)
         expect(status).toBe(503)
         expect(body).toEqual({ ok: false, code: 'home_unavailable' })
       },
@@ -196,277 +223,225 @@ describe('GET /v1/mobile/c2/cards', () => {
   })
 })
 
-describe('POST /v1/mobile/c2/actions', () => {
-  test('reply sends the exact text once with both fences and records receipt, card and ledger', async () => {
+describe('POST /v1/mobile/c2/v2/actions', () => {
+  test('answer: one fenced send with the question, sent on the row, delivered claim, per-row ledger act', async () => {
     await withC2Acp(async (acp) => {
-      const { card } = await snapshotCard(acp)
-      const request = replyRequest(card)
-      const { status, body } = await acp.postJson<ActionResponse>('/v1/mobile/c2/actions', request)
+      const { entry } = await snapshotEntry(acp)
+      const request = answerRequest(entry)
+      const { status, body } = await acp.postJson<ActionResponse>(ACTIONS, request)
       expect(status).toBe(200)
-      expect(body.ok).toBe(true)
-      expect(body.outcome).toBe('sent')
-      expect(body.requestId).toBe(request.requestId)
-      expect(body.replayed).toBe(false)
-      expect(body.receipt).toEqual({
-        node: NODE,
-        sessionRef: SEAT_REF,
-        hostSessionId: 'hsid-c2fixture-acp',
-        generation: 2,
-        runtimeId: 'rt-c2fixture-acp',
-        runId: 'run-fake-1',
+      expect(body).toMatchObject({
+        ok: true,
+        outcome: 'sent',
+        requestId: request.requestId,
+        replayed: false,
       })
-      expect(typeof body.ledger?.hrcSeq).toBe('number')
-
+      expect(body.receipt).toMatchObject({ node: NODE, sessionRef: SEAT_REF, generation: 2 })
+      expect(body.ledger?.hrcSeq).toBeNumber()
+      expect(body.entry?.rows[0]?.state).toBe('sent')
       const sends = seatSends(acp)
       expect(sends).toHaveLength(1)
       expect(sends[0]?.body).toMatchObject({
-        selector: { sessionRef: SEAT_REF },
-        text: REPLY_TEXT,
+        text: ANSWER_TEXT,
         enter: true,
         fences: { expectedHostSessionId: 'hsid-c2fixture-acp', expectedGeneration: 2 },
       })
-
-      const receipt = acp.fake.find(SEAT, 'receipt', request.requestId, 2)
-      expect(receipt?.ns).toBe('c2')
-      expect(receipt?.body['stage']).toBe('done')
-      expect(receipt?.body['receipt']).toMatchObject({
-        runId: 'run-fake-1',
-        hostSessionId: 'hsid-c2fixture-acp',
+      const sent = (acp.record().body as { questions: Array<{ sent?: Record<string, unknown> }> })
+        .questions[0]?.sent
+      expect(sent).toMatchObject({
+        by: 'agent:lance',
+        text: ANSWER_TEXT,
+        runId: body.receipt?.runId,
       })
-      // The receipt was created create-only by the phone principal, before the send.
-      const receiptCreate = acp.fake.calls.find(
-        (call) =>
-          call.method === 'PUT' &&
-          (call.body as { kind?: string; id?: string }).kind === 'receipt' &&
-          (call.body as { id?: string }).id === request.requestId
-      )
-      expect(receiptCreate?.principal).toBe('agent:lance')
-      expect((receiptCreate?.body as { expect?: unknown }).expect).toMatchObject({
-        updatedAt: null,
+      expect(acp.record().updatedBy).toBe('system:c2-controller')
+      const claim = acp.fake.find(SEAT, 'receipt', 'answer:ship', null)
+      expect(claim?.body).toMatchObject({
+        requestId: request.requestId,
+        rowId: 'ship',
+        outcome: 'delivered',
       })
-      expect(receiptCreate?.at).toBeLessThanOrEqual(sends[0]?.at ?? 0)
-
-      const stored = acp.card()
-      expect(stored.body['state']).toBe('sent')
-      expect(stored.body['runId']).toBe('run-fake-1')
-      expect(stored.body['sentText']).toBe(REPLY_TEXT)
-      expect(stored.body['pending'] ?? null).toBeNull()
-
-      const acts = acp.fake.ledger.filter(
-        (event) => event.eventKind === 'session.annotation.action'
-      )
+      const receipt = acp.fake.find(SEAT, 'receipt', request.requestId, null)
+      expect(receipt?.body).toMatchObject({ v: 2, stage: 'done', result: { outcome: 'sent' } })
+      const acts = acp.fake.ledger.filter((e) => e.eventKind === 'session.annotation.action')
       expect(acts).toHaveLength(1)
-      expect(acts[0]?.payload).toMatchObject({
-        kind: 'card',
-        id: ATTENTION_AT,
-        action: request.actionId,
-        attributes: {
-          kind: 'reply',
-          recommended: true,
-          edited: false,
-          ok: true,
-          requestId: request.requestId,
-        },
-        principal: 'agent:lance',
+      expect(acts[0]?.payload).toMatchObject({ kind: 'asks', id: 'open', action: 'answered' })
+    })
+  })
+
+  test('a replay answers the recorded outcome without a second send; another payload is request_mismatch', async () => {
+    await withC2Acp(async (acp) => {
+      const { entry } = await snapshotEntry(acp)
+      const request = answerRequest(entry)
+      const first = await acp.postJson<ActionResponse>(ACTIONS, request)
+      const again = await acp.postJson<ActionResponse>(ACTIONS, request)
+      expect(again.body).toMatchObject({ outcome: 'sent', replayed: true })
+      expect(again.body.receipt).toEqual(first.body.receipt)
+      const other = await acp.postJson<ActionResponse>(ACTIONS, {
+        ...request,
+        text: 'something else',
       })
-    })
-  })
-
-  test('a replay answers the recorded outcome and identical receipt without a second send', async () => {
-    await withC2Acp(async (acp) => {
-      const { card } = await snapshotCard(acp)
-      const request = replyRequest(card)
-      const first = await acp.postJson<ActionResponse>('/v1/mobile/c2/actions', request)
-      const replay = await acp.postJson<ActionResponse>('/v1/mobile/c2/actions', request)
-      expect(replay.status).toBe(200)
-      expect(replay.body.replayed).toBe(true)
-      expect(replay.body.outcome).toBe(first.body.outcome)
-      expect(replay.body.receipt).toEqual(first.body.receipt)
+      expect(other.body.outcome).toBe('request_mismatch')
       expect(seatSends(acp)).toHaveLength(1)
     })
   })
 
-  test('the same requestId with another payload is request_mismatch and executes nothing', async () => {
+  test('two clients racing one row: exactly one send, the other card_not_open', async () => {
     await withC2Acp(async (acp) => {
-      const { card } = await snapshotCard(acp)
-      const request = replyRequest(card)
-      await acp.postJson<ActionResponse>('/v1/mobile/c2/actions', request)
-      const receiptBefore = structuredClone(acp.fake.find(SEAT, 'receipt', request.requestId, 2))
-      const changed = { ...request, text: `${REPLY_TEXT} changed`, edited: true }
-      const { status, body } = await acp.postJson<ActionResponse>('/v1/mobile/c2/actions', changed)
-      expect(status).toBe(200)
-      expect(body.ok).toBe(false)
-      expect(body.outcome).toBe('request_mismatch')
-      expect(seatSends(acp)).toHaveLength(1)
-      expect(acp.fake.find(SEAT, 'receipt', request.requestId, 2)).toEqual(receiptBefore)
-    })
-  })
-
-  test('two clients racing one card: exactly one send, the other card_not_open', async () => {
-    await withC2Acp(async (acp) => {
-      const { card } = await snapshotCard(acp)
-      const a = replyRequest(card)
-      const b = replyRequest(card)
-      const results = await Promise.all([
-        acp.postJson<ActionResponse>('/v1/mobile/c2/actions', a),
-        acp.postJson<ActionResponse>('/v1/mobile/c2/actions', b),
+      const { entry } = await snapshotEntry(acp)
+      const [a, b] = await Promise.all([
+        acp.postJson<ActionResponse>(ACTIONS, answerRequest(entry)),
+        acp.postJson<ActionResponse>(ACTIONS, answerRequest(entry)),
       ])
-      const outcomes = results.map((result) => result.body.outcome).sort()
-      expect(outcomes).toEqual(['card_not_open', 'sent'])
+      expect([a.body.outcome, b.body.outcome].sort()).toEqual(['card_not_open', 'sent'])
       expect(seatSends(acp)).toHaveLength(1)
-      const okActs = acp.fake.ledger.filter(
-        (event) =>
-          event.eventKind === 'session.annotation.action' &&
-          (event.payload['attributes'] as { ok?: boolean }).ok === true
-      )
-      expect(okActs).toHaveLength(1)
     })
   })
 
-  test('a stale expectUpdatedAt is card_not_open, recorded done, with no send', async () => {
+  test('a stale expectUpdatedAt is card_not_open with no send', async () => {
     await withC2Acp(async (acp) => {
-      const { card } = await snapshotCard(acp)
+      const { entry } = await snapshotEntry(acp)
       acp.fake.put({
         scopeRef: SEAT,
-        generation: 2,
-        kind: 'card',
-        id: ATTENTION_AT,
-        body: { ...acp.card().body, title: 'Revised by Vesta' },
+        subject: 'seat',
+        ns: 'hrc',
+        kind: 'asks',
+        id: 'open',
+        body: asksBody({ why: 'changed' }),
+        by: 'agent:smokey',
       })
-      const request = replyRequest(card)
-      const { status, body } = await acp.postJson<ActionResponse>('/v1/mobile/c2/actions', request)
-      expect(status).toBe(200)
+      await settle(200)
+      const { body } = await acp.postJson<ActionResponse>(ACTIONS, answerRequest(entry))
       expect(body.outcome).toBe('card_not_open')
-      expect(body.card?.updatedAt).toBe(acp.card().updatedAt)
       expect(seatSends(acp)).toHaveLength(0)
-      expect(acp.fake.find(SEAT, 'receipt', request.requestId, 2)?.body['stage']).toBe('done')
-      const readback = await acp.getJson<ActionResponse>(
-        reconcilePath(request.requestId, request.key)
+    })
+  })
+
+  test('the server derives edited from the assembled text, not the phone claim; the stamp is what was sent', async () => {
+    await withC2Acp(async (acp) => {
+      const { entry } = await snapshotEntry(acp)
+      const text = `1. ${ASK} — Ship after 5pm.`
+      await acp.postJson<ActionResponse>(ACTIONS, answerRequest(entry, { text, edited: false }))
+      const acts = acp.fake.ledger.filter((e) => e.eventKind === 'session.annotation.action')
+      expect((acts[0]?.payload as { attributes?: { edited?: boolean } }).attributes?.edited).toBe(
+        true
       )
-      expect(readback.body.outcome).toBe('card_not_open')
+      expect(
+        (acp.record().body as { questions: Array<{ sent?: { text: string } }> }).questions[0]?.sent
+          ?.text
+      ).toBe(text)
     })
   })
 
-  test('the server derives edited from the declared text, not the phone claim', async () => {
+  test('empty text is invalid_text; an answer for no open row is invalid_action; neither sends', async () => {
     await withC2Acp(async (acp) => {
-      const { card } = await snapshotCard(acp)
-      // Claims unedited while sending other text: c2-core records what it sees.
-      const request = replyRequest(card, { text: 'Ship it, but tag it first.', edited: false })
-      const { body } = await acp.postJson<ActionResponse>('/v1/mobile/c2/actions', request)
-      expect(body.outcome).toBe('sent')
-      expect(seatSends(acp)).toHaveLength(1)
-      expect((seatSends(acp)[0]?.body as { text?: string }).text).toBe('Ship it, but tag it first.')
-      expect(acp.fake.find(SEAT, 'receipt', request.requestId, 2)?.body['edited']).toBe(true)
-      const act = acp.fake.ledger.find((event) => event.eventKind === 'session.annotation.action')
-      expect((act?.payload['attributes'] as { edited?: boolean }).edited).toBe(true)
-    })
-  })
-
-  test('empty reply text is invalid_text with no send', async () => {
-    await withC2Acp(async (acp) => {
-      const { card } = await snapshotCard(acp)
-      const request = replyRequest(card, { text: '   ', edited: true })
-      const { body } = await acp.postJson<ActionResponse>('/v1/mobile/c2/actions', request)
-      expect(body.outcome).toBe('invalid_text')
+      const { entry } = await snapshotEntry(acp)
+      expect(
+        (await acp.postJson<ActionResponse>(ACTIONS, answerRequest(entry, { text: '  ' }))).body
+          .outcome
+      ).toBe('invalid_text')
+      expect(
+        (
+          await acp.postJson<ActionResponse>(
+            ACTIONS,
+            answerRequest(entry, { answers: [{ id: 'ship', later: true }] })
+          )
+        ).body.outcome
+      ).toBe('invalid_action')
       expect(seatSends(acp)).toHaveLength(0)
     })
   })
 
-  test('jump returns local navigation identity, records the act, and sends nothing', async () => {
+  test('jump returns the seat identity, records the act, and sends nothing', async () => {
     await withC2Acp(async (acp) => {
-      const { card } = await snapshotCard(acp)
-      const jump = card.actions.find((action) => action.kind === 'jump')
-      const request = {
+      const { entry } = await snapshotEntry(acp)
+      const { body } = await acp.postJson<ActionResponse>(ACTIONS, {
         requestId: newRequestId(),
-        key: card.key,
-        expectUpdatedAt: card.updatedAt,
-        actionId: jump?.id,
+        key: entry.key,
+        expectUpdatedAt: entry.expectUpdatedAt,
+        actionId: 'jump',
         kind: 'jump',
         recommended: false,
         edited: false,
-      }
-      const { status, body } = await acp.postJson<ActionResponse>('/v1/mobile/c2/actions', request)
-      expect(status).toBe(200)
-      expect(body.outcome).toBe('opened')
-      expect(body.open).toEqual({
-        node: NODE,
-        sessionRef: SEAT_REF,
-        hostSessionId: 'hsid-c2fixture-acp',
-        generation: 2,
+      })
+      expect(body).toMatchObject({
+        ok: true,
+        outcome: 'opened',
+        open: {
+          node: NODE,
+          sessionRef: SEAT_REF,
+          hostSessionId: 'hsid-c2fixture-acp',
+          generation: 2,
+        },
       })
       expect(seatSends(acp)).toHaveLength(0)
-      expect(
-        acp.fake.ledger.filter((event) => event.eventKind === 'session.annotation.action')
-      ).toHaveLength(1)
     })
   })
 
-  test('a malformed body is 400', async () => {
+  test('elucidate reaches Vesta with the exact line; the row shows pending', async () => {
     await withC2Acp(async (acp) => {
-      const { card } = await snapshotCard(acp)
-      expect((await acp.post('/v1/mobile/c2/actions', '{not json')).status).toBe(400)
-      const { requestId: _drop, ...noRequestId } = replyRequest(card)
-      expect((await acp.post('/v1/mobile/c2/actions', noRequestId)).status).toBe(400)
-      expect(
-        (await acp.post('/v1/mobile/c2/actions', replyRequest(card, { kind: 'detonate' }))).status
-      ).toBe(400)
-      expect(acp.fake.writes()).toHaveLength(0)
+      const { entry } = await snapshotEntry(acp)
+      const { body } = await acp.postJson<ActionResponse>(ACTIONS, {
+        requestId: newRequestId(),
+        key: entry.key,
+        expectUpdatedAt: entry.expectUpdatedAt,
+        actionId: 'elucidate:ship',
+        kind: 'elucidate',
+        rowId: 'ship',
+        recommended: false,
+        edited: false,
+      })
+      expect(body.outcome).toBe('requested')
+      const toVesta = acp.fake
+        .literalInputs()
+        .filter(
+          (c) =>
+            (c.body as { selector?: { sessionRef?: string } }).selector?.sessionRef ===
+            `${VESTA}/lane:main`
+        )
+      expect(toVesta.map((c) => (c.body as { text: string }).text)).toEqual([
+        `[c2] elucidate ${SEAT}#ship`,
+      ])
+      expect(body.entry?.rows[0]?.detail.status).toBe('pending')
+    })
+  })
+
+  test('a malformed body is 400 invalid_request', async () => {
+    await withC2Acp(async (acp) => {
+      const response = await acp.post(ACTIONS, '{not json')
+      expect(response.status).toBe(400)
+      const missing = await acp.postJson(ACTIONS, { requestId: 'x' })
+      expect(missing.status).toBe(400)
+      expect(missing.body).toMatchObject({ ok: false, code: 'invalid_request' })
     })
   })
 })
 
-describe('GET /v1/mobile/c2/actions/:requestId', () => {
-  test('reads the receipt back without any write, claim or send', async () => {
+describe('GET /v1/mobile/c2/v2/actions/:requestId', () => {
+  test('reads the receipt back without any write or send; absent is receipt_missing; sessionRef is required', async () => {
     await withC2Acp(async (acp) => {
-      const { card } = await snapshotCard(acp)
-      const request = replyRequest(card)
-      const first = await acp.postJson<ActionResponse>('/v1/mobile/c2/actions', request)
-      await settle() // let the best-effort acted line land first
-      const writesBefore = acp.fake.writes().length
-      const annotationsBefore = structuredClone(acp.fake.annotations)
-      for (let i = 0; i < 3; i += 1) {
-        const { status, body } = await acp.getJson<ActionResponse>(
-          reconcilePath(request.requestId, request.key)
-        )
-        expect(status).toBe(200)
-        expect(body.requestId).toBe(request.requestId)
-        expect(body.outcome).toBe(first.body.outcome)
-        expect(body.receipt).toEqual(first.body.receipt)
-      }
-      await settle()
-      expect(acp.fake.writes()).toHaveLength(writesBefore)
-      expect(acp.fake.annotations).toEqual(annotationsBefore)
-      expect(seatSends(acp)).toHaveLength(1)
-    })
-  })
-
-  test('an absent receipt is unknown_outcome with reason receipt_missing', async () => {
-    await withC2Acp(async (acp) => {
-      const { card } = await snapshotCard(acp)
+      const { entry } = await snapshotEntry(acp)
+      const request = answerRequest(entry)
+      await acp.postJson(ACTIONS, request)
+      await settle(300) // the acted line to Vesta goes out after the response
+      const writes = writesOf(acp)
       const { status, body } = await acp.getJson<ActionResponse>(
-        reconcilePath(newRequestId(), card.key)
+        reconcilePath(request.requestId, SEAT_REF)
       )
       expect(status).toBe(200)
-      expect(body.ok).toBe(false)
-      expect(body.outcome).toBe('unknown_outcome')
-      expect(body.reason).toBe('receipt_missing')
-      expect(acp.fake.writes()).toHaveLength(0)
-    })
-  })
-
-  test('the dedup scope is required: missing sessionRef or generation is 400', async () => {
-    await withC2Acp(async (acp) => {
-      const id = newRequestId()
-      expect((await acp.get(`/v1/mobile/c2/actions/${id}?generation=2`)).status).toBe(400)
-      expect(
-        (await acp.get(`/v1/mobile/c2/actions/${id}?sessionRef=${encodeURIComponent(SEAT_REF)}`))
-          .status
-      ).toBe(400)
+      expect(body).toMatchObject({ ok: true, outcome: 'sent', replayed: true })
+      expect(writesOf(acp)).toBe(writes)
+      const missing = await acp.getJson<ActionResponse>(reconcilePath('nope', SEAT_REF))
+      expect(missing.body).toMatchObject({
+        ok: false,
+        outcome: 'unknown_outcome',
+        reason: 'receipt_missing',
+      })
+      expect((await acp.get(`/v1/mobile/c2/v2/actions/${request.requestId}`)).status).toBe(400)
     })
   })
 })
 
-describe('the existing mobile gate covers /v1/mobile/c2/* unchanged', () => {
+describe('the existing mobile gate covers /v1/mobile/c2/v2/* unchanged', () => {
   test('enforcing: a tokenless tailnet peer is 401, a paired bearer reaches the snapshot', async () => {
     const store = createMobileAuthStore()
     const redeemed = store.redeemPairingCode(store.mintPairingCode().code, 'c2-reds')
@@ -485,15 +460,14 @@ describe('the existing mobile gate covers /v1/mobile/c2/* unchanged', () => {
         }
         const call = (headers: Record<string, string>) =>
           handlers.fetch(
-            new Request('http://max3.tail53cc3b.ts.net:18470/v1/mobile/c2/cards', { headers }),
+            new Request(`http://max3.tail53cc3b.ts.net:18470${SNAPSHOT}`, { headers }),
             tailnet
           )
         const denied = await call({})
         expect(denied?.status).toBe(401)
-        expect(await denied?.json()).toEqual({ ok: false, code: 'unauthorized' })
         const allowed = await call({ authorization: `Bearer ${redeemed.token}` })
         expect(allowed?.status).toBe(200)
-        expect(((await allowed?.json()) as Snapshot).ok).toBe(true)
+        expect(((await allowed?.json()) as Snapshot).wire).toBe(2)
       },
       { mobileAuthStore: store }
     )

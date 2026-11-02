@@ -1,100 +1,87 @@
 /**
- * T-12207 Work step 6: an HRC literal-input call that is accepted on the local
- * socket and never answered. After the call was made the outcome is
- * indeterminate: `unknown_outcome`, exactly one attempt, the receipt left at
- * `dispatching` and its card locked. Never `not_submitted`, never retried.
+ * An HRC literal-input call that is accepted on the local socket and never answered (card contract rev 4 §6
+ * step 7). After the call was made the outcome is indeterminate: `unknown_outcome`, exactly one attempt, the
+ * receipt left at `sending` and the row claim held, so the row reads in flight. Never `not_submitted`, never
+ * retried; recovery later records it `done {unknown_outcome}` with the claim's outcome `unknown`.
  */
 import { expect, test } from 'bun:test'
 
 import {
+  ACTIONS,
   type ActionResponse,
   SEAT,
-  type Snapshot,
+  SEAT_REF,
+  answerRequest,
   reconcilePath,
-  replyRequest,
   seatSends,
   settle,
-  snapshotCard,
+  snapshotEntry,
   withC2Acp,
 } from './c2-acp.js'
 
-test('a literal-input timeout is unknown_outcome with one attempt, receipt dispatching and card locked', async () => {
+test('a literal-input timeout is unknown_outcome with one attempt, receipt sending and the row claim held', async () => {
   await withC2Acp(
     async (acp) => {
-      const { card } = await snapshotCard(acp)
+      const { entry } = await snapshotEntry(acp)
       acp.fake.literalInput.mode = 'hang'
-      const request = replyRequest(card)
-
+      const request = answerRequest(entry)
       const started = Date.now()
-      const { status, body } = await acp.postJson<ActionResponse>('/v1/mobile/c2/actions', request)
+      const { status, body } = await acp.postJson<ActionResponse>(ACTIONS, request)
       expect(Date.now() - started).toBeLessThan(5000)
       expect(status).toBe(200)
-      expect(body.ok).toBe(false)
-      expect(body.outcome).toBe('unknown_outcome')
-      expect(body.requestId).toBe(request.requestId)
+      expect(body).toMatchObject({
+        ok: false,
+        outcome: 'unknown_outcome',
+        requestId: request.requestId,
+      })
       expect(seatSends(acp)).toHaveLength(1)
 
-      // Several poll periods later: no retry, no recovery resend, nothing finished.
       await settle(1000)
       expect(seatSends(acp)).toHaveLength(1)
-      const receipt = acp.fake.find(SEAT, 'receipt', request.requestId, 2)
-      expect(receipt?.body['stage']).toBe('dispatching')
-      const pending = acp.card().body['pending'] as { requestId?: string } | undefined
-      expect(pending?.requestId).toBe(request.requestId)
-      expect(acp.card().body['state']).toBe('open')
-      // c2-core may record the indeterminate attempt; never a successful action.
-      const acts = acp.fake.ledger.filter(
-        (event) => event.eventKind === 'session.annotation.action'
-      )
-      for (const act of acts) {
-        expect(act.payload['attributes']).toMatchObject({ ok: false, error: 'unknown_outcome' })
-      }
+      expect(acp.fake.find(SEAT, 'receipt', request.requestId, null)?.body['stage']).toBe('sending')
+      expect(acp.fake.find(SEAT, 'receipt', 'answer:ship', null)?.body).toMatchObject({
+        requestId: request.requestId,
+      })
+      expect(
+        acp.fake.ledger.filter((e) => e.eventKind === 'session.annotation.action')
+      ).toHaveLength(0)
 
-      // Replay and reconciliation both answer unknown and execute nothing.
-      const replay = await acp.postJson<ActionResponse>('/v1/mobile/c2/actions', request)
-      expect(replay.body.outcome).toBe('unknown_outcome')
-      expect(replay.body.replayed).toBe(true)
-      const readback = await acp.getJson<ActionResponse>(
-        reconcilePath(request.requestId, request.key)
-      )
-      expect(readback.body.outcome).toBe('unknown_outcome')
+      const replay = await acp.postJson<ActionResponse>(ACTIONS, request)
+      expect(replay.body).toMatchObject({ outcome: 'unknown_outcome', replayed: true })
+      expect(
+        (await acp.getJson<ActionResponse>(reconcilePath(request.requestId, SEAT_REF))).body.outcome
+      ).toBe('unknown_outcome')
 
-      // The lock holds against a fresh request on the same card.
-      const fresh = await acp.postJson<ActionResponse>('/v1/mobile/c2/actions', replyRequest(card))
-      expect(fresh.body.outcome).toBe('card_not_open')
+      const { entry: now } = await snapshotEntry(acp)
+      expect(now.rows[0]?.state).toBe('in_flight')
+      const fresh = await acp.postJson<ActionResponse>(ACTIONS, answerRequest(now))
+      expect(fresh.body.outcome).toBe('invalid_action') // no open row to answer
       expect(seatSends(acp)).toHaveLength(1)
-
-      // The phone sees the row pending (disabled), not gone.
-      const { body: snapshot } = await acp.getJson<Snapshot>('/v1/mobile/c2/cards')
-      const row = snapshot.seats.find((seat) => seat.scopeRef === SEAT)?.card
-      expect(row?.pending?.requestId).toBe(request.requestId)
     },
     { config: { literalInputTimeoutMs: 250, pollMs: 50 } }
   )
 })
 
-test('the dispatching lock survives a Vesta wholesale re-put that drops pending', async () => {
+test('past the grace, recovery records unknown_outcome and the row becomes uncertain with release', async () => {
   await withC2Acp(
     async (acp) => {
-      const { card } = await snapshotCard(acp)
+      const { entry } = await snapshotEntry(acp)
       acp.fake.literalInput.mode = 'hang'
-      const request = replyRequest(card)
-      await acp.postJson<ActionResponse>('/v1/mobile/c2/actions', request)
-
-      const { pending: _dropped, ...rest } = acp.card().body
-      acp.fake.put({ scopeRef: SEAT, generation: 2, kind: 'card', id: card.key.id, body: rest })
+      const request = answerRequest(entry)
+      await acp.postJson<ActionResponse>(ACTIONS, request)
       await settle(600)
-
-      const { body: snapshot } = await acp.getJson<Snapshot>('/v1/mobile/c2/cards')
-      const row = snapshot.seats.find((seat) => seat.scopeRef === SEAT)?.card
-      expect(row?.pending?.requestId).toBe(request.requestId)
-      const fresh = await acp.postJson<ActionResponse>(
-        '/v1/mobile/c2/actions',
-        replyRequest(row ?? card)
-      )
-      expect(fresh.body.outcome).toBe('card_not_open')
+      // Any observable HRC change ticks the controller now instead of in 15 s.
+      acp.fake.put({ scopeRef: SEAT, subject: 'seat', kind: 'note', id: 'nudge', body: {} })
+      await settle(600)
+      expect(acp.fake.find(SEAT, 'receipt', request.requestId, null)?.body).toMatchObject({
+        stage: 'done',
+        result: { outcome: 'unknown_outcome' },
+      })
+      const { entry: now } = await snapshotEntry(acp)
+      expect(now.rows[0]?.state).toBe('uncertain')
+      expect(now.rows[0]?.actions.map((a) => a.kind)).toEqual(['release'])
       expect(seatSends(acp)).toHaveLength(1)
     },
-    { config: { literalInputTimeoutMs: 250, pollMs: 50 } }
+    { config: { literalInputTimeoutMs: 250, pollMs: 50, graceMs: 300 } }
   )
 })

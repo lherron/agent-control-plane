@@ -6,8 +6,9 @@
  *  - a sweep (`sweepMs`) lists continuities and, every `SCAN_EVERY` sweeps,
  *    the c2 rows of every non-task seat, to learn which seats matter;
  *  - each read (`seats()` / `annotations()`, and the controller host's poll)
- *    fetches attention and c2 rows for just those seats: Vesta, every seat the
- *    scope row allows, and every seat holding c2 rows.
+ *    fetches attention, c2 rows and the `hrc.asks` record for just those
+ *    seats: Vesta, every seat the scope row allows, and every seat holding c2
+ *    rows (card contract rev 4 §3).
  * Concurrent reads share one in-flight observation; a completed one is never
  * reused, so an action's preflight always sees HRC as it is now.
  *
@@ -184,6 +185,29 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
     }
   }
 
+  /** c2's rows plus the seat's `hrc.asks` record (card contract rev 4 §3). */
+  async function seatRows(scopeRef: string): Promise<AnnotationRow[] | undefined> {
+    const [own, asks] = await Promise.all([
+      c2Rows(scopeRef),
+      client
+        .listSessionAnnotations({
+          scopeRef,
+          laneRef: 'main',
+          subject: 'seat',
+          ns: 'hrc',
+          kind: 'asks',
+        })
+        .then((listed) => listed.annotations as AnnotationRow[])
+        .catch((error: unknown) => {
+          if (error instanceof HrcDomainError && error.code === 'unknown_host_session')
+            return undefined
+          throw error
+        }),
+    ])
+    if (own === undefined && asks === undefined) return undefined
+    return [...(own ?? []), ...(asks ?? [])]
+  }
+
   /** `<seat> <read>` → HRC code already logged as unobservable; cleared by a good read. */
   const unobservable = new Map<string, string>()
 
@@ -266,11 +290,11 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
     let attention: Awaited<ReturnType<typeof readAttention>>
     let rows: AnnotationRow[] | undefined
     if (scopeRef === vestaSeat) {
-      ;[attention, rows] = await Promise.all([readAttention(), c2Rows(scopeRef)])
+      ;[attention, rows] = await Promise.all([readAttention(), seatRows(scopeRef)])
     } else {
       const [live, listed] = await Promise.all([
         readSeat(scopeRef, 'attention', readAttention),
-        readSeat(scopeRef, 'annotations', () => c2Rows(scopeRef)),
+        readSeat(scopeRef, 'annotations', () => seatRows(scopeRef)),
       ])
       attention = live.ok ? live.value : undefined
       rows = listed.ok ? listed.value : []

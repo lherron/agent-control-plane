@@ -1,21 +1,18 @@
 /**
- * T-12233 through ACP: c2-core 0.1.7 end causes over the real HRC wire. ACP's
- * C2Host answers `runtimeEnd` from the HRC runtime record of the card's host
- * session (`GET /v1/runtimes?hostSessionId=…&all=true`,
- * `runtimeStateJson.terminationReason`) and `handoffSince` from its wrkq
- * client (`wrkq.handoff.listView`, status all). A quit at the prompt holds the
- * card until HRC records the termination, then ends it `runtime_ended`, writes
- * the `ended` ledger action and sends Vesta exactly one `[c2] rotated …` line.
+ * The rotated line through ACP (card contract rev 4 §6, §7: rotation is a non-event for rows). ACP's C2Host
+ * answers `runtimeEnd` from the HRC runtime record (`GET /v1/runtimes?hostSessionId=…&all=true`,
+ * `runtimeStateJson.terminationReason`) and `handoffSince` from its wrkq client. A quit at the prompt of a seat
+ * with an open row sends Vesta exactly one `[c2] rotated …` line, claimed once on `c2.ping{id: rotated}`, and
+ * changes nothing on the asks record.
  */
 import { describe, expect, test } from 'bun:test'
 
 import type { WorkClient } from '@wrkq/client'
 
-import { ATTENTION_AT, type C2Acp, SEAT, VESTA, settle, withC2Acp } from './c2-acp.js'
+import { type C2Acp, SEAT, VESTA, settle, withC2Acp } from './c2-acp.js'
 
-const CARD_ID = `${SEAT}#2#${ATTENTION_AT}`
 const VESTA_REF = `${VESTA}/lane:main`
-const LINE = `[c2] rotated ${SEAT} gen 2→none reason=user_initiated_session_end prior=rt-c2fixture-acp card=${CARD_ID}`
+const LINE = `[c2] rotated ${SEAT} gen 2\u2192none reason=user_initiated_session_end prior=rt-c2fixture-acp rows=ship`
 
 const rotatedLines = (acp: C2Acp) =>
   acp.fake
@@ -81,39 +78,26 @@ function fakeWorkClient(createdAt: string | null, calls: unknown[]): WorkClient 
   } as unknown as WorkClient
 }
 
-describe('card end causes over ACP (T-12233)', () => {
-  test('a quit at the prompt is held until HRC records it, then runtime_ended with one rotated line', async () => {
+describe('the rotated line over ACP', () => {
+  test('a quit is ignored until HRC records it; then one line, the asks record untouched, nothing more on relaunch', async () => {
     await withC2Acp(
       async (acp) => {
         await settle()
+        const record = structuredClone(acp.record())
         quit(acp, false)
+        nudge(acp, 1)
         await settle()
-        expect(acp.card().body['state']).toBe('open') // held: not live, termination unconfirmed
         expect(rotatedLines(acp)).toEqual([])
 
         quit(acp)
-        nudge(acp, 1)
+        nudge(acp, 2)
         await settle()
-        const body = acp.card().body as Record<string, any>
-        expect(body['state']).toBe('superseded')
-        expect(body['endCause']).toMatchObject({
-          kind: 'runtime_ended',
-          generation: 2,
-          priorRuntimeId: 'rt-c2fixture-acp',
-          terminatedReason: 'user_initiated_session_end',
-        })
-        expect(typeof body['endCause'].wake.sentAt).toBe('string')
         expect(rotatedLines(acp)).toEqual([`${LINE} handoff=unknown`])
-        const ended = acp.fake.ledger.filter(
-          (e) =>
-            e.eventKind === 'session.annotation.action' &&
-            e.payload['action'] === 'ended' &&
-            e.scopeRef === SEAT
-        )
-        const { wake: _wake, ...cause } = body['endCause']
-        expect(ended.map((e) => e.payload['attributes'])).toEqual([
-          { state: 'superseded', endCause: cause },
-        ])
+        expect(acp.record()).toEqual(record)
+        expect(acp.fake.find(SEAT, 'ping', 'rotated', null)?.body).toMatchObject({
+          detector: 'rotated',
+          generation: 2,
+        })
         expect(
           acp.fake.calls.some(
             (c) =>
@@ -123,20 +107,20 @@ describe('card end causes over ACP (T-12233)', () => {
           )
         ).toBe(true)
 
-        // the relaunch sends nothing more
         const seat = acp.fake.seats.get(SEAT)!
         seat.generation = 3
         seat.hostSessionId = 'hsid-c2fixture-acp-3'
         seat.runtimeLive = true
-        nudge(acp, 2)
+        nudge(acp, 3)
         await settle()
         expect(rotatedLines(acp)).toEqual([`${LINE} handoff=unknown`])
+        expect(acp.record()).toEqual(record)
       },
       { config: { settleMs: 0 } }
     )
   })
 
-  test('a wrkq handoff since the attention suppresses the line; an older one reads handoff=no', async () => {
+  test('a wrkq handoff since the record suppresses the line; an older one reads handoff=no', async () => {
     const calls: unknown[] = []
     await withC2Acp(
       async (acp) => {
@@ -144,14 +128,12 @@ describe('card end causes over ACP (T-12233)', () => {
         quit(acp)
         nudge(acp, 1)
         await settle()
-        expect(acp.card().body['state']).toBe('superseded')
         expect(rotatedLines(acp)).toEqual([])
         expect(calls).toContainEqual(
           expect.objectContaining({ scopeRef: 'agent:smokey:project:c2', status: 'all' })
         )
       },
-      // second precision, as wrkq stamps it: the same second as the attention counts
-      { config: { settleMs: 0 }, workClient: fakeWorkClient('2026-11-01T05:00:00Z', calls) }
+      { config: { settleMs: 0 }, workClient: fakeWorkClient('2099-01-01T00:00:00Z', calls) }
     )
     await withC2Acp(
       async (acp) => {
@@ -161,7 +143,7 @@ describe('card end causes over ACP (T-12233)', () => {
         await settle()
         expect(rotatedLines(acp)).toEqual([`${LINE} handoff=no`])
       },
-      { config: { settleMs: 0 }, workClient: fakeWorkClient('2026-11-01T04:59:59Z', []) }
+      { config: { settleMs: 0 }, workClient: fakeWorkClient('2000-01-01T00:00:00Z', []) }
     )
   })
 })

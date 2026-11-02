@@ -34,6 +34,10 @@ export type AcpC2Config = {
   literalInputTimeoutMs?: number | undefined
   /** The controller's settle window after a start or remount (c2-core default 30 s). */
   settleMs?: number | undefined
+  /** Unreviewed age before the review wake (card contract §4a; c2-core default 60 s). */
+  reviewAfterMs?: number | undefined
+  /** Receipt grace before recovery acts (§6; c2-core default 60 s). */
+  graceMs?: number | undefined
 }
 
 export const C2_DEFAULTS = {
