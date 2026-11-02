@@ -19,7 +19,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc && bun build ./src/index.ts ./src/cli.ts --outdir ./dist --target bun --external agent-scope --external hrc-core --external hrc-injector-core --external hrc-sdk --external hrc-store-sqlite --external spaces-harness-broker-protocol",
+    "build": "tsc && bun build ./src/index.ts ./src/cli.ts --outdir ./dist --target bun --external agent-scope --external hrc-core --external hrc-injector-core --external hrc-sdk --external hrc-store-sqlite --external spaces-harness-broker-protocol --external spaces-config --external @iarna/toml",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
@@ -29,7 +29,9 @@
     "hrc-injector-core": "*",
     "hrc-sdk": "0.5.13-dev.20261101001555",
     "hrc-store-sqlite": "0.5.13-dev.20261101001555",
-    "spaces-harness-broker-protocol": "0.1.1-dev.20261028103736"
+    "spaces-harness-broker-protocol": "0.1.1-dev.20261028103736",
+    "spaces-config": "0.1.1-dev.20261028103736",
+    "@iarna/toml": "^2.2.5"
   },
   "devDependencies": {
     "@types/bun": "1.3.14",

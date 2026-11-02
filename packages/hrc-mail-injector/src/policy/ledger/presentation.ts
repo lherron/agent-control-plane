@@ -70,7 +70,10 @@ const MAX_DEFER_REASON_CHARS = 120
  */
 export type EnvelopePresentationForm = 'full' | 'reminder' | 'defer-retry' | 'digest'
 
+export type HintStyle = 'legacy' | 'prae'
+
 export type PresentableEnvelope = {
+  hintStyle?: HintStyle | undefined
   envelope: WrkqEnvelope
   /** Copied from the ledger row so presentation routing and rendering share one intent. */
   delivery: WrkqEnvelopeDelivery
@@ -110,9 +113,11 @@ export function formatEnvelopePresentation(
   if (formOf(presentable) === 'full') {
     const history = formatHistoryLine(presentable, now)
     if (history !== undefined) lines.push(history)
-    lines.push(...formatBodyLines(envelope))
+    lines.push(...formatBodyLines(envelope, presentable.hintStyle))
   } else {
-    lines.push(`read: wrkc show ${envelope.id}   ·   thread: wrkc log ${envelope.roomKey}`)
+    lines.push(
+      `read: ${readCommand(presentable.hintStyle)} ${envelope.id}   ·   thread: ${historyCommand(presentable.hintStyle)} ${envelope.roomKey}`
+    )
   }
   const reply = formatReplyLine(presentable)
   if (reply !== undefined) lines.push(reply)
@@ -137,7 +142,8 @@ const MAX_DIGEST_LINE_CHARS = 120
  */
 export function formatBacklogDigest(
   envelopes: readonly WrkqEnvelope[],
-  now: Date = new Date()
+  now: Date = new Date(),
+  hintStyle?: HintStyle
 ): string {
   const ordered = [...envelopes].sort((a, b) => createdMs(a) - createdMs(b))
   const oldest = ordered[0]
@@ -158,7 +164,7 @@ export function formatBacklogDigest(
     ].join(' · ')
   })
   return appendDaedalusReminder(
-    [header, ...lines, 'full text: wrkc show <EN-id>'].join('\n'),
+    [header, ...lines, `full text: ${readCommand(hintStyle)} <EN-id>`].join('\n'),
     ordered
   )
 }
@@ -410,7 +416,7 @@ function formatHistoryLine(presentable: PresentableEnvelope, now: Date): string 
   const count = presentable.messageCount
   const messages = `${count} ${count === 1 ? 'message' : 'messages'}`
   const last = formatLastMessageClause(presentable.lastMessageAt, now)
-  return `history: wrkc log ${key}   (${messages}${last})`
+  return `history: ${historyCommand(presentable.hintStyle)} ${key}   (${messages}${last})`
 }
 
 function formatLastMessageClause(lastMessage: string | undefined, now: Date): string {
@@ -492,8 +498,9 @@ function formatReplyLine(presentable: PresentableEnvelope): string | undefined {
   // lands (observed live: muse seat). Spell the replier's principal from the
   // addressee scope — harmless where a principal already resolves.
   const as = replyPrincipal(envelope)
-  const asFlag = as === undefined ? '' : ` --as ${as}`
-  return [`reply: wrkc say ${envelope.id} --to ${to}${asFlag} - <<'EOF'`, '…', 'EOF'].join('\n')
+  const asFlag = presentable.hintStyle === 'prae' || as === undefined ? '' : ` --as ${as}`
+  const say = presentable.hintStyle === 'prae' ? 'prae room say' : 'wrkc say'
+  return [`reply: ${say} ${envelope.id} --to ${to}${asFlag} - <<'EOF'`, '…', 'EOF'].join('\n')
 }
 
 /**
@@ -556,15 +563,23 @@ function formatPrincipalName(principalRef: string): string {
  * states the sizes so the reader can judge how much is missing rather than
  * guess from an ellipsis.
  */
-function formatBodyLines(envelope: WrkqEnvelope): string[] {
+function formatBodyLines(envelope: WrkqEnvelope, hintStyle?: HintStyle): string[] {
   const body = envelope.body
   if (body.length <= MAX_BODY_CHARS) return [body]
   return [
     clip(body, MAX_BODY_CHARS),
-    `[body clipped at ${MAX_BODY_CHARS.toLocaleString('en-US')} of ${body.length.toLocaleString('en-US')} chars — full body: wrkc show ${envelope.id}]`,
+    `[body clipped at ${MAX_BODY_CHARS.toLocaleString('en-US')} of ${body.length.toLocaleString('en-US')} chars — full body: ${readCommand(hintStyle)} ${envelope.id}]`,
   ]
 }
 
 function clip(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max)}…`
+}
+
+function readCommand(style?: HintStyle): string {
+  return style === 'prae' ? 'prae room mail get' : 'wrkc show'
+}
+
+function historyCommand(style?: HintStyle): string {
+  return style === 'prae' ? 'prae room history' : 'wrkc log'
 }

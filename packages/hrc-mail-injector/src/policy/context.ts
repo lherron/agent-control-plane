@@ -1,5 +1,6 @@
 import type { HrcBrokerInvocationEventRecord, HrcLifecycleEvent } from 'hrc-core'
 import type { HrcMailDriveWakeReason } from 'hrc-store-sqlite'
+import type { RecipientHints } from '../recipient-hints.js'
 
 import type {
   ForeignHome,
@@ -44,6 +45,8 @@ export type SteerHold = {
 
 /** Internal capability surface shared by the decomposed kicker state machines. */
 export type MailKickerContext = {
+  readonly recipientHints?: RecipientHints
+
   /** Kicker-owned state; in its own sqlite file after the Phase 3 store split. */
   readonly store: KickerStateStore
   /** Every HRC-owned read and mutation crosses this boundary. */

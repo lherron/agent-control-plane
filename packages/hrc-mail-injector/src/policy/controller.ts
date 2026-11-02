@@ -1,6 +1,7 @@
 import type { HrcBrokerInvocationEventRecord, HrcLifecycleEvent } from 'hrc-core'
 import { parseAppSessionScopeRef } from 'hrc-core'
 import type { HrcMailDriveWakeReason } from 'hrc-store-sqlite'
+import { RecipientHints } from '../recipient-hints.js'
 
 import type { FailureNoticeBackoff, MailKickerContext, QuietTarget, SteerHold } from './context.js'
 import type {
@@ -35,6 +36,9 @@ import { runMailKickerSweep } from './wake/sweep.js'
 
 /** Owns the kicker's scheduler, process-local state, and target-drive serialization. */
 export class MailKicker implements MailKickerContext {
+  readonly recipientHints = new RecipientHints((level, event, detail) =>
+    this.log(level, event, detail)
+  )
   readonly store: KickerStateStore
   readonly port: HrcInjectionPort
   readonly ledger: MailKickerLedger

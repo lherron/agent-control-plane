@@ -148,6 +148,7 @@ async function previewPresentation(
     ...(runtimeId === undefined ? {} : { runtimeId }),
   })
   return {
+    hintStyle: recipientHintStyle(server, result.envelope, session),
     envelope: result.envelope,
     delivery: result.envelope.delivery,
     // A pointer form carries no body and therefore no history cue: the cue
@@ -526,7 +527,8 @@ export async function deliverDigestToSeat(
 
   const prompt = formatBacklogDigest(
     opened.map(({ envelope }) => envelope),
-    new Date()
+    new Date(),
+    opened[0] === undefined ? 'legacy' : recipientHintStyle(server, opened[0].envelope, session)
   )
   const clearAll = () => {
     for (const id of members) server.store.mailDelivery.clearIntent(id)
@@ -783,4 +785,18 @@ export async function deliverByColdBirth(
     ...(runtimeId === undefined ? {} : { runtimeId }),
   })
   return 'submitted'
+}
+
+function recipientHintStyle(
+  server: MailKickerContext,
+  envelope: WrkqEnvelope,
+  session: HrcSessionRecord
+) {
+  const principal = envelope.to?.principalRef ?? ''
+  return (
+    server.recipientHints?.forRecipient(
+      principal.replace(/^agent:/, ''),
+      session.lastAppliedIntentJson?.placement.projectRoot
+    ) ?? 'legacy'
+  )
 }
