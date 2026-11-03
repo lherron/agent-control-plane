@@ -59,6 +59,11 @@ export type InProcessInjectionPortDependencies = {
   ): Promise<PreemptAdmission>
 }
 
+/** HRC's list TERMINAL set: the runtime-dead statuses plus `archived` and `terminal`. */
+function isListTerminal(status: string): boolean {
+  return isTerminalRuntimeStatus(status) || status === 'archived' || status === 'terminal'
+}
+
 export function createInProcessInjectionPort(
   dependencies: InProcessInjectionPortDependencies
 ): HrcInjectionPort {
@@ -66,7 +71,12 @@ export function createInProcessInjectionPort(
     runtime: async (runtimeId) => dependencies.db.runtimes.getByRuntimeId(runtimeId) ?? undefined,
     runtimesByHostSession: async (hostSessionId) =>
       dependencies.db.runtimes.listByHostSessionId(hostSessionId),
-    allRuntimes: async () => dependencies.db.runtimes.listAll(),
+    liveRuntimes: async (scopeRef) =>
+      dependencies.db.runtimes
+        .listAll()
+        .filter(
+          (runtime) => runtime.scopeRef.startsWith(scopeRef) && !isListTerminal(runtime.status)
+        ),
     liveSessionRefs: async () => dependencies.db.runtimes.listLiveSessionRefs(),
     seat: async (runtimeId) => {
       const runtime = dependencies.db.runtimes.getByRuntimeId(runtimeId)

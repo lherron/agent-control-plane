@@ -156,11 +156,16 @@ export function findStalledDeliveries(server: MailKickerContext): StalledDeliver
  * someone is reading, and `boot_reconcile` names the population again there.
  */
 export async function reportStalledDeliveries(server: MailKickerContext): Promise<void> {
-  let runtimes: Awaited<ReturnType<typeof server.port.allRuntimes>> | undefined
+  // One live read per scope per pass, not one drain of every runtime (T-12423).
+  const liveByScope = new Map<string, Awaited<ReturnType<typeof server.port.liveRuntimes>>>()
   for (const delivery of findStalledDeliveries(server)) {
     if (delivery.door === 'launch') {
       const target = parseSessionRef(delivery.targetSessionRef)
-      runtimes ??= await server.port.allRuntimes()
+      let runtimes = liveByScope.get(target.scopeRef)
+      if (runtimes === undefined) {
+        runtimes = await server.port.liveRuntimes(target.scopeRef)
+        liveByScope.set(target.scopeRef, runtimes)
+      }
       const live = runtimes.some(
         (runtime) =>
           runtime.scopeRef === target.scopeRef &&

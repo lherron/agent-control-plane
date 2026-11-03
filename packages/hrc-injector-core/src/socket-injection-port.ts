@@ -191,7 +191,9 @@ export function createSocketInjectionPort(
     },
     runtimesByHostSession: async (hostSessionId) =>
       await client.listRuntimes({ hostSessionId, all: true }),
-    allRuntimes: async () => await client.listRuntimes({ all: true }),
+    // Without `all`, HRC answers only non-terminal rows: a few per seat, not
+    // a drain of every historical runtime (T-12423).
+    liveRuntimes: async (scopeRef) => await client.listRuntimes({ scope: scopeRef }),
     liveSessionRefs: async () =>
       (await client.getLiveSeatRefs()).refs.map((ref) => `${ref.scopeRef}/lane:${ref.laneRef}`),
     seat: async (runtimeId) => await client.getSeat(runtimeId),

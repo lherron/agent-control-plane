@@ -37,7 +37,7 @@ let h: T08094Harness
 beforeEach(async () => {
   h = await createT08094Harness()
   // A never-born target: nothing live on this node, so D7 has authority.
-  h.context.port.allRuntimes = async () => []
+  h.context.port.liveRuntimes = async () => []
 })
 
 afterEach(async () => {

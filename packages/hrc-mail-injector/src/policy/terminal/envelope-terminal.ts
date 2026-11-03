@@ -72,7 +72,7 @@ async function liveRuntimeForTarget(
   } catch {
     return undefined
   }
-  return (await server.port.allRuntimes())
+  return (await server.port.liveRuntimes(target.scopeRef))
     .filter((runtime) => runtime.scopeRef === target.scopeRef && runtime.laneRef === target.laneRef)
     .find(
       (runtime) =>

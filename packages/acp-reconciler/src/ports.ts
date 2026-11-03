@@ -1,6 +1,5 @@
 import { type WorkClient, WorkRpcError } from '@wrkq/client'
 import type { WrkqTask } from '@wrkq/client/wrkq'
-import { isTerminalRuntimeStatus } from 'hrc-core'
 import {
   HrcClient,
   buildHrcRuntimeIntent,
@@ -280,15 +279,15 @@ export function createHrcPort(
       // HRC on this node only knows this node's runtimes; a holder placed on
       // another node is unknown, never ended.
       if (claim.node !== localNodeId) return 'unknown'
+      // Live first: without `all`, HRC answers only non-terminal rows, so any
+      // row is a live holder. Only when none is live does one bounded page of
+      // history tell `ended` (the scope ran) from `unknown` (it never did).
+      // Draining every historical row for the scope said the same (T-12423).
       try {
-        const runtimes = await client.listRuntimes({
-          scope: scopeRefOfSession(claim.scope),
-          all: true,
-        })
-        if (runtimes.length === 0) return 'unknown'
-        return runtimes.every((runtime) => isTerminalRuntimeStatus(runtime.status))
-          ? 'ended'
-          : 'live'
+        const scope = scopeRefOfSession(claim.scope)
+        if ((await client.listRuntimes({ scope })).length > 0) return 'live'
+        const history = await client.listRuntimes({ scope, all: true, limit: 1 })
+        return history.length > 0 ? 'ended' : 'unknown'
       } catch {
         return 'unknown'
       }

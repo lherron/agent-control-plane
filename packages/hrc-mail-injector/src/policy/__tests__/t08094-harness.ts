@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { isTerminalRuntimeStatus } from 'hrc-core'
 import type { BrokerEventsQueryOp, HrcRuntimeIntent, HrcSessionRecord } from 'hrc-core'
 import { createPlacementLedgerRepository, openHrcDatabase } from 'hrc-store-sqlite'
 import type { HrcDatabase } from 'hrc-store-sqlite'
@@ -354,7 +355,13 @@ export async function createT08094Harness(): Promise<T08094Harness> {
     runtime: async (runtimeId: string) => db.runtimes.getByRuntimeId(runtimeId) ?? undefined,
     runtimesByHostSession: async (hostSessionId: string) =>
       db.runtimes.listByHostSessionId(hostSessionId),
-    allRuntimes: async () => db.runtimes.listAll(),
+    liveRuntimes: async (scopeRef: string) =>
+      db.runtimes
+        .listAll()
+        .filter(
+          (runtime) =>
+            runtime.scopeRef.startsWith(scopeRef) && !isTerminalRuntimeStatus(runtime.status)
+        ),
     liveSessionRefs: async () => db.runtimes.listLiveSessionRefs(),
     targetBySessionRef: async () => session,
     seat: async (runtimeId: string) => {

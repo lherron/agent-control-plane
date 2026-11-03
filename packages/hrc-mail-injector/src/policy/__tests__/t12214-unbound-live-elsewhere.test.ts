@@ -37,7 +37,7 @@ beforeEach(async () => {
   births = 0
   // Never seated on this node; HRC refuses its birth as participant-only.
   h.context.port.targetBySessionRef = async () => undefined
-  h.context.port.allRuntimes = async () => []
+  h.context.port.liveRuntimes = async () => []
   h.context.port.ensureTargetSession = async () => {
     births++
     throw new HrcConflictError(HrcErrorCode.STALE_CONTEXT, PARTICIPANT_ONLY, {

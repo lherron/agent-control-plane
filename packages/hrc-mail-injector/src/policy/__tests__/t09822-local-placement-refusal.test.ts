@@ -53,8 +53,8 @@ beforeEach(async () => {
   svc = await createT08094Harness()
   max3 = await createT08094Harness()
   // Never born anywhere: no live runtime on either node.
-  svc.context.port.allRuntimes = async () => []
-  max3.context.port.allRuntimes = async () => []
+  svc.context.port.liveRuntimes = async () => []
+  max3.context.port.liveRuntimes = async () => []
   ;(svc.context as { nodeId: string }).nodeId = 'svc'
   // svc has no checkout: placement refuses before the summon gate.
   svc.context.port.resolveRuntimeIntent = async () => {

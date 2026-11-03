@@ -70,7 +70,11 @@ export type HrcRuntimeLookup = Pick<
 export type HrcInjectionPort = {
   runtime(runtimeId: string): Promise<HrcRuntimeLookup | undefined>
   runtimesByHostSession(hostSessionId: string): Promise<readonly HrcRuntimeSnapshot[]>
-  allRuntimes(): Promise<readonly HrcRuntimeSnapshot[]>
+  /**
+   * Non-terminal runtimes whose scopeRef starts with `scopeRef` (HRC's list
+   * `scope` filter is a prefix match). Callers match the exact scope and lane.
+   */
+  liveRuntimes(scopeRef: string): Promise<readonly HrcRuntimeSnapshot[]>
   liveSessionRefs(): Promise<readonly string[]>
   seat(runtimeId: string): Promise<RuntimeSeatResponse>
   withdraw(

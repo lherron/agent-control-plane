@@ -27,7 +27,7 @@ it('releases a failed launch and fails only that envelope after three births', a
   h.context.port.invoke = async () => {
     throw new Error('launch-carried submission identity timed out')
   }
-  h.context.port.allRuntimes = async () => []
+  h.context.port.liveRuntimes = async () => []
   for (let attempt = 1; attempt <= 3; attempt++) {
     // Allow the existing scope backoff to expire between drives.
     h.context.mailKickerBirthSweepBackoff.clear()
@@ -65,7 +65,7 @@ it('recovers a stalled launch once the scope loses its live runtime, even after 
     .run(new Date(Date.now() - STALLED_DELIVERY_THRESHOLD_MS - 1000).toISOString())
   await reportStalledDeliveries(h.context)
   expect(h.store.mailDelivery.getIntent(envelope.id)).toBeDefined()
-  h.context.port.allRuntimes = async () => []
+  h.context.port.liveRuntimes = async () => []
   await reportStalledDeliveries(h.context)
   expect(h.store.mailDelivery.getIntent(envelope.id)).toBeUndefined()
   expect((await readActionableEnvelopes(h.context, TARGET)).map((x) => x.envelope.id)).toContain(
@@ -95,7 +95,7 @@ it('does not birth a fourth time if the third failure terminal RPC needs retry',
     births++
     throw new Error('birth broke')
   }
-  h.context.port.allRuntimes = async () => []
+  h.context.port.liveRuntimes = async () => []
   const fail = h.context.ledger.fail.bind(h.context.ledger)
   h.context.ledger.fail = async () => {
     throw new Error('ledger unavailable')
