@@ -75,6 +75,8 @@ export type FakeLedgerEvent = {
     | 'target.literal-input'
     | 'turn.message'
     | 'runtime.state'
+    | 'session.created'
+    | 'session.archived'
   scopeRef: string
   hostSessionId: string
   generation: number | null
@@ -99,6 +101,7 @@ export type LiteralInputMode = 'accept' | 'accept-no-run' | 'hang'
 
 export type FakeHrc = {
   socketPath: string
+  status: { node: { nodeId: string; mode: string }; startedAt: string }
   seats: Map<string, FakeSeat>
   annotations: FakeAnnotation[]
   calls: FakeCall[]
@@ -120,7 +123,13 @@ export type FakeHrc = {
    * The event routes. `enabled: false` answers them 404 (an HRC without the
    * follow route); `drop()` severs every open follow stream.
    */
-  events: { enabled: boolean; followers(): number; drop(): void }
+  events: {
+    enabled: boolean
+    incarnation: string
+    followers(): number
+    drop(): void
+    control(value: Record<string, unknown>): void
+  }
   /** Append a seat event, as HRC does for a change the test makes directly on `seats`. */
   touch(scopeRef: string, eventKind?: FakeLedgerEvent['eventKind']): void
   /** Injected latency on every GET (sessions, attention, annotation lists), as a loaded HRC shows. */
@@ -188,8 +197,10 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
       category: event.eventKind.split('.')[0],
       eventKind: event.eventKind,
       eventJson: event.payload,
+      payload: event.payload,
     }
   }
+  const controls = new Set<(value: Record<string, unknown>) => void>()
   const runtimes: FakeRuntime[] = []
   const literalInput: { mode: LiteralInputMode; refuse: Set<string> } = {
     mode: 'accept',
@@ -264,7 +275,7 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
         scopeRef: input.seat.scopeRef,
         hostSessionId: existing.hostSessionId,
         generation: existing.generation,
-        payload: { kind: input.kind, id: input.id },
+        payload: { ns: input.ns, kind: input.kind, id: input.id },
       })
       return { row: existing, created: false }
     }
@@ -290,7 +301,7 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
       scopeRef: input.seat.scopeRef,
       hostSessionId: row.hostSessionId,
       generation: row.generation,
-      payload: { kind: input.kind, id: input.id },
+      payload: { ns: input.ns, kind: input.kind, id: input.id },
     })
     return { row, created: true }
   }
@@ -512,38 +523,63 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
       const limit = Number(url.searchParams.get('limit') ?? '100')
       return Response.json({
         events: ledger.slice(-limit).map(wireEvent),
-        ledgerIncarnationId: 'fake-ledger',
+        ledgerIncarnationId: fake.events.incarnation,
         headHrcSeq: seq,
         truncated: ledger.length > limit,
       })
     }
-    const fromSeq = Number(url.searchParams.get('fromSeq') ?? '1')
+    const bounded = url.pathname === '/v1/events/bounded-stream'
+    const fromSeq = bounded
+      ? Number(url.searchParams.get('afterSeq') ?? '0') + 1
+      : Number(url.searchParams.get('fromSeq') ?? '1')
     if (url.searchParams.get('follow') !== 'true') {
       const rows = ledger.filter((event) => event.hrcSeq >= fromSeq).map(wireEvent)
       return new Response(rows.map((row) => `${JSON.stringify(row)}\n`).join(''))
     }
     const encoder = new TextEncoder()
     let follower: { push(event: FakeLedgerEvent): void; close(): void } | undefined
+    let control: ((value: Record<string, unknown>) => void) | undefined
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         const self: { push(event: FakeLedgerEvent): void; close(): void } = {
           push(event) {
             if (event.hrcSeq < fromSeq) return
-            controller.enqueue(encoder.encode(`${JSON.stringify(wireEvent(event))}\n`))
+            controller.enqueue(
+              encoder.encode(
+                `${JSON.stringify(bounded ? { type: 'event', ledgerIncarnationId: fake.events.incarnation, event: wireEvent(event) } : wireEvent(event))}\n`
+              )
+            )
           },
           close() {
             followers.delete(self)
+            if (control) controls.delete(control)
             try {
               controller.close()
             } catch {}
           },
         }
         follower = self
+        if (bounded) {
+          control = (value) => controller.enqueue(encoder.encode(`${JSON.stringify(value)}\n`))
+          controls.add(control)
+        }
+        if (bounded)
+          controller.enqueue(
+            encoder.encode(
+              `${JSON.stringify({
+                type: 'ready',
+                ledgerIncarnationId: fake.events.incarnation,
+                acceptedAfterHrcSeq: fromSeq - 1,
+                replayHeadHrcSeq: seq,
+              })}\n`
+            )
+          )
         for (const event of ledger) self.push(event)
         followers.add(self)
       },
       cancel() {
         if (follower !== undefined) followers.delete(follower)
+        if (control) controls.delete(control)
       },
     })
     return new Response(stream, {
@@ -572,7 +608,11 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
       }
       calls.push(call)
 
-      if (url.pathname === '/v1/events' || url.pathname === '/v1/events/tail') {
+      if (
+        url.pathname === '/v1/events' ||
+        url.pathname === '/v1/events/tail' ||
+        url.pathname === '/v1/events/bounded-stream'
+      ) {
         return eventsRoute(url)
       }
 
@@ -585,6 +625,7 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
         inflight.now.set(key, (inflight.now.get(key) ?? 1) - 1)
       }
 
+      if (url.pathname === '/v1/status') return Response.json(fake.status)
       if (request.method === 'GET' && url.pathname === '/v1/sessions') {
         const scopeRef = url.searchParams.get('scopeRef')
         const rows = [...seatMap.values()].filter(
@@ -635,6 +676,7 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
 
   const fake: FakeHrc = {
     socketPath,
+    status: { node: { nodeId: 'max3', mode: 'single-node' }, startedAt: 'fake-start' },
     seats: seatMap,
     annotations,
     calls,
@@ -644,6 +686,10 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
     seatErrors,
     events: {
       enabled: true,
+      incarnation: 'fake-ledger',
+      control(value) {
+        for (const send of controls) send(value)
+      },
       followers: () => followers.size,
       drop() {
         for (const follower of [...followers]) follower.close()

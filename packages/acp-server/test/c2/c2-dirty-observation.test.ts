@@ -1,15 +1,4 @@
-/**
- * T-12421: seat reads are dirty-driven off one HRC event follow stream.
- *
- * Ways this can fail, each pinned below:
- *  - an idle watched seat is still re-read every poll (the load this fixes);
- *  - an event for one seat re-reads every seat, or not that seat;
- *  - an annotation change (asks put/delete) never reaches the snapshot;
- *  - a dropped or refused stream leaves reads serving a frozen cache;
- *  - no event ever comes for a change, and nothing bounds the staleness;
- *  - the safety net is one long pass that a dirty seat's read queues behind;
- *  - an action's preflight is served from the cache instead of HRC.
- */
+/** Event-only C2 observation, recovery, membership, and final action fences. */
 import { afterEach, expect, test } from 'bun:test'
 
 import { HrcClient } from 'hrc-sdk'
@@ -41,7 +30,7 @@ async function until(what: string, cond: () => boolean, ms = 3000): Promise<void
   }
 }
 
-function boot(fullRefreshMs = 60_000): { fake: FakeHrc; host: C2HrcHost } {
+function boot(): { fake: FakeHrc; host: C2HrcHost } {
   const template = fixtureSeats().find((seat) => seat.scopeRef === VESTA)!
   fake = startFakeHrc([
     template,
@@ -59,9 +48,7 @@ function boot(fullRefreshMs = 60_000): { fake: FakeHrc; host: C2HrcHost } {
     vestaSeat: VESTA,
     principal: 'system:c2-controller',
     node: 'max3',
-    sweepMs: 60_000,
-    fullRefreshMs,
-    ownsUnscoped: false,
+    ownsUnscoped: true,
     literalInputTimeoutMs: 1000,
     log: (line) => logs.push(line),
   })
@@ -84,8 +71,8 @@ function reset(f: FakeHrc): void {
 }
 
 /** Boot, wait for the follower, and take the full read its connect owes. */
-async function following(fullRefreshMs?: number) {
-  const booted = boot(fullRefreshMs)
+async function following() {
+  const booted = boot()
   await booted.host.seats()
   await until('the follower', () => booted.fake.events.followers() === 1)
   await booted.host.seats()
@@ -96,7 +83,7 @@ async function following(fullRefreshMs?: number) {
 /** Let an event cross the follow stream. */
 const delivered = () => Bun.sleep(50)
 
-test('idle watched seats are not re-read between full refreshes', async () => {
+test('idle watched seats are not re-read', async () => {
   const { fake, host } = await following()
   for (let i = 0; i < 5; i += 1) {
     const [seats, rows] = await Promise.all([host.seats(), host.annotations()])
@@ -156,55 +143,89 @@ test('an annotation change on a seat shows up in the next snapshot', async () =>
   expect([...readsBySeat(fake).keys()]).toEqual([y])
 })
 
-test('a dropped follower falls back to full reads, then resumes dirty-driven reads', async () => {
+test('a dropped follower retains the cache; reconnect performs exactly one resync', async () => {
   const { fake, host } = await following()
-  fake.touch(WATCHED[5]!)
-  await delivered()
-  const seen = fake.ledger.at(-1)!.hrcSeq
   fake.events.enabled = false
   fake.events.drop()
-  await until('the follower to go down', () => logs.some((l) => l.startsWith('c2.follow.down')))
-  for (let i = 0; i < 2; i += 1) {
-    reset(fake)
-    await host.seats()
-    const reads = readsBySeat(fake)
-    for (const scopeRef of [VESTA, ...WATCHED]) expect(reads.get(scopeRef)).toBe(2)
-  }
-  // Back: it reconnects from the last seen hrcSeq, reads everything once, then only dirty seats.
+  await until('down', () => logs.some((l) => l.includes('follow.down')))
+  reset(fake)
+  for (let i = 0; i < 3; i++) await host.seats()
+  expect(readsBySeat(fake).size).toBe(0)
   fake.events.enabled = true
-  await until('the follower to reconnect', () => fake.events.followers() === 1)
+  await until('reconnect', () => fake.events.followers() === 1)
+  await delivered()
   reset(fake)
   await host.seats()
   expect(readsBySeat(fake).size).toBe(WATCHED.length + 1)
+  expect(fake.calls.filter((c) => c.path === '/v1/sessions')).toHaveLength(1)
   reset(fake)
   await host.seats()
-  expect(readsBySeat(fake).size).toBe(0)
-  const reconnect = logs.filter((l) => l.startsWith('c2.follow.connected'))
-  expect(reconnect).toHaveLength(2)
-  expect(reconnect[1]).toBe(`c2.follow.connected fromSeq=${seen + 1}`)
+  expect(fake.calls).toHaveLength(0)
 })
 
-test('the rolling safety net re-reads every watched seat with no event, a few per read', async () => {
-  const { fake, host } = await following(200)
-  await host.seats()
-  expect(readsBySeat(fake).size).toBe(0)
-  await Bun.sleep(220)
-  const x = WATCHED[0]!
-  // A change HRC never evented still lands within the safety net's bound.
-  fake.seats.get(x)!.runtimeLive = false
-  const reread = new Set<string>()
-  let seats = await host.seats()
-  for (let pass = 0; pass < 2; pass += 1) {
-    const reads = readsBySeat(fake)
-    // Never one long pass a dirty read would queue behind: Vesta plus at most four aged seats.
-    expect([...reads.keys()].filter((s) => s !== VESTA).length).toBeLessThanOrEqual(4)
-    for (const scopeRef of reads.keys()) reread.add(scopeRef)
-    reset(fake)
-    if (pass === 0) seats = await host.seats()
+test('idle reads issue zero HRC reads across minutes of wall-clock age', async () => {
+  const { fake, host } = await following()
+  const original = Date.now
+  try {
+    const now = original()
+    Date.now = () => now + 600_000
+    for (let i = 0; i < 5; i++) await host.seats()
+    expect(fake.calls).toHaveLength(0)
+  } finally {
+    Date.now = original
   }
-  expect(reread).toEqual(new Set([VESTA, ...WATCHED]))
-  expect((await host.seats()).find((s) => s.scopeRef === x)?.status).toBe('inactive')
-  expect(seats).toBeDefined()
+})
+
+test('a c2 row discovers an unscoped new seat and deleting the last row removes it', async () => {
+  const { fake, host } = await following()
+  const scopeRef = 'agent:other:project:discovery:task:primary'
+  fake.seats.set(scopeRef, { ...fake.seats.get(VESTA)!, scopeRef, hostSessionId: 'new-seat' })
+  fake.put({ scopeRef, kind: 'probe', id: 'discovery', body: { v: 1 } })
+  await delivered()
+  expect((await host.annotations()).some((r) => r.scopeRef === scopeRef)).toBe(true)
+  await host.delete({
+    sessionRef: `${scopeRef}/lane:main`,
+    subject: 'generation',
+    generation: fake.seats.get(scopeRef)!.generation,
+    ns: 'c2',
+    kind: 'probe',
+    id: 'discovery',
+  })
+  await delivered()
+  await host.seats()
+  reset(fake)
+  await host.seats()
+  expect((await host.seats()).some((s) => s.scopeRef === scopeRef)).toBe(false)
+  expect(fake.calls).toHaveLength(0)
+})
+
+test('runtimeEnd caches confirmed generations and invalidates negative results on runtime events', async () => {
+  const { fake, host } = await following()
+  const seat = fake.seats.get(WATCHED[0]!)!
+  const ref = `${seat.scopeRef}/lane:main`
+  expect(await host.runtimeEnd!(ref, seat.generation)).toBeNull()
+  expect(await host.runtimeEnd!(ref, seat.generation)).toBeNull()
+  expect(fake.calls.filter((c) => c.path === '/v1/runtimes')).toHaveLength(1)
+  fake.runtimes.push({
+    runtimeId: 'ended',
+    scopeRef: seat.scopeRef,
+    laneRef: 'main',
+    hostSessionId: seat.hostSessionId,
+    generation: seat.generation,
+    status: 'terminated',
+    createdAt: 'now',
+    updatedAt: 'now',
+    runtimeStateJson: { terminationReason: 'user_initiated_session_end' },
+  })
+  fake.touch(seat.scopeRef, 'runtime.state')
+  await delivered()
+  expect(await host.runtimeEnd!(ref, seat.generation)).toMatchObject({ runtimeId: 'ended' })
+  reset(fake)
+  fake.touch(seat.scopeRef, 'runtime.state')
+  await delivered()
+  for (let i = 0; i < 5; i++)
+    expect(await host.runtimeEnd!(ref, seat.generation)).toMatchObject({ runtimeId: 'ended' })
+  expect(fake.calls.filter((c) => c.path === '/v1/runtimes')).toHaveLength(0)
 })
 
 test('preflight freshness: freshen and writes re-read the touched seats, joining no earlier pass', async () => {
@@ -236,3 +257,52 @@ test('preflight freshness: freshen and writes re-read the touched seats, joining
   expect(after.find((s) => s.scopeRef === x)?.status).toBe('active')
   expect((await host.annotations()).some((row) => row.kind === 'probe')).toBe(true)
 })
+
+test('new and archived continuity membership is event driven, without listing sessions', async () => {
+  const { fake, host } = await following()
+  const scopeRef = 'agent:mable:project:dirty:task:seat-99'
+  fake.seats.set(scopeRef, { ...fake.seats.get(VESTA)!, scopeRef, hostSessionId: 'born' })
+  fake.touch(scopeRef, 'session.created')
+  await delivered()
+  expect((await host.seats()).some((s) => s.scopeRef === scopeRef)).toBe(true)
+  fake.put({ scopeRef, kind: 'probe', id: 'archive', body: { v: 1 } })
+  await delivered()
+  await host.seats()
+  reset(fake)
+  fake.touch(scopeRef, 'session.archived')
+  await delivered()
+  expect((await host.seats()).some((s) => s.scopeRef === scopeRef)).toBe(false)
+  expect(fake.calls.filter((c) => c.path === '/v1/sessions')).toHaveLength(0)
+})
+
+test.each(['gap', 'ledger_replaced'] as const)(
+  '%s triggers one bounded resync then idle reads stop',
+  async (type) => {
+    const { fake, host } = await following()
+    if (type === 'ledger_replaced') fake.events.incarnation = 'new-ledger'
+    fake.events.control(
+      type === 'gap'
+        ? {
+            type,
+            ledgerIncarnationId: 'fake-ledger',
+            reason: 'live_queue',
+            afterHrcSeq: 0,
+            beforeHrcSeq: 1,
+            dropped: 1,
+          }
+        : {
+            type,
+            expectedLedgerIncarnationId: 'fake-ledger',
+            currentLedgerIncarnationId: 'new-ledger',
+          }
+    )
+    await until('recovery', () => logs.filter((l) => l.includes('follow.connected')).length === 2)
+    reset(fake)
+    await host.seats()
+    expect(fake.calls.filter((c) => c.path === '/v1/sessions')).toHaveLength(1)
+    expect(readsBySeat(fake).size).toBe(WATCHED.length + 1)
+    reset(fake)
+    for (let i = 0; i < 5; i++) await host.seats()
+    expect(fake.calls).toHaveLength(0)
+  }
+)

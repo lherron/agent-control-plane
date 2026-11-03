@@ -13,8 +13,7 @@ test('a fresh C2 observation reads annotations once per watched seat and bounds 
     template,
     ...watched.map((scopeRef, i) => ({ ...template, scopeRef, hostSessionId: `hs-load-${i}` })),
   ])
-  // No event follower: every read is a full read, whose cost and fanout this measures.
-  fake.events.enabled = false
+  // Exercise an explicit fresh action preflight, independently of dirty observation.
   let closeHost = () => {}
   try {
     fake.put({
@@ -41,8 +40,6 @@ test('a fresh C2 observation reads annotations once per watched seat and bounds 
       vestaSeat: VESTA,
       principal: 'system:c2-controller',
       node: 'max3',
-      sweepMs: 60_000,
-      fullRefreshMs: 30_000,
       ownsUnscoped: true,
       literalInputTimeoutMs: 1000,
       log() {},
@@ -52,6 +49,7 @@ test('a fresh C2 observation reads annotations once per watched seat and bounds 
     await Promise.all([host.seats(), host.annotations()])
     fake.calls.length = 0
     fake.readDelayMs = 30
+    host.freshen([VESTA, ...watched])
     let peak = 0
     const probe = setInterval(() => {
       peak = Math.max(
@@ -75,8 +73,7 @@ test('a fresh C2 observation reads annotations once per watched seat and bounds 
     expect(peak).toBeLessThanOrEqual(16)
     expect(rows.filter((row) => row.scopeRef === seat).map((row) => row.id)).toEqual(['open'])
 
-    // Completed observations are never cached: an external scope change is
-    // visible to the very next read used by action preflight.
+    // Action preflight reads a scope change directly, even before its event arrives.
     fake.put({
       scopeRef: VESTA,
       subject: 'seat',
@@ -84,8 +81,8 @@ test('a fresh C2 observation reads annotations once per watched seat and bounds 
       id: 'scope',
       body: { v: 1, allow: [] },
     })
-    // The asks-bearing seat stays observed for its existing row lifecycle.
-    expect((await host.seats()).map((row) => row.scopeRef)).toEqual([VESTA, seat])
+    host.freshen([VESTA])
+    expect((await host.seats()).map((row) => row.scopeRef)).toEqual([VESTA])
   } finally {
     closeHost()
     await fake.stop()

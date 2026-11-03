@@ -26,6 +26,25 @@ export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsSt
   const outputAttempts = createOutputAttempts(sqlite)
   const store: JobsStore = {
     sqlite,
+    // A readiness hint, never authorization. A subsequent verified tick still
+    // transactionally claims and validates work; arrivals after this query wait
+    // at most one normal scheduler interval.
+    hasSchedulerWork(now: string): boolean {
+      const row = sqlite
+        .prepare(`
+        SELECT EXISTS(SELECT 1 FROM jobs WHERE archived_at IS NULL AND disabled = 0
+          AND trigger_kind = 'schedule' AND (next_fire_at IS NULL OR next_fire_at <= ?))
+        OR EXISTS(SELECT 1 FROM event_inbox WHERE status = 'pending'
+          OR (status = 'leased' AND (lease_expires_at IS NULL OR lease_expires_at <= ?)))
+        AS ready
+      `)
+        .get(now, now) as { ready: number }
+      return (
+        row.ready !== 0 ||
+        runRecovery.listJobRunReaperCandidates({ now, limit: 1 }).length > 0 ||
+        runRecovery.listDispatchedNonFlowJobRuns({ now, limit: 1 }).length > 0
+      )
+    },
     migrations: {
       applied: listAppliedJobsStoreMigrations(sqlite),
     },

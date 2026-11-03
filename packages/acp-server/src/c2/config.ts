@@ -28,13 +28,6 @@ export type AcpC2Config = {
    * rows), and the floor between reads an HRC event for a watched seat starts.
    */
   pollMs?: number | undefined
-  /** Full seat sweep cadence: which continuities hold c2 rows or match scope. */
-  sweepMs?: number | undefined
-  /**
-   * Safety-net re-read of every watched seat (T-12421). Between these, a poll
-   * re-reads only seats an HRC event marked dirty.
-   */
-  fullRefreshMs?: number | undefined
   /**
    * Bound on the one HRC literal-input call. Expiry after the call was made is
    * `unknown_outcome`, never `not_submitted`, and is never retried.
@@ -50,8 +43,6 @@ export type AcpC2Config = {
 
 export const C2_DEFAULTS = {
   pollMs: 2000,
-  sweepMs: 60_000,
-  fullRefreshMs: 60_000,
   literalInputTimeoutMs: 30_000,
 } as const
 

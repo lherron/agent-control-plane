@@ -100,8 +100,6 @@ export function createC2Service(
     vestaSeat: config.vestaSeat,
     principal: C2_CONTROLLER_PRINCIPAL,
     node: config.node,
-    sweepMs: config.sweepMs ?? C2_DEFAULTS.sweepMs,
-    fullRefreshMs: config.fullRefreshMs ?? C2_DEFAULTS.fullRefreshMs,
     ownsUnscoped: config.vestaSeat === PRODUCTION_VESTA,
     literalInputTimeoutMs: config.literalInputTimeoutMs ?? C2_DEFAULTS.literalInputTimeoutMs,
     handoffSince: wrkqHandoffSince(workClient),

@@ -120,7 +120,7 @@ describe('an unobservable seat', () => {
     )
     expect(okActs).toHaveLength(0)
     const allowed =
-      /^\/v1\/(sessions(\/attention|\/annotations(\/act|\/delete)?)?|literal-input\/by-selector|status|events(\/tail)?)$/
+      /^\/v1\/(sessions(\/attention|\/annotations(\/act|\/delete)?)?|literal-input\/by-selector|status|events(\/(tail|bounded-stream))?)$/
     expect(
       acp.fake.calls.filter((call) => !allowed.test(call.path)).map((call) => call.path)
     ).toEqual([])

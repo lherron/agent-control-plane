@@ -1419,8 +1419,9 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
           schedulerTickInProgress = true
           void Promise.resolve()
             .then(async () => {
+              const jobsReady = jobsStore?.hasSchedulerWork(new Date().toISOString()) === true
               const verification =
-                jobsScheduler !== undefined || jobOutputReconciler !== undefined
+                jobsReady && (jobsScheduler !== undefined || jobOutputReconciler !== undefined)
                   ? await jobNodeIdentityAuthority?.verifyFresh('scheduler_tick')
                   : undefined
               if (verification !== undefined && !verification.ok) {
