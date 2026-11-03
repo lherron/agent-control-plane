@@ -23,7 +23,10 @@ export type AcpC2Config = {
    * `~/praesidium/var/wrkq-artifacts` and `~/praesidium/var/scratch/c2`.
    */
   artifactRoots?: readonly string[] | undefined
-  /** Fast HRC observation cadence (Vesta, in-scope seats, seats with c2 rows). */
+  /**
+   * Fallback HRC observation cadence (Vesta, in-scope seats, seats with c2
+   * rows), and the floor between reads an HRC event for a watched seat starts.
+   */
   pollMs?: number | undefined
   /** Full seat sweep cadence: which continuities hold c2 rows or match scope. */
   sweepMs?: number | undefined
@@ -48,7 +51,7 @@ export type AcpC2Config = {
 export const C2_DEFAULTS = {
   pollMs: 2000,
   sweepMs: 60_000,
-  fullRefreshMs: 30_000,
+  fullRefreshMs: 60_000,
   literalInputTimeoutMs: 30_000,
 } as const
 

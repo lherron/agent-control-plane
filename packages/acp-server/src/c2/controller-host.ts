@@ -158,6 +158,41 @@ export function createC2Service(
     void refresh().catch(() => undefined)
   }
 
+  // T-12421 (b): an HRC event for a watched seat starts a read now, at most one
+  // per pollMs (leading edge); events inside the window get one trailing read,
+  // as do events that land while a read is in flight. The poll timer stays.
+  let stopped = false
+  let lastKickAt = Number.NEGATIVE_INFINITY
+  let trailing: ReturnType<typeof setTimeout> | null = null
+  let afterInFlight = false
+  function kick(): void {
+    if (trailing !== null || stopped) return
+    const wait = lastKickAt + pollMs - Date.now()
+    if (wait > 0) {
+      trailing = setTimeout(() => {
+        trailing = null
+        kick()
+      }, wait)
+      return
+    }
+    if (refreshing !== null) {
+      // The in-flight read took its dirty set before this event: read once more after it.
+      if (!afterInFlight) {
+        afterInFlight = true
+        void refreshing
+          .catch(() => undefined)
+          .then(() => {
+            afterInFlight = false
+            kick()
+          })
+      }
+      return
+    }
+    lastKickAt = Date.now()
+    refreshInBackground()
+  }
+  const offDirty = host.onDirty(kick)
+
   /** The cached snapshot, or on a cold start the first read within its bound. */
   async function current(): Promise<{ snapshot: Snapshot; reachable: boolean } | undefined> {
     if (last !== undefined) {
@@ -317,6 +352,9 @@ export function createC2Service(
 
     stop() {
       clearInterval(poll)
+      stopped = true
+      offDirty()
+      if (trailing !== null) clearTimeout(trailing)
       stopController()
       host.close()
       for (const wake of waiters) wake()

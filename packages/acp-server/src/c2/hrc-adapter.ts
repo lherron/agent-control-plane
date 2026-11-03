@@ -13,7 +13,8 @@
  * at most eight seats are observed concurrently (two reads per seat).
  *
  * Reads are dirty-driven (T-12421). One long-lived HRC event follow stream
- * (`GET /v1/events?follow=true`) marks each event's `scopeRef` dirty; every
+ * (`GET /v1/events?follow=true`) marks each event's `scopeRef` dirty and, for a
+ * watched seat, tells `onDirty` listeners (the controller host starts a read); every
  * annotation put/delete/act appends a session event, so asks and c2 row
  * changes arrive the same way. A read re-reads only dirty watched seats (and a
  * watched seat never read yet) and serves every other seat from its last
@@ -102,6 +103,11 @@ export type C2HrcHost = C2Host & {
   node(): Promise<string>
   /** The next read re-reads these seats from HRC and joins no earlier observation. */
   freshen(scopeRefs: readonly string[]): void
+  /**
+   * Called when an HRC event marks a watched seat dirty, so the caller can
+   * start a read now rather than on its next poll (T-12421 amendment b).
+   */
+  onDirty(cb: () => void): () => void
   /** Stop the event follower. */
   close(): void
 }
@@ -191,6 +197,9 @@ async function mapLimit<T, R>(
 export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
   const { client, vestaSeat, log } = options
   const listeners = new Set<() => void>()
+  const dirtyListeners = new Set<() => void>()
+  /** Vesta and every target of the last completed pass. */
+  let watchedSeats = new Set<string>()
   let resolvedNode: string | undefined = options.node
   let continuities: string[] = []
   let rowSeats = new Set<string>()
@@ -403,6 +412,15 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
           lastSeq = event.hrcSeq
           dirty.add(event.scopeRef)
           backoff = FOLLOW_BACKOFF_MIN_MS
+          if (watchedSeats.has(event.scopeRef)) {
+            for (const listener of dirtyListeners) {
+              try {
+                listener()
+              } catch (error) {
+                log(`c2: dirty listener failed: ${String(error)}`)
+              }
+            }
+          }
         }
         if (closed) return
         throw new Error('event stream ended')
@@ -474,6 +492,7 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
       )
       const kept = new Set(watched)
       for (const scopeRef of cache.keys()) if (!kept.has(scopeRef)) cache.delete(scopeRef)
+      watchedSeats = kept
 
       const seats: SeatRow[] = []
       const annotations: AnnotationRow[] = []
@@ -675,6 +694,12 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
       if (delivered.runId !== undefined) receipt.runId = delivered.runId
       if (delivered.status !== undefined) receipt.status = delivered.status
       return receipt
+    },
+    onDirty(cb: () => void) {
+      dirtyListeners.add(cb)
+      return () => {
+        dirtyListeners.delete(cb)
+      }
     },
     onChange(cb: () => void) {
       listeners.add(cb)
