@@ -40,7 +40,12 @@ import {
   participantOnlyRefusalFor,
   skipForeignHomedTarget,
 } from './authority.js'
-import { deliverByColdBirth, deliverDigestToSeat, deliverToSeat } from './delivery.js'
+import {
+  deliverByColdBirth,
+  deliverDigestToSeat,
+  deliverToSeat,
+  isRetiredHostRejection,
+} from './delivery.js'
 import { failExhaustedLaunch, recoverFailedLaunch } from './launch-recovery.js'
 import type { ActionableEnvelope } from './presentation.js'
 import { classifyBacklogFyi, readActionableEnvelopes, summonsATurn } from './presentation.js'
@@ -96,6 +101,21 @@ async function birthForTarget(
     if (deferral !== undefined && scopeRef !== undefined) {
       server.store.mailDelivery.clearIntent(summons.envelope.id)
       deferBirthForTarget(server, targetSessionRef, scopeRef, deferral, wakeReason)
+      return
+    }
+    // The resolved host was retired by rotation before HRC admitted anything
+    // (T-12418). Not a birth refusal: the successor host exists, and the next
+    // ordinary drive re-reads the target and births there. Charging it to the
+    // birth backoff would only delay that.
+    if (isRetiredHostRejection(error)) {
+      server.store.mailDelivery.clearIntent(summons.envelope.id)
+      server.log('INFO', 'wrkq.kicker.birth_host_retired', {
+        targetSessionRef,
+        wakeReason,
+        envelope: summons.envelope.id,
+        expectedHostSessionId: error.detail['expectedHostSessionId'],
+        activeHostSessionId: error.detail['activeHostSessionId'],
+      })
       return
     }
     // This node cannot host the project (T-09822). Not a failed delivery and

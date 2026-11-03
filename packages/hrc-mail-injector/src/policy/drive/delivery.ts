@@ -68,7 +68,24 @@ function isDefinitePreLaunchRejection(error: unknown): error is HrcDomainError {
 function isDefiniteDispatchRejection(error: unknown): error is HrcDomainError {
   return (
     error instanceof HrcDomainError &&
-    (error.code === HrcErrorCode.PRESENTATION_CONFLICT || isDefinitePreLaunchRejection(error))
+    (error.code === HrcErrorCode.PRESENTATION_CONFLICT ||
+      isDefinitePreLaunchRejection(error) ||
+      isRetiredHostRejection(error))
+  )
+}
+
+/**
+ * HRC refused a start on a host session that rotation retired (T-12418:
+ * 409 `stale_context`, reason `host_session_retired`). The refusal comes from
+ * the seat gate's active-host re-read, before reuse, birth or any body is
+ * admitted, so it is not-written. The next drive re-reads the target and lands
+ * on the successor host.
+ */
+export function isRetiredHostRejection(error: unknown): error is HrcDomainError {
+  return (
+    error instanceof HrcDomainError &&
+    error.code === HrcErrorCode.STALE_CONTEXT &&
+    error.detail['reason'] === 'host_session_retired'
   )
 }
 
