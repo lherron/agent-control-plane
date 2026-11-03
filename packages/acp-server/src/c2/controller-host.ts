@@ -27,7 +27,7 @@ import { writeLogLine } from 'acp-core'
 import type { AcpHrcClient } from '../deps.js'
 import { mintArtifactId, serveArtifact } from './artifacts.js'
 import { type AcpC2Config, C2_DEFAULTS, defaultArtifactRoots } from './config.js'
-import { type C2HrcHost, createC2HrcHost } from './hrc-adapter.js'
+import { type C2HrcHost, createC2HrcHost, splitSessionRef } from './hrc-adapter.js'
 
 export const C2_CONTROLLER_PRINCIPAL = 'system:c2-controller'
 export const C2_PHONE_PRINCIPAL = 'agent:lance'
@@ -101,6 +101,7 @@ export function createC2Service(
     principal: C2_CONTROLLER_PRINCIPAL,
     node: config.node,
     sweepMs: config.sweepMs ?? C2_DEFAULTS.sweepMs,
+    fullRefreshMs: config.fullRefreshMs ?? C2_DEFAULTS.fullRefreshMs,
     ownsUnscoped: config.vestaSeat === PRODUCTION_VESTA,
     literalInputTimeoutMs: config.literalInputTimeoutMs ?? C2_DEFAULTS.literalInputTimeoutMs,
     handoffSince: wrkqHandoffSince(workClient),
@@ -265,6 +266,8 @@ export function createC2Service(
       if (invalid !== null)
         return { status: 400, body: { ok: false, code: 'invalid_request', reason: invalid } }
       const request = raw as ActionRequest
+      // Preflight reads the acted seat and Vesta fresh, never from the dirty-driven cache.
+      host.freshen([splitSessionRef(request.key.sessionRef).scopeRef, config.vestaSeat])
       let response: ActionResponse
       try {
         response = await controller.act(request)
@@ -291,6 +294,7 @@ export function createC2Service(
     },
 
     async reconcile(requestId, sessionRef) {
+      host.freshen([splitSessionRef(sessionRef).scopeRef, config.vestaSeat])
       try {
         return {
           status: 200,
@@ -314,6 +318,7 @@ export function createC2Service(
     stop() {
       clearInterval(poll)
       stopController()
+      host.close()
       for (const wake of waiters) wake()
     },
   }

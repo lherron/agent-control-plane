@@ -6,13 +6,27 @@
  *  - a sweep (`sweepMs`) lists continuities and, every `SCAN_EVERY` sweeps,
  *    the c2 rows of every non-task seat, to learn which seats matter;
  *  - each read (`seats()` / `annotations()`, and the controller host's poll)
- *    fetches attention, c2 rows and the `hrc.asks` record for just those
+ *    covers attention, c2 rows and the `hrc.asks` record for just those
  *    seats: Vesta, every seat the scope row allows, and every seat holding c2
  *    rows (card contract rev 4 §3).
  * One annotation list supplies both namespaces, including Vesta's scope row;
  * at most eight seats are observed concurrently (two reads per seat).
- * Concurrent reads share one in-flight observation; a completed one is never
- * reused, so an action's preflight always sees HRC as it is now.
+ *
+ * Reads are dirty-driven (T-12421). One long-lived HRC event follow stream
+ * (`GET /v1/events?follow=true`) marks each event's `scopeRef` dirty; every
+ * annotation put/delete/act appends a session event, so asks and c2 row
+ * changes arrive the same way. A read re-reads only dirty watched seats (and a
+ * watched seat never read yet) and serves every other seat from its last
+ * observation. Every `fullRefreshMs` it re-reads all of them, which bounds any
+ * staleness from an event this host missed. While the stream is down (not yet
+ * connected, refused, ended) every read is a full read, never staler than a
+ * poll; it reconnects with backoff from the last seen `hrcSeq`.
+ *
+ * Concurrent reads share one in-flight observation, and a completed one is
+ * never reused. A write through this host, or `freshen()` (an action's
+ * preflight: the acted seat and Vesta), marks those seats dirty and refuses to
+ * join an observation that started earlier, so the next read sees HRC as it is
+ * now for every seat the action touches.
  *
  * Refusals: an HRC error envelope passes through as `{code, detail}` exactly as
  * HRC spelled it (c2-core never invents one). A socket that cannot be reached
@@ -56,6 +70,8 @@ export type C2HrcClient = Pick<
   | 'listSessionAnnotations'
   | 'listSessions'
   | 'putSessionAnnotation'
+  | 'tailEvents'
+  | 'watch'
 >
 
 export type C2HrcHostOptions = {
@@ -65,6 +81,8 @@ export type C2HrcHostOptions = {
   principal: string
   node?: string | undefined
   sweepMs: number
+  /** Safety-net cadence: re-read every watched seat even with no event for it. */
+  fullRefreshMs: number
   /**
    * Also observe every seat holding c2 rows, outside the scope, so the owner's
    * lifecycle ends narrowed-out cards (D5). Only the production-Vesta instance
@@ -80,6 +98,10 @@ export type C2HrcHostOptions = {
 export type C2HrcHost = C2Host & {
   /** This node's id: configured, else HRC's declared `status.node.nodeId`. */
   node(): Promise<string>
+  /** The next read re-reads these seats from HRC and joins no earlier observation. */
+  freshen(scopeRefs: readonly string[]): void
+  /** Stop the event follower. */
+  close(): void
 }
 
 /** Every Nth sweep also lists c2 rows on every non-task seat. */
@@ -88,10 +110,15 @@ const SCAN_CONCURRENCY = 8
 const TASK_SEAT = /:task:T-/
 /** Only a recorded termination confirms an end; any other status may be a liveness blip (the hold). */
 const TERMINATED = 'terminated'
+/** Event-follower reconnect backoff bounds. */
+const FOLLOW_BACKOFF_MIN_MS = 500
+const FOLLOW_BACKOFF_MAX_MS = 30_000
 
 type Observation = { seats: SeatRow[]; annotations: AnnotationRow[] }
+/** One seat's last read: its live row (absent when unobservable or unknown) and its rows. */
+type SeatObservation = { seat?: SeatRow; rows: AnnotationRow[] }
 
-function splitSessionRef(sessionRef: string): { scopeRef: string; laneRef: string } {
+export function splitSessionRef(sessionRef: string): { scopeRef: string; laneRef: string } {
   const match = /^(.*)\/lane:([^/]*)$/.exec(sessionRef)
   return match
     ? { scopeRef: match[1] ?? sessionRef, laneRef: match[2] || 'main' }
@@ -161,8 +188,22 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
   let sweeps = 0
   let lastSweepAt = Number.NEGATIVE_INFINITY
   let sweeping: Promise<void> | null = null
-  let observing: Promise<Observation> | null = null
+  let observing: { promise: Promise<Observation>; epoch: number } | null = null
   let fingerprint: string | undefined
+  /** Last observation of each watched seat (Vesta included). */
+  const cache = new Map<string, SeatObservation>()
+  /** Seats an event (or a write) touched since they were last read. */
+  const dirty = new Set<string>()
+  /** The next read re-reads every watched seat. */
+  let allDirty = true
+  let lastFullAt = Number.NEGATIVE_INFINITY
+  /** Bumped by every write and `freshen`; an observation started under an older epoch is not joined. */
+  let epoch = 0
+  /** The follow stream is running from a known cursor; false means every read is a full read. */
+  let following = false
+  let lastSeq: number | undefined
+  let closed = false
+  const followAbort = new AbortController()
   /** `<sessionRef>#<generation>` → that generation's host session, from observed c2 rows and seats. */
   const hostSessions = new Map<string, string>()
 
@@ -274,7 +315,7 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
     scopeRef: string,
     at: string,
     listedRows?: AnnotationRow[]
-  ): Promise<{ seat?: SeatRow; rows: AnnotationRow[] }> {
+  ): Promise<SeatObservation> {
     const readAttention = () =>
       client.getSessionAttention({ scopeRef, laneRef: 'main' }).catch((error: unknown) => {
         if (error instanceof HrcDomainError && error.code === 'unknown_host_session')
@@ -313,66 +354,165 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
     return { seat, rows: rows ?? [] }
   }
 
+  function freshen(scopeRefs: readonly string[]): void {
+    for (const scopeRef of scopeRefs) dirty.add(scopeRef)
+    epoch += 1
+  }
+
+  function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(resolve, ms)
+      ;(timer as { unref?: () => void }).unref?.()
+      followAbort.signal.addEventListener('abort', () => resolve(), { once: true })
+    })
+  }
+
+  /**
+   * The one event follower: marks each event's seat dirty. Down is logged once
+   * per outage; reads stay full until it is following again.
+   */
+  async function follow(): Promise<void> {
+    let backoff = FOLLOW_BACKOFF_MIN_MS
+    let downLogged = false
+    while (!closed) {
+      try {
+        const fromSeq =
+          lastSeq !== undefined
+            ? lastSeq + 1
+            : (await client.tailEvents({ limit: 1 })).headHrcSeq + 1
+        // From here no event is lost: the stream replays from `fromSeq`. The
+        // first read after a (re)connect is full, covering the outage.
+        following = true
+        allDirty = true
+        log(`c2.follow.connected fromSeq=${fromSeq}`)
+        downLogged = false
+        for await (const event of client.watch({
+          follow: true,
+          fromSeq,
+          signal: followAbort.signal,
+        })) {
+          lastSeq = event.hrcSeq
+          dirty.add(event.scopeRef)
+          backoff = FOLLOW_BACKOFF_MIN_MS
+        }
+        if (closed) return
+        throw new Error('event stream ended')
+      } catch (error) {
+        if (closed) return
+        following = false
+        if (!downLogged) {
+          log(`c2.follow.down ${String(error)}: full reads until it reconnects`)
+          downLogged = true
+        }
+        await sleep(backoff)
+        backoff = Math.min(backoff * 2, FOLLOW_BACKOFF_MAX_MS)
+      }
+    }
+  }
+  let followerStarted = false
+
   async function observe(): Promise<Observation> {
+    if (!followerStarted) {
+      followerStarted = true
+      void follow()
+    }
     await ensureSwept()
     const at = await node()
-    const vestaRows = (await seatRows(vestaSeat)) ?? []
-    const scopeRow = vestaRows.find(
-      (row) =>
-        row.ns === 'c2' && row.subject === 'seat' && row.kind === 'config' && row.id === 'scope'
-    )
-    const allow =
-      scopeRow !== undefined && Array.isArray((scopeRow.body as { allow?: unknown }).allow)
-        ? ((scopeRow.body as { allow: unknown[] }).allow.filter(
-            (s) => typeof s === 'string'
-          ) as string[])
-        : []
-    const allowed = scopePredicate(allow)
-    const targets = new Set<string>([...rowSeats, ...continuities.filter(allowed)])
-    targets.delete(vestaSeat)
-    const results = await mapLimit([vestaSeat, ...targets], SCAN_CONCURRENCY, (scopeRef) =>
-      observeSeat(scopeRef, at, scopeRef === vestaSeat ? vestaRows : undefined)
-    )
-    const seats: SeatRow[] = []
-    const annotations: AnnotationRow[] = []
-    for (const result of results) {
-      if (result.seat !== undefined) {
-        seats.push(result.seat)
-        hostSessions.set(
-          `${result.seat.sessionRef}#${result.seat.generation}`,
-          result.seat.hostSessionId
-        )
-      }
-      annotations.push(...result.rows)
-      for (const row of result.rows) {
-        if (row.subject === 'generation' && typeof row.generation === 'number' && row.hostSessionId)
+    const startedAt = Date.now()
+    const full = !following || allDirty || startedAt - lastFullAt >= options.fullRefreshMs
+    // Take this pass's dirty set; an event landing during the read marks the next pass.
+    const taken = new Set(dirty)
+    dirty.clear()
+    if (full) allDirty = false
+    const due = (scopeRef: string) => full || taken.has(scopeRef) || !cache.has(scopeRef)
+    try {
+      const readVesta = due(vestaSeat)
+      const vestaRows = readVesta
+        ? ((await seatRows(vestaSeat)) ?? [])
+        : (cache.get(vestaSeat)?.rows ?? [])
+      const scopeRow = vestaRows.find(
+        (row) =>
+          row.ns === 'c2' && row.subject === 'seat' && row.kind === 'config' && row.id === 'scope'
+      )
+      const allow =
+        scopeRow !== undefined && Array.isArray((scopeRow.body as { allow?: unknown }).allow)
+          ? ((scopeRow.body as { allow: unknown[] }).allow.filter(
+              (s) => typeof s === 'string'
+            ) as string[])
+          : []
+      const allowed = scopePredicate(allow)
+      const targets = new Set<string>([...rowSeats, ...continuities.filter(allowed)])
+      targets.delete(vestaSeat)
+      const watched = [vestaSeat, ...targets]
+      const reads = watched.filter((scopeRef) =>
+        scopeRef === vestaSeat ? readVesta : due(scopeRef)
+      )
+      const results = await mapLimit(reads, SCAN_CONCURRENCY, (scopeRef) =>
+        observeSeat(scopeRef, at, scopeRef === vestaSeat ? vestaRows : undefined)
+      )
+      reads.forEach((scopeRef, i) => cache.set(scopeRef, results[i] as SeatObservation))
+      const kept = new Set(watched)
+      for (const scopeRef of cache.keys()) if (!kept.has(scopeRef)) cache.delete(scopeRef)
+      if (full) lastFullAt = startedAt
+
+      const seats: SeatRow[] = []
+      const annotations: AnnotationRow[] = []
+      for (const scopeRef of watched) {
+        const result = cache.get(scopeRef)
+        if (result === undefined) continue
+        if (result.seat !== undefined) {
+          seats.push(result.seat)
           hostSessions.set(
-            `${row.scopeRef}/lane:${row.laneRef ?? 'main'}#${row.generation}`,
+            `${result.seat.sessionRef}#${result.seat.generation}`,
+            result.seat.hostSessionId
+          )
+        }
+        annotations.push(...result.rows)
+        for (const row of result.rows) {
+          if (
+            row.subject === 'generation' &&
+            typeof row.generation === 'number' &&
             row.hostSessionId
           )
-      }
-    }
-    const next = JSON.stringify([seats, annotations])
-    if (fingerprint !== undefined && next !== fingerprint) {
-      for (const listener of listeners) {
-        try {
-          listener()
-        } catch (error) {
-          log(`c2: change listener failed: ${String(error)}`)
+            hostSessions.set(
+              `${row.scopeRef}/lane:${row.laneRef ?? 'main'}#${row.generation}`,
+              row.hostSessionId
+            )
         }
       }
+      const next = JSON.stringify([seats, annotations])
+      if (fingerprint !== undefined && next !== fingerprint) {
+        for (const listener of listeners) {
+          try {
+            listener()
+          } catch (error) {
+            log(`c2: change listener failed: ${String(error)}`)
+          }
+        }
+      }
+      fingerprint = next
+      return { seats, annotations }
+    } catch (error) {
+      // Nothing from a failed pass is kept: what it was to read stays due.
+      if (full) allDirty = true
+      for (const scopeRef of taken) dirty.add(scopeRef)
+      throw error
     }
-    fingerprint = next
-    return { seats, annotations }
   }
 
   function shared(): Promise<Observation> {
-    if (observing === null) {
-      observing = observe().finally(() => {
-        observing = null
-      })
+    if (observing !== null && observing.epoch === epoch) return observing.promise
+    // A write or freshen since the in-flight pass started: run a new pass after it.
+    const prior = observing?.promise
+    const run = prior === undefined ? observe() : prior.then(observe, observe)
+    const entry = {
+      epoch,
+      promise: run.finally(() => {
+        if (observing === entry) observing = null
+      }),
     }
-    return observing
+    observing = entry
+    return entry.promise
   }
 
   function keyFields(key: Key) {
@@ -388,7 +528,7 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
     }
   }
 
-  async function write<T>(run: () => Promise<T>): Promise<T | Refusal> {
+  async function write<T>(key: Key, run: () => Promise<T>): Promise<T | Refusal> {
     try {
       return await run()
     } catch (error) {
@@ -397,6 +537,9 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
       if (isUnreachable(error))
         return { code: 'hrc_unavailable', detail: { reason: String(error) } }
       throw error
+    } finally {
+      // Settled either way: the next read re-reads this seat (and joins no earlier pass).
+      freshen([splitSessionRef(key.sessionRef).scopeRef])
     }
   }
 
@@ -421,6 +564,12 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
 
   return {
     node,
+    freshen,
+    close() {
+      closed = true
+      following = false
+      followAbort.abort()
+    },
     runtimeEnd,
     ...(options.handoffSince !== undefined ? { handoffSince: options.handoffSince } : {}),
     async seats() {
@@ -430,7 +579,7 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
       return (await shared()).annotations
     },
     put(key: Key, body: object, expect?: Expect, as?: string) {
-      return write(async () => {
+      return write(key, async () => {
         const result = await client.putSessionAnnotation(
           {
             ...keyFields(key),
@@ -443,7 +592,7 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
       })
     },
     act(key: Key, action: string, attributes: object, as?: string) {
-      return write(async () =>
+      return write(key, async () =>
         client.actOnSessionAnnotation(
           { ...keyFields(key), action, attributes: attributes as Record<string, unknown> },
           { principalRef: as ?? options.principal }
@@ -451,7 +600,7 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
       )
     },
     delete(key: Key, expect?: Expect, as?: string) {
-      return write(async () =>
+      return write(key, async () =>
         client.deleteSessionAnnotation(
           { ...keyFields(key), ...(expect !== undefined ? { expect } : {}) },
           { principalRef: as ?? options.principal }

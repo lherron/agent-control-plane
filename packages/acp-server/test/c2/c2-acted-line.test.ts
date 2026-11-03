@@ -107,6 +107,7 @@ describe('the acted line', () => {
       const vesta = acp.fake.seats.get(VESTA)
       if (vesta === undefined) throw new Error('fixture vesta missing')
       vesta.runtimeLive = false
+      acp.fake.touch(VESTA, 'runtime.state')
       await settle(200)
       const { entry } = await snapshotEntry(acp)
       const { body } = await acp.postJson<ActionResponse>(ACTIONS, answerRequest(entry))

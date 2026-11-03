@@ -7,7 +7,10 @@
  * /v1/sessions/attention` (T-12212 shape), the four annotation routes with
  * their admission refusals and HTTP statuses (`hrc-native .../sessions.rs`
  * `annotation_refusal`: invalid 400; unknown_* 404; quota/stale_* 409), and
- * `POST /v1/literal-input/by-selector`, and `GET /v1/runtimes` (T-12233: the
+ * `POST /v1/literal-input/by-selector`, `GET /v1/events/tail` and the
+ * `GET /v1/events?follow=true&fromSeq=` NDJSON stream (T-12421: every ledger
+ * event, as `HrcLifecycleEvent` with `hrcSeq`/`scopeRef`; rusthrc appends a
+ * session event on every annotation put, delete and act), and `GET /v1/runtimes` (T-12233: the
  * runtime record, checked against max3 HRC 2026-11-01: an array of records with
  * `runtimeId`, `hostSessionId`, `generation`, `status`, `runtimeStateJson
  * .terminationReason`; live runtimes only unless `all=true`). Errors use HRC's `{error:{code,
@@ -66,7 +69,12 @@ export type FakeCall = {
 
 export type FakeLedgerEvent = {
   hrcSeq: number
-  eventKind: 'session.annotation.action' | 'session.annotation.changed' | 'target.literal-input'
+  eventKind:
+    | 'session.annotation.action'
+    | 'session.annotation.changed'
+    | 'target.literal-input'
+    | 'turn.message'
+    | 'runtime.state'
   scopeRef: string
   hostSessionId: string
   generation: number | null
@@ -108,6 +116,13 @@ export type FakeHrc = {
     string,
     { status: number; code: string; routes: Array<'annotations' | 'attention'> }
   >
+  /**
+   * The event routes. `enabled: false` answers them 404 (an HRC without the
+   * follow route); `drop()` severs every open follow stream.
+   */
+  events: { enabled: boolean; followers(): number; drop(): void }
+  /** Append a seat event, as HRC does for a change the test makes directly on `seats`. */
+  touch(scopeRef: string, eventKind?: FakeLedgerEvent['eventKind']): void
   /** Injected latency on every GET (sessions, attention, annotation lists), as a loaded HRC shows. */
   readDelayMs: number
   /** GET reads currently in flight, and the most ever in flight for one scopeRef. */
@@ -155,6 +170,26 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
   const annotations: FakeAnnotation[] = []
   const calls: FakeCall[] = []
   const ledger: FakeLedgerEvent[] = []
+  const followers = new Set<{ push(event: FakeLedgerEvent): void; close(): void }>()
+  /** Every ledger append reaches the open follow streams. */
+  function append(event: FakeLedgerEvent): void {
+    ledger.push(event)
+    for (const follower of followers) follower.push(event)
+  }
+  function wireEvent(event: FakeLedgerEvent) {
+    return {
+      hrcSeq: event.hrcSeq,
+      streamSeq: event.hrcSeq,
+      ts: new Date().toISOString(),
+      hostSessionId: event.hostSessionId,
+      scopeRef: event.scopeRef,
+      laneRef: 'main',
+      generation: event.generation ?? 0,
+      category: event.eventKind.split('.')[0],
+      eventKind: event.eventKind,
+      eventJson: event.payload,
+    }
+  }
   const runtimes: FakeRuntime[] = []
   const literalInput: { mode: LiteralInputMode; refuse: Set<string> } = {
     mode: 'accept',
@@ -223,7 +258,7 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
       existing.fence = input.fence
       existing.updatedAt = at
       existing.updatedBy = input.by
-      ledger.push({
+      append({
         hrcSeq: ++seq,
         eventKind: 'session.annotation.changed',
         scopeRef: input.seat.scopeRef,
@@ -249,7 +284,7 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
       updatedBy: input.by,
     }
     annotations.push(row)
-    ledger.push({
+    append({
       hrcSeq: ++seq,
       eventKind: 'session.annotation.changed',
       scopeRef: input.seat.scopeRef,
@@ -365,7 +400,7 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
           principal,
         },
       }
-      ledger.push(event)
+      append(event)
       return Response.json({ hrcSeq: event.hrcSeq })
     }
 
@@ -394,6 +429,14 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
     if (url.pathname === '/v1/sessions/annotations/delete') {
       if (existing === undefined) return Response.json({ deleted: false })
       annotations.splice(annotations.indexOf(existing), 1)
+      append({
+        hrcSeq: ++seq,
+        eventKind: 'session.annotation.changed',
+        scopeRef,
+        hostSessionId: existing.hostSessionId,
+        generation,
+        payload: { op: 'delete', kind, id },
+      })
       return Response.json({ deleted: true })
     }
 
@@ -445,7 +488,7 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
       return hrcError(409, 'stale_context', { sessionRef })
     }
     const runId = literalInput.mode === 'accept' ? `run-fake-${++runCounter}` : undefined
-    ledger.push({
+    append({
       hrcSeq: ++seq,
       eventKind: 'target.literal-input',
       scopeRef,
@@ -460,6 +503,51 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
       generation: seat.generation,
       runtimeId: seat.runtimeId,
       ...(runId !== undefined ? { runId } : {}),
+    })
+  }
+
+  function eventsRoute(url: URL): Response {
+    if (!fake.events.enabled) return hrcError(404, 'not_found', { path: url.pathname })
+    if (url.pathname === '/v1/events/tail') {
+      const limit = Number(url.searchParams.get('limit') ?? '100')
+      return Response.json({
+        events: ledger.slice(-limit).map(wireEvent),
+        ledgerIncarnationId: 'fake-ledger',
+        headHrcSeq: seq,
+        truncated: ledger.length > limit,
+      })
+    }
+    const fromSeq = Number(url.searchParams.get('fromSeq') ?? '1')
+    if (url.searchParams.get('follow') !== 'true') {
+      const rows = ledger.filter((event) => event.hrcSeq >= fromSeq).map(wireEvent)
+      return new Response(rows.map((row) => `${JSON.stringify(row)}\n`).join(''))
+    }
+    const encoder = new TextEncoder()
+    let follower: { push(event: FakeLedgerEvent): void; close(): void } | undefined
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const self: { push(event: FakeLedgerEvent): void; close(): void } = {
+          push(event) {
+            if (event.hrcSeq < fromSeq) return
+            controller.enqueue(encoder.encode(`${JSON.stringify(wireEvent(event))}\n`))
+          },
+          close() {
+            followers.delete(self)
+            try {
+              controller.close()
+            } catch {}
+          },
+        }
+        follower = self
+        for (const event of ledger) self.push(event)
+        followers.add(self)
+      },
+      cancel() {
+        if (follower !== undefined) followers.delete(follower)
+      },
+    })
+    return new Response(stream, {
+      headers: { 'content-type': 'application/x-ndjson; charset=utf-8', 'x-hrc-streaming': '1' },
     })
   }
 
@@ -483,6 +571,10 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
         at: Date.now(),
       }
       calls.push(call)
+
+      if (url.pathname === '/v1/events' || url.pathname === '/v1/events/tail') {
+        return eventsRoute(url)
+      }
 
       if (request.method === 'GET' && fake.readDelayMs > 0) {
         const key = url.searchParams.get('scopeRef') ?? url.pathname
@@ -550,6 +642,25 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
     runtimes,
     literalInput,
     seatErrors,
+    events: {
+      enabled: true,
+      followers: () => followers.size,
+      drop() {
+        for (const follower of [...followers]) follower.close()
+      },
+    },
+    touch(scopeRef, eventKind = 'turn.message') {
+      const seat = seatMap.get(scopeRef)
+      if (seat === undefined) throw new Error(`fake HRC: unknown seat ${scopeRef}`)
+      append({
+        hrcSeq: ++seq,
+        eventKind,
+        scopeRef,
+        hostSessionId: seat.hostSessionId,
+        generation: seat.generation,
+        payload: {},
+      })
+    },
     readDelayMs: 0,
     inflight,
     put(row) {
@@ -574,6 +685,7 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
     async stop() {
       if (stopped) return
       stopped = true
+      fake.events.drop()
       server.stop(true)
       rmSync(dir, { recursive: true, force: true })
     },

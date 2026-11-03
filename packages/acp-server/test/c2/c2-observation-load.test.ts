@@ -13,6 +13,7 @@ test('a fresh C2 observation reads annotations once per watched seat and bounds 
     template,
     ...watched.map((scopeRef, i) => ({ ...template, scopeRef, hostSessionId: `hs-load-${i}` })),
   ])
+  let closeHost = () => {}
   try {
     fake.put({
       scopeRef: VESTA,
@@ -39,10 +40,13 @@ test('a fresh C2 observation reads annotations once per watched seat and bounds 
       principal: 'system:c2-controller',
       node: 'max3',
       sweepMs: 60_000,
+      // Every read is a full read: this measures the cost and fanout of one.
+      fullRefreshMs: 0,
       ownsUnscoped: true,
       literalInputTimeoutMs: 1000,
       log() {},
     })
+    closeHost = host.close
     // Warm the continuity sweep; measure the next fresh observation independently.
     await Promise.all([host.seats(), host.annotations()])
     fake.calls.length = 0
@@ -82,6 +86,7 @@ test('a fresh C2 observation reads annotations once per watched seat and bounds 
     // The asks-bearing seat stays observed for its existing row lifecycle.
     expect((await host.seats()).map((row) => row.scopeRef)).toEqual([VESTA, seat])
   } finally {
+    closeHost()
     await fake.stop()
   }
 })

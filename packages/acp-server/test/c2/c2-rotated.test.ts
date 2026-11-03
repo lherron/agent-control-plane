@@ -42,6 +42,7 @@ function quit(acp: C2Acp, record = true): void {
   }
   const seat = acp.fake.seats.get(SEAT)!
   seat.runtimeLive = false
+  acp.fake.touch(SEAT, 'runtime.state')
 }
 
 /** Any observable HRC change, so the controller ticks now instead of in 15 s. */
@@ -111,6 +112,7 @@ describe('the rotated line over ACP', () => {
         seat.generation = 3
         seat.hostSessionId = 'hsid-c2fixture-acp-3'
         seat.runtimeLive = true
+        acp.fake.touch(SEAT, 'runtime.state')
         nudge(acp, 3)
         await settle()
         expect(rotatedLines(acp)).toEqual([`${LINE} handoff=unknown`])

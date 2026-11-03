@@ -120,7 +120,7 @@ describe('an unobservable seat', () => {
     )
     expect(okActs).toHaveLength(0)
     const allowed =
-      /^\/v1\/(sessions(\/attention|\/annotations(\/act|\/delete)?)?|literal-input\/by-selector|status)$/
+      /^\/v1\/(sessions(\/attention|\/annotations(\/act|\/delete)?)?|literal-input\/by-selector|status|events(\/tail)?)$/
     expect(
       acp.fake.calls.filter((call) => !allowed.test(call.path)).map((call) => call.path)
     ).toEqual([])
@@ -167,6 +167,7 @@ describe('an unobservable seat', () => {
         code: 'session_home_unreachable',
         routes: ['attention'],
       })
+      acp.fake.touch(SEAT)
       await settle(200)
       const { body: snapshot } = await acp.getJson<Snapshot>('/v1/mobile/c2/v2/snapshot')
       const shown = snapshot.entries.find((e) => e.seat.scopeRef === SEAT)
