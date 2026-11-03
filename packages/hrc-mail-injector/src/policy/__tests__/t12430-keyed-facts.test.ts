@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 
 import type { HrcLifecycleEvent, HrcSessionRecord } from 'hrc-core'
 
+import { reportStalledDeliveries } from '../diagnostics/stranded.js'
 import { noteBrokerEvidence, reconcileOpenIntents } from '../drive/reconcile.js'
 import { driveMailTargetOnce } from '../drive/target-driver.js'
 import { FOREIGN_HOME_TTL_MS, HrcFacts, hrcFacts } from '../facts/hrc-facts.js'
@@ -438,5 +439,35 @@ describe('T-12430 placement verdicts', () => {
     facts.invalidateTarget(TARGET_REF)
     await facts.foreignHome(SCOPE_REF)
     expect(reads).toBe(3)
+  })
+})
+
+describe('T-12430 stalled launch checks', () => {
+  it('a declined recovery is not re-read until its scope changes', async () => {
+    const facts = attach()
+    // A months-old launch fence whose envelope already went terminal in wrkq,
+    // on a scope with no live runtime: recovery declines every time.
+    const envelope = h.ledger.say({ state: 'acked', terminal: true })
+    h.store.mailDelivery.openIntent({
+      envelopeId: envelope.id,
+      targetSessionRef: OTHER_REF,
+      door: 'launch',
+      form: 'full',
+      presentationId: 'present-old-launch',
+      submittedHrcSeq: 1,
+    })
+    h.storeSql
+      .query('UPDATE hrcmail_delivery_intents SET submitted_at = ? WHERE envelope_id = ?')
+      .run('2026-09-18T12:46:44.156Z', envelope.id)
+
+    await reportStalledDeliveries(h.context)
+    expect(calls.get('liveRuntimes')).toBe(1)
+    for (let sweep = 0; sweep < 5; sweep += 1) await reportStalledDeliveries(h.context)
+    expect(calls.get('liveRuntimes')).toBe(1)
+
+    facts.observe(event('runtime.created', { scopeRef: OTHER_REF.replace('/lane:main', '') }))
+    await reportStalledDeliveries(h.context)
+    expect(calls.get('liveRuntimes')).toBe(2)
+    expect(h.store.mailDelivery.getIntent(envelope.id)).toBeDefined()
   })
 })

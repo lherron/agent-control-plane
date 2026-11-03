@@ -184,10 +184,14 @@ export async function reportStalledDeliveries(server: MailKickerContext): Promis
           !isRuntimeTerminal(runtime.status)
       )
       if (!live) {
-        facts.stalledLaunchMemo.delete(delivery.envelope)
         const intent = server.store.mailDelivery.getIntent(delivery.envelope)
         if (intent !== undefined)
           await recoverFailedLaunch(server, intent, 'stalled_delivery: scope has no live runtime')
+        // A recovery that declined (the envelope already landed or went
+        // terminal in wrkq) declines again until the scope changes. Without
+        // this, months-old fences cost a runtime list and a ledger read each
+        // per sweep, forever. A thrown recovery leaves no memo.
+        facts.stalledLaunchMemo.set(delivery.envelope, version)
         continue
       }
       facts.stalledLaunchMemo.set(delivery.envelope, version)
