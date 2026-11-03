@@ -240,15 +240,22 @@ export function createSocketInjectionPort(
     localPlacementBindings: async () => await client.listLocalPlacementBindings(),
     locate: nonLocalHome,
     unbornDesignations: async () => await client.listUnbornDesignations(),
-    subscribeLifecycle: async ({ afterSeq, onEvent }) => {
+    subscribeLifecycle: async ({ afterSeq, onEvent, onStreamState }) => {
       await declareSubscriber()
       const operation = (async () => {
         let cursor = afterSeq
+        let interrupted = false
         while (!closed) {
           try {
             // Once per connection: a new stream is the only point where the
             // daemon may have restarted and forgotten the `mail` admission.
             await declareSubscriber()
+            // The daemon answered again; whatever was keyed to the old
+            // connection is revalidated once (T-12430).
+            if (interrupted) {
+              interrupted = false
+              onStreamState?.('resumed')
+            }
             // One long-lived follow stream. HRC replays `fromSeq` onward from
             // its ledger before going live, so a reconnect resumes at the
             // cursor with nothing missed.
@@ -271,7 +278,12 @@ export function createSocketInjectionPort(
           // replacement daemon has no in-memory named subscribers, so force
           // the next connection to declare this consumer again.
           invalidateSubscriber()
-          if (!closed) await waitForStop(RECONNECT_DELAY_MS, stopping.signal)
+          if (closed) return
+          if (!interrupted) {
+            interrupted = true
+            onStreamState?.('down')
+          }
+          await waitForStop(RECONNECT_DELAY_MS, stopping.signal)
         }
       })()
       return async () => {
@@ -279,10 +291,11 @@ export function createSocketInjectionPort(
         await operation
       }
     },
-    subscribeBroker: async ({ afterCommit, onEvent }) => {
+    subscribeBroker: async ({ afterCommit, onEvent, onStreamState }) => {
       await declareSubscriber()
       const operation = (async () => {
         let cursor = afterCommit
+        let interrupted = false
         while (!closed) {
           try {
             await declareSubscriber()
@@ -291,6 +304,10 @@ export function createSocketInjectionPort(
               { afterCommit: cursor, limit: BROKER_FOLLOW_LIMIT },
               MAIL_SUBSCRIBER_NAME
             )
+            if (interrupted) {
+              interrupted = false
+              onStreamState?.('resumed')
+            }
             for (const event of page.events) {
               if (closed) return
               onEvent({
@@ -312,7 +329,12 @@ export function createSocketInjectionPort(
             // break or an unknown-subscriber response after daemon restart
             // invalidates the successful declaration from the prior epoch.
             invalidateSubscriber()
-            if (!closed) await waitForStop(RECONNECT_DELAY_MS, stopping.signal)
+            if (closed) return
+            if (!interrupted) {
+              interrupted = true
+              onStreamState?.('down')
+            }
+            await waitForStop(RECONNECT_DELAY_MS, stopping.signal)
           }
         }
       })()

@@ -12,6 +12,7 @@
  * as swept without memoizing a ledger outage as an answer.
  */
 import type { MailKickerContext } from '../context.js'
+import { hrcFacts } from '../facts/hrc-facts.js'
 import { LAPSE_SWEEP_LOOKBACK_MS, PERIODIC_QUIET_BACKSTOP_MS, errorText } from '../internal.js'
 import { WrkqLedgerUnavailableError } from '../ledger/client.js'
 import { newestPresentationReceipt } from '../ledger/types.js'
@@ -108,16 +109,32 @@ export async function sweepLapsedObligations(server: MailKickerContext): Promise
   for (const runtimeId of server.mailKickerLiveRuntimeSeenAt.keys()) {
     if (!boundRuntimes.has(runtimeId)) server.mailKickerLiveRuntimeSeenAt.delete(runtimeId)
   }
+  // T-12430: with the lifecycle follow attached, a runtime seen alive is read
+  // again only when an event for it is committed or the feed resumes (F11);
+  // its version moves on exactly those. Without the follow, the T-11680 time
+  // backstop applies.
+  const facts = hrcFacts(server)
+  const keyed = facts.serving
+  for (const runtimeId of facts.liveRuntimeMemo.keys()) {
+    if (!boundRuntimes.has(runtimeId)) facts.liveRuntimeMemo.delete(runtimeId)
+  }
   for (const row of bound) {
     if (server.mailKickerLapsedRuntimes.has(row.runtimeId)) continue
-    const seenLiveAt = server.mailKickerLiveRuntimeSeenAt.get(row.runtimeId)
-    if (seenLiveAt !== undefined && nowMs - seenLiveAt < PERIODIC_QUIET_BACKSTOP_MS) continue
+    const version = facts.runtimeVersion(row.runtimeId)
+    if (keyed) {
+      if (facts.liveRuntimeMemo.get(row.runtimeId) === version) continue
+    } else {
+      const seenLiveAt = server.mailKickerLiveRuntimeSeenAt.get(row.runtimeId)
+      if (seenLiveAt !== undefined && nowMs - seenLiveAt < PERIODIC_QUIET_BACKSTOP_MS) continue
+    }
     const runtime = await server.port.runtime(row.runtimeId)
     if (runtime !== undefined && !isRuntimeTerminal(runtime.status)) {
       server.mailKickerLiveRuntimeSeenAt.set(row.runtimeId, nowMs)
+      facts.liveRuntimeMemo.set(row.runtimeId, version)
       continue
     }
     server.mailKickerLiveRuntimeSeenAt.delete(row.runtimeId)
+    facts.liveRuntimeMemo.delete(row.runtimeId)
     const runtimes = byTarget.get(row.targetSessionRef) ?? new Set<string>()
     runtimes.add(row.runtimeId)
     byTarget.set(row.targetSessionRef, runtimes)

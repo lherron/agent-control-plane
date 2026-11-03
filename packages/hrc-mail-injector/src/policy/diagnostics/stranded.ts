@@ -26,6 +26,7 @@ import type { HrcMailPresentation } from 'hrc-store-sqlite'
 
 import type { MailKickerContext } from '../context.js'
 import { recoverFailedLaunch } from '../drive/launch-recovery.js'
+import { hrcFacts } from '../facts/hrc-facts.js'
 import { STALLED_DELIVERY_THRESHOLD_MS, errorText, parseSessionRef } from '../internal.js'
 import { newestPresentationReceipt } from '../ledger/types.js'
 import { isRuntimeTerminal } from '../terminal/runtime-status.js'
@@ -158,9 +159,19 @@ export function findStalledDeliveries(server: MailKickerContext): StalledDeliver
 export async function reportStalledDeliveries(server: MailKickerContext): Promise<void> {
   // One live read per scope per pass, not one drain of every runtime (T-12423).
   const liveByScope = new Map<string, Awaited<ReturnType<typeof server.port.liveRuntimes>>>()
-  for (const delivery of findStalledDeliveries(server)) {
+  // T-12430: a stalled launch whose scope was seen live is checked again only
+  // after an event for that scope or a feed resume moves its version.
+  const facts = hrcFacts(server)
+  const stalled = findStalledDeliveries(server)
+  const stalledIds = new Set(stalled.map((delivery) => delivery.envelope))
+  for (const envelopeId of facts.stalledLaunchMemo.keys()) {
+    if (!stalledIds.has(envelopeId)) facts.stalledLaunchMemo.delete(envelopeId)
+  }
+  for (const delivery of stalled) {
     if (delivery.door === 'launch') {
       const target = parseSessionRef(delivery.targetSessionRef)
+      const version = facts.scopeVersion(target.scopeRef)
+      if (facts.serving && facts.stalledLaunchMemo.get(delivery.envelope) === version) continue
       let runtimes = liveByScope.get(target.scopeRef)
       if (runtimes === undefined) {
         runtimes = await server.port.liveRuntimes(target.scopeRef)
@@ -173,11 +184,13 @@ export async function reportStalledDeliveries(server: MailKickerContext): Promis
           !isRuntimeTerminal(runtime.status)
       )
       if (!live) {
+        facts.stalledLaunchMemo.delete(delivery.envelope)
         const intent = server.store.mailDelivery.getIntent(delivery.envelope)
         if (intent !== undefined)
           await recoverFailedLaunch(server, intent, 'stalled_delivery: scope has no live runtime')
         continue
       }
+      facts.stalledLaunchMemo.set(delivery.envelope, version)
     }
     if (server.mailKickerStalledDeliveryAnnounced.has(delivery.envelope)) continue
     server.mailKickerStalledDeliveryAnnounced.add(delivery.envelope)

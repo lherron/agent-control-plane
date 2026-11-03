@@ -126,10 +126,13 @@ export type HrcInjectionPort = {
   subscribeLifecycle(input: {
     afterSeq: number
     onEvent(event: HrcLifecycleEvent): void
+    /** See hrc-injector-core `InjectionStreamState` (T-12430). */
+    onStreamState?: ((state: 'down' | 'resumed') => void) | undefined
   }): Promise<() => void | Promise<void>>
   subscribeBroker(input: {
     afterCommit: number
     onEvent(event: HrcBrokerInvocationEventRecord): void
+    onStreamState?: ((state: 'down' | 'resumed') => void) | undefined
   }): Promise<() => void | Promise<void>>
   steer(
     session: HrcSessionRecord,

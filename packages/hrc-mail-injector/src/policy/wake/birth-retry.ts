@@ -40,6 +40,7 @@
  */
 import type { MailKickerContext } from '../context.js'
 import { kickerScopeRefFor } from '../drive/authority.js'
+import { hrcFacts } from '../facts/hrc-facts.js'
 import {
   BIRTH_SWEEP_BACKOFF_BASE_MS,
   BIRTH_SWEEP_MAX_REFUSALS,
@@ -84,7 +85,7 @@ export async function unbornBirthWakeCandidates(
 async function designatedUnbornTargets(server: MailKickerContext): Promise<string[]> {
   let designations: readonly { scopeRef: string }[]
   try {
-    designations = (await server.port.unbornDesignations()).designations
+    designations = (await hrcFacts(server).unbornDesignations()).designations
   } catch (error) {
     // An unreachable registry is not evidence that this node owes no births.
     // It is a reason to try again on the next sweep, and never a reason to
@@ -227,6 +228,7 @@ export async function failUndeliverableMail(
     return undefined
   }
   try {
+    // Fresh on purpose: this read authorizes failing mail undeliverable.
     const home = await server.port.locate(scopeRef)
     if (home !== undefined && home.homeNodeId !== server.nodeId) {
       const homeNodeId = home.homeNodeId

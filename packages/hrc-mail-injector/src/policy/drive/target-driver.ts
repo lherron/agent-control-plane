@@ -26,6 +26,7 @@ import type { HrcSessionRecord } from 'hrc-core'
 import type { HrcMailDriveWakeReason } from 'hrc-store-sqlite'
 
 import type { MailKickerContext } from '../context.js'
+import { hrcFacts } from '../facts/hrc-facts.js'
 import { errorText } from '../internal.js'
 import { WrkqLedgerUnavailableError } from '../ledger/client.js'
 import { deliverFailureNotices } from '../terminal/failure-notices.js'
@@ -84,8 +85,12 @@ async function birthForTarget(
   // birth a fresh runtime for the session (T-09643 ruling).
   const summons = actionable.find((item) => summonsATurn(item.envelope))
   if (summons === undefined) return
+  // A birth, or any refusal of one, changes or names a change to this target's
+  // session and placement: the next read of either goes to HRC (T-12430 F5).
+  const facts = hrcFacts(server)
   try {
     const outcome = await deliverByColdBirth(server, targetSessionRef, summons, wakeReason)
+    facts.invalidateTarget(targetSessionRef)
     if (outcome === 'submitted' && actionable.length > 1) {
       // One launch carries one envelope; the rest are delivered by policy
       // once the seat is live.
@@ -93,6 +98,7 @@ async function birthForTarget(
     }
     return
   } catch (error) {
+    facts.invalidateTarget(targetSessionRef)
     // A birth deferral is not a failed delivery. It is this node correctly
     // declining a birth the collective designated elsewhere, and reporting it
     // as a failure is what made the pre-T-07655 race look like breakage on
@@ -361,9 +367,13 @@ export async function driveMailTargetOnce(
   // parse gets no verdict and falls through to the path that already reported
   // that for what it is.
   const scopeRef = kickerScopeRefFor(targetSessionRef)
+  // T-12430: home and session come from keyed state while the lifecycle
+  // follow is up. They may only decide that this pass has nothing to do; the
+  // acting branch below re-reads both before any door.
+  const facts = hrcFacts(server)
   let foreign: Awaited<ReturnType<typeof server.port.resolveForeignHome>>
   try {
-    foreign = scopeRef === undefined ? undefined : await server.port.resolveForeignHome(scopeRef)
+    foreign = scopeRef === undefined ? undefined : await facts.foreignHome(scopeRef)
     phase('home_resolution', 'ok', { ...(scopeRef === undefined ? {} : { scopeRef }) })
   } catch (error) {
     phase('home_resolution', 'failed', {
@@ -410,7 +420,7 @@ export async function driveMailTargetOnce(
 
   let session: Awaited<ReturnType<typeof server.port.targetBySessionRef>> | undefined
   try {
-    session = (await server.port.targetBySessionRef(targetSessionRef)) ?? undefined
+    session = (await facts.target(targetSessionRef)) ?? undefined
     phase('target_session_lookup', 'ok', {
       ...(session === undefined
         ? { sessionFound: false }
@@ -455,6 +465,36 @@ export async function driveMailTargetOnce(
   if (actionable.length === 0) {
     complete('empty')
     return { outcome: 'empty' }
+  }
+
+  // The action fence (T-12430 F4–F6). From here every branch can take a door
+  // or a birth, so the keyed home and session are revalidated against HRC. The
+  // seat and the delivery preflight below were never cached.
+  if (facts.serving) {
+    try {
+      foreign =
+        scopeRef === undefined ? undefined : await facts.foreignHome(scopeRef, { fresh: true })
+      session = (await facts.target(targetSessionRef, { fresh: true })) ?? undefined
+      phase('action_fence', 'ok', {
+        sessionFound: session !== undefined,
+        ...(session === undefined
+          ? {}
+          : { hostSessionId: session.hostSessionId, generation: session.generation }),
+      })
+    } catch (error) {
+      phase('action_fence', 'failed', { diagnostic: boundedFailure('action_fence', error) })
+      complete('deferred', { recovery: 'periodic_wake' })
+      return
+    }
+    if (scopeRef !== undefined && foreign !== undefined) {
+      skipForeignHomedTarget(server, targetSessionRef, scopeRef, foreign, wakeReason)
+      phase('home_resolution', 'skipped', {
+        homeNodeId: foreign.homeNodeId,
+        reason: 'foreign_home',
+      })
+      complete('skipped')
+      return
+    }
   }
 
   // Failed launch recovery gates every door. A timed-out launch can leave a
@@ -695,6 +735,8 @@ async function runtimeBornAt(
   seat: ObservedBrokerSeat
 ): Promise<string | undefined> {
   if (!('runtimeId' in seat)) return undefined
+  if ('runtimeCreatedAt' in seat && seat.runtimeCreatedAt !== undefined)
+    return seat.runtimeCreatedAt
   try {
     const runtime = (await server.port.runtimesByHostSession(session.hostSessionId)).find(
       (candidate) => candidate.runtimeId === seat.runtimeId

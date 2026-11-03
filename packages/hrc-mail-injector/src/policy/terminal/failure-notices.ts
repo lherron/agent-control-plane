@@ -1,8 +1,9 @@
 export async function deliverFailureNotices(
   server: MailKickerContext,
   targetSessionRef: string,
-  session: HrcSessionRecord
+  seatSession: HrcSessionRecord
 ): Promise<void> {
+  let session = seatSession
   const notices = server.store.mailDelivery.listUndeliveredFailureNotices(targetSessionRef)
   if (notices.length === 0) {
     server.mailKickerFailureNoticeBackoff.delete(targetSessionRef)
@@ -24,6 +25,16 @@ export async function deliverFailureNotices(
     backoff = undefined
   }
   if (backoff !== undefined && (backoff.exhausted || backoff.nextAtMs > Date.now())) return
+  // T-12430: a notice rides only a live seat, so while keyed state is served
+  // the live seat set gates the probe, and the enqueue below is an action:
+  // its session is revalidated against HRC, never taken from the cache.
+  const facts = hrcFacts(server)
+  if (facts.serving) {
+    if (!(await facts.liveSessionRefs()).includes(targetSessionRef)) return
+    const fresh = await facts.target(targetSessionRef, { fresh: true })
+    if (fresh === undefined) return
+    session = fresh
+  }
   // A notice rides a seat that is already live and NEVER summons one, the same
   // rule as fyi. HRC's enqueue provisions a runtime for a seatless session, so
   // the gate is the broker's own answer, not a runtime row: a row whose broker
@@ -170,7 +181,7 @@ export async function queueFailureNotice(
       binding.state === 'active' &&
       binding.homeNodeId === server.nodeId
   )
-  if (!homed && (await server.port.targetBySessionRef(targetSessionRef)) === undefined) return
+  if (!homed && (await hrcFacts(server).target(targetSessionRef)) === undefined) return
   const payload = failedPayload(event.payload)
   const runtimeId = payload?.runtime_id
   const detail = typeof payload?.detail === 'string' ? payload.detail : undefined
@@ -219,6 +230,7 @@ import { createHash } from 'node:crypto'
 import type { MailKickerContext } from '../context.js'
 import { kickerScopeRefFor } from '../drive/authority.js'
 import { observeBrokerSeat } from '../drive/seat.js'
+import { hrcFacts } from '../facts/hrc-facts.js'
 import {
   FAILURE_NOTICE_BACKOFF_BASE_MS,
   FAILURE_NOTICE_BACKOFF_MAX_MS,

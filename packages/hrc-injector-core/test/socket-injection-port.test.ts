@@ -212,6 +212,72 @@ describe('socket injection subscriptions', () => {
     await unsubscribe()
   })
 
+  test('T-12430: a dropped lifecycle stream reports down once, then resumed', async () => {
+    const states: string[] = []
+    let watches = 0
+    let holdThirdWatch!: () => void
+    const thirdWatch = new Promise<void>((resolve) => {
+      holdThirdWatch = resolve
+    })
+    const client = {
+      async declareSubscriber() {
+        return { subscriberId: 'subscriber' }
+      },
+      watch() {
+        watches += 1
+        const attempt = watches
+        return {
+          [Symbol.asyncIterator]() {
+            return {
+              async next() {
+                if (attempt === 1) throw new Error('socket closed')
+                if (attempt >= 3) await thirdWatch
+                return { done: true, value: undefined }
+              },
+            }
+          },
+        }
+      },
+    } as unknown as HrcClient
+
+    const port = createSocketInjectionPort(client)
+    const unsubscribe = await port.subscribeLifecycle({
+      afterSeq: 10,
+      onEvent: () => {},
+      onStreamState: (state) => states.push(state),
+    })
+    await eventually(() => expect(watches).toBeGreaterThanOrEqual(3))
+    // Two breaks, each followed by a resume: never a duplicate `down`.
+    expect(states).toEqual(['down', 'resumed', 'down', 'resumed'])
+    holdThirdWatch()
+    await unsubscribe()
+  })
+
+  test('T-12430: a failed broker page reports down, and the next page resumed', async () => {
+    const states: string[] = []
+    let pages = 0
+    const client = {
+      async declareSubscriber() {
+        return { subscriberId: 'subscriber' }
+      },
+      async followBrokerEvents() {
+        pages += 1
+        if (pages <= 2) throw new Error('hrc restarting')
+        return { events: [], nextCommit: 0 }
+      },
+    } as unknown as HrcClient
+
+    const port = createSocketInjectionPort(client, { brokerIdlePollMs: 10 })
+    const unsubscribe = await port.subscribeBroker({
+      afterCommit: 0,
+      onEvent: () => {},
+      onStreamState: (state) => states.push(state),
+    })
+    await eventually(() => expect(pages).toBeGreaterThanOrEqual(3))
+    await unsubscribe()
+    expect(states).toEqual(['down', 'resumed'])
+  })
+
   test('lifecycle holds one follow stream and declares mail once for it', async () => {
     let declarations = 0
     const watched: Array<{ fromSeq?: number; follow?: boolean }> = []

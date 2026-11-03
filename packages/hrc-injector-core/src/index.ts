@@ -6,6 +6,7 @@ export type {
   InjectionDispatchOptions,
   InjectionDispatchResult,
   InjectionRpcResult,
+  InjectionStreamState,
   InjectorDriveDiagnostic,
   InjectorDriveDiagnostics,
   InjectorProbeDiagnostic,

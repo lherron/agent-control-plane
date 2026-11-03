@@ -14,8 +14,9 @@ import type {
 } from './contracts.js'
 import { kickerScopeRefFor } from './drive/authority.js'
 import { commitLanding, observeBrokerLanding } from './drive/landing.js'
-import { reconcileOpenIntents } from './drive/reconcile.js'
+import { noteBrokerEvidence, reconcileOpenIntents } from './drive/reconcile.js'
 import { driveMailTargetOnce } from './drive/target-driver.js'
+import { hrcFacts } from './facts/hrc-facts.js'
 import {
   DISPOSAL_DRAIN_DEADLINE_MS,
   LEDGER_SWEEP_TICKS,
@@ -104,16 +105,29 @@ export class MailKicker implements MailKickerContext {
     void reconcileOpenIntents(this, { reason: 'daemon_start' }).catch((error: unknown) => {
       this.log('WARN', 'wrkq.kicker.start_reconcile_failed', { error: errorText(error) })
     })
+    // T-12430: keyed HRC facts are served only while the feed that
+    // invalidates them is attached; see `facts/hrc-facts.ts`.
+    const facts = hrcFacts(this)
     try {
       const { hrcSeq, brokerCommit } = await this.port.eventsHead()
       this.lifecycleUnsubscribe = await this.port.subscribeLifecycle({
         afterSeq: hrcSeq,
         onEvent: (event) => this.observeLifecycleEvent(event),
+        onStreamState: (state) => {
+          facts.lifecycleStreamState(state)
+          this.log('INFO', 'wrkq.kicker.lifecycle_stream', { state, epoch: facts.epoch })
+        },
       })
+      facts.attachLifecycle()
       this.brokerUnsubscribe = await this.port.subscribeBroker({
         afterCommit: brokerCommit,
         onEvent: (event) => this.observeBrokerEvent(event),
+        onStreamState: (state) => {
+          facts.brokerStreamState(state)
+          this.log('INFO', 'wrkq.kicker.broker_stream', { state, epoch: facts.epoch })
+        },
       })
+      facts.attachBroker()
     } catch (error) {
       this.log('WARN', 'wrkq.kicker.subscription_start_failed', { error: errorText(error) })
     }
@@ -134,6 +148,7 @@ export class MailKicker implements MailKickerContext {
   async stop(): Promise<void> {
     if (this.stopping) return
     this.stopping = true
+    hrcFacts(this).detach()
     for (const waiter of this.targetDriveWaiters.splice(0)) waiter.resolve(false)
     await this.lifecycleUnsubscribe?.()
     this.lifecycleUnsubscribe = undefined
@@ -279,11 +294,14 @@ export class MailKicker implements MailKickerContext {
 
   observeLifecycleEvent(event: HrcLifecycleEvent): void {
     if (this.stopping) return
+    // Before any policy reacts, so a wake this event causes reads fresh keys.
+    hrcFacts(this).observe(event)
     observeMailDriveLifecycleEvent.call(this, event)
   }
 
   observeBrokerEvent(record: HrcBrokerInvocationEventRecord): void {
     if (this.stopping) return
+    noteBrokerEvidence(this, record)
     const operation = observeBrokerLanding(this, record)
       .catch((error: unknown) => {
         this.log('WARN', 'wrkq.kicker.landing_observer_failed', {

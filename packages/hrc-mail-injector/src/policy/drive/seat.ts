@@ -27,7 +27,14 @@ export type ObservedBrokerSeat =
       generation: number
       probeDiagnostic: KickerProbeDiagnostic
     }
-  | { state: 'idle'; runtimeId: string; steerCapable: boolean; awaitingInput?: boolean }
+  | {
+      state: 'idle'
+      runtimeId: string
+      steerCapable: boolean
+      awaitingInput?: boolean
+      /** The listed runtime's `createdAt`, so the backlog rule needs no second read. */
+      runtimeCreatedAt?: string
+    }
   | {
       state: 'turn-active'
       runtimeId: string
@@ -35,6 +42,7 @@ export type ObservedBrokerSeat =
       steerCapable: boolean
       /** The runtime's own status is `awaiting_input`: parked on a human (T-10233). */
       awaitingInput?: boolean
+      runtimeCreatedAt?: string
     }
   | { state: 'turn-observed'; runtimeId: string; turnId: string }
   | { state: 'starting' | 'stopping' | 'terminal'; runtimeId: string }
@@ -76,13 +84,18 @@ export async function observeBrokerSeat(
     }
   }
   const seat = probe.probe.seat
+  // The probe IS the seat read `runtimeAdvertisesSteer` makes; reading it twice
+  // in one observation only doubled the route (T-12430).
+  const steerCapable = probe.admissionClasses?.includes('steer') ?? false
+  const createdAt = runtime.createdAt === undefined ? {} : { runtimeCreatedAt: runtime.createdAt }
   return seat.state === 'turn-active'
     ? {
         state: 'turn-active',
         runtimeId: runtime.runtimeId,
         turnId: String(seat.turnId),
-        steerCapable: await runtimeAdvertisesSteer(server, runtime.runtimeId),
+        steerCapable,
         ...(runtime.status === 'awaiting_input' ? { awaitingInput: true } : {}),
+        ...createdAt,
       }
     : seat.state === 'turn-observed'
       ? {
@@ -94,8 +107,9 @@ export async function observeBrokerSeat(
         ? {
             state: 'idle',
             runtimeId: runtime.runtimeId,
-            steerCapable: await runtimeAdvertisesSteer(server, runtime.runtimeId),
+            steerCapable,
             ...(runtime.status === 'awaiting_input' ? { awaitingInput: true } : {}),
+            ...createdAt,
           }
         : { state: seat.state, runtimeId: runtime.runtimeId }
 }

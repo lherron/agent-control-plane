@@ -26,15 +26,18 @@
  *    expiry is not proof of pre-write removal; only correlated `not_written`
  *    evidence may release an intent for a retry (T-08205 rev2).
  */
+import type { HrcBrokerInvocationEventRecord } from 'hrc-core'
 import type { HrcMailDeliveryIntent } from 'hrc-store-sqlite'
 
 import type { MailKickerContext } from '../context.js'
+import { type HrcFacts, hrcFacts } from '../facts/hrc-facts.js'
 import {
   KICKER_SUBMISSION_TTL_MS,
   PERIODIC_QUIET_BACKSTOP_MS,
   RECONCILE_RUNTIME_READ_DEADLINE_MS,
   STEER_WRITE_RECONCILE_GRACE_MS,
   errorText,
+  isRecord,
 } from '../internal.js'
 import { isRuntimeTerminal } from '../terminal/runtime-status.js'
 import { digestMembers } from './digest-group.js'
@@ -324,12 +327,17 @@ export async function reconcileOpenIntents(
   const open = server.store.mailDelivery.listActiveOpenIntents()
   const periodic = options.reason === 'periodic' && options.runtimeIds === undefined
   const nowMs = Date.now()
-  if (periodic) pruneReconcileMemo(server, open)
+  const facts = hrcFacts(server)
+  const keyed = facts.brokerKeyed
+  if (periodic) pruneReconcileMemo(server, facts, open)
   const intents = open.filter(
     (intent) =>
       (options.runtimeIds === undefined ||
         (intent.runtimeId !== undefined && options.runtimeIds.has(intent.runtimeId))) &&
-      (!periodic || periodicReconcileDue(server, intent, nowMs))
+      (!periodic ||
+        (keyed
+          ? keyedReconcileDue(facts, intent, nowMs)
+          : periodicReconcileDue(server, intent, nowMs)))
   )
   if (intents.length === 0) return counts
   for (const listed of intents) {
@@ -337,9 +345,23 @@ export async function reconcileOpenIntents(
     const intent = server.store.mailDelivery.getIntent(listed.envelopeId)
     if (intent === undefined) continue
     if (periodic) server.mailKickerReconcileExaminedAt.set(intent.envelopeId, nowMs)
+    // F9: the tick is taken BEFORE the reads, so a commit notification that
+    // arrives during them is newer than the memo and re-dirties the intent.
+    const tick = facts.tick()
     try {
       counts[await reconcileIntent(server, intent)] += 1
+      const after = server.store.mailDelivery.getIntent(intent.envelopeId)
+      if (after === undefined) facts.reconcileMemo.delete(intent.envelopeId)
+      else
+        facts.reconcileMemo.set(intent.envelopeId, {
+          fingerprint: reconcileFingerprint(after),
+          epoch: facts.epoch,
+          tick,
+          examinedAtMs: nowMs,
+        })
     } catch (error) {
+      // F10: no memo, so the next pass examines it again.
+      facts.reconcileMemo.delete(intent.envelopeId)
       // Leaving the intent open keeps the envelope unactionable, which is the
       // safe direction: it is examined again on the next sweep rather than
       // delivered twice on a read that failed.
@@ -393,10 +415,111 @@ function periodicReconcileDue(
 
 function pruneReconcileMemo(
   server: MailKickerContext,
+  facts: HrcFacts,
   open: readonly HrcMailDeliveryIntent[]
 ): void {
   const live = new Set(open.map((intent) => intent.envelopeId))
+  const runtimes = new Set(open.map((intent) => intent.runtimeId))
   for (const envelopeId of server.mailKickerReconcileExaminedAt.keys()) {
     if (!live.has(envelopeId)) server.mailKickerReconcileExaminedAt.delete(envelopeId)
   }
+  for (const envelopeId of facts.reconcileMemo.keys()) {
+    if (!live.has(envelopeId)) facts.reconcileMemo.delete(envelopeId)
+  }
+  for (const envelopeId of facts.dirtyEnvelopes.keys()) {
+    if (!live.has(envelopeId)) facts.dirtyEnvelopes.delete(envelopeId)
+  }
+  for (const runtimeId of facts.dirtyRuntimes.keys()) {
+    if (!runtimes.has(runtimeId)) facts.dirtyRuntimes.delete(runtimeId)
+  }
+}
+
+/**
+ * T-12430: whether the periodic pass reads this intent's evidence, while the
+ * broker follow is attached.
+ *
+ * Evidence for an attempt can only change when the broker commits something
+ * about it, and every commit passes `noteBrokerEvidence` first. So an intent is
+ * read when a commit named its submission or envelope (or, for an intent with
+ * no submission yet, its runtime), when this process has not examined it in
+ * the current feed epoch (start, F2 resume, F7 a commit that beat the intent),
+ * when its own row changed, or when one of its time boundaries passed (F8). An
+ * unchanged attempt is read zero times however many sweeps go by.
+ */
+function keyedReconcileDue(facts: HrcFacts, intent: HrcMailDeliveryIntent, nowMs: number): boolean {
+  if (intent.uncertainCause === 'reconcile_runtime_read_timeout') return true
+  const memo = facts.reconcileMemo.get(intent.envelopeId)
+  if (memo === undefined || memo.epoch !== facts.epoch) return true
+  if (memo.fingerprint !== reconcileFingerprint(intent)) return true
+  if ((facts.dirtyEnvelopes.get(intent.envelopeId) ?? 0) > memo.tick) return true
+  if (
+    intent.submissionId === undefined &&
+    intent.runtimeId !== undefined &&
+    (facts.dirtyRuntimes.get(intent.runtimeId) ?? 0) > memo.tick
+  )
+    return true
+  if (intent.uncertainCause !== undefined) return false
+  const submittedMs = Date.parse(intent.submittedAt)
+  if (!Number.isFinite(submittedMs)) return false
+  const deadlines = [submittedMs + KICKER_SUBMISSION_TTL_MS]
+  if (intent.door === 'steer') deadlines.push(submittedMs + STEER_WRITE_RECONCILE_GRACE_MS)
+  return deadlines.some((deadline) => memo.examinedAtMs < deadline && deadline <= nowMs)
+}
+
+/** The intent fields a reconcile verdict depends on; timestamps excluded. */
+function reconcileFingerprint(intent: HrcMailDeliveryIntent): string {
+  return [
+    intent.door,
+    intent.runtimeId,
+    intent.submissionId,
+    intent.invocationId,
+    intent.brokerAfterSeq,
+    intent.uncertainCause,
+    intent.lastEvidenceKind,
+    intent.cleanupOutcome,
+    intent.terminalEnvelopeAt,
+  ].join('|')
+}
+
+const EVIDENCE_TYPE_PREFIXES = ['submission.', 'input.', 'admission.']
+
+/**
+ * Mark the intents one broker commit may have new evidence for (T-12430).
+ *
+ * Runs on every committed broker event before the landing observer. Only the
+ * attempt the commit names becomes due: its submission or input id, the
+ * envelope an admission carries, and, for intents not yet bound to a
+ * submission, the runtime it committed on. `turn.started` dirties its runtime
+ * for the launch-carried intents, which have no submission by construction.
+ */
+export function noteBrokerEvidence(
+  server: MailKickerContext,
+  record: HrcBrokerInvocationEventRecord
+): void {
+  const type = record.type
+  const evidence = EVIDENCE_TYPE_PREFIXES.some((prefix) => type.startsWith(prefix))
+  if (!evidence && type !== 'turn.started') return
+  const facts = hrcFacts(server)
+  const tick = facts.tick()
+  facts.dirtyRuntimes.set(record.runtimeId, tick)
+  if (!evidence) return
+  let payload: Record<string, unknown> | undefined
+  try {
+    const parsed: unknown = JSON.parse(record.brokerEventJson)
+    payload = isRecord(parsed) ? parsed : undefined
+  } catch {
+    payload = undefined
+  }
+  if (payload === undefined) return
+  for (const key of ['submissionId', 'inputId'] as const) {
+    const submissionId = payload[key]
+    if (typeof submissionId !== 'string') continue
+    const intent = server.store.mailDelivery.getIntentBySubmissionId(submissionId)
+    if (intent === undefined) continue
+    for (const member of digestMembers(server, intent))
+      facts.dirtyEnvelopes.set(member.envelopeId, tick)
+  }
+  const origin = payload['origin']
+  const envelopeId = isRecord(origin) ? origin['envelopeId'] : undefined
+  if (typeof envelopeId === 'string') facts.dirtyEnvelopes.set(envelopeId, tick)
 }

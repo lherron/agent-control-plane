@@ -25,6 +25,7 @@
 import type { MailKickerContext } from '../context.js'
 import { reportBootReconcileOnce, reportStalledDeliveries } from '../diagnostics/stranded.js'
 import { reconcileOpenIntents } from '../drive/reconcile.js'
+import { hrcFacts } from '../facts/hrc-facts.js'
 import { LEDGER_SWEEP_SCOPE_BATCH, errorText } from '../internal.js'
 import { WrkqLedgerUnavailableError } from '../ledger/client.js'
 import { sweepLapsedObligations } from '../terminal/runtime-lapse.js'
@@ -71,7 +72,9 @@ export function runMailKickerSweep(this: MailKickerContext): Promise<void> {
     // shows up as pending mail, so without the local sources below a scope
     // whose only outstanding business is one of them is never woken at all.
     const outstanding = new Set<string>(this.store.mailDelivery.listDueReminderTargets(now))
-    const seated = await this.port.liveSessionRefs()
+    // Keyed to the lifecycle follow (T-12430): re-read only after a runtime or
+    // session event, a resume, or with no follow attached.
+    const seated = await hrcFacts(this).liveSessionRefs()
     const unborn = await unbornBirthWakeCandidates(this, seated)
     for (const batch of chunk([...seated, ...unborn], LEDGER_SWEEP_SCOPE_BATCH)) {
       try {

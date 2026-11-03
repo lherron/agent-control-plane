@@ -214,14 +214,18 @@ describe('T-10159 — backlog fyi digest', () => {
   })
 
   it('falls back to the 15-minute age rule only when the runtime birth is unknown', async () => {
-    // Only the birth lookup fails: the seat probe's host-session read is the
-    // first of the pass, the birth read is the second.
+    // Only the birth lookup fails. The seat probe's host-session listing
+    // normally carries the birth (T-12430), so this one omits it and the
+    // birth read that follows, the second of the pass, fails.
     const byHost = h.context.port.runtimesByHostSession.bind(h.context.port)
     let reads = 0
     h.context.port.runtimesByHostSession = async (hostSessionId) => {
       reads += 1
       if (reads === 2) throw new Error('runtime read failed')
-      return byHost(hostSessionId)
+      const listed = await byHost(hostSessionId)
+      return reads === 1
+        ? listed.map((runtime) => ({ ...runtime, createdAt: undefined as unknown as string }))
+        : listed
     }
     const old = h.ledger.say({ obligation: 'fyi', createdAt: minutesBefore(Date.now(), 20) })
     const fresh = h.ledger.say({ obligation: 'fyi', createdAt: minutesBefore(Date.now(), 2) })

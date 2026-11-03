@@ -1,6 +1,7 @@
 import type { HrcMailPresentation } from 'hrc-store-sqlite'
 
 import type { MailKickerContext } from '../context.js'
+import { hrcFacts } from '../facts/hrc-facts.js'
 import type { EnvelopePresentationForm } from '../ledger/presentation.js'
 import { targetSessionRefForLedgerScope } from '../ledger/scope.js'
 import type { WrkqEnvelope } from '../ledger/types.js'
@@ -191,6 +192,6 @@ export async function senderGenerationFor(
   if (scopeRef === undefined) return {}
   const sessionRef = targetSessionRefForLedgerScope(scopeRef)
   if (sessionRef === undefined) return {}
-  const session = await server.port.targetBySessionRef(sessionRef)
+  const session = await hrcFacts(server).target(sessionRef)
   return session === undefined ? {} : { senderGeneration: session.generation }
 }

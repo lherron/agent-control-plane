@@ -248,6 +248,7 @@ describe('D2 — steer first, and the door is chosen by what the seat is doing',
       state: 'idle',
       runtimeId: RUNTIME,
       steerCapable: true,
+      runtimeCreatedAt: expect.any(String),
     })
   })
 

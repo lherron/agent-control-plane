@@ -9,6 +9,7 @@
  */
 import type { MailKickerContext } from '../context.js'
 import { digestMembers } from '../drive/digest-group.js'
+import { hrcFacts } from '../facts/hrc-facts.js'
 import { LEDGER_TAIL_PAGE_LIMIT, errorText, isRecord } from '../internal.js'
 import { WrkqLedgerUnavailableError } from '../ledger/client.js'
 import { targetSessionRefForLedgerScope } from '../ledger/scope.js'
@@ -195,7 +196,7 @@ export async function runWrkqLedgerTail(this: MailKickerContext): Promise<void> 
           })
           continue
         }
-        seated ??= new Set(await this.port.liveSessionRefs())
+        seated ??= new Set(await hrcFacts(this).liveSessionRefs())
         const target = wakeTargetForEvent(event, seated)
         if (target === undefined) continue
         this.wake(target, 'insert')

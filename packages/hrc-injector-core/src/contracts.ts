@@ -50,6 +50,14 @@ export type InjectionDispatchResult = {
 }
 
 /**
+ * A feed's connectivity, for consumers that key state to it (T-12430).
+ * `down`: the stream ended or a page failed, so events may be missing until it
+ * resumes. `resumed`: a replacement connection is about to replay from the
+ * cursor; anything derived from the feed should be revalidated once.
+ */
+export type InjectionStreamState = 'down' | 'resumed'
+
+/**
  * The authoritative, per-runtime read needed by delivery policy.  Keep this
  * intentionally narrower than the fleet-list projection: the socket adapter
  * obtains it from HRC's exact `inspectRuntime` route, which does not promise
@@ -106,10 +114,12 @@ export type HrcInjectionPort = {
   subscribeLifecycle(input: {
     afterSeq: number
     onEvent(event: HrcLifecycleEvent): void
+    onStreamState?: ((state: InjectionStreamState) => void) | undefined
   }): Promise<() => void | Promise<void>>
   subscribeBroker(input: {
     afterCommit: number
     onEvent(event: HrcBrokerInvocationEventRecord): void
+    onStreamState?: ((state: InjectionStreamState) => void) | undefined
   }): Promise<() => void | Promise<void>>
   steer(
     session: HrcSessionRecord,
