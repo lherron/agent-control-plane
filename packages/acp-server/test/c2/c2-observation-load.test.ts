@@ -13,6 +13,8 @@ test('a fresh C2 observation reads annotations once per watched seat and bounds 
     template,
     ...watched.map((scopeRef, i) => ({ ...template, scopeRef, hostSessionId: `hs-load-${i}` })),
   ])
+  // No event follower: every read is a full read, whose cost and fanout this measures.
+  fake.events.enabled = false
   let closeHost = () => {}
   try {
     fake.put({
@@ -40,8 +42,7 @@ test('a fresh C2 observation reads annotations once per watched seat and bounds 
       principal: 'system:c2-controller',
       node: 'max3',
       sweepMs: 60_000,
-      // Every read is a full read: this measures the cost and fanout of one.
-      fullRefreshMs: 0,
+      fullRefreshMs: 30_000,
       ownsUnscoped: true,
       literalInputTimeoutMs: 1000,
       log() {},

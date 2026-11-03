@@ -17,8 +17,10 @@
  * annotation put/delete/act appends a session event, so asks and c2 row
  * changes arrive the same way. A read re-reads only dirty watched seats (and a
  * watched seat never read yet) and serves every other seat from its last
- * observation. Every `fullRefreshMs` it re-reads all of them, which bounds any
- * staleness from an event this host missed. While the stream is down (not yet
+ * observation. A seat not read for `fullRefreshMs` is re-read anyway, a few
+ * oldest per read (`AGED_PER_PASS`), which bounds any staleness from an event
+ * this host missed without one long pass that a dirty read would queue behind
+ * on a loaded HRC. While the stream is down (not yet
  * connected, refused, ended) every read is a full read, never staler than a
  * poll; it reconnects with backoff from the last seen `hrcSeq`.
  *
@@ -115,8 +117,15 @@ const FOLLOW_BACKOFF_MIN_MS = 500
 const FOLLOW_BACKOFF_MAX_MS = 30_000
 
 type Observation = { seats: SeatRow[]; annotations: AnnotationRow[] }
+/**
+ * The safety net's per-read budget: at most this many seats re-read only for
+ * age, oldest first (one concurrency round of two reads each), so it never
+ * holds up a dirty seat's read behind a pass over every seat.
+ */
+const AGED_PER_PASS = SCAN_CONCURRENCY / 2
+
 /** One seat's last read: its live row (absent when unobservable or unknown) and its rows. */
-type SeatObservation = { seat?: SeatRow; rows: AnnotationRow[] }
+type SeatObservation = { seat?: SeatRow; rows: AnnotationRow[]; readAt: number }
 
 export function splitSessionRef(sessionRef: string): { scopeRef: string; laneRef: string } {
   const match = /^(.*)\/lane:([^/]*)$/.exec(sessionRef)
@@ -196,7 +205,6 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
   const dirty = new Set<string>()
   /** The next read re-reads every watched seat. */
   let allDirty = true
-  let lastFullAt = Number.NEGATIVE_INFINITY
   /** Bumped by every write and `freshen`; an observation started under an older epoch is not joined. */
   let epoch = 0
   /** The follow stream is running from a known cursor; false means every read is a full read. */
@@ -302,20 +310,21 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
         sweeping = null
       })
     }
-    try {
-      await sweeping
-    } catch (error) {
-      // A failed sweep keeps the previous seat set; with none, the read fails.
+    // A failed sweep keeps the previous seat set; with none, the read fails.
+    const settled = sweeping.catch((error: unknown) => {
       if (sweeps === 0) throw error
       log(`c2: seat sweep failed: ${String(error)}`)
-    }
+    })
+    // Only the first sweep is waited on: a later one (its every-SCAN_EVERY scan
+    // lists ~150 seats) runs behind the reads, which keep the previous seat set.
+    if (sweeps === 0) await settled
   }
 
   async function observeSeat(
     scopeRef: string,
     at: string,
     listedRows?: AnnotationRow[]
-  ): Promise<SeatObservation> {
+  ): Promise<Omit<SeatObservation, 'readAt'>> {
     const readAttention = () =>
       client.getSessionAttention({ scopeRef, laneRef: 'main' }).catch((error: unknown) => {
         if (error instanceof HrcDomainError && error.code === 'unknown_host_session')
@@ -419,14 +428,15 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
     await ensureSwept()
     const at = await node()
     const startedAt = Date.now()
-    const full = !following || allDirty || startedAt - lastFullAt >= options.fullRefreshMs
+    const full = !following || allDirty
     // Take this pass's dirty set; an event landing during the read marks the next pass.
     const taken = new Set(dirty)
     dirty.clear()
     if (full) allDirty = false
     const due = (scopeRef: string) => full || taken.has(scopeRef) || !cache.has(scopeRef)
+    const ageOf = (scopeRef: string) => startedAt - (cache.get(scopeRef)?.readAt ?? startedAt)
     try {
-      const readVesta = due(vestaSeat)
+      const readVesta = due(vestaSeat) || ageOf(vestaSeat) >= options.fullRefreshMs
       const vestaRows = readVesta
         ? ((await seatRows(vestaSeat)) ?? [])
         : (cache.get(vestaSeat)?.rows ?? [])
@@ -444,16 +454,26 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
       const targets = new Set<string>([...rowSeats, ...continuities.filter(allowed)])
       targets.delete(vestaSeat)
       const watched = [vestaSeat, ...targets]
-      const reads = watched.filter((scopeRef) =>
+      const dueNow = watched.filter((scopeRef) =>
         scopeRef === vestaSeat ? readVesta : due(scopeRef)
       )
+      // The rolling safety net: the oldest few seats past `fullRefreshMs`, after the dirty ones.
+      const aged = [...targets]
+        .filter((scopeRef) => !due(scopeRef) && ageOf(scopeRef) >= options.fullRefreshMs)
+        .sort((a, b) => ageOf(b) - ageOf(a))
+        .slice(0, AGED_PER_PASS)
+      const reads = [...dueNow, ...aged]
       const results = await mapLimit(reads, SCAN_CONCURRENCY, (scopeRef) =>
         observeSeat(scopeRef, at, scopeRef === vestaSeat ? vestaRows : undefined)
       )
-      reads.forEach((scopeRef, i) => cache.set(scopeRef, results[i] as SeatObservation))
+      reads.forEach((scopeRef, i) =>
+        cache.set(scopeRef, {
+          ...(results[i] as Omit<SeatObservation, 'readAt'>),
+          readAt: startedAt,
+        })
+      )
       const kept = new Set(watched)
       for (const scopeRef of cache.keys()) if (!kept.has(scopeRef)) cache.delete(scopeRef)
-      if (full) lastFullAt = startedAt
 
       const seats: SeatRow[] = []
       const annotations: AnnotationRow[] = []

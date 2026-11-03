@@ -7,6 +7,7 @@
  *  - an annotation change (asks put/delete) never reaches the snapshot;
  *  - a dropped or refused stream leaves reads serving a frozen cache;
  *  - no event ever comes for a change, and nothing bounds the staleness;
+ *  - the safety net is one long pass that a dirty seat's read queues behind;
  *  - an action's preflight is served from the cache instead of HRC.
  */
 import { afterEach, expect, test } from 'bun:test'
@@ -183,17 +184,27 @@ test('a dropped follower falls back to full reads, then resumes dirty-driven rea
   expect(reconnect[1]).toBe(`c2.follow.connected fromSeq=${seen + 1}`)
 })
 
-test('the safety-net full refresh re-reads every watched seat with no event', async () => {
+test('the rolling safety net re-reads every watched seat with no event, a few per read', async () => {
   const { fake, host } = await following(200)
   await host.seats()
   expect(readsBySeat(fake).size).toBe(0)
   await Bun.sleep(220)
   const x = WATCHED[0]!
-  // A change HRC never evented still lands within one full-refresh period.
+  // A change HRC never evented still lands within the safety net's bound.
   fake.seats.get(x)!.runtimeLive = false
-  const seats = await host.seats()
-  expect(readsBySeat(fake).size).toBe(WATCHED.length + 1)
-  expect(seats.find((s) => s.scopeRef === x)?.status).toBe('inactive')
+  const reread = new Set<string>()
+  let seats = await host.seats()
+  for (let pass = 0; pass < 2; pass += 1) {
+    const reads = readsBySeat(fake)
+    // Never one long pass a dirty read would queue behind: Vesta plus at most four aged seats.
+    expect([...reads.keys()].filter((s) => s !== VESTA).length).toBeLessThanOrEqual(4)
+    for (const scopeRef of reads.keys()) reread.add(scopeRef)
+    reset(fake)
+    if (pass === 0) seats = await host.seats()
+  }
+  expect(reread).toEqual(new Set([VESTA, ...WATCHED]))
+  expect((await host.seats()).find((s) => s.scopeRef === x)?.status).toBe('inactive')
+  expect(seats).toBeDefined()
 })
 
 test('preflight freshness: freshen and writes re-read the touched seats, joining no earlier pass', async () => {
