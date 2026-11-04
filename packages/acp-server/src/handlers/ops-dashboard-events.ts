@@ -20,7 +20,7 @@ const NDJSON_HEADERS = {
   'content-type': 'application/x-ndjson',
   'transfer-encoding': 'chunked',
 }
-const HEARTBEAT_MS = 100
+const HEARTBEAT_MS = 15_000
 const DEFAULT_OPS_DASHBOARD_MAX_REPLAY_EVENTS = 10_000
 
 function readPositiveIntegerEnv(name: string, fallback: number): number {

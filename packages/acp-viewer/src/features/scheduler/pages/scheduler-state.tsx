@@ -26,7 +26,7 @@ export function SchedulerStatePage() {
   const query = useQuery({
     queryKey: ['scheduler-state'],
     queryFn: fetchSchedulerState,
-    refetchInterval: 5_000,
+    refetchInterval: 30_000,
   })
 
   if (query.isLoading) return <PageLoading label="Loading" />

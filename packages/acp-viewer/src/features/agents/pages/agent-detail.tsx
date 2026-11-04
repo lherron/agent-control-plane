@@ -51,8 +51,8 @@ export function AgentDetailPage() {
   const heartbeatQuery = useQuery({
     queryKey: ['agents', agentId, 'heartbeat'],
     queryFn: () => fetchAgentHeartbeat(agentId ?? ''),
-    enabled: agentId !== undefined && agentId.length > 0,
-    refetchInterval: 5_000,
+    enabled: activeTab === 'heartbeat' && agentId !== undefined && agentId.length > 0,
+    refetchInterval: 30_000,
   })
 
   if (agentId === undefined) return <ErrorBanner message="Missing agent id." />

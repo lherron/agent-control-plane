@@ -11,7 +11,7 @@
  * Non-goals:
  * - Does NOT test authZ (skipped for Phase 1).
  */
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, spyOn, test } from 'bun:test'
 import { createInMemoryAdminStore } from 'acp-admin-store'
 import { parseScopeRef } from 'agent-scope'
 
@@ -329,19 +329,36 @@ describe('GET /v1/ops/session-dashboard/events', () => {
         })(),
     })
 
-    await withWiredServer(
-      async (fixture) => {
-        const response = await fixture.request(eventsRequest('follow=true'))
+    const originalSetInterval = globalThis.setInterval
+    const intervalDelays: number[] = []
+    const intervalSpy = spyOn(globalThis, 'setInterval').mockImplementation(((
+      handler,
+      timeout,
+      ...args
+    ) => {
+      if (typeof timeout === 'number') intervalDelays.push(timeout)
+      // Exercise idle delivery without waiting the production 15 seconds.
+      return originalSetInterval(handler, timeout === 15_000 ? 10 : timeout, ...args)
+    }) as typeof setInterval)
 
-        expect(response.status).toBe(200)
-        const text = await response.text()
+    try {
+      await withWiredServer(
+        async (fixture) => {
+          const response = await fixture.request(eventsRequest('follow=true'))
 
-        // At least one heartbeat blank line sits between the two events while
-        // the followed stream is idle (the trailing newline does not count).
-        expect(text).toMatch(/\}\n\n+\{/)
-      },
-      { hrcClient }
-    )
+          expect(response.status).toBe(200)
+          const text = await response.text()
+
+          // At least one heartbeat blank line sits between the two events while
+          // the followed stream is idle (the trailing newline does not count).
+          expect(text).toMatch(/\}\n\n+\{/)
+          expect(intervalDelays).toContain(15_000)
+        },
+        { hrcClient }
+      )
+    } finally {
+      intervalSpy.mockRestore()
+    }
   })
 
   // -- Stream terminates cleanly on client abort -----------------------------

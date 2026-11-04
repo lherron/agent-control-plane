@@ -9,7 +9,7 @@ const NDJSON_HEADERS = {
   'transfer-encoding': 'chunked',
 }
 
-const SESSION_REFS_EVENTS_KEEPALIVE_MS = 5_000
+const SESSION_REFS_EVENTS_KEEPALIVE_MS = 30_000
 
 function parseOptionalPositiveInteger(raw: string | null, field: string): number | undefined {
   if (raw === null || raw.trim().length === 0) {

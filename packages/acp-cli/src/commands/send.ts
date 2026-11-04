@@ -136,7 +136,7 @@ export async function runSendCommand(
   }
 
   const waitTimeoutMs = readOptionalInteger(parsed, '--wait-timeout-ms') ?? 30_000
-  const waitIntervalMs = readOptionalInteger(parsed, '--wait-interval-ms') ?? 500
+  const waitIntervalMs = readOptionalInteger(parsed, '--wait-interval-ms') ?? 1_000
   const runId = String(response.run?.['runId'] ?? '')
   if (runId.length === 0) {
     throw new CliUsageError('send --wait requires the server to return run.runId')

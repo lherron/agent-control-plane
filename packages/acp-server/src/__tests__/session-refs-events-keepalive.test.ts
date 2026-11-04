@@ -62,7 +62,8 @@ describe('GET /v1/session-refs/events keepalive', () => {
     const intervalDelays: number[] = []
 
     globalThis.setInterval = ((handler, timeout, ...args) => {
-      const interval = originalSetInterval(handler, timeout, ...args)
+      // Exercise keepalive delivery and cleanup without waiting 30 seconds.
+      const interval = originalSetInterval(handler, timeout === 30_000 ? 10 : timeout, ...args)
       activeIntervals.add(interval)
       if (typeof timeout === 'number') {
         intervalDelays.push(timeout)
@@ -102,7 +103,7 @@ describe('GET /v1/session-refs/events keepalive', () => {
           )
           expect(first.done).toBe(false)
           expect(textDecoder.decode(first.value)).toBe('\n')
-          expect(intervalDelays.some((delay) => delay <= 5000)).toBe(true)
+          expect(intervalDelays.includes(30_000)).toBe(true)
         } finally {
           abortController.abort()
           await reader?.cancel()
