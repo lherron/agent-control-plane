@@ -450,6 +450,9 @@ export async function createT08094Harness(): Promise<T08094Harness> {
 }
 
 export async function destroyT08094Harness(h: T08094Harness): Promise<void> {
+  // Disposal reminder timers use the production stopping fence before waking.
+  // A fixture must close that fence before closing its SQLite repositories.
+  h.context.stopping = true
   h.storeSql.close()
   h.store.close?.()
   h.db.close()

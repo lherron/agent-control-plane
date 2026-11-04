@@ -1,4 +1,5 @@
 import type { MailKickerContext } from '../context.js'
+import { hrcFacts } from '../facts/hrc-facts.js'
 import { LEDGER_SWEEP_SCOPE_BATCH } from '../internal.js'
 import { targetSessionRefForLedgerScope } from '../ledger/scope.js'
 import type { WrkqEnvelope } from '../ledger/types.js'
@@ -34,9 +35,9 @@ export function collectPendingTargets(items: readonly WrkqEnvelope[], targets: S
  * deliver to: an envelope to one still rides the tail's `envelope.created` into
  * the summon gate, which is where a first birth belongs.
  */
-async function homedTargetSessionRefs(server: MailKickerContext): Promise<string[]> {
+export async function homedTargetSessionRefs(server: MailKickerContext): Promise<string[]> {
   const refs = new Set<string>()
-  for (const record of (await server.port.localPlacementBindings()).bindings) {
+  for (const record of (await hrcFacts(server).localPlacementBindings()).bindings) {
     if (record.state !== 'active') continue
     if (record.homeNodeId !== server.nodeId) continue
     const sessionRef = targetSessionRefForLedgerScope(record.scopeRef)

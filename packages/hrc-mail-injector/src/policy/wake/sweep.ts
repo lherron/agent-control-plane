@@ -1,26 +1,10 @@
 /**
- * The periodic sweep: the correctness backstop behind the ledger tail.
- *
- * Its candidate set is deliberately NARROW — the scopes this node is currently
- * seating, plus any drive attempt still in flight. It keeps one bounded
- * `pendingView` per sweep instead of a query that grows with every scope the
- * daemon has ever seen. Discovering a scope with no live seat is the TAIL's
- * job: it resumes from a persisted cursor, so an envelope written while HRC was
- * down is replayed rather than swept for.
- *
- * That division of labour holds for a RESTART and ONLY for a restart. A
- * first-ever start has no cursor to resume from and the tail starts at the
- * ledger's END, so nothing here and nothing there can see an envelope that was
- * already pending — the seated set does not contain the scope, and the tail has
- * jumped past its `envelope.created`. The one-time cold-start catch-up below
- * (`runMailKickerColdStartCatchup`, T-07643) closes exactly that case; this
- * comment previously asserted a backstop that did not exist in it.
- *
- * The candidate set gained a THIRD source in T-07661: the virgin births this
- * node owes. Both of the sources above key on a scope this node already HAS —
- * a seat or an attempt — and a virgin scope whose one insert wake ended in a
- * refusal has neither, so it had no second chance at all until unrelated later
- * traffic re-woke the kicker. See `unbornBirthWakeCandidates`.
+ * The 300-second recovery backstop behind insert/lifecycle wakes and the
+ * deferral deadline timer. Bounded pendingView batches include scopes this node
+ * homes, seats, or owes a birth for. Homed but unseated recipients matter after
+ * a restart: their deferred envelopes are absent from pendingView until the
+ * global lazy repend runs, and their deferral events may predate our cursor.
+ * The startup catch-up and persisted tail remain the immediate recovery paths.
  */
 import type { MailKickerContext } from '../context.js'
 import { reportBootReconcileOnce, reportStalledDeliveries } from '../diagnostics/stranded.js'
@@ -30,7 +14,7 @@ import { LEDGER_SWEEP_SCOPE_BATCH, errorText } from '../internal.js'
 import { WrkqLedgerUnavailableError } from '../ledger/client.js'
 import { sweepLapsedObligations } from '../terminal/runtime-lapse.js'
 import { unbornBirthWakeCandidates } from './birth-retry.js'
-import { chunk, collectPendingTargets } from './cold-start.js'
+import { chunk, collectPendingTargets, homedTargetSessionRefs } from './cold-start.js'
 import { selectChangedPeriodicTargets } from './quiet-targets.js'
 
 export function runMailKickerSweep(this: MailKickerContext): Promise<void> {
@@ -66,6 +50,13 @@ export function runMailKickerSweep(this: MailKickerContext): Promise<void> {
     // reads the wake set, so the sender's notice and the reader's next
     // presentation cannot cross.
     await sweepLapsedObligations(this)
+    // A restart can miss envelope.deferred events: repend globally even when
+    // there are no seats or owed births to supply a scope batch below.
+    try {
+      await this.ledger.pendingView({ scopes: [] })
+    } catch (error) {
+      this.log('WARN', 'wrkq.kicker.sweep_repend_failed', { error: errorText(error) })
+    }
     const now = new Date().toISOString()
     // Outstanding business, driven every sweep: a due D4 reminder, and pending
     // mail for a seated or owed-birth scope. Neither a reminder nor a §5 notice
@@ -76,7 +67,12 @@ export function runMailKickerSweep(this: MailKickerContext): Promise<void> {
     // session event, a resume, or with no follow attached.
     const seated = await hrcFacts(this).liveSessionRefs()
     const unborn = await unbornBirthWakeCandidates(this, seated)
-    for (const batch of chunk([...seated, ...unborn], LEDGER_SWEEP_SCOPE_BATCH)) {
+    // Deferred recipients may be homed here with no live runtime. They are
+    // absent from the unborn list too: a restart that missed their deferral
+    // event must still discover the repended envelope within this backstop.
+    const homed = await homedTargetSessionRefs(this)
+    const recipients = [...new Set([...seated, ...unborn, ...homed])]
+    for (const batch of chunk(recipients, LEDGER_SWEEP_SCOPE_BATCH)) {
       try {
         // includeFyi here too: a seated addressee should be shown a fyi on the
         // next sweep, which is §5's "otherwise on X's next attend".
@@ -121,6 +117,7 @@ export function runMailKickerSweep(this: MailKickerContext): Promise<void> {
         })
       })
     }
+    this.log('INFO', 'wrkq.kicker.sweep_complete', { targets: targets.size })
   })().finally(() => {
     if (this.mailKickerSweepInFlight === sweep) this.mailKickerSweepInFlight = undefined
   })

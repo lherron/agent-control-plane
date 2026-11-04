@@ -61,6 +61,7 @@ export type MailKickerContext = {
   mailKickerSweepTimer: ReturnType<typeof setInterval> | undefined
   mailKickerSweepInFlight: Promise<void> | undefined
   wrkqLedgerTailInFlight: Promise<void> | undefined
+  mailKickerDeferralWakeInFlight?: Promise<void> | undefined
   mailKickerColdStartCatchupPending: boolean
   readonly mailKickerPendingTargets: Map<string, HrcMailDriveWakeReason>
   readonly mailKickerTargetOperations: Map<string, Promise<void>>

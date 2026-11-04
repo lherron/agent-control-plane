@@ -5,7 +5,7 @@ import type { HrcLifecycleEvent, HrcSessionRecord } from 'hrc-core'
 import { reportStalledDeliveries } from '../diagnostics/stranded.js'
 import { noteBrokerEvidence, reconcileOpenIntents } from '../drive/reconcile.js'
 import { driveMailTargetOnce } from '../drive/target-driver.js'
-import { FOREIGN_HOME_TTL_MS, HrcFacts, hrcFacts } from '../facts/hrc-facts.js'
+import { DESIGNATIONS_TTL_MS, FOREIGN_HOME_TTL_MS, HrcFacts, hrcFacts } from '../facts/hrc-facts.js'
 import { STEER_WRITE_RECONCILE_GRACE_MS } from '../internal.js'
 import { runMailKickerSweep } from '../wake/sweep.js'
 import type { T08094Harness } from './t08094-harness.js'
@@ -45,6 +45,7 @@ type ReadName = (typeof READS)[number]
 
 let h: T08094Harness
 let calls: Map<ReadName, number>
+let targetDrives: Set<Promise<void>>
 
 function countReads(): void {
   calls = new Map()
@@ -127,13 +128,21 @@ function openAttempts(): void {
 
 beforeEach(async () => {
   h = await createT08094Harness()
-  h.context.drainTarget = async (targetSessionRef) => {
-    await driveMailTargetOnce(h.context, targetSessionRef, 'periodic')
+  targetDrives = new Set()
+  h.context.drainTarget = (targetSessionRef) => {
+    const operation = driveMailTargetOnce(h.context, targetSessionRef, 'periodic')
+      .then(() => undefined)
+      .finally(() => targetDrives.delete(operation))
+    targetDrives.add(operation)
+    return operation
   }
   countReads()
 })
 
 afterEach(async () => {
+  // The production sweep deliberately launches drives without awaiting them.
+  // This fixture owns those operations and must drain them before closing SQL.
+  await Promise.allSettled(targetDrives)
   await destroyT08094Harness(h)
 })
 
@@ -469,5 +478,47 @@ describe('T-12430 stalled launch checks', () => {
     await reportStalledDeliveries(h.context)
     expect(calls.get('liveRuntimes')).toBe(2)
     expect(h.store.mailDelivery.getIntent(envelope.id)).toBeDefined()
+  })
+})
+
+describe('T-12512 designation refresh', () => {
+  it('shares the five-minute TTL and refreshes after structural invalidation', async () => {
+    let clock = 0
+    const facts = new HrcFacts(
+      () => h.context.port,
+      () => clock
+    )
+    facts.attachLifecycle()
+    await facts.unbornDesignations()
+    clock = DESIGNATIONS_TTL_MS - 1
+    await facts.unbornDesignations()
+    expect(calls.get('unbornDesignations')).toBe(1)
+    clock += 1
+    await facts.unbornDesignations()
+    expect(calls.get('unbornDesignations')).toBe(2)
+    facts.invalidateTarget(TARGET_REF)
+    await facts.unbornDesignations()
+    expect(calls.get('unbornDesignations')).toBe(3)
+  })
+
+  it('a target lookup miss refreshes designation facts immediately, once per cached target', async () => {
+    const facts = attach()
+    h.context.port.targetBySessionRef = async () => undefined
+    await facts.unbornDesignations()
+    await facts.target(OTHER_REF)
+    expect(calls.get('unbornDesignations')).toBe(2)
+    await facts.target(OTHER_REF)
+    await facts.unbornDesignations()
+    expect(calls.get('unbornDesignations')).toBe(2)
+  })
+
+  it('a designation outage on a miss preserves the target lookup result', async () => {
+    const facts = attach()
+    h.context.port.targetBySessionRef = async () => undefined
+    h.context.port.unbornDesignations = async () => {
+      throw new Error('registry unavailable')
+    }
+    expect(await facts.target(OTHER_REF)).toBeUndefined()
+    expect(facts.reads.designations).toBe(1)
   })
 })

@@ -25,7 +25,12 @@
  * feed to invalidate it (subscription not started, stream down, a unit test
  * with no controller) every read goes to HRC, as before.
  */
-import type { HrcLifecycleEvent, HrcSessionRecord, ListUnbornDesignationsResponse } from 'hrc-core'
+import type {
+  HrcLifecycleEvent,
+  HrcSessionRecord,
+  ListPlacementBindingsResponse,
+  ListUnbornDesignationsResponse,
+} from 'hrc-core'
 
 import type { ForeignHome } from '../contracts.js'
 import { formatSessionRef } from '../internal.js'
@@ -56,12 +61,16 @@ type FactsReadPort = {
   targetBySessionRef(targetSessionRef: string): Promise<HrcSessionRecord | undefined>
   liveSessionRefs(): Promise<readonly string[]>
   unbornDesignations(): Promise<ListUnbornDesignationsResponse>
+  localPlacementBindings(): Promise<ListPlacementBindingsResponse>
 }
 
 type Entry<T> = { value: T; epoch: number; version: number; atMs: number }
 
 /** Per-key read counts, for diagnostics and the T-12430 tests. */
-export type FactReadCounts = Record<'home' | 'locate' | 'target' | 'live' | 'designations', number>
+export type FactReadCounts = Record<
+  'home' | 'locate' | 'target' | 'live' | 'designations' | 'bindings',
+  number
+>
 
 /** Reconcile memo for one intent; see `drive/reconcile.ts`. */
 export type ReconcileMemo = {
@@ -84,7 +93,14 @@ export class HrcFacts {
   private readonly versions = new Map<string, number>()
   private readonly entries = new Map<string, Entry<unknown>>()
   private readonly inflight = new Map<string, Promise<unknown>>()
-  readonly reads: FactReadCounts = { home: 0, locate: 0, target: 0, live: 0, designations: 0 }
+  readonly reads: FactReadCounts = {
+    home: 0,
+    locate: 0,
+    target: 0,
+    live: 0,
+    designations: 0,
+    bindings: 0,
+  }
 
   /** Broker commit notifications per submission/envelope, and per runtime for unbound intents. */
   readonly dirtyEnvelopes = new Map<string, number>()
@@ -208,7 +224,18 @@ export class HrcFacts {
     return await this.read(
       `target:${targetSessionRef}`,
       'target',
-      () => this.port().targetBySessionRef(targetSessionRef),
+      async () => {
+        const target = await this.port().targetBySessionRef(targetSessionRef)
+        if (target === undefined) {
+          // A missing target may be a newly designated virgin birth. Refresh
+          // through the same TTL cache, once per actual target lookup, rather
+          // than waiting for the generic sweep. Registry failure must not turn
+          // an authoritative missing target into a failed lookup; the acting
+          // path still resolves birth authority fresh.
+          await this.unbornDesignations({ fresh: true }).catch(() => undefined)
+        }
+        return target
+      },
       options
     )
   }
@@ -217,11 +244,23 @@ export class HrcFacts {
     return await this.read('live', 'live', () => this.port().liveSessionRefs(), {})
   }
 
-  async unbornDesignations(): Promise<ListUnbornDesignationsResponse> {
+  async unbornDesignations(
+    options: { fresh?: boolean } = {}
+  ): Promise<ListUnbornDesignationsResponse> {
     return await this.read(
       'designations',
       'designations',
       () => this.port().unbornDesignations(),
+      options,
+      () => DESIGNATIONS_TTL_MS
+    )
+  }
+
+  async localPlacementBindings(): Promise<ListPlacementBindingsResponse> {
+    return await this.read(
+      'bindings',
+      'bindings',
+      () => this.port().localPlacementBindings(),
       {},
       () => DESIGNATIONS_TTL_MS
     )
@@ -236,6 +275,7 @@ export class HrcFacts {
     if (scopeRef !== undefined) this.dirtyScope(scopeRef)
     this.bump('live')
     this.bump('designations')
+    this.bump('bindings')
   }
 
   /** Drop exactly the keys one lifecycle event can have changed. */
@@ -254,6 +294,7 @@ export class HrcFacts {
       else {
         this.bump('live')
         this.bump('designations')
+        this.bump('bindings')
       }
       if (event.runtimeId !== undefined) this.bump(`runtime:${event.runtimeId}`)
       return

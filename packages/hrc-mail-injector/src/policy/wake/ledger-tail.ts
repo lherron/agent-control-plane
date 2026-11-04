@@ -17,6 +17,7 @@ import type { WrkqEnvelopeCreatedPayload, WrkqMonitorEvent } from '../ledger/typ
 import { obligationSummons } from '../ledger/types.js'
 import { queueFailureNotice } from '../terminal/failure-notices.js'
 import { runMailKickerColdStartCatchup } from './cold-start.js'
+import { forgetDeferredWake, observeDeferredWake } from './deferred.js'
 
 const QUEUED_INJECTION_WITHDRAW_REASON = 'envelope_terminal_before_injection'
 
@@ -174,7 +175,14 @@ export async function runWrkqLedgerTail(this: MailKickerContext): Promise<void> 
         // Failure notices and queued-injection withdrawal ride the SAME cursor
         // as creation. Widening this filter must never move the virgin-store
         // start point above: tail_started and cold catch-up remain unchanged.
-        eventTypes: ['envelope.created', 'envelope.failed', 'envelope.acked'],
+        eventTypes: [
+          'envelope.created',
+          'envelope.failed',
+          'envelope.acked',
+          'envelope.deferred',
+          'envelope.expired',
+          'envelope.withdrawn',
+        ],
         limit: LEDGER_TAIL_PAGE_LIMIT,
       })
       // Resolved lazily and once per page: a fyi wakes only a target this node
@@ -182,6 +190,13 @@ export async function runWrkqLedgerTail(this: MailKickerContext): Promise<void> 
       // every empty tick.
       let seated: Set<string> | undefined
       for (const event of page.items) {
+        if (event.eventType === 'envelope.deferred') {
+          if (event.resourceId !== undefined) await observeDeferredWake(this, event.resourceId)
+          continue
+        }
+        if (event.resourceId !== undefined) forgetDeferredWake(this, event.resourceId)
+        if (event.eventType === 'envelope.expired' || event.eventType === 'envelope.withdrawn')
+          continue
         if (event.eventType === 'envelope.acked') {
           await withdrawAckedQueuedInjection(this, event)
           continue

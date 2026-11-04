@@ -354,7 +354,7 @@ describe('socket injection subscriptions', () => {
     await unsubscribe()
   })
 
-  test('broker follow idles until a lifecycle event rings it', async () => {
+  test('broker follow idles past the former five-second poll until a lifecycle event rings it', async () => {
     let follows = 0
     let emitLifecycle!: () => void
     const lifecycleArrived = new Promise<void>((resolve) => {
@@ -381,13 +381,53 @@ describe('socket injection subscriptions', () => {
     const unsubscribeBroker = await port.subscribeBroker({ afterCommit: 0, onEvent: () => {} })
     const unsubscribeLifecycle = await port.subscribeLifecycle({ afterSeq: 10, onEvent: () => {} })
     await eventually(() => expect(follows).toBe(1))
-    await Bun.sleep(400)
+    await Bun.sleep(5_400)
     expect(follows).toBe(1)
 
     emitLifecycle()
     await eventually(() => expect(follows).toBe(2))
     await unsubscribeLifecycle()
     await unsubscribeBroker()
+  }, 10_000)
+
+  test('a lifecycle reconnect with no replayed rows immediately catches broker commits up', async () => {
+    let follows = 0
+    let disconnect!: () => void
+    const dropped = new Promise<void>((resolve) => {
+      disconnect = resolve
+    })
+    let watches = 0
+    const client = {
+      async declareSubscriber() {
+        return { subscriberId: 'subscriber-mail' }
+      },
+      async followBrokerEvents(request: { afterCommit: number }) {
+        follows += 1
+        return { events: [], nextCommit: request.afterCommit }
+      },
+      async *watch(options: { signal?: AbortSignal }) {
+        watches += 1
+        if (watches === 1) {
+          await dropped
+          return
+        }
+        await new Promise<void>((resolve) =>
+          options.signal?.addEventListener('abort', () => resolve())
+        )
+      },
+    } as unknown as HrcClient
+    const port = createSocketInjectionPort(client)
+    const stopLifecycle = await port.subscribeLifecycle({ afterSeq: 10, onEvent: () => {} })
+    const stopBroker = await port.subscribeBroker({ afterCommit: 41, onEvent: () => {} })
+    await Bun.sleep(400)
+    const beforeReconnect = follows
+    disconnect()
+    await eventually(() => {
+      expect(watches).toBe(2)
+      expect(follows).toBeGreaterThan(beforeReconnect)
+    })
+    await stopLifecycle()
+    await stopBroker()
   })
 
   test('broker drains back-to-back only while pages come back full', async () => {

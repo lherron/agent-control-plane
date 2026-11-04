@@ -49,7 +49,10 @@ export const KICKER_MAX_NON_LANDING_STRIKES = 3
 export const KICKER_SUBMISSION_TTL_MS = 30 * 60_000
 export const LEDGER_TAIL_PAGE_LIMIT = 500
 export const LEDGER_SWEEP_SCOPE_BATCH = 100
-export const LEDGER_SWEEP_TICKS = 30
+/** Generic recovery; insert and deadline wakes do not wait for this sweep. */
+export const LEDGER_SWEEP_TICKS = 300
+/** Preserve the former reminder clock without doing a full remote sweep. */
+export const REMINDER_CHECK_TICKS = 30
 /**
  * How long the periodic sweep may leave a quiet target undriven (T-11680). A
  * target whose last periodic drive found nothing, and whose local state has not

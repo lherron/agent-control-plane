@@ -24,7 +24,7 @@ const RECONNECT_DELAY_MS = 250
  * when a lifecycle event rings the doorbell. This timer only bounds how long a
  * broker row with no lifecycle neighbour can wait.
  */
-const BROKER_IDLE_POLL_MS = 5_000
+const BROKER_IDLE_POLL_MS = 60_000
 /** One tool call rings a dozen lifecycle events; read the broker once for the burst. */
 const BROKER_RING_COALESCE_MS = 250
 
@@ -255,6 +255,9 @@ export function createSocketInjectionPort(
             if (interrupted) {
               interrupted = false
               onStreamState?.('resumed')
+              // A replacement daemon may have broker commits but no new
+              // lifecycle rows to replay. Catch up now, from the saved commit.
+              ringBroker()
             }
             // One long-lived follow stream. HRC replays `fromSeq` onward from
             // its ledger before going live, so a reconnect resumes at the

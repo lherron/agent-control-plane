@@ -22,6 +22,7 @@ import {
   LEDGER_SWEEP_TICKS,
   MAIL_DRIVE_TERMINAL_EVENTS,
   MAIL_KICKER_MAX_CONCURRENT_TARGET_DRIVES,
+  REMINDER_CHECK_TICKS,
   RUNTIME_TERMINAL_EVENTS,
   errorText,
   formatSessionRef,
@@ -31,6 +32,7 @@ import { disposeRuntimeObligations } from './terminal/disposal.js'
 import { failLapsedObligations } from './terminal/runtime-lapse.js'
 import { isRuntimeTerminal } from './terminal/runtime-status.js'
 import { chargeBirthSweepRefusal } from './wake/birth-retry.js'
+import { stopDeferredWakes } from './wake/deferred.js'
 import { runWrkqLedgerTail } from './wake/ledger-tail.js'
 import { recordPeriodicDrive } from './wake/quiet-targets.js'
 import { runMailKickerSweep } from './wake/sweep.js'
@@ -52,6 +54,7 @@ export class MailKicker implements MailKickerContext {
   mailKickerSweepTimer: ReturnType<typeof setInterval> | undefined
   mailKickerSweepInFlight: Promise<void> | undefined
   wrkqLedgerTailInFlight: Promise<void> | undefined
+  mailKickerDeferralWakeInFlight: Promise<void> | undefined
   mailKickerColdStartCatchupPending = false
   readonly mailKickerPendingTargets = new Map<string, HrcMailDriveWakeReason>()
   readonly mailKickerTargetOperations = new Map<string, Promise<void>>()
@@ -137,6 +140,15 @@ export class MailKicker implements MailKickerContext {
         this.log('WARN', 'wrkq.kicker.tail_tick_failed', { error: errorText(error) })
       })
       tick += 1
+      // Local deadline work stays on the short clock. This does no remote
+      // reads unless a reminder is actually due; inserts still wake directly.
+      if (tick % REMINDER_CHECK_TICKS === 0) {
+        for (const target of this.store.mailDelivery.listDueReminderTargets(
+          new Date().toISOString()
+        )) {
+          this.wake(target, 'periodic')
+        }
+      }
       if (tick % LEDGER_SWEEP_TICKS !== 0) return
       void this.runSweepOnce().catch((error: unknown) => {
         this.log('WARN', 'wrkq.kicker.periodic_sweep_failed', { error: errorText(error) })
@@ -149,6 +161,7 @@ export class MailKicker implements MailKickerContext {
     if (this.stopping) return
     this.stopping = true
     hrcFacts(this).detach()
+    void stopDeferredWakes(this)
     for (const waiter of this.targetDriveWaiters.splice(0)) waiter.resolve(false)
     await this.lifecycleUnsubscribe?.()
     this.lifecycleUnsubscribe = undefined
@@ -177,6 +190,7 @@ export class MailKicker implements MailKickerContext {
       const operations = [
         this.mailKickerSweepInFlight,
         this.wrkqLedgerTailInFlight,
+        this.mailKickerDeferralWakeInFlight,
         ...this.mailKickerTargetOperations.values(),
         ...this.mailKickerDisposalsPending,
         ...this.landingObserverOperations,
