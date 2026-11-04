@@ -121,6 +121,12 @@ export type EvaluationResult = {
   result?: Readonly<Record<string, unknown>> | undefined
 }
 
+export type TerminalRunStatus = 'completed' | 'failed' | 'cancelled'
+
+export function isTerminalRunStatus(status: string): status is TerminalRunStatus {
+  return status === 'completed' || status === 'failed' || status === 'cancelled'
+}
+
 /**
  * Map an ACP Run.status to the outcome enum used by expectations.
  *
@@ -128,7 +134,7 @@ export type EvaluationResult = {
  *   failed    → failed
  *   cancelled → cancelled
  */
-export function mapRunStatusToOutcome(status: 'completed' | 'failed' | 'cancelled'): RunOutcome {
+export function mapRunStatusToOutcome(status: TerminalRunStatus): RunOutcome {
   if (status === 'completed') return 'succeeded'
   return status
 }
