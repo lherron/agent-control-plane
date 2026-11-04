@@ -36,6 +36,7 @@ export function createC2ScopeClient(): C2ScopeClient {
   return new HrcClient({
     socketPath: resolveControlSocketPath(),
     userAgent: ACP_SERVER_USER_AGENT,
+    caller: 'acp-server:c2',
   })
 }
 

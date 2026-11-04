@@ -239,7 +239,7 @@ export async function execProcess(argv: string[]): Promise<{
     stdout: 'pipe',
     stderr: 'pipe',
     stdin: 'ignore',
-    env: { ...process.env },
+    env: { ...process.env, PRAESIDIUM_CALLER: 'acp-cli' },
   })
 
   const [stdout, stderr, exitCode] = await Promise.all([
@@ -474,6 +474,7 @@ async function startGatewayInProcess(
     dbLocator: options.wrkqDbLocator,
     principalRef: 'agent:gateway-discord',
     clientInfo: { name: 'gateway-discord', version: '0.1.0' },
+    env: { ...env, PRAESIDIUM_CALLER: 'acp-server:gateway-discord' },
   })
   const ledgerStore = openInterfaceStore({ dbPath: options.interfaceDbPath })
   const app = new GatewayDiscordApp({
@@ -593,7 +594,7 @@ async function daemonizeAndWait(args: readonly string[], timeoutMs = 5_000): Pro
       stdout: logFd,
       stderr: logFd,
       stdin: 'ignore',
-      env: { ...process.env },
+      env: { ...process.env, PRAESIDIUM_CALLER: 'acp-cli' },
     }
   )
 

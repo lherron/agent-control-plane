@@ -10,7 +10,7 @@
  * `route` template and the caller's `client` token (logging.md L3).
  */
 
-import { clientFromUserAgent, writeLogLine } from 'acp-core'
+import { callerFromHeader, clientFromUserAgent, writeLogLine } from 'acp-core'
 
 type LogLevel = 'info' | 'warn' | 'error'
 
@@ -26,6 +26,7 @@ export interface RequestLogContext {
   listener: string
   /** `<name>/<version>` from User-Agent, else `unknown`. */
   client: string
+  caller: string
   remote: string | undefined
   startedAt: number
   requestId?: string | undefined
@@ -57,6 +58,7 @@ export function startRequestLog(
     route: UNMATCHED_ROUTE,
     listener,
     client: clientFromUserAgent(request.headers.get('user-agent')),
+    caller: callerFromHeader(request.headers.get('x-praesidium-caller')),
     remote,
     startedAt: performance.now(),
   }
@@ -245,6 +247,7 @@ function identity(context: RequestLogContext): Record<string, unknown> {
     route: context.route,
     listener: context.listener,
     client: context.client,
+    caller: context.caller,
   }
 }
 

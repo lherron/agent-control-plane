@@ -279,8 +279,10 @@ export type { ParsedTaskId } from './task-id.js'
 export { errorFields, writeLogLine } from './log-line.js'
 export type { LogLevel, LogLineInput } from './log-line.js'
 export {
+  callerFromHeader,
   clientFromUserAgent,
   firstPartyFetch,
   firstPartyUserAgent,
+  resolveCaller,
   withUserAgent,
 } from './user-agent.js'

@@ -58,7 +58,7 @@ export function createTmuxClientProbe(
     const args = ['-S', socketPath, 'list-clients', '-t', attachTarget, '-F', '#{client_tty}']
     try {
       const proc = Bun.spawn([tmuxBin, ...args], {
-        env: process.env,
+        env: { ...process.env, PRAESIDIUM_CALLER: 'hrc-viewer' },
         stdout: 'pipe',
         stderr: 'pipe',
       })

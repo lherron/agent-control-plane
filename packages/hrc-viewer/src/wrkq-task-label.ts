@@ -77,7 +77,7 @@ export function parseTaskSlug(stdout: string): string | null {
 /** Default runner: spawn `wrkq cat <id> --json` with a bounded timeout. */
 async function defaultWrkqRunner(taskId: string): Promise<WrkqRunResult> {
   const proc = Bun.spawn(['wrkq', 'cat', taskId, '--json'], {
-    env: process.env,
+    env: { ...process.env, PRAESIDIUM_CALLER: 'hrc-viewer' },
     stdout: 'pipe',
     stderr: 'pipe',
     signal: AbortSignal.timeout(WRKQ_TIMEOUT_MS),
@@ -179,7 +179,7 @@ export function parseTaskTitles(stdout: string): Map<string, string> {
 /** Default batch runner: one `wrkq cat <ids...> --json` with a bounded timeout. */
 async function defaultWrkqBatchRunner(taskIds: readonly string[]): Promise<WrkqRunResult> {
   const proc = Bun.spawn(['wrkq', 'cat', ...taskIds, '--json'], {
-    env: process.env,
+    env: { ...process.env, PRAESIDIUM_CALLER: 'hrc-viewer' },
     stdout: 'pipe',
     stderr: 'pipe',
     signal: AbortSignal.timeout(WRKQ_TIMEOUT_MS),

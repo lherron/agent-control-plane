@@ -46,7 +46,7 @@ export function createGatewayIosModule(options: GatewayIosModuleOptions): Gatewa
         data: { host, port, gatewayId, hrcSocketPath: options.hrcSocketPath },
       })
 
-      const hrcClient = new HrcClient(options.hrcSocketPath)
+      const hrcClient = new HrcClient({ socketPath: options.hrcSocketPath, caller: 'gateway-ios' })
 
       const serveConfig = createGatewayIosServeConfig({
         hrcClient,

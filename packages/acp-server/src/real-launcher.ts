@@ -73,7 +73,12 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
   const hrcDbPath = options.hrcDbPath ?? resolveDatabasePath()
   const createClient =
     options.createClient ??
-    ((path: string) => new HrcClient({ socketPath: path, userAgent: ACP_SERVER_USER_AGENT }))
+    ((path: string) =>
+      new HrcClient({
+        socketPath: path,
+        userAgent: ACP_SERVER_USER_AGENT,
+        caller: 'acp-server:launcher',
+      }))
   const inputAttemptStore = options.inputAttemptStore
   const waitTimeoutMs = options.watchTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS
 

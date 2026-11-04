@@ -59,7 +59,11 @@ describe('createWrkfClientLifecycle — fail-closed startup', () => {
       expect(seen).toHaveLength(1)
       expect(seen[0]?.dbLocator).toBe('rpc://mini:7171')
       expect(seen[0]?.dbPath).toBeUndefined()
-      expect(seen[0]?.env).toBeUndefined()
+      expect(seen[0]?.env).toMatchObject({
+        PRAESIDIUM_CALLER: 'acp-server:wrkf',
+        WRKQD_TOKEN: 'inherited-token',
+        WRKQD_TOKEN_FILE: '/tmp/inherited-token-file',
+      })
       expect(process.env['WRKQD_TOKEN']).toBe('inherited-token')
       expect(process.env['WRKQD_TOKEN_FILE']).toBe('/tmp/inherited-token-file')
     } finally {

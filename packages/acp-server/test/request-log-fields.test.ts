@@ -103,7 +103,10 @@ describe('request line listener/route/client', () => {
   test('an exact route logs its path as the route template', async () => {
     await withListener(async (host) => {
       await fetch(`http://${host}/v1/conversation/threads`, {
-        headers: { 'user-agent': 'acp-cli/0.1.0 (darwin)' },
+        headers: {
+          'user-agent': 'acp-cli/0.1.0 (darwin)',
+          'x-praesidium-caller': 'cody@agent-control-plane:T-12515',
+        },
       })
     })
     const [line] = requestLines('/v1/conversation/threads')
@@ -114,8 +117,23 @@ describe('request line listener/route/client', () => {
       route: '/v1/conversation/threads',
       listener: 'main',
       client: 'acp-cli/0.1.0',
+      caller: 'cody@agent-control-plane:T-12515',
       remote: '127.0.0.1',
     })
+  })
+
+  test('invalid callers are logged as invalid without refusing requests', async () => {
+    await withListener(async (host) => {
+      for (const caller of ['', 'bad caller', 'x'.repeat(129), 'a,b']) {
+        const response = await fetch(`http://${host}/v1/mobile/health`, {
+          headers: { 'x-praesidium-caller': caller },
+        })
+        expect(response.ok).toBe(true)
+      }
+    })
+    const requests = requestLines('/v1/mobile/health')
+    expect(requests).toHaveLength(4)
+    expect(requests.map((line) => line.data['caller'])).toEqual(Array(4).fill('invalid'))
   })
 
   test('a param route logs the template, not the raw path', async () => {
@@ -132,6 +150,7 @@ describe('request line listener/route/client', () => {
       route: '/v1/runs/:runId',
       listener: 'main',
       client: 'gateway-discord/0.1.0',
+      caller: 'unknown',
       status: 404,
     })
   })
@@ -158,7 +177,7 @@ describe('request line listener/route/client', () => {
     const path = '/v1/sessions/hsid-log-1/events'
     await withListener(async (host) => {
       const response = await fetch(`http://${host}${path}?follow=false`, {
-        headers: { 'user-agent': 'acp-cli/0.1.0' },
+        headers: { 'user-agent': 'acp-cli/0.1.0', 'x-praesidium-caller': 'acp-server:jobs' },
       })
       expect(await response.text()).toContain('hsid-log-1')
     })
@@ -171,6 +190,7 @@ describe('request line listener/route/client', () => {
       route: '/v1/sessions/:sessionId/events',
       listener: 'main',
       client: 'acp-cli/0.1.0',
+      caller: 'acp-server:jobs',
     }
     expect(open?.data).toMatchObject(fields)
     expect(close.data).toMatchObject({ ...fields, outcome: 'end' })
@@ -180,7 +200,10 @@ describe('request line listener/route/client', () => {
     const path = '/v1/plugins/events'
     await withListener(async (host) => {
       const socket = new WebSocket(`ws://${host}${path}?after=now`, {
-        headers: { 'user-agent': 'gateway-discord/0.1.0' },
+        headers: {
+          'user-agent': 'gateway-discord/0.1.0',
+          'x-praesidium-caller': 'acp-server:gateway-discord',
+        },
       } as unknown as string[])
       await new Promise<void>((resolve, reject) => {
         socket.addEventListener('message', () => resolve(), { once: true })
@@ -198,6 +221,7 @@ describe('request line listener/route/client', () => {
       listener: 'main',
       client: 'gateway-discord/0.1.0',
       transport: 'websocket',
+      caller: 'acp-server:gateway-discord',
     }
     const open = requestLines(path).find((line) => line.event === 'http.stream.open')
     const close = requestLines(path).find((line) => line.event === 'http.stream.close')

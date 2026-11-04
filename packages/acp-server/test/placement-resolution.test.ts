@@ -23,6 +23,8 @@ async function withPlacementDaemon(
       if (request.method !== 'POST' || url.pathname !== '/v1/placements/resolve') {
         return new Response('not found', { status: 404 })
       }
+      expect(request.headers.get('user-agent')).toMatch(/^acp-server\//)
+      expect(request.headers.get('x-praesidium-caller')).toBe('acp-server:placement')
       const body = await request.json()
       seen.push(body)
       return handler(body)

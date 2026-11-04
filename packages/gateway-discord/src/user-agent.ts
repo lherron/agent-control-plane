@@ -6,4 +6,7 @@ export const GATEWAY_DISCORD_USER_AGENT = firstPartyUserAgent(
 )
 
 /** The default fetch for every gateway call into acp-server. */
-export const gatewayDiscordFetch = firstPartyFetch(GATEWAY_DISCORD_USER_AGENT)
+export const gatewayDiscordFetch = firstPartyFetch(
+  GATEWAY_DISCORD_USER_AGENT,
+  'acp-server:gateway-discord'
+)

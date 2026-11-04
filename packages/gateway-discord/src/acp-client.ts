@@ -31,7 +31,12 @@ export async function fetchDashboardSnapshotViaWebSocket(
   const timeoutMs = options?.timeoutMs ?? 5_000
 
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(wsUrl, { headers: { 'user-agent': GATEWAY_DISCORD_USER_AGENT } })
+    const ws = new WebSocket(wsUrl, {
+      headers: {
+        'user-agent': GATEWAY_DISCORD_USER_AGENT,
+        'x-praesidium-caller': 'acp-server:gateway-discord',
+      },
+    })
     let settled = false
     const timer = setTimeout(() => {
       if (settled) return

@@ -55,7 +55,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     command: 'wrkq',
     principalRef: config.principalRef,
     clientInfo: { name: 'acp-reconciler', version: '0.1.0' },
-    env: process.env,
+    env: { ...process.env, PRAESIDIUM_CALLER: 'acp-reconciler' },
   })
   try {
     const hrc = createHrcPort({ principalRef: config.principalRef })

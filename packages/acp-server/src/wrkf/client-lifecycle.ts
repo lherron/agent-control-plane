@@ -85,6 +85,7 @@ export async function createWrkfClientLifecycle(
       command: opts.command ?? process.env['WRKF_BIN'] ?? 'wrkf',
       dbLocator: dbLocator.trim(),
       clientInfo: opts.clientInfo,
+      env: { ...process.env, PRAESIDIUM_CALLER: 'acp-server:wrkf' },
       ...(opts.hookCatalogPath !== undefined ? { hookCatalogPath: opts.hookCatalogPath } : {}),
       // Principal-only caller attribution (T-05381): forward the launch principal
       // so wrkq/wrkf mutations carry `created_by_principal_ref`. wrkq now rejects

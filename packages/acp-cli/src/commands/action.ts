@@ -90,7 +90,7 @@ async function resolveTaskProjectId(taskId: string, deps: CommandDependencies): 
       : await createWrkqClient({
           command: 'wrkq',
           clientInfo: { name: 'acp-cli', version: '0.1.0' },
-          ...(deps.env !== undefined ? { env: deps.env } : {}),
+          env: { ...process.env, ...deps.env, PRAESIDIUM_CALLER: 'acp-cli' },
         })
 
   try {

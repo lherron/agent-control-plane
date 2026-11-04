@@ -607,7 +607,11 @@ export function resolveLauncherDeps(
     const createHrcClient =
       _options.createHrcClient ??
       ((socketPath: string) =>
-        new HrcClient({ socketPath, userAgent: ACP_SERVER_USER_AGENT }) as unknown as AcpHrcClient)
+        new HrcClient({
+          socketPath,
+          userAgent: ACP_SERVER_USER_AGENT,
+          caller: 'acp-server',
+        }) as unknown as AcpHrcClient)
     const socketPath = resolveControlSocketPath()
     const placementSocketOpts =
       _options.placementSocketPath !== undefined ? { socketPath: _options.placementSocketPath } : {}

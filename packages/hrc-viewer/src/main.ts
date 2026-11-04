@@ -19,7 +19,7 @@ const log: ViewerLog = (level, event, fields = {}) =>
 async function waitForClient(signal: AbortSignal): Promise<HrcClient> {
   while (!signal.aborted) {
     try {
-      return new HrcClient(discoverSocket())
+      return new HrcClient({ socketPath: discoverSocket(), caller: 'hrc-viewer' })
     } catch (error) {
       log('WARN', 'broker_headless_viewer.daemon_unavailable', {
         error: error instanceof Error ? error.message : String(error),

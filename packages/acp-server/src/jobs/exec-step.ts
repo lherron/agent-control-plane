@@ -77,6 +77,7 @@ function buildEnv(step: ExecFlowStep, policy: JobExecPolicy): NodeJS.ProcessEnv 
     env[key] = value
   }
 
+  env['PRAESIDIUM_CALLER'] = 'acp-server:jobs'
   return env
 }
 

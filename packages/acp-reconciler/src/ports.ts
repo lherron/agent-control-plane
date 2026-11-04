@@ -266,7 +266,9 @@ export function createHrcPort(
 ): Pick<ReconcilerReader, 'localNodeId' | 'holderLiveness' | 'workerValidity' | 'seatSession'> &
   Pick<ReconcilerWriter, 'startWorker'> {
   const socketPath = options.socketPath
-  const client = options.client ?? new HrcClient(socketPath ?? discoverSocket())
+  const client =
+    options.client ??
+    new HrcClient({ socketPath: socketPath ?? discoverSocket(), caller: 'acp-reconciler' })
   return {
     async localNodeId() {
       const status = await client.getStatus({ includeSessions: false })

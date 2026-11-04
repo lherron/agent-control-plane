@@ -666,7 +666,11 @@ function selectSplitDirection(surface: GhostmuxSurfaceState): GhostmuxSplitDirec
  * reaches session-report, so no command can be injected into an old harness.
  */
 async function interruptViewerAttachment(surfaceId: string): Promise<void> {
-  const ps = Bun.spawn(['ps', '-axo', 'pid=,pgid=,command='], { stdout: 'pipe', stderr: 'pipe' })
+  const ps = Bun.spawn(['ps', '-axo', 'pid=,pgid=,command='], {
+    env: { ...process.env, PRAESIDIUM_CALLER: 'hrc-viewer' },
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
   const listing = await new Response(ps.stdout).text()
   if ((await ps.exited) !== 0) throw new Error('Unable to inspect viewer attachment processes')
   for (const line of listing.split('\n')) {
@@ -678,6 +682,7 @@ async function interruptViewerAttachment(surfaceId: string): Promise<void> {
     if (!report && !attach) continue
     const pid = Number(match[1])
     const env = Bun.spawn(['ps', 'eww', '-p', String(pid), '-o', 'command='], {
+      env: { ...process.env, PRAESIDIUM_CALLER: 'hrc-viewer' },
       stdout: 'pipe',
       stderr: 'pipe',
     })
@@ -1726,7 +1731,7 @@ export class GhostmuxManager {
     }
 
     const proc = Bun.spawn([this.ghostmuxBinary, ...args], {
-      env: process.env,
+      env: { ...process.env, PRAESIDIUM_CALLER: 'hrc-viewer' },
       stdout: 'pipe',
       stderr: 'pipe',
     })

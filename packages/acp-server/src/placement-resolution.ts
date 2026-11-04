@@ -6,6 +6,8 @@ import {
   resolveControlSocketPath,
 } from 'hrc-core'
 
+import { ACP_SERVER_USER_AGENT } from './user-agent.js'
+
 /**
  * T-08598: daemon-backed scope placement resolution (`POST
  * /v1/placements/resolve`, T-08597) and run preview (`POST /v1/previews/run`).
@@ -151,7 +153,11 @@ async function postDaemonJson(
   try {
     res = await fetch(`http://localhost${route.path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': ACP_SERVER_USER_AGENT,
+        'X-Praesidium-Caller': 'acp-server:placement',
+      },
       body: JSON.stringify(input),
       unix: socketPath,
     } as BunRequestInit)
