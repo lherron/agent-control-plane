@@ -54,6 +54,7 @@ function makeHarness(input?: {
   taskTitles?: Record<string, string>
   /** Force the batched title read to fail, as a deleted id or a missing wrkq does. */
   titleReadFails?: boolean
+  clients?: readonly string[]
 }) {
   const rows = input?.rows ?? []
   const panes = input?.panes ?? []
@@ -61,6 +62,8 @@ function makeHarness(input?: {
   const ensureCalls: Array<Record<string, unknown>> = []
   const rebindCalls: Array<Record<string, unknown>> = []
   const titleCalls: Array<{ surfaceId: string; title: string }> = []
+  const terminalTitleCalls: Array<{ surfaceId: string; title: string }> = []
+  const backgroundCalls: Array<{ surfaceId: string; hex: string }> = []
   const statusCalls: Array<{ surfaceId: string; right: string }> = []
   const secondaryCalls: Array<{ surfaceId: string; left: string; center: string; right: string }> =
     []
@@ -69,6 +72,7 @@ function makeHarness(input?: {
   const reapCalls: Array<{ surfaceId: string; runtimeId: string }> = []
   const scheduled: Array<() => void> = []
   const logs: Array<{ event: string; fields: Record<string, unknown> }> = []
+  const reads = { presentation: 0, latest: 0 }
   const client = {
     async health() {
       return { ok: true }
@@ -78,9 +82,11 @@ function makeHarness(input?: {
     },
     async *watchBoundedEvents() {},
     async listLatestEventBySession() {
+      reads.latest += 1
       return latest
     },
     async listPresentationRuntimes() {
+      reads.presentation += 1
       return { ok: true as const, runtimes: rows }
     },
   } as unknown as HrcViewerClient
@@ -100,6 +106,12 @@ function makeHarness(input?: {
     },
     async setHeadlessViewerTitle(surfaceId, title) {
       titleCalls.push({ surfaceId, title })
+    },
+    async setTerminalTitle(surfaceId, title) {
+      terminalTitleCalls.push({ surfaceId, title })
+    },
+    async setTerminalBackground(surfaceId, hex) {
+      backgroundCalls.push({ surfaceId, hex })
     },
     async setStatusBar(surfaceId, spec) {
       statusCalls.push({ surfaceId, right: spec.right })
@@ -127,6 +139,7 @@ function makeHarness(input?: {
       return {} as ReturnType<typeof setTimeout>
     },
     clearScheduled() {},
+    probeTmuxClients: async () => input?.clients ?? [],
     async readTaskTitles(taskIds) {
       titleReads.push([...taskIds])
       if (input?.titleReadFails === true) return new Map()
@@ -140,9 +153,12 @@ function makeHarness(input?: {
   })
   return {
     viewer,
+    reads,
     ensureCalls,
     rebindCalls,
     titleCalls,
+    terminalTitleCalls,
+    backgroundCalls,
     statusCalls,
     secondaryCalls,
     secondaryHides,
@@ -524,5 +540,164 @@ describe('HrcViewer secondary status bar (T-08331)', () => {
     })
     await harness.viewer.reconcile('start')
     expect(harness.secondaryHides).toContain('surface-orphan')
+  })
+})
+
+describe('T-12511 retained presentation', () => {
+  test('bootstrap reads once and lifecycle flushes reuse the retained row', async () => {
+    const harness = makeHarness({ rows: [presentationRow()] })
+    await harness.viewer.reconcile('start')
+    expect(harness.reads).toEqual({ presentation: 1, latest: 1 })
+    await harness.viewer.handleEvent(event('turn.started'))
+    await Bun.sleep(175)
+    expect(harness.reads).toEqual({ presentation: 1, latest: 1 })
+  })
+
+  test('a presentation event updates only its runtime without a fleet read', async () => {
+    const harness = makeHarness({
+      rows: [presentationRow(), presentationRow({ runtimeId: 'rt-2' })],
+    })
+    await harness.viewer.reconcile('start')
+    const before = harness.ensureCalls.length
+    await harness.viewer.handleEvent(
+      event('runtime.presentation', {
+        payload: {
+          invocation: { operatorAttachPending: false },
+          presentation: { operatorAttachable: true, viewerRequested: true },
+          tmux: { socketPath: '/tmp/new.sock', attachTarget: 'new:tui' },
+          title: 'Updated title',
+        },
+      })
+    )
+    expect(harness.ensureCalls.slice(before)).toHaveLength(1)
+    expect(harness.ensureCalls.at(-1)).toMatchObject({
+      runtimeId: 'rt-1',
+      attachTarget: { socketPath: '/tmp/new.sock' },
+    })
+    expect(harness.titleCalls.at(-1)?.title).toBe('Updated title')
+    expect(harness.reads).toEqual({ presentation: 1, latest: 1 })
+  })
+
+  test('metadata applies and clears resolved values without rereading the fleet', async () => {
+    const harness = makeHarness({
+      rows: [presentationRow()],
+      panes: [{ surfaceId: 'pane', runtimeId: 'rt-1', hostSessionId: 'hs-1', generation: 1 }],
+    })
+    await harness.viewer.reconcile('start')
+    const originalTitle = harness.titleCalls.at(-1)?.title
+    for (const resolved of [{ value: 'Live title', source: 'api' }, null]) {
+      await harness.viewer.handleEvent(
+        event('session.metadata.changed', { payload: { key: 'title', resolved } })
+      )
+    }
+    expect(harness.reads).toEqual({ presentation: 1, latest: 1 })
+    expect(harness.titleCalls.map((call) => call.title)).toEqual([
+      originalTitle,
+      'Live title',
+      originalTitle,
+    ])
+  })
+
+  test('surface changes and terminal reaping reuse retained state without recreating panes', async () => {
+    const harness = makeHarness({
+      rows: [presentationRow()],
+      panes: [{ surfaceId: 'pane', runtimeId: 'rt-1', hostSessionId: 'hs-1', generation: 1 }],
+    })
+    await harness.viewer.reconcile('start')
+    for (const eventKind of [
+      'surface.bound',
+      'surface.rebound',
+      'surface.unbound',
+      'runtime.terminated',
+      'surface.bound',
+    ]) {
+      await harness.viewer.handleEvent(
+        event(eventKind, {
+          payload: { surfaceKind: 'ghostty', surfaceId: 'operator', clientTty: '/dev/test' },
+        })
+      )
+    }
+    expect(harness.ensureCalls).toHaveLength(0)
+    expect(harness.scheduled).toHaveLength(1)
+    expect(harness.reads).toEqual({ presentation: 1, latest: 1 })
+  })
+
+  test('a missing referenced runtime still triggers full recovery', async () => {
+    const rows = [presentationRow()]
+    const harness = makeHarness({ rows })
+    await harness.viewer.reconcile('start')
+    rows.push(presentationRow({ runtimeId: 'rt-new' }))
+    await harness.viewer.handleEvent(event('turn.started', { runtimeId: 'rt-new' }))
+    await Bun.sleep(175)
+    expect(harness.reads).toEqual({ presentation: 2, latest: 2 })
+  })
+})
+
+describe('T-12511 retained action fences', () => {
+  test('a dormant wake respects a later presentation veto', async () => {
+    const harness = makeHarness({
+      rows: [presentationRow({ status: 'ready' })],
+      latest: [event('turn.completed', { ts: '2026-08-25T23:59:00.000Z' })],
+    })
+    await harness.viewer.reconcile('start')
+    await harness.viewer.handleEvent(
+      event('runtime.presentation', {
+        payload: {
+          invocation: { operatorAttachPending: true },
+          presentation: { operatorAttachable: true, viewerRequested: false },
+          tmux: { socketPath: '/tmp/viewer.sock', attachTarget: 'viewer:tui' },
+        },
+      })
+    )
+    await harness.viewer.handleEvent(event('turn.started'))
+    expect(harness.ensureCalls).toHaveLength(0)
+    expect(harness.reads).toEqual({ presentation: 1, latest: 1 })
+  })
+
+  test('streamed surface ownership and nested metadata reach only the current live TTY', async () => {
+    const harness = makeHarness({
+      rows: [presentationRow(), presentationRow({ runtimeId: 'rt-2' })],
+      clients: ['/dev/live'],
+      panes: [
+        { surfaceId: 'pane1', runtimeId: 'rt-1', hostSessionId: 'hs-1', generation: 1 },
+        { surfaceId: 'pane2', runtimeId: 'rt-2', hostSessionId: 'hs-1', generation: 1 },
+      ],
+    })
+    await harness.viewer.reconcile('start')
+    const surface = { surfaceKind: 'ghostty', surfaceId: 'operator', clientTty: '/dev/live' }
+    await harness.viewer.handleEvent(event('surface.bound', { payload: surface }))
+    expect(harness.terminalTitleCalls).toHaveLength(1)
+    await harness.viewer.handleEvent(
+      event('surface.rebound', {
+        runtimeId: 'rt-2',
+        payload: { ...surface, previousRuntimeId: 'rt-1' },
+      })
+    )
+    expect(harness.terminalTitleCalls).toHaveLength(2)
+    await harness.viewer.handleEvent(
+      event('runtime.presentation', {
+        payload: {
+          invocation: { operatorAttachPending: false },
+          presentation: { operatorAttachable: true, viewerRequested: true },
+          tmux: { socketPath: '/tmp/viewer.sock', attachTarget: 'viewer:tui' },
+        },
+      })
+    )
+    expect(harness.terminalTitleCalls).toHaveLength(2)
+    await harness.viewer.handleEvent(
+      event('surface.unbound', { runtimeId: 'rt-2', payload: surface })
+    )
+    expect(harness.terminalTitleCalls).toHaveLength(2)
+    await harness.viewer.handleEvent(
+      event('session.metadata.changed', {
+        payload: { key: 'appearance.terminalBg', resolved: { value: '#123456', source: 'api' } },
+      })
+    )
+    expect(harness.backgroundCalls.slice(-2).map((call) => call.hex)).toEqual([
+      '#123456',
+      '#123456',
+    ])
+    expect(harness.terminalTitleCalls).toHaveLength(2)
+    expect(harness.reads).toEqual({ presentation: 1, latest: 1 })
   })
 })

@@ -156,7 +156,7 @@ const DEFAULT_LINGER_SECONDS = 300
  * exit as the backstop for when the viewer is not running at all.
  */
 const REAP_HANDOFF_MARGIN_SECONDS = 15
-const DEFAULT_RECONCILE_INTERVAL_MS = 5 * 60 * 1_000
+const DEFAULT_RECONCILE_INTERVAL_MS = 15 * 60 * 1_000
 /**
  * A seat idle longer than this is dormant: reconcile mints no pane for it, so a
  * viewer restart does not reopen every seat that ran in the last few days. Its
@@ -267,7 +267,7 @@ function latestByRuntime(events: LifecycleEvent[]): Map<string, LifecycleEvent> 
   return map
 }
 
-/** Event-driven, stateless presentation projection described by sidecar law §4. */
+/** Event-driven presentation projection described by sidecar law §4. */
 export class HrcViewer {
   private readonly client: HrcViewerClient
   private readonly ghostmux: ViewerGhostmux
@@ -283,6 +283,11 @@ export class HrcViewer {
   private readonly absentSince = new Map<string, number>()
   /** Runtimes reconcile declined to attach because they were dormant. */
   private readonly dormantRuntimeIds = new Set<string>()
+  /** Store-only snapshot, advanced by the bounded event stream between repairs. */
+  private readonly presentationRows = new Map<string, PresentationRuntimeRow>()
+  private readonly latestEvents = new Map<string, LifecycleEvent>()
+  private readonly missingRuntimeIds = new Set<string>()
+  private snapshotRevision = 0
   private reconcileInFlight: Promise<void> | undefined
   private stopped = false
   private readonly statusProjector: HeadlessViewerStatusProjector
@@ -399,19 +404,37 @@ export class HrcViewer {
   }
 
   async handleEvent(event: LifecycleEvent): Promise<void> {
-    this.statusProjector.observe(event)
-    if (
-      event.runtimeId !== undefined &&
-      this.dormantRuntimeIds.has(event.runtimeId) &&
-      viewerStateForEventKind(event.eventKind) === 'running'
-    ) {
-      this.dormantRuntimeIds.delete(event.runtimeId)
-      await this.reconcile('dormant_woke')
+    // A pending repair owns the snapshot until it has finished painting it.
+    // Fold streamed changes afterwards so the response cannot erase them.
+    await this.reconcileInFlight
+    if (event.runtimeId !== undefined) this.missingRuntimeIds.delete(event.runtimeId)
+    if (event.eventKind === 'session.metadata.changed') {
+      await this.handleMetadataEvent(event)
       return
     }
-    if (event.eventKind === 'session.metadata.changed') {
-      await this.reconcile('stream_reset')
+    if (event.eventKind.startsWith('surface.')) {
+      await this.handleSurfaceEvent(event)
       return
+    }
+    const state = viewerStateForEventKind(event.eventKind)
+    if (event.runtimeId !== undefined && state !== null) {
+      const row = await this.currentPresentationRuntime(event.runtimeId)
+      const previous = this.latestEvents.get(event.runtimeId)
+      if (previous !== undefined && TERMINAL_EVENT_KINDS.has(previous.eventKind)) return
+      this.latestEvents.set(event.runtimeId, event)
+      if (row !== undefined) {
+        row.status = state === 'exited' ? 'terminated' : state === 'idle' ? 'ready' : 'busy'
+      }
+      this.statusProjector.observe(event)
+      if (
+        state === 'running' &&
+        this.dormantRuntimeIds.delete(event.runtimeId) &&
+        row?.presentation?.viewerRequested === true &&
+        row.presentation.operatorAttachable === true
+      ) {
+        await this.ensurePane(row, event)
+        return
+      }
     }
 
     if (event.eventKind === 'runtime.presentation') {
@@ -490,6 +513,54 @@ export class HrcViewer {
     const payload = asRecord(event.payload)
     const invocation = asRecord(payload['invocation'])
     const presentation = asRecord(payload['presentation'])
+    const tmux = asRecord(payload['tmux'])
+    const socketPath = typeof tmux['socketPath'] === 'string' ? tmux['socketPath'] : undefined
+    const attachTarget = typeof tmux['attachTarget'] === 'string' ? tmux['attachTarget'] : undefined
+    const hrcpty = asHrcptyPresentation(payload['hrcpty'])
+    const current =
+      event.runtimeId === undefined
+        ? undefined
+        : await this.currentPresentationRuntime(event.runtimeId)
+    const previous =
+      event.runtimeId === undefined ? undefined : this.latestEvents.get(event.runtimeId)
+    if (previous !== undefined && TERMINAL_EVENT_KINDS.has(previous.eventKind)) return
+    const attach =
+      socketPath !== undefined && attachTarget !== undefined
+        ? { tmux: { socketPath, attachTarget } }
+        : hrcpty !== undefined
+          ? { hrcpty }
+          : undefined
+    // Persisted decision, including suppressed invocations. Only the create
+    // below is vetoed by operatorAttachPending, never the retained projection.
+    const row: PresentationRuntimeRow | undefined =
+      event.runtimeId === undefined
+        ? undefined
+        : {
+            ...current,
+            identity: current?.identity ?? event.identity,
+            operatorSurfaces: current?.operatorSurfaces ?? [],
+            runtimeId: event.runtimeId,
+            hostSessionId: event.hostSessionId,
+            scopeRef: event.scopeRef,
+            laneRef: normalizePresentationLaneRef(event.laneRef),
+            generation: event.generation,
+            status: current?.status ?? 'busy',
+            presentation: {
+              operatorAttachable: presentation['operatorAttachable'] === true,
+              viewerRequested: presentation['viewerRequested'] === true,
+              ...(typeof presentation['viewerWindow'] === 'string'
+                ? { viewerWindow: presentation['viewerWindow'] }
+                : {}),
+            },
+            tmux: undefined,
+            hrcpty: undefined,
+            ...attach,
+            title: typeof payload['title'] === 'string' ? payload['title'] : undefined,
+          }
+    if (row !== undefined) {
+      this.presentationRows.set(row.runtimeId, row)
+      this.missingRuntimeIds.delete(row.runtimeId)
+    }
     if (invocation['operatorAttachPending'] === true) {
       this.log('INFO', 'broker_headless_viewer.skipped_operator_attach_pending', {
         runtimeId: event.runtimeId,
@@ -504,44 +575,14 @@ export class HrcViewer {
       })
       return
     }
-    const tmux = asRecord(payload['tmux'])
-    const socketPath = typeof tmux['socketPath'] === 'string' ? tmux['socketPath'] : undefined
-    const attachTarget = typeof tmux['attachTarget'] === 'string' ? tmux['attachTarget'] : undefined
-    const hrcpty = asHrcptyPresentation(payload['hrcpty'])
-    const attach =
-      socketPath !== undefined && attachTarget !== undefined
-        ? { tmux: { socketPath, attachTarget } }
-        : hrcpty !== undefined
-          ? { hrcpty }
-          : undefined
-    if (event.runtimeId === undefined || attach === undefined) {
+    if (row === undefined || attach === undefined) {
       this.log('INFO', 'broker_headless_viewer.skipped_no_socket', {
         runtimeId: event.runtimeId,
         scopeRef: event.scopeRef,
       })
       return
     }
-    const current = await this.currentPresentationRuntime(event.runtimeId)
-    await this.ensurePane({
-      ...current,
-      identity: current?.identity ?? event.identity,
-      operatorSurfaces: current?.operatorSurfaces ?? [],
-      runtimeId: event.runtimeId,
-      hostSessionId: event.hostSessionId,
-      scopeRef: event.scopeRef,
-      laneRef: normalizePresentationLaneRef(event.laneRef),
-      generation: event.generation,
-      status: 'busy',
-      presentation: {
-        operatorAttachable: true,
-        viewerRequested: presentation['viewerRequested'] === true,
-        ...(typeof presentation['viewerWindow'] === 'string'
-          ? { viewerWindow: presentation['viewerWindow'] }
-          : {}),
-      },
-      ...attach,
-      ...(typeof payload['title'] === 'string' ? { title: payload['title'] } : {}),
-    })
+    await this.ensurePane(row, previous)
   }
 
   private async reconcileOnce(reason: string): Promise<void> {
@@ -551,7 +592,15 @@ export class HrcViewer {
         this.client.listLatestEventBySession(),
         this.ghostmux.listHeadlessViewerPanes(),
       ])
-      const rows = response.runtimes
+      const rows = response.runtimes.map((row) => structuredClone(row))
+      this.snapshotRevision += 1
+      this.presentationRows.clear()
+      this.missingRuntimeIds.clear()
+      for (const row of rows) this.presentationRows.set(row.runtimeId, row)
+      this.latestEvents.clear()
+      for (const event of latest) {
+        if (event.runtimeId !== undefined) this.latestEvents.set(event.runtimeId, event)
+      }
       const rowsByRuntime = new Map(rows.map((row) => [row.runtimeId, row]))
       const rowsByPaneKey = new Map(rows.map((row) => [paneKeyFor(row), row]))
       const eventsByRuntime = latestByRuntime(latest)
@@ -739,20 +788,114 @@ export class HrcViewer {
     )
   }
 
-  /**
-   * Read the latest store-only presentation row. A missing/newer server field
-   * produces no operator targets, which is the required safe degradation.
-   */
+  /** Missing references retain the existing full recovery, once per snapshot. */
   private async currentPresentationRuntime(
     runtimeId: string
   ): Promise<PresentationRuntimeRow | undefined> {
-    try {
-      const response = await this.client.listPresentationRuntimes()
-      return response.runtimes.find((row) => row.runtimeId === runtimeId)
-    } catch (error) {
-      this.warn('broker_headless_viewer.presentation_read_failed', error, { runtimeId })
-      return undefined
+    const row = this.presentationRows.get(runtimeId)
+    if (row !== undefined) return row
+    if (this.missingRuntimeIds.has(runtimeId)) return undefined
+    const latest = this.latestEvents.get(runtimeId)
+    if (latest !== undefined && TERMINAL_EVENT_KINDS.has(latest.eventKind)) return undefined
+    const revision = this.snapshotRevision
+    if (revision === 0) {
+      // handleEvent is also a standalone entry point. Before run's bootstrap,
+      // keep its store-only lookup semantics; do not create unrelated panes.
+      try {
+        const response = await this.client.listPresentationRuntimes()
+        for (const candidate of response.runtimes) {
+          this.presentationRows.set(candidate.runtimeId, structuredClone(candidate))
+        }
+        this.snapshotRevision += 1
+      } catch (error) {
+        this.warn('broker_headless_viewer.presentation_read_failed', error, { runtimeId })
+      }
+    } else {
+      await this.reconcile('stream_reset')
     }
+    const recovered = this.presentationRows.get(runtimeId)
+    if (recovered === undefined && this.snapshotRevision !== revision) {
+      this.missingRuntimeIds.add(runtimeId)
+    }
+    return recovered
+  }
+
+  private async repaintRuntime(row: PresentationRuntimeRow): Promise<void> {
+    const latest = this.latestEvents.get(row.runtimeId)
+    if (latest !== undefined && TERMINAL_EVENT_KINDS.has(latest.eventKind)) return
+    const surfaceId = await this.ghostmux.findHeadlessViewerSurfaceByRuntimeId(row.runtimeId)
+    await this.paintPresentationSurfaces(surfaceId, row, latest)
+  }
+
+  private async handleMetadataEvent(event: LifecycleEvent): Promise<void> {
+    const payload = asRecord(event.payload)
+    const key = payload['key']
+    if (
+      typeof key !== 'string' ||
+      !/^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*){0,3}$/.test(key) ||
+      key.split('.').some((part) => part === 'constructor' || part === 'prototype') ||
+      !Object.hasOwn(payload, 'resolved')
+    ) {
+      await this.reconcile('stream_reset')
+      return
+    }
+    const rows = [...this.presentationRows.values()].filter(
+      (row) =>
+        row.scopeRef === event.scopeRef &&
+        normalizePresentationLaneRef(row.laneRef) === normalizePresentationLaneRef(event.laneRef)
+    )
+    if (rows.length === 0) {
+      await this.reconcile('stream_reset')
+      return
+    }
+    const resolved = payload['resolved']
+    if (resolved !== null && !Object.hasOwn(asRecord(resolved), 'value')) {
+      await this.reconcile('stream_reset')
+      return
+    }
+    for (const row of rows) {
+      const metadata = structuredClone(row.metadata ?? {})
+      let target: Record<string, unknown> = metadata
+      const parts = key.split('.')
+      for (const part of parts.slice(0, -1)) {
+        const child = { ...asRecord(target[part]) }
+        target[part] = child
+        target = child
+      }
+      const leaf = parts[parts.length - 1]
+      if (leaf === undefined) continue
+      if (resolved === null) delete target[leaf]
+      else target[leaf] = asRecord(resolved)['value']
+      row.metadata = metadata
+      if (key === 'title') {
+        if (typeof metadata.title === 'string') row.title = metadata.title
+        else row.title = undefined
+      }
+      await this.repaintRuntime(row)
+    }
+  }
+
+  private async handleSurfaceEvent(event: LifecycleEvent): Promise<void> {
+    if (!['surface.bound', 'surface.rebound', 'surface.unbound'].includes(event.eventKind)) return
+    const payload = asRecord(event.payload)
+    if (payload['surfaceKind'] !== 'ghostty') return
+    const surfaceId = payload['surfaceId']
+    if (typeof surfaceId !== 'string' || event.runtimeId === undefined) {
+      await this.reconcile('stream_reset')
+      return
+    }
+    const row = await this.currentPresentationRuntime(event.runtimeId)
+    // A rebound changes ownership even if the destination runtime is missing.
+    for (const retained of this.presentationRows.values()) {
+      retained.operatorSurfaces = (retained.operatorSurfaces ?? []).filter(
+        (surface) => surface.surfaceId !== surfaceId
+      )
+    }
+    if (row === undefined) return
+    if (event.eventKind !== 'surface.unbound' && typeof payload['clientTty'] === 'string') {
+      row.operatorSurfaces.push({ surfaceId, clientTty: payload['clientTty'] })
+    }
+    await this.repaintRuntime(row)
   }
 
   /**
@@ -799,7 +942,7 @@ export class HrcViewer {
     ]
   }
 
-  /** Fresh row lookup at lifecycle flush time prevents stale operator writes. */
+  /** Retained binding plus a fresh exact-TTY probe fences lifecycle writes. */
   private async resolveStatusSurfaceIds(runtimeId: string): Promise<readonly string[]> {
     let paneSurfaceId: string | null = null
     try {
