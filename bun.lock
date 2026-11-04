@@ -851,7 +851,7 @@
 
     "@vladfrangu/async_event_emitter": ["@vladfrangu/async_event_emitter@2.4.7", "http://mini:4873/@vladfrangu/async_event_emitter/-/async_event_emitter-2.4.7.tgz", {}, "sha512-Xfe6rpCTxSxfbswi/W/Pz7zp1WWSNn4A0eW4mLkQUewCrXXtMj31lCg+iQyTkh/CkusZSq9eDflu7tjEDXUY6g=="],
 
-    "@wrkq/client": ["@wrkq/client@0.1.0-dev.20261103214643", "http://mini:4873/@wrkq/client/-/client-0.1.0-dev.20261103214643.tgz", {}, "sha512-1tsutuHR3eU3gkQxTgLDt4KpYckq3DNyUkHuYR3Z3N9JRsoAkBaKYWfoBtbIIQzQNXBa9qdY7UFFHogvzQ6p3Q=="],
+    "@wrkq/client": ["@wrkq/client@0.1.0-dev.20261104155602", "http://mini:4873/@wrkq/client/-/client-0.1.0-dev.20261104155602.tgz", {}, "sha512-L6OSoS+EtdwlVxEBg7eq5jnLs0xJhBM2PbYSzhHILlIw550Ns/k6pedVy6c/6dFaJvBe774K23zxUNaLBquLmw=="],
 
     "acp-admin-store": ["acp-admin-store@workspace:packages/acp-admin-store"],
 
@@ -1496,8 +1496,6 @@
     "cliui/strip-ansi": ["strip-ansi@6.0.1", "http://mini:4873/strip-ansi/-/strip-ansi-6.0.1.tgz", { "dependencies": { "ansi-regex": "^5.0.1" } }, "sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A=="],
 
     "hrc-events/diff": ["diff@7.0.0", "http://mini:4873/diff/-/diff-7.0.0.tgz", {}, "sha512-PJWHUb1RFevKCwaFA9RlG5tCd+FO5iRh9A8HEtkmBH2Li03iJriB6m6JIN4rGz3K3JLawI7/veA1xzRKP6ISBw=="],
-
-    "hrc-mail-injector/@wrkq/client": ["@wrkq/client@0.1.0-dev.20261104075654", "http://mini:4873/@wrkq/client/-/client-0.1.0-dev.20261104075654.tgz", {}, "sha512-SQaAFhPskDgLHAYYM2svZkkbotKXLJt2xRIZehX/7/oI7KXx9BL1sPQNT1r2mu6pTCLzhNrdOcD/Ayzh3UzY6Q=="],
 
     "node-fetch/data-uri-to-buffer": ["data-uri-to-buffer@4.0.1", "http://mini:4873/data-uri-to-buffer/-/data-uri-to-buffer-4.0.1.tgz", {}, "sha512-0R9ikRb668HB7QDxT1vkpuUBtqc53YyAwMwGeUFKRojY/NWKvdZ+9UYtRfGmhqNbRkTSVpMbmyhXipFFv2cb/A=="],
 
