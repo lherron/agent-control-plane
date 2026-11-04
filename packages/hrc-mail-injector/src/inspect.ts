@@ -96,10 +96,13 @@ export async function inspectMailEnvelope(input: {
   }
 
   let ledger: LedgerRead
+  const client = createWrkqLedger()
   try {
-    ledger = { ok: true, envelope: await createWrkqLedger().envelopeShow({ envelope: envelopeId }) }
+    ledger = { ok: true, envelope: await client.envelopeShow({ envelope: envelopeId }) }
   } catch (error) {
     ledger = { ok: false, error: error instanceof Error ? error.message : String(error) }
+  } finally {
+    await client.close()
   }
 
   const local = presentations.map((presentation) => ({

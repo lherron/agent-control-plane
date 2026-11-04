@@ -54,7 +54,7 @@ describe('hrc-mail-injector inspect', () => {
       await writeFile(
         fakeWrkq,
         `#!/usr/bin/env bun
-const frames = (await new Response(Bun.stdin.stream()).text()).trim().split('\\n').map(JSON.parse)
+import { createInterface } from 'node:readline'
 const state = process.env.INSPECT_LEDGER_STATE ?? 'presented'
 const terminal = state === 'acked'
 const envelope = {
@@ -63,8 +63,11 @@ const envelope = {
   delivery: 'queue', body: 'inspect fixture', state, terminal, presentedTo: [{ memberRef: 'agent:cody', runtimeId: 'rt-held', presentedAt: new Date().toISOString() }],
   createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
 }
-process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: frames[0].id, result: { protocolVersion: '2026-06-30' } }) + '\\n')
-process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: frames[1].id, result: envelope }) + '\\n')
+for await (const line of createInterface({ input: process.stdin })) {
+  const frame = JSON.parse(line)
+  const result = frame.method === 'wrkq.envelope.show' ? envelope : {}
+  console.log(JSON.stringify({ jsonrpc: '2.0', id: frame.id, result }))
+}
 `
       )
       await chmod(fakeWrkq, 0o755)
@@ -110,6 +113,7 @@ process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: frames[1].id, result: 
     const statePath = join(directory, 'injector.sqlite')
     const ledgerPath = join(directory, 'wrkq.db')
     const originalLedgerPath = process.env['HRC_WRKQ_DB']
+    let ledger: ReturnType<typeof createWrkqLedger> | undefined
     const targetSessionRef = 'cody@inbox:T-00001'
     const db = openInjectorStateStore(statePath)
     try {
@@ -156,7 +160,7 @@ process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: frames[1].id, result: 
       ])
       expect(created.envelopes[0]?.id).toBe('EN-00001')
       process.env['HRC_WRKQ_DB'] = ledgerPath
-      const ledger = createWrkqLedger()
+      ledger = createWrkqLedger()
       await ledger.present({
         envelope: 'EN-00001',
         memberRef: targetSessionRef,
@@ -191,6 +195,7 @@ process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: frames[1].id, result: 
         verdict: { code: 'ledger_terminal', line: 'ledger terminal: reply' },
       })
     } finally {
+      await ledger?.close()
       try {
         db.close()
       } catch {

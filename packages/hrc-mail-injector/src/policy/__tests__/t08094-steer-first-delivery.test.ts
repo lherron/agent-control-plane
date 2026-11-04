@@ -972,6 +972,7 @@ describe('D3 — disposal is keyed by runtime and ledger sequence', () => {
     const directory = await mkdtemp(join(tmpdir(), 't08642-real-wrkq-'))
     const ledgerPath = join(directory, 'wrkq.db')
     const originalLedgerPath = process.env['HRC_WRKQ_DB']
+    let realLedger: ReturnType<typeof createWrkqLedger> | undefined
     const targetSessionRef = 'cody@inbox:T-00001'
     const disposeRealAt = async (seq: number) => {
       disposeRuntimeObligations(context, {
@@ -1001,7 +1002,7 @@ describe('D3 — disposal is keyed by runtime and ledger sequence', () => {
         'agent:astra',
       ])
       process.env['HRC_WRKQ_DB'] = ledgerPath
-      const realLedger = createWrkqLedger()
+      realLedger = createWrkqLedger()
       context.ledger = realLedger
 
       for (const resolution of ['reply', 'defer', 'operator_ack'] as const) {
@@ -1144,6 +1145,7 @@ describe('D3 — disposal is keyed by runtime and ledger sequence', () => {
         ).toHaveLength(1)
       }
     } finally {
+      await realLedger?.close()
       if (originalLedgerPath === undefined) process.env['HRC_WRKQ_DB'] = undefined
       else process.env['HRC_WRKQ_DB'] = originalLedgerPath
       await rm(directory, { recursive: true, force: true })

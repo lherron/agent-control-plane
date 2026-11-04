@@ -104,6 +104,7 @@ export async function startMailInjector(
   try {
     await kicker.start()
   } catch (error) {
+    await ledger.close()
     store.close()
     throw error
   }
@@ -111,7 +112,11 @@ export async function startMailInjector(
     statePath: options.statePath,
     importMarker,
     stop: async () => {
-      await kicker.stop()
+      try {
+        await kicker.stop()
+      } finally {
+        await ledger.close()
+      }
     },
   }
 }

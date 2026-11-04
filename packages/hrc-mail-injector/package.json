@@ -24,6 +24,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@wrkq/client": "latest",
     "agent-scope": "0.1.1-dev.20261102040413",
     "hrc-core": "0.5.13-dev.20261101001555",
     "hrc-injector-core": "*",

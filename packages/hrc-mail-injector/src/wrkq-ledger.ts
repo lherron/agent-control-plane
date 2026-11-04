@@ -1,19 +1,14 @@
+import { type WorkClient, WorkRpcError, createClient } from '@wrkq/client'
+
 import {
   type MailKickerLedger,
   WrkqLedgerRequestError,
   WrkqLedgerUnavailableError,
 } from './policy/ledger/client.js'
 
-type RpcFrame = {
-  id?: unknown
-  result?: unknown
-  error?: { code?: unknown; message?: unknown; data?: unknown }
-}
-
 const HRC_LEDGER_PRINCIPAL_REF = 'agent:hrc'
 const PRINCIPAL_FREE_METHODS = new Set(['wrkq.monitor.eventsView', 'wrkq.envelope.birthEnvelope'])
 const REQUEST_TIMEOUT_MS = 15_000
-const WRKQ_RPC_PROTOCOL_VERSION = '2026-06-30'
 
 function wrkqAuthorityEnvironment(): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = {}
@@ -31,99 +26,108 @@ function wrkqAuthorityEnvironment(): Record<string, string | undefined> {
   return env
 }
 
-/**
- * The injector owns its wrkq transport rather than reaching into hrc-server.
- * One short-lived RPC process per operation is slower than HRC's in-process
- * client but makes restart ownership explicit and preserves the same ledger
- * protocol and principal attribution.
- */
-export function createWrkqLedger(): MailKickerLedger {
-  const call = async <T>(method: string, params: Record<string, unknown>): Promise<T> => {
-    const child = Bun.spawn(['wrkq', 'rpc', '--stdio'], {
-      stdin: 'pipe',
-      stdout: 'pipe',
-      stderr: 'pipe',
-      env: { ...process.env, ...wrkqAuthorityEnvironment() },
+/** One lazy, initialized transport for this injector; failures reconnect on the next call. */
+export function createWrkqLedger(): MailKickerLedger & { close(): Promise<void> } {
+  let connection: Promise<WorkClient> | undefined
+  let closed = false
+
+  const deadline = async <T>(
+    client: WorkClient,
+    method: string,
+    operation: Promise<T>
+  ): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await Promise.race([
+        operation,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            reject(
+              new WrkqLedgerUnavailableError(
+                `wrkq ${method} did not answer within ${REQUEST_TIMEOUT_MS}ms`,
+                method
+              )
+            )
+            client.kill()
+          }, REQUEST_TIMEOUT_MS)
+          timer.unref?.()
+        }),
+      ])
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  const connect = async (): Promise<WorkClient> => {
+    // Initialize explicitly so the handshake also has a deadline and cleanup.
+    const client = await createClient({
+      command: 'wrkq',
+      env: { ...wrkqAuthorityEnvironment(), PRAESIDIUM_CALLER: 'hrc-mail-injector' },
+      clientInfo: { name: 'hrc-mail-injector', version: '0.1.0' },
+      autoInitialize: false,
     })
-    child.stdin.write(
-      `${JSON.stringify({
-        jsonrpc: '2.0',
-        id: 0,
-        method: 'rpc.initialize',
-        params: {
-          protocolVersion: WRKQ_RPC_PROTOCOL_VERSION,
-          client: { name: 'hrc-mail-injector', version: '0.1.0' },
-        },
-      })}\n`
-    )
-    child.stdin.write(
-      `${JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
+    try {
+      await deadline(client, 'rpc.initialize', client.rpc.initialize())
+      return client
+    } catch (error) {
+      client.kill()
+      throw error
+    }
+  }
+
+  const call = async <T>(method: string, params: Record<string, unknown>): Promise<T> => {
+    if (closed) throw new WrkqLedgerUnavailableError('wrkq ledger is closed', method)
+    connection ??= connect()
+    const pending = connection
+    let client: WorkClient | undefined
+    try {
+      client = await pending
+      return await deadline(
+        client,
         method,
-        params: PRINCIPAL_FREE_METHODS.has(method)
-          ? params
-          : { principalRef: HRC_LEDGER_PRINCIPAL_REF, ...params },
-      })}\n`
-    )
-    child.stdin.end()
-    let timedOut = false
-    const timeout = setTimeout(() => {
-      timedOut = true
-      child.kill()
-    }, REQUEST_TIMEOUT_MS)
-    timeout.unref?.()
-    const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-      child.exited,
-    ]).finally(() => clearTimeout(timeout))
-    if (timedOut) {
+        client.call<T>(
+          method,
+          PRINCIPAL_FREE_METHODS.has(method)
+            ? params
+            : { principalRef: HRC_LEDGER_PRINCIPAL_REF, ...params }
+        )
+      )
+    } catch (error) {
+      // Refusals keep a healthy transport. Never replay a possibly committed write.
+      // An older failing request cannot invalidate a replacement connection.
+      if (client === undefined || !(error instanceof WorkRpcError)) {
+        if (connection === pending) connection = undefined
+        client?.kill()
+      }
+      if (error instanceof WorkRpcError) {
+        throw new WrkqLedgerRequestError(
+          `wrkq ${error.method} refused: ${error.message}`,
+          error.method ?? method,
+          error.rpcCode,
+          error.data
+        )
+      }
+      if (error instanceof WrkqLedgerUnavailableError) throw error
       throw new WrkqLedgerUnavailableError(
-        `wrkq ${method} did not answer within ${REQUEST_TIMEOUT_MS}ms`,
+        `wrkq ${method} failed: ${error instanceof Error ? error.message : String(error)}`,
         method
       )
     }
-    if (exitCode !== 0) {
-      throw new WrkqLedgerUnavailableError(`wrkq ${method} failed: ${stderr.trim()}`, method)
-    }
-    let frames: RpcFrame[]
-    try {
-      frames = stdout
-        .trim()
-        .split('\n')
-        .filter((line) => line.length > 0)
-        .map((line) => JSON.parse(line) as RpcFrame)
-    } catch {
-      throw new WrkqLedgerUnavailableError(`wrkq ${method} returned invalid JSON`, method)
-    }
-    const initialization = frames.find((frame) => frame.id === 0)
-    if (initialization === undefined) {
-      throw new WrkqLedgerUnavailableError(`wrkq ${method} omitted rpc.initialize`, method)
-    }
-    if (initialization.error !== undefined) {
-      throw new WrkqLedgerRequestError(
-        `wrkq rpc.initialize refused: ${typeof initialization.error.message === 'string' ? initialization.error.message : 'unknown error'}`,
-        'rpc.initialize',
-        typeof initialization.error.code === 'number' ? initialization.error.code : -32_000,
-        initialization.error.data
-      )
-    }
-    const frame = frames.find((candidate) => candidate.id === 1)
-    if (frame === undefined) {
-      throw new WrkqLedgerUnavailableError(`wrkq ${method} omitted its response`, method)
-    }
-    if (frame.error !== undefined) {
-      throw new WrkqLedgerRequestError(
-        `wrkq ${method} refused: ${typeof frame.error.message === 'string' ? frame.error.message : 'unknown error'}`,
-        method,
-        typeof frame.error.code === 'number' ? frame.error.code : -32_000,
-        frame.error.data
-      )
-    }
-    return frame.result as T
   }
   return {
+    async close() {
+      closed = true
+      const pending = connection
+      connection = undefined
+      if (pending === undefined) return
+      const client = await pending.catch(() => undefined)
+      if (client === undefined) return
+      try {
+        await deadline(client, 'rpc.shutdown', client.close())
+      } catch {
+        client.kill()
+      }
+    },
     pendingView: (params) => call('wrkq.envelope.pendingView', params),
     present: (params) => call('wrkq.envelope.present', params),
     fail: (params) => call('wrkq.envelope.fail', params),

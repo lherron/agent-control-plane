@@ -46,24 +46,27 @@ describe('mail injector HRC ownership admission', () => {
     await writeFile(
       fakeWrkq,
       `#!/usr/bin/env bun
-const input = await new Response(Bun.stdin.stream()).text()
-const frames = input.trim().split('\\n').map((line) => JSON.parse(line))
-if (frames.length !== 2 || frames[0].method !== 'rpc.initialize' || frames[1].method !== 'wrkq.monitor.eventsView') {
-  process.stderr.write('expected rpc.initialize before eventsView')
-  process.exit(1)
+import { createInterface } from 'node:readline'
+let initialized = false
+for await (const line of createInterface({ input: process.stdin })) {
+  const frame = JSON.parse(line)
+  if (frame.method === 'rpc.initialize') initialized = true
+  else if (!initialized) process.exit(1)
+  const result = frame.method === 'wrkq.monitor.eventsView' ? { items: [], high_water: 7 } : {}
+  console.log(JSON.stringify({ jsonrpc: '2.0', id: frame.id, result }))
 }
-process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: 0, result: { protocolVersion: '2026-06-30' } }) + '\\n')
-process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { items: [], high_water: 7 } }) + '\\n')
 `
     )
     await chmod(fakeWrkq, 0o755)
     process.env['PATH'] = `${directory}:${originalPath ?? ''}`
+    const ledger = createWrkqLedger()
     try {
-      await expect(createWrkqLedger().eventsView({ cursor: 0 })).resolves.toEqual({
+      await expect(ledger.eventsView({ cursor: 0 })).resolves.toEqual({
         items: [],
         highWater: 7,
       })
     } finally {
+      await ledger.close()
       process.env['PATH'] = originalPath
       await rm(directory, { recursive: true, force: true })
     }
