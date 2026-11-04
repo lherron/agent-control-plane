@@ -58,7 +58,6 @@ export type MailKickerContext = {
   readonly sweepIntervalMs: number
 
   stopping: boolean
-  mailKickerSweepTimer: ReturnType<typeof setInterval> | undefined
   mailKickerSweepInFlight: Promise<void> | undefined
   wrkqLedgerTailInFlight: Promise<void> | undefined
   mailKickerDeferralWakeInFlight?: Promise<void> | undefined

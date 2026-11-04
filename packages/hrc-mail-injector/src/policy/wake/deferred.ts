@@ -61,6 +61,16 @@ export function stopDeferredWakes(server: MailKickerContext): Promise<void> {
   return server.mailKickerDeferralWakeInFlight ?? Promise.resolve()
 }
 
+/** The existing exact timer remains the owner of repending due deferrals. */
+export function nextDeferredWakeAt(server: MailKickerContext): number {
+  const state = wakes.get(server)
+  if (state === undefined || server.mailKickerDeferralWakeInFlight !== undefined)
+    return Number.POSITIVE_INFINITY
+  let next = Number.POSITIVE_INFINITY
+  for (const deadline of state.deadlines.values()) next = Math.min(next, deadline.atMs)
+  return Math.max(next, state.retryAtMs)
+}
+
 function arm(server: MailKickerContext, state: DeferredWakes): void {
   if (state.timer !== undefined) clearTimeout(state.timer)
   state.timer = undefined

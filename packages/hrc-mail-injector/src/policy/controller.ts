@@ -32,7 +32,7 @@ import { disposeRuntimeObligations } from './terminal/disposal.js'
 import { failLapsedObligations } from './terminal/runtime-lapse.js'
 import { isRuntimeTerminal } from './terminal/runtime-status.js'
 import { chargeBirthSweepRefusal } from './wake/birth-retry.js'
-import { stopDeferredWakes } from './wake/deferred.js'
+import { nextDeferredWakeAt, stopDeferredWakes } from './wake/deferred.js'
 import { runWrkqLedgerTail } from './wake/ledger-tail.js'
 import { recordPeriodicDrive } from './wake/quiet-targets.js'
 import { runMailKickerSweep } from './wake/sweep.js'
@@ -51,7 +51,6 @@ export class MailKicker implements MailKickerContext {
   readonly sweepIntervalMs: number
 
   stopping = false
-  mailKickerSweepTimer: ReturnType<typeof setInterval> | undefined
   mailKickerSweepInFlight: Promise<void> | undefined
   wrkqLedgerTailInFlight: Promise<void> | undefined
   mailKickerDeferralWakeInFlight: Promise<void> | undefined
@@ -79,6 +78,8 @@ export class MailKicker implements MailKickerContext {
   readonly mailKickerQuietTargets = new Map<string, QuietTarget>()
   readonly mailKickerReconcileExaminedAt = new Map<string, number>()
   readonly mailKickerLiveRuntimeSeenAt = new Map<string, number>()
+  private ledgerLoop: Promise<void> | undefined
+  private readonly ledgerStop = new AbortController()
   private lifecycleUnsubscribe: (() => void | Promise<void>) | undefined
   private brokerUnsubscribe: (() => void | Promise<void>) | undefined
 
@@ -100,7 +101,7 @@ export class MailKicker implements MailKickerContext {
   }
 
   async start(): Promise<void> {
-    if (!this.enabled || this.mailKickerSweepTimer !== undefined || this.stopping) return
+    if (!this.enabled || this.ledgerLoop !== undefined || this.stopping) return
     // D2 step 5: reconcile at daemon START. An intent committed by the previous
     // process is the only record that a delivery may be in flight, and until it
     // is resolved its envelope is not actionable — so this runs before the first
@@ -134,32 +135,111 @@ export class MailKicker implements MailKickerContext {
     } catch (error) {
       this.log('WARN', 'wrkq.kicker.subscription_start_failed', { error: errorText(error) })
     }
-    let tick = 0
-    this.mailKickerSweepTimer = setInterval(() => {
-      void this.runTailOnce().catch((error: unknown) => {
-        this.log('WARN', 'wrkq.kicker.tail_tick_failed', { error: errorText(error) })
-      })
-      tick += 1
-      // Local deadline work stays on the short clock. This does no remote
-      // reads unless a reminder is actually due; inserts still wake directly.
-      if (tick % REMINDER_CHECK_TICKS === 0) {
-        for (const target of this.store.mailDelivery.listDueReminderTargets(
-          new Date().toISOString()
-        )) {
-          this.wake(target, 'periodic')
+    this.ledgerLoop = this.followLedger()
+  }
+
+  /** Commit tokens are wake hints; only runTailOnce advances the durable cursor. */
+  private async followLedger(): Promise<void> {
+    let token: string | undefined
+    let changed = true
+    let nextSweepAt = Date.now() + LEDGER_SWEEP_TICKS * 1000
+    let reminderRetryAt = 0
+    while (!this.stopping) {
+      try {
+        // Snapshot BEFORE any view, including first-boot cursor/catch-up reads.
+        if (token === undefined) {
+          const initial = await this.untilStopped(this.ledger.commitWait({ timeoutMs: 25000 }))
+          if (initial === undefined) return
+          token = initial.token
+          changed = initial.changed
         }
+        await this.untilStopped(this.runTailOnce())
+        if (this.stopping) return
+        const now = Date.now()
+        if (now >= reminderRetryAt) {
+          const due = this.store.mailDelivery.listDueReminderTargets(new Date(now).toISOString())
+          for (const target of due) this.wake(target, 'periodic')
+          reminderRetryAt = due.length > 0 ? now + REMINDER_CHECK_TICKS * 1000 : 0
+        }
+        if (changed || now >= nextSweepAt) {
+          await this.untilStopped(this.runSweepOnce())
+          nextSweepAt = Date.now() + LEDGER_SWEEP_TICKS * 1000
+        }
+        if (this.stopping) return
+        // Read only local reminder state. Include future armed reminders so a
+        // quiet ledger cannot hide their deadlines behind the recovery sweep.
+        let reminderAt = Number.POSITIVE_INFINITY
+        for (const target of this.store.mailDelivery.listDueReminderTargets(
+          '9999-12-31T23:59:59.999Z'
+        )) {
+          for (const reminder of this.store.mailDelivery.listDueReminders(
+            target,
+            '9999-12-31T23:59:59.999Z'
+          )) {
+            if (reminder.reminderDueAt !== undefined)
+              reminderAt = Math.min(
+                reminderAt,
+                Math.max(Date.parse(reminder.reminderDueAt), reminderRetryAt)
+              )
+          }
+        }
+        const timeoutMs = Math.max(
+          1000,
+          Math.min(25000, Math.min(nextSweepAt, reminderAt, nextDeferredWakeAt(this)) - Date.now())
+        )
+        const started = Date.now()
+        const result = await this.untilStopped(this.ledger.commitWait({ since: token, timeoutMs }))
+        if (result === undefined) return
+        token = result.token
+        changed = result.changed
+        // Capacity exhaustion returns immediately, unchanged. Pace it as one
+        // ordinary poll interval, never turn it into a busy loop.
+        if (!changed && Date.now() - started < Math.min(1000, timeoutMs))
+          await this.pause(this.sweepIntervalMs)
+      } catch (error) {
+        if (this.stopping) return
+        this.log('WARN', 'wrkq.kicker.commit_follow_failed', { error: errorText(error) })
+        token = undefined
+        await this.pause(this.sweepIntervalMs)
       }
-      if (tick % LEDGER_SWEEP_TICKS !== 0) return
-      void this.runSweepOnce().catch((error: unknown) => {
-        this.log('WARN', 'wrkq.kicker.periodic_sweep_failed', { error: errorText(error) })
-      })
-    }, this.sweepIntervalMs)
-    this.mailKickerSweepTimer.unref?.()
+    }
+  }
+
+  private async untilStopped<T>(operation: Promise<T>): Promise<T | undefined> {
+    if (this.stopping) return undefined
+    let stop: (() => void) | undefined
+    try {
+      return await Promise.race([
+        operation,
+        new Promise<undefined>((resolve) => {
+          stop = () => resolve(undefined)
+          this.ledgerStop.signal.addEventListener('abort', stop, { once: true })
+        }),
+      ])
+    } finally {
+      if (stop !== undefined) this.ledgerStop.signal.removeEventListener('abort', stop)
+    }
+  }
+
+  private async pause(ms: number): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await this.untilStopped(
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, ms)
+          timer.unref?.()
+        })
+      )
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   async stop(): Promise<void> {
     if (this.stopping) return
     this.stopping = true
+    this.ledgerStop.abort()
+    await this.ledgerLoop
     hrcFacts(this).detach()
     void stopDeferredWakes(this)
     for (const waiter of this.targetDriveWaiters.splice(0)) waiter.resolve(false)
@@ -167,10 +247,6 @@ export class MailKicker implements MailKickerContext {
     this.lifecycleUnsubscribe = undefined
     await this.brokerUnsubscribe?.()
     this.brokerUnsubscribe = undefined
-    if (this.mailKickerSweepTimer !== undefined) {
-      clearInterval(this.mailKickerSweepTimer)
-      this.mailKickerSweepTimer = undefined
-    }
     this.mailKickerPendingTargets.clear()
     this.mailKickerQuietTargets.clear()
     // T-07963: a FIXED POINT, not one snapshot. A target operation inside the

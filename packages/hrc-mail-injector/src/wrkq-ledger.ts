@@ -7,7 +7,11 @@ import {
 } from './policy/ledger/client.js'
 
 const HRC_LEDGER_PRINCIPAL_REF = 'agent:hrc'
-const PRINCIPAL_FREE_METHODS = new Set(['wrkq.monitor.eventsView', 'wrkq.envelope.birthEnvelope'])
+const PRINCIPAL_FREE_METHODS = new Set([
+  'wrkq.monitor.eventsView',
+  'wrkq.envelope.birthEnvelope',
+  'wrkq.commit.wait',
+])
 const REQUEST_TIMEOUT_MS = 15_000
 
 function wrkqAuthorityEnvironment(): Record<string, string | undefined> {
@@ -28,13 +32,17 @@ function wrkqAuthorityEnvironment(): Record<string, string | undefined> {
 
 /** One lazy, initialized transport for this injector; failures reconnect on the next call. */
 export function createWrkqLedger(): MailKickerLedger & { close(): Promise<void> } {
-  let connection: Promise<WorkClient> | undefined
+  // The stdio forwarder is serial. A parked wait must never block delivery
+  // reads/writes (or their shorter deadlines) on the ordinary connection.
+  const delivery: { connection?: Promise<WorkClient> | undefined } = {}
+  const waiting: { connection?: Promise<WorkClient> | undefined } = {}
   let closed = false
 
   const deadline = async <T>(
     client: WorkClient,
     method: string,
-    operation: Promise<T>
+    operation: Promise<T>,
+    timeoutMs = REQUEST_TIMEOUT_MS
   ): Promise<T> => {
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
@@ -44,12 +52,12 @@ export function createWrkqLedger(): MailKickerLedger & { close(): Promise<void> 
           timer = setTimeout(() => {
             reject(
               new WrkqLedgerUnavailableError(
-                `wrkq ${method} did not answer within ${REQUEST_TIMEOUT_MS}ms`,
+                `wrkq ${method} did not answer within ${timeoutMs}ms`,
                 method
               )
             )
             client.kill()
-          }, REQUEST_TIMEOUT_MS)
+          }, timeoutMs)
           timer.unref?.()
         }),
       ])
@@ -75,28 +83,36 @@ export function createWrkqLedger(): MailKickerLedger & { close(): Promise<void> 
     }
   }
 
-  const call = async <T>(method: string, params: Record<string, unknown>): Promise<T> => {
+  const call = async <T>(
+    method: string,
+    params: Record<string, unknown>,
+    timeoutMs = REQUEST_TIMEOUT_MS
+  ): Promise<T> => {
     if (closed) throw new WrkqLedgerUnavailableError('wrkq ledger is closed', method)
-    connection ??= connect()
-    const pending = connection
+    const channel = method === 'wrkq.commit.wait' ? waiting : delivery
+    channel.connection ??= connect()
+    const pending = channel.connection
     let client: WorkClient | undefined
     try {
       client = await pending
       return await deadline(
         client,
         method,
-        client.call<T>(
-          method,
-          PRINCIPAL_FREE_METHODS.has(method)
-            ? params
-            : { principalRef: HRC_LEDGER_PRINCIPAL_REF, ...params }
-        )
+        method === 'wrkq.commit.wait'
+          ? (client.wrkq.commit.wait(params) as Promise<T>)
+          : client.call<T>(
+              method,
+              PRINCIPAL_FREE_METHODS.has(method)
+                ? params
+                : { principalRef: HRC_LEDGER_PRINCIPAL_REF, ...params }
+            ),
+        timeoutMs
       )
     } catch (error) {
       // Refusals keep a healthy transport. Never replay a possibly committed write.
       // An older failing request cannot invalidate a replacement connection.
       if (client === undefined || !(error instanceof WorkRpcError)) {
-        if (connection === pending) connection = undefined
+        if (channel.connection === pending) channel.connection = undefined
         client?.kill()
       }
       if (error instanceof WorkRpcError) {
@@ -117,8 +133,13 @@ export function createWrkqLedger(): MailKickerLedger & { close(): Promise<void> 
   return {
     async close() {
       closed = true
-      const pending = connection
-      connection = undefined
+      const parked = waiting.connection
+      waiting.connection = undefined
+      // Closing the transport cancels the parked HTTP wait too. Graceful RPC
+      // shutdown would itself queue behind that wait in the serial forwarder.
+      if (parked !== undefined) (await parked.catch(() => undefined))?.kill()
+      const pending = delivery.connection
+      delivery.connection = undefined
       if (pending === undefined) return
       const client = await pending.catch(() => undefined)
       if (client === undefined) return
@@ -128,6 +149,12 @@ export function createWrkqLedger(): MailKickerLedger & { close(): Promise<void> 
         client.kill()
       }
     },
+    commitWait: (params) =>
+      call(
+        'wrkq.commit.wait',
+        { ...params, timeoutMs: Math.max(1000, Math.min(25000, params.timeoutMs ?? 25000)) },
+        35000
+      ),
     pendingView: (params) => call('wrkq.envelope.pendingView', params),
     present: (params) => call('wrkq.envelope.present', params),
     fail: (params) => call('wrkq.envelope.fail', params),

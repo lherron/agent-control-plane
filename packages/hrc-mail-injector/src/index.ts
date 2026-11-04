@@ -60,7 +60,7 @@ export function assertMailInjectorPosture(
 export async function startMailInjector(
   options: MailInjectorOptions
 ): Promise<StartedMailInjector> {
-  const client = new HrcClient(options.socketPath)
+  const client = new HrcClient({ socketPath: options.socketPath, caller: 'hrc-mail-injector' })
   const status = (await client.getStatus()) as unknown as { mailKicker?: unknown }
   assertMailInjectorPosture(status.mailKicker)
 

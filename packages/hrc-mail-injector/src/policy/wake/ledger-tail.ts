@@ -170,53 +170,60 @@ export async function runWrkqLedgerTail(this: MailKickerContext): Promise<void> 
         await runMailKickerColdStartCatchup(this)
         this.mailKickerColdStartCatchupPending = false
       }
-      const page = await this.ledger.eventsView({
-        cursor,
-        // Failure notices and queued-injection withdrawal ride the SAME cursor
-        // as creation. Widening this filter must never move the virgin-store
-        // start point above: tail_started and cold catch-up remain unchanged.
-        eventTypes: [
-          'envelope.created',
-          'envelope.failed',
-          'envelope.acked',
-          'envelope.deferred',
-          'envelope.expired',
-          'envelope.withdrawn',
-        ],
-        limit: LEDGER_TAIL_PAGE_LIMIT,
-      })
-      // Resolved lazily and once per page: a fyi wakes only a target this node
-      // is currently seating, and the tail must not pay a runtimes query on
-      // every empty tick.
-      let seated: Set<string> | undefined
-      for (const event of page.items) {
-        if (event.eventType === 'envelope.deferred') {
-          if (event.resourceId !== undefined) await observeDeferredWake(this, event.resourceId)
-          continue
-        }
-        if (event.resourceId !== undefined) forgetDeferredWake(this, event.resourceId)
-        if (event.eventType === 'envelope.expired' || event.eventType === 'envelope.withdrawn')
-          continue
-        if (event.eventType === 'envelope.acked') {
-          await withdrawAckedQueuedInjection(this, event)
-          continue
-        }
-        if (event.eventType === 'envelope.failed') {
-          await withdrawAckedQueuedInjection(this, event)
-          await queueFailureNotice(this, event).catch((error: unknown) => {
-            this.log('WARN', 'wrkq.kicker.failure_notice_queue_failed', {
-              envelope: event.resourceId,
-              error: errorText(error),
+      for (;;) {
+        if (this.stopping) return
+        const page = await this.ledger.eventsView({
+          cursor,
+          // Failure notices and queued-injection withdrawal ride the SAME cursor
+          // as creation. Widening this filter must never move the virgin-store
+          // start point above: tail_started and cold catch-up remain unchanged.
+          eventTypes: [
+            'envelope.created',
+            'envelope.failed',
+            'envelope.acked',
+            'envelope.deferred',
+            'envelope.expired',
+            'envelope.withdrawn',
+          ],
+          limit: LEDGER_TAIL_PAGE_LIMIT,
+        })
+        // Resolved lazily and once per page: a fyi wakes only a target this node
+        // is currently seating, and the tail must not pay a runtimes query on
+        // every empty tick.
+        let seated: Set<string> | undefined
+        for (const event of page.items) {
+          if (event.eventType === 'envelope.deferred') {
+            if (event.resourceId !== undefined) await observeDeferredWake(this, event.resourceId)
+            continue
+          }
+          if (event.resourceId !== undefined) forgetDeferredWake(this, event.resourceId)
+          if (event.eventType === 'envelope.expired' || event.eventType === 'envelope.withdrawn')
+            continue
+          if (event.eventType === 'envelope.acked') {
+            await withdrawAckedQueuedInjection(this, event)
+            continue
+          }
+          if (event.eventType === 'envelope.failed') {
+            await withdrawAckedQueuedInjection(this, event)
+            await queueFailureNotice(this, event).catch((error: unknown) => {
+              this.log('WARN', 'wrkq.kicker.failure_notice_queue_failed', {
+                envelope: event.resourceId,
+                error: errorText(error),
+              })
             })
-          })
-          continue
+            continue
+          }
+          seated ??= new Set(await hrcFacts(this).liveSessionRefs())
+          const target = wakeTargetForEvent(event, seated)
+          if (target === undefined) continue
+          this.wake(target, 'insert')
         }
-        seated ??= new Set(await hrcFacts(this).liveSessionRefs())
-        const target = wakeTargetForEvent(event, seated)
-        if (target === undefined) continue
-        this.wake(target, 'insert')
+        const previous = cursor
+        if (page.highWater > cursor) cursor = this.store.wrkqLedgerCursors.advance(page.highWater)
+        // A full page is backlog, not idle: drain the next bounded page without
+        // waiting for a commit that may already predate the sampled token.
+        if (page.items.length < LEDGER_TAIL_PAGE_LIMIT || cursor <= previous) break
       }
-      if (page.highWater > cursor) this.store.wrkqLedgerCursors.advance(page.highWater)
     } catch (error) {
       this.log(
         error instanceof WrkqLedgerUnavailableError ? 'WARN' : 'ERROR',

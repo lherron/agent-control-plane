@@ -104,3 +104,48 @@ for await (const line of createInterface({input:process.stdin})) {
     await rm(dir, { recursive: true, force: true })
   }
 }, 30000)
+
+test('a parked commit wait uses its own serial forwarder and never blocks delivery', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'injector-commit-wait-'))
+  const originalPath = process.env['PATH']
+  const trace = join(dir, 'trace.jsonl')
+  await writeFile(
+    join(dir, 'wrkq'),
+    `#!/usr/bin/env bun
+import { appendFileSync } from 'node:fs'
+import { createInterface } from 'node:readline'
+for await (const line of createInterface({input: process.stdin})) {
+  const f = JSON.parse(line)
+  appendFileSync(${JSON.stringify(trace)}, JSON.stringify({pid: process.pid, ...f})+'\\n')
+  if (f.method === 'wrkq.commit.wait') await new Promise((resolve) => setTimeout(resolve, 17000))
+  const result = f.method === 'wrkq.commit.wait' ? {token:'opaque',changed:false} : {items:[],high_water:7}
+  console.log(JSON.stringify({jsonrpc:'2.0',id:f.id,result}))
+}
+`
+  )
+  await chmod(join(dir, 'wrkq'), 0o755)
+  process.env['PATH'] = `${dir}:${originalPath ?? ''}`
+  const ledger = createWrkqLedger()
+  try {
+    const waiting = ledger.commitWait({ since: 'before', timeoutMs: 30000 })
+    await Bun.sleep(100)
+    const started = Date.now()
+    expect(await ledger.eventsView({ cursor: 0 })).toEqual({ items: [], highWater: 7 })
+    expect(Date.now() - started).toBeLessThan(500)
+    expect(await waiting).toEqual({ token: 'opaque', changed: false })
+    const frames = (await readFile(trace, 'utf8')).trim().split('\n').map(JSON.parse)
+    expect(new Set(frames.map((f) => f.pid)).size).toBe(2)
+    const frame = frames.find((f) => f.method === 'wrkq.commit.wait')
+    expect(frame.params).toEqual({ since: 'before', timeoutMs: 25000 })
+    const parked = ledger.commitWait({ since: 'opaque' }).catch((error: unknown) => error)
+    await Bun.sleep(50)
+    const closing = Date.now()
+    await ledger.close()
+    expect(Date.now() - closing).toBeLessThan(500)
+    expect(await parked).toBeInstanceOf(WrkqLedgerUnavailableError)
+  } finally {
+    await ledger.close()
+    process.env['PATH'] = originalPath
+    await rm(dir, { recursive: true, force: true })
+  }
+}, 30000)

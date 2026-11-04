@@ -36,6 +36,10 @@ export class WrkqLedgerRequestError extends Error {
 
 /** The exact collaboration-ledger surface used by the mail kicker. */
 export type MailKickerLedger = {
+  commitWait(params: { since?: string; timeoutMs?: number }): Promise<{
+    token: string
+    changed: boolean
+  }>
   pendingView(params: WrkqEnvelopePendingViewParams): Promise<WrkqEnvelopePendingView>
   present(params: WrkqEnvelopePresentParams): Promise<WrkqEnvelopePresentResult>
   fail(params: WrkqEnvelopeFailParams): Promise<WrkqEnvelope>

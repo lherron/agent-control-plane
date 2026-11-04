@@ -39,6 +39,9 @@ const HOST_SESSION = 'hsid-t08094'
 type Recorded = { level: string; event: string; detail: Record<string, unknown> }
 
 class FakeLedger {
+  commitWait() {
+    return Promise.resolve({ token: 'test', changed: false })
+  }
   readonly envelopes = new Map<string, WrkqEnvelope>()
   readonly presentRequests: WrkqEnvelopePresentParams[] = []
   readonly failRequests: Array<{ envelope: string; reason: string; detail?: string }> = []
@@ -321,7 +324,6 @@ export async function createT08094Harness(): Promise<T08094Harness> {
     enabled: true,
     sweepIntervalMs: 60_000,
     stopping: false,
-    mailKickerSweepTimer: undefined,
     mailKickerSweepInFlight: undefined,
     wrkqLedgerTailInFlight: undefined,
     mailKickerColdStartCatchupPending: false,
