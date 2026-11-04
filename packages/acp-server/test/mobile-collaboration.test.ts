@@ -8,7 +8,7 @@ import { createCollaborationLedger } from 'wrkq-lib'
 import type { AcpHrcClient, ResolvedAcpServerDeps } from '../src/deps.js'
 import type { MobileWebSocketLike } from '../src/handlers/mobile-ws.js'
 import { openMobileWebSocket } from '../src/handlers/mobile.js'
-import { withWiredServer } from './fixtures/wired-server.js'
+import { quietCommitWaker, withWiredServer } from './fixtures/wired-server.js'
 
 const SESSION_REF = 'agent:cody:project:agent-control-plane:task:T-07614/lane:main'
 const MEMBER_REF = 'cody@agent-control-plane:T-07614'
@@ -294,6 +294,7 @@ describe('mobile collaboration ledger', () => {
       hrcClient,
       collaborationLedger: collaboration,
       stateStore,
+      commitWaker: quietCommitWaker,
     } as ResolvedAcpServerDeps
     const ws: MobileWebSocketLike = {
       data: {
@@ -551,6 +552,7 @@ describe('mobile collaboration with an unknown future envelope state', () => {
       hrcClient,
       collaborationLedger: realAdapterLedger(),
       stateStore,
+      commitWaker: quietCommitWaker,
     } as ResolvedAcpServerDeps
     const ws: MobileWebSocketLike = {
       data: {

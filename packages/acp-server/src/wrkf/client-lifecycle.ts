@@ -1,6 +1,9 @@
 import { type CreateClientOptions, type WorkClient, createClient } from '@wrkq/client'
 import { type WrkqStoreAdapter, createWrkqStoreAdapter } from 'wrkq-lib'
 
+import { WrkqCommitWaker } from '../wrkq-commit-waker.js'
+import type { CommitWaker } from '../wrkq-commit-waker.js'
+
 import type { AcpWrkfWorkflowPort } from './port.js'
 
 export interface WrkfLifecycleOptions {
@@ -38,6 +41,8 @@ export interface WrkfLifecycle {
    * constraint). `undefined` when wrkf is disabled.
    */
   store: WrkqStoreAdapter | undefined
+  /** One process-wide wake loop on a dedicated transport. */
+  commitWaker: CommitWaker | undefined
   /** Shared @wrkq/client instance backing wrkf + wrkq store ports. */
   client: WorkClient | undefined
   /** The `agent:<id>` principal `client` was launched as; undefined when disabled. */
@@ -64,6 +69,7 @@ export async function createWrkfClientLifecycle(
       wrkf: undefined,
       store: undefined,
       client: undefined,
+      commitWaker: undefined,
       principalRef: undefined,
       async clientForPrincipal(): Promise<WorkClient> {
         throw new Error('wrkq client lifecycle is disabled')
@@ -80,12 +86,15 @@ export async function createWrkfClientLifecycle(
   // autoInitialize runs `rpc.initialize` before resolving; a failed handshake
   // rejects here and propagates (fail-closed) — we never return a half-built port.
   const primaryPrincipalRef = opts.principalRef ?? 'agent:acp-server'
-  const createAttributedClient = (principalRef: string): Promise<WorkClient> =>
+  const createAttributedClient = (
+    principalRef: string,
+    caller = 'acp-server:wrkf'
+  ): Promise<WorkClient> =>
     factory({
       command: opts.command ?? process.env['WRKF_BIN'] ?? 'wrkf',
       dbLocator: dbLocator.trim(),
       clientInfo: opts.clientInfo,
-      env: { ...process.env, PRAESIDIUM_CALLER: 'acp-server:wrkf' },
+      env: { ...process.env, PRAESIDIUM_CALLER: caller },
       ...(opts.hookCatalogPath !== undefined ? { hookCatalogPath: opts.hookCatalogPath } : {}),
       // Principal-only caller attribution (T-05381): forward the launch principal
       // so wrkq/wrkf mutations carry `created_by_principal_ref`. wrkq now rejects
@@ -98,6 +107,20 @@ export async function createWrkfClientLifecycle(
     [primaryPrincipalRef, Promise.resolve(client)],
   ])
 
+  // The stdio forwarder serializes requests. Its parked commit.wait MUST have
+  // a dedicated transport, or it would block the bounded reads it wakes.
+  let commitWaitClient: Promise<WorkClient> | undefined
+  const commitWaker = new WrkqCommitWaker(async (params) => {
+    commitWaitClient ??= createAttributedClient(primaryPrincipalRef, 'acp-server:commit-waker')
+    let waiter: WorkClient
+    try {
+      waiter = await commitWaitClient
+    } catch (error) {
+      commitWaitClient = undefined
+      throw error
+    }
+    return waiter.wrkq.commit.wait(params)
+  })
   let closed = false
   return {
     wrkf: createWrkfPortAdapter(client),
@@ -105,6 +128,7 @@ export async function createWrkfClientLifecycle(
     // this one client — the Phase-1 lifecycle owns the single shared WorkClient.
     store: createWrkqStoreAdapter(client),
     client,
+    commitWaker,
     principalRef: primaryPrincipalRef,
     clientForPrincipal(principalRef: string): Promise<WorkClient> {
       if (closed) {
@@ -134,6 +158,13 @@ export async function createWrkfClientLifecycle(
         return
       }
       closed = true
+      commitWaker.stop()
+      // A graceful shutdown RPC would queue behind the parked stdio wait.
+      // Terminate only this dedicated transport; ordinary clients close below.
+      if (commitWaitClient !== undefined) {
+        const waiter = await commitWaitClient.catch(() => undefined)
+        waiter?.kill()
+      }
       const clients = await Promise.allSettled(clientsByPrincipal.values())
       await Promise.all(
         clients.flatMap((result) =>

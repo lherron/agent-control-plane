@@ -61,7 +61,12 @@ function readTypes(url: URL): string[] | undefined {
  * The `wrkp log` read through the ACP facade: one `wrkq.container.timelineView`
  * call over the project subtree, entries only, result passed through unchanged.
  */
-export const handleGetWrkqProjectTimeline: RouteHandler = async ({ url, params, deps }) => {
+export const handleGetWrkqProjectTimeline: RouteHandler = async ({
+  request: httpRequest,
+  url,
+  params,
+  deps,
+}) => {
   const project = params['project']?.trim()
   if (project === undefined || project.length === 0) {
     badRequest('project must be a project slug or container id', { field: 'project' })
@@ -70,6 +75,18 @@ export const handleGetWrkqProjectTimeline: RouteHandler = async ({ url, params, 
   const workClient = deps.workClient
   if (workClient === undefined) {
     badRequest('wrkq client is not configured')
+  }
+
+  const rawWaitMs = url.searchParams.get('waitMs')
+  const waitMs = rawWaitMs === null ? 0 : Number(rawWaitMs)
+  if (
+    rawWaitMs !== null &&
+    (rawWaitMs.trim().length === 0 || !Number.isInteger(waitMs) || waitMs < 0 || waitMs > 25_000)
+  ) {
+    badRequest('waitMs must be an integer between 0 and 25000', { field: 'waitMs', max: 25_000 })
+  }
+  if (waitMs > 0 && deps.commitWaker === undefined) {
+    badRequest('wrkq commit waker is not configured')
   }
 
   const cursor = readOptionalString(url, 'cursor')
@@ -101,5 +118,26 @@ export const handleGetWrkqProjectTimeline: RouteHandler = async ({ url, params, 
     ...(task !== undefined ? { task } : {}),
   }
 
-  return json(await workClient.wrkq.container.timelineView(request))
+  const waker = deps.commitWaker
+  const token = waitMs > 0 ? await waker?.token() : undefined
+  const page = await workClient.wrkq.container.timelineView(request)
+  if (
+    page.entries.length === 0 &&
+    token !== undefined &&
+    waker !== undefined &&
+    !httpRequest.signal.aborted
+  ) {
+    await waker.wait(token, { timeoutMs: waitMs, signal: httpRequest.signal })
+    if (!httpRequest.signal.aborted) {
+      // A fresh tail read mints a cursor. Use it on the re-read so a commit
+      // arriving while parked is read rather than skipped by another tail seed.
+      const { order: _order, ...cursorRequest } = request
+      return json(
+        await workClient.wrkq.container.timelineView(
+          page.nextCursor !== undefined ? { ...cursorRequest, cursor: page.nextCursor } : request
+        )
+      )
+    }
+  }
+  return json(page)
 }

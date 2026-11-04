@@ -89,7 +89,7 @@ describe.skipIf(!ENABLED)('GET /v1/wrkq/projects/:project/timeline (real wrkq)',
           resolve()
           await held
         },
-        { workClient }
+        { workClient, commitWaker: lifecycle?.commitWaker }
       )
     })
     await ready
@@ -186,9 +186,44 @@ describe.skipIf(!ENABLED)('GET /v1/wrkq/projects/:project/timeline (real wrkq)',
     evidence['forwardCursor'] = { forward, marker, entry }
   })
 
+  test('long-poll wakes on a committed fact without blocking ordinary reads', async () => {
+    const marker = randomUUID()
+    const type = `guard.probe.p${marker.replaceAll('-', '')}`
+    let cursor = (await getTimeline(`?tail=true&types=${type}`)).nextCursor as string
+    const started = Date.now()
+    let parked = getTimeline(
+      `?tail=true&cursor=${encodeURIComponent(cursor)}&types=${type}&waitMs=25000`
+    )
+    await Bun.sleep(100)
+    const readStarted = Date.now()
+    await getTimeline('?limit=1')
+    const ordinaryReadMs = Date.now() - readStarted
+    expect(ordinaryReadMs).toBeLessThan(1500)
+    wrkp(['post', PROJECT, '--type', type, '-m', marker, '--attr', 'source=T-12550'])
+    let page = await parked
+    // The hint is coarse: an unrelated commit may have completed the first
+    // request before our write. Resume from the returned cursor in that case.
+    while (page.entries.length === 0 && Date.now() - started < 4000) {
+      cursor = page.nextCursor as string
+      parked = getTimeline(
+        `?tail=true&cursor=${encodeURIComponent(cursor)}&types=${type}&waitMs=1000`
+      )
+      page = await parked
+    }
+    expect(page.entries).toHaveLength(1)
+    expect(Date.now() - started).toBeLessThan(5000)
+    const empty = await getTimeline(`?tail=true&types=guard.d1.absent.${randomUUID()}&waitMs=100`)
+    expect(empty.entries).toEqual([])
+    evidence['longPoll'] = { marker, elapsedMs: Date.now() - started, ordinaryReadMs, page, empty }
+  })
+
   test('malformed timeline query returns 400 naming the field; unknown project returns 404 WRKQ_NOT_FOUND', async () => {
     const rejected: Record<string, unknown> = {}
     for (const [query, field] of [
+      ['?waitMs=25001', 'waitMs'],
+      ['?waitMs=-1', 'waitMs'],
+      ['?waitMs=1.5', 'waitMs'],
+      ['?waitMs=', 'waitMs'],
       ['?limit=0', 'limit'],
       ['?limit=501', 'limit'],
       ['?order=up', 'order'],

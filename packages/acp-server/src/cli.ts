@@ -1185,6 +1185,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
       : {}),
     agentAssetsDir: options.agentAssetsDir,
     attachmentBaseUrl: resolveAttachmentBaseUrl(options),
+    commitWaker: wrkfLifecycle.commitWaker,
     ...(wrkfLifecycle.client !== undefined ? { workClient: wrkfLifecycle.client } : {}),
     ...(wrkfLifecycle.principalRef !== undefined
       ? { workClientPrincipalRef: wrkfLifecycle.principalRef }

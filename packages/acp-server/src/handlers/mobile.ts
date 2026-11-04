@@ -710,19 +710,6 @@ async function collectEvents(
   return events
 }
 
-async function waitForCollaborationPoll(signal: AbortSignal): Promise<void> {
-  if (signal.aborted) return
-  await new Promise<void>((resolve) => {
-    const finish = (): void => {
-      clearTimeout(timer)
-      signal.removeEventListener('abort', finish)
-      resolve()
-    }
-    const timer = setTimeout(finish, 1_000)
-    signal.addEventListener('abort', finish, { once: true })
-  })
-}
-
 async function pollCollaborationMessages(input: {
   deps: ResolvedAcpServerDeps
   selector: { roomKey: string } | { memberRef: string }
@@ -734,7 +721,10 @@ async function pollCollaborationMessages(input: {
   if (ledger === undefined) throw new Error('collaboration ledger is not configured')
   let cursor = input.afterMessageSeq
 
+  const waker = input.deps.commitWaker
+  if (waker === undefined) throw new Error('wrkq commit waker is not configured')
   while (!input.signal.aborted) {
+    const token = await waker.token()
     const result =
       'roomKey' in input.selector
         ? await ledger.listMessagesByRoom({
@@ -754,7 +744,7 @@ async function pollCollaborationMessages(input: {
       await input.onMessage(message)
       cursor = Math.max(cursor, message.messageSeq)
     }
-    await waitForCollaborationPoll(input.signal)
+    await waker.wait(token, { signal: input.signal })
   }
 }
 
@@ -3153,7 +3143,10 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
       if (memberRef === undefined || deps.collaborationLedger === undefined) return
       let afterMessageSeq = Number.isFinite(fromMessageSeq) ? fromMessageSeq : 0
       let expectedLedgerIncarnationId: string | undefined
+      const waker = deps.commitWaker
+      if (waker === undefined) throw new Error('wrkq commit waker is not configured')
       while (!abortController.signal.aborted) {
+        const token = await waker.token()
         const page = await deps.collaborationLedger.pageMessagesByMember({
           memberRef,
           afterMessageSeq,
@@ -3167,7 +3160,7 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
           afterMessageSeq = message.messageSeq
         }
         if (page.hasMoreAfter) continue
-        await waitForCollaborationPoll(abortController.signal)
+        await waker.wait(token, { signal: abortController.signal })
       }
     }
 

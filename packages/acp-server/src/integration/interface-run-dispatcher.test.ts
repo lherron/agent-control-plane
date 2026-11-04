@@ -1308,7 +1308,13 @@ function insertCompletedPair(
 describe('T-08575 retained-evidence actuation fence', () => {
   test('T1 retained completion cannot finalize or enqueue delivery', async () => {
     const hrc = createEvidenceHrcDb()
-    const fx = createTmuxActuationFixture({ hrcDbPath: hrc.hrcDbPath, generation: 7 })
+    // This fences retained evidence, not staleness. Keep a loaded runner from
+    // expiring the fresh run on the helper's 10 ms stale deadline.
+    const fx = createTmuxActuationFixture({
+      hrcDbPath: hrc.hrcDbPath,
+      generation: 7,
+      staleTimeoutMs: 10 * 60_000,
+    })
     insertCompletedPair(hrc.db, {
       firstSeq: 11,
       text: 'OLD-REPLY',

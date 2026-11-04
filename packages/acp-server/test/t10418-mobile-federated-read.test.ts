@@ -13,7 +13,7 @@ import type { CollaborationLedger } from 'wrkq-lib'
 import type { AcpHrcClient, ResolvedAcpServerDeps } from '../src/deps.js'
 import type { MobileWebSocketLike } from '../src/handlers/mobile-ws.js'
 import { openMobileWebSocket } from '../src/handlers/mobile.js'
-import { withWiredServer } from './fixtures/wired-server.js'
+import { quietCommitWaker, withWiredServer } from './fixtures/wired-server.js'
 
 const SCOPE_REF = 'agent:clod:project:foundry:task:T-10417'
 const SESSION_REF = `${SCOPE_REF}/lane:main`
@@ -126,6 +126,7 @@ async function openTimeline(client: AcpHrcClient, query: string) {
   const deps = {
     hrcClient: client,
     collaborationLedger: emptyLedger,
+    commitWaker: quietCommitWaker,
     stateStore,
   } as ResolvedAcpServerDeps
   const ws: MobileWebSocketLike = {

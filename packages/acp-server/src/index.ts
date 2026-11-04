@@ -81,3 +81,5 @@ export {
   type C2ScopeClient,
   type C2ScopeRow,
 } from './c2/scope.js'
+
+export { WrkqCommitWaker, type CommitWaker } from './wrkq-commit-waker.js'

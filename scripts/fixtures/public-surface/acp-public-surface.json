@@ -2176,6 +2176,7 @@
         "AuthorizeFn",
         "C2ScopeClient",
         "C2ScopeRow",
+        "CommitWaker",
         "DeliveryTargetResolver",
         "DispatchFence",
         "InputAdmissionStore",
@@ -2230,7 +2231,8 @@
         "resolveVestaSeat",
         "startAcpServeBin",
         "validateScopeAllow",
-        "writeC2Scope"
+        "writeC2Scope",
+        "WrkqCommitWaker"
       ]
     },
     "acp-state-store": {

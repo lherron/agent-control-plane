@@ -125,7 +125,7 @@ Current route behavior:
   ownership, claim, schedule, workflow metadata, outcome, comments and
   relations are read projections only; this route exposes no mutation surface.
 - `GET /v1/wrkq/projects/:project/timeline` is the read-only project timeline
-  feed, the `wrkp log` read through the facade. It makes one
+  feed, the `wrkp log` read through the facade. By default it makes one
   `wrkq.container.timelineView` call with `container = :project` (a project
   slug or container id, resolved by wrkq), `scope = "subtree"` and
   `entriesOnly = true`, and returns the result unchanged (`container`,
@@ -138,7 +138,14 @@ Current route behavior:
   cursor returns the forward cursor at the head and no entries (what
   `wrkp cursor` prints); a forward read of new appends sends `tail=true` with
   that cursor (what `wrkp log --after` sends). Bad query values are `400` with
-  `field`; an unknown container is `404 WRKQ_NOT_FOUND`.
+  `field`; an unknown container is `404 WRKQ_NOT_FOUND`. Optional `waitMs`
+  (`0...25000`, default `0`) parks an empty read on the shared commit waker,
+  then re-reads once. A coarse wake can still return no entries; clients resume
+  from the returned cursor. ACP owns one commit-wait loop on a dedicated
+  stdio transport, shared by all mobile room/timeline followers and timeline
+  HTTP requests. Consumers capture its token before reading their own bounded
+  view; the durable cursor remains authoritative. Request cancellation releases
+  only the local waiter. The listener idle timeout is `255` seconds.
 - `GET /v1/tasks/:taskId` calls wrkf `task.inspect`, `task.timeline`, `next`,
   `evidence.list`, `obligation.list`, `effect.list`, and `run.list`, then
   returns `{ source: "wrkf", task, instance, next, timeline, evidence,

@@ -14,6 +14,7 @@ import {
 import {
   type AcpServer,
   type AcpServerDeps,
+  type CommitWaker,
   InMemoryInputAttemptStore,
   InMemoryRunStore,
   createAcpServer,
@@ -108,4 +109,15 @@ export async function withWiredServer<T>(
     interfaceStore.close()
     rmSync(coordDirectory, { recursive: true, force: true })
   }
+}
+
+/** Timeline tests with no changing wrkq source still exercise cancellation. */
+export const quietCommitWaker: CommitWaker = {
+  token: async () => 0,
+  wait: async (_since, options) => {
+    if (options?.signal?.aborted) return
+    await new Promise<void>((resolve) => {
+      options?.signal?.addEventListener('abort', () => resolve(), { once: true })
+    })
+  },
 }

@@ -1,3 +1,5 @@
+import type { CommitWaker } from './wrkq-commit-waker.js'
+
 import { join } from 'node:path'
 
 import type { WorkClient } from '@wrkq/client'
@@ -316,6 +318,7 @@ export interface AcpServerDeps {
   nativeStepExecutor?: Omit<NativeStepExecutorDeps, 'store'> | undefined
   inputQueuePolicy?: InputQueuePolicy | undefined
   agentAssetsDir?: string | undefined
+  commitWaker?: CommitWaker | undefined
   workClient?: WorkClient | undefined
   /**
    * The `agent:<id>` principal `workClient` was launched as. Writes stamp it
@@ -357,6 +360,7 @@ export interface ResolvedAcpServerDeps extends AcpServerDeps {
   defaultActor: Actor
   inputQueuePolicy: InputQueuePolicy
   nativeStepExecutor?: Omit<NativeStepExecutorDeps, 'store'> | undefined
+  commitWaker?: CommitWaker | undefined
   workClient?: WorkClient | undefined
   workClientPrincipalRef?: string | undefined
   workClientForPrincipal?: ((principalRef: string) => Promise<WorkClient>) | undefined
@@ -423,6 +427,7 @@ export function resolveAcpServerDeps(deps: AcpServerDeps): ResolvedAcpServerDeps
     ...(deps.nativeStepExecutor !== undefined
       ? { nativeStepExecutor: deps.nativeStepExecutor }
       : {}),
+    ...(deps.commitWaker !== undefined ? { commitWaker: deps.commitWaker } : {}),
     ...(deps.workClient !== undefined ? { workClient: deps.workClient } : {}),
     ...(deps.workClientPrincipalRef !== undefined
       ? { workClientPrincipalRef: deps.workClientPrincipalRef }
